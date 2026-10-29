@@ -146,6 +146,17 @@ class TestInterviewStartAndList:
             {"field": "rationale", "value": "Users need single sign-on."},
             format="json",
         )
+        # #272: the factory-default Requirement protocol elicits these two too.
+        authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "acceptance_criteria", "value": "SSO login works"},
+            format="json",
+        )
+        authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "verification_method", "value": "Test"},
+            format="json",
+        )
         formalize = authed_client.post(f"/api/v1/interviews/{session_id}/formalize/")
         assert formalize.status_code == 200, formalize.content
 
@@ -266,6 +277,17 @@ class TestInterviewFormalize:
             {"field": "rationale", "value": "Users need single sign-on."},
             format="json",
         )
+        # #272: the factory-default Requirement protocol elicits these two too.
+        authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "acceptance_criteria", "value": "SSO login works"},
+            format="json",
+        )
+        authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "verification_method", "value": "Test"},
+            format="json",
+        )
 
         response = authed_client.post(f"/api/v1/interviews/{session_id}/formalize/")
 
@@ -313,6 +335,17 @@ class TestInterviewAbandon:
         authed_client.post(
             f"/api/v1/interviews/{session_id}/answer/",
             {"field": "rationale", "value": "Users need single sign-on."},
+            format="json",
+        )
+        # #272: the factory-default Requirement protocol elicits these two too.
+        authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "acceptance_criteria", "value": "SSO login works"},
+            format="json",
+        )
+        authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "verification_method", "value": "Test"},
             format="json",
         )
         authed_client.post(f"/api/v1/interviews/{session_id}/formalize/")
@@ -439,6 +472,17 @@ class TestInterviewSetTarget:
         authed_client.post(
             f"/api/v1/interviews/{session_id}/answer/",
             {"field": "rationale", "value": "Users need single sign-on."},
+            format="json",
+        )
+        # #272: the factory-default Requirement protocol elicits these two too.
+        authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "acceptance_criteria", "value": "SSO login works"},
+            format="json",
+        )
+        authed_client.post(
+            f"/api/v1/interviews/{session_id}/answer/",
+            {"field": "verification_method", "value": "Test"},
             format="json",
         )
         authed_client.post(f"/api/v1/interviews/{session_id}/formalize/")

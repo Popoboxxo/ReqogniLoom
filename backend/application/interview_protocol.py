@@ -140,6 +140,13 @@ def parse_protocol_yaml(content: str) -> ProtocolConfig:
 # for them produces a session formalize() can only reject.
 # Adr needs `description`, which the rationale -> description alias in
 # interview_artifact_adapters.build_adapter_fields already supplies.
+# Requirement (#272): the SE attributes #272 is about. Unlike Risk's, they all
+# have a service default, so this is not a formalize() *necessity* -- it is the
+# point of the interview: without them every Requirement it creates has an
+# empty SE tail. Listing them here makes them protocol fields (the interview
+# asks for them and formalize() waits for the answers, exactly like title);
+# the attribute-definition create gate is a different axis and stays untouched
+# (`required` remains false, see introspect_core_attributes' docstring).
 _EXTRA_REQUIRED_FIELDS: dict[str, str] = {
     "Risk": (
         "      - name: probability\n"
@@ -148,6 +155,13 @@ _EXTRA_REQUIRED_FIELDS: dict[str, str] = {
         "      - name: impact\n"
         "        type: enum\n"
         "        choices: [low, medium, high]\n"
+    ),
+    "Requirement": (
+        "      - name: acceptance_criteria\n"
+        "        type: textarea\n"
+        "      - name: verification_method\n"
+        "        type: enum\n"
+        "        choices: [Test, Review, Analysis, Inspection, Demonstration]\n"
     ),
 }
 

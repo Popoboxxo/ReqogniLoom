@@ -252,7 +252,23 @@ PER_ITEM_TYPE_EXCLUDED_FIELDS: dict[str, frozenset[str]] = {
 #: pair below.
 PER_ITEM_TYPE_AI_ELICIT_FIELDS: dict[str, frozenset[str]] = {
     "Risk": frozenset({"probability", "impact"}),
+    # #272/Plan B B1-T1: a Requirement interview that never asks for these
+    # produces an artifact whose SE tail is empty -- the interview was the one
+    # path into the model that bypassed the SE attributes entirely.
+    "Requirement": frozenset(
+        {"acceptance_criteria", "verification_method", "rationale"}
+    ),
 }
+
+#: Lowest preset stage at which the entries above are elicited. ``minimal``
+#: (stage 1) is the lightweight-backlog preset: a type listed here keeps its
+#: short interview there unless the workspace follows an SE discipline.
+#: Default 1 (every preset) -- ``Risk``'s probability/impact must stay elicited
+#: in ``minimal`` too, or its interview cannot be formalized at all (0007).
+#: ``Requirement`` starts at stage 2 (standard/extended), which is also the
+#: scope of the 0011 repair migration, so a fresh bootstrap and the repair
+#: cannot diverge.
+AI_ELICIT_MIN_STAGE: dict[str, int] = {"Requirement": 2}
 
 #: Elicited for every item type: the two attributes every ``create_X()``
 #: accepts and every artifact needs.
@@ -1068,6 +1084,22 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
     # attributes, plus the matrix's new extended attributes.
     apply_stage_overrides(item_type, preset, attributes)
     _merge_stage_attributes(attributes, build_stage_attributes(item_type, preset))
+
+    # #272/Plan B B1-T1: ``PER_ITEM_TYPE_AI_ELICIT_FIELDS`` declares the
+    # attributes the interview asks for, but the merge above can overwrite the
+    # flag: ``Requirement.rationale`` is BOTH a model column and a
+    # ``MATRIX_ATTRIBUTES`` row, and that row's ``ai_elicit`` default (False)
+    # won the merge -- the constant silently had no effect on the one field it
+    # most needed to cover. Re-assert it here, AFTER the merge, so the constant
+    # stays authoritative -- bounded by ``AI_ELICIT_MIN_STAGE`` and, inside that
+    # stage, by ``visible`` (a hidden attribute is not asked for).
+    elicit_names = PER_ITEM_TYPE_AI_ELICIT_FIELDS.get(item_type, frozenset())
+    elicit_from_stage = AI_ELICIT_MIN_STAGE.get(item_type, 1)
+    for attribute in attributes:
+        if attribute["name"] in elicit_names:
+            attribute["ai_elicit"] = (
+                stage >= elicit_from_stage and bool(attribute.get("visible", True))
+            )
 
     # NOTE: preset `mandatory_fields` are deliberately not applied here — see
     # this function's docstring. They are an approval-transition contract

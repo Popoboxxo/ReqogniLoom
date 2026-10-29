@@ -40,6 +40,9 @@ def _formalized_requirement(ctx, workspace):
     session = svc.start(ctx, "Requirement", workspace.id)
     svc.answer(ctx, session.id, "title", "Provenance probe")
     svc.answer(ctx, session.id, "rationale", "so the badge has something to find")
+    # #272: the factory-default protocol elicits these two as well.
+    svc.answer(ctx, session.id, "acceptance_criteria", "a badge is shown")
+    svc.answer(ctx, session.id, "verification_method", "Test")
     result = svc.formalize(ctx, session.id)
     return session, result
 
@@ -92,6 +95,8 @@ class TestSingleModeProvenance:
         session = svc.start(ctx, "Requirement", workspace.id)
         svc.answer(ctx, session.id, "title", "Updated title")
         svc.answer(ctx, session.id, "rationale", "why")
+        svc.answer(ctx, session.id, "acceptance_criteria", "title updated")
+        svc.answer(ctx, session.id, "verification_method", "Review")
 
         TenantContext.set_tenant(ctx.tenant_id)
         try:

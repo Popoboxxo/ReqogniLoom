@@ -153,6 +153,9 @@ class TestFormalizeParity:
         for field, value in (
             ("title", "Parity probe"),
             ("rationale", "single-mode path must be unaffected"),
+            # #272: the factory-default Requirement protocol elicits these too.
+            ("acceptance_criteria", "Parity holds"),
+            ("verification_method", "Test"),
         ):
             answered = group.execute_tool(
                 tool_name="interview.answer",

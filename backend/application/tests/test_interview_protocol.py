@@ -111,14 +111,37 @@ class TestInterviewProtocolDefaults:
         assert by_name["impact"].type == "enum"
         assert by_name["impact"].choices == ["low", "medium", "high"]
 
-    def test_non_risk_defaults_keep_the_two_field_shape(self):
-        """Only Risk needs extra fields; adding them everywhere would make
-        every other interview longer for no reason."""
+    def test_requirement_default_protocol_elicits_the_se_fields(self):
+        """#272: the factory default used to leave every interviewed
+        Requirement with an empty SE tail (no acceptance criteria, no
+        verification method). The tier-2 twin lives in
+        bootstrap_attribute_definitions.PER_ITEM_TYPE_AI_ELICIT_FIELDS."""
         config = parse_protocol_yaml(
             INTERVIEW_PROTOCOL_DEFAULTS["interview.protocol.Requirement"]
         )
-        names = [f.name for f in config.phases[0].required_fields]
-        assert names == ["title", "rationale"]
+        by_name = {f.name: f for f in config.phases[0].required_fields}
+        assert list(by_name) == [
+            "title",
+            "rationale",
+            "acceptance_criteria",
+            "verification_method",
+        ]
+        assert by_name["acceptance_criteria"].type == "textarea"
+        assert by_name["verification_method"].type == "enum"
+        assert by_name["verification_method"].choices == [
+            "Test", "Review", "Analysis", "Inspection", "Demonstration",
+        ]
+
+    def test_other_defaults_keep_the_two_field_shape(self):
+        """Requirement and Risk are the only types with extra fields; adding
+        them everywhere would make every other interview longer for no
+        reason."""
+        for artifact_type in ("Issue", "Goal", "TestCase", "ArchitectureElement"):
+            config = parse_protocol_yaml(
+                INTERVIEW_PROTOCOL_DEFAULTS[f"interview.protocol.{artifact_type}"]
+            )
+            names = [f.name for f in config.phases[0].required_fields]
+            assert names == ["title", "rationale"], artifact_type
 
 
 @pytest.fixture
@@ -157,7 +180,13 @@ class TestGetProtocol:
         # Should resolve to factory default
         assert len(protocol.phases) == 3
         assert protocol.phases[0].name == "elicitation"
-        assert [f.name for f in protocol.phases[0].required_fields] == ["title", "rationale"]
+        # #272: Requirement's factory default elicits its SE fields too.
+        assert [f.name for f in protocol.phases[0].required_fields] == [
+            "title",
+            "rationale",
+            "acceptance_criteria",
+            "verification_method",
+        ]
 
     def test_tenant_global_row_overrides_factory_default(self, protocol_test_ctx):
         """Tenant-global PromptTemplate row (workspace_id=None) wins over factory default."""

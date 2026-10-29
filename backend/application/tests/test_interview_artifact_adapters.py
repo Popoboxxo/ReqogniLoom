@@ -307,10 +307,14 @@ class TestBuildAdapterFields:
 
     def test_explicit_description_wins_over_rationale(self):
         # If a protocol declares `description` directly, it is authoritative --
-        # the rationale rename must not clobber it.
+        # the rationale rename must not clobber it. The rationale VALUE still
+        # survives as its own key (review finding R-B1-1): Requirement accepts
+        # `rationale=` next to `description=`, and for the other types the
+        # surviving key raises TypeError -> ValidationError instead of the
+        # user's answer vanishing.
         assert build_adapter_fields(
             {"title": "A", "description": "Direct", "rationale": "Indirect"}
-        ) == {"title": "A", "description": "Direct"}
+        ) == {"title": "A", "description": "Direct", "rationale": "Indirect"}
 
     def test_empty_rationale_still_maps_to_empty_description(self):
         # create_requirement's own default is "" -- never None, which would

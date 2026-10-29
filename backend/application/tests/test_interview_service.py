@@ -551,6 +551,9 @@ class TestSetTarget:
 
         InterviewService().answer(ctx, session.id, "title", "New title")
         InterviewService().answer(ctx, session.id, "rationale", "Because reasons")
+        # #272: the factory-default protocol elicits these two as well.
+        InterviewService().answer(ctx, session.id, "acceptance_criteria", "title updated")
+        InterviewService().answer(ctx, session.id, "verification_method", "Review")
 
         result = InterviewService().formalize(ctx, session.id)
 
@@ -598,6 +601,8 @@ class TestFormalize:
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         InterviewService().answer(ctx, session.id, "title", "SSO login support")
         InterviewService().answer(ctx, session.id, "rationale", "Reduce password fatigue")
+        InterviewService().answer(ctx, session.id, "acceptance_criteria", "SSO login works")
+        InterviewService().answer(ctx, session.id, "verification_method", "Test")
 
         result = InterviewService().formalize(ctx, session.id)
 
@@ -638,6 +643,8 @@ class TestFormalize:
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         InterviewService().answer(ctx, session.id, "title", "New title")
         InterviewService().answer(ctx, session.id, "rationale", "Because reasons")
+        InterviewService().answer(ctx, session.id, "acceptance_criteria", "title updated")
+        InterviewService().answer(ctx, session.id, "verification_method", "Review")
 
         from persistence.models import InterviewSession
 
@@ -737,6 +744,8 @@ class TestFormalize:
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         InterviewService().answer(ctx, session.id, "title", "New title")
         InterviewService().answer(ctx, session.id, "rationale", "Because reasons")
+        InterviewService().answer(ctx, session.id, "acceptance_criteria", "target removed")
+        InterviewService().answer(ctx, session.id, "verification_method", "Test")
 
         TenantContext.set_tenant(ctx.tenant_id)
         try:
@@ -836,6 +845,8 @@ class TestFormalize:
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         InterviewService().answer(ctx, session.id, "title", "x")
         InterviewService().answer(ctx, session.id, "rationale", "y")
+        InterviewService().answer(ctx, session.id, "acceptance_criteria", "x is accepted")
+        InterviewService().answer(ctx, session.id, "verification_method", "Test")
         InterviewService().formalize(ctx, session.id)
 
         with pytest.raises(ValidationError):
@@ -1039,6 +1050,8 @@ class TestGenerateChatTurn:
         session = InterviewService().start(ctx, "Requirement", workspace.id)
         InterviewService().answer(ctx, session.id, "title", "SSO login")
         InterviewService().answer(ctx, session.id, "rationale", "Reduce password fatigue")
+        InterviewService().answer(ctx, session.id, "acceptance_criteria", "SSO login works")
+        InterviewService().answer(ctx, session.id, "verification_method", "Test")
         InterviewService().formalize(ctx, session.id)
 
         provider = _ChatFakeProvider('{"extracted_fields": {}, "reply": "n/a"}')
@@ -1230,6 +1243,8 @@ class TestWorkflowIntegration:
         session = InterviewService().start(ctx, "Requirement", workspace_with_interview_workflow.id)
         InterviewService().answer(ctx, session.id, "title", "SSO login")
         InterviewService().answer(ctx, session.id, "rationale", "Reduce password fatigue")
+        InterviewService().answer(ctx, session.id, "acceptance_criteria", "SSO login works")
+        InterviewService().answer(ctx, session.id, "verification_method", "Test")
 
         result = InterviewService().formalize(ctx, session.id)
 
@@ -1246,6 +1261,8 @@ class TestWorkflowIntegration:
         session = InterviewService().start(ctx, "Requirement", workspace_with_interview_workflow.id)
         InterviewService().answer(ctx, session.id, "title", "SSO login")
         InterviewService().answer(ctx, session.id, "rationale", "Reduce password fatigue")
+        InterviewService().answer(ctx, session.id, "acceptance_criteria", "SSO login works")
+        InterviewService().answer(ctx, session.id, "verification_method", "Test")
         InterviewService().formalize(ctx, session.id)
 
         item_state = WorkflowItemState.objects.get(item_id=session.id, item_type="Interview")
@@ -1320,6 +1337,8 @@ class TestWorkflowIntegration:
         completed = svc.start(ctx, "Requirement", workspace_with_interview_workflow.id)
         svc.answer(ctx, completed.id, "title", "SSO login")
         svc.answer(ctx, completed.id, "rationale", "Reduce password fatigue")
+        svc.answer(ctx, completed.id, "acceptance_criteria", "SSO login works")
+        svc.answer(ctx, completed.id, "verification_method", "Test")
         svc.formalize(ctx, completed.id)
         ISModel.objects.filter(id=completed.id).update(modified_at=stale_time)
 

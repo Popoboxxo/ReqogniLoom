@@ -92,6 +92,9 @@ def _ready_session(ctx: AuthContext, workspace: Workspace) -> InterviewSession:
     session = service.start(ctx, "Requirement", workspace.id)
     service.answer(ctx, session.id, "title", "M2 race probe")
     service.answer(ctx, session.id, "rationale", "so formalize() succeeds")
+    # #272: the factory-default protocol elicits these two as well.
+    service.answer(ctx, session.id, "acceptance_criteria", "formalize succeeds")
+    service.answer(ctx, session.id, "verification_method", "Test")
     return session
 
 
