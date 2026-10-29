@@ -22,3 +22,23 @@ scenarios:
       - {type: contains, value: "payments are settled in EUR"}
     deep_assert:
       - {type: llm-rubric, value: "Every requirement is specific, measurable and testable."}
+  # Plan A T-A1-8, Prüfgegenstand (2): `memory_context` is absent from `data`,
+  # so the resolver's auto-injection path owns the placeholder. The rendered
+  # prompt must carry no literal `{memory_*}` placeholder, the need's own data
+  # must still render, and the memory section itself must survive an empty
+  # block. No `Workspace context:` assertion (PR-A10), no `<memory>` boundary
+  # or injection-payload assertion (PR-A14), no top-k/format/scope check
+  # (application/tests/test_prompt_resolver.py, T-A1-6).
+  - name: payment-memory-slot-auto-resolved
+    data:
+      need_title: "Zahlung erfassen"
+      need_description: "Nutzer sollen Zahlungen in EUR erfassen koennen."
+    config:
+      max_requirements_per_need: 3
+    assert:
+      - {type: contains, value: "Zahlung erfassen"}
+      - {type: contains, value: "Nutzer sollen Zahlungen in EUR erfassen koennen."}
+      - {type: contains, value: "at most 3"}
+      - {type: contains, value: "Relevant memory from earlier sessions"}
+      - {type: not-contains, value: "{memory_context}"}
+      - {type: not-regex, value: "\\{memory_[A-Za-z_]*\\}"}
