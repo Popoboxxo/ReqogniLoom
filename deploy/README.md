@@ -667,24 +667,20 @@ QDRANT_BASE_URL=http://qdrant:6333
 `QDRANT_BASE_URL` reaches the app the same way `HONCHO_BASE_URL` does: through `env_file: .env`.
 The compose file injects nothing into `backend`/`celery` itself.
 
-The service is **internal-only**: no host port is published — the backend reaches it over the
-compose network as `qdrant:6333` (HTTP/REST) / `qdrant:6334` (gRPC). A vector index is not a
-user-facing API; publishing it would expose an unauthenticated-by-default store. A local debugging
-bind, if ever needed, must be `127.0.0.1` only.
+The service is **internal-only** — no host port is published; see *Operating requirement (QR-S23)*
+below for the exact endpoints and the debug-bind rule.
 
 **Multi-tenant security — set an API key.** With `QDRANT_API_KEY` empty, Qdrant is an
 **unauthenticated** store. That is acceptable only when a single app/tenant talks to it on an
 isolated network. As soon as **more than one tenant shares a Qdrant instance** — the normal case
 here, where tenant isolation is a first-class guarantee (ADR-03) — an API key is **required**: set
 `QDRANT_API_KEY` (and the matching `QDRANT__SERVICE__API_KEY` on the `qdrant` service) so the store
-can tell callers apart. The **debug `127.0.0.1` host-bind must only ever be used together with an
-API key**: a loopback bind keeps the port off the network but authenticates nobody who can reach
-the host, and a shared host is not tenant isolation.
+can tell callers apart.
 
 | Variable | Default | Notes |
 |----------|---------|-------|
 | `QDRANT_BASE_URL` | *(empty)* — set `http://qdrant:6333` | Internal HTTP/REST endpoint. |
-| `QDRANT_API_KEY` | *(empty)* | Only if Qdrant's API-key check is enabled; empty = no auth — acceptable **only** on a non-production deployment. Required in **any** production deployment with the artifact selector set (`memory.W003` is selector ∧ production, independent of the tenant count — see the security note above). Must match `QDRANT__SERVICE__API_KEY` on the `qdrant` service. |
+| `QDRANT_API_KEY` | *(empty)* | Only if Qdrant's API-key check is enabled; empty = no auth — acceptable **only** on a non-production deployment. Required in **any** production deployment with the artifact selector set (`memory.W003` is selector ∧ production, independent of the tenant count — see the security note above). The gate does **not** cover a memory-only Qdrant (`MEMORY_BACKEND=qdrant` with the artifact selector off), so set the key there too. Must match `QDRANT__SERVICE__API_KEY` on the `qdrant` service. |
 | `QDRANT_TIMEOUT` | `5` | Seconds (matches `DEFAULT_QDRANT_TIMEOUT` in `persistence/qdrant_config.py`). |
 | `QDRANT_DISTANCE` | `cosine` | Same metric as pgvector's `vector_cosine_ops`; `dot`/`euclid` are deliberate exceptions. |
 | `QDRANT_COLLECTION_PREFIX` | `reqlo` | One collection per workspace/scope, in two separate families. **AI-memory** (`QdrantMemoryBackend`): `<prefix>_<tenant>_<workspace>`, `<prefix>_<tenant>_user`, and the legacy unversioned `<prefix>_<tenant>_<workspace>_artifacts`. **Artifact port** (`ARTIFACT_VECTOR_BACKEND=qdrant`): `<prefix>_<tenant>_<workspace>_artifacts_v2`, read through the stable `<prefix>_<tenant>_<workspace>_artifacts_live` alias. |
@@ -761,7 +757,9 @@ value as `QDRANT__SERVICE__API_KEY`, or the client gets 401) and, when Honcho is
   (`deploy/docker-compose.yml:86`). The loopback bind keeps the port off the network, not off the
   host: anything that can reach `127.0.0.1:8010` talks to an unauthenticated memory service. Set
   `AUTH_USE_AUTH=true` plus a real key before using it beyond a single-developer local stack, and
-  set `HONCHO_API_KEY` to the same value for the app side.
+  set `HONCHO_API_KEY` to a token that the auth-enabled Honcho server then accepts — the compose
+  file wires no server-side counterpart variable, so the app's client bearer token must match
+  whatever the server is configured with.
 
 **What an unauthenticated Qdrant means.** With `QDRANT__SERVICE__API_KEY` empty the compose network
 is the only boundary: every container on it can enumerate every collection
@@ -906,8 +904,9 @@ artifact vectors: it re-embeds from the canonical Postgres rows and upserts into
 `..._artifacts_v2` collection (`backend/application/artifact_indexer.py:222-225` builds the name,
 `:294-301` upserts it) — only *readers* go through the `..._artifacts_live` alias
 (`backend/application/vector_port.py:723-737`). It runs against the configured Qdrant **regardless
-of `ARTIFACT_VECTOR_BACKEND`** (the selector decides who *reads*, not who writes), so a backfill or
-rebuild never needs the selector flipped — and therefore never exposes a half-built index to search.
+of `ARTIFACT_VECTOR_BACKEND`** (the selector decides the read path and the live index hooks, not
+this explicit backfill command), so a backfill or rebuild never needs the selector flipped — and
+therefore never exposes a half-built index to search.
 
 ```bash
 # 1. Cost report. Writes nothing — not even the collection — and reports embed_calls per tenant.
@@ -961,17 +960,22 @@ alias. That splits the rollback into two cases:
   one during a rollback. Artifact writes made while the selector is off are not indexed, so re-run
   the backfill before switching back on.
 * **Repoint or restore the data** when the *build* is bad. Either restore a snapshot over the live
-  collection (`PUT .../snapshots/recover` with `priority: snapshot`, above — no alias move needed and
-  the durable option), or restore it under another name and move the alias in **one** call, which
-  deletes and creates in the same request (no window in which readers see no alias):
+  collection (`PUT .../snapshots/recover` with `priority: snapshot`, above — selector off or traffic
+  stopped, per the read window above — no alias move needed and the durable option), or restore it
+  under another name and move the alias in **one** call, which deletes and creates in the same
+  request (no window in which readers see no alias):
 
 ```bash
-# inside the backend container
-curl -sS -X POST -H "api-key: $QDRANT_API_KEY" -H 'Content-Type: application/json' \
-  "$QDRANT_BASE_URL/collections/aliases" \
-  -d '{"actions": [{"delete_alias": {"alias_name": "<prefix>_<tenant>_<workspace>_artifacts_live"}}, {"create_alias": {"collection_name": "<restored-collection>", "alias_name": "<prefix>_<tenant>_<workspace>_artifacts_live"}}]}'
+# ONE request, so readers never see an alias-less window. -f makes curl exit non-zero on 4xx,
+# so a rejected update_collection_aliases cannot print an error body and still look successful.
+docker compose -f deploy/docker-compose.yml --project-directory . exec backend sh -c \
+  'curl -fsS -X POST -H "api-key: $QDRANT_API_KEY" -H "Content-Type: application/json" \
+   "$QDRANT_BASE_URL/collections/aliases" \
+   -d "{\"actions\": [{\"delete_alias\": {\"alias_name\": \"<prefix>_<tenant>_<workspace>_artifacts_live\"}}, {\"create_alias\": {\"collection_name\": \"<restored-collection>\", \"alias_name\": \"<prefix>_<tenant>_<workspace>_artifacts_live\"}}]}"'
+
 # current target of every alias
-curl -sS -H "api-key: $QDRANT_API_KEY" "$QDRANT_BASE_URL/aliases"
+docker compose -f deploy/docker-compose.yml --project-directory . exec backend sh -c \
+  'curl -fsS -H "api-key: $QDRANT_API_KEY" "$QDRANT_BASE_URL/aliases"'
 ```
 
 **The alias move is not durable across a backfill.** `ensure_artifact_collection`
