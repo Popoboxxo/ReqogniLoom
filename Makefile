@@ -83,11 +83,11 @@ qdrant:
 qdrant-down:
 	$(DEV_COMPOSE) --profile qdrant stop qdrant
 
-## bluepencil: Add the optional bluepencil review-notes sidecar (QS/demo only — no auth, no tenant isolation). Two-part enable: starts the sidecar only; to arm the frontend review layer also set BLUEPENCIL_ENABLED=1 in .env and restart the frontend service
+## bluepencil: Add the optional bluepencil review-notes hub image (QS/demo only — no per-user auth, no tenant isolation; nginx gates it behind a Django session). Requires BLUEPENCIL_AUTH_SECRET in .env. Two-part enable: starts the hub only; to arm the frontend review layer also set BLUEPENCIL_ENABLED=1 in .env and restart the frontend service
 bluepencil:
 	$(DEV_COMPOSE) --profile bluepencil up -d
 
-## bluepencil-down: Stop just the bluepencil sidecar (leaves the rest of the stack running)
+## bluepencil-down: Stop just the bluepencil hub image (leaves the rest of the stack running)
 bluepencil-down:
 	$(DEV_COMPOSE) --profile bluepencil stop bluepencil
 
