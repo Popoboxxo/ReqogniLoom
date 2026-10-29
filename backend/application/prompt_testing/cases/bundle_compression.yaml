@@ -17,3 +17,19 @@ scenarios:
     assert:
       - {type: contains, value: "payments are settled in EUR"}
       - {type: contains, value: "Do NOT include"}
+  # Plan A T-A1-8, Prüfgegenstand (2): the caller omits `memory_context`
+  # entirely, so `resolve_and_render`'s auto-injection path fills the slot
+  # (with an empty block for a workspace-less render). The rendered prompt must
+  # therefore contain no unresolved `{memory_*}` placeholder while the bundle
+  # and the slot's memory section still render. Deliberately no assertion about
+  # `Workspace context:` (PR-A10) and none about `<memory>` boundaries
+  # (PR-A14) -- neither exists on this branch.
+  - name: small-bundle-memory-slot-auto-resolved
+    data:
+      bundle_markdown: "## REQ-1\nTitle: Login\nStatus: approved\n"
+    assert:
+      - {type: contains, value: "REQ-1"}
+      - {type: contains, value: "Login"}
+      - {type: contains, value: "Do NOT include"}
+      - {type: not-contains, value: "{memory_context}"}
+      - {type: not-regex, value: "\\{memory_[A-Za-z_]*\\}"}

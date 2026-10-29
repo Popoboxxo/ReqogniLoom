@@ -29,3 +29,25 @@ scenarios:
     assert:
       - {type: contains, value: "login is implemented with JWT"}
       - {type: contains, value: "The user asked for a login"}
+  # Plan A T-A1-8, Prüfgegenstand (2): `memory_context` is omitted from `data`
+  # so the resolver's auto-injection path fills it (empty block for a
+  # workspace-less render). The rendered prompt must not keep any `{memory_*}`
+  # placeholder, while every other declared data variable of the slot still
+  # reaches the prompt. No `Workspace context:` assertion (PR-A10), no
+  # `<memory>` boundary assertion (PR-A14).
+  - name: first-turn-memory-slot-auto-resolved
+    data:
+      artifact_type: "Requirement"
+      transcript_json: "[]"
+      transcript_summary: "The user asked for a login."
+      current_phase_fragment: "Elicit the requirement's title and rationale."
+      missing_fields_json: '[{"name": "title", "type": "text", "choices": null}]'
+      grounding_snapshot_json: "[]"
+      user_message: "Wir brauchen einen Login."
+    assert:
+      - {type: contains, value: "Wir brauchen einen Login"}
+      - {type: contains, value: "Elicit the requirement's title and rationale."}
+      - {type: contains, value: "The user asked for a login."}
+      - {type: contains, value: "Relevant memory from earlier sessions"}
+      - {type: not-contains, value: "{memory_context}"}
+      - {type: not-regex, value: "\\{memory_[A-Za-z_]*\\}"}
