@@ -3,24 +3,52 @@
  *
  * leaf_id: COMP-RF-006 (UserProfileSettings — user-owned data controls)
  *
- * RFC #1002 PR D: lists the authenticated user's OWN user-scoped facts
- * (`GET /memory/me/?include_entries=true`) with a per-row forget action, on
- * top of the existing "delete everything" self-service control. Never touches
- * workspace/artifact memory, which is team-owned (see `memory/policy.py`).
+ * Two self-service surfaces over the caller's OWN data:
+ *
+ *   * Plan A T-A1-7: the personal memory switches
+ *     (`GET/PUT /memory/me/settings/`) — an `enabled` toggle plus the
+ *     per-AI-activity slot list. `?workspace_id=` adds the workspace policy
+ *     hint (`effective.opt_out_allowed`); when that is `false` the workspace
+ *     does not honour the opt-out, and the hint says so. The stored switch is
+ *     never silently rewritten to match (ENT-A7 = B).
+ *   * RFC #1002 PR D: the authenticated user's OWN user-scoped facts
+ *     (`GET /memory/me/?include_entries=true`) with a per-row forget action, on
+ *     top of the existing "delete everything" self-service control. Never
+ *     touches workspace/artifact memory, which is team-owned (see
+ *     `memory/policy.py`).
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { extractApiErrorMessage } from "../../api/client";
 import { memoryApi, type MemoryEntry } from "../../api/memory";
+import {
+  memoryMeSettingsApi,
+  type MemorySelfServiceSettingsUpdate,
+} from "../../api/memory-me-settings";
+import { memorySettingsApi, type MemorySlot } from "../../api/memory-settings";
+import { useOptionalWorkspace } from "../../context/WorkspaceContext";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { formatMemoryDate } from "../Memory/memory-format";
 import styles from "./MemorySection.module.css";
 
 const PAGE_SIZE = 100;
 
+/**
+ * `data-testid` segment for one slot: `interview.chat_turn` →
+ * `interview-chat-turn`, `testcase_derive` → `testcase-derive`.
+ */
+function slotTestIdSegment(name: string): string {
+  return name.replace(/[._\s]+/g, "-").toLowerCase();
+}
+
 export function MemorySection(): JSX.Element {
   const { t } = useTranslation();
+  // Non-throwing reader: the profile is reachable without a workspace, and
+  // then there is simply no slot catalogue and no workspace policy hint.
+  const workspace = useOptionalWorkspace();
+  const activeWorkspaceId = workspace?.activeWorkspace?.id ?? null;
+
   const [entries, setEntries] = useState<MemoryEntry[]>([]);
   const [entryCount, setEntryCount] = useState(0);
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
@@ -31,6 +59,15 @@ export function MemorySection(): JSX.Element {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [pendingForget, setPendingForget] = useState<MemoryEntry | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  // --- own memory switches (Plan A T-A1-4/T-A1-7) -------------------------
+  const [selfEnabled, setSelfEnabled] = useState(true);
+  const [selfDisabledSlots, setSelfDisabledSlots] = useState<string[]>([]);
+  const [optOutBlocked, setOptOutBlocked] = useState(false);
+  const [availableSlots, setAvailableSlots] = useState<MemorySlot[]>([]);
+  const [isLoadingSettings, setIsLoadingSettings] = useState(true);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
     setIsLoading(true);
@@ -53,9 +90,81 @@ export function MemorySection(): JSX.Element {
     }
   }, [t]);
 
+  const loadSettings = useCallback(async (): Promise<void> => {
+    setIsLoadingSettings(true);
+    setSettingsError(null);
+    try {
+      const settings = await memoryMeSettingsApi.get(activeWorkspaceId ?? undefined);
+      setSelfEnabled(settings.enabled);
+      setSelfDisabledSlots(settings.disabled_slots ?? []);
+      setOptOutBlocked(settings.effective?.opt_out_allowed === false);
+    } catch (err: unknown) {
+      setSettingsError(
+        extractApiErrorMessage(err) ??
+          t("memorySelfService.error", "Memory konnte nicht geladen werden.")
+      );
+    } finally {
+      setIsLoadingSettings(false);
+    }
+    if (!activeWorkspaceId) {
+      setAvailableSlots([]);
+      return;
+    }
+    // The slot catalogue is owned by the workspace surface (the self-service
+    // payload carries none). A failed read leaves the switches usable and only
+    // drops the per-slot list — never the whole section.
+    try {
+      const workspaceSettings = await memorySettingsApi.get(activeWorkspaceId);
+      setAvailableSlots(workspaceSettings.available_slots ?? []);
+    } catch {
+      setAvailableSlots([]);
+    }
+  }, [activeWorkspaceId, t]);
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
+
+  const saveSettings = async (
+    update: MemorySelfServiceSettingsUpdate,
+    rollback: () => void
+  ): Promise<void> => {
+    setIsSavingSettings(true);
+    setSettingsError(null);
+    try {
+      const updated = await memoryMeSettingsApi.update(update);
+      setSelfEnabled(updated.enabled);
+      if (updated.disabled_slots) setSelfDisabledSlots(updated.disabled_slots);
+    } catch (err: unknown) {
+      rollback();
+      setSettingsError(
+        extractApiErrorMessage(err) ??
+          t("memorySelfService.error", "Memory konnte nicht gespeichert werden.")
+      );
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
+  const handleSelfEnabledToggle = (next: boolean): void => {
+    setSelfEnabled(next);
+    void saveSettings({ enabled: next }, () => setSelfEnabled(!next));
+  };
+
+  const handleSlotToggle = (slot: MemorySlot, nextOn: boolean): void => {
+    // A HARD_OFF slot is never writable — the backend rejects it.
+    if (slot.hard_off) return;
+    const previous = selfDisabledSlots;
+    const next = nextOn
+      ? previous.filter((name) => name !== slot.name)
+      : [...previous, slot.name];
+    setSelfDisabledSlots(next);
+    void saveSettings({ disabled_slots: next }, () => setSelfDisabledSlots(previous));
+  };
 
   const handleDelete = useCallback(async (): Promise<void> => {
     setIsDeleting(true);
@@ -103,6 +212,90 @@ export function MemorySection(): JSX.Element {
           "Das KI-Langzeitgedächtnis speichert Kontext über dich, um Antworten zu personalisieren. Du kannst deine eigenen Einträge jederzeit vollständig löschen."
         )}
       </p>
+
+      {settingsError && (
+        <p role="alert" data-testid="memory-self-service-settings-error" className={styles.error}>
+          {settingsError}
+        </p>
+      )}
+
+      {isLoadingSettings ? (
+        <div className={styles.card}>
+          <p
+            role="status"
+            data-testid="memory-self-service-settings-loading"
+            className={styles.loadingText}
+          >
+            {t("loading", "Loading...")}
+          </p>
+        </div>
+      ) : settingsError ? null : (
+        <div className={styles.card} data-testid="memory-self-service-settings">
+          <label className={styles.toggleLabel} data-disabled={isSavingSettings}>
+            <input
+              type="checkbox"
+              data-testid="memory-self-service-enabled-toggle"
+              checked={selfEnabled}
+              disabled={isSavingSettings}
+              onChange={(e) => handleSelfEnabledToggle(e.target.checked)}
+            />
+            {t("memorySelfService.enabledLabel", "Memory for my AI activities")}
+          </label>
+
+          {optOutBlocked && (
+            <p data-testid="memory-self-service-optout-blocked-hint" className={styles.hint}>
+              {t(
+                "memorySelfService.optOutBlocked",
+                "Not honoured for workspace memory in this workspace — your personal memory stays off."
+              )}
+            </p>
+          )}
+
+          {availableSlots.length > 0 && (
+            <fieldset
+              className={styles.slotGroup}
+              data-testid="memory-self-service-disabled-slots"
+            >
+              <legend className={styles.slotLegend}>
+                {t("memorySelfService.enabledLabel", "Memory for my AI activities")}
+              </legend>
+              {availableSlots.map((slot) => {
+                const hintId = `memory-self-service-hard-off-hint-${slotTestIdSegment(
+                  slot.name
+                )}`;
+                return (
+                  // The hint sits *outside* the label so it is the checkbox's
+                  // description (aria-describedby), not part of its accessible
+                  // name.
+                  <div key={slot.name} className={styles.slotRow}>
+                    <label
+                      className={styles.toggleLabel}
+                      data-disabled={isSavingSettings || slot.hard_off}
+                    >
+                      <input
+                        type="checkbox"
+                        data-testid={`memory-self-service-slot-toggle-${slotTestIdSegment(
+                          slot.name
+                        )}`}
+                        checked={!slot.hard_off && !selfDisabledSlots.includes(slot.name)}
+                        disabled={isSavingSettings || slot.hard_off}
+                        aria-describedby={slot.hard_off ? hintId : undefined}
+                        onChange={(e) => handleSlotToggle(slot, e.target.checked)}
+                      />
+                      <span>{t(`memorySlots.${slot.name}`, slot.name)}</span>
+                    </label>
+                    {slot.hard_off && (
+                      <span id={hintId} className={styles.inlineHint}>
+                        {t("settings.memory.hardOffHint", "never uses memory")}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </fieldset>
+          )}
+        </div>
+      )}
 
       {error && (
         <p role="alert" data-testid="memory-self-service-error" className={styles.error}>

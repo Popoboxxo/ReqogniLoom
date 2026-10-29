@@ -1002,7 +1002,11 @@
     "memory": {
       "title": "KI-Gedächtnis",
       "description": "Lernt aus Interaktionen in diesem Workspace und ruft daraus Fakten ab, um KI-gestützte Vorschläge im Zeitverlauf zu verbessern.",
-      "enabled": "Aktiviert"
+      "enabled": "Aktiviert",
+      "disabledSlots": "Memory je KI-Aktivität",
+      "allowUserOptOut": "Nutzer dürfen Memory abschalten",
+      "hardOffHint": "immer ohne Memory",
+      "hardOffSummary": "KI-Aktivitäten, die nie Memory nutzen: {{total}}"
     },
     "customFields": {
       "title": "Benutzerdefinierte Felder",
@@ -1660,6 +1664,8 @@
   "memorySelfService": {
     "title": "Mein Memory",
     "hint": "Das KI-Langzeitgedächtnis speichert Kontext über dich, um Antworten zu personalisieren. Du kannst deine eigenen Einträge jederzeit vollständig löschen.",
+    "enabledLabel": "Memory für meine KI-Aktivitäten",
+    "optOutBlocked": "In diesem Workspace nicht für Workspace-Memory wirksam — dein persönliches Memory bleibt aus.",
     "countLabel": "Gespeicherte Einträge",
     "lastUpdatedLabel": "Zuletzt aktualisiert",
     "empty": "Noch keine Memory-Einträge vorhanden.",
@@ -1669,6 +1675,40 @@
     "forgetConfirm": "Diesen Eintrag endgültig löschen? Das kann nicht rückgängig gemacht werden.",
     "forgetError": "Eintrag konnte nicht gelöscht werden.",
     "error": "Memory konnte nicht geladen oder gelöscht werden."
+  },
+  "memorySlots": {
+    "architecture_decompose_tree": "Architektur-Zerlegung",
+    "architecture_to_risk": "Architektur → Risiken",
+    "audit": {
+      "ai_review": "SE-Audit-Bewertung"
+    },
+    "bundle_compression": "Bundle-Komprimierung",
+    "decision_to_adr": "Entscheidung → ADR",
+    "goal_aggregate": "Ziel-Aggregation",
+    "interview": {
+      "chat_turn": "Interview-Chat",
+      "grounding_rank": "Interview-Grounding-Ranking",
+      "protocol": {
+        "Adr": "Interview: ADR",
+        "ArchitectureElement": "Interview: Architekturelement",
+        "Goal": "Interview: Ziel",
+        "Issue": "Interview: Issue",
+        "Requirement": "Interview: Anforderung",
+        "Risk": "Interview: Risiko",
+        "StakeholderNeed": "Interview: Stakeholder Need",
+        "TestCase": "Interview: Testfall",
+        "multi": "Interview: mehrere Artefakte"
+      },
+      "transcript_summary": "Interview-Transkript-Zusammenfassung"
+    },
+    "memory": {
+      "extract": "Memory-Extraktion"
+    },
+    "need_to_sysreq": "Stakeholder Need → Systemanforderungen",
+    "sysreq_decompose_next_level": "Zerlegung auf die nächste Architekturebene",
+    "sysreq_to_arch_assign": "Systemanforderung → Architekturzuordnung",
+    "testcase_derive": "Anforderung → Testfälle",
+    "workspace_to_glossary": "Workspace → Glossarbegriffe"
   },
   "memory": {
     "title": "Gedächtnis",
