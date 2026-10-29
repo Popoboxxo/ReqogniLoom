@@ -68,6 +68,7 @@ from memory.memory_rest import (
     ArtifactMemoryView,
     MemoryEntryDetailView,
     MemoryEntryPromoteView,
+    MemorySelfServiceSettingsView,
     MemorySelfServiceView,
     SystemMemoryEntriesExportView,
     SystemMemoryEntriesListView,
@@ -715,6 +716,12 @@ urlpatterns = [
         "memory/me/",
         MemorySelfServiceView.as_view(),
         name="memory-self-service",
+    ),
+    # Plan A T-A1-4: the caller's OWN memory switches (Q1 user level).
+    path(
+        "memory/me/settings/",
+        MemorySelfServiceSettingsView.as_view(),
+        name="memory-self-service-settings",
     ),
     # RFC #1002 PR B: workspace-scoped memory listing/create + semantic search.
     path(

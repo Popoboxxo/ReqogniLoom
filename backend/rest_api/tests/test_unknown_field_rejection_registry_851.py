@@ -490,6 +490,19 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     ),
     "MemorySelfServiceResponseSerializer": "read-only response serializer (#1388)",
     "MemorySelfServiceDeleteResponseSerializer": "read-only response serializer (#1388)",
+    "MemorySelfServiceSettingsResponseSerializer": (
+        "read-only response serializer: GET /memory/me/settings/ assembles its payload "
+        "from memory.user_settings, so it never binds a request body (#1388)"
+    ),
+    "MemorySelfServiceSettingsEffectiveSerializer": (
+        "nested read-only component of the memory-settings response, never used for "
+        "request validation, so there is no request body to guard (#1388)"
+    ),
+    "MemorySelfServiceSettingsWriteSerializer": (
+        "OpenAPI documentation-only serializer: it is referenced in the view's "
+        "@extend_schema(request=...), but the view validates through the Q1 preference "
+        "validator (memory.user_settings), never through this class (#1388)"
+    ),
     "WorkspaceMemorySettingsResponseSerializer": "read-only response serializer (#1388)",
     "WorkspaceMemorySlotSerializer": (
         "nested read-only entry of 'available_slots' inside the GET/PUT response "

@@ -55,6 +55,11 @@ _REST_ROUTES_WITHOUT_MCP_TOOL: dict[str, str] = {
         "self-service summary over the caller's OWN user memory; the MCP "
         "surface already reaches that data through memory.list/memory.get"
     ),
+    "memory-self-service-settings": (
+        "caller's own memory switches — a UI/self-service concern; the "
+        "agent-facing surface reaches memory through memory.* and the generic "
+        "Q1 preference tools"
+    ),
 }
 
 #: REST memory routes owned by a PARALLEL stream (#1300 REST half / #1302) that

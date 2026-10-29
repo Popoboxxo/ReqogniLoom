@@ -45,6 +45,13 @@ Endpoints:
         spec 2026-08-26). Self-service over the caller's OWN
         own ``scope="user"`` ``MemoryEntry`` rows only — never workspace-scoped
         memory. See :class:`MemorySelfServiceView`.
+    GET/PUT /api/v1/memory/me/settings/   (Plan A T-A1-4)
+        Any authenticated user reads and updates their OWN memory switches,
+        stored as Q1 user-level preferences (``memory.enabled``,
+        ``memory.disabled_slots``) through :mod:`memory.user_settings`. With
+        ``?workspace_id=<uuid>`` the GET additionally reports that workspace's
+        ``opt_out_allowed``; a caller without a role there gets 404 (QR-S21).
+        See :class:`MemorySelfServiceSettingsView`.
     POST /api/v1/memory/me/   (issue #1291)
         Any authenticated user writes a ``scope="user"`` fact for themselves —
         the REST write path for the personal scope, which previously existed
@@ -139,6 +146,8 @@ from memory.schema_serializers import (
     MemorySearchResponseSerializer,
     MemorySelfServiceDeleteResponseSerializer,
     MemorySelfServiceResponseSerializer,
+    MemorySelfServiceSettingsResponseSerializer,
+    MemorySelfServiceSettingsWriteSerializer,
     MemoryWorkspaceDeleteResponseSerializer,
     MemoryWorkspaceOverviewResponseSerializer,
     SystemMemorySettingsResponseSerializer,
@@ -146,6 +155,11 @@ from memory.schema_serializers import (
     WorkspaceMemorySettingsWriteSerializer,
 )
 from memory.ratelimit import MemoryWriteRateLimitExceeded
+from memory.user_settings import (
+    MemoryUserSettingRejected,
+    read_user_settings,
+    write_user_settings,
+)
 from persistence.models import User
 from persistence.qdrant_config import (
     DEFAULT_QDRANT_COLLECTION_PREFIX,
@@ -2083,6 +2097,157 @@ class SystemMemoryEntriesExportView(_SystemMemoryVisualizationView):
         )
 
 
+class MemorySelfServiceSettingsView(APIView):
+    """``/api/v1/memory/me/settings/`` — the caller's own memory switches.
+
+    Plan A T-A1-4 (ENT-A5 = A, ENT-A7 = B). Self-service over the caller's own
+    Q1 **user** level only: there is no ``user_id`` parameter, so a foreign
+    write is impossible by construction — ``ctx.user_id`` is the whole
+    boundary. No admin gate (same ``HasOperationPermission`` pattern as
+    :class:`MemorySelfServiceView`).
+
+    The business logic lives in :mod:`memory.user_settings` (a thin facade over
+    :class:`application.preference_service.PreferenceService`); this class only
+    does transport work — auth guard, the workspace-membership answer and the
+    error envelope.
+
+    GET: ``{"enabled": bool, "disabled_slots": [str, ...]}`` — the *stored*
+    user level (defaults ``true`` / ``[]``). With ``?workspace_id=<uuid>`` the
+    payload additionally carries
+    ``"effective": {"workspace_id": ..., "opt_out_allowed": bool}``: the
+    workspace-level ``memory.allow_user_opt_out`` value, i.e. whether the
+    personal switch is honoured there. A caller without a role in that
+    workspace gets **404** (QR-S21) — never 403, so the route discloses neither
+    the workspace's existence nor its policy.
+    PUT: partial write of the caller's own level (``null`` resets), answered
+    with the same ``{enabled, disabled_slots}`` shape. ``enabled=false`` is
+    stored even when the workspace forbids the opt-out (ENT-A7 = B);
+    ``effective.opt_out_allowed=false`` is how that workspace says it does not
+    apply. ``?workspace_id=`` is a GET-only display aid: a PUT writes no
+    workspace state, so it answers no workspace policy (and therefore needs no
+    membership check).
+    """
+
+    permission_classes = [HasOperationPermission]
+
+    @staticmethod
+    def _is_member(ctx: Any, workspace_id: UUID) -> bool:
+        """Whether the caller holds any (non-suspended) role in *workspace_id*.
+
+        Every role in the RBAC matrix grants READ, so "any role" is exactly the
+        READ permission this endpoint needs — and it stays one query. A
+        non-existent workspace answers ``False`` for the same reason a foreign
+        one does, which is what keeps the 404 non-disclosing.
+        """
+        return bool(
+            AuthorizationService().active_roles_for(
+                user_id=ctx.user_id, workspace_id=workspace_id
+            )
+        )
+
+    @extend_schema(
+        tags=["memory"],
+        summary="Read the caller's own memory switches",
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Optional workspace whose opt-out policy is reported in "
+                    "``effective``. The caller needs a role there; a foreign or "
+                    "unknown workspace is answered with 404 (no disclosure)."
+                ),
+            ),
+        ],
+        responses={
+            200: MemorySelfServiceSettingsResponseSerializer,
+            400: OpenApiResponse(description="workspace_id is not a UUID."),
+            401: OpenApiResponse(description="No valid credential."),
+            404: OpenApiResponse(
+                description="The caller has no role in the requested workspace."
+            ),
+        },
+    )
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except NotAuthenticated:
+            return Response(
+                build_error_response("AUTHENTICATION_REQUIRED", lang),
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        try:
+            workspace_id = _parse_uuid_param(
+                request.query_params.get("workspace_id"), "workspace_id"
+            )
+        except ValidationError as exc:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=str(exc),
+                    details=[{"field": "workspace_id", "message": str(exc)}],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if workspace_id is not None and not self._is_member(ctx, workspace_id):
+            # QR-S21: a 403 would confirm the workspace exists and that it has
+            # a policy to hide. Both are answered as "not found".
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(
+            read_user_settings(
+                tenant_id=ctx.tenant_id,
+                user_id=ctx.user_id,
+                workspace_id=workspace_id,
+            )
+        )
+
+    @extend_schema(
+        tags=["memory"],
+        summary="Update the caller's own memory switches",
+        request=MemorySelfServiceSettingsWriteSerializer,
+        responses={
+            200: MemorySelfServiceSettingsResponseSerializer,
+            400: OpenApiResponse(
+                description=(
+                    "'enabled' is not a boolean, or 'disabled_slots' names an "
+                    "unknown or hard-off slot."
+                )
+            ),
+            401: OpenApiResponse(description="No valid credential."),
+        },
+    )
+    def put(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except NotAuthenticated:
+            return Response(
+                build_error_response("AUTHENTICATION_REQUIRED", lang),
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        data = request.data if isinstance(request.data, dict) else {}
+        try:
+            payload = write_user_settings(ctx, payload=data)
+        except MemoryUserSettingRejected as exc:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message=str(exc),
+                    details=[{"field": exc.field, "message": str(exc)}],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(payload)
+
+
 class MemorySelfServiceView(APIView):
     """``/api/v1/memory/me/`` — any authenticated user, no role required.
 
@@ -2260,6 +2425,7 @@ __all__ = [
     "ArtifactMemoryView",
     "MemoryEntryDetailView",
     "MemoryEntryPromoteView",
+    "MemorySelfServiceSettingsView",
     "MemorySelfServiceView",
     "SystemMemoryEntriesExportView",
     "SystemMemoryEntriesListView",

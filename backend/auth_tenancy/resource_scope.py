@@ -424,6 +424,7 @@ _TENANT_SCOPED = {
     "PreferenceRegistryView": "tenant-wide preference-key registry",
     "NotificationViewSet": "caller's own notification feed",
     "MemorySelfServiceView": "caller's own user-scoped memory",
+    "MemorySelfServiceSettingsView": "caller's own memory switches",
     # tenant-wide configuration / catalogs
     "LlmSettingsView": "tenant singleton LLM configuration",
     "PromptTemplateView": "tenant-wide prompt template",

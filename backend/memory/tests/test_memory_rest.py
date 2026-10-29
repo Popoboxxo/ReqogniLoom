@@ -2445,3 +2445,302 @@ class TestWorkspaceMemorySettingsSourceOfTruth:
             )["values"]
             assert DISABLED_SLOTS_KEY not in stored
             assert ALLOW_USER_OPT_OUT_KEY not in stored
+
+
+_ME_SETTINGS_URL = "/api/v1/memory/me/settings/"
+
+
+@pytest.mark.django_db
+class TestMemoryUserSettingsRest:
+    """``GET/PUT /api/v1/memory/me/settings/`` (Plan A T-A1-4).
+
+    The caller's own Q1 **user** level only: there is no ``user_id`` parameter
+    anywhere, so a foreign write is impossible by construction. ``enabled`` and
+    ``disabled_slots`` are the *stored* user level (the editable source of
+    truth), which is what keeps a GET→PUT round-trip a no-op — the same
+    stored-vs-effective split as ``WorkspaceMemorySettingsView``.
+
+    ``effective.opt_out_allowed`` is answered only for a workspace the caller
+    has a role in; a foreign/unknown workspace is a 404 (QR-S21: no existence
+    or policy disclosure).
+    """
+
+    @staticmethod
+    def _client_for(token: str) -> APIClient:
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        return client
+
+    @staticmethod
+    def _ctx(tenant, user, workspace=None, *roles: str):
+        from auth_tenancy.context import AuthContext, AuthMethod
+
+        return AuthContext(
+            user_id=user.id,
+            tenant_id=tenant.id,
+            active_roles=tuple(roles),
+            auth_method=AuthMethod.BEARER_TOKEN,
+            workspace_id=workspace.id if workspace is not None else None,
+        )
+
+    def test_me_settings_get_defaults(self):
+        """A-L13 flips: the route exists and answers the registry defaults."""
+        with active_tenant() as tenant:
+            _user, token = editor_user_and_token(tenant, workspace=None)
+            response = self._client_for(token).get(_ME_SETTINGS_URL)
+
+            assert response.status_code == 200, response.data
+            assert response.data["enabled"] is True
+            assert response.data["disabled_slots"] == []
+            assert "effective" not in response.data
+
+    def test_me_settings_unauthenticated_returns_401(self):
+        assert APIClient().get(_ME_SETTINGS_URL).status_code == 401
+        assert (
+            APIClient()
+            .put(_ME_SETTINGS_URL, {"enabled": False}, format="json")
+            .status_code
+            == 401
+        )
+
+    def test_me_settings_put_only_affects_caller(self):
+        """Two users of one tenant: A's PUT never moves B's level."""
+        from application.preference_service import levels_for
+        from memory.injection_policy import DISABLED_SLOTS_KEY, USER_ENABLED_KEY
+
+        with active_tenant() as tenant:
+            user_a, token_a = editor_user_and_token(tenant, workspace=None)
+            user_b, token_b = editor_user_and_token(tenant, workspace=None)
+
+            put = self._client_for(token_a).put(
+                _ME_SETTINGS_URL,
+                {"enabled": False, "disabled_slots": ["testcase_derive"]},
+                format="json",
+            )
+            assert put.status_code == 200, put.data
+            assert put.data == {
+                "enabled": False,
+                "disabled_slots": ["testcase_derive"],
+            }
+
+            other = self._client_for(token_b).get(_ME_SETTINGS_URL)
+            assert other.status_code == 200, other.data
+            assert other.data["enabled"] is True
+            assert other.data["disabled_slots"] == []
+
+            levels_a = levels_for(
+                tenant_id=tenant.id, workspace_id=None, user_id=user_a.id, key=USER_ENABLED_KEY
+            )
+            levels_b = levels_for(
+                tenant_id=tenant.id, workspace_id=None, user_id=user_b.id, key=USER_ENABLED_KEY
+            )
+            assert levels_a.user is False
+            assert levels_b.user is not False, "B's level must stay untouched"
+            assert (
+                levels_for(
+                    tenant_id=tenant.id,
+                    workspace_id=None,
+                    user_id=user_b.id,
+                    key=DISABLED_SLOTS_KEY,
+                ).user
+                != ["testcase_derive"]
+            )
+
+    def test_me_settings_put_is_partial(self):
+        """An omitted field keeps its stored value (no reset to default)."""
+        with active_tenant() as tenant:
+            _user, token = editor_user_and_token(tenant, workspace=None)
+            client = self._client_for(token)
+
+            client.put(_ME_SETTINGS_URL, {"enabled": False}, format="json")
+            response = client.put(
+                _ME_SETTINGS_URL, {"disabled_slots": ["testcase_derive"]}, format="json"
+            )
+
+            assert response.status_code == 200, response.data
+            assert response.data == {
+                "enabled": False,
+                "disabled_slots": ["testcase_derive"],
+            }
+
+    def test_me_settings_put_rejects_unknown_and_hard_off_slots(self):
+        from application.preference_service import UNSET, levels_for
+        from memory.injection_policy import DISABLED_SLOTS_KEY
+
+        with active_tenant() as tenant:
+            user, token = editor_user_and_token(tenant, workspace=None)
+            client = self._client_for(token)
+
+            for slots in (["no_such_slot"], ["bundle_compression"]):
+                response = client.put(
+                    _ME_SETTINGS_URL, {"disabled_slots": slots}, format="json"
+                )
+                assert response.status_code == 400, response.data
+                assert response.data["error"]["code"] == "VALIDATION_ERROR"
+                assert response.data["error"]["details"][0]["field"] == "disabled_slots"
+
+            # Nothing was written by the rejected requests.
+            levels = levels_for(
+                tenant_id=tenant.id,
+                workspace_id=None,
+                user_id=user.id,
+                key=DISABLED_SLOTS_KEY,
+            )
+            assert levels.user is UNSET
+
+    def test_me_settings_put_rejects_non_bool_enabled(self):
+        with active_tenant() as tenant:
+            _user, token = editor_user_and_token(tenant, workspace=None)
+            response = self._client_for(token).put(
+                _ME_SETTINGS_URL, {"enabled": "yes"}, format="json"
+            )
+
+            assert response.status_code == 400, response.data
+            assert response.data["error"]["code"] == "VALIDATION_ERROR"
+            assert response.data["error"]["details"][0]["field"] == "enabled"
+
+    def test_me_settings_effective_for_non_member_workspace_is_404(self):
+        """A workspace the caller has no role in is indistinguishable from none."""
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _member, member_token = editor_user_and_token(tenant, ws)
+            _outsider, outsider_token = editor_user_and_token(tenant, workspace=None)
+
+            # A member resolves the route and gets the policy hint ...
+            member_response = self._client_for(member_token).get(
+                _ME_SETTINGS_URL, {"workspace_id": str(ws.id)}
+            )
+            assert member_response.status_code == 200, member_response.data
+            assert member_response.data["effective"] == {
+                "workspace_id": str(ws.id),
+                "opt_out_allowed": True,
+            }
+
+            # ... a non-member and an unknown workspace are indistinguishable
+            # (QR-S21: neither existence nor policy is disclosed).
+            client = self._client_for(outsider_token)
+            for workspace_id in (ws.id, uuid.uuid4()):
+                response = client.get(_ME_SETTINGS_URL, {"workspace_id": str(workspace_id)})
+                assert response.status_code == 404, response.data
+                assert response.data["error"]["code"] == "NOT_FOUND"
+
+    def test_me_settings_effective_reports_opt_out_not_allowed(self):
+        """ENT-A7 = B: the opt-out is stored and reported as not applying."""
+        from application.preference_service import PreferenceService, levels_for
+        from memory.injection_policy import ALLOW_USER_OPT_OUT_KEY, USER_ENABLED_KEY
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+            PreferenceService().set_level(
+                self._ctx(tenant, user, ws, "admin"),
+                scope="workspace",
+                values={ALLOW_USER_OPT_OUT_KEY: False},
+                workspace_id=ws.id,
+            )
+            client = self._client_for(token)
+
+            put = client.put(_ME_SETTINGS_URL, {"enabled": False}, format="json")
+            assert put.status_code == 200, put.data
+            assert put.data["enabled"] is False
+
+            response = client.get(_ME_SETTINGS_URL, {"workspace_id": str(ws.id)})
+            assert response.status_code == 200, response.data
+            assert response.data["enabled"] is False, "the opt-out is still stored"
+            assert response.data["effective"] == {
+                "workspace_id": str(ws.id),
+                "opt_out_allowed": False,
+            }
+            assert (
+                levels_for(
+                    tenant_id=tenant.id,
+                    workspace_id=None,
+                    user_id=user.id,
+                    key=USER_ENABLED_KEY,
+                ).user
+                is False
+            )
+
+    def test_user_opt_out_suppresses_injection_for_all_slots_of_that_user(
+        self, monkeypatch
+    ):
+        """End-to-end: REST PUT -> Q1 user level -> policy -> ``resolve_and_render``.
+
+        Part 1 (workspace ALLOWS the opt-out): the user switch suppresses every
+        memory slot, so the backend is never queried at all.
+        Part 2 (``allow_user_opt_out=false``, ENT-A7 = B): the workspace still
+        injects, but never the ``user`` scope the caller switched off.
+        """
+        from application.prompt_resolver import resolve_and_render
+        from application.prompt_template_versioning import publish_new_version
+        from memory.backends import MemoryEntryRef
+        from memory.injection_policy import ALLOW_USER_OPT_OUT_KEY
+
+        class _RecordingBackend:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def query(self, tenant_id, scope, scope_id, query_text, *, top_k):
+                self.calls.append(scope)
+                return [
+                    MemoryEntryRef(
+                        entry_id=uuid.uuid4(),
+                        content=f"{scope} memory fact",
+                        contributor_user_id=None,
+                    )
+                ]
+
+        backend = _RecordingBackend()
+        monkeypatch.setattr("memory.context_builder.get_memory_backend", lambda: backend)
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+            ctx = self._ctx(tenant, user, ws, "editor")
+            publish_new_version(
+                tenant_id=tenant.id,
+                name="need_to_sysreq",
+                content="BODY\n{memory_context}\nEND",
+            )
+
+            baseline = resolve_and_render(
+                "need_to_sysreq", ctx, ws.id, need_title="Login"
+            )
+            assert "Workspace context:" in baseline
+            assert "User context:" in baseline
+
+            put = self._client_for(token).put(
+                _ME_SETTINGS_URL, {"enabled": False}, format="json"
+            )
+            assert put.status_code == 200, put.data
+            backend.calls.clear()
+
+            opted_out = resolve_and_render(
+                "need_to_sysreq", ctx, ws.id, need_title="Login"
+            )
+            assert "Workspace context:" not in opted_out
+            assert "User context:" not in opted_out
+            assert "{memory_context}" not in opted_out
+            assert "BODY" in opted_out and "END" in opted_out
+            assert backend.calls == [], "no slot may reach the backend once opted out"
+
+            # Part 2: a workspace that forbids the opt-out still injects team
+            # memory, but withholds the personal (user) scope.
+            ws_strict = make_workspace(tenant)
+            assign_role(user, ws_strict, "editor")
+            from application.preference_service import PreferenceService
+
+            PreferenceService().set_level(
+                self._ctx(tenant, user, ws_strict, "admin"),
+                scope="workspace",
+                values={ALLOW_USER_OPT_OUT_KEY: False},
+                workspace_id=ws_strict.id,
+            )
+            backend.calls.clear()
+
+            overridden = resolve_and_render(
+                "need_to_sysreq", ctx, ws_strict.id, need_title="Login"
+            )
+            assert "Workspace context:" in overridden
+            assert "User context:" not in overridden
+            assert backend.calls == ["workspace"]
