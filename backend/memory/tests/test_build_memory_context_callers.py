@@ -18,6 +18,10 @@ from pathlib import Path
 import pytest
 
 _BACKEND = Path(__file__).resolve().parents[2]
+#: Plan A T-A1-6 (PR-A14): the resolver now calls the result-returning twin
+#: (``build_memory_context`` is the thin ``str`` wrapper over it). Both are
+#: memory lookups and both must carry ``slot_name``, so the gate covers both.
+_FUNCTION_NAMES = ("build_memory_context", "build_memory_context_result")
 _FUNCTION_NAME = "build_memory_context"
 _KEYWORD = "slot_name"
 
@@ -38,7 +42,7 @@ def _iter_call_sites() -> list[tuple[str, int]]:
                 continue
             func = node.func
             name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
-            if name != _FUNCTION_NAME:
+            if name not in _FUNCTION_NAMES:
                 continue
             if not any(kw.arg == _KEYWORD for kw in node.keywords):
                 offenders.append((str(path.relative_to(_BACKEND)), node.lineno))
@@ -61,9 +65,9 @@ def test_the_scan_actually_sees_the_production_callers():
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == _FUNCTION_NAME:
+            if isinstance(node, ast.Call) and getattr(node.func, "attr", None) in _FUNCTION_NAMES:
                 sites.append(path.relative_to(_BACKEND).as_posix())
-            elif isinstance(node, ast.Call) and getattr(node.func, "id", None) == _FUNCTION_NAME:
+            elif isinstance(node, ast.Call) and getattr(node.func, "id", None) in _FUNCTION_NAMES:
                 sites.append(path.relative_to(_BACKEND).as_posix())
     assert {
         "application/prompt_resolver.py",

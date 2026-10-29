@@ -95,7 +95,7 @@ def test_injection_is_fail_open_when_memory_backend_raises(ctx_workspace, monkey
     def _boom(*args, **kwargs):
         raise RuntimeError("memory backend unreachable")
 
-    monkeypatch.setattr("memory.context_builder.build_memory_context", _boom)
+    monkeypatch.setattr("memory.context_builder.build_memory_context_result", _boom)
 
     rendered = resolve_and_render(
         "testcase_derive", ctx, workspace.id, req_title="Login", req_description="D"

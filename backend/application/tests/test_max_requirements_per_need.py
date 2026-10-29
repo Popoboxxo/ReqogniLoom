@@ -50,11 +50,14 @@ def test_the_factory_prompt_asks_for_an_upper_bound_not_an_exact_count():
 
 
 def test_n_is_no_longer_a_declared_data_variable():
+    from application.prompt_slots import MEMORY_DATA_VARIABLES
+
     assert set(get_slot_data_variables("need_to_sysreq")) == {
         "need_title",
         "need_description",
-        # RFC #1002 PR C: auto-injected by the central resolver, not ``n``.
-        "memory_context",
+        # RFC #1002 PR C + Plan A T-A1-6: auto-injected by the central
+        # resolver, not ``n``.
+        *MEMORY_DATA_VARIABLES,
     }
     assert "n" not in PROMPT_VARIABLE_DEFAULTS
 

@@ -81,7 +81,7 @@ INTERVIEW_PROTOCOL_DATA_VARIABLES: tuple[str, ...] = (
     "collected_fields_json",
     "missing_fields_json",
     "grounding_snapshot_json",
-    "memory_context",
+    *MEMORY_DATA_VARIABLES,
 )
 
 #: Data variables per named slot. Code-bound by definition: the values come
@@ -91,33 +91,38 @@ INTERVIEW_PROTOCOL_DATA_VARIABLES: tuple[str, ...] = (
 #: RFC #1002 PR C: every content-generating AI slot declares
 #: ``memory_context`` so ``prompt_resolver.resolve_and_render`` auto-computes
 #: (and injects) the retrieved workspace/artifact/user memory block for it.
-#: The exceptions are the :data:`MEMORY_HARD_OFF_SLOTS` -- they leave
-#: ``memory_context`` out on purpose (see that constant for why), and the
-#: resolver blanks the whole :data:`MEMORY_DATA_VARIABLES` set for them.
+#: Plan A T-A1-6 (PR-A14) widens that declaration to the whole
+#: :data:`MEMORY_DATA_VARIABLES` set, so a template can also address one scope
+#: on its own (``{memory_artifact_context}``, ``{memory_workspace_context}``,
+#: ``{memory_user_context}``) or the machine-readable ``{memory_facts_json}``
+#: -- and so the unknown-placeholder report and the promptfoo exporter know
+#: those names. The exceptions are the :data:`MEMORY_HARD_OFF_SLOTS` -- they
+#: declare none of them on purpose (see that constant for why), and the
+#: resolver blanks the whole set for them.
 _DATA_VARIABLES_BY_SLOT: dict[str, tuple[str, ...]] = {
-    "need_to_sysreq": ("need_title", "need_description", "memory_context"),
+    "need_to_sysreq": ("need_title", "need_description", *MEMORY_DATA_VARIABLES),
     "sysreq_to_arch_assign": (
         "req_title",
         "req_description",
         "arch_elements_json",
-        "memory_context",
+        *MEMORY_DATA_VARIABLES,
     ),
     "sysreq_decompose_next_level": (
         "req_title",
         "req_description",
         "arch_elements_json",
-        "memory_context",
+        *MEMORY_DATA_VARIABLES,
     ),
-    "goal_aggregate": ("goals", "memory_context"),
-    "testcase_derive": ("req_title", "req_description", "memory_context"),
-    "architecture_to_risk": ("ae_title", "ae_description", "memory_context"),
-    "workspace_to_glossary": ("workspace_text", "memory_context"),
-    "decision_to_adr": ("decision_description", "memory_context"),
+    "goal_aggregate": ("goals", *MEMORY_DATA_VARIABLES),
+    "testcase_derive": ("req_title", "req_description", *MEMORY_DATA_VARIABLES),
+    "architecture_to_risk": ("ae_title", "ae_description", *MEMORY_DATA_VARIABLES),
+    "workspace_to_glossary": ("workspace_text", *MEMORY_DATA_VARIABLES),
+    "decision_to_adr": ("decision_description", *MEMORY_DATA_VARIABLES),
     "bundle_compression": ("bundle_markdown",),
     "interview.grounding_rank": (
         "answers_text",
         "candidates_json",
-        "memory_context",
+        *MEMORY_DATA_VARIABLES,
     ),
     "interview.chat_turn": (
         "artifact_type",
@@ -134,10 +139,10 @@ _DATA_VARIABLES_BY_SLOT: dict[str, tuple[str, ...]] = {
         "user_message",
         # memory plan Task 6: single-mode generate_chat_turn() only -- see
         # InterviewService.generate_chat_turn's build_memory_context() call.
-        "memory_context",
+        *MEMORY_DATA_VARIABLES,
     ),
     "interview.transcript_summary": ("previous_summary", "overflow_json"),
-    "architecture_decompose_tree": ("element_title", "memory_context"),
+    "architecture_decompose_tree": ("element_title", *MEMORY_DATA_VARIABLES),
     # RFC #1002 PR C: the extractor itself gets the artifact context (so it can
     # scope facts to an artifact) and the workspace language (so facts are
     # emitted in one language and tagged with it). Deliberately NOT

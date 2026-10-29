@@ -61,3 +61,26 @@ def test_deserialize_rejects_a_wrongly_typed_value():
 def test_deserialize_rejects_an_unknown_var_type():
     with pytest.raises(VariableTypeError):
         deserialize_variable_value("decimal", "1")
+
+
+def test_memory_render_variables_are_registered_as_config():
+    """Plan A T-A1-6: the memory render knobs are catalogued ``config`` entries.
+
+    Set membership only — no total count, so adding a variable never breaks
+    this test.
+    """
+    expected = {
+        "memory_top_k": ("int", 5),
+        "memory_scopes": ("str", "artifact,workspace,user"),
+        "memory_max_chars": ("int", 0),
+        "memory_format": ("str", "block"),
+        "memory_include_dates": ("bool", True),
+        "memory_query_fields": ("str", ""),
+        "memory_section_heading": ("str", ""),
+    }
+
+    for name, (var_type, default) in expected.items():
+        spec = PROMPT_VARIABLE_DEFAULTS[name]
+        assert spec.kind == "config"
+        assert spec.var_type == var_type
+        assert spec.default_value == default

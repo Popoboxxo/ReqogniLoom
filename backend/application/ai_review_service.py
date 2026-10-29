@@ -370,19 +370,39 @@ class AiReviewService(ServiceBase):
         retrieval query is built from the findings themselves (capped), which
         is the only topical text this flow has -- there is no single source
         artifact.
+
+        Plan A T-A1-6 (PR-A14 review, finding B1): this bypass consumer used to
+        splice the RAW block into its prompt, i.e. without the ``<memory>`` data
+        boundary and without honouring the ``memory_*`` config variables. It now
+        resolves the config (``memory_scopes``/``memory_top_k``/
+        ``memory_format``/``memory_max_chars``/...) exactly like the central
+        resolver and wraps the result with
+        :func:`memory.context_builder.wrap_memory_block` -- the single place the
+        boundary is built.
         """
         try:
-            from memory.context_builder import build_memory_context
+            from application.prompt_resolver import resolve_config_values
+            from memory.context_builder import (
+                MemoryRenderConfig,
+                build_memory_context,
+                wrap_memory_block,
+            )
 
             query_text = json.dumps(findings_payload)[:2000]
-            return build_memory_context(
-                ctx.tenant_id,
-                UUID(str(workspace_id)),
-                ctx.user_id,
-                query_text,
-                # Plan A T-A1-2: the review prompt has no registry slot, so the
-                # policy knows this consumer only by this explicit name.
-                slot_name="audit.ai_review",
+            render_config = MemoryRenderConfig.from_values(
+                resolve_config_values(ctx, workspace_id)
+            )
+            return wrap_memory_block(
+                build_memory_context(
+                    ctx.tenant_id,
+                    UUID(str(workspace_id)),
+                    ctx.user_id,
+                    query_text,
+                    # Plan A T-A1-2: the review prompt has no registry slot, so
+                    # the policy knows this consumer only by this explicit name.
+                    slot_name="audit.ai_review",
+                    config=render_config,
+                )
             )
         except Exception as exc:  # noqa: BLE001 -- fail-open, see docstring
             logger.warning(

@@ -8,7 +8,7 @@ from application.architecture_decompose_service import (
     ArchitectureDecomposeService,
 )
 from application.prompt_resolver import resolve_template_content
-from application.prompt_slots import get_prompt_slots
+from application.prompt_slots import MEMORY_DATA_VARIABLES, get_prompt_slots
 from application.prompt_variable_service import PromptVariableService
 from application.prompt_variables import PROMPT_VARIABLE_DEFAULTS
 from auth_tenancy.context import AuthContext
@@ -65,8 +65,12 @@ def test_the_slot_declares_element_title_as_its_data_variable():
     spec = get_prompt_slots()["architecture_decompose_tree"]
 
     # RFC #1002 PR C adds the auto-injected memory_context to every
-    # content-generating AI slot.
-    assert spec.data_variables == ("element_title", "memory_context")
+    # content-generating AI slot; Plan A T-A1-6 (PR-A14) widens that to the
+    # whole MEMORY_DATA_VARIABLES set (memory_context is already its first
+    # entry, so it is not repeated here). Exact tuple equality on purpose: a
+    # dropped variable must still fail, while a future scope placeholder added
+    # to the constant updates this expectation automatically.
+    assert spec.data_variables == ("element_title", *MEMORY_DATA_VARIABLES)
 
 
 def test_the_factory_body_references_the_two_config_caps():

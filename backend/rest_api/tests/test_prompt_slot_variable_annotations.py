@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pytest
 
+from application.prompt_slots import MEMORY_DATA_VARIABLES
 from application.prompt_variable_service import PromptVariableService
 from application.settings_service import SettingsService
 from auth_tenancy.context import AuthContext
@@ -45,11 +46,15 @@ def test_slots_report_their_declared_data_variables(ctx_workspace):
     slot = _slot(ctx, workspace.id, "testcase_derive")
 
     # RFC #1002 PR C adds the auto-injected memory_context to every
-    # content-generating AI slot.
+    # content-generating AI slot; Plan A T-A1-6 (PR-A14) widens that to the
+    # whole MEMORY_DATA_VARIABLES set (memory_context is already its first
+    # entry, so it is not repeated here). Set equality on purpose: a dropped
+    # variable must still fail, while a future scope placeholder added to the
+    # constant updates this expectation automatically.
     assert set(slot["data_variables"]) == {
         "req_title",
         "req_description",
-        "memory_context",
+        *MEMORY_DATA_VARIABLES,
     }
 
 
