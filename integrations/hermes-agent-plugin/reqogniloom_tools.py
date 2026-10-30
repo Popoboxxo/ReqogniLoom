@@ -87,6 +87,7 @@ MUTATE_EXACT = frozenset(
         "ai_derivation.derive_glossary_from_workspace",
         "ai_derivation.derive_requirements_from_need",
         "ai_derivation.derive_risks_from_architecture",
+        "quality.assess",  # LLM assessment run, persists the assessment history
     }
 )
 
