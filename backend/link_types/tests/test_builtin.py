@@ -16,6 +16,7 @@ EXPECTED_KEYS = {
     "allocated-to",
     "verifies",
     "validates",
+    "performs",
     "decides",
     "mitigates",
     "satisfies",
@@ -59,6 +60,7 @@ def test_impact_weights_match_the_spec_table():
         "allocated-to": 1.0,
         "verifies": 1.0,
         "validates": 1.0,
+        "performs": 0.8,
         "decides": 0.3,
         "mitigates": 0.5,
         "satisfies": 1.0,
@@ -77,6 +79,7 @@ def test_suspect_rules_match_the_spec_table():
         "allocated-to": "source_change_flags_target",
         "verifies": "target_change_flags_source",
         "validates": "target_change_flags_source",
+        "performs": "target_change_flags_source",
         "decides": "none",
         "mitigates": "none",
         "satisfies": "target_change_flags_source",
@@ -170,6 +173,8 @@ def test_satisfaction_types_have_the_expected_pairs():
     assert BUILTIN_LINK_TYPES["satisfies"]["allowed_pairs"] == [
         {"source_type": "Requirement", "target_type": "Goal"},
         {"source_type": "StakeholderNeed", "target_type": "Goal"},
+        # #877 (B3-T3): a Requirement may satisfy a *function* element.
+        {"source_type": "Requirement", "target_type": "ArchitectureElement:function"},
     ]
     assert BUILTIN_LINK_TYPES["realizes"]["allowed_pairs"] == [
         {"source_type": "Requirement", "target_type": "Goal"}
@@ -177,6 +182,38 @@ def test_satisfaction_types_have_the_expected_pairs():
     assert BUILTIN_LINK_TYPES["refines"]["allowed_pairs"] == [
         {"source_type": "Requirement", "target_type": "Requirement"}
     ]
+
+
+def test_performs_links_an_element_to_a_function():
+    """#877 (B3-T3): the functional architecture edge is a regular built-in.
+
+    A component/subsystem *performs* a function. It carries no coverage
+    obligation of its own — a function is justified by the Requirement that
+    satisfies it (TRACE-P3), not by the performing element.
+    """
+    assert "performs" in BUILTIN_LINK_TYPES
+    definition = BUILTIN_LINK_TYPES["performs"]
+    assert definition["allowed_pairs"] == [
+        {
+            "source_type": "ArchitectureElement",
+            "target_type": "ArchitectureElement:function",
+        }
+    ]
+    assert definition["coverage_relevant"] is False
+    assert definition["suspect_rule"] == "target_change_flags_source"
+    assert definition["impact_weight"] == 0.8
+    assert definition["manual_creatable"] is True
+    assert definition["system_owned"] is False
+    assert definition["label"]["de"] == {
+        "downstream": "führt aus",
+        "upstream": "wird ausgeführt von",
+        "neutral": "Funktionszuordnung",
+    }
+    assert definition["label"]["en"] == {
+        "downstream": "performs",
+        "upstream": "is performed by",
+        "neutral": "Function allocation",
+    }
 
 
 def test_legacy_mapping_covers_every_retired_key():

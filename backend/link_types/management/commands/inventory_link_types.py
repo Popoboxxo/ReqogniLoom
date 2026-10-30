@@ -36,7 +36,11 @@ from django.db.models import Count
 
 from link_types.builtin import BUILTIN_LINK_TYPES
 from link_types.catalog import normalize_artifact_type
-from link_types.migration_ops import is_creatable, predict_migrated_triple
+from link_types.migration_ops import (
+    _pair_side_matches,
+    is_creatable,
+    predict_migrated_triple,
+)
 
 
 def collect_observed_triples() -> list[dict[str, Any]]:
@@ -97,11 +101,22 @@ def collect_observed_triples() -> list[dict[str, Any]]:
 
 
 def _is_covered(link_type: str, source: str, target: str) -> bool:
+    """Does a built-in ``allowed_pairs`` entry accept this triple?
+
+    Evaluated with :func:`migration_ops._pair_side_matches` — the same rule
+    ``blocking_triples`` uses through :func:`migration_ops.is_creatable` — so
+    the two lists cannot contradict each other. A plain
+    ``in ("*", type)`` membership test used to disagree with it for every
+    tagged pair (``ArchitectureElement:function``): a legitimate row was then
+    reported as *uncovered* and *blocking* at the same time.
+    """
     definition = BUILTIN_LINK_TYPES.get(link_type)
     if definition is None:
         return False
     for pair in definition["allowed_pairs"]:
-        if pair["source_type"] in ("*", source) and pair["target_type"] in ("*", target):
+        if _pair_side_matches(pair["source_type"], source) and _pair_side_matches(
+            pair["target_type"], target
+        ):
             return True
     return False
 

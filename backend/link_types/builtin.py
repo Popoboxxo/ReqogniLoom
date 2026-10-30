@@ -2,8 +2,8 @@
 
 Single source of truth for three consumers that must never drift apart:
 the seed/backfill migrations (``0003_seed_builtin_link_types``,
-``0008_seed_satisfaction_link_types`` and ``0011_seed_validates_link_type``),
-workspace provisioning
+``0008_seed_satisfaction_link_types``, ``0011_seed_validates_link_type`` and
+``0012_seed_performs_and_satisfies_function_pair``), workspace provisioning
 (``link_types.workspace_store.provision_workspace_link_types``), and the tests
 that pin the spec table.
 
@@ -22,6 +22,7 @@ Direction conventions, authoritative for every ``allowed_pairs`` entry below
     mitigates      source = Risk                      target = Requirement/Arch
     decides        source = Adr                       target = anything
     satisfies      source = Requirement               target = Goal
+    performs       source = ArchitectureElement       target = ArchitectureElement:function
     realizes       source = Requirement               target = Goal
     references     source = anything                  target = a reference entity
     diagram-ref    source = Diagram                   target = anything
@@ -196,13 +197,48 @@ BUILTIN_LINK_TYPES: dict[str, dict[str, Any]] = {
         # layer; the transitive alternative (Need <- derives-from - Requirement
         # - satisfies -> Goal) exists but is invisible to a user remediating a
         # VAL-P1 finding, so the explicit edge is offered instead.
+        #
+        # #877 (Plan B B3-T3): a Requirement may also satisfy a *function*
+        # element (``ArchitectureElement:function``, the ``Typ:Subtag`` notation
+        # from B3-T2). That is what justifies a function in TRACE-P3 without an
+        # ``allocated-to`` link — functions are allocated nothing, they are
+        # justified by the requirement they fulfil.
         "allowed_pairs": _pairs(
             ("Requirement", "Goal"),
             ("StakeholderNeed", "Goal"),
+            ("Requirement", "ArchitectureElement:function"),
         ),
         "coverage_relevant": True,
         "suspect_rule": "target_change_flags_source",
         "impact_weight": 1.0,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    "performs": {
+        "label": {
+            "de": {
+                "downstream": "führt aus",
+                "upstream": "wird ausgeführt von",
+                "neutral": "Funktionszuordnung",
+            },
+            "en": {
+                "downstream": "performs",
+                "upstream": "is performed by",
+                "neutral": "Function allocation",
+            },
+        },
+        # #877 (Plan B B3-T3): the functional architecture layer. An element
+        # (component/subsystem) *performs* a function; the function itself is
+        # justified by an incoming ``satisfies`` from a Requirement, so this
+        # edge carries no coverage obligation of its own.
+        "allowed_pairs": _pairs(
+            ("ArchitectureElement", "ArchitectureElement:function"),
+        ),
+        "coverage_relevant": False,
+        "suspect_rule": "target_change_flags_source",
+        "impact_weight": 0.8,
         "manual_creatable": True,
         "system_owned": False,
         "active": True,

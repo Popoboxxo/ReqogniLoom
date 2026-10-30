@@ -85,6 +85,7 @@ from django.db.models import Q
 
 from persistence.models import (
     ArchitectureElement,
+    ElementType,
     Requirement,
     RequirementLevel,
     StakeholderNeed,
@@ -232,6 +233,43 @@ def _compute_active_architecture_elements(context: AuditContext) -> dict[str, st
         str(artifact_id): title
         for artifact_id, title in qs.values_list("artifact_id", "title")
     }
+
+
+def _active_function_element_ids(context: AuditContext) -> frozenset[str]:
+    """Return the artifact-id set of active ``element_type="function"`` elements.
+
+    #877 / Plan B B3-T3: TRACE-P3 treats an incoming ``satisfies`` link from a
+    Requirement as justification for a *function* element — a function is
+    allocated nothing, it is fulfilled by the requirement it implements. Only
+    function elements qualify; for every other element type ``satisfies``
+    (Requirement -> Goal / Need -> Goal) never touches the element at all.
+
+    Memoised on the audit context (#1385) and only computed by TRACE-P3 when the
+    workspace actually has incoming ``satisfies`` links, so a workspace without
+    the functional layer pays no extra query.
+    """
+    return context.memoize(
+        "trace_derivation_allocation.active_function_element_ids",
+        lambda: _compute_active_function_element_ids(context),
+    )
+
+
+def _compute_active_function_element_ids(context: AuditContext) -> frozenset[str]:
+    """Uncached query body of :func:`_active_function_element_ids`."""
+    qs = (
+        ArchitectureElement.unscoped.filter(
+            tenant_id=context.tenant_id,
+            artifact__workspace_id=context.workspace_id,
+            element_type=ElementType.FUNCTION,
+        )
+        .exclude(
+            id__in=outdated_item_ids(
+                "ArchitectureElement", tenant_id=context.tenant_id
+            )
+        )
+        .values_list("artifact_id", flat=True)
+    )
+    return frozenset(str(artifact_id) for artifact_id in qs)
 
 
 def _sources_by_link_type(
@@ -585,6 +623,15 @@ class ArchitectureElementSatisfiesRequirementRule(Rule):
 
     The rule keeps its teeth: an element with no incoming allocation is
     untraced architecture and still blocks.
+
+    Function elements (#877 / Plan B B3-T3) — a function is not allocated a
+    Requirement, it is *fulfilled* by one: ``Requirement --satisfies-->
+    ArchitectureElement:function``. Requiring ``allocated-to`` here would block
+    the baseline for every function element in the workspace (review finding
+    R-B3-1), so for ``element_type="function"`` an incoming ``satisfies`` from
+    an active Requirement counts as justification too. Nothing widens for any
+    other element type: ``satisfies`` is only consulted for function elements,
+    and a function with neither link still blocks.
     """
 
     rule_id = TRACE_P3
@@ -592,12 +639,14 @@ class ArchitectureElementSatisfiesRequirementRule(Rule):
     title = "Architecture element is justified by a requirement"
     description = (
         "Every ArchitectureElement must have at least one Requirement allocated "
-        "to it ('allocated-to'). An element with no allocated Requirement is "
+        "to it ('allocated-to'). A function element may instead be justified by "
+        "an incoming 'satisfies'. An element with no allocated Requirement is "
         "untraced architecture."
     )
     standard_ref = "UMSETZUNGSPLAN_SYSENG_2.0.md §2.2 (TRACE-P3)"
     remediation_hint = (
-        "Allocate a Requirement to the ArchitectureElement, or remove the "
+        "Allocate a Requirement to the ArchitectureElement (or, for a function "
+        "element, link the Requirement that satisfies it), or remove the "
         "element if it is not needed."
     )
 
@@ -613,10 +662,22 @@ class ArchitectureElementSatisfiesRequirementRule(Rule):
         allocated_from = _targets_by_link_type(
             context, frozenset({LinkType.ALLOCATED_TO.value})
         )
+        # #877: a function element is justified by the Requirement that
+        # satisfies it, never by an allocation. The `satisfies` index is only
+        # requested when it can matter, and the function-id lookup only runs
+        # when a `satisfies` link exists at all.
+        satisfies_from = _targets_by_link_type(
+            context, frozenset({LinkType.SATISFIES.value})
+        )
+        function_ids = (
+            _active_function_element_ids(context) if satisfies_from else frozenset()
+        )
 
         findings: list[Finding] = []
         for ae_id, title in sorted(elements.items()):
             justifying = allocated_from.get(ae_id, set())
+            if ae_id in function_ids:
+                justifying = justifying | satisfies_from.get(ae_id, set())
             if justifying & requirement_ids:
                 continue
             findings.append(

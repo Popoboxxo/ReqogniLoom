@@ -89,6 +89,7 @@ def test_list_returns_the_workspace_catalog(group, env):
     keys = {lt["key"] for lt in result.data["link_types"]}
     # Membership, not a pinned total: the catalog grows with the plan series.
     assert "validates" in keys
+    assert "performs" in keys
     assert len(result.data["link_types"]) == len(BUILTIN_LINK_TYPES)
 
 

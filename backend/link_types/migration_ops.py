@@ -69,9 +69,12 @@ _DROPPED_SUFFIX = ":dropped"
 #: grandfathered legacy pairs, i.e. exactly what
 #: ``link_types/0003_seed_builtin_link_types`` + ``0004_grandfather_observed_pairs``
 #: write into ``WorkspaceLinkTypeDefinition``. Used by
-#: :func:`verify_migrated_links`; same matching rule as
-#: ``catalog.validate_link_pair``, and — through :func:`is_creatable` — by the
-#: ``blocking`` section of ``manage.py inventory_link_types``.
+#: :func:`verify_migrated_links`; the matching rule is the catalog's own — see
+#: :func:`_pair_side_matches`, which mirrors ``catalog.validate_link_pair``
+#: (including the ``Typ:Subtag`` semantics of #877) except that it cannot see a
+#: sub-type and therefore accepts the untagged base of a tagged side — and,
+#: through :func:`is_creatable`, by the ``blocking`` section of
+#: ``manage.py inventory_link_types``.
 _ALLOWED_PAIRS: dict[str, tuple[tuple[str, str], ...]] = {
     key: tuple(
         (pair["source_type"], pair["target_type"])
@@ -95,6 +98,38 @@ def _base_artifact_type(artifact: Any) -> str:
     return _base_type(getattr(artifact, "artifact_type", ""))
 
 
+def _pair_side_matches(allowed: str | None, endpoint: str | None) -> bool:
+    """Does one side of an allowed pair accept *endpoint*?
+
+    The same rule as ``link_types.catalog._pair_side_matches``, duplicated here
+    because ``is_creatable`` must answer the question offline, without a
+    workspace catalog (and because ``catalog`` imports the live models a
+    migration must not touch):
+
+    * ``*`` accepts anything;
+    * a side **with** a ``Typ:Subtag`` tag accepts that exact tag, so
+      ``ArchitectureElement:function`` does not swallow every element;
+    * a side **without** a tag accepts the normalised base type, so the
+      untagged built-ins keep accepting every sub-type (expand guarantee, #877).
+    """
+    if allowed == "*":
+        return True
+    if not allowed:
+        return False
+    if ":" in allowed:
+        # This offline predicate has no sub-type information: its callers hand
+        # it the base ``Artifact.artifact_type`` only (``ArchitectureElement``,
+        # never ``ArchitectureElement:function``), so a tagged pair must not be
+        # judged non-creatable for that reason. The runtime rule
+        # (``catalog.validate_link_pair``) stays strict and rejects a wrong
+        # sub-type there, where the tagged type is actually known.
+        return allowed == endpoint or (
+            ":" not in (endpoint or "")
+            and _base_type(allowed) == _base_type(endpoint)
+        )
+    return allowed == _base_type(endpoint)
+
+
 def is_creatable(link_type: str, source_type: str, target_type: str) -> bool:
     """Would the new catalog accept this triple? ``"*"`` matches anything.
 
@@ -103,11 +138,15 @@ def is_creatable(link_type: str, source_type: str, target_type: str) -> bool:
     ``manage.py inventory_link_types`` can answer "will migration
     ``persistence/0081`` reject this database?" with the migration's own rule
     instead of a second, drifting copy of it (issue #893).
+
+    Pair matching is :func:`_pair_side_matches`, i.e. the catalog's
+    with/without-subtype-tag rule — not a plain ``in ("*", type)`` any more,
+    which silently disagreed with ``catalog.validate_link_pair`` for every
+    tagged pair (#877).
     """
     for allowed_source, allowed_target in _ALLOWED_PAIRS.get(link_type, ()):
-        if allowed_source in ("*", source_type) and allowed_target in (
-            "*",
-            target_type,
+        if _pair_side_matches(allowed_source, source_type) and _pair_side_matches(
+            allowed_target, target_type
         ):
             return True
     return False
