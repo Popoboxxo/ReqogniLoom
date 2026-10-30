@@ -42,6 +42,7 @@ from typing import Any
 from uuid import UUID
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, connection, models, transaction
 from django.db.models.functions import Lower
@@ -58,7 +59,7 @@ from persistence.custom_fields import validate_custom_fields
 from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
 from persistence.encryption import decrypt_secret, encrypt_secret
 from persistence.role_permissions import validate_role_permissions
-from persistence.tenancy import TenantManager, UnscopedManager
+from persistence.tenancy import TenantManager, TenantQuerySet, UnscopedManager
 
 # ---------------------------------------------------------------------------
 # Custom manager for User (AUTH_USER_MODEL compatibility)
@@ -4286,6 +4287,282 @@ class Suggestion(TenantScopedModel):
         return f"Suggestion({self.kind}/{self.status})"
 
 
+# ---------------------------------------------------------------------------
+# Quality assessment (WP B5, issue #378) — APPEND-ONLY
+# ---------------------------------------------------------------------------
+#
+# Append-only contract for :class:`QualityAssessment`:
+#
+# * A row is *evidence*, not state. It records what an LLM said about one
+#   artifact content at one point in time, so the correct reaction to a new
+#   assessment is a new row — never an in-place edit of the old one.
+# * :meth:`QualityAssessment.save` raises :class:`AppendOnlyViolation` when the
+#   instance is not being INSERTed (already-persisted ``_state.adding`` is
+#   False, or a row with the same PK is already in the table).
+# * The tenant-scoped queryset refuses ``update()``/``delete()`` with the same
+#   exception, so the ordinary bulk paths are closed. The ``unscoped`` manager
+#   and raw SQL are NOT caught by this per-row guard — they bypass it by design.
+#   PostgreSQL RLS (``persistence/0122_quality_assessment_rls_policy.py``) still
+#   bounds both to the tenant's own rows, so a bypass cannot cross a tenant.
+# * Deletion still happens implicitly through the ``workspace`` FK CASCADE
+#   (Django's collector uses the non-tenant ``_base_manager``), which is a data
+#   lifecycle event, not a mutation of an assessment.
+# * The table carries the standard tenant RLS policy
+#   (``persistence/0122_quality_assessment_rls_policy.py``), like every other
+#   ``TenantScopedModel``.
+
+
+class AppendOnlyViolation(RuntimeError):
+    """Raised on any attempt to mutate an already-written append-only row."""
+
+
+class QualityAssessmentQuerySet(TenantQuerySet):
+    """Tenant-scoped queryset for :class:`QualityAssessment` with no mutation API.
+
+    ``update()`` and ``delete()`` raise :class:`AppendOnlyViolation` instead of
+    rewriting history. The tenant filter itself is inherited unchanged from
+    :class:`persistence.tenancy.TenantManager`.
+    """
+
+    def update(self, **kwargs: Any) -> int:
+        raise AppendOnlyViolation(
+            "QualityAssessment is append-only: update() is not supported. "
+            "Record a new assessment row instead."
+        )
+
+    def delete(self) -> tuple[int, dict[str, int]]:
+        raise AppendOnlyViolation(
+            "QualityAssessment is append-only: queryset delete() is not "
+            "supported (rows disappear only through the workspace CASCADE)."
+        )
+
+
+class QualityAssessmentManager(
+    TenantManager.from_queryset(QualityAssessmentQuerySet)  # type: ignore[misc]
+):
+    """Default manager: tenant-scoped (inherited) and append-only."""
+
+
+class QualityAssessment(TenantScopedModel):
+    """Advisory quality assessment of one artifact (WP B5, issue #378).
+
+    One row per assessment run, for *every* artifact type: ``entity_type`` /
+    ``entity_id`` identify the subject generically while ``artifact`` keeps the
+    FK for the cases where a backing :class:`Artifact` exists (``SET_NULL`` so a
+    deleted artifact does not delete the historical assessment).
+
+    ``score`` is stored on the ``0.0``–``1.0`` scale the LLM is asked for; the
+    UI renders percent. ``criteria`` holds the per-criterion sub-scores
+    (IEEE-29148 for requirements, type-specific elsewhere) and ``suggestions``
+    the free-text improvement hints. ``content_hash``/``entity_version`` pin the
+    exact content the verdict refers to, so a stale assessment is detectable
+    without comparing text.
+
+    ``prompt_slot``/``prompt_scope``/``prompt_version`` plus ``provider``/
+    ``model``/``token_usage`` record the provenance of the run; ``trigger`` and
+    ``triggered_by`` record who started it. A ``failed`` row carries the
+    provider error class in ``error_code`` and an empty ``reasoning``.
+
+    The model is APPEND-ONLY — see the module-level contract above.
+    """
+
+    class PromptScope(models.TextChoices):
+        """Level the prompt template version was resolved from."""
+
+        WORKSPACE = "workspace", "Workspace"
+        GLOBAL = "global", "Global"
+        FACTORY = "factory", "Factory"
+
+    class Trigger(models.TextChoices):
+        """How the assessment was started (v1: manual only)."""
+
+        MANUAL = "manual", "Manual"
+        MCP = "mcp", "MCP"
+
+    class Status(models.TextChoices):
+        """Whether the LLM run produced a usable verdict."""
+
+        OK = "ok", "OK"
+        FAILED = "failed", "Failed"
+
+    class EntityType(models.TextChoices):
+        """Types the contract covers today. Documentation only — the column is
+        deliberately loose (see the field comment) so a new type needs no
+        migration.
+        """
+
+        REQUIREMENT = "Requirement", "Requirement"
+        ADR = "Adr", "Adr"
+        TEST_CASE = "TestCase", "TestCase"
+        RISK = "Risk", "Risk"
+
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="quality_assessments",
+    )
+    # No ``choices=EntityType.choices`` on purpose (spec: loose column), so a
+    # new assessable type is code-only; ``EntityType`` documents the known set.
+    entity_type = models.CharField(
+        max_length=64,
+        help_text="Artifact type of the assessed entity, e.g. 'Requirement'.",
+    )
+    entity_id = models.UUIDField(
+        help_text="Id of the assessed entity (not its backing artifact id).",
+    )
+    artifact = models.ForeignKey(
+        Artifact,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="quality_assessments",
+        help_text="Backing artifact when one exists; SET_NULL keeps the history.",
+    )
+    score = models.FloatField(
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
+        help_text="Overall quality score on the 0.0-1.0 scale (UI shows percent).",
+    )
+    reasoning = models.TextField(
+        blank=True,
+        default="",
+        help_text="LLM rationale for the score; empty for a failed run.",
+    )
+    suggestions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Free-text improvement hints produced by the run.",
+    )
+    criteria = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Per-criterion sub-scores (name -> 0.0-1.0).",
+    )
+    content_hash = models.CharField(
+        max_length=64,
+        db_index=True,
+        help_text="Hash of the assessed content, pinning what the verdict refers to.",
+    )
+    entity_version = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Optimistic-lock version of the entity at assessment time.",
+    )
+    prompt_slot = models.CharField(
+        max_length=100,
+        help_text="Prompt template slot used for the run (e.g. 'quality_requirement').",
+    )
+    prompt_scope = models.CharField(max_length=16, choices=PromptScope.choices)
+    prompt_version = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Version of the resolved prompt template; NULL when unknown.",
+    )
+    provider = models.CharField(max_length=64, help_text="LLM provider key.")
+    model = models.CharField(max_length=128, help_text="Provider model identifier.")
+    token_usage = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Reported token count; NULL when the provider does not report it.",
+    )
+    trigger = models.CharField(max_length=16, choices=Trigger.choices)
+    triggered_by = models.CharField(
+        max_length=255,
+        help_text="Principal that started the run (user id or API-key label).",
+    )
+    status = models.CharField(max_length=16, choices=Status.choices)
+    error_code = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Provider error class for a failed run; empty on success.",
+    )
+    # ``created_at`` (auto_now_add) and ``id`` are inherited from AuditableModel.
+
+    objects = QualityAssessmentManager()
+    # Escape hatch: skips the tenant filter AND the append-only guard; RLS alone
+    # still restricts it to one tenant's rows.
+    unscoped = UnscopedManager()
+
+    class Meta:
+        db_table = "pl_quality_assessment"
+        # DB-level mirrors of the TextChoices above and the score validator
+        # (both are app-level only, so a path skipping ``full_clean`` could
+        # store score=2.0 or an unknown ``prompt_scope``). Literal lists: a
+        # class body cannot read the enclosing namespace. ``entity_type``
+        # stays unconstrained on purpose.
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(score__gte=0.0, score__lte=1.0),
+                name="ck_quality_assessment_score_range",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    prompt_scope__in=["workspace", "global", "factory"]
+                ),
+                name="ck_quality_assessment_prompt_scope",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(trigger__in=["manual", "mcp"]),
+                name="ck_quality_assessment_trigger",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(status__in=["ok", "failed"]),
+                name="ck_quality_assessment_status",
+            ),
+        ]
+        indexes = [
+            # Latest-assessment lookup for one entity ("show the verdict for
+            # this requirement"), newest first.
+            models.Index(
+                fields=["tenant", "entity_type", "entity_id", "-created_at"],
+                name="idx_qa_entity_created",
+            ),
+            # Workspace history feed ("recent assessments in this workspace").
+            models.Index(
+                fields=["tenant", "workspace", "-created_at"],
+                name="idx_qa_workspace_created",
+            ),
+            # Cache/reuse lookup: identical content in the same tenant must be
+            # findable without a table scan.
+            models.Index(
+                fields=["tenant", "content_hash"],
+                name="idx_qa_tenant_hash",
+            ),
+        ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """INSERT only — raises on any rewrite or cross-tenant reference.
+
+        ``workspace``/``artifact`` must belong to this row's ``tenant``, or the
+        read paths would follow a FK into another tenant. Both checks use the
+        cached relation when loaded. The existence probe uses the tenant-scoped
+        ``objects`` so a foreign tenant's UUID looks unused.
+        """
+        if self.workspace_id is not None and (
+            self.workspace.tenant_id != self.tenant_id
+        ):
+            raise ValidationError(
+                {"workspace": "Must belong to the same tenant as the assessment."}
+            )
+        if self.artifact_id is not None and (
+            self.artifact.tenant_id != self.tenant_id
+        ):
+            raise ValidationError(
+                {"artifact": "Must belong to the same tenant as the assessment."}
+            )
+        if not self._state.adding or type(self).objects.filter(
+            pk=self.pk
+        ).exists():
+            raise AppendOnlyViolation(
+                f"QualityAssessment {self.pk} already exists; the model is "
+                "append-only. Write a new assessment row instead."
+            )
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"QualityAssessment({self.entity_type}/{self.score:.2f})"
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -4343,4 +4620,7 @@ __all__ = [
     "UidSequence",
     # ADR-019: generic proposal lifecycle (durable receipt / inbox).
     "Suggestion",
+    # WP B5 (#378): advisory, append-only quality assessment.
+    "AppendOnlyViolation",
+    "QualityAssessment",
 ]
