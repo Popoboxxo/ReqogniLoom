@@ -1,0 +1,31 @@
+# Prompt-regression scenarios for the `quality_requirement` slot (Plan B/B5-T2).
+# Deliberately memory-free: a quality verdict judges the artifact, not what the
+# model remembers from earlier sessions (prompt_slots.MEMORY_HARD_OFF_PREFIXES,
+# ADR-024).
+# Case files are owned by plan D (backend/application/prompt_testing/cases.py).
+slot: quality_requirement
+scenarios:
+  - name: csv-export-requirement
+    data:
+      artifact_title: "CSV-Export"
+      artifact_description: "Der Export MUSS alle sichtbaren Zeilen enthalten."
+      acceptance_criteria: "Alle sichtbaren Zeilen stehen in der Datei."
+      rationale: "Berichtspflicht gegenueber dem Controlling."
+      verification_method: "Test"
+    assert:
+      - {type: contains, value: "CSV-Export"}
+      - {type: contains, value: "Alle sichtbaren Zeilen stehen in der Datei."}
+      - {type: contains, value: "score"}
+      - {type: contains, value: "traceable"}
+      - {type: not-contains, value: "{memory_context}"}
+  - name: thin-requirement-still-renders
+    data:
+      artifact_title: "Login"
+      artifact_description: "Das System MUSS sich anmelden koennen."
+      acceptance_criteria: ""
+      rationale: ""
+      verification_method: ""
+    assert:
+      - {type: contains, value: "Login"}
+      - {type: contains, value: "score"}
+      - {type: not-contains, value: "{memory_context}"}

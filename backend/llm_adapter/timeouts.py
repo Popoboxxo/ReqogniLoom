@@ -51,6 +51,18 @@ WORKSPACE_WIDE_PURPOSES = frozenset(
     }
 )
 
+#: Purposes that were explicitly classified as single-artifact and therefore
+#: belong to the SYNC bucket (:func:`sync_timeout_seconds`). Registration is
+#: documentary -- resolution is already the default for everything outside
+#: :data:`WORKSPACE_WIDE_PURPOSES` -- but a purpose whose budget was a
+#: deliberate decision is named here, so moving it to the long-running bucket
+#: has to remove it on purpose instead of being a silent drift.
+#:
+#: ``quality_assess`` (Plan B/B5-T2, #378) renders exactly ONE artifact
+#: (requirement, ADR, test case or risk); the quality assessment is advisory
+#: and must not hold a request thread for the workspace-wide budget.
+SINGLE_ARTIFACT_PURPOSES = frozenset({"quality_assess"})
+
 
 def _setting(name: str, fallback: float) -> float:
     """Read a numeric Django setting, falling back outside a Django context."""
@@ -98,7 +110,8 @@ def resolve_timeout_seconds(purpose: str | None = None) -> float:
 
     Returns:
         The long-running timeout for workspace-wide purposes, otherwise the
-        tight per-artifact default.
+        tight per-artifact default (which is also what every purpose in
+        :data:`SINGLE_ARTIFACT_PURPOSES` gets).
     """
     if is_long_running(purpose):
         return long_running_timeout_seconds()
@@ -108,6 +121,7 @@ def resolve_timeout_seconds(purpose: str | None = None) -> float:
 __all__ = [
     "DEFAULT_LONG_RUNNING_TIMEOUT_SECONDS",
     "DEFAULT_SYNC_TIMEOUT_SECONDS",
+    "SINGLE_ARTIFACT_PURPOSES",
     "WORKSPACE_WIDE_PURPOSES",
     "is_long_running",
     "long_running_timeout_seconds",

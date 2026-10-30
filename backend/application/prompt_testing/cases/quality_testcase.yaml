@@ -1,0 +1,15 @@
+# Prompt-regression scenarios for the `quality_testcase` slot (Plan B/B5-T2).
+# Deliberately memory-free (prompt_slots.MEMORY_HARD_OFF_PREFIXES, ADR-024).
+# Case files are owned by plan D (backend/application/prompt_testing/cases.py).
+slot: quality_testcase
+scenarios:
+  - name: export-row-count-test
+    data:
+      artifact_title: "Export enthaelt alle sichtbaren Zeilen"
+      artifact_description: "Prueft die Zeilenzahl der exportierten Datei."
+      artifact_fields_json: '{"test_type": "system", "execution_status": "Not Run"}'
+    assert:
+      - {type: contains, value: "Export enthaelt alle sichtbaren Zeilen"}
+      - {type: contains, value: "score"}
+      - {type: contains, value: "expected result"}
+      - {type: not-contains, value: "{memory_context}"}
