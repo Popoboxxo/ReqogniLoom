@@ -42,21 +42,24 @@ def env(db):
 
 
 @pytest.mark.django_db
-def test_list_global_returns_the_eleven_seeded_types(env):
+def test_list_global_returns_the_seeded_types(env):
     rows = LinkTypeFacade().list_global(env["admin"])
-    assert {row["key"] for row in rows} == {
+    # Membership, not equality: the built-in catalog grows with the plan
+    # series, so this table must never pin a total count (KA-B-03).
+    assert {
         "derives-from",
         "decomposes",
         "refines",
         "allocated-to",
         "verifies",
+        "validates",
         "decides",
         "mitigates",
         "satisfies",
         "realizes",
         "references",
         "diagram-ref",
-    }
+    } <= {row["key"] for row in rows}
 
 
 @pytest.mark.django_db

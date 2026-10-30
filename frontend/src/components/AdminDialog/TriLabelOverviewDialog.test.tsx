@@ -28,11 +28,11 @@ describe("TriLabelOverviewDialog", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("renders the dialog with a row for each of the eleven built-in link types when open", () => {
+  it("renders the dialog with a row for each built-in link type when open", () => {
     render(<TriLabelOverviewDialog isOpen onClose={vi.fn()} />);
 
     expect(screen.getByTestId("tri-label-overview-dialog")).toBeInTheDocument();
-    expect(BUILTIN_LINK_TYPES).toHaveLength(11);
+    // Membership, not a pinned size: the backend catalog grows per plan.
     for (const lt of BUILTIN_LINK_TYPES) {
       expect(screen.getByTestId(`tri-label-row-${lt}`)).toBeInTheDocument();
     }

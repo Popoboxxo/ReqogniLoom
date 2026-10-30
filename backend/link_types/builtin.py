@@ -1,8 +1,9 @@
-"""The eleven built-in link types — Startbelegung of the tenant catalog.
+"""The core built-in link types — Startbelegung of the tenant catalog.
 
 Single source of truth for three consumers that must never drift apart:
-the seed/backfill migrations (``0003_seed_builtin_link_types`` and
-``0008_seed_satisfaction_link_types``), workspace provisioning
+the seed/backfill migrations (``0003_seed_builtin_link_types``,
+``0008_seed_satisfaction_link_types`` and ``0011_seed_validates_link_type``),
+workspace provisioning
 (``link_types.workspace_store.provision_workspace_link_types``), and the tests
 that pin the spec table.
 
@@ -17,6 +18,7 @@ Direction conventions, authoritative for every ``allowed_pairs`` entry below
     refines        source = refining (lower-level)    target = refined
     allocated-to   source = Requirement               target = ArchitectureElement
     verifies       source = TestCase                  target = Requirement/Arch
+    validates      source = TestCase                  target = StakeholderNeed
     mitigates      source = Risk                      target = Requirement/Arch
     decides        source = Adr                       target = anything
     satisfies      source = Requirement               target = Goal
@@ -271,6 +273,31 @@ BUILTIN_LINK_TYPES: dict[str, dict[str, Any]] = {
             ("TestCase", "Requirement"),
             ("TestCase", "ArchitectureElement"),
         ),
+        "coverage_relevant": True,
+        "suspect_rule": "target_change_flags_source",
+        "impact_weight": 1.0,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    "validates": {
+        "label": {
+            "de": {
+                "downstream": "validiert",
+                "upstream": "wird validiert durch",
+                "neutral": "Validierung",
+            },
+            "en": {
+                "downstream": "validates",
+                "upstream": "is validated by",
+                "neutral": "Validation",
+            },
+        },
+        # #878: validation of a StakeholderNeed by a TestCase. Deliberately
+        # distinct from `verifies`, which runs against Requirement/Architecture
+        # — this is the stakeholder-layer counterpart.
+        "allowed_pairs": _pairs(("TestCase", "StakeholderNeed")),
         "coverage_relevant": True,
         "suspect_rule": "target_change_flags_source",
         "impact_weight": 1.0,

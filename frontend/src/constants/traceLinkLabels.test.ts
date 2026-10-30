@@ -2,7 +2,7 @@
  * Unit tests for the trace-link Tri-Label constants (Task 23).
  *
  * Verifies:
- *   - `FALLBACK_TRI_LABELS` covers exactly the eleven built-in link types
+ *   - `FALLBACK_TRI_LABELS` covers the built-in link types
  *   - Every fallback entry has non-empty DE + EN downstream/upstream/neutral labels
  *   - `getTriLabel`: catalog label wins, static fallback second, raw key last
  *   - `ALL_LINK_TYPES` is no longer exported (catalog-driven now, Task 22)
@@ -29,12 +29,17 @@ const EXPECTED_TYPES = [
   "references",
   "refines",
   "satisfies",
+  "validates",
   "verifies",
 ];
 
 describe("FALLBACK_TRI_LABELS", () => {
-  it("covers exactly the eleven built-in link types", () => {
-    expect(Object.keys(FALLBACK_TRI_LABELS).sort()).toEqual([...EXPECTED_TYPES].sort());
+  it("covers the built-in link types", () => {
+    // Membership, not a pinned size: the backend catalog gains types per plan
+    // (Plan F and later), and this table is only its pre-load fallback.
+    for (const lt of EXPECTED_TYPES) {
+      expect(FALLBACK_TRI_LABELS[lt]).toBeDefined();
+    }
   });
 
   it.each(EXPECTED_TYPES)("has non-empty DE+EN downstream/upstream/neutral labels for '%s'", (lt) => {
@@ -75,25 +80,17 @@ describe("getTriLabel", () => {
     expect("ALL_LINK_TYPES" in module).toBe(false);
   });
 
-  it("the fallback table only covers the eleven core types", () => {
-    expect(Object.keys(FALLBACK_TRI_LABELS).sort()).toEqual([
-      "allocated-to",
-      "decides",
-      "decomposes",
-      "derives-from",
-      "diagram-ref",
-      "mitigates",
-      "realizes",
-      "references",
-      "refines",
-      "satisfies",
-      "verifies",
-    ]);
+  it("lists every built-in type exactly once", () => {
+    const keys = Object.keys(FALLBACK_TRI_LABELS);
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const lt of EXPECTED_TYPES) {
+      expect(keys).toContain(lt);
+    }
   });
 });
 
 describe("backward-compatible flat label lookup", () => {
-  it("getLinkTypeLabel resolves every one of the eleven built-in types without a raw-key fallback", () => {
+  it("getLinkTypeLabel resolves every built-in type without a raw-key fallback", () => {
     for (const lt of Object.keys(FALLBACK_TRI_LABELS)) {
       const label = getLinkTypeLabel(lt);
       expect(label).toBeTruthy();

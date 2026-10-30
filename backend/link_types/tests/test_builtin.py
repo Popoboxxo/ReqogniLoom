@@ -1,4 +1,4 @@
-"""The eleven built-in link types are the spec's Startbelegung, verbatim."""
+"""The built-in link types are the spec's Startbelegung, verbatim."""
 from __future__ import annotations
 
 from link_types.builtin import (
@@ -15,6 +15,7 @@ EXPECTED_KEYS = {
     "refines",
     "allocated-to",
     "verifies",
+    "validates",
     "decides",
     "mitigates",
     "satisfies",
@@ -24,8 +25,10 @@ EXPECTED_KEYS = {
 }
 
 
-def test_exactly_the_eleven_core_types_are_seeded():
-    assert set(BUILTIN_LINK_TYPES) == EXPECTED_KEYS
+def test_the_expected_core_types_are_seeded():
+    # Membership, not equality: later plans extend the catalog (Plan F adds
+    # more built-in types), so the spec table must never pin a total count.
+    assert EXPECTED_KEYS <= set(BUILTIN_LINK_TYPES)
 
 
 def test_suspect_rules_are_the_four_code_anchored_values():
@@ -37,11 +40,12 @@ def test_suspect_rules_are_the_four_code_anchored_values():
     }
 
 
-def test_only_allocated_to_verifies_and_satisfies_are_coverage_relevant():
+def test_the_coverage_relevant_types_include_both_test_edges():
     coverage = {k for k, v in BUILTIN_LINK_TYPES.items() if v["coverage_relevant"]}
     # `satisfies` is the ISO 15288/29148 validation edge (#950) — the only
-    # coverage-relevant link to a Goal.
-    assert coverage == {"allocated-to", "verifies", "satisfies"}
+    # coverage-relevant link to a Goal; `validates` (#878) is the
+    # stakeholder-layer counterpart of `verifies`.
+    assert {"allocated-to", "verifies", "satisfies", "validates"} <= coverage
 
 
 def test_impact_weights_match_the_spec_table():
@@ -52,6 +56,7 @@ def test_impact_weights_match_the_spec_table():
         "refines": 0.8,
         "allocated-to": 1.0,
         "verifies": 1.0,
+        "validates": 1.0,
         "decides": 0.3,
         "mitigates": 0.5,
         "satisfies": 1.0,
@@ -69,6 +74,7 @@ def test_suspect_rules_match_the_spec_table():
         "refines": "target_change_flags_source",
         "allocated-to": "source_change_flags_target",
         "verifies": "target_change_flags_source",
+        "validates": "target_change_flags_source",
         "decides": "none",
         "mitigates": "none",
         "satisfies": "target_change_flags_source",
