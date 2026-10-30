@@ -64,6 +64,10 @@ export const FALLBACK_TRI_LABELS: Record<string, TriLabelEntry> = {
     de: { downstream: "ist zugewiesen an", upstream: "erfüllt", neutral: "Zuweisung" },
     en: { downstream: "is allocated to", upstream: "fulfils", neutral: "Allocation" },
   },
+  performs: {
+    de: { downstream: "führt aus", upstream: "wird ausgeführt von", neutral: "Funktionszuordnung" },
+    en: { downstream: "performs", upstream: "is performed by", neutral: "Function allocation" },
+  },
   verifies: {
     de: { downstream: "verifiziert", upstream: "wird verifiziert von", neutral: "Verifikation" },
     en: { downstream: "verifies", upstream: "is verified by", neutral: "Verification" },

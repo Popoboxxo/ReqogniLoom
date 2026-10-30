@@ -66,6 +66,11 @@ class LinkType(str, Enum):
     REFINES = "refines"
     SATISFIES = "satisfies"
     REALIZES = "realizes"
+    # #877 (Plan B B3-T3): the functional architecture layer. An element
+    # *performs* a function element (``ArchitectureElement:function``); the
+    # function itself is justified by an incoming `satisfies` from a
+    # Requirement. See ``traceability.audit.rules.trace_derivation_allocation``.
+    PERFORMS = "performs"
 
     @classmethod
     def values(cls) -> frozenset[str]:

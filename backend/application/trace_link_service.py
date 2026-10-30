@@ -104,8 +104,17 @@ class TraceEdgeDTO:
 MAX_WORKSPACE_LINKS_PAGE_SIZE = 500
 
 
-def _catalog_uses_subtypes(catalog: dict[str, dict[str, Any]]) -> bool:
-    """Does any active link type of this workspace use a ``Typ:Subtag`` pair?
+def _catalog_uses_subtypes(
+    catalog: dict[str, dict[str, Any]], link_type: str
+) -> bool:
+    """Does *link_type*'s definition use a ``Typ:Subtag`` pair?
+
+    Scoped to the one link type being written on purpose: since #877 the
+    provisioned catalog always contains a tagged built-in (``performs``), so a
+    workspace-wide probe would answer "yes" for every workspace and pay the
+    sub-type lookup on every single link — including those whose own pairs are
+    untagged. Only the pairs of *link_type* decide whether the endpoint type has
+    to be resolved to ``Typ:Subtag``.
 
     A malformed entry is skipped rather than raising: ``allowed_pairs`` is
     validated on every write path, so a non-mapping here means a corrupt row,
@@ -113,14 +122,14 @@ def _catalog_uses_subtypes(catalog: dict[str, dict[str, Any]]) -> bool:
     :func:`link_types.catalog.validate_link_pair` — not as an ``AttributeError``
     (HTTP 500) on the way there.
     """
-    for definition in catalog.values():
-        for pair in definition.get("allowed_pairs") or ():
-            if not isinstance(pair, dict):
-                continue
-            if ":" in str(pair.get("source_type") or "") or ":" in str(
-                pair.get("target_type") or ""
-            ):
-                return True
+    definition = catalog.get(link_type) or {}
+    for pair in definition.get("allowed_pairs") or ():
+        if not isinstance(pair, dict):
+            continue
+        if ":" in str(pair.get("source_type") or "") or ":" in str(
+            pair.get("target_type") or ""
+        ):
+            return True
     return False
 
 
@@ -526,10 +535,12 @@ class TraceLinkService(ServiceBase):
 
         # Sub-types (#877 / B3-T2): a pair side may be written as
         # ``Typ:Subtag``. The register decides which artifact types can carry
-        # such a tag, so the endpoint is only resolved when the workspace's
-        # catalog actually uses a tagged pair — otherwise the base type is
-        # passed unchanged and no subtype row is ever read.
-        tagged = _catalog_uses_subtypes(resolve_catalog(source.workspace_id))
+        # such a tag, so the endpoint is only resolved when *this link type's*
+        # pairs actually use a tag — otherwise the base type is passed
+        # unchanged and no subtype row is ever read.
+        tagged = _catalog_uses_subtypes(
+            resolve_catalog(source.workspace_id), link_type
+        )
         validate_link_pair(
             source.workspace_id,
             link_type,
