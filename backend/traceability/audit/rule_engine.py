@@ -15,6 +15,7 @@ findings by construction, never by chance.
 """
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 from traceability.audit.registry import (
@@ -27,6 +28,8 @@ from traceability.audit.types import (
     AuditScope,
     Finding,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class RuleEngine:
@@ -144,11 +147,21 @@ class RuleEngine:
         empty finding list here, before ``severity_for_tier`` or ``check`` is
         ever called — deferred rules stay registered/visible but are
         guaranteed to never run real check logic, for any tier.
+
+        A rule that raises is isolated (#B5-T0 / R-B5-3): the exception is
+        logged with its ``rule_id`` and the rule contributes no findings, so
+        one broken rule can neither abort the audit nor take the baseline gate
+        down with it. The failure is surfaced through the log only — the audit
+        result schema is deliberately unchanged.
         """
         if rule.deferred_reason is not None:
             return []
         severity = rule.severity_for_tier(tier)
-        raw = rule.check(context)
+        try:
+            raw = rule.check(context)
+        except Exception:  # noqa: BLE001 — one broken rule must not sink the audit
+            logger.exception("Audit rule %s raised; rule skipped", rule.rule_id)
+            return []
         stamped: list[Finding] = []
         for finding in raw:
             if finding.severity is severity:
