@@ -56,22 +56,25 @@ def test_no_retired_link_type_literal_remains(retired):
     assert offenders == [], f"'{retired}' still hardcoded in: {offenders}"
 
 
-def test_link_type_enum_has_exactly_the_eleven_core_members():
+def test_link_type_enum_lists_the_core_members():
     from traceability.types import LinkType
 
-    assert {member.value for member in LinkType} == {
+    # Membership, not equality: the built-in catalog grows with the plan
+    # series, so this table must never pin a total count (KA-B-03).
+    assert {
         "derives-from",
         "decomposes",
         "refines",
         "allocated-to",
         "verifies",
+        "validates",
         "decides",
         "mitigates",
         "satisfies",
         "realizes",
         "references",
         "diagram-ref",
-    }
+    } <= {member.value for member in LinkType}
 
 
 def test_vcrm_component_query_uses_allocated_to():

@@ -57,7 +57,7 @@ TARGET_ID = uuid.uuid4()
 
 
 class TestValidLinkTypes:
-    """REQ-L2-AS-010: 11 standard link types."""
+    """REQ-L2-AS-010: the standard link types."""
 
     EXPECTED_TYPES = {
         "derives-from",
@@ -65,6 +65,7 @@ class TestValidLinkTypes:
         "refines",  # #950 — Requirement -> Requirement (weaker than derives-from)
         "allocated-to",  # REQ-L1-042 — absorbed the retired implements
         "verifies",
+        "validates",  # #878 — TestCase -> StakeholderNeed
         "decides",  # REQ-L2-TE-020 (ADR -> ArchitectureElement)
         "mitigates",
         "satisfies",  # #950 — Requirement -> Goal, coverage-relevant validation edge
@@ -74,8 +75,11 @@ class TestValidLinkTypes:
     }
 
     def test_all_types_present(self):
-        """VALID_LINK_TYPES contains the eleven built-in link types."""
-        assert self.EXPECTED_TYPES == VALID_LINK_TYPES
+        """VALID_LINK_TYPES contains the built-in link types.
+
+        Membership, not equality: the catalog grows with the plan series.
+        """
+        assert self.EXPECTED_TYPES <= VALID_LINK_TYPES
 
     def test_types_is_frozenset(self):
         """VALID_LINK_TYPES is a frozenset (immutable)."""

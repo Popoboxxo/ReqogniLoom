@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 # ---------------------------------------------------------------------------
-# Link-Type Enum — the eleven built-in keys of ``link_types/builtin.py``.
+# Link-Type Enum — the built-in keys of ``link_types/builtin.py``.
 # The legacy members (parent-child, implements, documents, traces, uses-term,
 # copy-of) were retired by the link-type consolidation;
 # ``link_types.builtin.LEGACY_LINK_TYPE_MAPPING`` records what each one became
@@ -25,7 +25,7 @@ from enum import Enum
 # ---------------------------------------------------------------------------
 
 class LinkType(str, Enum):
-    """Convenience symbols for the eleven built-in keys.
+    """Convenience symbols for the built-in keys.
 
     **NOT the validation authority** — that is
     :func:`link_types.catalog.resolve_catalog` /
@@ -48,6 +48,9 @@ class LinkType(str, Enum):
     # swapped (``link_types.builtin.SWAPPED_LEGACY_KEYS``).
     ALLOCATED_TO = "allocated-to"
     VERIFIES = "verifies"
+    # #878: the StakeholderNeed counterpart of `verifies` — a TestCase
+    # validating a Need rather than a Requirement/Architecture element.
+    VALIDATES = "validates"
     # REQ-L2-TE-020 ADR decision link (ADR -> ArchitectureElement):
     DECIDES = "decides"
     MITIGATES = "mitigates"

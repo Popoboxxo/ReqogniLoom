@@ -11,7 +11,7 @@
  * `context/LinkTypeContext.tsx`) is now the source of truth — a tenant can
  * customize or add link types, so no static frontend table can cover every
  * key any more. `FALLBACK_TRI_LABELS` below is only the pre-load fallback
- * for the eleven built-in keys (mirrors `backend/link_types/builtin.py`),
+ * for the built-in keys (mirrors `backend/link_types/builtin.py`),
  * used before the catalog has loaded or by callers that have no catalog
  * label at hand. A key that is neither in the fallback table nor backed by
  * a catalog label renders as its own raw string — see `getTriLabel`.
@@ -33,7 +33,7 @@ export interface TriLabelEntry {
 }
 
 /**
- * Pre-load fallback for the eleven built-in link types — label text mirrors
+ * Pre-load fallback for the built-in link types — label text mirrors
  * `backend/link_types/builtin.py::BUILTIN_LINK_TYPES` exactly, so there is
  * no visible flash of different text once the real catalog label arrives.
  * NOT exhaustive: a tenant-customized or tenant-invented type has no entry
@@ -68,6 +68,10 @@ export const FALLBACK_TRI_LABELS: Record<string, TriLabelEntry> = {
     de: { downstream: "verifiziert", upstream: "wird verifiziert von", neutral: "Verifikation" },
     en: { downstream: "verifies", upstream: "is verified by", neutral: "Verification" },
   },
+  validates: {
+    de: { downstream: "validiert", upstream: "wird validiert durch", neutral: "Validierung" },
+    en: { downstream: "validates", upstream: "is validated by", neutral: "Validation" },
+  },
   decides: {
     de: { downstream: "entscheidet über", upstream: "wird entschieden durch", neutral: "Entscheidung" },
     en: { downstream: "decides", upstream: "is decided by", neutral: "Decision" },
@@ -90,7 +94,7 @@ export const FALLBACK_TRI_LABELS: Record<string, TriLabelEntry> = {
  * Resolve a link-type label.
  *
  * The catalog label wins. The static table above is only the pre-load
- * fallback for the eleven built-in keys — a tenant-invented type has no
+ * fallback for the built-in keys — a tenant-invented type has no
  * static entry and renders as its raw key until the catalog arrives.
  */
 export function getTriLabel(
@@ -109,7 +113,7 @@ export function getTriLabel(
  * ReqTraceLinkPanel, TracePanel, TraceLinkPanel, trace-link-display,
  * TraceabilityView, plus the create-link dialog and workspace settings
  * before Task 23). Derived from `FALLBACK_TRI_LABELS`, so it only covers the
- * eleven built-in keys — a tenant-invented type falls back to its raw key,
+ * built-in keys — a tenant-invented type falls back to its raw key,
  * same as `getTriLabel`.
  */
 export const LINK_TYPE_LABELS: Record<string, string> = Object.fromEntries(
@@ -118,6 +122,6 @@ export const LINK_TYPE_LABELS: Record<string, string> = Object.fromEntries(
 
 /**
  * Returns the human-readable (EN neutral) label for a link type, falling
- * back to the raw key for anything outside the eleven built-in types.
+ * back to the raw key for anything outside the built-in types.
  */
 export const getLinkTypeLabel = (lt: string): string => LINK_TYPE_LABELS[lt] ?? lt;

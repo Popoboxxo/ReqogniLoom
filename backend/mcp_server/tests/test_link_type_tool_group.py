@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from link_types.builtin import builtin_definition
+from link_types.builtin import BUILTIN_LINK_TYPES, builtin_definition
 
 
 @pytest.fixture
@@ -86,7 +86,10 @@ def test_list_returns_the_workspace_catalog(group, env):
         api_key="k",
     )
     assert result.success is True
-    assert len(result.data["link_types"]) == 11
+    keys = {lt["key"] for lt in result.data["link_types"]}
+    # Membership, not a pinned total: the catalog grows with the plan series.
+    assert "validates" in keys
+    assert len(result.data["link_types"]) == len(BUILTIN_LINK_TYPES)
 
 
 @pytest.mark.django_db
