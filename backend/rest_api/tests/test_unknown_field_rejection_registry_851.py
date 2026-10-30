@@ -160,6 +160,25 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     "FieldChangeSerializer": "read-only response serializer",
     "DiffItemSerializer": "read-only response serializer",
     "BaselineDiffSerializer": "read-only response serializer",
+    # #878: the validation coverage report's response contract. The action
+    # answers a service-built dict and takes its input from query parameters
+    # only, so no request body ever binds to one of these classes.
+    "NeedValidationCoverageResponseSerializer": (
+        "read-only 200 body of GET /api/v1/needs/validation-coverage/ (#878); "
+        "the route reads its input from query parameters, never a request body"
+    ),
+    "NeedValidationCoverageSummarySerializer": (
+        "nested read-only summary block of "
+        "NeedValidationCoverageResponseSerializer (#878)"
+    ),
+    "NeedValidationCoverageEntrySerializer": (
+        "nested read-only need row of NeedValidationCoverageResponseSerializer "
+        "(#878)"
+    ),
+    "NeedValidationCoverageTestCaseSerializer": (
+        "nested read-only test-case row of NeedValidationCoverageEntrySerializer "
+        "(#878)"
+    ),
     # #1388/M3 + F6: response shapes added for the OpenAPI contract. The CSV
     # import's request body is the inline multipart ``CsvImportUpload`` and the
     # suggestion accept/reject bodies are ``None``/``SuggestionRejectBody`` —
