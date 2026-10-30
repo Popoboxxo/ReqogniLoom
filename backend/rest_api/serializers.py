@@ -1276,6 +1276,50 @@ class StakeholderNeedSerializer(
     updated_at = serializers.DateTimeField(read_only=True, source="modified_at")
 
 
+class NeedValidationCoverageTestCaseSerializer(serializers.Serializer):
+    """One validating TestCase row of a need (#878)."""
+
+    id = serializers.CharField(help_text="Artifact id of the TestCase.")
+    title = serializers.CharField(allow_blank=True)
+    latest_result = serializers.CharField(
+        help_text=(
+            "Display label of the newest TestRunResult, or 'Not Run' when the "
+            "test case was never executed (same shape as the VCRM)."
+        )
+    )
+
+
+class NeedValidationCoverageEntrySerializer(serializers.Serializer):
+    """One StakeholderNeed row of the validation coverage report (#878)."""
+
+    need_id = serializers.CharField()
+    uid = serializers.CharField(allow_blank=True)
+    title = serializers.CharField(allow_blank=True)
+    test_cases = NeedValidationCoverageTestCaseSerializer(many=True)
+
+
+class NeedValidationCoverageSummarySerializer(serializers.Serializer):
+    """Summary block of the validation coverage report (#878)."""
+
+    total = serializers.IntegerField()
+    covered = serializers.IntegerField()
+    percentage = serializers.FloatField()
+    pending_ai_review = serializers.IntegerField()
+
+
+class NeedValidationCoverageResponseSerializer(serializers.Serializer):
+    """Response contract of ``GET /api/v1/needs/validation-coverage/`` (#878).
+
+    The StakeholderNeed counterpart of the Requirement coverage report: the
+    summary plus one row per active need, ordered by ``uid`` then ``need_id``
+    (D-SORT). A need counts as validated when at least one ``validates`` link
+    comes from a live TestCase that counts as verification evidence (#424).
+    """
+
+    summary = NeedValidationCoverageSummarySerializer()
+    needs = NeedValidationCoverageEntrySerializer(many=True)
+
+
 class ArchitectureElementSerializer(
     ClientUidRejectionMixin,
     WorkflowStateSerializerMixin,

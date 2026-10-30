@@ -666,15 +666,20 @@ class CrossCuttingToolGroup(BaseToolGroup):
         {
             "name": "traceability.coverage",
             "description": (
-                "Workspace-wide requirement-to-TestCase coverage (issue #410): "
-                "total / covered / uncovered counts and the covered percentage "
-                "for every Requirement in the workspace. Optional "
-                "``artifact_type`` / ``link_type`` filters and "
-                "``include_outdated``. Answers 'what is the V&V status of this "
-                "workspace?' in one call, unlike ``context.test_coverage`` "
-                "which covers a single Requirement. Response: "
+                "Workspace-wide coverage summary (issue #410). ``kind`` selects "
+                "the report: 'verification' (default) is the "
+                "Requirement-to-TestCase coverage — total / covered / uncovered "
+                "counts and the covered percentage for every Requirement in the "
+                "workspace, with optional ``artifact_type`` / ``link_type`` "
+                "filters and ``include_outdated``. Response: "
                 "result.total/result.covered/result.uncovered/"
-                "result.percentage."
+                "result.percentage. 'validation' (#878) is the StakeholderNeed "
+                "counterpart: a need counts as validated when at least one "
+                "incoming 'validates' link comes from a live TestCase that "
+                "counts as evidence. Response: result.kind='validation' plus "
+                "total/covered/percentage/uncovered_need_ids. Answers 'what is "
+                "the V&V status of this workspace?' in one call, unlike "
+                "``context.test_coverage`` which covers a single Requirement."
             ),
             "inputSchema": {
                 "type": "object",
@@ -682,6 +687,16 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     "workspace_id": {
                         "type": "string",
                         "description": "UUID of the workspace to compute coverage for.",
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": ["verification", "validation"],
+                        "description": (
+                            "Which coverage report to compute: 'verification' "
+                            "(default, Requirements via 'verifies') or "
+                            "'validation' (#878, StakeholderNeeds via "
+                            "'validates'). An unknown value is rejected."
+                        ),
                     },
                     "artifact_type": {
                         "type": "string",
@@ -1812,7 +1827,19 @@ class CrossCuttingToolGroup(BaseToolGroup):
         Read-only (no audit entry). Wraps COMP-TE-003 ``CoverageCalculator``;
         ``workspace_id`` is required so the dispatch read-scoping gate narrows
         the caller's roles to that workspace before the query runs.
+
+        #878 (Plan B B2-T2): ``kind`` selects the report. ``"verification"``
+        (default) is the historical Requirement coverage — its payload stays
+        byte-identical. ``"validation"`` reports StakeholderNeed validation
+        coverage instead.
         """
+        kind = params.get("kind", "verification")
+        if kind not in ("verification", "validation"):
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                "Parameter 'kind' must be one of: 'verification', 'validation'.",
+            )
+
         workspace_id = require_uuid(params, "workspace_id")
         artifact_type = params.get("artifact_type")
         link_type = params.get("link_type")
@@ -1821,8 +1848,22 @@ class CrossCuttingToolGroup(BaseToolGroup):
         from traceability.coverage_calculator import CoverageCalculator
         from traceability.exceptions import InvalidFilterError
 
+        calculator = CoverageCalculator()
         try:
-            report = CoverageCalculator().coverage(
+            if kind == "validation":
+                validation = calculator.validation_coverage(
+                    workspace_id, include_outdated=include_outdated
+                )
+                return ToolResult.ok(
+                    {
+                        "kind": "validation",
+                        "total": validation.total,
+                        "covered": validation.covered,
+                        "percentage": validation.percentage,
+                        "uncovered_need_ids": validation.uncovered,
+                    }
+                )
+            report = calculator.coverage(
                 workspace_id,
                 artifact_type=artifact_type,
                 link_type=link_type,

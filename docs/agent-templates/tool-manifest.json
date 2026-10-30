@@ -6989,13 +6989,21 @@
       "name": "traceability.coverage",
       "prefix": "traceability",
       "is_write": true,
-      "description": "Workspace-wide requirement-to-TestCase coverage (issue #410): total / covered / uncovered counts and the covered percentage for every Requirement in the workspace. Optional ``artifact_type`` / ``link_type`` filters and ``include_outdated``. Answers 'what is the V&V status of this workspace?' in one call, unlike ``context.test_coverage`` which covers a single Requirement. Response: result.total/result.covered/result.uncovered/result.percentage.",
+      "description": "Workspace-wide coverage summary (issue #410). ``kind`` selects the report: 'verification' (default) is the Requirement-to-TestCase coverage — total / covered / uncovered counts and the covered percentage for every Requirement in the workspace, with optional ``artifact_type`` / ``link_type`` filters and ``include_outdated``. Response: result.total/result.covered/result.uncovered/result.percentage. 'validation' (#878) is the StakeholderNeed counterpart: a need counts as validated when at least one incoming 'validates' link comes from a live TestCase that counts as evidence. Response: result.kind='validation' plus total/covered/percentage/uncovered_need_ids. Answers 'what is the V&V status of this workspace?' in one call, unlike ``context.test_coverage`` which covers a single Requirement.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "workspace_id": {
             "type": "string",
             "description": "UUID of the workspace to compute coverage for."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "verification",
+              "validation"
+            ],
+            "description": "Which coverage report to compute: 'verification' (default, Requirements via 'verifies') or 'validation' (#878, StakeholderNeeds via 'validates'). An unknown value is rejected."
           },
           "artifact_type": {
             "type": "string",
