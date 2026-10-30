@@ -116,6 +116,7 @@ class VCRMReportGenerator:
                             component_id=comp_id,
                             test_case_id="",
                             test_result="Not Run",
+                            verification_method=entry.verification_method or "",
                         )
                     )
                 else:
@@ -126,6 +127,7 @@ class VCRMReportGenerator:
                                 component_id=comp_id,
                                 test_case_id=tc.get("id", ""),
                                 test_result=tc.get("result", "Not Run"),
+                                verification_method=entry.verification_method or "",
                             )
                         )
 
@@ -140,18 +142,29 @@ class VCRMReportGenerator:
 
         REQ-L2-TE-013: CSV export is mandatory.
         Returns a valid CSV string with header row.
+
+        #878 (B2-T3): ``verification_method`` is appended as the **last**
+        column so every pre-existing column keeps its position — consumers
+        that read the first four columns by index stay compatible.
         """
         matrix = self.generate_vcrm(workspace_id=workspace_id, baseline_id=baseline_id)
 
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(["requirement_id", "component_id", "test_case_id", "test_result"])
+        writer.writerow([
+            "requirement_id",
+            "component_id",
+            "test_case_id",
+            "test_result",
+            "verification_method",
+        ])
         for row in matrix.rows:
             writer.writerow([
                 row.requirement_id,
                 row.component_id,
                 row.test_case_id,
                 row.test_result,
+                row.verification_method,
             ])
         return output.getvalue()
 
@@ -162,8 +175,8 @@ class VCRMReportGenerator:
     ) -> bytes:
         """Export the VCRM matrix as a PDF.
 
-        REQ-L2-TE-013 / REQ-L2-AS-016: PDF export renders the 4-column
-        VCRM matrix (Requirement × Component × TestCase × Result) via reportlab.
+        REQ-L2-TE-013 / REQ-L2-AS-016: PDF export renders the VCRM matrix
+        (Requirement × Component × TestCase × Result × Method) via reportlab.
         """
         matrix = self.generate_vcrm(workspace_id=workspace_id, baseline_id=baseline_id)
         return _render_vcrm_pdf(matrix, workspace_id)
@@ -223,8 +236,9 @@ class VCRMReportGenerator:
 def _render_vcrm_pdf(matrix: VCRMMatrix, workspace_id: uuid.UUID) -> bytes:
     """Render VCRM matrix as PDF document.
 
-    Renders a 4-column table: Requirement | Component | TestCase | Result
-    One row per VCRM entry.
+    Renders a 5-column table: Requirement | Component | TestCase | Result | Method
+    One row per VCRM entry. A requirement without a verification method
+    renders ``(none)`` in the Method column (#878, B2-T3).
 
     Args:
         matrix: VCRMMatrix containing rows to render.
@@ -290,6 +304,7 @@ def _render_vcrm_pdf(matrix: VCRMMatrix, workspace_id: uuid.UUID) -> bytes:
         Paragraph("<b>Component</b>", cell_style),
         Paragraph("<b>Test Case</b>", cell_style),
         Paragraph("<b>Result</b>", cell_style),
+        Paragraph("<b>Method</b>", cell_style),
     ]
 
     table_data = [header]
@@ -298,17 +313,19 @@ def _render_vcrm_pdf(matrix: VCRMMatrix, workspace_id: uuid.UUID) -> bytes:
         req_id_short = str(row.requirement_id)[:8]
         comp_id_short = str(row.component_id)[:8] if row.component_id else "(none)"
         tc_id_short = str(row.test_case_id)[:8] if row.test_case_id else "(none)"
+        method_short = row.verification_method or "(none)"
 
         table_data.append([
             Paragraph(req_id_short, cell_style),
             Paragraph(comp_id_short, cell_style),
             Paragraph(tc_id_short, cell_style),
             Paragraph(row.test_result, cell_style),
+            Paragraph(method_short, cell_style),
         ])
 
     # Calculate column widths
     available_width = page_size[0] - 30 * mm  # page width minus margins
-    col_widths = [available_width / 4] * 4
+    col_widths = [available_width / 5] * 5
 
     table = Table(table_data, colWidths=col_widths, repeatRows=1)
     table.setStyle(

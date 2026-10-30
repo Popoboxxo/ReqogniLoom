@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import io
+import uuid
 
 import pytest
 
@@ -137,6 +138,8 @@ class TestVCRMGeneration:
             assert "component_id" in row
             assert "test_case_id" in row
             assert "test_result" in row
+            # #878: additive key — the pre-existing keys stay untouched.
+            assert "verification_method" in row
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +156,13 @@ class TestCSVExport:
 
         reader = csv.reader(io.StringIO(csv_str))
         header = next(reader)
-        assert header == ["requirement_id", "component_id", "test_case_id", "test_result"]
+        assert header == [
+            "requirement_id",
+            "component_id",
+            "test_case_id",
+            "test_result",
+            "verification_method",
+        ]
 
     def test_csv_has_data_row_per_requirement(
         self, vcrm_gen, tenant_a, workspace_a
@@ -193,7 +202,147 @@ class TestCSVExport:
         rows = list(csv.reader(io.StringIO(csv_str)))
         # Only the header row
         assert len(rows) == 1
-        assert rows[0] == ["requirement_id", "component_id", "test_case_id", "test_result"]
+        assert rows[0] == [
+            "requirement_id",
+            "component_id",
+            "test_case_id",
+            "test_result",
+            "verification_method",
+        ]
+
+
+# ---------------------------------------------------------------------------
+# #878 (B2-T3): verification_method in the VCRM
+# ---------------------------------------------------------------------------
+
+class TestVCRMVerificationMethod:
+    """#878: verification_method is carried through matrix, CSV and PDF."""
+
+    @staticmethod
+    def _set_method(req, method: str | None) -> None:
+        """Set ``verification_method`` on a requirement row."""
+        req.verification_method = method
+        req.save(update_fields=["verification_method"])
+
+    def test_vcrm_row_carries_verification_method(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """A row exposes the requirement's verification_method."""
+        with active_tenant(tenant_a):
+            _, req = make_requirement(tenant_a, workspace_a, "R-Method")
+            self._set_method(req, "Test")
+            matrix = vcrm_gen.generate_vcrm(workspace_a.id)
+
+        row = next(r for r in matrix.rows if r.requirement_id == str(req.id))
+        assert row.verification_method == "Test"
+
+    def test_vcrm_row_without_method_is_empty_string(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """An unset verification_method is an empty string, never None."""
+        with active_tenant(tenant_a):
+            _, req = make_requirement(tenant_a, workspace_a, "R-NoMethod")
+            matrix = vcrm_gen.generate_vcrm(workspace_a.id)
+
+        row = next(r for r in matrix.rows if r.requirement_id == str(req.id))
+        assert row.verification_method == ""
+
+    def test_csv_appends_verification_method_column(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """CSV header ends with verification_method; the value is carried."""
+        with active_tenant(tenant_a):
+            art_req, req = make_requirement(tenant_a, workspace_a, "R-CSV")
+            self._set_method(req, "Test")
+            art_tc, _tc = make_test_case(tenant_a, workspace_a, "TC-CSV")
+            make_trace_link(art_tc, art_req, tenant_a, "verifies")
+
+            csv_str = vcrm_gen.export_vcrm_csv(workspace_a.id)
+
+        rows = list(csv.reader(io.StringIO(csv_str)))
+        assert rows[0] == [
+            "requirement_id",
+            "component_id",
+            "test_case_id",
+            "test_result",
+            "verification_method",
+        ]
+
+        data_row = next(row for row in rows[1:] if row[2] == str(art_tc.id))
+        assert data_row[4] == "Test"
+
+    def test_csv_keeps_existing_column_positions(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """Regression: the four pre-existing columns keep their index.
+
+        #878 appends the new column at the END only; a consumer reading
+        columns 0-3 by index must keep working.
+        """
+        with active_tenant(tenant_a):
+            art_req, req = make_requirement(tenant_a, workspace_a, "R-Pos")
+            self._set_method(req, "Analysis")
+            art_tc, _tc = make_test_case(tenant_a, workspace_a, "TC-Pos")
+            make_trace_link(art_tc, art_req, tenant_a, "verifies")
+
+            csv_str = vcrm_gen.export_vcrm_csv(workspace_a.id)
+
+        header = next(csv.reader(io.StringIO(csv_str)))
+        # First four positions unchanged, in order.
+        assert header[:4] == [
+            "requirement_id",
+            "component_id",
+            "test_case_id",
+            "test_result",
+        ]
+        assert header[4:] == ["verification_method"]
+
+        data_row = next(
+            row
+            for row in list(csv.reader(io.StringIO(csv_str)))[1:]
+            if row[2] == str(art_tc.id)
+        )
+        assert data_row[0] == str(req.id)
+        assert data_row[1] == ""  # no allocation → empty component
+        assert data_row[2] == str(art_tc.id)
+        assert data_row[3] == "Not Run"
+        assert data_row[4] == "Analysis"
+
+    def test_pdf_method_column_renders_none_placeholder(self):
+        """PDF Method column shows '(none)' for an empty method (#878)."""
+        from pypdf import PdfReader
+
+        from traceability.types import VCRMMatrix, VCRMRow
+        from traceability.vcrm_report_generator import _render_vcrm_pdf
+
+        matrix = VCRMMatrix(
+            rows=[
+                VCRMRow(
+                    requirement_id="req-with-method",
+                    component_id="comp-1",
+                    test_case_id="tc-1",
+                    test_result="Passed",
+                    verification_method="Analysis",
+                ),
+                VCRMRow(
+                    requirement_id="req-without-method",
+                    component_id="comp-1",
+                    test_case_id="tc-1",
+                    test_result="Passed",
+                    verification_method="",
+                ),
+            ]
+        )
+        pdf_bytes = _render_vcrm_pdf(matrix, uuid.UUID(int=1))
+
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        text = "".join(page.extract_text() or "" for page in reader.pages)
+
+        assert "Method" in text
+        assert "Analysis" in text
+        # Only the method column may render "(none)" here: every row has a
+        # component and a test case, so the placeholder is unambiguous.
+        assert "(none)" in text
 
 
 # ---------------------------------------------------------------------------

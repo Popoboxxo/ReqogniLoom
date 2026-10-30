@@ -205,6 +205,11 @@ class RequirementCoverageEntry:
     uid: str = ""
     title: str = ""
     level: int | None = None
+    #: #878 (B2-T3): the requirement's ``verification_method``
+    #: (Test/Review/Analysis/Inspection/Demonstration), additive so the VCRM
+    #: can show *how* a requirement is to be verified. ``None`` when the
+    #: requirement has no method set.
+    verification_method: str | None = None
 
 
 @dataclass
@@ -289,6 +294,9 @@ class VCRMRow:
     component_id: str
     test_case_id: str
     test_result: str  # "Passed" | "Failed" | "Not Run"
+    #: #878 (B2-T3): the requirement's verification method, empty when unset.
+    #: Appended last so existing field positions stay stable.
+    verification_method: str = ""
 
 
 @dataclass
@@ -305,6 +313,8 @@ class VCRMMatrix:
                     "component_id": r.component_id,
                     "test_case_id": r.test_case_id,
                     "test_result": r.test_result,
+                    # #878 (B2-T3): additive — existing keys keep their order.
+                    "verification_method": r.verification_method,
                 }
                 for r in self.rows
             ]

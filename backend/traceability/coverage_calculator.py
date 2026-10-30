@@ -420,7 +420,12 @@ class CoverageCalculator:
         # Load requirements in workspace
         req_qs = Requirement.objects.filter(artifact__workspace_id=workspace_id)
         requirements = list(
-            req_qs.values("id", "artifact_id", "title", "uid", "level")
+            req_qs.values(
+                "id", "artifact_id", "title", "uid", "level",
+                # #878 (B2-T3): carried into the VCRM rows. Explicit whitelist
+                # on purpose — never widen this to a bare ``.values()``.
+                "verification_method",
+            )
         )
         if not include_outdated:
             requirements = self._exclude_outdated(requirements, "Requirement")
@@ -489,6 +494,7 @@ class CoverageCalculator:
                 uid=r["uid"] or "",
                 title=r["title"] or "",
                 level=r["level"],
+                verification_method=r["verification_method"],
             )
             for r in requirements
         ]

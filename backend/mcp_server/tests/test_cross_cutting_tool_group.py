@@ -778,6 +778,9 @@ def test_traceability_vcrm_json_and_csv(requirement_with_tests, auth_ctx):
     assert json_res.success is True
     assert "rows" in json_res.data
     assert "row_count" in json_res.data
+    # #878: additive key on every JSON row.
+    assert json_res.data["rows"], "fixture must yield at least one VCRM row"
+    assert "verification_method" in json_res.data["rows"][0]
 
     csv_res = group.execute_tool(
         "traceability.vcrm",
@@ -787,8 +790,9 @@ def test_traceability_vcrm_json_and_csv(requirement_with_tests, auth_ctx):
     )
     assert csv_res.success is True
     assert csv_res.data["format"] == "csv"
+    # #878: verification_method is appended last; the prefix is unchanged.
     assert csv_res.data["csv"].startswith(
-        "requirement_id,component_id,test_case_id,test_result"
+        "requirement_id,component_id,test_case_id,test_result,verification_method"
     )
 
 
