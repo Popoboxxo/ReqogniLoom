@@ -16,7 +16,7 @@ explizite Schreib-Einstieg (`--apply`, `POST …/apply/`, `attribute_migration.a
 | Plan | item_type | Was | Wo | Transform |
 |---|---|---|---|---|
 | `rationale_from_description.yaml` | Requirement | `description` → `custom_fields.rationale` (copy) | §8.1 | `extract_rationale` |
-| `priority_backfill.yaml` | Requirement | leeres `Artifact.priority` füllen | §8.2 | `derive_from_link` (`derives-from` → `StakeholderNeed.moscow_priority`), Fallback `"Should"` |
+| `priority_backfill.yaml` | Requirement | leeres `Artifact.priority` füllen | §8.2 | `derive_from_link` (`derives-from` → `StakeholderNeed.moscow_priority`), dann `map_value` (MoSCoW → Definitionsskala), Fallback `"medium"` |
 | `backfill_requirement_uid.yaml` | Requirement | leere `Requirement.uid` mit `REQ-NNN` füllen | #932 | `sequence` (`application.local_uid`) |
 | `stakeholder_need_moscow_priority_fold.yaml` | StakeholderNeed | Legacy-Modellspalte `moscow_priority` → `custom_fields.moscow_priority` (copy) | Matrix §2 | `trim` |
 | `risk_owner_to_actor.yaml` | Risk | `owner_user`/`owner_name` → `Artifact.owner`, `created_by_name` → `Artifact.reporter` | Matrix §6 | `to_actor` |

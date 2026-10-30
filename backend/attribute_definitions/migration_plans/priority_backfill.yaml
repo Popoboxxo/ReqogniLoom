@@ -1,11 +1,12 @@
 # AWMS first-plan set (spec §8.2): priority-Backfill fuer Requirement.
-# Strategie: derive_from_link ueber derives-from -> StakeholderNeed.moscow_priority,
-# Fallback "Should", only_if target_is_empty -> idempotent.
+# Strategie: derive_from_link ueber derives-from -> StakeholderNeed.moscow_priority
+# (Fallback "medium"), danach map_value MoSCoW -> Definitionsskala
+# (low|medium|high|critical, ENT-B5 = a); only_if target_is_empty -> idempotent.
 version: 1
 id: 2026-09-priority-backfill
 description: >-
   Requirement.priority (Artifact-Systemfeld) fuer leere Werte nachziehen: zuerst
-  aus dem verlinkten StakeholderNeed.moscow_priority ableiten, sonst "Should".
+  aus dem verlinkten StakeholderNeed.moscow_priority ableiten, sonst "medium".
 scope:
   tenant: current
   item_type: Requirement
@@ -24,7 +25,24 @@ steps:
       link_type: derives-from
       direction: outgoing
       source_attr: moscow_priority
-    fallback: "Should"
+    fallback: "medium"
     only_if: "target_is_empty"
+  # map_value runs over EVERY row, including rows whose priority was already
+  # valid before the run. The identity entries below are therefore mandatory:
+  # without them enum_map would hit the fallback and silently rewrite user-set
+  # priorities ("high"/"critical") to "medium" — data loss, and it would break
+  # the second-apply idempotency.
+  - op: map_value
+    target: {target: model_field, name: priority}
+    value_map:
+      Must: high
+      Should: medium
+      Could: low
+      "Won't": low
+      high: high
+      medium: medium
+      low: low
+      critical: critical
+    fallback: "medium"
   - op: verify
     assertions: ["failed == 0"]

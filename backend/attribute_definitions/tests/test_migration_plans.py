@@ -214,6 +214,9 @@ class TestRationaleFromDescription:
 # ---------------------------------------------------------------------------
 
 
+PRIORITY_DEFINITION_OPTIONS = frozenset({"low", "medium", "high", "critical"})
+
+
 class TestPriorityBackfill:
     def _plan(self):
         return load_plan_file(plan_path("priority_backfill.yaml"))
@@ -245,8 +248,79 @@ class TestPriorityBackfill:
 
         report = service.apply(admin_ctx, self._plan())
         assert report["status"] == "applied"
-        assert _reload(derived_artifact).priority == "Must"
-        assert _reload(orphan_artifact).priority == "Should"
+        assert _reload(derived_artifact).priority == "high"
+        assert _reload(orphan_artifact).priority == "medium"
+
+    def test_priority_backfill_writes_definition_vocabulary(
+        self, service, admin_ctx, tenant, workspace
+    ) -> None:
+        """B1-T4/R-B1-3: write the definition scale, never the MoSCoW word.
+
+        The MoSCoW value derived from the linked need is mapped onto
+        ``low|medium|high|critical``; the unlinked row falls back to ``medium``.
+        Every written value must be a member of the definition's option set.
+        """
+        linked_artifact = _artifact(tenant, workspace, "Requirement")
+        Requirement.objects.create(
+            tenant_id=tenant.id, artifact=linked_artifact, title="linked"
+        )
+        need_artifact = _artifact(tenant, workspace, "StakeholderNeed")
+        StakeholderNeed.objects.create(
+            tenant_id=tenant.id,
+            artifact=need_artifact,
+            title="need",
+            moscow_priority="Must",
+        )
+        TraceLink.objects.create(
+            tenant_id=tenant.id,
+            source_id=linked_artifact.id,
+            target_id=need_artifact.id,
+            link_type="derives-from",
+        )
+        orphan_artifact = _artifact(tenant, workspace, "Requirement")
+        Requirement.objects.create(
+            tenant_id=tenant.id, artifact=orphan_artifact, title="orphan"
+        )
+
+        report = service.apply(admin_ctx, self._plan())
+        assert report["status"] == "applied"
+        assert _reload(linked_artifact).priority == "high"
+        assert _reload(orphan_artifact).priority == "medium"
+        for artifact in (linked_artifact, orphan_artifact):
+            assert _reload(artifact).priority in PRIORITY_DEFINITION_OPTIONS
+
+    def test_map_value_preserves_existing_definition_priorities(
+        self, service, admin_ctx, tenant, workspace
+    ) -> None:
+        """Identity entries: a valid priority must survive, not hit the fallback.
+
+        ``map_value`` runs over every row, so a missing ``critical->critical`` /
+        ``high->high`` entry would silently rewrite user-set values to
+        ``medium``. The second apply must also stay a no-op.
+        """
+        kept: dict[str, Artifact] = {}
+        for value in ("critical", "high"):
+            artifact = _artifact(tenant, workspace, "Requirement")
+            Requirement.objects.create(
+                tenant_id=tenant.id, artifact=artifact, title=f"kept-{value}"
+            )
+            Artifact.objects.filter(id=artifact.id).update(priority=value)
+            kept[value] = artifact
+        empty_artifact = _artifact(tenant, workspace, "Requirement")
+        Requirement.objects.create(
+            tenant_id=tenant.id, artifact=empty_artifact, title="empty"
+        )
+
+        first = service.apply(admin_ctx, self._plan())
+        assert first["summary"]["changed"] == 1
+        assert _reload(empty_artifact).priority == "medium"
+        for value, artifact in kept.items():
+            assert _reload(artifact).priority == value
+
+        second = service.apply(admin_ctx, self._plan())
+        assert second["summary"]["changed"] == 0
+        for value, artifact in kept.items():
+            assert _reload(artifact).priority == value
 
     def test_second_apply_is_idempotent(self, service, admin_ctx, tenant, workspace) -> None:
         artifact = _artifact(tenant, workspace, "Requirement")
@@ -261,7 +335,7 @@ class TestPriorityBackfill:
         artifact = _artifact(tenant, workspace, "Requirement")
         Requirement.objects.create(tenant_id=tenant.id, artifact=artifact, title="R")
         report = service.apply(admin_ctx, self._plan())
-        assert _reload(artifact).priority == "Should"
+        assert _reload(artifact).priority == "medium"
         service.rollback(admin_ctx, report["run_id"])
         assert _reload(artifact).priority == ""
 
