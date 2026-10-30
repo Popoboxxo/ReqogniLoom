@@ -30,8 +30,11 @@ import { requirementsApi } from "../../api/requirements";
 import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useInitialFormValues } from "../../hooks/useInitialFormValues";
+import { useQualityBadge } from "../../queries/quality";
 import { REQ_CATEGORY_OPTIONS, type Requirement } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
+import { QualityBadge } from "../shared/QualityBadge";
+import { QualityPanel } from "../shared/QualityPanel";
 
 /**
  * Server-owned fields the form must never send back.
@@ -144,15 +147,18 @@ export function RequirementArtifactForm({
 }: RequirementArtifactFormProps): JSX.Element {
   const { activeWorkspace } = useWorkspace();
   const initialValues = useInitialFormValues(requirement, requirementToFormValues);
+  const quality = useQualityBadge(requirement.workspace_id, "Requirement", requirement.id, requirement.version);
 
   return (
-    <ArtifactForm
+    <>
+      <ArtifactForm
       itemType="Requirement"
       artifactId={requirement.id}
       initialValues={initialValues}
       attributeOverrides={REQUIREMENT_ATTRIBUTE_OVERRIDES}
       workflowArtifactType="requirement"
       requiresChangeReason={activeWorkspace?.preset === "extended"}
+      headerActions={<QualityBadge latest={quality.latest} stale={quality.stale} open={quality.open} onToggle={quality.toggle} />}
       onDirtyChange={onDirtyChange}
       onSave={async (values) => {
         const patch = formValuesToRequirementPatch(values);
@@ -182,5 +188,7 @@ export function RequirementArtifactForm({
         onDeleted();
       }}
     />
+      {quality.open ? <QualityPanel workspaceId={requirement.workspace_id} entityType="Requirement" entityId={requirement.id} entityVersion={requirement.version} /> : null}
+    </>
   );
 }

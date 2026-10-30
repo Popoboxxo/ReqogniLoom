@@ -16,8 +16,11 @@
 import { adrsApi } from "../../api/adrs";
 import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import { useInitialFormValues } from "../../hooks/useInitialFormValues";
+import { useQualityBadge } from "../../queries/quality";
 import type { Adr } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
+import { QualityBadge } from "../shared/QualityBadge";
+import { QualityPanel } from "../shared/QualityPanel";
 
 const READ_ONLY_KEYS = new Set([
   "id",
@@ -66,9 +69,11 @@ export function AdrArtifactForm({
   onDirtyChange,
 }: AdrArtifactFormProps): JSX.Element {
   const initialValues = useInitialFormValues(adr, adrToFormValues);
+  const quality = useQualityBadge(adr.workspace_id, "Adr", adr.id, adr.version);
 
   return (
-    <ArtifactForm
+    <>
+      <ArtifactForm
       itemType="Adr"
       artifactId={adr.id}
       initialValues={initialValues}
@@ -78,6 +83,7 @@ export function AdrArtifactForm({
       // workflow-route family ("adr", see WorkflowStatusEditor/workflow-
       // transitions.ts and the deleted AdrForm's own `artifactType="adr"`).
       workflowArtifactType="adr"
+      headerActions={<QualityBadge latest={quality.latest} stale={quality.stale} open={quality.open} onToggle={quality.toggle} />}
       onDirtyChange={onDirtyChange}
       onSave={async (values) => {
         const saved = await adrsApi.update(adr.id, formValuesToAdrPatch(values));
@@ -89,5 +95,7 @@ export function AdrArtifactForm({
         onDeleted();
       }}
     />
+      {quality.open ? <QualityPanel workspaceId={adr.workspace_id} entityType="Adr" entityId={adr.id} entityVersion={adr.version} /> : null}
+    </>
   );
 }

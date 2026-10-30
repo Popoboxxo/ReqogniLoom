@@ -1,8 +1,11 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveLocaleKey } from "./i18n-test-helpers";
+// The form reads its quality verdict through TanStack Query, so every mount
+// needs a real provider (see the shared helper's doc comment).
+import { renderWithQueryClient as render } from "./query-client";
 import { testcasesApi } from "../api/testcases";
 import { workflowTransitionsApi } from "../api/workflow-transitions";
 import { attributeDefinitionsApi } from "../api/attribute-definitions";
@@ -229,6 +232,8 @@ describe("TestCaseArtifactForm", () => {
     );
     expect(await screen.findByTestId("tc-reviewed-badge")).toBeInTheDocument();
     expect(screen.queryByTestId("tc-review-button")).toBeNull();
+    // B5-T5: the quality badge shares the form header with the review action.
+    expect(screen.getByTestId("quality-badge")).toBeInTheDocument();
   });
 
   it("announces a failed review without hiding the button (#424)", async () => {

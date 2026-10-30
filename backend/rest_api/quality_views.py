@@ -7,11 +7,13 @@ query and holds no domain logic, ADR-01):
     POST /api/v1/workspaces/<workspace_id>/quality/assess/
     GET  /api/v1/workspaces/<workspace_id>/quality/<entity_type>/<entity_id>/
 
-They are the REST twin of the MCP ``quality.*`` group and share the service's
-wire payload (``quality_service.assessment_payload``), so the transports cannot
-drift. ``workspace_id`` comes from the URL and nowhere else: the service binds
-every lookup to it, so a foreign-workspace entity is a 404 and the ADR-011
-scope classifier fences the caller's roles against the same workspace.
+They are the REST twin of the MCP ``quality.*`` group and both start from the
+service's wire payload (``quality_service.assessment_payload``), so the keys they
+share cannot drift; REST adds ``entity_version`` on top (see
+:func:`_assessment_payload`, Plan B § B5-T5). ``workspace_id`` comes from the URL
+and nowhere else: the service binds every lookup to it, so a foreign-workspace
+entity is a 404 and the ADR-011 scope classifier fences the caller's roles
+against the same workspace.
 
 Status codes: 201 new / 200 cached verdict, 400 ``VALIDATION_ERROR`` (malformed
 body, unassessable type, bad ``limit``), 403 (viewer on the write route), 404
@@ -34,7 +36,7 @@ from rest_framework.views import APIView
 from application.quality_service import (
     MAX_HISTORY_LIMIT,
     QualityService,
-    assessment_payload,
+    assessment_payload as _service_assessment_payload,
 )
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
@@ -54,6 +56,7 @@ class QualityAssessmentSerializer(serializers.Serializer):
     assessment_id = serializers.UUIDField()
     entity_type = serializers.CharField()
     entity_id = serializers.UUIDField()
+    entity_version = serializers.IntegerField(allow_null=True)
     score = serializers.FloatField(min_value=0.0, max_value=1.0)
     reasoning = serializers.CharField(allow_blank=True)
     suggestions = serializers.ListField(child=serializers.CharField())
@@ -98,6 +101,26 @@ class QualityHistorySerializer(serializers.Serializer):
 def _error(exc: Exception, lang: str) -> Response:
     """Map a service exception onto the canonical error envelope."""
     return _service_error_response(exc, lang)
+
+
+def _assessment_payload(
+    assessment: Any, *, cached: bool = False
+) -> dict[str, Any]:
+    """REST wire form of one assessment row.
+
+    Wraps the shared builder (``quality_service.assessment_payload``, which the
+    MCP ``quality.*`` group also uses) and adds the REST-only ``entity_version``
+    key required by Plan B § B5-T5 (``quality-stale-hint``, #378): without the
+    revision the verdict refers to, the UI cannot tell a current assessment from
+    one pinned to an older content revision. ``null`` means the assessed entity
+    carried no version counter.
+
+    Additive only — every key of the shared payload is passed through untouched,
+    so the transports still agree on the keys they share.
+    """
+    payload = _service_assessment_payload(assessment, cached=cached)
+    payload["entity_version"] = assessment.entity_version
+    return payload
 
 
 class QualityAssessView(APIView):
@@ -152,7 +175,7 @@ class QualityAssessView(APIView):
         except Exception as exc:  # noqa: BLE001 — mapped by _error
             return _error(exc, lang)
         return Response(
-            assessment_payload(assessment, cached=cached),
+            _assessment_payload(assessment, cached=cached),
             status=status.HTTP_200_OK if cached else status.HTTP_201_CREATED,
         )
 
@@ -202,8 +225,8 @@ class QualityHistoryView(APIView):
             return _error(exc, lang)
         return Response(
             {
-                "assessments": [assessment_payload(row) for row in rows],
+                "assessments": [_assessment_payload(row) for row in rows],
                 "count": len(rows),
-                "latest": assessment_payload(rows[0]) if rows else None,
+                "latest": _assessment_payload(rows[0]) if rows else None,
             }
         )

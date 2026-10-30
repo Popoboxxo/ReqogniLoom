@@ -10,8 +10,11 @@
 import { risksApi } from "../../api/risks";
 import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import { useInitialFormValues } from "../../hooks/useInitialFormValues";
+import { useQualityBadge } from "../../queries/quality";
 import type { Risk } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
+import { QualityBadge } from "../shared/QualityBadge";
+import { QualityPanel } from "../shared/QualityPanel";
 
 /** Kept here (was in the deleted RiskForm) — RiskEditors imports it for its filter. */
 export const CATEGORY_OPTIONS = [
@@ -90,9 +93,11 @@ export function RiskArtifactForm({
   onDirtyChange,
 }: RiskArtifactFormProps): JSX.Element {
   const initialValues = useInitialFormValues(risk, riskToFormValues);
+  const quality = useQualityBadge(risk.workspace_id, "Risk", risk.id, risk.version);
 
   return (
-    <ArtifactForm
+    <>
+      <ArtifactForm
       itemType="Risk"
       artifactId={risk.id}
       initialValues={initialValues}
@@ -105,6 +110,7 @@ export function RiskArtifactForm({
       // RiskForm's own `artifactType="risk"`). `"Risk"` is not a member of
       // `WorkflowArtifactType` and fails to compile.
       workflowArtifactType="risk"
+      headerActions={<QualityBadge latest={quality.latest} stale={quality.stale} open={quality.open} onToggle={quality.toggle} />}
       onDirtyChange={onDirtyChange}
       onSave={async (values) => {
         const saved = await risksApi.update(risk.id, formValuesToRiskPatch(values));
@@ -116,5 +122,7 @@ export function RiskArtifactForm({
         onDeleted();
       }}
     />
+      {quality.open ? <QualityPanel workspaceId={risk.workspace_id} entityType="Risk" entityId={risk.id} entityVersion={risk.version} /> : null}
+    </>
   );
 }

@@ -182,6 +182,7 @@ def test_assess_answers_201_then_200_cached(
         "assessment_id",
         "entity_type",
         "entity_id",
+        "entity_version",
         "score",
         "reasoning",
         "suggestions",
@@ -293,6 +294,50 @@ def test_history_returns_assessments_and_latest(
     assert payload["latest"]["assessment_id"] == payload["assessments"][0][
         "assessment_id"
     ]
+
+
+def test_payload_carries_entity_version(
+    editor_client: APIClient, workspace, requirement, provider
+):
+    """Plan B § B5-T5 (``quality-stale-hint``): the payload must say which entity
+    revision a verdict refers to, or the UI cannot detect a stale assessment.
+
+    #378 extends the B5-T3 response list by this one key; the value is compared
+    against the persisted row, so the contract cannot silently degrade to
+    ``null``.
+    """
+    created = editor_client.post(
+        _assess_url(workspace), _body(requirement), format="json"
+    )
+    assert created.status_code == 201, created.content
+
+    row = QualityAssessment.unscoped.get(pk=created.json()["assessment_id"])
+    assert row.entity_version == requirement.version
+    assert isinstance(row.entity_version, int), "a stale hint key needs a real revision"
+
+    # 1) the assess response
+    payload = created.json()
+    assert "entity_version" in payload
+    assert payload["entity_version"] == row.entity_version
+
+    # 2) the cached replay of the same row
+    cached = editor_client.post(
+        _assess_url(workspace), _body(requirement), format="json"
+    )
+    assert cached.status_code == 200, cached.content
+    assert cached.json()["entity_version"] == row.entity_version
+
+    # 3) every history entry, plus `latest`
+    history = editor_client.get(
+        _history_url(workspace, "Requirement", requirement.id)
+    )
+    assert history.status_code == 200, history.content
+    entries = history.json()["assessments"]
+    assert entries, "expected at least one history entry"
+    for entry in entries:
+        assert "entity_version" in entry
+        assert entry["entity_version"] == row.entity_version
+    assert history.json()["latest"]["entity_version"] == row.entity_version
 
 
 def test_history_empty_is_200_with_null_latest(

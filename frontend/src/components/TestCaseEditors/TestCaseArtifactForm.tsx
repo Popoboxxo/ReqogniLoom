@@ -59,8 +59,11 @@ import type { ScenarioKind } from "../../api/testcases";
 import type { TestCase } from "../../types";
 import { useEntityReset } from "../../hooks/use-entity-reset";
 import { useInitialFormValues } from "../../hooks/useInitialFormValues";
+import { useQualityBadge } from "../../queries/quality";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
 import { Badge } from "../shared/Badge";
+import { QualityBadge } from "../shared/QualityBadge";
+import { QualityPanel } from "../shared/QualityPanel";
 import styles from "./TestCaseArtifactForm.module.css";
 
 const STEPS_WIRE_FIELD = "steps";
@@ -195,9 +198,11 @@ export function TestCaseArtifactForm({
 
   const initialValues = useInitialFormValues(testCase, testCaseToFormValues);
   const isReviewed = testCase.reviewed === true;
+  const quality = useQualityBadge(testCase.workspace_id, "TestCase", testCase.id, testCase.version);
 
   const headerActions = (
     <>
+      <QualityBadge latest={quality.latest} stale={quality.stale} open={quality.open} onToggle={quality.toggle} />
       {isReviewed ? (
         <Badge variant="success" testId="tc-reviewed-badge">
           {t("testcases.reviewed")}
@@ -270,6 +275,8 @@ export function TestCaseArtifactForm({
           onDeleted();
         }}
       />
+
+      {quality.open ? <QualityPanel workspaceId={testCase.workspace_id} entityType="TestCase" entityId={testCase.id} entityVersion={testCase.version} /> : null}
     </>
   );
 }
