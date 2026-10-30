@@ -34,6 +34,12 @@ _OPTIONAL_DEFAULTS: dict[str, Any] = {
 _REQUIRED = ("label", "allowed_pairs", "suspect_rule", "impact_weight")
 _KNOWN = set(_REQUIRED) | set(_OPTIONAL_DEFAULTS)
 
+#: Upper bound for one ``allowed_pairs`` side. The entity side is bounded by the
+#: model (``Artifact.artifact_type`` is 64 characters), so anything longer can
+#: never name an artifact type — it would be stored as a pair that silently
+#: never matches. 80 leaves room for a ``Typ:Subtag`` composition.
+_MAX_PAIR_SIDE_LENGTH = 80
+
 
 def validate_definition_json(payload: Any, *, key: str) -> dict[str, Any]:
     """Validate and normalize one link-type definition.
@@ -152,11 +158,17 @@ def _validate_pair_side(value: str, *, key: str, index: int, side: str) -> str:
     """Normalize one pair side, validating a ``Typ:Subtag`` tag if present."""
     from .catalog import SUBTYPE_FIELDS
 
+    where = f"Link type '{key}': allowed_pairs[{index}].{side}"
+    if len(value) > _MAX_PAIR_SIDE_LENGTH:
+        raise ValidationError(
+            f"{where} is longer than {_MAX_PAIR_SIDE_LENGTH} characters "
+            f"(got {len(value)}). Artifact types are capped at 64 characters, so "
+            f"a longer pair side cannot name one."
+        )
     if ":" not in value:
         return value
 
     base, _, tag = value.partition(":")
-    where = f"Link type '{key}': allowed_pairs[{index}].{side}"
     if value.count(":") > 1:
         raise ValidationError(
             f"{where} carries more than one ':' — use 'Typ:Subtag'."

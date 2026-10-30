@@ -128,11 +128,26 @@ def test_schema_normalizes_the_tag_to_lowercase() -> None:
 
 
 def test_subtype_pair_rejected_for_type_without_registered_subtype_field() -> None:
-    """``Requirement:foo`` — Requirement has no registered subtype field."""
+    """``Requirement:foo`` — Requirement has no registered subtype field.
+
+    Only the stable message prefix is asserted: the register list appended to it
+    grows with :data:`SUBTYPE_FIELDS` (Plan F adds ``Document``), so pinning the
+    rendering would turn every registration into a test failure.
+    """
     payload = _definition([{"source_type": "Requirement:foo", "target_type": "Risk"}])
-    with pytest.raises(
-        ValidationError, match="subtype tag is only supported for: ArchitectureElement"
-    ):
+    with pytest.raises(ValidationError, match="subtype tag is only supported for"):
+        validate_definition_json(payload, key="conflicts-with")
+
+
+def test_an_overlong_pair_side_is_rejected() -> None:
+    """The catalog side is bounded: an 80-character limit matches the model.
+
+    ``Artifact.artifact_type`` is capped at 64 characters, so a longer pair side
+    can never name an artifact type — it is rejected at the write path instead
+    of being stored as a pair that silently never matches.
+    """
+    payload = _definition([{"source_type": "Requirement", "target_type": "A" * 81}])
+    with pytest.raises(ValidationError, match="longer than 80 characters"):
         validate_definition_json(payload, key="conflicts-with")
 
 
@@ -229,9 +244,8 @@ def test_no_subtype_lookup_without_a_subtagged_pair(trace_env) -> None:
     )
 
 
-@pytest.mark.django_db
-def test_rest_rejects_a_subtype_tag_for_an_unregistered_type(workspace) -> None:
-    """The refusal reaches the admin editor as a 400, not only the schema."""
+def _admin_client(workspace: Workspace) -> APIClient:
+    """A logged-in workspace admin — the role the link-type editor requires."""
     suffix = uuid.uuid4().hex[:8]
     user = User.objects.create(
         username=f"pair-{suffix}", email=f"pair-{suffix}@t.test", tenant_id=workspace.tenant_id
@@ -257,6 +271,13 @@ def test_rest_rejects_a_subtype_tag_for_an_unregistered_type(workspace) -> None:
     )
     assert login.status_code == 200, login.content
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.json()['token']}")
+    return client
+
+
+@pytest.mark.django_db
+def test_rest_rejects_a_subtype_tag_for_an_unregistered_type(workspace) -> None:
+    """The refusal reaches the admin editor as a 400, not only the schema."""
+    client = _admin_client(workspace)
 
     response = client.put(
         f"/api/v1/workspaces/{workspace.id}/link-type-definitions/{_KEY}/",
@@ -269,3 +290,17 @@ def test_rest_rejects_a_subtype_tag_for_an_unregistered_type(workspace) -> None:
     )
     assert response.status_code == 400, response.content
     assert "subtype tag is only supported for" in response.json()["detail"]
+
+
+@pytest.mark.django_db
+def test_rest_accepts_a_tagged_pair_round_trip(workspace) -> None:
+    """The tagged notation survives the REST write path unchanged."""
+    client = _admin_client(workspace)
+
+    response = client.put(
+        f"/api/v1/workspaces/{workspace.id}/link-type-definitions/{_KEY}/",
+        data={"definition": _definition([_SUBTYPE_PAIR])},
+        content_type="application/json",
+    )
+    assert response.status_code == 200, response.content
+    assert response.json()["definition"]["allowed_pairs"] == [_SUBTYPE_PAIR]

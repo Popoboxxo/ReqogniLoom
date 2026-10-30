@@ -174,13 +174,23 @@ def validate_link_pair(
     pairs = definition.get("allowed_pairs") or []
 
     for pair in pairs:
+        # A non-mapping entry is a corrupt row: every write path validates the
+        # ``allowed_pairs`` shape, so such an entry can only come from a direct
+        # DB write. Skip it rather than raising AttributeError, so the caller
+        # still gets the regular pair-mismatch ValidationError below.
+        if not isinstance(pair, dict):
+            continue
         if _pair_side_matches(pair.get("source_type"), src) and _pair_side_matches(
             pair.get("target_type"), tgt
         ):
             return
 
     allowed = ", ".join(
-        sorted(f"{p.get('source_type')}->{p.get('target_type')}" for p in pairs)
+        sorted(
+            f"{p.get('source_type')}->{p.get('target_type')}"
+            for p in pairs
+            if isinstance(p, dict)
+        )
     )
     raise ValidationError(
         f"'{link_type}' is not valid from {src or '(unknown)'} to "

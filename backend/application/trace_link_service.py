@@ -105,9 +105,18 @@ MAX_WORKSPACE_LINKS_PAGE_SIZE = 500
 
 
 def _catalog_uses_subtypes(catalog: dict[str, dict[str, Any]]) -> bool:
-    """Does any active link type of this workspace use a ``Typ:Subtag`` pair?"""
+    """Does any active link type of this workspace use a ``Typ:Subtag`` pair?
+
+    A malformed entry is skipped rather than raising: ``allowed_pairs`` is
+    validated on every write path, so a non-mapping here means a corrupt row,
+    and that must surface as a :class:`ValidationError` from
+    :func:`link_types.catalog.validate_link_pair` — not as an ``AttributeError``
+    (HTTP 500) on the way there.
+    """
     for definition in catalog.values():
         for pair in definition.get("allowed_pairs") or ():
+            if not isinstance(pair, dict):
+                continue
             if ":" in str(pair.get("source_type") or "") or ":" in str(
                 pair.get("target_type") or ""
             ):
@@ -140,7 +149,11 @@ def _endpoint_type(artifact: "Artifact", subtype_fields: dict[str, str]) -> str:
             .values_list(field_name, flat=True)
             .first()
         )
-        return f"{base}:{value}" if value else base
+        # Normalise exactly like the write path (``architecture_service``):
+        # a legacy row with ``ElementType``/padded casing would otherwise
+        # compose a tag the catalog can never match.
+        tag = str(value).strip().lower() if value is not None else ""
+        return f"{base}:{tag}" if tag else base
     return artifact.artifact_type
 
 
