@@ -178,4 +178,4 @@ honcho-ai==2.5.1
 # requires regenerating requirements.lock (see the NOTE at the top of this file
 # and backend/REGENERATING_LOCK_FILE.md) — the lock is documentation only and is
 # not installed by Docker/CI.
-qdrant-client>=1.19.1,<2.0
+qdrant-client>=1.20.0,<2.0
