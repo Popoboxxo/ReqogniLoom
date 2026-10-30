@@ -110,6 +110,7 @@ export type WorkspaceTreeNodeType =
   | 'subsystem'
   | 'layer'
   | 'module'
+  | 'function'
   // Architecture element types (display names)
   | 'System'
   | 'Subsystem'
@@ -140,6 +141,7 @@ const TYPE_BADGE_ABBREVIATION: Readonly<Record<WorkspaceTreeNodeType, string>> =
   subsystem: 'SS',
   layer: 'LY',
   module: 'MOD',
+  function: 'FN',
   // Architecture element types (display names)
   System: 'SYS',
   Subsystem: 'SS',

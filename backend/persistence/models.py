@@ -107,7 +107,7 @@ class UserManager(models.Manager):
 
 
 class ElementType(models.TextChoices):
-    """Allowed architecture element types (REQ-L2-AS-004).
+    """Built-in architecture element types (REQ-L2-AS-004).
 
     Values are lowercase for API consistency.  The human-readable label
     (second tuple element) is used by Django admin and serializer choice
@@ -119,6 +119,7 @@ class ElementType(models.TextChoices):
     SUBSYSTEM = "subsystem", "Subsystem"
     LAYER = "layer", "Layer"
     MODULE = "module", "Module"
+    FUNCTION = "function", "Function"
 
 
 class ArchitectureRole(models.TextChoices):

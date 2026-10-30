@@ -17,7 +17,8 @@ export type ElementType =
   | "interface"
   | "subsystem"
   | "layer"
-  | "module";
+  | "module"
+  | "function";
 
 /**
  * Structural role derived from the element's position in the decomposition tree

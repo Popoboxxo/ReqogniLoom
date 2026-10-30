@@ -400,6 +400,7 @@
     "elementType.subsystem": "Subsystem",
     "elementType.layer": "Layer",
     "elementType.module": "Module",
+    "elementType.function": "Function",
     "linkedRequirements": "Linked Requirements",
     "selectElement": "Select an architecture element from the list to view details.",
     "newElementTitle": "New Element",
