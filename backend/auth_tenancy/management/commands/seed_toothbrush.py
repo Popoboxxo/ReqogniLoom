@@ -18,15 +18,23 @@ second one, so a local ``make e2e`` loop does not accumulate duplicates.
 
 Usage:
     python manage.py seed_toothbrush
+    python manage.py seed_toothbrush --backfill-se-attributes   # existing workspace
 """
 from __future__ import annotations
 
 from typing import Any
 
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
+from application.actor_service import ActorService
 from application.adr_service import AdrService
 from application.architecture_service import ArchitectureService
+from application.artifact_attribute_gateway import ArtifactAttributeGateway
+from application.attribute_definition_service import (
+    AttributeDefinitionNotFound,
+    AttributeDefinitionService,
+)
 from application.glossary_service import GlossaryService
 from application.issue_service import IssueService
 from application.requirement_service import RequirementService
@@ -40,9 +48,11 @@ from auth_tenancy.provisioning import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_USERNAM
 from icd.services import IcdCreateDTO, create_icd
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import (
+    Actor,
     Artifact,
     ElementType,
     MoSCoWPriority,
+    Requirement,
     RequirementType,
     StakeholderNeed,
     Tenant,
@@ -51,6 +61,366 @@ from persistence.models import (
 )
 
 WORKSPACE_NAME = "Zahnbürste SysEng Demo"
+
+#: Plan B / WP B1 (B1-T2): SE content per requirement title.
+#:
+#: Every title in ``realistic_l1`` … ``realistic_l5`` maps to a deterministic
+#: ``(acceptance_criteria, rationale)`` pair. The criteria are measurable
+#: ("Gegeben … wenn … dann …" with a quantity and its target), derived from the
+#: title text itself; the rationale states the engineering reason and names the
+#: driving stakeholder need where one exists. Titles (and therefore the
+#: hierarchy the E2E spec asserts) are untouched — this is content, not shape.
+SE_ATTRIBUTES_BY_TITLE: dict[str, tuple[str, str]] = {
+    # ---- L1 System requirements -------------------------------------------------
+    "Der BLDC-Motor muss eine Drehzahl von 5000 RPM erreichen.": (
+        "Gegeben der BLDC-Motor im Nennbetrieb, wenn die Nenndrehzahl angelegt "
+        "wird, dann liegt die gemessene Drehzahl über 10 min Dauerlauf bei "
+        "5000 RPM ± 2 %.",
+        "Die Reinigungsleistung folgt der Antriebsdrehzahl; 5000 RPM ist der aus "
+        "Stakeholder-Need N-01 (gründliche Reinigung) abgeleitete Sollwert.",
+    ),
+    "Die Akkuladezeit darf 3 Stunden nicht überschreiten.": (
+        "Gegeben ein entladener Akku, wenn er an der Ladestation vollständig "
+        "geladen wird, dann ist die Ladezeit ≤ 180 min (Messung mit "
+        "Leistungsmessgerät, Abtastung 1 Hz).",
+        "Need N-12 fordert maximal 4 h Ladezeit; auf Systemebene wird mit 3 h "
+        "eine Reserve für Reisen eingehalten.",
+    ),
+    "Das Gehäuse muss nach IPX7 wasserdicht sein.": (
+        "Gegeben ein geschlossenes Gehäuse, wenn es 30 min bei 1 m Wassertiefe "
+        "getaucht wird, dann dringt kein Wasser ein (IPX7-Prüfung: Sichtprüfung "
+        "+ Isolationsmessung).",
+        "Need N-03 fordert IPX7; die Dichtheit ist Voraussetzung für die "
+        "Reinigung unter fließendem Wasser.",
+    ),
+    "Der Drucksensor muss bei > 2.5N auslösen.": (
+        "Gegeben der montierte Drucksensor, wenn eine Kraft von 2,6 N auf die "
+        "Borsten wirkt, dann wird ein Auslösesignal ausgegeben (Kraftmessdose, "
+        "10 Wiederholungen).",
+        "Need N-04 verlangt eine Andruckwarnung; der Schwellwert 2,5 N ist der "
+        "Grenzwert für gesundes Zähneputzen.",
+    ),
+    "Die Bluetooth-Verbindung muss bis 10m stabil sein.": (
+        "Gegeben eine freie Sichtverbindung, wenn die Zahnbürste bis 10 m von "
+        "der App entfernt ist, dann bleibt die BLE-Verbindung 5 min ohne Abriss "
+        "(RSSI ≥ -85 dBm).",
+        "Need N-05 verlangt eine Begleit-App; 10 m deckt die typische Nutzung "
+        "im Badezimmer ab.",
+    ),
+    "Die Geräuschemission darf 60 dB(A) nicht überschreiten.": (
+        "Gegeben der Betrieb im Standardmodus, wenn der Schalldruckpegel in "
+        "30 cm Abstand gemessen wird, dann liegt er ≤ 60 dB(A).",
+        "Need N-08 fordert unter 60 dB; der Wert begrenzt die Motor- und "
+        "Getriebeauslegung.",
+    ),
+    "Das Etui muss die Zahnbürste induktiv laden können.": (
+        "Gegeben die Zahnbürste auf dem Etui, wenn das Etui mit Strom versorgt "
+        "wird, dann lädt die Zahnbürste mit ≥ 1 W induktiv (Messung über 30 min).",
+        "Need N-07 fordert ein Etui mit Ladefunktion; die induktive Kopplung "
+        "vermeidet offene Kontakte.",
+    ),
+    "Die App muss wöchentliche Putz-Reports generieren.": (
+        "Gegeben mindestens sieben aufgezeichnete Putzsessions, wenn die App den "
+        "Wochenreport erzeugt, dann enthält er alle sieben Tage mit Putzdauer und "
+        "Abdeckung.",
+        "Need N-05 fordert Putz-Statistiken; der Wochenreport ist das sichtbare "
+        "Ergebnis der Datenerfassung.",
+    ),
+    "Der Bürstenkopf muss Vibrationen von 300Hz aushalten.": (
+        "Gegeben der montierte Bürstenkopf, wenn er 10 min mit 300 Hz bei 2 mm "
+        "Hub angeregt wird, dann tritt kein Ermüdungsbruch und kein Lockern der "
+        "Borsten auf.",
+        "Die Borsten müssen die Nennfrequenz des Antriebs dauerhaft übertragen; "
+        "Need N-14 (Zahnfleisch-Schutz) setzt formstabile Borsten voraus.",
+    ),
+    "Der Ladestrom darf 1A nicht überschreiten.": (
+        "Gegeben der Ladevorgang, wenn der Ladestrom über 30 min gemessen wird, "
+        "dann liegt er ≤ 1,0 A (Stromzange, Abtastung 1 Hz).",
+        "Begrenzt die Verlustleistung und schützt die Li-Ion-Zelle; leitet sich "
+        "aus Need N-12 (Ladezeit) ab.",
+    ),
+    # ---- L2 Subsystem requirements ----------------------------------------------
+    "Die MCU muss den PWM-Kanal 1 für die Motorsteuerung verwenden.": (
+        "Gegeben die MCU im Motorbetrieb, wenn das PWM-Signal geprüft wird, dann "
+        "liegt der Motor-Treiber ausschließlich auf Kanal 1 (Oszilloskop, alle "
+        "anderen Kanäle inaktiv).",
+        "Kanal 1 ist im Pinplan für den Motor-Treiber reserviert; die feste "
+        "Zuordnung verhindert Fehlkonfigurationen in der Firmware.",
+    ),
+    "Das Batterie-Management-System muss Überladung bei 4.2V verhindern.": (
+        "Gegeben eine Ladespannung von 4,3 V, wenn der BMS-Test 5 min läuft, dann "
+        "schaltet das BMS den Ladepfad bei 4,2 V ± 1 % ab.",
+        "Überladung ist das Hauptrisiko der Li-Ion-Zelle; der Abschaltpunkt "
+        "4,2 V folgt aus dem Zell-Datenblatt.",
+    ),
+    "Die Dichtung am Schalter muss einem Wasserdruck von 1 bar standhalten.": (
+        "Gegeben die Schalterdichtung, wenn sie 10 min mit 1 bar beaufschlagt "
+        "wird, dann bleibt sie dicht (Druckabfall < 0,05 bar).",
+        "Der Schalter ist die kritischste Durchführung im Gehäuse; die Dichtung "
+        "trägt die IPX7-Anforderung aus L1.",
+    ),
+    "Der Analog-Digital-Wandler muss den Drucksensor mit 12-Bit Auflösung abtasten.": (
+        "Gegeben der Drucksensor am ADC, wenn eine Referenzspannung von 3,3 V "
+        "anliegt, dann wird der Messwert mit 12 Bit (Auflösung ≤ 0,8 mV) "
+        "digitalisiert.",
+        "Die 12-Bit-Auflösung ist nötig, um die 2,5-N-Schwelle aus L1 mit "
+        "ausreichender Toleranz zu erkennen.",
+    ),
+    "Der BLE Stack muss im Advertising Mode weniger als 1mA Strom verbrauchen.": (
+        "Gegeben der BLE-Stack im Advertising Mode, wenn der Strom über 60 s "
+        "gemessen wird, dann liegt der Mittelwert < 1 mA.",
+        "Advertising läuft dauerhaft und dominiert den Ruhestrom; der Wert "
+        "sichert Need N-02 (zwei Wochen Akkulaufzeit).",
+    ),
+    "Die Spule muss eine Induktivität von 10µH aufweisen.": (
+        "Gegeben die montierte Induktionsspule, wenn die Induktivität bei 100 kHz "
+        "gemessen wird, dann beträgt sie 10 µH ± 10 %.",
+        "Die Induktivität bestimmt die Resonanzfrequenz des Ladekreises und damit "
+        "den Wirkungsgrad der induktiven Ladung aus L1.",
+    ),
+    "Das Reise-Etui muss aus kratzfestem Polycarbonat bestehen.": (
+        "Gegeben ein Etui-Gehäuse, wenn es 500 Zyklen mit 1 kg Last und 500 g "
+        "Sand beaufschlagt wird, dann sind Kratzer ≤ 0,1 mm tief (Sichtprüfung "
+        "unter Normlicht).",
+        "Need N-07 verlangt ein Reise-Etui; Polycarbonat liefert die geforderte "
+        "Kratzfestigkeit bei geringem Gewicht.",
+    ),
+    # ---- L3 Component requirements ----------------------------------------------
+    "Widerstand R1 muss 10kOhm mit 1% Toleranz betragen.": (
+        "Gegeben der bestückte Widerstand R1, wenn er bei 25 °C gemessen wird, "
+        "dann liegt sein Wert bei 10 kΩ ± 1 %.",
+        "R1 ist der Referenzwiderstand der Druckmessung; 1 % Toleranz hält den "
+        "Messfehler innerhalb der ADC-Spezifikation.",
+    ),
+    "Die Leiterplatte (PCBA) muss 4 Lagen Kupfer (35µm) aufweisen.": (
+        "Gegeben ein PCBA-Querschnitt, wenn die Kupferlagen im Schliff gezählt "
+        "werden, dann sind 4 Lagen mit je 35 µm Kupfer vorhanden.",
+        "Vier Lagen trennen HF (BLE), Leistung (Motor) und Sensorik; 35 µm "
+        "tragen den Ladestrom aus L1.",
+    ),
+    "Der Rotor-Magnet muss aus Neodym (NdFeB) N42 bestehen.": (
+        "Gegeben ein Rotor-Magnetenmuster, wenn die Materialanalyse (EDX) "
+        "durchgeführt wird, dann ist NdFeB der Güteklasse N42 nachgewiesen.",
+        "Die Magnetgüte bestimmt das Drehmoment; N42 erfüllt die "
+        "Drehzahlanforderung aus L1 bei kompakter Bauform.",
+    ),
+    "Die Gummierung des Griffes muss einen Reibungskoeffizienten >0.8 aufweisen.": (
+        "Gegeben der Griff im nassen Zustand, wenn die Reibkraft mit 5 N "
+        "Normalkraft gemessen wird, dann ist der Reibungskoeffizient > 0,8.",
+        "Need N-09 fordert einen rutschfesten Griff; der nasse Zustand ist der "
+        "ungünstigste Betriebsfall.",
+    ),
+    "Die Firmware muss per OTA Update aktualisierbar sein.": (
+        "Gegeben eine Zahnbürste mit Firmware v1.0, wenn ein OTA-Paket "
+        "übertragen wird, dann ist die neue Firmware nach ≤ 5 min aktiv und die "
+        "Version wird in der App angezeigt.",
+        "Field-Updates vermeiden Rückrufe; die Update-Fähigkeit ist "
+        "Voraussetzung für die App-Funktionen aus Need N-05.",
+    ),
+    "Das UI-Dashboard muss in React Native implementiert werden.": (
+        "Gegeben das App-Repository, wenn der Build erzeugt wird, dann liegen "
+        "≥ 95 % des UI-Codes in React-Native-Komponenten (Dateitypen-Zählung im "
+        "Build-Report).",
+        "Eine einheitliche React-Native-Codebasis bedient iOS und Android und "
+        "hält die Wartungskosten der Coaching-App niedrig.",
+    ),
+    # ---- L4 Presentation requirements -------------------------------------------
+    "Das OTA-Modul muss AES-256 Verschlüsselung nutzen.": (
+        "Gegeben ein OTA-Paket, wenn es mit dem hinterlegten Schlüssel geprüft "
+        "wird, dann ist es AES-256-verschlüsselt und ohne gültigen Schlüssel "
+        "nicht entschlüsselbar (Negativtest).",
+        "Firmware ist ein Angriffsziel; die Verschlüsselung schützt Integrität "
+        "und Vertraulichkeit der Updates aus L3.",
+    ),
+    "Die Bluetooth-Paketgröße muss auf 256 Bytes limitiert sein.": (
+        "Gegeben eine BLE-Übertragung, wenn ein Datenpaket erzeugt wird, dann "
+        "ist seine Nutzlast ≤ 256 Byte (Payload-Dump im Test).",
+        "Die Paketgröße begrenzt die Latenz der Putzdatenübertragung und passt "
+        "in das BLE-ATT-Fenster.",
+    ),
+    "Das Neodym-Material muss eine Koerzitivfeldstärke von >800 kA/m haben.": (
+        "Gegeben ein Materialmuster des Rotor-Magneten, wenn die "
+        "Koerzitivfeldstärke im Hysteresemessgerät gemessen wird, dann liegt sie "
+        "> 800 kA/m.",
+        "Die Koerzitivfeldstärke sichert die Entmagnetisierungsfestigkeit bei "
+        "Motortemperaturen über 80 °C.",
+    ),
+    "Der Widerstand R1 muss vom Typ SMD 0603 sein.": (
+        "Gegeben der Bestückungsplan, wenn die Bauteillage von R1 geprüft wird, "
+        "dann ist das Gehäuse SMD 0603 (Bestückungsprüfung, CAD-Abgleich).",
+        "0603 ist die Standardbauform der PCBA und sichert die Bestückbarkeit "
+        "bei hoher Packungsdichte.",
+    ),
+    "Das Spritzguss-Werkzeug für die Gummierung muss eine Toleranz von 0.1mm aufweisen.": (
+        "Gegeben das Spritzguss-Werkzeug, wenn ein Musterteil vermessen wird, "
+        "dann liegt die Maßabweichung der Gummierung ≤ 0,1 mm (KMG-Messung, "
+        "5 Teile).",
+        "Die Werkzeugtoleranz bestimmt die Passgenauigkeit der Gummierung und "
+        "damit die Rutschfestigkeit aus L3.",
+    ),
+    # ---- L5 Implementation requirements -----------------------------------------
+    "Der C-Code für das OTA-Modul muss MISRA-C kompatibel sein.": (
+        "Gegeben der C-Quellcode des OTA-Moduls, wenn der statische Analysator "
+        "(MISRA-C-Prüfer) läuft, dann werden 0 Pflichtregel-Verstöße gemeldet.",
+        "MISRA-C reduziert Sprachfeatures mit unsicherem Laufzeitverhalten — "
+        "kritisch für sicherheitsrelevante Firmware-Updates.",
+    ),
+    "Der Compiler-Optimierungsgrad muss -O2 betragen.": (
+        "Gegeben das Build-Skript, wenn die Release-Firmware gebaut wird, dann "
+        "ist die Compiler-Optimierungsstufe -O2 (Build-Log).",
+        "-O2 liefert die nötige Rechenleistung für Regelung und BLE bei "
+        "akzeptabler Codegröße.",
+    ),
+    "Die Lötpaste für SMD 0603 muss bleifrei (RoHS-konform) sein.": (
+        "Gegeben eine Lötpastenprobe, wenn die Röntgenfluoreszenzanalyse "
+        "durchgeführt wird, dann liegt der Bleigehalt < 0,1 % (RoHS-Grenzwert).",
+        "RoHS-Konformität ist Einfuhrvoraussetzung für den EU-Markt "
+        "(Need N-17, Zertifizierungen).",
+    ),
+    "Das Magnet-Sinterverfahren muss bei 1100°C unter Vakuum erfolgen.": (
+        "Gegeben das Sinterverfahren, wenn der Prozess 120 min läuft, dann liegt "
+        "die Ofentemperatur konstant bei 1100 °C ± 10 K unter Vakuum "
+        "≤ 10⁻³ mbar (Prozesslog).",
+        "Das Sinterprofil bestimmt Dichte und Koerzitivfeldstärke des Magneten; "
+        "Vakuum verhindert Oxidation.",
+    ),
+}
+
+#: B1-T2: verification method per cascade level (values from
+#: ``persistence.models.VerificationMethod``). L5 rows carry ``level=None``
+#: (``RequirementLevel`` spans L1-L4 only), so level 5 is reached via the
+#: ``None`` fallback in :func:`_level_of`.
+VERIFICATION_METHOD_BY_LEVEL: dict[int, str] = {
+    1: "Test",
+    2: "Test",
+    3: "Analysis",
+    4: "Inspection",
+    5: "Review",
+}
+
+#: B1-T2: priority per cascade level (scale of the Requirement attribute
+#: definition: low | medium | high | critical).
+PRIORITY_BY_LEVEL: dict[int, str] = {
+    1: "high",
+    2: "medium",
+    3: "medium",
+    4: "low",
+    5: "low",
+}
+
+
+def _level_of(requirement: Requirement) -> int:
+    """Return the cascade level for the SE-attribute tables.
+
+    ``Requirement.level`` spans L1-L4 only; L5 (implementation) rows keep
+    ``level=None`` and are mapped to 5, exactly like the seed's own L5 block.
+    """
+    level = requirement.level
+    return level if level in PRIORITY_BY_LEVEL else 5
+
+
+def _flush_acceptance_criteria_items(requirements: list[Requirement]) -> None:
+    """Write the structured criteria list for many requirements at once.
+
+    ``create_requirement`` takes the free-text criteria but not the structured
+    ``acceptance_criteria_items`` list (#1288), so creation needs a second write
+    per row. One ``bulk_update`` replaces 880 single-row ``UPDATE``s; the stored
+    value is the same single-criterion shape migration 0113 imported.
+    """
+    if not requirements:
+        return
+    now = timezone.now()
+    for requirement in requirements:
+        requirement.modified_at = now
+    Requirement.objects.bulk_update(
+        requirements, ["acceptance_criteria_items", "modified_at"], batch_size=500
+    )
+
+
+def _resolve_requirement_definition(
+    ctx: AuthContext, workspace_id: Any
+) -> dict[str, Any] | None:
+    """Resolve the ``Requirement`` attribute definition once per run.
+
+    ``None`` means "not bootstrapped yet": the self-init hook is disabled under
+    test and the E2E workflow bootstraps *after* this seed, so a stack can
+    legitimately have no definition. Resolving once per run instead of once per
+    requirement keeps that a single decision instead of 880 exception-driven
+    ones — the definition is keyed by ``(workspace, item_type, preset)``, so
+    the 880th resolve can only repeat what the first one already established.
+    """
+    try:
+        return AttributeDefinitionService().resolve(ctx, "Requirement", workspace_id)
+    except AttributeDefinitionNotFound:
+        return None
+
+
+def _write_system_fields_bulk(
+    ctx: AuthContext,
+    pending: list[tuple[Requirement, str | None]],
+    actor: Actor,
+    *,
+    workspace_id: Any,
+    definition: dict[str, Any] | None,
+) -> int:
+    """Fill ``owner``/``priority`` on many requirement Artifacts at once.
+
+    B1-T2 wrote both fields per requirement through
+    :meth:`ArtifactAttributeGateway.write`, which cost ~19 s and ~11 000 extra
+    queries for the 880-row demo seed (measured): each call re-resolved the
+    workspace definition, re-resolved the same Actor, saved the Artifact and
+    read the values back. The end state is identical — the same two Artifact
+    columns, validated against the same resolved definition — but reached with
+    one ``UPDATE`` per priority plus one for the owner.
+
+    Only *empty* values are written, so the same helper serves creation (both
+    empty) and the idempotent backfill. Validation still goes through the
+    gateway's V path, once per distinct priority: the definition is
+    workspace-wide, so the 880th identical payload cannot fail where the first
+    one succeeded.
+
+    The assignment notification is deliberately not emitted: every seeded row
+    is owned by the *acting* admin, and ``notify_assigned`` drops the acting
+    user (``exclude_user_id``), so the per-requirement call never wrote a row.
+
+    Returns:
+        The number of Artifact rows touched.
+    """
+    owner_ids: list[Any] = []
+    by_priority: dict[str, list[Any]] = {}
+    for requirement, priority in pending:
+        artifact = requirement.artifact
+        if artifact.owner_id is None:
+            owner_ids.append(artifact.id)
+        if priority is not None and not (artifact.priority or "").strip():
+            by_priority.setdefault(priority, []).append(artifact.id)
+
+    if not owner_ids and not by_priority:
+        return 0
+
+    if definition is not None:
+        gateway = ArtifactAttributeGateway()
+        owner_value = {"kind": "user", "id": str(actor.id)}
+        for priority in by_priority:
+            gateway.validate(
+                ctx,
+                "Requirement",
+                workspace_id,
+                {"owner": owner_value, "priority": priority},
+                # The established update presence marker: the definition engine
+                # only distinguishes create from update by ``is None``.
+                {"__exists__": True},
+            )
+
+    now = timezone.now()
+    touched: set[Any] = set()
+    if owner_ids:
+        Artifact.objects.filter(id__in=owner_ids).update(owner=actor, modified_at=now)
+        touched.update(owner_ids)
+    for priority, ids in by_priority.items():
+        Artifact.objects.filter(id__in=ids).update(priority=priority, modified_at=now)
+        touched.update(ids)
+    return len(touched)
 
 
 def _resolve_tenant_and_user() -> tuple[Tenant, User]:
@@ -128,7 +498,11 @@ def _create_glossary(ctx: AuthContext, ws_id: Any) -> None:
 
 
 def _create_stakeholder_needs(
-    ctx: AuthContext, ws_id: Any, tenant: Tenant, user: User
+    ctx: AuthContext,
+    ws_id: Any,
+    tenant: Tenant,
+    user: User,
+    max_needs: int = 0,
 ) -> list[Any]:
     """Create the L0 stakeholder needs driving the requirement cascade."""
     needs_data = [
@@ -153,6 +527,12 @@ def _create_stakeholder_needs(
         ("N-19", "Robustheit", "Falltest aus 1,5m Höhe ohne Funktionsverlust"),
         ("N-20", "Kinder-Modus", "Sicherheitsmodus mit reduzierter Kraft für Kinder")
     ]
+
+    # ``--max-needs`` (default 0 = all): a test/benchmark knob so the unit
+    # test exercises the same cascade with one need instead of twenty. Every
+    # production/E2E caller keeps the full list.
+    if max_needs > 0:
+        needs_data = needs_data[:max_needs]
 
     needs = []
     print("Creating Stakeholder Needs...")
@@ -231,16 +611,50 @@ def _create_requirements(
     ws_id: Any,
     needs: list[Any],
     archs: dict[str, Any],
+    user: User,
 ) -> dict[str, Any]:
-    """Create the L1-L5 requirements with derivation and allocation trace links."""
+    """Create the L1-L5 requirements with derivation and allocation trace links.
+
+    Plan B / WP B1 (B1-T2): every requirement is created with its measurable
+    acceptance criteria, its rationale and the level's verification method, and
+    the backing Artifact receives an owner (the seeding admin) and a priority —
+    so the fixture demonstrates SE content, not just hierarchy.
+    """
     print("Creating Requirements...")
     req_svc = RequirementService()
     link_svc = TraceLinkService()
     reqs: dict[str, Any] = {}
+    # One Actor per run: resolving it per requirement would create/query the
+    # same row 880 times.
+    actor = ActorService().get_or_create_for_user(ctx, user.id)
+    # One definition resolve per run (see _resolve_requirement_definition).
+    definition = _resolve_requirement_definition(ctx, ws_id)
+    # The SE system fields are flushed once at the end of the run instead of
+    # once per requirement: see _write_system_fields_bulk for the measurement.
+    pending_items: list[Requirement] = []
+    pending_system_fields: list[tuple[Requirement, str | None]] = []
 
-    def create_req(key, title, parent_need=None, parent_req=None, allocated_arch=None):
-        r = req_svc.create_requirement(workspace_id=ws_id, title=title, ctx=ctx, type=RequirementType.SYREQ)
+    def create_req(key, title, parent_need=None, parent_req=None, allocated_arch=None, level=1):
+        acceptance_criteria, rationale = SE_ATTRIBUTES_BY_TITLE[title]
+        r = req_svc.create_requirement(
+            workspace_id=ws_id,
+            title=title,
+            ctx=ctx,
+            type=RequirementType.SYREQ,
+            acceptance_criteria=acceptance_criteria,
+            rationale=rationale,
+            verification_method=VERIFICATION_METHOD_BY_LEVEL[level],
+        )
+        # #1288: mirror the free text into the structured criteria list, the
+        # same single-criterion shape migration 0113 imported it with. Written
+        # in one bulk_update after the run (one extra UPDATE per requirement
+        # measured ~1.2 s of the seed's runtime for identical rows).
+        r.acceptance_criteria_items = [
+            {"text": acceptance_criteria, "fulfilled": False, "evidence_ref": None}
+        ]
+        pending_items.append(r)
         reqs[key] = r
+        pending_system_fields.append((r, PRIORITY_BY_LEVEL[level]))
         if parent_need:
             # The retired ArchitectureElement -> Requirement satisfaction key:
             # a Requirement pointing at the Need it came from is a derivation,
@@ -269,7 +683,7 @@ def _create_requirements(
     for i, n in enumerate(needs):
         for j in range(2):
             text = realistic_l1[(i * 2 + j) % len(realistic_l1)]
-            create_req(f"L1_{i}_{j}", text, parent_need=n, allocated_arch=archs["SYS"])
+            create_req(f"L1_{i}_{j}", text, parent_need=n, allocated_arch=archs["SYS"], level=1)
 
     realistic_l2 = [
         "Die MCU muss den PWM-Kanal 1 für die Motorsteuerung verwenden.",
@@ -286,7 +700,7 @@ def _create_requirements(
         for j in range(3):
             arch_key = ["SS_HANDLE", "SS_HEAD", "SS_BASE", "SS_APP"][j % 4]
             text = realistic_l2[(i * 3 + j) % len(realistic_l2)]
-            create_req(f"L2_{i}_{j}", text, parent_req=reqs[l1k], allocated_arch=archs[arch_key])
+            create_req(f"L2_{i}_{j}", text, parent_req=reqs[l1k], allocated_arch=archs[arch_key], level=2)
 
     realistic_l3 = [
         "Widerstand R1 muss 10kOhm mit 1% Toleranz betragen.",
@@ -302,7 +716,7 @@ def _create_requirements(
         for j in range(2):
             arch_key = list(archs.keys())[5 + ((i+j) % (len(archs)-5))]
             text = realistic_l3[(i * 2 + j) % len(realistic_l3)]
-            create_req(f"L3_{i}_{j}", text, parent_req=reqs[l2k], allocated_arch=archs[arch_key])
+            create_req(f"L3_{i}_{j}", text, parent_req=reqs[l2k], allocated_arch=archs[arch_key], level=3)
 
     realistic_l4 = [
         "Das OTA-Modul muss AES-256 Verschlüsselung nutzen.",
@@ -317,7 +731,7 @@ def _create_requirements(
         for j in range(1):
             arch_key = list(archs.keys())[10 + ((i+j) % (len(archs)-10))]
             text = realistic_l4[(i + j) % len(realistic_l4)]
-            create_req(f"L4_{i}_{j}", text, parent_req=reqs[l3k], allocated_arch=archs[arch_key])
+            create_req(f"L4_{i}_{j}", text, parent_req=reqs[l3k], allocated_arch=archs[arch_key], level=4)
 
     realistic_l5 = [
         "Der C-Code für das OTA-Modul muss MISRA-C kompatibel sein.",
@@ -331,7 +745,16 @@ def _create_requirements(
         for j in range(1):
             arch_key = list(archs.keys())[-5 + ((i+j) % 5)]
             text = realistic_l5[(i + j) % len(realistic_l5)]
-            create_req(f"L5_{i}_{j}", text, parent_req=reqs[l4k], allocated_arch=archs[arch_key])
+            create_req(f"L5_{i}_{j}", text, parent_req=reqs[l4k], allocated_arch=archs[arch_key], level=5)
+
+    _flush_acceptance_criteria_items(pending_items)
+    _write_system_fields_bulk(
+        ctx,
+        pending_system_fields,
+        actor,
+        workspace_id=ws_id,
+        definition=definition,
+    )
     return reqs
 
 
@@ -462,7 +885,7 @@ def _create_testcases_and_runs(ctx: AuthContext, ws_id: Any, reqs: dict[str, Any
         test_run_svc.add_result(test_run_id=tr1.id, test_case_id=tc.id, status="failed", ctx=ctx, message="Timeout nach 5 Sekunden.")
 
 
-def run():
+def run(max_needs: int = 0):
     print("Starting Zahnbürste SysEng Demo seeding...")
     tenant, user = _resolve_tenant_and_user()
     ctx = _build_auth_context(tenant, user)
@@ -484,9 +907,9 @@ def run():
 
     ws = _create_workspace(ctx)
     _create_glossary(ctx, ws.id)
-    needs = _create_stakeholder_needs(ctx, ws.id, tenant, user)
+    needs = _create_stakeholder_needs(ctx, ws.id, tenant, user, max_needs)
     archs = _create_architecture(ctx, ws.id)
-    reqs = _create_requirements(ctx, ws.id, needs, archs)
+    reqs = _create_requirements(ctx, ws.id, needs, archs, user)
     _create_icds(ctx, ws.id, archs, tenant, user)
     _create_risks(ctx, ws.id, reqs)
     _create_issues(ctx, ws.id, archs)
@@ -496,8 +919,132 @@ def run():
     print("Seeding completed successfully!")
 
 
+def backfill_se_attributes() -> None:
+    """B1-T3: fill only the *empty* SE attributes of the existing workspace.
+
+    A workspace seeded before B1-T2 has no acceptance criteria, rationale,
+    verification method, owner or priority. This pass fills exactly those empty
+    fields for every requirement whose title is in ``SE_ATTRIBUTES_BY_TITLE``;
+    a value a human already set is never overwritten, which makes the pass
+    idempotent (a second run reports ``0`` changed rows).
+
+    The level-specific values come from ``PRIORITY_BY_LEVEL`` /
+    ``VERIFICATION_METHOD_BY_LEVEL`` using the requirement's own
+    ``Requirement.level`` (``None`` → 5). Deliberately **not** a
+    ``priority_backfill.yaml`` AWMS run (R-B1-3): that plan maps MoSCoW values
+    and would have to be finalised against ENT-B5 first.
+    """
+    tenant, user = _resolve_tenant_and_user()
+    ctx = _build_auth_context(tenant, user)
+    set_request_tenant(tenant.id)
+    try:
+        workspace = _find_existing_workspace(tenant)
+        if workspace is None:
+            print(f"Workspace '{WORKSPACE_NAME}' not found — nothing to backfill.")
+            return
+
+        actor = ActorService().get_or_create_for_user(ctx, user.id)
+        req_svc = RequirementService()
+        definition = _resolve_requirement_definition(ctx, workspace.id)
+        changed = 0
+        already_complete = 0
+        pending_system_fields: list[tuple[Requirement, str | None]] = []
+
+        requirements = Requirement.objects.filter(
+            artifact__workspace_id=workspace.id
+        ).select_related("artifact").order_by("id")
+        for requirement in requirements:
+            attributes = SE_ATTRIBUTES_BY_TITLE.get(requirement.title)
+            if attributes is None:
+                # Titles outside the seed catalogue are left completely alone.
+                continue
+            acceptance_criteria, rationale = attributes
+            level = _level_of(requirement)
+
+            updates: dict[str, Any] = {}
+            if not (requirement.acceptance_criteria or "").strip():
+                updates["acceptance_criteria"] = acceptance_criteria
+            if not (requirement.rationale or "").strip():
+                updates["rationale"] = rationale
+            if not requirement.verification_method:
+                updates["verification_method"] = VERIFICATION_METHOD_BY_LEVEL[level]
+
+            # Which system fields are still empty; the bulk helper re-checks
+            # this anyway, so a stale in-memory row cannot cause an overwrite.
+            needs_owner = requirement.artifact.owner_id is None
+            priority = (
+                None
+                if (requirement.artifact.priority or "").strip()
+                else PRIORITY_BY_LEVEL[level]
+            )
+
+            if not updates and not needs_owner and priority is None:
+                already_complete += 1
+                continue
+
+            if updates:
+                req_svc.update_requirement(
+                    requirement.id,
+                    ctx=ctx,
+                    change_reason="B1-T3: SE-Attribute nachgezogen (Seed-Backfill)",
+                    **updates,
+                )
+            if "acceptance_criteria" in updates and not requirement.acceptance_criteria_items:
+                # #1288: keep the structured list consistent with the free text,
+                # exactly as creation does (migration 0113's single item shape).
+                Requirement.objects.filter(id=requirement.id).update(
+                    acceptance_criteria_items=[
+                        {
+                            "text": updates["acceptance_criteria"],
+                            "fulfilled": False,
+                            "evidence_ref": None,
+                        }
+                    ]
+                )
+            if needs_owner or priority is not None:
+                pending_system_fields.append((requirement, priority))
+            changed += 1
+
+        _write_system_fields_bulk(
+            ctx,
+            pending_system_fields,
+            actor,
+            workspace_id=workspace.id,
+            definition=definition,
+        )
+        print(f"Backfilled {changed} requirements ({already_complete} already complete).")
+    finally:
+        clear_request_tenant()
+
+
 class Command(BaseCommand):
     help = "Seed the 'Zahnbürste SysEng Demo' workspace used by the E2E suite."
 
+    def add_arguments(self, parser: Any) -> None:
+        parser.add_argument(
+            "--backfill-se-attributes",
+            action="store_true",
+            default=False,
+            help=(
+                "Fill only the empty SE attributes (acceptance criteria, "
+                "rationale, verification method, owner, priority) of the "
+                "already seeded workspace. Idempotent."
+            ),
+        )
+        parser.add_argument(
+            "--max-needs",
+            type=int,
+            default=0,
+            help=(
+                "Test/benchmark only: seed at most N stakeholder needs (0 = "
+                "all 20). The requirement cascade scales with the needs, so a "
+                "unit test exercises every level without paying the full "
+                "~880-requirement seed. Never used by production or E2E."
+            ),
+        )
+
     def handle(self, *args: Any, **options: Any) -> None:
-        run()
+        if options.get("backfill_se_attributes"):
+            backfill_se_attributes()
+            return
+        run(max_needs=int(options.get("max_needs") or 0))
