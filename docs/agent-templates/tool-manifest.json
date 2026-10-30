@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 252,
+  "tool_count": 254,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -5434,6 +5434,82 @@
         "required": [
           "name",
           "value"
+        ]
+      }
+    },
+    {
+      "name": "quality.assess",
+      "prefix": "quality",
+      "is_write": true,
+      "description": "Run the advisory quality assessment for ONE artifact (Requirement, Adr, TestCase or Risk) through the workspace's quality_* prompt slot and persist the verdict. Returns the new assessment, or the last verdict with cached=true when the content is unchanged (pass force=true to re-run). Costs one LLM call unless cached; the artifact must belong to the given workspace, otherwise NOT_FOUND is returned and nothing runs.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace the assessed artifact must belong to."
+          },
+          "entity_type": {
+            "type": "string",
+            "enum": [
+              "Requirement",
+              "Adr",
+              "TestCase",
+              "Risk"
+            ],
+            "description": "Artifact type of the entity being assessed/reviewed."
+          },
+          "entity_id": {
+            "type": "string",
+            "description": "UUID of the entity itself (not its backing artifact id)."
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Re-run even when the content hash is unchanged."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "entity_type",
+          "entity_id"
+        ]
+      }
+    },
+    {
+      "name": "quality.query",
+      "prefix": "quality",
+      "is_write": false,
+      "description": "Read the assessment history of ONE artifact in a workspace: newest first, with the latest verdict under 'latest' (null when it was never assessed). Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace the assessed artifact must belong to."
+          },
+          "entity_type": {
+            "type": "string",
+            "enum": [
+              "Requirement",
+              "Adr",
+              "TestCase",
+              "Risk"
+            ],
+            "description": "Artifact type of the entity being assessed/reviewed."
+          },
+          "entity_id": {
+            "type": "string",
+            "description": "UUID of the entity itself (not its backing artifact id)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size, 1..100 (default 20)."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "entity_type",
+          "entity_id"
         ]
       }
     },

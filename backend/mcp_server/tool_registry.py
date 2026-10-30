@@ -1022,6 +1022,7 @@ class ToolRegistry:
         from mcp_server.tools.preference import PreferenceToolGroup
         from mcp_server.tools.prompt_template import PromptTemplateToolGroup
         from mcp_server.tools.prompt_variable import PromptVariableToolGroup
+        from mcp_server.tools.quality import QualityToolGroup
         from mcp_server.tools.requirement_bundle import RequirementBundleToolGroup
         from mcp_server.tools.requirements import RequirementsToolGroup
         from mcp_server.tools.review import ReviewToolGroup
@@ -1141,6 +1142,12 @@ class ToolRegistry:
             # write (named in _GOVERNANCE_TOOL_NAMES, ADMIN tier). The service
             # re-asserts the RBAC rule per level.
             "preference": PreferenceToolGroup(),
+            # Plan B B5-T3 (#378): the advisory quality assessment. assess is a
+            # fail-closed write tool (Editor+, one paid LLM call); query is
+            # read-exempt via the ".query" suffix. Workspace binding happens in
+            # the service, which filters the entity lookup by the addressed
+            # workspace — a fenced key on a foreign workspace answers -32001.
+            "quality": QualityToolGroup(),
         })
 
     def list_tools(
