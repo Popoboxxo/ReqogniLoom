@@ -55,7 +55,8 @@ export type ArchitectureSubType =
   | 'interface'
   | 'subsystem'
   | 'layer'
-  | 'module';
+  | 'module'
+  | 'function';
 
 /**
  * Union of all supported subtypes.

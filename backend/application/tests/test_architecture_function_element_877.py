@@ -12,7 +12,7 @@ import pytest
 from application.architecture_service import ArchitectureService
 from auth_tenancy.context import AuthContext, AuthMethod
 from persistence.middleware import clear_request_tenant, set_request_tenant
-from persistence.models import Tenant, User
+from persistence.models import ElementType, Tenant, User
 from persistence.models import Workspace as PersistenceWorkspace
 from persistence.tenancy import TenantContext
 
@@ -61,4 +61,15 @@ def test_create_function_element(arch_ctx):
     )
 
     stored = svc.get_architecture_element(function_el.id, ctx)
-    assert stored.element_type == "function"
+    assert stored.element_type == ElementType.FUNCTION
+
+
+def test_element_type_enum_includes_function():
+    """Pin the built-in enum member itself (#877).
+
+    ``element_type`` is free vocabulary, so the round-trip above also passes
+    on a tree without the enum entry — only this assertion proves that
+    ``function`` is a built-in type offered as a default.
+    """
+    assert ElementType.FUNCTION == "function"
+    assert "function" in ElementType.values
