@@ -88,7 +88,14 @@ INTERVIEW_PROTOCOL_DATA_VARIABLES: tuple[str, ...] = (
 #: from the service that builds the render call, so this map only changes
 #: together with that code (spec §3.2 — no junction table).
 #:
-#: RFC #1002 PR C: every content-generating AI slot declares
+#: Plan B/B5-T2 (#378): the ``quality_*`` slots review ONE artifact and are
+#: memory-free as a family (:data:`MEMORY_HARD_OFF_PREFIXES`), so none of them
+#: declares a :data:`MEMORY_DATA_VARIABLES` entry — not even
+#: ``memory_context``. :func:`is_memory_hard_off` is the enforcement; the
+#: missing declaration is what keeps the memory query and the render call from
+#: being built in the first place.
+#:
+#: RFC #1002 PR C: every other content-generating AI slot declares
 #: ``memory_context`` so ``prompt_resolver.resolve_and_render`` auto-computes
 #: (and injects) the retrieved workspace/artifact/user memory block for it.
 #: Plan A T-A1-6 (PR-A14) widens that declaration to the whole
@@ -99,7 +106,30 @@ INTERVIEW_PROTOCOL_DATA_VARIABLES: tuple[str, ...] = (
 #: those names. The exceptions are the :data:`MEMORY_HARD_OFF_SLOTS` -- they
 #: declare none of them on purpose (see that constant for why), and the
 #: resolver blanks the whole set for them.
+#:
+#: The three non-requirement quality slots share one tuple: they are reviewed
+#: through their serialized field map rather than through per-field
+#: placeholders, so ADR / test case / risk all render identically.
+_QUALITY_ARTIFACT_FIELDS_DATA_VARIABLES: tuple[str, ...] = (
+    "artifact_title",
+    "artifact_description",
+    "artifact_fields_json",
+)
+
 _DATA_VARIABLES_BY_SLOT: dict[str, tuple[str, ...]] = {
+    # Plan B/B5-T2 (#378): the requirement slot gets the IEEE-29148 review
+    # fields individually, because "missing acceptance criteria" is itself a
+    # finding the model should be able to name.
+    "quality_requirement": (
+        "artifact_title",
+        "artifact_description",
+        "acceptance_criteria",
+        "rationale",
+        "verification_method",
+    ),
+    "quality_adr": _QUALITY_ARTIFACT_FIELDS_DATA_VARIABLES,
+    "quality_testcase": _QUALITY_ARTIFACT_FIELDS_DATA_VARIABLES,
+    "quality_risk": _QUALITY_ARTIFACT_FIELDS_DATA_VARIABLES,
     "need_to_sysreq": ("need_title", "need_description", *MEMORY_DATA_VARIABLES),
     "sysreq_to_arch_assign": (
         "req_title",

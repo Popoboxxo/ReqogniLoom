@@ -53,6 +53,11 @@ const SLOT_LABELS: Record<string, string> = {
   architecture_to_risk: "Architecture Element → Risks",
   workspace_to_glossary: "Workspace → Glossary Terms",
   decision_to_adr: "Decision → ADR",
+  // Plan B/B5-T2 (#378): the four advisory quality-assessment slots.
+  quality_requirement: "Quality assessment: requirement",
+  quality_adr: "Quality assessment: ADR",
+  quality_testcase: "Quality assessment: test case",
+  quality_risk: "Quality assessment: risk",
   "interview.chat_turn": "Interview: Chat Turn Generation",
 };
 
@@ -304,7 +309,11 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
             <label className={styles.fieldLabel} htmlFor={`prompt-${slot.name}`}>
               {t(
                 `settings.promptTemplates.slot.${slot.name}`,
-                labelForSlot(slot.name)
+                // The quality-assessment slots reuse the short
+                // `aiPrompts.slots.*` namespace (Plan B/B5-T2); the English
+                // constant remains the last resort, so a new slot never
+                // renders its raw name.
+                t(`aiPrompts.slots.${slot.name}`, labelForSlot(slot.name))
               )}
               <span className={styles.badge} data-testid={`prompt-${slot.name}-origin`}>
                 {originLabel(origin)}

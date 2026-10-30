@@ -357,6 +357,79 @@ Respond with the summary text only: no preamble, no headings, no markdown \
 fences.
 """
 
+# ---------------------------------------------------------------------------
+# Plan B/B5-T2 (#378) — advisory quality assessment, one slot per entity type.
+#
+# Every ``quality_*`` slot is memory-free by policy (see
+# ``application.prompt_slots.MEMORY_HARD_OFF_PREFIXES``): a quality verdict has
+# to judge the artifact as it stands, not against what the model remembers from
+# earlier sessions (ADR-024). No memory section is appended to these bodies on
+# purpose -- a workspace override that names ``{memory_context}`` still renders
+# it empty (the resolver blanks the whole memory variable set for the family).
+#
+# All four demand the same strict JSON object so the (advisory, never
+# blocking) ``QualityService.assess`` flow parses ONE shape for every entity
+# type: the overall ``score`` plus a score per named criterion.
+# ---------------------------------------------------------------------------
+QUALITY_ASSESSMENT_RESPONSE_CONTRACT = (
+    "Respond with a single JSON object (no prose, no markdown fences) with "
+    'this exact shape: {"score": <number between 0 and 1>, '
+    '"reasoning": "<why this score, 1-3 sentences>", '
+    '"suggestions": ["<concrete, actionable improvement>", ...], '
+    '"criteria": {"<criterion>": <number between 0 and 1>, ...}}. '
+    "Use exactly the criterion names listed above as the keys of 'criteria' "
+    "and score every one of them. The overall 'score' is your judgement of "
+    "the whole artifact, not an average you have to compute. Return an empty "
+    "list when there is nothing to improve."
+)
+
+QUALITY_REQUIREMENT_PROMPT_TEMPLATE = (
+    "You are a requirements quality reviewer. Assess ONE system requirement "
+    "against the IEEE 29148 quality criteria: atomic (one statement, one "
+    "subject), unambiguous, verifiable, complete, necessary, traceable to a "
+    "stakeholder need or parent requirement.\n\n"
+    "Title: {artifact_title}\n"
+    "Description: {artifact_description}\n"
+    "Acceptance criteria: {acceptance_criteria}\n"
+    "Rationale: {rationale}\n"
+    "Verification method: {verification_method}\n\n"
+    + QUALITY_ASSESSMENT_RESPONSE_CONTRACT
+)
+
+QUALITY_ADR_PROMPT_TEMPLATE = (
+    "You are reviewing ONE architecture decision record (ADR). Assess it "
+    "against these criteria: the context and the problem are stated; "
+    "alternatives are weighed, including the rejected ones; the decision is "
+    "precise and checkable; consequences are named, positive and negative; "
+    "traceability to the affected requirements is given.\n\n"
+    "Title: {artifact_title}\n"
+    "Description: {artifact_description}\n"
+    "ADR fields (JSON): {artifact_fields_json}\n\n"
+    + QUALITY_ASSESSMENT_RESPONSE_CONTRACT
+)
+
+QUALITY_TESTCASE_PROMPT_TEMPLATE = (
+    "You are reviewing ONE test case. Assess it against these criteria: "
+    "atomic (it checks one objective), reproducible steps, an explicit "
+    "expected result per step, independent of the implementation, traceable "
+    "to the requirement it verifies.\n\n"
+    "Title: {artifact_title}\n"
+    "Description: {artifact_description}\n"
+    "Test case fields (JSON): {artifact_fields_json}\n\n"
+    + QUALITY_ASSESSMENT_RESPONSE_CONTRACT
+)
+
+QUALITY_RISK_PROMPT_TEMPLATE = (
+    "You are reviewing ONE risk entry. Assess it against these criteria: a "
+    "specific cause is named, probability is justified from evidence, impact "
+    "is described concretely, mitigation is actionable, detection is "
+    "measurable.\n\n"
+    "Title: {artifact_title}\n"
+    "Description: {artifact_description}\n"
+    "Risk fields (JSON): {artifact_fields_json}\n\n"
+    + QUALITY_ASSESSMENT_RESPONSE_CONTRACT
+)
+
 # Canonical slot registry covering all 7 names this module's derive flows use
 # (Phase 4, REQ-L2-PT-001). Deliberately NOT the same object as
 # ``persistence.models.PROMPT_TEMPLATE_DEFAULTS`` (imported above as
@@ -382,6 +455,11 @@ PROMPT_TEMPLATE_DEFAULTS: dict[str, str] = {
     "interview.grounding_rank": INTERVIEW_GROUNDING_RANK_PROMPT_TEMPLATE,
     "interview.chat_turn": INTERVIEW_CHAT_TURN_PROMPT_TEMPLATE,
     "interview.transcript_summary": INTERVIEW_TRANSCRIPT_SUMMARY_PROMPT_TEMPLATE,
+    # Plan B/B5-T2 (#378): memory-free quality-assessment slots (advisory).
+    "quality_requirement": QUALITY_REQUIREMENT_PROMPT_TEMPLATE,
+    "quality_adr": QUALITY_ADR_PROMPT_TEMPLATE,
+    "quality_testcase": QUALITY_TESTCASE_PROMPT_TEMPLATE,
+    "quality_risk": QUALITY_RISK_PROMPT_TEMPLATE,
 }
 
 # ---------------------------------------------------------------------------

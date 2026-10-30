@@ -951,6 +951,26 @@ class MockLlmProvider(LlmCapabilityInterface):
             }
         )
 
+    @staticmethod
+    def _mock_quality_assess(ctx: dict) -> str:
+        """Return one deterministic quality verdict (Plan B/B5-T2, #378).
+
+        ``QualityService.assess`` parses exactly this shape for every
+        assessable entity type, so the mock returns the full contract instead
+        of the generic ``[]`` fallback: a fixed score of 0.5 with no reasoning,
+        no suggestions and no per-criterion scores. A test that needs a
+        different verdict patches the provider -- the builder stays
+        deliberately content-free (``ctx`` is ignored).
+        """
+        return json.dumps(
+            {
+                "score": 0.5,
+                "reasoning": "mock",
+                "suggestions": [],
+                "criteria": {},
+            }
+        )
+
     #: ``purpose`` -> payload builder. Callers of ``complete`` declare one of
     #: these purposes (see ``llm_adapter.timeouts`` and the prompt-variable
     #: catalog); every other purpose falls back to ``json.dumps([])``.
@@ -967,6 +987,7 @@ class MockLlmProvider(LlmCapabilityInterface):
         "derive_glossary_from_workspace": _mock_derive_glossary_from_workspace,
         "goal_aggregate": _mock_goal_aggregate,
         "derive_adr_from_decision": _mock_derive_adr_from_decision,
+        "quality_assess": _mock_quality_assess,
     }
 
     def complete(

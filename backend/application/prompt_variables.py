@@ -213,6 +213,32 @@ PROMPT_VARIABLE_DEFAULTS: dict[str, PromptVariableSpec] = {
         "language",
         "ISO 639-1 content language of the workspace (Workspace.language).",
     ),
+    # Plan B/B5-T2 (#378): the four memory-free ``quality_*`` review slots
+    # render ONE artifact through these placeholders. The requirement slot
+    # exposes its IEEE-29148 review fields individually; ADR / test case /
+    # risk share the serialized field map.
+    "artifact_title": _data(
+        "artifact_title", "Title of the artifact under quality review."
+    ),
+    "artifact_description": _data(
+        "artifact_description", "Description of the artifact under quality review."
+    ),
+    "artifact_fields_json": _data(
+        "artifact_fields_json",
+        "JSON object of the artifact's type-specific fields (ADR, test case, risk).",
+        "json",
+    ),
+    "acceptance_criteria": _data(
+        "acceptance_criteria",
+        "Acceptance criteria of the requirement under quality review.",
+    ),
+    "rationale": _data(
+        "rationale", "Rationale of the requirement under quality review."
+    ),
+    "verification_method": _data(
+        "verification_method",
+        "Verification method of the requirement under quality review.",
+    ),
     # --- config (data-driven, admin-editable) ------------------------------
     "max_breadth": _config(
         "max_breadth",

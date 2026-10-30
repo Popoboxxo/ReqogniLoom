@@ -30,6 +30,14 @@
     "tableCaption": "Backups",
     "columnActions": "Actions"
   },
+  "aiPrompts": {
+    "slots": {
+      "quality_requirement": "Quality assessment: requirement",
+      "quality_adr": "Quality assessment: ADR",
+      "quality_testcase": "Quality assessment: test case",
+      "quality_risk": "Quality assessment: risk"
+    }
+  },
   "customFields": {
     "section": "Custom Fields",
     "workspaceSection": "Workspace Fields",

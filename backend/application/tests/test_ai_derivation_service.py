@@ -182,21 +182,13 @@ def test_get_template_content_falls_back_workspace_then_global_then_factory(
 
 
 def test_get_template_content_covers_all_eight_names():
-    """PROMPT_TEMPLATE_DEFAULTS (module-local, extended) has all 12 template names.
+    """PROMPT_TEMPLATE_DEFAULTS (module-local, extended) is exactly this name set.
 
-    Extended to 9 by Requirement Bundle Export, Plan 2 Task 1
-    (``bundle_compression`` — see application/bundle_compression_service.py),
-    then to 10 by Interview Management Engine Task 6
-    (``interview.grounding_rank`` — see application/interview_service.py),
-    then to 11 by Interview-Management Web Widget Task 2
-    (``interview.chat_turn`` — see application/interview_service.py's
-    ``generate_chat_turn``),
-    then to 12 by the interview transcript-compression slot
-    (``interview.transcript_summary``, commit e173fc1f — see
-    application/interview_service.py's transcript compression).
-
-    Stale expectation, not a defect: the 12th slot is a real, intentional
-    addition and the assertion simply was not grown with it.
+    The set is deliberately enumerated instead of derived, so every new factory
+    slot must be added here explicitly — that is the guard. It was extended last
+    by the four memory-free ``quality_*`` review slots (Plan B/B5-T2, #378 — see
+    the ``QUALITY_*_PROMPT_TEMPLATE`` constants in
+    application/ai_derivation_service.py).
     """
     from application.ai_derivation_service import PROMPT_TEMPLATE_DEFAULTS
 
@@ -213,6 +205,10 @@ def test_get_template_content_covers_all_eight_names():
         "interview.grounding_rank",
         "interview.chat_turn",
         "interview.transcript_summary",
+        "quality_requirement",
+        "quality_adr",
+        "quality_testcase",
+        "quality_risk",
     }
 
 

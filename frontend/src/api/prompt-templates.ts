@@ -73,6 +73,13 @@ export const KNOWN_PROMPT_SLOTS: readonly string[] = [
   "architecture_to_risk",
   "workspace_to_glossary",
   "decision_to_adr",
+  // Advisory quality assessment, one slot per assessable entity type
+  // (Plan B/B5-T2, #378). Memory-free by design: the verdict judges the
+  // artifact, not what the model remembers.
+  "quality_requirement",
+  "quality_adr",
+  "quality_testcase",
+  "quality_risk",
 ] as const;
 
 // ---------------------------------------------------------------------------

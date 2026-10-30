@@ -30,6 +30,14 @@
     "tableCaption": "Sicherungen",
     "columnActions": "Aktionen"
   },
+  "aiPrompts": {
+    "slots": {
+      "quality_requirement": "Qualitätsbewertung: Anforderung",
+      "quality_adr": "Qualitätsbewertung: ADR",
+      "quality_testcase": "Qualitätsbewertung: Testfall",
+      "quality_risk": "Qualitätsbewertung: Risiko"
+    }
+  },
   "customFields": {
     "section": "Benutzerdefinierte Felder",
     "workspaceSection": "Workspace-Felder",
