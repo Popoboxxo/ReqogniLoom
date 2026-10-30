@@ -1833,8 +1833,17 @@ class CrossCuttingToolGroup(BaseToolGroup):
         byte-identical. ``"validation"`` reports StakeholderNeed validation
         coverage instead.
         """
-        kind = params.get("kind", "verification")
-        if kind not in ("verification", "validation"):
+        # ``kind`` is normalised the way ``traceability.vcrm`` normalises
+        # ``format``: an explicit JSON ``null`` means "not set" (default
+        # ``"verification"``) rather than an invalid value, and a string is
+        # lowercased. Omitted / ``"verification"`` / ``None`` all reach the
+        # identical verification path below.
+        kind = params.get("kind")
+        if kind is None:
+            kind = "verification"
+        elif isinstance(kind, str):
+            kind = kind.lower()
+        if not isinstance(kind, str) or kind not in ("verification", "validation"):
             return ToolResult.error(
                 "VALIDATION_ERROR",
                 "Parameter 'kind' must be one of: 'verification', 'validation'.",

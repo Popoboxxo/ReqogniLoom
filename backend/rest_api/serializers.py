@@ -1304,7 +1304,9 @@ class NeedValidationCoverageSummarySerializer(serializers.Serializer):
     total = serializers.IntegerField()
     covered = serializers.IntegerField()
     percentage = serializers.FloatField()
-    pending_ai_review = serializers.IntegerField()
+    pending_ai_review = serializers.IntegerField(
+        help_text="Number of needs covered only by an unreviewed AI TestCase."
+    )
 
 
 class NeedValidationCoverageResponseSerializer(serializers.Serializer):

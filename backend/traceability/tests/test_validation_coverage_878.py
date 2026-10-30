@@ -80,8 +80,10 @@ class TestValidationCoverage:
         assert report.uncovered == []
         assert report.entries == []
 
-    def test_outdated_test_case_does_not_count(self, tenant_a, workspace_a):
-        """A soft-deleted TestCase is not validation evidence."""
+    def test_outdated_test_case_does_not_count_by_default_but_counts_with_flag(
+        self, tenant_a, workspace_a
+    ):
+        """A soft-deleted TestCase is not evidence unless ``include_outdated``."""
         from workflow.services import create_default_workflow, outdate
 
         class _SystemCtx:
@@ -106,11 +108,66 @@ class TestValidationCoverage:
             make_trace_link(tc_art, need_art, tenant_a, "validates")
 
             report = CoverageCalculator().validation_coverage(workspace_a.id)
+            # ``include_outdated`` opts the outdated source back in, so the
+            # very same ``validates`` link counts as evidence again.
+            with_outdated = CoverageCalculator().validation_coverage(
+                workspace_a.id, include_outdated=True
+            )
 
         assert report.total == 1
         assert report.covered == 0
         assert report.percentage == 0.0
         assert report.pending_ai_review == 0
+
+        assert with_outdated.total == 1
+        assert with_outdated.covered == 1
+        assert with_outdated.percentage == 100.0
+
+    def test_outdated_need_is_excluded_unless_include_outdated(
+        self, tenant_a, workspace_a
+    ):
+        """An outdated Need leaves the denominator by default (#878)."""
+        from workflow.services import create_default_workflow, outdate
+
+        class _SystemCtx:
+            user_id = "system:test-validation-coverage"
+
+        with active_tenant(tenant_a):
+            make_need(tenant_a, workspace_a, "Live need", "NEED-001")
+            _, outdated_need = make_need(
+                tenant_a, workspace_a, "Outdated need", "NEED-002"
+            )
+            create_default_workflow(
+                workspace_id=workspace_a.id,
+                preset="need_default",
+                item_type="StakeholderNeed",
+                tenant_id=tenant_a.id,
+            )
+            outdate(
+                item_id=outdated_need.id,
+                item_type="StakeholderNeed",
+                workspace_id=workspace_a.id,
+                ctx=_SystemCtx(),
+                reason="test: mark outdated",
+            )
+
+            report = CoverageCalculator().validation_coverage(workspace_a.id)
+            with_outdated = CoverageCalculator().validation_coverage(
+                workspace_a.id, include_outdated=True
+            )
+
+        # Default: the soft-deleted Need no longer drags the KPI down.
+        assert report.total == 1
+        assert [entry.uid for entry in report.entries] == ["NEED-001"]
+        assert str(outdated_need.id) not in report.uncovered
+
+        # Opted in: it is part of total/entries/uncovered again.
+        assert with_outdated.total == 2
+        assert [entry.uid for entry in with_outdated.entries] == [
+            "NEED-001",
+            "NEED-002",
+        ]
+        assert str(outdated_need.id) in with_outdated.uncovered
 
     def test_unreviewed_ai_test_case_does_not_count_and_is_reported(
         self, tenant_a, workspace_a

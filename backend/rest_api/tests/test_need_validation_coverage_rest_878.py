@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from rest_framework.test import APIClient
 
 pytestmark = pytest.mark.django_db
 
@@ -118,6 +119,57 @@ def test_404_for_a_foreign_workspace(seeded):
         "/api/v1/needs/validation-coverage/", {"workspace_id": str(foreign.id)}
     )
     assert resp.status_code == 404, resp.content
+
+
+def _login_same_tenant_non_member(tenant) -> APIClient:
+    """An ``APIClient`` for a same-tenant user with no role in *tenant*'s
+    seeded workspace (their admin role sits in a separate workspace)."""
+    from auth_tenancy.models import ROLE_ADMIN, UserRole
+    from persistence.middleware import clear_request_tenant, set_request_tenant
+    from persistence.models import User, Workspace
+
+    suffix = uuid.uuid4().hex[:8]
+    user = User.objects.create(
+        username=f"cv-stranger-{suffix}",
+        email=f"cv-stranger-{suffix}@t.test",
+        tenant=tenant,
+    )
+    user.set_password("hunter2pass")
+    user.save(update_fields=["password"])
+    set_request_tenant(tenant.id)
+    try:
+        own = Workspace.objects.create(tenant=tenant, name=f"Stranger WS {suffix}")
+        UserRole.objects.create(
+            tenant=tenant, user=user, workspace=own, role=ROLE_ADMIN
+        )
+    finally:
+        clear_request_tenant()
+
+    client = APIClient()
+    login = client.post(
+        "/api/v1/auth/login/",
+        {"username": user.username, "password": "hunter2pass"},
+        format="json",
+    )
+    assert login.status_code == 200, login.content
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.json()['token']}")
+    return client
+
+
+def test_403_for_a_caller_without_read_permission(seeded):
+    """A same-tenant non-member gets 403, never an empty 200.
+
+    ``workspace_id`` is a query parameter, so ``auth_tenancy.workspace_scope``
+    narrows the caller's roles to that workspace and a non-member resolves to
+    no role at all — the RBAC matrix refuses before the view body runs.
+    """
+    _client, workspace, _validated = seeded
+    stranger = _login_same_tenant_non_member(workspace.tenant)
+
+    resp = _get(stranger, workspace)
+
+    assert resp.status_code == 403, resp.content
+    assert resp.json()["error"]["code"] == "PERMISSION_DENIED"
 
 
 def test_flags_are_honoured(seeded):

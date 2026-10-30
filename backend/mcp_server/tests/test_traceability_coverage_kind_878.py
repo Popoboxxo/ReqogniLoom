@@ -153,20 +153,39 @@ def test_explicit_verification_kind_matches_the_default(env):
 
     default = _call(group, params, env["ctx"])
     explicit = _call(group, {**params, "kind": "verification"}, env["ctx"])
+    explicit_null = _call(group, {**params, "kind": None}, env["ctx"])
 
     assert default.success is True
     assert explicit.success is True
     assert explicit.data == default.data
+    # Explicit JSON ``null`` means "not set", not an invalid value.
+    assert explicit_null.success is True
+    assert explicit_null.data == default.data
 
 
-def test_unknown_kind_is_an_invalid_parameter_error(env):
+def test_kind_is_case_insensitive(env):
+    """``kind`` is lowercased like ``traceability.vcrm``'s ``format``."""
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    group = CrossCuttingToolGroup()
+    params = {"workspace_id": str(env["workspace"].id)}
+
+    lower = _call(group, {**params, "kind": "validation"}, env["ctx"])
+    upper = _call(group, {**params, "kind": "VALIDATION"}, env["ctx"])
+
+    assert upper.success is True
+    assert upper.data == lower.data
+
+
+@pytest.mark.parametrize("kind", ["vibes", 5])
+def test_unknown_kind_is_an_invalid_parameter_error(env, kind):
     """JSON-RPC -32602 with the allowed values in the message."""
     from mcp_server.protocol_handler import ErrorFormatter
     from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
 
     result = _call(
         CrossCuttingToolGroup(),
-        {"workspace_id": str(env["workspace"].id), "kind": "vibes"},
+        {"workspace_id": str(env["workspace"].id), "kind": kind},
         env["ctx"],
     )
 
