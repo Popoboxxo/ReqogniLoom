@@ -25,15 +25,16 @@ from __future__ import annotations
 from typing import Any
 
 from django.core.management.base import BaseCommand
+from django.utils import timezone
 
 from application.actor_service import ActorService
 from application.adr_service import AdrService
 from application.architecture_service import ArchitectureService
-from application.artifact_attribute_gateway import (
-    ArtifactAttributeGateway,
-    AttributeValues,
+from application.artifact_attribute_gateway import ArtifactAttributeGateway
+from application.attribute_definition_service import (
+    AttributeDefinitionNotFound,
+    AttributeDefinitionService,
 )
-from application.attribute_definition_service import AttributeDefinitionNotFound
 from application.glossary_service import GlossaryService
 from application.issue_service import IssueService
 from application.requirement_service import RequirementService
@@ -318,43 +319,108 @@ def _level_of(requirement: Requirement) -> int:
     return level if level in PRIORITY_BY_LEVEL else 5
 
 
-def _write_system_fields(
+def _flush_acceptance_criteria_items(requirements: list[Requirement]) -> None:
+    """Write the structured criteria list for many requirements at once.
+
+    ``create_requirement`` takes the free-text criteria but not the structured
+    ``acceptance_criteria_items`` list (#1288), so creation needs a second write
+    per row. One ``bulk_update`` replaces 880 single-row ``UPDATE``s; the stored
+    value is the same single-criterion shape migration 0113 imported.
+    """
+    if not requirements:
+        return
+    now = timezone.now()
+    for requirement in requirements:
+        requirement.modified_at = now
+    Requirement.objects.bulk_update(
+        requirements, ["acceptance_criteria_items", "modified_at"], batch_size=500
+    )
+
+
+def _resolve_requirement_definition(
+    ctx: AuthContext, workspace_id: Any
+) -> dict[str, Any] | None:
+    """Resolve the ``Requirement`` attribute definition once per run.
+
+    ``None`` means "not bootstrapped yet": the self-init hook is disabled under
+    test and the E2E workflow bootstraps *after* this seed, so a stack can
+    legitimately have no definition. Resolving once per run instead of once per
+    requirement keeps that a single decision instead of 880 exception-driven
+    ones — the definition is keyed by ``(workspace, item_type, preset)``, so
+    the 880th resolve can only repeat what the first one already established.
+    """
+    try:
+        return AttributeDefinitionService().resolve(ctx, "Requirement", workspace_id)
+    except AttributeDefinitionNotFound:
+        return None
+
+
+def _write_system_fields_bulk(
     ctx: AuthContext,
-    requirement: Requirement,
+    pending: list[tuple[Requirement, str | None]],
     actor: Actor,
     *,
-    priority: str | None = None,
-) -> None:
-    """Fill ``owner``/``priority`` on the requirement's backing Artifact.
+    workspace_id: Any,
+    definition: dict[str, Any] | None,
+) -> int:
+    """Fill ``owner``/``priority`` on many requirement Artifacts at once.
+
+    B1-T2 wrote both fields per requirement through
+    :meth:`ArtifactAttributeGateway.write`, which cost ~19 s and ~11 000 extra
+    queries for the 880-row demo seed (measured): each call re-resolved the
+    workspace definition, re-resolved the same Actor, saved the Artifact and
+    read the values back. The end state is identical — the same two Artifact
+    columns, validated against the same resolved definition — but reached with
+    one ``UPDATE`` per priority plus one for the owner.
 
     Only *empty* values are written, so the same helper serves creation (both
-    empty) and the idempotent backfill. The gateway is the single write seam
-    REST and MCP use, so the seed cannot produce attribute state a transport
-    could not produce itself. A stack without bootstrapped attribute
-    definitions (self-init skipped and the E2E workflow's explicit
-    ``bootstrap_attribute_definitions`` runs *after* this seed) has nothing to
-    validate against; the gateway then raises
-    ``AttributeDefinitionNotFound`` and the two Artifact columns are written
-    directly — the same rows the gateway would persist.
+    empty) and the idempotent backfill. Validation still goes through the
+    gateway's V path, once per distinct priority: the definition is
+    workspace-wide, so the 880th identical payload cannot fail where the first
+    one succeeded.
+
+    The assignment notification is deliberately not emitted: every seeded row
+    is owned by the *acting* admin, and ``notify_assigned`` drops the acting
+    user (``exclude_user_id``), so the per-requirement call never wrote a row.
+
+    Returns:
+        The number of Artifact rows touched.
     """
-    core: dict[str, Any] = {}
-    if requirement.artifact.owner_id is None:
-        core["owner"] = {"kind": "user", "id": str(actor.id)}
-    if priority is not None and not (requirement.artifact.priority or "").strip():
-        core["priority"] = priority
-    if not core:
-        return
-    try:
-        ArtifactAttributeGateway().write(
-            ctx, "Requirement", requirement, AttributeValues(core=dict(core))
-        )
-    except AttributeDefinitionNotFound:
-        fallback: dict[str, Any] = {}
-        if "owner" in core:
-            fallback["owner"] = actor
-        if "priority" in core:
-            fallback["priority"] = priority
-        Artifact.unscoped.filter(id=requirement.artifact_id).update(**fallback)
+    owner_ids: list[Any] = []
+    by_priority: dict[str, list[Any]] = {}
+    for requirement, priority in pending:
+        artifact = requirement.artifact
+        if artifact.owner_id is None:
+            owner_ids.append(artifact.id)
+        if priority is not None and not (artifact.priority or "").strip():
+            by_priority.setdefault(priority, []).append(artifact.id)
+
+    if not owner_ids and not by_priority:
+        return 0
+
+    if definition is not None:
+        gateway = ArtifactAttributeGateway()
+        owner_value = {"kind": "user", "id": str(actor.id)}
+        for priority in by_priority:
+            gateway.validate(
+                ctx,
+                "Requirement",
+                workspace_id,
+                {"owner": owner_value, "priority": priority},
+                # The established update presence marker: the definition engine
+                # only distinguishes create from update by ``is None``.
+                {"__exists__": True},
+            )
+
+    now = timezone.now()
+    touched: set[Any] = set()
+    if owner_ids:
+        Artifact.objects.filter(id__in=owner_ids).update(owner=actor, modified_at=now)
+        touched.update(owner_ids)
+    for priority, ids in by_priority.items():
+        Artifact.objects.filter(id__in=ids).update(priority=priority, modified_at=now)
+        touched.update(ids)
+    return len(touched)
 
 
 def _resolve_tenant_and_user() -> tuple[Tenant, User]:
@@ -432,7 +498,11 @@ def _create_glossary(ctx: AuthContext, ws_id: Any) -> None:
 
 
 def _create_stakeholder_needs(
-    ctx: AuthContext, ws_id: Any, tenant: Tenant, user: User
+    ctx: AuthContext,
+    ws_id: Any,
+    tenant: Tenant,
+    user: User,
+    max_needs: int = 0,
 ) -> list[Any]:
     """Create the L0 stakeholder needs driving the requirement cascade."""
     needs_data = [
@@ -457,6 +527,12 @@ def _create_stakeholder_needs(
         ("N-19", "Robustheit", "Falltest aus 1,5m Höhe ohne Funktionsverlust"),
         ("N-20", "Kinder-Modus", "Sicherheitsmodus mit reduzierter Kraft für Kinder")
     ]
+
+    # ``--max-needs`` (default 0 = all): a test/benchmark knob so the unit
+    # test exercises the same cascade with one need instead of twenty. Every
+    # production/E2E caller keeps the full list.
+    if max_needs > 0:
+        needs_data = needs_data[:max_needs]
 
     needs = []
     print("Creating Stakeholder Needs...")
@@ -551,6 +627,12 @@ def _create_requirements(
     # One Actor per run: resolving it per requirement would create/query the
     # same row 880 times.
     actor = ActorService().get_or_create_for_user(ctx, user.id)
+    # One definition resolve per run (see _resolve_requirement_definition).
+    definition = _resolve_requirement_definition(ctx, ws_id)
+    # The SE system fields are flushed once at the end of the run instead of
+    # once per requirement: see _write_system_fields_bulk for the measurement.
+    pending_items: list[Requirement] = []
+    pending_system_fields: list[tuple[Requirement, str | None]] = []
 
     def create_req(key, title, parent_need=None, parent_req=None, allocated_arch=None, level=1):
         acceptance_criteria, rationale = SE_ATTRIBUTES_BY_TITLE[title]
@@ -564,13 +646,15 @@ def _create_requirements(
             verification_method=VERIFICATION_METHOD_BY_LEVEL[level],
         )
         # #1288: mirror the free text into the structured criteria list, the
-        # same single-criterion shape migration 0113 imported it with.
+        # same single-criterion shape migration 0113 imported it with. Written
+        # in one bulk_update after the run (one extra UPDATE per requirement
+        # measured ~1.2 s of the seed's runtime for identical rows).
         r.acceptance_criteria_items = [
             {"text": acceptance_criteria, "fulfilled": False, "evidence_ref": None}
         ]
-        r.save(update_fields=["acceptance_criteria_items", "modified_at"])
+        pending_items.append(r)
         reqs[key] = r
-        _write_system_fields(ctx, r, actor, priority=PRIORITY_BY_LEVEL[level])
+        pending_system_fields.append((r, PRIORITY_BY_LEVEL[level]))
         if parent_need:
             # The retired ArchitectureElement -> Requirement satisfaction key:
             # a Requirement pointing at the Need it came from is a derivation,
@@ -662,6 +746,15 @@ def _create_requirements(
             arch_key = list(archs.keys())[-5 + ((i+j) % 5)]
             text = realistic_l5[(i + j) % len(realistic_l5)]
             create_req(f"L5_{i}_{j}", text, parent_req=reqs[l4k], allocated_arch=archs[arch_key], level=5)
+
+    _flush_acceptance_criteria_items(pending_items)
+    _write_system_fields_bulk(
+        ctx,
+        pending_system_fields,
+        actor,
+        workspace_id=ws_id,
+        definition=definition,
+    )
     return reqs
 
 
@@ -792,7 +885,7 @@ def _create_testcases_and_runs(ctx: AuthContext, ws_id: Any, reqs: dict[str, Any
         test_run_svc.add_result(test_run_id=tr1.id, test_case_id=tc.id, status="failed", ctx=ctx, message="Timeout nach 5 Sekunden.")
 
 
-def run():
+def run(max_needs: int = 0):
     print("Starting Zahnbürste SysEng Demo seeding...")
     tenant, user = _resolve_tenant_and_user()
     ctx = _build_auth_context(tenant, user)
@@ -814,7 +907,7 @@ def run():
 
     ws = _create_workspace(ctx)
     _create_glossary(ctx, ws.id)
-    needs = _create_stakeholder_needs(ctx, ws.id, tenant, user)
+    needs = _create_stakeholder_needs(ctx, ws.id, tenant, user, max_needs)
     archs = _create_architecture(ctx, ws.id)
     reqs = _create_requirements(ctx, ws.id, needs, archs, user)
     _create_icds(ctx, ws.id, archs, tenant, user)
@@ -852,8 +945,10 @@ def backfill_se_attributes() -> None:
 
         actor = ActorService().get_or_create_for_user(ctx, user.id)
         req_svc = RequirementService()
+        definition = _resolve_requirement_definition(ctx, workspace.id)
         changed = 0
         already_complete = 0
+        pending_system_fields: list[tuple[Requirement, str | None]] = []
 
         requirements = Requirement.objects.filter(
             artifact__workspace_id=workspace.id
@@ -874,8 +969,8 @@ def backfill_se_attributes() -> None:
             if not requirement.verification_method:
                 updates["verification_method"] = VERIFICATION_METHOD_BY_LEVEL[level]
 
-            # Which system fields are still empty; the helper re-checks this
-            # anyway, so a stale in-memory row cannot cause an overwrite.
+            # Which system fields are still empty; the bulk helper re-checks
+            # this anyway, so a stale in-memory row cannot cause an overwrite.
             needs_owner = requirement.artifact.owner_id is None
             priority = (
                 None
@@ -907,9 +1002,16 @@ def backfill_se_attributes() -> None:
                     ]
                 )
             if needs_owner or priority is not None:
-                _write_system_fields(ctx, requirement, actor, priority=priority)
+                pending_system_fields.append((requirement, priority))
             changed += 1
 
+        _write_system_fields_bulk(
+            ctx,
+            pending_system_fields,
+            actor,
+            workspace_id=workspace.id,
+            definition=definition,
+        )
         print(f"Backfilled {changed} requirements ({already_complete} already complete).")
     finally:
         clear_request_tenant()
@@ -929,9 +1031,20 @@ class Command(BaseCommand):
                 "already seeded workspace. Idempotent."
             ),
         )
+        parser.add_argument(
+            "--max-needs",
+            type=int,
+            default=0,
+            help=(
+                "Test/benchmark only: seed at most N stakeholder needs (0 = "
+                "all 20). The requirement cascade scales with the needs, so a "
+                "unit test exercises every level without paying the full "
+                "~880-requirement seed. Never used by production or E2E."
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         if options.get("backfill_se_attributes"):
             backfill_se_attributes()
             return
-        run()
+        run(max_needs=int(options.get("max_needs") or 0))

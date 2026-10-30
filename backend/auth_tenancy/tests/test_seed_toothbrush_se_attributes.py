@@ -9,10 +9,25 @@ without touching values a human already set.
 Both tests run against a real ``Workspace``/``User`` pair (no synthetic ids):
 the command resolves its tenant/user from the database and writes through the
 same services the REST/MCP transports use.
+
+COST: a full ``seed_toothbrush`` run is ~650 s — it creates ~880 requirements
+and ~1 800 trace links, each with cycle detection and RLS-scoped artifact
+lookups. The fixture therefore seeds with ``--max-needs 1``: the requirement
+cascade (L1–L5) and every SE-attribute write path still run, but the fixture
+drops to tens of requirements and seconds instead of minutes. The module scope
+stays so the three tests share that one run. The seed therefore runs
+**once per module**, inside one outer transaction that is rolled back when the
+module finishes: the three tests share the seeded rows, each test still rolls
+back its own changes (pytest-django nests its per-test atomic inside this one),
+and nothing leaks into later test modules.
 """
 from __future__ import annotations
 
+import uuid
+from collections.abc import Iterator
+
 import pytest
+from django.db import transaction
 
 from auth_tenancy.provisioning import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_USERNAME
 from persistence.models import (
@@ -30,37 +45,72 @@ pytestmark = pytest.mark.django_db
 WORKSPACE_NAME = "Zahnbürste SysEng Demo"
 
 
-@pytest.fixture
-def seed_tenant(db) -> Tenant:
+@pytest.fixture(scope="module")
+def seed_tenant(django_db_setup, django_db_blocker) -> Tenant:
     """The tenant the seed command resolves from the (single) admin user."""
-    return Tenant.objects.create(name="Tenant A", slug="tenant-a", is_active=True)
+    with django_db_blocker.unblock():
+        # Unique slug: the module-scoped fixture must survive a reused test DB
+        # (``--reuse-db``) without colliding with a previous module's tenant.
+        return Tenant.objects.create(
+            name="Tenant A",
+            slug=f"tenant-a-{uuid.uuid4().hex[:8]}",
+            is_active=True,
+        )
 
 
-@pytest.fixture
-def seed_admin(db, seed_tenant) -> User:
+@pytest.fixture(scope="module")
+def seed_admin(seed_tenant, django_db_blocker) -> User:
     """The admin user the seed command picks up by its well-known username."""
-    return User.objects.create(
-        username=DEFAULT_ADMIN_USERNAME,
-        email=DEFAULT_ADMIN_EMAIL,
-        tenant=seed_tenant,
-    )
+    with django_db_blocker.unblock():
+        # ``seed_toothbrush`` resolves the tenant from this well-known admin
+        # user; a reused DB may already hold it, so reuse and re-home it.
+        user, _ = User.objects.get_or_create(
+            username=DEFAULT_ADMIN_USERNAME,
+            defaults={"email": DEFAULT_ADMIN_EMAIL, "tenant": seed_tenant},
+        )
+        if user.tenant_id != seed_tenant.id:
+            user.tenant = seed_tenant
+            user.save(update_fields=["tenant"])
+        return user
 
 
-@pytest.fixture
-def seeded(db, seed_tenant, seed_admin) -> Workspace:
-    """Run the seed on a tenant whose attribute definitions are bootstrapped.
+@pytest.fixture(scope="module")
+def seeded(seed_tenant, seed_admin, django_db_blocker) -> Iterator[Workspace]:
+    """Run the seed ONCE for the module, inside a transaction rolled back at the end.
 
-    Production reaches the same state through ``migrate``'s post_migrate
-    self-init hook (or the explicit ``bootstrap_attribute_definitions`` step in
-    the E2E workflow) *before* the seed writes owner/priority through the
-    attribute gateway, so the bootstrap belongs to the environment setup here,
-    not to an assertion about the seed.
+    Production reaches this state through ``migrate``'s post_migrate self-init
+    hook (or the explicit ``bootstrap_attribute_definitions`` step in the E2E
+    workflow) *before* the seed writes owner/priority through the attribute
+    definition, so the bootstrap belongs to the environment setup here, not to
+    an assertion about the seed.
+
+    The outer ``atomic`` is entered by hand rather than as a context manager
+    because it has to stay open across the tests and be rolled back afterwards:
+    pytest-django nests each test's own atomic inside it, so per-test changes
+    still roll back individually and the seeded rows survive for the next test.
     """
     from django.core.management import call_command
 
-    call_command("bootstrap_attribute_definitions", tenant=str(seed_tenant.id))
-    call_command("seed_toothbrush")
-    return Workspace.unscoped.get(name=WORKSPACE_NAME)
+    outer_atomic = transaction.atomic()
+    entered = False
+    try:
+        with django_db_blocker.unblock():
+            outer_atomic.__enter__()
+            entered = True
+            call_command(
+                "bootstrap_attribute_definitions", tenant=str(seed_tenant.id)
+            )
+            # One need instead of twenty: the cascade still covers L1–L5 and
+            # every SE attribute, but the full seed is ~880 requirements and
+            # ~1 800 trace links (measured 648 s) — test-cost only.
+            call_command("seed_toothbrush", max_needs=1)
+            workspace = Workspace.unscoped.get(name=WORKSPACE_NAME)
+        yield workspace
+    finally:
+        if entered:
+            with django_db_blocker.unblock():
+                transaction.set_rollback(True)
+                outer_atomic.__exit__(None, None, None)
 
 
 def _requirements(workspace: Workspace) -> list[Requirement]:
@@ -101,7 +151,7 @@ def test_seed_is_still_idempotent(seeded):
     from django.core.management import call_command
 
     before = len(_requirements(seeded))
-    call_command("seed_toothbrush")
+    call_command("seed_toothbrush", max_needs=1)
     after = len(_requirements(seeded))
 
     assert after == before
