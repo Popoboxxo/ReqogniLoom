@@ -310,6 +310,11 @@ _WORKSPACE_VIA_REQUEST = (
     # workspace is carried in the URL like its four siblings above.
     "WorkspaceAttributeDefinitionReorderView",
     "WorkspaceAuditView",
+    # Plan B B5-T3 (#378): the quality surface is workspace-addressed
+    # (``workspaces/<uuid:workspace_id>/quality/...``); the workspace in the URL
+    # is the authority, and the service re-binds every entity lookup to it.
+    "QualityAssessView",
+    "QualityHistoryView",
     "WorkspaceAuditRemediateView",
     "WorkspaceAuditAiReviewView",
     "WorkspaceAuditWaiverView",
