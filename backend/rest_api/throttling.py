@@ -92,6 +92,7 @@ __all__ = [
     "DynamicRateThrottle",
     "LoginIpRateThrottle",
     "LoginRateThrottle",
+    "QualityAssessRateThrottle",
     "RefreshRateThrottle",
     "record_login_failure",
     "reset_login_throttle",
@@ -424,6 +425,45 @@ class RefreshRateThrottle(DynamicRateThrottle):
             "scope": self.scope,
             "ident": self.get_ident(request),
         }
+
+
+class QualityAssessRateThrottle(DynamicRateThrottle):
+    """Per-caller cap on the LLM-backed quality assessment (Plan B B5-T3).
+
+    Every ``quality.assess`` run costs a provider call, so it needs a ceiling
+    of its own on top of the generic ``user`` throttle: a scripted caller must
+    not be able to spend a tenant's token budget at full request rate.
+
+    #378/KA-B-10: the scope's ``DEFAULT_THROTTLE_RATES`` value is
+    ``QUALITY_ASSESS_RATE`` with a ``60/hour`` default, and an empty value
+    means "use the default", never "unlimited" -- unlike the other scopes,
+    where an empty env value deliberately disables the throttle. Enforcement
+    therefore lives in this class as well: a rate that resolves to empty (from
+    settings, or from an admin override through
+    :func:`admin_ops.rate_limits.resolve_rate`) is replaced by
+    :data:`DEFAULT_RATE` before counting, so the LLM endpoint can never become
+    an unthrottled spend path by configuration accident.
+    """
+
+    scope = "quality_assess"
+    DEFAULT_RATE = "60/hour"
+
+    def get_rate(self) -> str | None:
+        """Settings rate for ``quality_assess``, falling back to the default."""
+        return super().get_rate() or self.DEFAULT_RATE
+
+    def _refresh_rate(self, request: Any) -> None:
+        """Re-apply the default after the runtime layer, if that emptied it."""
+        super()._refresh_rate(request)
+        if not self.rate:
+            self.rate = self.DEFAULT_RATE
+            self.num_requests, self.duration = self.parse_rate(self.rate)
+
+    def get_cache_key(self, request: Request, view: Any) -> str | None:
+        ident = _auth_identity(request)
+        if ident is None:
+            return None
+        return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
 #: Throttles charged when a login attempt fails.

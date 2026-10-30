@@ -62,6 +62,10 @@ RATE_LIMIT_SCOPES: tuple[str, ...] = (
     "refresh",
     "mcp_key",
     "mcp_ip",
+    # Plan B B5-T3 (#378): the LLM-backed quality assessment; must stay in
+    # sync with ``settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]`` (see
+    # ``test_rate_limit_override``).
+    "quality_assess",
 )
 
 #: Short enough that an out-of-band DB change is picked up quickly, long enough

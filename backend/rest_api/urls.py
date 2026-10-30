@@ -185,6 +185,7 @@ from rest_api.review_views import (
     ReviewsPendingView,
     WorkspaceReviewsPendingView,
 )
+from rest_api.quality_views import QualityAssessView, QualityHistoryView
 from rest_api.settings_views import (
     ContextGraphRebuildView,
     ContextGraphSettingsView,
@@ -1042,6 +1043,19 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/audit/",
         WorkspaceAuditView.as_view(),
         name="workspace-audit",
+    ),
+    # Plan B B5-T3 (#378) — advisory quality assessment of ONE artifact.
+    # ``assess/`` is listed before the history route only for readability; the
+    # two cannot shadow each other (2 vs 3 segments after ``quality/``).
+    path(
+        "workspaces/<uuid:workspace_id>/quality/assess/",
+        QualityAssessView.as_view(),
+        name="workspace-quality-assess",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/quality/<str:entity_type>/<uuid:entity_id>/",
+        QualityHistoryView.as_view(),
+        name="workspace-quality-history",
     ),
     # SysEng 2.0 N3 (traceability.suggest_links, Phase 4b, first stage) —
     # rank plausible link targets for SE-Auditor findings; no pgvector.

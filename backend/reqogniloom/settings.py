@@ -567,6 +567,15 @@ MCP_RATE_LIMIT_KEY: str = _throttle_rate(
 MCP_RATE_LIMIT_IP: str = _throttle_rate(
     "MCP_RATE_LIMIT_IP", prod="1200/min", non_prod="20000/min"
 )
+# Plan B B5-T3 (#378): the LLM-backed quality assessment runs one paid
+# completion per request, so it gets its own ceiling on top of the generic
+# ``user`` throttle. Deliberately NOT routed through ``_throttle_rate``'s
+# "empty disables it" convention: an empty or missing value means the 60/hour
+# default, never unlimited (KA-B-10) — an unthrottled LLM endpoint is a cost
+# incident, not a load-test switch.
+QUALITY_ASSESS_RATE: str = config(
+    "QUALITY_ASSESS_RATE", default="60/hour"
+).strip()
 
 # ---------------------------------------------------------------------------
 # Django admin brute-force lockout (issue #1135)
@@ -679,6 +688,9 @@ REST_FRAMEWORK = {
         # override_settings works identically in both test suites.
         "mcp_key": MCP_RATE_LIMIT_KEY or None,
         "mcp_ip": MCP_RATE_LIMIT_IP or None,
+        # Plan B B5-T3 (#378): LLM spend guard for POST .../quality/assess/.
+        # ``or "60/hour"`` (not ``or None``) — see QUALITY_ASSESS_RATE above.
+        "quality_assess": QUALITY_ASSESS_RATE or "60/hour",
     },
 }
 

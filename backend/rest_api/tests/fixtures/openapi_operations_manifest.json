@@ -2114,6 +2114,14 @@
    "get"
   ],
   [
+   "/api/v1/workspaces/{workspace_id}/quality/assess/",
+   "post"
+  ],
+  [
+   "/api/v1/workspaces/{workspace_id}/quality/{entity_type}/{entity_id}/",
+   "get"
+  ],
+  [
    "/api/v1/workspaces/{workspace_id}/review-policy/",
    "get"
   ],
