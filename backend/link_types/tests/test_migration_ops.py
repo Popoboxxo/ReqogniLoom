@@ -500,6 +500,28 @@ def test_the_predictor_reports_copy_of_as_not_surviving():
     assert predict_migrated_triple("copy-of", "Requirement", "Requirement") is None
 
 
+def test_is_creatable_accepts_the_untagged_base_of_a_tagged_pair():
+    """A tagged pair must not make a legitimate row look non-creatable.
+
+    ``inventory_link_types`` and ``verify_migrated_links`` only ever know an
+    artifact's base ``artifact_type``, so they pass ``ArchitectureElement``,
+    never ``ArchitectureElement:function``. Before the predicate understood
+    that, every real ``performs`` row was reported as a blocking triple and the
+    command exited non-zero.
+    """
+    # The exact tag still wins.
+    assert is_creatable(
+        "performs", "ArchitectureElement", "ArchitectureElement:function"
+    )
+    # A different tag on the same registered base type is still rejected.
+    assert not is_creatable(
+        "performs", "ArchitectureElement", "ArchitectureElement:component"
+    )
+    # A plain base type (and the wildcard side) matches as before.
+    assert is_creatable("performs", "ArchitectureElement", "ArchitectureElement")
+    assert is_creatable("decides", "Adr", "Requirement")
+
+
 @pytest.mark.django_db
 def test_no_retired_link_type_survives_the_full_run(env):
     from link_types.builtin import LEGACY_LINK_TYPE_MAPPING

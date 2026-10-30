@@ -25,6 +25,7 @@ const EXPECTED_TYPES = [
   "derives-from",
   "diagram-ref",
   "mitigates",
+  "performs",
   "realizes",
   "references",
   "refines",

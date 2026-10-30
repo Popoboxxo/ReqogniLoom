@@ -71,8 +71,9 @@ _DROPPED_SUFFIX = ":dropped"
 #: write into ``WorkspaceLinkTypeDefinition``. Used by
 #: :func:`verify_migrated_links`; the matching rule is the catalog's own — see
 #: :func:`_pair_side_matches`, which mirrors ``catalog.validate_link_pair``
-#: (including the ``Typ:Subtag`` semantics of #877) — and, through
-#: :func:`is_creatable`, by the ``blocking`` section of
+#: (including the ``Typ:Subtag`` semantics of #877) except that it cannot see a
+#: sub-type and therefore accepts the untagged base of a tagged side — and,
+#: through :func:`is_creatable`, by the ``blocking`` section of
 #: ``manage.py inventory_link_types``.
 _ALLOWED_PAIRS: dict[str, tuple[tuple[str, str], ...]] = {
     key: tuple(
@@ -106,7 +107,7 @@ def _pair_side_matches(allowed: str | None, endpoint: str | None) -> bool:
     migration must not touch):
 
     * ``*`` accepts anything;
-    * a side **with** a ``Typ:Subtag`` tag accepts only that exact tag, so
+    * a side **with** a ``Typ:Subtag`` tag accepts that exact tag, so
       ``ArchitectureElement:function`` does not swallow every element;
     * a side **without** a tag accepts the normalised base type, so the
       untagged built-ins keep accepting every sub-type (expand guarantee, #877).
@@ -116,7 +117,16 @@ def _pair_side_matches(allowed: str | None, endpoint: str | None) -> bool:
     if not allowed:
         return False
     if ":" in allowed:
-        return allowed == (endpoint or "")
+        # This offline predicate has no sub-type information: its callers hand
+        # it the base ``Artifact.artifact_type`` only (``ArchitectureElement``,
+        # never ``ArchitectureElement:function``), so a tagged pair must not be
+        # judged non-creatable for that reason. The runtime rule
+        # (``catalog.validate_link_pair``) stays strict and rejects a wrong
+        # sub-type there, where the tagged type is actually known.
+        return allowed == endpoint or (
+            ":" not in (endpoint or "")
+            and _base_type(allowed) == _base_type(endpoint)
+        )
     return allowed == _base_type(endpoint)
 
 
