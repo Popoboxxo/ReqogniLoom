@@ -226,6 +226,57 @@ class CoverageData:
 
 
 # ---------------------------------------------------------------------------
+# Validation coverage (#878, Plan B B2-T2)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class NeedValidationEntry:
+    """Per-StakeholderNeed validation evidence (#878).
+
+    The counterpart of :class:`RequirementCoverageEntry` for the ``validates``
+    edge (TestCase -> StakeholderNeed). ``test_cases`` entries carry
+    ``{id, title, latest_result}`` — the same shape the VCRM exposes
+    (``latest_result`` is the display label of the newest TestRunResult, or
+    ``"Not Run"`` when the test case never ran).
+    """
+
+    need_id: str
+    uid: str
+    title: str
+    test_cases: list[dict]  # [{id, title, latest_result}]
+
+
+@dataclass
+class ValidationCoverageReport:
+    """Validation-coverage summary for a workspace's StakeholderNeeds (#878).
+
+    ``total`` is the number of active StakeholderNeeds, ``covered`` those with
+    at least one ``validates`` link from a live TestCase that counts as
+    evidence (:func:`traceability.coverage_calculator.counts_as_verification_evidence`).
+    ``pending_ai_review`` counts the needs that would be covered only by an
+    ``origin="ai_generated"``, unreviewed TestCase (always 0 on the raw view).
+    ``entries`` and ``uncovered`` share one deterministic order: ``uid``, then
+    ``need_id`` (D-SORT).
+    """
+
+    total: int
+    covered: int
+    uncovered: list[str]
+    percentage: float
+    pending_ai_review: int = 0
+    entries: list[NeedValidationEntry] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "total": self.total,
+            "covered": self.covered,
+            "uncovered": self.uncovered,
+            "percentage": self.percentage,
+            "pending_ai_review": self.pending_ai_review,
+        }
+
+
+# ---------------------------------------------------------------------------
 # VCRM types (COMP-TE-004)
 # REQ-L2-TE-013
 # ---------------------------------------------------------------------------
@@ -267,10 +318,12 @@ __all__ = [
     "CoverageReport",
     "Direction",
     "LinkType",
+    "NeedValidationEntry",
     "NeighborResult",
     "RequirementCoverageEntry",
     "TraceGraphData",
     "TransitiveResult",
     "VCRMMatrix",
     "VCRMRow",
+    "ValidationCoverageReport",
 ]

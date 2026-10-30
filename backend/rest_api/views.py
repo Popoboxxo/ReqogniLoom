@@ -196,6 +196,7 @@ from rest_api.serializers import (
     ImpactNodeSerializer,
     IssueSerializer,
     MainGoalSerializer,
+    NeedValidationCoverageResponseSerializer,
     RequirementSerializer,
     ResolvedArtifactSerializer,
     RiskSerializer,
@@ -453,6 +454,19 @@ def _resolve_change_reason(request: Request) -> str:
     Kept as a thin delegate because existing tests import it from here.
     """
     return parse_change_reason(request)
+
+
+def _query_flag(request: Request, name: str) -> bool:
+    """Read a boolean query flag ('true'/'1'/'yes', any casing).
+
+    Shared by the coverage reports (``/requirements/coverage-report/`` and
+    ``/needs/validation-coverage/``) so both read the same flag set.
+    """
+    return str(request.query_params.get(name, "")).strip().lower() in {
+        "true",
+        "1",
+        "yes",
+    }
 
 
 #: Shared OpenAPI contract for soft-deleting ``destroy`` handlers (G1.5/#1381).
@@ -1014,6 +1028,131 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:
             logger.exception("StakeholderNeedViewSet.list: unhandled exception")
             return _service_error_response(exc, lang)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="workspace_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Target workspace UUID.",
+            ),
+            OpenApiParameter(
+                name="include_outdated",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Include soft-deleted (outdated) StakeholderNeeds and count "
+                    "outdated validating TestCases as evidence. Defaults to false."
+                ),
+            ),
+            OpenApiParameter(
+                name="include_unreviewed_ai",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Count an origin='ai_generated', unreviewed TestCase as "
+                    "validation evidence (the raw view). The default excludes it "
+                    "and reports the exclusion as summary.pending_ai_review."
+                ),
+            ),
+        ],
+        responses={
+            200: NeedValidationCoverageResponseSerializer,
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Missing or malformed `workspace_id`.",
+            ),
+            403: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Caller lacks read permission on the workspace.",
+            ),
+            404: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Unknown workspace, or one outside the caller's tenant.",
+            ),
+        },
+        description=(
+            "Validation coverage of the workspace's StakeholderNeeds (#878, "
+            "Plan B B2-T2). The counterpart of "
+            "`/api/v1/requirements/coverage-report/`: a need is *validated* when "
+            "at least one incoming `validates` link comes from a live TestCase "
+            "that counts as verification evidence (the same #424 predicate the "
+            "`verifies` path uses). Rows are ordered by `uid`, then `need_id`."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="validation-coverage")
+    def validation_coverage(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/needs/validation-coverage/?workspace_id=<uuid> (#878).
+
+        The StakeholderNeed counterpart of
+        ``/api/v1/requirements/coverage-report/``: a need is validated when at
+        least one incoming ``validates`` link comes from a live TestCase that
+        counts as verification evidence. The published contract (query params,
+        200 body, error codes) is the ``extend_schema`` block above.
+
+        Errors: missing/invalid ``workspace_id`` → 400 VALIDATION_ERROR;
+        unknown/foreign workspace → 404 NOT_FOUND.
+        """
+        lang = detect_lang(request)
+        workspace_id, error = parse_workspace_id(
+            request.query_params.get("workspace_id"),
+            lang,
+        )
+        if error is not None:
+            return error
+
+        include_outdated = _query_flag(request, "include_outdated")
+        include_unreviewed_ai = _query_flag(request, "include_unreviewed_ai")
+
+        try:
+            ctx = get_auth_context(request)
+            # Existence check first: an unknown/foreign workspace is a 404, not
+            # an empty report that looks like "no needs". Goes through the
+            # service layer (no direct model query in a view).
+            WorkspaceService().get_workspace(workspace_id, ctx)
+
+            from traceability.coverage_calculator import CoverageCalculator
+
+            report = CoverageCalculator().validation_coverage(
+                workspace_id,
+                include_outdated=include_outdated,
+                include_unreviewed_ai=include_unreviewed_ai,
+            )
+        except (ValidationError, ValueError) as exc:
+            return _service_error_response(
+                exc if isinstance(exc, ValidationError) else ValidationError(str(exc)),
+                lang,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:
+            logger.exception(
+                "StakeholderNeedViewSet.validation_coverage: unhandled exception"
+            )
+            return _service_error_response(exc, lang)
+
+        payload = {
+            "summary": {
+                "total": report.total,
+                "covered": report.covered,
+                "percentage": report.percentage,
+                "pending_ai_review": report.pending_ai_review,
+            },
+            "needs": [
+                {
+                    "need_id": entry.need_id,
+                    "uid": entry.uid,
+                    "title": entry.title,
+                    "test_cases": entry.test_cases,
+                }
+                for entry in report.entries
+            ],
+        }
+        return Response(NeedValidationCoverageResponseSerializer(payload).data)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """GET /api/v1/needs/<id>/ — retrieve single need."""
@@ -2341,16 +2480,8 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         if error is not None:
             return error
 
-        def _flag(name: str) -> bool:
-            """Read a boolean query flag ('true'/'1'/'yes', any casing)."""
-            return str(request.query_params.get(name, "")).strip().lower() in {
-                "true",
-                "1",
-                "yes",
-            }
-
-        include_outdated = _flag("include_outdated")
-        include_unreviewed_ai = _flag("include_unreviewed_ai")
+        include_outdated = _query_flag(request, "include_outdated")
+        include_unreviewed_ai = _query_flag(request, "include_unreviewed_ai")
 
         try:
             ctx = get_auth_context(request)

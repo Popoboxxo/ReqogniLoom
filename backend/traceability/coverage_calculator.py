@@ -31,13 +31,15 @@ import uuid
 
 from django.db import connection
 
-from persistence.models import Requirement, TraceLink
+from persistence.models import Requirement, StakeholderNeed, TraceLink
 from persistence.tenancy import TenantContext
 from traceability.exceptions import BaselineCoverageNotSupportedError, InvalidFilterError
 from traceability.types import (
     CoverageData,
     CoverageReport,
+    NeedValidationEntry,
     RequirementCoverageEntry,
+    ValidationCoverageReport,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,6 +60,9 @@ ORIGIN_AI_GENERATED = "ai_generated"
 
 #: #424: link label that carries verification coverage (ADR-L3-TE3-01).
 _VERIFIES_LINK_TYPE = "verifies"
+
+#: #878: link label that carries validation coverage (TestCase -> StakeholderNeed).
+_VALIDATES_LINK_TYPE = "validates"
 
 
 def counts_as_verification_evidence(origin: str, reviewed: bool) -> bool:
@@ -208,6 +213,157 @@ class CoverageCalculator:
             # #424: distinct TestCase artifacts excluded *solely* because they
             # are unreviewed AI content. Always 0 on the raw view.
             pending_ai_review=len(pending_ai_review_ids),
+        )
+
+    def validation_coverage(
+        self,
+        workspace_id: uuid.UUID,
+        *,
+        include_outdated: bool = False,
+        include_unreviewed_ai: bool = False,
+    ) -> ValidationCoverageReport:
+        """Compute validation coverage for StakeholderNeeds (#878, B2-T2).
+
+        The StakeholderNeed counterpart of :meth:`coverage`: the denominator is
+        every active StakeholderNeed of the workspace, a Need is "validated"
+        iff at least one incoming ``validates`` link comes from a TestCase that
+        is not outdated and counts as verification evidence — the **same**
+        predicate (:func:`counts_as_verification_evidence`) the ``verifies``
+        path uses, so both reports cannot drift apart.
+
+        Args:
+            workspace_id: The workspace to compute validation coverage for.
+            include_outdated: When False (default), outdated StakeholderNeeds
+                are excluded from ``total``/``entries``/``uncovered`` (deleting
+                a need must not keep dragging the KPI down) and outdated
+                source TestCases no longer count as evidence.
+            include_unreviewed_ai: When False (default), an
+                ``origin="ai_generated"``, unreviewed TestCase does not count;
+                such a Need is reported in ``pending_ai_review`` instead. Pass
+                ``True`` for the raw "everything that is linked" view.
+
+        Returns:
+            ValidationCoverageReport. ``entries`` and ``uncovered`` share one
+            order — ``uid``, then ``need_id`` (D-SORT).
+        """
+        t0 = time.monotonic()
+        tenant_id = TenantContext.get_tenant()
+
+        needs = list(
+            StakeholderNeed.objects.filter(
+                artifact__workspace_id=workspace_id
+            ).values("id", "artifact_id", "title", "uid")
+        )
+        if not include_outdated:
+            needs = self._exclude_outdated(needs, "StakeholderNeed")
+
+        total = len(needs)
+        if total == 0:
+            return ValidationCoverageReport(
+                total=0, covered=0, uncovered=[], percentage=0.0
+            )
+
+        need_id_by_artifact = {
+            str(n["artifact_id"]): str(n["id"]) for n in needs
+        }
+        link_rows = self._fetch_link_rows(
+            list(need_id_by_artifact), _VALIDATES_LINK_TYPE, tenant_id
+        )
+
+        # Resolve the SOURCE side once: only a live TestCase counts, and only
+        # when the shared #424 predicate accepts it as evidence.
+        tc_rows = self._load_testcase_rows({source for source, _ in link_rows})
+        outdated_tc_ids = (
+            set() if include_outdated else self._outdated_testcase_row_ids(tc_rows)
+        )
+        meta = {str(row["artifact_id"]): row for row in tc_rows}
+        evidence_ids: set[str] = set()
+        ai_pending_ids: set[str] = set()
+        for row in tc_rows:
+            if str(row["id"]) in outdated_tc_ids:
+                continue
+            artifact_id = str(row["artifact_id"])
+            if include_unreviewed_ai or counts_as_verification_evidence(
+                row["origin"], row["reviewed"]
+            ):
+                evidence_ids.add(artifact_id)
+            elif _is_ai_unreviewed(row["origin"], row["reviewed"]):
+                ai_pending_ids.add(artifact_id)
+
+        evidence_by_need: dict[str, set[str]] = {
+            need_id: set() for need_id in need_id_by_artifact.values()
+        }
+        ai_only_by_need: dict[str, set[str]] = {
+            need_id: set() for need_id in need_id_by_artifact.values()
+        }
+        for source, target in link_rows:
+            need_id = need_id_by_artifact.get(target)
+            if need_id is None:
+                continue
+            if source in evidence_ids:
+                evidence_by_need[need_id].add(source)
+            elif source in ai_pending_ids:
+                ai_only_by_need[need_id].add(source)
+
+        latest_result = self._latest_testrun_status(evidence_ids)
+
+        def _testcase_title(artifact_id: str) -> str:
+            return meta.get(artifact_id, {}).get("title") or ""
+
+        entries: list[NeedValidationEntry] = []
+        uncovered: list[str] = []
+        covered_count = 0
+        pending_ai_review = 0
+        # D-SORT: uid first, need_id as tiebreaker — the same order feeds
+        # ``uncovered`` so both lists can be zipped by a consumer.
+        for need in sorted(
+            needs, key=lambda n: (n["uid"] or "", str(n["id"]))
+        ):
+            need_id = str(need["id"])
+            tc_ids = sorted(
+                evidence_by_need[need_id],
+                key=lambda aid: (_testcase_title(aid), aid),
+            )
+            entries.append(
+                NeedValidationEntry(
+                    need_id=need_id,
+                    uid=need["uid"] or "",
+                    title=need["title"] or "",
+                    test_cases=[
+                        {
+                            "id": aid,
+                            "title": _testcase_title(aid),
+                            "latest_result": latest_result.get(aid, "Not Run"),
+                        }
+                        for aid in tc_ids
+                    ],
+                )
+            )
+            if tc_ids:
+                covered_count += 1
+            else:
+                uncovered.append(need_id)
+                if ai_only_by_need[need_id]:
+                    pending_ai_review += 1
+
+        percentage = round(covered_count / total * 100, 1)
+
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        if elapsed_ms > COVERAGE_SLA_MS:
+            logger.warning(
+                "CoverageCalculator SLA breach: validation_coverage took %.1fms "
+                "(SLA: %dms)",
+                elapsed_ms,
+                COVERAGE_SLA_MS,
+            )
+
+        return ValidationCoverageReport(
+            total=total,
+            covered=covered_count,
+            uncovered=uncovered,
+            percentage=percentage,
+            pending_ai_review=pending_ai_review,
+            entries=entries,
         )
 
     # IF-TE-INT-004

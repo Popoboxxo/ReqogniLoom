@@ -1026,6 +1026,10 @@
    "post"
   ],
   [
+   "/api/v1/needs/validation-coverage/",
+   "get"
+  ],
+  [
    "/api/v1/needs/{id}/",
    "delete"
   ],
