@@ -3,7 +3,7 @@
  *
  * Verifies:
  *   - Renders nothing when isOpen is false
- *   - Renders a row for each of the eleven built-in link types when open
+ *   - Renders a row for each core built-in link type when open
  *   - Renders DE/EN downstream/upstream/neutral cells for a sample type
  *   - Close button (header + footer) calls onClose
  *   - No editable form controls are rendered (read-only contract)

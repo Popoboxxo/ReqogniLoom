@@ -68,11 +68,12 @@ SPEC-RELATIONs / SPEC-RELATION-TYPEs (TraceLinks)
 ----------------------------------------------------
   One SPEC-RELATION-TYPE per distinct ``TraceLink.link_type`` value that
   appears among the *exported* links (see ``traceability.types.LinkType`` for
-  the eleven built-in keys: derives-from, decomposes, refines, allocated-to,
-  verifies, decides, mitigates, satisfies, realizes, references, diagram-ref —
-  a workspace may define more, which export the same way). IDENTIFIER = ``SRT-<sanitised link_type>`` — non-NCName
-  characters replaced with ``-`` (link_type values are already lower-kebab-case
-  so this is a no-op in practice).
+  the core built-in keys: derives-from, decomposes, refines, allocated-to,
+  verifies, validates, decides, mitigates, satisfies, realizes, references,
+  diagram-ref — a workspace may define more, which export the same way).
+  IDENTIFIER = ``SRT-<sanitised link_type>`` — non-NCName characters replaced
+  with ``-`` (link_type values are already lower-kebab-case so this is a no-op
+  in practice).
 
   One SPEC-RELATION per TraceLink whose ``source`` AND ``target`` both resolve
   to an exported SPEC-OBJECT (a link touching a non-exported artifact type,

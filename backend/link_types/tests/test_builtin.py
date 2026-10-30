@@ -40,12 +40,14 @@ def test_suspect_rules_are_the_four_code_anchored_values():
     }
 
 
-def test_the_coverage_relevant_types_include_both_test_edges():
+def test_exactly_the_four_coverage_relevant_types_are_flagged():
     coverage = {k for k, v in BUILTIN_LINK_TYPES.items() if v["coverage_relevant"]}
     # `satisfies` is the ISO 15288/29148 validation edge (#950) — the only
     # coverage-relevant link to a Goal; `validates` (#878) is the
-    # stakeholder-layer counterpart of `verifies`.
-    assert {"allocated-to", "verifies", "satisfies", "validates"} <= coverage
+    # stakeholder-layer counterpart of `verifies`. Equality on purpose: an
+    # accidentally flagged type would silently move the coverage KPI, so a
+    # fifth edge has to be added here deliberately.
+    assert coverage == {"allocated-to", "verifies", "satisfies", "validates"}
 
 
 def test_impact_weights_match_the_spec_table():

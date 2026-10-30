@@ -3,7 +3,7 @@
  *
  * leaf_id: COMP-RF-001 (NavigationShell — SystemSettings administration tab)
  *
- * Read-only admin screen listing the Tri-Label table for the eleven built-in
+ * Read-only admin screen listing the Tri-Label table for the core built-in
  * link types (DE + EN, downstream/upstream/neutral) — see
  * docs/UMSETZUNGSPLAN_SYSENG_2.0.md §1.3. The table is read directly from
  * the frontend fallback constant (`constants/traceLinkLabels.ts`); it does
@@ -66,7 +66,7 @@ export function TriLabelOverviewDialog({
       <p className={styles.hint}>
         {t(
           "triLabelOverview.hint",
-          "Read-only overview of the eleven built-in TraceLink types with their German/English downstream, upstream and neutral labels. Per-workspace catalog customizations are not reflected here."
+          "Read-only overview of the core built-in TraceLink types with their German/English downstream, upstream and neutral labels. Per-workspace catalog customizations are not reflected here."
         )}
       </p>
 
