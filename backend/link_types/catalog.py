@@ -17,6 +17,14 @@ shared cache generation for the workspace, so a bump performed in any worker
 makes every other worker discard its entry on the next read. A bulk
 ``QuerySet.update()`` bypasses ``save()``/signals, so every writer must call
 :func:`invalidate_workspace` explicitly.
+
+Sub-types
+---------
+A pair side and an endpoint type may carry a sub-type tag as ``Typ:Subtag``
+(``ArchitectureElement:function``). That is the **only** sub-type
+representation — no second spelling, no separate ``subtype`` key. Which types
+may carry one is decided by :data:`SUBTYPE_FIELDS`, a generic register mapping
+an artifact type to its sub-type field (not bound to ``ArchitectureElement``).
 """
 from __future__ import annotations
 
@@ -32,6 +40,10 @@ from .schema import validate_definition_json
 
 CACHE_NAMESPACE = "link_types"
 
+#: artifact type -> entity field holding its sub-type value. Only a type listed
+#: here may carry a ``Typ:Subtag`` tag in a pair or an endpoint.
+SUBTYPE_FIELDS: dict[str, str] = {"ArchitectureElement": "element_type"}
+
 _cache_lock = threading.Lock()
 #: workspace_id (str) -> (generation, {key: definition_json})
 _catalog_cache: dict[str, tuple[int, dict[str, dict[str, Any]]]] = {}
@@ -39,6 +51,11 @@ _catalog_cache: dict[str, tuple[int, dict[str, dict[str, Any]]]] = {}
 
 def normalize_artifact_type(artifact_type: str | None) -> str:
     """Strip sub-type tags: ``"TestCase:unit"`` -> ``"TestCase"``.
+
+    ``Typ:Subtag`` is the only sub-type representation the catalog knows; this
+    helper reduces either side (pair or endpoint) to the base type. An endpoint
+    keeps its full ``Typ:Subtag`` string when it is compared against a tagged
+    pair — see :func:`validate_link_pair`.
 
     Moved here from ``traceability.types`` so the catalog owns the whole
     matching vocabulary.
@@ -95,6 +112,22 @@ def get_definition(
     return resolve_catalog(workspace_id).get(key)
 
 
+def _pair_side_matches(pair_type: str | None, endpoint_type: str | None) -> bool:
+    """Does one side of an ``allowed_pairs`` entry accept *endpoint_type*?
+
+    ``*`` accepts anything; a side **with** a tag accepts only that exact
+    ``Typ:Subtag`` string; a side **without** a tag accepts the normalised base
+    type, so untagged pairs keep matching every sub-type (expand guarantee).
+    """
+    if pair_type == "*":
+        return True
+    if not pair_type:
+        return False
+    if ":" in pair_type:
+        return pair_type == (endpoint_type or "")
+    return pair_type == normalize_artifact_type(endpoint_type)
+
+
 def validate_link_pair(
     workspace_id: UUID | str,
     link_type: str,
@@ -108,8 +141,10 @@ def validate_link_pair(
     Args:
         workspace_id: Workspace owning both endpoints.
         link_type: The catalog key under validation.
-        source_type: ``Artifact.artifact_type`` of the source endpoint.
-        target_type: ``Artifact.artifact_type`` of the target endpoint.
+        source_type: Endpoint type of the source, either the base
+            ``Artifact.artifact_type`` or ``Typ:Subtag`` when the artifact type
+            is in :data:`SUBTYPE_FIELDS`.
+        target_type: Same for the target endpoint.
         manual: True for hand-authored links (REST ``trace-links``, every MCP
             trace-link tool). System paths (the diagram reconciler) pass False
             and may write ``system_owned`` types.
@@ -117,7 +152,8 @@ def validate_link_pair(
     Raises:
         ValidationError: Unknown/inactive type, a system-owned type on the
             manual path, or an endpoint pair the type does not allow. The
-            message always lists the acceptable values (audit finding R3).
+            message always lists the acceptable values (audit finding R3), in
+            the same ``Typ:Subtag`` notation the pairs are written in.
     """
     catalog = resolve_catalog(workspace_id)
     definition = catalog.get(link_type)
@@ -133,14 +169,14 @@ def validate_link_pair(
             f"created or updated manually."
         )
 
-    src = normalize_artifact_type(source_type)
-    tgt = normalize_artifact_type(target_type)
+    src = source_type or ""
+    tgt = target_type or ""
     pairs = definition.get("allowed_pairs") or []
 
     for pair in pairs:
-        pair_src = pair.get("source_type")
-        pair_tgt = pair.get("target_type")
-        if pair_src in ("*", src) and pair_tgt in ("*", tgt):
+        if _pair_side_matches(pair.get("source_type"), src) and _pair_side_matches(
+            pair.get("target_type"), tgt
+        ):
             return
 
     allowed = ", ".join(
@@ -162,6 +198,7 @@ def validate_definition(payload: Any, *, key: str) -> dict[str, Any]:
 
 __all__ = [
     "CACHE_NAMESPACE",
+    "SUBTYPE_FIELDS",
     "get_definition",
     "invalidate_workspace",
     "normalize_artifact_type",

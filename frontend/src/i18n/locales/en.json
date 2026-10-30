@@ -2747,6 +2747,8 @@
     "coverageRelevant": "Coverage Relevant",
     "active": "Active",
     "allowedPairs": "Allowed Pairs",
+    "pairSourceSubtype": "Source subtype (optional)",
+    "pairTargetSubtype": "Target subtype (optional)",
     "newType": "New Type",
     "newTypeLimitationHint": "Note: a newly created custom link type can currently only be edited and viewed — it cannot be used to create trace links yet.",
     "inertFieldsHint": "Stored but not consumed yet: the coverage and impact-analysis engines do not read these values so far.",

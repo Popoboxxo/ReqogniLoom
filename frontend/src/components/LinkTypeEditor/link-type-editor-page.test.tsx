@@ -5,7 +5,10 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { LinkTypeEditorPage } from "./LinkTypeEditorPage";
 import { linkTypesApi } from "../../api/link-types";
 
-vi.mock("../../api/link-types", () => ({
+vi.mock("../../api/link-types", async (importOriginal) => ({
+  // The real module also owns the subtype register and the pair-type splitter;
+  // only the HTTP client is replaced.
+  ...(await importOriginal<typeof import("../../api/link-types")>()),
   linkTypesApi: {
     listForWorkspace: vi.fn(),
     updateForWorkspace: vi.fn(),
@@ -105,6 +108,52 @@ describe("LinkTypeEditorPage", () => {
         "ws-1",
         "verifies",
         expect.objectContaining({ impact_weight: 0.6 }),
+      ),
+    );
+  });
+
+  it("round-trips a pair subtype as Typ:Subtag", async () => {
+    const subtypeDefinition = {
+      ...definition,
+      allowed_pairs: [
+        { source_type: "Requirement", target_type: "ArchitectureElement:function" },
+      ],
+    };
+    vi.mocked(linkTypesApi.listForWorkspace).mockResolvedValue([
+      { ...verifies, definition: subtypeDefinition },
+    ]);
+    vi.mocked(linkTypesApi.updateForWorkspace).mockResolvedValue({
+      ...verifies,
+      definition: subtypeDefinition,
+      is_customized: true,
+    });
+
+    render(<LinkTypeEditorPage scope="workspace" />);
+    await userEvent.click(await screen.findByTestId("link-type-edit-verifies"));
+
+    // Load: the stored Typ:Subtag pair is split into base type + tag, and the
+    // Requirement side stays inert (no registered subtype field).
+    expect(await screen.findByTestId("link-type-pair-target-0")).toHaveValue(
+      "ArchitectureElement",
+    );
+    expect(screen.getByTestId("link-type-pair-target-subtype-0")).toHaveValue("function");
+    expect(screen.getByTestId("link-type-pair-source-subtype-0")).toBeDisabled();
+
+    const subtypeInput = screen.getByTestId("link-type-pair-target-subtype-0");
+    await userEvent.clear(subtypeInput);
+    await userEvent.type(subtypeInput, "component");
+    await userEvent.click(screen.getByTestId("link-type-save-button"));
+
+    // Save: base type + tag are composed back into Typ:Subtag.
+    await waitFor(() =>
+      expect(linkTypesApi.updateForWorkspace).toHaveBeenCalledWith(
+        "ws-1",
+        "verifies",
+        expect.objectContaining({
+          allowed_pairs: [
+            { source_type: "Requirement", target_type: "ArchitectureElement:component" },
+          ],
+        }),
       ),
     );
   });
