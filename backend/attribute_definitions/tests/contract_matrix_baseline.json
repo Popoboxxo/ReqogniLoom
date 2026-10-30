@@ -3,7 +3,7 @@
   "version": 1,
   "spec": "docs/se/attribut/attribut-umsetzungsspezifikation.md sections 9 and 11",
   "test": "backend/attribute_definitions/tests/test_transport_contract_matrix.py",
-  "generated_for": "REST (APIClient + JWT) and MCP (ToolRegistry.dispatch_request + reqlo_* API key) driven against the real test DB, with a synthetic extended attribute 'ws0_probe' injected into every bootstrapped definition.",
+  "generated_for": "REST (APIClient + JWT) and MCP (ToolRegistry.dispatch_request + reqlo_* API key) driven against the real test DB, with two synthetic extended attributes injected into every bootstrapped definition: 'ws0_probe' (type text, length rule) and 'contract_probe_flag' (type boolean, #941).",
   "checks": {
     "CREATE": "the bare create for the item type failed (attribute '*')",
     "W": "a create carrying the attribute was rejected",
@@ -18,36 +18,12 @@
   "semantics": "Ratchet, not a wish-list: the test is green while ACTUAL violations are a SUBSET of the violations list and ACTUAL limitations are a SUBSET of the limitations list; a NEW entry of either kind fails, and (strict shrink) an entry that no longer reproduces also fails. Remove closed entries when a WS lands. WS1 #935 closed all of its limitations (status read-back on ArchitectureElement/Icd, artifact.search, artifact.get_tree, attribute_definition.update(sections)); only the WS0 #941 evidence gaps remain. violations carry ws_issue; limitations carry the concrete issue (WS0 #941) and a reason that names exactly why the cell cannot be exercised.",
   "limitations": [
     {
-      "item_type": "*",
-      "preset": "extended",
-      "transport": "REST+MCP",
-      "attribute": "boolean",
-      "issue": "#941",
-      "reason": "no core boolean attribute exists in any bootstrapped definition, so no boolean validation rule is violable on either transport (WS0 evidence gap, #941)"
-    },
-    {
-      "item_type": "*",
-      "preset": "minimal",
-      "transport": "REST+MCP",
-      "attribute": "boolean",
-      "issue": "#941",
-      "reason": "no core boolean attribute exists in any bootstrapped definition, so no boolean validation rule is violable on either transport (WS0 evidence gap, #941)"
-    },
-    {
-      "item_type": "*",
-      "preset": "standard",
-      "transport": "REST+MCP",
-      "attribute": "boolean",
-      "issue": "#941",
-      "reason": "no core boolean attribute exists in any bootstrapped definition, so no boolean validation rule is violable on either transport (WS0 evidence gap, #941)"
-    },
-    {
       "item_type": "Goal",
       "preset": "extended",
       "transport": "REST",
       "attribute": "ws0_probe",
       "issue": "#941",
-      "reason": "Goal is lineage-versioned: REST exposes no in-place PATCH (405 by design), updates append a new version (WS0 contract-matrix evidence gap, #941)"
+      "reason": "Goal is lineage-versioned: REST exposes no in-place PATCH (405 by design), updates append a new version (immutable row per version) — by design, see docs/superpowers/specs/Archive/2026-07-30-ziele-und-hauptziel-design.md §2 'Datenmodell' / REQ-L2-TE-020; ADR-004 does not address the versioning and is therefore not cited (WS0 contract-matrix evidence gap, #941)"
     },
     {
       "item_type": "Goal",
@@ -55,7 +31,7 @@
       "transport": "REST",
       "attribute": "ws0_probe",
       "issue": "#941",
-      "reason": "Goal is lineage-versioned: REST exposes no in-place PATCH (405 by design), updates append a new version (WS0 contract-matrix evidence gap, #941)"
+      "reason": "Goal is lineage-versioned: REST exposes no in-place PATCH (405 by design), updates append a new version (immutable row per version) — by design, see docs/superpowers/specs/Archive/2026-07-30-ziele-und-hauptziel-design.md §2 'Datenmodell' / REQ-L2-TE-020; ADR-004 does not address the versioning and is therefore not cited (WS0 contract-matrix evidence gap, #941)"
     },
     {
       "item_type": "Goal",
@@ -63,7 +39,7 @@
       "transport": "REST",
       "attribute": "ws0_probe",
       "issue": "#941",
-      "reason": "Goal is lineage-versioned: REST exposes no in-place PATCH (405 by design), updates append a new version (WS0 contract-matrix evidence gap, #941)"
+      "reason": "Goal is lineage-versioned: REST exposes no in-place PATCH (405 by design), updates append a new version (immutable row per version) — by design, see docs/superpowers/specs/Archive/2026-07-30-ziele-und-hauptziel-design.md §2 'Datenmodell' / REQ-L2-TE-020; ADR-004 does not address the versioning and is therefore not cited (WS0 contract-matrix evidence gap, #941)"
     }
   ],
   "violations": []

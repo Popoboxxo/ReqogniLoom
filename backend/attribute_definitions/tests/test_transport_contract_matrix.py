@@ -130,6 +130,18 @@ PROBE_NAME = "ws0_probe"
 PROBE_VALID = "ws0-probe-value"
 PROBE_INVALID = "x" * 200
 
+#: Name of the synthetic extended **boolean** attribute (#941). No bootstrapped
+#: definition carries a core boolean, so the boolean rule (write, read, type
+#: validation, round-trip) can only be exercised through the regular definition
+#: service — an extended attribute, no product attribute, no schema change.
+#: ``_generate_value`` already answers ``True`` for ``type == "boolean"``, so
+#: the W/R/UPDATE/ROUNDTRIP cells pick it up automatically once it exists.
+BOOLEAN_PROBE_NAME = "contract_probe_flag"
+BOOLEAN_PROBE_VALID = True
+#: ``field_validation._check_type`` requires a real JSON boolean, so a string is
+#: rejected identically by REST and MCP unless one transport skips validation.
+BOOLEAN_PROBE_INVALID = "not-a-boolean"
+
 #: ``check`` codes the matrix can emit.
 CHECK_CODES = (
     "CREATE",
@@ -337,24 +349,45 @@ class _Env:
 
 
 def _inject_probe_attribute(tenant_id: Any) -> None:
-    """Add ``ws0_probe`` to every global definition (extended carrier probe)."""
+    """Add the synthetic probes to every global definition.
+
+    Two extended-carrier probes (spec section 2), both through the regular
+    definition service:
+
+    * ``ws0_probe`` — ``type="text"`` with a ``length`` rule: the generic
+      extended carrier plus a violable validation rule.
+    * ``contract_probe_flag`` — ``type="boolean"`` (#941): the only way to
+      exercise the boolean type and its ``must be a boolean`` rule, because no
+      bootstrapped definition carries a core boolean.
+    """
     store = GlobalAttributeDefinitionStore()
-    probe = {
-        "name": PROBE_NAME,
-        "kind": "extended",
-        "type": "text",
-        "label": {"de": "WS0 Vertragsprobe", "en": "WS0 contract probe"},
-        "validation": {"length": 64},
-        "order": 9999,
-    }
+    probes = (
+        {
+            "name": PROBE_NAME,
+            "kind": "extended",
+            "type": "text",
+            "label": {"de": "WS0 Vertragsprobe", "en": "WS0 contract probe"},
+            "validation": {"length": 64},
+            "order": 9999,
+        },
+        {
+            "name": BOOLEAN_PROBE_NAME,
+            "kind": "extended",
+            "type": "boolean",
+            "label": {"de": "WS0 Boolean-Probe", "en": "WS0 boolean probe"},
+            "order": 9998,
+        },
+    )
     for item_type in ITEM_TYPES:
         for preset in PRESETS:
             row = store.get(tenant_id, item_type, preset)
             assert row is not None, f"bootstrap produced no {item_type}/{preset} definition"
             attributes = stored_attributes(row.definition_json)
-            if PROBE_NAME in {a["name"] for a in attributes}:
+            existing = {a["name"] for a in attributes}
+            missing = [dict(probe) for probe in probes if probe["name"] not in existing]
+            if not missing:
                 continue
-            attributes.append(dict(probe))
+            attributes.extend(missing)
             store.update(tenant_id, item_type, preset, attributes)
 
 
@@ -1132,7 +1165,9 @@ def _run_read_only_pass(
 #: One violable core attribute per attribute ``type`` for the V parity probe.
 #: Only ``Risk`` carries a core ``number`` (``detection``, model-validated
 #: 1..10) and a core ``enum`` whose options the definition enforces
-#: (``probability``); no bootstrapped definition carries a core ``boolean``.
+#: (``probability``). No bootstrapped definition carries a core ``boolean``, so
+#: that rule is covered by the synthetic extended :data:`BOOLEAN_PROBE_NAME`
+#: probe instead of a core entry here.
 _CORE_V_PROBES: dict[str, tuple[tuple[str, Any], ...]] = {
     "Risk": (
         ("probability", "cm-invalid-probability"),
@@ -1140,10 +1175,28 @@ _CORE_V_PROBES: dict[str, tuple[tuple[str, Any], ...]] = {
     ),
 }
 
-_BOOLEAN_V_REASON = (
-    "no core boolean attribute exists in any bootstrapped definition, so no "
-    "boolean validation rule is violable on either transport (WS0 evidence "
-    "gap, #941)"
+
+@dataclass(frozen=True)
+class _ValidationProbe:
+    """One value a validation rule must reject, and where it travels.
+
+    ``kind`` decides the carrier: ``extended`` values go into ``custom_fields``
+    (and are read back from there), ``core`` values sit at the payload top
+    level under the real column name. Keeping the kind on the probe is what
+    lets the loop handle synthetic extended probes and bootstrapped core probes
+    alike instead of special-casing one name.
+    """
+
+    name: str
+    kind: str
+    invalid_value: Any
+
+
+#: Synthetic extended probes, one per violable rule the bootstrap cannot
+#: provide: the text ``length`` rule and the boolean ``must be a boolean`` rule.
+_SYNTHETIC_V_PROBES: tuple[_ValidationProbe, ...] = (
+    _ValidationProbe(PROBE_NAME, "extended", PROBE_INVALID),
+    _ValidationProbe(BOOLEAN_PROBE_NAME, "extended", BOOLEAN_PROBE_INVALID),
 )
 
 #: Item types whose update path enforces the preset's ``change_reason`` policy.
@@ -1162,34 +1215,30 @@ def _run_validation_parity(
 ) -> int:
     """Compare REST/MCP accept-or-reject of out-of-rule probe values.
 
-    Two families are probed: the synthetic extended ``ws0_probe`` (a
-    ``length`` rule) and every core rule in :data:`_CORE_V_PROBES` (enum and
-    number). Each probe records a ``V`` check under the **real** attribute name
-    on mismatch.
+    Two families are probed: the synthetic extended probes in
+    :data:`_SYNTHETIC_V_PROBES` (the ``ws0_probe`` ``length`` rule and the
+    ``contract_probe_flag`` boolean type rule) and every core rule in
+    :data:`_CORE_V_PROBES` (enum and number). Each probe records a ``V`` check
+    under the **real** attribute name on mismatch.
     """
     spec = _SPECS[item_type]
     if spec.mcp_create is None:
         return 0
     executed = 0
 
-    probes: list[tuple[str, dict[str, Any] | None]] = [(PROBE_NAME, None)]
+    probes: list[_ValidationProbe] = list(_SYNTHETIC_V_PROBES)
     for attribute_name, invalid_value in _CORE_V_PROBES.get(item_type, ()):
-        probes.append((attribute_name, invalid_value))
+        probes.append(_ValidationProbe(attribute_name, "core", invalid_value))
 
-    for attribute_name, invalid_value in probes:
-        if attribute_name == PROBE_NAME:
-            invalid_attribute: dict[str, Any] = {"name": PROBE_NAME, "kind": "extended"}
-            value: Any = PROBE_INVALID
-        else:
-            invalid_attribute = {"name": attribute_name, "kind": "core"}
-            value = invalid_value
+    for probe in probes:
+        invalid_attribute: dict[str, Any] = {"name": probe.name, "kind": probe.kind}
         payload = _payload(
             env,
             preset,
             item_type,
             spec,
             invalid_attribute,
-            value,
+            probe.invalid_value,
             _token(f"v{item_type[:4].lower()}{preset[:3]}"),
         )
         rest_ok = rest.create(item_type, spec, payload, workspace).ok
@@ -1201,7 +1250,7 @@ def _run_validation_parity(
                     item_type,
                     preset,
                     "REST+MCP",
-                    attribute_name,
+                    probe.name,
                     "V",
                     f"invalid probe accepted by {'REST' if rest_ok else 'MCP'} "
                     f"but rejected by {'MCP' if rest_ok else 'REST'}",
@@ -1256,8 +1305,12 @@ def _run_update_probe(
                     "REST",
                     PROBE_NAME,
                     "Goal is lineage-versioned: REST exposes no in-place PATCH "
-                    "(405 by design), updates append a new version (WS0 "
-                    "contract-matrix evidence gap, #941)",
+                    "(405 by design), updates append a new version "
+                    "(immutable row per version) — by design, see "
+                    "docs/superpowers/specs/Archive/2026-07-30-ziele-und-"
+                    "hauptziel-design.md §2 'Datenmodell' / REQ-L2-TE-020; "
+                    "ADR-004 does not address the versioning and is therefore "
+                    "not cited (WS0 contract-matrix evidence gap, #941)",
                     ISSUE_WS0_CONTRACT_MATRIX,
                 )
             )
@@ -1707,11 +1760,6 @@ def _run_matrix(env: _Env) -> tuple[list[dict[str, Any]], list[dict[str, Any]], 
     workspace_resolver = WorkspaceAttributeDefinitionStore()
     for preset in PRESETS:
         workspace = env.workspaces[preset]
-        # No bootstrapped definition carries a core boolean; ratchet the V cell
-        # once per preset rather than pretending to probe it.
-        limitations.append(
-            _limitation("*", preset, "REST+MCP", "boolean", _BOOLEAN_V_REASON, ISSUE_WS0_CONTRACT_MATRIX)
-        )
         for item_type in ITEM_TYPES:
             row = workspace_resolver.resolve(env.tenant.id, workspace.id, item_type, preset)
             attributes = stored_attributes(row.definition_json)
