@@ -7166,7 +7166,7 @@
       "name": "traceability.vcrm",
       "prefix": "traceability",
       "is_write": true,
-      "description": "Export the Verification Cross Reference Matrix (VCRM, COMP-TE-004, issue #410) for a workspace: requirement x component x test_case x result. ``format=\"json\"`` (default) returns result.rows/result.row_count; ``format=\"csv\"`` returns result.csv (the mandatory CSV export) plus row_count.",
+      "description": "Export the Verification Cross Reference Matrix (VCRM, COMP-TE-004, issue #410) for a workspace: requirement x component x test_case x result x verification_method. ``format=\"json\"`` (default) returns result.rows/result.row_count; every row additionally carries ``verification_method`` (the requirement's method, e.g. Test/Review/Analysis; empty string when unset). ``format=\"csv\"`` returns result.csv (the mandatory CSV export) plus row_count; it appends ``verification_method`` as the last column.",
       "inputSchema": {
         "type": "object",
         "properties": {
