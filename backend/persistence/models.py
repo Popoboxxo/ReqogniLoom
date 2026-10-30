@@ -119,6 +119,7 @@ class ElementType(models.TextChoices):
     SUBSYSTEM = "subsystem", "Subsystem"
     LAYER = "layer", "Layer"
     MODULE = "module", "Module"
+    FUNCTION = "function", "Function"
 
 
 class ArchitectureRole(models.TextChoices):

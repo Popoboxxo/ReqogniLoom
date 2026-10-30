@@ -400,6 +400,7 @@
     "elementType.subsystem": "Subsystem",
     "elementType.layer": "Schicht",
     "elementType.module": "Modul",
+    "elementType.function": "Funktion",
     "linkedRequirements": "Verknüpfte Anforderungen",
     "selectElement": "Architekturelement aus der Liste auswählen, um Details anzuzeigen.",
     "newElementTitle": "Neues Element",
