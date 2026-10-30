@@ -27,6 +27,22 @@ export interface LinkTypePair {
   target_type: string;
 }
 
+/**
+ * Artifact types that may carry a `Typ:Subtag` tag (#877 / B3-T2).
+ *
+ * Mirrors the backend's generic register (`link_types.catalog.SUBTYPE_FIELDS`);
+ * the tag itself stays free-form (`ArchitectureElement:function`). This constant
+ * is the frontend's single source of truth — the catalog response carries no
+ * register.
+ */
+export const LINK_TYPE_SUBTYPE_TYPES: readonly string[] = ["ArchitectureElement"];
+
+/** Split a pair side into its base type and its optional sub-type tag. */
+export function splitPairType(value: string): { base: string; subtag: string } {
+  const [base = "", ...rest] = value.split(":");
+  return { base, subtag: rest.join(":") };
+}
+
 /** The four propagation behaviours the backend engine can dispatch on. */
 export type SuspectRule =
   | "none"

@@ -104,6 +104,59 @@ class TraceEdgeDTO:
 MAX_WORKSPACE_LINKS_PAGE_SIZE = 500
 
 
+def _catalog_uses_subtypes(catalog: dict[str, dict[str, Any]]) -> bool:
+    """Does any active link type of this workspace use a ``Typ:Subtag`` pair?
+
+    A malformed entry is skipped rather than raising: ``allowed_pairs`` is
+    validated on every write path, so a non-mapping here means a corrupt row,
+    and that must surface as a :class:`ValidationError` from
+    :func:`link_types.catalog.validate_link_pair` — not as an ``AttributeError``
+    (HTTP 500) on the way there.
+    """
+    for definition in catalog.values():
+        for pair in definition.get("allowed_pairs") or ():
+            if not isinstance(pair, dict):
+                continue
+            if ":" in str(pair.get("source_type") or "") or ":" in str(
+                pair.get("target_type") or ""
+            ):
+                return True
+    return False
+
+
+def _endpoint_type(artifact: "Artifact", subtype_fields: dict[str, str]) -> str:
+    """``artifact.artifact_type``, tagged with its sub-type when registered.
+
+    The register names the artifact type and its field; the entity model comes
+    from the Artifact's own reverse one-to-one relation, so a new registration
+    needs no second table here. One ``values_list`` query, sub-type column only
+    — never a full row. Anything unregistered/unset falls back to the base type.
+    """
+    from link_types.catalog import normalize_artifact_type
+
+    base = normalize_artifact_type(artifact.artifact_type)
+    field_name = subtype_fields.get(base)
+    if field_name is None:
+        return artifact.artifact_type
+
+    for relation in artifact._meta.related_objects:
+        if not relation.one_to_one or relation.related_model.__name__ != base:
+            continue
+        value = (
+            relation.related_model.objects.filter(
+                **{relation.field.attname: artifact.id}
+            )
+            .values_list(field_name, flat=True)
+            .first()
+        )
+        # Normalise exactly like the write path (``architecture_service``):
+        # a legacy row with ``ElementType``/padded casing would otherwise
+        # compose a tag the catalog can never match.
+        tag = str(value).strip().lower() if value is not None else ""
+        return f"{base}:{tag}" if tag else base
+    return artifact.artifact_type
+
+
 def _json_safe(value: Any) -> Any:
     """Render a UUID/datetime scalar as a JSON-serializable primitive.
 
@@ -448,7 +501,7 @@ class TraceLinkService(ServiceBase):
                 manual path, or a disallowed endpoint pair.
             NotFoundError: Either endpoint does not exist.
         """
-        from link_types.catalog import validate_link_pair
+        from link_types.catalog import SUBTYPE_FIELDS, resolve_catalog, validate_link_pair
         from persistence.models import Artifact
 
         source = source_artifact
@@ -471,11 +524,17 @@ class TraceLinkService(ServiceBase):
         if target is None:
             raise NotFoundError("Target entity not found")
 
+        # Sub-types (#877 / B3-T2): a pair side may be written as
+        # ``Typ:Subtag``. The register decides which artifact types can carry
+        # such a tag, so the endpoint is only resolved when the workspace's
+        # catalog actually uses a tagged pair — otherwise the base type is
+        # passed unchanged and no subtype row is ever read.
+        tagged = _catalog_uses_subtypes(resolve_catalog(source.workspace_id))
         validate_link_pair(
             source.workspace_id,
             link_type,
-            source.artifact_type,
-            target.artifact_type,
+            _endpoint_type(source, SUBTYPE_FIELDS) if tagged else source.artifact_type,
+            _endpoint_type(target, SUBTYPE_FIELDS) if tagged else target.artifact_type,
             manual=manual,
         )
 

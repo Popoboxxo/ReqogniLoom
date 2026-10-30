@@ -34,6 +34,12 @@ _OPTIONAL_DEFAULTS: dict[str, Any] = {
 _REQUIRED = ("label", "allowed_pairs", "suspect_rule", "impact_weight")
 _KNOWN = set(_REQUIRED) | set(_OPTIONAL_DEFAULTS)
 
+#: Upper bound for one ``allowed_pairs`` side. The entity side is bounded by the
+#: model (``Artifact.artifact_type`` is 64 characters), so anything longer can
+#: never name an artifact type — it would be stored as a pair that silently
+#: never matches. 80 leaves room for a ``Typ:Subtag`` composition.
+_MAX_PAIR_SIDE_LENGTH = 80
+
 
 def validate_definition_json(payload: Any, *, key: str) -> dict[str, Any]:
     """Validate and normalize one link-type definition.
@@ -113,6 +119,12 @@ def _validate_pairs(pairs: Any, *, key: str) -> list[dict[str, str]]:
 
     An empty list is legal and means "this type currently links nothing" —
     the sane state for a freshly invented type before its pairs are filled in.
+
+    A side may carry a sub-type tag in the ``Typ:Subtag`` notation
+    (``ArchitectureElement:function``) — the *only* representation of a
+    sub-type — but only for artifact types listed in
+    :data:`link_types.catalog.SUBTYPE_FIELDS`; a tag on any other type is
+    refused here rather than silently never matching.
     """
     if not isinstance(pairs, list):
         raise ValidationError(f"Link type '{key}': 'allowed_pairs' must be a list.")
@@ -131,11 +143,47 @@ def _validate_pairs(pairs: Any, *, key: str) -> list[dict[str, str]]:
                 )
         out.append(
             {
-                "source_type": pair["source_type"],
-                "target_type": pair["target_type"],
+                "source_type": _validate_pair_side(
+                    pair["source_type"], key=key, index=index, side="source_type"
+                ),
+                "target_type": _validate_pair_side(
+                    pair["target_type"], key=key, index=index, side="target_type"
+                ),
             }
         )
     return out
+
+
+def _validate_pair_side(value: str, *, key: str, index: int, side: str) -> str:
+    """Normalize one pair side, validating a ``Typ:Subtag`` tag if present."""
+    from .catalog import SUBTYPE_FIELDS
+
+    where = f"Link type '{key}': allowed_pairs[{index}].{side}"
+    if len(value) > _MAX_PAIR_SIDE_LENGTH:
+        raise ValidationError(
+            f"{where} is longer than {_MAX_PAIR_SIDE_LENGTH} characters "
+            f"(got {len(value)}). Artifact types are capped at 64 characters, so "
+            f"a longer pair side cannot name one."
+        )
+    if ":" not in value:
+        return value
+
+    base, _, tag = value.partition(":")
+    if value.count(":") > 1:
+        raise ValidationError(
+            f"{where} carries more than one ':' — use 'Typ:Subtag'."
+        )
+    if not tag or any(char.isspace() for char in value):
+        raise ValidationError(
+            f"{where} has an empty or whitespace-padded sub-type tag "
+            f"— use 'Typ:Subtag'."
+        )
+    if base not in SUBTYPE_FIELDS:
+        raise ValidationError(
+            f"{where}: subtype tag is only supported for: "
+            f"{', '.join(sorted(SUBTYPE_FIELDS))}."
+        )
+    return f"{base}:{tag.lower()}"
 
 
 def _validate_suspect_rule(rule: Any, *, key: str) -> str:

@@ -20,7 +20,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Lock } from "lucide-react";
-import { linkTypesApi } from "../../api/link-types";
+import { LINK_TYPE_SUBTYPE_TYPES, linkTypesApi, splitPairType } from "../../api/link-types";
 import type {
   GlobalLinkType,
   LinkTypeDefinition,
@@ -289,6 +289,24 @@ function LinkTypeForm({ form, onChange, onSave, onCancel, saving, isNew }: LinkT
     });
   };
 
+  /** Set one pair side's base type, keeping its tag only if still taggable. */
+  const updatePairBase = (index: number, field: keyof LinkTypePair, base: string): void => {
+    const { subtag } = splitPairType(form.allowedPairs[index][field]);
+    const taggable = LINK_TYPE_SUBTYPE_TYPES.includes(base);
+    updatePair(index, field, taggable && subtag ? `${base}:${subtag}` : base);
+  };
+
+  /**
+   * Set (or clear) one side's sub-type tag — `Typ:Subtag` is the only notation:
+   * the base type stays, only the tag is appended, so clearing it returns to
+   * the bare base type. Non-registered types never get a tag (input disabled).
+   */
+  const updatePairSubtype = (index: number, field: keyof LinkTypePair, subtag: string): void => {
+    const { base } = splitPairType(form.allowedPairs[index][field]);
+    const tag = subtag.trim().toLowerCase();
+    updatePair(index, field, tag ? `${base}:${tag}` : base);
+  };
+
   const addPair = (): void => {
     onChange({ ...form, allowedPairs: [...form.allowedPairs, { source_type: "*", target_type: "*" }] });
   };
@@ -394,34 +412,62 @@ function LinkTypeForm({ form, onChange, onSave, onCancel, saving, isNew }: LinkT
       <div>
         <span style={fieldLabelStyle}>{t("linkType.allowedPairs")}</span>
         <div data-testid="link-type-allowed-pairs-editor" style={pairsContainerStyle}>
-          {form.allowedPairs.map((pair, index) => (
+          {form.allowedPairs.map((pair, index) => {
             // Rows have no stable identity of their own (plain {source_type,
             // target_type} pairs) — the array index is the only key available.
-            <div key={index} style={pairRowStyle}>
-              <input
-                aria-label={t("traceability.source", "Source")}
-                data-testid={`link-type-pair-source-${index}`}
-                value={pair.source_type}
-                onChange={(e) => updatePair(index, "source_type", e.target.value)}
-                style={pairInputStyle}
-              />
-              <input
-                aria-label={t("traceability.target", "Target")}
-                data-testid={`link-type-pair-target-${index}`}
-                value={pair.target_type}
-                onChange={(e) => updatePair(index, "target_type", e.target.value)}
-                style={pairInputStyle}
-              />
-              <button
-                type="button"
-                className="btn-danger"
-                data-testid={`link-type-pair-remove-${index}`}
-                onClick={() => removePair(index)}
-              >
-                {t("actions.delete")}
-              </button>
-            </div>
-          ))}
+            const source = splitPairType(pair.source_type);
+            const target = splitPairType(pair.target_type);
+            const sourceCanTag = LINK_TYPE_SUBTYPE_TYPES.includes(source.base);
+            const targetCanTag = LINK_TYPE_SUBTYPE_TYPES.includes(target.base);
+            return (
+              <div key={index} style={pairsContainerStyle}>
+                <div style={pairRowStyle}>
+                  <input
+                    aria-label={t("traceability.source", "Source")}
+                    data-testid={`link-type-pair-source-${index}`}
+                    value={source.base}
+                    onChange={(e) => updatePairBase(index, "source_type", e.target.value)}
+                    style={pairInputStyle}
+                  />
+                  <input
+                    aria-label={t("traceability.target", "Target")}
+                    data-testid={`link-type-pair-target-${index}`}
+                    value={target.base}
+                    onChange={(e) => updatePairBase(index, "target_type", e.target.value)}
+                    style={pairInputStyle}
+                  />
+                  <button
+                    type="button"
+                    className="btn-danger"
+                    data-testid={`link-type-pair-remove-${index}`}
+                    onClick={() => removePair(index)}
+                  >
+                    {t("actions.delete")}
+                  </button>
+                </div>
+                <div style={pairRowStyle}>
+                  <input
+                    aria-label={t("linkType.pairSourceSubtype")}
+                    placeholder={t("linkType.pairSourceSubtype")}
+                    data-testid={`link-type-pair-source-subtype-${index}`}
+                    value={source.subtag}
+                    disabled={!sourceCanTag}
+                    onChange={(e) => updatePairSubtype(index, "source_type", e.target.value)}
+                    style={pairInputStyle}
+                  />
+                  <input
+                    aria-label={t("linkType.pairTargetSubtype")}
+                    placeholder={t("linkType.pairTargetSubtype")}
+                    data-testid={`link-type-pair-target-subtype-${index}`}
+                    value={target.subtag}
+                    disabled={!targetCanTag}
+                    onChange={(e) => updatePairSubtype(index, "target_type", e.target.value)}
+                    style={pairInputStyle}
+                  />
+                </div>
+              </div>
+            );
+          })}
           <button type="button" className="btn-secondary" data-testid="link-type-pair-add" onClick={addPair}>
             {t("actions.add")}
           </button>
