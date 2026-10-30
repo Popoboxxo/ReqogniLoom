@@ -1,18 +1,21 @@
 ---
 adr_id: ADR-004
 title: "Träger-Modell und Attribute Usability Contract (AUC)"
-status: proposed
-date: 2026-09-12
-deciders: [senior-developer, user]
+status: accepted
+date: "2026-10-26"
+deciders: [user, documenter]
 affected_reqs: [REQ-147]
 superseded_by: null
 ---
 
 # ADR-004: Träger-Modell und Attribute Usability Contract (AUC)
 
-**Status:** proposed
-**Datum:** 2026-09-12
-**Entscheider:** senior-developer, user
+**Status:** accepted (2026-10-26) — Nutzerentscheidung vom 2026-10-26
+(`docs/plans/2026-10-21-entscheidungen-offen.md` §0b; ENT-X4 = A, ENT-B1 = a).
+Dieses ADR ändert nichts an der Entscheidung selbst; es hält ihren Abschluss fest.
+**Datum:** 2026-10-26 (Entwurf: 2026-09-12)
+**Entscheider:** user; **Text:** documenter (ENT-X4 = A: Texte `documenter`, Review
+`concept-reviewer`, Status Nutzer)
 **Betroffene REQs:** REQ-147 (ReqIF-Import: UID-Matching, unbekannte Attribute → `custom_fields`)
 **Bezug:** Epic **#934** (Attribut-System v3), WS0 **#941** (Fundament);
 `docs/se/attribut/attribut-umsetzungsspezifikation.md` §2, §9, §11, §14;
@@ -230,6 +233,23 @@ bestehen; dieses ADR bindet ihren Pfad und ihre Rolle.
 
 ## Status-Lifecycle
 
-Der Status ist `proposed`; er löst den Review-Trigger (`se-critic`) aus. Ein
-Wechsel auf `accepted` erfolgt erst nach erfolgtem Review durch die zuständige
-Rolle.
+Dieses ADR durchläuft den MADR-Lifecycle `proposed → review → accepted`
+(`deprecated`/`superseded` nur bei Ablösung). Das `proposed`-Stadium löste den
+Review-Trigger aus; der Statuswechsel auf `accepted` ist ein eigenes Verfahren und
+liegt beim Nutzer (ENT-X4 = A). Das Review durch `concept-reviewer` folgt in diesem
+Governance-Pfad nach der Textfassung und ist nachgelagerte Qualitätssicherung;
+Korrekturen erfolgen als Git-Amendment. **Accepted vor Review — Reihenfolge bewusst:**
+Die Abweichung von der deklarierten MADR-Reihenfolge ist beabsichtigt und folgt dem
+Governance-Pfad ENT-X4 = A — die Textfassung setzt zuerst die Nutzerentscheidung um,
+das Review folgt als nachgelagerte Qualitätssicherung.
+
+### Status-Historie
+
+| Datum | Status | Grund |
+|---|---|---|
+| 2026-09-12 | `proposed` | Entwurf (Entscheidungsvorbereitung Attribut-System v3, Epic #934 / WS0 #941) |
+| 2026-10-26 | `accepted` | Gateway, Contract-Matrix und WS1–WS7 sind umgesetzt; Planbasis 2026-10-21 (ENT-B1 = a, B4 = Rest T1–T3). Nutzerentscheidung laut `docs/plans/2026-10-21-entscheidungen-offen.md` §0b. |
+
+**Governance-Pfad (ENT-X4 = A):** Texte: `documenter`; Review: `concept-reviewer`;
+Status: Nutzer. Die SE-Rollen `se-architect` und `se-critic` sind in diesem Repo nicht
+installiert; der ADR-Standard wird deshalb mit dieser Rollenverteilung gefahren.
