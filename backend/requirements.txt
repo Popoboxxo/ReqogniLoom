@@ -115,6 +115,10 @@ requests>=2.34.2,<3.0
 # decrypted here) but the CI pip-audit gate forces the floor regardless.
 cryptography>=50.0.2,<51.0
 
+# TOTP second factor for staff accounts (Plan E E3.0, issue #1308).
+# Exact pin by security sign-off (user gate U-2): MIT licence, no runtime deps.
+pyotp==2.10.0
+
 # Static files serving — production deployment (SA-40)
 # WhiteNoise serves /static/ directly without requiring nginx/separate server.
 # Compresses assets (CSS/JS) on the fly and adds versioning via manifest.
