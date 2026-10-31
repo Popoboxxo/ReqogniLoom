@@ -73,12 +73,22 @@ jobs:
           - id: set-1-core
             name: "Core Domain Logic (application, persistence)"
             paths: "application/tests persistence/tests"
+            # Gemessen auf 2 vCPU (Runner-Aequivalent): 771 s seriell -> 563 s
+            # mit -n 2 --dist loadfile (Faktor 1,36; jeder Worker legt seine
+            # eigene Test-DB an, daher nicht 2x). loadfile haelt Testdateien
+            # zusammen, damit DB-Zustand und Fixtures nicht ueber Worker
+            # hinweg geteilt werden.
+            xdist: "-n 2 --dist loadfile"
           - id: set-2-api
             name: "REST API Layer (rest_api, auth_tenancy, presets, reqogniloom, test_runs)"
             paths: "attribute_definitions/tests rest_api/tests auth_tenancy/tests presets/tests reqogniloom/tests test_runs/tests"
+            # Groesster Einzelset (552 s pytest): parallelisieren wie set-1-core.
+            xdist: "-n 2 --dist loadfile"
           - id: set-3-mcp
             name: "MCP Server (mcp_server)"
             paths: "mcp_server/tests"
+            # Noch nicht gemessen: bewusst seriell.
+            xdist: "-n 0"
           - id: set-4-features
             # AUD-2026-09-193 (DOC-03): memory/tests (344), link_types/tests (141)
             # and the root tests/ suite (55) were previously matched by none of
@@ -88,6 +98,8 @@ jobs:
             # with `pytest --collect-only`: 540 tests that used to be dark.
             name: "Cross-Cutting & Features (llm_adapter, diagram, traceability, workflow, context_graph, se_metrics, baseline, admin_ops, icd, resilience, audit, memory, link_types, root tests)"
             paths: "llm_adapter/tests diagram/tests traceability/tests workflow/tests context_graph/tests se_metrics/tests baseline/tests admin_ops/tests icd/tests resilience/tests audit/tests memory/tests link_types/tests tests"
+            # Noch nicht gemessen: bewusst seriell.
+            xdist: "-n 0"
 
     services:
       postgres:
@@ -138,7 +150,11 @@ jobs:
 
       - name: Install backend dependencies
         working-directory: backend
-        run: pip install -r requirements.txt
+        # uv statt pip: 448 s -> 168 s kalt gemessen; --system trifft das
+        # setup-python-Interpreter der folgenden Schritte.
+        run: |
+          python -m pip install --quiet --disable-pip-version-check "uv==0.13.1"
+          uv pip install --system --quiet -r requirements.txt
 
       - name: Lint backend with ruff (SA-45)
         if: matrix.test-set.id == 'set-1-core'
@@ -188,7 +204,7 @@ jobs:
           # are written and read back within the same run). An optional
           # repository secret still wins if one is configured.
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
-        run: pytest ${{ matrix.test-set.paths }}
+        run: pytest ${{ matrix.test-set.paths }} ${{ matrix.test-set.xdist }}
 
       - name: Security scan - pip-audit (fixes #153)
         if: matrix.test-set.id == 'set-1-core'

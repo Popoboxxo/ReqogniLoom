@@ -89,6 +89,9 @@ pytest>=9.1.1,<10.0
 # change, so the cap is gone and the floor is raised to the first release that
 # declares Django 5.2 support.
 pytest-django>=4.14.0,<5.0
+# Parallelisierung der Test-Sets in CI (-n 2 --dist loadfile). Gemessen:
+# 771 s seriell -> 563 s auf 2 vCPU fuer set-1-core.
+pytest-xdist>=3.8.0,<4.0
 pypdf>=6.21.1,<7.0
 
 # PDF generation (REQ-L2-AS-016, REQ-L1-023)
