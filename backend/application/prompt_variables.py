@@ -311,6 +311,21 @@ PROMPT_VARIABLE_DEFAULTS: dict[str, PromptVariableSpec] = {
         "str",
         "",
     ),
+    # Plan B/B5-T4 (#378): advisory score floor of the QUAL-P2 audit rule. Read
+    # by ``traceability.audit.rules.quality_score`` through
+    # ``resolve_config_values``; a non-numeric or out-of-range stored value
+    # falls back to this default instead of disabling the rule.
+    # ``var_type="json"`` because it is the only registered type that round-trips
+    # a float: ``"str"`` would store the threshold as the *string* "0.6" and
+    # ``"int"`` would round it to 0 or 1.
+    "quality_min_score": _config(
+        "quality_min_score",
+        "Advisory quality-score floor (0.0-1.0) for SE-Auditor rule QUAL-P2: "
+        "an assessed artifact whose latest successful score is below this value "
+        "is reported as a warning. Never blocks a baseline.",
+        "json",
+        0.6,
+    ),
 }
 
 
