@@ -74,9 +74,12 @@ from rest_api.serializers import (
 )
 from rest_api.throttling import (
     LoginIpRateThrottle,
+    LoginMfaRateThrottle,
     LoginRateThrottle,
     RefreshRateThrottle,
     record_login_failure,
+    record_login_mfa_failure,
+    reset_login_mfa_throttle,
     reset_login_throttle,
 )
 
@@ -569,8 +572,9 @@ class LoginMfaView(APIView):
 
     Exchanges the signed challenge from ``LoginView`` plus one second factor for
     a full session (WP E3.4, #1308). PUBLIC like ``LoginView`` — the caller has
-    no credential yet — and throttled by the same two login throttles, so the
-    six-digit code is not a free brute-force target even before
+    no credential yet — and throttled by :class:`LoginMfaRateThrottle` (per
+    account, keyed on the challenge's signed ``uid``) plus the per-IP spray cap,
+    so the six-digit code is not a free brute-force target even before
     ``MfaService``'s own device lockout applies.
 
     Contract:
@@ -589,9 +593,11 @@ class LoginMfaView(APIView):
 
     authentication_classes: list = []
     permission_classes = [AllowAny]
-    # Same pair as ``LoginView``: a wrong TOTP is a failed credential attempt and
-    # must cost the same budget as a wrong password (WP E3.2 rule 3).
-    throttle_classes = [LoginRateThrottle, LoginIpRateThrottle]
+    # Security review F1: the second step has no username, so the
+    # per-(IP, username) login throttle collapsed to one bucket for every MFA
+    # user on an IP. ``LoginMfaRateThrottle`` keys on the uid inside the signed
+    # challenge instead; the per-IP spray cap stays as the second line.
+    throttle_classes = [LoginMfaRateThrottle, LoginIpRateThrottle]
 
     @extend_schema(
         summary="Second login step — challenge + TOTP/recovery code",
@@ -739,7 +745,7 @@ class LoginMfaView(APIView):
             # Every remaining rejection (wrong/replayed code, no device, account
             # deactivated mid-flow) is one opaque 401: the caller already proved
             # the password, so there is nothing useful — or safe — to add.
-            record_login_failure(request)
+            record_login_mfa_failure(request)
             return _auth_error_response(
                 "MFA_INVALID_CODE",
                 accept_language=accept_language,
@@ -776,7 +782,7 @@ class LoginMfaView(APIView):
                 http_status=exc.status_code,
             )
 
-        reset_login_throttle(request)
+        reset_login_mfa_throttle(request)
         return _login_success_response(
             request, user, roles, token=token, refresh_token=refresh_token
         )
@@ -1074,6 +1080,7 @@ __all__ = [
     # Re-exported from rest_api.throttling (#269) so existing imports of
     # ``rest_api.auth_views.LoginRateThrottle`` keep resolving.
     "LoginIpRateThrottle",
+    "LoginMfaRateThrottle",
     "LoginRateThrottle",
     "RefreshRateThrottle",
 ]

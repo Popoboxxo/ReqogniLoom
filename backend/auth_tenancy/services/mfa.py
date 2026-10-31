@@ -54,6 +54,7 @@ Requirements: #1308 (E3), ADR-021.
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 import logging
 import secrets
@@ -97,7 +98,11 @@ _RECOVERY_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
 #: Signing salt for the login challenge. Versioned: rotating the payload shape
 #: means bumping this, which invalidates every outstanding challenge at once.
-CHALLENGE_SALT = "reqlo.mfa.challenge.v1"
+#: v2 binds the challenge to the credential epoch (security review F5), so a
+#: challenge issued before a forced password change can never be completed
+#: afterwards — v1 tokens simply stop verifying, which is the intended fail-
+#: closed behaviour rather than a compatibility concern.
+CHALLENGE_SALT = "reqlo.mfa.challenge.v2"
 _CHALLENGE_CACHE_PREFIX = "mfa:challenge:used:"
 
 _MODE_OFF = "off"
@@ -240,6 +245,29 @@ def enroll_grant_ttl_seconds() -> int:
     return ttl
 
 
+def challenge_ttl_seconds() -> int:
+    """Return the challenge lifetime, refusing anything above 15 minutes.
+
+    Security review F6: ``MFA_CHALLENGE_TTL_SECONDS`` was the only MFA setting
+    without a ceiling, so a misconfigured deployment (or an
+    ``override_settings`` in a test) could turn a "password step passed" proof
+    into a long-lived bearer credential. 900 s matches the lockout window and
+    is comfortably above any human's two-step login. Checked at import time in
+    ``settings`` *and* here, so an override cannot widen it silently.
+    """
+    ttl = _int_setting("MFA_CHALLENGE_TTL_SECONDS", 300)
+    max_ttl = _int_setting("MFA_CHALLENGE_TTL_MAX_SECONDS", 900)
+    if ttl <= 0:
+        raise ImproperlyConfigured(
+            f"MFA_CHALLENGE_TTL_SECONDS must be positive, got {ttl}s."
+        )
+    if ttl > max_ttl:
+        raise ImproperlyConfigured(
+            f"MFA_CHALLENGE_TTL_SECONDS must not exceed {max_ttl}s, got {ttl}s."
+        )
+    return ttl
+
+
 def totp_valid_window() -> int:
     """Return ``MFA_TOTP_VALID_WINDOW``, refusing anything above 2 steps.
 
@@ -303,6 +331,30 @@ def _hash_recovery_code(code: str) -> str:
     return hash_api_key(normalize_recovery_code(code))
 
 
+def _credential_digest(user: User) -> str:
+    """Return a truncated HMAC of the user's *current* password hash (F5).
+
+    The signed challenge carries this value and every read compares it against
+    the user row. A forced password change (or any other password rotation)
+    therefore invalidates every outstanding challenge at once: a challenge is a
+    proof of "this session already passed the password step", and that proof is
+    only valid for the credential that produced it. Deliberately derived from
+    the already-salted hash rather than ``password_changed_at`` (which the model
+    does not carry) — it needs no schema change and cannot leak the hash itself.
+
+    Security review follow-up #2: HMAC-SHA256 keyed with ``SECRET_KEY`` rather
+    than a bare SHA-256. The input is already a salted PBKDF2 hash, so a plain
+    digest is not reversible either — but a keyed MAC means an attacker who can
+    read both the challenge payload and a stolen password hash cannot compute
+    the expected value offline without the server key. Rotating ``SECRET_KEY``
+    invalidates outstanding challenges (fail-closed, same as a password change).
+    """
+    key = str(getattr(settings, "SECRET_KEY", "")).encode("utf-8")
+    return hmac.new(
+        key, (user.password or "").encode("utf-8"), hashlib.sha256
+    ).hexdigest()[:32]
+
+
 def _current_step() -> int:
     """Return the current TOTP time step (unix seconds // period).
 
@@ -346,6 +398,25 @@ class MfaService:
         """Alias of the device predicate, for the status endpoint (WP E3.6)."""
         return self._has_confirmed_device(user)
 
+    def status(self, user: User) -> dict[str, Any]:
+        """Return the caller's second-factor state for ``GET /auth/mfa/status/``.
+
+        One service call rather than three model queries in the view: the DRF
+        layer stays free of persistence imports (project layering rule) and the
+        "what does the UI need to know" shape has exactly one definition.
+        """
+        device = UserTotpDevice.objects.filter(user=user).first()
+        confirmed_at = device.confirmed_at if device is not None else None
+        return {
+            "enrolled": confirmed_at is not None,
+            "confirmed_at": confirmed_at,
+            "recovery_codes_remaining": UserRecoveryCode.objects.filter(
+                user=user, used_at__isnull=True
+            ).count(),
+            "enforcement": enforcement_mode(),
+            "required": self.mfa_required(user),
+        }
+
     @staticmethod
     def _has_confirmed_device(user: User) -> bool:
         return UserTotpDevice.objects.filter(
@@ -376,6 +447,38 @@ class MfaService:
         ``required`` remove its factor (security review F12).
         """
         return enforcement_mode() == _MODE_REQUIRED and self.mfa_required(user)
+
+    def step_up_required(self, user: User, amr: tuple[str, ...] | None) -> bool:
+        """Whether ``amr`` fails the second-factor gate for ``user`` (WP E3.6).
+
+        The single predicate behind the "a password-only session must not
+        perform this action" rule. Coverage is exactly
+        :meth:`mfa_required`'s under ``MFA_STAFF_ENFORCEMENT=required`` — every
+        staff/superuser account *plus* any non-staff account that confirmed a
+        device — and no one at all under ``off``/``optional``:
+
+        * under ``required`` a staff/superuser account always needs ``"otp"``
+          in the request's authentication-method references (RFC 8176), enrolled
+          or not;
+        * a confirmed non-staff account is covered too, because ``required``
+          already challenges it at login — excluding it here would let a
+          half-protected account mint a key that outlives its factor
+          (security review follow-up #4: no silent non-staff gap);
+        * an API key carries ``()`` by construction, so it always fails — which
+          is exactly the property that stops a leaked key from creating a
+          long-lived sibling credential;
+        * ``off``/``optional`` never require a step-up: key creation stays
+          available to everyone exactly as before.
+
+        Note the gate keys on *enforcement* as well as ``mfa_required``: under
+        ``optional`` a confirmed user is challenged at login but is not forced
+        into a step-up to manage their own keys (the factor is voluntary there).
+        """
+        if enforcement_mode() != _MODE_REQUIRED:
+            return False
+        if not self.mfa_required(user):
+            return False
+        return "otp" not in tuple(amr or ())
 
     @staticmethod
     def _require_staff(user: User) -> None:
@@ -454,11 +557,23 @@ class MfaService:
         )
         return EnrollmentData(secret_b32=secret, otpauth_uri=uri)
 
-    def confirm_enrollment(self, user: User, code: str) -> list[str]:
+    def confirm_enrollment(
+        self,
+        user: User,
+        code: str,
+        *,
+        source: Literal["session", "challenge"] = "session",
+    ) -> list[str]:
         """Confirm the pending device with a first code; return recovery codes.
 
         The returned recovery codes are the only time the plaintext exists — they
         are not recoverable afterwards.
+
+        ``source`` names the entry point that confirmed the device
+        (``"session"`` or ``"challenge"``) and is written to the ``user.mfa_enroll``
+        audit row. WP E3.6 needs it: enrollment is reachable both from an
+        already-authenticated session and from the login challenge flow, and an
+        auditor must be able to tell which one created the credential.
 
         Under ``MFA_STAFF_ENFORCEMENT=required`` the confirmation *consumes* the
         enrollment grant (ENT-E7 = A) and fails with
@@ -521,7 +636,10 @@ class MfaService:
                             user,
                             AuditEntry.OP_USER_MFA_ENROLL,
                             change_reason="TOTP device confirmed",
-                            details={"recovery_codes_issued": len(codes)},
+                            details={
+                                "recovery_codes_issued": len(codes),
+                                "source": source,
+                            },
                         )
         if error is not None:
             logger.warning(
@@ -854,15 +972,40 @@ class MfaService:
     def issue_challenge(
         self, user: User, *, purpose: Literal["verify", "enroll"]
     ) -> str:
-        """Return a signed, expiring challenge for the second login step."""
+        """Return a signed, expiring challenge for the second login step.
+
+        The payload binds the challenge to the credential epoch (security review
+        F5): ``pwd`` is a digest of the current password hash, so a forced
+        password change invalidates every challenge issued before it. Without
+        that binding a stolen challenge would survive the very remediation it is
+        supposed to trigger.
+        """
         if purpose not in ("verify", "enroll"):
             raise ValueError("purpose must be 'verify' or 'enroll'.")
         payload = {
             "uid": str(user.id),
             "purpose": purpose,
             "n": secrets.token_urlsafe(16),
+            "pwd": _credential_digest(user),
         }
         return TimestampSigner(salt=CHALLENGE_SALT).sign_object(payload)
+
+    def challenge_subject(self, token: str) -> str | None:
+        """Return the challenge's user id (``uid``) *without* loading the user.
+
+        Used by the login-MFA throttle (security review F1) to key the
+        second-step brute-force budget on the account instead of the (shared)
+        client IP: the ``uid`` is inside the signed payload, so a caller cannot
+        choose their bucket, and an unsigned/expired/garbage token simply
+        returns ``None`` (the per-IP throttle still applies).
+
+        No database access and no error: the throttle must never raise.
+        """
+        try:
+            payload = self._unsign(token)
+        except MfaError:
+            return None
+        return str(payload["uid"])
 
     def read_challenge(self, token: str) -> tuple[User, str]:
         """Verify signature and age; return ``(user, purpose)``."""
@@ -879,7 +1022,7 @@ class MfaService:
         user, purpose = self.read_challenge(token)
         payload = self._unsign(token)
         nonce = str(payload["n"])
-        ttl = _int_setting("MFA_CHALLENGE_TTL_SECONDS", 300)
+        ttl = challenge_ttl_seconds()
         try:
             first_use = cache.add(
                 f"{_CHALLENGE_CACHE_PREFIX}{nonce}", 1, timeout=ttl
@@ -893,7 +1036,7 @@ class MfaService:
         return user, purpose
 
     def _unsign(self, token: str) -> dict[str, Any]:
-        ttl = _int_setting("MFA_CHALLENGE_TTL_SECONDS", 300)
+        ttl = challenge_ttl_seconds()
         signer = TimestampSigner(salt=CHALLENGE_SALT)
         try:
             payload = signer.unsign_object(token, max_age=ttl)
@@ -903,7 +1046,7 @@ class MfaService:
             raise MfaChallengeInvalidError("The challenge is invalid.") from exc
         if not isinstance(payload, dict):
             raise MfaChallengeInvalidError("The challenge is invalid.")
-        for key in ("uid", "purpose", "n"):
+        for key in ("uid", "purpose", "n", "pwd"):
             if not isinstance(payload.get(key), str):
                 raise MfaChallengeInvalidError("The challenge is invalid.")
         if payload["purpose"] not in ("verify", "enroll"):
@@ -917,6 +1060,11 @@ class MfaService:
         except (User.DoesNotExist, ValueError, TypeError) as exc:
             raise MfaChallengeInvalidError("The challenge is invalid.") from exc
         if not user.is_active:
+            raise MfaChallengeInvalidError("The challenge is invalid.")
+        # F5: the challenge belongs to the credential that authenticated step 1.
+        # A password change since issuance invalidates it (constant-time compare
+        # for consistency with the other credential comparisons in this module).
+        if not hmac.compare_digest(str(payload["pwd"]), _credential_digest(user)):
             raise MfaChallengeInvalidError("The challenge is invalid.")
         return user
 
@@ -1116,6 +1264,7 @@ __all__ = [
     "MfaService",
     "MfaUnavailableError",
     "RECOVERY_CODE_COUNT",
+    "challenge_ttl_seconds",
     "enforcement_mode",
     "enroll_grant_ttl_seconds",
     "normalize_recovery_code",

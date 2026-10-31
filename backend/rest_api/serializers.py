@@ -323,6 +323,60 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
             "Enrollment-Freigabe."
         ),
     },
+    # ------------------------------------------------------------------
+    # Second factor enrollment (WP E3.6) — the management surface.
+    # ------------------------------------------------------------------
+    "MFA_NOT_ALLOWED": {
+        "en": "A second factor can only be enrolled for a staff account.",
+        "de": (
+            "Ein zweiter Faktor kann nur für ein Staff-Konto eingerichtet "
+            "werden."
+        ),
+    },
+    "MFA_ALREADY_ENROLLED": {
+        "en": (
+            "This account already has a confirmed second factor. Disable it "
+            "before enrolling a new device."
+        ),
+        "de": (
+            "Für dieses Konto ist bereits ein zweiter Faktor bestätigt. "
+            "Deaktivieren Sie ihn, bevor Sie ein neues Gerät einrichten."
+        ),
+    },
+    "MFA_REQUIRED": {
+        "en": (
+            "A second factor is required for this account and cannot be removed."
+        ),
+        "de": (
+            "Für dieses Konto ist ein zweiter Faktor erforderlich; er kann nicht "
+            "entfernt werden."
+        ),
+    },
+    # 403: the session is authenticated but has not completed a second-factor
+    # step-up (API-key creation for a staff account). Deliberately separate
+    # from the 409 "cannot remove the factor" meaning of ``MFA_REQUIRED``.
+    "MFA_STEP_UP_REQUIRED_FOR_KEY": {
+        "en": (
+            "This session has not completed a second-factor step-up. Creating "
+            "or managing an API key for a staff account requires it while a "
+            "second factor is mandatory."
+        ),
+        "de": (
+            "Diese Sitzung hat keinen zweiten Faktor bestätigt. Das Anlegen oder "
+            "Verwalten eines API-Schlüssels für ein Staff-Konto setzt ihn "
+            "voraus, solange ein zweiter Faktor verpflichtend ist."
+        ),
+    },
+    "MFA_REQUIRES_INTERACTIVE_SESSION": {
+        "en": (
+            "The second factor can only be changed from an interactive session, "
+            "not with an API key."
+        ),
+        "de": (
+            "Der zweite Faktor kann nur aus einer interaktiven Sitzung geändert "
+            "werden, nicht mit einem API-Schlüssel."
+        ),
+    },
     "MFA_CHALLENGE_INVALID": {
         "en": "The second-factor challenge is invalid, expired or already used.",
         "de": (
