@@ -324,7 +324,14 @@ ROOT_URLCONF = "reqogniloom.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        # #1308 (WP E3.5): the admin login form carries a second-factor field,
+        # which requires overriding Django's ``admin/login.html``. With
+        # ``APP_DIRS`` alone that is impossible: ``django.contrib.admin`` is the
+        # first entry in INSTALLED_APPS, so its copy of the template always wins.
+        # DIRS is searched BEFORE the app directories, so listing this one app
+        # template dir makes exactly one override effective — nothing else lives
+        # there, so no other admin/Django template is shadowed.
+        "DIRS": [BASE_DIR / "auth_tenancy" / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [

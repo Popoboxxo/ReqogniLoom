@@ -56,6 +56,13 @@ class IdentityClaims:
         auth_method: Which mechanism validated the credential.
         api_key_id: API-key primary key when ``auth_method`` is ``API_KEY``;
             ``None`` for Bearer tokens.
+        amr: Authentication methods reference values (RFC 8176) carried by the
+            credential. A Bearer token without the ``amr`` claim — every token
+            minted before WP E3.3 — is reported as ``("pwd",)`` so that "how did
+            this session authenticate" has one answer for old and new tokens.
+            An API key carries ``()``: it names no interactive authentication
+            event, which is exactly what makes it fail the ``"otp" in amr``
+            second-factor gate under ``MFA_STAFF_ENFORCEMENT=required``.
     """
 
     user_id: UUID
@@ -63,6 +70,8 @@ class IdentityClaims:
     roles: tuple[str, ...]
     auth_method: AuthMethod
     api_key_id: UUID | None = None
+    #: RFC 8176 authentication-method references (``pwd``, ``otp``).
+    amr: tuple[str, ...] = ()
     #: ``"user"`` or ``"agent"`` — byte-identical to
     #: ``audit.models.AuditEntry.ACTOR_TYPE_*`` so the value reaches the audit
     #: log unchanged. Only an ``ApiKey`` with ``principal_type="agent"``
@@ -118,6 +127,11 @@ class AuthContext:
         workspace_id: Workspace this request targets, or ``None`` when the
             request is not bound to a single workspace. Documents the scope
             ``active_roles`` was resolved against.
+        amr: Authentication-method references (RFC 8176) the credential
+            asserted, e.g. ``("pwd",)`` for a password login and
+            ``("pwd", "otp")`` once a TOTP/recovery code completed the second
+            step (WP E3.3/E3.4). Consumers that gate on a second factor test
+            ``"otp" in ctx.amr``; an API key carries ``()`` by construction.
     """
 
     user_id: UUID
@@ -127,6 +141,8 @@ class AuthContext:
     api_key_id: UUID | None = None
     tenant_name: str = ""
     workspace_id: UUID | None = None
+    #: RFC 8176 authentication-method references (``pwd``, ``otp``).
+    amr: tuple[str, ...] = ()
     #: ``"user"`` or ``"agent"`` — byte-identical to
     #: ``audit.models.AuditEntry.ACTOR_TYPE_*`` so the value reaches the audit
     #: log unchanged. Only an ``ApiKey`` with ``principal_type="agent"``

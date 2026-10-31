@@ -22,9 +22,10 @@ import hmac
 import json
 import logging
 import secrets
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 from uuid import UUID
 
 from django.conf import settings
@@ -315,7 +316,35 @@ class AuthenticationService:
             roles=roles,
             auth_method=AuthMethod.BEARER_TOKEN,
             api_key_id=None,
+            amr=self._amr_from_claims(claims),
         )
+
+    @staticmethod
+    def _amr_from_claims(claims: Mapping[str, Any]) -> tuple[str, ...]:
+        """Return the ``amr`` claim of a token, defaulting to ``("pwd",)``.
+
+        Backward compatibility (WP E3.3): every access/refresh token minted
+        before the claim existed authenticated with a password, so a missing
+        claim reads as ``("pwd",)`` rather than ``()``. Reporting ``()`` would
+        make an old — and perfectly valid — token look like an API key to the
+        second-factor gates and would silently change the meaning of existing
+        sessions.
+
+        Values are lower-cased and de-duplicated (RFC 8176 names are
+        case-insensitive), non-string entries are dropped, and an empty list is
+        treated like an absent claim: a malformed claim must never be *more*
+        permissive than no claim at all.
+        """
+        raw = claims.get("amr")
+        if not isinstance(raw, (list, tuple)):
+            return ("pwd",)
+        values: list[str] = []
+        for entry in raw:
+            if isinstance(entry, str):
+                value = entry.strip().lower()
+                if value and value not in values:
+                    values.append(value)
+        return tuple(values) or ("pwd",)
 
     # -- Refresh token (GitHub #135) ---------------------------------------
 
@@ -368,6 +397,39 @@ class AuthenticationService:
             raise AuthenticationFailed("invalid_token") from exc
 
         return user_id, tenant_id
+
+    def read_refresh_amr(self, token: str) -> tuple[str, ...]:
+        """Return the ``amr`` claim of an *already validated* refresh token.
+
+        Separated from :meth:`validate_refresh_token` on purpose: that method's
+        ``(user_id, tenant_id)`` tuple is a published contract with several
+        callers, while ``amr`` is only needed by ``POST /auth/refresh/`` to
+        carry the second-factor fact into the rotated pair (WP E3.3). The token
+        is decoded again, so callers must pass a token that has already passed
+        :meth:`validate_refresh_token`; a forged token cannot reach here.
+
+        Legacy refresh tokens (minted before the claim existed) read as
+        ``("pwd",)`` — see :meth:`_amr_from_claims`.
+
+        Args:
+            token: The raw refresh JWT (without the ``Bearer `` prefix).
+
+        Returns:
+            The normalised ``amr`` values, never empty.
+
+        Raises:
+            AuthenticationFailed: ``invalid_token`` if the token cannot be
+                decoded or its secret is not configured.
+        """
+        if not self._jwt_secret:
+            raise AuthenticationFailed("invalid_token")
+        claims = decode_jwt(
+            token,
+            secret=self._jwt_secret,
+            issuer=self._jwt_issuer,
+            audience=self._jwt_audience,
+        )
+        return self._amr_from_claims(claims)
 
     def resolve_active_user(self, user_id: UUID, tenant_id: UUID) -> User | None:
         """Return the active user identified by ``(user_id, tenant_id)``.

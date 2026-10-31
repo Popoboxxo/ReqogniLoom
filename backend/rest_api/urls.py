@@ -124,7 +124,13 @@ from rest_api.audit_views import (
     WorkspaceAuditView,
     WorkspaceAuditWaiverView,
 )
-from rest_api.auth_views import LoginView, LogoutView, MeView, RefreshView
+from rest_api.auth_views import (
+    LoginMfaView,
+    LoginView,
+    LogoutView,
+    MeView,
+    RefreshView,
+)
 from rest_api.collaboration_views import (
     ArtifactCommentsView,
     CommentViewSet,
@@ -306,6 +312,14 @@ urlpatterns = [
     # Password login (REQ-L1-010) — public token exchange + authenticated bootstrap.
     # auth/login/ is PUBLIC (AllowAny, no auth); auth/me/ requires a Bearer token.
     path("auth/login/", LoginView.as_view(), name="api-v1-auth-login"),
+    # Second step of the two-step login (#1308, WP E3.4) — public, same
+    # throttles as `auth/login/`; exchanges the signed challenge + TOTP/recovery
+    # code for the session cookies.
+    path(
+        "auth/login/mfa/",
+        LoginMfaView.as_view(),
+        name="api-v1-auth-login-mfa",
+    ),
     # Logout (REQ-052) — clears the httpOnly access cookie; requires auth + CSRF.
     path("auth/logout/", LogoutView.as_view(), name="api-v1-auth-logout"),
     # Silent token refresh (GitHub #135) — public, identity via the refresh

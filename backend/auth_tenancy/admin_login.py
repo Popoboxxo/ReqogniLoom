@@ -1,4 +1,5 @@
-"""Admin-only wiring for the brute-force lockout (issue #1135).
+"""Admin-only wiring for the brute-force lockout (issue #1135) and the second
+factor (issue #1308, Plan E / WP E3.5).
 
 Three pieces live here and all of them are DELIBERATELY scoped to the Django
 admin login path so that neither REST authentication nor its throttling state is
@@ -9,7 +10,11 @@ touched:
    **start** of ``clean()``, before ``super().clean()`` runs the password check
    (``confirm_login_allowed`` otherwise runs only *after* credentials succeed, so
    it is too late for a pre-auth gate). Wired via
-   ``admin.site.login_form = LockoutAdminAuthenticationForm``.
+   ``admin.site.login_form = MfaAdminAuthenticationForm``.
+
+   :class:`MfaAdminAuthenticationForm` extends it with the TOTP/recovery-code
+   check (WP E3.5). It is the form that is actually installed, so the lockout
+   gate and the second factor cannot drift apart into two installed forms.
 
 2. :func:`_on_user_login_failed` / :func:`_on_user_logged_in` — receivers for
    ``django.contrib.auth.signals``. These signals fire for the REST login as
@@ -31,13 +36,16 @@ from django.contrib.admin.forms import AdminAuthenticationForm
 from django.contrib.auth.signals import user_logged_in, user_login_failed
 from django.core.exceptions import ValidationError
 from django.dispatch import receiver
+from django.forms import CharField, TextInput
 
 from auth_tenancy import admin_lockout
+from auth_tenancy.services.mfa import MfaError, MfaService
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     "LockoutAdminAuthenticationForm",
+    "MfaAdminAuthenticationForm",
     "install",
 ]
 
@@ -53,6 +61,19 @@ LOCKOUT_MESSAGE = (
 #: ``/admin/`` (reqogniloom/urls.py). Used only to *scope* the shared auth
 #: signals — never to authorize anything.
 _ADMIN_PREFIX = "/admin/"
+
+#: Shown when the password was correct but the second factor was missing or
+#: wrong. Deliberately generic (it never says *why*) — the caller already proved
+#: the password, so there is no enumeration surface left to protect, but nothing
+#: about the stored factor should leak either.
+MFA_INVALID_MESSAGE = "That second factor code is not valid."
+
+#: Shown under ``MFA_STAFF_ENFORCEMENT=required`` for a staff account without a
+#: confirmed device. Binding decision ENT-E7 = A: enrollment under ``required``
+#: needs an administrator-issued grant (WP E3.4/E3.7), which the web app obtains
+#: with the enrollment challenge — the admin form cannot do that, so it points
+#: there instead of pretending the login can proceed.
+MFA_ENROLL_MESSAGE = "Enroll a second factor in the web app first."
 
 
 def _is_admin_login_request(request) -> bool:
@@ -137,6 +158,102 @@ class LockoutAdminAuthenticationForm(AdminAuthenticationForm):
         return super().clean()
 
 
+class MfaAdminAuthenticationForm(LockoutAdminAuthenticationForm):
+    """Admin login form with a TOTP/recovery second factor (#1308, WP E3.5).
+
+    Extends :class:`LockoutAdminAuthenticationForm` (issue #1135) instead of
+    Django's form directly, so the pre-authentication lockout gate and the
+    second factor apply to the *same* login: the lockout runs first, the
+    password check second, the code check last.
+
+    Why a form and not a middleware: Django's admin ``login()`` view signs the
+    user in as soon as the form is valid, so the only place that can refuse the
+    session *after* the password succeeded but *before* the session exists is
+    ``clean()``.
+
+    Failure handling mirrors Django's own ``authenticate()`` contract: a wrong
+    code sends ``user_login_failed`` (with the username only — never the code),
+    which is what feeds the ADR-021 lockout counter in
+    :func:`_on_user_login_failed`. Without that signal five wrong codes per
+    window would be free.
+
+    The field is optional so a non-MFA login (``MFA_STAFF_ENFORCEMENT=off``, or
+    ``optional`` without an enrolled device) keeps working unchanged; the code
+    is only demanded when :meth:`MfaService.mfa_required` says so.
+    """
+
+    otp_code = CharField(
+        required=False,
+        label="Second factor code",
+        widget=TextInput(
+            attrs={
+                "autocomplete": "one-time-code",
+                "inputmode": "numeric",
+                "autocapitalize": "characters",
+                "spellcheck": "false",
+            }
+        ),
+        help_text=(
+            "Six-digit code from your authenticator app, or one of your recovery "
+            "codes."
+        ),
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        user = self.get_user()
+        if user is None:
+            # Wrong password / locked / inactive — the parent already answered.
+            return cleaned
+
+        service = MfaService()
+        if not service.mfa_required(user):
+            return cleaned
+
+        if not service.is_enrolled(user):
+            # ``required`` without a device: there is nothing to verify, and the
+            # admin surface must not become a self-service enrollment path
+            # (ENT-E7 = A / QR-S01).
+            self._reject(MFA_ENROLL_MESSAGE, user)
+            return cleaned
+
+        code = (cleaned.get("otp_code") or "").strip()
+        if not code:
+            self._reject(MFA_INVALID_MESSAGE, user)
+            return cleaned
+
+        try:
+            # One input for both factors (the page has room for one row): six
+            # digits are a TOTP code, anything else is treated as a recovery
+            # code — ``verify`` normalises and rejects it if it is neither.
+            if code.isdigit() and len(code) == 6:
+                service.verify(user, code=code)
+            else:
+                service.verify(user, recovery_code=code)
+        except MfaError:
+            self._reject(MFA_INVALID_MESSAGE, user)
+        return cleaned
+
+    def _reject(self, message: str, user) -> None:
+        """Refuse the login, charge the failure counter, and raise.
+
+        ``user_login_failed`` is emitted exactly as ``django.contrib.auth``'s
+        ``authenticate()`` does on a bad password, so the existing
+        (IP, username) lockout receiver counts a wrong *code* like a wrong
+        password. The credentials dict is deliberately username-only: no code,
+        no factor kind, nothing an operator log could leak.
+        """
+        user_login_failed.send(
+            sender=self.__class__,
+            credentials={"username": getattr(user, "get_username", lambda: "")()},
+            request=getattr(self, "request", None),
+        )
+        # Defense in depth: ``get_user()`` must not hand a session-able user back
+        # after the form was rejected.
+        self.user_cache = None
+        raise ValidationError(message)
+
+
 # The receivers are plain functions; ``install()`` connects them.
 def _on_user_login_failed(sender, credentials, request=None, **kwargs) -> None:
     """Record an admin login failure on the (IP, username) lockout counter.
@@ -184,17 +301,21 @@ def install() -> None:
     if _INSTALLED:
         return
 
-    if admin.site.login_form is None:
-        admin.site.login_form = LockoutAdminAuthenticationForm
-    elif admin.site.login_form is not LockoutAdminAuthenticationForm:
+    if admin.site.login_form in (None, LockoutAdminAuthenticationForm):
+        # ``LockoutAdminAuthenticationForm`` is our own earlier wiring (#1135),
+        # not a foreign form: upgrading it to the MFA-aware subclass is exactly
+        # the intended supersession, not a clobber.
+        admin.site.login_form = MfaAdminAuthenticationForm
+    elif admin.site.login_form is not MfaAdminAuthenticationForm:
         # A foreign login_form is already installed (another AppConfig.ready or a
         # custom AdminSite). Do NOT silently clobber it — that would discard
         # whatever hardening it carries. Warn loudly so the operator knows the
-        # brute-force gate is NOT active for this admin site.
+        # brute-force gate and the second factor are NOT active for this admin
+        # site.
         logger.warning(
-            "admin login lockout: admin.site.login_form is already set to %r; "
-            "the brute-force gate was NOT installed — merge "
-            "LockoutAdminAuthenticationForm into that form (issue #1135)",
+            "admin login lockout/MFA: admin.site.login_form is already set to %r; "
+            "the brute-force gate and the second factor were NOT installed — "
+            "merge MfaAdminAuthenticationForm into that form (issue #1135, #1308)",
             admin.site.login_form,
         )
 

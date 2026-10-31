@@ -94,6 +94,7 @@ class TenantContextService:
             api_key_id=claims.api_key_id,
             tenant_name=tenant_context.tenant_name,
             workspace_id=workspace_id,
+            amr=claims.amr,
             actor_type=claims.actor_type,
             agent_label=claims.agent_label,
             scope=claims.scope,
