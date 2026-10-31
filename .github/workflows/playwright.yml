@@ -72,9 +72,58 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
+      - name: Install uv (pinned, checksum-verified)
+        # uv bewusst NICHT per pip in das audited site-packages: genau das hat
+        # im ersten Lauf den Job gekippt — pip-audit meldete PYSEC-2026-4321
+        # fuer uv 0.13.1 (Fix 0.13.4) im selben Environment, das die
+        # Backend-Abhaengigkeiten prueft. Ein Installer-Werkzeug gehoert nicht
+        # in die Laufzeit-Abhaengigkeiten. Version und Checksumme gepinnt wie
+        # beim gitleaks-Download.
+        env:
+          UV_VERSION: '0.13.4'
+          UV_SHA256: '2b428396f12572d4429cf210ca234dd599a33b3af0958a4d5ed569d63e3f344f'
+        run: |
+          set -euo pipefail
+          curl -sSfL -o "${RUNNER_TEMP}/uv.tar.gz" \
+            "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${UV_SHA256}  ${RUNNER_TEMP}/uv.tar.gz" | sha256sum -c -
+          tar xzf "${RUNNER_TEMP}/uv.tar.gz" -C "${RUNNER_TEMP}"
+          echo "${RUNNER_TEMP}/uv-x86_64-unknown-linux-gnu" >> "${GITHUB_PATH}"
+          "${RUNNER_TEMP}/uv-x86_64-unknown-linux-gnu/uv" --version
+
       - name: Install backend dependencies
         working-directory: backend
-        run: pip install -r requirements.txt
+        # uv statt pip: gemessen 448 s -> 168 s kalt (Faktor 2,7) bei identischem
+        # Wheel-Satz; --system trifft das setup-python-Interpreter, das die
+        # folgenden Schritte benutzen.
+        run: uv pip install --system --quiet -r requirements.txt
+
+      - name: Restore the seeded database snapshot
+        # Der E2E-Aufbau (migrate + seed_demo + seed_toothbrush + bootstrap) kostet
+        # ~6 min pro Shard und laeuft 4x parallel. Der fertige DB-Zustand ist
+        # 1,9 MB gross und in ~2 s wiederherstellbar (gemessen auf der QS-Box:
+        # pg_dump < 1 s, pg_restore 2 s bei 1152 Artefakten / 7059 Links).
+        # Key haengt an den Migrationen UND an e2e/helpers/auth.ts, weil
+        # seed_demo das Admin-Passwort aus SYSTEM_ADMIN_PASSWORD setzt und der
+        # Test-Login dagegen pruefen muss.
+        id: db-snapshot
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/reqflow-snapshot.dump
+          key: pg-snapshot-v1-${{ hashFiles('backend/**/migrations/*.py', 'e2e/helpers/auth.ts') }}
+
+      - name: Restore the database from the snapshot
+        if: steps.db-snapshot.outputs.cache-hit == 'true'
+        # pg_restore laeuft im Service-Container: Client- und Serverversion sind
+        # damit garantiert identisch, und es braucht kein apt-get auf dem Runner.
+        # --no-owner/--no-privileges, weil pg_dump keine Rollen sichert und die
+        # App-Rolle (Migration 0048) im frischen Cluster noch nicht existiert.
+        run: |
+          set -euo pipefail
+          docker exec -i ${{ job.services.postgres.id }} \
+            pg_restore -U reqflow -d reqflow --no-owner --no-privileges \
+            < "${RUNNER_TEMP}/reqflow-snapshot.dump"
+          echo "DB aus Snapshot wiederhergestellt (keine Migrationen, keine Seeds)."
 
       # Issue #151: no Fernet key literal in the repository. The migrate step
       # and the backend server are separate processes that must share one key
@@ -90,6 +139,7 @@ jobs:
           echo "FIELD_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"
 
       - name: Run Django migrations
+        if: steps.db-snapshot.outputs.cache-hit != 'true'
         working-directory: backend
         env:
           SECRET_KEY: ci-test-secret-key
@@ -171,6 +221,24 @@ jobs:
           # the definitions landed. This command makes the outcome explicit and
           # idempotent (existing rows are left alone).
           python manage.py bootstrap_attribute_definitions
+
+      - name: Dump the seeded database for the snapshot cache
+        # Nur Shard 1 schreibt den Cache: bei kaltem Cache bauen alle vier Shards
+        # die DB selbst (wie bisher), aber vier gleichzeitige Saves auf denselben
+        # Key sind ein Wettlauf, den GitHub nur einmal gewinnen laesst.
+        if: steps.db-snapshot.outputs.cache-hit != 'true' && matrix.shard == 1
+        run: |
+          set -euo pipefail
+          docker exec ${{ job.services.postgres.id }} \
+            pg_dump -U reqflow -Fc -d reqflow > "${RUNNER_TEMP}/reqflow-snapshot.dump"
+          ls -l "${RUNNER_TEMP}/reqflow-snapshot.dump"
+
+      - name: Save the seeded database snapshot
+        if: steps.db-snapshot.outputs.cache-hit != 'true' && matrix.shard == 1
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ runner.temp }}/reqflow-snapshot.dump
+          key: ${{ steps.db-snapshot.outputs.cache-primary-key }}
 
       - name: Start Django backend
         working-directory: backend
