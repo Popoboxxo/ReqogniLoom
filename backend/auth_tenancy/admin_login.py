@@ -62,18 +62,16 @@ LOCKOUT_MESSAGE = (
 #: signals — never to authorize anything.
 _ADMIN_PREFIX = "/admin/"
 
-#: Shown when the password was correct but the second factor was missing or
-#: wrong. Deliberately generic (it never says *why*) — the caller already proved
-#: the password, so there is no enumeration surface left to protect, but nothing
-#: about the stored factor should leak either.
-MFA_INVALID_MESSAGE = "That second factor code is not valid."
-
-#: Shown under ``MFA_STAFF_ENFORCEMENT=required`` for a staff account without a
-#: confirmed device. Binding decision ENT-E7 = A: enrollment under ``required``
-#: needs an administrator-issued grant (WP E3.4/E3.7), which the web app obtains
-#: with the enrollment challenge — the admin form cannot do that, so it points
-#: there instead of pretending the login can proceed.
-MFA_ENROLL_MESSAGE = "Enroll a second factor in the web app first."
+#: Shown when the password was correct but the second factor could not be
+#: verified. Deliberately ONE generic message for every cause — wrong code,
+#: replayed code, locked device, account deactivated mid-flow *and* "this
+#: account has no device at all". Security review F4: the previous pair of
+#: messages told a password holder whether a device exists, which is a
+#: targeting oracle ("this account is not protected — enroll your own device"
+#: is not reachable here, but "no device" still confirms the account is
+#: half-configured). The caller already proved the password, so nothing about
+#: the stored factor should leak either.
+MFA_INVALID_MESSAGE = "The second factor for this account could not be verified."
 
 
 def _is_admin_login_request(request) -> bool:
@@ -213,8 +211,10 @@ class MfaAdminAuthenticationForm(LockoutAdminAuthenticationForm):
         if not service.is_enrolled(user):
             # ``required`` without a device: there is nothing to verify, and the
             # admin surface must not become a self-service enrollment path
-            # (ENT-E7 = A / QR-S01).
-            self._reject(MFA_ENROLL_MESSAGE, user)
+            # (ENT-E7 = A / QR-S01). Answered with the SAME generic message as a
+            # wrong code (security review F4) so a password holder cannot probe
+            # whether the account has a device.
+            self._reject(MFA_INVALID_MESSAGE, user)
             return cleaned
 
         code = (cleaned.get("otp_code") or "").strip()

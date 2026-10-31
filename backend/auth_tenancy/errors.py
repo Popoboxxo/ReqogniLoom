@@ -137,6 +137,77 @@ _ERROR_CATALOG: dict[str, tuple[int, dict[str, str]]] = {
             ),
         },
     ),
+    # ------------------------------------------------------------------
+    # Second factor enrollment (WP E3.6) — the management surface.
+    # ------------------------------------------------------------------
+    "MFA_NOT_ALLOWED": (
+        403,
+        {
+            "en": "A second factor can only be enrolled for a staff account.",
+            "de": (
+                "Ein zweiter Faktor kann nur für ein Staff-Konto eingerichtet "
+                "werden."
+            ),
+        },
+    ),
+    "MFA_ALREADY_ENROLLED": (
+        409,
+        {
+            "en": (
+                "This account already has a confirmed second factor. Disable it "
+                "before enrolling a new device."
+            ),
+            "de": (
+                "Für dieses Konto ist bereits ein zweiter Faktor bestätigt. "
+                "Deaktivieren Sie ihn, bevor Sie ein neues Gerät einrichten."
+            ),
+        },
+    ),
+    "MFA_REQUIRED": (
+        409,
+        {
+            "en": (
+                "A second factor is required for this account and cannot be "
+                "removed."
+            ),
+            "de": (
+                "Für dieses Konto ist ein zweiter Faktor erforderlich; er kann "
+                "nicht entfernt werden."
+            ),
+        },
+    ),
+    # Distinct from ``MFA_REQUIRED`` (409, "the factor cannot be removed"):
+    # this one is the *key-creation step-up* gate — 403, the session is valid
+    # but has not completed a second-factor step. Overloading the 409 code for
+    # both made the two situations indistinguishable to a client.
+    "MFA_STEP_UP_REQUIRED_FOR_KEY": (
+        403,
+        {
+            "en": (
+                "This session has not completed a second-factor step-up. "
+                "Creating or managing an API key for a staff account requires "
+                "it while a second factor is mandatory."
+            ),
+            "de": (
+                "Diese Sitzung hat keinen zweiten Faktor bestätigt. Das Anlegen "
+                "oder Verwalten eines API-Schlüssels für ein Staff-Konto setzt "
+                "ihn voraus, solange ein zweiter Faktor verpflichtend ist."
+            ),
+        },
+    ),
+    "MFA_REQUIRES_INTERACTIVE_SESSION": (
+        403,
+        {
+            "en": (
+                "The second factor can only be changed from an interactive "
+                "session, not with an API key."
+            ),
+            "de": (
+                "Der zweite Faktor kann nur aus einer interaktiven Sitzung "
+                "geändert werden, nicht mit einem API-Schlüssel."
+            ),
+        },
+    ),
     "MFA_CHALLENGE_INVALID": (
         401,
         {

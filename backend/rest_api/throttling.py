@@ -91,10 +91,13 @@ __all__ = [
     # test-overridable rate resolution rather than a second mechanism.
     "DynamicRateThrottle",
     "LoginIpRateThrottle",
+    "LoginMfaRateThrottle",
     "LoginRateThrottle",
     "QualityAssessRateThrottle",
     "RefreshRateThrottle",
     "record_login_failure",
+    "record_login_mfa_failure",
+    "reset_login_mfa_throttle",
     "reset_login_throttle",
 ]
 
@@ -393,6 +396,55 @@ class LoginRateThrottle(_FailureCountingThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+def _challenge_uid(request: Any) -> str | None:
+    """Return the user id inside the request's signed MFA challenge (F1).
+
+    ``/auth/login/mfa/`` carries no username — only the signed challenge from
+    step 1 — so the per-(IP, username) login bucket collapsed onto one
+    ``(IP, hash(""))`` key for every MFA user. The ``uid`` lives *inside* the
+    signature, so a caller cannot choose which bucket to fill, and an
+    expired/garbage token yields ``None`` (the per-IP spray throttle still
+    applies). ``request.data`` is guarded because a malformed body must not turn
+    a throttle lookup into a 500.
+    """
+    try:
+        data = getattr(request, "data", None)
+    except Exception:  # noqa: BLE001 - unparsable body -> unkeyable
+        return None
+    challenge = data.get("mfa_challenge") if isinstance(data, dict) else None
+    if not isinstance(challenge, str) or not challenge:
+        return None
+
+    # Deferred: ``auth_tenancy.services.mfa`` imports ``hash_api_key`` from this
+    # package's sibling module at load time, so a module-level import would cycle.
+    from auth_tenancy.services.mfa import MfaService
+
+    return MfaService().challenge_subject(challenge)
+
+
+class LoginMfaRateThrottle(_FailureCountingThrottle):
+    """Per-user cap on *failed* second-factor logins (security review F1).
+
+    Same budget as :class:`LoginRateThrottle` (scope ``login``), but keyed on
+    the account named by the signed challenge instead of ``(IP, username)``:
+    the second step carries neither a username nor a meaningful per-user IP, so
+    the old key made every MFA user behind one NAT share a single bucket —
+    either locking each other out or, with a larger shared budget, handing an
+    attacker more guesses than intended.
+    """
+
+    scope = "login"
+
+    def get_cache_key(self, request: Request, view: Any = None) -> str | None:
+        uid = _challenge_uid(request)
+        if uid is None:
+            return None
+        # Hashed for the same reason as ``_username_digest``: bounded key size
+        # and no user directory readable from a cache dump.
+        ident = hashlib.sha256(uid.encode("utf-8")).hexdigest()[:32]
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
 class LoginIpRateThrottle(_FailureCountingThrottle):
     """Looser per-IP cap on *failed* logins — anti credential-spraying (#269).
 
@@ -469,10 +521,19 @@ class QualityAssessRateThrottle(DynamicRateThrottle):
 #: Throttles charged when a login attempt fails.
 _LOGIN_FAILURE_THROTTLES = (LoginRateThrottle, LoginIpRateThrottle)
 
+#: Throttles charged when a second-factor login attempt fails (F1).
+_LOGIN_MFA_FAILURE_THROTTLES = (LoginMfaRateThrottle, LoginIpRateThrottle)
+
 
 def record_login_failure(request: Request) -> None:
     """Charge a failed login against the per-pair and per-IP buckets."""
     for throttle_cls in _LOGIN_FAILURE_THROTTLES:
+        throttle_cls().record_failure(request)
+
+
+def record_login_mfa_failure(request: Request) -> None:
+    """Charge a failed second-factor attempt against the per-user and per-IP buckets."""
+    for throttle_cls in _LOGIN_MFA_FAILURE_THROTTLES:
         throttle_cls().record_failure(request)
 
 
@@ -482,3 +543,11 @@ def reset_login_throttle(request: Request) -> None:
     The per-IP spray counter is intentionally left untouched.
     """
     LoginRateThrottle().reset(request)
+
+
+def reset_login_mfa_throttle(request: Request) -> None:
+    """Clear the per-user second-factor bucket after a successful MFA login.
+
+    Like :func:`reset_login_throttle`, the per-IP spray counter stays as it is.
+    """
+    LoginMfaRateThrottle().reset(request)

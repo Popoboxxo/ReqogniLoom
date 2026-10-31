@@ -25,7 +25,6 @@ from django.test import Client, override_settings
 
 from auth_tenancy import admin_lockout
 from auth_tenancy.admin_login import (
-    MFA_ENROLL_MESSAGE,
     MFA_INVALID_MESSAGE,
     MfaAdminAuthenticationForm,
     install,
@@ -204,15 +203,23 @@ def test_a_recovery_code_is_accepted_in_the_same_field(
 
 
 @override_settings(MFA_STAFF_ENFORCEMENT="required")
-def test_required_without_a_device_points_at_the_web_app(staff_user) -> None:
-    """No device under ``required``: nothing to verify, so refuse with a hint."""
+def test_required_without_a_device_looks_like_a_wrong_code(staff_user) -> None:
+    """Security review F4: no-device and wrong-code must be indistinguishable.
+
+    The previous wording ("Enroll a second factor in the web app first.")
+    confirmed to a password holder that the account has no device — a targeting
+    oracle. One generic message now covers every rejection cause.
+    """
     _ = staff_user
 
     resp = _post_login(password=_PASSWORD, otp_code="123456")
 
     assert resp.status_code == 200
     assert _session_user_id(resp) is None
-    assert MFA_ENROLL_MESSAGE.encode() in resp.content
+    assert MFA_INVALID_MESSAGE.encode() in resp.content
+    # No hint about the *state* of the account's second factor.
+    assert b"Enroll a second factor" not in resp.content
+    assert b"no confirmed" not in resp.content.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -241,3 +248,50 @@ def test_a_wrong_password_still_fails_without_a_second_factor(staff_user) -> Non
     assert resp.status_code == 200
     assert _session_user_id(resp) is None
     assert _lockout_row() is not None
+
+
+# ---------------------------------------------------------------------------
+# Security review F1 — the login-MFA throttle is keyed per user
+# ---------------------------------------------------------------------------
+
+
+class _FakeRequest:
+    """Minimal stand-in for a DRF request (only META + data are read)."""
+
+    def __init__(self, *, challenge: str, remote_addr: str = _IP) -> None:
+        self.META = {"REMOTE_ADDR": remote_addr}
+        self.data = {"mfa_challenge": challenge}
+
+
+def test_the_login_mfa_throttle_keys_on_the_challenge_uid_not_the_ip() -> None:
+    """F1: ``/auth/login/mfa/`` carries no username, so the old (IP, username)
+    key collapsed onto one bucket per IP. The signed challenge's ``uid`` is the
+    only unforgeable per-account identity available at that point."""
+    from rest_api.throttling import LoginMfaRateThrottle
+
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    service = MfaService()
+    # ``issue_challenge`` only reads ``id`` and ``password``; real rows would
+    # just slow the test down.
+    user = SimpleNamespace(id=uuid4(), password="pbkdf2_sha256$dummy")
+    other = SimpleNamespace(id=uuid4(), password="pbkdf2_sha256$dummy")
+    first = service.issue_challenge(user, purpose="verify")
+    second = service.issue_challenge(other, purpose="verify")
+
+    throttle = LoginMfaRateThrottle()
+
+    assert throttle.get_cache_key(_FakeRequest(challenge=first)) == throttle.get_cache_key(
+        _FakeRequest(challenge=first, remote_addr="203.0.113.9")
+    ), "the MFA bucket must not change with the client IP"
+    assert throttle.get_cache_key(_FakeRequest(challenge=first)) != throttle.get_cache_key(
+        _FakeRequest(challenge=second)
+    ), "two accounts must get two buckets"
+
+
+def test_the_login_mfa_throttle_falls_back_for_a_garbage_challenge() -> None:
+    """An unverifiable challenge yields no key: the per-IP throttle still runs."""
+    from rest_api.throttling import LoginMfaRateThrottle
+
+    assert LoginMfaRateThrottle().get_cache_key(_FakeRequest(challenge="garbage")) is None

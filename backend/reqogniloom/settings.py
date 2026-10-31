@@ -652,6 +652,19 @@ MFA_LOCKOUT_SECONDS: int = config("MFA_LOCKOUT_SECONDS", default=900, cast=int)
 MFA_CHALLENGE_TTL_SECONDS: int = config(
     "MFA_CHALLENGE_TTL_SECONDS", default=300, cast=int
 )
+#: Hard cap on the challenge lifetime (security review F6). A challenge is a
+#: proof that the password step already succeeded, so a long-lived one is a
+#: long-lived credential; 900 s matches ``MFA_LOCKOUT_SECONDS`` and is far above
+#: any human two-step login. Refused at startup rather than clamped, so a
+#: misconfiguration is visible instead of silently reinterpreted. Re-checked in
+#: ``auth_tenancy.services.mfa.challenge_ttl_seconds`` so an override cannot
+#: widen it.
+MFA_CHALLENGE_TTL_MAX_SECONDS: int = 900
+if not 0 < MFA_CHALLENGE_TTL_SECONDS <= MFA_CHALLENGE_TTL_MAX_SECONDS:
+    raise ImproperlyConfigured(
+        "MFA_CHALLENGE_TTL_SECONDS must be between 1 and "
+        f"{MFA_CHALLENGE_TTL_MAX_SECONDS}, got {MFA_CHALLENGE_TTL_SECONDS}."
+    )
 #: Clock-drift tolerance in TOTP time steps. 1 = accept the previous, current
 #: and next 30-second step (3 valid codes out of 1e6) — the plan's binding
 #: brute-force budget, so raising this widens the guessable space linearly.

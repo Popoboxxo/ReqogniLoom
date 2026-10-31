@@ -490,12 +490,21 @@ def test_a_recovery_code_cannot_be_used_twice(staff_user):
 # ---------------------------------------------------------------------------
 
 
-def test_the_endpoint_carries_both_login_throttles() -> None:
-    """The code check must cost the same budget as a wrong password."""
-    from rest_api.auth_views import LoginMfaView
-    from rest_api.throttling import LoginIpRateThrottle, LoginRateThrottle
+def test_the_endpoint_carries_the_mfa_and_ip_throttles() -> None:
+    """The code check must cost the same budget as a wrong password.
 
-    assert LoginMfaView.throttle_classes == [LoginRateThrottle, LoginIpRateThrottle]
+    Security review F1: step 2 has no username, so ``LoginRateThrottle``'s
+    (IP, username) key collapsed onto one ``(IP, hash(""))`` bucket for every
+    MFA user. ``LoginMfaRateThrottle`` keys on the signed challenge's ``uid``
+    instead; the per-IP spray cap stays as the second line.
+    """
+    from rest_api.auth_views import LoginMfaView
+    from rest_api.throttling import LoginIpRateThrottle, LoginMfaRateThrottle
+
+    assert LoginMfaView.throttle_classes == [
+        LoginMfaRateThrottle,
+        LoginIpRateThrottle,
+    ]
     assert LoginMfaView.permission_classes[0].__name__ == "AllowAny"
 
 

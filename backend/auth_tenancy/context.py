@@ -130,8 +130,18 @@ class AuthContext:
         amr: Authentication-method references (RFC 8176) the credential
             asserted, e.g. ``("pwd",)`` for a password login and
             ``("pwd", "otp")`` once a TOTP/recovery code completed the second
-            step (WP E3.3/E3.4). Consumers that gate on a second factor test
-            ``"otp" in ctx.amr``; an API key carries ``()`` by construction.
+            step (WP E3.3/E3.4). Consumers test ``"otp" in ctx.amr`` to tell a
+            password-only session from a second-factor one. The gates that exist
+            in this codebase are exactly: (a) ``POST /auth/refresh/`` refuses to
+            extend a session for an account that now requires a second factor
+            (``MFA_STEP_UP_REQUIRED``, WP E3.3); (b) ``POST /api-keys/`` refuses
+            to mint a staff key from a session without ``"otp"``
+            (``MFA_REQUIRED``, WP E3.6); (c) the MFA management routes
+            (enroll/confirm/regenerate/disable) reject an API-key caller
+            outright rather than consulting ``amr``
+            (``MFA_REQUIRES_INTERACTIVE_SESSION``, WP E3.6). An API key carries
+            ``()`` by construction, so it fails (a) and (b) and is refused by
+            (c); no other route gates on ``amr``.
     """
 
     user_id: UUID

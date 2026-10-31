@@ -114,6 +114,32 @@ AGENT_EXPIRY_REQUIRED_MESSAGE = (
     "Agent API keys require a strictly future timezone-aware expires_at."
 )
 
+#: STAFF-account expiry rule under ``MFA_STAFF_ENFORCEMENT=required``
+#: (WP E3.6, provisional ENT-E8 = A). A staff key created from a second-factor
+#: session still outlives that session; requiring a hard expiry bounds how long
+#: a key minted before a device loss or a role change can be used. Binding to
+#: ``required`` (not ``optional``) because the current UI does not send
+#: ``expires_at`` yet — WP E3.8 adds the field before the cutover.
+STAFF_EXPIRY_REQUIRED_MESSAGE = (
+    "Staff API keys require a strictly future timezone-aware expires_at while "
+    "MFA_STAFF_ENFORCEMENT=required."
+)
+
+
+class ApiKeyPolicyError(ValueError):
+    """A key-creation policy rejection that names the offending field.
+
+    A plain ``ValueError`` cannot tell the REST layer *where* the problem is, so
+    the 400 envelope carried no ``details`` entry and a client could not point
+    at the field. :attr:`field` is the request field name (empty when the
+    rejection is not field-specific), which ``ApiKeyViewSet.create`` turns into
+    the project-wide ``{"field", "errors"}`` detail shape.
+    """
+
+    def __init__(self, message: str, *, field: str = "") -> None:
+        self.field = field
+        super().__init__(message)
+
 
 def canonical_workspace_ids(workspace_ids: object) -> list[str] | None:
     """Return the canonical UUID strings of an agent workspace fence.
@@ -769,6 +795,10 @@ class AuthenticationService:
             ValueError: If an agent key has an invalid lifecycle configuration,
                 or if the user already has ``MAX_ACTIVE_API_KEYS_PER_USER``
                 active keys.
+            ApiKeyPolicyError: A staff owner under
+                ``MFA_STAFF_ENFORCEMENT=required`` supplied no strictly future,
+                timezone-aware ``expires_at`` (WP E3.6). Subclass of
+                ``ValueError`` and carries ``field="expires_at"``.
 
         SA-39 (Systemaudit 2026-08-27 §4.1 #11): count-then-create is a
         time-of-check/time-of-use window — N parallel requests all read
@@ -821,7 +851,26 @@ class AuthenticationService:
             # TenantScopedModel (it is an identity root, like ``Tenant``), so
             # ``objects`` carries no tenant filter and needs none here: the pk
             # is the authenticated caller's own user id.
-            User.objects.select_for_update().filter(pk=user_id).first()
+            owner = User.objects.select_for_update().filter(pk=user_id).first()
+
+            # WP E3.6 (provisional ENT-E8 = A): a staff key created while a
+            # second factor is mandatory must expire. The session that minted it
+            # may end long before the key does, and an indefinite key would make
+            # that session's second factor a one-time check instead of a
+            # standing property of the credential. Enforced here (not only in
+            # the serializer) so every entry point — REST, MCP, management
+            # command — answers the same way.
+            if owner is not None and (
+                owner.is_staff or owner.is_superuser
+            ):
+                from .mfa import enforcement_mode
+
+                if enforcement_mode() == "required" and not is_future_timezone_aware(
+                    expires_at
+                ):
+                    raise ApiKeyPolicyError(
+                        STAFF_EXPIRY_REQUIRED_MESSAGE, field="expires_at"
+                    )
 
             now = datetime.now(UTC)
             active_count = (
@@ -895,6 +944,7 @@ class AuthenticationService:
 
 __all__ = [
     "ApiKeyCreationResult",
+    "ApiKeyPolicyError",
     "AuthenticationService",
     "api_key_hash_candidates",
     "generate_api_key_plaintext",

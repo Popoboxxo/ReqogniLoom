@@ -1296,3 +1296,76 @@ def test_parallel_regeneration_leaves_exactly_one_code_set(tenant_a) -> None:
     assert (
         UserRecoveryCode.objects.filter(user=user, used_at__isnull=True).count() == 10
     )
+
+
+# ---------------------------------------------------------------------------
+# Security review F5 — the challenge is bound to the credential epoch
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestChallengeCredentialEpoch:
+    """A challenge must not survive the password it was issued for (F5)."""
+
+    def test_a_password_change_invalidates_an_outstanding_challenge(
+        self, tenant_a
+    ) -> None:
+        user = _staff_user(tenant_a, "challenge-pwd-change")
+        service = MfaService()
+        token = service.issue_challenge(user, purpose="verify")
+
+        user.set_password("a-brand-new-password")
+        user.save(update_fields=["password"])
+
+        with pytest.raises(MfaChallengeInvalidError):
+            service.read_challenge(token)
+
+    def test_a_reissued_challenge_for_the_new_password_is_valid(
+        self, tenant_a
+    ) -> None:
+        user = _staff_user(tenant_a, "challenge-pwd-reissue")
+        service = MfaService()
+        service.issue_challenge(user, purpose="verify")
+
+        user.set_password("another-password")
+        user.save(update_fields=["password"])
+
+        recovered, purpose = service.read_challenge(
+            service.issue_challenge(user, purpose="verify")
+        )
+        assert (recovered.id, purpose) == (user.id, "verify")
+
+
+# ---------------------------------------------------------------------------
+# Security review F6 — the challenge lifetime is capped
+# ---------------------------------------------------------------------------
+
+
+class TestChallengeTtlClamp:
+    """``MFA_CHALLENGE_TTL_SECONDS`` must never exceed 15 minutes (F6)."""
+
+    def test_the_default_is_accepted(self) -> None:
+        from django.test import override_settings
+
+        with override_settings(MFA_CHALLENGE_TTL_SECONDS=300):
+            assert mfa_module.challenge_ttl_seconds() == 300
+
+    def test_the_cap_is_accepted(self) -> None:
+        from django.test import override_settings
+
+        with override_settings(MFA_CHALLENGE_TTL_SECONDS=900):
+            assert mfa_module.challenge_ttl_seconds() == 900
+
+    def test_a_longer_ttl_is_refused(self) -> None:
+        from django.test import override_settings
+
+        with override_settings(MFA_CHALLENGE_TTL_SECONDS=901):
+            with pytest.raises(ImproperlyConfigured):
+                mfa_module.challenge_ttl_seconds()
+
+    def test_a_non_positive_ttl_is_refused(self) -> None:
+        from django.test import override_settings
+
+        with override_settings(MFA_CHALLENGE_TTL_SECONDS=0):
+            with pytest.raises(ImproperlyConfigured):
+                mfa_module.challenge_ttl_seconds()

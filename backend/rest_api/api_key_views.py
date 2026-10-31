@@ -36,15 +36,23 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
 from auth_tenancy.errors import AuthenticationFailed
-from auth_tenancy.services import Operation
-from auth_tenancy.services.authentication import AuthenticationService
+from auth_tenancy.services import Operation, UserProfileService
+from auth_tenancy.services.authentication import (
+    ApiKeyPolicyError,
+    AuthenticationService,
+)
+from auth_tenancy.services.mfa import MfaService
 from rest_api.api_key_serializers import (
     ApiKeyCreateResponseSerializer,
     ApiKeyCreateSerializer,
     ApiKeyErrorResponseSerializer,
     ApiKeyMetadataSerializer,
 )
-from rest_api.serializers import StandardPagination, build_error_response
+from rest_api.serializers import (
+    StandardPagination,
+    build_error_response,
+    detect_lang,
+)
 
 #: Request keys ``POST /api/v1/api-keys/`` understands is now defined by
 #: :class:`rest_api.api_key_serializers.ApiKeyCreateSerializer`; it rejects
@@ -274,6 +282,13 @@ class ApiKeyViewSet(ViewSet):
           403 — read-scoped key (#917)
           403 — AUTHOR-tier key (#865): creating a key is key management and
                 requires an ADMIN-scoped key, see ``required_scope_operation``
+          403 — ``MFA_STEP_UP_REQUIRED_FOR_KEY`` (WP E3.6): a staff owner under
+                ``MFA_STAFF_ENFORCEMENT=required`` whose session has no
+                ``"otp"`` in ``amr``. Distinct from the 409 ``MFA_REQUIRED``
+                (disable refuses to remove the factor).
+          400 — ``VALIDATION_ERROR`` with an ``expires_at`` field error when the
+                same staff owner supplies no strictly future, timezone-aware
+                ``expires_at`` (provisional ENT-E8 = A).
 
         Order (#917): the scope gate is a DRF permission check, so it runs
         before this view body and before validation. A read-scoped key
@@ -294,6 +309,26 @@ class ApiKeyViewSet(ViewSet):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        # WP E3.6: a staff key implicitly carries its owner's authority for as
+        # long as it lives, so creating one is a second-factor-protected action
+        # under ``MFA_STAFF_ENFORCEMENT=required``. A password-only session (or
+        # an API key, whose ``amr`` is empty by construction) must not be able
+        # to mint a credential that outlives the second factor that is supposed
+        # to guard it. Enforced here for the precise error code; the service
+        # repeats the expires_at half as defence in depth.
+        ctx = getattr(request, "auth_context", None)
+        owner = UserProfileService().get_current_user(ctx) if ctx is not None else None
+        if owner is not None and MfaService().step_up_required(
+            owner, getattr(ctx, "amr", ())
+        ):
+            return Response(
+                build_error_response(
+                    "MFA_STEP_UP_REQUIRED_FOR_KEY",
+                    lang=detect_lang(request),
+                ),
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         serializer = ApiKeyCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(
@@ -312,6 +347,19 @@ class ApiKeyViewSet(ViewSet):
                 scope=data["scope"],
                 workspace_ids=data["workspace_ids"],
                 expires_at=data["expires_at"],
+            )
+        except ApiKeyPolicyError as exc:
+            # WP E3.6: a policy rejection names the offending field, so the 400
+            # carries the project-wide {"field", "errors"} detail entry instead
+            # of a bare message the client cannot place.
+            details = (
+                [{"field": exc.field, "errors": [str(exc)]}] if exc.field else []
+            )
+            return Response(
+                build_error_response(
+                    code="VALIDATION_ERROR", message=str(exc), details=details
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
             )
         except ValueError as exc:
             return Response(
