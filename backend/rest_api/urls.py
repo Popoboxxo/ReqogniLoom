@@ -173,6 +173,13 @@ from rest_api.link_type_views import (
     WorkspaceLinkTypeResetView,
 )
 from rest_api.metrics_views import MetricsViewSet
+from rest_api.mfa_views import (
+    MfaConfirmView,
+    MfaDisableView,
+    MfaEnrollView,
+    MfaRecoveryCodesRegenerateView,
+    MfaStatusView,
+)
 from rest_api.notification_preference_views import NotificationPreferenceView
 from rest_api.preference_value_views import (
     GlobalPreferenceLevelView,
@@ -322,6 +329,35 @@ urlpatterns = [
     ),
     # Logout (REQ-052) — clears the httpOnly access cookie; requires auth + CSRF.
     path("auth/logout/", LogoutView.as_view(), name="api-v1-auth-logout"),
+    # Second-factor management (#1308, Plan E / WP E3.6) — self-scoped to the
+    # calling account. Writes are interactive-session only (an API key gets 403
+    # MFA_REQUIRES_INTERACTIVE_SESSION); enroll/confirm also accept the signed
+    # purpose=enroll challenge via the X-MFA-Challenge header.
+    path(
+        "auth/mfa/status/",
+        MfaStatusView.as_view(),
+        name="api-v1-auth-mfa-status",
+    ),
+    path(
+        "auth/mfa/totp/enroll/",
+        MfaEnrollView.as_view(),
+        name="api-v1-auth-mfa-enroll",
+    ),
+    path(
+        "auth/mfa/totp/confirm/",
+        MfaConfirmView.as_view(),
+        name="api-v1-auth-mfa-confirm",
+    ),
+    path(
+        "auth/mfa/recovery-codes/regenerate/",
+        MfaRecoveryCodesRegenerateView.as_view(),
+        name="api-v1-auth-mfa-recovery-codes-regenerate",
+    ),
+    path(
+        "auth/mfa/disable/",
+        MfaDisableView.as_view(),
+        name="api-v1-auth-mfa-disable",
+    ),
     # Silent token refresh (GitHub #135) — public, identity via the refresh
     # cookie only; mints a new access cookie so a mid-session expiry does not
     # hard-log the user out.
