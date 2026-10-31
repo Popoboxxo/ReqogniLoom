@@ -153,6 +153,19 @@ class TestBaselineTagsPut:
         assert tag.workspace_id == workspace.id
         assert tag.workspace_id != other.id
 
+    def test_put_tags_rejects_unknown_field(
+        self, authed_client: APIClient, tenant: Tenant, workspace: Workspace
+    ) -> None:
+        """An undeclared body key is a 400, not a silent drop (#851)."""
+        baseline = _baseline(tenant, workspace, f"unknown-{uuid.uuid4().hex[:8]}")
+
+        response = _set_tags(authed_client, baseline.id, ["Release"], tagz=["typo"])
+
+        assert response.status_code == 400, response.content
+        body = response.json()["error"]
+        assert body["code"] == "VALIDATION_ERROR"
+        assert {"field": "tagz", "errors": ["Unknown field."]} in body["details"]
+
     @pytest.mark.parametrize(
         "tags",
         [

@@ -2029,12 +2029,22 @@ class BaselineSummarySerializer(
     )
 
 
-class BaselineTagsRequestSerializer(serializers.Serializer):
+class BaselineTagsRequestSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
     """Body of ``PUT /api/v1/baselines/{id}/tags/`` (F4.2).
 
     The replacement set. Individual labels are validated by
     ``BaselineFacade.set_tags`` (format, length, count, de-duplication); this
     serializer only pins the wire shape.
+
+    Guards against silently dropped input (#851): an undeclared key answers
+    400 instead of 200, which is the failure class #851 closes.
+    ``workspace_id`` is declared even though the route never writes it — the
+    persisted workspace comes from the baseline (QR-S09 a) — because the
+    ADR-011 authorization seam reads a body ``workspace_id`` as the
+    request's target workspace. Declaring it keeps that seam input accepted
+    while every genuinely unknown key is still rejected.
     """
 
     tags = serializers.ListField(
@@ -2042,10 +2052,21 @@ class BaselineTagsRequestSerializer(serializers.Serializer):
         allow_empty=True,
         help_text="Complete replacement set of labels.",
     )
+    # Not a write input: only the authorization seam reads it. Declared so it
+    # is not mistaken for an unknown key by the #851 guard.
+    workspace_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "Ignored for persistence — the baseline's own workspace is stored. "
+            "Read by the request-scope authorization seam."
+        ),
+    )
 
 
 class BaselineTagsResponseSerializer(serializers.Serializer):
-    """Response of ``PUT /api/v1/baselines/{id}/tags/`` (F4.2)."""
+    """Read-only response of ``PUT /api/v1/baselines/{id}/tags/`` (F4.2)."""
 
     id = serializers.UUIDField()
     tags = serializers.ListField(child=serializers.CharField())
