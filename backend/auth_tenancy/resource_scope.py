@@ -529,6 +529,7 @@ _EXCEPTIONS = {
     "HealthView": "infrastructure health probe",
     "PublicLoginBannerView": "public login-page banner",
     "LoginView": "public credential exchange",
+    "LoginMfaView": "public credential exchange (MFA completion step)",
     "RefreshView": "public refresh-cookie exchange",
     "LogoutView": "self-scoped session teardown",
     "McpHttpTransportView": "MCP transport; own API-key authentication",
