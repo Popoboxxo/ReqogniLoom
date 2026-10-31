@@ -245,21 +245,30 @@ export function LoginPage(): JSX.Element {
                   ? t("login.mfa.recoveryLabel")
                   : t("login.mfa.codeLabel")}
               </label>
-              <input
-                id="login-mfa-code"
-                data-testid={
-                  useRecoveryCode
-                    ? "login-mfa-recovery-input"
-                    : "login-mfa-code-input"
-                }
-                type="text"
-                inputMode={useRecoveryCode ? "text" : "numeric"}
-                autoComplete="one-time-code"
-                value={mfaCode}
-                onChange={(e) => setMfaCode(e.target.value)}
-                disabled={isMfaSubmitting}
-                className={styles.input}
-              />
+              {useRecoveryCode ? (
+                <input
+                  id="login-mfa-code"
+                  data-testid="login-mfa-recovery-input"
+                  type="text"
+                  autoComplete="one-time-code"
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
+                  disabled={isMfaSubmitting}
+                  className={styles.input}
+                />
+              ) : (
+                <input
+                  id="login-mfa-code"
+                  data-testid="login-mfa-code-input"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
+                  disabled={isMfaSubmitting}
+                  className={styles.input}
+                />
+              )}
               <button
                 type="button"
                 data-testid="login-mfa-recovery-toggle"
