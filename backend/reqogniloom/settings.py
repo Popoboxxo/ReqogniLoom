@@ -605,6 +605,80 @@ ADMIN_LOGIN_LOCKOUT_DURATION_SECONDS: int = config(
 )
 
 # ---------------------------------------------------------------------------
+# TOTP second factor for staff accounts (#1308, Plan E / WP E3.2)
+#
+# The second factor itself lives in ``auth_tenancy/services/mfa.py``; these are
+# its policy knobs. Everything is environment-overridable (same decouple
+# convention as the lockout block above) because the enforcement level in
+# particular is a per-deployment rollout decision, not a code decision.
+#
+# ``MFA_STAFF_ENFORCEMENT`` is the rollout dial and deliberately has three
+# values rather than a boolean:
+#   ``off``      — feature disabled; ``mfa_required()`` always answers False.
+#   ``optional`` — users who enrolled get challenged, everyone else unaffected
+#                  (the default: no deployment is locked out by upgrading).
+#   ``required`` — staff/superuser accounts must present a second factor. This
+#                  is a deliberate cutover (WP E3.9), not a default, because it
+#                  locks out every staff account that has not enrolled.
+# ---------------------------------------------------------------------------
+MFA_STAFF_ENFORCEMENT: str = config(
+    "MFA_STAFF_ENFORCEMENT", default="optional"
+).strip().lower()
+MFA_ENFORCEMENT_MODES: tuple[str, ...] = ("off", "optional", "required")
+if MFA_STAFF_ENFORCEMENT not in MFA_ENFORCEMENT_MODES:
+    raise ImproperlyConfigured(
+        f"MFA_STAFF_ENFORCEMENT must be one of {MFA_ENFORCEMENT_MODES}, got "
+        f"{MFA_STAFF_ENFORCEMENT!r}."
+    )
+
+#: Issuer label rendered into the ``otpauth://`` provisioning URI and shown by
+#: the authenticator app. Deployment-specific so several installations are
+#: distinguishable in one user's app.
+MFA_TOTP_ISSUER: str = config("MFA_TOTP_ISSUER", default="ReqogniLoom").strip()
+
+#: Consecutive failed second-factor attempts (TOTP or recovery code) before the
+#: device is locked for ``MFA_LOCKOUT_SECONDS``.
+MFA_MAX_FAILED_ATTEMPTS: int = config("MFA_MAX_FAILED_ATTEMPTS", default=5, cast=int)
+#: Lock duration after ``MFA_MAX_FAILED_ATTEMPTS`` failures.
+MFA_LOCKOUT_SECONDS: int = config("MFA_LOCKOUT_SECONDS", default=900, cast=int)
+#: Lifetime of a signed login challenge between password step and second step.
+MFA_CHALLENGE_TTL_SECONDS: int = config(
+    "MFA_CHALLENGE_TTL_SECONDS", default=300, cast=int
+)
+#: Clock-drift tolerance in TOTP time steps. 1 = accept the previous, current
+#: and next 30-second step (3 valid codes out of 1e6) — the plan's binding
+#: brute-force budget, so raising this widens the guessable space linearly.
+MFA_TOTP_VALID_WINDOW: int = config("MFA_TOTP_VALID_WINDOW", default=1, cast=int)
+#: Hard cap on the clock-drift window. At window=2 five codes out of 1e6 are
+#: accepted per attempt, which is the point where the brute-force budget stops
+#: being defensible; beyond that a "fix" for bad server clocks would quietly
+#: become a security regression. Refused at startup rather than clamped, so a
+#: misconfiguration is visible instead of silently reinterpreted (same reasoning
+#: as MFA_ENROLL_GRANT_TTL_SECONDS below). Re-checked in
+#: ``auth_tenancy.services.mfa.totp_valid_window`` so an override cannot widen it.
+MFA_TOTP_VALID_WINDOW_MAX: int = 2
+if not 0 <= MFA_TOTP_VALID_WINDOW <= MFA_TOTP_VALID_WINDOW_MAX:
+    raise ImproperlyConfigured(
+        "MFA_TOTP_VALID_WINDOW must be between 0 and "
+        f"{MFA_TOTP_VALID_WINDOW_MAX}, got {MFA_TOTP_VALID_WINDOW}."
+    )
+#: Lifetime of an administrator-issued enrollment grant (ENT-E7 = A). Hard-capped
+#: at 24 h: a longer-lived grant is a standing enrollment permission, which is
+#: exactly the "anyone with the password can enroll their own device" hole the
+#: grant exists to close (QR-S01). Refused at startup rather than clamped, so a
+#: misconfiguration is visible instead of silently reinterpreted.
+MFA_ENROLL_GRANT_TTL_SECONDS: int = config(
+    "MFA_ENROLL_GRANT_TTL_SECONDS", default=86400, cast=int
+)
+MFA_ENROLL_GRANT_MAX_TTL_SECONDS: int = 86400
+if MFA_ENROLL_GRANT_TTL_SECONDS > MFA_ENROLL_GRANT_MAX_TTL_SECONDS:
+    raise ImproperlyConfigured(
+        "MFA_ENROLL_GRANT_TTL_SECONDS must not exceed "
+        f"{MFA_ENROLL_GRANT_MAX_TTL_SECONDS} (24 h), got "
+        f"{MFA_ENROLL_GRANT_TTL_SECONDS}."
+    )
+
+# ---------------------------------------------------------------------------
 # Default trace-link types for a new workspace (issue #989).
 #
 # A workspace carries its own "standard link type" (pre-selected when creating
