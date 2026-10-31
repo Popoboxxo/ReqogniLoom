@@ -952,7 +952,10 @@ class ImportService(ServiceBase):
     ) -> tuple[list[tuple[int, dict[str, str]]], list[ImportRowError], list[str]]:
         """Parse CSV text into (row_number, dict) tuples.
 
-        Skips comment lines starting with '#'.
+        Skips leading comment lines (ExportService header) before the CSV
+        header. Blanket-stripping every line that starts with '#' would
+        destroy Markdown headings inside quoted multi-line fields and break
+        RFC 4180 quoting (issue #1374).
         Returns (rows, errors, header_fields).
         """
         errors: list[ImportRowError] = []
@@ -965,11 +968,15 @@ class ImportService(ServiceBase):
         if csv_text.startswith("\ufeff"):
             csv_text = csv_text[1:]
 
-        # Strip comment lines (e.g. terminology header from ExportService)
-        clean_lines = [
-            line for line in csv_text.splitlines() if not line.startswith("#")
-        ]
-        clean_text = "\n".join(clean_lines)
+        # Skip only the LEADING comment block — the export header written by
+        # ExportService (``# terminology_profile: …``). A '#' at the start of a
+        # line anywhere else is content (a quoted Markdown heading, or a data
+        # record), so it must reach the parser untouched (issue #1374).
+        lines = csv_text.splitlines(keepends=True)
+        start = 0
+        while start < len(lines) and lines[start].lstrip("\ufeff").startswith("#"):
+            start += 1
+        clean_text = "".join(lines[start:])
 
         try:
             # ``strict=True`` turns a broken quote (RFC 4180 violation) into a
