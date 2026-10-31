@@ -73,12 +73,26 @@ jobs:
           - id: set-1-core
             name: "Core Domain Logic (application, persistence)"
             paths: "application/tests persistence/tests"
+            # BEWUSST SERIELL: -n 2 lief auf dem Messhost gruen (771 s -> 563 s),
+            # aber in echtem CI rot. Auf Worker gw1 rollt
+            # persistence/tests/test_uid_unique_constraints_1402.py::
+            # test_migration_reverse_roundtrip das Schema zurueck (er ist der
+            # letzte PASSED vor dem ersten FAILED); ab 45 % fehlt dort
+            # "column embedding_model of relation pl_requirement", und alle
+            # folgenden Tests dieses Workers scheitern. Erst wenn dieser
+            # Roundtrip auf dem echten Leaf landet, ist xdist hier wieder eine
+            # Option — dann xdist auf "-n 2 --dist loadfile" stellen.
+            xdist: "-n 0"
           - id: set-2-api
             name: "REST API Layer (rest_api, auth_tenancy, presets, reqogniloom, test_runs)"
             paths: "attribute_definitions/tests rest_api/tests auth_tenancy/tests presets/tests reqogniloom/tests test_runs/tests"
+            # Groesster Einzelset (552 s pytest): parallelisieren wie set-1-core.
+            xdist: "-n 2 --dist loadfile"
           - id: set-3-mcp
             name: "MCP Server (mcp_server)"
             paths: "mcp_server/tests"
+            # Noch nicht gemessen: bewusst seriell.
+            xdist: "-n 0"
           - id: set-4-features
             # AUD-2026-09-193 (DOC-03): memory/tests (344), link_types/tests (141)
             # and the root tests/ suite (55) were previously matched by none of
@@ -88,6 +102,8 @@ jobs:
             # with `pytest --collect-only`: 540 tests that used to be dark.
             name: "Cross-Cutting & Features (llm_adapter, diagram, traceability, workflow, context_graph, se_metrics, baseline, admin_ops, icd, resilience, audit, memory, link_types, root tests)"
             paths: "llm_adapter/tests diagram/tests traceability/tests workflow/tests context_graph/tests se_metrics/tests baseline/tests admin_ops/tests icd/tests resilience/tests audit/tests memory/tests link_types/tests tests"
+            # Noch nicht gemessen: bewusst seriell.
+            xdist: "-n 0"
 
     services:
       postgres:
@@ -136,9 +152,30 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
 
+      - name: Install uv (pinned, checksum-verified)
+        # uv bewusst NICHT per pip in das audited site-packages: genau das hat
+        # im ersten Lauf den Job gekippt — pip-audit meldete PYSEC-2026-4321
+        # fuer uv 0.13.1 (Fix 0.13.4) im selben Environment, das die
+        # Backend-Abhaengigkeiten prueft. Ein Installer-Werkzeug gehoert nicht
+        # in die Laufzeit-Abhaengigkeiten. Version und Checksumme gepinnt wie
+        # beim gitleaks-Download.
+        env:
+          UV_VERSION: '0.13.4'
+          UV_SHA256: '2b428396f12572d4429cf210ca234dd599a33b3af0958a4d5ed569d63e3f344f'
+        run: |
+          set -euo pipefail
+          curl -sSfL -o "${RUNNER_TEMP}/uv.tar.gz" \
+            "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${UV_SHA256}  ${RUNNER_TEMP}/uv.tar.gz" | sha256sum -c -
+          tar xzf "${RUNNER_TEMP}/uv.tar.gz" -C "${RUNNER_TEMP}"
+          echo "${RUNNER_TEMP}/uv-x86_64-unknown-linux-gnu" >> "${GITHUB_PATH}"
+          "${RUNNER_TEMP}/uv-x86_64-unknown-linux-gnu/uv" --version
+
       - name: Install backend dependencies
         working-directory: backend
-        run: pip install -r requirements.txt
+        # uv statt pip: 448 s -> 168 s kalt gemessen; --system trifft das
+        # setup-python-Interpreter der folgenden Schritte.
+        run: uv pip install --system --quiet -r requirements.txt
 
       - name: Lint backend with ruff (SA-45)
         if: matrix.test-set.id == 'set-1-core'
@@ -195,7 +232,7 @@ jobs:
           # are written and read back within the same run). An optional
           # repository secret still wins if one is configured.
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
-        run: pytest ${{ matrix.test-set.paths }}
+        run: pytest ${{ matrix.test-set.paths }} ${{ matrix.test-set.xdist }}
 
       - name: Security scan - pip-audit (fixes #153)
         if: matrix.test-set.id == 'set-1-core'
