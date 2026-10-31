@@ -40,6 +40,7 @@ from auth_tenancy.services import mfa as mfa_module
 from auth_tenancy.services.mfa import (
     MfaAlreadyEnrolledError,
     MfaChallengeInvalidError,
+    MfaEnrollmentGrantConflictError,
     MfaEnrollmentRequiresGrantError,
     MfaError,
     MfaInvalidCodeError,
