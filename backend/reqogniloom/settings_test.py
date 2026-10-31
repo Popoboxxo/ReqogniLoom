@@ -219,6 +219,23 @@ ADMIN_LOGIN_LOCKOUT_THRESHOLD = 5
 ADMIN_LOGIN_LOCKOUT_WINDOW_SECONDS = 900
 ADMIN_LOGIN_LOCKOUT_DURATION_SECONDS = 900
 
+# #1308: same treatment for the TOTP second-factor policy. A stray
+# MFA_STAFF_ENFORCEMENT=required in a developer's .env would turn every
+# staff-account fixture in the suite into an MFA-gated login and break unrelated
+# suites; a stray MFA_MAX_FAILED_ATTEMPTS=1 would lock a device after a single
+# wrong code. Pinned to settings.py's documented defaults so test behaviour does
+# not depend on which env vars the runner exports. The dedicated MFA suites
+# (auth_tenancy/tests/test_mfa_service.py) override these explicitly via
+# override_settings to assert the limiting behaviour itself.
+MFA_STAFF_ENFORCEMENT = "optional"
+MFA_TOTP_ISSUER = "ReqogniLoom"
+MFA_MAX_FAILED_ATTEMPTS = 5
+MFA_LOCKOUT_SECONDS = 900
+MFA_CHALLENGE_TTL_SECONDS = 300
+MFA_TOTP_VALID_WINDOW = 1
+MFA_ENROLL_GRANT_TTL_SECONDS = 86400
+MFA_ENROLL_GRANT_MAX_TTL_SECONDS = 86400
+
 # ---------------------------------------------------------------------------
 # Static files — plain, non-manifest storage. settings.py's
 # CompressedManifestStaticFilesStorage (SA-40, WhiteNoise) requires a
