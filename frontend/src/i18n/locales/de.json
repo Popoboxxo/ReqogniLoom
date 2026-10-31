@@ -239,7 +239,35 @@
     "passwordRequired": "Bitte geben Sie ein Passwort ein.",
     "submit": "Anmelden",
     "invalidCredentials": "Ungültige Anmeldedaten. Bitte versuchen Sie es erneut.",
-    "sessionExpired": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an, um fortzufahren."
+    "sessionExpired": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an, um fortzufahren.",
+    "mfa": {
+      "title": "Zweiter Faktor",
+      "codeLabel": "6-stelliger Code",
+      "useRecovery": "Recovery-Code verwenden",
+      "recoveryLabel": "Recovery-Code",
+      "submit": "Bestätigen",
+      "invalidCode": "Code ungültig.",
+      "locked": "Zu viele Fehlversuche. Erneut in {{minutes}} min.",
+      "expired": "Anmeldung abgelaufen, bitte neu anmelden.",
+      "enrollRequired": "Für dieses Konto ist ein zweiter Faktor Pflicht."
+    }
+  },
+  "mfa": {
+    "title": "Zwei-Faktor-Anmeldung",
+    "statusOn": "Aktiv seit {{date}}",
+    "statusOff": "Nicht eingerichtet",
+    "enroll": "Einrichten",
+    "secretHint": "Secret in der Authenticator-App eintragen oder Link öffnen.",
+    "confirm": "Code bestätigen",
+    "recoveryTitle": "Recovery-Codes — jetzt sichern, sie werden nicht erneut angezeigt.",
+    "recoveryDismiss": "Codes gesichert",
+    "copy": "Kopieren",
+    "download": "Codes herunterladen",
+    "regenerate": "Neue Recovery-Codes",
+    "disable": "Deaktivieren",
+    "requiredByPolicy": "Durch Richtlinie vorgeschrieben",
+    "remaining": "{{count}} Recovery-Codes übrig",
+    "error": "Die Zwei-Faktor-Aktion ist fehlgeschlagen."
   },
   "loading": "Laden...",
   "common": {
@@ -1684,7 +1712,8 @@
     "revoke": "Widerrufen",
     "revokeConfirm": "Diesen Token widerrufen? Clients, die ihn verwenden, verlieren sofort den Zugriff.",
     "empty": "Noch keine Token vorhanden.",
-    "newKeyLabel": "API-Key"
+    "newKeyLabel": "API-Key",
+    "expiresLabel": "Ablaufdatum"
   },
   "memorySelfService": {
     "title": "Mein Memory",

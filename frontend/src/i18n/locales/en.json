@@ -239,7 +239,35 @@
     "passwordRequired": "Please enter a password.",
     "submit": "Sign In",
     "invalidCredentials": "Invalid credentials. Please try again.",
-    "sessionExpired": "Your session has expired. Please sign in again to continue."
+    "sessionExpired": "Your session has expired. Please sign in again to continue.",
+    "mfa": {
+      "title": "Second factor",
+      "codeLabel": "6-digit code",
+      "useRecovery": "Use a recovery code",
+      "recoveryLabel": "Recovery code",
+      "submit": "Verify",
+      "invalidCode": "Invalid code.",
+      "locked": "Too many attempts. Try again in {{minutes}} min.",
+      "expired": "Sign-in expired, please sign in again.",
+      "enrollRequired": "This account requires a second factor."
+    }
+  },
+  "mfa": {
+    "title": "Two-factor sign-in",
+    "statusOn": "Active since {{date}}",
+    "statusOff": "Not set up",
+    "enroll": "Set up",
+    "secretHint": "Enter the secret in your authenticator app or open the link.",
+    "confirm": "Confirm code",
+    "recoveryTitle": "Recovery codes — save them now, they are not shown again.",
+    "recoveryDismiss": "I saved the codes",
+    "copy": "Copy",
+    "download": "Download codes",
+    "regenerate": "New recovery codes",
+    "disable": "Disable",
+    "requiredByPolicy": "Required by policy",
+    "remaining": "{{count}} recovery codes left",
+    "error": "The two-factor action failed."
   },
   "loading": "Loading...",
   "common": {
@@ -1684,7 +1712,8 @@
     "revoke": "Revoke",
     "revokeConfirm": "Revoke this token? Clients using it will lose access immediately.",
     "empty": "No tokens yet.",
-    "newKeyLabel": "API Key"
+    "newKeyLabel": "API Key",
+    "expiresLabel": "Expiry date"
   },
   "memorySelfService": {
     "title": "My Memory",
