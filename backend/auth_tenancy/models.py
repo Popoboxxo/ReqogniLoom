@@ -26,6 +26,7 @@ Architecture: docs/se/L1/Gesamtsystem/L2/AuthAndTenancySystem/
 """
 from __future__ import annotations
 
+from django.conf import settings
 from django.db import models
 
 from persistence.models import AuditableModel, TenantScopedModel
@@ -1134,6 +1135,211 @@ class AdminLoginLockout(AuditableModel):
         )
 
 
+# ---------------------------------------------------------------------------
+# TOTP second factor (#1308, Plan E / WP E3.1)
+#
+# The three models below are the persistence layer of the TOTP second factor
+# (``auth_tenancy.services.mfa.MfaService``). All three are GLOBAL, not
+# tenant-scoped, for the same reason ``AdminLoginLockout`` is: they are read and
+# written on the *pre-authentication* path, where no tenant context exists yet.
+# The second factor is verified before a session/token exists, so keying these
+# rows per tenant would be circular — the tenant is not known until after
+# authentication succeeded. They therefore derive from :class:`AuditableModel`
+# and carry no ``tenant`` FK, and consequently no Row-Level-Security policy
+# applies (``persistence/tests/test_rls_coverage.py`` only guards
+# ``TenantScopedModel`` subclasses, so it stays green by construction).
+# ---------------------------------------------------------------------------
+
+
+class UserTotpDevice(AuditableModel):
+    """One confirmed-or-pending TOTP authenticator per user (#1308, WP E3.1).
+
+    A user has at most one device: TOTP is a *second* factor for an existing
+    password login, not an arbitrary multi-device registry, so ``user`` is a
+    ``OneToOneField`` and re-enrollment replaces the row instead of stacking a
+    second secret (the service deletes the unconfirmed row first; a *confirmed*
+    device requires a disable first).
+
+    Secret storage (binding security rule 1 of WP E3.2): the shared secret is
+    persisted **only** as a Fernet ciphertext
+    (:func:`persistence.encryption.encrypt_secret`, ``FIELD_ENCRYPTION_KEY``).
+    It is never stored, logged, audited or returned in clear after the
+    enrollment response — the service decrypts it strictly and refuses
+    (fail-closed) when the ciphertext is unreadable.
+
+    Replay protection lives in ``last_used_step``: the accepted code's TOTP time
+    step must be strictly greater than this value, and the update happens under
+    ``select_for_update()`` so two concurrent requests carrying the same code
+    cannot both win.
+
+    Brute-force state is kept on the row (``failed_attempts``/``locked_until``)
+    rather than in the cache: the counter has a direct security cost, must
+    survive a cache flush and must be inspectable by an operator — the exact
+    reasoning that made :class:`AdminLoginLockout` DB-backed (#1135).
+
+    Scope — GLOBAL (no ``tenant`` FK, no RLS): see the block comment above.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="totp_device",
+    )
+    #: Fernet ciphertext of the base32 TOTP secret. Never plaintext.
+    secret_ciphertext = models.TextField()
+    #: NULL while the device is pending (secret issued, first code not yet
+    #: proven); set once a valid code confirmed the enrollment.
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    #: Highest TOTP time step (``unix_time // period``) already spent. A code
+    #: is only accepted when its step is strictly greater, which makes every
+    #: code single-use.
+    last_used_step = models.BigIntegerField(null=True, blank=True)
+    #: Consecutive failed second-factor attempts (TOTP *and* recovery codes).
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+    #: Set once ``failed_attempts`` reaches ``MFA_MAX_FAILED_ATTEMPTS``; a past
+    #: value means unlocked again.
+    locked_until = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "at_user_totp_device"
+        indexes = [
+            # Cleanup / operator scan of currently locked devices.
+            models.Index(
+                fields=["locked_until"],
+                name="idx_totp_device_locked_until",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        state = "confirmed" if self.confirmed_at else "pending"
+        # User id only — a __str__ must never carry secret material.
+        return f"UserTotpDevice(user:{self.user_id}, {state})"
+
+
+class UserRecoveryCode(AuditableModel):
+    """One single-use recovery code of a user's TOTP device (#1308, WP E3.1).
+
+    Recovery codes are the break-glass path for a lost authenticator. Ten codes
+    are minted on enrollment and on regeneration
+    (:meth:`MfaService.confirm_enrollment` /
+    :meth:`MfaService.regenerate_recovery_codes`, WP E3.2); regeneration deletes
+    the previous set so an old code can never be replayed.
+
+    ``code_hash`` stores ``hash_api_key(normalize(code))`` — a peppered
+    HMAC-SHA256 (``API_KEY_PEPPER``) with the same normalisation and hashing
+    helper the API-key store uses, so the plaintext code exists only in the one
+    response that created it. The column is ``unique=True`` so the same code can
+    never be issued twice for two users, and the lookup is always user-bound
+    (``user=...``, ``code_hash=...``) — never a global lookup by hash, which
+    would let one user's code authenticate another user.
+
+    ``used_at`` makes a code single-use; it is set under
+    ``select_for_update()``.
+
+    Scope — GLOBAL (no ``tenant`` FK, no RLS): see the block comment above.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="recovery_codes",
+    )
+    #: ``hash_api_key(normalize(...))`` — 80 chars leaves room for the peppered
+    #: (``sha256p1:``) and legacy (``sha256:``) prefixed forms, like
+    #: :attr:`ApiKey.key_hash`.
+    code_hash = models.CharField(max_length=80, unique=True)
+    #: NULL until the code is spent.
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "at_user_recovery_code"
+        indexes = [
+            # "how many codes does this user still have left" — the status
+            # endpoint's only query shape.
+            models.Index(
+                fields=["user", "used_at"],
+                name="idx_recovery_code_user_used",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        state = "used" if self.used_at else "unused"
+        return f"UserRecoveryCode(user:{self.user_id}, {state})"
+
+
+class UserMfaEnrollmentGrant(AuditableModel):
+    """Administrator-issued permission to enroll a second factor (#1308, E3.1).
+
+    Binding decision ENT-E7 = A (single-use enrollment grant): under
+    ``MFA_STAFF_ENFORCEMENT=required`` a staff account without a confirmed
+    device must not be able to self-enroll from a password-only session — an
+    attacker holding a stolen password would otherwise "enroll" their own
+    authenticator and lock the real owner out (QR-S01). Instead an administrator
+    issues this grant out-of-band (``manage.py mfa_reset``, WP E3.7); the login
+    flow only offers enrollment while a valid grant exists, and
+    ``MfaService.confirm_enrollment`` consumes it.
+
+    Validity is::
+
+        used_at IS NULL AND expires_at > now()
+
+    with ``expires_at`` at most 24 h after creation (the setting
+    ``MFA_ENROLL_GRANT_TTL_SECONDS`` is validated at import time; a larger value
+    raises ``ImproperlyConfigured``). At most one *unused* grant may exist per
+    user: the partial unique constraint ``uq_mfa_grant_user_unused`` marks older
+    grants ``used_at`` when a new one is issued, and the database enforces the
+    invariant as a backstop. "Expired but never used" is deliberately still
+    allowed to sit in the table — it is *not* valid, but it is history an
+    operator may need to read, so the constraint is on ``used_at`` alone (a
+    ``now()`` predicate is not expressible in a partial index anyway).
+
+    ``granted_by`` records the acting administrator as a plain label rather than
+    an FK: the grant is issued by a management command (``SYSTEM_ADMIN_*``
+    bootstrap, break-glass reset), where the actor may not be a ``User`` row at
+    all. NOTE: the field is *not* called ``created_by`` even though the plan
+    spelled it that way — :class:`~persistence.models.AuditableModel` already
+    defines ``created_by`` as an FK, and a subclass cannot redeclare it with a
+    different type.
+
+    Scope — GLOBAL (no ``tenant`` FK, no RLS): see the block comment above.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="mfa_enrollment_grants",
+    )
+    #: Expiry of this grant; never more than 24 h after creation.
+    expires_at = models.DateTimeField()
+    #: NULL while the grant is still spendable.
+    used_at = models.DateTimeField(null=True, blank=True)
+    #: Actor label of the issuing administrator (e.g. ``"cli:admin"``).
+    granted_by = models.CharField(max_length=150)
+    #: Mandatory written justification, read by an operator/auditor later.
+    reason = models.TextField()
+
+    class Meta:
+        db_table = "at_user_mfa_enrollment_grant"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=models.Q(used_at__isnull=True),
+                name="uq_mfa_grant_user_unused",
+            ),
+        ]
+        indexes = [
+            # Expiry sweep of unused grants.
+            models.Index(
+                fields=["expires_at"],
+                name="idx_mfa_grant_expires_at",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        state = "used" if self.used_at else "unused"
+        return f"UserMfaEnrollmentGrant(user:{self.user_id}, {state})"
+
+
 __all__ = [
     "API_KEY_SCOPE_ADMIN",
     "API_KEY_SCOPE_AUTHOR",
@@ -1169,7 +1375,10 @@ __all__ = [
     "TenantRole",
     "TreeDisplayConfig",
     "UserDisplayPreference",
+    "UserMfaEnrollmentGrant",
+    "UserRecoveryCode",
     "UserRole",
+    "UserTotpDevice",
     "UserWorkspacePreference",
     "WorkspacePermissionDefinition",
     "normalize_api_key_scope",

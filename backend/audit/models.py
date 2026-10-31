@@ -168,6 +168,24 @@ class AuditEntry(TenantScopedModel):
     # be answerable without reconstructing it from a generic ``delete``. Reuses
     # the ``baseline.`` namespace of ``OP_BASELINE_CREATE`` above.
     OP_BASELINE_PURGE = "baseline.purge"
+    # #1308 (Plan E / WP E3.1): the TOTP second factor is a credential, so every
+    # change to it is its own auditable act rather than a generic "update" on
+    # the User. "Who enrolled this authenticator, who removed it, when was a
+    # recovery code spent, who issued the enrollment grant" must each be
+    # answerable from the audit trail alone — exactly the property a generic
+    # ``update`` op destroys. Reuses the ``user.`` namespace of
+    # ``OP_USER_CREATE`` above; all seven fit the varchar(32) ``op`` column.
+    OP_USER_MFA_ENROLL = "user.mfa_enroll"
+    OP_USER_MFA_DISABLE = "user.mfa_disable"
+    OP_USER_MFA_RECOVERY_USED = "user.mfa_recovery_used"
+    OP_USER_MFA_RECOVERY_REGENERATE = "user.mfa_recovery_regenerate"
+    #: Break-glass reset by an administrator (``manage.py mfa_reset``, WP E3.7).
+    OP_USER_MFA_RESET = "user.mfa_reset"
+    #: Administrator issued an enrollment grant (ENT-E7 = A, WP E3.7).
+    OP_USER_MFA_ENROLL_GRANT = "user.mfa_enroll_grant"
+    #: Enforcement cutover (WP E3.9): flipping ``MFA_STAFF_ENFORCEMENT`` to
+    #: ``required`` is a governed security act, not a config tweak.
+    OP_USER_MFA_CUTOVER = "user.mfa_cutover"
     # NOTE (#265): ``op`` is validated against this list by
     # ``AuditLogWriter.write`` via ``full_clean``, and ``ServiceBase._audit``
     # re-raises the resulting ValidationError — so a service that audits an
@@ -240,6 +258,13 @@ class AuditEntry(TenantScopedModel):
         (OP_EVENTS_REPLAY, "Events Replay"),
         (OP_BASELINE_WAIVER_CREATE, "Baseline Waiver Create"),
         (OP_BASELINE_PURGE, "Baseline Purge"),
+        (OP_USER_MFA_ENROLL, "User MFA Enroll"),
+        (OP_USER_MFA_DISABLE, "User MFA Disable"),
+        (OP_USER_MFA_RECOVERY_USED, "User MFA Recovery Used"),
+        (OP_USER_MFA_RECOVERY_REGENERATE, "User MFA Recovery Regenerate"),
+        (OP_USER_MFA_RESET, "User MFA Reset"),
+        (OP_USER_MFA_ENROLL_GRANT, "User MFA Enrollment Grant"),
+        (OP_USER_MFA_CUTOVER, "User MFA Cutover"),
     ]
 
     SOURCE_REST = "rest"
