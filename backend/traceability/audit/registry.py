@@ -131,6 +131,15 @@ VAL_P1 = "VAL-P1"
 #: enabling it never retroactively blocks an existing workspace's baseline gate
 #: (the #581 calibration lesson); see rules/interface_coverage.py.
 IFC_001 = "IFC-001"
+#: #378 (WP B5-T4) — the three advisory quality-assessment rules. They read the
+#: append-only ``QualityAssessment`` table, never an LLM, and are WARNING at
+#: every tier they run in (see rules/quality_score.py), so they can never block
+#: a baseline. Extended only: a workspace that never opted into LLM quality
+#: assessments must not collect a warning per artifact, so Minimal and Standard
+#: stay QUAL-free by construction (no warning flood in light workspaces).
+QUAL_P1 = "QUAL-P1"
+QUAL_P2 = "QUAL-P2"
+QUAL_P3 = "QUAL-P3"
 
 # ---------------------------------------------------------------------------
 # Preset → active rule ids (single source of truth, §2.2)
@@ -165,6 +174,11 @@ _EXTENDED_ONLY_RULES: frozenset[str] = frozenset(
         VAL_P1,
         # #1289: the architecture-depth mismatch is the stricter SE-only check.
         CONS_P13,
+        # #378 (WP B5-T4): advisory quality-assessment coverage / score floor /
+        # staleness. Extended only — Standard and Minimal stay QUAL-free.
+        QUAL_P1,
+        QUAL_P2,
+        QUAL_P3,
     }
 )
 
@@ -175,6 +189,10 @@ _EXTENDED_ONLY_RULES: frozenset[str] = frozenset(
 #: (VERIF-P8). A stage-1 (Minimal) or stage-2 (Standard) workspace must never
 #: fail on them: Minimal maps to the empty rule set structurally, and Standard's
 #: baseline set is disjoint from this one by construction.
+#: Membership is the *tier* relation (Extended-only), not a severity claim: the
+#: advisory QUAL-P1/P2/P3 (#378) ride along here because they are Extended-only
+#: too, and are WARNING-severity (see ``severity_for_tier``), so nothing in this
+#: set is "blocking" merely by being a member.
 #: ``test_se_auditor_stage_coupling`` pins both.
 FULL_SE_RULE_IDS: frozenset[str] = _EXTENDED_ONLY_RULES
 
@@ -426,6 +444,9 @@ __all__ = [
     "CONS_P13",
     "FULL_SE_RULE_IDS",
     "IFC_001",
+    "QUAL_P1",
+    "QUAL_P2",
+    "QUAL_P3",
     "RULE_PRESET_MAP",
     "TRACE_P1",
     "TRACE_P1B",
