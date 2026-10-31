@@ -260,9 +260,10 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     # request.data key-by-key and builds its own dict, so no serializer of this
     # module ever validates a request. The two *Request* classes document those
     # key-by-key bodies; the rest describe response bodies.
-    "DiagramSerializer": "read-only list projection (#1388)",
-    "DiagramDetailSerializer": "read-only retrieve projection (#1388)",
-    "DiagramListResponseSerializer": "read-only pagination envelope (#1388)",
+    "DiagramResponseSerializer": (
+        "read-only list/create/retrieve projection (#1388, #1374); "
+        "response body only, never a request body"
+    ),
     "DiagramVersionResponseSerializer": "read-only 200 body of PATCH /diagrams/{id}/",
     "DiagramCreateRequestSerializer": (
         "OpenAPI documentation-only serializer: POST /diagrams/ reads "

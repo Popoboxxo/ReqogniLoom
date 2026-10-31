@@ -271,41 +271,45 @@ class NodeGraphPayloadSerializer(serializers.Serializer):
 # is why they live here instead of in one of the two view modules.
 
 
-class DiagramSerializer(serializers.Serializer):
-    """List projection of one Diagram (``_diagram_to_dict``)."""
+class DiagramResponseSerializer(serializers.Serializer):
+    """Response projection of one Diagram (``_diagram_to_dict`` + retrieve).
+
+    One class for the three operations that publish a diagram, because all
+    three derive from the same view helper: ``GET /diagrams/`` (rows of the
+    pagination envelope), ``POST /diagrams/`` and ``GET /diagrams/{id}/``. The
+    detail-only keys (``payload_format``/``content``/``version_number``) are
+    optional and ``null`` outside ``retrieve``.
+
+    ``artifact_id`` (#1374) is the id a TraceLink endpoint must use —
+    ``POST /api/v1/trace-links/`` resolves both endpoints to backing Artifact
+    ids, never to ``Diagram.id``. ``global_uuid`` is the same value under the
+    identity name Requirement/Glossary already publish (#1261/#1270). Both are
+    ``null`` for a workspace-less legacy Diagram, which cannot own a backing
+    Artifact.
+    """
 
     id = serializers.CharField()
     name = serializers.CharField()
     diagram_type = serializers.CharField()
     description = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     workspace_id = serializers.CharField(required=False, allow_null=True)
+    artifact_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Canonical Artifact id of this diagram. TraceLink endpoints use "
+            "this id, not `id` (#1374)."
+        ),
+    )
+    #: Same value as ``artifact_id`` under the stable-identity name (#1261/#1270).
+    global_uuid = serializers.UUIDField(required=False, allow_null=True)
     current_revision = serializers.IntegerField()
     created_at = serializers.CharField(required=False, allow_null=True)
     version_count = serializers.IntegerField()
-
-
-class DiagramDetailSerializer(serializers.Serializer):
-    """``retrieve`` projection: the list fields replaced by the current payload."""
-
-    id = serializers.CharField()
-    name = serializers.CharField()
-    diagram_type = serializers.CharField()
-    description = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    # -- retrieve-only -----------------------------------------------------
     payload_format = serializers.CharField(required=False, allow_null=True)
     content = serializers.CharField(required=False, allow_null=True)
     version_number = serializers.IntegerField(required=False, allow_null=True)
-    created_at = serializers.CharField(required=False, allow_null=True)
-
-
-class DiagramListResponseSerializer(serializers.Serializer):
-    """``StandardPagination`` envelope of ``GET /diagrams/``."""
-
-    count = serializers.IntegerField()
-    next = serializers.CharField(required=False, allow_null=True)
-    previous = serializers.CharField(required=False, allow_null=True)
-    page_size = serializers.IntegerField(required=False)
-    max_page_size = serializers.IntegerField(required=False)
-    results = DiagramSerializer(many=True)
 
 
 class DiagramCreateRequestSerializer(serializers.Serializer):
@@ -446,9 +450,7 @@ __all__ = [
     "NodeGraphSizeSerializer",
     "NodeGraphViewportSerializer",
     "DiagramCreateRequestSerializer",
-    "DiagramDetailSerializer",
-    "DiagramListResponseSerializer",
-    "DiagramSerializer",
+    "DiagramResponseSerializer",
     "DiagramUpdateRequestSerializer",
     "DiagramVersionResponseSerializer",
     "WorkflowHistoryEntrySerializer",

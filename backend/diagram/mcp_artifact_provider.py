@@ -228,10 +228,18 @@ class McpArtifactProvider:
             )
 
         # result is a DiagramResult dataclass (see manager.py)
+        # #1374: the backing Artifact id (``global_uuid`` is the same value
+        # under the identity name Requirement/Glossary use, #1261/#1270) — the
+        # id a TraceLink endpoint needs instead of ``id``.
+        artifact_id = (
+            str(result.diagram.artifact_id) if result.diagram.artifact_id else None
+        )
         diagram_data = {
             "id": str(result.diagram.id),
             "name": result.diagram.name,
             "diagram_type": result.diagram.diagram_type,
+            "artifact_id": artifact_id,
+            "global_uuid": artifact_id,
             "version_number": result.version.version_number if result.version else None,
             "payload_format": result.version.payload_format if result.version else None,
             "content": result.renderable.content if result.renderable else "",

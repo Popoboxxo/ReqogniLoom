@@ -85,12 +85,20 @@ def _assert_write_permission(auth_context: AuthContext) -> None:
 
 def _diagram_header_to_dict(diagram: Diagram) -> dict[str, Any]:
     """Serialise a Diagram header (no version payload) for MCP responses."""
+    # #1374: a Diagram is linkable only through its backing Artifact
+    # (``Diagram.artifact``) — ``traceability.create_link`` resolves both
+    # endpoints to Artifact ids. Publishing ``artifact_id`` (and the same value
+    # as ``global_uuid``, #1261/#1270 parity) is what makes the id reachable for
+    # an agent; ``None`` for a workspace-less legacy Diagram.
+    artifact_id = str(diagram.artifact_id) if diagram.artifact_id else None
     return {
         "id": str(diagram.id),
         "name": diagram.name,
         "diagram_type": diagram.diagram_type,
         "description": diagram.description,
         "workspace_id": str(diagram.workspace_id) if diagram.workspace_id else None,
+        "artifact_id": artifact_id,
+        "global_uuid": artifact_id,
         # Task 28c-2: was the current DiagramVersion UUID; that row no
         # longer exists, so this is the revision number instead.
         "current_revision": diagram.current_revision,

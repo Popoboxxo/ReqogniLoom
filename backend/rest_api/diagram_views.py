@@ -65,9 +65,7 @@ from rest_api.serializers_diagram import (
     ArtifactDiffResponseSerializer,
     ArtifactVersionEntrySerializer,
     DiagramCreateRequestSerializer,
-    DiagramDetailSerializer,
-    DiagramListResponseSerializer,
-    DiagramSerializer,
+    DiagramResponseSerializer,
     DiagramUpdateRequestSerializer,
     DiagramVersionResponseSerializer,
     WorkflowHistoryEntrySerializer,
@@ -180,12 +178,22 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return get_user(user_id=ctx.user_id)
 
     def _diagram_to_dict(self, diagram: Diagram) -> dict[str, Any]:
+        # #1374: a Diagram is a TraceLink endpoint through its backing Artifact
+        # (``Diagram.artifact``), never through ``Diagram.id`` — both link
+        # endpoints are resolved to Artifact ids. Without publishing that id the
+        # client had no way to link a diagram. ``global_uuid`` carries the same
+        # value under the identity name Requirement/Glossary use (#1261/#1270).
+        # ``None`` for a workspace-less legacy Diagram: ``Artifact.workspace``
+        # is not nullable, so such a row can never have a backing Artifact.
+        artifact_id = str(diagram.artifact_id) if diagram.artifact_id else None
         return {
             "id": str(diagram.id),
             "name": diagram.name,
             "diagram_type": diagram.diagram_type,
             "description": diagram.description,
             "workspace_id": str(diagram.workspace_id) if diagram.workspace_id else None,
+            "artifact_id": artifact_id,
+            "global_uuid": artifact_id,
             # Task 28c-2: was the current DiagramVersion UUID; that row no
             # longer exists, so this is the revision number instead.
             "current_revision": diagram.current_revision,
@@ -228,7 +236,7 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             ),
         ],
         responses={
-            200: DiagramListResponseSerializer,
+            200: DiagramResponseSerializer(many=True),
             400: OpenApiResponse(description="workspace_id is not a valid UUID."),
             401: OpenApiResponse(description="No valid credential."),
         },
@@ -264,7 +272,7 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         summary="Create a diagram with its initial version",
         request=DiagramCreateRequestSerializer,
         responses={
-            201: DiagramSerializer,
+            201: DiagramResponseSerializer,
             400: OpenApiResponse(
                 description="name missing, invalid workspace_id, or payload fails type validation."
             ),
@@ -347,7 +355,7 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     @extend_schema(
         summary="Read one diagram with its current payload",
         responses={
-            200: DiagramDetailSerializer,
+            200: DiagramResponseSerializer,
             404: OpenApiResponse(description="Diagram not found."),
         },
     )
@@ -358,16 +366,16 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             result: DiagramResult = get_diagram(diagram_id=UUID(pk))
             diagram = result.diagram
             version = result.version
-            return Response({
-                "id": str(diagram.id),
-                "name": diagram.name,
-                "diagram_type": diagram.diagram_type,
-                "description": diagram.description,
+            # #1374: the header projection (including ``artifact_id`` /
+            # ``global_uuid``) is shared with list/create; the detail payload
+            # is that projection plus the current version's content.
+            payload = self._diagram_to_dict(diagram)
+            payload.update({
                 "payload_format": version.payload_format if version else None,
                 "content": version.payload if version else None,
                 "version_number": version.version_number if version else None,
-                "created_at": diagram.created_at.isoformat() if diagram.created_at else None,
             })
+            return Response(payload)
         except Diagram.DoesNotExist:
             return Response(
                 build_error_response("NOT_FOUND", lang),
