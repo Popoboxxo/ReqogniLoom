@@ -313,14 +313,18 @@ class DiagramResponseSerializer(serializers.Serializer):
 
 
 class DiagramCreateRequestSerializer(serializers.Serializer):
-    """Body of ``POST /diagrams/`` (read key-by-key off ``request.data``)."""
+    """Body of ``POST /diagrams/`` (read key-by-key off ``request.data``).
+
+    ``workspace_id`` is required since F1.2-T2 (#1374) — the view enforces it
+    with ``parse_workspace_id``; this class only documents the contract.
+    """
 
     name = serializers.CharField()
     diagram_type = serializers.CharField(required=False)
     payload_format = serializers.CharField(required=False)
     content = serializers.CharField(required=False)
     description = serializers.CharField(required=False, allow_blank=True)
-    workspace_id = serializers.UUIDField(required=False, allow_null=True)
+    workspace_id = serializers.UUIDField()
 
 
 class DiagramUpdateRequestSerializer(serializers.Serializer):

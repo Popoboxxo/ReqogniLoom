@@ -374,10 +374,9 @@ def sync_node_links(
         # No refs in the payload, and this Diagram has never had a shadow
         # Artifact created — so no DIAGRAM_REF link could possibly exist for
         # it yet either. Skip _resolve_artifact_id entirely: it requires
-        # diagram.workspace_id to be set, and a node_graph payload with no
-        # artifact_ref nodes at all must keep working for workspace-less
-        # Diagrams (see diagram.tests.test_manager.TestNodeGraphWritePath,
-        # none of which pass workspace_id).
+        # diagram.workspace_id to be set, and a legacy Diagram without a
+        # workspace (``workspace_id IS NULL``, written before F1.2-T2 / #1374
+        # made it a required create field) must still be updatable.
         return
 
     diagram_artifact_id = _resolve_artifact_id(diagram)

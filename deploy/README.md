@@ -281,6 +281,25 @@ field is deprecated.
 
 Symptom: frontend container in `Restarting (1)` loop with `mkdir() "/var/cache/nginx/client_temp" failed (13: Permission denied)` in logs. Fix: delete the `user:` and `tmpfs:` overrides from your `.env` or local compose files, then re-run `docker compose up -d`.
 
+## Breaking Change: Diagram creation requires `workspace_id` (#1374, PR-F3b)
+
+`POST /api/v1/diagrams/` and MCP `diagram.create` now reject a body without a
+`workspace_id` (`400 VALIDATION_ERROR` / JSON-RPC `-32602`). A Diagram is a
+TraceLink endpoint only through its backing Artifact, and an Artifact cannot
+exist without a workspace — a workspace-less Diagram could never be linked or
+put into a baseline.
+
+Diagrams created before that change may still lack one. Find them, read-only:
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . \
+  exec backend python manage.py report_unbacked_diagrams
+# tenant=<uuid> without_workspace=<n> without_artifact=<n>
+```
+
+Assigning such a Diagram to a workspace is an operator decision — the report
+writes nothing and nothing is reassigned automatically.
+
 ## 2FA: Gerät verloren / neues Staff-Konto
 
 Staff-Konten können einen TOTP-Zweiten Faktor einrichten (sofern

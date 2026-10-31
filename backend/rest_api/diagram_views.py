@@ -274,7 +274,10 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         responses={
             201: DiagramResponseSerializer,
             400: OpenApiResponse(
-                description="name missing, invalid workspace_id, or payload fails type validation."
+                description=(
+                    "name or workspace_id missing, workspace_id not a valid "
+                    "UUID, or payload fails type validation."
+                )
             ),
         },
     )
@@ -287,7 +290,6 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             payload_format = request.data.get("payload_format", PayloadFormat.JSON)
             content = request.data.get("content", "{}")
             description = request.data.get("description", "")
-            workspace_id_raw = request.data.get("workspace_id")
 
             if not name or not str(name).strip():
                 return Response(
@@ -295,17 +297,17 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            workspace_id: UUID | None = None
-            if workspace_id_raw:
-                try:
-                    workspace_id = UUID(str(workspace_id_raw))
-                except (ValueError, TypeError):
-                    return Response(
-                        build_error_response(
-                            "VALIDATION_ERROR", lang, message="workspace_id must be a valid UUID"
-                        ),
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
+            # F1.2-T2 (#1374): workspace_id is required. A Diagram is a
+            # TraceLink endpoint only through its backing Artifact, and
+            # ``Artifact.workspace`` is not nullable — a workspace-less Diagram
+            # could never be linked or baselined. Same helper as ``list()``, so
+            # missing and malformed are distinguished (#460).
+            workspace_id, error = parse_workspace_id(
+                request.data.get("workspace_id"),
+                lang,
+            )
+            if error is not None:
+                return error
 
             tenant = self._resolve_tenant(request)
             user = self._resolve_user(request)

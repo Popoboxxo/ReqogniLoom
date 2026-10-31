@@ -366,6 +366,7 @@ class TestTenantIsolation:
                 payload_format="mermaid",
                 content=VALID_MERMAID_BLOCK,
                 tenant=tenant_b,
+                workspace_id=workspace_b.id,
             )
 
         # Tenant A should not be able to retrieve it
@@ -383,6 +384,7 @@ class TestTenantIsolation:
                 payload_format="mermaid",
                 content=VALID_MERMAID_FLOW,
                 tenant=tenant_b,
+                workspace_id=workspace_b.id,
             )
 
         with active_tenant(tenant_a):

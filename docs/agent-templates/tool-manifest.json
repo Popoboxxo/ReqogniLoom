@@ -2670,6 +2670,7 @@
           }
         },
         "required": [
+          "workspace_id",
           "name",
           "diagram_type",
           "payload_format",

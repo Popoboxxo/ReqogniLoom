@@ -143,7 +143,7 @@ class DiagramToolGroup(BaseToolGroup):
                         "description": "Optional target Artifact UUID for a 'references' TraceLink.",
                     },
                 },
-                "required": ["name", "diagram_type", "payload_format", "content"],
+                "required": ["workspace_id", "name", "diagram_type", "payload_format", "content"],
             },
         },
         {
@@ -267,7 +267,7 @@ class DiagramToolGroup(BaseToolGroup):
         payload_format = require_param(params, "payload_format")
         content = require_param(params, "content")
         description: str = params.get("description", "")
-        workspace_id = optional_uuid(params, "workspace_id")
+        workspace_id = require_uuid(params, "workspace_id")
         target_id = optional_uuid(params, "target_id")
 
         tenant = self._resolve_tenant(auth_context)
