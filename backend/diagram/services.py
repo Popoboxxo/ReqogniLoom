@@ -278,7 +278,9 @@ def list_diagrams(
             Defaults to False.
 
     Returns:
-        List of Diagram ORM objects, newest first.
+        List of Diagram ORM objects, newest first. Deterministic: ``-id`` is the
+        unique tiebreaker, so two diagrams created in the same timestamp tick
+        cannot swap places between two requests (Listen-DoD, KA-ALL-10).
 
     req_id: REQ-066, REQ-173, REQ-L2-DS-001
     """
@@ -289,7 +291,7 @@ def list_diagrams(
         qs = qs.exclude(
             id__in=outdated_item_ids("Diagram", tenant_id=tenant_id)
         )
-    return list(qs.order_by("-created_at"))
+    return list(qs.order_by("-created_at", "-id"))
 
 
 def list_versions(diagram_id: uuid.UUID) -> list[DiagramRevision]:

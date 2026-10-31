@@ -123,6 +123,13 @@ export interface Diagram {
   current_version: UUID | null;
   created_at: ISODateTime | null;
   version_count?: number;
+  // #1374: the backing Artifact id — what `POST /api/v1/trace-links/` expects
+  // as `source_id`/`target_id` (link endpoints resolve to Artifact ids, never
+  // to `id`). `global_uuid` is the same value under the stable-identity name
+  // Requirement/Glossary publish (#1261/#1270). Optional read-only: absent
+  // (or null) for a workspace-less legacy diagram, which owns no Artifact.
+  artifact_id?: UUID | null;
+  global_uuid?: UUID | null;
 }
 
 export interface DiagramDetail extends Diagram {
