@@ -73,12 +73,16 @@ jobs:
           - id: set-1-core
             name: "Core Domain Logic (application, persistence)"
             paths: "application/tests persistence/tests"
-            # Gemessen auf 2 vCPU (Runner-Aequivalent): 771 s seriell -> 563 s
-            # mit -n 2 --dist loadfile (Faktor 1,36; jeder Worker legt seine
-            # eigene Test-DB an, daher nicht 2x). loadfile haelt Testdateien
-            # zusammen, damit DB-Zustand und Fixtures nicht ueber Worker
-            # hinweg geteilt werden.
-            xdist: "-n 2 --dist loadfile"
+            # BEWUSST SERIELL: -n 2 lief auf dem Messhost gruen (771 s -> 563 s),
+            # aber in echtem CI rot. Auf Worker gw1 rollt
+            # persistence/tests/test_uid_unique_constraints_1402.py::
+            # test_migration_reverse_roundtrip das Schema zurueck (er ist der
+            # letzte PASSED vor dem ersten FAILED); ab 45 % fehlt dort
+            # "column embedding_model of relation pl_requirement", und alle
+            # folgenden Tests dieses Workers scheitern. Erst wenn dieser
+            # Roundtrip auf dem echten Leaf landet, ist xdist hier wieder eine
+            # Option — dann xdist auf "-n 2 --dist loadfile" stellen.
+            xdist: "-n 0"
           - id: set-2-api
             name: "REST API Layer (rest_api, auth_tenancy, presets, reqogniloom, test_runs)"
             paths: "attribute_definitions/tests rest_api/tests auth_tenancy/tests presets/tests reqogniloom/tests test_runs/tests"
