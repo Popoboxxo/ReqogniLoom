@@ -347,6 +347,100 @@ ein Gerät mit dem alten Schlüssel ausstellen. Ob ein Konto betroffen ist, zeig
 Login (die zweite Stufe schlägt fehl) bzw. das `reqogniloom.security`-Log; eine
 pauschale Aussage „alle Konten sind betroffen" ist nicht belegt, also einzeln prüfen.
 
+## 2FA: Umschalten auf `required`
+
+`MFA_STAFF_ENFORCEMENT=required` ist ein **Cutover**, kein Konfigurationsdetail: Ab dem
+Moment müssen alle Staff-Konten einen zweiten Faktor vorweisen. Bereits ausgestellte
+Sessions tragen aber `amr=["pwd"]` — und dieses Claim steht nur im Token, nicht in der
+Datenbank. Ein Passwort-only-Token lässt sich deshalb nicht nachträglich „upgraden".
+Der Cutover invalidiert daher alle Staff-Sessions, damit sich jedes Konto **einmal** neu
+und dabei mit Code anmeldet.
+
+> **Reihenfolge ist bindend:** `required` niemals setzen, bevor der Cutover in dieser
+> Deployment-Instanz gelaufen ist. Sonst sitzen alle Staff-Konten mit einer
+> Passwort-only-Session in einer Policy fest, die der Login-Pfad nicht reparieren kann.
+
+### 1. Enrollment aller Staff-Konten prüfen
+
+Für jedes Staff-Konto einzeln den Status abfragen (der Endpoint beantwortet nur den
+eigenen Zustand, es gibt bewusst keine „alle Konten"-Sicht):
+
+```bash
+curl -s -H "Authorization: Bearer <access-token-des-kontos>" \
+  http://localhost:8001/api/v1/auth/mfa/status/
+```
+
+`enrolled: true` und `confirmed_at != null` bedeuten: das Konto hat einen bestätigten
+zweiten Faktor. Der Cutover-Befehl (Schritt 2) listet dieselbe Information je Staff-Konto
+(`mfa_enrolled`/`confirmed_at`), die aktive `enforcement`-Stufe und die Zahl
+`unenrolled_staff`; steht die Stufe bereits auf `required` und ist ein Konto nicht
+enrolled, warnt er namentlich. Ein Konto ohne Gerät vor dem Cutover zurücksetzen und neu
+einrichten lassen: siehe Abschnitt
+[„2FA: Gerät verloren / neues Staff-Konto"](#2fa-gerät-verloren--neues-staff-konto)
+(`mfa_reset` stellt den Enrollment-Grant aus).
+
+### 2. Dry-Run
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . \
+  exec backend python manage.py mfa_enforce_cutover --dry-run
+```
+
+Der Dry-Run zählt nur und schreibt nichts: Staff-Konten, zu widerrufende
+Refresh-Familien/Zeilen, zu löschende Django-Admin-Sessions und die nicht widerrufenen
+API-Keys mit Staff-Owner (nur Metadaten, **kein** Key-Material). `--format json` liefert
+dieselben Zähler maschinenlesbar.
+
+### 3. Cutover ausführen
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . \
+  exec backend python manage.py mfa_enforce_cutover
+```
+
+Was der Befehl tut:
+
+1. widerruft je Tenant alle lebenden Refresh-Token-Familien von Staff-Usern
+   (`is_staff or is_superuser`) mit Grund `mfa_cutover` — jedes betroffene Konto erhält
+   einen Audit-Eintrag `user.mfa_cutover`,
+2. löscht alle `django.contrib.sessions`-Zeilen, deren `_auth_user_id` ein Staff-User ist
+   (der Cookie-Login des Django-Admins ist eine zweite Credential, die die
+   Refresh-Token-Widerrufung nicht erreicht),
+3. listet alle nicht widerrufenen API-Keys mit Staff-Owner auf, **ohne** sie zu widerrufen
+   (ENT-E8 = A: Inventur plus `expires_at`-Pflicht für neue Staff-Keys). Für diese Keys
+   jetzt ein Ablaufdatum setzen bzw. sie rotieren, solange der Owner noch eingeloggt ist,
+4. schreibt je betroffenem Konto mit Tenant einen Audit-Eintrag und eine Summenzeile ins
+   Log `reqogniloom.security` — ohne Token-, Session- oder Key-Material.
+
+Der Befehl ist bewusst **nicht** über alle Tenants transaktional: ein Fehler in Tenant B
+rollt die bereits widerrufenen Familien in Tenant A nicht zurück. Widerruf und Audit
+**eines** Kontos teilen sich aber eine Transaktion — schlägt der Audit-Insert fehl, wird
+der Widerruf dieses Kontos zurückgerollt. Scheitert ein Tenant, druckt der Befehl den
+bereits erreichten Stand (inklusive `failures`) und beendet sich mit Exit-Code 1; der Lauf
+ist idempotent und kann wiederholt werden.
+
+### 4. Enforcement einschalten
+
+```bash
+# in .env: MFA_STAFF_ENFORCEMENT=required
+make up
+```
+
+`make up` (nicht `docker compose restart`): ein reiner Restart liest die `.env` nicht neu,
+die Änderung käme also nie im Container an.
+
+### Restrisiko und Rückweg
+
+- **Bereits ausgestellte Access-Tokens** werden vom Cutover nicht ungültig — sie laufen
+  bis zu ihrem regulären Ablauf weiter (kurzlebig, `AUTH_JWT_TTL_SECONDS`). Der Cutover
+  verhindert nur, dass daraus per Refresh eine neue Session wird.
+- **Rückweg:** `MFA_STAFF_ENFORCEMENT=optional` in der `.env` setzen und erneut `make up`.
+- **Rotation von `FIELD_ENCRYPTION_KEY`:** Nach einer Rotation sind gespeicherte
+  TOTP-Secrets in der Regel nicht mehr entschlüsselbar. Dann **nicht** `required` setzen,
+  bevor die betroffenen Staff-Konten einzeln per `mfa_reset` zurückgesetzt und neu
+  enrolled sind — Details und Reihenfolge im Abschnitt
+  [„2FA: Gerät verloren / neues Staff-Konto"](#2fa-gerät-verloren--neues-staff-konto).
+
 ## Required flag: `--project-directory .`
 
 These compose files do **not** live in the repository root. Every direct `docker compose`
