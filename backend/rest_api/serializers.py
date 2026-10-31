@@ -1975,6 +1975,15 @@ class BaselineSerializer(
     entries = BaselineDeltaEntrySerializer(
         many=True, read_only=True, required=False
     )
+    # F4.2: optional on create, always echoed read-only. Validation and
+    # de-duplication happen in BaselineFacade (single normalisation point for
+    # REST and MCP), so the serializer deliberately only enforces the shape.
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=64, allow_blank=True),
+        required=False,
+        default=list,
+        help_text="Labels attached to this baseline (F4.2).",
+    )
 
 
 class BaselineSummarySerializer(
@@ -2013,6 +2022,33 @@ class BaselineSummarySerializer(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )
     created_at = serializers.DateTimeField(read_only=True)
+    # F4.2: the list carries the labels too, so a client can render chips
+    # without a detail round-trip per row.
+    tags = serializers.ListField(
+        child=serializers.CharField(), read_only=True
+    )
+
+
+class BaselineTagsRequestSerializer(serializers.Serializer):
+    """Body of ``PUT /api/v1/baselines/{id}/tags/`` (F4.2).
+
+    The replacement set. Individual labels are validated by
+    ``BaselineFacade.set_tags`` (format, length, count, de-duplication); this
+    serializer only pins the wire shape.
+    """
+
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=64, allow_blank=True),
+        allow_empty=True,
+        help_text="Complete replacement set of labels.",
+    )
+
+
+class BaselineTagsResponseSerializer(serializers.Serializer):
+    """Response of ``PUT /api/v1/baselines/{id}/tags/`` (F4.2)."""
+
+    id = serializers.UUIDField()
+    tags = serializers.ListField(child=serializers.CharField())
 
 
 class FieldChangeSerializer(serializers.Serializer):

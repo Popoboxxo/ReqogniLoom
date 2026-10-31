@@ -70,6 +70,7 @@ class TestBaselineToolGroupRegistration:
     def test_write_tools_require_write_role(self):
         registry = ToolRegistry()
         assert registry._is_write_tool("baseline.create") is True
+        assert registry._is_write_tool("baseline.set_tags") is True
         assert registry._is_write_tool("baseline.list") is False
         assert registry._is_write_tool("baseline.get") is False
         assert registry._is_write_tool("baseline.compare") is False
@@ -82,6 +83,7 @@ class TestBaselineToolGroupRegistration:
             "baseline.list",
             "baseline.get",
             "baseline.compare",
+            "baseline.set_tags",
         }
 
 

@@ -169,6 +169,10 @@ _TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
     "architecture.outdate": (("id", "architecture"),),
     "architecture.reactivate": (("id", "architecture"),),
     "architecture.update": (("id", "architecture"),),
+    # F4.2: tags are metadata, but the write still targets one baseline; without
+    # this entry the gate would fall back to the caller's tenant-wide role union
+    # and let an editor of workspace A tag a workspace-B baseline.
+    "baseline.set_tags": (("id", "baseline"),),
     "change_request.delete": (("id", "change_request"),),
     "change_request.outdate": (("id", "change_request"),),
     "change_request.reactivate": (("id", "change_request"),),

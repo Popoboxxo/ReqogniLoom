@@ -414,6 +414,10 @@
    "delete"
   ],
   [
+   "/api/v1/baselines/{id}/tags/",
+   "put"
+  ],
+  [
    "/api/v1/bundle-compression-status/{task_id}/",
    "get"
   ],

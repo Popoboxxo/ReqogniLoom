@@ -19,6 +19,7 @@ Architecture:
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -66,6 +67,27 @@ from baseline.waivers import (  # noqa: F401  (re-exported public constants)
 from persistence.transactions import atomic_transaction
 
 logger = logging.getLogger(__name__)
+
+#: F4.2 — allowed tag alphabet. ``\w`` is Unicode-aware in Python's ``re``;
+#: the remaining characters cover the usual release identifiers
+#: (``v1.0``, ``sprint-3``, ``C++``, ``area/ui``, ``rc:2``, ``#42``).
+_TAG_PATTERN = re.compile(r"^[\w][\w .:+#/-]*$")
+
+#: Hard cap per baseline (F4.2). Duplicates are merged *before* this is applied.
+MAX_TAGS_PER_BASELINE = 20
+
+
+class BaselineTagValidationError(ValidationError):
+    """Invalid baseline tag input, with per-label details for the REST 400.
+
+    A ``ValidationError`` subclass so every existing ``except ValidationError``
+    caller (and the MCP tool's error mapping) keeps working, while the REST
+    action can surface the machine-readable ``details`` list.
+    """
+
+    def __init__(self, message: str, details: list[dict] | None = None) -> None:
+        super().__init__(message)
+        self.details: list[dict] = list(details or [])
 
 
 @dataclass(frozen=True)
@@ -181,6 +203,7 @@ class BaselineFacade(ServiceBase):
         document_id: UUID | str | None = None,
         override_reason: str | None = None,
         waived_findings: Sequence[Mapping[str, Any]] | None = None,
+        tags: Sequence[str] | None = None,
     ) -> UUID:
         """Create an immutable baseline after preset-scope validation.
 
@@ -224,6 +247,10 @@ class BaselineFacade(ServiceBase):
         self._assert_write_permission(ctx)
 
         ws_id = UUID(str(workspace_id))
+
+        # F4.2: validate tags before the expensive gate/build so a malformed
+        # label fails as a clean 400 without a partial baseline build attempt.
+        normalised_tags = self._normalise_tags(tags)
 
         # IF-AS-INT-006: scope gate via PresetPolicyService
         self._check_scope_allowed(str(ws_id), scope)
@@ -287,8 +314,24 @@ class BaselineFacade(ServiceBase):
             # Remap baseline-domain exceptions to application layer
             _remap_baseline_exc(exc)
 
+        # F4.2: tags are metadata in their own table; the freshly created
+        # snapshot is never UPDATEd. ``workspace_id`` is copied from the
+        # baseline, never from the request.
+        if normalised_tags:
+            self._replace_tags(
+                baseline_id=baseline_id,
+                tenant_id=ctx.tenant_id,
+                workspace_id=ws_id,
+                labels=normalised_tags,
+            )
+
         # Audit
-        details: dict = {"scope": scope, "name": name, "workspace_id": str(ws_id)}
+        details: dict = {
+            "scope": scope,
+            "name": name,
+            "workspace_id": str(ws_id),
+            "tags": normalised_tags,
+        }
         audit_change_reason: str | None = None
         if outcome.overridden:
             # The append-only audit log is the authoritative waiver record:
@@ -860,6 +903,7 @@ class BaselineFacade(ServiceBase):
         workspace_id: UUID | str,
         ctx: AuthContext,
         scope: str | None = None,
+        tag: str | None = None,
     ) -> list:
         """Return baseline summaries for a workspace.
 
@@ -867,6 +911,9 @@ class BaselineFacade(ServiceBase):
             workspace_id: Target workspace UUID.
             ctx: AuthContext for tenant propagation.
             scope: Optional scope filter.
+            tag: Optional case-insensitive tag filter (F4.2). Only effective
+                together with the workspace filter, and joined through the
+                baseline relation rather than the denormalised tag column.
 
         Returns:
             List of BaselineSummary.
@@ -879,6 +926,178 @@ class BaselineFacade(ServiceBase):
             workspace_id=UUID(str(workspace_id)),
             scope=scope,
             tenant_id=ctx.tenant_id,
+            tag=tag,
+        )
+
+    @atomic_transaction
+    def set_tags(
+        self,
+        baseline_id: UUID | str,
+        labels: Sequence[str],
+        ctx: AuthContext,
+    ) -> list[str]:
+        """Replace the tag set of one baseline (F4.2).
+
+        Tags are metadata: this never UPDATEd the immutable snapshot, it
+        deletes/re-inserts rows in ``bl_baseline_tag`` only. ``workspace_id`` on
+        every row is derived from ``baseline.workspace_id`` — the signature has
+        no workspace input at all, so a caller cannot express a foreign one
+        (QR-S09 a).
+
+        Args:
+            baseline_id: UUID of the target baseline.
+            labels: New label set. Validated, de-duplicated case-insensitively
+                and returned sorted case-insensitively.
+            ctx: AuthContext; must permit WRITE (editor) in the baseline's
+                workspace.
+
+        Returns:
+            The normalised, sorted label list actually stored.
+
+        Raises:
+            ValidationError: A label is empty, longer than 64 characters or
+                contains a disallowed character; or more than 20 distinct tags
+                were supplied.
+            PermissionDeniedError: The caller lacks write authority in the
+                baseline's workspace.
+            NotFoundError: No baseline with this id exists for the tenant.
+        """
+        self._set_tenant_context(ctx)
+
+        from baseline.models import BaselineSnapshot
+
+        key = UUID(str(baseline_id))
+        snapshot = BaselineSnapshot.unscoped.filter(
+            id=key, tenant_id=ctx.tenant_id
+        ).first()
+        if snapshot is None:
+            raise NotFoundError("Baseline not found")
+
+        # RBAC: UPDATE (editor) in the workspace that owns the baseline, not
+        # the caller's tenant-wide role union.
+        self._assert_workspace_write(ctx, snapshot.workspace_id)
+
+        normalised = self._normalise_tags(labels)
+
+        from baseline.models import BaselineTag
+
+        before = sorted(
+            BaselineTag.unscoped.filter(
+                baseline_id=key, tenant_id=ctx.tenant_id
+            ).values_list("label", flat=True),
+            key=str.casefold,
+        )
+        self._replace_tags(
+            baseline_id=key,
+            tenant_id=snapshot.tenant_id,
+            workspace_id=snapshot.workspace_id,
+            labels=normalised,
+        )
+
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type="Baseline",
+            entity_id=key,
+            details={"tags_before": before, "tags_after": normalised},
+        )
+        return normalised
+
+    # ---------- Tag helpers (F4.2) ----------
+
+    @staticmethod
+    def _normalise_tags(labels: Sequence[str] | None) -> list[str]:
+        """Validate, de-duplicate and sort baseline labels (F4.2).
+
+        Duplicates are compared case-insensitively and the first spelling wins;
+        the result is sorted case-insensitively so REST/MCP payloads are
+        deterministic.
+
+        Raises:
+            BaselineTagValidationError: with one ``details`` entry per rejected
+                label (``{"label": <str|None>, "error": <str>}``).
+        """
+        if labels is None:
+            return []
+        if isinstance(labels, (str, bytes)) or not isinstance(labels, Sequence):
+            raise BaselineTagValidationError(
+                "tags must be a list of strings.",
+                [{"label": None, "error": "tags must be a list of strings"}],
+            )
+
+        errors: list[dict] = []
+        normalised: list[str] = []
+        seen: set[str] = set()
+        for raw in labels:
+            if not isinstance(raw, str):
+                errors.append(
+                    {"label": None, "error": "tag labels must be strings"}
+                )
+                continue
+            label = raw.strip()
+            if not label:
+                errors.append({"label": raw, "error": "tag label must not be empty"})
+                continue
+            if len(label) > 64:
+                errors.append(
+                    {"label": label, "error": "tag label exceeds 64 characters"}
+                )
+                continue
+            if not _TAG_PATTERN.match(label):
+                errors.append(
+                    {
+                        "label": label,
+                        "error": "tag label contains disallowed characters",
+                    }
+                )
+                continue
+            key = label.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalised.append(label)
+
+        if errors:
+            raise BaselineTagValidationError("Invalid baseline tag(s).", errors)
+
+        if len(normalised) > MAX_TAGS_PER_BASELINE:
+            raise BaselineTagValidationError(
+                f"At most {MAX_TAGS_PER_BASELINE} tags are allowed per baseline.",
+                [
+                    {
+                        "label": label,
+                        "error": f"more than {MAX_TAGS_PER_BASELINE} tags",
+                    }
+                    for label in normalised[MAX_TAGS_PER_BASELINE:]
+                ],
+            )
+
+        return sorted(normalised, key=str.casefold)
+
+    @staticmethod
+    def _replace_tags(
+        *,
+        baseline_id: UUID,
+        tenant_id: UUID,
+        workspace_id: UUID,
+        labels: Sequence[str],
+    ) -> None:
+        """Replace all tag rows of *baseline_id* in the current transaction."""
+        from baseline.models import BaselineTag
+
+        BaselineTag.unscoped.filter(baseline_id=baseline_id).delete()
+        if not labels:
+            return
+        BaselineTag.unscoped.bulk_create(
+            [
+                BaselineTag(
+                    tenant_id=tenant_id,
+                    baseline_id=baseline_id,
+                    workspace_id=workspace_id,
+                    label=label,
+                )
+                for label in labels
+            ]
         )
 
     @atomic_transaction
@@ -1103,6 +1322,46 @@ class BaselineFacade(ServiceBase):
         if ROLE_ADMIN.lower() not in roles:
             raise PermissionDeniedError(
                 "Permission denied: purging this baseline requires the 'admin' "
+                f"role in its workspace {target}; user has {sorted(roles)}"
+            )
+
+    @staticmethod
+    def _assert_workspace_write(ctx: AuthContext, workspace_id: UUID | str) -> None:
+        """Require WRITE authority in *workspace_id* itself (F4.2).
+
+        Same object-scope reasoning as :meth:`_assert_workspace_admin`, but for
+        the editor gate: when the auth seam already scoped ``ctx.active_roles``
+        to the baseline's workspace, those roles are authoritative; otherwise
+        resolve the caller's roles against the target workspace. Fail-closed on
+        a lookup error.
+        """
+        from auth_tenancy.services.authorization import AuthorizationService, Operation
+
+        target = UUID(str(workspace_id))
+        already_scoped = (
+            ctx.workspace_id is not None and UUID(str(ctx.workspace_id)) == target
+        )
+        if already_scoped:
+            roles = tuple(ctx.active_roles)
+        else:
+            try:
+                roles = AuthorizationService().active_roles_for(
+                    user_id=ctx.user_id, workspace_id=target
+                )
+            except Exception:  # noqa: BLE001 — fail closed on resolution error
+                logger.warning(
+                    "Workspace-role lookup failed for user=%s workspace=%s; "
+                    "denying baseline tag write",
+                    ctx.user_id,
+                    target,
+                    exc_info=True,
+                )
+                roles = ()
+
+        decision = AuthorizationService().decide_access(roles, Operation.WRITE)
+        if not decision.allow:
+            raise PermissionDeniedError(
+                "Permission denied: tagging this baseline requires the 'editor' "
                 f"role in its workspace {target}; user has {sorted(roles)}"
             )
 

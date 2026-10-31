@@ -38,7 +38,10 @@ Architecture:
 from __future__ import annotations
 
 # COMP-AS-006
-from application.baseline_facade import BaselineFacade  # noqa: F401
+from application.baseline_facade import (  # noqa: F401
+    BaselineFacade,
+    BaselineTagValidationError,
+)
 
 # COMP-AS-008
 from application.export_service import ExportResult, ExportService  # noqa: F401
@@ -87,6 +90,7 @@ _registry["WorkspaceService"] = WorkspaceService
 __all__ = [
     # COMP-AS-006
     "BaselineFacade",
+    "BaselineTagValidationError",
     # COMP-AS-007
     "WorkflowFacade",
     # COMP-AS-008
