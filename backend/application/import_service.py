@@ -40,6 +40,7 @@ import io
 import json
 import logging
 import uuid
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
@@ -323,16 +324,7 @@ class ImportService(ServiceBase):
         Raises:
             ValidationError: entity_type invalid or row count exceeds limit.
         """
-        self._set_tenant_context(ctx)
-        self._assert_write_permission(ctx)
-
-        if entity_type not in _VALID_ENTITY_TYPES:
-            raise ValidationError(
-                f"Unsupported entity_type '{entity_type}'. "
-                f"Allowed: {sorted(_VALID_ENTITY_TYPES)}"
-            )
-
-        ws_uuid = UUID(str(workspace_id))
+        ws_uuid = self._prepare_import(entity_type, workspace_id, ctx)
 
         # ---------- BOM handling (Finding 083) ----------
         # Excel writes a UTF-8 BOM (U+FEFF). Without stripping it the first
@@ -350,6 +342,121 @@ class ImportService(ServiceBase):
         # ---------- Parse CSV (RFC 4180) ----------
         rows, parse_errors, header_fields = self._parse_csv(csv_text)
 
+        return self._import_parsed(
+            rows=rows,
+            entity_type=entity_type,
+            workspace_id=ws_uuid,
+            ctx=ctx,
+            artifact_type_tag=artifact_type_tag,
+            header_fields=header_fields,
+            warnings=warnings,
+            parse_errors=parse_errors,
+            max_rows=_MAX_ROWS,
+        )
+
+    def import_rows(
+        self,
+        rows: Sequence[Mapping[str, str]],
+        entity_type: str,
+        workspace_id: UUID | str,
+        ctx: AuthContext,
+        artifact_type_tag: str = "",
+        *,
+        max_rows: int = _MAX_ROWS,
+    ) -> ImportResult:
+        """Validate and atomically persist already-parsed rows.
+
+        The native counterpart of :meth:`import_csv` (plan F1.3-T2): callers
+        that build their rows in Python (``migrate_se_docs``) no longer have to
+        serialise them to CSV and let the parser read them back. Both entry
+        points feed the exact same private pipeline, so there is one
+        validator, one attribute gate (#881), one natural-key dedupe
+        (ADR-014 §3) and one atomic insert.
+
+        Row numbers are 1-based (matching a caller's own indexing) and the
+        header-field list is the union of all row keys in first-seen order, so
+        the unrecognised-column warning keeps working for native callers too.
+
+        Args:
+            rows: Already-parsed records (``Mapping`` of cell name -> text).
+            entity_type: "Requirement" | "ArchitectureElement" | "TestCase" | …
+            workspace_id: Target workspace UUID.
+            ctx: AuthContext for tenant scoping and audit.
+            artifact_type_tag: Optional artifact_type tag string.
+            max_rows: Row ceiling for this call (default ``_MAX_ROWS``).
+
+        Returns:
+            ImportResult with success flag, counts, and per-row errors.
+
+        Raises:
+            ValidationError: entity_type invalid or row count exceeds limit.
+        """
+        ws_uuid = self._prepare_import(entity_type, workspace_id, ctx)
+
+        numbered = [(index, dict(row)) for index, row in enumerate(rows, start=1)]
+        header_fields = list(dict.fromkeys(key for _, row in numbered for key in row))
+
+        return self._import_parsed(
+            rows=numbered,
+            entity_type=entity_type,
+            workspace_id=ws_uuid,
+            ctx=ctx,
+            artifact_type_tag=artifact_type_tag,
+            header_fields=header_fields,
+            warnings=[],
+            parse_errors=[],
+            max_rows=max_rows,
+        )
+
+    def _prepare_import(
+        self,
+        entity_type: str,
+        workspace_id: UUID | str,
+        ctx: AuthContext,
+    ) -> UUID:
+        """Shared pre-flight for every import entry point.
+
+        Tenant propagation, the write-permission check and the entity-type
+        guard run in the same order for :meth:`import_csv` and
+        :meth:`import_rows`, so neither path can bypass a check the other one
+        applies (REQ-L2-AS-021/022, REQ-L3-IMP-001).
+        """
+        self._set_tenant_context(ctx)
+        self._assert_write_permission(ctx)
+
+        if entity_type not in _VALID_ENTITY_TYPES:
+            raise ValidationError(
+                f"Unsupported entity_type '{entity_type}'. "
+                f"Allowed: {sorted(_VALID_ENTITY_TYPES)}"
+            )
+
+        return UUID(str(workspace_id))
+
+    def _import_parsed(
+        self,
+        *,
+        rows: list[tuple[int, dict[str, str]]],
+        entity_type: str,
+        workspace_id: UUID,
+        ctx: AuthContext,
+        artifact_type_tag: str = "",
+        header_fields: Sequence[str],
+        warnings: list[str],
+        parse_errors: list[ImportRowError],
+        max_rows: int = _MAX_ROWS,
+    ) -> ImportResult:
+        """The single validation + insert pipeline shared by every entry point.
+
+        ``rows`` are ``(row_number, cell-dict)`` pairs, ``parse_errors`` are the
+        parser's RFC 4180 findings (empty for the native path) and ``warnings``
+        carries notices the caller collected before parsing (e.g. the BOM
+        message). Must be called after :meth:`_prepare_import`; it does no
+        pre-flight checks of its own beyond the row ceiling.
+
+        REQ-L3-IMP-001: validation with a full per-row error report.
+        REQ-L3-IMP-002: single transaction.atomic() for all inserts.
+        REQ-L3-IMP-003: row ceiling enforced before any DB write.
+        """
         # fix #120: unrecognised header columns (typos, un-mapped German
         # labels like "Beschreibung") are silently dropped by _insert_rows'
         # spec-driven loop, which iterates ENTITY_FIELD_SPECS rather than the
@@ -373,9 +480,9 @@ class ImportService(ServiceBase):
                 warnings=warnings,
             )
 
-        if len(rows) > _MAX_ROWS:
+        if len(rows) > max_rows:
             raise ValidationError(
-                f"CSV exceeds maximum row limit of {_MAX_ROWS} "
+                f"CSV exceeds maximum row limit of {max_rows} "
                 f"(got {len(rows)} data rows)."
             )
 
@@ -393,7 +500,7 @@ class ImportService(ServiceBase):
         # (WorkflowTransitionsMixin._validate_attribute_definition) and the
         # MCP artifact-write tools (mcp_server.tools.base.validate_artifact_write)
         # go through -- CSV bulk import used to bypass it entirely.
-        for err in self._validate_attribute_definitions(rows, entity_type, ws_uuid, ctx):
+        for err in self._validate_attribute_definitions(rows, entity_type, workspace_id, ctx):
             row_errors.setdefault(err.row_number, []).append(err)
 
         # A missing required field is reported by both ``_validate_row`` and the
@@ -419,7 +526,7 @@ class ImportService(ServiceBase):
         # failed, never folded into the skip count.
         if valid_rows:
             kept_rows, duplicate_items = self._dedupe_rows(
-                rows=valid_rows, entity_type=entity_type, workspace_id=ws_uuid
+                rows=valid_rows, entity_type=entity_type, workspace_id=workspace_id
             )
         else:
             kept_rows, duplicate_items = [], []
@@ -471,7 +578,7 @@ class ImportService(ServiceBase):
                 imported = self._insert_rows(
                     rows=kept_rows,
                     entity_type=entity_type,
-                    workspace_id=ws_uuid,
+                    workspace_id=workspace_id,
                     ctx=ctx,
                     artifact_type_tag=artifact_type_tag or entity_type,
                 )
@@ -481,9 +588,9 @@ class ImportService(ServiceBase):
                     ctx=ctx,
                     operation="create",
                     entity_type=entity_type,
-                    entity_id=ws_uuid,  # workspace as aggregate entity_id for batch
+                    entity_id=workspace_id,  # workspace as aggregate entity_id for batch
                     details={
-                        "workspace_id": str(ws_uuid),
+                        "workspace_id": str(workspace_id),
                         "imported_count": imported,
                         "duplicate_count": duplicate_count,
                         "operation_type": "bulk_import",
@@ -503,7 +610,7 @@ class ImportService(ServiceBase):
                 "ImportService: DB error during atomic insert, rolling back. "
                 "entity_type=%s workspace_id=%s error_type=%s",
                 entity_type,
-                ws_uuid,
+                workspace_id,
                 type(exc).__name__,
             )
             message = PERSISTENCE_ERROR_MESSAGE
