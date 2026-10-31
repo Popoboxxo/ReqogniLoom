@@ -12,6 +12,16 @@ alongside the version number enables:
   - Reconstructing "what did entity X look like in this baseline" without the
     audit log (REQ-L2-BL-012).
   - Field-level Baseline diffs (COMP-BL-002, DiffEngine).
+  - An additive rollback (ADR-025): every field a rollback may write back has to
+    be in the snapshot, and :mod:`baseline.restorable_fields` is the single
+    source of truth for which captured keys those are (Plan F F4.1).
+
+Glossary terms are captured twice in project/global scope (a pre-existing
+duplication, finding R-F4-2): once as the ``glossary_term`` entry below and —
+because a term may have a backing Artifact — once as a bare ``item`` hull. The
+``item`` entry stays a hull; a rollback restores a glossary term from its
+``glossary_term`` entry, which is the one that carries ``term``/``definition``/
+``synonyms``/``abbreviation``.
 
 Performance (ADR-L3-BL001-01 spirit, N+1 avoidance):
   Entities are grouped by ``entity_type`` and each type is fetched in a *single*
@@ -158,6 +168,25 @@ def _capture_items(
         }
         artifact_lifecycle[str(art_id)] = lifecycle_status
 
+    # Plan F F4.1 (R-F4-1): the cross-cutting system fields (Attribut v3 WS2
+    # #936) live on the same Artifact row but were invisible to a rollback.
+    # Kept as a separate batched query on purpose: it is still O(1) per capture
+    # (not per item), and it leaves the envelope query above -- whose row shape
+    # is relied on by callers and tests -- untouched and single-purpose.
+    # ``owner``/``reporter`` are flattened to plain UUID strings so the state
+    # stays JSON-serializable.
+    artifact_system_by_id: dict[str, dict[str, Any]] = {}
+    for row in (
+        Artifact.unscoped.filter(id__in=uuids, tenant_id=tenant_id)
+        .values("id", "owner_id", "reporter_id", "priority", "stakeholder")
+    ):
+        artifact_system_by_id[str(row["id"])] = {
+            "owner": str(row["owner_id"]) if row["owner_id"] else None,
+            "reporter": str(row["reporter_id"]) if row["reporter_id"] else None,
+            "priority": row["priority"],
+            "stakeholder": row["stakeholder"] or [],
+        }
+
     states: dict[str, dict[str, Any]] = {}
 
     # Requirement
@@ -172,11 +201,18 @@ def _capture_items(
             "uid": req.uid,
             "title": req.title,
             "description": req.description,
+            # Plan F F4.1 (R-F4-1): the requirement attributes added by
+            # #871/#583 and #1288/#1289. Without them a rollback would silently
+            # drop the rationale and the structured acceptance criteria.
+            "rationale": req.rationale,
+            "source": req.source,
             "acceptance_criteria": req.acceptance_criteria,
+            "acceptance_criteria_items": req.acceptance_criteria_items,
             "category": req.category,
             "status": req_states.get(str(req.id)) or req_initial_state,
             "type": req.type,
             "level": req.level,
+            "level_source": req.level_source,
             "complexity_fibonacci": req.complexity_fibonacci,
             "verification_method": req.verification_method,
             "suspect": req.suspect,
@@ -238,14 +274,49 @@ def _capture_items(
             "description": tc.description,
             "steps": tc.steps,
             "test_type": tc.test_type,
+            # #424 / #402: provenance and in-content review flag. Editable
+            # content, so a rollback has to be able to read it back.
+            "origin": tc.origin,
+            "reviewed": tc.reviewed,
+            "scenario_kind": tc.scenario_kind,
             "status": tc_states.get(str(tc.id)) or tc_initial_state,
             "suspect": tc.suspect,
+            "lifecycle_status": artifact_lifecycle.get(str(tc.artifact_id), "active"),
             "version": tc.version,
         }
 
     states.update(
-        _capture_application_entities(uuids, tenant_id, artifact_header_by_id)
+        _capture_application_entities(
+            uuids, tenant_id, artifact_header_by_id, artifact_lifecycle
+        )
     )
+
+    # Icd (Ext layer, Artifact-backed). Plan F F4.1 (R-F4-2): project and global
+    # scope used to capture an ICD only as a bare Artifact hull, so the whole
+    # Design-by-Contract payload was invisible to a baseline diff and to a
+    # rollback. The contract keys come from the same helper the ``icd``
+    # entity_type handler uses (``_icd_contract_state``) — no duplication.
+    # SA-21: resolved via the Layer-0 domain-model registry, and ``None`` when
+    # the optional icd app is absent. The query is skipped entirely when no
+    # captured artifact is an Icd ("Typ:Subtag" tags are stripped, see
+    # ``link_types.catalog.normalize_artifact_type``), which keeps capturing a
+    # workspace without ICDs at the same number of queries as before.
+    from persistence.domain_model_registry import get_model
+
+    Icd = get_model("Icd")
+    has_icd = any(
+        (header["artifact_type_raw"] or "").split(":", 1)[0] == "Icd"
+        for header in artifact_header_by_id.values()
+    )
+    if Icd is not None and has_icd:
+        for icd in Icd.unscoped.filter(artifact_id__in=uuids, tenant_id=tenant_id):
+            if icd.artifact_id is None:  # pragma: no cover - defensive
+                continue
+            header = artifact_header_by_id.get(str(icd.artifact_id))
+            states[str(icd.artifact_id)] = _icd_contract_state(
+                icd,
+                header["artifact_type_raw"] if header else "Icd",
+            )
 
     # Merge the shared Artifact envelope into every captured state and give
     # bare artifacts (no domain entity found) at least that envelope, so their
@@ -258,6 +329,18 @@ def _capture_items(
         if state is None:
             state = {"artifact_type": header["artifact_type_raw"]}
             states[item_id] = state
+        # Plan F F4.1 (R-F4-1): the Artifact-level system fields. ``setdefault``
+        # is deliberate, not defensive: Risk already publishes its legacy
+        # free-text owner (``Risk.owner_name``, renamed in WS7 #940 but captured
+        # under the published key ``owner``). Overwriting that key with the
+        # Actor UUID would change a published value shape and make every diff
+        # that straddles this change report a spurious change. Additive means
+        # never clobbering an existing key.
+        system = artifact_system_by_id.get(item_id, {})
+        state.setdefault("owner", system.get("owner"))
+        state.setdefault("reporter", system.get("reporter"))
+        state.setdefault("priority", system.get("priority"))
+        state.setdefault("stakeholder", system.get("stakeholder", []))
         state["custom_fields"] = header["custom_fields"]
         state["artifact_parent_id"] = header["artifact_parent_id"]
 
@@ -268,6 +351,7 @@ def _capture_application_entities(
     uuids: list[uuid.UUID],
     tenant_id: uuid.UUID,
     artifact_header_by_id: dict[str, dict[str, Any]],
+    artifact_lifecycle: dict[str, str],
 ) -> dict[str, dict[str, Any]]:
     """Capture Artifact-backed entities that live in ``application.models``.
 
@@ -321,6 +405,7 @@ def _capture_application_entities(
             "decision": adr.decision,
             "consequences": adr.consequences,
             "status": adr_states.get(str(adr.id)) or adr_initial_state,
+            "lifecycle_status": artifact_lifecycle.get(str(adr.artifact_id), "active"),
             "version": adr.version,
         }
 
@@ -345,6 +430,7 @@ def _capture_application_entities(
             "owner_user_id": str(risk.owner_user_id) if risk.owner_user_id else None,
             "mitigation_strategy": risk.mitigation_strategy,
             "status": risk_states.get(str(risk.id)) or risk_initial_state,
+            "lifecycle_status": artifact_lifecycle.get(str(risk.artifact_id), "active"),
             "version": risk.version,
         }
 
@@ -360,9 +446,19 @@ def _capture_application_entities(
             "severity": issue.severity,
             "category": issue.category,
             "assignee_id": str(issue.assignee_id) if issue.assignee_id else None,
+            # Plan F F4.1: service-owned bookkeeping (IssueService.assign_issue)
+            # is still editable state a rollback must be able to read back.
+            "assignee_changed_date": (
+                issue.assignee_changed_date.isoformat()
+                if issue.assignee_changed_date
+                else None
+            ),
             "due_date": issue.due_date.isoformat() if issue.due_date else None,
             "tags": issue.tags,
             "status": issue_states.get(str(issue.id)) or issue_initial_state,
+            "lifecycle_status": artifact_lifecycle.get(
+                str(issue.artifact_id), "active"
+            ),
             "version": issue.version,
         }
 
@@ -439,16 +535,38 @@ def _capture_glossary_terms(
     if not uuids:
         return {}
 
-    from persistence.models import GlossaryTerm
+    from persistence.models import Artifact, GlossaryTerm
+
+    terms = list(GlossaryTerm.unscoped.filter(id__in=uuids, tenant_id=tenant_id))
+
+    # R4 precondition (F4.4): a term's soft-delete flag lives on its backing
+    # Artifact, exactly like the other artifact-backed types (see
+    # ``application.glossary_service``: ``term.artifact.lifecycle_status if
+    # term.artifact_id else "active"``). Resolved in one batched query, so the
+    # capture stays O(1) in the number of terms.
+    term_artifact_ids = [gt.artifact_id for gt in terms if gt.artifact_id]
+    lifecycle_by_artifact: dict[str, str] = {}
+    if term_artifact_ids:
+        lifecycle_by_artifact = {
+            str(art_id): status
+            for art_id, status in Artifact.unscoped.filter(
+                id__in=term_artifact_ids, tenant_id=tenant_id
+            ).values_list("id", "lifecycle_status")
+        }
 
     states: dict[str, dict[str, Any]] = {}
-    for gt in GlossaryTerm.unscoped.filter(id__in=uuids, tenant_id=tenant_id):
+    for gt in terms:
         states[str(gt.id)] = {
             "artifact_type": "glossary_term",
             "term": gt.term,
             "definition": gt.definition,
             "synonyms": gt.synonyms,
             "abbreviation": gt.abbreviation,
+            "lifecycle_status": (
+                lifecycle_by_artifact.get(str(gt.artifact_id), "active")
+                if gt.artifact_id
+                else "active"
+            ),
             "version": gt.version,
         }
     return states
@@ -457,6 +575,31 @@ def _capture_glossary_terms(
 # ---------------------------------------------------------------------------
 # entity_type = "icd" (defensive; not currently produced by ScopeResolver)
 # ---------------------------------------------------------------------------
+
+
+def _icd_contract_state(icd: Any, artifact_type: str) -> dict[str, Any]:
+    """Return the captured Design-by-Contract state of one :class:`Icd`.
+
+    Single source for both ICD capture paths: the defensive ``icd`` entity_type
+    handler (:func:`_capture_icd_versions`, ``artifact_type="icd"``) and the
+    Artifact-backed ``item`` path (Plan F F4.1 / R-F4-2, where the caller passes
+    the raw ``Artifact.artifact_type`` so an existing entry keeps its published
+    value instead of flipping to ``"icd"`` on every diff).
+
+    Datenmodell-Konsolidierung Task 28c-2: reads the contract off the ``Icd``
+    header, which is where it lives now that ``IcdVersion`` is retired. The
+    captured keys are unchanged, so any stored baseline state stays comparable.
+    """
+    return {
+        "artifact_type": artifact_type,
+        "version_number": icd.current_revision,
+        "direction": icd.direction,
+        "interface_type": icd.interface_type,
+        "semantic_description": icd.semantic_description,
+        "preconditions": icd.preconditions,
+        "postconditions": icd.postconditions,
+        "invariants": icd.invariants,
+    }
 
 
 def _capture_icd_versions(
@@ -469,9 +612,8 @@ def _capture_icd_versions(
     ``icd`` entries, but keeping the capture logic here means the feature works
     the moment they are added, without touching this module again.
 
-    Datenmodell-Konsolidierung Task 28c-2: reads the contract off the ``Icd``
-    header, which is where it lives now that ``IcdVersion`` is retired. The
-    captured keys are unchanged, so any stored baseline state stays comparable.
+    The payload is built by :func:`_icd_contract_state`, shared with the
+    Artifact-backed ``item`` path so both entry kinds stay identical.
     """
     uuids = _to_uuids(item_ids)
     if not uuids:
@@ -490,16 +632,7 @@ def _capture_icd_versions(
 
     states: dict[str, dict[str, Any]] = {}
     for icd in Icd.unscoped.filter(id__in=uuids, tenant_id=tenant_id):
-        states[str(icd.id)] = {
-            "artifact_type": "icd",
-            "version_number": icd.current_revision,
-            "direction": icd.direction,
-            "interface_type": icd.interface_type,
-            "semantic_description": icd.semantic_description,
-            "preconditions": icd.preconditions,
-            "postconditions": icd.postconditions,
-            "invariants": icd.invariants,
-        }
+        states[str(icd.id)] = _icd_contract_state(icd, "icd")
     return states
 
 
