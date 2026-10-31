@@ -324,3 +324,47 @@ def test_op_choices_fit_the_column_width() -> None:
     max_length = AuditEntry._meta.get_field("op").max_length
     too_long = [value for value, _ in AuditEntry.OP_CHOICES if len(value) > max_length]
     assert not too_long, f"op choices exceed max_length={max_length}: {too_long}"
+
+
+#: The ``user.mfa_*`` family added for #1308 (Plan E / WP E3.1). Kept explicit
+#: rather than derived so a *renamed* constant cannot silently shrink the set:
+#: bumping this tuple is a deliberate act, exactly like adding the choice.
+_EXPECTED_MFA_OPS = (
+    "user.mfa_enroll",
+    "user.mfa_disable",
+    "user.mfa_recovery_used",
+    "user.mfa_recovery_regenerate",
+    "user.mfa_reset",
+    "user.mfa_enroll_grant",
+    "user.mfa_cutover",
+)
+
+
+def test_mfa_operation_constants_are_declared_choices() -> None:
+    """Every ``AuditEntry.OP_USER_MFA_*`` attribute is present in ``OP_CHOICES``.
+
+    ``MfaService`` (``auth_tenancy/services/mfa.py``) audits these as *attribute
+    references* — ``self._audit(user, AuditEntry.OP_USER_MFA_ENROLL, ...)`` —
+    which is precisely the shape the ``self._audit(operation=...)`` AST ratchet
+    above cannot see: it only collects ``ast.Constant`` string literals. A
+    renamed constant, a typo'd value or a choice dropped from ``OP_CHOICES``
+    would therefore pass every other guard in this file and only surface at
+    runtime as a ``ValidationError`` *after* the MFA mutation had already
+    succeeded (the #265 failure mode, on a credential table).
+    """
+    declared = {value for value, _label in AuditEntry.OP_CHOICES}
+    constants = {
+        name: value
+        for name, value in vars(AuditEntry).items()
+        if name.startswith("OP_USER_MFA_")
+    }
+
+    assert set(constants.values()) == set(_EXPECTED_MFA_OPS), (
+        "the user.mfa_* op family drifted — update _EXPECTED_MFA_OPS together "
+        f"with OP_CHOICES: {sorted(constants.values())}"
+    )
+    missing = {name: value for name, value in constants.items() if value not in declared}
+    assert not missing, (
+        "these OP_USER_MFA_* constants are not declared in AuditEntry.OP_CHOICES "
+        f"and would make every MFA audit write fail: {missing}"
+    )
