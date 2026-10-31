@@ -261,10 +261,8 @@ __all__ = [
     "AdrDTO",
     "RiskService",
     "RiskDTO",
-    "RISK_LINK_TYPES",
     "IssueService",
     "IssueDTO",
-    "ISSUE_LINK_TYPES",
     # Step-4 services (COMP-AS-017..018, COMP-AS-021)
     "TestRunService",
     "VALID_RESULT_STATUSES",

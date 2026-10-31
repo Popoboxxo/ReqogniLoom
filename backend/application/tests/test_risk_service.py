@@ -17,7 +17,7 @@ import pytest
 
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.models import Risk
-from application.risk_service import RISK_LINK_TYPES, RiskDTO, RiskService, RiskValidator
+from application.risk_service import RiskDTO, RiskService, RiskValidator
 
 pytestmark = pytest.mark.django_db
 
@@ -760,68 +760,3 @@ class TestQueryRisksBySeverity:
         calls = mock_mgr.filter.call_args_list
         assert calls[0].kwargs["tenant_id"] == tenant_a
         assert calls[1].kwargs["tenant_id"] == tenant_b
-
-
-# ---------------------------------------------------------------------------
-# create_tracelink
-# ---------------------------------------------------------------------------
-
-
-class TestRiskCreateTracelink:
-    def test_valid_link_type_delegates(self):
-        mock_tls = MagicMock()
-        mock_tls.create_trace_link.return_value = MagicMock()
-        svc = RiskService(trace_link_service=mock_tls)
-        ctx = _make_ctx(tenant_id=TENANT_ID)
-        target_id = uuid.uuid4()
-
-        with (
-            patch("application.risk_service.Risk.objects") as mock_mgr,
-            patch("application.risk_service.RiskService._set_tenant_context"),
-        ):
-            mock_mgr.filter.return_value.first.return_value = _make_risk()
-            svc.create_tracelink(
-                risk_id=RISK_ID,
-                target_id=target_id,
-                link_type="threatens",
-                ctx=ctx,
-            )
-
-        mock_tls.create_trace_link.assert_called_once_with(
-            source_id=RISK_ID,
-            target_id=target_id,
-            link_type="threatens",
-            ctx=ctx,
-        )
-
-    def test_invalid_link_type_raises(self):
-        svc = RiskService()
-        ctx = _make_ctx()
-
-        with patch("application.risk_service.RiskService._set_tenant_context"):
-            with pytest.raises(ValidationError, match="Invalid Risk link type"):
-                svc.create_tracelink(
-                    risk_id=RISK_ID,
-                    target_id=uuid.uuid4(),
-                    link_type="addresses",  # ADR-type, invalid here
-                    ctx=ctx,
-                )
-
-    def test_all_valid_link_types(self):
-        for lt in RISK_LINK_TYPES:
-            mock_tls = MagicMock()
-            mock_tls.create_trace_link.return_value = MagicMock()
-            svc = RiskService(trace_link_service=mock_tls)
-            ctx = _make_ctx(tenant_id=TENANT_ID)
-
-            with (
-                patch("application.risk_service.Risk.objects") as mock_mgr,
-                patch("application.risk_service.RiskService._set_tenant_context"),
-            ):
-                mock_mgr.filter.return_value.first.return_value = _make_risk()
-                svc.create_tracelink(
-                    risk_id=RISK_ID,
-                    target_id=uuid.uuid4(),
-                    link_type=lt,
-                    ctx=ctx,
-                )

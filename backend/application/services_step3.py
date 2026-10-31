@@ -17,10 +17,8 @@ Import paths::
         AdrDTO,
         RiskService,
         RiskDTO,
-        RISK_LINK_TYPES,
         IssueService,
         IssueDTO,
-        ISSUE_LINK_TYPES,
     )
 
 SeMetrics contract (stable, do not change signature without escalation)::
@@ -41,10 +39,10 @@ from __future__ import annotations
 from application.adr_service import AdrDTO, AdrService  # noqa: F401
 
 # COMP-AS-015
-from application.issue_service import ISSUE_LINK_TYPES, IssueDTO, IssueService  # noqa: F401
+from application.issue_service import IssueDTO, IssueService  # noqa: F401
 
 # COMP-AS-014
-from application.risk_service import RISK_LINK_TYPES, RiskDTO, RiskService  # noqa: F401
+from application.risk_service import RiskDTO, RiskService  # noqa: F401
 
 # ---------- Registry hook (services.py extension pattern) ----------
 from application.services import _registry  # noqa: E402
@@ -62,9 +60,7 @@ __all__ = [
     # COMP-AS-014
     "RiskService",
     "RiskDTO",
-    "RISK_LINK_TYPES",
     # COMP-AS-015
     "IssueService",
     "IssueDTO",
-    "ISSUE_LINK_TYPES",
 ]

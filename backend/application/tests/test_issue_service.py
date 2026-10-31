@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
-from application.issue_service import ISSUE_LINK_TYPES, IssueDTO, IssueService, IssueValidator
+from application.issue_service import IssueDTO, IssueService, IssueValidator
 from application.models import Issue
 
 pytestmark = pytest.mark.django_db
@@ -771,68 +771,3 @@ class TestIssuetenantIsolation:
         calls = mock_mgr.filter.call_args_list
         assert calls[0].kwargs["tenant_id"] == ctx_a.tenant_id
         assert calls[1].kwargs["tenant_id"] == ctx_b.tenant_id
-
-
-# ---------------------------------------------------------------------------
-# create_tracelink
-# ---------------------------------------------------------------------------
-
-
-class TestIssueCreateTracelink:
-    def test_valid_link_type_delegates(self):
-        mock_tls = MagicMock()
-        mock_tls.create_trace_link.return_value = MagicMock()
-        svc = IssueService(trace_link_service=mock_tls)
-        ctx = _make_ctx(tenant_id=TENANT_ID)
-        target_id = uuid.uuid4()
-
-        with (
-            patch("application.issue_service.Issue.objects") as mock_mgr,
-            patch("application.issue_service.IssueService._set_tenant_context"),
-        ):
-            mock_mgr.filter.return_value.first.return_value = _make_issue()
-            svc.create_tracelink(
-                issue_id=ISSUE_ID,
-                target_id=target_id,
-                link_type="blocks",
-                ctx=ctx,
-            )
-
-        mock_tls.create_trace_link.assert_called_once_with(
-            source_id=ISSUE_ID,
-            target_id=target_id,
-            link_type="blocks",
-            ctx=ctx,
-        )
-
-    def test_invalid_link_type_raises(self):
-        svc = IssueService()
-        ctx = _make_ctx()
-
-        with patch("application.issue_service.IssueService._set_tenant_context"):
-            with pytest.raises(ValidationError, match="Invalid Issue link type"):
-                svc.create_tracelink(
-                    issue_id=ISSUE_ID,
-                    target_id=uuid.uuid4(),
-                    link_type="threatens",  # Risk-type, invalid here
-                    ctx=ctx,
-                )
-
-    def test_all_valid_link_types_accepted(self):
-        for lt in ISSUE_LINK_TYPES:
-            mock_tls = MagicMock()
-            mock_tls.create_trace_link.return_value = MagicMock()
-            svc = IssueService(trace_link_service=mock_tls)
-            ctx = _make_ctx(tenant_id=TENANT_ID)
-
-            with (
-                patch("application.issue_service.Issue.objects") as mock_mgr,
-                patch("application.issue_service.IssueService._set_tenant_context"),
-            ):
-                mock_mgr.filter.return_value.first.return_value = _make_issue()
-                svc.create_tracelink(
-                    issue_id=ISSUE_ID,
-                    target_id=uuid.uuid4(),
-                    link_type=lt,
-                    ctx=ctx,
-                )

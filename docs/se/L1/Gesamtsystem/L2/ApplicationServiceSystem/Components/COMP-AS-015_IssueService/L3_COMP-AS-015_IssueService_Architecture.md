@@ -37,7 +37,7 @@ Der IssueService verwaltet den vollständigen Lifecycle von Issue-Entitäten im 
   - `list_by_assignee(workspace_id, assignee_id) → [Issue]`
   - `delete_issue(issue_id)`
   - `transition_status(issue_id, target_status, change_reason, auth_context) → Issue`
-  - `create_tracelink(issue_id, target_id, link_type) → TraceLink`
+  - TraceLinks: keine eigene Methode — `TraceLinkService.create_trace_link(source_id, target_id, link_type)` gegen den Workspace-Link-Typ-Katalog
 
 - **`IssueValidator` (Klasse):** Validiert Issue-Payloads gegen Schema.
 
@@ -75,7 +75,7 @@ Der IssueService verwaltet den vollständigen Lifecycle von Issue-Entitäten im 
 | REQ-L3-ISSUE-003 (Update mit Versionierung) | Methode `update_issue(issue_id, updates)`: Alte Version beibehalten, neue Version mit version+1 erstellen. Timestamp und Actor erfasst. Audit-Trail vollständig. Versionsverlauf querybar. |
 | REQ-L3-ISSUE-004 (Deletion mit Cascade-Cleanup) | Methode `delete_issue(issue_id)` in `transaction.atomic()`: (1) Lösche TraceLinks, (2) Lösche WorkflowState-History, (3) Lösche Issue. Bei Fehler: Rollback. |
 | REQ-L3-ISSUE-005 (Status-Transitions) | Methode `transition_status(issue_id, target_status, change_reason)`: Delegiere an WorkflowFacade. Gültige Status: Open (initial) → In Progress (nur von Open) → Resolved → Closed (oder Wontfix). change_reason erfasst (wenn erforderlich). Audit-Log-Eintrag geschrieben. |
-| REQ-L3-ISSUE-006 (TraceLink-Verwaltung) | Methode `create_tracelink(issue_id, target_id, link_type)`: Unterstützte Link-Typen: related-to, blocks (Issue blockiert andere), blocked-by (Issue blockiert von anderen), caused-by (Issue verursacht von Risk/ADR), resolves (Issue löst Test-Problem). Rufe TraceLinkService auf. Bidirektionale Querybarkeit. |
+| REQ-L3-ISSUE-006 (TraceLink-Verwaltung) | Keine eigene Link-Methode und keine private Link-Vokabel: Links über den Workspace-Link-Typ-Katalog (`references`, `mitigates`; ab ENT-F1=b zusätzlich `blocks`, `resolves`, `threatens`) via `TraceLinkService.create_trace_link(source_id, target_id, link_type)`. Einziger öffentlicher Pfad ist der generische Endpoint `POST /api/v1/trace-links/`; kein Issue-spezifischer Link-Endpoint. Bidirektionale Querybarkeit. |
 | REQ-L3-ISSUE-007 (Priorisierung nach Severity) | Issue-Priorisierung: Critical (sofortige Behandlung), High (1 Woche), Medium (2 Wochen), Low (Standard-Zyklus). Severity ist querybar und sortierbar. Sorting aufsteigend/absteigend. Filtering nach Severity-Range möglich (z.B. High+Critical). Severity wird in Result-Payload geliefert. |
 | REQ-L3-ISSUE-008 (Assignee-Management) | Methode `assign_issue(issue_id, assignee_id)`: Validiere Assignee (existierender User). Assignee kann null sein (unassigned). Assignee-Wechsel wird in Audit-Log dokumentiert. assignee_changed_date aktualisiert. Query nach assignee_id möglich (list_by_assignee()). |
 | REQ-L3-ISSUE-009 (Tenant-Isolation) | Tenant wird aus Auth-Context extrahiert. Issue wird mit tenant_id gekennzeichnet. Keine Cross-Tenant-Queries. Keine Cross-Tenant-TraceLinks. |
