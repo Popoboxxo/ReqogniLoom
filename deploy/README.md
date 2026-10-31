@@ -281,6 +281,72 @@ field is deprecated.
 
 Symptom: frontend container in `Restarting (1)` loop with `mkdir() "/var/cache/nginx/client_temp" failed (13: Permission denied)` in logs. Fix: delete the `user:` and `tmpfs:` overrides from your `.env` or local compose files, then re-run `docker compose up -d`.
 
+## 2FA: Gerät verloren / neues Staff-Konto
+
+Staff-Konten können einen TOTP-Zweiten Faktor einrichten (sofern
+`MFA_STAFF_ENFORCEMENT` nicht `off` ist). Ist das Authenticator-Gerät weg, wurde das
+Gerät getauscht, oder sind nach einer Rotation von `FIELD_ENCRYPTION_KEY` die
+gespeicherten TOTP-Secrets nicht mehr entschlüsselbar, hilft nur der Break-glass-Reset
+auf der Kommandozeile. Dafür gibt es bewusst **keinen** REST- oder MCP-Weg:
+`MfaService.reset` verlangt weder TOTP-Code noch Passwort — über eine API exponiert
+könnte jeder Aufrufer den zweiten Faktor eines fremden Kontos entfernen.
+
+```bash
+docker compose -f deploy/docker-compose.yml --project-directory . \
+  exec backend python manage.py mfa_reset <username> --reason "<Grund>"
+```
+
+Was der Befehl in **einer** Transaktion tut:
+
+1. löscht TOTP-Gerät **und** alle Recovery-Codes des Kontos (Audit-Eintrag
+   `user.mfa_reset`),
+2. stellt einen **einmalig verwendbaren** Enrollment-Grant aus (Audit-Eintrag
+   `user.mfa_enroll_grant`). Dessen Laufzeit ist auf höchstens 24 h begrenzt
+   (`MFA_ENROLL_GRANT_TTL_SECONDS`, Default 86400 s); pro Konto existiert höchstens ein
+   gültiger Grant, ein älterer unbenutzter wird dabei als verbraucht markiert.
+
+Der Grant ist das, was das erneute Einrichten unter `MFA_STAFF_ENFORCEMENT=required`
+überhaupt erlaubt (Binding Decision ENT-E7 = A). Er wird deshalb immer mit
+ausgestellt — ohne ihn bliebe das Konto ausgesperrt. Scheitert einer der beiden
+Schritte, wird der andere mit zurückgerollt, das Konto behält also seinen bisherigen
+Zustand.
+
+- `--reason` ist **Pflicht** und darf nicht leer sein. Grund und Actor-Label
+  (`mfa_reset (CLI)`) stehen in den Audit-Einträgen sowie im Log
+  `reqogniloom.security` — dort ohne Secrets oder Codes.
+- Unbekannter Benutzername oder leerer Grund → `CommandError` mit Exit-Code 1; ein
+  ganz fehlendes `--reason` bricht schon die Argumentprüfung ab (Exit-Code 2). In
+  beiden Fällen wird nichts geschrieben.
+- Für ein Konto, das nie enrolled war, ist der Aufruf unschädlich und stellt trotzdem
+  einen Grant aus.
+- Nach stdout/stderr gehen nur Benutzername, Zähler (Gerät/Codes entfernt) und die
+  Ablaufzeit des Grants — keine Secrets, TOTP- oder Recovery-Codes (durch Tests
+  abgesichert).
+
+**Ablauf für den Nutzer:** innerhalb der Grant-Laufzeit (≤ 24 h) neu einloggen und den
+zweiten Faktor einrichten; mit dem ersten bestätigten Code wird der Grant verbraucht.
+Verstreicht die Frist, ist ein erneuter `mfa_reset` nötig. Ein deaktiviertes Konto
+(`is_active=False`) kann nicht enrollen, solange es nicht reaktiviert ist — der Befehl
+weist auf stderr darauf hin.
+
+**Notfall: Rotation von `FIELD_ENCRYPTION_KEY`.** Nach einer Rotation lassen sich
+bereits gespeicherte TOTP-Secrets in der Regel nicht mehr entschlüsseln; die
+Verifikation schlägt dann fail-closed fehl. Betroffene Staff-Konten einzeln
+zurücksetzen:
+
+```bash
+for u in alice bob; do
+  docker compose -f deploy/docker-compose.yml --project-directory . \
+    exec backend python manage.py mfa_reset "$u" --reason "FIELD_ENCRYPTION_KEY rotated"
+done
+```
+
+Reihenfolge: erst den Schlüssel rotieren und den Dienst neu starten, dann die
+betroffenen Konten zurücksetzen — andernfalls könnte ein Konto vor der Rotation noch
+ein Gerät mit dem alten Schlüssel ausstellen. Ob ein Konto betroffen ist, zeigt der
+Login (die zweite Stufe schlägt fehl) bzw. das `reqogniloom.security`-Log; eine
+pauschale Aussage „alle Konten sind betroffen" ist nicht belegt, also einzeln prüfen.
+
 ## Required flag: `--project-directory .`
 
 These compose files do **not** live in the repository root. Every direct `docker compose`
