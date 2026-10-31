@@ -244,7 +244,9 @@ describe("AuthContext bluepencil lifecycle", () => {
     installBluepencilHost();
     login.resolve(response({ user: firstUser, tenant_id: "t-1", roles: ["editor"] }));
 
-    await pendingLogin;
+    // New contract: a superseded login rejects instead of silently returning,
+    // and the stale identity is never applied.
+    await expect(pendingLogin).rejects.toThrow("Login request superseded");
     expect(captured?.status).toBe("anonymous");
     expect(captured?.user).toBeNull();
     expect(window.rfBluepencil?.identity.getUser()).toBeNull();
@@ -325,7 +327,8 @@ describe("AuthContext bluepencil lifecycle", () => {
     expect(order).toEqual(["login"]);
 
     login.resolve(response({ user: firstUser, tenant_id: "t-1", roles: ["editor"] }));
-    await pendingLogin;
+    // The logout that followed invalidated this login's session generation.
+    await expect(pendingLogin).rejects.toThrow("Login request superseded");
     await waitFor(() => expect(order).toEqual(["login", "logout"]));
     expect(captured?.status).toBe("anonymous");
   });

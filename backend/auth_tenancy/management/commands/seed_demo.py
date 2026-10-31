@@ -36,11 +36,15 @@ from django.core.management.base import BaseCommand, CommandError
 
 from application.attribute_bootstrap import bootstrap_attribute_definitions_for_tenant
 from application.workspace_provisioning import provision_workspace_defaults_scoped
+from auth_tenancy.models import ROLE_EDITOR, UserRole
 from auth_tenancy.provisioning import (
     DEFAULT_ADMIN_EMAIL,
     DEFAULT_ADMIN_USERNAME,
+    ProvisionResult,
     provision_admin,
 )
+from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.models import User
 
 _DEFAULT_ADMIN_PASSWORD = "admin12345"
 
@@ -60,6 +64,81 @@ _REFUSE_DEFAULT_PASSWORD_MESSAGE = (
 # application.self_init._DEFAULT_WORKSPACE_TIER, the same constant for the
 # same reason.
 _WORKSPACE_TIER = "extended"
+
+# Plan E / WP E3.8 (#1308, review finding RB-12): the MFA E2E spec needs a
+# staff account of its own. It must NOT enroll the shared `admin` — parallel
+# shards would all run into the second login step. The account is opt-in and
+# deliberately independent of SEED_DEMO_ALLOW_DEFAULT_PASSWORD: it never uses
+# the built-in demo password, and it only exists while E2E_MFA_PASSWORD is set
+# (testing/docker-compose.test.yml and the Playwright CI job).
+_E2E_MFA_PASSWORD_ENV = "E2E_MFA_PASSWORD"
+_E2E_MFA_USERNAME = "e2e-mfa"
+_E2E_MFA_EMAIL = "e2e-mfa@demo.local"
+
+
+def _provision_e2e_mfa_user(
+    result: ProvisionResult, password: str, reset_password: bool
+) -> tuple[bool, bool]:
+    """Idempotently create the staff-only ``e2e-mfa`` MFA E2E account.
+
+    Scoped to the demo tenant this run provisioned (``result.tenant``): the
+    lookup never resolves a same-named account from another tenant, and such a
+    foreign account is left completely untouched. Create-only for the password
+    (same policy as ``provision_admin``) unless ``--reset-password`` is given,
+    so a locally changed password survives a re-seed. Self-heals the
+    staff/active flags and the workspace role of the demo-tenant row so a
+    half-provisioned user does not break the E2E spec.
+
+    Returns ``(created, skipped_foreign_tenant)``.
+    """
+    set_request_tenant(result.tenant.id)
+    try:
+        user = User.objects.filter(
+            username=_E2E_MFA_USERNAME, tenant_id=result.tenant.id
+        ).first()
+        created = False
+        if user is None:
+            # ``User.username`` is globally unique (persistence.models.User),
+            # yet the seed still must not reach across tenants: a row owned by
+            # another tenant is never re-tenanted, re-flagged or given a role
+            # in this run's workspace. Report it as skipped instead.
+            if User.objects.filter(username=_E2E_MFA_USERNAME).exists():
+                return False, True
+            user = User(
+                username=_E2E_MFA_USERNAME,
+                email=_E2E_MFA_EMAIL,
+                is_active=True,
+                is_staff=True,
+                is_superuser=False,
+                tenant=result.tenant,
+            )
+            user.save()
+            created = True
+        else:
+            changed = []
+            if not user.is_active:
+                user.is_active = True
+                changed.append("is_active")
+            if not user.is_staff:
+                user.is_staff = True
+                changed.append("is_staff")
+            if user.is_superuser:
+                user.is_superuser = False
+                changed.append("is_superuser")
+            if changed:
+                user.save(update_fields=[*changed, "modified_at"])
+        if created or reset_password:
+            user.set_password(password)
+            user.save(update_fields=["password", "modified_at"])
+        UserRole.objects.get_or_create(
+            user=user,
+            workspace=result.workspace,
+            role=ROLE_EDITOR,
+            defaults={"tenant": result.tenant, "suspended_at": None},
+        )
+    finally:
+        clear_request_tenant()
+    return created, False
 
 
 class Command(BaseCommand):
@@ -140,6 +219,28 @@ class Command(BaseCommand):
         # "bootstrap_attribute_definitions: N created, ..." SUCCESS line to
         # stdout, in addition to seed_demo's final message below.
         bootstrap_attribute_definitions_for_tenant(result.tenant.id)
+
+        # Plan E / WP E3.8 (#1308): opt-in MFA E2E account. Independent of the
+        # admin-password policy above — it only needs its own password.
+        e2e_mfa_password = os.environ.get(_E2E_MFA_PASSWORD_ENV)
+        if e2e_mfa_password:
+            e2e_mfa_created, e2e_mfa_skipped = _provision_e2e_mfa_user(
+                result,
+                e2e_mfa_password,
+                reset_password=bool(options.get("reset_password")),
+            )
+            if e2e_mfa_skipped:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"E2E MFA user '{_E2E_MFA_USERNAME}' not provisioned: "
+                        "that username is already owned by another tenant."
+                    )
+                )
+            else:
+                self.stdout.write(
+                    f"E2E MFA user '{_E2E_MFA_USERNAME}' "
+                    f"{'created' if e2e_mfa_created else 'already existed'}."
+                )
 
         self.stdout.write(self.style.SUCCESS("Demo data seeded."))
         if result.password_set:

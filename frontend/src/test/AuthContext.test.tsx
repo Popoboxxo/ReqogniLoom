@@ -13,8 +13,16 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { AuthProvider, useAuth } from "../context/AuthContext";
+import { AuthProvider, useAuth, type AuthState } from "../context/AuthContext";
 import { apiClient } from "../api/client";
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolver) => {
+    resolve = resolver;
+  });
+  return { promise, resolve };
+}
 
 const MOCK_USER = {
   id: "u-1",
@@ -103,7 +111,7 @@ describe("AuthContext session restore (REQ-052)", () => {
     });
     vi.stubGlobal("fetch", fetchSpy as unknown as typeof fetch);
 
-    let loginFn: ((c: { username: string; password: string }) => Promise<void>) | null = null;
+    let loginFn: AuthState["login"] | null = null;
     function LoginCapture(): JSX.Element {
       loginFn = useAuth().login;
       return <StatusProbe />;
@@ -151,7 +159,7 @@ describe("AuthContext session restore (REQ-052)", () => {
       }) as unknown as typeof fetch
     );
 
-    let loginFn: ((c: { username: string; password: string }) => Promise<void>) | null = null;
+    let loginFn: AuthState["login"] | null = null;
     function LoginCapture(): JSX.Element {
       loginFn = useAuth().login;
       return <StatusProbe />;
@@ -165,12 +173,106 @@ describe("AuthContext session restore (REQ-052)", () => {
     await vi.waitFor(() => expect(loginFn).not.toBeNull());
     await expect(
       loginFn!({ username: "tester", password: "pw" })
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ kind: "authenticated" });
 
     await vi.waitFor(() => {
       expect(screen.getByTestId("status").textContent).toBe("authenticated");
     });
     expect(screen.getByTestId("username").textContent).toBe("tester");
+  });
+
+  it("returns the MFA challenge outcome without authenticating", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url.endsWith("/auth/me/")) {
+          return Promise.resolve({ ok: false, status: 401, json: async () => ({}) } as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            mfa_required: true,
+            mfa_challenge: "signed-challenge",
+            methods: ["totp", "recovery_code"],
+          }),
+        } as Response);
+      }) as unknown as typeof fetch
+    );
+
+    let loginFn: AuthState["login"] | null = null;
+    function LoginCapture(): JSX.Element {
+      loginFn = useAuth().login;
+      return <StatusProbe />;
+    }
+    render(
+      <AuthProvider>
+        <LoginCapture />
+      </AuthProvider>
+    );
+
+    await vi.waitFor(() => expect(loginFn).not.toBeNull());
+    await vi.waitFor(() => {
+      expect(screen.getByTestId("status").textContent).toBe("anonymous");
+    });
+    await expect(
+      loginFn!({ username: "tester", password: "pw" })
+    ).resolves.toEqual({
+      kind: "mfa",
+      challenge: "signed-challenge",
+      methods: ["totp", "recovery_code"],
+    });
+    expect(screen.getByTestId("status").textContent).toBe("anonymous");
+    expect(screen.getByTestId("username").textContent).toBe("");
+  });
+
+  it("rejects a login superseded by logout without applying the identity", async () => {
+    // AuthContext.tsx: a login response whose session generation was
+    // invalidated while it was in flight must never be applied. The new
+    // contract surfaces that as a rejected promise instead of a silent
+    // `return` that callers cannot distinguish from success.
+    const login = deferred<Response>();
+    const fetchMock = vi.fn((url: string) => {
+      if (url.endsWith("/auth/me/")) {
+        return Promise.resolve({ ok: false, status: 401, json: async () => ({}) } as Response);
+      }
+      if (url.endsWith("/auth/login/")) return login.promise;
+      if (url.endsWith("/auth/logout/")) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({}) } as Response);
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    let captured: AuthState | null = null;
+    function Capture(): JSX.Element {
+      captured = useAuth();
+      return <StatusProbe />;
+    }
+    render(
+      <AuthProvider>
+        <Capture />
+      </AuthProvider>
+    );
+
+    await vi.waitFor(() =>
+      expect(screen.getByTestId("status").textContent).toBe("anonymous")
+    );
+
+    const pendingLogin = captured!.login({ username: "tester", password: "pw" });
+    await vi.waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/auth/login/"))).toBe(true)
+    );
+    captured!.logout();
+    login.resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({ user: MOCK_USER, tenant_id: "t-1", roles: ["admin"] }),
+    } as Response);
+
+    await expect(pendingLogin).rejects.toThrow("Login request superseded");
+    expect(screen.getByTestId("status").textContent).toBe("anonymous");
+    expect(screen.getByTestId("username").textContent).toBe("");
   });
 });
 

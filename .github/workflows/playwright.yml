@@ -103,14 +103,18 @@ jobs:
         # ~6 min pro Shard und laeuft 4x parallel. Der fertige DB-Zustand ist
         # 1,9 MB gross und in ~2 s wiederherstellbar (gemessen auf der QS-Box:
         # pg_dump < 1 s, pg_restore 2 s bei 1152 Artefakten / 7059 Links).
-        # Key haengt an den Migrationen UND an e2e/helpers/auth.ts, weil
-        # seed_demo das Admin-Passwort aus SYSTEM_ADMIN_PASSWORD setzt und der
-        # Test-Login dagegen pruefen muss.
+        # Key haengt an den Migrationen, den Seed-Commands UND an
+        # e2e/helpers/auth.ts: seed_demo setzt das Admin-Passwort aus
+        # SYSTEM_ADMIN_PASSWORD und legt den `e2e-mfa`-Account nur an, solange
+        # E2E_MFA_PASSWORD gesetzt ist. Ohne die Seed-Commands im Hash blieb ein
+        # alter Snapshot ohne diesen Account gueltig — der MFA-Spec-Login lief
+        # dann mit "Invalid credentials" in einen Timeout. v2 erzwingt den
+        # einmaligen Neuaufbau.
         id: db-snapshot
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ${{ runner.temp }}/reqflow-snapshot.dump
-          key: pg-snapshot-v1-${{ hashFiles('backend/**/migrations/*.py', 'e2e/helpers/auth.ts') }}
+          key: pg-snapshot-v2-${{ hashFiles('backend/**/migrations/*.py', 'backend/**/management/commands/seed_*.py', 'e2e/helpers/auth.ts') }}
 
       - name: Restore the database from the snapshot
         if: steps.db-snapshot.outputs.cache-hit == 'true'
@@ -185,6 +189,13 @@ jobs:
           # password is ever dropped from this step. Test-only — never set in
           # deploy/docker-compose.yml.
           SEED_DEMO_ALLOW_DEFAULT_PASSWORD: "1"
+          # Plan E / WP E3.8 (#1308): seed_demo creates the staff-only
+          # `e2e-mfa` account only while this is set. The MFA spec logs in as
+          # that account, never as the shared `admin` — parallel shards would
+          # otherwise all run into the second login step. Test-only credential.
+          E2E_MFA_PASSWORD: e2e-mfa-password
+          # Session enrollment needs no admin grant in the E2E environment.
+          MFA_STAFF_ENFORCEMENT: optional
         run: |
           python manage.py migrate --noinput
           python manage.py seed_demo
@@ -261,6 +272,9 @@ jobs:
           OPENBLAS_NUM_THREADS: '1'
           MKL_NUM_THREADS: '1'
           VITE_API_BASE_URL: http://localhost:8000
+          # Plan E / WP E3.8 (#1308): the E2E environment may enrol a device
+          # from an authenticated session without an admin-issued grant.
+          MFA_STAFF_ENFORCEMENT: optional
         run: python manage.py runserver 0.0.0.0:8000 &
 
       # ADR-010: /health/ready is fail-closed and requires celery_worker=up and
@@ -353,6 +367,9 @@ jobs:
         env:
           FRONTEND_URL: http://localhost:5173
           BACKEND_URL: http://localhost:8000
+          # Plan E / WP E3.8 (#1308): the MFA spec skips itself when this is
+          # absent; keep it aligned with the seed_demo step above.
+          E2E_MFA_PASSWORD: e2e-mfa-password
         run: npm run test:e2e -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
       - name: Upload Playwright report
