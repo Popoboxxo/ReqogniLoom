@@ -38,6 +38,22 @@
       "quality_risk": "Quality assessment: risk"
     }
   },
+  "quality": {
+    "badge": {
+      "label": "Quality",
+      "none": "Not assessed"
+    },
+    "assess": "Assess quality",
+    "reassess": "Re-assess",
+    "reasoning": "Reasoning",
+    "suggestions": "Suggestions",
+    "history": "History",
+    "stale": "Assessment refers to an older revision",
+    "advisoryNote": "Advisory only — never blocks approval",
+    "error": {
+      "unavailable": "AI service unavailable"
+    }
+  },
   "customFields": {
     "section": "Custom Fields",
     "workspaceSection": "Workspace Fields",

@@ -1,8 +1,11 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveLocaleKey } from "./i18n-test-helpers";
+// The form reads its quality verdict through TanStack Query, so every mount
+// needs a real provider (see the shared helper's doc comment).
+import { renderWithQueryClient as render } from "./query-client";
 import { assertNoProtectedPatchFields } from "./protected-patch-fields";
 
 // Same convention as Risk/Issue/Need/TestCase (Tasks 19/20/23): the real

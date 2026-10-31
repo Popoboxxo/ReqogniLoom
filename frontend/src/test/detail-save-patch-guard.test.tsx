@@ -8,11 +8,13 @@
  * must not trigger a refetch of it.
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveLocaleKey } from "./i18n-test-helpers";
+// `RequirementArtifactForm` reads its quality verdict through TanStack Query.
+import { renderWithQueryClient as render } from "./query-client";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({

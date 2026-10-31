@@ -38,6 +38,22 @@
       "quality_risk": "Qualitätsbewertung: Risiko"
     }
   },
+  "quality": {
+    "badge": {
+      "label": "Qualität",
+      "none": "Nicht bewertet"
+    },
+    "assess": "Qualität bewerten",
+    "reassess": "Neu bewerten",
+    "reasoning": "Begründung",
+    "suggestions": "Verbesserungsvorschläge",
+    "history": "Verlauf",
+    "stale": "Bewertung bezieht sich auf einen älteren Stand",
+    "advisoryNote": "Nur Hinweis — blockiert keine Freigabe",
+    "error": {
+      "unavailable": "KI-Dienst nicht erreichbar"
+    }
+  },
   "customFields": {
     "section": "Benutzerdefinierte Felder",
     "workspaceSection": "Workspace-Felder",
