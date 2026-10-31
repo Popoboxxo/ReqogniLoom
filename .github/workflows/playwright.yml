@@ -135,6 +135,13 @@ jobs:
           # password is ever dropped from this step. Test-only — never set in
           # deploy/docker-compose.yml.
           SEED_DEMO_ALLOW_DEFAULT_PASSWORD: "1"
+          # Plan E / WP E3.8 (#1308): seed_demo creates the staff-only
+          # `e2e-mfa` account only while this is set. The MFA spec logs in as
+          # that account, never as the shared `admin` — parallel shards would
+          # otherwise all run into the second login step. Test-only credential.
+          E2E_MFA_PASSWORD: e2e-mfa-password
+          # Session enrollment needs no admin grant in the E2E environment.
+          MFA_STAFF_ENFORCEMENT: optional
         run: |
           python manage.py migrate --noinput
           python manage.py seed_demo
@@ -193,6 +200,9 @@ jobs:
           OPENBLAS_NUM_THREADS: '1'
           MKL_NUM_THREADS: '1'
           VITE_API_BASE_URL: http://localhost:8000
+          # Plan E / WP E3.8 (#1308): the E2E environment may enrol a device
+          # from an authenticated session without an admin-issued grant.
+          MFA_STAFF_ENFORCEMENT: optional
         run: python manage.py runserver 0.0.0.0:8000 &
 
       # ADR-010: /health/ready is fail-closed and requires celery_worker=up and
@@ -285,6 +295,9 @@ jobs:
         env:
           FRONTEND_URL: http://localhost:5173
           BACKEND_URL: http://localhost:8000
+          # Plan E / WP E3.8 (#1308): the MFA spec skips itself when this is
+          # absent; keep it aligned with the seed_demo step above.
+          E2E_MFA_PASSWORD: e2e-mfa-password
         run: npm run test:e2e -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
       - name: Upload Playwright report

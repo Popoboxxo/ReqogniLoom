@@ -4,7 +4,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { LoginPage } from "./LoginPage";
 import { bannersApi, type LoginBanner } from "../../api/banners";
 import { versionApi } from "../../api/version";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth, type LoginOutcome } from "../../context/AuthContext";
+import { MfaLoginError } from "../../api/mfa";
 
 vi.mock("../../api/banners", () => ({
   bannersApi: { getLoginBanner: vi.fn() },
@@ -19,7 +20,12 @@ vi.mock("../../context/AuthContext", () => ({
 }));
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (_key: string, fallback?: string) => fallback ?? _key }),
+  useTranslation: () => ({
+    t: (key: string, options?: string | Record<string, unknown>) =>
+      typeof options === "string"
+        ? options
+        : `${key}${options ? `:${JSON.stringify(options)}` : ""}`,
+  }),
 }));
 
 const DISMISSIBLE_BANNER: LoginBanner = {
@@ -51,6 +57,7 @@ describe("LoginPage banner", () => {
     });
     vi.mocked(useAuth).mockReturnValue({
       login: vi.fn(),
+      completeMfaLogin: vi.fn(),
     } as unknown as ReturnType<typeof useAuth>);
   });
 
@@ -142,5 +149,149 @@ describe("LoginPage banner", () => {
     expect(banner).toHaveTextContent("[click](https://evil.example) <b>bold</b>");
     expect(banner.querySelector("a")).toBeNull();
     expect(banner.querySelector("b")).toBeNull();
+  });
+});
+
+describe("LoginPage MFA second step", () => {
+  const challenge = "signed-challenge";
+
+  function setupAuth(outcome: LoginOutcome, complete = vi.fn()): void {
+    vi.mocked(useAuth).mockReturnValue({
+      login: vi.fn().mockResolvedValue(outcome),
+      completeMfaLogin: complete,
+    } as unknown as ReturnType<typeof useAuth>);
+  }
+
+  async function submitCredentials(): Promise<HTMLElement> {
+    fireEvent.change(screen.getByTestId("login-username-input"), {
+      target: { value: "e2e-mfa" },
+    });
+    fireEvent.change(screen.getByTestId("login-password-input"), {
+      target: { value: "secret-password" },
+    });
+    fireEvent.click(screen.getByTestId("login-submit-button"));
+    return screen.findByTestId("login-mfa-step");
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.sessionStorage.clear();
+    vi.mocked(versionApi.getVersion).mockResolvedValue({
+      app_version: "1.0.0",
+      commit_short: "abc1234",
+    });
+    vi.mocked(bannersApi.getLoginBanner).mockResolvedValue(null);
+  });
+
+  it("renders the code step when the password needs a second factor", async () => {
+    setupAuth({ kind: "mfa", challenge, methods: ["totp", "recovery_code"] });
+    renderLoginPage();
+
+    await submitCredentials();
+
+    expect(screen.getByTestId("login-mfa-code-input")).toBeInTheDocument();
+    expect(screen.queryByTestId("login-password-input")).toBeNull();
+  });
+
+  it("submits a TOTP code against the challenge", async () => {
+    const complete = vi.fn().mockResolvedValue(undefined);
+    setupAuth({ kind: "mfa", challenge, methods: ["totp"] }, complete);
+    renderLoginPage();
+
+    await submitCredentials();
+    fireEvent.change(screen.getByTestId("login-mfa-code-input"), {
+      target: { value: "123456" },
+    });
+    fireEvent.click(screen.getByTestId("login-mfa-submit"));
+
+    await waitFor(() =>
+      expect(complete).toHaveBeenCalledWith(challenge, { code: "123456" })
+    );
+  });
+
+  it("switches to a recovery code and submits it", async () => {
+    const complete = vi.fn().mockResolvedValue(undefined);
+    setupAuth({ kind: "mfa", challenge, methods: ["totp", "recovery_code"] }, complete);
+    renderLoginPage();
+
+    await submitCredentials();
+    fireEvent.click(screen.getByTestId("login-mfa-recovery-toggle"));
+    fireEvent.change(screen.getByTestId("login-mfa-recovery-input"), {
+      target: { value: "AAAA-BBBB-CCCC-DDDD" },
+    });
+    fireEvent.click(screen.getByTestId("login-mfa-submit"));
+
+    await waitFor(() =>
+      expect(complete).toHaveBeenCalledWith(challenge, {
+        recoveryCode: "AAAA-BBBB-CCCC-DDDD",
+      })
+    );
+  });
+
+  it("shows an invalid-code error without losing the step", async () => {
+    const complete = vi
+      .fn()
+      .mockRejectedValue(new MfaLoginError("MFA_INVALID_CODE", 401));
+    setupAuth({ kind: "mfa", challenge, methods: ["totp"] }, complete);
+    renderLoginPage();
+
+    await submitCredentials();
+    fireEvent.change(screen.getByTestId("login-mfa-code-input"), {
+      target: { value: "000000" },
+    });
+    fireEvent.click(screen.getByTestId("login-mfa-submit"));
+
+    expect(await screen.findByTestId("login-mfa-error")).toHaveTextContent(
+      "login.mfa.invalidCode"
+    );
+    expect(screen.getByTestId("login-mfa-step")).toBeInTheDocument();
+  });
+
+  it("shows the lockout minutes from Retry-After", async () => {
+    const complete = vi
+      .fn()
+      .mockRejectedValue(new MfaLoginError("MFA_LOCKED", 429, 120));
+    setupAuth({ kind: "mfa", challenge, methods: ["totp"] }, complete);
+    renderLoginPage();
+
+    await submitCredentials();
+    fireEvent.change(screen.getByTestId("login-mfa-code-input"), {
+      target: { value: "000000" },
+    });
+    fireEvent.click(screen.getByTestId("login-mfa-submit"));
+
+    expect(await screen.findByTestId("login-mfa-error")).toHaveTextContent(
+      'login.mfa.locked:{"minutes":2}'
+    );
+  });
+
+  it("returns to step one when the challenge expired", async () => {
+    const complete = vi
+      .fn()
+      .mockRejectedValue(new MfaLoginError("MFA_CHALLENGE_INVALID", 401));
+    setupAuth({ kind: "mfa", challenge, methods: ["totp"] }, complete);
+    renderLoginPage();
+
+    await submitCredentials();
+    fireEvent.change(screen.getByTestId("login-mfa-code-input"), {
+      target: { value: "000000" },
+    });
+    fireEvent.click(screen.getByTestId("login-mfa-submit"));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("login-mfa-step")).toBeNull()
+    );
+    expect(screen.getByTestId("login-password-input")).toBeInTheDocument();
+  });
+
+  it("shows the enrollment-required notice", async () => {
+    setupAuth({ kind: "enroll", challenge });
+    renderLoginPage();
+
+    await submitCredentials();
+
+    expect(screen.getByTestId("login-mfa-step")).toHaveTextContent(
+      "login.mfa.enrollRequired"
+    );
   });
 });

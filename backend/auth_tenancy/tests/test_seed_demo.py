@@ -22,7 +22,7 @@ from attribute_definitions.models import (
     GlobalAttributeDefinition,
     WorkspaceAttributeDefinition,
 )
-from auth_tenancy.models import ROLE_ADMIN, UserRole
+from auth_tenancy.models import ROLE_ADMIN, ROLE_EDITOR, UserRole
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Tenant, User, Workspace
 from workflow.models import GlobalWorkflowDefinition, WorkflowEngineDefinition
@@ -34,6 +34,10 @@ REFUSAL_MESSAGE = (
 )
 
 _ALLOW_DEFAULT_PASSWORD_ENV = "SEED_DEMO_ALLOW_DEFAULT_PASSWORD"
+
+#: Plan E / WP E3.8 (#1308): opt-in MFA E2E account.
+_E2E_MFA_PASSWORD_ENV = "E2E_MFA_PASSWORD"
+_E2E_MFA_USERNAME = "e2e-mfa"
 
 # backend/auth_tenancy/tests/test_seed_demo.py ->
 #   parents[0] = tests/  parents[1] = auth_tenancy/  parents[2] = backend/
@@ -60,6 +64,7 @@ def _allow_default_password(monkeypatch):
     monkeypatch.setenv(_ALLOW_DEFAULT_PASSWORD_ENV, "1")
     monkeypatch.delenv("SYSTEM_ADMIN_PASSWORD", raising=False)
     monkeypatch.delenv("DEMO_ADMIN_PASSWORD", raising=False)
+    monkeypatch.delenv(_E2E_MFA_PASSWORD_ENV, raising=False)
 
 
 def _seeded_counts(tenant_id) -> dict[str, int]:
@@ -477,3 +482,96 @@ def test_prod_compose_never_sets_opt_in(compose_path):
 
     assert offenders == []
 
+
+
+# ---------------------------------------------------------------------------
+# Plan E / WP E3.8 (#1308) — opt-in staff account for the MFA E2E spec.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_seed_demo_skips_e2e_mfa_user_without_env(monkeypatch):
+    """No E2E_MFA_PASSWORD => the shared demo data never grows an extra staff."""
+    monkeypatch.delenv(_E2E_MFA_PASSWORD_ENV, raising=False)
+
+    call_command("seed_demo")
+
+    assert not User.objects.filter(username=_E2E_MFA_USERNAME).exists()
+
+
+@pytest.mark.django_db
+def test_seed_demo_creates_e2e_mfa_user_idempotently(monkeypatch):
+    """E2E_MFA_PASSWORD set => one staff-only user with an editor role."""
+    monkeypatch.setenv(_E2E_MFA_PASSWORD_ENV, "e2e-mfa-pw-2026")
+
+    call_command("seed_demo")
+    call_command("seed_demo")  # idempotent: never a duplicate row
+
+    assert User.objects.filter(username=_E2E_MFA_USERNAME).count() == 1
+    user = User.objects.get(username=_E2E_MFA_USERNAME)
+    assert user.is_staff is True
+    assert user.is_superuser is False
+    assert user.is_active is True
+    assert user.check_password("e2e-mfa-pw-2026")
+
+    tenant = Tenant.objects.get(slug="demo")
+    set_request_tenant(tenant.id)
+    try:
+        workspace = Workspace.objects.get(name="Demo Workspace")
+        assert (
+            UserRole.objects.filter(
+                user=user, workspace=workspace, role=ROLE_EDITOR
+            ).count()
+            == 1
+        )
+    finally:
+        clear_request_tenant()
+
+
+@pytest.mark.django_db
+def test_seed_demo_never_touches_same_named_user_in_another_tenant(
+    monkeypatch, capsys
+):
+    """Tenant scoping: a same-named account owned by another tenant is untouched.
+
+    ``User.username`` is globally unique today, so this scenario is a
+    regression guard against a future per-tenant username scope (or a relaxed
+    constraint): the seed must resolve the row *inside* ``result.tenant`` and
+    never re-tenant, re-flag or grant a role on a foreign row.
+    """
+    monkeypatch.setenv(_E2E_MFA_PASSWORD_ENV, "e2e-mfa-pw-2026")
+
+    other_tenant = Tenant.objects.create(
+        slug="other", name="Other Tenant", is_active=True
+    )
+    foreign = User.objects.create(
+        username=_E2E_MFA_USERNAME,
+        email="e2e-mfa@other.local",
+        tenant=other_tenant,
+        is_active=False,
+        is_staff=False,
+        is_superuser=False,
+    )
+    foreign.set_password("other-tenant-pw")
+    foreign.save(update_fields=["password", "modified_at"])
+
+    call_command("seed_demo")
+
+    foreign.refresh_from_db()
+    assert foreign.tenant_id == other_tenant.id
+    assert foreign.is_active is False
+    assert foreign.is_staff is False
+    assert foreign.is_superuser is False
+    assert foreign.check_password("other-tenant-pw")
+
+    demo_tenant = Tenant.objects.get(slug="demo")
+    set_request_tenant(demo_tenant.id)
+    try:
+        workspace = Workspace.objects.get(name="Demo Workspace")
+        assert not UserRole.objects.filter(
+            user=foreign, workspace=workspace
+        ).exists()
+    finally:
+        clear_request_tenant()
+
+    assert "not provisioned" in capsys.readouterr().out

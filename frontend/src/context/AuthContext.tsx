@@ -32,6 +32,7 @@ import {
   resetUnauthorizedGuard,
   setUnauthorizedHandler,
 } from "../api/client";
+import { mfaApi } from "../api/mfa";
 import {
   installBluepencilReviewLayer,
   teardownBluepencilReviewLayer,
@@ -69,6 +70,23 @@ export interface LoginCredentials {
   username: string;
   password: string;
 }
+
+/**
+ * Outcome of the password step (Plan E / WP E3.8, #1308).
+ *
+ * Under a second-factor policy the server does NOT issue a session on the
+ * password alone. `login()` therefore reports what the caller must do next:
+ * - `authenticated` — the session cookie is set, navigate on.
+ * - `mfa`            — present `challenge` plus a TOTP/recovery code.
+ * - `enroll`         — the account must enroll a device first.
+ */
+export type LoginOutcome =
+  | { kind: "authenticated" }
+  | { kind: "mfa"; challenge: string; methods: string[] }
+  | { kind: "enroll"; challenge: string };
+
+/** Exactly one second factor for `completeMfaLogin`. */
+export type MfaFactor = { code: string } | { recoveryCode: string };
 
 /**
  * Shape returned by POST /api/v1/auth/login/ — identity only.
@@ -119,8 +137,10 @@ export interface AuthState {
    * gates the tenant-admin-only User Management surface. UX-only: real
    * enforcement lives server-side (`UserViewSet` / MCP `users` tool group). */
   isTenantAdmin: boolean;
-  /** POST /api/v1/auth/login/ — resolves on success, rejects with error message on failure */
-  login: (credentials: LoginCredentials) => Promise<void>;
+  /** POST /api/v1/auth/login/ — resolves with the next step on success */
+  login: (credentials: LoginCredentials) => Promise<LoginOutcome>;
+  /** POST /api/v1/auth/login/mfa/ — finish the two-step login (#1308) */
+  completeMfaLogin: (challenge: string, factor: MfaFactor) => Promise<void>;
   /** PATCH /api/v1/auth/me/ — update editable profile fields (REQ-006) */
   updateProfile: (update: ProfileUpdate) => Promise<void>;
   logout: () => void;
@@ -171,18 +191,24 @@ export function AuthProvider({
     [clearAuth],
   );
 
-  const enqueueCookieTransition = useCallback((operation: () => Promise<void>): Promise<void> => {
-    const transition = cookieTransitionTail.current.then(async () => {
-      cookieTransitionInFlight.current += 1;
-      try {
-        await operation();
-      } finally {
-        cookieTransitionInFlight.current = Math.max(0, cookieTransitionInFlight.current - 1);
-      }
-    });
-    cookieTransitionTail.current = transition.catch(() => undefined);
-    return transition;
-  }, []);
+  const enqueueCookieTransition = useCallback(
+    <T,>(operation: () => Promise<T>): Promise<T> => {
+      const transition = cookieTransitionTail.current.then(async () => {
+        cookieTransitionInFlight.current += 1;
+        try {
+          return await operation();
+        } finally {
+          cookieTransitionInFlight.current = Math.max(0, cookieTransitionInFlight.current - 1);
+        }
+      });
+      cookieTransitionTail.current = transition.then(
+        () => undefined,
+        () => undefined
+      );
+      return transition;
+    },
+    []
+  );
 
   const applyIdentity = useCallback((data: IdentityPayload, generation: number) => {
     if (generation !== authGeneration.current) return;
@@ -232,7 +258,7 @@ export function AuthProvider({
   }, [onUnauthorized, invalidateAuth]);
 
   const login = useCallback(
-    (credentials: LoginCredentials): Promise<void> => {
+    (credentials: LoginCredentials): Promise<LoginOutcome> => {
       advanceAuthSessionGeneration();
       loginAbortController.current?.abort();
       const controller = new AbortController();
@@ -270,8 +296,27 @@ export function AuthProvider({
             throw new Error(message);
           }
 
-          const data: LoginResponse = await response.json();
-          if (generation !== authGeneration.current) return;
+          const data = (await response.json()) as LoginResponse & {
+            mfa_required?: boolean;
+            mfa_enrollment_required?: boolean;
+            mfa_challenge?: string;
+            methods?: string[];
+          };
+          if (generation !== authGeneration.current) {
+            throw new Error("Login request superseded");
+          }
+          // Plan E / WP E3.8 (#1308): the password step answered with a
+          // second-factor challenge instead of a session — no cookie is set.
+          if (data.mfa_enrollment_required && data.mfa_challenge) {
+            return { kind: "enroll", challenge: data.mfa_challenge };
+          }
+          if (data.mfa_required && data.mfa_challenge) {
+            return {
+              kind: "mfa",
+              challenge: data.mfa_challenge,
+              methods: data.methods ?? ["totp", "recovery_code"],
+            };
+          }
           applyIdentity(
             {
               user: data.user,
@@ -281,6 +326,7 @@ export function AuthProvider({
             },
             generation,
           );
+          return { kind: "authenticated" };
         } catch (error) {
           if (timedOut) {
             if (generation === authGeneration.current) {
@@ -302,6 +348,35 @@ export function AuthProvider({
       });
     },
     [applyIdentity, enqueueCookieTransition]
+  );
+
+  /**
+   * Finishes the two-step login (Plan E / WP E3.8, #1308) with exactly one
+   * second factor. On success the server sets the session cookies and this
+   * applies the returned identity exactly like `applyIdentity` does after a
+   * plain login.
+   */
+  const completeMfaLogin = useCallback(
+    async (challenge: string, factor: MfaFactor): Promise<void> => {
+      const generation = authGeneration.current;
+      const identity = await mfaApi.loginMfa({
+        mfa_challenge: challenge,
+        ...("code" in factor
+          ? { code: factor.code }
+          : { recovery_code: factor.recoveryCode }),
+      });
+      if (generation !== authGeneration.current) return;
+      applyIdentity(
+        {
+          user: identity.user,
+          tenant_id: identity.tenant_id ?? null,
+          roles: identity.roles ?? [],
+          is_tenant_admin: identity.is_tenant_admin ?? false,
+        },
+        generation,
+      );
+    },
+    [applyIdentity]
   );
 
   /** Updates the current user's profile via PATCH /api/v1/auth/me/ (REQ-006). */
@@ -340,10 +415,11 @@ export function AuthProvider({
       roles,
       isTenantAdmin,
       login,
+      completeMfaLogin,
       updateProfile,
       logout,
     }),
-    [status, user, tenantId, roles, isTenantAdmin, login, updateProfile, logout]
+    [status, user, tenantId, roles, isTenantAdmin, login, completeMfaLogin, updateProfile, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
