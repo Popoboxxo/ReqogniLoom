@@ -25,6 +25,49 @@ EXPECTED_KEYS = {
     "diagram-ref",
 }
 
+#: Plan F F1.1-T2 (ENT-F1 = b): the Issue/Risk vocabulary as own built-ins.
+ISSUE_RISK_VOCABULARY_KEYS = {"blocks", "resolves", "threatens"}
+
+#: The pinned values of the spec table. Membership only — the catalog grows
+#: with the plan series, so no test here may pin the *total* (KA-F-07).
+PINNED_IMPACT_WEIGHTS = {
+    "derives-from": 1.0,
+    "decomposes": 1.0,
+    "refines": 0.8,
+    "allocated-to": 1.0,
+    "verifies": 1.0,
+    "validates": 1.0,
+    "performs": 0.8,
+    "decides": 0.3,
+    "mitigates": 0.5,
+    "satisfies": 1.0,
+    "realizes": 0.8,
+    "references": 0.2,
+    "diagram-ref": 0.2,
+    "blocks": 0.5,
+    "resolves": 0.3,
+    "threatens": 0.5,
+}
+
+PINNED_SUSPECT_RULES = {
+    "derives-from": "target_change_flags_source",
+    "decomposes": "parent_change_flags_children",
+    "refines": "target_change_flags_source",
+    "allocated-to": "source_change_flags_target",
+    "verifies": "target_change_flags_source",
+    "validates": "target_change_flags_source",
+    "performs": "target_change_flags_source",
+    "decides": "none",
+    "mitigates": "none",
+    "satisfies": "target_change_flags_source",
+    "realizes": "target_change_flags_source",
+    "references": "none",
+    "diagram-ref": "none",
+    "blocks": "none",
+    "resolves": "none",
+    "threatens": "none",
+}
+
 
 def test_the_expected_core_types_are_seeded():
     # Membership, not equality: later plans extend the catalog (Plan F adds
@@ -53,40 +96,16 @@ def test_exactly_the_four_coverage_relevant_types_are_flagged():
 
 def test_impact_weights_match_the_spec_table():
     weights = {k: v["impact_weight"] for k, v in BUILTIN_LINK_TYPES.items()}
-    assert weights == {
-        "derives-from": 1.0,
-        "decomposes": 1.0,
-        "refines": 0.8,
-        "allocated-to": 1.0,
-        "verifies": 1.0,
-        "validates": 1.0,
-        "performs": 0.8,
-        "decides": 0.3,
-        "mitigates": 0.5,
-        "satisfies": 1.0,
-        "realizes": 0.8,
-        "references": 0.2,
-        "diagram-ref": 0.2,
-    }
+    # Membership of the pinned values, not a full map: a full map would pin the
+    # catalog size, and later plans extend it (KA-F-07).
+    for key, weight in PINNED_IMPACT_WEIGHTS.items():
+        assert weights[key] == weight, key
 
 
 def test_suspect_rules_match_the_spec_table():
     rules = {k: v["suspect_rule"] for k, v in BUILTIN_LINK_TYPES.items()}
-    assert rules == {
-        "derives-from": "target_change_flags_source",
-        "decomposes": "parent_change_flags_children",
-        "refines": "target_change_flags_source",
-        "allocated-to": "source_change_flags_target",
-        "verifies": "target_change_flags_source",
-        "validates": "target_change_flags_source",
-        "performs": "target_change_flags_source",
-        "decides": "none",
-        "mitigates": "none",
-        "satisfies": "target_change_flags_source",
-        "realizes": "target_change_flags_source",
-        "references": "none",
-        "diagram-ref": "none",
-    }
+    for key, rule in PINNED_SUSPECT_RULES.items():
+        assert rules[key] == rule, key
 
 
 def test_diagram_ref_is_the_only_system_owned_and_non_manual_type():
@@ -214,6 +233,68 @@ def test_performs_links_an_element_to_a_function():
         "upstream": "is performed by",
         "neutral": "Function allocation",
     }
+
+
+def test_issue_risk_vocabulary_is_backed_by_built_ins():
+    """Plan F F1.1-T2 (ENT-F1 = b): ``blocks``/``resolves``/``threatens``.
+
+    Pinned definitions, verbatim from the plan. ``blocked-by`` is the upstream
+    label of ``blocks`` and ``mitigated-by`` the upstream label of ``mitigates``
+    — neither needs an own type; ``caused-by``/``related-to`` stay aliases of
+    ``references``.
+    """
+    assert ISSUE_RISK_VOCABULARY_KEYS <= set(BUILTIN_LINK_TYPES)
+
+    blocks = BUILTIN_LINK_TYPES["blocks"]
+    assert blocks["allowed_pairs"] == [{"source_type": "Issue", "target_type": "*"}]
+    assert blocks["label"]["de"] == {
+        "downstream": "blockiert",
+        "upstream": "wird blockiert durch",
+        "neutral": "Blockade",
+    }
+    assert blocks["label"]["en"] == {
+        "downstream": "blocks",
+        "upstream": "is blocked by",
+        "neutral": "Blocker",
+    }
+    assert blocks["impact_weight"] == 0.5
+
+    resolves = BUILTIN_LINK_TYPES["resolves"]
+    assert resolves["allowed_pairs"] == [{"source_type": "*", "target_type": "Issue"}]
+    assert resolves["label"]["de"] == {
+        "downstream": "löst",
+        "upstream": "wird gelöst durch",
+        "neutral": "Lösung",
+    }
+    assert resolves["label"]["en"] == {
+        "downstream": "resolves",
+        "upstream": "is resolved by",
+        "neutral": "Resolution",
+    }
+    assert resolves["impact_weight"] == 0.3
+
+    threatens = BUILTIN_LINK_TYPES["threatens"]
+    assert threatens["allowed_pairs"] == [{"source_type": "Risk", "target_type": "*"}]
+    assert threatens["label"]["de"] == {
+        "downstream": "bedroht",
+        "upstream": "wird bedroht durch",
+        "neutral": "Bedrohung",
+    }
+    assert threatens["label"]["en"] == {
+        "downstream": "threatens",
+        "upstream": "is threatened by",
+        "neutral": "Threat",
+    }
+    assert threatens["impact_weight"] == 0.5
+
+    for key in ISSUE_RISK_VOCABULARY_KEYS:
+        definition = BUILTIN_LINK_TYPES[key]
+        assert definition["coverage_relevant"] is False
+        assert definition["suspect_rule"] == "none"
+        assert definition["manual_creatable"] is True
+        assert definition["system_owned"] is False
+        assert definition["active"] is True
+        assert definition["built_in"] is True
 
 
 def test_legacy_mapping_covers_every_retired_key():

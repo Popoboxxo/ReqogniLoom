@@ -20,6 +20,7 @@ import {
 
 const EXPECTED_TYPES = [
   "allocated-to",
+  "blocks",
   "decides",
   "decomposes",
   "derives-from",
@@ -29,7 +30,9 @@ const EXPECTED_TYPES = [
   "realizes",
   "references",
   "refines",
+  "resolves",
   "satisfies",
+  "threatens",
   "validates",
   "verifies",
 ];
@@ -51,6 +54,21 @@ describe("FALLBACK_TRI_LABELS", () => {
     expect(entry.en.downstream).toBeTruthy();
     expect(entry.en.upstream).toBeTruthy();
     expect(entry.en.neutral).toBeTruthy();
+  });
+
+  it("mirrors the pinned Issue/Risk vocabulary labels (Plan F F1.1-T2)", () => {
+    expect(FALLBACK_TRI_LABELS.blocks).toEqual({
+      de: { downstream: "blockiert", upstream: "wird blockiert durch", neutral: "Blockade" },
+      en: { downstream: "blocks", upstream: "is blocked by", neutral: "Blocker" },
+    });
+    expect(FALLBACK_TRI_LABELS.resolves).toEqual({
+      de: { downstream: "löst", upstream: "wird gelöst durch", neutral: "Lösung" },
+      en: { downstream: "resolves", upstream: "is resolved by", neutral: "Resolution" },
+    });
+    expect(FALLBACK_TRI_LABELS.threatens).toEqual({
+      de: { downstream: "bedroht", upstream: "wird bedroht durch", neutral: "Bedrohung" },
+      en: { downstream: "threatens", upstream: "is threatened by", neutral: "Threat" },
+    });
   });
 });
 

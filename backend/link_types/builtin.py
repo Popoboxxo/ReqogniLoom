@@ -2,8 +2,9 @@
 
 Single source of truth for three consumers that must never drift apart:
 the seed/backfill migrations (``0003_seed_builtin_link_types``,
-``0008_seed_satisfaction_link_types``, ``0011_seed_validates_link_type`` and
-``0012_seed_performs_and_satisfies_function_pair``), workspace provisioning
+``0008_seed_satisfaction_link_types``, ``0011_seed_validates_link_type``,
+``0012_seed_performs_and_satisfies_function_pair`` and
+``0013_seed_issue_risk_link_types``), workspace provisioning
 (``link_types.workspace_store.provision_workspace_link_types``), and the tests
 that pin the spec table.
 
@@ -24,10 +25,21 @@ Direction conventions, authoritative for every ``allowed_pairs`` entry below
     satisfies      source = Requirement               target = Goal
     performs       source = ArchitectureElement       target = ArchitectureElement:function
     realizes       source = Requirement               target = Goal
+    blocks         source = Issue                     target = anything
+    resolves       source = anything                  target = Issue
+    threatens      source = Risk                      target = anything
     references     source = anything                  target = a reference entity
     diagram-ref    source = Diagram                   target = anything
 
 ``"*"`` is a wildcard on either side.
+
+Vocabulary mapping of the Issue/Risk verbs (Plan F F1.1-T2, ENT-F1 = b adds
++3 built-ins: ``blocks``, ``resolves``, ``threatens``)::
+
+    blocked-by     = upstream label of ``blocks``        (no own type)
+    mitigated-by   = upstream label of ``mitigates``     (no own type)
+    caused-by      = alias of ``references``             (no own type)
+    related-to     = alias of ``references``             (no own type)
 """
 from __future__ import annotations
 
@@ -381,6 +393,76 @@ BUILTIN_LINK_TYPES: dict[str, dict[str, Any]] = {
             ("Risk", "Requirement"),
             ("Risk", "ArchitectureElement"),
         ),
+        "coverage_relevant": False,
+        "suspect_rule": "none",
+        "impact_weight": 0.5,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    # Plan F F1.1-T2 (ENT-F1 = b): the Issue/Risk vocabulary as own built-ins.
+    # `blocked-by` is the upstream label of `blocks`, `mitigated-by` the
+    # upstream label of `mitigates`, and `caused-by`/`related-to` stay aliases
+    # of `references` -- none of them needs a type of its own.
+    "blocks": {
+        "label": {
+            "de": {
+                "downstream": "blockiert",
+                "upstream": "wird blockiert durch",
+                "neutral": "Blockade",
+            },
+            "en": {
+                "downstream": "blocks",
+                "upstream": "is blocked by",
+                "neutral": "Blocker",
+            },
+        },
+        "allowed_pairs": _pairs(("Issue", "*")),
+        "coverage_relevant": False,
+        "suspect_rule": "none",
+        "impact_weight": 0.5,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    "resolves": {
+        "label": {
+            "de": {
+                "downstream": "löst",
+                "upstream": "wird gelöst durch",
+                "neutral": "Lösung",
+            },
+            "en": {
+                "downstream": "resolves",
+                "upstream": "is resolved by",
+                "neutral": "Resolution",
+            },
+        },
+        "allowed_pairs": _pairs(("*", "Issue")),
+        "coverage_relevant": False,
+        "suspect_rule": "none",
+        "impact_weight": 0.3,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    "threatens": {
+        "label": {
+            "de": {
+                "downstream": "bedroht",
+                "upstream": "wird bedroht durch",
+                "neutral": "Bedrohung",
+            },
+            "en": {
+                "downstream": "threatens",
+                "upstream": "is threatened by",
+                "neutral": "Threat",
+            },
+        },
+        "allowed_pairs": _pairs(("Risk", "*")),
         "coverage_relevant": False,
         "suspect_rule": "none",
         "impact_weight": 0.5,
