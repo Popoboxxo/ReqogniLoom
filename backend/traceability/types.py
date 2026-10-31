@@ -71,6 +71,14 @@ class LinkType(str, Enum):
     # function itself is justified by an incoming `satisfies` from a
     # Requirement. See ``traceability.audit.rules.trace_derivation_allocation``.
     PERFORMS = "performs"
+    # Plan F F1.1-T2 (ENT-F1 = b): the Issue/Risk vocabulary as own types.
+    # `blocks` runs Issue -> *, `resolves` * -> Issue, `threatens` Risk -> *;
+    # `blocked-by`/`mitigated-by` are their upstream labels, not own types.
+    # Listing them here keeps the Layer-1 fail-safe a superset of the catalog
+    # (see ``_validate_link_type``) so a catalog-accepted link can persist.
+    BLOCKS = "blocks"
+    RESOLVES = "resolves"
+    THREATENS = "threatens"
 
     @classmethod
     def values(cls) -> frozenset[str]:

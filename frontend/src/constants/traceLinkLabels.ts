@@ -84,6 +84,21 @@ export const FALLBACK_TRI_LABELS: Record<string, TriLabelEntry> = {
     de: { downstream: "mindert", upstream: "wird gemindert durch", neutral: "Risikominderung" },
     en: { downstream: "mitigates", upstream: "is mitigated by", neutral: "Mitigation" },
   },
+  // Plan F F1.1-T2 (ENT-F1 = b): the Issue/Risk vocabulary as own types.
+  // `blocked-by`/`mitigated-by` are the upstream labels here; `caused-by` and
+  // `related-to` stay aliases of `references`.
+  blocks: {
+    de: { downstream: "blockiert", upstream: "wird blockiert durch", neutral: "Blockade" },
+    en: { downstream: "blocks", upstream: "is blocked by", neutral: "Blocker" },
+  },
+  resolves: {
+    de: { downstream: "löst", upstream: "wird gelöst durch", neutral: "Lösung" },
+    en: { downstream: "resolves", upstream: "is resolved by", neutral: "Resolution" },
+  },
+  threatens: {
+    de: { downstream: "bedroht", upstream: "wird bedroht durch", neutral: "Bedrohung" },
+    en: { downstream: "threatens", upstream: "is threatened by", neutral: "Threat" },
+  },
   references: {
     de: { downstream: "verweist auf", upstream: "wird referenziert von", neutral: "Verweis" },
     en: { downstream: "references", upstream: "is referenced by", neutral: "Reference" },

@@ -88,9 +88,11 @@ def test_list_returns_the_workspace_catalog(group, env):
     assert result.success is True
     keys = {lt["key"] for lt in result.data["link_types"]}
     # Membership, not a pinned total: the catalog grows with the plan series.
-    assert "validates" in keys
-    assert "performs" in keys
-    assert len(result.data["link_types"]) == len(BUILTIN_LINK_TYPES)
+    assert {"validates", "performs"} <= keys
+    # Plan F F1.1-T2 (ENT-F1 = b): the Issue/Risk vocabulary is a set of
+    # regular built-ins, so it must be listed like any other key.
+    assert {"blocks", "resolves", "threatens"} <= keys
+    assert set(BUILTIN_LINK_TYPES) <= keys
 
 
 @pytest.mark.django_db

@@ -12,15 +12,16 @@ There is exactly one validation authority left:
 ``TraceLinkService.create_trace_link`` → ``link_types.catalog``. These tests
 pin that (real DB, real services — no mocked TraceLinkService).
 
-Vocabulary mapping (ENT-F0 = a, ENT-F1 = b later in PR-F2):
+Vocabulary mapping (ENT-F0 = a; ENT-F1 = b is binding, so the three Issue/Risk
+verbs are own built-ins since PR-F2):
 
-  - ``related-to``      → ``references``
+  - ``related-to`` / ``caused-by``
+                        → ``references``
   - ``mitigated-by``    → ``mitigates`` (direction Risk → target; the reverse
                           is the upstream label "wird gemindert durch")
-  - ``blocks`` / ``blocked-by`` / ``resolves`` / ``caused-by`` / ``threatens``
-                        → ``references`` with ``rationale`` today; own
-                          built-ins (`blocks`, `resolves`, `threatens`) in
-                          PR-F2.
+  - ``blocks``          → own built-in, Issue → ``*``
+  - ``resolves``        → own built-in, ``*`` → Issue
+  - ``threatens``       → own built-in, Risk → ``*``
 """
 from __future__ import annotations
 
@@ -31,7 +32,6 @@ from application.requirement_service import RequirementService
 from application.risk_service import RiskService
 from application.trace_link_service import TraceLinkService
 from auth_tenancy.context import AuthContext
-from persistence.errors import ValidationError
 from persistence.models import Tenant, TraceLink, User
 from persistence.tenancy import TenantContext
 from persistence.tests.factories import make_workspace
@@ -150,23 +150,23 @@ def test_risk_mitigates_requirement_created(env):
     assert stored.target.artifact_type == "Requirement"
 
 
-def test_unknown_issue_vocabulary_rejected_by_catalog(env):
-    """`blocks` is not a catalog member yet (ENT-F1 = a).
+def test_issue_blocks_link_created(env):
+    """`blocks` is a catalog built-in since Plan F F1.1-T2 (ENT-F1 = b).
 
-    # F1.1-T2: when ENT-F1 = b lands, `blocks` becomes a built-in and this
-    test flips to asserting a successful creation.
+    It flipped from "unknown link type" to a regular Issue -> ``*`` type, and
+    the link is persisted through the same single validation path.
     """
     issue = _issue(env)
     requirement = _requirement(env)
 
-    with pytest.raises(ValidationError, match="Unknown link type 'blocks'"):
-        TraceLinkService().create_trace_link(
-            source_id=issue.id,
-            target_id=requirement.id,
-            link_type="blocks",
-            ctx=env["ctx"],
-        )
+    link = TraceLinkService().create_trace_link(
+        source_id=issue.id,
+        target_id=requirement.id,
+        link_type="blocks",
+        ctx=env["ctx"],
+    )
 
-    assert not TraceLink.objects.filter(
-        source=issue.artifact_id, link_type="blocks"
-    ).exists()
+    stored = TraceLink.objects.get(id=link.id)
+    assert stored.link_type == "blocks"
+    assert stored.source.artifact_type == "Issue"
+    assert stored.target.artifact_type == "Requirement"
