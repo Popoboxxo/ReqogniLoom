@@ -291,3 +291,57 @@ class TestBaselineTagsListAndCreate:
         body = response.json()["error"]
         assert body["code"] == "VALIDATION_ERROR"
         assert body["details"], body
+
+
+class TestBaselineTagFilterValidation:
+    """F4.2 review B2 — the ``?tag=`` filter is validated, not passed through.
+
+    Before the fix a NUL byte reached psycopg2 (``A string literal cannot
+    contain NUL (0x00) characters``) and the request answered **500**; an
+    unbounded value went straight into ``iexact``. Both are request defects and
+    must answer ``400 VALIDATION_ERROR``.
+    """
+
+    def test_tag_filter_with_nul_byte_is_400_not_500(
+        self, authed_client: APIClient, tenant: Tenant, workspace: Workspace
+    ) -> None:
+        _baseline(tenant, workspace, f"nul-{uuid.uuid4().hex[:8]}", ["Release"])
+
+        response = authed_client.get(
+            "/api/v1/baselines/",
+            {"workspace_id": str(workspace.id), "tag": "\x00"},
+        )
+
+        assert response.status_code == 400, response.content
+        body = response.json()["error"]
+        assert body["code"] == "VALIDATION_ERROR"
+        assert body["details"], body
+
+    def test_tag_filter_longer_than_64_is_400(
+        self, authed_client: APIClient, tenant: Tenant, workspace: Workspace
+    ) -> None:
+        _baseline(tenant, workspace, f"long-{uuid.uuid4().hex[:8]}", ["Release"])
+
+        response = authed_client.get(
+            "/api/v1/baselines/",
+            {"workspace_id": str(workspace.id), "tag": "x" * 65},
+        )
+
+        assert response.status_code == 400, response.content
+        body = response.json()["error"]
+        assert body["code"] == "VALIDATION_ERROR"
+        assert body["details"], body
+
+    def test_blank_tag_filter_means_no_filter(
+        self, authed_client: APIClient, tenant: Tenant, workspace: Workspace
+    ) -> None:
+        """A blank filter is "no filter", not an error (unchanged semantics)."""
+        _baseline(tenant, workspace, f"blank-{uuid.uuid4().hex[:8]}", ["Release"])
+
+        response = authed_client.get(
+            "/api/v1/baselines/",
+            {"workspace_id": str(workspace.id), "tag": "   "},
+        )
+
+        assert response.status_code == 200, response.content
+        assert len(response.json()["results"]) == 1

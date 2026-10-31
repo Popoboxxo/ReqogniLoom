@@ -314,6 +314,12 @@ class BaselineToolGroup(BaseToolGroup):
             summaries = self._facade.list_baselines(
                 workspace_id=workspace_id, ctx=auth_context, scope=scope, tag=tag
             )
+        except ValidationError as exc:
+            # F4.2 review B2: the ``tag`` filter is validated centrally in the
+            # facade (shared with REST). Without this branch the exception
+            # escaped to the dispatcher's catch-all and became ``-32603``
+            # (internal error) for what is a malformed parameter.
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
 

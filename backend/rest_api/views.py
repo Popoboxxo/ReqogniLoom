@@ -355,6 +355,14 @@ _EXC_TO_HTTP: dict[type, int] = {
     # own message to the client when the refusal escapes a view that has no
     # dedicated branch (the exact-type lookup degrades to a 500 otherwise).
     BaselineImmutabilityError: status.HTTP_409_CONFLICT,
+    # F4.2 review B2/B3: tag input is a request defect (a control character, an
+    # over-long value, a collation-level label collision). Registered as its
+    # own type because ``_service_error_response`` looks the exception up by
+    # *exact* type — a ``ValidationError`` subclass left out of this map degrades
+    # to the generic 500 branch, which is precisely the symptom being fixed.
+    # Routes that want the machine-readable ``details`` list still catch it
+    # explicitly (baseline create / tags / list).
+    BaselineTagValidationError: status.HTTP_400_BAD_REQUEST,
     NotFoundError: status.HTTP_404_NOT_FOUND,
     OptimisticLockError: status.HTTP_409_CONFLICT,
     # GH-1396: shared safety net for routes that do not map the header
@@ -399,6 +407,9 @@ _EXC_TO_CODE: dict[type, str] = {
     SuppressionExpiredError: "SUPPRESSION_EXPIRED",
     ProducerContextRequiredError: "PRODUCER_CONTEXT_REQUIRED",
     BaselineImmutabilityError: "CONFLICT",
+    # F4.2 review B2/B3: same code as every other validation failure, so a
+    # client keeps one 400 branch; only the shape of ``details`` differs.
+    BaselineTagValidationError: "VALIDATION_ERROR",
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",
     # GH-1396: see _EXC_TO_HTTP. INVALID_IF_MATCH is its own code so a client
@@ -5440,6 +5451,15 @@ class BaselineViewSet(BaseEntityViewSet):
         # nothing about what a 200 contains.
         responses={
             200: BaselineSummarySerializer(many=True),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "``VALIDATION_ERROR`` — the ``tag`` filter is not a string, "
+                    "contains a control character or is longer than 64 "
+                    "characters. ``details`` carries the rejected value with "
+                    "the reason (F4.2, review B2)."
+                ),
+            ),
             404: _BASELINE_PRESET_404,
         },
     )
@@ -5481,6 +5501,17 @@ class BaselineViewSet(BaseEntityViewSet):
                 workspace_id=str(workspace_id),
                 ctx=ctx,
                 tag=request.query_params.get("tag") or None,
+            )
+        except BaselineTagValidationError as exc:
+            # F4.2 review B2: an invalid ``?tag=`` is a client defect. Caught
+            # before the generic ``ValidationError`` branch so the response
+            # carries the same ``details`` list as the create/PUT actions
+            # instead of the details-less fallback.
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message=str(exc), details=exc.details
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)

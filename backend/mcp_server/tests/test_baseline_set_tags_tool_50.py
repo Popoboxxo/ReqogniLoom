@@ -198,3 +198,33 @@ class TestBaselineSetTagsFencedKey:
         assert result.success is False
         assert result.error_code == "PERMISSION_DENIED"
         assert ERROR_CODE_MAP[result.error_code] == -32001
+
+
+class TestBaselineListTagFilterValidation:
+    """F4.2 review B2 — an invalid ``tag`` filter is a parameter error.
+
+    The filter is validated in the facade (one place, both transports). Before
+    the fix the resulting exception escaped ``_handle_list`` and was masked by
+    the dispatcher's catch-all as ``-32603`` (internal error) — indistinguishable
+    from a genuine server defect for what is a malformed parameter.
+    """
+
+    @pytest.mark.parametrize("tag", ["\x00", "x" * 65])
+    def test_invalid_tag_filter_is_validation_error(self, tag: str) -> None:
+        tenant, _, workspace, ctx = _make_tenant_workspace_ctx("tag-mcp-filter")
+        group = BaselineToolGroup()
+
+        TenantContext.set_tenant(tenant.id)
+        try:
+            result = group._handle_list(
+                params={"workspace_id": str(workspace.id), "tag": tag},
+                auth_context=ctx,
+                api_key="reqlo_x",
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        assert ERROR_CODE_MAP[result.error_code] == -32602
+        assert ERROR_CODE_MAP[result.error_code] != -32603
