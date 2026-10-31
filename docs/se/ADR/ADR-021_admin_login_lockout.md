@@ -337,6 +337,18 @@ folgten danach. Dieses ADR ist die nachgelagerte Dokumentation.
    (Self-hosted On-Prem-LAN, Lockout vorhanden, kein 2FA-Paket) — 2FA wird als eigenständiges
    Roadmap-Vorhaben geführt (eigenes Issue, nicht Teil dieses ADR). Kein Statuswechsel, keine
    Kompensation.
+
+   **Nachtrag (2026-10-31, #1308, Plan E/E3):** Das Residuum ist durch TOTP-2FA geschlossen;
+   die Umsetzung erfolgt in Plan E/E3 (E3.1–E3.9). Das Übergangsfenster
+   `MFA_STAFF_ENFORCEMENT=optional` ist befristet **bis 2027-01-31**; danach gilt `required` —
+   der Cutover (`mfa_enforce_cutover`, E3.9) erfolgt durch den Betreiber. Die dokumentierte
+   Risiko-Akzeptanz aus dem Nachtrag vom 2026-10-14 endet am **2027-01-31** — unabhängig
+   davon, ob der Cutover zu diesem Zeitpunkt erfolgt ist. Erfolgt der Cutover nicht bis dahin,
+   ist die Akzeptanz ab 2027-02-01 nicht mehr gültig; der Betreiber muss sie dann ausdrücklich
+   neu entscheiden (neuer Nachtrag, kein stilles Weiterlaufen). Staff-API-Keys ohne zweiten
+   Faktor bleiben ein akzeptiertes Restrisiko, mit Inventur und `expires_at`-Pflicht für neue
+   Staff-Keys (ENT-E8 = A). Enrollment nur mit einmaligem Grant, TTL ≤ 24 h, auditiert
+   (ENT-E7 = A); kein QR-Rendering in v1 (ENT-E5 = A). Kein Statuswechsel des ADR.
 6. **O6 — Issue #1135 und `CHANGELOG.md:236`:** das Issue ist **nicht** geschlossen und der
    CHANGELOG-Vermerk „OPEN, decision pending" (`:236`) ist **nicht** aktualisiert — beides ist
    Folgeaufgabe nach `accepted`, nicht Teil dieses Dokuments.
