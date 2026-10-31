@@ -159,6 +159,13 @@ services:
       CELERY_RESULT_BACKEND: redis://redis-test:6379/0
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
       DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-1}
+      # Issue #89: seed_demo refuses its built-in demo password unless this
+      # explicit opt-in is set. Several backend tests provision demo data by
+      # calling seed_demo with no admin password in the environment
+      # (application/tests/test_migrate_se_docs.py); without the opt-in they
+      # would now get a CommandError. Test-only — deploy/docker-compose.yml
+      # must never set it (guarded by test_prod_compose_never_sets_opt_in).
+      SEED_DEMO_ALLOW_DEFAULT_PASSWORD: "1"
       # Cap the native math/BLAS thread pools. Without these, torch and the
       # OpenMP/OpenBLAS/MKL runtimes spawn one thread per host core for every
       # process: `pytest mcp_server/tests` burned 1429% CPU (14 cores, 1h40 of

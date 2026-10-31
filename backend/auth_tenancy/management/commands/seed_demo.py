@@ -2,12 +2,13 @@
 ARCH-L1-011 AuthAndTenancy — OPTIONAL demo seed command (REQ-L1-010).
 
 This command is **optional**. The base data required for login (tenant,
-workspace, admin user, admin role) is provisioned automatically at container
-start by ``bootstrap_admin`` (see the ``bootstrap`` service in
-docker-compose.yml). ``seed_demo`` is kept as a convenience entry point for
-local development and the Playwright E2E suite: it delegates to the shared
-:func:`auth_tenancy.provisioning.provision_admin` helper so a developer who runs
-only ``seed_demo`` still gets a working login.
+workspace, admin user, admin role) plus the workspace's default workflow and
+attribute definitions are provisioned automatically by
+``application.self_init`` (the ``post_migrate`` hook that runs inside the
+``migrate`` service of docker-compose.yml). ``seed_demo`` is kept as a
+convenience entry point for local development and the Playwright E2E suite: it
+delegates to the shared :func:`auth_tenancy.provisioning.provision_admin` helper
+so a developer who runs only ``seed_demo`` still gets a working login.
 
 Unlike ``bootstrap_admin`` this command may re-apply a known demo password on
 demand via ``--reset-password`` — a dev-only convenience for recovering demo
@@ -15,8 +16,11 @@ credentials. Without that flag it is also create-only and never rewrites an
 existing password.
 
 The password is read from ``SYSTEM_ADMIN_PASSWORD`` (falling back to the legacy
-``DEMO_ADMIN_PASSWORD`` for backward compatibility, then to a fixed demo
-default), so it stays aligned with the mandatory bootstrap configuration.
+``DEMO_ADMIN_PASSWORD`` for backward compatibility), so it stays aligned with the
+mandatory bootstrap configuration. The built-in demo password is only used with
+the explicit, DEBUG-independent opt-in ``SEED_DEMO_ALLOW_DEFAULT_PASSWORD=1``
+(issue #89): without it — and without an env password — the command refuses to
+run instead of provisioning a known credential.
 
 Usage:
     python manage.py seed_demo
@@ -28,7 +32,7 @@ import os
 from argparse import ArgumentParser
 from typing import Any
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from application.attribute_bootstrap import bootstrap_attribute_definitions_for_tenant
 from application.workspace_provisioning import provision_workspace_defaults_scoped
@@ -39,6 +43,17 @@ from auth_tenancy.provisioning import (
 )
 
 _DEFAULT_ADMIN_PASSWORD = "admin12345"
+
+# Issue #89: the built-in demo password is a known credential, so using it is an
+# explicit opt-in — DELIBERATELY independent of DEBUG. The dev overlay sets
+# DEBUG=True while still being reachable/productive, so gating on `not DEBUG`
+# would leave a production-shaped deployment that merely forgot to flip DEBUG
+# with a publicly known admin password.
+_ALLOW_DEFAULT_PASSWORD_ENV = "SEED_DEMO_ALLOW_DEFAULT_PASSWORD"
+_REFUSE_DEFAULT_PASSWORD_MESSAGE = (
+    "seed_demo refuses the built-in demo password; set SYSTEM_ADMIN_PASSWORD "
+    "or SEED_DEMO_ALLOW_DEFAULT_PASSWORD=1 (test only)."
+)
 
 # provision_admin()'s base workspace is always created with active_tier
 # "extended" (see auth_tenancy.provisioning._ensure_workspace) -- matches
@@ -52,8 +67,9 @@ class Command(BaseCommand):
 
     help = (
         "Optionally seed the demo tenant, workspace and admin user for local "
-        "development / E2E. Base login data is provisioned by bootstrap_admin "
-        "at startup; this command is not required (REQ-L1-010)."
+        "development / E2E. Base login data is provisioned by "
+        "application.self_init during migrate; this command is not required "
+        "(REQ-L1-010)."
     )
 
     def add_arguments(self, parser: ArgumentParser) -> None:
@@ -71,11 +87,18 @@ class Command(BaseCommand):
         """Provision the demo data set and print a login hint."""
         username = os.environ.get("SYSTEM_ADMIN_USERNAME", DEFAULT_ADMIN_USERNAME)
         email = os.environ.get("SYSTEM_ADMIN_EMAIL", DEFAULT_ADMIN_EMAIL)
-        password = (
-            os.environ.get("SYSTEM_ADMIN_PASSWORD")
-            or os.environ.get("DEMO_ADMIN_PASSWORD")
-            or _DEFAULT_ADMIN_PASSWORD
+        password = os.environ.get("SYSTEM_ADMIN_PASSWORD") or os.environ.get(
+            "DEMO_ADMIN_PASSWORD"
         )
+        using_default_password = False
+        if not password:
+            # Issue #89: no credential configured -> only the built-in demo
+            # password is left, and that needs the explicit opt-in. Applies to
+            # --reset-password too (it re-applies this same resolved password).
+            if os.environ.get(_ALLOW_DEFAULT_PASSWORD_ENV) != "1":
+                raise CommandError(_REFUSE_DEFAULT_PASSWORD_MESSAGE)
+            password = _DEFAULT_ADMIN_PASSWORD
+            using_default_password = True
 
         result = provision_admin(
             username=username,
@@ -120,9 +143,17 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS("Demo data seeded."))
         if result.password_set:
+            # Issue #89: never echo a configured secret. The password is only
+            # printed when it is the built-in demo default, which the operator
+            # explicitly opted into above.
+            shown_password = (
+                _DEFAULT_ADMIN_PASSWORD
+                if using_default_password
+                else "<password from SYSTEM_ADMIN_PASSWORD>"
+            )
             self.stdout.write(
                 "Login: POST /api/v1/auth/login/ "
-                f'{{"username": "{username}", "password": "{password}"}}'
+                f'{{"username": "{username}", "password": "{shown_password}"}}'
             )
         else:
             self.stdout.write(

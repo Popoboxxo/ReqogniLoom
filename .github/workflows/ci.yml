@@ -175,6 +175,13 @@ jobs:
           ALLOWED_HOSTS: localhost,127.0.0.1
           DEFAULT_TENANT_ID: '1'
           LLM_PROVIDER: mock
+          # Issue #89: seed_demo refuses its built-in demo password unless this
+          # explicit opt-in is set. set-1-core's application/tests/
+          # test_migrate_se_docs.py provisions its fixtures via seed_demo with
+          # no admin password in the environment, so it needs the opt-in here
+          # (same value as testing/docker-compose.test.yml). Test-only — never
+          # set in deploy/docker-compose.yml.
+          SEED_DEMO_ALLOW_DEFAULT_PASSWORD: '1'
           # torch/OpenMP otherwise spawns one thread per vCPU inside a single
           # pytest process; the MCP suite used 14 cores unattended on a dev box
           # and starved itself. One thread is deterministic and fast here.
