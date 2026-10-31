@@ -189,10 +189,11 @@ Der RiskService SHALL Workflow-State-Transitions für Risks delegieren an Workfl
 
 ### REQ-L3-RISK-006: TraceLink-Verwaltung für Risk-Relationen
 
-Der RiskService SHALL TraceLinks zwischen Risks und anderen Artefakten verwalten. Unterstützte Link-Typen:
-- `threatens` (Risk gefährdet ein Requirement oder ArchitectureElement)
-- `mitigated-by` (Risk wird durch ein Requirement oder ADR mitigiert)
-- `related-to` (Risk ist verwandt mit anderer Risk oder Artefakt)
+Der RiskService SHALL TraceLinks zwischen Risks und anderen Artefakten verwalten. Links über den Workspace-Link-Typ-Katalog (`references`, `mitigates`; ab ENT-F1=b zusätzlich `blocks`, `resolves`, `threatens`) — die drei Zusatz-Einträge erweitern den Katalog tenant-global, nicht je Komponente.
+
+Der Service führt keine eigene Link-Vokabel und keinen Risk-spezifischen Link-Endpoint. Einziger öffentlicher Pfad ist der generische Endpoint `POST /api/v1/trace-links/` mit `{"source_id", "target_id", "link_type"}`; Gültigkeit und Richtung eines Link-Typs entscheidet ausschließlich der Katalog des Ziel-Workspaces (`TraceLinkService.create_trace_link`). Für Risks ist `mitigates` mit dem Risk als Ursprung zulässig (Ziel: Requirement oder ArchitectureElement); `references` gilt nur für die Endpunkt-Kombinationen, die der Workspace-Katalog zulässt. Ab ENT-F1=b gilt zusätzlich: `threatens` nur mit dem Risk als Ursprung (Ziel = `*`); `blocks`/`resolves` nur, wenn der Risk der genannte Endpunkt ist (`blocks`: Risk als Ziel, Ursprung = Issue; `resolves`: Risk als Ursprung, Ziel = Issue).
+
+Vokabel-Abbildung: `related-to` → `references`; `mitigated-by` → `mitigates` (Richtung Risk → Ziel; Gegenrichtung = Upstream-Label „wird gemindert durch"); `blocks`/`blocked-by`/`resolves`/`caused-by`/`threatens` → bei ENT-F1=b eigene Built-ins (`blocked-by` als Upstream-Label von `blocks`; Geltung für Risks: `threatens` nur Risk → `*`, `blocks` nur mit Risk als Ziel, `resolves` nur mit Risk als Ursprung), davor `references` mit `rationale`.
 
 **Domain:** software
 **Priority:** mandatory

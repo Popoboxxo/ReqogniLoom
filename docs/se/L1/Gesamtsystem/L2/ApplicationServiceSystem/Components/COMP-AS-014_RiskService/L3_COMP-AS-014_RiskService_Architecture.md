@@ -36,7 +36,7 @@ Der RiskService verwaltet den vollständigen Lifecycle von Risk-Entitäten im Re
   - `list_by_score_range(workspace_id, min, max) → [Risk]`
   - `delete_risk(risk_id)`
   - `transition_status(risk_id, target_status, change_reason, auth_context) → Risk`
-  - `create_tracelink(risk_id, target_id, link_type) → TraceLink`
+  - TraceLinks: keine eigene Methode — `TraceLinkService.create_trace_link(source_id, target_id, link_type)` gegen den Workspace-Link-Typ-Katalog
 
 - **`RiskScoreCalculator` (Klasse):** Berechnet Risk-Score = probability_numeric × impact_numeric (1-3 × 1-3 = 1-25).
 
@@ -74,7 +74,7 @@ Der RiskService verwaltet den vollständigen Lifecycle von Risk-Entitäten im Re
 | REQ-L3-RISK-003 (Update mit Versionierung) | Methode `update_risk(risk_id, updates)`: Alte Version beibehalten, neue Version mit version+1 erstellen. Risk-Score wird neu berechnet wenn probability/impact geändert. Timestamp und Actor erfasst. Audit-Trail vollständig. |
 | REQ-L3-RISK-004 (Deletion mit Cascade-Cleanup) | Methode `delete_risk(risk_id)` in `transaction.atomic()`: (1) Lösche TraceLinks, (2) Lösche WorkflowState-History, (3) Lösche Risk. Bei Fehler: Rollback. |
 | REQ-L3-RISK-005 (Status-Transitions) | Methode `transition_status(risk_id, target_status, change_reason)`: Delegiere an WorkflowFacade. Gültige Status: Identified (initial) → Monitored → Mitigated (oder Accepted) → Closed. change_reason erfasst (wenn erforderlich). Audit-Log-Eintrag geschrieben. |
-| REQ-L3-RISK-006 (TraceLink-Verwaltung) | Methode `create_tracelink(risk_id, target_id, link_type)`: Unterstützte Link-Typen: threatens (Risk gefährdet Requirement/ArchitectureElement), mitigated-by (Risk wird mitigiert), related-to. Rufe TraceLinkService auf. Bidirektionale Querybarkeit. |
+| REQ-L3-RISK-006 (TraceLink-Verwaltung) | Keine eigene Link-Methode und keine private Link-Vokabel: Links über den Workspace-Link-Typ-Katalog (`references`, `mitigates`; ab ENT-F1=b zusätzlich `blocks`, `resolves`, `threatens`) via `TraceLinkService.create_trace_link(source_id, target_id, link_type)`. Einziger öffentlicher Pfad ist der generische Endpoint `POST /api/v1/trace-links/`; kein Risk-spezifischer Link-Endpoint. Bidirektionale Querybarkeit. |
 | REQ-L3-RISK-007 (Priorisierung nach Score) | RiskScoreCalculator: Score = prob × impact (1-25). High Risk: Score ≥9, Medium: 4-8, Low: 1-3. Sorting nach Score aufsteigend/absteigend möglich. Score wird bei CREATE/UPDATE aktualisiert. Risk-Kategorien (High/Medium/Low) sind querybar. Score in Result-Payload. |
 | REQ-L3-RISK-008 (Tenant-Isolation) | Tenant wird aus Auth-Context extrahiert. Risk wird mit tenant_id gekennzeichnet. Keine Cross-Tenant-Queries. Keine Cross-Tenant-TraceLinks. |
 | REQ-L3-RISK-009 (Domain-Event-Publikation) | Nach erfolgreicher Mutation: Publiziere Event via DomainEventBus (post_commit Hook). Events: RiskCreated, RiskUpdated, RiskDeleted. Event-Payload strukturiert. Fire-and-Forget. |

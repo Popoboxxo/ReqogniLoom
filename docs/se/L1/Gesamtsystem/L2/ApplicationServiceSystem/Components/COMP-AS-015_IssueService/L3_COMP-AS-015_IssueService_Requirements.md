@@ -190,12 +190,11 @@ Der IssueService SHALL Workflow-State-Transitions für Issues delegieren an Work
 
 ### REQ-L3-ISSUE-006: TraceLink-Verwaltung für Issue-Relationen
 
-Der IssueService SHALL TraceLinks zwischen Issues und anderen Artefakten verwalten. Unterstützte Link-Typen:
-- `related-to` (Issue ist verwandt mit Requirements, ArchitectureElements, Tests)
-- `blocks` (Issue blockiert andere Requirements oder Issues)
-- `blocked-by` (Issue wird blockiert von anderen Issues)
-- `caused-by` (Issue wird verursacht durch Risk oder ADR-Entscheidung)
-- `resolves` (Issue löst ein Test-Problem oder Anforderungs-Defekt)
+Der IssueService SHALL TraceLinks zwischen Issues und anderen Artefakten verwalten. Links über den Workspace-Link-Typ-Katalog (`references`, `mitigates`; ab ENT-F1=b zusätzlich `blocks`, `resolves`, `threatens`) — die drei Zusatz-Einträge erweitern den Katalog tenant-global, nicht je Komponente.
+
+Der Service führt keine eigene Link-Vokabel und keinen Issue-spezifischen Link-Endpoint. Einziger öffentlicher Pfad ist der generische Endpoint `POST /api/v1/trace-links/` mit `{"source_id", "target_id", "link_type"}`; Gültigkeit und Richtung eines Link-Typs entscheidet ausschließlich der Katalog des Ziel-Workspaces (`TraceLinkService.create_trace_link`). Für Issues ist `references` in beiden Richtungen zulässig (Issue ist Wildcard auf beiden Seiten), `mitigates` nur mit einem Risk als Ursprung (Ziel: Requirement oder ArchitectureElement; Gegenrichtung = Upstream-Label „wird gemindert durch"). Ab ENT-F1=b gilt zusätzlich: `blocks` nur mit Issue als Ursprung (Ziel = `*`), `resolves` nur mit Issue als Ziel (Ursprung = `*`), `threatens` nur mit Risk als Ursprung (Ziel = `*`, also auch Issue).
+
+Vokabel-Abbildung: `related-to` → `references`; `mitigated-by` → `mitigates` (Richtung Risk → Ziel; Gegenrichtung = Upstream-Label „wird gemindert durch"); `blocks`/`blocked-by`/`resolves`/`caused-by`/`threatens` → bei ENT-F1=b eigene Built-ins (`blocked-by` als Upstream-Label von `blocks`; Geltung für Issues: `blocks` nur Issue → `*`, `resolves` nur `*` → Issue, `threatens` nur mit Risk als Ursprung (Ziel = `*`, also auch Issue)), davor `references` mit `rationale`.
 
 **Domain:** software
 **Priority:** mandatory

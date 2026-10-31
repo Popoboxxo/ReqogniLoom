@@ -46,9 +46,6 @@ from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
-# Supported TraceLink types for Issues (REQ-L3-ISSUE-006)
-ISSUE_LINK_TYPES = frozenset({"related-to", "blocks", "blocked-by", "caused-by", "resolves"})
-
 #: Task 20 review finding F-2: ``update_issue``'s ``due_date`` default used to
 #: be plain ``None``, which cannot distinguish "the client omitted this
 #: field" (leave the stored value unchanged) from "the client explicitly
@@ -775,46 +772,32 @@ class IssueService(ServiceBase):
         return issue
 
     # ---------- TraceLink management (REQ-L3-ISSUE-006, IF-AS-INT-002) ----------
-
-    def create_tracelink(
-        self,
-        issue_id: UUID,
-        target_id: UUID,
-        link_type: str,
-        ctx: AuthContext,
-    ):
-        """Create a TraceLink from an Issue to another artifact (REQ-L3-ISSUE-006).
-
-        Args:
-            issue_id: UUID of the source Issue.
-            target_id: UUID of the target artifact.
-            link_type: One of {"related-to", "blocks", "blocked-by", "caused-by", "resolves"}.
-            ctx: Resolved AuthContext.
-
-        Returns:
-            Created TraceLink ORM instance.
-        """
-        self._set_tenant_context(ctx)
-        if link_type not in ISSUE_LINK_TYPES:
-            raise ValidationError(
-                f"Invalid Issue link type '{link_type}'; "
-                f"must be one of {sorted(ISSUE_LINK_TYPES)}"
-            )
-
-        issue = Issue.objects.filter(id=issue_id, tenant_id=ctx.tenant_id).first()
-        if issue is None:
-            raise NotFoundError(f"Issue {issue_id} not found")
-
-        return self._trace_link_service.create_trace_link(
-            source_id=issue_id,
-            target_id=target_id,
-            link_type=link_type,
-            ctx=ctx,
-        )
+    #
+    # Issue TraceLinks are created through the generic
+    # TraceLinkService.create_trace_link flow (source=Issue id, target=any
+    # artifact the catalog allows, "references"). TraceLinkService resolves the
+    # Issue id to its backing Artifact id (fix #407), and
+    # link_types.catalog.validate_link_pair is the *single* validation
+    # authority: Issue is a wildcard on both sides of the `references` entry.
+    #
+    # The former IssueService.create_tracelink method and its private link-type
+    # frozenset were dead code with a second, divergent validation path
+    # (F1.1-T1, finding R-F1-2): its vocabulary ("related-to", "blocks",
+    # "blocked-by", "caused-by", "resolves") was never part of the workspace
+    # catalog, so every call that passed the local check failed downstream.
+    # Vocabulary mapping:
+    #
+    #   related-to                  -> references
+    #   blocks / blocked-by /
+    #   resolves / caused-by        -> references with `rationale` today;
+    #                                  own built-ins (`blocks`, `resolves`)
+    #                                  once ENT-F1 = b lands in PR-F2
+    #
+    # The generic surface is the user path (POST /api/v1/trace-links/ and the
+    # traceability.* MCP tools); it was never reachable through this helper.
 
 
 __all__ = [
-    "ISSUE_LINK_TYPES",
     "IssueDTO",
     "IssueService",
 ]

@@ -46,9 +46,6 @@ from workflow import state_reader
 
 logger = logging.getLogger(__name__)
 
-# Supported TraceLink types for Risks (REQ-L3-RISK-006)
-RISK_LINK_TYPES = frozenset({"threatens", "mitigated-by", "related-to"})
-
 # Sentinel distinguishing "parameter omitted" from "clear custom_fields to {}"
 # (mirrors application.artifact_service._UNSET, same per-module pattern as
 # requirement_service/stakeholder_need_service/test_service).
@@ -737,46 +734,33 @@ class RiskService(ServiceBase):
         return risk
 
     # ---------- TraceLink management (REQ-L3-RISK-006, IF-AS-INT-002) ----------
-
-    def create_tracelink(
-        self,
-        risk_id: UUID,
-        target_id: UUID,
-        link_type: str,
-        ctx: AuthContext,
-    ):
-        """Create a TraceLink from a Risk to another artifact (REQ-L3-RISK-006).
-
-        Args:
-            risk_id: UUID of the source Risk.
-            target_id: UUID of the target artifact.
-            link_type: One of {"threatens", "mitigated-by", "related-to"}.
-            ctx: Resolved AuthContext.
-
-        Returns:
-            Created TraceLink ORM instance.
-        """
-        self._set_tenant_context(ctx)
-        if link_type not in RISK_LINK_TYPES:
-            raise ValidationError(
-                f"Invalid Risk link type '{link_type}'; "
-                f"must be one of {sorted(RISK_LINK_TYPES)}"
-            )
-
-        risk = Risk.objects.filter(id=risk_id, tenant_id=ctx.tenant_id).first()
-        if risk is None:
-            raise NotFoundError(f"Risk {risk_id} not found")
-
-        return self._trace_link_service.create_trace_link(
-            source_id=risk_id,
-            target_id=target_id,
-            link_type=link_type,
-            ctx=ctx,
-        )
+    #
+    # Risk TraceLinks are created through the generic
+    # TraceLinkService.create_trace_link flow (source=Risk id, target=any
+    # artifact the catalog allows, "mitigates"). TraceLinkService resolves the
+    # Risk id to its backing Artifact id (fix #407), and
+    # link_types.catalog.validate_link_pair is the *single* validation
+    # authority.
+    #
+    # The former RiskService.create_tracelink method and its private link-type
+    # frozenset were dead code with a second, divergent validation path
+    # (F1.1-T1, finding R-F1-2): its vocabulary ("threatens", "mitigated-by",
+    # "related-to") was never part of the workspace catalog, so every call that
+    # passed the local check failed downstream. Vocabulary mapping:
+    #
+    #   mitigated-by                -> mitigates (direction Risk -> target;
+    #                                  the reverse is the upstream label
+    #                                  "wird gemindert durch")
+    #   related-to                  -> references
+    #   threatens / caused-by       -> references with `rationale` today;
+    #                                  own built-ins (`threatens`) once
+    #                                  ENT-F1 = b lands in PR-F2
+    #
+    # The generic surface is the user path (POST /api/v1/trace-links/ and the
+    # traceability.* MCP tools); it was never reachable through this helper.
 
 
 __all__ = [
-    "RISK_LINK_TYPES",
     "RiskDTO",
     "RiskService",
 ]
