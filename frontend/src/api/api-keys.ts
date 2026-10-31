@@ -18,6 +18,8 @@ export interface ApiKeyMetadata {
   created_at: string | null;
   last_used_at: string | null;
   revoked: boolean;
+  /** Optional expiry (Plan E / WP E3.8); `null` = no expiry. */
+  expires_at?: string | null;
 }
 
 export interface ApiKeyCreateResult {
@@ -46,8 +48,10 @@ export const apiKeysApi = {
   },
 
   /** POST /api/v1/api-keys/ — create a key; plaintext returned once. */
-  create(name: string): Promise<ApiKeyCreateResult> {
-    return apiClient.post<ApiKeyCreateResult>("/api-keys/", { name });
+  create(name: string, expiresAt?: string | null): Promise<ApiKeyCreateResult> {
+    const body: { name: string; expires_at?: string } = { name };
+    if (expiresAt) body.expires_at = expiresAt;
+    return apiClient.post<ApiKeyCreateResult>("/api-keys/", body);
   },
 
   /** DELETE /api/v1/api-keys/<id>/ — revoke a key (effective immediately). */

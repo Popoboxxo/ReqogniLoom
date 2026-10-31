@@ -17,6 +17,7 @@ import { IdentifiersSection } from "./IdentifiersSection";
 import { MemorySection } from "./MemorySection";
 import { NotificationsSection } from "./NotificationsSection";
 import { ProfileSection } from "./ProfileSection";
+import { SecuritySection } from "./SecuritySection";
 import { TreeDisplaySection } from "./TreeDisplaySection";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { OPTIONAL_FEATURES, type OptionalArtifactFeature } from "../../api/preferences";
@@ -79,6 +80,9 @@ export default function UserProfileSettings(): JSX.Element {
       />
 
       <ProfileSection />
+
+      {/* Plan E / WP E3.8 (#1308): user-global two-factor settings. */}
+      <SecuritySection />
 
       <ApiKeysSection />
 

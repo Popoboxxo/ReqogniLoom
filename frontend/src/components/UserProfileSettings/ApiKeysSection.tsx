@@ -19,6 +19,7 @@ import {
   type ApiKeyCreateResult,
   type ApiKeyMetadata,
 } from "../../api/api-keys";
+import { getMfaStatus } from "../../api/mfa";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import styles from "./ApiKeysSection.module.css";
 
@@ -42,6 +43,8 @@ export function ApiKeysSection(): JSX.Element {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [newKeyName, setNewKeyName] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
+  const [expiryRequired, setExpiryRequired] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [createdKey, setCreatedKey] = useState<ApiKeyCreateResult | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
@@ -65,21 +68,46 @@ export function ApiKeysSection(): JSX.Element {
     void load();
   }, [load]);
 
+  // Plan E / WP E3.6 + E3.8 (#1308): under `MFA_STAFF_ENFORCEMENT=required` a
+  // new staff API key must carry a future expiry (the key would otherwise
+  // outlive the second factor guarding its creation). The policy is read from
+  // the caller's own MFA status rather than guessed client-side.
+  useEffect(() => {
+    let cancelled = false;
+    void getMfaStatus()
+      .then((status) => {
+        if (cancelled) return;
+        setExpiryRequired(status.enforcement === "required" && status.required);
+      })
+      .catch(() => {
+        // Status unavailable: keep the field optional instead of blocking key
+        // creation on a best-effort policy hint. The server still enforces.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleCreate = useCallback(async (): Promise<void> => {
     if (!newKeyName.trim()) return;
+    if (expiryRequired && !expiresAt) return;
     setIsCreating(true);
     setError(null);
     try {
-      const result = await apiKeysApi.create(newKeyName.trim());
+      const result = await apiKeysApi.create(
+        newKeyName.trim(),
+        expiresAt ? new Date(expiresAt).toISOString() : null
+      );
       setCreatedKey(result);
       setNewKeyName("");
+      setExpiresAt("");
       await load();
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
       setIsCreating(false);
     }
-  }, [newKeyName, load]);
+  }, [newKeyName, expiresAt, expiryRequired, load]);
 
   const handleRevoke = useCallback(
     async (id: string): Promise<void> => {
@@ -132,13 +160,23 @@ export function ApiKeysSection(): JSX.Element {
             disabled={isCreating}
             className={styles.nameInput}
           />
+          <input
+            data-testid="api-key-expires-input"
+            type="datetime-local"
+            value={expiresAt}
+            onChange={(e) => setExpiresAt(e.target.value)}
+            aria-label={t("apiKeys.expiresLabel")}
+            required={expiryRequired}
+            disabled={isCreating}
+            className={styles.expiresInput}
+          />
           <button
             type="button"
             data-testid="api-key-create-btn"
             onClick={() => void handleCreate()}
-            disabled={isCreating || !newKeyName.trim()}
+            disabled={isCreating || !newKeyName.trim() || (expiryRequired && !expiresAt)}
             className={`btn-primary ${styles.primaryButton} ${
-              isCreating || !newKeyName.trim()
+              isCreating || !newKeyName.trim() || (expiryRequired && !expiresAt)
                 ? styles.primaryButtonDisabled
                 : styles.primaryButtonEnabled
             }`}
