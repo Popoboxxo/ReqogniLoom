@@ -19,12 +19,15 @@ Architecture:
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
+
+from django.db import IntegrityError, transaction
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     # Import-time only: ``traceability`` (Layer 1) is loaded lazily inside the
@@ -66,6 +69,45 @@ from baseline.waivers import (  # noqa: F401  (re-exported public constants)
 from persistence.transactions import atomic_transaction
 
 logger = logging.getLogger(__name__)
+
+#: F4.2 — allowed tag alphabet. ``\w`` is Unicode-aware in Python's ``re``.
+#: The **first** character must be a word character (a letter, a digit or
+#: ``_``); the tail additionally allows space, ``.``, ``:``, ``+``, ``#``,
+#: ``/`` and ``-``. So ``v1.0``, ``sprint-3``, ``C++``, ``area/ui`` and
+#: ``rc:2`` are valid, while ``#42`` is **not** — ``#`` is a tail-only
+#: character and cannot start a label. (The earlier comment claimed the
+#: opposite; the regex itself was always the intended one.)
+_TAG_PATTERN = re.compile(r"^[\w][\w .:+#/-]*$")
+
+#: Control characters (C0, DEL and C1) that must never reach a query
+#: parameter. A NUL byte in ``?tag=`` used to be handed to psycopg2, which
+#: raised ``ValueError: A string literal cannot contain NUL (0x00) characters``
+#: — surfacing as a REST 500 / MCP ``-32603`` instead of a 400 (B2).
+_CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+
+#: Case-insensitive tag/unique constraint from ``baseline.models.BaselineTag``.
+TAG_LABEL_UNIQUE_CONSTRAINT = "uq_bl_tag_baseline_label_ci"
+
+#: Hard cap per baseline (F4.2). Duplicates are merged *before* this is applied.
+MAX_TAGS_PER_BASELINE = 20
+
+#: Column width of ``BaselineTag.label`` (``CharField(max_length=64)``); the
+#: ``?tag=`` filter is validated against the same bound so an over-long value
+#: cannot be pushed into ``iexact``.
+MAX_TAG_LENGTH = 64
+
+
+class BaselineTagValidationError(ValidationError):
+    """Invalid baseline tag input, with per-label details for the REST 400.
+
+    A ``ValidationError`` subclass so every existing ``except ValidationError``
+    caller (and the MCP tool's error mapping) keeps working, while the REST
+    action can surface the machine-readable ``details`` list.
+    """
+
+    def __init__(self, message: str, details: list[dict] | None = None) -> None:
+        super().__init__(message)
+        self.details: list[dict] = list(details or [])
 
 
 @dataclass(frozen=True)
@@ -181,6 +223,7 @@ class BaselineFacade(ServiceBase):
         document_id: UUID | str | None = None,
         override_reason: str | None = None,
         waived_findings: Sequence[Mapping[str, Any]] | None = None,
+        tags: Sequence[str] | None = None,
     ) -> UUID:
         """Create an immutable baseline after preset-scope validation.
 
@@ -224,6 +267,10 @@ class BaselineFacade(ServiceBase):
         self._assert_write_permission(ctx)
 
         ws_id = UUID(str(workspace_id))
+
+        # F4.2: validate tags before the expensive gate/build so a malformed
+        # label fails as a clean 400 without a partial baseline build attempt.
+        normalised_tags = self._normalise_tags(tags)
 
         # IF-AS-INT-006: scope gate via PresetPolicyService
         self._check_scope_allowed(str(ws_id), scope)
@@ -287,8 +334,24 @@ class BaselineFacade(ServiceBase):
             # Remap baseline-domain exceptions to application layer
             _remap_baseline_exc(exc)
 
+        # F4.2: tags are metadata in their own table; the freshly created
+        # snapshot is never UPDATEd. ``workspace_id`` is copied from the
+        # baseline, never from the request.
+        if normalised_tags:
+            self._replace_tags(
+                baseline_id=baseline_id,
+                tenant_id=ctx.tenant_id,
+                workspace_id=ws_id,
+                labels=normalised_tags,
+            )
+
         # Audit
-        details: dict = {"scope": scope, "name": name, "workspace_id": str(ws_id)}
+        details: dict = {
+            "scope": scope,
+            "name": name,
+            "workspace_id": str(ws_id),
+            "tags": normalised_tags,
+        }
         audit_change_reason: str | None = None
         if outcome.overridden:
             # The append-only audit log is the authoritative waiver record:
@@ -860,6 +923,7 @@ class BaselineFacade(ServiceBase):
         workspace_id: UUID | str,
         ctx: AuthContext,
         scope: str | None = None,
+        tag: str | None = None,
     ) -> list:
         """Return baseline summaries for a workspace.
 
@@ -867,9 +931,18 @@ class BaselineFacade(ServiceBase):
             workspace_id: Target workspace UUID.
             ctx: AuthContext for tenant propagation.
             scope: Optional scope filter.
+            tag: Optional case-insensitive tag filter (F4.2). Only effective
+                together with the workspace filter, and joined through the
+                baseline relation rather than the denormalised tag column.
+                Validated centrally here so REST and MCP share one contract
+                (B2).
 
         Returns:
             List of BaselineSummary.
+
+        Raises:
+            BaselineTagValidationError: The filter is not a string, contains a
+                control character or exceeds 64 characters.
         """
         self._set_tenant_context(ctx)
 
@@ -879,7 +952,286 @@ class BaselineFacade(ServiceBase):
             workspace_id=UUID(str(workspace_id)),
             scope=scope,
             tenant_id=ctx.tenant_id,
+            tag=self._normalise_tag_filter(tag),
         )
+
+    @atomic_transaction
+    def set_tags(
+        self,
+        baseline_id: UUID | str,
+        labels: Sequence[str],
+        ctx: AuthContext,
+    ) -> list[str]:
+        """Replace the tag set of one baseline (F4.2).
+
+        Tags are metadata: this never UPDATEd the immutable snapshot, it
+        deletes/re-inserts rows in ``bl_baseline_tag`` only. ``workspace_id`` on
+        every row is derived from ``baseline.workspace_id`` — the signature has
+        no workspace input at all, so a caller cannot express a foreign one
+        (QR-S09 a).
+
+        Args:
+            baseline_id: UUID of the target baseline.
+            labels: New label set. Validated, de-duplicated case-insensitively
+                and returned sorted case-insensitively.
+            ctx: AuthContext; must permit WRITE (editor) in the baseline's
+                workspace.
+
+        Returns:
+            The normalised, sorted label list actually stored.
+
+        Raises:
+            ValidationError: A label is empty, longer than 64 characters or
+                contains a disallowed character; or more than 20 distinct tags
+                were supplied.
+            PermissionDeniedError: The caller lacks write authority in the
+                baseline's workspace.
+            NotFoundError: No baseline with this id exists for the tenant.
+        """
+        self._set_tenant_context(ctx)
+
+        from baseline.models import BaselineSnapshot
+
+        key = UUID(str(baseline_id))
+        # B1 (CWE-362): PUT has replace semantics, so the read that drives the
+        # DELETE+INSERT must be serialised per baseline. Without the row lock
+        # two concurrent PUTs could interleave as "A deletes, B deletes, A
+        # inserts, B inserts" and commit the UNION instead of last-writer-wins.
+        # ``select_for_update`` takes a row-level lock only; it does NOT fire
+        # the ``trg_baseline_snapshot_immutable`` trigger, which is declared
+        # ``BEFORE UPDATE OR DELETE`` (migrations 0001_initial, 0011) — a
+        # ``SELECT ... FOR UPDATE`` is not an UPDATE statement. The snapshot
+        # therefore stays byte-for-byte untouched.
+        snapshot = (
+            BaselineSnapshot.unscoped.select_for_update()
+            .filter(id=key, tenant_id=ctx.tenant_id)
+            .first()
+        )
+        if snapshot is None:
+            raise NotFoundError("Baseline not found")
+
+        # RBAC: UPDATE (editor) in the workspace that owns the baseline, not
+        # the caller's tenant-wide role union.
+        self._assert_workspace_write(ctx, snapshot.workspace_id)
+
+        normalised = self._normalise_tags(labels)
+
+        from baseline.models import BaselineTag
+
+        before = sorted(
+            BaselineTag.unscoped.filter(
+                baseline_id=key, tenant_id=ctx.tenant_id
+            ).values_list("label", flat=True),
+            key=str.casefold,
+        )
+        self._replace_tags(
+            baseline_id=key,
+            tenant_id=snapshot.tenant_id,
+            workspace_id=snapshot.workspace_id,
+            labels=normalised,
+        )
+
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type="Baseline",
+            entity_id=key,
+            details={"tags_before": before, "tags_after": normalised},
+        )
+        return normalised
+
+    # ---------- Tag helpers (F4.2) ----------
+
+    @staticmethod
+    def _normalise_tags(labels: Sequence[str] | None) -> list[str]:
+        """Validate, de-duplicate and sort baseline labels (F4.2).
+
+        Duplicates are compared case-insensitively and the first spelling wins;
+        the result is sorted case-insensitively so REST/MCP payloads are
+        deterministic.
+
+        Raises:
+            BaselineTagValidationError: with one ``details`` entry per rejected
+                label (``{"label": <str|None>, "error": <str>}``).
+        """
+        if labels is None:
+            return []
+        if isinstance(labels, (str, bytes)) or not isinstance(labels, Sequence):
+            raise BaselineTagValidationError(
+                "tags must be a list of strings.",
+                [{"label": None, "error": "tags must be a list of strings"}],
+            )
+
+        errors: list[dict] = []
+        normalised: list[str] = []
+        seen: set[str] = set()
+        for raw in labels:
+            if not isinstance(raw, str):
+                errors.append(
+                    {"label": None, "error": "tag labels must be strings"}
+                )
+                continue
+            label = raw.strip()
+            if not label:
+                errors.append({"label": raw, "error": "tag label must not be empty"})
+                continue
+            if len(label) > MAX_TAG_LENGTH:
+                errors.append(
+                    {"label": label, "error": "tag label exceeds 64 characters"}
+                )
+                continue
+            if not _TAG_PATTERN.match(label):
+                errors.append(
+                    {
+                        "label": label,
+                        "error": "tag label contains disallowed characters",
+                    }
+                )
+                continue
+            key = label.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalised.append(label)
+
+        if errors:
+            raise BaselineTagValidationError("Invalid baseline tag(s).", errors)
+
+        if len(normalised) > MAX_TAGS_PER_BASELINE:
+            raise BaselineTagValidationError(
+                f"At most {MAX_TAGS_PER_BASELINE} tags are allowed per baseline.",
+                [
+                    {
+                        "label": label,
+                        "error": f"more than {MAX_TAGS_PER_BASELINE} tags",
+                    }
+                    for label in normalised[MAX_TAGS_PER_BASELINE:]
+                ],
+            )
+
+        return sorted(normalised, key=str.casefold)
+
+    @staticmethod
+    def _normalise_tag_filter(tag: str | None) -> str | None:
+        """Validate the ``?tag=`` list filter, shared by REST and MCP (B2).
+
+        The value is pushed into ``iexact`` on a ``varchar(64)`` column, so an
+        unvalidated filter is both a client defect and a transport hazard: a
+        NUL byte or another control character made psycopg2 raise, which
+        surfaced as a REST **500** and an MCP ``-32603`` instead of the
+        ``VALIDATION_ERROR`` the caller deserves. Validating here — in the one
+        place both transports pass through — keeps the contract identical.
+
+        Behaviour:
+
+        * ``None`` and a blank/whitespace-only value mean "no filter" and
+          return ``None`` (not an error), matching the pre-existing
+          ``?tag=`` semantics.
+        * the accepted value is stripped but otherwise unchanged, so the
+          matching stays case-insensitive (``iexact``) and spelling-tolerant.
+        * anything else that is not a string, longer than the ``label`` column
+          or carrying a control character is rejected.
+
+        Raises:
+            BaselineTagValidationError: with a single ``details`` entry, so the
+                REST 400 body is shaped like every other tag validation error.
+        """
+        if tag is None:
+            return None
+        if not isinstance(tag, str):
+            raise BaselineTagValidationError(
+                "Invalid tag filter.",
+                [{"label": None, "error": "tag filter must be a string"}],
+            )
+        candidate = tag.strip()
+        if not candidate:
+            return None
+        if len(candidate) > MAX_TAG_LENGTH:
+            raise BaselineTagValidationError(
+                "Invalid tag filter.",
+                [
+                    {
+                        "label": None,
+                        "error": (
+                            f"tag filter exceeds {MAX_TAG_LENGTH} characters"
+                        ),
+                    }
+                ],
+            )
+        if _CONTROL_CHAR_PATTERN.search(candidate):
+            raise BaselineTagValidationError(
+                "Invalid tag filter.",
+                [
+                    {
+                        "label": None,
+                        "error": "tag filter contains a control character",
+                    }
+                ],
+            )
+        return candidate
+
+    @staticmethod
+    def _replace_tags(
+        *,
+        baseline_id: UUID,
+        tenant_id: UUID,
+        workspace_id: UUID,
+        labels: Sequence[str],
+    ) -> None:
+        """Replace all tag rows of *baseline_id* in the current transaction.
+
+        The DELETE is filtered on ``tenant_id`` as well as ``baseline_id``
+        (I2, defense in depth): the baseline id is already tenant-checked by
+        the caller, but a delete must never rely on that alone.
+
+        ``bulk_create`` can still hit the case-insensitive unique constraint
+        even after ``_normalise_tags`` de-duplicated by ``str.casefold()``,
+        because the DB compares with ``Lower("label")`` — the two are not the
+        same function for every code point, and ``lower()`` is collation
+        dependent. B3: map exactly that violation to a 400-shaped
+        :class:`BaselineTagValidationError` instead of letting it escape as an
+        uncaught ``IntegrityError`` (a 500). Every other ``IntegrityError`` is
+        re-raised untouched.
+        """
+        from baseline.models import BaselineTag
+
+        BaselineTag.unscoped.filter(
+            baseline_id=baseline_id, tenant_id=tenant_id
+        ).delete()
+        if not labels:
+            return
+        try:
+            # Nested atomic block = SAVEPOINT: catching the IntegrityError must
+            # not poison the caller's transaction (``set_tags``/
+            # ``create_baseline`` are themselves @atomic_transaction).
+            with transaction.atomic():
+                BaselineTag.unscoped.bulk_create(
+                    [
+                        BaselineTag(
+                            tenant_id=tenant_id,
+                            baseline_id=baseline_id,
+                            workspace_id=workspace_id,
+                            label=label,
+                        )
+                        for label in labels
+                    ]
+                )
+        except IntegrityError as exc:
+            if not _is_tag_label_conflict(exc):
+                raise
+            raise BaselineTagValidationError(
+                "Invalid baseline tag(s).",
+                [
+                    {
+                        "label": label,
+                        "error": (
+                            "tag label collides case-insensitively with "
+                            "another label of this baseline"
+                        ),
+                    }
+                    for label in _colliding_labels(labels)
+                ],
+            ) from exc
 
     @atomic_transaction
     def purge_baseline(self, baseline_id: UUID | str, ctx: AuthContext) -> None:
@@ -1103,6 +1455,46 @@ class BaselineFacade(ServiceBase):
         if ROLE_ADMIN.lower() not in roles:
             raise PermissionDeniedError(
                 "Permission denied: purging this baseline requires the 'admin' "
+                f"role in its workspace {target}; user has {sorted(roles)}"
+            )
+
+    @staticmethod
+    def _assert_workspace_write(ctx: AuthContext, workspace_id: UUID | str) -> None:
+        """Require WRITE authority in *workspace_id* itself (F4.2).
+
+        Same object-scope reasoning as :meth:`_assert_workspace_admin`, but for
+        the editor gate: when the auth seam already scoped ``ctx.active_roles``
+        to the baseline's workspace, those roles are authoritative; otherwise
+        resolve the caller's roles against the target workspace. Fail-closed on
+        a lookup error.
+        """
+        from auth_tenancy.services.authorization import AuthorizationService, Operation
+
+        target = UUID(str(workspace_id))
+        already_scoped = (
+            ctx.workspace_id is not None and UUID(str(ctx.workspace_id)) == target
+        )
+        if already_scoped:
+            roles = tuple(ctx.active_roles)
+        else:
+            try:
+                roles = AuthorizationService().active_roles_for(
+                    user_id=ctx.user_id, workspace_id=target
+                )
+            except Exception:  # noqa: BLE001 — fail closed on resolution error
+                logger.warning(
+                    "Workspace-role lookup failed for user=%s workspace=%s; "
+                    "denying baseline tag write",
+                    ctx.user_id,
+                    target,
+                    exc_info=True,
+                )
+                roles = ()
+
+        decision = AuthorizationService().decide_access(roles, Operation.WRITE)
+        if not decision.allow:
+            raise PermissionDeniedError(
+                "Permission denied: tagging this baseline requires the 'editor' "
                 f"role in its workspace {target}; user has {sorted(roles)}"
             )
 
@@ -1333,6 +1725,45 @@ def _summarise_waiver_ids(waiver_ids: Sequence[UUID]) -> str:
 
 
 # ---------- Exception remapping ----------
+
+def _is_tag_label_conflict(exc: IntegrityError) -> bool:
+    """True when *exc* is the tag-label unique violation, not another one.
+
+    B3: only ``uq_bl_tag_baseline_label_ci`` is remapped to a 400. Any other
+    ``IntegrityError`` must stay loud — silently turning a broken FK or a
+    check-constraint failure into "invalid tag" would hide real defects.
+
+    The constraint name is read from psycopg2's ``diag`` when available and
+    falls back to matching the rendered message, which is how Django wraps the
+    driver error (``__cause__``) on every supported version.
+    """
+    cause = exc.__cause__
+    constraint = getattr(getattr(cause, "diag", None), "constraint_name", None)
+    if constraint:
+        return str(constraint) == TAG_LABEL_UNIQUE_CONSTRAINT
+    return TAG_LABEL_UNIQUE_CONSTRAINT in str(exc)
+
+
+def _colliding_labels(labels: Sequence[str]) -> list[str]:
+    """Return the labels that collide under ``lower()``, else *labels*.
+
+    ``lower()`` mirrors the DB constraint (``Lower("label")``) far better than
+    ``casefold()`` does, so the collision is usually reproducible client-side
+    and the 400 can name just the offending labels. When it is not (a genuine
+    collation-only divergence), naming the whole supplied set is still more
+    useful than an empty ``details`` list.
+    """
+    groups: dict[str, list[str]] = {}
+    for label in labels:
+        groups.setdefault(label.lower(), []).append(label)
+    colliding = [
+        label
+        for group in groups.values()
+        if len(group) > 1
+        for label in group
+    ]
+    return colliding or list(labels)
+
 
 def _remap_baseline_exc(exc: Exception) -> None:
     """Re-raise baseline-domain exceptions as application-layer exceptions."""

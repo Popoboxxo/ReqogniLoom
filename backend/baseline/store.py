@@ -288,6 +288,7 @@ class BaselineStore:
             created_at=snapshot.created_at,
             created_by=snapshot.created_by_ref,
             entries=entries,
+            tags=self._tags_for([snapshot.id], tenant_id).get(snapshot.id, []),
         )
 
     def list(
@@ -295,6 +296,7 @@ class BaselineStore:
         workspace_id: uuid.UUID,
         scope: str | None = None,
         tenant_id: uuid.UUID | None = None,
+        tag: str | None = None,
     ) -> list[BaselineSummary]:
         """Return Baseline summaries for a workspace, sorted by created_at DESC.
 
@@ -305,6 +307,9 @@ class BaselineStore:
             workspace_id: Workspace to filter by.
             scope: Optional scope filter ("document" | "project" | "global").
             tenant_id: Optional tenant filter (uses unscoped manager).
+            tag: Optional case-insensitive tag filter (F4.2). The join runs
+                through the ``tags`` relation, i.e. through ``baseline`` — not
+                through the denormalised ``workspace_id`` on the tag row alone.
 
         Returns:
             List of BaselineSummary ordered by created_at descending.
@@ -314,9 +319,20 @@ class BaselineStore:
             qs = qs.filter(tenant_id=tenant_id)
         if scope is not None:
             qs = qs.filter(scope=scope)
+        if tag is not None:
+            # F4.2: case-insensitive, joined via the FK relation. ``distinct``
+            # keeps a baseline listed once even if it carried the label in two
+            # spellings (not possible today thanks to the CI unique
+            # constraint, but the join must not depend on that).
+            qs = qs.filter(tags__label__iexact=tag).distinct()
         # #1390/F2: newest first; ``created_at`` is not unique, so the primary
         # key is the tie-breaker that keeps this paginated listing stable.
         qs = qs.order_by("-created_at", "-id")
+
+        snapshots = list(qs)
+        tags_by_baseline = self._tags_for(
+            [snapshot.id for snapshot in snapshots], tenant_id
+        )
 
         return [
             BaselineSummary(
@@ -327,9 +343,34 @@ class BaselineStore:
                 description=s.description,
                 created_at=s.created_at,
                 created_by=s.created_by_ref,
+                tags=tags_by_baseline.get(s.id, []),
             )
-            for s in qs
+            for s in snapshots
         ]
+
+    @staticmethod
+    def _tags_for(
+        baseline_ids: list[uuid.UUID], tenant_id: uuid.UUID | None
+    ) -> dict[uuid.UUID, list[str]]:
+        """Return ``{baseline_id: sorted labels}`` for *baseline_ids* (F4.2).
+
+        One batched query — the list route must not turn into an N+1. Sorted
+        case-insensitively so the REST/MCP payload is deterministic.
+        """
+        if not baseline_ids:
+            return {}
+        from baseline.models import BaselineTag
+
+        qs = BaselineTag.unscoped.filter(baseline_id__in=baseline_ids)
+        if tenant_id is not None:
+            qs = qs.filter(tenant_id=tenant_id)
+        grouped: dict[uuid.UUID, list[str]] = {}
+        for baseline_id, label in qs.values_list("baseline_id", "label"):
+            grouped.setdefault(baseline_id, []).append(label)
+        return {
+            baseline_id: sorted(labels, key=str.casefold)
+            for baseline_id, labels in grouped.items()
+        }
 
     # ------------------------------------------------------------------
     # Immutability guard — application layer

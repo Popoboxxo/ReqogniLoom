@@ -180,6 +180,7 @@ def list_baselines(
     workspace_id: uuid.UUID,
     scope: str | None = None,
     tenant_id: uuid.UUID | None = None,
+    tag: str | None = None,
 ) -> list[BaselineSummary]:
     """Return Baseline summaries for a workspace, sorted by created_at DESC.
 
@@ -189,6 +190,8 @@ def list_baselines(
         workspace_id: Workspace to query.
         scope: Optional scope filter.
         tenant_id: Optional tenant filter.
+        tag: Optional case-insensitive tag filter (F4.2), joined via the
+            ``tags`` relation.
 
     Returns:
         List of BaselineSummary (no delta entries — lazy loading).
@@ -199,6 +202,7 @@ def list_baselines(
         workspace_id=workspace_id,
         scope=scope,
         tenant_id=tenant_id,
+        tag=tag,
     )
 
 

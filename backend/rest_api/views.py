@@ -113,6 +113,7 @@ from application.services import (
     ArtifactService,
     BaselineFacade,
     BaselineGateBlockedError,
+    BaselineTagValidationError,
     ChangeRequestService,
     ExportService,
     GlossaryService,
@@ -189,6 +190,8 @@ from rest_api.serializers import (
     BaselineDiffSerializer,
     BaselineSerializer,
     BaselineSummarySerializer,
+    BaselineTagsRequestSerializer,
+    BaselineTagsResponseSerializer,
     ChangeRequestSerializer,
     CsvImportReportSerializer,
     GlossaryTermSerializer,
@@ -352,6 +355,14 @@ _EXC_TO_HTTP: dict[type, int] = {
     # own message to the client when the refusal escapes a view that has no
     # dedicated branch (the exact-type lookup degrades to a 500 otherwise).
     BaselineImmutabilityError: status.HTTP_409_CONFLICT,
+    # F4.2 review B2/B3: tag input is a request defect (a control character, an
+    # over-long value, a collation-level label collision). Registered as its
+    # own type because ``_service_error_response`` looks the exception up by
+    # *exact* type — a ``ValidationError`` subclass left out of this map degrades
+    # to the generic 500 branch, which is precisely the symptom being fixed.
+    # Routes that want the machine-readable ``details`` list still catch it
+    # explicitly (baseline create / tags / list).
+    BaselineTagValidationError: status.HTTP_400_BAD_REQUEST,
     NotFoundError: status.HTTP_404_NOT_FOUND,
     OptimisticLockError: status.HTTP_409_CONFLICT,
     # GH-1396: shared safety net for routes that do not map the header
@@ -396,6 +407,9 @@ _EXC_TO_CODE: dict[type, str] = {
     SuppressionExpiredError: "SUPPRESSION_EXPIRED",
     ProducerContextRequiredError: "PRODUCER_CONTEXT_REQUIRED",
     BaselineImmutabilityError: "CONFLICT",
+    # F4.2 review B2/B3: same code as every other validation failure, so a
+    # client keeps one 400 branch; only the shape of ``details`` differs.
+    BaselineTagValidationError: "VALIDATION_ERROR",
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",
     # GH-1396: see _EXC_TO_HTTP. INVALID_IF_MATCH is its own code so a client
@@ -5264,6 +5278,20 @@ _BASELINE_PRESET_404 = OpenApiResponse(
 # ``/api/v1/workspaces/{workspace_pk}/baselines/`` operation, which takes the
 # workspace from its path; publishing it there would be the mirror image of the
 # defect this issue fixes.
+_BASELINE_TAG_PARAMETER = OpenApiParameter(
+    name="tag",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description=(
+        "Optional case-insensitive tag filter (F4.2). Only effective together "
+        "with the workspace filter. A baseline matches when it carries the "
+        "label in any spelling; the join runs through the baseline relation, "
+        "so a tag of the same name on a baseline of another workspace is never "
+        "returned. Ordering is unchanged (``-created_at``, tie-breaker id)."
+    ),
+)
+
 _BASELINE_WORKSPACE_ID_PARAMETER = OpenApiParameter(
     name="workspace_id",
     type=OpenApiTypes.UUID,
@@ -5417,12 +5445,21 @@ class BaselineViewSet(BaseEntityViewSet):
         self._guard_preset(workspace_id_override=workspace_id)
 
     @extend_schema(
-        parameters=[_BASELINE_WORKSPACE_ID_PARAMETER],
+        parameters=[_BASELINE_WORKSPACE_ID_PARAMETER, _BASELINE_TAG_PARAMETER],
         # #1388: declaring the 404 must not erase the success shape — an
         # operation that documents only failures tells a generated client
         # nothing about what a 200 contains.
         responses={
             200: BaselineSummarySerializer(many=True),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "``VALIDATION_ERROR`` — the ``tag`` filter is not a string, "
+                    "contains a control character or is longer than 64 "
+                    "characters. ``details`` carries the rejected value with "
+                    "the reason (F4.2, review B2)."
+                ),
+            ),
             404: _BASELINE_PRESET_404,
         },
     )
@@ -5460,7 +5497,22 @@ class BaselineViewSet(BaseEntityViewSet):
             workspace_id, error = parse_workspace_id(workspace_id_str, lang)
             if error is not None:
                 return error
-            items = self._svc().list_baselines(workspace_id=str(workspace_id), ctx=ctx)
+            items = self._svc().list_baselines(
+                workspace_id=str(workspace_id),
+                ctx=ctx,
+                tag=request.query_params.get("tag") or None,
+            )
+        except BaselineTagValidationError as exc:
+            # F4.2 review B2: an invalid ``?tag=`` is a client defect. Caught
+            # before the generic ``ValidationError`` branch so the response
+            # carries the same ``details`` list as the create/PUT actions
+            # instead of the details-less fallback.
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message=str(exc), details=exc.details
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
@@ -5574,6 +5626,13 @@ class BaselineViewSet(BaseEntityViewSet):
             baseline_id = self._svc().create_baseline(**create_kwargs)
             # Fetch the newly created baseline detail for the response
             item = self._svc().get_baseline(baseline_id, ctx)
+        except BaselineTagValidationError as exc:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message=str(exc), details=exc.details
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
@@ -5622,6 +5681,11 @@ class BaselineViewSet(BaseEntityViewSet):
         waived_findings = data.get("waived_findings") or []
         if waived_findings:
             create_kwargs["waived_findings"] = list(waived_findings)
+        # F4.2: optional tags on create. The facade validates/de-duplicates
+        # them (single normalisation point shared with MCP).
+        tags = data.get("tags") or []
+        if tags:
+            create_kwargs["tags"] = list(tags)
         # document scope requires a root artifact; artifact_id is the
         # view-facing name, the facade/service expect document_id.
         artifact_id = data.get("artifact_id")
@@ -5651,6 +5715,93 @@ class BaselineViewSet(BaseEntityViewSet):
                 )
             create_kwargs["document_id"] = str(artifact_id)
         return create_kwargs, None
+
+    @extend_schema(
+        request=BaselineTagsRequestSerializer,
+        responses={
+            200: BaselineTagsResponseSerializer,
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "``VALIDATION_ERROR`` — a label is empty, longer than 64 "
+                    "characters or contains a disallowed character, or more "
+                    "than 20 distinct tags were supplied. ``details`` carries "
+                    "one entry per rejected label."
+                ),
+            ),
+            403: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "``PERMISSION_DENIED`` — the caller needs the editor role "
+                    "in the baseline's workspace. A workspace-fenced API key "
+                    "whose fence does not contain that workspace is rejected "
+                    "here as well."
+                ),
+            ),
+            404: _BASELINE_PRESET_404,
+        },
+    )
+    @action(detail=True, methods=["put"], url_path="tags")
+    def tags(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
+        """PUT /api/v1/baselines/{pk}/tags/ — replace the tag set (F4.2).
+
+        Body ``{"tags": ["Release", "RC1"]}`` -> ``200 {"id": "...", "tags":
+        ["RC1", "Release"]}`` (sorted, case-insensitively de-duplicated).
+
+        Tags are metadata in their own table: this never UPDATEs the immutable
+        snapshot. ``workspace_id`` on the row is derived exclusively from the
+        baseline, so a ``workspace_id`` in the body is ignored.
+
+        The replacement is an idempotent PUT with no own version, so this
+        operation evaluates no ``If-Match`` and is documented as an ETag-less
+        resource (``etag_supported = False``; the E2.6 hook describes it as
+        such rather than as a 412-capable route).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            baseline = self._svc().get_baseline(pk, ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        # Preset gate with the OBJECT workspace (same pattern as retrieve/diff).
+        # Outside the try/except: Http404 must propagate past handle_exception.
+        self._check_preset(request, workspace_id=str(baseline.workspace_id))
+
+        ser = BaselineTagsRequestSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[
+                        {"field": key, "errors": value}
+                        for key, value in ser.errors.items()
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            labels = self._svc().set_tags(pk, ser.validated_data["tags"], ctx)
+        except BaselineTagValidationError as exc:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message=str(exc), details=exc.details
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+
+        return Response({"id": pk, "tags": labels})
+
+    # F4.2: an idempotent PUT without its own revision counter, so placed
+    # outside the ETag contract. The E2.6 documentation hook reads this.
+    tags.etag_supported = False
 
     def _load_baseline_diff_context(
         self, request: Request, a_id: UUID, b_id: UUID, lang: str
@@ -6795,6 +6946,8 @@ def _baseline_to_dict(bl: Any) -> dict[str, Any]:
         "artifact_id": None,
         "version": getattr(bl, "version", 1),
         "created_at": bl.created_at,
+        # F4.2: present on both summary and detail; never None.
+        "tags": list(getattr(bl, "tags", []) or []),
     }
     entries = getattr(bl, "entries", None)
     if entries is not None:

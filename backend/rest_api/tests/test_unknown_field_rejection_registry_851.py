@@ -40,6 +40,7 @@ from rest_api.serializers import (
     ArchitectureElementSerializer,
     ArtifactSerializer,
     BaselineSerializer,
+    BaselineTagsRequestSerializer,
     ChangeRequestSerializer,
     CommentSerializer,
     GlossaryTermSerializer,
@@ -117,6 +118,8 @@ _GUARDED_WRITE_SERIALIZERS: tuple[type, ...] = (
     MermaidSourceSerializer,
     # #569: the standalone suppression create serializer (rejects granted_by).
     WaiverCreateSerializer,
+    # F4.2: the PUT body of /baselines/{id}/tags/.
+    BaselineTagsRequestSerializer,
 )
 
 #: Write serializers that reject unknown request keys with their *own*,
@@ -156,6 +159,10 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     "BaselineSummarySerializer": (
         "read-only list response serializer for GET /baselines/ (#1078); every "
         "field is read_only, so the route accepts no body to guard"
+    ),
+    "BaselineTagsResponseSerializer": (
+        "read-only 200 body of PUT /baselines/{id}/tags/ (F4.2); the request "
+        "body is the guarded BaselineTagsRequestSerializer"
     ),
     "FieldChangeSerializer": "read-only response serializer",
     "DiffItemSerializer": "read-only response serializer",
@@ -666,6 +673,7 @@ _FULL_PAYLOADS: dict[type, dict] = {
         "height": 600,
     },
     MermaidSourceSerializer: {"source": "graph TD; A-->B;"},
+    BaselineTagsRequestSerializer: {"tags": ["Release", "RC1"]},
 }
 
 

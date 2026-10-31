@@ -243,6 +243,7 @@ __all__ = [
     "get_preset_policy_service",
     # Step-2 services (COMP-AS-006..011)
     "BaselineFacade",
+    "BaselineTagValidationError",
     "WorkflowFacade",
     "ExportService",
     "ExportResult",

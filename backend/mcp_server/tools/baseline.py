@@ -9,6 +9,7 @@ Tools implemented:
   baseline.list     — list baseline summaries for a workspace
   baseline.get      — fetch full baseline detail (including delta entries)
   baseline.compare  — structural diff between two baselines
+  baseline.set_tags — replace the tag set of one baseline (F4.2, write, audited)
 
 The ``BaselineFacade`` (application/baseline_facade.py) already exists and is
 reachable via REST/UI (rest_api/views.py's BaselineViewSet) — this tool group
@@ -57,6 +58,7 @@ def _baseline_summary_to_dict(summary: Any) -> dict[str, Any]:
         "description": summary.description,
         "created_at": summary.created_at.isoformat() if summary.created_at else None,
         "created_by": summary.created_by,
+        "tags": list(getattr(summary, "tags", []) or []),
     }
 
 
@@ -75,13 +77,14 @@ def _baseline_detail_to_dict(detail: Any) -> dict[str, Any]:
 
 
 class BaselineToolGroup(BaseToolGroup):
-    """Baseline tool group (4 tools) — wraps ``application.baseline_facade.BaselineFacade``."""
+    """Baseline tool group (5 tools) — wraps ``application.baseline_facade.BaselineFacade``."""
 
     _TOOL_MAP = {
         "baseline.create": "_handle_create",
         "baseline.list": "_handle_list",
         "baseline.get": "_handle_get",
         "baseline.compare": "_handle_compare",
+        "baseline.set_tags": "_handle_set_tags",
     }
 
     _TOOL_SCHEMAS = [
@@ -110,6 +113,15 @@ class BaselineToolGroup(BaseToolGroup):
                             "(GH-513). Requires the 'admin' or 'approver' role; "
                             "recorded in the audit log and on the baseline. "
                             "Omit it to keep the default fail-closed behaviour."
+                        ),
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional labels for the new baseline (F4.2). Max "
+                            "20, 1-64 characters, case-insensitive duplicates "
+                            "are merged; returned sorted."
                         ),
                     },
                     "waived_findings": {
@@ -165,6 +177,14 @@ class BaselineToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "Optional scope filter: 'document' | 'project' | 'global'.",
                     },
+                    "tag": {
+                        "type": "string",
+                        "description": (
+                            "Optional case-insensitive tag filter (F4.2). Only "
+                            "matches baselines of this workspace that carry the "
+                            "label in any spelling."
+                        ),
+                    },
                 },
                 "required": ["workspace_id"],
             },
@@ -192,6 +212,30 @@ class BaselineToolGroup(BaseToolGroup):
                 "required": ["baseline_a_id", "baseline_b_id"],
             },
         },
+        {
+            "name": "baseline.set_tags",
+            "description": (
+                "Replace the tag set of one baseline (write, audited). Tags are "
+                "metadata and never modify the immutable snapshot. Omit 'tags' "
+                "to clear the set."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the baseline."},
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string", "maxLength": 64},
+                        "description": (
+                            "Complete replacement set (max 20 labels, 1-64 "
+                            "characters, case-insensitive duplicates merged). "
+                            "Returned sorted case-insensitively."
+                        ),
+                    },
+                },
+                "required": ["id"],
+            },
+        },
     ]
 
     def __init__(self, facade: BaselineFacade | None = None) -> None:
@@ -216,6 +260,8 @@ class BaselineToolGroup(BaseToolGroup):
         # entry surfaces as a clean ValidationError below instead of an
         # AttributeError/TypeError leaking out of the tool as a 500.
         waived_findings = params.get("waived_findings") or None
+        # F4.2: forwarded verbatim; the facade is the single validation point.
+        tags = params.get("tags") or None
 
         try:
             # Codeberg #313: suppress create_baseline's single internal
@@ -233,6 +279,7 @@ class BaselineToolGroup(BaseToolGroup):
                         str(override_reason) if override_reason else None
                     ),
                     waived_findings=waived_findings,
+                    tags=tags,
                 )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
@@ -261,11 +308,18 @@ class BaselineToolGroup(BaseToolGroup):
         """baseline.list — list baseline summaries for a workspace."""
         workspace_id = require_uuid(params, "workspace_id")
         scope = params.get("scope")
+        tag = params.get("tag") or None
 
         try:
             summaries = self._facade.list_baselines(
-                workspace_id=workspace_id, ctx=auth_context, scope=scope
+                workspace_id=workspace_id, ctx=auth_context, scope=scope, tag=tag
             )
+        except ValidationError as exc:
+            # F4.2 review B2: the ``tag`` filter is validated centrally in the
+            # facade (shared with REST). Without this branch the exception
+            # escaped to the dispatcher's catch-all and became ``-32603``
+            # (internal error) for what is a malformed parameter.
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
 
@@ -318,6 +372,44 @@ class BaselineToolGroup(BaseToolGroup):
             return ToolResult.error("PERMISSION_DENIED", str(exc))
 
         return ToolResult.ok({"diff": diff.to_dict()})
+
+    # ------------------------------------------------------------------
+    # baseline.set_tags
+    # ------------------------------------------------------------------
+
+    def _handle_set_tags(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """baseline.set_tags — replace the tag set of one baseline (F4.2)."""
+        baseline_id = require_uuid(params, "id")
+        tags = params.get("tags")
+        if tags is None:
+            tags = []
+
+        try:
+            # Keep exactly one audit entry for this MCP write: suppress the
+            # facade's own ``operation="update"`` row and record the enriched
+            # MCP audit below.
+            with mcp_audit_handoff():
+                labels = self._facade.set_tags(
+                    baseline_id=baseline_id, labels=tags, ctx=auth_context
+                )
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="update",
+            entity_type="Baseline",
+            entity_id=baseline_id,
+            tool_name="baseline.set_tags",
+            api_key=api_key,
+        )
+        return ToolResult.ok({"id": str(baseline_id), "tags": labels})
 
 
 __all__ = ["BaselineToolGroup"]

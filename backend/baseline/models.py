@@ -29,6 +29,7 @@ from __future__ import annotations
 import uuid
 
 from django.db import models
+from django.db.models.functions import Lower
 
 from persistence.models import TenantScopedModel
 
@@ -277,8 +278,57 @@ class BaselineGateWaiver(TenantScopedModel):
         )
 
 
+class BaselineTag(TenantScopedModel):
+    """Free-form label attached to one Baseline (F4.2).
+
+    leaf_id: COMP-BL-003 (BaselineStore extension)
+    req_id:  REQ-L2-BL-001, REQ-L2-PL-010
+
+    Tags are **metadata**, not content. They live in their own table precisely
+    because ``bl_baseline_snapshot`` is append-only: a tag column on the
+    snapshot would need an UPDATE, which the ``bl_raise_immutable`` trigger
+    rejects unconditionally (R-F4-3). Keeping them separate means tagging a
+    baseline never touches the snapshot row.
+
+    ``workspace_id`` is a denormalised copy of ``baseline.workspace_id`` and is
+    written **exclusively** by the service from the parent row (QR-S09 a). It
+    exists so workspace-scoped filtering does not have to join through the
+    snapshot on every read; the canonical value is still the baseline's.
+
+    Comparisons are case-insensitive (``UNIQUE(LOWER(label), baseline)``) and
+    the stored spelling is preserved as entered.
+    """
+
+    baseline = models.ForeignKey(
+        BaselineSnapshot,
+        on_delete=models.CASCADE,
+        related_name="tags",
+        db_index=True,
+    )
+    # Denormalised copy of baseline.workspace_id — never request data.
+    workspace_id = models.UUIDField(db_index=True)
+    label = models.CharField(max_length=64)
+
+    class Meta:
+        db_table = "bl_baseline_tag"
+        constraints = [
+            models.UniqueConstraint(
+                Lower("label"),
+                "baseline",
+                name="uq_bl_tag_baseline_label_ci",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["workspace_id", "label"], name="idx_bl_tag_ws_label"),
+        ]
+
+    def __str__(self) -> str:
+        return f"BaselineTag(baseline={self.baseline_id}, label={self.label!r})"
+
+
 __all__ = [
     "BaselineDeltaIndexEntry",
     "BaselineGateWaiver",
     "BaselineSnapshot",
+    "BaselineTag",
 ]

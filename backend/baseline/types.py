@@ -136,6 +136,8 @@ class BaselineDetail:
     created_at: datetime
     created_by: str
     entries: list[DeltaIndexTuple] = field(default_factory=list)
+    #: Labels attached to this baseline (F4.2), sorted case-insensitively.
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -152,6 +154,8 @@ class BaselineSummary:
     description: str
     created_at: datetime
     created_by: str
+    #: Labels attached to this baseline (F4.2), sorted case-insensitively.
+    tags: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

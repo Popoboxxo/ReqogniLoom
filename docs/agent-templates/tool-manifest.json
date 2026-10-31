@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 254,
+  "tool_count": 255,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -1962,6 +1962,13 @@
             "type": "string",
             "description": "Written justification for creating the baseline although the SE-Auditor reports blocking findings (GH-513). Requires the 'admin' or 'approver' role; recorded in the audit log and on the baseline. Omit it to keep the default fail-closed behaviour."
           },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional labels for the new baseline (F4.2). Max 20, 1-64 characters, case-insensitive duplicates are merged; returned sorted."
+          },
           "waived_findings": {
             "type": "array",
             "description": "Per-finding waivers (GH-821): accept individual blocking findings instead of the whole verdict. Each entry is waived with its own mandatory reason, requires the 'admin' or 'approver' role, and is persisted so later baseline builds do not have to re-state it. Findings that remain unwaived still block the baseline.",
@@ -2031,10 +2038,40 @@
           "scope": {
             "type": "string",
             "description": "Optional scope filter: 'document' | 'project' | 'global'."
+          },
+          "tag": {
+            "type": "string",
+            "description": "Optional case-insensitive tag filter (F4.2). Only matches baselines of this workspace that carry the label in any spelling."
           }
         },
         "required": [
           "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "baseline.set_tags",
+      "prefix": "baseline",
+      "is_write": true,
+      "description": "Replace the tag set of one baseline (write, audited). Tags are metadata and never modify the immutable snapshot. Omit 'tags' to clear the set.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the baseline."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "description": "Complete replacement set (max 20 labels, 1-64 characters, case-insensitive duplicates merged). Returned sorted case-insensitively."
+          }
+        },
+        "required": [
+          "id"
         ]
       }
     },

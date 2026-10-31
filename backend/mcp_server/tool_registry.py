@@ -308,6 +308,7 @@ _WRITE_TOOL_PREFIXES: tuple[str, ...] = (
     "diagram.reactivate",
     # Issue #114: BaselineToolGroup — baseline.create is the only mutating tool.
     "baseline.create",
+    "baseline.set_tags",
     # REQ-L2-AI-003 (Phase 3): mode="write" makes these previously
     # preview-only tools capable of mutation, so they now require Editor+
     # (the RBAC gate is name-based, not mode-aware — mode="preview" calls by
