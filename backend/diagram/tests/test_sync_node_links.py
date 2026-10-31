@@ -238,24 +238,28 @@ class TestSyncNodeLinksUnresolvableRef:
                 == 0
             )
 
-    def test_clearing_a_node_that_never_had_a_valid_ref_does_not_require_workspace(
-        self, manager, tenant_a
+    def test_node_graph_without_refs_creates_no_diagram_ref_links(
+        self, manager, tenant_a, workspace_a
     ) -> None:
-        """Back-compat: a node_graph payload with no artifact_ref nodes must
-        keep working for workspace-less Diagrams (Task 1's write-path tests
-        create these), since sync_node_links must not force shadow-Artifact
-        resolution when there is nothing to reconcile.
+        """A node_graph payload with no artifact_ref nodes must not force any
+        DIAGRAM_REF reconciliation: the save succeeds and creates zero links.
+
+        F1.2-T2 (#1374) removed the workspace-less create path — every Diagram
+        now has a workspace and therefore a backing Artifact — so this test
+        pins the remaining contract (no refs -> no links) instead of the
+        retired ``artifact_id is None`` shape.
         """
         with active_tenant(tenant_a):
             content = _node_graph_content([_node("n-1", None)])
             diagram = manager.create_diagram(
-                name="Workspace-less Diagram",
+                name="No-Refs Diagram",
                 diagram_type="block",
                 payload_format="node_graph",
                 content=content,
                 tenant=tenant_a,
+                workspace_id=workspace_a.id,
             )
-            assert diagram.artifact_id is None
+            assert diagram.artifact_id is not None
             assert (
                 TraceLink.objects.filter(link_type=LinkType.DIAGRAM_REF).count() == 0
             )

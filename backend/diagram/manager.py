@@ -265,7 +265,7 @@ class DiagramManager:
         created_by: object | None = None,
         target_id: uuid.UUID | None = None,
         canvas_json: dict | None = None,
-        workspace_id: uuid.UUID | None = None,
+        workspace_id: uuid.UUID,
     ) -> Diagram:
         """Create a new Diagram with its content at revision 1.
 
@@ -286,8 +286,14 @@ class DiagramManager:
             description:    Optional free-text description.
             created_by:     Optional User ORM object for audit.
             target_id:      Optional UUID of a target Artifact for TraceLink creation.
-            workspace_id:   Optional owning workspace UUID (REQ-173). Nullable for
-                            backwards compatibility; new diagrams should set it.
+            workspace_id:   Owning workspace UUID (REQ-173). Required since
+                            F1.2-T2 (#1374): a Diagram is a TraceLink endpoint
+                            only through its backing Artifact, and
+                            ``Artifact.workspace`` is not nullable — a
+                            workspace-less Diagram could never be linked or
+                            baselined. Legacy rows written before this change
+                            keep ``workspace_id IS NULL`` (see
+                            ``report_unbacked_diagrams``).
 
         Returns:
             The newly created Diagram ORM object.
@@ -319,13 +325,11 @@ class DiagramManager:
         # Datenmodell-Konsolidierung Phase 3 (spec §4.3): create the backing
         # Artifact up front instead of lazily on first TraceLink use, so a
         # Diagram is a valid link endpoint and baseline subject from birth.
-        # Skipped for the workspace-less legacy shape (workspace_id is
-        # nullable, REQ-173) — those rows keep the pre-existing behaviour of
-        # raising only when a link is actually attempted.
-        if workspace_id is not None:
-            ensure_artifact(
-                diagram, artifact_type="Diagram", workspace_id=workspace_id
-            )
+        # F1.2-T2 (#1374): workspace_id is required, so every new Diagram gets
+        # its Artifact here — no new unlinkable row can be created. Legacy rows
+        # (``workspace_id IS NULL``) keep the pre-existing behaviour of raising
+        # only when a link is actually attempted.
+        ensure_artifact(diagram, artifact_type="Diagram", workspace_id=workspace_id)
 
         # Datenmodell-Konsolidierung Phase 5 (spec §6.1): record revision 1 in
         # the shared revision store and advance the row's counter.

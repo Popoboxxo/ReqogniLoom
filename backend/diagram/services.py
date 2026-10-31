@@ -77,7 +77,7 @@ def create_diagram(
     description: str = "",
     created_by: object | None = None,
     target_id: uuid.UUID | None = None,
-    workspace_id: uuid.UUID | None = None,
+    workspace_id: uuid.UUID,
 ) -> Diagram:
     """Create a new Diagram with its content at revision 1.
 
@@ -92,7 +92,9 @@ def create_diagram(
         description:    Optional description.
         created_by:     Optional User ORM object for audit.
         target_id:      Optional target Artifact UUID for a 'references' TraceLink.
-        workspace_id:   Optional owning workspace UUID (REQ-173).
+        workspace_id:   Owning workspace UUID (REQ-173). Required since F1.2-T2
+                        (#1374) — a workspace-less Diagram could never be
+                        linked or baselined.
 
     Returns:
         The created Diagram ORM object.

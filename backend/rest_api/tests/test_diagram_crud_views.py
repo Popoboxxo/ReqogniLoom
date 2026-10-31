@@ -30,6 +30,9 @@ from traceability.exceptions import TraceLinkError
 FAKE_DIAGRAM_ID = uuid.uuid4()
 FAKE_TENANT_ID = uuid.uuid4()
 FAKE_USER_ID = uuid.uuid4()
+# F1.2-T2 (#1374): workspace_id is a required create field; these tests mock
+# ``create_diagram``, so any well-formed UUID satisfies the view's guard.
+FAKE_WORKSPACE_ID = uuid.uuid4()
 
 
 def _make_auth_context() -> MagicMock:
@@ -52,6 +55,7 @@ class TestDiagramViewSetCreateValidation:
         req = factory.post(
             "/api/v1/diagrams/",
             data={
+                "workspace_id": str(FAKE_WORKSPACE_ID),
                 "name": "My Block Diagram",
                 "diagram_type": "block",
                 "payload_format": "json",
@@ -88,6 +92,7 @@ class TestDiagramViewSetCreateValidation:
         req = factory.post(
             "/api/v1/diagrams/",
             data={
+                "workspace_id": str(FAKE_WORKSPACE_ID),
                 "name": "My Block Diagram",
                 "diagram_type": "block",
                 "payload_format": "json",
@@ -165,6 +170,7 @@ class TestDiagramViewSetTraceLinkErrorMapping:
         req = factory.post(
             "/api/v1/diagrams/",
             data={
+                "workspace_id": str(FAKE_WORKSPACE_ID),
                 "name": "Refs a workspace-less legacy diagram",
                 "diagram_type": "block",
                 "payload_format": "node_graph",
@@ -245,6 +251,7 @@ class TestDiagramViewSetCanvasStrokeTypeValidation:
         req = factory.post(
             "/api/v1/diagrams/",
             data={
+                "workspace_id": str(FAKE_WORKSPACE_ID),
                 "name": "My Canvas Diagram",
                 "diagram_type": "canvas",
                 "payload_format": "canvas_stroke",
@@ -347,6 +354,7 @@ class TestDiagramViewSetNodeGraphValidation:
         req = factory.post(
             "/api/v1/diagrams/",
             data={
+                "workspace_id": str(FAKE_WORKSPACE_ID),
                 "name": "My Node Graph Diagram",
                 "diagram_type": "block",
                 "payload_format": "node_graph",
@@ -482,6 +490,7 @@ class TestDiagramViewSetInternalErrorMasking:
         req = factory.post(
             "/api/v1/diagrams/",
             data={
+                "workspace_id": str(FAKE_WORKSPACE_ID),
                 "name": "My Diagram",
                 "diagram_type": "block",
                 "payload_format": "json",
@@ -551,6 +560,7 @@ class TestDiagramViewSetFreeTextSanitization:
         req = factory.post(
             "/api/v1/diagrams/",
             data={
+                "workspace_id": str(FAKE_WORKSPACE_ID),
                 "name": self._PAYLOAD,
                 "diagram_type": "block",
                 "payload_format": "json",
@@ -616,6 +626,7 @@ class TestDiagramViewSetFreeTextSanitization:
         req = factory.post(
             "/api/v1/diagrams/",
             data={
+                "workspace_id": str(FAKE_WORKSPACE_ID),
                 "name": "Perfectly Normal Diagram Name",
                 "description": "Nothing suspicious here.",
                 "diagram_type": "block",
