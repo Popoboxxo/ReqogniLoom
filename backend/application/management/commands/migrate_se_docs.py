@@ -6,9 +6,9 @@ ReqFlow as real artifacts (StakeholderNeed, Requirement, ArchitectureElement,
 Adr) via the existing :class:`application.import_service.ImportService` —
 the same COMP-AS-009 entry point used by the CSV bulk-import REST/MCP tools.
 No persistence logic is reimplemented here; this command only parses
-markdown into the CSV shape ``ImportService`` expects
+markdown into the row shape ``ImportService`` expects
 (:data:`application.export_service.ENTITY_FIELD_SPECS`) and calls
-``import_csv``.
+``import_rows``.
 
 ``--format=table`` mode (issue #117): the legacy ``docs/REQUIREMENTS.md``
 register predates the SE-Kaskade and uses a flat markdown **table** per
@@ -16,9 +16,9 @@ section (``| REQ-ID | Kategorie | Titel | Beschreibung | Status |``) instead
 of ``### REQ-Lx-...`` headings, so none of the parsing above applies to it.
 ``--format=table --file docs/REQUIREMENTS.md`` reads that pipe-table format
 and imports every row as a ``Requirement`` through the exact same
-``ImportService.import_csv`` entry point (see :meth:`Command._handle_table_import`),
-so it gets the same workflow-state wiring (REQ-143 / issue #113) instead of
-landing as a workflow-dead artifact.
+``ImportService.import_rows`` entry point (see
+:meth:`Command._handle_table_import`), so it gets the same workflow-state
+wiring (REQ-143 / issue #113) instead of landing as a workflow-dead artifact.
 
 Document-to-entity mapping (see module-level ``_classify_file``):
 
@@ -64,28 +64,27 @@ other part of the system already used, and migration ``0067`` shifted the rows
 this command had previously written — so re-running it after that migration
 produces the same levels the migration assigned, not a second shift.
 
-Known ImportService quirk (NOT patched here — mitigated in this command
-only, per the "do not touch import_service.py without a genuine blocking
-defect" instruction): ``ImportService._parse_csv`` strips any *physical* CSV
-line starting with ``#`` (a shortcut for stripping ExportService's
-terminology-profile comment header) without RFC4180 quoted-multiline-field
-awareness. Since docs/se descriptions are full markdown bodies that
-routinely contain lines starting with ``#`` (nested headings), every
-multi-line text field is passed through :func:`_csv_safe` first, which
-turns a leading ``#`` on any embedded line into `` #`` (leading space) so it
-no longer looks like a comment line to the naive stripper. This is purely a
-caller-side CSV-construction safeguard; it does not change any persisted
-content (the leading space is only ever present inside the CSV transport
-representation... but note it DOES become part of the stored description,
-since ImportService has no way to reverse it — this is disclosed as a
-minor, cosmetic, one-time formatting side effect on any embedded markdown
-heading line, acceptable for a one-shot documentation migration).
+Every file is imported on its own: one source document = one
+``ImportService.import_rows`` call = one transaction, so a single malformed
+document is reported and skipped instead of rolling back the documents
+imported before or after it (plan F1.3-T3). A document with more than
+``_MAX_ROWS_PER_CALL`` sections is chunked and announced as a WARNING.
+
+Multi-line bodies (Markdown headings included) need no transport escaping any
+more: ``ImportService._parse_csv`` skips only the *leading* comment block, so
+an embedded ``#`` line is content (plan F1.3-T1, issue #1374). Documents
+imported by an older build of this command may still carry that transport's
+``'\\n #'`` scar; ``--repair-hash-indent --dry-run|--apply`` rewrites them
+through the regular ``RequirementService`` update path (a new artifact
+version, change reason ``"F5 repair"``), never by a raw UPDATE.
 
 Usage::
 
     python manage.py migrate_se_docs --dry-run
     python manage.py migrate_se_docs
     python manage.py migrate_se_docs --workspace-id <uuid> --docs-root /app/docs/se
+    python manage.py migrate_se_docs --repair-hash-indent --dry-run
+    python manage.py migrate_se_docs --repair-hash-indent --apply
 
 Safe to run repeatedly: rows whose derived ``uid`` already exists in the
 target workspace are skipped (counted as "already_imported"), never
@@ -93,8 +92,6 @@ duplicated.
 """
 from __future__ import annotations
 
-import csv
-import io
 import logging
 import re
 from pathlib import Path
@@ -102,9 +99,9 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from application.export_service import ENTITY_FIELD_SPECS
-from application.import_service import ImportService
+from application.import_service import ImportResult, ImportService
 from application.models import Adr
+from application.requirement_service import RequirementService
 from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.models import ROLE_ADMIN
 from persistence.middleware import clear_request_tenant, set_request_tenant
@@ -125,10 +122,19 @@ logger = logging.getLogger(__name__)
 _DEFAULT_WORKSPACE_ID = "6d20f0b9-d2cf-46a0-b916-79f8b417210f"
 _DEFAULT_USERNAME = "admin"
 
-# Max rows per ImportService.import_csv() call (mirrors ImportService._MAX_ROWS).
-# Chunking defensively even though the largest bucket (Requirement, ~758 rows)
-# is currently under this limit.
+# Max rows per ImportService.import_rows() call (mirrors ImportService._MAX_ROWS).
+# One source document is one call (one transaction); a document above this size
+# is chunked, which degrades atomicity to per chunk and is reported as a WARNING.
 _MAX_ROWS_PER_CALL = 1000
+
+# The transport scar left behind by this command's removed CSV-escaping helper
+# (plan F1.3-T3): it rewrote every ``"\n#"`` to ``"\n #"`` so the pre-F1.3-T1
+# parser would not drop an embedded Markdown heading. F1.3-T1 fixed the parser,
+# so the extra space is now only a formatting artefact in already-migrated
+# descriptions. ``--repair-hash-indent`` rewrites exactly this pattern.
+_HASH_INDENT_PATTERN = "\n #"
+_HASH_INDENT_REPLACEMENT = "\n#"
+_REPAIR_CHANGE_REASON = "F5 repair"
 
 # ---------------------------------------------------------------------------
 # Heading regexes (see docstring above for the corpus verification behind them)
@@ -232,19 +238,6 @@ _ADR_STATUS_MAP = {
 # ---------------------------------------------------------------------------
 # Generic markdown helpers
 # ---------------------------------------------------------------------------
-
-
-def _csv_safe(text: str | None) -> str:
-    """Guard a multi-line text value against ImportService's naive '#'-strip.
-
-    See module docstring: ``ImportService._parse_csv`` strips any physical
-    line starting with '#' before parsing. A markdown body may legitimately
-    contain lines starting with '#' (nested headings); inserting a leading
-    space after the newline keeps the content intact end-to-end.
-    """
-    if not text:
-        return ""
-    return re.sub(r"\n#", "\n #", text)
 
 
 def _extract_req_sections(text: str) -> list[tuple[str, str, str]]:
@@ -365,7 +358,7 @@ def _stakeholder_need_row(uid: str, title: str, body: str) -> dict[str, str]:
     # conscious default for newly imported StakeholderNeeds.
     return {
         "title": title[:500],
-        "description": _csv_safe(body),
+        "description": body,
         "status": "draft",
         "uid": uid,
     }
@@ -381,7 +374,7 @@ def _requirement_row(uid: str, title: str, body: str) -> dict[str, str]:
     # is the conscious default for newly imported Requirements.
     return {
         "title": title[:500],
-        "description": _csv_safe(body),
+        "description": body,
         "level": str(_requirement_level(uid)),
         "status": "draft",
         "uid": uid,
@@ -418,7 +411,7 @@ def _architecture_row(
 ) -> dict[str, str]:
     return {
         "title": title[:500],
-        "description": _csv_safe(body),
+        "description": body,
         "element_type": element_type,
         "uid": uid,
     }
@@ -429,9 +422,9 @@ def _adr_row(
 ) -> dict[str, str]:
     return {
         "title": title[:200],
-        "description": _csv_safe(description),
-        "context": _csv_safe(context),
-        "consequences": _csv_safe(consequences),
+        "description": description,
+        "context": context,
+        "consequences": consequences,
         "status": status,
         "uid": uid,
     }
@@ -565,7 +558,7 @@ def _requirement_table_row(
     """
     return {
         "title": title[:500],
-        "description": _csv_safe(description),
+        "description": description,
         "category": category,
         "status": status,
         "uid": uid,
@@ -617,18 +610,20 @@ def _parse_requirements_table_file(
     return rows, warnings
 
 
-def _write_csv(rows: list[dict[str, str]], entity_type: str) -> str:
-    """Serialise *rows* to CSV using the exact column order ImportService
-    expects (application.export_service.ENTITY_FIELD_SPECS[entity_type])."""
-    fieldnames = [col for col, _kind in ENTITY_FIELD_SPECS[entity_type]]
-    buf = io.StringIO()
-    writer = csv.DictWriter(
-        buf, fieldnames=fieldnames, extrasaction="ignore", quoting=csv.QUOTE_ALL
-    )
-    writer.writeheader()
-    for row in rows:
-        writer.writerow(row)
-    return buf.getvalue()
+def _group_rows_by_source_file(
+    entries: list[tuple[str, dict[str, str], Path]],
+) -> list[tuple[Path, list[dict[str, str]]]]:
+    """Group *entries* by their source document, keeping first-seen order.
+
+    Plan F1.3-T3: one source document = one ``ImportService.import_rows`` call
+    = one transaction, so a malformed document cannot roll back the rows of its
+    neighbours. ``dict`` preserves insertion order, so the import order stays
+    the deterministic file order the caller built the list in.
+    """
+    grouped: dict[Path, list[dict[str, str]]] = {}
+    for _uid, row, path in entries:
+        grouped.setdefault(path, []).append(row)
+    return list(grouped.items())
 
 
 def _existing_uids(entity_type: str, workspace_id) -> set:
@@ -849,8 +844,34 @@ class Command(BaseCommand):
                 "(default: <BASE_DIR>/docs/REQUIREMENTS.md)."
             ),
         )
+        parser.add_argument(
+            "--repair-hash-indent",
+            dest="repair_hash_indent",
+            action="store_true",
+            help=(
+                "Maintenance mode (plan F1.3-T3): rewrite the '\\n #' transport "
+                "scar that the removed CSV escaping helper left in descriptions "
+                "imported by an older build. Only artifacts whose uid derives "
+                "deterministically from --docs-root are considered. Each repair "
+                "is a regular Requirement update (new version, change reason "
+                "'F5 repair'), never a raw UPDATE. Pair with --dry-run (default) "
+                "or --apply."
+            ),
+        )
+        parser.add_argument(
+            "--apply",
+            dest="apply",
+            action="store_true",
+            help=(
+                "--repair-hash-indent only: actually write the repairs. Without "
+                "it the command reports how many artifacts would change."
+            ),
+        )
 
     def handle(self, *args, **options) -> None:
+        if options.get("apply") and not options.get("repair_hash_indent"):
+            raise CommandError("--apply requires --repair-hash-indent.")
+
         if options["format"] == "table":
             self._handle_table_import(options)
             return
@@ -866,6 +887,12 @@ class Command(BaseCommand):
             raise CommandError(f"docs-root not found or not a directory: {docs_root}")
 
         workspace, ctx = self._resolve_workspace_and_ctx(options)
+
+        if options.get("repair_hash_indent"):
+            self._repair_hash_indent(
+                docs_root, workspace, ctx, apply=bool(options.get("apply"))
+            )
+            return
 
         all_files = sorted(docs_root.rglob("*.md"))
         self.stdout.write(f"Scanning {len(all_files)} markdown files under {docs_root} ...")
@@ -920,10 +947,10 @@ class Command(BaseCommand):
         # "fixes" — the first occurrence (deterministic file/heading order)
         # wins and every later duplicate is reported.
         dedup_warnings: list[str] = []
-        deduped_buckets: dict[str, list[tuple[str, dict[str, str]]]] = {}
+        deduped_buckets: dict[str, list[tuple[str, dict[str, str], Path]]] = {}
         for entity_type, entries in buckets.items():
             seen: dict[str, Path] = {}
-            deduped: list[tuple[str, dict[str, str]]] = []
+            deduped: list[tuple[str, dict[str, str], Path]] = []
             for uid, row, path in entries:
                 if uid in seen:
                     dedup_warnings.append(
@@ -932,7 +959,7 @@ class Command(BaseCommand):
                     )
                     continue
                 seen[uid] = path
-                deduped.append((uid, row))
+                deduped.append((uid, row, path))
             deduped_buckets[entity_type] = deduped
 
         # Deduplicate the architecture-file list (first occurrence per uid wins,
@@ -951,26 +978,28 @@ class Command(BaseCommand):
         try:
             for entity_type, entries in deduped_buckets.items():
                 existing = _existing_uids(entity_type, workspace.id)
-                new_rows = [row for uid, row in entries if uid not in existing]
+                new_entries = [
+                    (uid, row, path) for uid, row, path in entries if uid not in existing
+                ]
                 stats[entity_type] = {
                     "parsed": len(entries),
-                    "already_imported": len(entries) - len(new_rows),
-                    "new": len(new_rows),
+                    "already_imported": len(entries) - len(new_entries),
+                    "new": len(new_entries),
                     "imported": 0,
                     "failed": 0,
                 }
 
-                if dry_run or not new_rows:
+                if dry_run or not new_entries:
                     continue
 
                 imported, failed = self._import_entity_rows(
-                    ImportService(), entity_type, new_rows, workspace.id, ctx
+                    ImportService(), entity_type, new_entries, workspace.id, ctx
                 )
                 stats[entity_type]["imported"] = imported
                 stats[entity_type]["failed"] = failed
 
             # ---------- Feature 1: ArchitectureElement hierarchy (parent_id) ----------
-            # Runs AFTER the CSV import so every ArchitectureElement exists.
+            # Runs AFTER the row import so every ArchitectureElement exists.
             parent_stats, parent_warnings = self._apply_parents(
                 arch_entries, workspace, ctx, dry_run
             )
@@ -1022,12 +1051,88 @@ class Command(BaseCommand):
         )
         return workspace, ctx
 
+    def _repair_hash_indent(
+        self,
+        docs_root: Path,
+        workspace: Workspace,
+        ctx: AuthContext,
+        *,
+        apply: bool,
+    ) -> None:
+        """Rewrite the ``'\\n #'`` transport scar of pre-F1.3-T1 imports.
+
+        Plan F1.3-T3 ``--repair-hash-indent``. Only Requirements whose ``uid``
+        derives deterministically from *docs_root* — i.e. the ``REQ-Lx-...``
+        heading ids this very command imports — are candidates, so a
+        hand-maintained description or an artifact owned by another importer is
+        never touched.
+
+        Every rewrite goes through
+        ``RequirementService.update_requirement`` with the fixed change reason
+        ``"F5 repair"``: it produces a new artifact version and the regular audit
+        trail instead of a raw UPDATE. ``apply=False`` (the default;
+        ``--dry-run``) only counts.
+        """
+        source_uids = sorted(
+            {
+                uid
+                for path in sorted(docs_root.rglob("*_Requirements.md"))
+                # Same classification the import path uses, so a
+                # ``L0/*_Requirements.md`` (a StakeholderNeed source) never
+                # contributes candidate uids here.
+                if _classify_file(path, docs_root) == "Requirement"
+                for uid, _row in _parse_requirement_file(path)[0]
+            }
+        )
+
+        candidates: list[Requirement] = []
+        repaired = 0
+        set_request_tenant(workspace.tenant_id)
+        try:
+            if source_uids:
+                candidates = [
+                    requirement
+                    for requirement in Requirement.objects.filter(
+                        artifact__workspace_id=workspace.id,
+                        uid__in=source_uids,
+                    )
+                    if _HASH_INDENT_PATTERN in (requirement.description or "")
+                ]
+
+            if apply and candidates:
+                service = RequirementService()
+                for requirement in candidates:
+                    service.update_requirement(
+                        requirement.id,
+                        ctx,
+                        description=(requirement.description or "").replace(
+                            _HASH_INDENT_PATTERN, _HASH_INDENT_REPLACEMENT
+                        ),
+                        change_reason=_REPAIR_CHANGE_REASON,
+                    )
+                    repaired += 1
+        finally:
+            clear_request_tenant()
+
+        self.stdout.write("")
+        self.stdout.write(
+            self.style.SUCCESS("=== Repair: hash-indent transport scar ===")
+        )
+        self.stdout.write(
+            f"  hash_indent: candidates={len(candidates)} repaired={repaired}"
+        )
+        self.stdout.write("")
+        if apply:
+            self.stdout.write(self.style.SUCCESS("Done."))
+        else:
+            self.stdout.write(self.style.NOTICE("Dry-run: no data was written."))
+
     def _handle_table_import(self, options) -> None:
         """``--format=table`` entry point (issue #117).
 
         Parses a single markdown-table file (default: docs/REQUIREMENTS.md)
         into Requirement rows and imports them via the same
-        ``ImportService.import_csv`` path as ``--format=docs``, so imported
+        ``ImportService.import_rows`` path as ``--format=docs``, so imported
         rows get the same workflow-state wiring (REQ-143 / issue #113)
         instead of landing as workflow-dead artifacts. Idempotent: rows whose
         ``uid`` (the REQ-ID) already exists in the target workspace are
@@ -1065,20 +1170,22 @@ class Command(BaseCommand):
         set_request_tenant(workspace.tenant_id)
         try:
             existing = _existing_uids("Requirement", workspace.id)
-            new_rows = [row for uid, row in deduped if uid not in existing]
+            new_entries = [
+                (uid, row, file_path) for uid, row in deduped if uid not in existing
+            ]
             stats = {
                 "Requirement": {
                     "parsed": len(deduped),
-                    "already_imported": len(deduped) - len(new_rows),
-                    "new": len(new_rows),
+                    "already_imported": len(deduped) - len(new_entries),
+                    "new": len(new_entries),
                     "imported": 0,
                     "failed": 0,
                 }
             }
 
-            if not dry_run and new_rows:
+            if not dry_run and new_entries:
                 imported, failed = self._import_entity_rows(
-                    ImportService(), "Requirement", new_rows, workspace.id, ctx
+                    ImportService(), "Requirement", new_entries, workspace.id, ctx
                 )
                 stats["Requirement"]["imported"] = imported
                 stats["Requirement"]["failed"] = failed
@@ -1114,40 +1221,89 @@ class Command(BaseCommand):
         self,
         importer: ImportService,
         entity_type: str,
-        rows: list[dict[str, str]],
+        entries: list[tuple[str, dict[str, str], Path]],
         workspace_id,
         ctx: AuthContext,
     ) -> tuple[int, int]:
-        """Import *rows* for *entity_type* in chunks of _MAX_ROWS_PER_CALL.
+        """Import *entries* one source document at a time.
+
+        Plan F1.3-T3: every document is its own ``import_rows`` call and
+        therefore its own transaction, so a document that fails is reported and
+        skipped instead of rolling back the documents imported before or after
+        it. A document with more than ``_MAX_ROWS_PER_CALL`` sections is
+        chunked — that degrades atomicity to per chunk, so it is announced as a
+        WARNING rather than happening silently.
+
+        A failure is a per-document WARNING (not an abort): the command keeps
+        importing the remaining documents.
 
         Returns (imported_count, failed_count).
         """
         imported = 0
         failed = 0
-        for start in range(0, len(rows), _MAX_ROWS_PER_CALL):
-            chunk = rows[start : start + _MAX_ROWS_PER_CALL]
-            csv_text = _write_csv(chunk, entity_type)
-            result = importer.import_csv(csv_text, entity_type, workspace_id, ctx)
-            if result.success:
-                imported += result.imported_count
-            else:
-                failed += len(chunk)
-                error_preview = [
-                    f"row {e.row_number} [{e.field}]: {e.message}" for e in result.errors[:5]
-                ]
-                self.stderr.write(
-                    self.style.ERROR(
-                        f"  ! {entity_type} import chunk failed "
-                        f"(status={result.status}): {error_preview}"
+        for path, file_rows in _group_rows_by_source_file(entries):
+            chunk_count = (
+                len(file_rows) + _MAX_ROWS_PER_CALL - 1
+            ) // _MAX_ROWS_PER_CALL
+            if chunk_count > 1:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"  ! {path}: {len(file_rows)} rows exceed the "
+                        f"{_MAX_ROWS_PER_CALL}-row import limit; importing in "
+                        f"{chunk_count} chunks (atomicity is per chunk, not per file)."
                     )
                 )
-                logger.error(
-                    "migrate_se_docs: %s import chunk failed status=%s errors=%s",
+                logger.warning(
+                    "migrate_se_docs: %s imported in %s chunks (file=%s)",
                     entity_type,
-                    result.status,
-                    error_preview,
+                    chunk_count,
+                    path,
                 )
+
+            for start in range(0, len(file_rows), _MAX_ROWS_PER_CALL):
+                chunk = file_rows[start : start + _MAX_ROWS_PER_CALL]
+                try:
+                    result = importer.import_rows(
+                        chunk, entity_type, workspace_id, ctx
+                    )
+                except Exception as exc:
+                    # One document must never abort the run: report it as a
+                    # per-document WARNING and keep importing the rest.
+                    failed += len(chunk)
+                    warning = (
+                        f"{path}: {entity_type} import raised "
+                        f"{type(exc).__name__}: {exc} (document skipped)."
+                    )
+                    self.stdout.write(self.style.WARNING(f"  ! {warning}"))
+                    logger.exception(
+                        "migrate_se_docs: %s import raised for %s", entity_type, path
+                    )
+                    continue
+
+                imported += result.imported_count
+                failed += result.failed_count
+                if not result.success:
+                    warning = self._import_failure_warning(
+                        entity_type, path, result
+                    )
+                    self.stdout.write(self.style.WARNING(f"  ! {warning}"))
+                    logger.warning("migrate_se_docs: %s", warning)
         return imported, failed
+
+    @staticmethod
+    def _import_failure_warning(
+        entity_type: str, path: Path, result: ImportResult
+    ) -> str:
+        """Render a failed per-document import as one WARNING line."""
+        error_preview = [
+            f"row {e.row_number} [{e.field}]: {e.message}"
+            for e in result.errors[:5]
+        ]
+        return (
+            f"{path}: {entity_type} import failed (status={result.status}); "
+            f"imported={result.imported_count} failed={result.failed_count} "
+            f"errors={error_preview}"
+        )
 
     def _apply_parents(
         self,
