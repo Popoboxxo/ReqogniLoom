@@ -98,6 +98,88 @@ _ERROR_CATALOG: dict[str, tuple[int, dict[str, str]]] = {
             "de": "Der Tenant für diese Anfrage konnte nicht aufgelöst werden.",
         },
     ),
+    # ------------------------------------------------------------------
+    # Second factor (#1308, Plan E / WP E3.3 + E3.4)
+    #
+    # One code per rejection reason, because each one asks the client to do
+    # something different: re-authenticate (step-up), stop and ask an
+    # administrator (grant), restart the flow (challenge), retry the code,
+    # wait (locked), or report an infrastructure fault (unavailable). The
+    # bilingual texts are duplicated in ``rest_api.serializers._ERROR_MESSAGES``
+    # so the plain DRF exception envelope localises them identically; the
+    # registry there is the one clients can enumerate.
+    # ------------------------------------------------------------------
+    "MFA_STEP_UP_REQUIRED": (
+        401,
+        {
+            "en": (
+                "This session was authenticated with a password only, but a "
+                "second factor is required. Log in again and confirm the code."
+            ),
+            "de": (
+                "Diese Sitzung wurde nur mit einem Passwort authentifiziert, "
+                "es ist jedoch ein zweiter Faktor erforderlich. Melden Sie sich "
+                "erneut an und bestätigen Sie den Code."
+            ),
+        },
+    ),
+    "MFA_ENROLLMENT_REQUIRES_GRANT": (
+        403,
+        {
+            "en": (
+                "A second factor is required. Ask an administrator for an "
+                "enrollment grant."
+            ),
+            "de": (
+                "Ein zweiter Faktor ist erforderlich. Bitten Sie eine "
+                "Administratorin oder einen Administrator um eine "
+                "Enrollment-Freigabe."
+            ),
+        },
+    ),
+    "MFA_CHALLENGE_INVALID": (
+        401,
+        {
+            "en": "The second-factor challenge is invalid, expired or already used.",
+            "de": (
+                "Die Challenge für den zweiten Faktor ist ungültig, abgelaufen "
+                "oder wurde bereits verwendet."
+            ),
+        },
+    ),
+    "MFA_INVALID_CODE": (
+        401,
+        {
+            "en": "The second-factor code is invalid.",
+            "de": "Der Code für den zweiten Faktor ist ungültig.",
+        },
+    ),
+    "MFA_LOCKED": (
+        429,
+        {
+            "en": (
+                "Too many failed second-factor attempts. The second factor is "
+                "temporarily locked."
+            ),
+            "de": (
+                "Zu viele fehlgeschlagene Versuche mit dem zweiten Faktor. Der "
+                "zweite Faktor ist vorübergehend gesperrt."
+            ),
+        },
+    ),
+    "MFA_UNAVAILABLE": (
+        503,
+        {
+            "en": (
+                "The second factor cannot be evaluated right now; the login was "
+                "refused."
+            ),
+            "de": (
+                "Der zweite Faktor kann derzeit nicht geprüft werden; die "
+                "Anmeldung wurde abgelehnt."
+            ),
+        },
+    ),
 }
 
 _DEFAULT_LANGUAGE = "en"

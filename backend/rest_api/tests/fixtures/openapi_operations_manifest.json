@@ -342,6 +342,10 @@
    "post"
   ],
   [
+   "/api/v1/auth/login/mfa/",
+   "post"
+  ],
+  [
    "/api/v1/auth/logout/",
    "post"
   ],

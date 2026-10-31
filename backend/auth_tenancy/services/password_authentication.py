@@ -173,7 +173,13 @@ class PasswordAuthenticationService:
         """
         return resolve_roles_for_user(user.id)
 
-    def issue_token(self, user: User, roles: tuple[str, ...] | None = None) -> str:
+    def issue_token(
+        self,
+        user: User,
+        roles: tuple[str, ...] | None = None,
+        *,
+        amr: tuple[str, ...] = ("pwd",),
+    ) -> str:
         """Mint a signed HS256 JWT for ``user`` (REQ-L1-010).
 
         The claim set is exactly what ``AuthenticationService.validate_bearer_token``
@@ -184,6 +190,11 @@ class PasswordAuthenticationService:
         Args:
             user: The user to mint a token for; must have a tenant.
             roles: Explicit role list; resolved from ``UserRole`` when ``None``.
+            amr: Authentication-method references (RFC 8176) this session
+                authenticated with. The default ``("pwd",)`` is a password
+                login; the two-step login (WP E3.3/E3.4) mints
+                ``("pwd", "otp")`` so downstream consumers can tell a
+                password-only session from a second-factor one.
 
         Returns:
             The compact JWT string (without the ``Bearer `` prefix).
@@ -206,6 +217,7 @@ class PasswordAuthenticationService:
             "tenant_id": str(user.tenant_id),
             "roles": list(effective_roles),
             "typ": "access",
+            "amr": list(amr),
             "iat": issued_at,
             "exp": issued_at + self._ttl_seconds,
         }
@@ -217,7 +229,11 @@ class PasswordAuthenticationService:
         return encode_hs256(claims, self._jwt_secret)
 
     def issue_refresh_token(
-        self, user: User, *, session_id: UUID | None = None
+        self,
+        user: User,
+        *,
+        session_id: UUID | None = None,
+        amr: tuple[str, ...] = ("pwd",),
     ) -> str:
         """Mint a long-lived HS256 refresh JWT for ``user`` (GitHub #135).
 
@@ -240,6 +256,11 @@ class PasswordAuthenticationService:
             session_id: Family to attach the token to. ``None`` starts a new
                 family (login); rotation passes the incoming token's family so
                 reuse detection can revoke the chain as a unit.
+            amr: Authentication-method references (RFC 8176) of the session the
+                refresh token belongs to. Carried forward verbatim by
+                ``POST /auth/refresh/`` so a second-factor login does not silently
+                degrade to a password-only session on the first rotation
+                (WP E3.3).
 
         Returns:
             The compact JWT string (without the ``Bearer `` prefix).
@@ -264,6 +285,7 @@ class PasswordAuthenticationService:
             "typ": "refresh",
             "jti": str(jti),
             "sid": str(family_id),
+            "amr": list(amr),
             "iat": issued_at,
             "exp": expires_at,
         }

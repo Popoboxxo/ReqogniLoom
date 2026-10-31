@@ -297,6 +297,63 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
         "en": "Too many memory writes; slow down and retry later.",
         "de": "Zu viele Memory-Schreibvorgänge; bitte später erneut versuchen.",
     },
+    # #1308 (Plan E / WP E3.3 + E3.4): the second-factor codes. Mirrored in
+    # ``auth_tenancy.errors._ERROR_CATALOG`` — that catalog owns the
+    # HTTP status and is what ``build_error_body`` reads, this registry is the
+    # enumerable, localised code space every REST error envelope draws from.
+    "MFA_STEP_UP_REQUIRED": {
+        "en": (
+            "This session was authenticated with a password only, but a second "
+            "factor is required. Log in again and confirm the code."
+        ),
+        "de": (
+            "Diese Sitzung wurde nur mit einem Passwort authentifiziert, es ist "
+            "jedoch ein zweiter Faktor erforderlich. Melden Sie sich erneut an "
+            "und bestätigen Sie den Code."
+        ),
+    },
+    "MFA_ENROLLMENT_REQUIRES_GRANT": {
+        "en": (
+            "A second factor is required. Ask an administrator for an "
+            "enrollment grant."
+        ),
+        "de": (
+            "Ein zweiter Faktor ist erforderlich. Bitten Sie eine "
+            "Administratorin oder einen Administrator um eine "
+            "Enrollment-Freigabe."
+        ),
+    },
+    "MFA_CHALLENGE_INVALID": {
+        "en": "The second-factor challenge is invalid, expired or already used.",
+        "de": (
+            "Die Challenge für den zweiten Faktor ist ungültig, abgelaufen oder "
+            "wurde bereits verwendet."
+        ),
+    },
+    "MFA_INVALID_CODE": {
+        "en": "The second-factor code is invalid.",
+        "de": "Der Code für den zweiten Faktor ist ungültig.",
+    },
+    "MFA_LOCKED": {
+        "en": (
+            "Too many failed second-factor attempts. The second factor is "
+            "temporarily locked."
+        ),
+        "de": (
+            "Zu viele fehlgeschlagene Versuche mit dem zweiten Faktor. Der "
+            "zweite Faktor ist vorübergehend gesperrt."
+        ),
+    },
+    "MFA_UNAVAILABLE": {
+        "en": (
+            "The second factor cannot be evaluated right now; the login was "
+            "refused."
+        ),
+        "de": (
+            "Der zweite Faktor kann derzeit nicht geprüft werden; die Anmeldung "
+            "wurde abgelehnt."
+        ),
+    },
 }
 
 
