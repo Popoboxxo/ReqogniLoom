@@ -530,6 +530,17 @@ _EXCEPTIONS = {
     "PublicLoginBannerView": "public login-page banner",
     "LoginView": "public credential exchange",
     "LoginMfaView": "public credential exchange (MFA completion step)",
+    # WP E3.6: self-scoped second-factor management. The target is always the
+    # caller's own account (``ctx.user_id`` is the boundary), and the write
+    # routes additionally refuse API-key callers; there is no workspace or
+    # tenant-owned object behind any of them. ``enroll``/``confirm`` are also
+    # reachable through the signed enrollment challenge, i.e. as a credential
+    # exchange, which a tenant/workspace gate would lock out.
+    "MfaStatusView": "self-scoped second-factor status (caller's own account)",
+    "MfaEnrollView": "self-scoped second-factor enrollment (credential exchange)",
+    "MfaConfirmView": "self-scoped second-factor enrollment (credential exchange)",
+    "MfaRecoveryCodesRegenerateView": "self-scoped second-factor management",
+    "MfaDisableView": "self-scoped second-factor management",
     "RefreshView": "public refresh-cookie exchange",
     "LogoutView": "self-scoped session teardown",
     "McpHttpTransportView": "MCP transport; own API-key authentication",
