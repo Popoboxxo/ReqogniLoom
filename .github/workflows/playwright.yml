@@ -128,6 +128,13 @@ jobs:
           # Must match e2e/helpers/auth.ts TEST_USER.password — seed_demo
           # reads this same var, so a mismatch breaks every E2E login.
           SYSTEM_ADMIN_PASSWORD: admin12345
+          # Issue #89: seed_demo refuses its built-in demo password unless this
+          # explicit opt-in is set. The password above already satisfies the
+          # guard (the env branch wins), so this is belt-and-braces: it keeps
+          # `python manage.py seed_demo` below working even if the E2E default
+          # password is ever dropped from this step. Test-only — never set in
+          # deploy/docker-compose.yml.
+          SEED_DEMO_ALLOW_DEFAULT_PASSWORD: "1"
         run: |
           python manage.py migrate --noinput
           python manage.py seed_demo

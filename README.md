@@ -278,12 +278,19 @@ The bootstrap process is idempotent — it creates the admin user only if it doe
 
 ### 6. (Optional) Seed Demo Data
 
-To populate your workspace with example requirements, architecture elements, and test cases:
+To provision the demo tenant, workspace and admin user (plus their default workflow and
+attribute definitions) with example requirements, architecture elements and test cases:
 
 ```bash
-# Creates demo artifacts (requirements, architecture, tests)
+# Provisions demo tenant/workspace/admin (idempotent — safe to re-run)
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . exec backend python3 manage.py seed_demo
 ```
+
+`seed_demo` uses the password from `SYSTEM_ADMIN_PASSWORD` (or the legacy `DEMO_ADMIN_PASSWORD`).
+Its built-in demo password is only used with the explicit opt-in
+`SEED_DEMO_ALLOW_DEFAULT_PASSWORD=1` — regardless of `DEBUG`, so a dev stack cannot silently fall
+back to a known credential; without an env password and without the opt-in the command refuses to
+run. The opt-in is **test only** and is never set by the production compose file.
 
 **Override demo admin password** (for development only):
 ```bash
@@ -804,7 +811,7 @@ ReqogniLoom is designed for self-hosted deployment on Linux/Unix servers using D
    - `ALLOWED_HOSTS` — your server hostname(s)
    - `CORS_ALLOWED_ORIGINS` — your exact frontend origin(s), never `*`
    - `DB_PASSWORD`, `DB_APP_PASSWORD` — strong passwords (32+ chars, random)
-   - `SYSTEM_ADMIN_PASSWORD` — required for the admin account to be created on first start
+   - `SYSTEM_ADMIN_PASSWORD` — required for the admin account to be created on first start. For `seed_demo`, the production path is a set `SYSTEM_ADMIN_PASSWORD`; the only alternative is the test-only `SEED_DEMO_ALLOW_DEFAULT_PASSWORD=1` opt-in, which the production compose file deliberately never sets.
    - `LLM_PROVIDER` — leave as `mock` for core features without AI
 
 3. **Build and start:**
