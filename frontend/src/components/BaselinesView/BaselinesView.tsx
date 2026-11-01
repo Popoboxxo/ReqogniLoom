@@ -40,6 +40,7 @@ import {
   BaselineEntriesSection,
 } from "./BaselinesPanels";
 import { BaselineTagsEditor } from "./BaselineTagsEditor";
+import { BaselineRollbackPanel } from "./BaselineRollbackPanel";
 import { MAX_TAGS, isValidTagLabel } from "./baselineTags";
 import { TagInput } from "../shared/tag-input";
 import styles from "./BaselinesView.module.css";
@@ -588,6 +589,15 @@ export default function BaselinesView(): JSX.Element {
               entries={detail?.entries ?? null}
               loading={detailLoading}
               error={detailError}
+            />
+
+            {/* F4.5: rollback flow — preview → CCB change request → apply
+                (ADR-025). Additive mount; the panel owns its own state, so a
+                baseline switch remounts it via `key`. */}
+            <BaselineRollbackPanel
+              key={selectedBaseline.id}
+              baselineId={selectedBaseline.id}
+              canEdit={canEdit}
             />
 
             <button

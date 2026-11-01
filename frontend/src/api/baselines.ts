@@ -137,6 +137,118 @@ export function isSeAuditorBlocked(err: unknown): boolean {
   );
 }
 
+/**
+ * Plan F F4.5 — additive baseline rollback (ADR-025).
+ *
+ * The rollback is a three-step, CCB-gated flow: a read-only preview computes
+ * the plan, `rollback-request` opens a change request bound to exactly the
+ * items the plan would write, and `rollback` executes it once the CCB has
+ * approved. Nothing here is a local invention — each type mirrors the backend
+ * serializer pair it reads (`BaselineRollbackPreviewSerializer`,
+ * `BaselineRollbackResultSerializer`).
+ */
+export type RollbackItemAction =
+  | "restore"
+  | "reactivate"
+  | "unchanged"
+  | "unsupported"
+  | "created_since";
+
+/**
+ * One differing restorable field, as the plan reports it (ADR-025 R4):
+ * `{field: {"current": v, "baseline": v}}`. Values are arbitrary JSON.
+ */
+export interface RollbackFieldChange {
+  current: unknown;
+  baseline: unknown;
+}
+
+/** One baseline member as the rollback plan sees it. */
+export interface RollbackPlanItem {
+  /** Delta-index id — the Artifact UUID for artifact-backed items. */
+  item_id: string;
+  /** Canonical item type, or "" when no type is supported. */
+  artifact_type: string;
+  action: RollbackItemAction;
+  field_changes: Record<string, RollbackFieldChange>;
+  /** Restorable fields the snapshot does not carry — reported, never guessed. */
+  unrestorable_fields: string[];
+  /** Current optimistic-lock version, or null when the row is gone. */
+  current_version: number | null;
+}
+
+/** Per-action counts of a rollback plan plus the link buckets. */
+export interface RollbackSummary {
+  restore: number;
+  reactivate: number;
+  unchanged: number;
+  unsupported: number;
+  created_since: number;
+  links_to_recreate: number;
+  /** Additive backend key; absent on older payloads. */
+  skipped_links?: number;
+}
+
+/** A baseline trace link the rollback would re-insert (or deliberately skip). */
+export interface RollbackLinkRef {
+  source_id?: string;
+  target_id?: string;
+  link_type?: string;
+  reason?: string;
+}
+
+/** 200 body of `GET /api/v1/baselines/{id}/rollback-preview/`. */
+export interface RollbackPreview {
+  baseline_id: UUID;
+  summary: RollbackSummary;
+  items: RollbackPlanItem[];
+  links_to_recreate: RollbackLinkRef[];
+  skipped_links: RollbackLinkRef[];
+}
+
+/** Body of `POST /api/v1/baselines/{id}/rollback-request/`. */
+export interface RollbackRequestPayload {
+  /** Mandatory justification recorded on the change request. */
+  change_reason: string;
+  /** Optional CR title; the backend generates one when omitted. */
+  title?: string;
+}
+
+/** 201 body of `POST /api/v1/baselines/{id}/rollback-request/`. */
+export interface RollbackRequestResult {
+  change_request_id: UUID;
+  /** Workflow state of the new CR — `draft` until the CCB approves it. */
+  status: string;
+  affected_items: number;
+}
+
+/** Body of `POST /api/v1/baselines/{id}/rollback/`. */
+export interface RollbackApplyPayload {
+  change_request_id: UUID;
+}
+
+/** 200 body of `POST /api/v1/baselines/{id}/rollback/`. */
+export interface RollbackResult {
+  restored: number;
+  reactivated: number;
+  links_recreated: number;
+  /** The change request's state after the run (`implemented`). */
+  change_request_status: string;
+  skipped: Record<string, unknown>[];
+}
+
+/**
+ * Stable `error.code` values of the three rollback routes (SEC-RB-05), so the
+ * UI branches on the reason instead of inferring it from a 409.
+ */
+export const ROLLBACK_CODES = {
+  planStale: "ROLLBACK_PLAN_STALE",
+  alreadyApplied: "ROLLBACK_ALREADY_APPLIED",
+  notApproved: "ROLLBACK_NOT_APPROVED",
+  tooLarge: "ROLLBACK_TOO_LARGE",
+  empty: "ROLLBACK_EMPTY",
+} as const;
+
 export const baselinesApi = {
   /**
    * F4.2: list baselines, optionally filtered server-side by one tag.
@@ -196,6 +308,48 @@ export const baselinesApi = {
   /** REQ-L2-BL-003: field-level diff between two baselines of the same scope. */
   compare(baselineAId: UUID, baselineBId: UUID): Promise<BaselineDiff> {
     return compareBaselines(baselineAId, baselineBId);
+  },
+
+  /**
+   * F4.5: what a rollback of this baseline would change. Read-only and open
+   * to every workspace member (Viewer included) — it writes nothing and opens
+   * no change request (ADR-025 R8).
+   */
+  rollbackPreview(id: UUID): Promise<RollbackPreview> {
+    return apiClient.get<RollbackPreview>(
+      `/baselines/${id}/rollback-preview/`
+    );
+  },
+
+  /**
+   * F4.5: open the CCB change request the rollback must pass through
+   * (ADR-025 R2). The plan is re-derived server-side and bound to the CR's
+   * affected-item set, so approval happens against exactly the items the
+   * rollback would write.
+   */
+  rollbackRequest(
+    id: UUID,
+    payload: RollbackRequestPayload
+  ): Promise<RollbackRequestResult> {
+    return apiClient.post<RollbackRequestResult>(
+      `/baselines/${id}/rollback-request/`,
+      payload
+    );
+  },
+
+  /**
+   * F4.5: execute an approved rollback. One transaction: the plan is
+   * re-derived, checked against the CR's affected-item set and written as new
+   * versions; any failure rolls the whole run back (ADR-025 R1/R3/R5).
+   */
+  rollbackApply(
+    id: UUID,
+    payload: RollbackApplyPayload
+  ): Promise<RollbackResult> {
+    return apiClient.post<RollbackResult>(
+      `/baselines/${id}/rollback/`,
+      payload
+    );
   },
 
   /**

@@ -733,7 +733,32 @@
     "tagFilterAll": "Alle Tags",
     "tagSave": "Tags speichern",
     "tagInvalid": "Ungültiges Tag: {{label}}",
-    "tagLimit": "Höchstens {{max}} Tags"
+    "tagLimit": "Höchstens {{max}} Tags",
+    "rollback": {
+      "title": "Auf Baseline zurücksetzen",
+      "preview": "Vorschau berechnen",
+      "columnItem": "Element",
+      "columnType": "Typ",
+      "columnAction": "Aktion",
+      "columnChanges": "Feldänderungen",
+      "actionRestore": "Wiederherstellen",
+      "actionReactivate": "Reaktivieren",
+      "actionUnchanged": "Unverändert",
+      "actionUnsupported": "Nicht unterstützt",
+      "actionCreatedSince": "Nach Baseline angelegt (bleibt)",
+      "unrestorable": "Nicht wiederherstellbar: {{fields}}",
+      "reason": "Begründung",
+      "request": "Änderungsantrag erstellen",
+      "awaitApproval": "Der Änderungsantrag muss freigegeben werden ({{status}}).",
+      "refreshStatus": "Status aktualisieren",
+      "apply": "Rollback ausführen",
+      "confirm": "{{count}} Artefakte werden als neue Version wiederhergestellt. Fortfahren?",
+      "stale": "Seit dem Antrag geändert — bitte neuen Antrag stellen.",
+      "done": "{{restored}} wiederhergestellt, {{reactivated}} reaktiviert, {{links}} Links neu angelegt.",
+      "notApproved": "Änderungsantrag ist nicht freigegeben.",
+      "alreadyApplied": "Rollback wurde bereits ausgeführt.",
+      "tooLarge": "Zu viele Artefakte ({{count}}, höchstens {{max}})."
+    }
   },
   "glossary": {
     "searchPlaceholder": "Glossar durchsuchen...",

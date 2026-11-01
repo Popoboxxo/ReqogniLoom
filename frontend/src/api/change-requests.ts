@@ -35,4 +35,16 @@ export const changeRequestsApi = {
   create(payload: CreateChangeRequestPayload): Promise<ChangeRequest> {
     return apiClient.post<ChangeRequest>("/change-requests/", payload);
   },
+
+  /**
+   * F4.5: read one change request back (its current workflow `status`).
+   *
+   * There is no ChangeRequest view in this SPA — the CCB decision is made on
+   * the reviews surface / through the transitions endpoint — so the baseline
+   * rollback panel uses this to re-read the status of the CR it opened
+   * instead of inventing a route. Mirrors `GET /api/v1/change-requests/{id}/`.
+   */
+  get(id: UUID): Promise<ChangeRequest> {
+    return apiClient.get<ChangeRequest>(`/change-requests/${id}/`);
+  },
 };
