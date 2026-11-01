@@ -74,6 +74,10 @@ class TestBaselineToolGroupRegistration:
         assert registry._is_write_tool("baseline.list") is False
         assert registry._is_write_tool("baseline.get") is False
         assert registry._is_write_tool("baseline.compare") is False
+        # Plan F F4.4: previewing is a read, requesting/applying are writes.
+        assert registry._is_write_tool("baseline.rollback_preview") is False
+        assert registry._is_write_tool("baseline.rollback_request") is True
+        assert registry._is_write_tool("baseline.rollback_apply") is True
 
     def test_baseline_schemas_exposed(self):
         group = BaselineToolGroup()
@@ -84,6 +88,10 @@ class TestBaselineToolGroupRegistration:
             "baseline.get",
             "baseline.compare",
             "baseline.set_tags",
+            # Plan F F4.4 — additive rollback (ADR-025).
+            "baseline.rollback_preview",
+            "baseline.rollback_request",
+            "baseline.rollback_apply",
         }
 
 

@@ -173,6 +173,13 @@ _TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
     # this entry the gate would fall back to the caller's tenant-wide role union
     # and let an editor of workspace A tag a workspace-B baseline.
     "baseline.set_tags": (("id", "baseline"),),
+    # Plan F F4.4: all three rollback tools name the baseline they act on. The
+    # preview is a read tool, so it *must* be classified here (declaring the
+    # param is not enforcing it); request/apply are writes and would otherwise
+    # be gated against the tenant-wide role union (SEC-RB-01).
+    "baseline.rollback_preview": (("id", "baseline"),),
+    "baseline.rollback_request": (("id", "baseline"),),
+    "baseline.rollback_apply": (("id", "baseline"),),
     "change_request.delete": (("id", "change_request"),),
     "change_request.outdate": (("id", "change_request"),),
     "change_request.reactivate": (("id", "change_request"),),

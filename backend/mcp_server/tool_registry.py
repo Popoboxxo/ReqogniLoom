@@ -309,6 +309,10 @@ _WRITE_TOOL_PREFIXES: tuple[str, ...] = (
     # Issue #114: BaselineToolGroup — baseline.create is the only mutating tool.
     "baseline.create",
     "baseline.set_tags",
+    # Plan F F4.4: opening a rollback change request and executing an approved
+    # one are both writes (baseline.rollback_preview is a read, see below).
+    "baseline.rollback_request",
+    "baseline.rollback_apply",
     # REQ-L2-AI-003 (Phase 3): mode="write" makes these previously
     # preview-only tools capable of mutation, so they now require Editor+
     # (the RBAC gate is name-based, not mode-aware — mode="preview" calls by
@@ -495,6 +499,9 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "baseline.list",
         "baseline.get",
         "baseline.compare",
+        # Plan F F4.4: previewing a rollback writes nothing and opens no change
+        # request, so it is readable by any workspace member (agents included).
+        "baseline.rollback_preview",
         # Task 7 of feat/ziele-hauptziel-design: goal.read/main_goal.read are
         # already exempt via the ".read" suffix below and deliberately not
         # duplicated here.

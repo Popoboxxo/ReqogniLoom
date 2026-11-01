@@ -39,6 +39,8 @@ from rest_api.serializers import (
     AdrSerializer,
     ArchitectureElementSerializer,
     ArtifactSerializer,
+    BaselineRollbackApplyRequestSerializer,
+    BaselineRollbackRequestSerializer,
     BaselineSerializer,
     BaselineTagsRequestSerializer,
     ChangeRequestSerializer,
@@ -120,6 +122,9 @@ _GUARDED_WRITE_SERIALIZERS: tuple[type, ...] = (
     WaiverCreateSerializer,
     # F4.2: the PUT body of /baselines/{id}/tags/.
     BaselineTagsRequestSerializer,
+    # F4.4: the two rollback POST bodies (/rollback-request/, /rollback/).
+    BaselineRollbackRequestSerializer,
+    BaselineRollbackApplyRequestSerializer,
 )
 
 #: Write serializers that reject unknown request keys with their *own*,
@@ -163,6 +168,25 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     "BaselineTagsResponseSerializer": (
         "read-only 200 body of PUT /baselines/{id}/tags/ (F4.2); the request "
         "body is the guarded BaselineTagsRequestSerializer"
+    ),
+    # F4.4: the rollback surface answers server-derived plans/results; only its
+    # two POST bodies accept input, and both are guarded (below).
+    "BaselineRollbackPreviewSerializer": (
+        "read-only 200 body of GET /baselines/{id}/rollback-preview/ (F4.4); "
+        "the route accepts no request body at all — the plan is derived "
+        "server-side from the baseline"
+    ),
+    "BaselineRollbackItemSerializer": (
+        "nested read-only component of BaselineRollbackPreviewSerializer; "
+        "never a request body"
+    ),
+    "BaselineRollbackRequestResponseSerializer": (
+        "read-only 201 body of POST /baselines/{id}/rollback-request/ (F4.4); "
+        "the request body is the guarded BaselineRollbackRequestSerializer"
+    ),
+    "BaselineRollbackResultSerializer": (
+        "read-only 200 body of POST /baselines/{id}/rollback/ (F4.4); the "
+        "request body is the guarded BaselineRollbackApplyRequestSerializer"
     ),
     "FieldChangeSerializer": "read-only response serializer",
     "DiffItemSerializer": "read-only response serializer",
@@ -674,6 +698,11 @@ _FULL_PAYLOADS: dict[type, dict] = {
     },
     MermaidSourceSerializer: {"source": "graph TD; A-->B;"},
     BaselineTagsRequestSerializer: {"tags": ["Release", "RC1"]},
+    BaselineRollbackRequestSerializer: {
+        "change_reason": "restore the released baseline",
+        "title": "Rollback to B1",
+    },
+    BaselineRollbackApplyRequestSerializer: {"change_request_id": str(uuid.uuid4())},
 }
 
 

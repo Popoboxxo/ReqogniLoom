@@ -163,6 +163,50 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
             'quotierter Wert wie "3", ein Weak-Validator oder *).'
         ),
     },
+    # Plan F F4.4 (SEC-RB-05): one entry per baseline-rollback refusal so a
+    # client can enumerate the code space and get a localised default even when
+    # no service message is forwarded. The service's own sentence is what the
+    # rollback routes return; these are the fallbacks.
+    "ROLLBACK_ERROR": {
+        "en": "The baseline rollback was refused.",
+        "de": "Der Baseline-Rollback wurde abgelehnt.",
+    },
+    "ROLLBACK_NOT_APPROVED": {
+        "en": "Baseline rollback requires an approved change request.",
+        "de": "Ein Baseline-Rollback erfordert einen freigegebenen Change Request.",
+    },
+    "ROLLBACK_ALREADY_APPLIED": {
+        "en": "This change request has already been implemented.",
+        "de": "Dieser Change Request wurde bereits umgesetzt.",
+    },
+    "ROLLBACK_PLAN_STALE": {
+        "en": (
+            "Items changed since the change request was opened; create a new "
+            "request."
+        ),
+        "de": (
+            "Artikel haben sich seit dem Öffnen des Change Requests geändert; "
+            "legen Sie einen neuen an."
+        ),
+    },
+    "ROLLBACK_CONFLICT": {
+        "en": (
+            "The change request is being modified by a concurrent CCB decision; "
+            "retry the rollback."
+        ),
+        "de": (
+            "Der Change Request wird durch eine parallele CCB-Entscheidung "
+            "verändert; wiederholen Sie den Rollback."
+        ),
+    },
+    "ROLLBACK_EMPTY": {
+        "en": "Nothing to roll back: the plan restores nothing at all.",
+        "de": "Nichts rückzusetzen: der Plan stellt nichts wieder her.",
+    },
+    "ROLLBACK_TOO_LARGE": {
+        "en": "The rollback covers too many items for one change request.",
+        "de": "Der Rollback umfasst zu viele Artikel für einen Change Request.",
+    },
     "PRESET_FIELD_REQUIRED": {
         "en": "This field is required by the active workspace preset.",
         "de": "Dieses Feld ist durch das aktive Workspace-Preset erforderlich.",
@@ -448,7 +492,7 @@ def detect_lang(request: Any) -> str:
 def build_error_response(
     code: str,
     lang: str = "en",
-    details: list[dict[str, Any]] | None = None,
+    details: list[dict[str, Any]] | dict[str, Any] | None = None,
     message: str | None = None,
 ) -> dict[str, Any]:
     """Construct the standardized error response body (REQ-L2-RA-009).
@@ -2070,6 +2114,189 @@ class BaselineTagsResponseSerializer(serializers.Serializer):
 
     id = serializers.UUIDField()
     tags = serializers.ListField(child=serializers.CharField())
+
+
+class BaselineRollbackItemSerializer(serializers.Serializer):
+    """One baseline member as the rollback plan sees it (Plan F F4.4).
+
+    Response-only: the plan is computed by
+    ``application.baseline_rollback_service`` and never accepted from a client.
+    """
+
+    item_id = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "Delta-index id of the member — the Artifact UUID for "
+            "artifact-backed items, the term row id for a glossary entry."
+        ),
+    )
+    artifact_type = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Canonical ADR item type, or empty when no type is supported.",
+    )
+    action = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "One of ``restore`` | ``reactivate`` | ``unchanged`` | "
+            "``unsupported`` | ``created_since`` (ADR-025 R4)."
+        ),
+    )
+    field_changes = serializers.DictField(
+        read_only=True,
+        help_text=(
+            "``{field: {\"current\": v, \"baseline\": v}}`` for every restorable "
+            "field whose value differs."
+        ),
+    )
+    unrestorable_fields = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=(
+            "Restorable fields the baseline snapshot does not carry. Reported, "
+            "never guessed (ADR-025 R4)."
+        ),
+    )
+    current_version = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Current optimistic-lock version, or null when the row is gone.",
+    )
+
+
+class BaselineRollbackPreviewSerializer(serializers.Serializer):
+    """Read-only 200 body of ``GET /api/v1/baselines/{id}/rollback-preview/``.
+
+    Nothing in this payload is writable; the route accepts no body at all.
+    """
+
+    baseline_id = serializers.UUIDField(read_only=True)
+    summary = serializers.DictField(
+        child=serializers.IntegerField(),
+        read_only=True,
+        help_text=(
+            "Counts per action (``restore``, ``reactivate``, ``unchanged``, "
+            "``unsupported``, ``created_since``) plus ``links_to_recreate``. "
+            "``skipped_links`` carries the number of links that will not be "
+            "recreated (an additive key of "
+            "``RollbackPlan.summary``)."
+        ),
+    )
+    items = BaselineRollbackItemSerializer(many=True, read_only=True)
+    links_to_recreate = serializers.ListField(
+        child=serializers.DictField(),
+        read_only=True,
+        help_text=(
+            "Missing baseline trace links that may be recreated — "
+            "``{source_id, target_id, link_type}``."
+        ),
+    )
+    skipped_links = serializers.ListField(
+        child=serializers.DictField(),
+        read_only=True,
+        help_text=(
+            "Missing links that will *not* be recreated, each with a "
+            "``reason`` key (system-owned type, unknown type, no snapshot)."
+        ),
+    )
+
+
+class BaselineRollbackRequestSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
+    """Body of ``POST /api/v1/baselines/{id}/rollback-request/`` (Plan F F4.4).
+
+    Opens the CCB change request a rollback has to pass through (ADR-025 R2).
+    The plan itself is re-derived server-side; the client only names the
+    justification and an optional title.
+
+    Guards against silently dropped input (#851): an undeclared key answers
+    400 instead of 201.
+    """
+
+    change_reason = SanitizedCharField(
+        max_length=2000,
+        allow_blank=False,
+        help_text=(
+            "Why the rollback is requested; recorded on the change request "
+            "(ADR-025 R2). Mandatory — an unexplained rollback is not a "
+            "governance record."
+        ),
+    )
+    title = SanitizedCharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Optional change-request title; defaults to a generated "
+            "\"Rollback to baseline '<name>'\"."
+        ),
+    )
+
+
+class BaselineRollbackApplyRequestSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
+    """Body of ``POST /api/v1/baselines/{id}/rollback/`` (Plan F F4.4).
+
+    Names the **approved** change request whose plan is executed. The baseline
+    comes from the URL, the work from the CR's affected-item set — neither is
+    client-controlled.
+    """
+
+    change_request_id = serializers.UUIDField(
+        help_text=(
+            "UUID of the approved change request opened via "
+            "/rollback-request/ and linked to this baseline (ADR-025 R2)."
+        ),
+    )
+
+
+class BaselineRollbackRequestResponseSerializer(serializers.Serializer):
+    """Read-only 201 body of ``POST /api/v1/baselines/{id}/rollback-request/``."""
+
+    change_request_id = serializers.UUIDField(
+        read_only=True, help_text="The opened change request (ADR-025 R2)."
+    )
+    status = serializers.CharField(
+        read_only=True,
+        help_text=(
+            "The change request's workflow state — ``draft`` on creation. It "
+            "becomes executable only after the CCB approves it."
+        ),
+    )
+    affected_items = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Number of items the change request binds — the plan's affected-item "
+            "set, which ``apply`` re-derives and enforces exactly."
+        ),
+    )
+
+
+class BaselineRollbackResultSerializer(serializers.Serializer):
+    """Read-only 200 body of ``POST /api/v1/baselines/{id}/rollback/``."""
+
+    restored = serializers.IntegerField(
+        read_only=True, help_text="Items written as a new version (ADR-025 R1/R4)."
+    )
+    reactivated = serializers.IntegerField(
+        read_only=True, help_text="Soft-deleted items set back to active (R4)."
+    )
+    links_recreated = serializers.IntegerField(
+        read_only=True, help_text="Missing baseline trace links re-inserted (R4)."
+    )
+    change_request_status = serializers.CharField(
+        read_only=True, help_text="The change request's state after the run."
+    )
+    skipped = serializers.ListField(
+        child=serializers.DictField(),
+        read_only=True,
+        help_text=(
+            "Everything the run deliberately did not write, as "
+            "``{kind, …, reason}``."
+        ),
+    )
 
 
 class FieldChangeSerializer(serializers.Serializer):
