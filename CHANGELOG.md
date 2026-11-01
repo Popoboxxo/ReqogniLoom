@@ -7,17 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0-beta.23] — 2026-11-01
+
 ### Added
-- feat(clients): OpenCode V2 (beta): own client entry, `opencode.v2.json.snippet`, installer auto-detects the major version
-- feat(search): `?mode=hybrid|keyword|vector` on `GET /api/v1/search/` and the `artifact.search` MCP tool (A3/T-A3-1). `keyword` answers from full-text + lexical passes only and makes no embedding call; `vector` uses only the semantic pass; an unknown value is a `VALIDATION_ERROR` (400) instead of a silent hybrid fallback. The response echoes the effective `mode`.
+- feat(clients): OpenCode V2 (beta) client entry, `opencode.v2.json.snippet`, installer auto-detects the major version (#1638)
+- feat(memory): Honcho full operation — consolidation/dream, derived search with a single context call, session summaries, native scopes behind a flag and signed webhooks (#1628–#1637)
+- feat(memory): slot-level injection policy, user opt-out, `memory_injected`, prompt variables and settings UI (#1496–#1498, #1552–#1558)
+- feat(search): Qdrant artifact index (versioned collection, hybrid with pgvector fallback, workspace scopes, recall set) and `?mode=hybrid|keyword|vector` on search (#1514, #1528–#1534, #1510)
+- feat(quality): advisory quality assessment with REST/MCP, prompt slots, UI badge and QUAL audit rules (#1573–#1579)
+- feat(traceability): `validates`, `performs`, `satisfies`, `blocks`/`resolves`/`threatens`, subtype-constrained pairs, function elements, validation coverage and the VCRM verification method (#1567–#1572, #1599)
+- feat(baseline): tags API/UI, complete snapshot capture and additive CR-gated rollback (ADR-025) (#1606–#1619, #1627)
+- feat(auth): staff TOTP two-factor authentication (enrollment, recovery, login, admin form, break-glass reset, cutover) (#1581–#1591)
+- feat(import): native row import, SE-doc migration and markdown-heading-safe CSV import (#1603–#1605)
+- feat(api): typed OpenAPI views and honest list query parameters (#1455, #1509, #1551)
+- feat(ui): Q1 preference service on three levels, readable-ID visibility, collapsible nav groups, markdown toolbar and trace-link list (#1487–#1488, #1515–#1525)
 
 ### Changed
-- fix(api)!: **Breaking** — `GET` on a soft-deleted architecture element now answers 200 with `status="outdated"` instead of 404, matching every other artifact type (GH-443, #1381). This GET flip is one of two breaking changes in this release.
-- fix(permissions)!: **Breaking** — editors can no longer change workspace-level tree/form display defaults (workspace admin required). The workspace levels of `tree_display_config` and `create_form_config` are workspace *configuration* (`Operation.WORKSPACE_CONFIG`, ENT-C3 = B) on REST and MCP alike; an API key additionally needs the ADMIN tier. The personal level stays self-service for every role, the tenant-wide default keeps its `admin` gate, and the reads stay open to every member (Plan C T-C2-10).
-- fix(api): artifact list endpoints now declare `workspace_id`, `include_deleted` and — where the service really filters — `status`/`search` in the OpenAPI document (E2.9, G-L16). `GET /api/v1/testcases/?status=<state>` now filters instead of silently ignoring the parameter (the one visible behaviour change: an unknown state returns an empty page, never the unfiltered list).
+- fix(api)!: **Breaking** — `GET` on a soft-deleted architecture element now answers 200 with `status="outdated"` instead of 404 (#1484)
+- fix(permissions)!: **Breaking** — editors can no longer change workspace-level tree/form display defaults; workspace admin is required (#1521)
+- fix(diagram)!: **Breaking** — diagram create requires `workspace_id` (#1601)
+- fix(api): `GET /api/v1/testcases/?status=<state>` filters instead of silently ignoring the parameter; an unknown state returns an empty page (#1509)
+- fix(api): `DELETE` accepts `change_reason` as a query parameter (body still wins) (#1483)
 
 ### Fixed
-- fix(api): accept `change_reason` as a `DELETE` query parameter (body still wins) on the soft-deleting endpoints (#1407). The endpoint-wide wiring landed with the preceding additive change and changes no existing client behaviour; it is not part of the breaking `GET` flip above.
+- fix(data): per-workspace UID uniqueness and allocation on every create path (#1480, #1482)
+- fix(reqif): embed imported requirements after commit (#1481)
+- fix(auth): fence API-key workspace visibility like MCP (#1479)
+- fix(api): real tracelink detail endpoint and workspace-delete cascade (#1478, #1485)
+- fix(audit): ground-truth counts, stable paging, N+1 removal and deterministic list order (#1451, #1453, #1504)
+- fix(events): warn once on database outages in the outbox poll (#1508)
+- fix(llm): keep the Ollama embedding model loaded (#1507)
+- fix(frontend): security headers on every nginx response; CVE bumps for dompurify, undici and zod (#1491–#1492, #1503)
+- fix(a11y): 24px hit targets enforced by a ratchet; required-field contract and server maxlength (#1454, #1526–#1527)
+- fix(deploy): bluepencil pinned image/mount, Qdrant snapshot/rebuild runbook (#1534–#1537)
+- ci: prompt regression and secret scan on every pull request, hardened triggers/caching, E2E DB snapshot and xdist (#1500–#1503, #1589)
+
+### Security
+- Staff accounts can require TOTP; staff API keys created under an MFA session (#1581–#1591)
+- Honcho webhooks are HMAC-SHA256 verified; derived search is peer-scoped (#1632, #1637)
 
 ## [1.8.0-beta.22] — 2026-10-20
 

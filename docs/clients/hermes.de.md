@@ -60,7 +60,7 @@ npm run build     # -> dist/plugin.js; der postbuild-Schritt führt scripts/veri
 - Statusbar-Eintrag `reqogniloom.status` (`area: statusBar.right`, Priorität 20).
 - Kommando `reqogniloom.open` (im Manifest `contributes.commands` deklariert) — öffnet das Panel.
 
-- **Version:** `1.8.0-beta.22` (aus dem Repo-`VERSION`) — Drift zwischen installiertem und ausgeliefertem Plugin erkennt `scripts/check_plugin_packages.py` beim Release; das Desktop-Plugin folgt dem Repo-`VERSION` (ADR-017 Option A).
+- **Version:** `1.8.0-beta.23` (aus dem Repo-`VERSION`) — Drift zwischen installiertem und ausgeliefertem Plugin erkennt `scripts/check_plugin_packages.py` beim Release; das Desktop-Plugin folgt dem Repo-`VERSION` (ADR-017 Option A).
 
 ## 3. Konfiguration
 
