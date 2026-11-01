@@ -11,6 +11,7 @@ Ein Client, eine Seite, **Deutsch und Englisch**. Alle Seiten sind aus `clients/
 | Claude Code | SSE | `X-API-Key` | L3 | [Claude Code](claude-code.md) |
 | Codex CLI | Streamable HTTP | `Authorization: Bearer` | L3 | [Codex CLI](codex.md) |
 | OpenCode | SSE | `X-API-Key` | L3 | [OpenCode](opencode.md) |
+| OpenCode V2 (Beta) | Streamable HTTP | `X-API-Key` | L2 | [OpenCode V2 (Beta)](opencode-v2.md) |
 | Kimi Code | Streamable HTTP | `Authorization: Bearer` | L2 | [Kimi Code](kimi-code.md) |
 | Antigravity | SSE | `X-API-Key` | L3 | [Antigravity](antigravity.md) |
 | Hermes | Streamable HTTP | `Authorization: Bearer` | L3 | [Hermes](hermes.md) |

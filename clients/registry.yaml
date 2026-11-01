@@ -360,6 +360,116 @@ clients:
       - "`bash scripts/clients/install.sh --client opencode --url \"$REQOGNILOOM_MCP_URL\" --refresh` updates existing skills + `DOMAIN_MODEL.md` (previous target kept as `.bak-<ts>`)."
       - "Changed MCP transport: replace the entry per the snippet in `opencode.json`; Stage 2: `opencode plugin <module>` installs MCP + skills in one step."
 
+  - id: opencode-v2
+    name: OpenCode V2 (Beta)
+    tested_version: "2.2.5"
+    target_level: L2
+    status: beta
+    transport: streamable_http
+    url_path: /mcp/
+    auth_header: X-API-Key
+    config_artifact: dist/opencode/opencode.v2.json.snippet
+    skills_dir: "~/.config/opencode/skills"
+    install_de:
+      - lang: bash
+        text: |
+          # Ein Befehl: JSON-Merge nach mcp.servers + Skills (-> ~/.config/opencode/skills, DOMAIN_MODEL.md):
+          bash scripts/clients/install.sh --client opencode-v2 \
+            --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
+          # (intern: Merge von mcp.servers.reqogniloom in opencode.json —
+          #  bewusst KEIN `opencode mcp add`, weil das `oauth: false` nicht setzen kann)
+          opencode mcp list                 # -> ✓ reqogniloom connected
+    install_en:
+      - lang: bash
+        text: |
+          # One command: JSON merge into mcp.servers + skills (-> ~/.config/opencode/skills, DOMAIN_MODEL.md):
+          bash scripts/clients/install.sh --client opencode-v2 \
+            --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
+          # (internally: merge mcp.servers.reqogniloom into opencode.json —
+          #  deliberately NOT `opencode mcp add`, which cannot set `oauth: false`)
+          opencode mcp list                 # -> ✓ reqogniloom connected
+    fallback_de:
+      - lang: json
+        text: |
+          {
+            "mcp": {
+              "servers": {
+                "reqogniloom": {
+                  "type": "remote",
+                  "url": "{env:REQOGNILOOM_MCP_URL}/mcp/",
+                  "headers": {
+                    "X-API-Key": "{env:REQOGNILOOM_API_KEY}"
+                  },
+                  "oauth": false,
+                  "codemode": false
+                }
+              }
+            }
+          }
+    fallback_en:
+      - lang: json
+        text: |
+          {
+            "mcp": {
+              "servers": {
+                "reqogniloom": {
+                  "type": "remote",
+                  "url": "{env:REQOGNILOOM_MCP_URL}/mcp/",
+                  "headers": {
+                    "X-API-Key": "{env:REQOGNILOOM_API_KEY}"
+                  },
+                  "oauth": false,
+                  "codemode": false
+                }
+              }
+            }
+          }
+    verify:
+      command: "opencode mcp list"
+      expected_de: "`reqogniloom` wird als verbunden gelistet (`✓ reqogniloom connected`) — im Projektverzeichnis ausführen; danach ein echter Tool-Call (`requirement_query` → 49)."
+      expected_en: "`reqogniloom` is listed as connected (`✓ reqogniloom connected`) — run it from the project directory; then a real tool call (`requirement_query` → 49)."
+      tool_result: "49 Requirements"
+    prereq_de:
+      - "OpenCode-V2-Beta-Binary `opencode` (2.x) im `PATH` — oder `OPENCODE_BIN` auf den Binary-Pfad setzen."
+      - "Skills-Ablage `~/.config/opencode/skills` beschreibbar."
+      - "`reqlo_…`-Key."
+    prereq_en:
+      - "OpenCode V2 beta binary `opencode` (2.x) on `PATH` — or point `OPENCODE_BIN` at the binary."
+      - "Skills directory `~/.config/opencode/skills` writable."
+      - "A `reqlo_…` key."
+    provider_de:
+      - "`opencode-go/…`-Modelle funktionieren (verifiziert)."
+      - "Free-Tier-Modelle (`opencode/*-free`) waren zum Testzeitpunkt serverseitig defekt (`UnknownError`) — Umgebungszustand, kein Produktfehler."
+    provider_en:
+      - "`opencode-go/…` models work (verified)."
+      - "Free-tier models (`opencode/*-free`) were server-side broken at test time (`UnknownError`) — environment state, not a product bug."
+    pitfalls_de:
+      - "**Beta:** OpenCode V2 ist eine Beta — Datenformate und APIs können sich zwischen Minor-Versionen ändern; nach einem Update `opencode mcp list` und einen Tool-Call wiederholen."
+      - "`\"oauth\": false` ist **Pflicht**: ohne diesen Schalter startet V2 einen OAuth-Flow statt den `X-API-Key`-Header zu senden — der Server sieht dann gar keinen Key."
+      - "`\"codemode\": false` ist **Pflicht**: sonst werden die Tools nicht unter ihren Klarnamen (`requirement_query`, …) exponiert, sondern nur über den Code-Mode-Wrapper."
+      - "In V2 liegen Server unter `mcp.servers.<name>` — die V1-Form `mcp.<name>` wird nicht gelesen, der Server erscheint dann einfach nicht."
+      - "JSONC-Configs (Kommentare in `opencode.json`) werden vom Installer **nicht** gemergt: er bricht ab, damit die Datei unangetastet bleibt — Snippet dann manuell einfügen."
+      - "Transport ist Streamable HTTP auf `/mcp/`, nicht SSE auf `/mcp/sse/`."
+      - "`opencode mcp list` braucht Projekt-/CWD-Kontext — im Projektverzeichnis ausführen, sonst ist die Liste leer."
+    pitfalls_en:
+      - "**Beta:** OpenCode V2 is a beta — data formats and APIs may change between minor versions; after an update re-run `opencode mcp list` and a tool call."
+      - "`\"oauth\": false` is **mandatory**: without it V2 starts an OAuth flow instead of sending the `X-API-Key` header — the server then sees no key at all."
+      - "`\"codemode\": false` is **mandatory**: otherwise tools are not exposed under their plain names (`requirement_query`, …) but only through the code-mode wrapper."
+      - "In V2 servers live under `mcp.servers.<name>` — the V1 form `mcp.<name>` is not read, the server simply does not show up."
+      - "JSONC configs (comments in `opencode.json`) are **not** merged by the installer: it aborts so the file stays untouched — paste the snippet manually instead."
+      - "The transport is Streamable HTTP on `/mcp/`, not SSE on `/mcp/sse/`."
+      - "`opencode mcp list` needs project/CWD context — run it inside the project directory, otherwise the list is empty."
+    roles_de:
+      - "Read-only-Rolle für Fremd-/Preview-Nutzung; der Key-Scope ist die einzige wirksame Grenze."
+    roles_en:
+      - "Read-only role for third-party/preview use; the key scope is the only effective boundary."
+    update_de:
+      - "`bash scripts/clients/install.sh --client opencode-v2 --url \"$REQOGNILOOM_MCP_URL\" --refresh` aktualisiert vorhandene Skills + `DOMAIN_MODEL.md` (vorheriges Ziel als `.bak-<ts>`)."
+      - "MCP-Transport geändert: JSON-Merge erneut ausführen bzw. `mcp.servers.reqogniloom` in `opencode.json` ersetzen."
+    update_en:
+      - "`bash scripts/clients/install.sh --client opencode-v2 --url \"$REQOGNILOOM_MCP_URL\" --refresh` updates existing skills + `DOMAIN_MODEL.md` (previous target kept as `.bak-<ts>`)."
+      - "Changed MCP transport: re-run the JSON merge, or replace `mcp.servers.reqogniloom` in `opencode.json`."
+
   - id: kimi-code
     name: Kimi Code
     tested_version: "2.1.1"

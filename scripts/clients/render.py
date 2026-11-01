@@ -55,6 +55,7 @@ CLIENT_IDS = (
     "claude-code",
     "codex",
     "opencode",
+    "opencode-v2",
     "kimi-code",
     "antigravity",
     "hermes",
