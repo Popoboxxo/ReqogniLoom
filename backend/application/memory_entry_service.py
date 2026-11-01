@@ -42,6 +42,7 @@ from memory.backends import (
     MemoryDigest,
     MemoryEntryId,
     MemoryEntryRef,
+    SessionSummary,
     _maybe_uuid,
     _tenant_context,
     active_memory_backend_name,
@@ -90,6 +91,37 @@ MAX_ASK_QUERY_CHARS = 10000
 def _as_uuid(value: Any) -> UUID | None:
     """Return *value* as a ``UUID`` when UUID-shaped, else ``None``."""
     return _maybe_uuid(value)
+
+
+def _session_summary_rows(summaries: Sequence[SessionSummary]) -> list[dict[str, Any]]:
+    """Render summaries as the response's rows, sorted by the T-A4-5 contract.
+
+    Order is ``created_at`` ascending, then ``kind`` ascending, identical for
+    both transports because both consume this one rendering. A summary without
+    a readable timestamp sorts LAST (it is still returned); the ``kind``
+    tie-break makes same-timestamp answers deterministic instead of
+    engine-order-dependent. ``created_at`` is serialised to ISO-8601 or
+    ``None``.
+    """
+
+    def _key(summary: SessionSummary) -> tuple[bool, float, str]:
+        created = summary.created_at
+        return (
+            created is None,
+            created.timestamp() if created is not None else 0.0,
+            summary.kind,
+        )
+
+    return [
+        {
+            "kind": summary.kind,
+            "text": summary.text,
+            "created_at": summary.created_at.isoformat()
+            if summary.created_at is not None
+            else None,
+        }
+        for summary in sorted(summaries, key=_key)
+    ]
 
 
 class MemoryEntryService(ServiceBase):
@@ -663,6 +695,105 @@ class MemoryEntryService(ServiceBase):
                 query,
                 reasoning_level=reasoning_level,
             )
+
+    def session_summaries(
+        self, ctx: Any, *, workspace_id: Any, session_id: str
+    ) -> dict[str, Any]:
+        """Return the active backend's summaries of ONE session (T-A4-5).
+
+        The single read behind both adapters, so REST and MCP cannot drift on
+        the body, the ordering or the isolation decision. Response shape:
+        ``{summaries: [{kind, text, created_at}], backend, degraded, detail}``,
+        ordered by ``created_at`` and then ``kind`` (the contract in Plan A
+        T-A4-5); a summary without a readable timestamp sorts last.
+
+        Isolation (QR-S04) is enforced HERE, before any backend read and
+        BEFORE the capability branch: ``session_id`` must be the stable session
+        of THIS workspace's peer or of the caller's own user peer, both resolved
+        by the backend (:meth:`MemoryBackend.session_ref_for_scope`). Anything
+        else -- an unknown id, another workspace's session, another user's
+        session -- answers :class:`~persistence.errors.NotFoundError` (404),
+        never a distinguishable "exists but forbidden" answer, so the route
+        cannot be used to enumerate sessions. A caller with no role in the
+        workspace is refused with the normal ``MemoryPolicy`` 403 first.
+
+        That ordering also settles what "unknown" means for a backend with no
+        session surface (``pgvector``, ``qdrant``): its
+        ``session_ref_for_scope`` answers ``None``, so no caller-named session
+        can ever match and EVERY request is a 404. Correct rather than
+        unfortunate -- a store that cannot name a session cannot confirm that
+        the caller's exists either, and "unbekannt -> 404" (QR-S04) is the whole
+        contract. Consequently ``degraded=True, detail="unsupported"`` is only
+        reachable for a backend that CAN name the caller's session but declares
+        :attr:`MemoryCapabilities.summaries` as ``False``; no such backend ships
+        today, so the branch is kept -- it is what a future session-capable
+        store with an unfinished summaries surface must hit instead of a
+        lie -- and covered by a test double.
+
+        An engine failure is an empty, explicitly degraded answer
+        (``detail="engine_error:<Class>"``), never an exception and never a
+        fabricated emptiness (F9). ``session_id`` is type-checked here as well
+        as at the MCP boundary, so a non-string cannot reach ``.strip()`` (and
+        an ``AttributeError`` before the permission check) from any caller.
+        """
+        workspace_uuid = _as_uuid(workspace_id)
+        if workspace_uuid is None:
+            raise ValidationError("workspace_id must be a UUID")
+        if not isinstance(session_id, str):
+            raise ValidationError("session_id must be a string")
+        session_ref = session_id.strip()
+
+        with _tenant_context(ctx.tenant_id):
+            self._assert_can_read_scope(
+                ctx,
+                MemoryEntry.SCOPE_WORKSPACE,
+                workspace_id=workspace_uuid,
+                artifact_id=None,
+            )
+            backend = get_memory_backend()
+            backend_name = active_memory_backend_name()
+
+            allowed = {
+                backend.session_ref_for_scope(
+                    ctx.tenant_id, MemoryEntry.SCOPE_WORKSPACE, workspace_uuid
+                ),
+                backend.session_ref_for_scope(
+                    ctx.tenant_id, MemoryEntry.SCOPE_USER, ctx.user_id
+                ),
+            }
+            if session_ref not in allowed:
+                raise NotFoundError("Session not found")
+
+            if not backend.capabilities.summaries:
+                return {
+                    "summaries": [],
+                    "backend": backend_name,
+                    "degraded": True,
+                    "detail": "unsupported",
+                }
+
+            try:
+                summaries = backend.session_summaries(ctx.tenant_id, session_ref)
+            except Exception as exc:  # noqa: BLE001 - F9: report, never raise
+                logger.warning(
+                    "memory session summaries failed for workspace=%s "
+                    "(error type %s); reporting degraded",
+                    workspace_uuid,
+                    type(exc).__name__,
+                )
+                return {
+                    "summaries": [],
+                    "backend": backend_name,
+                    "degraded": True,
+                    "detail": f"engine_error:{type(exc).__name__}",
+                }
+
+            return {
+                "summaries": _session_summary_rows(summaries),
+                "backend": backend_name,
+                "degraded": False,
+                "detail": "",
+            }
 
     # ------------------------------------------------------------------
     # Internals — scope + permission plumbing

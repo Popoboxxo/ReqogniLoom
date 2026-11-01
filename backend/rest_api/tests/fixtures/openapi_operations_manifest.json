@@ -2114,6 +2114,10 @@
    "get"
   ],
   [
+   "/api/v1/workspaces/{workspace_id}/memory/sessions/{session_id}/summaries/",
+   "get"
+  ],
+  [
    "/api/v1/workspaces/{workspace_id}/permission-definition/",
    "get"
   ],

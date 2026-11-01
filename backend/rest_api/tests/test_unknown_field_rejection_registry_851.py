@@ -573,6 +573,17 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     "MemoryEntryExportResponseSerializer": "read-only response serializer (#1388)",
     "MemoryProjectionPointSerializer": "read-only response serializer (#1388)",
     "MemoryProjectionResponseSerializer": "read-only response serializer (#1388)",
+    # T-A4-5: session summaries are a read-only GET surface, assembled by
+    # MemoryEntryService.session_summaries.
+    "MemorySessionSummarySerializer": (
+        "nested read-only row of the session-summaries GET response; it is only "
+        "referenced as part of the 200 body shape, so it never receives a write "
+        "payload with unknown fields (T-A4-5)"
+    ),
+    "MemorySessionSummariesResponseSerializer": (
+        "read-only 200 body of GET /workspaces/{id}/memory/sessions/{session_id}/summaries/; "
+        "the route accepts no request body at all, so there is nothing to guard (T-A4-5)"
+    ),
 }
 
 #: Modules whose module-local ``*Serializer`` classes are part of the REST

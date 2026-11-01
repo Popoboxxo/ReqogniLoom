@@ -149,6 +149,7 @@ from memory.schema_serializers import (
     MemorySelfServiceResponseSerializer,
     MemorySelfServiceSettingsResponseSerializer,
     MemorySelfServiceSettingsWriteSerializer,
+    MemorySessionSummariesResponseSerializer,
     MemoryWorkspaceDeleteResponseSerializer,
     MemoryWorkspaceOverviewResponseSerializer,
     SystemMemorySettingsResponseSerializer,
@@ -1516,6 +1517,60 @@ class WorkspaceMemoryDigestView(APIView):
         )
 
 
+class WorkspaceMemorySessionSummariesView(APIView):
+    """``/api/v1/workspaces/<uuid:workspace_id>/memory/sessions/<str:session_id>/summaries/``.
+
+    GET (Plan A T-A4-5): the active backend's summaries of ONE session —
+    ``{summaries: [{kind, text, created_at}], backend, degraded, detail}``,
+    sorted by ``created_at`` then ``kind``. The caller must have a role in the
+    workspace (403 otherwise) and ``session_id`` must be the session of that
+    workspace's peer or of the caller's own user peer; every other session —
+    unknown, another workspace's, another user's — answers 404 (QR-S04), so
+    the route cannot be used to enumerate sessions. Delegates entirely to
+    :meth:`application.memory_entry_service.MemoryEntryService.
+    session_summaries`; the ownership check runs before the capability branch,
+    so a backend with no session surface (pgvector, qdrant) cannot confirm any
+    session either and answers the same 404 — the ``unsupported`` degradation is
+    reserved for a backend that names the caller's session but has no summaries
+    to read.
+    """
+
+    @extend_schema(
+        tags=["memory"],
+        summary="Read one session's engine summaries",
+        responses={
+            200: MemorySessionSummariesResponseSerializer,
+            401: OpenApiResponse(description="No valid credential."),
+            403: OpenApiResponse(description="No active role in the workspace."),
+            404: OpenApiResponse(
+                description=(
+                    "Unknown session, or one that belongs neither to this "
+                    "workspace's peer nor to the caller's own user peer."
+                )
+            ),
+        },
+    )
+    def get(
+        self,
+        request: Request,
+        workspace_id: UUID,
+        session_id: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Response:
+        lang = detect_lang(request)
+        ctx = _auth_or_401(request, lang)
+        if isinstance(ctx, Response):
+            return ctx
+        try:
+            payload = MemoryEntryService().session_summaries(
+                ctx, workspace_id=workspace_id, session_id=session_id
+            )
+        except (PermissionDeniedError, NotFoundError, ValidationError) as exc:
+            return _memory_error_response(exc, lang)
+        return Response(payload)
+
+
 class WorkspaceMemorySearchView(APIView):
     """``/api/v1/workspaces/<uuid:workspace_id>/memory/search/``.
 
@@ -2456,5 +2511,6 @@ __all__ = [
     "WorkspaceMemoryDigestView",
     "WorkspaceMemoryEntriesView",
     "WorkspaceMemorySearchView",
+    "WorkspaceMemorySessionSummariesView",
     "WorkspaceMemorySettingsView",
 ]

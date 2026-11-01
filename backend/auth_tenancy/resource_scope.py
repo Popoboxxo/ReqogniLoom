@@ -326,6 +326,10 @@ _WORKSPACE_VIA_REQUEST = (
     "WorkspaceMemorySearchView",
     "WorkspaceMemoryDigestView",
     "WorkspaceMemoryAskView",
+    # Plan A T-A4-5: the workspace is carried in the URL like the four memory
+    # siblings above; the service additionally enforces the session-ownership
+    # rule (QR-S04) before reading anything.
+    "WorkspaceMemorySessionSummariesView",
     "WorkspaceMemorySettingsView",
     "WorkspacePermissionDefinitionView",
     "WorkspacePermissionResetView",

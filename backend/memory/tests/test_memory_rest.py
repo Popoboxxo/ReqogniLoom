@@ -2809,3 +2809,244 @@ class TestMemoryUserSettingsRest:
             assert "Workspace context:" in overridden
             assert "User context:" not in overridden
             assert backend.calls == ["workspace"]
+
+
+# ---------------------------------------------------------------------------
+# Plan A T-A4-5 — session summaries over REST (and parity with MCP)
+# ---------------------------------------------------------------------------
+
+_WS_SESSION_SUMMARIES = (
+    "/api/v1/workspaces/{ws}/memory/sessions/{session_id}/summaries/"
+)
+
+
+def _summaries_capable_pgvector(monkeypatch, rows=None, *, error=None):
+    """Make the active pgvector backend behave like a session backend.
+
+    pgvector has no session surface, so the answered branch is wired here --
+    the same seam the ``ask`` tests use. Returns the served rows and records
+    every session reference the service asked to read, so the QR-S04
+    "nothing foreign is ever read" assertion is observable without Honcho.
+    """
+    from memory.backends import MemoryCapabilities, PgvectorMemoryBackend
+
+    monkeypatch.setattr(
+        PgvectorMemoryBackend, "capabilities", MemoryCapabilities(summaries=True)
+    )
+
+    def _ref(self, tenant_id, scope, scope_id):
+        return f"s_{tenant_id}_{scope}_{scope_id}"
+
+    calls: list[str] = []
+
+    def _summaries(self, tenant_id, session_ref):
+        calls.append(session_ref)
+        if error is not None:
+            raise error
+        return list(rows or [])
+
+    monkeypatch.setattr(PgvectorMemoryBackend, "session_ref_for_scope", _ref)
+    monkeypatch.setattr(PgvectorMemoryBackend, "session_summaries", _summaries)
+    return calls
+
+
+@pytest.mark.django_db
+class TestWorkspaceMemorySessionSummariesRest:
+    def test_backend_without_sessions_answers_not_found(self, monkeypatch):
+        """T-A4-5/QR-S04: pgvector cannot confirm any session -> 404.
+
+        The ownership check runs BEFORE the capability branch, so a store with
+        no session surface (``session_ref_for_scope`` -> ``None``) has no
+        session that could match the caller's. "unbekannt -> 404" therefore
+        covers every id here -- the same answer as for a foreign session, and
+        never a ``200`` body that reads like "this session has no summaries yet"
+        (F9).
+        """
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+
+            response = _client_for(token).get(
+                _WS_SESSION_SUMMARIES.format(ws=ws.id, session_id="s_anything")
+            )
+
+            assert response.status_code == 404
+            assert response.data["error"]["code"] == "NOT_FOUND"
+
+    def test_session_surface_without_summaries_is_degraded(self, monkeypatch):
+        """T-A4-5/F9: the ``unsupported`` branch survives the reordering.
+
+        ``degraded=True, detail="unsupported"`` is now only reachable for a
+        backend that CAN name the caller's session but declares no summaries --
+        no shipping backend has that shape, so it is pinned with a double
+        instead of dropping the branch. Otherwise a future session-capable
+        store with an unfinished summaries surface would report a clean 404
+        for its own session.
+        """
+        from memory.backends import PgvectorMemoryBackend
+
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        # capabilities.summaries stays False (pgvector's declaration); only the
+        # session identity is supplied, so the ownership check passes.
+        monkeypatch.setattr(
+            PgvectorMemoryBackend,
+            "session_ref_for_scope",
+            lambda self, tenant_id, scope, scope_id: f"s_{tenant_id}_{scope}_{scope_id}",
+        )
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+
+            response = _client_for(token).get(
+                _WS_SESSION_SUMMARIES.format(
+                    ws=ws.id, session_id=f"s_{tenant.id}_workspace_{ws.id}"
+                )
+            )
+
+            assert response.status_code == 200
+            assert response.data == {
+                "summaries": [],
+                "backend": "pgvector",
+                "degraded": True,
+                "detail": "unsupported",
+            }
+
+    def test_summaries_are_sorted_by_created_at_then_kind(self, monkeypatch):
+        """T-A4-5: the response order is the contract, not the engine's order."""
+        from memory.backends import SessionSummary
+
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+            _summaries_capable_pgvector(
+                monkeypatch,
+                [
+                    SessionSummary("long", "long-2", datetime(2026, 1, 2)),
+                    SessionSummary("short", "short-2", datetime(2026, 1, 2)),
+                    SessionSummary("short", "short-1", datetime(2026, 1, 1)),
+                ],
+            )
+
+            response = _client_for(token).get(
+                _WS_SESSION_SUMMARIES.format(
+                    ws=ws.id, session_id=f"s_{tenant.id}_workspace_{ws.id}"
+                )
+            )
+
+            assert response.status_code == 200
+            assert response.data["degraded"] is False
+            assert [(row["kind"], row["text"]) for row in response.data["summaries"]] == [
+                ("short", "short-1"),
+                # Same timestamp: ``kind`` ascending decides ("long" < "short").
+                ("long", "long-2"),
+                ("short", "short-2"),
+            ]
+
+    def test_session_summaries_foreign_session_is_404(self, monkeypatch):
+        """T-A4-5 / QR-S04: only this workspace's or one's own user session.
+
+        A foreign workspace's session, a foreign user's session and an unknown
+        id all answer the SAME 404 -- and the backend is never asked to read
+        them, so a misbehaving engine cannot leak a sibling session either.
+        """
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            foreign_ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+            other_user = make_user(tenant)
+            calls = _summaries_capable_pgvector(monkeypatch, [])
+            client = _client_for(token)
+
+            own_workspace = f"s_{tenant.id}_workspace_{ws.id}"
+            own_user = f"s_{tenant.id}_user_{user.id}"
+            for allowed in (own_workspace, own_user):
+                response = client.get(
+                    _WS_SESSION_SUMMARIES.format(ws=ws.id, session_id=allowed)
+                )
+                assert response.status_code == 200, allowed
+
+            for foreign in (
+                f"s_{tenant.id}_workspace_{foreign_ws.id}",
+                f"s_{tenant.id}_user_{other_user.id}",
+                "s_does-not-exist",
+            ):
+                response = client.get(
+                    _WS_SESSION_SUMMARIES.format(ws=ws.id, session_id=foreign)
+                )
+                assert response.status_code == 404, foreign
+                assert response.data["error"]["code"] == "NOT_FOUND"
+
+            assert calls == [own_workspace, own_user]
+
+    def test_non_member_is_403(self, monkeypatch):
+        """T-A4-5: workspace membership is checked before anything else."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, workspace=None)
+
+            response = _client_for(token).get(
+                _WS_SESSION_SUMMARIES.format(ws=ws.id, session_id="s_whatever")
+            )
+
+            assert response.status_code == 403
+            assert response.data["error"]["code"] == "PERMISSION_DENIED"
+
+    def test_engine_failure_degrades_instead_of_lying(self, monkeypatch):
+        """T-A4-5/F9: an engine error is an explicitly degraded empty answer."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            _summaries_capable_pgvector(monkeypatch, error=RuntimeError("down"))
+
+            response = _client_for(token).get(
+                _WS_SESSION_SUMMARIES.format(
+                    ws=ws.id, session_id=f"s_{tenant.id}_workspace_{ws.id}"
+                )
+            )
+
+            assert response.status_code == 200
+            assert response.data["summaries"] == []
+            assert response.data["degraded"] is True
+            assert response.data["detail"] == "engine_error:RuntimeError"
+
+    def test_session_summaries_rest_and_mcp_parity(self, monkeypatch):
+        """T-A4-5: the MCP tool returns byte-equal data to the REST route.
+
+        Both adapters delegate to ``MemoryEntryService.session_summaries``, so
+        the body, the ordering and the degradation signal are the same; this
+        pins it instead of trusting the shared call site.
+        """
+        from mcp_server.tools.memory import MemoryToolGroup
+
+        from memory.backends import SessionSummary
+        from persistence.tests.factories import ctx_for_user
+
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            user, token = editor_user_and_token(tenant, ws)
+            rows = [
+                SessionSummary("long", "L", datetime(2026, 2, 1)),
+                SessionSummary("short", "S", datetime(2026, 1, 1)),
+            ]
+            _summaries_capable_pgvector(monkeypatch, rows)
+            session_id = f"s_{tenant.id}_workspace_{ws.id}"
+
+            rest = _client_for(token).get(
+                _WS_SESSION_SUMMARIES.format(ws=ws.id, session_id=session_id)
+            )
+            mcp = MemoryToolGroup()._handle_session_summaries(
+                params={"workspace_id": str(ws.id), "session_id": session_id},
+                auth_context=ctx_for_user(tenant, user, workspace=ws, roles=()),
+                api_key=None,
+            )
+
+            assert rest.status_code == 200
+            assert mcp.success is True
+            assert mcp.data == dict(rest.data)
+            assert [row["kind"] for row in mcp.data["summaries"]] == ["short", "long"]

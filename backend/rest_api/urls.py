@@ -81,6 +81,7 @@ from memory.memory_rest import (
     WorkspaceMemoryDigestView,
     WorkspaceMemoryEntriesView,
     WorkspaceMemorySearchView,
+    WorkspaceMemorySessionSummariesView,
     WorkspaceMemorySettingsView,
 )
 from rest_api.api_key_views import ApiKeyViewSet
@@ -790,6 +791,14 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/memory/digest/",
         WorkspaceMemoryDigestView.as_view(),
         name="workspace-memory-digest",
+    ),
+    # Plan A T-A4-5: the engine's summaries of ONE session. Read-only; the
+    # session must belong to this workspace's peer or the caller's own user
+    # peer, otherwise 404 (QR-S04).
+    path(
+        "workspaces/<uuid:workspace_id>/memory/sessions/<str:session_id>/summaries/",
+        WorkspaceMemorySessionSummariesView.as_view(),
+        name="workspace-memory-session-summaries",
     ),
     # AP-B5.2 (#1155 Aspekt 1): natural-language Q&A over one memory scope --
     # REST mirror of the WRITE-gated MCP ``memory.ask`` tool, delegating to
