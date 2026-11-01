@@ -638,7 +638,7 @@ services:
   # Django Backend — All backend ARCH-L1 systems
   # ─────────────────────────────────────────────────────────
   backend:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.23}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.24}
     deploy:
       resources:
         limits:
@@ -794,7 +794,7 @@ services:
   # openai/ollama/azure needs no session id and must not be blocked by this
   # gate. Only the opencode_go combination is fatal.
   llm-preflight:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.23}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.24}
     # Same image tag as backend/celery, but it never pulls anything extra and
     # runs no Django code — only /bin/sh. Tiny limit because it is a shell.
     deploy:
@@ -866,7 +866,7 @@ services:
   # SYSTEM_ADMIN_PASSWORD is required only when the admin does not exist yet
   # (mirrors createsuperuser --noinput). See backend/application/self_init.py.
   migrate:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.23}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.24}
     deploy:
       resources:
         limits:
@@ -943,7 +943,7 @@ services:
   # Handles async tasks: LLM calls, Webhooks, GitHub integration
   # ─────────────────────────────────────────────────────────
   celery:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.23}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.24}
     deploy:
       resources:
         limits:
@@ -1039,7 +1039,7 @@ services:
   # Celery Beat Scheduler — Periodic Tasks (REQ-030)
   # ─────────────────────────────────────────────────────────
   celery-beat:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.23}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.24}
     deploy:
       resources:
         limits:
@@ -1138,7 +1138,7 @@ services:
     # enough (same trap as INFRA-02 in docker-compose.override.yml). `ports:`
     # additionally needs `!override`; see the note below and deploy/README.md
     # "Overlays that replace the frontend image (#1436)".
-    image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.23}
+    image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.24}
     deploy:
       resources:
         limits:
