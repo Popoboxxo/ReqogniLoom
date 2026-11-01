@@ -1,6 +1,6 @@
 """Provider-parity guard for the MCP client configuration `dist/` ships.
 
-One convention, four builders, four generated artifacts -- and until now
+One convention, four builders, five generated artifacts -- and until now
 nothing tied them to each other beyond a per-builder smoke test that asserted
 whatever that builder happened to emit that week. This module pins the
 convention the *backend* implements, so a future edit that reintroduces a
@@ -104,6 +104,10 @@ class BuilderSpec:
     out_subpath: str
     committed_path: Path
     container: str
+    #: Keys to descend below `container` before the server name. OpenCode V2
+    #: nests its servers under `mcp.servers`, the other builders put theirs
+    #: directly under `container`, so the default is empty.
+    container_path: tuple[str, ...] = ()
     fmt: str = "json"
 
 
@@ -132,6 +136,14 @@ CONFIG_BUILDERS: Final[tuple[BuilderSpec, ...]] = (
         out_subpath="opencode.json.snippet",
         committed_path=Path("dist/opencode/opencode.json.snippet"),
         container="mcp",
+    ),
+    BuilderSpec(
+        name="opencode-v2",
+        module_path=DIST_DIR / "opencode/build_opencode_package.py",
+        out_subpath="opencode.v2.json.snippet",
+        committed_path=Path("dist/opencode/opencode.v2.json.snippet"),
+        container="mcp",
+        container_path=("servers",),
     ),
     BuilderSpec(
         name="codex",
@@ -250,8 +262,16 @@ def _parse(spec: BuilderSpec, text: str) -> dict[str, Any]:
     return tomllib.loads(text) if spec.fmt == "toml" else json.loads(text)
 
 
+def _server_node(spec: BuilderSpec, text: str) -> dict[str, Any]:
+    """The server entry of a parsed config, below the spec's container path."""
+    node: Any = _parse(spec, text)[spec.container]
+    for key in spec.container_path:
+        node = node[key]
+    return node[SERVER_NAME]
+
+
 def _server_from(spec: BuilderSpec, origin: str, text: str) -> EmittedServer:
-    entry = _parse(spec, text)[spec.container][SERVER_NAME]
+    entry = _server_node(spec, text)
     bearer = entry.get("bearer_token_env_var")
     return EmittedServer(
         builder=spec.name,
@@ -405,7 +425,7 @@ def test_codex_bearer_shape_is_intentional(generated_roots: dict[str, Path]) -> 
     )
     server = _server_from(spec, ORIGIN_BUILT, raw)
 
-    assert "headers" not in _parse(spec, raw)[spec.container][SERVER_NAME], (
+    assert "headers" not in _server_node(spec, raw), (
         "Codex must not gain a custom headers block: its transport would "
         "ignore it, leaving the snippet looking authenticated when it is not"
     )
@@ -417,7 +437,7 @@ def test_codex_bearer_shape_is_intentional(generated_roots: dict[str, Path]) -> 
 def test_the_documented_env_var_names_are_the_only_ones_used(
     generated_roots: dict[str, Path],
 ) -> None:
-    """Across all four packages, exactly the two names INSTALL.md documents are
+    """Across all five packages, exactly the two names INSTALL.md documents are
     interpolated -- so the docs and the shipped configs cannot part ways."""
     referenced: set[str] = set()
     for spec in CONFIG_BUILDERS:
@@ -453,10 +473,22 @@ def test_no_builder_mentions_the_non_canonical_prefix() -> None:
 
 def test_every_builder_is_covered_by_this_guard() -> None:
     """Meta-guard: a builder this file does not know about is unguarded, and
-    the failure would be silent. Fail here instead."""
-    on_disk = {path.parent.name for path in DIST_DIR.rglob("build_*.py")}
-    covered = {spec.name for spec in CONFIG_BUILDERS}
+    the failure would be silent. Fail here instead.
+
+    Compared per builder *file*, not per parent directory: one builder module
+    can emit several artifacts (opencode emits the V1 and V2 snippets), so the
+    directory name is no longer a unique key.
+    """
+    on_disk = {path.resolve() for path in DIST_DIR.rglob("build_*.py")}
+    covered = {spec.module_path.resolve() for spec in CONFIG_BUILDERS}
+    unguarded = sorted(
+        path.relative_to(REPO_ROOT).as_posix() for path in on_disk - covered
+    )
+    missing = sorted(
+        path.relative_to(REPO_ROOT).as_posix() for path in covered - on_disk
+    )
     assert on_disk == covered, (
-        f"dist/ builders on disk {sorted(on_disk)} do not match the builders "
-        f"guarded here {sorted(covered)}; add the new one to CONFIG_BUILDERS"
+        f"dist/ builders on disk that no CONFIG_BUILDERS entry guards: "
+        f"{unguarded}; CONFIG_BUILDERS entries whose module does not exist: "
+        f"{missing}"
     )

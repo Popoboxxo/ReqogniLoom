@@ -33,6 +33,8 @@ jobs:
     name: Smoke ${{ matrix.client }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # The beta client must not block the release; the V1 legs stay blocking.
+    continue-on-error: ${{ matrix.client == 'opencode-v2' }}
     strategy:
       # Each client reports its own result; a red leg must not abort the others.
       fail-fast: false
@@ -41,6 +43,9 @@ jobs:
           - claude-code
           - codex
           - opencode
+          # OpenCode V2 is a beta; this leg runs with continue-on-error on the
+          # job so a red V2 leg does not block the release.
+          - opencode-v2
           - kimi-code
           - hermes
           # ANTIGRAVITY IS DELIBERATELY EXCLUDED: its binary requires a host CPU

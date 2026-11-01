@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- feat(clients): OpenCode V2 (beta): own client entry, `opencode.v2.json.snippet`, installer auto-detects the major version
 - feat(search): `?mode=hybrid|keyword|vector` on `GET /api/v1/search/` and the `artifact.search` MCP tool (A3/T-A3-1). `keyword` answers from full-text + lexical passes only and makes no embedding call; `vector` uses only the semantic pass; an unknown value is a `VALIDATION_ERROR` (400) instead of a silent hybrid fallback. The response echoes the effective `mode`.
 
 ### Changed

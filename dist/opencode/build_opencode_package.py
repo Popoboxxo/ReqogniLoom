@@ -18,6 +18,7 @@ import argparse
 import json
 import shutil
 from pathlib import Path
+from typing import Any
 
 BUILD_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BUILD_DIR.parent.parent
@@ -40,6 +41,25 @@ def discover_skill_names(skills_src: Path) -> list[str]:
     )
 
 
+def v2_server_entry(url: str, key_env: str) -> dict[str, Any]:
+    """One OpenCode V2 server entry for ``mcp.servers.<name>``.
+
+    V2 differs from V1 in three ways this function pins: the entry lives under
+    ``mcp.servers``, it speaks Streamable HTTP on ``/mcp/`` (V1 uses the SSE
+    endpoint), and it disables both the OAuth flow (the key travels in a
+    header, so a browser flow would dead-end) and codemode. ``url`` is the
+    base URL without a path; ``key_env`` is the *name* of the env var holding
+    the key, never the key itself.
+    """
+    return {
+        "type": "remote",
+        "url": f"{url}/mcp/",
+        "headers": {"X-API-Key": f"{{env:{key_env}}}"},
+        "oauth": False,
+        "codemode": False,
+    }
+
+
 def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -51,6 +71,23 @@ def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
                         "type": "remote",
                         "url": "{env:REQOGNILOOM_MCP_URL}/mcp/sse/",
                         "headers": {"X-API-Key": "{env:REQOGNILOOM_API_KEY}"},
+                    }
+                }
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    (out_dir / "opencode.v2.json.snippet").write_text(
+        json.dumps(
+            {
+                "mcp": {
+                    "servers": {
+                        SERVER_NAME: v2_server_entry(
+                            "{env:REQOGNILOOM_MCP_URL}", "REQOGNILOOM_API_KEY"
+                        )
                     }
                 }
             },

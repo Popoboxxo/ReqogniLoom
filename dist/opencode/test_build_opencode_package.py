@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from build_opencode_package import discover_skill_names
+from build_opencode_package import build, discover_skill_names, v2_server_entry
 
 BUILD_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BUILD_DIR.parent.parent
@@ -31,6 +31,37 @@ def test_build_opencode_package(tmp_path):
                         "ccb-approval-and-baseline", "traceability-audit",
                         "interview-management"]:
         assert (tmp_path / "skills" / skill_name / "SKILL.md").exists()
+
+
+def test_v2_snippet_shape(tmp_path):
+    """OpenCode V2 reads ``mcp.servers.<name>`` with Streamable HTTP on /mcp/.
+    Pinned as an exact dict so a stray key (or a silently added one) fails
+    here rather than in a user's client."""
+    build(tmp_path)
+
+    snippet = json.loads((tmp_path / "opencode.v2.json.snippet").read_text())
+    assert snippet["mcp"]["servers"]["reqogniloom"] == {
+        "type": "remote",
+        "url": "{env:REQOGNILOOM_MCP_URL}/mcp/",
+        "headers": {"X-API-Key": "{env:REQOGNILOOM_API_KEY}"},
+        "oauth": False,
+        "codemode": False,
+    }
+    # Same regression guard as the V1 snippet: the key name lives in the
+    # {env:...} template, never a literal key in the config.
+    assert "reqlo_" not in json.dumps(snippet)
+
+
+def test_v2_entry_uses_literal_url_and_env_key():
+    """``url`` is the base without a path (literal or an env placeholder); the
+    /mcp/ suffix and the header shell are added here, so callers cannot
+    assemble them inconsistently."""
+    entry = v2_server_entry("http://h:8001", "MY_KEY")
+
+    assert entry["url"] == "http://h:8001/mcp/"
+    assert entry["headers"] == {"X-API-Key": "{env:MY_KEY}"}
+    assert entry["oauth"] is False
+    assert entry["codemode"] is False
 
 
 def test_discover_skill_names_matches_the_canonical_skill_set():

@@ -110,6 +110,13 @@ def test_full_pipeline_regenerates_cleanly(tmp_path):
         "dist/opencode/opencode.json.snippet is stale — re-run "
         "dist/opencode/build_opencode_package.py and commit the result."
     )
+    assert (opencode_out / "opencode.v2.json.snippet").exists()
+    assert (opencode_out / "opencode.v2.json.snippet").read_text() == (
+        REPO_ROOT / "dist" / "opencode" / "opencode.v2.json.snippet"
+    ).read_text(), (
+        "dist/opencode/opencode.v2.json.snippet is stale — re-run "
+        "dist/opencode/build_opencode_package.py and commit the result."
+    )
 
     codex_out = tmp_path / "codex"
     run(

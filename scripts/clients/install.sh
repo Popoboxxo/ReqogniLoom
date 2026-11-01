@@ -17,7 +17,7 @@
 # --force / --refresh re-copies existing skills, DOMAIN_MODEL.md and a copied
 #       Hermes plugin after a timestamped `.bak-<ts>` backup; without it an
 #       existing destination is left untouched (safe re-runs, #1351).
-# Supported ids: claude-code codex opencode kimi-code antigravity hermes
+# Supported ids: claude-code codex opencode opencode-v2 kimi-code antigravity hermes
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,6 +31,9 @@ WITH_DASHBOARD=0
 REFRESH=0
 DRY_RUN=0
 ASSUME_YES=0
+# Name of the OpenCode client binary. Overridable so a V2 beta installed under
+# another name (e.g. `opencode2`) can still be detected and driven.
+OPENCODE_BIN="${OPENCODE_BIN:-opencode}"
 
 usage() {
   sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
@@ -206,13 +209,13 @@ install_codex() {
     "$(dirname "$skills_dir")/DOMAIN_MODEL.md"
 }
 
-install_opencode() {
-  require_bin opencode
+install_opencode_v1() {
+  require_bin "$OPENCODE_BIN"
   # The key header is passed as an opencode env placeholder (env indirection);
   # `--header` keeps the value literal, so no secret ever lands in argv. Without
   # `--header` opencode registers the server with no credential and reports
   # "needs authentication" on connect.
-  run opencode mcp add reqogniloom --url "$URL/mcp/sse/" \
+  run "$OPENCODE_BIN" mcp add reqogniloom --url "$URL/mcp/sse/" \
     --header "X-API-Key={env:${KEY_ENV}}"
   # Default to OpenCode's USER-level skills dir (never the CWD): a default of
   # `.opencode/skills` writes into whatever directory the installer happens to
@@ -224,6 +227,63 @@ install_opencode() {
   # SKILL.md links resolve '../../DOMAIN_MODEL.md' from skills/<name>/:
   copy_if_absent "${REPO_ROOT}/docs/agent-templates/DOMAIN_MODEL.md" \
     "$(dirname "$skills_dir")/DOMAIN_MODEL.md"
+}
+
+# detect_opencode_major — echo the client binary's major version (1 or 2).
+#
+# Falls back to 1 whenever `--version` is missing or unparseable, so an absent or
+# older binary keeps the long-standing V1 path instead of failing. The version
+# output is captured *before* it is parsed on purpose: under `set -euo pipefail`
+# a bare `"$OPENCODE_BIN" --version | sed … | head -1` aborts the whole installer
+# when the binary is absent (127) or when `head` closes the pipe early
+# (SIGPIPE/141) — the trailing `|| true` covers the latter, the capture covers
+# the former.
+detect_opencode_major() {
+  local out major
+  out="$("$OPENCODE_BIN" --version 2>/dev/null || true)"
+  # V2 prints "opencode v2.2.5", V1 prints "1.19.5": skip any non-digit prefix
+  # (program name, honourific "v"), then take the first major before a dot.
+  major="$(printf '%s\n' "$out" | tr -d '\r' \
+    | sed -nE 's/^[^0-9]*([0-9]+)\.[0-9]+.*/\1/p' | head -1 || true)"
+  printf '%s\n' "${major:-1}"
+}
+
+# install_opencode_v2 — OpenCode V2 (beta) reads MCP servers from
+# `mcp.servers.<name>` and `mcp add` does not write that shape, so the entry is
+# merged into the JSON config by dist/opencode/merge_config.py instead. Writing
+# the config needs no client binary, hence no require_bin here; merge_config.py
+# refuses JSONC/invalid JSON and writes nothing in that case.
+install_opencode_v2() {
+  # --key-env is an env-var *name* that ends up inside an `{env:NAME}`
+  # placeholder. Anything that is not a plain shell identifier (space, `$`,
+  # `{`, `}`) would be a config-injection path, so it is rejected before any
+  # file is touched.
+  if ! [[ "$KEY_ENV" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    echo "error: --key-env must be an env-var name ([A-Za-z_][A-Za-z0-9_]*)," \
+      "got '$KEY_ENV'" >&2
+    exit 2
+  fi
+  local config="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json"
+  local merge_args=(--config "$config" --url "$URL" --key-env "$KEY_ENV")
+  if [ "$DRY_RUN" -eq 1 ]; then merge_args+=(--dry-run); fi
+  run python3 "${REPO_ROOT}/dist/opencode/merge_config.py" "${merge_args[@]}"
+  # Skills and DOMAIN_MODEL.md are the same artifacts as on the V1 path.
+  local skills_dir
+  skills_dir="$(resolve_skills_dir "$HOME/.config/opencode/skills")"
+  copy_skills "${REPO_ROOT}/dist/opencode/skills" "$skills_dir"
+  # SKILL.md links resolve '../../DOMAIN_MODEL.md' from skills/<name>/:
+  copy_if_absent "${REPO_ROOT}/docs/agent-templates/DOMAIN_MODEL.md" \
+    "$(dirname "$skills_dir")/DOMAIN_MODEL.md"
+}
+
+# install_opencode — pick the installer path from the client binary's major
+# version; an unknown/absent version keeps V1 (see detect_opencode_major).
+install_opencode() {
+  if [ "$(detect_opencode_major)" = 2 ]; then
+    install_opencode_v2
+  else
+    install_opencode_v1
+  fi
 }
 
 install_kimi_code() {
@@ -369,6 +429,7 @@ case "$CLIENT" in
   claude-code) confirm; install_claude_code ;;
   codex) confirm; install_codex ;;
   opencode) confirm; install_opencode ;;
+  opencode-v2) confirm; install_opencode_v2 ;;
   kimi-code) confirm; install_kimi_code ;;
   antigravity) confirm; install_antigravity ;;
   hermes) confirm; install_hermes ;;
