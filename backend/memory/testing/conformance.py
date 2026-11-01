@@ -52,7 +52,12 @@ def assert_capabilities_consistent(backend: MemoryBackend) -> None:
     * ``scopes`` is a subset of the canonical scopes,
     * both request bounds are positive,
     * ``ask_available`` agrees with ``dialectic``,
-    * a backend that declares ``dialectic=False`` degrades instead of raising.
+    * a backend that declares ``dialectic=False`` degrades instead of raising,
+    * a backend that declares ``consolidation=False`` answers ``unsupported``
+      from :meth:`MemoryBackend.consolidate` -- without raising and without
+      attempting anything (Plan A T-A4-2). Backends that DO declare the
+      capability are not probed here: the pass is a network call on Honcho, so
+      the ``True`` side is pinned by that backend's own fake-SDK test.
     """
     name = type(backend).__name__
     capabilities = backend.capabilities
@@ -65,6 +70,13 @@ def assert_capabilities_consistent(backend: MemoryBackend) -> None:
     if not capabilities.dialectic:
         answer = backend.ask(uuid4(), "workspace", uuid4(), "capability probe")
         assert answer.degraded is True, f"{name}: dialectic=False must degrade"
+
+    if not capabilities.consolidation:
+        outcome = backend.consolidate(uuid4(), "workspace", uuid4())
+        assert outcome.status == "unsupported", (
+            f"{name}: consolidation=False must answer 'unsupported', "
+            f"got {outcome.status!r}"
+        )
 
 
 def _pgvector() -> MemoryBackend:
