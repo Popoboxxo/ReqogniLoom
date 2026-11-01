@@ -1629,7 +1629,7 @@ services:
   # services stay internal.
   # ═════════════════════════════════════════════════════════
   bluepencil:
-    image: ${BLUEPENCIL_HUB_IMAGE:-ghcr.io/popoboxxo/bluepencil:0.10.2@sha256:44bab0be6efbbfd63280bdf7c2c38ae52ff5a78854f8f5c1198e0f40f2cdad57}
+    image: ${BLUEPENCIL_HUB_IMAGE:-ghcr.io/popoboxxo/bluepencil:0.10.3@sha256:0013c399bad785d60b3ffadb7c9a4f70266aa76a4431c1dd7968a1a3a487fcdd}
     profiles: ["bluepencil"]
     restart: unless-stopped
     environment:
@@ -1679,7 +1679,7 @@ services:
   # with a plain chown, as root (`user: "0"`) because only root may hand files to
   # another user. `restart: "no"` keeps Compose's one-shot semantics.
   bluepencil-volume-init:
-    image: ${BLUEPENCIL_HUB_IMAGE:-ghcr.io/popoboxxo/bluepencil:0.10.2@sha256:44bab0be6efbbfd63280bdf7c2c38ae52ff5a78854f8f5c1198e0f40f2cdad57}
+    image: ${BLUEPENCIL_HUB_IMAGE:-ghcr.io/popoboxxo/bluepencil:0.10.3@sha256:0013c399bad785d60b3ffadb7c9a4f70266aa76a4431c1dd7968a1a3a487fcdd}
     profiles: ["bluepencil"]
     user: "0"
     entrypoint: ["chown", "-R", "node:node", "/data"]
