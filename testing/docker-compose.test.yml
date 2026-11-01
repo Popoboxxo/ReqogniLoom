@@ -120,7 +120,7 @@ services:
   # that resolves them must not fall back to the dev stack's redis.
   redis-test:
     # Digest-pinned to the same multi-arch manifest list used in deploy/ (#1391).
-    image: redis:7-alpine@sha256:892022f9f18c26c92c30e15194d132f90044af87b94a491a75429bbc3982eab1
+    image: redis:8-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
     # No password and no persistence: the instance is private to this project
     # and to the lifetime of one test run.
     command: ["redis-server", "--save", "", "--appendonly", "no"]
