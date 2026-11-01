@@ -283,6 +283,42 @@ class TestSearch:
                     ctx, query="x", scopes=["workspace"], workspace_id=foreign.id
                 )
 
+    def test_derived_source_authorises_before_the_capability_gate(self, monkeypatch):
+        """T-A4-3: an unauthorised scope is a 403, never ``unsupported``.
+
+        The capability gate must not become an oracle: on a backend without a
+        derived surface (pgvector here), ``source="derived"`` for a foreign
+        workspace must still raise :class:`MemoryPermissionDenied` -- exactly
+        like ``source="facts"`` -- so the answer cannot be used to probe which
+        recall surfaces the deployment has.
+        """
+        monkeypatch.setenv("MEMORY_BACKEND", "pgvector")
+        with active_tenant() as tenant:
+            foreign = make_workspace(tenant)
+            ctx = ctx_for_user(tenant, make_user(tenant), roles=())
+
+            with pytest.raises(MemoryPermissionDenied):
+                _service().search(
+                    ctx,
+                    query="x",
+                    scopes=["workspace"],
+                    workspace_id=foreign.id,
+                    source="derived",
+                )
+
+    def test_rejects_a_non_string_source(self):
+        """Finding #4: ``{"source": 123}`` is a validation error, not a 500.
+
+        A non-string must be caught before ``.strip()`` so the MCP/REST layers
+        answer 400/``VALIDATION_ERROR`` instead of raising ``AttributeError``
+        (which no adapter maps).
+        """
+        with active_tenant() as tenant:
+            ctx = ctx_for_user(tenant, make_user(tenant), roles=("editor",))
+
+            with pytest.raises(ValidationError):
+                _service().search(ctx, query="x", scopes=["user"], source=123)
+
     def test_all_scopes_error_is_reported_degraded_not_empty(self, monkeypatch):
         """F9: an all-scope backend outage must not look like an empty result.
 
