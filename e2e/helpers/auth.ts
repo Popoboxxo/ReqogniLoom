@@ -120,13 +120,26 @@ export async function getWorkspaceId(
  * Used by specs that need a workspace with no pre-existing architecture root
  * (or other singleton state), so they don't collide with other specs sharing
  * SEEDED_WORKSPACE_ID.
+ *
+ * `preset` selects the rigor tier at creation time (default: the backend's
+ * own "standard" default). It is written through `POST /workspaces/`, which
+ * accepts the bare tier string (`WorkspaceViewSet.create` →
+ * `extract_preset_tier`). At least the `approver` role assignment is
+ * preset-gated: `AuthorizationService._APPROVER_ENABLED_PRESETS` is
+ * `{"extended"}`, so a spec that needs an Approver member must create its
+ * workspace at `extended` — otherwise the assignment answers 400
+ * (baselines-rollback.spec.ts, F4.5 review B-01).
  */
-export async function createIsolatedWorkspace(token: string, name?: string): Promise<string> {
+export async function createIsolatedWorkspace(
+  token: string,
+  name?: string,
+  preset?: WorkspacePresetName
+): Promise<string> {
   const ctx = await request.newContext({ baseURL: BASE_URL });
   const wsName = name || `e2e-isolated-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const response = await ctx.post('/api/v1/workspaces/', {
     headers: { Authorization: `Bearer ${token}` },
-    data: { name: wsName },
+    data: preset === undefined ? { name: wsName } : { name: wsName, preset },
   });
   if (!response.ok()) {
     throw new Error(`Workspace creation failed: ${response.status()} ${await response.text()}`);
@@ -152,29 +165,239 @@ export async function createIsolatedWorkspace(token: string, name?: string): Pro
  * Issues #1347/#1348 were both caused by *fixed* isolated-workspace names
  * ("already exists" on the second run). Names are now unique per run and the
  * workspaces are removed afterwards.
+ *
+ * GH-1084: the hard delete is refused with `409 CONFLICT`
+ * (`details.code == "baselines_immutable"`) while the workspace still holds
+ * baselines. A spec that created baselines must therefore call
+ * {@link purgeWorkspaceBaselines} first and, if the delete is still refused,
+ * fall back to {@link closeWorkspace} — this function returns `false` in that
+ * case so the caller can. It never fails a test by itself.
+ *
+ * @returns whether the workspace is gone (hard-deleted or already absent).
  */
 export async function deleteWorkspace(
   token: string,
   workspaceId: string,
   name: string
-): Promise<void> {
+): Promise<boolean> {
   const ctx = await request.newContext({ baseURL: BASE_URL });
   try {
     const response = await ctx.post(`/api/v1/workspaces/${workspaceId}/delete/`, {
       headers: { Authorization: `Bearer ${token}` },
       data: { confirmation: name },
     });
-    if (!response.ok() && response.status() !== 404) {
+    if (response.ok()) {
+      return true;
+    }
+    if (response.status() !== 404) {
       console.warn(
         `deleteWorkspace(${workspaceId}) cleanup failed: ` +
           `${response.status()} ${await response.text()}`
       );
     }
+    // 404 means the row is already gone — that is the desired end state too.
+    return response.status() === 404;
   } catch (err) {
     console.warn(`deleteWorkspace(${workspaceId}) cleanup failed: ${(err as Error).message}`);
+    return false;
   } finally {
     await ctx.dispose();
   }
+}
+
+/**
+ * Remove every baseline of a workspace through the audited admin route
+ * (`DELETE /api/v1/baselines/{id}/purge/`, GH-1199).
+ *
+ * A workspace that still holds baselines cannot be hard-deleted — the
+ * `_confirmed_hard_delete` path answers `409 CONFLICT` with
+ * `details.code == "baselines_immutable"` (GH-1084) instead of cascading, so a
+ * spec that created baselines in an isolated workspace must purge them first
+ * or it leaves the workspace behind forever. Purge is the *only* route that
+ * removes a baseline (baselines stay content-immutable otherwise) and it is
+ * admin-only, which matches the admin token every teardown here uses.
+ *
+ * @returns how many baselines were purged.
+ */
+export async function purgeWorkspaceBaselines(
+  token: string,
+  workspaceId: string
+): Promise<number> {
+  const ctx = await request.newContext({ baseURL: BASE_URL });
+  let purged = 0;
+  try {
+    const listResponse = await ctx.get('/api/v1/baselines/', {
+      headers: { Authorization: `Bearer ${token}` },
+      params: { workspace_id: workspaceId, page_size: '100' },
+    });
+    if (!listResponse.ok()) {
+      console.warn(
+        `purgeWorkspaceBaselines(${workspaceId}): list failed with ` +
+          `${listResponse.status()} ${await listResponse.text()}`
+      );
+      return 0;
+    }
+    const body = (await listResponse.json()) as unknown;
+    const rows: Array<{ id?: string }> = Array.isArray(body)
+      ? (body as Array<{ id?: string }>)
+      : (((body as { results?: Array<{ id?: string }> }).results ?? []) as Array<{
+          id?: string;
+        }>);
+    for (const row of rows) {
+      if (!row.id) continue;
+      const purge = await ctx.delete(`/api/v1/baselines/${row.id}/purge/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (purge.ok()) {
+        purged += 1;
+      } else if (purge.status() !== 404) {
+        console.warn(
+          `purgeWorkspaceBaselines(${workspaceId}): purge of ${row.id} failed with ` +
+            `${purge.status()} ${await purge.text()}`
+        );
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `purgeWorkspaceBaselines(${workspaceId}) cleanup failed: ${(err as Error).message}`
+    );
+  } finally {
+    await ctx.dispose();
+  }
+  return purged;
+}
+
+/**
+ * Soft-close a workspace (`POST /api/v1/workspaces/{id}/close/`, REQ-L1-042).
+ *
+ * The fallback teardown for a workspace whose hard delete was refused: a
+ * closed workspace is out of every list and out of every UI flow instead of
+ * lingering as a live orphan, and it stays recoverable
+ * (`POST .../reactivate/`) — which is the correct behaviour for a governance
+ * row that cannot be removed.
+ *
+ * @returns whether the workspace is now closed.
+ */
+export async function closeWorkspace(
+  token: string,
+  workspaceId: string
+): Promise<boolean> {
+  const ctx = await request.newContext({ baseURL: BASE_URL });
+  try {
+    const response = await ctx.post(`/api/v1/workspaces/${workspaceId}/close/`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (response.ok()) {
+      return true;
+    }
+    console.warn(
+      `closeWorkspace(${workspaceId}) cleanup failed: ` +
+        `${response.status()} ${await response.text()}`
+    );
+    return false;
+  } catch (err) {
+    console.warn(`closeWorkspace(${workspaceId}) cleanup failed: ${(err as Error).message}`);
+    return false;
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * Ids of the caller's unread notifications (`GET /api/v1/notifications/`).
+ *
+ * Why specs need this: the shell's interview widget renders its unread badge
+ * as a `role="status"` live region and only *hides* it while the count is 0
+ * (`InterviewWidget.tsx`, `hidden={unread === 0}`). Several specs assert the
+ * page-wide invariant "the loading indicator is the only *visible*
+ * `[role="status"]`" (`baselines-view`, `baselines-tags`, `icd-ui`,
+ * `stakeholder-needs`, …), and Playwright counts an element with a bounding
+ * box — so a spec that leaves the shared `admin` user with an unread
+ * notification (any workflow transition by *another* user notifies the
+ * workspace's editor/admin roles) silently breaks every later spec in its
+ * shard. Take a snapshot with this before driving such transitions and hand it
+ * back to {@link markNotificationsRead} afterwards.
+ */
+export async function unreadNotificationIds(token: string): Promise<string[]> {
+  const ctx = await request.newContext({ baseURL: BASE_URL });
+  try {
+    const response = await ctx.get('/api/v1/notifications/', {
+      headers: { Authorization: `Bearer ${token}` },
+      // The feed is capped at 200 by the service; the default page size is 50.
+      params: { unread_only: 'true', limit: '200' },
+    });
+    if (!response.ok()) {
+      console.warn(
+        `unreadNotificationIds(): feed unavailable (${response.status()}) — ` +
+          'skipping notification cleanup'
+      );
+      return [];
+    }
+    const body = (await response.json()) as {
+      notifications?: Array<{ id?: string; read?: boolean }>;
+    };
+    return (body.notifications ?? [])
+      .filter((row) => row.read !== true)
+      .map((row) => row.id)
+      .filter((id): id is string => typeof id === 'string' && id !== '');
+  } catch (err) {
+    console.warn(`unreadNotificationIds() failed: ${(err as Error).message}`);
+    return [];
+  } finally {
+    await ctx.dispose();
+  }
+}
+
+/**
+ * Mark exactly the given notifications read (`POST .../read/` per id).
+ *
+ * Delta-based on purpose: a spec restores the *shared* user's unread state to
+ * what it was when the spec started, instead of clearing notifications another
+ * (possibly concurrently running) spec has just created.
+ *
+ * @returns how many ids were marked read.
+ */
+export async function markNotificationsRead(
+  token: string,
+  ids: readonly string[]
+): Promise<number> {
+  if (ids.length === 0) return 0;
+  const ctx = await request.newContext({ baseURL: BASE_URL });
+  let marked = 0;
+  try {
+    for (const id of ids) {
+      const response = await ctx.post(`/api/v1/notifications/${id}/read/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok()) {
+        marked += 1;
+      } else if (response.status() !== 404) {
+        console.warn(
+          `markNotificationsRead(): marking ${id} read failed with ` +
+            `${response.status()} ${await response.text()}`
+        );
+      }
+    }
+  } finally {
+    await ctx.dispose();
+  }
+  return marked;
+}
+
+/**
+ * Mark every notification *created since* the given snapshot as read.
+ *
+ * Combines {@link unreadNotificationIds} and {@link markNotificationsRead} and
+ * returns the remaining unread ids (should be empty). Safe to call twice.
+ */
+export async function clearNotificationsSince(
+  token: string,
+  before: readonly string[]
+): Promise<string[]> {
+  const seen = new Set(before);
+  const created = (await unreadNotificationIds(token)).filter((id) => !seen.has(id));
+  await markNotificationsRead(token, created);
+  return created;
 }
 
 /**

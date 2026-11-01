@@ -1,0 +1,190 @@
+/*
+ * F4.5 — BaselineRollbackPanel styles.
+ *
+ * Only `var(--…)` tokens from `styles/tokens.css`; no inline `style`, no raw
+ * colour, no ad-hoc button geometry (#1258). The preview/refresh controls use
+ * the shared `btn-secondary`, the request control `btn-primary` and the
+ * destructive apply control `btn-danger` — this module only contributes
+ * layout plus the neutral plan-look (table, summary, id row). Workflow status
+ * is rendered by the shared `<StatusBadge>` (F4.5 review F-03), so no local
+ * chip geometry lives here.
+ */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger-text);
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.summaryRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.summaryTerm {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.summaryValue {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.th {
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-weight: var(--weight-medium);
+}
+
+.cellItem {
+  padding: var(--space-1) var(--space-2);
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.cellType {
+  padding: var(--space-1) var(--space-2);
+  vertical-align: top;
+}
+
+.cellAction {
+  padding: var(--space-1) var(--space-2);
+  vertical-align: top;
+}
+
+.cellChanges {
+  padding: var(--space-1) var(--space-2);
+  vertical-align: top;
+}
+
+.changeList {
+  margin: 0;
+  padding-left: var(--space-4);
+}
+
+.unrestorable {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger-text);
+}
+
+.requestForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.reasonLabel {
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+}
+
+.reasonInput {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  box-sizing: border-box;
+}
+
+/* F-04: replaces the request form while a change request is open. */
+.requestLocked {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.changeRequest {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.crRefRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.crRef {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.copyStatus {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.statusRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.statusHint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.applyRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.result {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
