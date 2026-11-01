@@ -206,6 +206,14 @@ from application.services_step4 import *  # noqa: F401,F403,E402
 # ---------------------------------------------------------------------------
 from application.suggestion_service import SuggestionService  # noqa: F401,E402
 
+# ---------------------------------------------------------------------------
+# Plan F F4.4 — additive baseline rollback (ADR-025)
+# ---------------------------------------------------------------------------
+from application.baseline_rollback_service import (  # noqa: F401,E402
+    BaselineRollbackService,
+    RollbackResult,
+)
+
 __all__ = [
     # Step-1 services
     "ArtifactService",
@@ -293,4 +301,7 @@ __all__ = [
     # ADR-019 — generic proposal lifecycle (WP2)
     "SuggestionService",
     "ProducerContextRequiredError",
+    # Plan F F4.4 — additive baseline rollback (ADR-025)
+    "BaselineRollbackService",
+    "RollbackResult",
 ]

@@ -15,8 +15,11 @@ The two lists answer two different questions:
 * :data:`NON_RESTORABLE` — **captured-or-derived, but never written by a
   rollback**: identity (``uid``), governance (``status``), locking
   (``version``), derived values (``level``, ``suspect``, ``risk_score``,
-  ``severity``), structural keys, and state that only a dedicated lifecycle
-  transition may change (``lifecycle_status`` via ``reactivate``).
+  ``severity``), structural keys, state that only a dedicated lifecycle
+  transition may change (``lifecycle_status`` via ``reactivate``), and — Plan F
+  F4.4 — content a domain service accepts only through a path the rollback
+  update contract cannot use (``level_source``, ``TestCase.origin``/
+  ``reviewed``, ``Issue.assignee_id``/``assignee_changed_date``).
 
 ``RESTORABLE_FIELDS`` names **captured keys** (not model attribute names), so a
 rollback can address the snapshot dict directly. The two differ in exactly one
@@ -71,7 +74,6 @@ RESTORABLE_FIELDS: dict[str, tuple[str, ...]] = {
         "type",
         "complexity_fibonacci",
         "verification_method",
-        "level_source",
         *_ARTIFACT_HULL_RESTORABLE,
     ),
     "StakeholderNeed": (
@@ -96,10 +98,11 @@ RESTORABLE_FIELDS: dict[str, tuple[str, ...]] = {
         "description",
         "steps",
         "test_type",
-        # #424 / #402: provenance, in-content review flag and the
-        # nominal/off-nominal categorisation are editable content.
-        "origin",
-        "reviewed",
+        # #402: the nominal/off-nominal categorisation is editable content.
+        # #424's ``origin`` (write-once provenance) and ``reviewed`` (changed
+        # only through ``TestService.mark_reviewed``, which carries no
+        # ``expected_version``) have no parameter on the update path a rollback
+        # uses, so they stay in NON_RESTORABLE (Plan F F4.4).
         "scenario_kind",
         *_ARTIFACT_HULL_RESTORABLE,
     ),
@@ -130,10 +133,9 @@ RESTORABLE_FIELDS: dict[str, tuple[str, ...]] = {
         "description",
         "severity",
         "category",
-        "assignee_id",
-        # Plan F F4.1: bookkeeping of the last reassignment; the capture stores
-        # it as an ISO-8601 string (or None), so it round-trips as content.
-        "assignee_changed_date",
+        # Plan F F4.4: ``assignee_id``/``assignee_changed_date`` are owned by
+        # ``IssueService.assign_issue`` (no ``expected_version``, and it stamps
+        # the change date with "now"), so they stay in NON_RESTORABLE.
         "due_date",
         "tags",
         *_ARTIFACT_HULL_RESTORABLE,
@@ -153,6 +155,10 @@ RESTORABLE_FIELDS: dict[str, tuple[str, ...]] = {
 NON_RESTORABLE: dict[str, dict[str, str]] = {
     "Requirement": {
         "level": "derived (ADR-005)",
+        "level_source": (
+            "only writable together with the derived 'level' via "
+            "RequirementService.set_manual_level (ADR-005); Plan F F4.4"
+        ),
         "status": "workflow governance",
         "uid": "identity",
         "version": "optimistic lock",
@@ -182,6 +188,11 @@ NON_RESTORABLE: dict[str, dict[str, str]] = {
         "version": "optimistic lock",
         "suspect": "derived",
         "lifecycle_status": "via reactivate",
+        "origin": "write-once provenance (#424); no update-service parameter",
+        "reviewed": (
+            "changed only through TestService.mark_reviewed (#424), which "
+            "carries no expected_version; Plan F F4.4"
+        ),
         **_ARTIFACT_HULL_NON_RESTORABLE,
     },
     "Adr": {
@@ -210,6 +221,14 @@ NON_RESTORABLE: dict[str, dict[str, str]] = {
         "uid": "identity",
         "version": "optimistic lock",
         "lifecycle_status": "via reactivate",
+        "assignee_id": (
+            "changed only through IssueService.assign_issue (no "
+            "expected_version); Plan F F4.4"
+        ),
+        "assignee_changed_date": (
+            "assign_issue stamps the current time; a historical value has no "
+            "service path; Plan F F4.4"
+        ),
         **_ARTIFACT_HULL_NON_RESTORABLE,
     },
     "GlossaryTerm": {
