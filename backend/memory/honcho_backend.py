@@ -199,6 +199,23 @@ rejected unknown scope ``"unknown_scope:<ExceptionClassName>"``. The two
 prefixes keep an outage distinguishable from a caller error, carry no user
 data, and leave the exception class name retrievable as a substring.
 
+``consolidate()`` (periodic dream, T-A4-2)
+------------------------------------------
+:meth:`HonchoMemoryBackend.consolidate` is the *write-side* counterpart of
+``digest``: instead of reading the derived representation it asks the engine to
+re-derive it, via ``Honcho.schedule_dream`` (T-A4-1 spike, ``deploy/README.md``).
+One call == one dream for ONE peer: ``observer`` and ``observed`` are both the
+scope's own tenant-namespaced peer and no session is passed, so nothing outside
+that scope can be touched. A workspace-wide dream call is deliberately not used
+(QR-S04: the tenant's Honcho workspace holds every peer).
+
+The Celery beat entry ``memory-consolidate`` (``reqogniloom/settings.py``)
+drives it once per ``MEMORY_CONSOLIDATION_INTERVAL_MINUTES`` (default 1440,
+``0`` = off), iterating the tenant's active workspaces and calling this method
+per workspace peer. ``scheduled`` only means the ENGINE ACCEPTED the request:
+the dream runs asynchronously in the Deriver, so the effect is observable
+through :meth:`digest` later -- never as a result of this call.
+
 EMBEDDING CONFIGURATION (GH #911)
 ---------------------------------
 Honcho embeds memory entries through an OpenAI-compatible endpoint configured
@@ -252,6 +269,7 @@ from memory.backends import (
     MemoryBackend,
     MemoryCapabilities,
     MemoryDigest,
+    ConsolidationResult,
     MemoryEntryId,
     MemoryEntryRef,
     BackendSettingField,
@@ -527,8 +545,10 @@ class HonchoMemoryBackend(MemoryBackend):
     """
 
     #: Dialectic answers are Honcho's reason to exist; search is the canonical
-    #: store. Derived search and consolidation move to ``True`` in plan A4
-    #: (T-A4-3/T-A4-4), which is why they are declared ``False`` here rather
+    #: store. ``consolidation`` is ``True`` since T-A4-2: the engine's own
+    #: ``schedule_dream`` route (verified in the T-A4-1 spike, ``deploy/
+    #: README.md``) gives the port a real surface. Derived search moves to
+    #: ``True`` in T-A4-3, which is why it stays declared ``False`` here rather
     #: than silently omitted. Summaries/webhooks have no port method yet, so
     #: they stay ``False`` even though the upstream engine has them.
     settings_key = "honcho"
@@ -557,7 +577,7 @@ class HonchoMemoryBackend(MemoryBackend):
         dialectic=True,
         search=True,
         search_derived=False,
-        consolidation=False,
+        consolidation=True,
         scopes=VALID_MEMORY_SCOPES,
         summaries=False,
         webhooks=False,
@@ -1486,6 +1506,69 @@ class HonchoMemoryBackend(MemoryBackend):
         return MemoryAnswer(
             text=text, generated_at=generated_at, backend="honcho", degraded=False
         )
+
+    def consolidate(
+        self, tenant_id: UUID, scope: str, scope_id: UUID
+    ) -> ConsolidationResult:
+        """Schedule one engine-side dream for the scope's own peer (T-A4-2).
+
+        ``Honcho.schedule_dream(observer, observed=...)`` asks the engine to
+        re-derive a peer's representation on demand (T-A4-1 spike, see
+        ``deploy/README.md``): ``POST /v3/workspaces/{ws}/schedule_dream``,
+        deduplicated per ``(workspace, observer, observed)``, and it only runs
+        while a Deriver process is up.
+
+        Scope discipline: ``observer`` and ``observed`` are BOTH this scope's
+        own tenant-namespaced peer (peer naming unchanged, see
+        :meth:`_scope_peer_id`) and no session is passed, so a pass can only
+        ever touch the scope it was requested for. There is deliberately NO
+        workspace-wide (hence tenant-wide) dream call -- that would cross every
+        peer in the tenant's Honcho workspace, which is exactly what the
+        QR-S04 isolation rule forbids.
+
+        Never raises (see :meth:`MemoryBackend.consolidate`):
+
+        * ``failed`` + ``"unknown_scope:<ExceptionClassName>"`` when
+          :meth:`_scope_peer_id` rejects the scope (no engine call attempted);
+        * ``failed`` + ``"engine_error:<ExceptionClassName>"`` when the request
+          could not be issued (unreachable engine, SDK/transport error, 422);
+        * ``scheduled`` once the SDK accepted it. That is a statement about the
+          REQUEST, not about the dream: the dream runs asynchronously in the
+          engine, so its effect is only observable through :meth:`digest`
+          later (the T-A4-2 7-day quality measurement is deployment-bound).
+
+        Logs ids/exception class only, never memory content -- a dream carries
+        no text of its own.
+        """
+        try:
+            peer_id = self._scope_peer_id(tenant_id, scope, scope_id)
+        except ValueError as exc:  # unknown scope -- never reach the engine
+            logger.warning(
+                "honcho memory: consolidate rejected an unknown scope %r for "
+                "tenant=%s (error type %s)",
+                scope,
+                tenant_id,
+                type(exc).__name__,
+            )
+            return ConsolidationResult(status="failed", detail=_degraded_detail(exc))
+
+        try:
+            client = self._ensure_client(tenant_id)
+            # ``observed`` defaults to ``observer`` in the SDK, but it is passed
+            # explicitly so the one-peer rule above is visible at the call site
+            # instead of depending on an SDK default.
+            client.schedule_dream(observer=peer_id, observed=peer_id)
+        except Exception as exc:  # noqa: BLE001 - degrade, never raise (contract)
+            logger.warning(
+                "honcho memory: consolidate could not schedule a dream for "
+                "tenant=%s scope=%s (error type %s)",
+                tenant_id,
+                scope,
+                type(exc).__name__,
+            )
+            return ConsolidationResult(status="failed", detail=_degraded_detail(exc))
+
+        return ConsolidationResult(status="scheduled", detail=f"peer {peer_id}")
 
     # -- legacy facade ---------------------------------------------------
 
