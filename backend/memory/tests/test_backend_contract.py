@@ -56,7 +56,9 @@ from memory.honcho_backend import HonchoMemoryBackend
 from memory.qdrant_backend import QdrantMemoryBackend
 from memory.testing.conformance import (
     DerivedSearchProbe,
+    SessionSummariesProbe,
     register_derived_search_fixture,
+    register_session_summaries_fixture,
 )
 from memory.tests.qdrant_fakes import FakeQdrantClient, FakeQdrantModels
 from persistence.models import Artifact, Tenant
@@ -111,10 +113,19 @@ class _FakeSession:
         self.id = session_id
         self.messages: list = []
         self.configuration = None
+        #: ``Session.summaries()`` answer (T-A4-5); ``None`` slots are the
+        #: engine's "not produced yet" state.
+        self.summaries_result = SimpleNamespace(
+            short_summary=None, long_summary=None
+        )
 
     def add_messages(self, messages: list) -> list:
         self.messages.extend(messages)
         return list(messages)
+
+    def summaries(self):
+        """``Session.summaries()`` (T-A4-5): the configurable engine answer."""
+        return self.summaries_result
 
     def get_configuration(self):
         return None
@@ -1448,3 +1459,160 @@ def test_derived_search_isolation_case_runs_for_every_capable_backend():
             f"{name}: registered a derived probe without declaring the capability"
         )
         assert_derived_search_isolated(name, DERIVED_SEARCH_FIXTURES[name]())
+
+
+# ---------------------------------------------------------------------------
+# Plan A T-A4-5 — session summaries and their QR-S04 isolation
+# ---------------------------------------------------------------------------
+
+
+def test_summaries_capability_is_declared_only_where_the_port_exists():
+    """T-A4-5: ``summaries`` says whether the backend models sessions at all.
+
+    Honcho answers ``Session.summaries()`` (T-A4-1 spike); pgvector and qdrant
+    have no session surface, so they declare ``False`` and the conformance
+    suite asserts their empty answer. Counting a non-existent surface as
+    available would let the service claim ``degraded=False`` for a list it
+    never produced.
+    """
+    from memory.backends import MEMORY_BACKEND_REGISTRY
+
+    declared = {
+        name: backend_cls.capabilities.summaries
+        for name, backend_cls in MEMORY_BACKEND_REGISTRY.items()
+    }
+    assert declared.pop("honcho") is True, "honcho has Session.summaries (T-A4-1 spike)"
+    assert not any(declared.values()), (
+        f"only honcho has a session surface, but these declare it too: {declared}"
+    )
+
+
+def test_session_summaries_reads_the_named_session_and_skips_empty_slots():
+    """T-A4-5: one session is addressed, ``None`` slots are a clean empty answer.
+
+    The engine keeps a short and a long slot, each optional (summaries are
+    produced asynchronously). A ``None`` slot must not surface as an empty row,
+    and a summary's ``created_at`` is normalised to a ``datetime`` while an
+    unreadable one stays ``None`` instead of dropping the summary.
+    """
+    backend = _honcho_backend_with_fake_client()
+    tenant_id, workspace_id = uuid4(), uuid4()
+    session_ref = backend._scope_session_id(tenant_id, "workspace", workspace_id)
+    session = backend._client.session(session_ref)
+    session.summaries_result = SimpleNamespace(
+        short_summary=SimpleNamespace(
+            content="short text", created_at="2026-01-02T03:04:05+00:00"
+        ),
+        long_summary=SimpleNamespace(
+            content="long text", created_at="not-a-timestamp"
+        ),
+    )
+
+    rows = backend.session_summaries(tenant_id, session_ref)
+
+    assert [(row.kind, row.text) for row in rows] == [
+        ("short", "short text"),
+        ("long", "long text"),
+    ]
+    assert rows[0].created_at.isoformat() == "2026-01-02T03:04:05+00:00"
+    assert rows[1].created_at is None
+    # Only the named session was addressed -- never a workspace-wide read.
+    assert backend._client._sessions.keys() == {session_ref}
+
+
+def test_session_summaries_absent_slots_are_a_clean_empty_answer():
+    """T-A4-5: both slots present-and-``None`` is "nothing produced yet".
+
+    The engine derives summaries asynchronously, so the default fake answer
+    (both slots ``None``) must stay an empty list with no error -- that is the
+    answer the service reports as ``degraded=False``. This is the discrimination
+    the payload guard below depends on: the *presence* of the slots, not their
+    value, decides whether the payload is understood.
+    """
+    backend = _honcho_backend_with_fake_client()
+    tenant_id, workspace_id = uuid4(), uuid4()
+    session_ref = backend._scope_session_id(tenant_id, "workspace", workspace_id)
+
+    assert backend._client.session(session_ref).summaries_result is not None
+    assert backend.session_summaries(tenant_id, session_ref) == []
+
+
+def test_session_summaries_raises_on_a_payload_with_no_known_slot():
+    """T-A4-5/F9: an unrecognised payload is an error, never "no summaries".
+
+    A payload carrying NEITHER known slot means this adapter and the engine no
+    longer agree on the field names (an engine/SDK upgrade renamed them).
+    Answering ``[]`` would be reported by the service as ``degraded=False`` --
+    a fabricated "this session has no summaries" -- so the adapter raises and
+    the service turns that into ``detail="engine_error:<Class>"``.
+    """
+    from memory.honcho_backend import SessionSummariesPayloadError
+
+    backend = _honcho_backend_with_fake_client()
+    tenant_id, workspace_id = uuid4(), uuid4()
+    session_ref = backend._scope_session_id(tenant_id, "workspace", workspace_id)
+    backend._client.session(session_ref).summaries_result = SimpleNamespace(
+        short="renamed-short", long="renamed-long"
+    )
+
+    with pytest.raises(SessionSummariesPayloadError):
+        backend.session_summaries(tenant_id, session_ref)
+
+
+def test_summary_slot_map_covers_the_port_vocabulary():
+    """T-A4-5: the adapter's engine-slot map covers every published summary kind.
+
+    :data:`memory.backends.VALID_SESSION_SUMMARY_KINDS` is the vocabulary of the
+    ``kind`` field -- it drives the REST OpenAPI choices and the adapter's read
+    loop. A kind added there without a slot name here would silently vanish from
+    every answer, so the map must cover the vocabulary exactly (one distinct
+    engine slot per kind).
+    """
+    from memory.backends import VALID_SESSION_SUMMARY_KINDS
+    from memory.honcho_backend import _SESSION_SUMMARY_SLOTS
+
+    assert set(_SESSION_SUMMARY_SLOTS) == set(VALID_SESSION_SUMMARY_KINDS)
+    assert len(set(_SESSION_SUMMARY_SLOTS.values())) == len(_SESSION_SUMMARY_SLOTS)
+
+
+@register_session_summaries_fixture("honcho")
+def _honcho_session_summaries_probe() -> SessionSummariesProbe:
+    """Honcho's QR-S04 probe: the allowed set is the workspace + own user session.
+
+    No engine fake is needed: the case pins the identity mapping the service's
+    404 is built on (``session_ref_for_scope``), and the fake-SDK test above
+    covers the read itself.
+    """
+    backend = _honcho_backend_with_fake_client()
+    tenant_id, workspace_id, user_id = uuid4(), uuid4(), uuid4()
+    return SessionSummariesProbe(
+        backend=backend,
+        tenant_id=tenant_id,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        own_session_ref=backend._scope_session_id(tenant_id, "workspace", workspace_id),
+        foreign_session_ref=backend._scope_session_id(tenant_id, "workspace", uuid4()),
+        foreign_user_session_ref=backend._scope_session_id(tenant_id, "user", uuid4()),
+    )
+
+
+def test_session_summaries_isolation_case_runs_for_every_capable_backend():
+    """T-A0b-4/QR-S04: the summaries isolation case is reusable per backend.
+
+    Every backend declaring ``summaries=True`` must register a probe, and every
+    probe must show that a foreign session is never in the service's
+    allow-list -- so the 404 cannot regress for a backend that is added later.
+    """
+    from memory.backends import MEMORY_BACKEND_REGISTRY
+    from memory.testing.conformance import (
+        SESSION_SUMMARIES_FIXTURES,
+        assert_session_summaries_isolated,
+        missing_session_summaries_fixtures,
+    )
+
+    assert missing_session_summaries_fixtures() == []
+    for name in sorted(SESSION_SUMMARIES_FIXTURES):
+        assert MEMORY_BACKEND_REGISTRY[name].capabilities.summaries is True, (
+            f"{name}: registered a summaries probe without declaring the capability"
+        )
+        assert_session_summaries_isolated(name, SESSION_SUMMARIES_FIXTURES[name]())

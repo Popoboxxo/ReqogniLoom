@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 258,
+  "tool_count": 259,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -4792,6 +4792,28 @@
         "required": [
           "workspace_id",
           "interaction_text"
+        ]
+      }
+    },
+    {
+      "name": "memory.session_summaries",
+      "prefix": "memory",
+      "is_write": false,
+      "description": "Engine summaries of ONE memory session (read): the session must belong to this workspace's peer or to the caller's own user peer, otherwise NOT_FOUND. A backend without a session surface cannot confirm any session, so it answers NOT_FOUND as well.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "session_id"
         ]
       }
     },

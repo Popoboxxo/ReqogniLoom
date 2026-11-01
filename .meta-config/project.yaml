@@ -100,7 +100,7 @@ context_file:
 variables:
   PROJECT_NAME: ReqogniLoom
   PROJECT_DESCRIPTION: AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler
-    Artefakt-Zerlegung, REST API + nativem MCP Server (41 Tool-Gruppen-Präfixe, 258
+    Artefakt-Zerlegung, REST API + nativem MCP Server (41 Tool-Gruppen-Präfixe, 259
     Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/Azure/mock), Multi-Tenancy mit Row-Level-Isolation,
     11 core/built-in Trace-Link-Typen (tenant-extensible catalog), Baselines (3 Scopes),
     3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
@@ -162,7 +162,7 @@ variables:
     REST API unter /api/v1/ (DRF, 28 ViewSets, JWT-Auth mit vierstufiger
     RBAC-Matrix + Item-Level-Permissions, OpenAPI via drf-spectacular) und nativer
     MCP Server unter /mcp/ (JSON-RPC 2.0, auch /api/v1/mcp/; Transports: HTTP, SSE,
-    stdio; 41 Tool-Gruppen-Präfixe mit 258 Tools laut docs/agent-templates/tool-manifest.json;
+    stdio; 41 Tool-Gruppen-Präfixe mit 259 Tools laut docs/agent-templates/tool-manifest.json;
     API-Key `reqlo_*`). Fähigkeiten: Requirements Management, Architecture Elements
     (MBSE-kompatibel), Test-Management, 11 core/built-in Trace-Link-Typen (tenant-extensible
     catalog), Baselines (3 Scopes) mit Diff-Engine, Artifact-Diff (feld-level), History-Endpoint,
@@ -191,7 +191,7 @@ variables:
       memory/                                # AI Long-Term Memory (Workspace + Tenant-global)
       application/                           # Layer 2 (47 *_service.py Domain-Services, Single Entry Point)
       rest_api/                              # Layer 3 (DRF ViewSets + drf-spectacular OpenAPI)
-      mcp_server/                            # Layer 3 (MCP-Tool-Registry: 258 Tools, 41 Gruppen)
+      mcp_server/                            # Layer 3 (MCP-Tool-Registry: 259 Tools, 41 Gruppen)
       diagram/                               # Ext (SVG/PNG/Mermaid/PlantUML Renderer)
       icd/                                   # Ext (Interface Control Document Management)
       se_metrics/                            # Ext (KPI-Aggregation, Read-Model)
@@ -248,7 +248,7 @@ variables:
     e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium, 4 Shards)
     scripts/build.sh              — Release-Build mit APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME '
   KEY_PATTERNS: '- Django REST Framework (DRF) für REST-API-Endpoints (28 ViewSets)
-    - MCP-Server (JSON-RPC 2.0) mit 41 Tool-Gruppen-Präfixen und 258
+    - MCP-Server (JSON-RPC 2.0) mit 41 Tool-Gruppen-Präfixen und 259
     Tools für AI-Integration (kanonisches Manifest: docs/agent-templates/tool-manifest.json,
     Drift-Gate: backend/mcp_server/tests/test_tool_manifest_drift.py) - drf-spectacular
     für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern

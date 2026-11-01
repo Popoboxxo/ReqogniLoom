@@ -25,6 +25,8 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
+from memory.backends import VALID_SESSION_SUMMARY_KINDS
+
 __all__ = [
     "MemoryAdminEntryListResponseSerializer",
     "MemoryAdminEntryRowSerializer",
@@ -43,6 +45,8 @@ __all__ = [
     "MemorySearchItemSerializer",
     "MemorySearchResponseSerializer",
     "MemorySelfServiceDeleteResponseSerializer",
+    "MemorySessionSummariesResponseSerializer",
+    "MemorySessionSummarySerializer",
     "MemorySelfServiceResponseSerializer",
     "MemorySelfServiceSettingsEffectiveSerializer",
     "MemorySelfServiceSettingsResponseSerializer",
@@ -180,6 +184,41 @@ class MemoryDigestResponseSerializer(serializers.Serializer):
     degraded = serializers.BooleanField()
     derivation_status = serializers.CharField()
     derived_count = serializers.IntegerField()
+
+
+class MemorySessionSummarySerializer(serializers.Serializer):
+    """One engine summary of a session (Plan A T-A4-5).
+
+    ``kind`` is validated against the port's own vocabulary
+    (:data:`memory.backends.VALID_SESSION_SUMMARY_KINDS`) rather than a local
+    copy, so the published contract cannot drift from what the backends emit.
+    ``created_at`` is ISO-8601, or ``null`` when the engine's timestamp was
+    unreadable (such a summary is still returned, ordered last).
+    """
+
+    kind = serializers.ChoiceField(choices=list(VALID_SESSION_SUMMARY_KINDS))
+    text = serializers.CharField()
+    created_at = serializers.CharField(required=False, allow_null=True)
+
+
+class MemorySessionSummariesResponseSerializer(serializers.Serializer):
+    """``GET /workspaces/{id}/memory/sessions/{session_id}/summaries/``.
+
+    Mirrors ``MemoryEntryService.session_summaries``: the rows are sorted by
+    ``created_at`` then ``kind``. ``degraded`` is ``True`` with
+    ``detail="unsupported"`` only for a backend that can name the caller's
+    session but declares no summaries to read, and with
+    ``detail="engine_error:<Class>"`` when the engine call failed; a healthy
+    empty answer is ``degraded=False, detail=""``. An unknown or foreign
+    session never reaches this body -- it is a 404 (QR-S04), and a backend
+    without a session surface cannot confirm any session, so it answers 404 as
+    well.
+    """
+
+    summaries = MemorySessionSummarySerializer(many=True)
+    backend = serializers.CharField()
+    degraded = serializers.BooleanField()
+    detail = serializers.CharField(required=False, allow_blank=True)
 
 
 class MemoryAskRequestSerializer(serializers.Serializer):

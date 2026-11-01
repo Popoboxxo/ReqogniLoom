@@ -23,6 +23,7 @@ _MCP_TO_REST_ROUTES: dict[str, set[str]] = {
     "memory.list": {"workspace-memory-entries", "artifact-memory"},
     "memory.query": {"workspace-memory-search"},
     "memory.digest": {"workspace-memory-digest", "artifact-memory-digest"},
+    "memory.session_summaries": {"workspace-memory-session-summaries"},
     "memory.ask": {"workspace-memory-ask"},
     "memory.promote": {"memory-entry-promote"},
     "memory.overview": {"system-memory-workspace-overview"},

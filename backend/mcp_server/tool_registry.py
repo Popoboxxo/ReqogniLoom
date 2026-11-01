@@ -551,6 +551,11 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "memory.list",
         "memory.get",
         "memory.digest",
+        # Plan A T-A4-5: reading one session's engine summaries is a plain
+        # read over MemoryBackend.session_summaries (nothing persisted, no
+        # LLM spend); it does not end on ".read"/".query", so it is listed
+        # explicitly.
+        "memory.session_summaries",
         # Task 21 of the traceability-semantik plan: link_type.list/get are
         # plain catalog reads -- link_type.create/update/reset stay
         # fail-closed WRITE-gated (admin-only, enforced again inside

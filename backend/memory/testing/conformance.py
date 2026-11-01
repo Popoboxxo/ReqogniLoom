@@ -16,6 +16,14 @@ The QR-S04 derived-search isolation case (T-A4-3) is registered separately in
 :data:`DERIVED_SEARCH_FIXTURES`: it has to drive a real ``query(source=
 "derived")`` call, so only the backends that DECLARE ``search_derived=True``
 need an (offline) engine fake, and every one of them must supply a probe.
+
+The QR-S04 session-summaries isolation case (T-A4-5) is registered in
+:data:`SESSION_SUMMARIES_FIXTURES` on the same principle: only the backends that
+DECLARE ``summaries=True`` need a probe, every one of them must supply one
+(:func:`missing_session_summaries_fixtures` is the gate), and the probe carries
+both a foreign *workspace* session and a foreign *user* session -- a backend
+that collapsed all users onto one peer would pass a workspace-only check while
+still leaking another user's session summaries.
 """
 from __future__ import annotations
 
@@ -104,6 +112,65 @@ def missing_derived_search_fixtures() -> list[str]:
     return sorted(declared - set(DERIVED_SEARCH_FIXTURES))
 
 
+@dataclass(frozen=True)
+class SessionSummariesProbe:
+    """A backend plus the ids the ``summaries`` isolation case needs (T-A4-5).
+
+    The QR-S04 decision lives in ``MemoryEntryService.session_summaries``: it
+    allows exactly the session of THIS workspace's peer and the session of the
+    caller's own user peer. That set is derived through
+    :meth:`MemoryBackend.session_ref_for_scope`, so the isolation case can be
+    checked per backend without importing the service: a foreign session must
+    never be part of it.
+
+    ``own_session_ref`` is the backend's own ref for the same workspace;
+    ``foreign_session_ref`` is another workspace's and
+    ``foreign_user_session_ref`` another user's. Both foreign refs must stay
+    outside the allow-list, so a backend that collapses two workspaces (or two
+    users) onto one session -- one peer shared by everyone -- fails here instead
+    of silently widening the service's 404 to a real leak.
+    """
+
+    backend: MemoryBackend
+    tenant_id: UUID
+    workspace_id: UUID
+    user_id: UUID
+    own_session_ref: str
+    foreign_session_ref: str
+    foreign_user_session_ref: str
+
+
+#: QR-S04 probes keyed like :data:`CONFORMANCE_FIXTURES`. Exactly the backends
+#: declaring ``summaries=True`` must be registered -- enforced by
+#: :func:`missing_session_summaries_fixtures`, so a future backend with a
+#: session surface cannot ship without its isolation case.
+SESSION_SUMMARIES_FIXTURES: dict[str, Callable[[], SessionSummariesProbe]] = {}
+
+
+def register_session_summaries_fixture(
+    name: str,
+) -> Callable[[Callable[[], SessionSummariesProbe]], Callable[[], SessionSummariesProbe]]:
+    """Register a QR-S04 probe factory for the backend registered as *name*."""
+
+    def _decorator(
+        factory: Callable[[], SessionSummariesProbe],
+    ) -> Callable[[], SessionSummariesProbe]:
+        SESSION_SUMMARIES_FIXTURES[name] = factory
+        return factory
+
+    return _decorator
+
+
+def missing_session_summaries_fixtures() -> list[str]:
+    """Backends declaring ``summaries`` without a QR-S04 probe."""
+    declared = {
+        name
+        for name, backend_cls in MEMORY_BACKEND_REGISTRY.items()
+        if backend_cls.capabilities.summaries
+    }
+    return sorted(declared - set(SESSION_SUMMARIES_FIXTURES))
+
+
 def assert_capabilities_consistent(backend: MemoryBackend) -> None:
     """Assert the invariants every capability declaration must satisfy.
 
@@ -151,6 +218,12 @@ def assert_capabilities_consistent(backend: MemoryBackend) -> None:
                 f"source={source!r}, got {refs!r}"
             )
 
+    if not capabilities.summaries:
+        summaries = backend.session_summaries(uuid4(), "s_capability_probe")
+        assert summaries == [], (
+            f"{name}: summaries=False must answer [], got {summaries!r}"
+        )
+
 
 def assert_derived_search_isolated(name: str, probe: DerivedSearchProbe) -> None:
     """QR-S04: a derived search never returns a message from a foreign peer.
@@ -181,6 +254,42 @@ def assert_derived_search_isolated(name: str, probe: DerivedSearchProbe) -> None
         f"{name}: derived search returned a non-own-peer message: {refs!r}"
     )
     assert [ref.entry_id for ref in refs] == ["probe-own"], name
+
+
+def assert_session_summaries_isolated(name: str, probe: SessionSummariesProbe) -> None:
+    """QR-S04: a workspace route may only ever reach its own two sessions.
+
+    The service builds its allow-list from exactly these two
+    ``session_ref_for_scope`` answers (this workspace's peer, the caller's own
+    user peer). The case pins the property the 404 depends on: the caller's
+    own sessions ARE in that set, and a foreign workspace's session and a
+    foreign USER's session are NOT -- so neither can be read through the route,
+    whatever the engine would answer for them.
+
+    The user case is not redundant with the workspace one: a backend that
+    derived one session per USER for every workspace (or ignored the scope id
+    for the ``user`` scope) would keep the workspace assertion green and still
+    expose another user's session summaries. Both refs are therefore required,
+    and distinct from each other and from the own session.
+    """
+    allowed = {
+        probe.backend.session_ref_for_scope(
+            probe.tenant_id, "workspace", probe.workspace_id
+        ),
+        probe.backend.session_ref_for_scope(probe.tenant_id, "user", probe.user_id),
+    }
+    assert probe.own_session_ref in allowed, (
+        f"{name}: the workspace's own session is not in the allowed set: {allowed!r}"
+    )
+    assert probe.foreign_session_ref not in allowed, (
+        f"{name}: a foreign workspace session is in the allowed set: {allowed!r}"
+    )
+    assert probe.foreign_user_session_ref not in allowed, (
+        f"{name}: a foreign user's session is in the allowed set: {allowed!r}"
+    )
+    assert probe.foreign_session_ref != probe.own_session_ref, name
+    assert probe.foreign_user_session_ref != probe.own_session_ref, name
+    assert probe.foreign_user_session_ref != probe.foreign_session_ref, name
 
 
 def _pgvector() -> MemoryBackend:

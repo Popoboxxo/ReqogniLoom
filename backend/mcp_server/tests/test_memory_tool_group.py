@@ -41,6 +41,9 @@ class TestMemoryToolGroupRegistration:
         assert "memory.list" in _READ_ONLY_TOOL_NAMES
         assert "memory.get" in _READ_ONLY_TOOL_NAMES
         assert "memory.digest" in _READ_ONLY_TOOL_NAMES
+        # Plan A T-A4-5: reading one session's summaries persists nothing and
+        # spends no LLM tokens -- same read-only class as memory.digest.
+        assert "memory.session_summaries" in _READ_ONLY_TOOL_NAMES
         assert "memory.forget" not in _READ_ONLY_TOOL_NAMES
         assert "memory.write" not in _READ_ONLY_TOOL_NAMES
         # REQ-192/#1154 (code-review F1): memory.ask is NOT read-only -- it
@@ -251,6 +254,125 @@ class TestMemoryToolGroupHandlers:
 
             assert result.success is False
             assert result.error_code == "VALIDATION_ERROR"
+
+    def test_session_summaries_is_declared_in_the_input_schema(self):
+        """T-A4-5: +1 tool, +0 prefixes -- the tool and its two required ids."""
+        tools = {tool["name"]: tool for tool in MemoryToolGroup().get_tool_schemas()}
+        schema = tools["memory.session_summaries"]["inputSchema"]
+        assert set(schema["required"]) == {"workspace_id", "session_id"}
+
+    def test_session_summaries_unknown_session_is_not_found_on_pgvector(
+        self, monkeypatch
+    ):
+        """T-A4-5/QR-S04: no session surface -> no confirmable session -> 404."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+
+            result = MemoryToolGroup()._handle_session_summaries(
+                params={"workspace_id": str(ws.id), "session_id": "s_anything"},
+                auth_context=ctx,
+                api_key=None,
+            )
+
+            assert result.success is False
+            assert result.error_code == "NOT_FOUND"
+
+    def test_session_summaries_non_string_session_id_is_not_an_attribute_error(
+        self, monkeypatch
+    ):
+        """Security LOW-1: a non-string ``session_id`` must not raise AttributeError.
+
+        JSON-RPC enforces no types, so ``{"session_id": 123}`` used to reach
+        ``str.strip()`` inside the authorisation path and surface as
+        INTERNAL_ERROR. Coerced at the adapters' boundary it is simply a session
+        that matches nothing -> NOT_FOUND (never a 500).
+        """
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+
+            result = MemoryToolGroup()._handle_session_summaries(
+                params={"workspace_id": str(ws.id), "session_id": 123},
+                auth_context=ctx,
+                api_key=None,
+            )
+
+            assert result.success is False
+            assert result.error_code == "NOT_FOUND"
+
+    def test_session_summaries_surface_without_summaries_is_degraded(
+        self, monkeypatch
+    ):
+        """T-A4-5/F9: the ``unsupported`` branch is still reachable (test double).
+
+        A backend that names the caller's session but declares no summaries
+        keeps the explicit degradation instead of a 404; no shipping backend has
+        that shape, so the double stands in for the one that will.
+        """
+        from memory.backends import PgvectorMemoryBackend
+
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        monkeypatch.setattr(
+            PgvectorMemoryBackend,
+            "session_ref_for_scope",
+            lambda self, tenant_id, scope, scope_id: f"s_{tenant_id}_{scope}_{scope_id}",
+        )
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+
+            result = MemoryToolGroup()._handle_session_summaries(
+                params={
+                    "workspace_id": str(ws.id),
+                    "session_id": f"s_{tenant.id}_workspace_{ws.id}",
+                },
+                auth_context=ctx,
+                api_key=None,
+            )
+
+            assert result.success is True
+            assert result.data["summaries"] == []
+            assert result.data["backend"] == "pgvector"
+            assert result.data["degraded"] is True
+            assert result.data["detail"] == "unsupported"
+
+    def test_session_summaries_foreign_session_is_not_found(self, monkeypatch):
+        """T-A4-5 / QR-S04: the MCP twin maps a foreign session to NOT_FOUND.
+
+        Mirrors the REST 404: the caller's own workspace/user sessions are
+        allowed, everything else is NOT_FOUND -- never PERMISSION_DENIED with
+        a hint that the session exists.
+        """
+        from memory.backends import MemoryCapabilities, PgvectorMemoryBackend
+
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        monkeypatch.setattr(
+            PgvectorMemoryBackend, "capabilities", MemoryCapabilities(summaries=True)
+        )
+        monkeypatch.setattr(
+            PgvectorMemoryBackend,
+            "session_ref_for_scope",
+            lambda self, tenant_id, scope, scope_id: f"s_{tenant_id}_{scope}_{scope_id}",
+        )
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+
+            result = MemoryToolGroup()._handle_session_summaries(
+                params={
+                    "workspace_id": str(ws.id),
+                    "session_id": "s_someone-elses-session",
+                },
+                auth_context=ctx,
+                api_key=None,
+            )
+
+            assert result.success is False
+            assert result.error_code == "NOT_FOUND"
 
     def test_list_returns_recent_entries(self, monkeypatch):
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")

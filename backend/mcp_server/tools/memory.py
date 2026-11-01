@@ -113,6 +113,7 @@ class MemoryToolGroup(BaseToolGroup):
         "memory.list": "_handle_list",
         "memory.forget": "_handle_forget",
         "memory.digest": "_handle_digest",
+        "memory.session_summaries": "_handle_session_summaries",
         "memory.ask": "_handle_ask",
         # Wave-7 memory-MCP stream (#1301/#1302/#1300).
         "memory.promote": "_handle_promote",
@@ -166,6 +167,24 @@ class MemoryToolGroup(BaseToolGroup):
                     "artifact_id": {"type": "string", "format": "uuid"},
                 },
                 "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "memory.session_summaries",
+            "description": (
+                "Engine summaries of ONE memory session (read): the session "
+                "must belong to this workspace's peer or to the caller's own "
+                "user peer, otherwise NOT_FOUND. A backend without a session "
+                "surface cannot confirm any session, so it answers NOT_FOUND "
+                "as well."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "format": "uuid"},
+                    "session_id": {"type": "string"},
+                },
+                "required": ["workspace_id", "session_id"],
             },
         },
         {
@@ -421,6 +440,34 @@ class MemoryToolGroup(BaseToolGroup):
             }
 
         return self._service_call(_call)
+
+    def _handle_session_summaries(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """Engine summaries of one session (read-only, Plan A T-A4-5).
+
+        Same service call and therefore the same body as the REST twin
+        ``GET /api/v1/workspaces/<id>/memory/sessions/<session_id>/summaries/``:
+        ``{summaries, backend, degraded, detail}``, sorted by ``created_at``
+        then ``kind``. ``workspace_id`` is required because it scopes both the
+        RBAC gate and the QR-S04 ownership check; a session belonging to
+        another workspace/user peer answers ``NOT_FOUND``, never a hint that it
+        exists.
+
+        ``session_id`` is coerced to ``str`` before the service sees it (security
+        review LOW-1): JSON-RPC has no type enforcement, so ``{"session_id":
+        123}`` used to reach ``str.strip()`` and escape as an ``AttributeError``
+        (``INTERNAL_ERROR``) from inside the authorisation path. A non-string
+        now either misses its required-parameter check
+        (``VALIDATION_ERROR``) or simply matches no session (``NOT_FOUND``).
+        """
+        workspace_id = require_uuid(params, "workspace_id")
+        session_id = str(require_param(params, "session_id"))
+        return self._service_call(
+            lambda: MemoryEntryService().session_summaries(
+                auth_context, workspace_id=workspace_id, session_id=session_id
+            )
+        )
 
     def _handle_ask(
         self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str

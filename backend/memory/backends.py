@@ -174,6 +174,15 @@ VALID_CONSOLIDATION_STATUSES = ("scheduled", "unsupported", "failed")
 #: The ``status`` field type of :class:`ConsolidationResult`.
 ConsolidationStatus = Literal["scheduled", "unsupported", "failed"]
 
+#: The two summary kinds :meth:`MemoryBackend.session_summaries` can return
+#: (Plan A T-A4-5). The engine keeps one short and one long summary per
+#: session, each either present or absent; these names are the ``kind`` field
+#: of the REST/MCP response, so the port and both adapters cannot drift.
+VALID_SESSION_SUMMARY_KINDS = ("short", "long")
+
+#: The ``kind`` field type of :class:`SessionSummary`.
+SessionSummaryKind = Literal["short", "long"]
+
 #: Upper bound on how many live facts a digest renders (RFC #1002 F6).
 #: A digest is prompt-sized context, not an export: an unbounded rendering would
 #: turn one cheap read into a token bomb for whoever injects it. 20 is the same
@@ -384,6 +393,25 @@ class ConsolidationResult:
 
     status: ConsolidationStatus
     detail: str = ""
+
+
+@dataclass(frozen=True)
+class SessionSummary:
+    """One engine-generated summary of a single session (Plan A T-A4-5).
+
+    A backend with a session surface (Honcho) may keep a short and a long
+    summary per session; the engine produces them asynchronously, so
+    "not there yet" is a clean empty answer rather than a failure.
+
+    ``created_at`` is the engine's own timestamp, normalised to a
+    ``datetime`` when readable and ``None`` otherwise -- the REST/MCP
+    contract orders by it, and a summary without a readable timestamp sorts
+    last instead of being dropped.
+    """
+
+    kind: SessionSummaryKind
+    text: str
+    created_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -675,6 +703,46 @@ class MemoryBackend(ABC):
             status="unsupported",
             detail=f"{type(self).__name__} has no consolidation surface",
         )
+
+    def session_ref_for_scope(
+        self, tenant_id: UUID, scope: str, scope_id: UUID
+    ) -> str | None:
+        """Return this backend's stable session reference for a scope.
+
+        Optional companion of :meth:`session_summaries` (Plan A T-A4-5): a
+        backend that models memory as sessions can answer "which session
+        belongs to ``(scope, scope_id)``"; a plain store cannot, and answers
+        ``None``. The service uses the answer to decide whether a caller-named
+        session belongs to the workspace's peer or to the caller's own user
+        peer BEFORE reading anything (QR-S04, see
+        :meth:`MemoryEntryService.session_summaries`).
+
+        The reference must be tenant-namespaced by construction, like every
+        other id this port derives (see the module docstring) -- the service
+        never treats it as a secret, only as an identity to compare against.
+        """
+        return None
+
+    def session_summaries(
+        self, tenant_id: UUID, session_ref: str
+    ) -> list[SessionSummary]:
+        """Return the engine's summaries of ONE session (Plan A T-A4-5).
+
+        Optional, capability-gated surface: a backend whose
+        :attr:`MemoryCapabilities.summaries` is ``False`` (``pgvector``,
+        ``qdrant``) returns an empty list and never touches the engine --
+        "this store has no summaries" stays distinguishable from "the session
+        has no summaries yet" through the capability flag the service reads.
+
+        Isolation is the caller's obligation (QR-S04): this method must only
+        ever address ``session_ref`` itself, never a workspace-wide read, and
+        the service has already established that the reference belongs to an
+        authorised scope. Engine/transport errors propagate exactly like
+        :meth:`query`'s, so the service can report
+        ``degraded=True, detail="engine_error:<Class>"`` instead of pretending
+        the session is empty (F9).
+        """
+        return []
 
     # -- legacy facade (delegates to the canonical-store API) ------------
 
@@ -1269,6 +1337,7 @@ __all__ = [
     "VALID_DERIVATION_STATUSES",
     "VALID_MEMORY_SCOPES",
     "VALID_REASONING_LEVELS",
+    "VALID_SESSION_SUMMARY_KINDS",
     "ConsolidationResult",
     "ConsolidationStatus",
     "MemoryAnswer",
@@ -1278,6 +1347,7 @@ __all__ = [
     "MemoryEntryRef",
     "MemoryHealth",
     "PgvectorMemoryBackend",
+    "SessionSummary",
     "get_memory_backend",
     "register_memory_backend",
     "resolve_memory_entry_owner",

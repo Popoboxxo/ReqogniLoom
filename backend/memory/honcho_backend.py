@@ -277,7 +277,9 @@ from memory.backends import (
     BackendSettingField,
     MemoryHealth,
     MemoryQuerySource,
+    SessionSummary,
     VALID_MEMORY_SCOPES,
+    VALID_SESSION_SUMMARY_KINDS,
     _cosine_distance,
     _digest_text,
     _maybe_uuid,
@@ -382,6 +384,26 @@ def _degraded_detail(exc: BaseException) -> str:
     if isinstance(exc, ValueError) and _UNKNOWN_SCOPE_MARKER in str(exc):
         return f"{_DEGRADED_UNKNOWN_SCOPE_PREFIX}{name}"
     return f"{_DEGRADED_ENGINE_PREFIX}{name}"
+
+
+def _engine_created_at(value: Any) -> Any:
+    """Normalise an engine timestamp to a ``datetime`` (T-A4-5).
+
+    ``honcho-ai==2.5.1`` answers a summary's ``created_at`` as an ISO-8601
+    string; the port sorts on a real datetime. A value that is already a
+    ``datetime`` is returned unchanged, an unreadable one becomes ``None``
+    (the summary is then ordered last, never dropped).
+    """
+    from datetime import datetime
+
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None
 
 
 def _with_engine_enabled(current: Any) -> Any:
@@ -573,6 +595,41 @@ def _merge_query_refs(
 #: if it ever does get sent.
 _FORGET_SCOPE_PEER = "__reqogniloom_forget__"
 
+#: Port summary kind -> the engine's slot name on ``Session.summaries()``
+#: (Plan A T-A4-5). ``honcho-ai==2.5.1`` answers exactly these two slots, each
+#: either an object or ``None`` (summaries are produced asynchronously, so
+#: ``None`` is "not produced yet", not "no such slot").
+_SESSION_SUMMARY_SLOTS: dict[str, str] = {
+    "short": "short_summary",
+    "long": "long_summary",
+}
+
+# The map above is the only place that knows where the engine keeps a kind, so
+# it must cover the port's vocabulary exactly: a kind added to
+# ``VALID_SESSION_SUMMARY_KINDS`` without a slot here would silently vanish from
+# every answer. Fail at import instead of at read time (module-level, not
+# ``assert`` -- ``python -O`` strips those).
+if set(_SESSION_SUMMARY_SLOTS) != set(VALID_SESSION_SUMMARY_KINDS):
+    raise RuntimeError(
+        "honcho summary slots drifted from memory.backends."
+        f"VALID_SESSION_SUMMARY_KINDS: {sorted(_SESSION_SUMMARY_SLOTS)} != "
+        f"{sorted(VALID_SESSION_SUMMARY_KINDS)}"
+    )
+
+
+class SessionSummariesPayloadError(RuntimeError):
+    """The engine answered a summaries payload with NEITHER known slot.
+
+    Raised by :meth:`HonchoMemoryBackend.session_summaries`. It separates "the
+    engine said nothing yet" (both slots present and ``None`` -- a clean empty
+    answer) from "this payload is not the shape this adapter understands" (a
+    renamed/removed SDK field after an engine upgrade). The latter must never be
+    reported as ``degraded=False`` with an empty list: that would fabricate
+    "this session has no summaries" out of a broken integration. Raising lets
+    the service answer ``degraded=True, detail="engine_error:
+    SessionSummariesPayloadError"`` instead (F9).
+    """
+
 
 @register_memory_backend("honcho")
 class HonchoMemoryBackend(MemoryBackend):
@@ -588,9 +645,11 @@ class HonchoMemoryBackend(MemoryBackend):
     #: ``schedule_dream`` route (verified in the T-A4-1 spike, ``deploy/
     #: README.md``) gives the port a real surface. Derived search is ``True``
     #: since T-A4-3, landed in this change set: ``peer.search`` delivers
-    #: peer-scoped message recall, not derived conclusions. Summaries/webhooks
-    #: have no port method yet, so they stay ``False`` even though the upstream
-    #: engine has them.
+    #: peer-scoped message recall, not derived conclusions. ``summaries`` is
+    #: ``True`` since T-A4-5: ``Session.summaries()`` (verified in the T-A4-1
+    #: spike) gives the port a real session-scoped read. Webhooks have no port
+    #: method yet, so they stay ``False`` even though the upstream engine has
+    #: them.
     settings_key = "honcho"
     settings_schema = (
         BackendSettingField("base_url", "str", "HONCHO_BASE_URL"),
@@ -623,7 +682,7 @@ class HonchoMemoryBackend(MemoryBackend):
         search_derived=True,
         consolidation=True,
         scopes=VALID_MEMORY_SCOPES,
-        summaries=False,
+        summaries=True,
         webhooks=False,
         max_query_chars=2000,
         max_ask_query_chars=10000,
@@ -765,6 +824,19 @@ class HonchoMemoryBackend(MemoryBackend):
             ValueError: for an unknown scope, via :meth:`_scope_peer_id`.
         """
         return f"{_SESSION_ID_PREFIX}_{self._scope_peer_id(tenant_id, scope, scope_id)}"
+
+    def session_ref_for_scope(
+        self, tenant_id: UUID, scope: str, scope_id: UUID
+    ) -> str | None:
+        """Public name of :meth:`_scope_session_id` (Plan A T-A4-5).
+
+        The service compares a caller-named session against this value to
+        decide ownership (QR-S04): the workspace's own peer and the caller's
+        own user peer are the only two sessions reachable through a workspace
+        route, and both are derived here so the check can never drift from the
+        id the writer actually uses.
+        """
+        return self._scope_session_id(tenant_id, scope, scope_id)
 
     def _peer(self, tenant_id: UUID, scope: str, scope_id: UUID) -> Any:
         """Return this scope's peer object (get-or-create, one POST).
@@ -1795,6 +1867,62 @@ class HonchoMemoryBackend(MemoryBackend):
                 )
             )
         return refs
+
+    def session_summaries(
+        self, tenant_id: UUID, session_ref: str
+    ) -> list[SessionSummary]:
+        """Read ONE session's engine summaries (Plan A T-A4-5).
+
+        Calls ``Session.summaries()`` on exactly ``session_ref`` -- never a
+        workspace-wide read -- and translates the engine's two-slot answer
+        (``short_summary``/``long_summary``, each either an object or ``None``)
+        into the port's flat list. The engine produces summaries
+        asynchronously, so two ``None`` slots are a clean empty answer, not a
+        failure (see the T-A4-1 spike in ``deploy/README.md``).
+
+        A payload carrying NEITHER slot is a different answer and raises
+        :class:`SessionSummariesPayloadError` instead: an upgraded/renamed SDK
+        field must not be reported as "this session has no summaries", because
+        the service maps a raised exception to
+        ``degraded=True, detail="engine_error:<Class>"`` while an empty list
+        would be reported as ``degraded=False`` (a fabricated clean answer,
+        F9). The loop is driven by the port's
+        :data:`memory.backends.VALID_SESSION_SUMMARY_KINDS` through
+        :data:`_SESSION_SUMMARY_SLOTS`, so a kind the engine keeps somewhere
+        else surfaces as a ``KeyError`` rather than a silently missing row.
+
+        Ownership is NOT decided here: ``session_ref`` already embeds the
+        tenant (and, by construction, the peer of a scope), and the service
+        checked it against the caller's allowed sessions before calling
+        (QR-S04). Engine/transport errors propagate so the service can answer
+        ``degraded=True`` instead of faking an empty session.
+        """
+        if not self.capabilities.summaries:
+            return []
+        payload = self._ensure_client(tenant_id).session(session_ref).summaries()
+        if not any(
+            hasattr(payload, attribute) for attribute in _SESSION_SUMMARY_SLOTS.values()
+        ):
+            raise SessionSummariesPayloadError(
+                f"{type(payload).__name__} carries none of the expected summary "
+                f"slots {sorted(_SESSION_SUMMARY_SLOTS.values())}"
+            )
+        summaries: list[SessionSummary] = []
+        for kind in VALID_SESSION_SUMMARY_KINDS:
+            item = getattr(payload, _SESSION_SUMMARY_SLOTS[kind], None)
+            if item is None:
+                continue
+            content = getattr(item, "content", None)
+            if not content:
+                continue
+            summaries.append(
+                SessionSummary(
+                    kind=kind,
+                    text=str(content),
+                    created_at=_engine_created_at(getattr(item, "created_at", None)),
+                )
+            )
+        return summaries
 
     def list_recent(
         self, tenant_id: UUID, scope: str, scope_id: UUID, limit: int = 20
