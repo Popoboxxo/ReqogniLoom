@@ -217,6 +217,36 @@ per workspace peer. ``scheduled`` only means the ENGINE ACCEPTED the request:
 the dream runs asynchronously in the Deriver, so the effect is observable
 through :meth:`digest` later -- never as a result of this call.
 
+Native Honcho scopes (T-A4-6, OPTIONAL, default OFF)
+----------------------------------------------------
+``HONCHO_USE_NATIVE_SCOPES`` (default ``false``) makes the backend ALSO group
+each memory scope's session into a native Honcho *scope* -- Honcho's own
+visibility boundary over sessions (``POST …/scopes`` get-or-create,
+``Scope.add_sessions``). Three properties of that feature shape this code:
+
+* **The flag never changes an id.** Peer ids, session ids and the tenant
+  Honcho-workspace name are computed exactly as before in both modes; the
+  native scope is an ADDITIONAL object on top of the already-written session
+  (named ``reqogniloom_scope_<peer id>``, see :func:`native_scope_id_for`).
+  That is what keeps the flag reversible and what lets
+  ``manage.py honcho_migrate_scopes`` attach the sessions that already exist.
+* **A scope is a visibility boundary, NOT an observer.** It is rejected in any
+  ``target``/observed position (including as a dream target), so this backend
+  only ever passes a scope id to ``client.scope(...)`` and
+  ``scope.add_sessions(...)`` -- never to ``schedule_dream``'s ``observer``/
+  ``observed``, which stay the scope's peer (see :meth:`consolidate`).
+* **Every scope route needs a workspace-level or admin API key.** Peer- and
+  session-scoped keys are rejected with ``401``, so enabling the flag requires
+  ``HONCHO_API_KEY`` (or the ``SystemMemorySettings`` override) to be a
+  workspace-scoped token. Scope ids are ``^[a-zA-Z0-9_-]+$``, at most 506
+  characters, and may not start with the reserved ``scope.`` prefix -- all
+  three hold for the ids derived here.
+
+Membership changes copy ``explicit`` conclusions asynchronously, so attaching
+a session is best-effort and idempotent here: a failure is logged and
+swallowed (same fail-open rule as the rest of the session path), and the
+migration command reports the failures it sees instead of hiding them.
+
 EMBEDDING CONFIGURATION (GH #911)
 ---------------------------------
 Honcho embeds memory entries through an OpenAI-compatible endpoint configured
@@ -255,6 +285,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
@@ -324,15 +355,46 @@ _DERIVED_CONCLUSION_LEVELS = ("deductive", "inductive", "contradiction")
 #: so it gets the explicit prefix from day one.
 _ARTIFACT_SCOPE_PREFIX = "a"
 
-#: Scopes whose peer id keeps the legacy unprefixed ``<tenant>_<id>`` shape.
-_LEGACY_UNPREFIXED_SCOPES = ("user", "workspace")
-
 #: Prefix for a scope's session id (F6). Sessions and peers are separate Honcho
 #: namespaces, so this prefix is not a collision guard -- it makes the two
 #: families distinguishable when reading Honcho's own logs/UI, and keeps the id
 #: obviously derived from the peer it belongs to. See
 #: :meth:`HonchoMemoryBackend._scope_session_id`.
 _SESSION_ID_PREFIX = "s"
+
+#: Env flag enabling native Honcho scopes (T-A4-6). ``false`` by default and
+#: fail-safe: anything that is not an explicit truthy token keeps the legacy
+#: peer-only behaviour, so a typo in a deployment never silently changes the
+#: id/visibility model.
+_NATIVE_SCOPES_FLAG = "HONCHO_USE_NATIVE_SCOPES"
+
+#: Values accepted as "on" for :data:`_NATIVE_SCOPES_FLAG` (case-insensitive).
+_TRUTHY_VALUES = frozenset({"1", "true", "yes", "on"})
+
+#: Coarse re-warn interval (seconds) for a repeatedly failing native-scope
+#: attach (F1). A PERMANENT configuration error -- a peer-/session-scoped API
+#: key makes every scopes route answer ``401`` -- would otherwise emit one
+#: WARNING per memory write for the whole process lifetime and bury everything
+#: else in the log. The first occurrence still warns; repeats are logged at
+#: ``debug`` until this interval has passed, then warn once more.
+_NATIVE_SCOPE_WARN_INTERVAL_SECONDS = 300.0
+
+#: Process-level ``(tenant, scope, exception type) -> last WARNING monotonic
+#: timestamp`` for :data:`_NATIVE_SCOPE_WARN_INTERVAL_SECONDS` (F1). Keyed
+#: WITHOUT ``scope_id`` on purpose: the failure mode is a property of the key /
+#: scope class, so one entry per pair is enough and the map stays bounded to
+#: ``tenants x scopes x exception types`` instead of growing per artifact.
+#: Per process by construction -- each worker warns once, which is the point;
+#: no cross-process coordination is worth a broker round trip here. Access is a
+#: plain ``dict`` get/set: a losing race between two threads at worst emits one
+#: extra warning, never a wrong decision, so no lock is warranted.
+_native_scope_failure_warnings: dict[tuple[str, str, str], float] = {}
+
+#: Prefix for a native Honcho scope id (T-A4-6). Scopes live in their own
+#: namespace next to peers/sessions; the prefix makes them identifiable in
+#: Honcho's UI and keeps them clear of the reserved ``scope.`` prefix. See
+#: :func:`native_scope_id_for`.
+_NATIVE_SCOPE_ID_PREFIX = "reqogniloom_scope"
 
 #: Stable prefix marking a degraded ``ask`` as an ENGINE/TRANSPORT failure --
 #: the peer/chat call could not reach or be answered by the engine (an SDK
@@ -353,6 +415,123 @@ _DEGRADED_UNKNOWN_SCOPE_PREFIX = "unknown_scope:"
 #: exception type: an SDK ``ValueError`` is an engine error, not a scope
 #: rejection, and must not be mislabelled.
 _UNKNOWN_SCOPE_MARKER = "unknown memory scope"
+
+
+def use_native_scopes() -> bool:
+    """Return whether native Honcho scopes are enabled (T-A4-6).
+
+    Reads :data:`_NATIVE_SCOPES_FLAG` and defaults to ``False`` for every value
+    that is not an explicit truthy token -- including unset, empty, ``"0"``,
+    ``"false"`` and a typo. Deliberately fail-safe rather than "anything not
+    false is true": an accidental/unparsable value must keep the legacy
+    peer-naming behaviour, never switch the visibility model.
+    """
+    return os.environ.get(_NATIVE_SCOPES_FLAG, "").strip().lower() in _TRUTHY_VALUES
+
+
+def user_peer_id(tenant_id: UUID, user_id: UUID) -> str:
+    """Honcho peer id for a user-scoped memory scope.
+
+    The LEGACY UNPREFIXED shape (``<tenant>_<user>``) is deliberate -- see the
+    module docstring's compatibility note: a new prefix would orphan every
+    already-written external peer, and there is no migration for a foreign
+    service.
+    """
+    return f"{tenant_id}_{user_id}"
+
+
+def workspace_peer_id(tenant_id: UUID, workspace_id: UUID) -> str:
+    """Honcho peer id for a workspace scope (same legacy shape as a user peer)."""
+    return f"{tenant_id}_{workspace_id}"
+
+
+def artifact_peer_id(tenant_id: UUID, artifact_id: UUID) -> str:
+    """Honcho peer id for an artifact scope.
+
+    The artifact scope postdates RFC #1002, so unlike user/workspace it gets the
+    ``_a_`` prefix from day one (nothing to preserve, and it can never collide
+    with a user/workspace peer whose id happens to equal an artifact id).
+    """
+    return f"{tenant_id}_{_ARTIFACT_SCOPE_PREFIX}_{artifact_id}"
+
+
+def scope_peer_id_for(tenant_id: UUID, scope: str, scope_id: UUID) -> str:
+    """Resolve ``(tenant, scope, scope_id)`` to the Honcho peer id.
+
+    The single source of truth for the scope -> peer mapping, shared by
+    :meth:`HonchoMemoryBackend._scope_peer_id` and by the ``honcho_migrate_scopes``
+    management command (which must derive ids without constructing a client).
+
+    Raises:
+        ValueError: for an unknown *scope*, mirroring
+            ``memory.backends._scope_filter``.
+    """
+    if scope == "user":
+        return user_peer_id(tenant_id, scope_id)
+    if scope == "workspace":
+        return workspace_peer_id(tenant_id, scope_id)
+    if scope == "artifact":
+        return artifact_peer_id(tenant_id, scope_id)
+    raise ValueError(f"{_UNKNOWN_SCOPE_MARKER}: {scope!r}")
+
+
+def scope_session_id_for(tenant_id: UUID, scope: str, scope_id: UUID) -> str:
+    """Resolve ``(tenant, scope, scope_id)`` to the stable Honcho session id.
+
+    Derived from :func:`scope_peer_id_for` (see
+    :meth:`HonchoMemoryBackend._scope_session_id` for why it is stable per scope
+    and never per write).
+    """
+    return f"{_SESSION_ID_PREFIX}_{scope_peer_id_for(tenant_id, scope, scope_id)}"
+
+
+def native_scope_id_for(tenant_id: UUID, scope: str, scope_id: UUID) -> str:
+    """Resolve ``(tenant, scope, scope_id)`` to the native Honcho scope id.
+
+    Namespaced by tenant exactly like the peer/session it groups, and derived
+    from the peer id so scope and peer can never drift apart. Honcho v3 accepts
+    ids matching ``^[a-zA-Z0-9_-]+$`` of at most 506 characters; a UUID-based
+    id built here satisfies both, and the reserved ``scope.`` prefix cannot
+    occur (the id starts with :data:`_NATIVE_SCOPE_ID_PREFIX`).
+
+    Raises:
+        ValueError: for an unknown *scope*, via :func:`scope_peer_id_for`.
+    """
+    return f"{_NATIVE_SCOPE_ID_PREFIX}_{scope_peer_id_for(tenant_id, scope, scope_id)}"
+
+
+def _warn_native_scope_attach_failure(
+    tenant_id: UUID, scope: str, scope_id: UUID, exc: BaseException
+) -> None:
+    """Log a native-scope attach failure at most once per coarse interval (F1).
+
+    A *permanent* configuration error (peer-/session-scoped API key -> ``401``
+    on every scopes route) used to log one WARNING per memory write forever.
+    The first occurrence per ``(tenant, scope, exception type)`` still warns,
+    repeats within :data:`_NATIVE_SCOPE_WARN_INTERVAL_SECONDS` drop to
+    ``debug``, and after the interval the next one warns again.
+
+    IDs and the exception CLASS only -- never memory content (module rule).
+    """
+    key = (str(tenant_id), scope, type(exc).__name__)
+    now = time.monotonic()
+    last_warned = _native_scope_failure_warnings.get(key)
+    warn = last_warned is None or (
+        now - last_warned >= _NATIVE_SCOPE_WARN_INTERVAL_SECONDS
+    )
+    if warn:
+        _native_scope_failure_warnings[key] = now
+    logger.log(
+        logging.WARNING if warn else logging.DEBUG,
+        "honcho memory: native scope attach failed for tenant=%s scope=%s "
+        "scope_id=%s (error type %s); the memory write is unaffected -- "
+        "run manage.py honcho_migrate_scopes to provision it (repeats of this "
+        "failure are logged at debug until the next warning interval)",
+        tenant_id,
+        scope,
+        scope_id,
+        type(exc).__name__,
+    )
 
 
 def _degraded_detail(exc: BaseException) -> str:
@@ -713,6 +892,12 @@ class HonchoMemoryBackend(MemoryBackend):
         # several facts) still skips the repeats.
         self._configured_sessions: set = set()
         self._configured_workspaces: set = set()
+        # Memo of ``(tenant_id, session_id)`` pairs whose native Honcho scope
+        # membership this instance already ensured (T-A4-6). Only populated when
+        # ``HONCHO_USE_NATIVE_SCOPES`` is on; the work is idempotent, so a race
+        # would at worst re-attach the same session. Kept per instance for the
+        # same reason as the two memos above.
+        self._native_scope_memberships: set = set()
 
     @staticmethod
     def _resolve_config() -> tuple[str, str | None]:
@@ -757,8 +942,11 @@ class HonchoMemoryBackend(MemoryBackend):
         against ``^[a-zA-Z0-9_-]+$`` and returns HTTP 422 for anything else,
         which previously turned every memory call into an unhandled 500
         (see module docstring note and ``TestHonchoIdCharset``).
+
+        Delegates to :func:`user_peer_id`, the single source of truth shared
+        with :func:`scope_peer_id_for` and the migration command.
         """
-        return f"{tenant_id}_{user_id}"
+        return user_peer_id(tenant_id, user_id)
 
     def _workspace_id(self, tenant_id: UUID, workspace_id: UUID) -> str:
         """Namespace a ReqogniLoom workspace_id by tenant_id for Honcho's flat peer space.
@@ -766,9 +954,10 @@ class HonchoMemoryBackend(MemoryBackend):
         A ReqogniLoom workspace is represented as a Honcho *peer* (see the
         module docstring's mapping table): conclusions in Honcho always belong
         to a peer, so workspace-scoped memory needs a peer to hang off. Uses
-        ``_`` (not ``:``) as the separator -- see :meth:`_peer_id`.
+        ``_`` (not ``:``) as the separator -- see :meth:`_peer_id`, and
+        delegates to :func:`workspace_peer_id` for the shared mapping.
         """
-        return f"{tenant_id}_{workspace_id}"
+        return workspace_peer_id(tenant_id, workspace_id)
 
     def _artifact_peer_id(self, tenant_id: UUID, artifact_id: UUID) -> str:
         """Namespace an artifact_id by tenant_id, with the new ``_a_`` prefix.
@@ -776,9 +965,10 @@ class HonchoMemoryBackend(MemoryBackend):
         Unlike user/workspace (which keep the legacy unprefixed shape -- see
         the module docstring's compatibility note), the artifact scope is new
         and gets its own prefix so its peers can never collide with a
-        user/workspace peer whose id happens to equal an artifact id.
+        user/workspace peer whose id happens to equal an artifact id. Delegates
+        to :func:`artifact_peer_id`.
         """
-        return f"{tenant_id}_{_ARTIFACT_SCOPE_PREFIX}_{artifact_id}"
+        return artifact_peer_id(tenant_id, artifact_id)
 
     @staticmethod
     def _honcho_workspace_id(tenant_id: UUID) -> str:
@@ -793,19 +983,16 @@ class HonchoMemoryBackend(MemoryBackend):
     def _scope_peer_id(self, tenant_id: UUID, scope: str, scope_id: UUID) -> str:
         """Resolve ``(scope, scope_id)`` to the tenant-namespaced Honcho peer id.
 
+        Delegates to :func:`scope_peer_id_for` so the backend and the
+        ``honcho_migrate_scopes`` command cannot drift apart.
+
         Raises:
             ValueError: if *scope* is not ``"user"``, ``"workspace"`` or
                 ``"artifact"`` -- mirrors ``memory.backends._scope_filter`` so
                 an unknown scope fails identically on either backend instead
                 of silently writing to the wrong peer.
         """
-        if scope == "user":
-            return self._peer_id(tenant_id, scope_id)
-        if scope == "workspace":
-            return self._workspace_id(tenant_id, scope_id)
-        if scope == "artifact":
-            return self._artifact_peer_id(tenant_id, scope_id)
-        raise ValueError(f"unknown memory scope: {scope!r}")
+        return scope_peer_id_for(tenant_id, scope, scope_id)
 
     def _scope_session_id(self, tenant_id: UUID, scope: str, scope_id: UUID) -> str:
         """Resolve ``(scope, scope_id)`` to the stable Honcho session id (F6).
@@ -823,7 +1010,7 @@ class HonchoMemoryBackend(MemoryBackend):
         Raises:
             ValueError: for an unknown scope, via :meth:`_scope_peer_id`.
         """
-        return f"{_SESSION_ID_PREFIX}_{self._scope_peer_id(tenant_id, scope, scope_id)}"
+        return scope_session_id_for(tenant_id, scope, scope_id)
 
     def session_ref_for_scope(
         self, tenant_id: UUID, scope: str, scope_id: UUID
@@ -884,9 +1071,15 @@ class HonchoMemoryBackend(MemoryBackend):
         mutation -- and it makes a session created by an older ReqogniLoom
         build, or by hand, attributable. The Deriver configuration is ensured
         separately, best-effort, in :meth:`_ensure_engine_configuration`.
+
+        T-A4-6: with ``HONCHO_USE_NATIVE_SCOPES`` on, the session is ALSO
+        attached to its native Honcho scope here -- i.e. right before the first
+        message lands in it. FAIL-OPEN, like the rest of this path: a scope
+        endpoint that rejects the call must not cost the memory write. The
+        session id itself is identical in both modes (see the module docstring).
         """
         client = self._ensure_client(tenant_id)
-        return client.session(
+        session = client.session(
             self._scope_session_id(tenant_id, scope, scope_id),
             metadata={
                 "reqogniloom_tenant_id": str(tenant_id),
@@ -894,6 +1087,80 @@ class HonchoMemoryBackend(MemoryBackend):
                 "reqogniloom_scope_id": str(scope_id),
             },
         )
+        if use_native_scopes():
+            self._attach_native_scope_best_effort(tenant_id, scope, scope_id)
+        return session
+
+    # -- native Honcho scopes (T-A4-6) ----------------------------------
+
+    def _create_native_scope(
+        self, tenant_id: UUID, scope: str, scope_id: UUID
+    ) -> Any:
+        """Get-or-create the scope and attach its session (RAISES on failure).
+
+        Deliberately does NOT consult ``HONCHO_USE_NATIVE_SCOPES``: the rollout
+        order is "migrate first, then switch the flag", so
+        :meth:`attach_native_scope` must be able to pre-provision scopes while
+        the flag is still off. The automatic write-path call site checks the
+        flag and swallows failures itself (see
+        :meth:`_attach_native_scope_best_effort`).
+
+        ``client.scope(id, metadata=...)`` is a get-or-create (the SDK's
+        ``POST /v3/…/scopes`` answers ``200`` for an existing id), and
+        ``add_sessions`` is idempotent per session, so a repeated call is safe.
+
+        A scope is a visibility boundary, not an observer -- the scope object is
+        used ONLY to group the session here; ``observer``/``observed`` stay the
+        scope's peer everywhere else (see :meth:`consolidate`).
+        """
+        client = self._ensure_client(tenant_id)
+        scope_obj = client.scope(
+            native_scope_id_for(tenant_id, scope, scope_id),
+            metadata={
+                "reqogniloom_tenant_id": str(tenant_id),
+                "reqogniloom_scope": scope,
+                "reqogniloom_scope_id": str(scope_id),
+            },
+        )
+        scope_obj.add_sessions([scope_session_id_for(tenant_id, scope, scope_id)])
+        return scope_obj
+
+    def attach_native_scope(self, tenant_id: UUID, scope: str, scope_id: UUID) -> str:
+        """Attach a scope's session to its native Honcho scope; return the id.
+
+        Public, non-swallowing entry point for ``honcho_migrate_scopes``: the
+        command counts and reports a failure instead of hiding it in a log.
+        """
+        self._create_native_scope(tenant_id, scope, scope_id)
+        return native_scope_id_for(tenant_id, scope, scope_id)
+
+    def _attach_native_scope_best_effort(
+        self, tenant_id: UUID, scope: str, scope_id: UUID
+    ) -> None:
+        """Attach the session to its native scope, log-and-continue on failure.
+
+        Logs IDs and the exception class only -- never memory content (see
+        :data:`logger`). Memoized per instance on SUCCESS so a consolidation
+        batch writes the membership once instead of per entry; a failure is
+        deliberately not memoized, so the next write retries it (a transient
+        5xx should recover without a restart).
+
+        The memo key is resolved INSIDE the same ``try`` as the write (F5): an
+        id resolver that raises (``ValueError`` for an unknown scope) would
+        otherwise escape into :meth:`_publish_engine_message`'s handler and
+        cost the Deriver the observation -- a scope-attach helper must never be
+        able to suppress a message publish. A repeated failure is logged at
+        most once per :data:`_NATIVE_SCOPE_WARN_INTERVAL_SECONDS` (F1).
+        """
+        try:
+            key = (str(tenant_id), scope_session_id_for(tenant_id, scope, scope_id))
+            if key in self._native_scope_memberships:
+                return
+            self._create_native_scope(tenant_id, scope, scope_id)
+        except Exception as exc:  # noqa: BLE001 - fail-open, see docstring
+            _warn_native_scope_attach_failure(tenant_id, scope, scope_id, exc)
+        else:
+            self._native_scope_memberships.add(key)
 
     def _ensure_engine_configuration(
         self, tenant_id: UUID, client: Any, session: Any, session_id: str
