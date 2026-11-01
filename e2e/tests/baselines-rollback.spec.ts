@@ -17,6 +17,10 @@ import {
   getAuthToken,
   createIsolatedWorkspace,
   deleteWorkspace,
+  purgeWorkspaceBaselines,
+  closeWorkspace,
+  unreadNotificationIds,
+  clearNotificationsSince,
   setWorkspaceId,
 } from '../helpers/auth';
 
@@ -119,6 +123,17 @@ test.describe('[REQ-L1-018] Baseline rollback (F4.5)', () => {
     const headers = { Authorization: `Bearer ${token}` };
     const suffix = Date.now().toString(36);
     const workspaceName = `e2e-rollback-${suffix}`;
+    // Notifications this run creates for the shared `admin` user. The CCB
+    // approval below is performed by the fixture approver, so the transition's
+    // role broadcast notifies this workspace's editor/admin members — `admin`
+    // among them. That unread notification makes the shell's interview-widget
+    // badge (a `role="status"` live region, `hidden` only at unread === 0)
+    // visible, which breaks the page-wide invariant `baselines-tags.spec.ts`
+    // and `baselines-view.spec.ts` assert: "the loading indicator is the only
+    // visible `[role="status"]`". Since this spec runs before both of them
+    // (alphabetical file order, `workers: 1`, `fullyParallel: false`), the
+    // delta is marked read again in the teardown.
+    const unreadBefore = await unreadNotificationIds(token);
     // F4.5 review B-01: the Approver role is only assignable at the extended
     // preset (`AuthorizationService._APPROVER_ENABLED_PRESETS == {"extended"}`).
     // The CCB transitions below (`submitted`/`under_review`/`approved`) are
@@ -191,12 +206,15 @@ test.describe('[REQ-L1-018] Baseline rollback (F4.5)', () => {
         timeout: 10000,
       });
       // The view's own loading region must be gone before we click a baseline.
-      // Scoped to the view: the shell's notification live region is also a
-      // `role="status"` and is legitimately visible whenever unread
-      // notifications exist, so a page-wide count would never settle.
-      await expect(
-        page.locator('[data-testid="baselines-view"] [role="status"]')
-      ).toHaveCount(0, { timeout: 10000 });
+      // Asserted page-wide on purpose: `baselines-tags.spec.ts` and
+      // `baselines-view.spec.ts` assert exactly this, so failing here is the
+      // early, actionable signal instead of a red spec three files later. It
+      // holds for the whole shard only because every spec that drives a
+      // workflow transition cleans up the notifications it leaves behind (see
+      // `unreadBefore` above).
+      await expect(page.locator('[role="status"]:visible')).toHaveCount(0, {
+        timeout: 10000,
+      });
 
       await page
         .locator('[data-testid="baseline-item"]', { hasText: baseline.name })
@@ -238,6 +256,14 @@ test.describe('[REQ-L1-018] Baseline rollback (F4.5)', () => {
       await transitionChangeRequest(request, ccbHeaders, changeRequestId, 'under_review', 'CCB review opened');
       await transitionChangeRequest(request, ccbHeaders, changeRequestId, 'approved', 'CCB approved the rollback');
 
+      // The approver's transitions broadcast "awaits your action" to this
+      // workspace's editor/admin role holders — `admin` among them, and not
+      // the actor. Mark that delta read right away: the page-wide
+      // `[role="status"]` invariant every baselines spec asserts must not
+      // depend on this file reaching its teardown (the teardown repeats the
+      // call, idempotently).
+      await clearNotificationsSince(token, unreadBefore);
+
       // --- UI: re-read the status, then apply behind the confirmation. ---
       await page.locator('[data-testid="baseline-rollback-cr-refresh"]').click();
       const applyBtn = page.locator('[data-testid="baseline-rollback-apply-btn"]');
@@ -272,9 +298,25 @@ test.describe('[REQ-L1-018] Baseline rollback (F4.5)', () => {
         )
         .toBe(originalTitle);
     } finally {
-      // Best-effort (the helper swallows its own failures): a workspace with
-      // baselines may legitimately refuse the hard delete.
-      await deleteWorkspace(token, workspaceId, workspaceName).catch(() => undefined);
+      // 1. Restore the shared user's unread state (see `unreadBefore`): the
+      //    notification this spec caused is what makes the shell's
+      //    `role="status"` badge visible for the rest of the shard.
+      //    Best-effort and idempotent — the helper swallows its own failures.
+      await clearNotificationsSince(token, unreadBefore);
+
+      // 2. Baselines are append-only, so the workspace hard-delete is refused
+      //    with `409 baselines_immutable` while one exists (GH-1084). Purge
+      //    them through the audited admin route first, otherwise this spec
+      //    leaves an undeletable orphan workspace behind on every run.
+      await purgeWorkspaceBaselines(token, workspaceId);
+
+      // 3. Hard delete; if it is still refused, soft-close so no *live*
+      //    orphan remains. A closed workspace is out of every list and flow
+      //    and stays recoverable (`POST .../reactivate/`).
+      const deleted = await deleteWorkspace(token, workspaceId, workspaceName);
+      if (!deleted) {
+        await closeWorkspace(token, workspaceId);
+      }
     }
   });
 });

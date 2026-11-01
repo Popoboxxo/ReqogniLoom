@@ -34,6 +34,22 @@
  * `<ConfirmDialog>` (focus trap, Escape, focus return) for the destructive
  * step. No WCAG conformance claim — the binding verdict is
  * `accessibility-specialist`'s.
+ *
+ * ## Invariant: no `role="status"` element while the panel is idle
+ *
+ * `e2e/tests/baselines-view.spec.ts` and `baselines-tags.spec.ts` assert that
+ * the *only* visible `[role="status"]` on `/baselines` is the view's own
+ * loading indicator — Playwright's `:visible` is "has a bounding box", so an
+ * always-mounted live region counts even when it is empty. Both live regions
+ * this panel owns are therefore rendered **only while they carry content**:
+ * the copy announcement exists from `copied`/`failed` until it resets, the
+ * result only once a rollback returned. An empty-but-mounted region would be
+ * announced as a no-op *and* break that page-wide assertion, so "render when
+ * there is something to say" is the contract, not an optimisation
+ * (pinned by `BaselineRollbackPanel.test.tsx`). The steady states of the
+ * panel (initial, preview computed, change request open) deliberately project
+ * no live region at all: the `StatusBadge`/`Badge` pair this panel renders is
+ * a plain `<span>` without a role.
  */
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
@@ -331,6 +347,18 @@ export function BaselineRollbackPanel({
     ? preview.summary.restore + preview.summary.reactivate
     : 0;
 
+  /**
+   * The copy announcement, or `null` while there is nothing to announce.
+   * `null` (not an empty string) is what keeps the live region *out of the
+   * DOM* between announcements — see the file header's invariant.
+   */
+  const copyAnnouncement =
+    copyState === 'copied'
+      ? t('baselines.rollback.copied')
+      : copyState === 'failed'
+        ? t('baselines.rollback.copyFailed')
+        : null;
+
   const renderItemRow = (item: RollbackPlanItem): JSX.Element => (
     <tr key={item.item_id} data-testid="baseline-rollback-item-row">
       <td className={styles.cellItem}>
@@ -496,15 +524,13 @@ export function BaselineRollbackPanel({
               <ClipboardCopy size={14} aria-hidden="true" />
             </button>
           </div>
-          {copyState !== 'idle' && (
+          {copyAnnouncement !== null && (
             <p
               role="status"
               data-testid="baseline-rollback-cr-copy-status"
               className={styles.copyStatus}
             >
-              {copyState === 'copied'
-                ? t('baselines.rollback.copied')
-                : t('baselines.rollback.copyFailed')}
+              {copyAnnouncement}
             </p>
           )}
           <p className={styles.statusRow}>
@@ -543,6 +569,9 @@ export function BaselineRollbackPanel({
         </div>
       )}
 
+      {/* Mounted only once the rollback actually returned (see the header's
+          invariant): an always-present live region would count as a visible
+          `[role="status"]` on every idle `/baselines` render. */}
       {result && (
         <p
           role="status"

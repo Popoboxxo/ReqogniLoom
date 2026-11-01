@@ -381,4 +381,45 @@ describe('BaselineRollbackPanel (F4.5)', () => {
       'Change request id copied.'
     );
   });
+
+  // e2e/tests/baselines-view.spec.ts + baselines-tags.spec.ts assert that the
+  // baselines view's own loading indicator is the ONLY visible
+  // `[role="status"]` on the page. Playwright's `:visible` means "has a
+  // bounding box", so an empty-but-mounted live region counts — this pins the
+  // invariant at unit level instead of relying on the e2e run to notice a
+  // regression. Every *steady* state of the panel must project zero live
+  // regions; the two it owns may only exist while they carry content.
+  it('projects no `role="status"` live region while idle', async () => {
+    const user = userEvent.setup();
+    const { container } = renderPanel();
+
+    const liveRegions = (): Element[] =>
+      Array.from(container.querySelectorAll('[role="status"]'));
+
+    // 1. Initial mount: nothing computed yet.
+    expect(liveRegions()).toHaveLength(0);
+
+    // 2. Preview computed — the plan is on screen, no announcement pending.
+    await user.click(screen.getByTestId('baseline-rollback-preview-btn'));
+    await screen.findByTestId('baseline-rollback-preview-table');
+    expect(liveRegions()).toHaveLength(0);
+
+    // 3. A change request is open: the StatusBadge + hint row is plain text,
+    //    not a live region (the shared badge carries no role).
+    await user.type(
+      screen.getByTestId('baseline-rollback-reason-input'),
+      'restore the release state'
+    );
+    await user.click(screen.getByTestId('baseline-rollback-request-btn'));
+    await screen.findByTestId('baseline-rollback-cr-status');
+    expect(screen.getByTestId('baseline-rollback-cr-status')).toHaveTextContent('draft');
+    expect(liveRegions()).toHaveLength(0);
+
+    // 4. The one moment it announces something: exactly one region, the copy
+    //    status — and it is content-bearing, never an empty placeholder.
+    await user.click(screen.getByTestId('baseline-rollback-cr-copy'));
+    const announced = await screen.findByTestId('baseline-rollback-cr-copy-status');
+    expect(liveRegions()).toEqual([announced]);
+    expect(announced).toHaveTextContent('Change request id copied.');
+  });
 });
