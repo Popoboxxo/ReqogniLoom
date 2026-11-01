@@ -778,9 +778,65 @@ The deploy-runbook escalation and the PID 1 proof are in
 [`docs/DEPLOY_RUNBOOK.md`](../docs/DEPLOY_RUNBOOK.md) §3.1.
 
 **#1153 must be reopened:** it was closed as fixed, but #1247 shows `memory.ask` is still degraded
-and the header is unobservable at the Honcho wire. Related open drift: `backend/requirements.txt`
-pins `honcho-ai==2.5.1` while `backend/requirements.lock` pins `2.3.0`; confirm which the running
-backend imports before diagnosing `memory.ask`.
+and the header is unobservable at the Honcho wire. `backend/requirements.txt` and
+`backend/requirements.lock` both pin `honcho-ai==2.5.1`, and the running `backend` image imports
+exactly that (`importlib.metadata.version("honcho-ai")` inside the container); verify it on any
+other deployment before diagnosing `memory.ask` — a stale image is the only way the two can
+disagree.
+
+### SDK vs HTTP: the v3.3.0 capability spike (T-A4-1)
+
+Plan A's A4 follow-ups (dream scheduling, derived search, session summaries, scopes, webhooks) each
+depend on *how* the capability is reachable, so this section fixes one path per capability before
+any of them is implemented.
+
+**Evidence base.** `honcho-ai==2.5.1` (the pin in both `requirements.txt` and `requirements.lock`,
+and the version the `backend` image actually imports) introspected from its installed
+`site-packages`, plus Honcho's official v3 API reference. **No call was made against a running
+Honcho** — T-A4-1 must not depend on T1 — so every statement about *server* behaviour below is
+"documented for v3", never "observed on the pinned `ghcr.io/plastic-labs/honcho:v3.3.0` image".
+What that leaves unproven is listed at the end of this section.
+
+**Call shape shared by every SDK surface below.** `Honcho(...)` binds one `workspace_id`, and the
+first workspace-scoped call issues `POST /v3/workspaces {"id": …}` (get-or-create) once per client
+instance. Failures arrive as SDK exceptions mapped from the HTTP status (`NotFoundError` 404,
+`PermissionDeniedError` 403, `UnprocessableEntityError` 422, `ConflictError` 409, `RateLimitError`
+429, `ServerError` 5xx); 429 and 500/502/503/504 are retried twice by the transport before raising.
+
+| Capability | Path | Evidence | Note |
+|---|---|---|---|
+| `peer.search` | **SDK** — `Peer.search(query, filters=None, limit=10)` | `POST /v3/workspaces/{ws}/peers/{peer_id}/search`, body `{query, filters, limit}`; `200` → a bare array of `Message`, `422` on validation; `limit` is 1–100 | Returns **messages authored by that peer**, not conclusions — message-level recall, *not* the derived-fact read T-A4-3 needs, so `source="derived"` must keep using `peer.conclusions.query()` (already in use today) or `peer.context(search_query=…)`. `filters={"session_id": …}` narrows it to one session. |
+| Workspace search | **SDK, but only with `scope=`** — `Honcho.search(query, filters=None, limit=10, scope=…)` | `POST /v3/workspaces/{ws}/search`, body `{query, filters, limit[, scope]}`; `200` → array of `Message`; `scope` restricts to that scope's member sessions and is fail-closed; mutually exclusive with a `session_id` filter | A workspace-wide (hence tenant-wide) call is **forbidden** by QR-S04. Usable only as a scope-narrowed read, i.e. behind the native-scopes flag (T-A4-6); otherwise the peer-scoped `peer.search` is the only admissible surface. |
+| `peer.context` | **SDK** — `Peer.context(target=None, search_query=None, search_top_k=None, search_max_distance=None, include_most_frequent=None, max_conclusions=None)` | `GET /v3/workspaces/{ws}/peers/{peer_id}/context` with those as query parameters; `200` → `{peer_id, target_id, representation, peer_card}` | One round trip replaces `representation()` + `get_card()` (T-A4-4). **It has no `session` parameter**, so it is *not* a drop-in for today's session-scoped `peer.representation(session=…)`; the session-scoped equivalent is `Session.context(peer_target=…, limit_to_session=True)` (`GET …/sessions/{sid}/context`, `200`, `peer_representation`/`peer_card`). T-A4-4 must choose one deliberately — replacing the two calls silently would drop session scoping from the digest. |
+| `session.summaries` | **SDK** — `Session.summaries()` → `SessionSummaries` | `GET /v3/workspaces/{ws}/sessions/{sid}/summaries`; `200` → `{id, short_summary, long_summary}`, each `{content, message_id, summary_type, created_at, token_count}` or `null` | Summaries are produced asynchronously and only appear once enough messages exist, so `null`/`null` is a clean empty answer, not a failure. The route documents **only `200` and `422`** — an unknown session does *not* document a `404`, so T-A4-5's "foreign or unknown session → 404" must be enforced in ReqogniLoom and never inferred from Honcho. |
+| `schedule_dream` | **SDK** — `Honcho.schedule_dream(observer, session=None, observed=None)` | `POST /v3/workspaces/{ws}/schedule_dream`, body `{observer, observed, session_id, dream_type: "omni"}`; the SDK discards the response body, so success is `2xx` (OpenAPI: `204`), `422` on validation | The documented schema requires `observer` + `dream_type`, with `observed` defaulting to `observer`. Manual dreams bypass the threshold/cooldown but are still deduplicated per `(workspace, observer, observed)`, and they **only run if a deriver process is up** — which is why `honcho-deriver` is part of this stack. |
+| Webhooks | **HTTP** (`httpx`) — the SDK has no webhook surface at all (`grep -i webhook` over the installed package: no match) | Register: `POST /v3/workspaces/{ws}/webhooks {"url": …}` → `200` existing / `201` created; list `GET …/webhooks` `200`; test emit `GET …/webhooks/test`; delete `DELETE …/webhooks/{endpoint_id}`. `409` over the per-workspace limit, `422` for a non-absolute URL or a private/loopback/link-local IP literal | Inbound: Honcho `POST`s `{type, data, timestamp}` (`queue.empty`, `test.event`) with `X-Honcho-Signature` = hex `HMAC-SHA256(raw body, WEBHOOK_SECRET)`; verify over the **raw bytes** in constant time. Delivery is best-effort with a 30 s timeout and **no retries**; it requires `WEBHOOK_SECRET` set server-side *and* a running deriver, while registration still succeeds when nothing will ever be delivered. |
+| Scopes | **SDK** — `Honcho.scope(id, metadata=…)`, `Honcho.get_scope(id)`, `Honcho.scopes()`, `Scope.add_sessions` / `remove_session` / `sessions` / `status` | `POST …/scopes` get-or-create (`201` created / `200` existing); `GET …/scopes/{id}` (`404` → `NotFoundError` when it must not be created); `POST …/scopes/list`; `POST …/scopes/{id}/sessions` `{session_ids}` (≤100 per call, `404` if any session is missing); `DELETE …/scopes/{id}/sessions/{sid}`; `GET …/scopes/{id}/status` → per-session `{state: pending\|completed\|failed[, docs_copied]}` | Every scopes route — and every read that passes `scope` — **requires a workspace-level or admin key**; peer- and session-scoped keys are rejected with `401`, so the single per-tenant `HONCHO_API_KEY` this backend already uses must be workspace-scoped for T-A4-6. IDs are unprefixed, `^[a-zA-Z0-9_-]+$`, ≤506 chars, and `scope.` is reserved. A scope is a visibility boundary over sessions, **not an observer**: it is rejected in any `target`/observed position, including as a dream target. Membership changes copy `explicit` conclusions asynchronously rather than re-deriving them, so poll `status()` before reading a freshly backfilled scope. |
+
+**What this means for the A4 follow-ups.** `consolidation` and `summaries` are reachable purely
+through the SDK, as their capability flags anticipate. `search_derived` is *not* what `peer.search`
+delivers (messages, not derived conclusions) and must not be built on the workspace-wide route
+(QR-S04). `webhooks` is the one capability with no SDK surface, so it is a raw-HTTP integration in
+both directions. `peer.context` exists, but only the `Session.context(peer_target=…)` variant
+preserves today's session scoping.
+
+**What this spike does not prove.** No Honcho server was called, so the following is **unproven**
+and belongs to the PR that first exercises the surface on a T1/deployment host:
+
+- that the pinned **v3.3.0 image** serves every route above — the official reference never names a
+  server release and is demonstrably ahead of `honcho-ai==2.5.1` (it documents `remove_sessions`
+  and `dream_type: card_refresh`, neither of which the installed SDK has), so it is not proof for
+  the image; only the SDK's own `routes.py` proves what the SDK *targets* (`/v3`);
+- that `schedule_dream` is accepted by v3.3.0 (route plus the `dream_type: "omni"` payload) and
+  that a scheduled dream actually lands;
+- that webhook registration and `X-Honcho-Signature` delivery work against v3.3.0 — the documented
+  API is explicitly unavailable on Honcho Cloud (`405`) and only self-hosted exposes it;
+- whether the peer/workspace/session **search response envelope** is the bare array the SDK parses
+  (`for item in data`) or the `{"items": […]}` object one of the two official pages shows — they
+  disagree, and the SDK would raise a validation error on the object form;
+- whether an unknown session on `…/summaries` answers `200` with nulls or `404`;
+- any latency, rate-limit or quota behaviour, and the provider-side `x-opencode-session`
+  constraint described above — that failure mode is deployment-bound, not SDK-bound.
 
 
 ## Memory backend capability matrix (#1251)
