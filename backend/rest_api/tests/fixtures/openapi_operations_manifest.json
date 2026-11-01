@@ -414,6 +414,18 @@
    "delete"
   ],
   [
+   "/api/v1/baselines/{id}/rollback-preview/",
+   "get"
+  ],
+  [
+   "/api/v1/baselines/{id}/rollback-request/",
+   "post"
+  ],
+  [
+   "/api/v1/baselines/{id}/rollback/",
+   "post"
+  ],
+  [
    "/api/v1/baselines/{id}/tags/",
    "put"
   ],

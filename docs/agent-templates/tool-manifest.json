@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 255,
+  "tool_count": 258,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -2046,6 +2046,76 @@
         },
         "required": [
           "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "baseline.rollback_apply",
+      "prefix": "baseline",
+      "is_write": true,
+      "description": "Execute an approved rollback in one transaction (write, audited, Plan F F4.4). Humans only — an agent principal is refused with PERMISSION_DENIED. The plan is re-derived and must match the change request's affected set exactly.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the baseline."
+          },
+          "change_request_id": {
+            "type": "string",
+            "description": "UUID of the approved change request opened via baseline.rollback_request."
+          }
+        },
+        "required": [
+          "id",
+          "change_request_id"
+        ]
+      }
+    },
+    {
+      "name": "baseline.rollback_preview",
+      "prefix": "baseline",
+      "is_write": false,
+      "description": "Compute what an ADDITIVE rollback to a baseline would change (read-only, Plan F F4.4). Restores content through new versions; never writes the immutable baseline tables. Open to every workspace member, agents included.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the baseline."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "baseline.rollback_request",
+      "prefix": "baseline",
+      "is_write": true,
+      "description": "Open the CCB change request a rollback has to pass through (write, audited, Plan F F4.4). The plan is bound to the request's affected-item set; the CR starts in 'draft' and is executable only after approval.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the baseline."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Mandatory justification for the rollback; recorded on the change request.",
+            "maxLength": 2000
+          },
+          "title": {
+            "type": "string",
+            "description": "Optional change-request title; defaults to a generated 'Rollback to baseline ...'.",
+            "maxLength": 255
+          }
+        },
+        "required": [
+          "id",
+          "change_reason"
         ]
       }
     },

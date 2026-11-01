@@ -81,6 +81,21 @@ from application.base import (
     WaiverFindingNotBlockingError,
     WaiverReasonPolicyViolation,
 )
+# Plan F F4.4 (PR-F11b): the transport half of the additive rollback. The
+# service itself is merged (PR-F11a) and is used unchanged — this import only
+# adds the error classes to the exact-type HTTP maps below.
+from application.baseline_rollback_service import (
+    BaselineRollbackService,
+    RollbackAlreadyAppliedError,
+    RollbackConflictError,
+    RollbackEmptyError,
+    RollbackError,
+    RollbackForbiddenError,
+    RollbackNotApprovedError,
+    RollbackPlanStaleError,
+    RollbackTooLargeError,
+)
+from application.change_request_service import ChangeRequestDTO
 from application.goal_service import GoalService
 from application.import_idempotency import (
     IdempotencyConflict,
@@ -188,6 +203,11 @@ from rest_api.serializers import (
     ArchitectureElementSerializer,
     ArtifactSerializer,
     BaselineDiffSerializer,
+    BaselineRollbackApplyRequestSerializer,
+    BaselineRollbackPreviewSerializer,
+    BaselineRollbackRequestResponseSerializer,
+    BaselineRollbackRequestSerializer,
+    BaselineRollbackResultSerializer,
     BaselineSerializer,
     BaselineSummarySerializer,
     BaselineTagsRequestSerializer,
@@ -363,6 +383,22 @@ _EXC_TO_HTTP: dict[type, int] = {
     # Routes that want the machine-readable ``details`` list still catch it
     # explicitly (baseline create / tags / list).
     BaselineTagValidationError: status.HTTP_400_BAD_REQUEST,
+    # Plan F F4.4 (SEC-RB-05): the seven baseline-rollback error types. Same
+    # exact-type rule as the entries above — without these the domain refusal
+    # („plan stale", „not approved", „human only") would surface as a 500 and be
+    # indistinguishable from a defect. Each type carries its own stable code
+    # below; ``RollbackForbiddenError`` is also a ``PermissionDeniedError``,
+    # ``RollbackEmptyError``/``RollbackTooLargeError`` are also
+    # ``ValidationError``s — the inherited pair would already answer 403/400 but
+    # with the wrong code, so the exact type must be named here explicitly.
+    RollbackError: status.HTTP_409_CONFLICT,
+    RollbackNotApprovedError: status.HTTP_409_CONFLICT,
+    RollbackAlreadyAppliedError: status.HTTP_409_CONFLICT,
+    RollbackPlanStaleError: status.HTTP_409_CONFLICT,
+    RollbackConflictError: status.HTTP_409_CONFLICT,
+    RollbackEmptyError: status.HTTP_400_BAD_REQUEST,
+    RollbackTooLargeError: status.HTTP_400_BAD_REQUEST,
+    RollbackForbiddenError: status.HTTP_403_FORBIDDEN,
     NotFoundError: status.HTTP_404_NOT_FOUND,
     OptimisticLockError: status.HTTP_409_CONFLICT,
     # GH-1396: shared safety net for routes that do not map the header
@@ -410,6 +446,17 @@ _EXC_TO_CODE: dict[type, str] = {
     # F4.2 review B2/B3: same code as every other validation failure, so a
     # client keeps one 400 branch; only the shape of ``details`` differs.
     BaselineTagValidationError: "VALIDATION_ERROR",
+    # Plan F F4.4 (SEC-RB-05): one stable code per rollback failure so a client
+    # can branch on the reason ("re-read the plan" vs "get it approved" vs "an
+    # agent may not execute this") instead of inferring it from a 409.
+    RollbackError: "ROLLBACK_ERROR",
+    RollbackNotApprovedError: "ROLLBACK_NOT_APPROVED",
+    RollbackAlreadyAppliedError: "ROLLBACK_ALREADY_APPLIED",
+    RollbackPlanStaleError: "ROLLBACK_PLAN_STALE",
+    RollbackConflictError: "ROLLBACK_CONFLICT",
+    RollbackEmptyError: "ROLLBACK_EMPTY",
+    RollbackTooLargeError: "ROLLBACK_TOO_LARGE",
+    RollbackForbiddenError: "PERMISSION_DENIED",
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",
     # GH-1396: see _EXC_TO_HTTP. INVALID_IF_MATCH is its own code so a client
@@ -587,6 +634,14 @@ def _service_error_response(exc: Exception, lang: str = "en") -> Response:
     forwarding (``_MESSAGE_NOT_SURFACEABLE``) — ``LlmResponseError`` wraps raw
     provider text and reports the static ``LLM_OUTPUT_INVALID`` sentence while
     the detail is logged.
+
+    Plan F F4.4 (SEC-RB-05): a mapped exception that carries a ``details``
+    payload has it forwarded into the envelope. Additive only — an exception
+    without ``details`` (every other type) produces exactly the previous
+    details-less body, so no existing client sees a difference. The rollback
+    types use it to name *which* items invalidated a plan (R3: a list) or which
+    CR state was hit (R5: a dict); the value is service-built and contains no
+    internals.
     """
     exc_type = type(exc)
     http_status = _EXC_TO_HTTP.get(exc_type, status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -606,6 +661,9 @@ def _service_error_response(exc: Exception, lang: str = "en") -> Response:
         code=code,
         lang=lang,
         message=message,
+        # Only mapped types: an unmapped exception's attributes must not reach
+        # the client (they can hold ORM objects, ids the caller may not see).
+        details=(getattr(exc, "details", None) if exc_type in _EXC_TO_CODE else None),
     )
     return Response(body, status=http_status)
 
@@ -5803,6 +5861,257 @@ class BaselineViewSet(BaseEntityViewSet):
     # outside the ETag contract. The E2.6 documentation hook reads this.
     tags.etag_supported = False
 
+    # ------------------------------------------------------------------
+    # Plan F F4.4 — additive baseline rollback (ADR-025, PR-F11b)
+    # ------------------------------------------------------------------
+    #
+    # Three detail actions on the baseline. Each resolves the baseline first
+    # (tenant-scoped, raises NotFoundError for a foreign one) and then runs the
+    # preset gate against the *object's* workspace — the same order as
+    # ``retrieve``/``tags`` (#398: the gate's tenant-id fallback would 404 every
+    # request otherwise, and gating after resolution keeps the 404 opaque).
+    #
+    # None of the three *evaluates* an ``If-Match``: the rollback's conflict
+    # protection is the domain's (R3 per-item plan binding, R5 CR row lock +
+    # ``expected_version`` on the closing transition), not an entity tag on the
+    # baseline. The two POST routes nevertheless keep the E2.4 syntax gate — a
+    # present-but-malformed header is a request defect (400
+    # ``INVALID_IF_MATCH``) and must be rejected before any side effect. They
+    # are declared as ETag-less resources rather than 412-capable routes
+    # (``etag_supported = False`` below).
+
+    def _rollback_baseline(
+        self, request: Request, pk: str, lang: str
+    ) -> tuple[Any | None, Any | None, Response | None]:
+        """Resolve the baseline + auth context, then apply the preset gate.
+
+        Returns ``(baseline, ctx, None)`` on success and ``(None, None,
+        error_response)`` when the baseline is unknown or not visible. The
+        preset gate runs outside the ``try``: its ``Http404`` signals "this
+        endpoint does not exist for the workspace" and must propagate verbatim
+        past ``handle_exception`` (REQ-L3-RA004-001).
+        """
+        try:
+            ctx = get_auth_context(request)
+            baseline = self._svc().get_baseline(pk, ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return None, None, _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return None, None, _service_error_response(exc, lang)
+        self._check_preset(request, workspace_id=str(baseline.workspace_id))
+        return baseline, ctx, None
+
+    @extend_schema(
+        responses={
+            200: BaselineRollbackPreviewSerializer,
+            403: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "``PERMISSION_DENIED`` — the caller holds no role in the "
+                    "baseline's workspace, or the API key's workspace fence "
+                    "excludes it (SEC-RB-01)."
+                ),
+            ),
+            404: _BASELINE_PRESET_404,
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="rollback-preview")
+    def rollback_preview(
+        self, request: Request, pk: str = None, **kwargs: Any
+    ) -> Response:
+        """GET /api/v1/baselines/{pk}/rollback-preview/ — what a rollback would change.
+
+        Read-only and open to every workspace member (Viewer included): it
+        writes nothing and opens no change request (ADR-025 R8). Items without
+        a *read* right are absent from ``items``, from every count of
+        ``summary`` and from both link lists — a hidden item must not leak even
+        as a count (R7/SEC-RB-06).
+
+        A body is never accepted: the plan is derived server-side from the
+        baseline.
+        """
+        lang = detect_lang(request)
+        baseline, ctx, invalid = self._rollback_baseline(request, pk, lang)
+        if invalid is not None:
+            return invalid
+        try:
+            plan = BaselineRollbackService().preview(baseline.baseline_id, ctx)
+        except (RollbackError, ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return Response(_rollback_plan_to_dict(plan))
+
+    @extend_schema(
+        request=BaselineRollbackRequestSerializer,
+        responses={
+            201: BaselineRollbackRequestResponseSerializer,
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "``VALIDATION_ERROR`` — ``change_reason`` is missing or "
+                    "blank, or the body carries a field the route does not "
+                    "accept (#851). ``ROLLBACK_EMPTY`` — the plan restores "
+                    "nothing at all. ``ROLLBACK_TOO_LARGE`` — more than "
+                    "``MAX_ROLLBACK_ITEMS`` units of work (ADR-025 R9)."
+                ),
+            ),
+            403: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "``PERMISSION_DENIED`` — the caller holds no role in the "
+                    "baseline's workspace, or the API key's workspace fence "
+                    "excludes it (SEC-RB-01)."
+                ),
+            ),
+            404: _BASELINE_PRESET_404,
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="rollback-request")
+    def rollback_request(
+        self, request: Request, pk: str = None, **kwargs: Any
+    ) -> Response:
+        """POST /api/v1/baselines/{pk}/rollback-request/ — open the CCB change request.
+
+        The plan is re-derived and bound to the change request's affected-item
+        set (ADR-025 R2), so approval happens against exactly the items the
+        rollback would write. The CR starts in ``draft`` and becomes executable
+        only after the CCB approves it — a rollback is never implicit.
+        """
+        lang = detect_lang(request)
+        # E2.4 syntax gate only: a malformed ``If-Match`` is a request defect
+        # (400 ``INVALID_IF_MATCH``). No tag is evaluated — the rollback's
+        # conflict protection is the domain's (R2/R3/R5), not an entity tag on
+        # the baseline (see the block comment above).
+        if_match_error = self.if_match_parse_error(request)
+        if if_match_error is not None:
+            return if_match_error
+        baseline, ctx, invalid = self._rollback_baseline(request, pk, lang)
+        if invalid is not None:
+            return invalid
+
+        ser = BaselineRollbackRequestSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[
+                        {"field": key, "errors": value}
+                        for key, value in ser.errors.items()
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            cr = BaselineRollbackService().request(
+                baseline.baseline_id,
+                ctx,
+                title=ser.validated_data.get("title") or None,
+                change_reason=ser.validated_data["change_reason"],
+            )
+            affected = ChangeRequestService().list_affected_items(cr.id, ctx)
+        except (RollbackError, ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+
+        return Response(
+            {
+                "change_request_id": str(cr.id),
+                "status": ChangeRequestDTO.from_orm(cr).status,
+                "affected_items": len(affected),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    @extend_schema(
+        request=BaselineRollbackApplyRequestSerializer,
+        responses={
+            200: BaselineRollbackResultSerializer,
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "``VALIDATION_ERROR`` — the change request is not linked to "
+                    "this baseline or belongs to another workspace (ADR-025 "
+                    "R2). ``ROLLBACK_TOO_LARGE`` — more than "
+                    "``MAX_ROLLBACK_ITEMS`` units of work (R9)."
+                ),
+            ),
+            403: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "``PERMISSION_DENIED`` — item-level WRITE is missing, the "
+                    "caller holds no role in the baseline's workspace, or the "
+                    "principal is an agent (executing is human-only, R7/R8)."
+                ),
+            ),
+            404: _BASELINE_PRESET_404,
+            409: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "``ROLLBACK_NOT_APPROVED`` / ``ROLLBACK_ALREADY_APPLIED`` — "
+                    "the change request is not in the ``approved`` state it "
+                    "must be in (R5). ``ROLLBACK_PLAN_STALE`` — the plan "
+                    "changed since the CR was opened; ``details`` lists the "
+                    "affected items with their versions (R3). "
+                    "``ROLLBACK_CONFLICT`` — a concurrent CCB decision holds "
+                    "the change request (R5)."
+                ),
+            ),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="rollback")
+    def rollback(self, request: Request, pk: str = None, **kwargs: Any) -> Response:
+        """POST /api/v1/baselines/{pk}/rollback/ — execute an approved rollback.
+
+        One transaction: the plan is re-derived, checked against the CR's
+        affected-item set (R2), version-bound per item (R3) and written as new
+        versions through each type's domain service (R1/R5). The CR ends
+        ``implemented``. Any failure rolls the whole run back — nothing is
+        written and the CR stays ``approved``.
+        """
+        lang = detect_lang(request)
+        # E2.4 syntax gate only — see ``rollback_request``.
+        if_match_error = self.if_match_parse_error(request)
+        if if_match_error is not None:
+            return if_match_error
+        baseline, ctx, invalid = self._rollback_baseline(request, pk, lang)
+        if invalid is not None:
+            return invalid
+
+        ser = BaselineRollbackApplyRequestSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[
+                        {"field": key, "errors": value}
+                        for key, value in ser.errors.items()
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            result = BaselineRollbackService().apply(
+                baseline.baseline_id, ser.validated_data["change_request_id"], ctx
+            )
+        except (RollbackError, ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return Response(_rollback_result_to_dict(result))
+
+    # Plan F F4.4: the conflict protection is the domain's (R3/R5), not an
+    # entity tag on the baseline — see the block comment above. The E2.6
+    # documentation hook reads these flags.
+    rollback_preview.etag_supported = False
+    rollback_request.etag_supported = False
+    rollback.etag_supported = False
+
     def _load_baseline_diff_context(
         self, request: Request, a_id: UUID, b_id: UUID, lang: str
     ) -> tuple[tuple[Any, Any, Any] | None, Response | None]:
@@ -6965,6 +7274,43 @@ def _baseline_to_dict(bl: Any) -> dict[str, Any]:
 
 _TRUE_TOKENS = frozenset({"true", "1", "yes", "on"})
 _FALSE_TOKENS = frozenset({"false", "0", "no", "off"})
+
+
+def _rollback_plan_to_dict(plan: Any) -> dict[str, Any]:
+    """Serialise a ``RollbackPlan`` for the preview response (Plan F F4.4).
+
+    The dataclass is the single source of truth: every value is passed through
+    unchanged so the wire contract cannot drift from the service's own summary
+    (``RollbackPlan.summary`` already counts per action and per link bucket).
+    """
+    return {
+        "baseline_id": str(plan.baseline_id),
+        "summary": plan.summary,
+        "items": [
+            {
+                "item_id": item.item_id,
+                "artifact_type": item.artifact_type,
+                "action": item.action,
+                "field_changes": item.field_changes,
+                "unrestorable_fields": list(item.unrestorable_fields),
+                "current_version": item.current_version,
+            }
+            for item in plan.items
+        ],
+        "links_to_recreate": list(plan.links_to_recreate),
+        "skipped_links": list(plan.skipped_links),
+    }
+
+
+def _rollback_result_to_dict(result: Any) -> dict[str, Any]:
+    """Serialise a ``RollbackResult`` for the apply response (Plan F F4.4)."""
+    return {
+        "restored": result.restored,
+        "reactivated": result.reactivated,
+        "links_recreated": result.links_recreated,
+        "change_request_status": result.change_request_status,
+        "skipped": list(result.skipped),
+    }
 
 
 def _coerce_bool(value: Any) -> bool:
