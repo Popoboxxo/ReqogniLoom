@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0-beta.24] — 2026-11-01
+
+> Supersedes `1.8.0-beta.23`, whose Docker images were not published by the tag pipeline.
+
+### Fixed
+- fix(ci): the env-secret diff scan is skipped on tag pushes (the null `before` SHA made it scan the entire history and fire on historical fixtures); the tag run now reaches the publish job (#1641)
+- fix(db): the dedicated app-role migration tolerates a concurrent `CREATE ROLE` from another xdist worker (42710/23505) instead of aborting the whole shard (#1641)
+
 ## [1.8.0-beta.23] — 2026-11-01
+
+> Docker images for this beta were not published; superseded by `1.8.0-beta.24`.
 
 ### Added
 - feat(clients): OpenCode V2 (beta) client entry, `opencode.v2.json.snippet`, installer auto-detects the major version (#1638)
