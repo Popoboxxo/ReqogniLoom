@@ -77,7 +77,7 @@ services:
       start_period: 30s
 
   redis:
-    image: redis:7-alpine@sha256:892022f9f18c26c92c30e15194d132f90044af87b94a491a75429bbc3982eab1
+    image: redis:8-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
     deploy:
       resources:
         limits:
