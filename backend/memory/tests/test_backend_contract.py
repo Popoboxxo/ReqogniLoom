@@ -35,7 +35,7 @@ test never runs a consuming worker (``memory/tests/test_consolidation_e2e.py``).
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest import mock
 from uuid import UUID, uuid4
@@ -43,7 +43,9 @@ from uuid import UUID, uuid4
 import pytest
 
 from memory.backends import (
+    VALID_CONSOLIDATION_STATUSES,
     VALID_DERIVATION_STATUSES,
+    ConsolidationResult,
     MemoryAnswer,
     MemoryDigest,
     MemoryHealth,
@@ -53,8 +55,13 @@ from memory.backends import (
 from memory.honcho_backend import HonchoMemoryBackend
 from memory.qdrant_backend import QdrantMemoryBackend
 from memory.tests.qdrant_fakes import FakeQdrantClient, FakeQdrantModels
-from persistence.models import Artifact
-from persistence.tests.factories import active_tenant, make_user, make_workspace
+from persistence.models import Artifact, Tenant
+from persistence.tests.factories import (
+    active_tenant,
+    make_user,
+    make_workspace,
+    make_workspace_id,
+)
 
 _SCOPES = ("user", "workspace", "artifact")
 
@@ -148,6 +155,13 @@ class _FakeHonchoClient:
         self._peers: dict[str, _FakePeer] = {}
         self._sessions: dict[str, _FakeSession] = {}
         self.configuration = None
+        #: Dream requests recorded by ``consolidate()`` (T-A4-2), in call order.
+        #: Mirrors ``Honcho.schedule_dream(observer, session=None, observed=None)``
+        #: -- the SDK discards the response body, so a fake has nothing to return.
+        self.dream_calls: list[dict] = []
+        #: Set to an exception instance to simulate an engine that rejects the
+        #: request; ``None`` means "accepted" (the documented 2xx/204).
+        self.dream_error: object = None
         # Permissive, like the MagicMock client test_honcho_backend.py uses:
         # the real ``ConclusionScope.delete`` delegates to ``client._http.delete``
         # and expects any object back.
@@ -158,6 +172,13 @@ class _FakeHonchoClient:
 
     def session(self, session_id: str, **kwargs) -> _FakeSession:
         return self._sessions.setdefault(session_id, _FakeSession(session_id))
+
+    def schedule_dream(self, observer: str, session=None, observed: str | None = None) -> None:
+        self.dream_calls.append(
+            {"observer": observer, "observed": observed, "session": session}
+        )
+        if isinstance(self.dream_error, Exception):
+            raise self.dream_error
 
     def get_configuration(self):
         return None
@@ -766,3 +787,404 @@ def test_meta_check_rejects_a_backend_without_fixture(monkeypatch):
 
     monkeypatch.setitem(MEMORY_BACKEND_REGISTRY, "dummy-without-fixture", _DummyBackend)
     assert "dummy-without-fixture" in missing_conformance_fixtures()
+
+
+# ---------------------------------------------------------------------------
+# Plan A T-A4-2 — consolidation ("dream") capability
+# ---------------------------------------------------------------------------
+
+
+def test_consolidation_capability_is_declared_only_where_the_port_exists():
+    """T-A4-2: ``capabilities.consolidation`` must match reality on EVERY backend.
+
+    The capability lives in the same declaration every caller reads (health,
+    admin settings, this suite), so it has to be pinned here and not only in
+    the Honcho test: exactly the backend with a real ``consolidate`` surface
+    declares ``True``, every other one declares ``False`` and inherits the
+    base class's honest ``unsupported`` answer (asserted for all of them by
+    ``assert_capabilities_consistent`` in the meta-test above).
+    """
+    from memory.backends import MEMORY_BACKEND_REGISTRY
+
+    declared = {
+        name: backend_cls.capabilities.consolidation
+        for name, backend_cls in MEMORY_BACKEND_REGISTRY.items()
+    }
+    assert declared.pop("honcho") is True, "honcho has schedule_dream (T-A4-1)"
+    assert not any(declared.values()), (
+        f"only honcho can consolidate, but these declare it too: {declared}"
+    )
+
+
+@pytest.mark.django_db
+def test_consolidate_unsupported_on_pgvector(monkeypatch):
+    """T-A4-2: a plain store answers ``unsupported`` and touches nothing.
+
+    "This backend cannot consolidate" is a capability statement, not an outage:
+    the call must return the ``unsupported`` status (never raise, never a
+    ``failed``), carry a diagnostic detail, and leave the scope untouched.
+    """
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+    monkeypatch.setenv("MEMORY_BACKEND", "pgvector")
+    backend = get_memory_backend()
+    assert isinstance(backend, PgvectorMemoryBackend)
+    assert backend.capabilities.consolidation is False
+
+    with active_tenant() as tenant:
+        workspace = make_workspace(tenant)
+
+        outcome = backend.consolidate(tenant.id, "workspace", workspace.id)
+
+        assert outcome.status == "unsupported"
+        assert outcome.status in VALID_CONSOLIDATION_STATUSES
+        assert outcome.detail, "an unsupported answer must say which backend"
+        assert backend.count(tenant.id, "workspace", workspace.id) == 0
+
+        # The periodic task reports the same answer and lists no workspace at
+        # all -- "on pgvector/qdrant the task reports unsupported and does
+        # nothing" (plan §8), so no dream request and no metric tick happen.
+        from memory import tasks as memory_tasks
+        from memory.metrics import consolidation_counts, reset_consolidation_counters
+
+        monkeypatch.setenv(memory_tasks.CONSOLIDATION_INTERVAL_ENV, "1440")
+        reset_consolidation_counters()
+
+        result = memory_tasks.consolidate_all(tenant.id)
+
+        assert result["status"] == "unsupported"
+        assert result["backend"] == "pgvector"
+        assert result["workspaces"] == 0
+        assert result["scheduled"] == 0
+        assert consolidation_counts() == {}
+
+
+@pytest.mark.django_db
+def test_honcho_consolidate_calls_schedule_dream_per_workspace(monkeypatch):
+    """T-A4-2: one ``schedule_dream`` per workspace PEER, never workspace-wide.
+
+    Two levels, one rule:
+
+    * the backend method itself: ``observer`` and ``observed`` are both that
+      workspace's own tenant-namespaced peer and no session is passed, so a
+      pass can only touch the scope it was requested for (QR-S04). Scheduling
+      must not create a peer -- ``client.peer()`` is a get-or-create POST,
+      which would both cost a request and start a representation for a junk
+      peer. An engine rejection degrades to ``failed`` (never raises);
+    * the periodic task: ``memory.consolidate_all`` drives that method once per
+      ACTIVE workspace peer and ticks the metric once per accepted request.
+    """
+    from memory import tasks as memory_tasks
+    from memory.metrics import consolidation_counts, reset_consolidation_counters
+
+    backend = HonchoMemoryBackend()
+    backend._client = _FakeHonchoClient()
+    client = backend._client
+
+    with active_tenant() as tenant:
+        first = make_workspace(tenant)
+        second = make_workspace(tenant)
+
+        # -- the backend method ------------------------------------------
+        outcomes = [
+            backend.consolidate(tenant.id, "workspace", workspace.id)
+            for workspace in (first, second)
+        ]
+
+        assert [outcome.status for outcome in outcomes] == ["scheduled", "scheduled"]
+        assert client.dream_calls == [
+            {
+                "observer": backend._workspace_id(tenant.id, workspace.id),
+                "observed": backend._workspace_id(tenant.id, workspace.id),
+                "session": None,
+            }
+            for workspace in (first, second)
+        ]
+        # Tenant namespacing is inherited from the unchanged peer naming, and
+        # the two workspaces never share a peer.
+        assert client.dream_calls[0]["observer"] != client.dream_calls[1]["observer"]
+        assert client.dream_calls[0]["observer"].startswith(f"{tenant.id}_")
+        assert client._peers == {}, "scheduling a dream must not create a peer"
+
+        # Engine rejection degrades to ``failed`` -- never raises (contract).
+        client.dream_error = RuntimeError("engine unreachable")
+        rejected = backend.consolidate(tenant.id, "workspace", first.id)
+        assert rejected.status == "failed"
+        assert "RuntimeError" in rejected.detail
+
+        # -- the periodic task -------------------------------------------
+        monkeypatch.setenv("MEMORY_BACKEND", "honcho")
+        monkeypatch.setenv(memory_tasks.CONSOLIDATION_INTERVAL_ENV, "1440")
+        client.dream_error = None
+        client.dream_calls.clear()
+        monkeypatch.setattr(memory_tasks, "get_memory_backend", lambda: backend)
+        reset_consolidation_counters()
+
+        result = memory_tasks.consolidate_all(tenant.id)
+
+        assert result["status"] == "scheduled"
+        assert result["workspaces"] == 2
+        assert result["scheduled"] == 2
+        assert result["failed"] == 0
+        # Order-insensitive (review F1): the task lists the workspace rows with
+        # ``order_by("pk")`` for reproducible logs, but the assertion must not
+        # depend on row order -- an unordered ``filter(is_active=True)`` is a
+        # perfectly valid implementation and used to make this test flaky.
+        assert sorted(call["observer"] for call in client.dream_calls) == sorted(
+            backend._workspace_id(tenant.id, workspace.id)
+            for workspace in (first, second)
+        )
+        assert consolidation_counts()["periodic_dream"] == 2
+
+
+@pytest.mark.django_db
+def test_consolidation_off_at_zero_minutes(monkeypatch):
+    """T-A4-2: ``MEMORY_CONSOLIDATION_INTERVAL_MINUTES=0`` is a real off switch.
+
+    "Neither scheduled nor written" has two independent halves, both pinned
+    here: the scheduler builds no beat entry at all, and the task returns
+    ``disabled`` BEFORE resolving the backend -- so no dream request is issued
+    and no metric tick is written, even for a task still queued from a beat
+    entry synced before the switch was flipped.
+    """
+    from memory import tasks as memory_tasks
+    from memory.metrics import consolidation_counts, reset_consolidation_counters
+    from reqogniloom.settings import _memory_consolidation_beat_entry
+
+    # Half 1: the schedule entry does not exist when the cadence is off.
+    assert _memory_consolidation_beat_entry(0) is None
+    assert _memory_consolidation_beat_entry(-1) is None
+    enabled = _memory_consolidation_beat_entry(1440)
+    assert enabled == {
+        "task": "memory.consolidate_all",
+        "schedule": timedelta(minutes=1440),
+    }
+
+    # Half 2: the task short-circuits without touching the backend or the metric.
+    monkeypatch.delenv(memory_tasks.CONSOLIDATION_INTERVAL_ENV, raising=False)
+    assert memory_tasks.consolidation_interval_minutes() == 1440
+
+    monkeypatch.setenv(memory_tasks.CONSOLIDATION_INTERVAL_ENV, "0")
+    assert memory_tasks.consolidation_interval_minutes() == 0
+
+    def _must_not_resolve():
+        raise AssertionError("the backend must not be resolved when the pass is off")
+
+    monkeypatch.setattr(memory_tasks, "get_memory_backend", _must_not_resolve)
+    reset_consolidation_counters()
+
+    result = memory_tasks.consolidate_all()
+
+    assert result["status"] == "disabled"
+    assert result["scheduled"] == 0
+    assert result["workspaces"] == 0
+    assert result["backend"] is None
+    assert consolidation_counts() == {}
+
+
+class _FakeConsolidationBackend:
+    """Minimal backend stub for the ``consolidate_all`` failure branches.
+
+    ``capabilities.consolidation`` is ``True`` so the pass reaches the loop, and
+    ``consolidate`` is driven by ``behaviour(workspace_id)`` so a test can
+    simulate a per-scope raise, an out-of-contract status or a full outage
+    without an engine. Every requested scope is recorded in ``calls``.
+    """
+
+    class capabilities:
+        consolidation = True
+
+    def __init__(self, behaviour) -> None:
+        self._behaviour = behaviour
+        self.calls: list[UUID] = []
+
+    def consolidate(self, tenant_id, scope, scope_id):
+        self.calls.append(scope_id)
+        return self._behaviour(scope_id)
+
+
+def _patch_fake_backend(monkeypatch, memory_tasks, backend, interval="60"):
+    """Wire ``backend`` into ``consolidate_all`` and pin a positive cadence."""
+    monkeypatch.setenv(memory_tasks.CONSOLIDATION_INTERVAL_ENV, interval)
+    monkeypatch.setattr(memory_tasks, "get_memory_backend", lambda: backend)
+    monkeypatch.setattr(memory_tasks, "active_memory_backend_name", lambda: "fake")
+
+
+@pytest.mark.django_db
+def test_consolidate_all_isolates_a_raising_scope(monkeypatch):
+    """F6: one raising scope yields ``partial`` and never stops the rest.
+
+    Per-scope isolation is the whole point of the pass: the backend contract
+    says ``consolidate`` never raises, so a raise IS a contract violation -- but
+    it must cost only the affected workspace, not the remaining ones.
+    """
+    from memory import tasks as memory_tasks
+
+    with active_tenant() as tenant:
+        broken = make_workspace_id(tenant.id)
+        healthy = make_workspace_id(tenant.id)
+
+        def behaviour(workspace_id):
+            if workspace_id == broken:
+                raise RuntimeError("engine unreachable")
+            return ConsolidationResult(status="scheduled", detail="accepted")
+
+        backend = _FakeConsolidationBackend(behaviour)
+        _patch_fake_backend(monkeypatch, memory_tasks, backend)
+
+        result = memory_tasks.consolidate_all(tenant.id)
+
+    assert result["status"] == "partial"
+    assert result["workspaces"] == 2, "the pass must still visit every scope"
+    assert result["scheduled"] == 1
+    assert result["failed"] == 1
+    # The raising scope is not the reason to skip the healthy one.
+    assert set(backend.calls) == {broken, healthy}
+    assert result["failures"] == [
+        {
+            "tenant_id": str(tenant.id),
+            "workspace_id": str(broken),
+            "detail": "raised:RuntimeError",
+        }
+    ]
+
+
+@pytest.mark.django_db
+def test_consolidate_all_counts_an_unexpected_status_as_failed(monkeypatch):
+    """F6/F2: an out-of-contract status is a failure, never an invisible outcome.
+
+    A capability-bearing backend answering ``unsupported`` violates the port
+    contract. Counting it as neither scheduled nor failed used to let the pass
+    report ``status="scheduled"`` with ``scheduled == 0``.
+    """
+    from memory import tasks as memory_tasks
+
+    with active_tenant() as tenant:
+        workspace_id = make_workspace_id(tenant.id)
+        backend = _FakeConsolidationBackend(
+            lambda _ws: ConsolidationResult(status="unsupported", detail="port violation")
+        )
+        _patch_fake_backend(monkeypatch, memory_tasks, backend)
+
+        result = memory_tasks.consolidate_all(tenant.id)
+
+    assert result["status"] == "failed"
+    assert result["scheduled"] == 0
+    assert result["failed"] == 1
+    assert result["failures"] == [
+        {
+            "tenant_id": str(tenant.id),
+            "workspace_id": str(workspace_id),
+            "detail": "unexpected_status:unsupported",
+        }
+    ]
+
+
+@pytest.mark.django_db
+def test_consolidate_all_caps_failure_details_and_fails_the_task(monkeypatch):
+    """F6/F3: ``failed`` is exact, ``failures`` is capped, and the task raises.
+
+    The result payload travels through the Celery backend, so the detail list
+    is bounded at ``_CONSOLIDATION_RESULT_DETAIL_LIMIT`` entries while the
+    counter stays exact. And a pass in which every scope failed must surface as
+    a Celery FAILURE, not a SUCCESS carrying ``status="failed"`` (F3).
+    """
+    from memory import tasks as memory_tasks
+
+    with active_tenant() as tenant:
+        workspace_ids = [make_workspace_id(tenant.id) for _ in range(22)]
+
+        def behaviour(_workspace_id):
+            raise RuntimeError("engine down")
+
+        backend = _FakeConsolidationBackend(behaviour)
+        _patch_fake_backend(monkeypatch, memory_tasks, backend)
+
+        result = memory_tasks.consolidate_all(tenant.id)
+
+        assert result["status"] == "failed"
+        assert result["workspaces"] == 22
+        assert result["scheduled"] == 0
+        assert result["failed"] == 22, "the counter must stay exact"
+        assert memory_tasks._CONSOLIDATION_RESULT_DETAIL_LIMIT == 20
+        assert len(result["failures"]) == memory_tasks._CONSOLIDATION_RESULT_DETAIL_LIMIT
+        assert {
+            entry["workspace_id"] for entry in result["failures"]
+        } <= {str(workspace_id) for workspace_id in workspace_ids}
+
+        with pytest.raises(memory_tasks.ConsolidationPassFailed) as excinfo:
+            memory_tasks.consolidate_all_task(str(tenant.id))
+
+    assert excinfo.value.result["status"] == "failed"
+    assert excinfo.value.result["failed"] == 22
+
+
+@pytest.mark.django_db
+def test_consolidate_all_skips_deactivated_tenants(monkeypatch):
+    """F7: the enumeration walks ACTIVE tenants only.
+
+    A deactivated tenant's workspaces are not consolidated; an explicitly passed
+    ``tenant_id`` stays honoured (that is the operator path, exercised by the
+    other tests here).
+    """
+    from memory import tasks as memory_tasks
+
+    with active_tenant() as tenant:
+        live_workspace = make_workspace_id(tenant.id)
+
+    retired = Tenant.objects.create(
+        name=f"Retired Tenant {uuid4().hex[:8]}",
+        slug=f"retired-tenant-{uuid4().hex[:12]}",
+        is_active=False,
+    )
+    retired_workspace = make_workspace_id(retired.id)
+
+    backend = _FakeConsolidationBackend(
+        lambda _ws: ConsolidationResult(status="scheduled", detail="accepted")
+    )
+    _patch_fake_backend(monkeypatch, memory_tasks, backend)
+
+    result = memory_tasks.consolidate_all()
+
+    assert result["tenants"] == Tenant.objects.filter(is_active=True).count()
+    assert live_workspace in backend.calls
+    assert retired_workspace not in backend.calls
+
+
+def test_beat_schedule_registers_the_dream_task():
+    """F6: the periodic dream is exposed to beat under the expected task name."""
+    from django.conf import settings
+
+    assert settings.MEMORY_CONSOLIDATION_INTERVAL_MINUTES > 0, (
+        "the test environment must leave MEMORY_CONSOLIDATION_INTERVAL_MINUTES "
+        "at its default; a 0 cadence correctly produces no beat entry"
+    )
+    entry = settings.CELERY_BEAT_SCHEDULE["memory-consolidate"]
+    assert entry["task"] == "memory.consolidate_all"
+    assert entry["schedule"] == timedelta(
+        minutes=settings.MEMORY_CONSOLIDATION_INTERVAL_MINUTES
+    )
+
+
+def test_consolidation_interval_grammar_is_shared(monkeypatch):
+    """F5: one parser, two documented invalid-value policies.
+
+    The grammar (integer, whitespace-tolerant, unset -> default) is shared; a
+    typo fails the boot in settings and degrades to the default at task time.
+    """
+    from memory import tasks as memory_tasks
+    from memory.consolidation_config import (
+        DEFAULT_CONSOLIDATION_INTERVAL_MINUTES,
+        parse_consolidation_interval,
+    )
+
+    assert parse_consolidation_interval(None) == DEFAULT_CONSOLIDATION_INTERVAL_MINUTES
+    assert parse_consolidation_interval("") == DEFAULT_CONSOLIDATION_INTERVAL_MINUTES
+    assert parse_consolidation_interval(" 60 ") == 60
+    with pytest.raises(ValueError):
+        parse_consolidation_interval("hourly")
+
+    monkeypatch.setenv(memory_tasks.CONSOLIDATION_INTERVAL_ENV, "hourly")
+    assert (
+        memory_tasks.consolidation_interval_minutes()
+        == DEFAULT_CONSOLIDATION_INTERVAL_MINUTES
+    )
