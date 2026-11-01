@@ -7,9 +7,10 @@ package never has to be importable for these to run.
 The mock mirrors the real ``honcho-ai==2.3.0`` shape that the backend depends
 on -- ``client.peer(id).conclusions.{create,query,list,delete}`` for the
 pre-#1002 surface, plus ``client.session(id).add_messages(...)``,
-``peer.message(...)`` and ``peer.context()`` for the F6 session/digest surface,
-plus ``peer.chat(...)`` for the REQ-192 natural-language ``ask`` surface -- so a
-future SDK rename (the surface was called
+``peer.message(...)``, ``peer.context()`` and ``peer.search(...)`` for the F6
+session/digest and T-A4-3 derived-search surfaces, plus ``peer.chat(...)`` for the
+REQ-192 natural-language
+``ask`` surface -- so a future SDK rename (the surface was called
 ``observations`` before ``conclusions``) shows up as a failure here rather than
 only in production.
 """
@@ -905,6 +906,44 @@ class TestHonchoDigest:
         assert digest.degraded is False
         assert digest.derivation_status == "ok"
 
+    def test_digest_uses_single_context_call(self):
+        """T-A4-4: ``digest`` reads the engine exactly ONCE per peer.
+
+        ``peer.context()`` returns the representation AND the peer card in one
+        round trip, so the digest must not fall back to the old
+        ``representation(session=…)`` / ``get_card()`` pair (two calls, two
+        different moments). The counter is asserted on the fake, so a future
+        re-introduction of a second call fails here.
+        """
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.context.return_value = _peer_context("", ["prefers dark mode"])
+
+        digest = backend.digest(tenant_id, "user", user_id)
+
+        assert peer.context.call_count == 1
+        assert peer.representation.call_count == 0
+        assert peer.get_card.call_count == 0
+        assert digest.degraded is False
+        assert "prefers dark mode" in digest.text
+
+    def test_digest_reports_degraded_when_peer_context_returns_nothing(self):
+        """A ``None`` context is not a clean empty answer (F9): the documented
+        response always carries the keys, so "no payload" is an unknown, not
+        "nothing remembered"."""
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.context.return_value = None
+
+        digest = backend.digest(tenant_id, "user", user_id)
+
+        assert digest.degraded is True
+        # An unreadable context is "I cannot tell", never "nothing derived":
+        # the derivation probe cannot classify the scope either, so the digest
+        # must not claim ``none``.
+        assert digest.derivation_status == "unknown"
 
 
 class TestHonchoDerivationState:

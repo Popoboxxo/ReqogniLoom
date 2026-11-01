@@ -21,9 +21,9 @@ The suite is parametrized over the real registry implementations rather than
 over hand-written doubles: ``pgvector`` runs against the real table, ``honcho``
 against the FakeHoncho client below (same ``peer(id).conclusions.{create,
 query,list,delete}`` surface ``test_honcho_backend.py`` drives, plus the
-``session``/``message``/``context`` surface the F6 write and digest paths use)
-plus its local mirror rows -- so the contract is pinned against the actual code
-paths on both providers, not a mock of them.
+``session``/``message``/``context``/``search`` surface the F6 write, digest and
+T-A4-3/T-A4-4 paths use) plus its local mirror rows -- so the contract is pinned against the actual
+code paths on both providers, not a mock of them.
 
 ENV LIMITATION of the coverage in this module: the derivation assertions pin
 pgvector's CAPABILITY STATEMENT (``derivation_status == "unsupported"``) on the
@@ -54,6 +54,10 @@ from memory.backends import (
 )
 from memory.honcho_backend import HonchoMemoryBackend
 from memory.qdrant_backend import QdrantMemoryBackend
+from memory.testing.conformance import (
+    DerivedSearchProbe,
+    register_derived_search_fixture,
+)
 from memory.tests.qdrant_fakes import FakeQdrantClient, FakeQdrantModels
 from persistence.models import Artifact, Tenant
 from persistence.tests.factories import (
@@ -131,6 +135,10 @@ class _FakePeer:
         #: instance to raise when the test simulates an unreachable engine.
         self.chat_answer: object = ""
         self.chat_calls: list = []
+        #: ``peer.search`` (T-A4-3) result, configurable per test. Entries are
+        #: message-shaped namespaces; ``None`` means "engine found nothing".
+        self.search_results: list | None = None
+        self.search_calls: list = []
 
     def message(self, content: str, **kwargs):
         return SimpleNamespace(
@@ -142,6 +150,10 @@ class _FakePeer:
         return SimpleNamespace(
             representation=self.representation_text, peer_card=self.card
         )
+
+    def search(self, query, filters=None, limit=10):
+        self.search_calls.append({"query": query, "filters": filters, "limit": limit})
+        return self.search_results or []
 
     def chat(self, query, **kwargs):
         self.chat_calls.append((query, kwargs))
@@ -1188,3 +1200,251 @@ def test_consolidation_interval_grammar_is_shared(monkeypatch):
         memory_tasks.consolidation_interval_minutes()
         == DEFAULT_CONSOLIDATION_INTERVAL_MINUTES
     )
+
+
+# ---------------------------------------------------------------------------
+# Plan A T-A4-3 — derived search (`source`) and its QR-S04 isolation
+# ---------------------------------------------------------------------------
+
+
+def _honcho_backend_with_fake_client() -> HonchoMemoryBackend:
+    """Honcho backend wired to the offline ``_FakeHonchoClient`` above."""
+    backend = HonchoMemoryBackend()
+    backend._client = _FakeHonchoClient()
+    return backend
+
+
+def _message(message_id: str, content: str, peer_id: str):
+    """Message-level stand-in for ``honcho-ai``'s ``Message`` (only fields read)."""
+    return SimpleNamespace(id=message_id, content=content, peer_id=peer_id)
+
+
+def test_query_source_capability_is_declared_only_where_the_port_exists():
+    """T-A4-3: ``search_derived`` says whether a SECOND recall surface exists.
+
+    Honcho has one (``peer.search``); pgvector and qdrant each have exactly one
+    recall surface, so they declare ``False`` and the conformance suite asserts
+    their empty answer. Counting a non-existent surface as available would let
+    the service claim ``degraded=False`` for an answer it never produced.
+    """
+    from memory.backends import MEMORY_BACKEND_REGISTRY
+
+    declared = {
+        name: backend_cls.capabilities.search_derived
+        for name, backend_cls in MEMORY_BACKEND_REGISTRY.items()
+    }
+    assert declared.pop("honcho") is True, "honcho has peer.search (T-A4-1 spike)"
+    assert not any(declared.values()), (
+        f"only honcho has a derived search surface, but these declare it too: {declared}"
+    )
+
+
+@pytest.mark.django_db
+def test_query_source_derived_unsupported_on_pgvector(monkeypatch):
+    """T-A4-3: an unsupported source is an empty answer, never ``facts``.
+
+    Two levels: the backend returns ``[]`` for ``derived``/``all`` (so nothing
+    is read), and the service turns that into
+    ``items=[], degraded=True, detail="unsupported"`` -- the contract's exact
+    degradation. The default ``facts`` path keeps working unchanged.
+    """
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+    monkeypatch.setenv("MEMORY_BACKEND", "pgvector")
+    backend = get_memory_backend()
+    assert isinstance(backend, PgvectorMemoryBackend)
+    assert backend.capabilities.search_derived is False
+
+    with active_tenant() as tenant:
+        user = make_user(tenant)
+        backend.write(tenant.id, "user", user.id, "dark mode is preferred")
+
+        assert backend.query(tenant.id, "user", user.id, "dark", source="derived") == []
+        assert backend.query(tenant.id, "user", user.id, "dark", source="all") == []
+        facts = backend.query(tenant.id, "user", user.id, "dark", source="facts")
+        assert [ref.content for ref in facts] == ["dark mode is preferred"]
+
+        from types import SimpleNamespace
+
+        from application.memory_entry_service import MemoryEntryService
+
+        ctx = SimpleNamespace(tenant_id=tenant.id, user_id=user.id)
+        response = MemoryEntryService().search(
+            ctx, query="dark", scopes="user", source="derived"
+        )
+
+        assert response["items"] == []
+        assert response["degraded"] is True
+        assert response["ok"] is False
+        assert response["detail"] == "unsupported"
+
+        # Default remains byte-identical: same call, no `source`, facts answer.
+        default_response = MemoryEntryService().search(ctx, query="dark", scopes="user")
+        assert [item["content"] for item in default_response["items"]] == [
+            "dark mode is preferred"
+        ]
+
+
+@pytest.mark.django_db
+def test_query_source_rejects_an_unknown_source():
+    """Only the three documented sources are accepted (fail-closed)."""
+    from types import SimpleNamespace
+
+    from application.base import ValidationError
+    from application.memory_entry_service import MemoryEntryService
+
+    with active_tenant() as tenant:
+        user = make_user(tenant)
+        ctx = SimpleNamespace(tenant_id=tenant.id, user_id=user.id)
+
+        with pytest.raises(ValidationError):
+            MemoryEntryService().search(ctx, query="anything", scopes="user", source="all_")
+
+
+@pytest.mark.django_db
+def test_query_source_derived_on_honcho(monkeypatch):
+    """T-A4-3: ``derived`` reads ``peer.search`` on the scope's OWN peer.
+
+    What it really returns is message-level recall (messages authored by that
+    peer), not Honcho's derived conclusions -- the test pins the exact call
+    shape so the naming cannot silently drift. ``all`` merges the facts leg and
+    the derived leg, de-duplicated by entry id.
+    """
+    backend = _honcho_backend_with_fake_client()
+    with active_tenant() as tenant:
+        workspace = make_workspace(tenant)
+        peer_id = backend._workspace_id(tenant.id, workspace.id)
+        backend._client.peer(peer_id).search_results = [
+            _message("msg-1", "we chose Postgres", peer_id),
+            _message("msg-2", "dark mode is preferred", peer_id),
+        ]
+
+        derived = backend.query(
+            tenant.id, "workspace", workspace.id, "postgres", top_k=3, source="derived"
+        )
+
+        assert [ref.content for ref in derived] == [
+            "we chose Postgres",
+            "dark mode is preferred",
+        ]
+        assert [ref.entry_id for ref in derived] == ["msg-1", "msg-2"]
+        assert all(ref.distance is None for ref in derived)
+        assert backend._client.peer(peer_id).search_calls == [
+            {"query": "postgres", "filters": None, "limit": 3}
+        ]
+
+        # `all` = facts + the non-duplicate derived hits.
+        backend._client.peer(peer_id).search_results = [
+            _message("msg-2", "dark mode is preferred", peer_id),
+        ]
+        combined = backend.query(
+            tenant.id, "workspace", workspace.id, "preferences", top_k=3, source="all"
+        )
+        assert "dark mode is preferred" in [ref.content for ref in combined]
+
+
+@pytest.mark.django_db
+def test_derived_search_never_returns_other_workspace_peer(monkeypatch):
+    """QR-S04 conformance: a FOREIGN workspace peer's message is dropped.
+
+    The engine is asked about exactly one peer, but a misbehaving engine (or a
+    future server change) could return messages from a sibling peer in the same
+    Honcho workspace -- which spans the whole tenant. The post-filter
+    ``peer_id == requested peer`` is the control that keeps that content out of
+    the answer; without it this test is red.
+    """
+    backend = _honcho_backend_with_fake_client()
+    with active_tenant() as tenant:
+        allowed = make_workspace(tenant)
+        foreign = make_workspace(tenant)
+        allowed_peer = backend._workspace_id(tenant.id, allowed.id)
+        foreign_peer = backend._workspace_id(tenant.id, foreign.id)
+        assert allowed_peer != foreign_peer
+
+        backend._client.peer(allowed_peer).search_results = [
+            _message("m-ok", "allowed workspace fact", allowed_peer),
+            _message("m-leak", "FOREIGN workspace secret", foreign_peer),
+        ]
+
+        refs = backend.query(tenant.id, "workspace", allowed.id, "secret", source="derived")
+
+        assert [ref.content for ref in refs] == ["allowed workspace fact"]
+        # The foreign peer was never even addressed (no workspace-wide search).
+        assert backend._client._peers.get(foreign_peer) is None
+
+
+@pytest.mark.django_db
+def test_derived_search_never_returns_other_user_peer(monkeypatch):
+    """QR-S04 conformance: another user's peer content is dropped.
+
+    Same control, user-scope variant: a derived search for ``user=A`` may only
+    surface messages whose ``peer_id`` is A's own tenant-namespaced peer. A
+    message from user B (or one that carries no readable ``peer_id`` at all,
+    which is fail-closed) never becomes a result.
+    """
+    backend = _honcho_backend_with_fake_client()
+    with active_tenant() as tenant:
+        user = make_user(tenant)
+        other = make_user(tenant)
+        own_peer = backend._peer_id(tenant.id, user.id)
+        other_peer = backend._peer_id(tenant.id, other.id)
+        assert own_peer != other_peer
+
+        backend._client.peer(own_peer).search_results = [
+            _message("m-mine", "my own note", own_peer),
+            _message("m-other", "OTHER user secret", other_peer),
+            SimpleNamespace(id="m-nopeer", content="no peer id at all"),
+        ]
+
+        refs = backend.query(tenant.id, "user", user.id, "secret", source="derived")
+
+        assert [ref.content for ref in refs] == ["my own note"]
+        assert backend._client._peers.get(other_peer) is None
+
+
+@register_derived_search_fixture("honcho")
+def _honcho_derived_search_probe() -> DerivedSearchProbe:
+    """Honcho's QR-S04 probe: the offline fake answers ``peer.search`` (T-A4-3).
+
+    The probe ships here, not in ``conformance.py``, because it needs this
+    module's ``_FakeHonchoClient`` -- conformance stays free of provider fakes
+    and only owns the registry and the assertion (T-A0b-4).
+    """
+    backend = _honcho_backend_with_fake_client()
+    tenant_id, workspace_id = uuid4(), uuid4()
+    own_peer_id = backend._scope_peer_id(tenant_id, "workspace", workspace_id)
+    fake_peer = backend._client.peer(own_peer_id)
+
+    def _install_messages(messages: list) -> None:
+        fake_peer.search_results = [SimpleNamespace(**spec) for spec in messages]
+
+    return DerivedSearchProbe(
+        backend=backend,
+        tenant_id=tenant_id,
+        scope="workspace",
+        scope_id=workspace_id,
+        own_peer_id=own_peer_id,
+        install_messages=_install_messages,
+    )
+
+
+def test_derived_search_isolation_case_runs_for_every_capable_backend():
+    """T-A0b-4/QR-S04: the isolation case is reusable, not per provider.
+
+    Every backend declaring ``search_derived=True`` must register a probe, and
+    every registered probe must pass the shared assertion, so a future backend
+    with a second recall surface cannot ship without its foreign-peer and
+    unattributable-message drops being checked.
+    """
+    from memory.backends import MEMORY_BACKEND_REGISTRY
+    from memory.testing.conformance import (
+        DERIVED_SEARCH_FIXTURES,
+        assert_derived_search_isolated,
+        missing_derived_search_fixtures,
+    )
+
+    assert missing_derived_search_fixtures() == []
+    for name in sorted(DERIVED_SEARCH_FIXTURES):
+        assert MEMORY_BACKEND_REGISTRY[name].capabilities.search_derived is True, (
+            f"{name}: registered a derived probe without declaring the capability"
+        )
+        assert_derived_search_isolated(name, DERIVED_SEARCH_FIXTURES[name]())
