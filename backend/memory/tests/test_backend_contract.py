@@ -21,9 +21,9 @@ The suite is parametrized over the real registry implementations rather than
 over hand-written doubles: ``pgvector`` runs against the real table, ``honcho``
 against the FakeHoncho client below (same ``peer(id).conclusions.{create,
 query,list,delete}`` surface ``test_honcho_backend.py`` drives, plus the
-``session``/``message``/``representation`` surface the F6 write and digest paths
-use) plus its local mirror rows -- so the contract is pinned against the actual
-code paths on both providers, not a mock of them.
+``session``/``message``/``context`` surface the F6 write and digest paths use)
+plus its local mirror rows -- so the contract is pinned against the actual code
+paths on both providers, not a mock of them.
 
 ENV LIMITATION of the coverage in this module: the derivation assertions pin
 pgvector's CAPABILITY STATEMENT (``derivation_status == "unsupported"``) on the
@@ -137,11 +137,11 @@ class _FakePeer:
             content=content, metadata=kwargs.get("metadata"), peer_id=kwargs.get("peer_id")
         )
 
-    def representation(self, session=None, **kwargs) -> str:
-        return self.representation_text
-
-    def get_card(self):
-        return self.card
+    def context(self, **kwargs):
+        """ONE call returning both digest fields (T-A4-4)."""
+        return SimpleNamespace(
+            representation=self.representation_text, peer_card=self.card
+        )
 
     def chat(self, query, **kwargs):
         self.chat_calls.append((query, kwargs))

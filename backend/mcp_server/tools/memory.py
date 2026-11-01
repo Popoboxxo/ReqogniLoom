@@ -74,7 +74,7 @@ from mcp_server.tools.base import (
     require_param,
     require_uuid,
 )
-from memory.backends import VALID_REASONING_LEVELS
+from memory.backends import VALID_QUERY_SOURCES, VALID_REASONING_LEVELS
 from memory.health import envelope
 from memory.policy import MemoryPolicy
 from memory.ratelimit import MemoryWriteRateLimitExceeded
@@ -195,7 +195,12 @@ class MemoryToolGroup(BaseToolGroup):
             "name": "memory.query",
             "description": (
                 "Semantic search over one or more memory scopes "
-                "(workspace, user, artifact)."
+                "(workspace, user, artifact). 'source' selects what is "
+                "searched: 'facts' (default) the backend's stored/derived "
+                "conclusions, 'derived' its message-level (raw messages) "
+                "recall, 'all' both. On a backend without a second recall "
+                "surface 'derived'/'all' answer an empty list with "
+                "degraded=true."
             ),
             "inputSchema": {
                 "type": "object",
@@ -209,6 +214,13 @@ class MemoryToolGroup(BaseToolGroup):
                     "artifact_id": {"type": "string", "format": "uuid"},
                     "query": {"type": "string"},
                     "top_k": {"type": "integer", "default": 5},
+                    "source": {
+                        "type": "string",
+                        # Derived from the backend contract (T-A4-3) so the
+                        # MCP surface and VALID_QUERY_SOURCES cannot drift.
+                        "enum": list(VALID_QUERY_SOURCES),
+                        "default": "facts",
+                    },
                 },
                 "required": ["query"],
             },
@@ -459,7 +471,12 @@ class MemoryToolGroup(BaseToolGroup):
     def _handle_query(
         self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        """Semantic search over one or more scopes (read-only)."""
+        """Semantic search over one or more scopes (read-only).
+
+        ``source`` (Plan A T-A4-3) is forwarded unchanged; the service validates
+        it against ``VALID_QUERY_SOURCES`` and maps an unsupported source to an
+        empty, ``degraded=true``, ``detail="unsupported"`` answer.
+        """
         query_text = require_param(params, "query")
         scopes = params.get("scopes") or params.get("scope")
         workspace_id = optional_uuid(params, "workspace_id")
@@ -473,6 +490,7 @@ class MemoryToolGroup(BaseToolGroup):
                 workspace_id=workspace_id,
                 artifact_id=artifact_id,
                 top_k=top_k,
+                source=params.get("source") or "facts",
             ),
             entries_key=True,
         )

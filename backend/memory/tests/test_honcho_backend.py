@@ -7,9 +7,9 @@ package never has to be importable for these to run.
 The mock mirrors the real ``honcho-ai==2.3.0`` shape that the backend depends
 on -- ``client.peer(id).conclusions.{create,query,list,delete}`` for the
 pre-#1002 surface, plus ``client.session(id).add_messages(...)``,
-``peer.message(...)`` and ``peer.representation(...)/get_card()`` for the F6
-session/digest surface, plus ``peer.chat(...)`` for the REQ-192 natural-language
-``ask`` surface -- so a future SDK rename (the surface was called
+``peer.message(...)`` and ``peer.context()`` for the F6 session/digest surface,
+plus ``peer.chat(...)`` for the REQ-192 natural-language ``ask`` surface -- so a
+future SDK rename (the surface was called
 ``observations`` before ``conclusions``) shows up as a failure here rather than
 only in production.
 """
@@ -50,6 +50,16 @@ def _conclusion(entry_id: str, content: str, level: str = "explicit"):
     exactly this field, so tests that simulate deriver output set it here.
     """
     return SimpleNamespace(id=entry_id, content=content, level=level)
+
+
+def _peer_context(representation: str = "", peer_card=None):
+    """Stand-in for the ``peer.context()`` payload (T-A4-4).
+
+    Reads the two documented fields the digest uses; the SDK surface itself is
+    a single call, so tests configure this ONE object instead of the old
+    ``representation()`` + ``get_card()`` pair.
+    """
+    return SimpleNamespace(representation=representation, peer_card=peer_card)
 
 
 def _mock_client():
@@ -633,18 +643,19 @@ class TestHonchoDigest:
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
         peer = client.peer(f"{tenant_id}_{user_id}")
-        peer.representation.return_value = "Knows that the answer is 42."
+        peer.context.return_value = _peer_context("Knows that the answer is 42.")
 
         digest = backend.digest(tenant_id, "user", user_id)
 
         assert "Knows that the answer is 42." in digest.text
         assert digest.backend == "honcho"
         assert digest.degraded is False
-        # Scoped to the scope's session: the workspace-wide representation would
-        # mix every scope's facts into one digest.
-        peer.representation.assert_called_once_with(
-            session=backend._scope_session_id(tenant_id, "user", user_id)
-        )
+        # T-A4-4: the peer context is the ONE engine read for the digest. The
+        # old representation()/get_card() pair must be gone -- calling them
+        # would be the two-round-trip surface this task replaces.
+        assert peer.context.call_count == 1
+        assert peer.representation.call_count == 0
+        assert peer.get_card.call_count == 0
         assert "facts=" not in digest.text  # free-form prose is not counted
         # AP-B5.1 (#1155): a non-empty representation IS deriver output, so the
         # digest says so machine-readably -- without a count, because the
@@ -656,8 +667,9 @@ class TestHonchoDigest:
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
         peer = client.peer(f"{tenant_id}_{user_id}")
-        peer.representation.return_value = ""
-        peer.get_card.return_value = ["works on ReqogniLoom", "prefers dark mode"]
+        peer.context.return_value = _peer_context(
+            "", ["works on ReqogniLoom", "prefers dark mode"]
+        )
 
         digest = backend.digest(tenant_id, "user", user_id)
 
@@ -674,7 +686,7 @@ class TestHonchoDigest:
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
         peer = client.peer(f"{tenant_id}_{user_id}")
-        peer.representation.side_effect = RuntimeError("engine unreachable")
+        peer.context.side_effect = RuntimeError("engine unreachable")
         peer.conclusions.list.return_value = SimpleNamespace(
             items=[_conclusion("a", "one"), _conclusion("b", "two")]
         )
@@ -702,8 +714,7 @@ class TestHonchoDigest:
             peer.conclusions.create.return_value = [_conclusion("nano1", "the answer is 42")]
             backend.write(tenant.id, "user", user.id, "the answer is 42")
 
-            peer.representation.side_effect = RuntimeError("engine unreachable")
-            peer.get_card.side_effect = RuntimeError("engine unreachable")
+            peer.context.side_effect = RuntimeError("engine unreachable")
             peer.conclusions.list.side_effect = RuntimeError("engine unreachable")
 
             digest = backend.digest(tenant.id, "user", user.id)
@@ -718,8 +729,7 @@ class TestHonchoDigest:
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
         peer = client.peer(f"{tenant_id}_{user_id}")
-        peer.representation.return_value = ""
-        peer.get_card.return_value = None
+        peer.context.return_value = _peer_context("", None)
         peer.conclusions.list.return_value = SimpleNamespace(items=[])
 
         digest = backend.digest(tenant_id, "user", user_id)
@@ -745,8 +755,7 @@ class TestHonchoDigest:
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
         peer = client.peer(f"{tenant_id}_{user_id}")
-        peer.representation.return_value = ""
-        peer.get_card.return_value = None
+        peer.context.return_value = _peer_context("", None)
         peer.conclusions.list.return_value = SimpleNamespace(items=[])
         client.queue_status.return_value = SimpleNamespace(
             total_work_units=10,
@@ -769,8 +778,7 @@ class TestHonchoDigest:
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
         peer = client.peer(f"{tenant_id}_{user_id}")
-        peer.representation.return_value = ""
-        peer.get_card.return_value = None
+        peer.context.return_value = _peer_context("", None)
         peer.conclusions.list.return_value = SimpleNamespace(
             items=[
                 _conclusion("a", "stored fact"),
@@ -795,7 +803,7 @@ class TestHonchoDigest:
             backend, client = _backend_with_mock_client()
             user = make_user(tenant)
             peer = client.peer(f"{tenant.id}_{user.id}")
-            peer.representation.side_effect = RuntimeError("down")
+            peer.context.side_effect = RuntimeError("down")
             peer.conclusions.list.side_effect = RuntimeError("down")
             monkeypatch.setattr(
                 HonchoMemoryBackend,
@@ -820,8 +828,7 @@ class TestHonchoDigest:
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
         peer = client.peer(f"{tenant_id}_{user_id}")
-        peer.representation.return_value = ""
-        peer.get_card.return_value = None
+        peer.context.return_value = _peer_context("", None)
         peer.conclusions.list.return_value = SimpleNamespace(items=[])
 
         backend.digest(tenant_id, "user", user_id)
@@ -839,8 +846,7 @@ class TestHonchoDigest:
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
         peer = client.peer(f"{tenant_id}_{user_id}")
-        peer.representation.return_value = ""
-        peer.get_card.return_value = None
+        peer.context.return_value = _peer_context("", None)
         peer.conclusions.list.return_value = SimpleNamespace(
             items=[_conclusion("a", "one"), _conclusion("b", "two")]
         )
@@ -865,7 +871,7 @@ class TestHonchoDigest:
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
         peer = client.peer(f"{tenant_id}_{user_id}")
-        peer.representation.return_value = "Knows that the answer is 42."
+        peer.context.return_value = _peer_context("Knows that the answer is 42.")
         client.queue_status.return_value = SimpleNamespace(
             total_work_units=9,
             completed_work_units=5,
@@ -886,7 +892,7 @@ class TestHonchoDigest:
         backend, client = _backend_with_mock_client()
         tenant_id, user_id = uuid4(), uuid4()
         peer = client.peer(f"{tenant_id}_{user_id}")
-        peer.representation.return_value = "Knows that the answer is 42."
+        peer.context.return_value = _peer_context("Knows that the answer is 42.")
         client.queue_status.return_value = SimpleNamespace(
             total_work_units=4,
             completed_work_units=4,
@@ -898,6 +904,8 @@ class TestHonchoDigest:
 
         assert digest.degraded is False
         assert digest.derivation_status == "ok"
+
+
 
 class TestHonchoDerivationState:
     """AP-B5.1 (#1155): the derivation probe on the empirically verified

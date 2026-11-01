@@ -124,6 +124,7 @@ from application.preference_registry import get_preference_key, validate_prefere
 from application.preference_service import PreferenceService, levels_for
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService
+from memory.backends import VALID_QUERY_SOURCES
 from memory.health import envelope
 from memory.injection_policy import (
     ALLOW_USER_OPT_OUT_KEY,
@@ -1519,8 +1520,9 @@ class WorkspaceMemorySearchView(APIView):
     """``/api/v1/workspaces/<uuid:workspace_id>/memory/search/``.
 
     GET: semantic search. Query params: ``q`` (required), ``scope`` (single) or
-    ``scopes`` (comma-separated), ``artifact_id``, ``top_k``. Any workspace
-    member may read; the service applies the full ``MemoryPolicy`` matrix.
+    ``scopes`` (comma-separated), ``source`` (``facts``/``derived``/``all``),
+    ``artifact_id``, ``top_k``. Any workspace member may read; the service
+    applies the full ``MemoryPolicy`` matrix.
     """
 
     @extend_schema(
@@ -1563,6 +1565,21 @@ class WorkspaceMemorySearchView(APIView):
                     f"Maximum number of hits (clamped to 1..{MEMORY_MAX_PAGE_SIZE})."
                 ),
             ),
+            OpenApiParameter(
+                "source",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                enum=list(VALID_QUERY_SOURCES),
+                default="facts",
+                description=(
+                    "What to search. 'facts' (default) reads the backend's "
+                    "stored/derived conclusions, 'derived' its message-level "
+                    "(raw messages) recall, 'all' both. On a backend "
+                    "without a second recall surface (pgvector, qdrant) "
+                    "'derived'/'all' answer an empty list with "
+                    "degraded=true, detail=\"unsupported\"."
+                ),
+            ),
         ],
         responses={200: MemorySearchResponseSerializer},
     )
@@ -1594,6 +1611,7 @@ class WorkspaceMemorySearchView(APIView):
                 workspace_id=workspace_id,
                 artifact_id=artifact_id,
                 top_k=top_k,
+                source=request.query_params.get("source") or "facts",
             )
         except (PermissionDeniedError, NotFoundError, ValidationError) as exc:
             return _memory_error_response(exc, lang)

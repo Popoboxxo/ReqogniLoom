@@ -65,6 +65,7 @@ from memory.backends import (
     MemoryEntryId,
     MemoryEntryRef,
     MemoryHealth,
+    MemoryQuerySource,
     _digest_text,
     _maybe_uuid,
     _ref_from_entry,
@@ -808,15 +809,30 @@ class QdrantMemoryBackend(MemoryBackend):
         return self.write(tenant_id, scope, scope_id, content, source_event_id=source_event_id)
 
     def query(
-        self, tenant_id: UUID, scope: str, scope_id: UUID, query_text: str, top_k: int = 5
+        self,
+        tenant_id: UUID,
+        scope: str,
+        scope_id: UUID,
+        query_text: str,
+        top_k: int = 5,
+        *,
+        source: MemoryQuerySource = "facts",
     ) -> list[MemoryEntryRef]:
         """Vector search inside the scope's collection.
+
+        T-A4-3: Qdrant has one recall surface (the points it indexed), so
+        ``derived``/``all`` are unsupported and answer ``[]`` -- the service
+        reports ``degraded=True, detail="unsupported"``. This check runs BEFORE
+        the tenant guard on purpose: an unsupported source reads nothing, so it
+        cannot hide a missing tenant (no query is issued that could be masked).
 
         Fail-open on a network/provider outage (``[]``), but a missing tenant --
         or any other collection-boundary ``ValueError`` -- is an ERROR and is
         re-raised (ADR-020 §5): a cross-tenant / no-tenant query must never be
         masked as "nothing remembered".
         """
+        if not self.query_source_supported(source):
+            return []
         if not tenant_id:
             raise ValueError("qdrant memory query requires a tenant id (no tenant context)")
         try:

@@ -36,6 +36,7 @@ from typing import Any
 from uuid import UUID
 
 from memory.backends import (
+    VALID_QUERY_SOURCES,
     VALID_REASONING_LEVELS,
     MemoryAnswer,
     MemoryDigest,
@@ -226,12 +227,31 @@ class MemoryEntryService(ServiceBase):
         workspace_id: Any = None,
         artifact_id: Any = None,
         top_k: int = 5,
+        source: str = "facts",
     ) -> dict[str, Any]:
         """Semantic search across one or more scopes, merged by distance.
 
         ``scopes`` defaults to ``artifact`` when ``artifact_id`` is given, else
         ``workspace`` when ``workspace_id`` is given, else ``user``. Every
         requested scope must be readable by the caller (fail-closed).
+
+        ``source`` (Plan A T-A4-3) selects WHAT is searched and is passed
+        through to :meth:`MemoryBackend.query`:
+
+        * ``facts`` (default) -- unchanged behaviour, the engine's
+          stored/derived conclusion search;
+        * ``derived`` -- the backend's message-level (raw messages) recall for
+          the same, already-authorised scopes (on Honcho: ``peer.search``, i.e.
+          messages authored by that scope's own peer -- NOT Honcho's derived
+          conclusions; see :meth:`HonchoMemoryBackend.query`);
+        * ``all`` -- both, de-duplicated.
+
+        On a backend whose ``capabilities.search_derived`` is ``False``
+        (``pgvector``, ``qdrant``) both ``derived`` and ``all`` answer an empty
+        ``items`` list with ``degraded=True, detail="unsupported"`` -- the
+        contract's "cannot serve this source" answer, never a silent fall-back
+        to ``facts``. Authorization is still evaluated first, so an unauthorised
+        caller gets its normal 403 instead of a capability message.
 
         A per-scope backend failure does not abort the search: the failing
         scope is skipped and the top-level response surfaces it as
@@ -243,6 +263,22 @@ class MemoryEntryService(ServiceBase):
         query = (query or "").strip()
         if not query:
             raise ValidationError("query must not be empty")
+        if source is None:
+            source = "facts"
+        if not isinstance(source, str):
+            # A non-string (e.g. ``{"source": 123}`` over MCP) must be a
+            # validation error, not an ``AttributeError`` from ``.strip()`` --
+            # which would surface as a 500 / INTERNAL_ERROR instead of 400.
+            raise ValidationError(
+                f"unknown search source {source!r}; expected one of "
+                f"{', '.join(VALID_QUERY_SOURCES)}"
+            )
+        source = source.strip().lower() or "facts"
+        if source not in VALID_QUERY_SOURCES:
+            raise ValidationError(
+                f"unknown search source {source!r}; expected one of "
+                f"{', '.join(VALID_QUERY_SOURCES)}"
+            )
         scope_list = self._normalize_scopes(scopes, workspace_id, artifact_id)
         top_k = max(1, min(int(top_k), MAX_PAGE_SIZE))
 
@@ -254,11 +290,26 @@ class MemoryEntryService(ServiceBase):
             for scope in scope_list:
                 self._assert_can_read_scope(ctx, scope, workspace_id, artifact_id)
             backend = get_memory_backend()
+            if not backend.query_source_supported(source):
+                # T-A4-3 contract: an unsupported source is an empty answer
+                # plus an explicit degradation reason. ``ok=False`` keeps the
+                # envelope invariant ``degraded == (not ok) or health.degraded``
+                # intact -- this call could not answer what was asked.
+                response = {
+                    "items": [],
+                    "query": query,
+                    "scopes": scope_list,
+                    **envelope(),
+                }
+                response["ok"] = False
+                response["degraded"] = True
+                response["detail"] = "unsupported"
+                return response
             for scope in scope_list:
                 scope_id = self._scope_id(ctx, scope, workspace_id, artifact_id)
                 try:
                     refs = backend.query(
-                        ctx.tenant_id, scope, scope_id, query, top_k=top_k
+                        ctx.tenant_id, scope, scope_id, query, top_k=top_k, source=source
                     )
                 except Exception as exc:  # noqa: BLE001 - F9: report, never swallow
                     # Label the cause like the engine surfaces do

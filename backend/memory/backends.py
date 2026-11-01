@@ -117,6 +117,20 @@ MemoryEntryId = Union[UUID, str]
 #: hand-maintained copies.
 VALID_MEMORY_SCOPES = ("user", "workspace", "artifact")
 
+#: Sources :meth:`MemoryBackend.query` can read (Plan A T-A4-3). ``facts`` is
+#: the historical behaviour (the engine's stored/derived *conclusions*) and
+#: must stay byte-identical to it; ``derived`` reads the backend's
+#: message-level (raw messages) recall; ``all`` merges both. A backend whose
+#: :attr:`MemoryCapabilities.search_derived` is ``False`` returns an empty list
+#: for ``derived``/``all`` and the service answers
+#: ``degraded=True, detail="unsupported"`` -- never a silent fall-back to
+#: ``facts``, because a caller that asked for ``derived`` must not receive a
+#: different answer under the same name.
+VALID_QUERY_SOURCES = ("facts", "derived", "all")
+
+#: The ``source`` field type of :meth:`MemoryBackend.query`.
+MemoryQuerySource = Literal["facts", "derived", "all"]
+
 #: Reasoning levels :meth:`MemoryBackend.ask` accepts, mirroring the exact
 #: vocabulary of ``honcho-ai==2.5.1``'s ``peer.chat(reasoning_level=...)`` (a
 #: ``Literal["minimal", "low", "medium", "high", "max"]``). Kept here so the
@@ -678,10 +692,55 @@ class MemoryBackend(ABC):
 
     @abstractmethod
     def query(
-        self, tenant_id: UUID, scope: str, scope_id: UUID, query_text: str, top_k: int = 5
+        self,
+        tenant_id: UUID,
+        scope: str,
+        scope_id: UUID,
+        query_text: str,
+        top_k: int = 5,
+        *,
+        source: MemoryQuerySource = "facts",
     ) -> list[MemoryEntryRef]:
-        """Return the ``top_k`` entries most semantically similar to ``query_text``."""
+        """Return the ``top_k`` entries most semantically similar to ``query_text``.
+
+        ``source`` (Plan A T-A4-3) selects WHAT is searched, and every backend
+        must honour it literally:
+
+        * ``facts`` (default, historical behaviour) -- the stored/derived
+          *conclusions* of the scope. Must stay byte-identical to the
+          pre-T-A4-3 result for the same state;
+        * ``derived`` -- the backend's own message-level (raw messages) recall
+          for the SAME scope. On Honcho that is ``peer.search`` (messages
+          authored by the scope's peer), not Honcho's derived conclusions:
+          "derived" names the *other* recall surface of the backend, never a
+          fabricated conclusion list;
+        * ``all`` -- the union of both, de-duplicated by ``entry_id``.
+
+        A backend that cannot serve a non-``facts`` source
+        (:attr:`MemoryCapabilities.search_derived` is ``False``) MUST return an
+        empty list for ``derived``/``all`` -- it must never silently answer with
+        ``facts`` under a different name. The service maps that empty answer to
+        ``degraded=True, detail="unsupported"`` (see
+        ``MemoryEntryService.search``).
+
+        A ``derived`` search is peer-scoped: it may only read the peer that
+        corresponds to THIS ``(scope, scope_id)`` pair, and must post-filter its
+        results by that peer id (QR-S04) so a misbehaving engine can never leak
+        a sibling peer's content into the caller's answer.
+        """
         ...
+
+    def query_source_supported(self, source: str) -> bool:
+        """Whether this backend can answer ``source`` (Plan A T-A4-3).
+
+        ``facts`` is always supported (it is the historical contract); every
+        other source requires :attr:`MemoryCapabilities.search_derived`. Kept
+        on the backend so the service and the backends cannot drift apart on
+        which store really has a second recall surface.
+        """
+        if source == "facts":
+            return True
+        return bool(self.capabilities.search_derived)
 
     @abstractmethod
     def list_recent(
@@ -1100,8 +1159,22 @@ class PgvectorMemoryBackend(MemoryBackend):
         )
 
     def query(
-        self, tenant_id: UUID, scope: str, scope_id: UUID, query_text: str, top_k: int = 5
+        self,
+        tenant_id: UUID,
+        scope: str,
+        scope_id: UUID,
+        query_text: str,
+        top_k: int = 5,
+        *,
+        source: MemoryQuerySource = "facts",
     ) -> list[MemoryEntryRef]:
+        # T-A4-3: pgvector has exactly one recall surface (the embedding
+        # column). ``derived``/``all`` are therefore unsupported and answer an
+        # empty list -- the service turns that into
+        # ``degraded=True, detail="unsupported"``. Returning the facts anyway
+        # would be a silent re-labelling of the answer, not a degradation.
+        if not self.query_source_supported(source):
+            return []
         query_embedding = generate_embedding(query_text)
         if query_embedding is None:
             return []
