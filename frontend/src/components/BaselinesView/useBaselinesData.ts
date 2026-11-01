@@ -12,6 +12,7 @@
  * keeps only UI + form state and the compare-panel's local diff state.
  */
 
+import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   baselinesApi,
@@ -26,7 +27,15 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 
 export const baselineKeys = {
   all: ["baselines"] as const,
-  list: (workspaceId: string) => ["baselines", "list", workspaceId] as const,
+  /**
+   * Prefix key covering every tag-filtered list of one workspace, so a
+   * mutation can invalidate all of them at once. `list(workspaceId)` alone is
+   * NOT a prefix of `list(workspaceId, "Release")` (the trailing key element
+   * differs), which is why this exists separately (F4.3).
+   */
+  lists: (workspaceId: string) => ["baselines", "list", workspaceId] as const,
+  list: (workspaceId: string, tag = "") =>
+    ["baselines", "list", workspaceId, tag] as const,
   artifacts: (workspaceId: string) =>
     ["baselines", "artifacts", workspaceId] as const,
   detail: (id: string) => ["baselines", "detail", id] as const,
@@ -56,6 +65,8 @@ export interface CreateBaselinePayload {
    * an absent value keeps the backend's fail-closed default.
    */
   overrideReason?: string;
+  /** F4.3: optional labels to attach at creation time. */
+  tags?: string[];
 }
 
 export interface UseBaselinesDataParams {
@@ -63,10 +74,18 @@ export interface UseBaselinesDataParams {
   formScope: BaselineScope;
   formArtifactId: string;
   selectedId: string | null;
+  /** F4.3: server-side tag filter (`GET /baselines/?tag=…`); empty = all. */
+  tagFilter?: string;
 }
 
 export interface BaselinesData {
   baselines: Baseline[];
+  /**
+   * F4.3: every tag currently known in the workspace, sorted — the options of
+   * the list's tag filter. Derived from the unfiltered list so selecting one
+   * tag does not collapse the menu to that single entry.
+   */
+  allTags: string[];
   artifacts: Artifact[];
   isLoading: boolean;
   error: string | null;
@@ -79,6 +98,8 @@ export interface BaselinesData {
   refreshList: () => Promise<void>;
   createBaseline: (payload: CreateBaselinePayload) => Promise<Baseline>;
   deleteBaseline: (id: string) => Promise<void>;
+  /** F4.3: replace one baseline's complete tag set. */
+  setTags: (id: string, tags: string[]) => Promise<void>;
   compareBaselines: (aId: string, bId: string) => Promise<BaselineDiff>;
 }
 
@@ -86,16 +107,46 @@ export function useBaselinesData(
   params: UseBaselinesDataParams,
 ): BaselinesData {
   const { showForm, formScope, formArtifactId, selectedId } = params;
+  const tagFilter = params.tagFilter?.trim() ?? "";
   const { activeWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
   const baselinesQuery = useQuery({
-    queryKey: baselineKeys.list(workspaceId ?? ""),
+    queryKey: baselineKeys.list(workspaceId ?? "", tagFilter),
     queryFn: async () =>
-      (await baselinesApi.list(workspaceId as string)).results,
+      (
+        await baselinesApi.list({
+          workspace_id: workspaceId as string,
+          ...(tagFilter ? { tag: tagFilter } : {}),
+        })
+      ).results,
     enabled: !!workspaceId,
   });
+
+  // F4.3: only needed while a filter is active — with no filter this key is
+  // identical to `baselinesQuery`'s and TanStack Query de-duplicates it.
+  const tagOptionsQuery = useQuery({
+    queryKey: baselineKeys.list(workspaceId ?? "", ""),
+    queryFn: async () =>
+      (await baselinesApi.list({ workspace_id: workspaceId as string }))
+        .results,
+    enabled: !!workspaceId && !!tagFilter,
+  });
+
+  const allTags = useMemo(() => {
+    const source = (tagFilter ? tagOptionsQuery.data : baselinesQuery.data) ?? [];
+    // Case-insensitive de-duplication, first spelling wins — the backend's own
+    // uniqueness rule — then sorted for a stable option order.
+    const byKey = new Map<string, string>();
+    for (const baseline of source) {
+      for (const tag of baseline.tags ?? []) {
+        const key = tag.toLowerCase();
+        if (!byKey.has(key)) byKey.set(key, tag);
+      }
+    }
+    return [...byKey.values()].sort((a, b) => a.localeCompare(b));
+  }, [tagFilter, tagOptionsQuery.data, baselinesQuery.data]);
 
   const artifactsQuery = useQuery({
     queryKey: baselineKeys.artifacts(workspaceId ?? ""),
@@ -138,8 +189,9 @@ export function useBaselinesData(
   const refreshList = async (): Promise<void> => {
     if (!workspaceId) return;
     await Promise.all([
+      // `lists` is the prefix covering every tag-filtered list query (F4.3).
       queryClient.invalidateQueries({
-        queryKey: baselineKeys.list(workspaceId),
+        queryKey: baselineKeys.lists(workspaceId),
       }),
       queryClient.invalidateQueries({
         queryKey: baselineKeys.artifacts(workspaceId),
@@ -164,6 +216,8 @@ export function useBaselinesData(
         // generating its timestamp default instead of storing an empty name.
         ...(name ? { name } : {}),
         ...(overrideReason ? { override_reason: overrideReason } : {}),
+        // F4.3: an empty tag list is omitted — the backend defaults to no tags.
+        ...(payload.tags && payload.tags.length > 0 ? { tags: payload.tags } : {}),
       });
     },
     onSuccess: () => void refreshList(),
@@ -174,6 +228,19 @@ export function useBaselinesData(
     onSuccess: () => void refreshList(),
   });
 
+  // F4.3: tag replacement is metadata-only on the server, but the list rows and
+  // the open detail both carry `tags`, so both are invalidated.
+  const setTagsMutation = useMutation({
+    mutationFn: ({ id, tags }: { id: string; tags: string[] }) =>
+      baselinesApi.setTags(id, tags),
+    onSuccess: async (_result, variables) => {
+      await refreshList();
+      await queryClient.invalidateQueries({
+        queryKey: baselineKeys.detail(variables.id),
+      });
+    },
+  });
+
   const compareMutation = useMutation({
     mutationFn: ({ aId, bId }: { aId: string; bId: string }) =>
       baselinesApi.compare(aId, bId),
@@ -181,6 +248,7 @@ export function useBaselinesData(
 
   return {
     baselines: baselinesQuery.data ?? [],
+    allTags,
     artifacts: artifactsQuery.data ?? [],
     isLoading:
       !!workspaceId &&
@@ -205,6 +273,8 @@ export function useBaselinesData(
     refreshList,
     createBaseline: (payload) => createMutation.mutateAsync(payload),
     deleteBaseline: (id) => deleteMutation.mutateAsync(id),
+    setTags: (id, tags) =>
+      setTagsMutation.mutateAsync({ id, tags }).then(() => undefined),
     compareBaselines: (aId, bId) =>
       compareMutation.mutateAsync({ aId, bId }),
   };

@@ -38,6 +38,8 @@ import {
   BaselineComparePanel,
   BaselineEntriesSection,
 } from "./BaselinesPanels";
+import { BaselineTagsEditor } from "./BaselineTagsEditor";
+import { TagInput } from "../shared/tag-input";
 import styles from "./BaselinesView.module.css";
 import { useBaselinesData } from "./useBaselinesData";
 
@@ -97,6 +99,8 @@ export default function BaselinesView(): JSX.Element {
   // #181: list-panel search (by name) + scope filter (ListToolbar).
   const [listSearch, setListSearch] = useState<string>("");
   const [scopeFilter, setScopeFilter] = useState<BaselineScope | "">("");
+  // F4.3: server-side tag filter (`GET /api/v1/baselines/?tag=…`).
+  const [tagFilter, setTagFilter] = useState<string>("");
   const [showForm, setShowForm] = useState(false);
   // #1282: the create flow is a modal <Dialog> now — the name field is its
   // initial focus target (matching the other create dialogs).
@@ -107,6 +111,8 @@ export default function BaselinesView(): JSX.Element {
   // baseline was actually taken for. Optional on purpose: leaving it blank
   // keeps the old generated-name behaviour rather than blocking the action.
   const [formName, setFormName] = useState<string>("");
+  // F4.3: optional labels for the new baseline.
+  const [formTags, setFormTags] = useState<string[]>([]);
   const [formArtifactId, setFormArtifactId] = useState<string>("");
   // REQ-L1-049: scope is now one of {document, project, global}; default
   // is "project" to match the backend model default.
@@ -135,6 +141,7 @@ export default function BaselinesView(): JSX.Element {
   // lives in useBaselinesData (TanStack Query — REQ-049/REQ-050).
   const {
     baselines,
+    allTags,
     artifacts,
     isLoading,
     error,
@@ -147,8 +154,9 @@ export default function BaselinesView(): JSX.Element {
     refreshList,
     createBaseline,
     deleteBaseline,
+    setTags,
     compareBaselines,
-  } = useBaselinesData({ showForm, formScope, formArtifactId, selectedId });
+  } = useBaselinesData({ showForm, formScope, formArtifactId, selectedId, tagFilter });
 
   // The render still reads a `state`-shaped object (kept for parity with the
   // pre-decomposition markup).
@@ -175,10 +183,12 @@ export default function BaselinesView(): JSX.Element {
           scope: formScope,
           artifactId: formArtifactId,
           name: formName,
+          tags: formTags,
           ...(withOverride ? { overrideReason } : {}),
         });
         setShowForm(false);
         setFormName("");
+        setFormTags([]);
         setFormArtifactId("");
         setFormScope("project");
         setGateBlocked(false);
@@ -193,7 +203,7 @@ export default function BaselinesView(): JSX.Element {
         setIsSaving(false);
       }
     },
-    [formArtifactId, formScope, formName, overrideReason, t, createBaseline],
+    [formArtifactId, formScope, formName, formTags, overrideReason, t, createBaseline],
   );
 
   // UI-20: unified on the shared ConfirmDialog instead of window.confirm —
@@ -264,6 +274,7 @@ export default function BaselinesView(): JSX.Element {
     setShowCompare(false);
     setSelectedId(null);
     setFormName("");
+    setFormTags([]);
     setCreateError(null);
     setGateBlocked(false);
     setOverrideReason("");
@@ -272,6 +283,7 @@ export default function BaselinesView(): JSX.Element {
 
   const closeCreateForm = useCallback((): void => {
     setShowForm(false);
+    setFormTags([]);
     setCreateError(null);
     setGateBlocked(false);
     setOverrideReason("");
@@ -316,10 +328,11 @@ export default function BaselinesView(): JSX.Element {
   const selectedBaseline =
     state.baselines.find((bl) => bl.id === selectedId) ?? null;
 
-  const hasActiveListControls = Boolean(listSearch || scopeFilter);
+  const hasActiveListControls = Boolean(listSearch || scopeFilter || tagFilter);
   const resetListFilters = (): void => {
     setListSearch("");
     setScopeFilter("");
+    setTagFilter("");
   };
 
   const overrideSubmitDisabled =
@@ -365,6 +378,27 @@ export default function BaselinesView(): JSX.Element {
         leftMinWidth={280}
         leftPanel={
           <>
+        {/* F4.3: tag filter. Server-side (`?tag=…`) — the options come from
+            the unfiltered list so picking one does not collapse the menu. */}
+        <div className={styles.tagFilterRow}>
+          <label htmlFor="baseline-tag-filter" className={styles.tagFilterLabel}>
+            {t("baselines.tagFilter")}
+          </label>
+          <select
+            id="baseline-tag-filter"
+            data-testid="baseline-tag-filter"
+            value={tagFilter}
+            onChange={(e) => setTagFilter(e.target.value)}
+            className={styles.tagFilterSelect}
+          >
+            <option value="">{t("baselines.tagFilterAll")}</option>
+            {allTags.map((tag) => (
+              <option key={tag} value={tag}>
+                {tag}
+              </option>
+            ))}
+          </select>
+        </div>
         <ListToolbar
           testIdPrefix="baseline-list"
           searchValue={listSearch}
@@ -486,6 +520,13 @@ export default function BaselinesView(): JSX.Element {
               </dd>
             </dl>
 
+            {/* F4.3: tag chips + add/remove + save (`PUT /baselines/{id}/tags/`). */}
+            <BaselineTagsEditor
+              key={selectedBaseline.id}
+              tags={selectedBaseline.tags ?? []}
+              onSave={(tags) => setTags(selectedBaseline.id, tags)}
+            />
+
             {/* REQ-L2-BL-012: captured items with their full-state snapshot. */}
             <BaselineEntriesSection
               entries={detail?.entries ?? null}
@@ -552,6 +593,19 @@ export default function BaselinesView(): JSX.Element {
                 "Optional. Ohne Angabe wird ein Name aus dem Zeitstempel erzeugt. Der Name muss im Workspace eindeutig sein.",
               )}
             </p>
+
+            {/* F4.3: optional tags. Enter (or comma) commits a chip; an empty
+                list simply sends no `tags` field. */}
+            <label htmlFor="baseline-create-tags" className={styles.formLabel}>
+              {t("baselines.tags")}
+            </label>
+            <TagInput
+              data-testid="baseline-create-tags"
+              inputId="baseline-create-tags"
+              tags={formTags}
+              onChange={setFormTags}
+              placeholder={t("baselines.tagPlaceholder")}
+            />
 
             <label htmlFor="baseline-scope" className={styles.formLabel}>
               {t("baselines.scope")}

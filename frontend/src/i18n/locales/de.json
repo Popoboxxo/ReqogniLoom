@@ -723,7 +723,16 @@
     "after": "Nachher",
     "name": "Name",
     "namePlaceholder": "z. B. Release 1.2 Freigabe",
-    "nameHint": "Optional. Ohne Angabe wird ein Name aus dem Zeitstempel erzeugt. Der Name muss im Workspace eindeutig sein."
+    "nameHint": "Optional. Ohne Angabe wird ein Name aus dem Zeitstempel erzeugt. Der Name muss im Workspace eindeutig sein.",
+    "tags": "Tags",
+    "tagAdd": "Tag hinzufügen",
+    "tagRemove": "Tag {{label}} entfernen",
+    "tagPlaceholder": "z. B. Release, RC1",
+    "tagFilter": "Nach Tag filtern",
+    "tagFilterAll": "Alle Tags",
+    "tagSave": "Tags speichern",
+    "tagInvalid": "Ungültiges Tag: {{label}}",
+    "tagLimit": "Höchstens {{max}} Tags"
   },
   "glossary": {
     "searchPlaceholder": "Glossar durchsuchen...",

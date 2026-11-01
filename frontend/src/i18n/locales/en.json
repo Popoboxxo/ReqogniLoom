@@ -723,7 +723,16 @@
     "after": "After",
     "name": "Name",
     "namePlaceholder": "e.g. Release 1.2 sign-off",
-    "nameHint": "Optional. Without a name one is generated from the timestamp. The name must be unique within the workspace."
+    "nameHint": "Optional. Without a name one is generated from the timestamp. The name must be unique within the workspace.",
+    "tags": "Tags",
+    "tagAdd": "Add tag",
+    "tagRemove": "Remove tag {{label}}",
+    "tagPlaceholder": "e.g. Release, RC1",
+    "tagFilter": "Filter by tag",
+    "tagFilterAll": "All tags",
+    "tagSave": "Save tags",
+    "tagInvalid": "Invalid tag: {{label}}",
+    "tagLimit": "At most {{max}} tags"
   },
   "glossary": {
     "searchPlaceholder": "Search glossary...",

@@ -41,8 +41,19 @@ export interface Baseline {
   artifact_id: UUID | null;
   version: number;
   created_at: ISODateTime;
+  /**
+   * F4.2/F4.3: labels attached to this baseline. Always present on both the
+   * list and the detail response (sorted case-insensitively by the backend).
+   */
+  tags: string[];
   /** REQ-L2-BL-012: captured items — only on the detail response. */
   entries?: BaselineDeltaEntry[];
+}
+
+/** F4.2: response of `PUT /api/v1/baselines/{id}/tags/`. */
+export interface BaselineTagsResponse {
+  id: UUID;
+  tags: string[];
 }
 
 export interface ScopePreviewItem {
@@ -127,9 +138,18 @@ export function isSeAuditorBlocked(err: unknown): boolean {
 }
 
 export const baselinesApi = {
-  list(workspaceId: UUID): Promise<PaginatedResponse<Baseline>> {
+  /**
+   * F4.2: list baselines, optionally filtered server-side by one tag.
+   * `tag` is omitted entirely when absent — an empty string would be read as
+   * a (rejected) empty label by the backend.
+   */
+  list(params: {
+    workspace_id: UUID;
+    tag?: string;
+  }): Promise<PaginatedResponse<Baseline>> {
     return getList<Baseline>("/baselines/", {
-      workspace_id: workspaceId,
+      workspace_id: params.workspace_id,
+      ...(params.tag ? { tag: params.tag } : {}),
     });
   },
 
@@ -152,8 +172,21 @@ export const baselinesApi = {
      * baseline description. Omitting it keeps the fail-closed default.
      */
     override_reason?: string;
+    /** F4.2: optional labels to attach at creation time. */
+    tags?: string[];
   }): Promise<Baseline> {
     return apiClient.post<Baseline>("/baselines/", data);
+  },
+
+  /**
+   * F4.2: replace the complete tag set of one baseline. The backend validates
+   * (`400 VALIDATION_ERROR` with one `details` entry per rejected label),
+   * de-duplicates case-insensitively and returns the sorted result.
+   */
+  setTags(id: UUID, tags: string[]): Promise<BaselineTagsResponse> {
+    return apiClient.put<BaselineTagsResponse>(`/baselines/${id}/tags/`, {
+      tags,
+    });
   },
 
   delete(id: UUID): Promise<void> {

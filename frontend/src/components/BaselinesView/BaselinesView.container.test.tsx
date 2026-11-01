@@ -58,16 +58,22 @@ const MOCK_BASELINES = [
     workspace_id: "ws-bl-001",
     name: "Sprint-12 Freeze",
     scope: "project",
+    description: "",
     artifact_id: null,
+    version: 1,
     created_at: "2026-04-01T00:00:00Z",
+    tags: ["Release"],
   },
   {
     id: "bl-002",
     workspace_id: "ws-bl-001",
     name: "Mission CDR Baseline",
     scope: "global",
+    description: "",
     artifact_id: null,
+    version: 1,
     created_at: "2026-04-15T00:00:00Z",
+    tags: [],
   },
 ];
 
@@ -120,6 +126,44 @@ describe("BaselinesView container (REQ-053 smoke tests)", () => {
       expect(screen.getByText("Sprint-12 Freeze")).toBeInTheDocument();
     });
     expect(screen.getByText("Mission CDR Baseline")).toBeInTheDocument();
+  });
+
+  // F4.3: the tag filter is server-side (`GET /api/v1/baselines/?tag=…`), so
+  // selecting a tag must reach the list call and the list must then render
+  // only what the backend returned.
+  it("filter by tag sends the tag to the list call and renders only the match", async () => {
+    vi.mocked(baselinesModule.baselinesApi.list).mockImplementation(
+      async (params: { workspace_id: string; tag?: string }) => ({
+        count: MOCK_BASELINES.length,
+        next: null,
+        previous: null,
+        results:
+          params.tag === "Release"
+            ? MOCK_BASELINES.filter((bl) => bl.tags.includes("Release"))
+            : MOCK_BASELINES,
+      }),
+    );
+    const user = userEvent.setup();
+
+    renderBaselinesView();
+
+    await waitFor(() => {
+      expect(screen.getByText("Mission CDR Baseline")).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByTestId("baseline-tag-filter"), "Release");
+
+    await waitFor(() => {
+      expect(baselinesModule.baselinesApi.list).toHaveBeenCalledWith({
+        workspace_id: "ws-bl-001",
+        tag: "Release",
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Mission CDR Baseline")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Sprint-12 Freeze")).toBeInTheDocument();
   });
 
   it("[REQ-053] renders without crashing when baseline list is empty", async () => {
