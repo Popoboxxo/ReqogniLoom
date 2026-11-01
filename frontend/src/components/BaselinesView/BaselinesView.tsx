@@ -27,6 +27,7 @@ import {
   type BaselineScope,
 } from "../../api/baselines";
 import { useAuth } from "../../context/AuthContext";
+import { useWorkspace } from "../../context/WorkspaceContext";
 import { SplitView } from "../SplitView/SplitView";
 import { PageHeader } from "../shared/PageHeader";
 import { EmptyState } from "../shared/EmptyState/EmptyState";
@@ -38,6 +39,9 @@ import {
   BaselineComparePanel,
   BaselineEntriesSection,
 } from "./BaselinesPanels";
+import { BaselineTagsEditor } from "./BaselineTagsEditor";
+import { MAX_TAGS, isValidTagLabel } from "./baselineTags";
+import { TagInput } from "../shared/tag-input";
 import styles from "./BaselinesView.module.css";
 import { useBaselinesData } from "./useBaselinesData";
 
@@ -87,6 +91,13 @@ function formatDate(iso: string): string {
 export default function BaselinesView(): JSX.Element {
   const { t } = useTranslation();
   const { roles } = useAuth();
+  // F6 (ui-review): the tag editor's `disabled` prop was dead code — no caller
+  // passed it, so a viewer could type chips and only learned about the missing
+  // write authority from a raw 403. `editor` is the role the backend requires
+  // for `PUT /baselines/{id}/tags/`; `admin` is a superset (same rule as
+  // `hooks/useHasRole`).
+  const canEdit =
+    roles.includes("admin") || roles.includes("editor");
   // UI-21 / GH-513: the backend only accepts an override justification from
   // 'admin'/'approver' (AuthorizationService.WORKFLOW_APPROVAL, see
   // baseline_facade._assert_override_permission) — everyone else used to see
@@ -97,6 +108,8 @@ export default function BaselinesView(): JSX.Element {
   // #181: list-panel search (by name) + scope filter (ListToolbar).
   const [listSearch, setListSearch] = useState<string>("");
   const [scopeFilter, setScopeFilter] = useState<BaselineScope | "">("");
+  // F4.3: server-side tag filter (`GET /api/v1/baselines/?tag=…`).
+  const [tagFilter, setTagFilter] = useState<string>("");
   const [showForm, setShowForm] = useState(false);
   // #1282: the create flow is a modal <Dialog> now — the name field is its
   // initial focus target (matching the other create dialogs).
@@ -107,6 +120,8 @@ export default function BaselinesView(): JSX.Element {
   // baseline was actually taken for. Optional on purpose: leaving it blank
   // keeps the old generated-name behaviour rather than blocking the action.
   const [formName, setFormName] = useState<string>("");
+  // F4.3: optional labels for the new baseline.
+  const [formTags, setFormTags] = useState<string[]>([]);
   const [formArtifactId, setFormArtifactId] = useState<string>("");
   // REQ-L1-049: scope is now one of {document, project, global}; default
   // is "project" to match the backend model default.
@@ -135,6 +150,7 @@ export default function BaselinesView(): JSX.Element {
   // lives in useBaselinesData (TanStack Query — REQ-049/REQ-050).
   const {
     baselines,
+    allTags,
     artifacts,
     isLoading,
     error,
@@ -147,12 +163,33 @@ export default function BaselinesView(): JSX.Element {
     refreshList,
     createBaseline,
     deleteBaseline,
+    setTags,
     compareBaselines,
-  } = useBaselinesData({ showForm, formScope, formArtifactId, selectedId });
+  } = useBaselinesData({ showForm, formScope, formArtifactId, selectedId, tagFilter });
 
   // The render still reads a `state`-shaped object (kept for parity with the
   // pre-decomposition markup).
   const state = { baselines, artifacts, isLoading, error };
+
+  // F7 (ui-review): the tag filter is workspace-scoped state, so a workspace
+  // switch must not carry the previous workspace's label into the list call.
+  const activeWorkspaceId = useWorkspace().activeWorkspace?.id;
+  useEffect(() => {
+    setTagFilter("");
+  }, [activeWorkspaceId]);
+
+  // F7 (ui-review): a filter whose label is no longer offered by `allTags`
+  // (renamed/removed on every baseline, or left over from a switch) has no
+  // matching <option> while the query keeps filtering — an unexplained empty
+  // list. Falling back to "all tags" makes the empty state explicable and
+  // re-runs the list query without the filter.
+  useEffect(() => {
+    if (!tagFilter) return;
+    const available = allTags.some(
+      (tag) => tag.toLowerCase() === tagFilter.toLowerCase(),
+    );
+    if (!available) setTagFilter("");
+  }, [tagFilter, allTags]);
 
   // When form opens, default to the first available artifact.
   useEffect(() => {
@@ -175,10 +212,12 @@ export default function BaselinesView(): JSX.Element {
           scope: formScope,
           artifactId: formArtifactId,
           name: formName,
+          tags: formTags,
           ...(withOverride ? { overrideReason } : {}),
         });
         setShowForm(false);
         setFormName("");
+        setFormTags([]);
         setFormArtifactId("");
         setFormScope("project");
         setGateBlocked(false);
@@ -193,7 +232,33 @@ export default function BaselinesView(): JSX.Element {
         setIsSaving(false);
       }
     },
-    [formArtifactId, formScope, formName, overrideReason, t, createBaseline],
+    [formArtifactId, formScope, formName, formTags, overrideReason, t, createBaseline],
+  );
+
+  // F5 (ui-review): the create dialog uses the shared `TagInput`, which knows
+  // nothing about the baseline tag contract (20-label cap, label charset).
+  // A 21st label or an illegal character used to reach the backend and come
+  // back as a raw English VALIDATION_ERROR in `createError`. Validating here
+  // emits the same local keys the detail editor uses.
+  const handleFormTagsChange = useCallback(
+    (next: string[]): void => {
+      setCreateError(null);
+      // `TagInput` only ever appends (or removes), so a longer list means the
+      // last entry is the one just committed.
+      if (next.length > formTags.length) {
+        const added = next[next.length - 1] ?? "";
+        if (!isValidTagLabel(added)) {
+          setCreateError(t("baselines.tagInvalid", { label: added }));
+          return;
+        }
+        if (next.length > MAX_TAGS) {
+          setCreateError(t("baselines.tagLimit", { max: MAX_TAGS }));
+          return;
+        }
+      }
+      setFormTags(next);
+    },
+    [formTags, t],
   );
 
   // UI-20: unified on the shared ConfirmDialog instead of window.confirm —
@@ -264,6 +329,7 @@ export default function BaselinesView(): JSX.Element {
     setShowCompare(false);
     setSelectedId(null);
     setFormName("");
+    setFormTags([]);
     setCreateError(null);
     setGateBlocked(false);
     setOverrideReason("");
@@ -272,6 +338,7 @@ export default function BaselinesView(): JSX.Element {
 
   const closeCreateForm = useCallback((): void => {
     setShowForm(false);
+    setFormTags([]);
     setCreateError(null);
     setGateBlocked(false);
     setOverrideReason("");
@@ -316,10 +383,11 @@ export default function BaselinesView(): JSX.Element {
   const selectedBaseline =
     state.baselines.find((bl) => bl.id === selectedId) ?? null;
 
-  const hasActiveListControls = Boolean(listSearch || scopeFilter);
+  const hasActiveListControls = Boolean(listSearch || scopeFilter || tagFilter);
   const resetListFilters = (): void => {
     setListSearch("");
     setScopeFilter("");
+    setTagFilter("");
   };
 
   const overrideSubmitDisabled =
@@ -365,6 +433,27 @@ export default function BaselinesView(): JSX.Element {
         leftMinWidth={280}
         leftPanel={
           <>
+        {/* F4.3: tag filter. Server-side (`?tag=…`) — the options come from
+            the unfiltered list so picking one does not collapse the menu. */}
+        <div className={styles.tagFilterRow}>
+          <label htmlFor="baseline-tag-filter" className={styles.tagFilterLabel}>
+            {t("baselines.tagFilter")}
+          </label>
+          <select
+            id="baseline-tag-filter"
+            data-testid="baseline-tag-filter"
+            value={tagFilter}
+            onChange={(e) => setTagFilter(e.target.value)}
+            className={styles.tagFilterSelect}
+          >
+            <option value="">{t("baselines.tagFilterAll")}</option>
+            {allTags.map((tag) => (
+              <option key={tag} value={tag}>
+                {tag}
+              </option>
+            ))}
+          </select>
+        </div>
         <ListToolbar
           testIdPrefix="baseline-list"
           searchValue={listSearch}
@@ -486,6 +575,14 @@ export default function BaselinesView(): JSX.Element {
               </dd>
             </dl>
 
+            {/* F4.3: tag chips + add/remove + save (`PUT /baselines/{id}/tags/`). */}
+            <BaselineTagsEditor
+              key={selectedBaseline.id}
+              tags={selectedBaseline.tags ?? []}
+              onSave={(tags) => setTags(selectedBaseline.id, tags)}
+              disabled={!canEdit}
+            />
+
             {/* REQ-L2-BL-012: captured items with their full-state snapshot. */}
             <BaselineEntriesSection
               entries={detail?.entries ?? null}
@@ -552,6 +649,19 @@ export default function BaselinesView(): JSX.Element {
                 "Optional. Ohne Angabe wird ein Name aus dem Zeitstempel erzeugt. Der Name muss im Workspace eindeutig sein.",
               )}
             </p>
+
+            {/* F4.3: optional tags. Enter (or comma) commits a chip; an empty
+                list simply sends no `tags` field. */}
+            <label htmlFor="baseline-create-tags" className={styles.formLabel}>
+              {t("baselines.tags")}
+            </label>
+            <TagInput
+              data-testid="baseline-create-tags"
+              inputId="baseline-create-tags"
+              tags={formTags}
+              onChange={handleFormTagsChange}
+              placeholder={t("baselines.tagPlaceholder")}
+            />
 
             <label htmlFor="baseline-scope" className={styles.formLabel}>
               {t("baselines.scope")}

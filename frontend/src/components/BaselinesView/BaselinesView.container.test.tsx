@@ -29,8 +29,12 @@ vi.mock("../../api/baselines");
 vi.mock("../../api/artifacts");
 vi.mock("../../context/WorkspaceContext");
 // UI-21: BaselinesView now reads `roles` to gate the GH-513 override panel.
+// F6 (ui-review): mutable, so one test can exercise the read-only (viewer)
+// path without a second mock module. `vi.hoisted` keeps it out of the TDZ —
+// `vi.mock` factories run before the module body.
+const authState = vi.hoisted(() => ({ roles: ['admin'] as string[] }));
 vi.mock("../../context/AuthContext", () => ({
-  useAuth: () => ({ roles: ["admin"] }),
+  useAuth: () => authState,
 }));
 vi.mock("react-i18next", () => {
   // Second arg is either a string fallback or an i18n interpolation options object.
@@ -58,16 +62,22 @@ const MOCK_BASELINES = [
     workspace_id: "ws-bl-001",
     name: "Sprint-12 Freeze",
     scope: "project",
+    description: "",
     artifact_id: null,
+    version: 1,
     created_at: "2026-04-01T00:00:00Z",
+    tags: ["Release"],
   },
   {
     id: "bl-002",
     workspace_id: "ws-bl-001",
     name: "Mission CDR Baseline",
     scope: "global",
+    description: "",
     artifact_id: null,
+    version: 1,
     created_at: "2026-04-15T00:00:00Z",
+    tags: [],
   },
 ];
 
@@ -79,11 +89,17 @@ const renderBaselinesView = () => {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
+  // A fresh element per call: re-rendering the *same* element object makes
+  // React bail out, which would hide the workspace-switch effect (F7).
+  const buildTree = () => (
     <QueryClientProvider client={queryClient}>
       <BaselinesView />
     </QueryClientProvider>
   );
+  const view = render(buildTree());
+  // Re-rendered through the same QueryClient so a workspace switch (F7) is a
+  // context change on a mounted tree, not a fresh mount.
+  return { view, rerender: () => view.rerender(buildTree()) };
 };
 
 // ---------------------------------------------------------------------------
@@ -93,6 +109,7 @@ const renderBaselinesView = () => {
 describe("BaselinesView container (REQ-053 smoke tests)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.roles = ["admin"];
     vi.mocked(workspaceContext.useWorkspace).mockReturnValue({
       activeWorkspace: MOCK_WORKSPACE,
     } as any);
@@ -120,6 +137,123 @@ describe("BaselinesView container (REQ-053 smoke tests)", () => {
       expect(screen.getByText("Sprint-12 Freeze")).toBeInTheDocument();
     });
     expect(screen.getByText("Mission CDR Baseline")).toBeInTheDocument();
+  });
+
+  // F4.3: the tag filter is server-side (`GET /api/v1/baselines/?tag=…`), so
+  // selecting a tag must reach the list call and the list must then render
+  // only what the backend returned.
+  it("filter by tag sends the tag to the list call and renders only the match", async () => {
+    vi.mocked(baselinesModule.baselinesApi.list).mockImplementation(
+      async (params: { workspace_id: string; tag?: string }) => ({
+        count: MOCK_BASELINES.length,
+        next: null,
+        previous: null,
+        results:
+          params.tag === "Release"
+            ? MOCK_BASELINES.filter((bl) => bl.tags.includes("Release"))
+            : MOCK_BASELINES,
+      }),
+    );
+    const user = userEvent.setup();
+
+    renderBaselinesView();
+
+    await waitFor(() => {
+      expect(screen.getByText("Mission CDR Baseline")).toBeInTheDocument();
+    });
+
+    await user.selectOptions(screen.getByTestId("baseline-tag-filter"), "Release");
+
+    await waitFor(() => {
+      expect(baselinesModule.baselinesApi.list).toHaveBeenCalledWith({
+        workspace_id: "ws-bl-001",
+        tag: "Release",
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Mission CDR Baseline")).not.toBeInTheDocument();
+    });
+    expect(screen.getByText("Sprint-12 Freeze")).toBeInTheDocument();
+  });
+
+  // F6 (ui-review): the tag editor's `disabled` prop had no caller, so a
+  // viewer could type chips and only learn about the missing write authority
+  // from a raw 403.
+  it("disables the tag editor for a viewer (F6)", async () => {
+    authState.roles = ["viewer"];
+    vi.mocked(baselinesModule.baselinesApi.list).mockResolvedValue({
+      results: MOCK_BASELINES,
+    } as never);
+    vi.mocked(baselinesModule.baselinesApi.get).mockResolvedValue(
+      MOCK_BASELINES[0] as never,
+    );
+    const user = userEvent.setup();
+
+    renderBaselinesView();
+
+    await user.click(await screen.findByText("Sprint-12 Freeze"));
+
+    expect(await screen.findByTestId("baseline-tag-input")).toBeDisabled();
+    expect(screen.getByTestId("baseline-tag-add-btn")).toBeDisabled();
+    expect(screen.getAllByTestId("baseline-tag-remove-btn")[0]).toBeDisabled();
+  });
+
+  // F7 (ui-review): the tag filter is workspace-scoped state; switching the
+  // workspace used to keep the previous workspace's filter in the query.
+  it("resets the tag filter when the workspace changes (F7)", async () => {
+    vi.mocked(baselinesModule.baselinesApi.list).mockResolvedValue({
+      results: MOCK_BASELINES,
+    } as never);
+    const user = userEvent.setup();
+
+    const { rerender } = renderBaselinesView();
+
+    await waitFor(() => {
+      expect(screen.getByText("Mission CDR Baseline")).toBeInTheDocument();
+    });
+    await user.selectOptions(screen.getByTestId("baseline-tag-filter"), "Release");
+    expect(screen.getByTestId("baseline-tag-filter")).toHaveValue("Release");
+
+    vi.mocked(workspaceContext.useWorkspace).mockReturnValue({
+      activeWorkspace: { ...MOCK_WORKSPACE, id: "ws-bl-002" },
+    } as never);
+    rerender();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("baseline-tag-filter")).toHaveValue("");
+    });
+  });
+
+  // F5 (ui-review): the create dialog's shared TagInput knows nothing about
+  // the baseline tag contract, so the container validates and reports with the
+  // local key instead of letting the raw backend message be the teacher.
+  it("rejects an illegal tag label in the create dialog locally (F5)", async () => {
+    vi.mocked(baselinesModule.baselinesApi.list).mockResolvedValue({ results: [] } as never);
+    vi.mocked(baselinesModule.baselinesApi.previewScope).mockResolvedValue({
+      count: 0,
+      artifact_ids: [],
+    } as never);
+    const user = userEvent.setup();
+
+    renderBaselinesView();
+    await waitFor(() => {
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+    await user.click(screen.getByTestId("create-baseline-btn"));
+    await waitFor(() => {
+      expect(screen.getByTestId("create-baseline-form")).toBeInTheDocument();
+    });
+
+    // `!` is outside the label charset; the chip must not be committed and the
+    // local key must be rendered instead of a backend round-trip.
+    await user.type(
+      screen.getByTestId("baseline-create-tags-input"),
+      "tag!{Enter}",
+    );
+
+    expect(screen.queryAllByTestId("tag-pill")).toHaveLength(0);
+    expect(screen.getByText("baselines.tagInvalid")).toBeInTheDocument();
   });
 
   it("[REQ-053] renders without crashing when baseline list is empty", async () => {

@@ -1,0 +1,87 @@
+/*
+ * F4.3 — BaselineTagsEditor styles.
+ *
+ * Only `var(--…)` tokens from `styles/tokens.css`; no inline `style`, no raw
+ * colour, no ad-hoc button geometry (#1258). The add/save controls use the
+ * shared `btn-secondary`/`btn-primary` classes and the chip's remove control
+ * uses `btn-icon` — this module only contributes layout plus the neutral chip
+ * look.
+ *
+ * F4 (ui-review): the *persisted* chip here is deliberately NOT styled like
+ * the *draft* pill of the create dialog (`shared/tag-input.module.css`,
+ * primary-filled): the detail list shows confirmed server state with one
+ * focusable remove control per label, the create pill is an unsaved form
+ * value. Both share the pill geometry (`--radius-*`, `--space-*`) but not the
+ * fill. This is the documented difference, not drift — do not "align" the
+ * fill without revisiting the create dialog's form semantics.
+ */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
+}
+
+.chipList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* `.tagChip` is a button-family selector for the geometry ratchet (#1258):
+ * the radius therefore reads `--radius-full`, and no literal height is set. */
+.tagChip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.chipLabel {
+  font-size: var(--font-size-sm);
+}
+
+.chipRemove {
+  margin-left: var(--space-1);
+  padding: 0;
+}
+
+.addRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tagInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  box-sizing: border-box;
+}
+
+.error {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger-text);
+}
