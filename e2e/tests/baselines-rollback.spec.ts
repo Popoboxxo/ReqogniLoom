@@ -119,7 +119,13 @@ test.describe('[REQ-L1-018] Baseline rollback (F4.5)', () => {
     const headers = { Authorization: `Bearer ${token}` };
     const suffix = Date.now().toString(36);
     const workspaceName = `e2e-rollback-${suffix}`;
-    const workspaceId = await createIsolatedWorkspace(token, workspaceName);
+    // F4.5 review B-01: the Approver role is only assignable at the extended
+    // preset (`AuthorizationService._APPROVER_ENABLED_PRESETS == {"extended"}`).
+    // The CCB transitions below (`submitted`/`under_review`/`approved`) are
+    // gated on `approver`, so a `standard` workspace answers 400 on the role
+    // assignment and the flow never starts. Creating the workspace at
+    // `extended` keeps the real two-person CCB path intact.
+    const workspaceId = await createIsolatedWorkspace(token, workspaceName, 'extended');
     const originalTitle = `e2e-rollback-original-${suffix}`;
     const changedTitle = `e2e-rollback-changed-${suffix}`;
 
@@ -184,9 +190,13 @@ test.describe('[REQ-L1-018] Baseline rollback (F4.5)', () => {
       await expect(page.locator('[data-testid="baselines-view"]')).toBeVisible({
         timeout: 10000,
       });
-      await expect(page.locator('[role="status"]:visible')).toHaveCount(0, {
-        timeout: 10000,
-      });
+      // The view's own loading region must be gone before we click a baseline.
+      // Scoped to the view: the shell's notification live region is also a
+      // `role="status"` and is legitimately visible whenever unread
+      // notifications exist, so a page-wide count would never settle.
+      await expect(
+        page.locator('[data-testid="baselines-view"] [role="status"]')
+      ).toHaveCount(0, { timeout: 10000 });
 
       await page
         .locator('[data-testid="baseline-item"]', { hasText: baseline.name })

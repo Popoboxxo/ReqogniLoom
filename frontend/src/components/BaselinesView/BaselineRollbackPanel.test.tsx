@@ -23,6 +23,17 @@ import userEvent, { type UserEvent } from '@testing-library/user-event';
 const MESSAGES = vi.hoisted(() => ({
   'baselines.rollback.title': 'Roll back to baseline',
   'baselines.rollback.preview': 'Compute preview',
+  'baselines.rollback.previewLoading': 'Computing…',
+  'baselines.rollback.approvedHint':
+    'The change request is approved — the rollback can run.',
+  'baselines.rollback.implementedHint': 'This change request is already implemented.',
+  'baselines.rollback.rejectedHint':
+    'The change request was rejected — a new request needs CCB review.',
+  'baselines.rollback.requestOpen':
+    'Change request {{status}} is already open. A new request becomes available once this plan is stale.',
+  'baselines.rollback.copyId': 'Copy change request id',
+  'baselines.rollback.copied': 'Change request id copied.',
+  'baselines.rollback.copyFailed': 'Copy failed.',
   'baselines.rollback.actionRestore': 'Restore',
   'baselines.rollback.actionReactivate': 'Reactivate',
   'baselines.rollback.actionUnchanged': 'Unchanged',
@@ -260,6 +271,11 @@ describe('BaselineRollbackPanel (F4.5)', () => {
     expect(await screen.findByTestId('baseline-rollback-error')).toHaveTextContent(
       'Changed since the request — please create a new request.'
     );
+    // F-04: the stale plan is the one documented moment a NEW request is
+    // reachable again — the old CR no longer describes the plan.
+    expect(
+      await screen.findByTestId('baseline-rollback-request-btn')
+    ).toBeInTheDocument();
   });
 
   it('fires exactly one apply when the confirmation is double-clicked', async () => {
@@ -286,5 +302,83 @@ describe('BaselineRollbackPanel (F4.5)', () => {
     fireEvent.click(confirm);
 
     await waitFor(() => expect(baselinesApi.rollbackApply).toHaveBeenCalledTimes(1));
+  });
+
+  // F-04: one open change request at a time. A second submit would replace it
+  // and leave the first (possibly approved) request unreachable — this SPA has
+  // no ChangeRequest view to find it again.
+  it('replaces the request form with an "already open" notice once a CR exists', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await arriveAtRequest(user);
+
+    expect(screen.queryByTestId('baseline-rollback-reason-input')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('baseline-rollback-request-btn')).not.toBeInTheDocument();
+    expect(screen.getByTestId('baseline-rollback-request-locked')).toHaveTextContent(
+      'Change request draft is already open.'
+    );
+  });
+
+  // F-02: the await-approval copy must not survive the approval it asks for.
+  it('swaps the await-approval hint for an approved hint', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await arriveAtRequest(user);
+    expect(screen.getByText(/must be approved \(draft\)/)).toBeInTheDocument();
+
+    vi.mocked(changeRequestsApi.get).mockResolvedValue({
+      id: CR_ID,
+      workspace_id: 'ws-1',
+      title: 'Rollback to baseline',
+      status: 'approved',
+      version: 2,
+    });
+    await user.click(screen.getByTestId('baseline-rollback-cr-refresh'));
+
+    expect(
+      await screen.findByText('The change request is approved — the rollback can run.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/must be approved \(approved\)/)).not.toBeInTheDocument();
+  });
+
+  it('does not ask for an approval on an already implemented CR', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    vi.mocked(changeRequestsApi.get).mockResolvedValue({
+      id: CR_ID,
+      workspace_id: 'ws-1',
+      title: 'Rollback to baseline',
+      status: 'implemented',
+      version: 3,
+    });
+    await arriveAtRequest(user);
+
+    expect(
+      await screen.findByText('This change request is already implemented.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/must be approved \(implemented\)/)).not.toBeInTheDocument();
+  });
+
+  // F-06: the CR id is the only handle to the request, so it needs a real
+  // copy control whose result is announced, not a `<code>` that looks clickable.
+  it('copies the change request id through a real button', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await arriveAtRequest(user);
+    const copy = screen.getByTestId('baseline-rollback-cr-copy');
+    expect(copy).toHaveAccessibleName('Copy change request id');
+
+    await user.click(copy);
+
+    // `userEvent.setup()` installs a working Clipboard stub, so the assertion
+    // is on the actual clipboard content rather than on a mock call.
+    await expect(navigator.clipboard.readText()).resolves.toBe(CR_ID);
+    expect(await screen.findByTestId('baseline-rollback-cr-copy-status')).toHaveTextContent(
+      'Change request id copied.'
+    );
   });
 });

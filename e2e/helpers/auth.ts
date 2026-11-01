@@ -120,13 +120,26 @@ export async function getWorkspaceId(
  * Used by specs that need a workspace with no pre-existing architecture root
  * (or other singleton state), so they don't collide with other specs sharing
  * SEEDED_WORKSPACE_ID.
+ *
+ * `preset` selects the rigor tier at creation time (default: the backend's
+ * own "standard" default). It is written through `POST /workspaces/`, which
+ * accepts the bare tier string (`WorkspaceViewSet.create` →
+ * `extract_preset_tier`). At least the `approver` role assignment is
+ * preset-gated: `AuthorizationService._APPROVER_ENABLED_PRESETS` is
+ * `{"extended"}`, so a spec that needs an Approver member must create its
+ * workspace at `extended` — otherwise the assignment answers 400
+ * (baselines-rollback.spec.ts, F4.5 review B-01).
  */
-export async function createIsolatedWorkspace(token: string, name?: string): Promise<string> {
+export async function createIsolatedWorkspace(
+  token: string,
+  name?: string,
+  preset?: WorkspacePresetName
+): Promise<string> {
   const ctx = await request.newContext({ baseURL: BASE_URL });
   const wsName = name || `e2e-isolated-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const response = await ctx.post('/api/v1/workspaces/', {
     headers: { Authorization: `Bearer ${token}` },
-    data: { name: wsName },
+    data: preset === undefined ? { name: wsName } : { name: wsName, preset },
   });
   if (!response.ok()) {
     throw new Error(`Workspace creation failed: ${response.status()} ${await response.text()}`);

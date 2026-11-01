@@ -20,16 +20,27 @@
  * artifacts that will be written as new versions; the server's own R5
  * protection stays the authority.
  *
+ * One CR at a time (F4.5 review F-04): once the panel has opened a change
+ * request, the request form is replaced by an "already opened" notice, so a
+ * second submit cannot silently orphan an approved CR that this SPA has no
+ * view for. The form only returns after the server reports
+ * `ROLLBACK_PLAN_STALE` — the one case in which the opened CR is no longer
+ * the applicable request.
+ *
  * Accessibility baseline: a real `<table>` with column headers for the plan,
- * labelled controls, `role="alert"` on the error region, `role="status"` on
- * the result region, and a shared `<ConfirmDialog>` (focus trap, Escape,
- * focus return) for the destructive step. No WCAG conformance claim — the
- * binding verdict is `accessibility-specialist`'s.
+ * labelled controls (including a real `<button>` for the CR id copy, with its
+ * result announced through `role="status"`), `role="alert"` on the error
+ * region, `role="status"` on the result region, and a shared
+ * `<ConfirmDialog>` (focus trap, Escape, focus return) for the destructive
+ * step. No WCAG conformance claim — the binding verdict is
+ * `accessibility-specialist`'s.
  */
 
-import { useCallback, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ClipboardCopy } from 'lucide-react';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
+import { StatusBadge } from '../shared/StatusBadge';
 import {
   ROLLBACK_CODES,
   baselinesApi,
@@ -89,6 +100,35 @@ function formatValue(value: unknown): string {
   }
 }
 
+/**
+ * Which copy the status row shows for a given CCB state (F4.5 review F-02).
+ *
+ * Only the states that still need a CCB decision may speak about a required
+ * approval; an `approved`/`implemented`/`rejected` request would otherwise
+ * render "must be approved (approved)" — true-looking, and wrong.
+ */
+function statusHintKey(status: string): string {
+  switch (status) {
+    case 'draft':
+    case 'submitted':
+    case 'under_review':
+      return 'baselines.rollback.awaitApproval';
+    case 'approved':
+      return 'baselines.rollback.approvedHint';
+    case 'implemented':
+      return 'baselines.rollback.implementedHint';
+    case 'rejected':
+      return 'baselines.rollback.rejectedHint';
+    default:
+      // Unknown/workspace-defined state: keep the neutral "needs approval"
+      // wording rather than inventing a label for it.
+      return 'baselines.rollback.awaitApproval';
+  }
+}
+
+/** The copy affordance's transient announcement (F4.5 review F-06). */
+type CopyState = 'idle' | 'copied' | 'failed';
+
 const ACTION_LABEL_KEYS: Record<RollbackItemAction, string> = {
   restore: 'baselines.rollback.actionRestore',
   reactivate: 'baselines.rollback.actionReactivate',
@@ -119,14 +159,30 @@ export function BaselineRollbackPanel({
   const [reason, setReason] = useState('');
   const [requesting, setRequesting] = useState(false);
   const [changeRequest, setChangeRequest] = useState<OpenedChangeRequest | null>(null);
+  // F-04: a new request is only reachable after the opened CR stopped being
+  // applicable (the server said the plan went stale).
+  const [allowNewRequest, setAllowNewRequest] = useState(false);
   const [statusRefreshing, setStatusRefreshing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [copyState, setCopyState] = useState<CopyState>('idle');
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RollbackResult | null>(null);
-  // Synchronous in-flight guard: a second click can land before the `applying`
-  // state has been committed, and the apply route must not run twice.
+  // Synchronous in-flight guards: a second click can land before the matching
+  // state update has been committed. The apply route must never run twice and
+  // neither the plan computation nor the CR creation may be fired twice
+  // (F-05 — same hardening for all three write-ish controls).
+  const previewInFlight = useRef(false);
+  const requestInFlight = useRef(false);
   const applyInFlight = useRef(false);
+  const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (copyResetTimer.current !== null) clearTimeout(copyResetTimer.current);
+    },
+    []
+  );
 
   /**
    * Localised copy for a rollback refusal, keyed on the stable
@@ -157,7 +213,8 @@ export function BaselineRollbackPanel({
   );
 
   const loadPreview = useCallback(async (): Promise<void> => {
-    if (previewLoading) return;
+    if (previewInFlight.current) return;
+    previewInFlight.current = true;
     setPreviewLoading(true);
     setError(null);
     setResult(null);
@@ -167,9 +224,10 @@ export function BaselineRollbackPanel({
       setPreview(null);
       setError(describeError(err));
     } finally {
+      previewInFlight.current = false;
       setPreviewLoading(false);
     }
-  }, [baselineId, describeError, previewLoading]);
+  }, [baselineId, describeError]);
 
   /**
    * Re-read the change request's workflow state. The CCB decides elsewhere
@@ -193,7 +251,8 @@ export function BaselineRollbackPanel({
 
   const createRequest = useCallback(async (): Promise<void> => {
     const trimmed = reason.trim();
-    if (!preview || trimmed === '' || requesting) return;
+    if (!preview || trimmed === '' || requestInFlight.current) return;
+    requestInFlight.current = true;
     setRequesting(true);
     setError(null);
     try {
@@ -201,15 +260,36 @@ export function BaselineRollbackPanel({
         change_reason: trimmed,
       });
       setChangeRequest({ id: created.change_request_id, status: created.status });
+      // A fresh request is the only open one again — the form folds away.
+      setAllowNewRequest(false);
       // The CR starts in `draft`; a status read makes the hint authoritative
       // even when the backend already answered something else.
       void refreshStatus(created.change_request_id);
     } catch (err: unknown) {
       setError(describeError(err));
     } finally {
+      requestInFlight.current = false;
       setRequesting(false);
     }
-  }, [baselineId, describeError, preview, reason, refreshStatus, requesting]);
+  }, [baselineId, describeError, preview, reason, refreshStatus]);
+
+  /**
+   * F-06: put the CR id on the clipboard. This SPA has no ChangeRequest view,
+   * so the id is the only handle an operator can carry to the CCB tooling —
+   * it needs a real control, not a `<code>` that merely looks selectable.
+   */
+  const copyChangeRequestId = useCallback(async (): Promise<void> => {
+    const id = changeRequest?.id;
+    if (!id) return;
+    try {
+      await navigator.clipboard.writeText(id);
+      setCopyState('copied');
+    } catch {
+      setCopyState('failed');
+    }
+    if (copyResetTimer.current !== null) clearTimeout(copyResetTimer.current);
+    copyResetTimer.current = setTimeout(() => setCopyState('idle'), 2000);
+  }, [changeRequest]);
 
   const requestApply = useCallback((): void => {
     if (!changeRequest || changeRequest.status !== 'approved' || applying) return;
@@ -233,6 +313,12 @@ export function BaselineRollbackPanel({
       // the state it actually reached instead of a stale `approved`.
       if (rollbackErrorCode(err) === ROLLBACK_CODES.alreadyApplied) {
         void refreshStatus(changeRequest.id);
+      }
+      // 409 ROLLBACK_PLAN_STALE: the opened CR no longer describes the plan, so
+      // this is the one documented moment a NEW request becomes reachable
+      // (F-04). Any other failure keeps the form folded away.
+      if (rollbackErrorCode(err) === ROLLBACK_CODES.planStale) {
+        setAllowNewRequest(true);
       }
     } finally {
       applyInFlight.current = false;
@@ -294,7 +380,9 @@ export function BaselineRollbackPanel({
         aria-busy={previewLoading || undefined}
         onClick={() => void loadPreview()}
       >
-        {previewLoading ? t('actions.saving') : t('baselines.rollback.preview')}
+        {previewLoading
+          ? t('baselines.rollback.previewLoading')
+          : t('baselines.rollback.preview')}
       </button>
 
       {error && (
@@ -342,7 +430,7 @@ export function BaselineRollbackPanel({
             </table>
           )}
 
-          {canEdit && (
+          {canEdit && (!changeRequest || allowNewRequest) && (
             <div className={styles.requestForm}>
               <label htmlFor={reasonId} className={styles.reasonLabel}>
                 {t('baselines.rollback.reason')}
@@ -373,22 +461,59 @@ export function BaselineRollbackPanel({
               </button>
             </div>
           )}
+
+          {canEdit && changeRequest && !allowNewRequest && (
+            /* F-04: one open CR at a time — a second submit would replace it
+               and leave the first (possibly already approved) request
+               unreachable, since this SPA has no CR view. */
+            <p
+              data-testid="baseline-rollback-request-locked"
+              className={styles.requestLocked}
+            >
+              {t('baselines.rollback.requestOpen', { status: changeRequest.status })}
+            </p>
+          )}
         </>
       )}
 
       {changeRequest && (
         <div className={styles.changeRequest}>
-          {/* The CR reference. This SPA has no ChangeRequest view, so this is
-              the id itself (copyable) — no route is invented for it. */}
-          <p data-testid="baseline-rollback-cr-link" className={styles.crRef}>
-            <code title={changeRequest.id}>{changeRequest.id}</code>
-          </p>
+          {/* The CR reference. This SPA has no ChangeRequest view, so the id
+              (plus the copy control next to it) is the only handle — no route
+              is invented for it. */}
+          <div className={styles.crRefRow}>
+            <p data-testid="baseline-rollback-cr-link" className={styles.crRef}>
+              <code title={changeRequest.id}>{changeRequest.id}</code>
+            </p>
+            <button
+              type="button"
+              data-testid="baseline-rollback-cr-copy"
+              className="btn-icon"
+              aria-label={t('baselines.rollback.copyId')}
+              title={t('baselines.rollback.copyId')}
+              onClick={() => void copyChangeRequestId()}
+            >
+              <ClipboardCopy size={14} aria-hidden="true" />
+            </button>
+          </div>
+          {copyState !== 'idle' && (
+            <p
+              role="status"
+              data-testid="baseline-rollback-cr-copy-status"
+              className={styles.copyStatus}
+            >
+              {copyState === 'copied'
+                ? t('baselines.rollback.copied')
+                : t('baselines.rollback.copyFailed')}
+            </p>
+          )}
           <p className={styles.statusRow}>
-            <span className={styles.statusChip} data-testid="baseline-rollback-cr-status">
-              {changeRequest.status}
-            </span>
+            <StatusBadge
+              status={changeRequest.status}
+              testId="baseline-rollback-cr-status"
+            />
             <span className={styles.statusHint}>
-              {t('baselines.rollback.awaitApproval', { status: changeRequest.status })}
+              {t(statusHintKey(changeRequest.status), { status: changeRequest.status })}
             </span>
           </p>
           <div className={styles.applyRow}>

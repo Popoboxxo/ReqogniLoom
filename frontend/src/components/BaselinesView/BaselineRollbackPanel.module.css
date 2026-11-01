@@ -5,7 +5,9 @@
  * colour, no ad-hoc button geometry (#1258). The preview/refresh controls use
  * the shared `btn-secondary`, the request control `btn-primary` and the
  * destructive apply control `btn-danger` — this module only contributes
- * layout plus the neutral plan-look (table, summary, status chip).
+ * layout plus the neutral plan-look (table, summary, id row). Workflow status
+ * is rendered by the shared `<StatusBadge>` (F4.5 review F-03), so no local
+ * chip geometry lives here.
  */
 
 .panel {
@@ -127,11 +129,25 @@
   box-sizing: border-box;
 }
 
+/* F-04: replaces the request form while a change request is open. */
+.requestLocked {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
 .changeRequest {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   margin-top: var(--space-2);
+}
+
+.crRefRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
 }
 
 .crRef {
@@ -141,25 +157,18 @@
   overflow-wrap: anywhere;
 }
 
+.copyStatus {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
 .statusRow {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   margin: 0;
-}
-
-/* `.statusChip` is a button-family selector for the geometry ratchet (#1258):
- * the radius reads `--radius-full` and no literal height is set. */
-.statusChip {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-full);
-  padding: var(--space-1) var(--space-2);
-  background: var(--color-surface-raised);
-  color: var(--color-text);
-  font-size: var(--font-size-sm);
 }
 
 .statusHint {
