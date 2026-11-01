@@ -10,12 +10,20 @@ the one thing that list does not cover: a second artifact type on the write path
 (the dispatch in ``_call_update_service`` is per type, so exercising only
 ``Requirement`` would leave the other seven branches unproven).
 
+Tests 18–28 are the security-gate findings of the F11a review: SEC-RB-01
+(workspace-sound item authorization), SEC-RB-02 (the mutable approved plan),
+SEC-RB-03 (the link share of the mass limit), SEC-RB-06 (id redaction) and
+SEC-RB-08 (the fail-open ``actor_type`` default). SEC-RB-04 (deadlock → 409) is
+documented in the service instead; a deterministic deadlock cannot be provoked
+without a second controlled transaction.
+
 Rules referenced in the docstrings are ADR-025 R1–R9.
 """
 from __future__ import annotations
 
 import threading
 import uuid
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -27,6 +35,7 @@ from application.baseline_rollback_service import (
     MAX_ROLLBACK_ITEMS,
     BaselineRollbackService,
     RollbackAlreadyAppliedError,
+    RollbackConflictError,
     RollbackEmptyError,
     RollbackForbiddenError,
     RollbackNotApprovedError,
@@ -65,6 +74,8 @@ def _clear_permission_cache():
 @pytest.fixture
 def env(db) -> SimpleNamespace:
     """Tenant + ``standard`` workspace + an admin context, tenant armed."""
+    from auth_tenancy.models import ROLE_ADMIN, UserRole
+
     tenant = Tenant.objects.create(
         name=f"f44-{uuid.uuid4().hex[:6]}", slug=f"f44-{uuid.uuid4().hex[:6]}"
     )
@@ -77,6 +88,10 @@ def env(db) -> SimpleNamespace:
         email=f"f44-{uuid.uuid4().hex[:6]}@example.com",
         tenant=tenant,
     )
+    # R7 resolves the caller's roles *for the baseline's workspace* from the DB
+    # (SEC-RB-01) — ``ctx.active_roles`` is not authoritative. The row is what
+    # makes the admin context an actual member of this workspace.
+    UserRole.objects.create(tenant=tenant, user=user, workspace=workspace, role=ROLE_ADMIN)
     ctx = AuthContext(
         user_id=user.id,
         tenant_id=tenant.id,
@@ -651,16 +666,27 @@ def test_concurrent_apply_same_cr_only_one_succeeds(env):
 
 
 def test_apply_rejects_cr_of_other_workspace(env):
-    """R2 — the CR's workspace must be the baseline's workspace."""
+    """R2 — the CR's workspace must be the baseline's workspace.
+
+    The foreign CR is opened with a context bound to the *foreign* workspace:
+    SEC-RB-01 refuses to open a rollback for a workspace the request context
+    does not name, so the R2 comparison is exercised on the apply path, where
+    the CR and the baseline genuinely belong to different workspaces.
+    """
     requirement = _make_requirement(env, title="Original")
     baseline_id = _baseline(env)
     _rename_requirement(env, requirement, "Changed")
+
+    from auth_tenancy.models import ROLE_ADMIN, UserRole
 
     other = Workspace.objects.create(
         tenant=env.tenant, name=f"other-{uuid.uuid4().hex[:6]}", preset={"name": "standard"}
     )
     _provision_workflows(env.tenant, other)
     TenantContext.set_tenant(env.tenant.id)
+    UserRole.objects.create(
+        tenant=env.tenant, user=env.user, workspace=other, role=ROLE_ADMIN
+    )
     artifact = Artifact.objects.create(
         tenant=env.tenant, workspace=other, artifact_type="Requirement"
     )
@@ -676,8 +702,15 @@ def test_apply_rejects_cr_of_other_workspace(env):
     )
     # The foreign workspace needs a real change, otherwise its plan is empty.
     _rename_requirement(env, other_requirement, "Other changed")
+    other_ctx = AuthContext(
+        user_id=env.user.id,
+        tenant_id=env.tenant.id,
+        active_roles=("admin",),
+        auth_method=AuthMethod.BEARER_TOKEN,
+        workspace_id=other.id,
+    )
     foreign_cr = BaselineRollbackService().request(
-        other_baseline, env.ctx, change_reason="restore other"
+        other_baseline, other_ctx, change_reason="restore other"
     )
     _approve_cr(env, foreign_cr.id)
 
@@ -890,3 +923,422 @@ def test_apply_restores_second_artifact_type(env):
     adr.refresh_from_db()
     assert adr.title == "Original ADR"
     assert result.restored == 1
+
+
+# ---------------------------------------------------------------------------
+# 18–20 — SEC-RB-01: item authorization is bound to the baseline's workspace
+# ---------------------------------------------------------------------------
+
+
+def _spare_workspace(env: SimpleNamespace) -> Workspace:
+    """A second workspace of the same tenant, with no role for ``env.user``."""
+    other = Workspace.objects.create(
+        tenant=env.tenant,
+        name=f"spare-{uuid.uuid4().hex[:6]}",
+        preset={"name": "standard"},
+    )
+    TenantContext.set_tenant(env.tenant.id)
+    return other
+
+
+def _changed_requirement_with_approved_cr(env: SimpleNamespace):
+    requirement = _make_requirement(env, title="Original")
+    baseline_id = _baseline(env)
+    _rename_requirement(env, requirement, "Changed")
+    cr = _request_and_approve(env, baseline_id)
+    return requirement, baseline_id, cr
+
+
+def test_foreign_context_workspace_is_denied(env):
+    """SEC-RB-01 (i) — a context naming another workspace is refused (R7).
+
+    The caller *is* an admin of the baseline's workspace, so only the
+    context/workspace disagreement can produce the denial — the tenant-wide
+    role union must never stand in for a per-workspace decision.
+    """
+    requirement, baseline_id, cr = _changed_requirement_with_approved_cr(env)
+    other = _spare_workspace(env)
+    foreign_ctx = replace(env.ctx, workspace_id=other.id)
+    version_before = Requirement.objects.get(id=requirement.id).version
+
+    with pytest.raises(PermissionDeniedError) as excinfo:
+        BaselineRollbackService().apply(baseline_id, cr.id, foreign_ctx)
+
+    assert excinfo.value.code == "PERMISSION_DENIED"
+    assert excinfo.value.details["reason"] == "workspace_mismatch"
+    # The read-only path applies the same fence.
+    with pytest.raises(PermissionDeniedError):
+        BaselineRollbackService().preview(baseline_id, foreign_ctx)
+
+    requirement.refresh_from_db()
+    assert requirement.title == "Changed"
+    assert requirement.version == version_before
+    assert _cr_status(cr.id) == "approved"
+
+
+def test_roles_only_in_another_workspace_are_denied(env):
+    """SEC-RB-01 (ii) — no workspace in the request, roles only elsewhere.
+
+    This is the exact escalation the finding describes: the tenant-wide union
+    (``active_roles``) carries ``admin`` from a *different* workspace while the
+    caller holds nothing in the baseline's workspace.
+    """
+    from auth_tenancy.models import ROLE_ADMIN, UserRole
+
+    requirement, baseline_id, cr = _changed_requirement_with_approved_cr(env)
+    other = _spare_workspace(env)
+    outsider = User.objects.create(
+        username=f"outsider-{uuid.uuid4().hex[:6]}",
+        email=f"outsider-{uuid.uuid4().hex[:6]}@example.com",
+        tenant=env.tenant,
+    )
+    UserRole.objects.create(
+        tenant=env.tenant, user=outsider, workspace=other, role=ROLE_ADMIN
+    )
+    outsider_ctx = AuthContext(
+        user_id=outsider.id,
+        tenant_id=env.tenant.id,
+        active_roles=("admin",),  # the tenant-wide union
+        auth_method=AuthMethod.BEARER_TOKEN,
+        workspace_id=None,
+    )
+    version_before = Requirement.objects.get(id=requirement.id).version
+
+    with pytest.raises(PermissionDeniedError) as excinfo:
+        BaselineRollbackService().apply(baseline_id, cr.id, outsider_ctx)
+
+    assert excinfo.value.details["reason"] == "no_workspace_role"
+    requirement.refresh_from_db()
+    assert requirement.title == "Changed"
+    assert requirement.version == version_before
+    assert _cr_status(cr.id) == "approved"
+
+
+def test_fenced_api_key_outside_workspace_is_denied(env):
+    """SEC-RB-01 (iii) — an API key fenced to another workspace is refused."""
+    requirement, baseline_id, cr = _changed_requirement_with_approved_cr(env)
+    other = _spare_workspace(env)
+    fenced_ctx = replace(
+        env.ctx,
+        auth_method=AuthMethod.API_KEY,
+        api_key_workspace_ids=(str(other.id),),
+    )
+    version_before = Requirement.objects.get(id=requirement.id).version
+
+    with pytest.raises(PermissionDeniedError) as excinfo:
+        BaselineRollbackService().apply(baseline_id, cr.id, fenced_ctx)
+
+    assert excinfo.value.details["reason"] == "workspace_fence"
+    requirement.refresh_from_db()
+    assert requirement.title == "Changed"
+    assert requirement.version == version_before
+    assert _cr_status(cr.id) == "approved"
+
+
+# ---------------------------------------------------------------------------
+# 21–23 — SEC-RB-02: the approved plan is immutable in effect
+# ---------------------------------------------------------------------------
+
+
+def test_apply_rejects_swapped_affected_items(env):
+    """SEC-RB-02 (i) — a set swapped after approval is refused, nothing runs.
+
+    ``set_affected_items`` is callable in any state and re-captures
+    ``version_before``, so the R3 check alone cannot detect the swap — the
+    re-derived plan must be compared with the CR's rows.
+    """
+    first = _make_requirement(env, title="A")
+    second = _make_requirement(env, title="B")
+    bystander = _make_requirement(env, title="C")
+    baseline_id = _baseline(env)
+    _rename_requirement(env, first, "A changed")
+    _rename_requirement(env, second, "B changed")
+
+    cr = BaselineRollbackService().request(
+        baseline_id, env.ctx, change_reason="restore"
+    )
+    _approve_cr(env, cr.id)
+    # The swap the finding describes: an approved set replaced with an item
+    # that was never part of the plan, with fresh version_before values.
+    ChangeRequestService().set_affected_items(
+        cr_id=cr.id, item_ids=[bystander.artifact_id], ctx=env.ctx
+    )
+    version_a = Requirement.objects.get(id=first.id).version
+    version_b = Requirement.objects.get(id=second.id).version
+
+    with pytest.raises(RollbackPlanStaleError) as excinfo:
+        BaselineRollbackService().apply(baseline_id, cr.id, env.ctx)
+
+    assert excinfo.value.code == "ROLLBACK_PLAN_STALE"
+    details = excinfo.value.details
+    assert details["reason"] == "affected_set_mismatch"
+    assert details["unexpected_in_request"] == [str(bystander.artifact_id)]
+    assert details["missing_count"] == 2
+    assert details["unexpected_count"] == 1
+
+    first.refresh_from_db()
+    second.refresh_from_db()
+    bystander.refresh_from_db()
+    assert first.title == "A changed"
+    assert second.title == "B changed"
+    assert bystander.title == "C"
+    assert first.version == version_a
+    assert second.version == version_b
+    assert _cr_status(cr.id) == "approved"
+
+
+def test_link_outside_affected_set_is_not_recreated(env):
+    """SEC-RB-02 (ii) — a link whose endpoints are outside the set is skipped.
+
+    The plan restores ``child`` and would also recreate ``root -> target``;
+    only ``child`` is in the approved affected set, so the link is reported and
+    never written.
+    """
+    from application.trace_link_service import TraceLinkService
+    from persistence.models import TraceLink
+
+    _provision_link_types(env.tenant, env.workspace)
+    root = _make_requirement(env, title="Root")
+    child = _make_requirement(env, title="Child")
+    target = _make_requirement(env, title="Target")
+    trace_links = TraceLinkService()
+    # Hierarchy edge: makes ``child`` part of the root's document scope.
+    trace_links.create_trace_link(
+        child.artifact_id, root.artifact_id, "derives-from", env.ctx
+    )
+    trace_links.create_trace_link(
+        root.artifact_id, target.artifact_id, "derives-from", env.ctx
+    )
+    baseline_id = _document_baseline(env, root.artifact_id)
+    TraceLink.objects.filter(
+        source_id=root.artifact_id, target_id=target.artifact_id
+    ).delete()
+    _rename_requirement(env, child, "Child changed")
+
+    plan = BaselineRollbackService().preview(baseline_id, env.ctx)
+    assert plan.restorable_item_ids == [str(child.artifact_id)]
+    assert [link["source_id"] for link in plan.links_to_recreate] == [
+        str(root.artifact_id)
+    ]
+
+    cr = _request_and_approve(env, baseline_id)
+    result = BaselineRollbackService().apply(baseline_id, cr.id, env.ctx)
+
+    assert result.links_recreated == 0
+    assert any(
+        entry.get("reason") == "outside_affected_set" for entry in result.skipped
+    )
+    assert not TraceLink.objects.filter(
+        source_id=root.artifact_id, target_id=target.artifact_id
+    ).exists()
+    # The item itself was restored — the bounding only dropped the link.
+    child.refresh_from_db()
+    assert child.title == "Child"
+
+
+def test_unchanged_plan_still_applies(env):
+    """SEC-RB-02 (iii) — the reconciliation does not block a faithful plan."""
+    requirement = _make_requirement(env, title="Original")
+    baseline_id = _baseline(env)
+    _rename_requirement(env, requirement, "Changed")
+    cr = _request_and_approve(env, baseline_id)
+
+    result = BaselineRollbackService().apply(baseline_id, cr.id, env.ctx)
+
+    assert result.restored == 1
+    requirement.refresh_from_db()
+    assert requirement.title == "Original"
+    assert _cr_status(cr.id) == "implemented"
+
+
+# ---------------------------------------------------------------------------
+# 24 — SEC-RB-03: the mass limit counts links as well as items
+# ---------------------------------------------------------------------------
+
+
+def test_link_count_counts_towards_mass_limit(env, monkeypatch):
+    """SEC-RB-03 — one item plus one link exceeds a limit of one in both paths."""
+    from application.trace_link_service import TraceLinkService
+    from persistence.models import TraceLink
+
+    _provision_link_types(env.tenant, env.workspace)
+    root = _make_requirement(env, title="Root")
+    target = _make_requirement(env, title="Target")
+    TraceLinkService().create_trace_link(
+        root.artifact_id, target.artifact_id, "derives-from", env.ctx
+    )
+    baseline_id = _document_baseline(env, root.artifact_id)
+    TraceLink.objects.filter(
+        source_id=root.artifact_id, target_id=target.artifact_id
+    ).delete()
+    _rename_requirement(env, root, "Root changed")
+
+    cr = BaselineRollbackService().request(
+        baseline_id, env.ctx, change_reason="restore"
+    )
+    _approve_cr(env, cr.id)
+
+    monkeypatch.setattr(
+        "application.baseline_rollback_service.MAX_ROLLBACK_ITEMS", 1
+    )
+
+    with pytest.raises(RollbackTooLargeError) as apply_exc:
+        BaselineRollbackService().apply(baseline_id, cr.id, env.ctx)
+    assert apply_exc.value.details["count"] == 2
+    assert apply_exc.value.details["items"] == 1
+    assert apply_exc.value.details["links"] == 1
+
+    with pytest.raises(RollbackTooLargeError) as request_exc:
+        BaselineRollbackService().request(
+            baseline_id, env.ctx, change_reason="restore again"
+        )
+    assert request_exc.value.details["count"] == 2
+
+    root.refresh_from_db()
+    assert root.title == "Root changed"
+    assert _cr_status(cr.id) == "approved"
+
+
+# ---------------------------------------------------------------------------
+# 25–26 — SEC-RB-08: the human-only gate fails closed
+# ---------------------------------------------------------------------------
+
+
+def test_apply_refuses_context_without_actor_type(env):
+    """SEC-RB-08 — a context lacking ``actor_type`` is refused, not assumed."""
+    requirement, baseline_id, cr = _changed_requirement_with_approved_cr(env)
+    bare_ctx = SimpleNamespace(
+        user_id=env.user.id,
+        tenant_id=env.tenant.id,
+        active_roles=("admin",),
+        auth_method=AuthMethod.BEARER_TOKEN,
+        workspace_id=env.workspace.id,
+        api_key_workspace_ids=(),
+    )
+    version_before = Requirement.objects.get(id=requirement.id).version
+
+    with pytest.raises(PermissionDeniedError) as excinfo:
+        BaselineRollbackService().apply(baseline_id, cr.id, bare_ctx)
+
+    assert excinfo.value.code == "PERMISSION_DENIED"
+    assert excinfo.value.details["actor_type"] == "unknown"
+    requirement.refresh_from_db()
+    assert requirement.title == "Changed"
+    assert requirement.version == version_before
+    assert _cr_status(cr.id) == "approved"
+
+
+def test_apply_refuses_system_auth_method(env):
+    """SEC-RB-08 — an internal SYSTEM context is never a rollback principal."""
+    requirement, baseline_id, cr = _changed_requirement_with_approved_cr(env)
+    system_ctx = replace(env.ctx, auth_method=AuthMethod.SYSTEM)
+
+    with pytest.raises(PermissionDeniedError):
+        BaselineRollbackService().apply(baseline_id, cr.id, system_ctx)
+
+    requirement.refresh_from_db()
+    assert requirement.title == "Changed"
+    assert _cr_status(cr.id) == "approved"
+
+
+# ---------------------------------------------------------------------------
+# 27–28 — SEC-RB-06: unreadable ids never reach a reported list
+# ---------------------------------------------------------------------------
+
+
+def test_analyse_links_redacts_unreadable_no_snapshot_endpoint(env):
+    """SEC-RB-06 — the ``no_snapshot`` report obeys the readability filter.
+
+    An entry whose endpoint the caller cannot read is invisible *before* the
+    ``no_snapshot`` branch, so ``skipped_links`` cannot become a directory of
+    foreign ids.
+    """
+    service = BaselineRollbackService()
+    hidden_id = str(uuid.uuid4())
+    entry = SimpleNamespace(
+        state={"source_id": hidden_id, "target_id": "", "link_type": ""}
+    )
+
+    assert service._analyse_links([entry], env.workspace.id, set(), env.ctx) == ([], [])
+
+    recreate, skipped = service._analyse_links(
+        [entry], env.workspace.id, {hidden_id}, env.ctx
+    )
+    assert recreate == []
+    assert [(entry_["reason"], entry_["source_id"]) for entry_ in skipped] == [
+        ("no_snapshot", hidden_id)
+    ]
+
+
+def test_skipped_items_redact_unreadable_ids(env):
+    """SEC-RB-06 — a skipped item's id is echoed only when it is readable."""
+    service = BaselineRollbackService()
+    readable = {"readable-item"}
+
+    assert service._skip_item("readable-item", "unsupported_type", readable) == {
+        "kind": "item",
+        "item_id": "readable-item",
+        "reason": "unsupported_type",
+    }
+    assert service._skip_item("hidden-item", "unsupported_type", readable) == {
+        "kind": "item",
+        "redacted": True,
+        "reason": "unsupported_type",
+    }
+
+
+# ---------------------------------------------------------------------------
+# 29 — SEC-RB-05 (service half): every error carries the transport contract
+# ---------------------------------------------------------------------------
+
+
+def test_rollback_errors_expose_code_status_and_details():
+    """SEC-RB-05 — ``.code``, ``.http_status``, ``.details`` on every error.
+
+    The transport half (forwarding ``details`` into the REST/MCP body) is the
+    F11b PR; this pins the contract it will consume.
+    """
+    expected = [
+        (RollbackNotApprovedError, "ROLLBACK_NOT_APPROVED", 409),
+        (RollbackAlreadyAppliedError, "ROLLBACK_ALREADY_APPLIED", 409),
+        (RollbackPlanStaleError, "ROLLBACK_PLAN_STALE", 409),
+        (RollbackConflictError, "ROLLBACK_CONFLICT", 409),
+        (RollbackEmptyError, "ROLLBACK_EMPTY", 400),
+        (RollbackTooLargeError, "ROLLBACK_TOO_LARGE", 400),
+        (RollbackForbiddenError, "PERMISSION_DENIED", 403),
+    ]
+    for error_class, code, http_status in expected:
+        error = error_class("message")
+        assert error.code == code
+        assert error.http_status == http_status
+        assert error.details == {}
+        assert error_class("message", details={"a": 1}).details == {"a": 1}
+
+
+def test_lock_conflict_classifier_maps_deadlocks_only():
+    """SEC-RB-04 — only lock-conflict SQLSTATEs become a 409 conflict."""
+    from django.db import OperationalError
+
+    class _PgError(Exception):
+        """Stand-in for the psycopg2 error carrying the SQLSTATE."""
+
+        def __init__(self, pgcode: str) -> None:
+            super().__init__(pgcode)
+            self.pgcode = pgcode
+
+    def _wrapped(message: str, pgcode: str | None = None) -> OperationalError:
+        try:
+            cause = _PgError(pgcode) if pgcode else None
+            raise OperationalError(message) from cause
+        except OperationalError as exc:
+            return exc
+
+    assert BaselineRollbackService._is_lock_conflict(
+        _wrapped("deadlock detected", "40P01")
+    )
+    assert BaselineRollbackService._is_lock_conflict(
+        _wrapped("could not serialize access due to concurrent update")
+    )
+    assert not BaselineRollbackService._is_lock_conflict(
+        _wrapped("server closed the connection unexpectedly")
+    )

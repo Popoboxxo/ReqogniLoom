@@ -22,7 +22,12 @@ rule):
 R1           additive only — no ``UPDATE``/``DELETE`` on ``bl_*``; every
              restore is a new version through the type's domain service
 R2           a ``ChangeRequest`` in state ``approved`` for *this* baseline
-             and workspace, with non-empty ``affected_items``
+             and workspace, with non-empty ``affected_items``; ``apply``
+             re-derives the plan and demands **exact set equality** between
+             the CR's affected items and :attr:`RollbackPlan.affected_item_ids`
+             (SEC-RB-02) — a plan that is not the approved one never executes;
+             missing trace links are only recreated when **both** endpoints are
+             in that set
 R3           plan binding — per item the current version must equal the
              ``version_before`` captured when the CR was created
 R4           scope — only :data:`baseline.restorable_fields.RESTORABLE_FIELDS`;
@@ -32,13 +37,22 @@ R4           scope — only :data:`baseline.restorable_fields.RESTORABLE_FIELDS`
              created after the baseline are **not** restored
 R5           one transaction, ``select_for_update`` on the CR row first,
              deterministic write order, ``expected_version`` on the closing
-             transition
+             transition; a deadlock with the opposite-ordered CCB path is
+             mapped to ``ROLLBACK_CONFLICT`` (409), never a 500 (SEC-RB-04)
 R6           the CR ends ``implemented`` and exactly **one** rollback-level
              audit entry is written
-R7           item rights — hidden items are absent from the plan; ``apply``
-             checks WRITE before the first write
-R8           humans only — ``apply`` refuses agent principals
-R9           ``MAX_ROLLBACK_ITEMS`` mass limit, synchronous, no worker
+R7           item rights — the caller's roles are resolved **for the
+             baseline's workspace** (never from ``ctx.active_roles``), the API
+             key's workspace fence is enforced and a context workspace that
+             disagrees with the baseline is refused (SEC-RB-01); hidden items
+             are absent from the plan; ``apply`` checks WRITE before the first
+             write; ids the caller may not read are redacted from every
+             reported list (SEC-RB-06)
+R8           humans only — ``apply`` refuses agent principals and SYSTEM
+             contexts, and fails closed when ``actor_type`` is absent
+             (SEC-RB-08)
+R9           ``MAX_ROLLBACK_ITEMS`` mass limit over items **and** links
+             (SEC-RB-03), synchronous, no worker
 ===========  ===========================================================
 
 Known, deliberate limits (reported, never hidden)
@@ -67,6 +81,12 @@ Known, deliberate limits (reported, never hidden)
   leaves the entity version unchanged — the write is still additive and
   audited, it just is not a new revision. Every content field goes through the
   updating domain service and does bump it.
+* **A link is only recreated inside the approved impact set.** ``request``
+  binds a link-only plan to the link endpoints, so a pure link rollback
+  re-creates its link; in a plan that also restores items the affected set is
+  those items, and a missing link whose endpoints are not part of it is
+  reported in ``RollbackResult.skipped`` (``outside_affected_set``) instead of
+  being written (SEC-RB-02). Writing it would execute work the CCB never saw.
 """
 from __future__ import annotations
 
@@ -76,7 +96,7 @@ from datetime import date
 from typing import Any, Literal
 from uuid import UUID
 
-from django.db import transaction
+from django.db import OperationalError, transaction
 
 from application.base import (
     NotFoundError,
@@ -85,7 +105,7 @@ from application.base import (
     ValidationError,
 )
 from application.change_request_service import ChangeRequestService
-from auth_tenancy.context import AuthContext
+from auth_tenancy.context import AuthContext, AuthMethod
 from baseline.restorable_fields import RESTORABLE_FIELDS
 from baseline.state_capture import capture_states
 from baseline.types import DeltaIndexTuple
@@ -219,14 +239,35 @@ class RollbackAlreadyAppliedError(RollbackError):
 
 
 class RollbackPlanStaleError(RollbackError):
-    """R3 — at least one item changed since the request was opened (409).
+    """R3 — the plan no longer matches what the change request approved (409).
 
-    ``details`` lists the affected items as
-    ``{"item_id", "version_before", "current_version"}`` so the client can show
-    exactly which items invalidated the plan.
+    Two shapes of ``details`` exist, both keyed by the failure that produced
+    the error:
+
+    * R3 per-item version drift — a **list** of
+      ``{"item_id", "version_before", "current_version"}`` so the client can
+      show exactly which items invalidated the plan.
+    * R2 affected-set mismatch (SEC-RB-02) — a **dict**
+      ``{"reason": "affected_set_mismatch", "missing_from_request": [...],
+      "unexpected_in_request": [...], "missing_count": n,
+      "unexpected_count": n}``. The two id lists name only artifacts the caller
+      may read; every hidden difference is reflected in the counts only (R7).
     """
 
     code = "ROLLBACK_PLAN_STALE"
+    http_status = 409
+
+
+class RollbackConflictError(RollbackError):
+    """R5 — a concurrent writer holds the change request (409, SEC-RB-04).
+
+    ``apply`` locks the change-request row first (ADR-025 R5) while the CCB
+    path takes the ``WorkflowItemState`` lock first, so the two can deadlock.
+    PostgreSQL aborts one transaction with ``OperationalError``; this error is
+    what the aborted rollback answers instead of leaking a 500.
+    """
+
+    code = "ROLLBACK_CONFLICT"
     http_status = 409
 
 
@@ -346,6 +387,25 @@ class RollbackPlan:
             if item.action in ("restore", "reactivate")
         ]
 
+    @property
+    def affected_item_ids(self) -> list[str]:
+        """The affected-item set ``request`` binds the change request to.
+
+        Restorable ids (``restore``/``reactivate``) — or, for a plan whose only
+        work is a missing trace link, the endpoints of the links it would
+        recreate. This is the single definition of "what the CR approves":
+        :meth:`BaselineRollbackService.request` binds it and
+        :meth:`BaselineRollbackService.apply` re-derives it and demands exact
+        equality with the CR's rows (SEC-RB-02).
+        """
+        restorable = self.restorable_item_ids
+        if restorable:
+            return restorable
+        return sorted(
+            {link["source_id"] for link in self.links_to_recreate}
+            | {link["target_id"] for link in self.links_to_recreate}
+        )
+
 
 @dataclass(frozen=True)
 class RollbackResult:
@@ -410,13 +470,28 @@ class BaselineRollbackService(ServiceBase):
         Read-only: nothing is written and no change request is needed, so an
         agent principal may call it (R8).
 
-        R7: items on which the caller has no *read* right are absent from
-        ``items``, from every count of :attr:`RollbackPlan.summary` and from
-        both link lists — a hidden item must not leak even as a count.
+        R7: the caller must hold a role **in the baseline's workspace** and be
+        allowed by the API key's workspace fence (SEC-RB-01); items without a
+        *read* right are then absent from ``items``, from every count of
+        :attr:`RollbackPlan.summary` and from both link lists — a hidden item
+        must not leak even as a count.
         """
         self._set_tenant_context(ctx)
 
         detail = self._load_baseline(baseline_id, ctx)
+        active_roles = self._authorize_workspace(detail, ctx)
+        plan, _readable = self._build_plan(detail, ctx, active_roles)
+        return plan
+
+    def _build_plan(
+        self, detail, ctx: AuthContext, active_roles: tuple[str, ...]
+    ) -> tuple[RollbackPlan, set[str]]:
+        """Derive the plan from an already loaded baseline (R4/R7).
+
+        Returns the plan plus the set of artifact ids the caller may read, so
+        ``apply`` can redact ids out of every reported difference without a
+        second round of permission lookups.
+        """
         item_entries = [e for e in detail.entries if e.entity_type == "item"]
         term_entries = [e for e in detail.entries if e.entity_type == "glossary_term"]
         link_entries = [e for e in detail.entries if e.entity_type == "trace_link"]
@@ -436,7 +511,9 @@ class BaselineRollbackService(ServiceBase):
             if state.get("target_id"):
                 read_checked.add(str(state["target_id"]))
         read_checked |= set(created_since)
-        readable = self._readable_ids(read_checked, detail.workspace_id, ctx)
+        readable = self._readable_ids(
+            read_checked, detail.workspace_id, ctx, active_roles
+        )
 
         items: list[RollbackItem] = []
         # One batched capture for every member (constant query count, no N+1).
@@ -474,14 +551,69 @@ class BaselineRollbackService(ServiceBase):
             link_entries, detail.workspace_id, readable, ctx
         )
 
-        return RollbackPlan(
-            baseline_id=detail.baseline_id,
-            items=items,
-            links_to_recreate=links_to_recreate,
-            skipped_links=skipped_links,
-            baseline_name=detail.name,
-            workspace_id=detail.workspace_id,
+        return (
+            RollbackPlan(
+                baseline_id=detail.baseline_id,
+                items=items,
+                links_to_recreate=links_to_recreate,
+                skipped_links=skipped_links,
+                baseline_name=detail.name,
+                workspace_id=detail.workspace_id,
+            ),
+            readable,
         )
+
+    def _authorize_workspace(self, detail, ctx: AuthContext) -> tuple[str, ...]:
+        """Resolve the caller's roles *for the baseline's workspace* (R7/SEC-RB-01).
+
+        ``ctx.active_roles`` is deliberately **not** used: it holds the roles of
+        the workspace the request is bound to, and with no workspace in the
+        request it holds the **tenant-wide union** of every workspace's roles
+        (``auth_tenancy.rest`` fallback, MCP's
+        ``active_roles_across_workspaces``). Passing it to
+        ``EffectivePermissionService`` for the baseline's workspace would let a
+        Viewer of workspace A authorise a rollback of workspace B, because the
+        hull-field write (``ArtifactAttributeGateway.write``) performs no
+        authorization of its own.
+
+        Three fences, all fail-closed, in this order (see
+        ``search_service._may_read_artifact`` for the same pattern):
+
+        1. the API key's workspace fence,
+        2. the request context's workspace — it must be unset or the baseline's,
+           never a different one,
+        3. a non-empty resolved role set in the baseline's workspace.
+
+        Returns:
+            The caller's active roles in ``detail.workspace_id``.
+        """
+        from auth_tenancy.resource_scope import workspace_fence_denial
+        from auth_tenancy.services.authorization import AuthorizationService
+
+        workspace_id = detail.workspace_id
+        fence = getattr(ctx, "api_key_workspace_ids", ())
+        if workspace_fence_denial(fence, workspace_id) is not None:
+            raise RollbackForbiddenError(
+                "This API key may not act on the baseline's workspace.",
+                details={"reason": "workspace_fence"},
+            )
+
+        context_workspace = getattr(ctx, "workspace_id", None)
+        if context_workspace is not None and str(context_workspace) != str(workspace_id):
+            raise RollbackForbiddenError(
+                "The request's workspace does not match the baseline's workspace.",
+                details={"reason": "workspace_mismatch"},
+            )
+
+        active_roles = AuthorizationService().active_roles_for(
+            user_id=ctx.user_id, workspace_id=workspace_id
+        )
+        if not active_roles:
+            raise RollbackForbiddenError(
+                "The caller holds no role in the baseline's workspace.",
+                details={"reason": "no_workspace_role"},
+            )
+        return active_roles
 
     # ------------------------------------------------------------------
     # request
@@ -512,7 +644,10 @@ class BaselineRollbackService(ServiceBase):
 
         Raises:
             RollbackEmptyError: R2/R4 — nothing would be restored.
-            RollbackTooLargeError: R9 — more affected items than the limit.
+            RollbackTooLargeError: R9 — more affected items plus links than the
+                limit allows (SEC-RB-03).
+            RollbackForbiddenError: R7 — no role in the baseline's workspace, or
+                the API key's workspace fence excludes it (SEC-RB-01).
             ValidationError: ``change_reason`` missing.
         """
         self._set_tenant_context(ctx)
@@ -521,28 +656,32 @@ class BaselineRollbackService(ServiceBase):
             raise ValidationError("change_reason is required to open a rollback")
 
         plan = self.preview(baseline_id, ctx)
-        item_ids = plan.restorable_item_ids
-        if not item_ids:
-            # R4: a plan whose only work is a missing trace link is *not* empty
-            # („kein restorable Item, keine Reaktivierung, kein nachzuziehender
-            # Link"). R2 still demands a non-empty affected-item set, so a
-            # link-only rollback binds to the link endpoints — the artifacts the
-            # change actually touches.
-            item_ids = sorted(
-                {link["source_id"] for link in plan.links_to_recreate}
-                | {link["target_id"] for link in plan.links_to_recreate}
-            )
+        # R4: a plan whose only work is a missing trace link is *not* empty
+        # („kein restorable Item, keine Reaktivierung, kein nachzuziehender
+        # Link"). R2 still demands a non-empty affected-item set, so a
+        # link-only rollback binds to the link endpoints — the artifacts the
+        # change actually touches. :attr:`RollbackPlan.affected_item_ids` is
+        # the single definition of that rule; ``apply`` re-derives it.
+        item_ids = plan.affected_item_ids
         if not item_ids:
             raise RollbackEmptyError(
                 "Nothing to roll back: the plan contains no restorable or "
                 "reactivatable item and no missing trace link.",
                 details={"summary": plan.summary},
             )
-        if len(item_ids) > MAX_ROLLBACK_ITEMS:
+        # R9 — the mass limit covers the work, not just the items (SEC-RB-03).
+        total = len(item_ids) + len(plan.links_to_recreate)
+        if total > MAX_ROLLBACK_ITEMS:
             raise RollbackTooLargeError(
-                f"Rollback covers {len(item_ids)} items; at most "
+                f"Rollback covers {total} units of work ({len(item_ids)} items, "
+                f"{len(plan.links_to_recreate)} links); at most "
                 f"{MAX_ROLLBACK_ITEMS} are allowed per change request.",
-                details={"count": len(item_ids), "max": MAX_ROLLBACK_ITEMS},
+                details={
+                    "count": total,
+                    "items": len(item_ids),
+                    "links": len(plan.links_to_recreate),
+                    "max": MAX_ROLLBACK_ITEMS,
+                },
             )
 
         summary = plan.summary
@@ -584,30 +723,52 @@ class BaselineRollbackService(ServiceBase):
 
         Runs in **one** ``transaction.atomic()`` block:
 
-        1. R8 — an agent principal is refused before any database work.
+        1. R8 — an agent principal is refused before any database work. The
+           check fails **closed**: a context without ``actor_type`` is refused
+           too, and ``AuthMethod.SYSTEM`` is refused explicitly (SEC-RB-08).
         2. R5 — ``select_for_update()`` on the change-request row; the
 
            status/version are read *after* the lock is held, from
            ``WorkflowItemState`` (the CR's status does not live on its own row).
-        3. R2 — the CR must be ``approved``, linked to *this* baseline, in the
+        3. R7 — the caller's roles are resolved for the **baseline's**
+           workspace, the API key fence is enforced and a context workspace
+           that disagrees with the baseline is refused (SEC-RB-01).
+        4. R2 — the CR must be ``approved``, linked to *this* baseline, in the
            baseline's workspace, with non-empty ``affected_items``.
-        4. R9 — the affected-item count.
-        5. R7 — WRITE per artifact the run will touch, before the first write.
-        6. R3 — per item ``current_version == version_before``.
-        7. Writes in ``item_id`` order (R1/R4), then missing trace links.
-        8. ``transition_status(..., "implemented", expected_version=<locked
-           version>)`` in the same transaction (R5) and one audit entry (R6).
+        5. R9 — the affected-item count **plus** the number of links to
+           recreate (SEC-RB-03).
+        6. R2 — the plan is re-derived from the baseline and must produce
+           exactly the CR's affected-item set; a swapped set is refused with
+           ``ROLLBACK_PLAN_STALE`` before any write (SEC-RB-02).
+        7. R7 — WRITE per artifact the run will touch, before the first write.
+        8. R3 — per item ``current_version == version_before``.
+        9. Writes in ``item_id`` order (R1/R4), then missing trace links whose
+           endpoints are all part of the affected set.
+        10. ``transition_status(..., "implemented", expected_version=<locked
+            version>)`` in the same transaction (R5) and one audit entry (R6).
+
+        Lock order (SEC-RB-04): the CR row is locked first, per ADR-025 R5. The
+        CCB path (``transition_status`` → the ``WorkflowItemState`` lock → the
+        affected-item snapshot writes that touch the CR row) acquires the two
+        in the opposite order, so a concurrent CCB decision and an apply can
+        deadlock. PostgreSQL aborts exactly one of them with an
+        ``OperationalError``; that is caught around the closing transition and
+        mapped to ``RollbackConflictError`` (409, ``ROLLBACK_CONFLICT``) instead
+        of surfacing a 500. The CR-first order is kept because it is the ADR
+        wording and it is what serialises two concurrent applies (R5).
 
         Any failure rolls the whole transaction back: nothing is written and
         the CR stays ``approved``. Rejected attempts log a WARNING with the CR
         id, the acting user and the error code (R6).
         """
-        if getattr(ctx, "actor_type", "user") != "user":
+        actor_type = getattr(ctx, "actor_type", None)
+        auth_method = getattr(ctx, "auth_method", None)
+        if actor_type != "user" or auth_method == AuthMethod.SYSTEM:
             self._log_rejection("apply", change_request_id, ctx, RollbackForbiddenError)
             raise RollbackForbiddenError(
                 "Baseline rollback is a human-only operation; agent principals "
                 "may preview and open the change request, not execute it.",
-                details={"actor_type": ctx.actor_type},
+                details={"actor_type": actor_type or "unknown"},
             )
 
         self._set_tenant_context(ctx)
@@ -657,6 +818,9 @@ class BaselineRollbackService(ServiceBase):
             )
 
         detail = self._load_baseline(baseline_id, ctx)
+        # R7 (SEC-RB-01) — resolve the caller's roles for the baseline's
+        # workspace before anything derived from the baseline is trusted.
+        active_roles = self._authorize_workspace(detail, ctx)
 
         # R2 — the CR must be bound to *this* baseline and workspace.
         if cr.baseline_id is None or str(cr.baseline_id) != str(detail.baseline_id):
@@ -680,12 +844,26 @@ class BaselineRollbackService(ServiceBase):
                 "recorded impact set is not executable."
             )
 
-        # R9 — mass limit, checked before any permission/diff work.
-        if len(rows) > MAX_ROLLBACK_ITEMS:
+        # R2 — re-derive the plan from the baseline (SEC-RB-02). The approved
+        # CR is not by itself proof of what to execute: its affected-item rows
+        # are replaceable in any state.
+        plan, readable = self._build_plan(detail, ctx, active_roles)
+
+        # R9 — mass limit over the work, items *and* links (SEC-RB-03). It runs
+        # before the diff and write work; the link share is only known once the
+        # plan is derived, so the (read-only) plan derivation precedes it.
+        total = len(rows) + len(plan.links_to_recreate)
+        if total > MAX_ROLLBACK_ITEMS:
             raise RollbackTooLargeError(
-                f"Rollback covers {len(rows)} items; at most "
+                f"Rollback covers {total} units of work ({len(rows)} items, "
+                f"{len(plan.links_to_recreate)} links); at most "
                 f"{MAX_ROLLBACK_ITEMS} are allowed.",
-                details={"count": len(rows), "max": MAX_ROLLBACK_ITEMS},
+                details={
+                    "count": total,
+                    "items": len(rows),
+                    "links": len(plan.links_to_recreate),
+                    "max": MAX_ROLLBACK_ITEMS,
+                },
             )
 
         by_item_id = {str(entry.item_id): entry for entry in detail.entries}
@@ -699,20 +877,17 @@ class BaselineRollbackService(ServiceBase):
             rows, by_item_id, self._capture_current(affected_entries, ctx), ctx
         )
 
-        link_entries = [e for e in detail.entries if e.entity_type == "trace_link"]
-        link_endpoints: set[str] = set()
-        for entry in link_entries:
-            state = entry.state or {}
-            if state.get("source_id"):
-                link_endpoints.add(str(state["source_id"]))
-            if state.get("target_id"):
-                link_endpoints.add(str(state["target_id"]))
-        links_to_recreate, skipped_links = self._analyse_links(
-            link_entries,
-            detail.workspace_id,
-            self._readable_ids(link_endpoints, detail.workspace_id, ctx),
-            ctx,
-        )
+        # R2/R7 — a link is only recreated when *both* endpoints belong to the
+        # approved affected set; everything else is reported, never written
+        # (SEC-RB-02).
+        affected_ids = {str(row.item_id) for row in rows}
+        links_to_recreate: list[dict[str, str]] = []
+        skipped: list[dict[str, Any]] = list(plan.skipped_links)
+        for link in plan.links_to_recreate:
+            if link["source_id"] in affected_ids and link["target_id"] in affected_ids:
+                links_to_recreate.append(link)
+            else:
+                skipped.append({**link, "reason": "outside_affected_set"})
 
         # R7 — one WRITE check for every artifact this run will write to
         # (affected items *and* link endpoints), before the first write.
@@ -720,7 +895,7 @@ class BaselineRollbackService(ServiceBase):
         for link in links_to_recreate:
             write_ids.add(link["source_id"])
             write_ids.add(link["target_id"])
-        self._assert_write_access(write_ids, detail.workspace_id, ctx)
+        self._assert_write_access(write_ids, detail.workspace_id, ctx, active_roles)
 
         # R3 — plan binding against the ``version_before`` captured at request.
         stale = self._stale_items(rows, members)
@@ -731,32 +906,29 @@ class BaselineRollbackService(ServiceBase):
                 details=stale,
             )
 
+        # R2 — the affected set the CCB approved must be exactly the set the
+        # re-derived plan would execute (SEC-RB-02).
+        self._assert_plan_matches(plan, rows, readable)
+
         change_reason = (
             f"Rollback to baseline '{detail.name}' (CR {cr.id})"
         )
 
         restored = 0
         reactivated = 0
-        skipped: list[dict[str, Any]] = list(skipped_links)
 
         for member in sorted(members, key=lambda m: m.item_id):
             if not member.item_type:
                 skipped.append(
-                    {
-                        "kind": "item",
-                        "item_id": member.item_id,
-                        "reason": "unsupported_type",
-                    }
+                    self._skip_item(member.item_id, "unsupported_type", readable)
                 )
                 continue
             if member.item_type == "GlossaryTerm":
                 # Cannot be bound to a CR affected item — see module docstring.
                 skipped.append(
-                    {
-                        "kind": "item",
-                        "item_id": member.item_id,
-                        "reason": "glossary_term_not_bindable",
-                    }
+                    self._skip_item(
+                        member.item_id, "glossary_term_not_bindable", readable
+                    )
                 )
                 continue
 
@@ -772,14 +944,25 @@ class BaselineRollbackService(ServiceBase):
         links_recreated = self._recreate_links(links_to_recreate, ctx)
 
         # R5 step 4 + R6 — the closing transition carries the revision read
-        # under the lock; a concurrent CCB decision makes it fail (409).
-        ChangeRequestService().transition_status(
-            cr_id=cr.id,
-            target_status="implemented",
-            ctx=ctx,
-            change_reason=change_reason,
-            expected_version=wf_version,
-        )
+        # under the lock; a concurrent CCB decision makes it fail (409). A
+        # deadlock with that opposite-ordered path is a conflict, not a 500
+        # (SEC-RB-04).
+        try:
+            ChangeRequestService().transition_status(
+                cr_id=cr.id,
+                target_status="implemented",
+                ctx=ctx,
+                change_reason=change_reason,
+                expected_version=wf_version,
+            )
+        except OperationalError as exc:
+            if not self._is_lock_conflict(exc):
+                raise
+            raise RollbackConflictError(
+                "The change request is being modified by a concurrent CCB "
+                "decision; retry the rollback.",
+                details={"change_request_id": str(cr.id)},
+            ) from exc
 
         # R6 — exactly ONE rollback-level audit entry, in this transaction.
         self._audit(
@@ -1117,6 +1300,14 @@ class BaselineRollbackService(ServiceBase):
             source_id = state.get("source_id")
             target_id = state.get("target_id")
             link_type = state.get("link_type")
+            # R7 — an endpoint the caller cannot read makes the whole link
+            # invisible (SEC-RB-06). This runs *before* the ``no_snapshot``
+            # branch: that report would otherwise hand a foreign artifact id to
+            # a caller who may not read it.
+            if (source_id and str(source_id) not in readable) or (
+                target_id and str(target_id) not in readable
+            ):
+                continue
             if not (source_id and target_id and link_type):
                 skipped.append(
                     {
@@ -1133,9 +1324,6 @@ class BaselineRollbackService(ServiceBase):
                 "link_type": str(link_type),
             }
             if (entry["source_id"], entry["target_id"], entry["link_type"]) in existing:
-                continue
-            # R7 — an endpoint the caller cannot read is invisible, link and all.
-            if entry["source_id"] not in readable or entry["target_id"] not in readable:
                 continue
             definition = get_definition(workspace_id, entry["link_type"])
             if definition is None:
@@ -1436,7 +1624,11 @@ class BaselineRollbackService(ServiceBase):
     # ------------------------------------------------------------------
 
     def _readable_ids(
-        self, artifact_ids: set[str], workspace_id: UUID, ctx: AuthContext
+        self,
+        artifact_ids: set[str],
+        workspace_id: UUID,
+        ctx: AuthContext,
+        active_roles: tuple[str, ...],
     ) -> set[str]:
         """Subset of *artifact_ids* the caller may READ (R7)."""
         if not artifact_ids:
@@ -1444,11 +1636,15 @@ class BaselineRollbackService(ServiceBase):
         return {
             artifact_id
             for artifact_id in artifact_ids
-            if self._allowed(artifact_id, workspace_id, ctx, "read")
+            if self._allowed(artifact_id, workspace_id, ctx, "read", active_roles)
         }
 
     def _assert_write_access(
-        self, artifact_ids: set[str], workspace_id: UUID, ctx: AuthContext
+        self,
+        artifact_ids: set[str],
+        workspace_id: UUID,
+        ctx: AuthContext,
+        active_roles: tuple[str, ...],
     ) -> None:
         """R7 — deny the whole run before the first write when WRITE is missing.
 
@@ -1458,7 +1654,7 @@ class BaselineRollbackService(ServiceBase):
         denied = [
             artifact_id
             for artifact_id in sorted(artifact_ids)
-            if not self._allowed(artifact_id, workspace_id, ctx, "write")
+            if not self._allowed(artifact_id, workspace_id, ctx, "write", active_roles)
         ]
         if not denied:
             return
@@ -1466,7 +1662,8 @@ class BaselineRollbackService(ServiceBase):
         readable_denied = sorted(
             artifact_id
             for artifact_id in denied
-            if artifact_id in self._readable_ids(denied_set, workspace_id, ctx)
+            if artifact_id
+            in self._readable_ids(denied_set, workspace_id, ctx, active_roles)
         )
         raise RollbackForbiddenError(
             "Rollback requires write permission on every affected artifact.",
@@ -1478,9 +1675,18 @@ class BaselineRollbackService(ServiceBase):
 
     @staticmethod
     def _allowed(
-        artifact_id: str, workspace_id: UUID, ctx: AuthContext, level: str
+        artifact_id: str,
+        workspace_id: UUID,
+        ctx: AuthContext,
+        level: str,
+        active_roles: tuple[str, ...],
     ) -> bool:
-        """``EffectivePermissionService`` verdict for one artifact."""
+        """``EffectivePermissionService`` verdict for one artifact.
+
+        *active_roles* are the caller's roles **in** ``workspace_id``, resolved
+        once per call by :meth:`_authorize_workspace` — never ``ctx.active_roles``
+        (which is a union when the request names no workspace; SEC-RB-01).
+        """
         from application.effective_permission_service import EffectivePermissionService
 
         try:
@@ -1488,7 +1694,7 @@ class BaselineRollbackService(ServiceBase):
         except (TypeError, ValueError):  # pragma: no cover - ids come from the DB
             return False
         decision = EffectivePermissionService().resolve_effective_permission(
-            active_roles=ctx.active_roles,
+            active_roles=active_roles,
             user_id=ctx.user_id,
             workspace_id=workspace_id,
             artifact_id=uuid_value,
@@ -1497,8 +1703,56 @@ class BaselineRollbackService(ServiceBase):
         return decision.is_allowed
 
     # ------------------------------------------------------------------
-    # Plan binding (R3) and CR state (R5)
+    # Plan binding (R2/R3) and CR state (R5)
     # ------------------------------------------------------------------
+
+    def _assert_plan_matches(
+        self, plan: RollbackPlan, rows, readable: set[str]
+    ) -> None:
+        """R2 — the CR's affected set must equal the re-derived plan (SEC-RB-02).
+
+        ``ChangeRequestService.set_affected_items`` rewrites the affected-item
+        rows in **any** state (including ``approved``) and re-captures
+        ``version_before``, so an approved CR does not prove that the executed
+        plan is the one the CCB approved. Comparing the rows against
+        :attr:`RollbackPlan.affected_item_ids` — the same rule ``request`` bound
+        the CR to — makes a silent swap a refusal instead of a different
+        rollback.
+
+        ``details`` names only ids the caller may read; every hidden difference
+        is reflected in the counts (R7/SEC-RB-06).
+        """
+        expected = set(plan.affected_item_ids)
+        actual = {str(row.item_id) for row in rows}
+        if expected == actual:
+            return
+
+        missing = sorted(expected - actual)
+        unexpected = sorted(actual - expected)
+        raise RollbackPlanStaleError(
+            "The change request's affected items no longer match the rollback "
+            "plan derived from the baseline; open a new change request.",
+            details={
+                "reason": "affected_set_mismatch",
+                "missing_from_request": [item for item in missing if item in readable],
+                "unexpected_in_request": [
+                    item for item in unexpected if item in readable
+                ],
+                "missing_count": len(missing),
+                "unexpected_count": len(unexpected),
+            },
+        )
+
+    @staticmethod
+    def _skip_item(item_id: str, reason: str, readable: set[str]) -> dict[str, Any]:
+        """A skipped item, with its id redacted when the caller may not read it.
+
+        R7/SEC-RB-06: an id the caller cannot read must not be echoed back just
+        because the run decided not to write it.
+        """
+        if item_id in readable:
+            return {"kind": "item", "item_id": item_id, "reason": reason}
+        return {"kind": "item", "redacted": True, "reason": reason}
 
     def _stale_items(self, rows, members: list[_Member]) -> list[dict[str, Any]]:
         """R3 — items whose current version differs from ``version_before``.
@@ -1527,6 +1781,21 @@ class BaselineRollbackService(ServiceBase):
                     }
                 )
         return stale
+
+    @staticmethod
+    def _is_lock_conflict(exc: OperationalError) -> bool:
+        """Whether *exc* is a deadlock/serialisation abort, not a real failure.
+
+        Only the lock-conflict SQLSTATEs are mapped to ``ROLLBACK_CONFLICT``;
+        every other ``OperationalError`` (connection loss, disk full, …) keeps
+        propagating unchanged instead of being disguised as a retryable 409.
+        """
+        cause = getattr(exc, "__cause__", None)
+        sqlstate = getattr(cause, "pgcode", None) or getattr(cause, "sqlstate", None)
+        if sqlstate in {"40P01", "40001", "55P03"}:
+            return True
+        message = str(exc).lower()
+        return "deadlock detected" in message or "could not serialize access" in message
 
     @staticmethod
     def _cr_status_and_version(change_request_id: UUID) -> tuple[str | None, int | None]:
@@ -1583,6 +1852,7 @@ __all__ = [
     "SUPPORTED_ITEM_TYPES",
     "BaselineRollbackService",
     "RollbackAlreadyAppliedError",
+    "RollbackConflictError",
     "RollbackEmptyError",
     "RollbackError",
     "RollbackForbiddenError",
