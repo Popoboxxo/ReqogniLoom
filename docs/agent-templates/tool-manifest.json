@@ -4713,7 +4713,7 @@
       "name": "memory.query",
       "prefix": "memory",
       "is_write": false,
-      "description": "Semantic search over one or more memory scopes (workspace, user, artifact).",
+      "description": "Semantic search over one or more memory scopes (workspace, user, artifact). 'source' selects what is searched: 'facts' (default) the backend's stored/derived conclusions, 'derived' its message-level (raw messages) recall, 'all' both. On a backend without a second recall surface 'derived'/'all' answer an empty list with degraded=true.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4750,6 +4750,15 @@
           "top_k": {
             "type": "integer",
             "default": 5
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "facts",
+              "derived",
+              "all"
+            ],
+            "default": "facts"
           }
         },
         "required": [

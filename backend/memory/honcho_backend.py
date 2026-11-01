@@ -145,8 +145,9 @@ no object" guard.
 ``digest()`` (F6)
 -----------------
 :meth:`HonchoMemoryBackend.digest` reads the engine's derived artefact first
-(peer representation scoped to the scope's session, falling back to the peer
-card), then degrades in steps:
+(ONE ``peer.context`` call returning the peer's representation, falling back to
+its peer card; see :meth:`_engine_digest_body` for the deliberate
+peer-level-not-session-level choice), then degrades in steps:
 
 1. representation / card -- the engine's own summary. ``degraded=False`` when
    either answered, even if it was empty;
@@ -254,6 +255,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
 
@@ -274,6 +276,7 @@ from memory.backends import (
     MemoryEntryRef,
     BackendSettingField,
     MemoryHealth,
+    MemoryQuerySource,
     VALID_MEMORY_SCOPES,
     _cosine_distance,
     _digest_text,
@@ -512,6 +515,42 @@ def _unit_count(value: Any) -> int | None:
     return value if value >= 0 else None
 
 
+def _context_field(context: Any, name: str) -> Any:
+    """Read one field from a ``peer.context`` result, whatever shape it has.
+
+    The T-A4-1 spike verified the HTTP body's keys
+    (``{peer_id, target_id, representation, peer_card}``) but not the SDK's
+    Python wrapper, so this reads the documented field names from either a
+    mapping or an attribute-bearing object instead of guessing a class. It
+    never invents a field: an absent name answers ``None``.
+    """
+    if isinstance(context, Mapping):
+        return context.get(name)
+    return getattr(context, name, None)
+
+
+def _merge_query_refs(
+    facts: list[MemoryEntryRef], derived: list[MemoryEntryRef]
+) -> list[MemoryEntryRef]:
+    """Merge ``facts`` and ``derived`` hits into one ``all`` answer.
+
+    ``facts`` keeps its engine ordering (and its real distances); ``derived``
+    hits follow, skipping any ``entry_id`` already present. ``entry_id``
+    namespaces differ (local UUIDs / conclusion ids vs. message ids), so the
+    de-duplication key is its string form -- precisely the key
+    ``MemoryEntryService.search`` uses when it merges scopes.
+    """
+    merged = list(facts)
+    seen = {str(ref.entry_id) for ref in merged}
+    for ref in derived:
+        key = str(ref.entry_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(ref)
+    return merged
+
+
 #: Placeholder observer/observed pair used only to construct a
 #: ``ConclusionsView`` whose ``delete()`` is called.
 #:
@@ -547,10 +586,11 @@ class HonchoMemoryBackend(MemoryBackend):
     #: Dialectic answers are Honcho's reason to exist; search is the canonical
     #: store. ``consolidation`` is ``True`` since T-A4-2: the engine's own
     #: ``schedule_dream`` route (verified in the T-A4-1 spike, ``deploy/
-    #: README.md``) gives the port a real surface. Derived search moves to
-    #: ``True`` in T-A4-3, which is why it stays declared ``False`` here rather
-    #: than silently omitted. Summaries/webhooks have no port method yet, so
-    #: they stay ``False`` even though the upstream engine has them.
+    #: README.md``) gives the port a real surface. Derived search is ``True``
+    #: since T-A4-3, landed in this change set: ``peer.search`` delivers
+    #: peer-scoped message recall, not derived conclusions. Summaries/webhooks
+    #: have no port method yet, so they stay ``False`` even though the upstream
+    #: engine has them.
     settings_key = "honcho"
     settings_schema = (
         BackendSettingField("base_url", "str", "HONCHO_BASE_URL"),
@@ -576,7 +616,11 @@ class HonchoMemoryBackend(MemoryBackend):
     capabilities = MemoryCapabilities(
         dialectic=True,
         search=True,
-        search_derived=False,
+        # T-A4-3: Honcho exposes a second recall surface (``peer.search``,
+        # message-level) next to the conclusion query ``facts`` uses. What
+        # ``derived`` therefore delivers is peer-scoped MESSAGE recall, not
+        # Honcho's derived conclusions -- see :meth:`query`.
+        search_derived=True,
         consolidation=True,
         scopes=VALID_MEMORY_SCOPES,
         summaries=False,
@@ -1050,9 +1094,12 @@ class HonchoMemoryBackend(MemoryBackend):
 
         Read ladder (see the module docstring):
 
-        1. the peer representation scoped to this scope's session, falling back
-           to the peer card when the representation is empty -- Honcho's Deriver
-           output, which is the richest and cheapest thing to hand a caller;
+        1. the engine's context for this scope's peer, read with ONE
+           ``peer.context`` call (T-A4-4): its ``representation``, falling back
+           to its ``peer_card`` when the representation is empty -- Honcho's
+           Deriver output, which is the richest and cheapest thing to hand a
+           caller (see :meth:`_engine_digest_body` for why the call is
+           peer-level and not session-scoped);
         2. the scope's conclusion list -- the SAME bounded page the derivation
            probe already read (step 1's clean-but-empty case), or ``list_recent``
            when the engine read raised and no page exists yet;
@@ -1214,51 +1261,69 @@ class HonchoMemoryBackend(MemoryBackend):
         )
 
     def _engine_digest_body(self, tenant_id: UUID, scope: str, scope_id: UUID) -> tuple[str, bool]:
-        """Return ``(body, failed)`` from the engine's representation/peer card.
+        """Return ``(body, failed)`` from ONE ``peer.context`` call (T-A4-4).
 
-        ``failed`` is ``True`` whenever a transport/backend call raised, which is
-        what makes the enclosing digest report ``degraded=True``. An empty body
-        with ``failed=False`` means the peer answered cleanly and simply has
-        nothing yet -- NOT degraded (F9).
+        ``peer.context()`` replaces the previous ``peer.representation(session=
+        …)`` + ``peer.get_card()`` pair: one round trip
+        (``GET …/peers/{peer_id}/context``) returns ``{representation,
+        peer_card}``, so the digest no longer pays two engine calls and can no
+        longer render a representation from one moment next to a card from
+        another.
 
-        A failing representation short-circuits before the card: both are calls
-        on the same unreachable peer, so the second one would only add latency to
-        an answer already known to be degraded.
+        DELIBERATE DEVIATION (documented, not silent): ``peer.context`` has NO
+        ``session`` parameter (T-A4-1 spike, ``deploy/README.md``), so the old
+        session scoping of the representation cannot be forwarded. It is
+        semantically a no-op *for this backend*: every ``(scope, scope_id)``
+        maps to exactly ONE peer AND exactly one stable session
+        (:meth:`_scope_session_id`), and every write publishes its message into
+        that same session. The peer's whole context and the session's context
+        therefore cover the identical message set today -- dropping the
+        parameter changes which endpoint is called, not what it contains. The
+        session-scoped alternative (``Session.context(peer_target=…,
+        limit_to_session=True)``) was rejected because it would need a second
+        call once the representation is empty (to read the peer card) and
+        because the backend's invariant "one peer == one scope == one session"
+        makes the narrower read redundant. Should that invariant ever be
+        relaxed (a second session per peer), this method must switch to
+        ``Session.context(..., limit_to_session=True)`` -- that is the trigger
+        to revisit, noted here so the reasoning is not lost.
 
-        ``get_card()`` rather than the ``card`` attribute: the installed
-        ``honcho-ai==2.5.1`` exposes *both* as methods, and ``card()`` is a
-        deprecation shim that warns on every call (verified by introspecting the
-        SDK in the deployed container).
+        ``failed`` is ``True`` whenever the call raised (or returned nothing at
+        all), which is what makes the enclosing digest report ``degraded=True``.
+        An empty body with ``failed=False`` means the peer answered cleanly and
+        simply has nothing yet -- NOT degraded (F9).
         """
         client = self._ensure_client(tenant_id)
         peer = client.peer(self._scope_peer_id(tenant_id, scope, scope_id))
-        session_id = self._scope_session_id(tenant_id, scope, scope_id)
         try:
-            representation = peer.representation(session=session_id)
+            context = peer.context()
         except Exception as exc:  # noqa: BLE001 - degrade, never raise (see digest)
             logger.warning(
-                "honcho memory: digest representation read failed for tenant=%s "
+                "honcho memory: digest peer-context read failed for tenant=%s "
                 "scope=%s (error type %s)",
                 tenant_id,
                 scope,
                 type(exc).__name__,
             )
             return "", True
+        if context is None:
+            # The documented response always carries the keys, so "no context
+            # object at all" is not a clean empty answer -- reporting it as
+            # non-degraded would turn an unknown into "nothing remembered".
+            logger.warning(
+                "honcho memory: digest peer-context returned no payload for "
+                "tenant=%s scope=%s; reporting degraded",
+                tenant_id,
+                scope,
+            )
+            return "", True
+
+        representation = _context_field(context, "representation")
         body = (representation or "").strip()
         if body:
             return body, False
 
-        try:
-            card = peer.get_card()
-        except Exception as exc:  # noqa: BLE001 - degrade, never raise (see digest)
-            logger.warning(
-                "honcho memory: digest peer-card read failed for tenant=%s "
-                "scope=%s (error type %s)",
-                tenant_id,
-                scope,
-                type(exc).__name__,
-            )
-            return "", True
+        card = _context_field(context, "peer_card")
         if card:
             return "\n".join(str(line) for line in card).strip(), False
         return "", False
@@ -1585,24 +1650,73 @@ class HonchoMemoryBackend(MemoryBackend):
         )
 
     def query(
-        self, tenant_id: UUID, scope: str, scope_id: UUID, query_text: str, top_k: int = 5
+        self,
+        tenant_id: UUID,
+        scope: str,
+        scope_id: UUID,
+        query_text: str,
+        top_k: int = 5,
+        *,
+        source: MemoryQuerySource = "facts",
     ) -> list[MemoryEntryRef]:
-        """Semantic search over this scope's conclusions, with a real distance.
+        """Search this scope's own peer, in one of three named sources.
 
-        Unlike the pre-#1002 implementation, ``distance`` is computed in
-        process (F5): the query text and the matched entry are embedded
-        locally and the cosine distance is returned. When no local mirror row
-        exists for a conclusion, or no embedding can be produced, the ref is
-        still returned with ``distance=None`` (never a fabricated score --
-        ``memory.tasks`` gates its supersede branch on that being non-None).
+        ``source="facts"`` (default) is the historical behaviour, unchanged:
+        :meth:`_query_facts` reads the engine's *conclusions* via
+        ``conclusions.query`` and computes a real in-process distance.
 
-        T-A0-6: a mirror row whose ``embedding_model`` is set and differs from
-        the model the query text was just embedded with holds a vector from a
-        DIFFERENT vector space, so a cosine distance against it is meaningless
-        — it is reported as ``None`` instead. Only the number is withheld:
-        ordering and membership still come from the engine (``conclusions.
-        query``), which does not know about local provenance.
+        ``source="derived"`` (Plan A T-A4-3) reads the backend's SECOND recall
+        surface: ``peer.search(query, limit=…)``, i.e. message-level recall over
+        messages **authored by this scope's own peer** (every :meth:`write`
+        publishes exactly one such message, see the module docstring).
+
+        Naming this honestly matters, so: ``derived`` does NOT return Honcho's
+        derived conclusions. The T-A4-1 spike (``deploy/README.md``) verified
+        that ``peer.search`` returns messages, and building ``derived`` on the
+        workspace-wide ``Honcho.search`` route is forbidden by QR-S04 (one
+        Honcho workspace spans a whole tenant). So ``derived`` = "the raw
+        observations this scope's peer contributed", which is a strictly
+        peer-scoped, message-level recall -- richer and rawer than the
+        conclusion search ``facts`` performs, and never a re-labelling of
+        ``facts``.
+
+        QR-S04 isolation is enforced twice, deliberately:
+        ``peer.search`` is issued on the ONE peer of the requested
+        ``(scope, scope_id)`` (never a workspace/tenant-wide search), and every
+        returned message is post-filtered by ``peer_id == that peer`` before it
+        becomes a :class:`MemoryEntryRef`. A message that does not carry the
+        expected ``peer_id`` is dropped (fail-closed), so a misbehaving engine
+        cannot leak a sibling peer's content. The caller
+        (``MemoryEntryService.search``) has already authorised the requested
+        scope, and the requested scopes are always a subset of the QR-S04
+        allowed set (own user peer, workspace peers with READ, artifact peers
+        of those workspaces) -- ``derived`` never widens beyond them.
+
+        ``source="all"`` returns ``facts`` followed by the non-duplicate
+        ``derived`` hits (de-duplicated by ``entry_id``). A backend without
+        ``capabilities.search_derived`` never reaches this method's derived
+        branch: the port answers ``[]`` for ``derived``/``all`` and the service
+        reports ``degraded=True, detail="unsupported"``.
+
+        Exceptions from the engine propagate, exactly like ``facts`` does: the
+        service catches them per scope and answers
+        ``search_backend_error:<Class>`` with ``degraded=True``.
         """
+        if not self.query_source_supported(source):
+            return []
+        if source == "facts":
+            return self._query_facts(tenant_id, scope, scope_id, query_text, top_k)
+
+        derived = self._query_derived(tenant_id, scope, scope_id, query_text, top_k)
+        if source == "derived":
+            return derived
+        facts = self._query_facts(tenant_id, scope, scope_id, query_text, top_k)
+        return _merge_query_refs(facts, derived)
+
+    def _query_facts(
+        self, tenant_id: UUID, scope: str, scope_id: UUID, query_text: str, top_k: int
+    ) -> list[MemoryEntryRef]:
+        """``source="facts"``: the historical conclusion search (unchanged)."""
         results = self._conclusions(tenant_id, scope, scope_id).query(
             query_text, top_k=max(1, min(top_k, _MAX_PAGE_SIZE))
         )
@@ -1629,6 +1743,57 @@ class HonchoMemoryBackend(MemoryBackend):
                     else _cosine_distance(query_embedding, local.embedding)
                 )
                 refs.append(_ref_from_entry(local, distance=distance))
+        return refs
+
+    def _query_derived(
+        self, tenant_id: UUID, scope: str, scope_id: UUID, query_text: str, top_k: int
+    ) -> list[MemoryEntryRef]:
+        """``source="derived"``: message-level recall on the scope's own peer.
+
+        Two guarantees, both required by QR-S04:
+
+        1. only the peer of THIS ``(scope, scope_id)`` is searched -- one
+           ``peer.search`` call, no workspace-wide route;
+        2. every returned message is post-filtered by ``peer_id``. A message
+           without a readable ``peer_id`` is dropped rather than trusted
+           (fail-closed), and so is a message from any other peer.
+
+        ``distance`` stays ``None``: the engine returns no similarity score for
+        messages, and fabricating one would be the same lie the conclusion path
+        already refuses to tell (see the module docstring's Distance section).
+        Entry ids are the engine's message ids -- like :meth:`list_recent`, they
+        are not our local UUIDs.
+
+        Coverage caveat: :meth:`write` publishes its message best-effort
+        (fail-open), so a scope whose session write failed holds fewer messages
+        than conclusions -- ``derived`` can legitimately answer less than
+        ``facts`` for the same state. That is a partial answer, not a false one.
+        """
+        peer_id = self._scope_peer_id(tenant_id, scope, scope_id)
+        peer = self._ensure_client(tenant_id).peer(peer_id)
+        limit = max(1, min(top_k, _MAX_PAGE_SIZE))
+        messages = peer.search(query_text, limit=limit) or []
+
+        refs: list[MemoryEntryRef] = []
+        for message in list(messages)[:limit]:
+            # Compare the STRING form: ``peer_id`` can arrive as a UUID or a
+            # str-like SDK wrapper, and a type-strict ``!=`` would silently drop
+            # every hit. A missing/empty id normalises to ``""`` (never equal to
+            # a real peer id), so the filter stays fail-closed.
+            if str(getattr(message, "peer_id", "") or "") != peer_id:
+                # QR-S04 post-filter: another peer's message must never reach
+                # the caller, whatever the engine returned.
+                continue
+            message_id = getattr(message, "id", None)
+            if not message_id:
+                continue
+            refs.append(
+                MemoryEntryRef(
+                    entry_id=message_id,
+                    content=str(getattr(message, "content", "") or ""),
+                    scope=scope,
+                )
+            )
         return refs
 
     def list_recent(
