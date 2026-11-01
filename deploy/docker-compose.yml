@@ -1195,7 +1195,7 @@ services:
   # pipeline does produce and push release tags).
   #
   # PINNED TO A STABLE TAG + DIGEST (#1153, #1315): the reference below is
-  # `…:v3.3.0@sha256:…` — a released version tag AND the resolved manifest
+  # `…:v3.5.0@sha256:…` — a released version tag AND the resolved manifest
   # digest. WHY: `:latest` is a MOVING tag. When upstream republished it, a
   # deployment silently pulled a different image than the one this stack was
   # verified against, which is the #1153 failure mode; a bare digest also said
@@ -1213,14 +1213,14 @@ services:
   # pinned-image reference in `deploy/README.md`, and `_EXPECTED_TAG`/
   # `_EXPECTED_DIGEST` in
   # backend/memory/tests/test_honcho_deploy_contract.py. Either works:
-  #   docker buildx imagetools inspect ghcr.io/plastic-labs/honcho:v3.3.0
-  #   docker manifest inspect ghcr.io/plastic-labs/honcho:v3.3.0
+  #   docker buildx imagetools inspect ghcr.io/plastic-labs/honcho:v3.5.0
+  #   docker manifest inspect ghcr.io/plastic-labs/honcho:v3.5.0
   # Copy the MANIFEST-LIST / index `Digest:` (Docker also reports it as
   # `Docker-Content-Digest`) — NOT `config.digest`, which is the per-architecture
   # child manifest and differs by platform. Substitute `sha256:…` after the `@`
   # in all locations above, then re-run the deploy-contract guard.
   #
-  # VERSION NOTE: v3.3.0 is the stable release that carries the v3 API routes
+  # VERSION NOTE: v3.5.0 is the stable release that carries the v3 API routes
   # (`/v3/workspaces/.../conclusions`) targeted by the honcho-ai 2.3.0 SDK used
   # in memory/honcho_backend.py. The previously pinned `latest` build was a
   # main-branch snapshot from 2026-10-05 with no release tag; v3.3.0 (GH release
