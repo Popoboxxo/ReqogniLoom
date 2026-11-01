@@ -19,6 +19,9 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$CLIENT" ] || { echo "--client is required" >&2; exit 2; }
 
+# Name of the OpenCode client binary (default `opencode`), matching install.sh.
+OPENCODE_BIN="${OPENCODE_BIN:-opencode}"
+
 require_bin() {
   command -v "$1" >/dev/null 2>&1 || {
     echo "fail: '$1' not found on PATH" >&2; exit 3;
@@ -49,11 +52,14 @@ case "$CLIENT" in
     expect_marker "$out" "enabled"
     echo "info: skills expected at ${HOME}/.codex/skills"
     ;;
-  opencode)
-    require_bin opencode
-    out="$(opencode mcp list 2>&1 || true)"
+  opencode|opencode-v2)
+    require_bin "$OPENCODE_BIN"
+    out="$("$OPENCODE_BIN" mcp list 2>&1 || true)"
     expect_marker "$out" "reqogniloom"
     echo "info: skills expected at ${HOME}/.config/opencode/skills (DOMAIN_MODEL.md at ${HOME}/.config/opencode/; pass --skills-dir for a per-project install)"
+    if [ "$CLIENT" = "opencode-v2" ]; then
+      echo "info: OpenCode V2 is a beta; config lives in mcp.servers.reqogniloom"
+    fi
     ;;
   hermes)
     require_bin hermes
