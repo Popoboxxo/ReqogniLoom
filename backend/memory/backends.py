@@ -78,7 +78,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, ClassVar, Union
+from typing import Any, ClassVar, Literal, Union
 from uuid import UUID
 
 from django.db import transaction
@@ -143,6 +143,22 @@ VALID_REASONING_LEVELS = ("minimal", "low", "medium", "high", "max")
 #: * ``unknown`` -- the probe could not determine: engine unreachable, or a
 #:   scope-less surface (the health envelope) that cannot name a scope.
 VALID_DERIVATION_STATUSES = ("ok", "none", "failed", "unsupported", "unknown")
+
+#: Statuses :meth:`MemoryBackend.consolidate` can report (Plan A T-A4-2). The
+#: vocabulary keeps three different answers machine-distinguishable -- the same
+#: F9 discipline :data:`VALID_DERIVATION_STATUSES` applies to derivation:
+#:
+#: * ``scheduled`` -- the backend accepted the consolidation pass (on Honcho:
+#:   the dream request was taken by the server; the work itself runs
+#:   asynchronously in the engine's Deriver);
+#: * ``unsupported`` -- this backend has no consolidation surface at all, so
+#:   nothing was attempted (``pgvector``/``qdrant``);
+#: * ``failed`` -- the pass could not be requested (unreachable engine, a
+#:   transport/SDK error, or a scope the backend cannot address).
+VALID_CONSOLIDATION_STATUSES = ("scheduled", "unsupported", "failed")
+
+#: The ``status`` field type of :class:`ConsolidationResult`.
+ConsolidationStatus = Literal["scheduled", "unsupported", "failed"]
 
 #: Upper bound on how many live facts a digest renders (RFC #1002 F6).
 #: A digest is prompt-sized context, not an export: an unbounded rendering would
@@ -326,6 +342,33 @@ class MemoryAnswer:
     generated_at: datetime
     backend: str
     degraded: bool = False
+    detail: str = ""
+
+
+@dataclass(frozen=True)
+class ConsolidationResult:
+    """Outcome of one :meth:`MemoryBackend.consolidate` request (T-A4-2).
+
+    ``consolidate`` asks a backend to run one *consolidation pass* -- on Honcho
+    that is the engine's own "dream", the periodic re-derivation of a peer's
+    representation. Like the rest of the backend port it is a capability, not a
+    guarantee: ``status`` is one of :data:`VALID_CONSOLIDATION_STATUSES`, so a
+    caller can tell "the engine took the request" (``scheduled``) apart from
+    "this store has no such surface, nothing was attempted" (``unsupported``)
+    and from "the request failed" (``failed``).
+
+    ``scheduled`` deliberately says nothing about the result: the dream itself
+    runs asynchronously inside the engine, so its effect is only observable
+    through :meth:`MemoryBackend.digest` later on (the 7-day quality
+    measurement of T-A4-2 is a deployment-bound observation, not something
+    this call can assert).
+
+    ``detail`` is a non-user-data diagnosis (the peer id, or a
+    ``"<prefix>:<ExceptionClassName>"`` token following :class:`MemoryAnswer`'s
+    convention). It never carries memory content.
+    """
+
+    status: ConsolidationStatus
     detail: str = ""
 
 
@@ -585,6 +628,39 @@ class MemoryBackend(ABC):
           nothing known" (F9).
         """
         ...
+
+    # -- optional capabilities (concrete defaults degrade honestly) ------
+
+    def consolidate(
+        self, tenant_id: UUID, scope: str, scope_id: UUID
+    ) -> ConsolidationResult:
+        """Request one consolidation ("dream") pass for ``scope``/``scope_id``.
+
+        Optional, capability-gated surface (Plan A T-A4-2): on an engine that
+        derives its own representations (Honcho) this schedules the periodic
+        dream for the scope's peer; on a plain store it is a no-op.
+
+        Contract, identical for every backend:
+
+        * never raises -- a backend that fails reports ``failed`` (see
+          :class:`ConsolidationResult`);
+        * this default implementation answers ``unsupported`` and does NOT
+          touch the engine, which is what every backend whose
+          ``capabilities.consolidation`` is ``False`` (``pgvector``,
+          ``qdrant``) gets without an override: "this store cannot consolidate"
+          must stay distinguishable from "consolidation failed", and an
+          unsupported call must cost nothing;
+        * a backend that CAN consolidate answers ``scheduled`` once the engine
+          accepted the request -- the work itself is asynchronous on the engine
+          side.
+
+        The arguments are accepted but unused here on purpose, so the
+        signature stays identical on the backends that can act on them.
+        """
+        return ConsolidationResult(
+            status="unsupported",
+            detail=f"{type(self).__name__} has no consolidation surface",
+        )
 
     # -- legacy facade (delegates to the canonical-store API) ------------
 
@@ -1116,9 +1192,12 @@ class PgvectorMemoryBackend(MemoryBackend):
 
 __all__ = [
     "MEMORY_BACKEND_REGISTRY",
+    "VALID_CONSOLIDATION_STATUSES",
     "VALID_DERIVATION_STATUSES",
     "VALID_MEMORY_SCOPES",
     "VALID_REASONING_LEVELS",
+    "ConsolidationResult",
+    "ConsolidationStatus",
     "MemoryAnswer",
     "MemoryBackend",
     "MemoryDigest",
