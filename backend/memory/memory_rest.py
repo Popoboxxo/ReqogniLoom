@@ -80,9 +80,22 @@ Endpoints:
         memory consolidations) + ``consolidation_total``, so the learning
         loop's health is readable without a log grep. See
         :meth:`SystemMemoryWorkspaceOverviewView.get` and :mod:`memory.metrics`.
+    POST /api/v1/memory/webhooks/honcho/   (Plan A T-A4-7)
+        The ONE endpoint in this module without a JWT: Honcho signs its
+        deliveries with ``X-Honcho-Signature`` (hex HMAC-SHA256 of the raw body
+        under ``HONCHO_WEBHOOK_SECRET``) instead. ``204`` on a valid signature
+        after dropping the cached memory health/digest probes, ``503`` while no
+        secret is configured, ``401`` for anything else. See
+        :class:`HonchoWebhookView` and :mod:`memory.webhooks`. It reads and
+        writes **no tenant-scoped row** and therefore needs no tenant context —
+        which is also why it cannot leak across tenants. It is not entirely
+        database-free: its throttle does the one *global* rate-limit-override
+        lookup every ``DynamicRateThrottle`` does (tenant overrides cannot apply
+        without a tenant, so only the global layer is consulted; the result is
+        cached for 30 s by ``admin_ops.rate_limits``).
 
-Both views rely on the tenant context already activated by
-``AuthTenancyAuthentication`` during DRF authentication (COMP-AT-003
+Every other view in this module relies on the tenant context already activated
+by ``AuthTenancyAuthentication`` during DRF authentication (COMP-AT-003
 ``TenantContextService.activate`` -> ``persistence.middleware.
 set_request_tenant``) — mirrors ``rest_api.settings_views.
 ContextGraphSettingsView``/``ReviewPolicyView``/``rest_api.preference_views.
@@ -93,7 +106,10 @@ Django-ORM side and never arms Postgres RLS's ``app.current_tenant`` session
 variable (the exact bug class already fixed in ``memory/backends.py``,
 ``llm_adapter/tasks.py`` and others); it is unnecessary here because a real
 HTTP request already has both isolation layers armed by the time a view
-method runs.
+method runs. :class:`HonchoWebhookView` is the deliberate exception: it declares
+``authentication_classes = []``, so no auth context and no tenant are activated
+for it, and it must therefore stay off every tenant-scoped queryset (it does —
+its only data access is the throttle's global override lookup).
 """
 from __future__ import annotations
 
@@ -108,6 +124,8 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.exceptions import NotAuthenticated
+from rest_framework.parsers import JSONParser
+from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -162,6 +180,15 @@ from memory.user_settings import (
     read_user_settings,
     write_user_settings,
 )
+from memory.webhooks import (
+    DISABLED_MESSAGE,
+    SIGNATURE_HEADER,
+    body_size_problem,
+    invalidate_memory_caches,
+    log_rejected_delivery,
+    resolve_webhook_secret,
+    verify_signature,
+)
 from persistence.models import User
 from persistence.qdrant_config import (
     DEFAULT_QDRANT_COLLECTION_PREFIX,
@@ -173,6 +200,7 @@ from persistence.qdrant_config import (
 )
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.serializers import build_error_response, detect_lang
+from rest_api.throttling import MemoryWebhookRateThrottle
 
 #: Upper bound on rows returned by the DSGVO export (Auskunftsanspruch). Large
 #: enough for a realistic tenant, bounded so the endpoint cannot stream an
@@ -2492,10 +2520,190 @@ class MemorySelfServiceView(APIView):
         return Response(view, status=status.HTTP_201_CREATED)
 
 
+class HonchoWebhookView(APIView):
+    """``POST /api/v1/memory/webhooks/honcho/`` — inbound Honcho webhook.
+
+    Plan A T-A4-7. Honcho POSTs ``{type, data, timestamp}`` to every registered
+    callback URL (``queue.empty`` after the deriver drained its queue,
+    ``test.event`` for the registration smoke test) and signs the delivery with
+    ``X-Honcho-Signature`` = hex ``HMAC-SHA256(raw body, WEBHOOK_SECRET)``. A
+    valid delivery answers ``204`` and drops the memory-health/digest caches so
+    the next read reports the engine's state instead of a probe result up to
+    :data:`memory.health.HEALTH_CACHE_TTL_SECONDS` old.
+
+    **This view is unauthenticated on purpose** (``authentication_classes = []``
+    + ``AllowAny``): Honcho holds no ReqogniLoom JWT. Its credential is the HMAC
+    over the raw body — see :mod:`memory.webhooks` for the full security
+    rationale (raw bytes, ``hmac.compare_digest``, ``bytes`` comparison,
+    constant messages, no logging of body/secret). Authentication and permission
+    are *not* the enforcement point here, so DRF's "authenticate then authorize
+    then throttle" order cannot reject a delivery before the signature is
+    checked; the dedicated :class:`~rest_api.throttling.
+    MemoryWebhookRateThrottle` only bounds resource use.
+
+    Responses:
+
+    * ``204`` — signature valid; caches dropped. No body, nothing echoed.
+    * ``503`` — ``HONCHO_WEBHOOK_SECRET`` is unset/empty: ``{"error": {"code":
+      "SERVICE_UNAVAILABLE", "message": "webhooks disabled", ...}}``. Constant
+      message, no hint about the deployment or which variable is missing.
+    * ``401`` — missing, malformed or wrong signature. Constant and
+      deliberately indistinguishable between "no header", "not hex" and "wrong
+      secret": all three answer the same status with the same body, and the
+      single server-side log line records only the peer address and the fact of
+      the rejection — never which of the three it was, which would be a
+      signature-shape oracle.
+    * ``413`` — the declared body exceeds
+      :data:`memory.webhooks.MAX_BODY_BYTES`; ``400`` when a body-carrying POST
+      declares no usable ``Content-Length``. Both are decided before a byte is
+      read (see :func:`memory.webhooks.body_size_problem`).
+    * ``429`` — the per-IP throttle above.
+
+    Two accepted, deliberate trade-offs:
+
+    * **``503`` vs ``401`` discloses enablement.** An anonymous caller can tell
+      "webhooks are not configured" (503) from "configured, wrong signature"
+      (401). Both statuses are already public for other reasons (the receiver's
+      availability, and a failed HMAC check), and hiding it would mean answering
+      401 while disabled — i.e. telling a misconfigured *legitimate* sender that
+      its secret is wrong, which is a much more expensive failure to debug. The
+      503 body still names no variable, host or value.
+    * **CSRF.** ``APIView`` is ``csrf_exempt`` by DRF's design (CSRF only guards
+      *cookie*-authenticated requests). With ``authentication_classes = []`` this
+      route never reads a session cookie and DRF's ``SessionAuthentication`` —
+      the only component that enforces CSRF — is not engaged, so there is no
+      CSRF surface to protect: the HMAC over the raw body is the credential, and
+      a cross-site form post cannot produce it.
+
+    The body is never parsed. An unknown ``type`` still invalidates (the event
+    vocabulary belongs to Honcho, and a future event type is at least as likely
+    to mean "something changed"); invalidation is idempotent, coalesced (at most
+    one drop per :data:`memory.webhooks.INVALIDATE_COALESCE_SECONDS`) and costs
+    four cache deletes.
+    """
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+    throttle_classes = [MemoryWebhookRateThrottle]
+    # Declared for the published contract only: the body is never parsed here
+    # (see ``post``), so this changes no runtime behaviour — it stops the
+    # generated document from advertising form/multipart bodies for a webhook
+    # that only ever receives Honcho's ``application/json``.
+    parser_classes = [JSONParser]
+
+    @extend_schema(
+        tags=["memory"],
+        summary="Inbound Honcho webhook (HMAC-authenticated, no JWT)",
+        # No security scheme at all: this operation accepts no credential, and
+        # listing BearerAuth would invite clients to send one.
+        auth=[],
+        description=(
+            "Receives a Honcho event delivery and invalidates the cached "
+            "memory health/digest probes on a valid signature. The request is "
+            "authenticated by the `X-Honcho-Signature` header (hex "
+            "HMAC-SHA256 of the raw body under `HONCHO_WEBHOOK_SECRET`), not "
+            "by a JWT: this path requires no `Authorization` header and "
+            "accepts none. The body is opaque to this endpoint — it is never "
+            "parsed, validated or echoed. Answers 401 for a missing/wrong "
+            "signature and 503 while no secret is configured."
+        ),
+        # The payload is Honcho's, and this endpoint deliberately never parses
+        # it, so it is documented as the opaque JSON object it is rather than
+        # as a shape this server would validate.
+        request=OpenApiTypes.OBJECT,
+        responses={
+            204: OpenApiResponse(
+                description="Signature valid; memory caches were dropped."
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "Body-carrying POST without a usable Content-Length header."
+                )
+            ),
+            401: OpenApiResponse(
+                description=(
+                    "Missing, malformed or incorrect X-Honcho-Signature."
+                )
+            ),
+            413: OpenApiResponse(
+                description="Declared body size exceeds the receiver's limit."
+            ),
+            429: OpenApiResponse(description="Rate limit exceeded (per client IP)."),
+            503: OpenApiResponse(
+                description=(
+                    'Webhooks are disabled: HONCHO_WEBHOOK_SECRET is unset or '
+                    'empty ("webhooks disabled").'
+                )
+            ),
+        },
+    )
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # Size first: this decides on the DECLARED length, so an oversized or
+        # length-less delivery is refused before ``request.body`` buffers
+        # anything (and before the HMAC, which has to hash every byte).
+        problem = body_size_problem(request)
+        if problem is not None:
+            too_large = problem == "size"
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    message=(
+                        "webhook body exceeds the receiver limit"
+                        if too_large
+                        else "webhook POST requires a Content-Length header"
+                    ),
+                ),
+                status=(
+                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+                    if too_large
+                    else status.HTTP_400_BAD_REQUEST
+                ),
+            )
+
+        secret = resolve_webhook_secret()
+        if secret is None:
+            # Nothing to verify against: refuse rather than accept unsigned
+            # deliveries. Checked BEFORE the signature so a disabled receiver
+            # is diagnosable in one request (and never 401-loops a sender whose
+            # configuration is not the problem).
+            return Response(
+                build_error_response("SERVICE_UNAVAILABLE", message=DISABLED_MESSAGE),
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        # ``request.body`` (bytes), never ``request.data``: the signature covers
+        # the exact bytes on the wire, and a DRF parse would both consume the
+        # stream and lose the byte identity. The size ceiling is enforced above,
+        # explicitly; Django's ``DATA_UPLOAD_MAX_MEMORY_SIZE`` still backs it up
+        # (raising ``RequestDataTooBig``), but that check only holds for a
+        # request whose length Django can see — the ASGI worker and any request
+        # carrying a ``Content-Length`` — and it surfaces as a bare 500, which is
+        # why it is not relied on as the control.
+        raw_body = request.body
+        if not verify_signature(
+            secret=secret,
+            raw_body=raw_body,
+            provided=request.headers.get(SIGNATURE_HEADER),
+        ):
+            log_rejected_delivery(
+                request.META.get("REMOTE_ADDR"), reason="invalid signature"
+            )
+            return Response(
+                build_error_response(
+                    "AUTHENTICATION_REQUIRED", message="invalid webhook signature"
+                ),
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        invalidate_memory_caches()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 __all__ = [
     "EXPORT_MAX_ROWS",
     "ArtifactMemoryDigestView",
     "ArtifactMemoryView",
+    "HonchoWebhookView",
     "MemoryEntryDetailView",
     "MemoryEntryPromoteView",
     "MemorySelfServiceSettingsView",

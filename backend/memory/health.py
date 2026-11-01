@@ -127,13 +127,20 @@ def memory_health(*, use_cache: bool = True) -> MemoryHealth:
 def invalidate_health_cache() -> None:
     """Drop every cached memory-health probe result.
 
-    Called by the test suite today; there is deliberately NO production caller
-    yet. A memory-settings write could use it to make a backend swap instant
-    instead of within :data:`HEALTH_CACHE_TTL_SECONDS`, but the four probes are
-    cached under four separate keys and would have to be invalidated as a set
-    to avoid a torn envelope -- until that atomicity question is settled, the
-    documented staleness window is the honest behaviour and an admin-write hook
-    would only half-fix it.
+    The four probes are cached under four separate keys, so they are always
+    deleted as a set — invalidating only some of them would produce a *torn*
+    envelope (a fresh health result next to a stale digest/ask/derivation
+    capability).
+
+    One production caller: the inbound Honcho webhook receiver (Plan A
+    T-A4-7, :func:`memory.webhooks.invalidate_memory_caches`), which runs after
+    a signed delivery proves that the engine's state changed — there the
+    atomic set deletion is exactly what is wanted, and the "which tenant?"
+    question does not arise because these keys are deployment-global by design
+    (one process, one active backend). A memory-settings write could hook in
+    the same way to make a backend swap instant instead of within
+    :data:`HEALTH_CACHE_TTL_SECONDS`, but the documented staleness window
+    remains the honest behaviour for that path until it needs to change.
     """
     for key in (HEALTH_CACHE_KEY, DIGEST_CACHE_KEY, ASK_CACHE_KEY, DERIVATION_CACHE_KEY):
         try:

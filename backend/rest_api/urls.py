@@ -66,6 +66,7 @@ from baseline.urls import urlpatterns as baseline_urlpatterns
 from memory.memory_rest import (
     ArtifactMemoryDigestView,
     ArtifactMemoryView,
+    HonchoWebhookView,
     MemoryEntryDetailView,
     MemoryEntryPromoteView,
     MemorySelfServiceSettingsView,
@@ -774,6 +775,18 @@ urlpatterns = [
         "memory/me/settings/",
         MemorySelfServiceSettingsView.as_view(),
         name="memory-self-service-settings",
+    ),
+    # Plan A T-A4-7: inbound Honcho webhook. The ONLY memory route without a
+    # JWT — a Honcho delivery carries X-Honcho-Signature (hex HMAC-SHA256 of
+    # the raw body under HONCHO_WEBHOOK_SECRET) and no ReqogniLoom credential.
+    # 204 = signature valid + memory caches dropped, 503 = webhooks disabled
+    # (no secret configured), 401 = missing/wrong signature. Placed in the
+    # ``memory/`` prefix (not ``workspaces/<id>/``) on purpose: the receiver is
+    # deployment-global and must not be reachable under a tenant path.
+    path(
+        "memory/webhooks/honcho/",
+        HonchoWebhookView.as_view(),
+        name="memory-webhooks-honcho",
     ),
     # RFC #1002 PR B: workspace-scoped memory listing/create + semantic search.
     path(

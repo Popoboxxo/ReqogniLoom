@@ -85,6 +85,15 @@ x-honcho-env: &honcho-env
   # single-developer local stack (see HONCHO_API_KEY in .env.example).
   AUTH_USE_AUTH: "false"
   SENTRY_ENABLED: "false"
+  # Inbound webhook signing key (Plan A T-A4-7). Honcho SIGNS each delivery with
+  # it; the backend VERIFIES with HONCHO_WEBHOOK_SECRET, so both must hold the
+  # same value -- set them together or neither. Empty (the default) ABORTS the
+  # delivery: in the pinned image the signing helper raises on an empty secret,
+  # so the send is abandoned and the receiver never sees the request at all. The
+  # security property still holds -- the receiver never accepts an unsigned
+  # delivery -- but leaving this blank while setting the backend side is a
+  # silent no-op (zero deliveries), not a broken boot and not an unsigned POST.
+  WEBHOOK_SECRET: ${WEBHOOK_SECRET:-}
   # Pin Honcho's own reasoning LLM for EVERY engine module that calls one
   # (deriver, peer card, summary, dream, dialectic — all server-side; see
   # memory/honcho_backend.py's module docstring and .env.example's

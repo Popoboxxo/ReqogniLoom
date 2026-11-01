@@ -66,6 +66,13 @@ RATE_LIMIT_SCOPES: tuple[str, ...] = (
     # sync with ``settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]`` (see
     # ``test_rate_limit_override``).
     "quality_assess",
+    # Plan A T-A4-7: the unauthenticated Honcho webhook receiver, so an operator
+    # can tune its ceiling without a redeploy. Only the GLOBAL override can ever
+    # apply here: the route declares ``authentication_classes = []``, so
+    # ``rest_api.throttling._tenant_id`` always yields ``None`` and
+    # ``resolve_rate`` skips the per-tenant layer -- a tenant-scoped row for this
+    # scope is stored but inert.
+    "memory_webhook",
 )
 
 #: Short enough that an out-of-band DB change is picked up quickly, long enough

@@ -593,6 +593,17 @@ QUALITY_ASSESS_RATE: str = config(
     "QUALITY_ASSESS_RATE", default="60/hour"
 ).strip()
 
+# Plan A T-A4-7: the inbound Honcho webhook receiver is unauthenticated by
+# design (the HMAC in ``X-Honcho-Signature`` is its credential), so it needs a
+# ceiling of its own rather than the shared ``anon`` budget — see
+# ``rest_api.throttling.MemoryWebhookRateThrottle`` for the 120/min reasoning.
+# Follows the standard ``_throttle_rate`` convention: an EMPTY value disables
+# the throttle, which is acceptable here because the HMAC verification (not
+# this counter) is the security boundary.
+MEMORY_WEBHOOK_RATE: str = _throttle_rate(
+    "MEMORY_WEBHOOK_RATE", prod="120/min", non_prod="20000/min"
+)
+
 # ---------------------------------------------------------------------------
 # Django admin brute-force lockout (issue #1135)
 #
@@ -794,6 +805,9 @@ REST_FRAMEWORK = {
         # Plan B B5-T3 (#378): LLM spend guard for POST .../quality/assess/.
         # ``or "60/hour"`` (not ``or None``) — see QUALITY_ASSESS_RATE above.
         "quality_assess": QUALITY_ASSESS_RATE or "60/hour",
+        # Plan A T-A4-7: inbound Honcho webhook receiver (HMAC-authenticated,
+        # unauthenticated by JWT). See rest_api.throttling.
+        "memory_webhook": MEMORY_WEBHOOK_RATE or None,
     },
 }
 

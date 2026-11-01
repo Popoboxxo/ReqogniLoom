@@ -61,6 +61,14 @@ _REST_ROUTES_WITHOUT_MCP_TOOL: dict[str, str] = {
         "agent-facing surface reaches memory through memory.* and the generic "
         "Q1 preference tools"
     ),
+    "memory-webhooks-honcho": (
+        "inbound Honcho callback (Plan A T-A4-7). It is not a caller capability "
+        "at all: the HMAC in X-Honcho-Signature (a deployment secret, never a "
+        "caller credential) is its only authentication, so an MCP client "
+        "invoking it would always get 401. Exposing it as a tool would "
+        "advertise a surface no agent can use; the registration side of the "
+        "same feature is a management command, not a tool"
+    ),
 }
 
 #: REST memory routes owned by a PARALLEL stream (#1300 REST half / #1302) that

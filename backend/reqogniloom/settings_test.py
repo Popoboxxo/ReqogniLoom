@@ -188,6 +188,10 @@ REST_FRAMEWORK = {
         "refresh": "1000/min",
         "mcp_key": "20000/min",
         "mcp_ip": "20000/min",
+        # Plan A T-A4-7: the webhook receiver's own ceiling; the dedicated
+        # suite (memory/tests/test_memory_webhooks.py) overrides it explicitly
+        # to assert the 429.
+        "memory_webhook": "20000/min",
     },
 }
 
