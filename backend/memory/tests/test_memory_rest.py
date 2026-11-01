@@ -1215,6 +1215,71 @@ class TestWorkspaceMemoryEntryRest:
                 response.data
             )
 
+    def test_search_source_derived_is_unsupported_on_pgvector(self, monkeypatch):
+        """T-A4-3 REST: ``source=derived`` answers an empty, degraded result.
+
+        The parameter is the new OpenAPI parameter on this view; the empty
+        ``items`` list plus ``degraded=True``/``detail="unsupported"`` is the
+        contract for a backend without a second recall surface -- never a
+        silent ``facts`` answer under the requested name.
+        """
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            client = _client_for(token)
+            client.post(_WS_ENTRIES.format(ws=ws.id), {"content": "dark mode"}, format="json")
+
+            response = client.get(
+                f"{_WS_SEARCH.format(ws=ws.id)}?q=dark&scope=workspace&source=derived"
+            )
+
+            assert response.status_code == 200
+            assert response.data["items"] == []
+            assert response.data["degraded"] is True
+            assert response.data["detail"] == "unsupported"
+
+            # The default is unchanged: the same call without `source` finds
+            # the fact.
+            default = client.get(f"{_WS_SEARCH.format(ws=ws.id)}?q=dark&scope=workspace")
+            assert default.status_code == 200
+            assert [item["content"] for item in default.data["items"]] == ["dark mode"]
+
+    def test_search_rejects_an_unknown_source(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            response = _client_for(token).get(
+                f"{_WS_SEARCH.format(ws=ws.id)}?q=dark&scope=workspace&source=bogus"
+            )
+            assert response.status_code == 400
+
+    def test_foreign_workspace_search_is_403_for_every_source(self, monkeypatch):
+        """T-A4-3: authorisation precedes the capability gate (no oracle).
+
+        ``source=derived`` on a backend without that surface must not turn a
+        403 into a ``degraded/unsupported`` 200 for a foreign workspace. Both
+        sources must answer byte-identically, so the response cannot be used to
+        learn which recall surfaces the deployment has.
+        """
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            home = make_workspace(tenant)
+            foreign = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, home)
+            client = _client_for(token)
+
+            derived = client.get(
+                f"{_WS_SEARCH.format(ws=foreign.id)}?q=dark&scope=workspace&source=derived"
+            )
+            facts = client.get(
+                f"{_WS_SEARCH.format(ws=foreign.id)}?q=dark&scope=workspace&source=facts"
+            )
+
+            assert derived.status_code == 403
+            assert derived.data == facts.data
+
     def test_degraded_is_reported_when_backend_unhealthy(self, monkeypatch):
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
         from memory.backends import MemoryHealth

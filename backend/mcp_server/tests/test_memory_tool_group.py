@@ -164,6 +164,94 @@ class TestMemoryToolGroupHandlers:
             assert result.data["backend"] == "pgvector"
             assert result.data["degraded"] is False
 
+    def test_query_derived_source_is_unsupported_on_pgvector(self, monkeypatch):
+        """T-A4-3: ``source="derived"`` on a single-surface backend is an
+        empty, explicitly degraded answer -- never a silent ``facts`` result."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            from memory.backends import get_memory_backend
+
+            get_memory_backend().upsert(tenant.id, "workspace", ws.id, "Fact one.")
+            ctx = editor_ctx(tenant, ws)
+            group = MemoryToolGroup()
+            result = group._handle_query(
+                params={
+                    "scope": "workspace",
+                    "workspace_id": str(ws.id),
+                    "query": "fact",
+                    "source": "derived",
+                },
+                auth_context=ctx,
+                api_key=None,
+            )
+            assert result.success
+            assert result.data["entries"] == []
+            assert result.data["degraded"] is True
+            assert result.data["detail"] == "unsupported"
+
+    def test_query_source_is_declared_in_the_input_schema(self):
+        """The new parameter is an inputSchema extension: Delta 0 tools."""
+        from memory.backends import VALID_QUERY_SOURCES
+
+        tools = {tool["name"]: tool for tool in MemoryToolGroup().get_tool_schemas()}
+        schema = tools["memory.query"]["inputSchema"]["properties"]["source"]
+        assert schema["enum"] == list(VALID_QUERY_SOURCES)
+        assert schema["default"] == "facts"
+
+    def test_query_derived_foreign_workspace_is_permission_denied(self, monkeypatch):
+        """T-A4-3: MCP maps the authz failure BEFORE the capability answer.
+
+        ``source="derived"`` for a foreign workspace must answer
+        ``PERMISSION_DENIED`` -- never ``degraded/unsupported``, which would
+        tell an unauthorised caller what the deployment can do.
+        """
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            home = make_workspace(tenant)
+            foreign = make_workspace(tenant)
+            ctx = editor_ctx(tenant, home)
+
+            result = MemoryToolGroup()._handle_query(
+                params={
+                    "scope": "workspace",
+                    "workspace_id": str(foreign.id),
+                    "query": "fact",
+                    "source": "derived",
+                },
+                auth_context=ctx,
+                api_key=None,
+            )
+
+            assert result.success is False
+            assert result.error_code == "PERMISSION_DENIED"
+
+    def test_query_non_string_source_is_a_validation_error(self, monkeypatch):
+        """Finding #4: ``{"source": 123}`` must not escape as an AttributeError.
+
+        Without the service-side type check, ``.strip()`` raised outside the
+        adapters' exception mapping -- an INTERNAL_ERROR/500 for what is a bad
+        argument. It must be ``VALIDATION_ERROR``.
+        """
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+
+            result = MemoryToolGroup()._handle_query(
+                params={
+                    "scope": "workspace",
+                    "workspace_id": str(ws.id),
+                    "query": "fact",
+                    "source": 123,
+                },
+                auth_context=ctx,
+                api_key=None,
+            )
+
+            assert result.success is False
+            assert result.error_code == "VALIDATION_ERROR"
+
     def test_list_returns_recent_entries(self, monkeypatch):
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
         with active_tenant() as tenant:
