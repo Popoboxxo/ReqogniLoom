@@ -939,8 +939,11 @@ jobs:
         # `SECRET_KEY=...` / `AUTH_JWT_SECRET=...` / `*_PASSWORD=...` line
         # entering a commit stayed invisible. This step enables only the
         # `env-secret-assignment` rule and scans the PR's diff, so historical
-        # fixtures and placeholder docs never turn it red. Runs on both triggers
-        # (no `if:`); the range below is chosen from the event.
+        # fixtures and placeholder docs never turn it red. Runs on branch pushes
+        # and pull requests; a tag push has no meaningful "before" (null SHA)
+        # and would scan the whole history, firing on those fixtures, so tags
+        # are skipped — their commits were already scanned when pushed to main.
+        if: github.ref_type != 'tag'
         env:
           PR_BASE_REF: ${{ github.base_ref }}
           PUSH_BEFORE_SHA: ${{ github.event.before }}
