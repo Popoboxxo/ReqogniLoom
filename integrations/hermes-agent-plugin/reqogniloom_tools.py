@@ -91,6 +91,22 @@ MUTATE_EXACT = frozenset(
     }
 )
 
+#: Read-only tools whose verb *does* look like a mutation — the mirror image of
+#: :data:`MUTATE_EXACT`. A preview is the usual shape: ``rollback_preview``
+#: splits into ``{rollback_preview, rollback, preview}`` and ``rollback`` is a
+#: mutation verb, yet the call computes a plan through the GET route and writes
+#: nothing (the manifest marks it ``is_write: false``). Only name-verified
+#: entries belong here: the verb heuristic must not be loosened for a whole
+#: verb or compound just because one preview is harmless, so every entry is a
+#: deliberate, reviewable decision.
+READ_EXACT = frozenset(
+    {
+        # computes what an additive rollback to a baseline would change; the
+        # write path is rollback_request + rollback_apply, both MUTATE.
+        "baseline.rollback_preview",
+    }
+)
+
 #: Non-mutating tools that are nevertheless expensive or admin-only, so the UI
 #: shows a spinner and a note instead of nothing. **Every entry must persist
 #: nothing** — that is the whole point of the class. A tool that writes belongs
@@ -219,6 +235,8 @@ def classify(tool_name: str) -> str:
         return CLASS_COMPUTE
     if tool_name in MUTATE_EXACT:
         return CLASS_MUTATE
+    if tool_name in READ_EXACT:
+        return CLASS_READ
     verb = verb_of(tool_name).replace(".", "_")
     candidates = {verb} | set(verb.split("_"))
     return CLASS_MUTATE if candidates & MUTATE_VERBS else CLASS_READ
