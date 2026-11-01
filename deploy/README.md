@@ -805,7 +805,7 @@ instance. Failures arrive as SDK exceptions mapped from the HTTP status (`NotFou
 
 | Capability | Path | Evidence | Note |
 |---|---|---|---|
-| `peer.search` | **SDK** — `Peer.search(query, filters=None, limit=10)` | `POST /v3/workspaces/{ws}/peers/{peer_id}/search`, body `{query, filters, limit}`; `200` → a bare array of `Message`, `422` on validation; `limit` is 1–100 | Returns **messages authored by that peer**, not conclusions — message-level recall, *not* the derived-fact read T-A4-3 needs, so `source="derived"` must keep using `peer.conclusions.query()` (already in use today) or `peer.context(search_query=…)`. `filters={"session_id": …}` narrows it to one session. |
+| `peer.search` | **SDK** — `Peer.search(query, filters=None, limit=10)` | `POST /v3/workspaces/{ws}/peers/{peer_id}/search`, body `{query, filters, limit}`; `200` → a bare array of `Message`, `422` on validation; `limit` is 1–100 | Returns **messages authored by that peer**, not conclusions — message-level recall, *not* the derived-fact read T-A4-3 needs, so `source="derived"` must keep using `peer.conclusions.query()` (already in use today) or `peer.context(search_query=…)`. **(Superseded by the implementation note below.)** `filters={"session_id": …}` narrows it to one session. |
 | Workspace search | **SDK, but only with `scope=`** — `Honcho.search(query, filters=None, limit=10, scope=…)` | `POST /v3/workspaces/{ws}/search`, body `{query, filters, limit[, scope]}`; `200` → array of `Message`; `scope` restricts to that scope's member sessions and is fail-closed; mutually exclusive with a `session_id` filter | A workspace-wide (hence tenant-wide) call is **forbidden** by QR-S04. Usable only as a scope-narrowed read, i.e. behind the native-scopes flag (T-A4-6); otherwise the peer-scoped `peer.search` is the only admissible surface. |
 | `peer.context` | **SDK** — `Peer.context(target=None, search_query=None, search_top_k=None, search_max_distance=None, include_most_frequent=None, max_conclusions=None)` | `GET /v3/workspaces/{ws}/peers/{peer_id}/context` with those as query parameters; `200` → `{peer_id, target_id, representation, peer_card}` | One round trip replaces `representation()` + `get_card()` (T-A4-4). **It has no `session` parameter**, so it is *not* a drop-in for today's session-scoped `peer.representation(session=…)`; the session-scoped equivalent is `Session.context(peer_target=…, limit_to_session=True)` (`GET …/sessions/{sid}/context`, `200`, `peer_representation`/`peer_card`). T-A4-4 must choose one deliberately — replacing the two calls silently would drop session scoping from the digest. |
 | `session.summaries` | **SDK** — `Session.summaries()` → `SessionSummaries` | `GET /v3/workspaces/{ws}/sessions/{sid}/summaries`; `200` → `{id, short_summary, long_summary}`, each `{content, message_id, summary_type, created_at, token_count}` or `null` | Summaries are produced asynchronously and only appear once enough messages exist, so `null`/`null` is a clean empty answer, not a failure. The route documents **only `200` and `422`** — an unknown session does *not* document a `404`, so T-A4-5's "foreign or unknown session → 404" must be enforced in ReqogniLoom and never inferred from Honcho. |
@@ -816,9 +816,24 @@ instance. Failures arrive as SDK exceptions mapped from the HTTP status (`NotFou
 **What this means for the A4 follow-ups.** `consolidation` and `summaries` are reachable purely
 through the SDK, as their capability flags anticipate. `search_derived` is *not* what `peer.search`
 delivers (messages, not derived conclusions) and must not be built on the workspace-wide route
-(QR-S04). `webhooks` is the one capability with no SDK surface, so it is a raw-HTTP integration in
-both directions. `peer.context` exists, but only the `Session.context(peer_target=…)` variant
-preserves today's session scoping.
+(QR-S04). **Superseded by the implementation note below:** T-A4-3 ships `source="derived"` on
+`peer.search` after all, so the "not what `peer.search` delivers" sentence above no longer holds;
+the QR-S04 workspace-wide prohibition still does. `webhooks` is the one capability with no SDK
+surface, so it is a raw-HTTP integration in both directions. `peer.context` exists, but only the
+`Session.context(peer_target=…)` variant preserves today's session scoping.
+
+**Implementation note (T-A4-3, PR-A25).** `source="derived"` is implemented on `peer.search`, so its
+honest name is *peer-scoped message-level recall*: it searches one peer (the requested, already
+authorised scope) and drops every message whose `peer_id` is not that peer. It is not a derived-
+conclusion read and it never calls the workspace-wide route. The two alternatives named in the spike
+table above were rejected for that reason: `peer.conclusions.query()` *is* the `facts` read, so
+routing `derived` through it would only relabel the same answer, and `peer.context(search_query=…)`
+returns a peer representation, not a result set, so it cannot serve a search.
+
+**Implementation note (T-A4-4, PR-A25).** The digest uses `peer.context()` for both fields, i.e.
+peer-level rather than session-level. That is a deliberate no-op for this backend: one peer carries
+exactly one stable session, so peer context and session context cover the same message set today
+(see `_engine_digest_body`'s docstring for the trigger to revisit).
 
 **What this spike does not prove.** No Honcho server was called, so the following is **unproven**
 and belongs to the PR that first exercises the surface on a T1/deployment host:

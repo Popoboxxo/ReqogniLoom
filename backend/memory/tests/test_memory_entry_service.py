@@ -303,6 +303,7 @@ class TestSearch:
 
         fake = SimpleNamespace(
             query=_boom,
+            query_source_supported=lambda source: source == "facts",
             health=lambda: MemoryHealth(ok=True, backend="fake", detail="", degraded=False),
         )
         monkeypatch.setattr(
@@ -335,13 +336,14 @@ class TestSearch:
         """
         from types import SimpleNamespace
 
-        def _query(tenant_id, scope, scope_id, query, *, top_k):
+        def _query(tenant_id, scope, scope_id, query, *, top_k, source="facts"):
             if scope == "artifact":
                 raise RuntimeError("artifact scope unreachable")
             return []
 
         fake = SimpleNamespace(
             query=_query,
+            query_source_supported=lambda source: source == "facts",
             health=lambda: MemoryHealth(ok=True, backend="fake", detail="", degraded=False),
         )
         monkeypatch.setattr(
@@ -504,7 +506,7 @@ class TestPromote:
 
             honcho = HonchoMemoryBackend()
             client = mock.MagicMock()
-            client.peer.return_value.representation.side_effect = RuntimeError(
+            client.peer.return_value.context.side_effect = RuntimeError(
                 "engine unreachable"
             )
             client.peer.return_value.conclusions.list.side_effect = RuntimeError(
