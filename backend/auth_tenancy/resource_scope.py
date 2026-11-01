@@ -534,6 +534,13 @@ _EXCEPTIONS = {
     "PublicLoginBannerView": "public login-page banner",
     "LoginView": "public credential exchange",
     "LoginMfaView": "public credential exchange (MFA completion step)",
+    # Plan A T-A4-7: Honcho holds no ReqogniLoom JWT, so a delivery never carries
+    # an auth context and there is no tenant/workspace target this seam could
+    # resolve; the HMAC over the raw body is the credential (memory/webhooks.py).
+    "HonchoWebhookView": (
+        "inbound Honcho callback; HMAC signature is the credential, "
+        "no auth context or tenant target"
+    ),
     # WP E3.6: self-scoped second-factor management. The target is always the
     # caller's own account (``ctx.user_id`` is the boundary), and the write
     # routes additionally refuse API-key callers; there is no workspace or

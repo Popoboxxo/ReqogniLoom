@@ -93,6 +93,7 @@ __all__ = [
     "LoginIpRateThrottle",
     "LoginMfaRateThrottle",
     "LoginRateThrottle",
+    "MemoryWebhookRateThrottle",
     "QualityAssessRateThrottle",
     "RefreshRateThrottle",
     "record_login_failure",
@@ -516,6 +517,68 @@ class QualityAssessRateThrottle(DynamicRateThrottle):
         if ident is None:
             return None
         return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class MemoryWebhookRateThrottle(DynamicRateThrottle):
+    """Per-IP cap on the inbound Honcho webhook receiver (Plan A T-A4-7).
+
+    ``POST /api/v1/memory/webhooks/honcho/`` is deliberately unauthenticated —
+    HMAC in ``X-Honcho-Signature`` *is* its credential — so it is the one
+    memory route without an auth context to key a bucket on. The only identity
+    source it can have is the **transport address** — deliberately not DRF's
+    default identity, which folds in the client-supplied ``X-Forwarded-For``
+    (see :meth:`get_ident`).
+
+    Why a dedicated scope instead of the shared ``anon`` throttle: a delivery
+    burst would otherwise consume the budget that ``/health/`` and
+    ``/api/schema/`` draw from, and an operator could not tune the callback
+    without moving every anonymous endpoint with it.
+
+    Why ``120/min`` (2 rps) per IP: Honcho delivers ``queue.empty`` after the
+    deriver drains a queue (a handful per minute on a busy tenant) and
+    ``test.event`` on registration, so the ceiling is ~40x the expected rate —
+    it binds abuse, not traffic. Each accepted delivery only deletes four cache
+    keys, so the worst case amplification of a full bucket is a handful of cache
+    deletes per second. Delivery is best-effort with **no retries**, so a
+    throttled delivery is dropped rather than deferred; that costs at most one
+    :data:`~memory.health.HEALTH_CACHE_TTL_SECONDS` window of staleness and
+    never correctness. Raising ``MEMORY_WEBHOOK_RATE`` (or setting it to an
+    empty value, the repo-wide "disable this throttle" convention) is safe
+    against forgery either way: the HMAC check stays the security boundary,
+    this class only bounds resource use.
+    """
+
+    scope = "memory_webhook"
+
+    def get_ident(self, request: Request) -> str:
+        """Unforgeable, fixed-width bucket identity: the transport peer, hashed.
+
+        DRF's stock ``SimpleRateThrottle.get_ident`` folds the **client-supplied**
+        ``X-Forwarded-For`` into the key whenever ``NUM_PROXIES`` is unset (this
+        project's default), so a caller could send a different header per request
+        and get a fresh bucket each time: the documented per-IP limit would not
+        exist, while the key space (and therefore Redis memory plus one throttle
+        WARNING per refused cache access) grew with attacker input.
+
+        This delegates to :func:`auth_tenancy.admin_lockout.resolve_client_ip` —
+        the same anti-spoofing resolver the admin lockout uses, which keys on
+        ``REMOTE_ADDR`` and only consults ``X-Forwarded-For`` when the operator
+        has explicitly declared a proxy depth. The result is a normalised IP
+        literal, then SHA-256-truncated to 32 hex chars so the cache key length
+        is a constant and cannot be steered by a header.
+        """
+        # Lazy import, like ``_refresh_rate`` above: auth_tenancy.admin_lockout
+        # pulls in the auth models, and this module is imported from settings-
+        # time code paths where those are not ready yet.
+        from auth_tenancy.admin_lockout import resolve_client_ip
+
+        return hashlib.sha256(resolve_client_ip(request).encode("utf-8")).hexdigest()[:32]
+
+    def get_cache_key(self, request: Request, view: Any) -> str | None:
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": self.get_ident(request),
+        }
 
 
 #: Throttles charged when a login attempt fails.

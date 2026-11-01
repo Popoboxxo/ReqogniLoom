@@ -1050,6 +1050,10 @@
    "put"
   ],
   [
+   "/api/v1/memory/webhooks/honcho/",
+   "post"
+  ],
+  [
    "/api/v1/metrics/",
    "get"
   ],
