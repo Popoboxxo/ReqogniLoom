@@ -98,7 +98,7 @@ jobs:
           EXCLUDES=(--exclude='__pycache__' --exclude='build_*.py' --exclude='test_*.py' --exclude='marketplace.json')
           tar -czf "release-assets/reqogniloom-claude-code-${VERSION_VALUE}.tar.gz" "${EXCLUDES[@]}" -C dist/plugins/claude-code reqogniloom
           tar -czf "release-assets/reqogniloom-codex-${VERSION_VALUE}.tar.gz" "${EXCLUDES[@]}" -C dist/codex skills config.toml.snippet
-          tar -czf "release-assets/reqogniloom-opencode-${VERSION_VALUE}.tar.gz" "${EXCLUDES[@]}" -C dist/opencode skills opencode.json.snippet
+          tar -czf "release-assets/reqogniloom-opencode-${VERSION_VALUE}.tar.gz" "${EXCLUDES[@]}" -C dist/opencode skills opencode.json.snippet opencode.v2.json.snippet
           tar -czf "release-assets/reqogniloom-antigravity-${VERSION_VALUE}.tar.gz" "${EXCLUDES[@]}" -C dist/plugins/antigravity reqogniloom
           ls -l release-assets
 
