@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from decouple import config
 from django.core.exceptions import ImproperlyConfigured
-from django.db import migrations
+from django.db import DatabaseError, migrations, transaction
 
 from persistence.db_roles import APP_DB_ROLE
 
@@ -54,11 +54,27 @@ def _create_app_role(apps, schema_editor):
                 [app_role_password],
             )
         else:
-            cursor.execute(
-                f'CREATE ROLE "{APP_DB_ROLE}" WITH LOGIN NOSUPERUSER '
-                f"PASSWORD %s",
-                [app_role_password],
-            )
+            # xdist workers migrate separate test databases against one
+            # Postgres cluster, so two workers can pass the SELECT above
+            # concurrently. The loser gets duplicate_object (42710) or, as
+            # observed on pg_authid_rolname_index, unique_violation (23505).
+            # The savepoint keeps the outer migration transaction usable and
+            # the loser simply ALTERs the role the winner just created.
+            try:
+                with transaction.atomic():
+                    cursor.execute(
+                        f'CREATE ROLE "{APP_DB_ROLE}" WITH LOGIN NOSUPERUSER '
+                        f"PASSWORD %s",
+                        [app_role_password],
+                    )
+            except DatabaseError as exc:
+                if getattr(exc, "pgcode", None) not in {"42710", "23505"}:
+                    raise
+                cursor.execute(
+                    f'ALTER ROLE "{APP_DB_ROLE}" WITH LOGIN NOSUPERUSER '
+                    f"PASSWORD %s",
+                    [app_role_password],
+                )
         db_name = schema_editor.connection.settings_dict["NAME"]
         cursor.execute(f'GRANT CONNECT ON DATABASE "{db_name}" TO "{APP_DB_ROLE}"')
         cursor.execute(f'GRANT USAGE ON SCHEMA public TO "{APP_DB_ROLE}"')
