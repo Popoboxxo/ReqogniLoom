@@ -23,6 +23,15 @@ from celery.schedules import crontab
 from decouple import Csv, UndefinedValueError, config
 from django.core.exceptions import ImproperlyConfigured
 
+# Plan A T-A4-2 (review F5): the cadence grammar is shared with
+# ``memory.tasks.consolidation_interval_minutes``, which re-reads the same
+# variable at task time. That module is a stdlib-only leaf, so importing it this
+# early is safe — same reasoning as ``rest_api.conditional_requests`` below.
+from memory.consolidation_config import (
+    CONSOLIDATION_INTERVAL_ENV as _CONSOLIDATION_INTERVAL_ENV,
+    parse_consolidation_interval as _parse_consolidation_interval,
+)
+
 # #1397: the conditional-request paragraph of the published API description is
 # produced by the same module that lists the operations honouring ``If-Match``,
 # so the prose and the machine-readable allowlist cannot drift. Imported at
@@ -1095,6 +1104,36 @@ CELERY_RESULT_BACKEND: str = f"redis://{_CELERY_REDIS_PASSWORD_PART}{_REDIS_HOST
 #    source of truth for both the schedule below and the staleness window.
 CELERY_BEAT_HEARTBEAT_INTERVAL_SECONDS = 60
 
+# 4. Periodic Honcho dream (Plan A T-A4-2). ``memory.consolidate_all`` asks the
+#    memory backend for one consolidation pass per active workspace peer; on
+#    ``MEMORY_BACKEND=honcho`` that is the engine's own ``schedule_dream``
+#    (T-A4-1 spike) which re-derives the peer representation. Non-Honcho
+#    backends report ``unsupported`` and do nothing.
+#
+#    ``0`` = OFF and is the documented instant switch: with ``0`` no entry is
+#    added to the schedule, so beat creates no new ``PeriodicTask`` row. Note
+#    that ``CELERY_BEAT_SCHEDULER`` is the DatabaseScheduler — a row synced
+#    earlier is not deleted by this change; it keeps firing, and the task then
+#    returns ``disabled`` before resolving the backend (so nothing is written).
+#    See ``memory/tasks.py::consolidation_interval_minutes`` for the full
+#    semantics and the reason the task re-reads the same variable.
+#
+#    Review F5: the value is parsed by
+#    ``memory.consolidation_config.parse_consolidation_interval`` (shared with
+#    the task, so the grammar cannot drift) and a typo fails the boot loudly
+#    here, at deployment time — unlike the task-time read, which degrades to the
+#    default because it must never fail a running worker.
+_MEMORY_CONSOLIDATION_INTERVAL_RAW = config(_CONSOLIDATION_INTERVAL_ENV, default="")
+try:
+    MEMORY_CONSOLIDATION_INTERVAL_MINUTES: int = _parse_consolidation_interval(
+        _MEMORY_CONSOLIDATION_INTERVAL_RAW
+    )
+except ValueError as exc:
+    raise ImproperlyConfigured(
+        f"{_CONSOLIDATION_INTERVAL_ENV} must be an integer number of minutes "
+        f"(0 = off); got {_MEMORY_CONSOLIDATION_INTERVAL_RAW!r}"
+    ) from exc
+
 CELERY_BEAT_SCHEDULE = {
     "dispatch-outbox-events": {
         "task": "application.dispatch_outbox_events",
@@ -1115,6 +1154,35 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(minute=0),
     },
 }
+
+# T-A4-2: the dream entry exists only when the cadence is positive. Building the
+# key conditionally (instead of always scheduling and no-oping inside the task)
+# means ``MEMORY_CONSOLIDATION_INTERVAL_MINUTES=0`` creates no beat entry, so a
+# fresh deployment never enqueues ``memory.consolidate_all`` at all. A
+# ``PeriodicTask`` row synced while the cadence was positive is owned by the
+# database, not by this dict; it keeps firing, which is why the task itself also
+# short-circuits on ``<= 0`` (see ``consolidate_all``).
+def _memory_consolidation_beat_entry(interval_minutes: int) -> dict | None:
+    """Return the beat entry for the periodic dream, or ``None`` when off.
+
+    Single source of the "0 = off" rule at the scheduler level (T-A4-2):
+    ``<= 0`` produces no entry, so beat never enqueues ``memory.consolidate_all``.
+    Extracted (rather than inlined in the ``if``) so the rule can be unit-tested
+    without reloading this settings module.
+    """
+    if interval_minutes <= 0:
+        return None
+    return {
+        "task": "memory.consolidate_all",
+        "schedule": timedelta(minutes=interval_minutes),
+    }
+
+
+_MEMORY_CONSOLIDATION_BEAT_ENTRY = _memory_consolidation_beat_entry(
+    MEMORY_CONSOLIDATION_INTERVAL_MINUTES
+)
+if _MEMORY_CONSOLIDATION_BEAT_ENTRY is not None:
+    CELERY_BEAT_SCHEDULE["memory-consolidate"] = _MEMORY_CONSOLIDATION_BEAT_ENTRY
 
 # Use database scheduler for Celery Beat (REQ-030)
 # Requires django_celery_beat to be in INSTALLED_APPS and initialized with migrations

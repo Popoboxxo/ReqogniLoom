@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any
 from uuid import UUID
 
@@ -69,7 +70,17 @@ from celery import shared_task
 
 from application.prompt_resolver import resolve_and_render
 from auth_tenancy.context import AuthContext
-from memory.backends import _tenant_context, get_memory_backend
+from memory.backends import (
+    _tenant_context,
+    active_memory_backend_name,
+    get_memory_backend,
+)
+from memory.consolidation_config import (
+    CONSOLIDATION_INTERVAL_ENV,
+    DEFAULT_CONSOLIDATION_INTERVAL_MINUTES,
+    parse_consolidation_interval,
+)
+from memory.metrics import increment_consolidation
 from memory.models import MemoryEntry
 
 logger = logging.getLogger(__name__)
@@ -95,6 +106,22 @@ _DEFAULT_FACT_SCOPE = "workspace"
 #: borderline pair is left as two separate entries rather than wrongly
 #: superseding one.
 _CONTRADICTION_DISTANCE_THRESHOLD = 0.05
+
+# ``CONSOLIDATION_INTERVAL_ENV`` and ``DEFAULT_CONSOLIDATION_INTERVAL_MINUTES``
+# are imported (and re-exported) from :mod:`memory.consolidation_config`, which
+# holds the parser shared with ``reqogniloom/settings.py`` -- see that module's
+# docstring for the two invalid-value policies.
+
+#: ``memory.metrics`` source label for the periodic dream pass. A synthetic,
+#: non-event source, exactly like the MCP tool name
+#: ``memory.remember_interaction`` is one for the write path.
+_CONSOLIDATION_METRIC_SOURCE = "periodic_dream"
+
+#: Cap on how many per-workspace failure entries the task's result carries.
+#: The result travels through the Celery backend; a large tenant must not turn
+#: "how did the pass go" into an unbounded payload. Every failure is logged in
+#: full regardless, and the counts are always complete.
+_CONSOLIDATION_RESULT_DETAIL_LIMIT = 20
 
 
 def _call_llm(prompt: str) -> str:
@@ -347,6 +374,263 @@ def consolidate_interaction_task(
     )
 
 
+def consolidation_interval_minutes() -> int:
+    """Return the configured dream cadence in minutes; ``<= 0`` means OFF.
+
+    Unset, empty or unparsable values fall back to
+    :data:`DEFAULT_CONSOLIDATION_INTERVAL_MINUTES`, so a typo can neither turn
+    the pass off by accident nor make it loop. This is deliberately *different*
+    from the settings-level read (review F5): ``reqogniloom/settings.py`` lets a
+    typo fail the boot loudly, because a misconfigured schedule is caught once
+    at deployment time. Here the same value is re-read inside a worker
+    execution path, where raising would turn one bad env var into a failing
+    dream pass on every beat tick. Both use
+    :func:`memory.consolidation_config.parse_consolidation_interval`, so only
+    the invalid-value policy differs, never the accepted grammar.
+
+    Semantics of ``0`` (``MEMORY_CONSOLIDATION_INTERVAL_MINUTES=0``), the
+    documented instant-off switch: the ``memory-consolidate`` beat entry is not
+    built at all (see ``reqogniloom/settings.py``) AND
+    :func:`consolidate_all` returns before resolving the backend. So nothing is
+    *scheduled* and nothing is *written* -- no dream request, no metric
+    increment -- even for a task still queued from a beat entry that was synced
+    before the switch was flipped.
+    """
+    try:
+        return parse_consolidation_interval(os.environ.get(CONSOLIDATION_INTERVAL_ENV))
+    except ValueError:
+        return DEFAULT_CONSOLIDATION_INTERVAL_MINUTES
+
+
+def _record_consolidation_failure(
+    result: dict[str, Any], tenant_id: UUID, workspace_id: UUID, detail: str
+) -> None:
+    """Count one failed scope and keep its detail in the bounded result list.
+
+    The counter is always exact; only the ``failures`` list is capped (see
+    :data:`_CONSOLIDATION_RESULT_DETAIL_LIMIT`), so "how many failed" never
+    depends on how many entries fit into the Celery result payload.
+    """
+    result["failed"] += 1
+    if len(result["failures"]) < _CONSOLIDATION_RESULT_DETAIL_LIMIT:
+        result["failures"].append(
+            {
+                "tenant_id": str(tenant_id),
+                "workspace_id": str(workspace_id),
+                "detail": detail,
+            }
+        )
+
+
+class ConsolidationPassFailed(RuntimeError):
+    """Raised by :func:`consolidate_all_task` when every scope of the pass failed.
+
+    Deliberately raised at the Celery boundary, not inside :func:`consolidate_all`
+    (review F3): the pure function keeps returning the structured result, so
+    its per-scope diagnoses stay inspectable and unit-testable, while the task
+    does not report SUCCESS for a pass that scheduled nothing. ``result`` is
+    attached so a caller that inspects the exception still sees the same
+    payload the task would otherwise have returned.
+    """
+
+    def __init__(self, result: dict[str, Any]) -> None:
+        message = (
+            f"memory consolidation failed for all {result['workspaces']} scope(s); "
+            f"{result['failed']} error(s)"
+        )
+        if result["failures"]:
+            message += f"; first: {result['failures'][0]['detail']}"
+        super().__init__(message)
+        self.result = result
+
+
+def consolidate_all(tenant_id: UUID | str | None = None) -> dict[str, Any]:
+    """Schedule one engine-side consolidation pass per active workspace peer.
+
+    Pure function wrapped by :func:`consolidate_all_task` for Celery dispatch
+    -- directly unit-testable without a worker (same split as
+    :func:`consolidate_interaction`). It always *returns*: only the task wrapper
+    turns an all-scopes-failed pass into a Celery failure (review F3, see
+    :class:`ConsolidationPassFailed`).
+
+    Plan A T-A4-2: the dream is scheduled **per workspace peer**, never
+    workspace-wide. Each call goes through
+    :meth:`memory.backends.MemoryBackend.consolidate` with
+    ``scope="workspace"``, so the backend decides what "consolidate this scope"
+    means (Honcho: one ``schedule_dream`` for that scope's own peer).
+
+    Honest degradation, in this order -- nothing is attempted when a stage says
+    no:
+
+    * ``<= 0`` minutes -> ``status="disabled"``, no backend resolved, no metric;
+    * a backend without the ``consolidation`` capability (``pgvector``,
+      ``qdrant``) -> ``status="unsupported"``, no workspace is even listed;
+    * otherwise one result per active workspace of every **active tenant**
+      (``Tenant.is_active``; a deactivated tenant is not consolidated, and an
+      explicitly passed ``tenant_id`` is honoured regardless, so an operator
+      can still drain a tenant that is about to be retired). A backend that
+      violates the "never raises" contract is caught per workspace, so one
+      broken scope can never stop the rest of the pass.
+
+    ``workspace`` scope only, on purpose: it is the scope T-A4-2 asks for, and
+    the one whose peer is a *shared* memory (a tenant-wide workspace-wide call
+    is forbidden by QR-S04 -- see :class:`memory.backends.ConsolidationResult`).
+
+    ``status`` is derived from the counters alone, and an outcome that is
+    neither ``scheduled`` nor ``failed`` counts as ``failed`` with
+    ``detail="unexpected_status:<status>"`` (review F2). That is a port-contract
+    violation -- :data:`memory.backends.VALID_CONSOLIDATION_STATUSES` has only
+    those two plus ``unsupported``, which a capability-bearing backend must not
+    answer -- so it must not be able to leave a pass reporting ``scheduled``
+    while ``scheduled`` is ``0``.
+
+    Returns:
+        ``{"status": ..., "backend": ..., "interval_minutes": ...,
+        "tenants": <int>, "workspaces": <int>, "scheduled": <int>,
+        "failed": <int>, "failures": [{"tenant_id", "workspace_id",
+        "detail"}, ...]}`` -- ``status`` is ``disabled|unsupported|empty|
+        scheduled|partial|failed``; ``failures`` holds at most
+        :data:`_CONSOLIDATION_RESULT_DETAIL_LIMIT` entries while ``failed`` is
+        the exact count.
+    """
+    interval = consolidation_interval_minutes()
+    result: dict[str, Any] = {
+        "status": "disabled",
+        "backend": None,
+        "interval_minutes": interval,
+        "tenants": 0,
+        "workspaces": 0,
+        "scheduled": 0,
+        "failed": 0,
+        "failures": [],
+    }
+    if interval <= 0:
+        logger.info(
+            "memory consolidate: disabled (%s=%d); nothing scheduled",
+            CONSOLIDATION_INTERVAL_ENV,
+            interval,
+        )
+        return result
+
+    backend = get_memory_backend()
+    result["backend"] = active_memory_backend_name()
+    if not backend.capabilities.consolidation:
+        result["status"] = "unsupported"
+        logger.info(
+            "memory consolidate: backend %s declares no consolidation "
+            "capability; nothing scheduled",
+            result["backend"],
+        )
+        return result
+
+    from persistence.models import Tenant, Workspace
+
+    tenant_ids = (
+        [UUID(str(tenant_id))]
+        if tenant_id is not None
+        else list(Tenant.objects.filter(is_active=True).values_list("id", flat=True))
+    )
+    result["tenants"] = len(tenant_ids)
+
+    for current_tenant in tenant_ids:
+        # Both the workspace listing and the per-scope call run under the
+        # tenant context: the listing is tenant-filtered/RLS-guarded, and a
+        # backend whose consolidate touches its own mirror rows must see the
+        # same isolation a request would.
+        with _tenant_context(current_tenant):
+            # ``order_by`` for reproducible logs and deterministic per-scope
+            # ordering (review F1). The result is a count/report, so nothing
+            # depends on the order -- but "which scope failed first" in a log
+            # should not be an implementation detail of the storage engine.
+            workspace_ids = list(
+                Workspace.objects.filter(is_active=True)
+                .order_by("pk")
+                .values_list("id", flat=True)
+            )
+            for workspace_id in workspace_ids:
+                result["workspaces"] += 1
+                try:
+                    outcome = backend.consolidate(
+                        current_tenant, "workspace", workspace_id
+                    )
+                except Exception as exc:  # noqa: BLE001 - one scope must not stop the pass
+                    logger.warning(
+                        "memory consolidate: backend raised for tenant=%s "
+                        "workspace=%s (error type %s); continuing",
+                        current_tenant,
+                        workspace_id,
+                        type(exc).__name__,
+                    )
+                    _record_consolidation_failure(
+                        result, current_tenant, workspace_id, f"raised:{type(exc).__name__}"
+                    )
+                    continue
+
+                if outcome.status == "scheduled":
+                    result["scheduled"] += 1
+                    # One tick per ACCEPTED dream request: the counter answers
+                    # "is the loop running, from which trigger?" (issue #1300),
+                    # so the source is the periodic pass, not the individual
+                    # workspace.
+                    increment_consolidation(_CONSOLIDATION_METRIC_SOURCE)
+                elif outcome.status == "failed":
+                    logger.warning(
+                        "memory consolidate: dream not scheduled for tenant=%s "
+                        "workspace=%s (%s)",
+                        current_tenant,
+                        workspace_id,
+                        outcome.detail,
+                    )
+                    _record_consolidation_failure(
+                        result, current_tenant, workspace_id, outcome.detail
+                    )
+                else:
+                    # Review F2: an outcome outside the contract must not be
+                    # silently ignored -- otherwise a pass could report
+                    # ``scheduled`` with ``scheduled == 0``. Count it, name it.
+                    detail = f"unexpected_status:{outcome.status}"
+                    logger.warning(
+                        "memory consolidate: %s for tenant=%s workspace=%s",
+                        detail,
+                        current_tenant,
+                        workspace_id,
+                    )
+                    _record_consolidation_failure(
+                        result, current_tenant, workspace_id, detail
+                    )
+
+    if result["workspaces"] == 0:
+        result["status"] = "empty"
+    elif result["failed"] == 0:
+        result["status"] = "scheduled"
+    elif result["scheduled"] == 0:
+        result["status"] = "failed"
+    else:
+        result["status"] = "partial"
+    return result
+
+
+@shared_task(name="memory.consolidate_all")
+def consolidate_all_task(tenant_id: str | None = None) -> dict[str, Any]:
+    """Celery entry point -- deserialises an optional tenant id, delegates.
+
+    Review F3: a pass in which **every** scope failed is reported as a Celery
+    FAILURE (:class:`ConsolidationPassFailed`) instead of a SUCCESS that merely
+    says ``status="failed"`` inside the payload -- an engine outage must be
+    visible to task monitoring without a human reading the result. A
+    ``partial`` pass, and the deliberate no-ops (``disabled``, ``unsupported``,
+    ``empty``), stay SUCCESS: part of the work happened, or there was nothing to
+    do because of configuration, which is not an error.
+
+    The exception carries the full :func:`consolidate_all` result (``.result``),
+    so the per-workspace diagnoses are not lost to the failed task.
+    """
+    result = consolidate_all(UUID(str(tenant_id)) if tenant_id else None)
+    if result["status"] == "failed":
+        raise ConsolidationPassFailed(result)
+    return result
+
+
 @shared_task(name="memory.reconcile_guard")
 def memory_reconcile_guard() -> dict[str, Any]:
     """Periodic fail-loud guard over ``manage.py memory_reconcile`` (#1250).
@@ -386,4 +670,14 @@ def memory_reconcile_guard() -> dict[str, Any]:
     return report
 
 
-__all__ = ["consolidate_interaction", "consolidate_interaction_task", "memory_reconcile_guard"]
+__all__ = [
+    "CONSOLIDATION_INTERVAL_ENV",
+    "DEFAULT_CONSOLIDATION_INTERVAL_MINUTES",
+    "ConsolidationPassFailed",
+    "consolidate_all",
+    "consolidate_all_task",
+    "consolidate_interaction",
+    "consolidate_interaction_task",
+    "consolidation_interval_minutes",
+    "memory_reconcile_guard",
+]
