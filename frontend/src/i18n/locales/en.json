@@ -726,6 +726,7 @@
     "nameHint": "Optional. Without a name one is generated from the timestamp. The name must be unique within the workspace.",
     "tags": "Tags",
     "tagAdd": "Add tag",
+    "tagInputLabel": "Tag",
     "tagRemove": "Remove tag {{label}}",
     "tagPlaceholder": "e.g. Release, RC1",
     "tagFilter": "Filter by tag",

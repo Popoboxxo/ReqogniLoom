@@ -9,6 +9,11 @@
  *   - a rejected save (backend 400 VALIDATION_ERROR) renders inline in
  *     `baseline-tag-error` instead of disappearing into a console
  *   - a label the backend would reject is caught before the network call
+ *   - a label with Unicode letters (`ü`, `ß`) is accepted — the client charset
+ *     mirrors Python's Unicode-aware `\w`, not JavaScript's ASCII-only one
+ *   - after a save the editor drops its draft and renders the server-sorted
+ *     list as clean (not dirty)
+ *   - removing a chip keeps focus inside the editor
  *
  * i18n is stubbed the same way as the neighbouring container tests (the key,
  * or the string fallback, is returned verbatim) so the assertions do not
@@ -133,5 +138,99 @@ describe('BaselineTagsEditor (F4.3)', () => {
     expect(screen.getAllByTestId('baseline-tag-chip')).toHaveLength(2);
     const errorBox = screen.getByTestId('baseline-tag-error');
     expect(within(errorBox).queryByText('three')).not.toBeInTheDocument();
+  });
+
+  // F1 (ui-review): the backend's `_TAG_PATTERN` uses Python's Unicode-aware
+  // `\w`; an ASCII-only JS `\w` rejected labels the server accepts.
+  it('accepts Unicode labels the backend also accepts (F1)', async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await user.type(screen.getByTestId('baseline-tag-input'), 'Prüfung{Enter}');
+    await user.type(screen.getByTestId('baseline-tag-input'), 'Straße-2{Enter}');
+
+    const chips = screen.getAllByTestId('baseline-tag-chip');
+    expect(chips).toHaveLength(2);
+    expect(chips[0]).toHaveTextContent('Prüfung');
+    expect(chips[1]).toHaveTextContent('Straße-2');
+    expect(screen.queryByTestId('baseline-tag-error')).not.toBeInTheDocument();
+  });
+
+  // F2 (ui-review): the backend returns the stored labels case-insensitively
+  // sorted; an order-sensitive dirty check left the editor permanently dirty
+  // after a save and never showed the server's order.
+  it('renders the server order after a save and is no longer dirty (F2)', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(<BaselineTagsEditor tags={[]} onSave={onSave} />);
+
+    await user.type(screen.getByTestId('baseline-tag-input'), 'zulu{Enter}alpha{Enter}');
+    await user.click(screen.getByTestId('baseline-tag-save-btn'));
+    await waitFor(() => {
+      expect(onSave).toHaveBeenCalledWith(['zulu', 'alpha']);
+    });
+
+    // What the refetch hands back: the persisted, server-sorted set.
+    rerender(<BaselineTagsEditor tags={['alpha', 'zulu']} onSave={onSave} />);
+
+    const chips = screen.getAllByTestId('baseline-tag-chip');
+    expect(chips[0]).toHaveTextContent(/^alpha/);
+    expect(chips[1]).toHaveTextContent(/^zulu/);
+    // An order-only difference is not an edit: the save button stays disabled.
+    expect(screen.getByTestId('baseline-tag-save-btn')).toBeDisabled();
+  });
+
+  // F3 (ui-review): removing a chip unmounted the focused button and dropped
+  // focus to <body>.
+  it('moves focus to the neighbouring remove control after a removal (F3)', async () => {
+    const user = userEvent.setup();
+    renderEditor({ tags: ['Release', 'RC1', 'Final'] });
+
+    await user.click(screen.getAllByTestId('baseline-tag-remove-btn')[1]!);
+
+    const remaining = screen.getAllByTestId('baseline-tag-remove-btn');
+    expect(remaining).toHaveLength(2);
+    // "Final" moved into the removed chip's slot and takes over focus.
+    expect(document.activeElement).toBe(remaining[1]);
+  });
+
+  it('returns focus to the text field when the last chip is removed (F3)', async () => {
+    const user = userEvent.setup();
+    renderEditor({ tags: ['Release'] });
+
+    await user.click(screen.getByTestId('baseline-tag-remove-btn'));
+
+    expect(document.activeElement).toBe(screen.getByTestId('baseline-tag-input'));
+  });
+
+  // F3 (ui-review): the save button used to disable itself on press (focus ->
+  // body) with no progress affordance at all.
+  it('announces an in-flight save and keeps focus on the button (F3)', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockReturnValue(new Promise<void>(() => {}));
+    renderEditor({ onSave });
+
+    await user.type(screen.getByTestId('baseline-tag-input'), 'Release{Enter}');
+    const saveButton = screen.getByTestId('baseline-tag-save-btn');
+    await user.click(saveButton);
+
+    await waitFor(() => {
+      expect(saveButton).toHaveAttribute('aria-busy', 'true');
+    });
+    expect(saveButton).not.toBeDisabled();
+    expect(document.activeElement).toBe(saveButton);
+  });
+
+  // F8 (ui-review): the input's aria-label duplicated the add button's visible
+  // label, so two controls shared one accessible name.
+  it('names the text input differently from the add button (F8)', () => {
+    renderEditor();
+
+    expect(screen.getByTestId('baseline-tag-input')).toHaveAccessibleName(
+      'baselines.tagInputLabel',
+    );
+    expect(screen.getByTestId('baseline-tag-add-btn')).toHaveAccessibleName(
+      'baselines.tagAdd',
+    );
   });
 });

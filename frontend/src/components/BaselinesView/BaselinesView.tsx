@@ -27,6 +27,7 @@ import {
   type BaselineScope,
 } from "../../api/baselines";
 import { useAuth } from "../../context/AuthContext";
+import { useWorkspace } from "../../context/WorkspaceContext";
 import { SplitView } from "../SplitView/SplitView";
 import { PageHeader } from "../shared/PageHeader";
 import { EmptyState } from "../shared/EmptyState/EmptyState";
@@ -39,6 +40,7 @@ import {
   BaselineEntriesSection,
 } from "./BaselinesPanels";
 import { BaselineTagsEditor } from "./BaselineTagsEditor";
+import { MAX_TAGS, isValidTagLabel } from "./baselineTags";
 import { TagInput } from "../shared/tag-input";
 import styles from "./BaselinesView.module.css";
 import { useBaselinesData } from "./useBaselinesData";
@@ -89,6 +91,13 @@ function formatDate(iso: string): string {
 export default function BaselinesView(): JSX.Element {
   const { t } = useTranslation();
   const { roles } = useAuth();
+  // F6 (ui-review): the tag editor's `disabled` prop was dead code — no caller
+  // passed it, so a viewer could type chips and only learned about the missing
+  // write authority from a raw 403. `editor` is the role the backend requires
+  // for `PUT /baselines/{id}/tags/`; `admin` is a superset (same rule as
+  // `hooks/useHasRole`).
+  const canEdit =
+    roles.includes("admin") || roles.includes("editor");
   // UI-21 / GH-513: the backend only accepts an override justification from
   // 'admin'/'approver' (AuthorizationService.WORKFLOW_APPROVAL, see
   // baseline_facade._assert_override_permission) — everyone else used to see
@@ -162,6 +171,26 @@ export default function BaselinesView(): JSX.Element {
   // pre-decomposition markup).
   const state = { baselines, artifacts, isLoading, error };
 
+  // F7 (ui-review): the tag filter is workspace-scoped state, so a workspace
+  // switch must not carry the previous workspace's label into the list call.
+  const activeWorkspaceId = useWorkspace().activeWorkspace?.id;
+  useEffect(() => {
+    setTagFilter("");
+  }, [activeWorkspaceId]);
+
+  // F7 (ui-review): a filter whose label is no longer offered by `allTags`
+  // (renamed/removed on every baseline, or left over from a switch) has no
+  // matching <option> while the query keeps filtering — an unexplained empty
+  // list. Falling back to "all tags" makes the empty state explicable and
+  // re-runs the list query without the filter.
+  useEffect(() => {
+    if (!tagFilter) return;
+    const available = allTags.some(
+      (tag) => tag.toLowerCase() === tagFilter.toLowerCase(),
+    );
+    if (!available) setTagFilter("");
+  }, [tagFilter, allTags]);
+
   // When form opens, default to the first available artifact.
   useEffect(() => {
     if (showForm && !formArtifactId && artifacts.length > 0) {
@@ -204,6 +233,32 @@ export default function BaselinesView(): JSX.Element {
       }
     },
     [formArtifactId, formScope, formName, formTags, overrideReason, t, createBaseline],
+  );
+
+  // F5 (ui-review): the create dialog uses the shared `TagInput`, which knows
+  // nothing about the baseline tag contract (20-label cap, label charset).
+  // A 21st label or an illegal character used to reach the backend and come
+  // back as a raw English VALIDATION_ERROR in `createError`. Validating here
+  // emits the same local keys the detail editor uses.
+  const handleFormTagsChange = useCallback(
+    (next: string[]): void => {
+      setCreateError(null);
+      // `TagInput` only ever appends (or removes), so a longer list means the
+      // last entry is the one just committed.
+      if (next.length > formTags.length) {
+        const added = next[next.length - 1] ?? "";
+        if (!isValidTagLabel(added)) {
+          setCreateError(t("baselines.tagInvalid", { label: added }));
+          return;
+        }
+        if (next.length > MAX_TAGS) {
+          setCreateError(t("baselines.tagLimit", { max: MAX_TAGS }));
+          return;
+        }
+      }
+      setFormTags(next);
+    },
+    [formTags, t],
   );
 
   // UI-20: unified on the shared ConfirmDialog instead of window.confirm —
@@ -525,6 +580,7 @@ export default function BaselinesView(): JSX.Element {
               key={selectedBaseline.id}
               tags={selectedBaseline.tags ?? []}
               onSave={(tags) => setTags(selectedBaseline.id, tags)}
+              disabled={!canEdit}
             />
 
             {/* REQ-L2-BL-012: captured items with their full-state snapshot. */}
@@ -603,7 +659,7 @@ export default function BaselinesView(): JSX.Element {
               data-testid="baseline-create-tags"
               inputId="baseline-create-tags"
               tags={formTags}
-              onChange={setFormTags}
+              onChange={handleFormTagsChange}
               placeholder={t("baselines.tagPlaceholder")}
             />
 

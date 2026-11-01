@@ -6,6 +6,14 @@
  * shared `btn-secondary`/`btn-primary` classes and the chip's remove control
  * uses `btn-icon` — this module only contributes layout plus the neutral chip
  * look.
+ *
+ * F4 (ui-review): the *persisted* chip here is deliberately NOT styled like
+ * the *draft* pill of the create dialog (`shared/tag-input.module.css`,
+ * primary-filled): the detail list shows confirmed server state with one
+ * focusable remove control per label, the create pill is an unsaved form
+ * value. Both share the pill geometry (`--radius-*`, `--space-*`) but not the
+ * fill. This is the documented difference, not drift — do not "align" the
+ * fill without revisiting the create dialog's form semantics.
  */
 
 .editor {

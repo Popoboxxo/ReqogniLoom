@@ -726,6 +726,7 @@
     "nameHint": "Optional. Ohne Angabe wird ein Name aus dem Zeitstempel erzeugt. Der Name muss im Workspace eindeutig sein.",
     "tags": "Tags",
     "tagAdd": "Tag hinzufügen",
+    "tagInputLabel": "Tag",
     "tagRemove": "Tag {{label}} entfernen",
     "tagPlaceholder": "z. B. Release, RC1",
     "tagFilter": "Nach Tag filtern",
