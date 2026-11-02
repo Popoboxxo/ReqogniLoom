@@ -39,12 +39,17 @@ what the F3 spec makes specific:
 * **Soft delete (G1.5, ENT-G1 = A).** ``WorkItem`` has no status column of its
   own: delete/restore go through the workflow engine's ``outdate``/
   ``reactivate`` escape hatch, which flips ``Artifact.lifecycle_status``.
+* **Events (F3-T8, spec §10).** Every state-bearing write publishes to the
+  outbox in the same transaction as the mutation (SA-02):
+  :attr:`~application.models.DomainEventOutbox.EventType.ITEM_STATE_CHANGED`
+  on a workflow transition and on a progress change (both are the item's
+  observable state for resume), and an additional
+  :attr:`~application.models.DomainEventOutbox.EventType.ITEM_BLOCKED` when a
+  transition enters ``blocked`` (the payload carries ``blocked_reason``).
+  Creation and content edits emit no item event: neither is a lifecycle
+  change, and the contract deliberately has no ``WorkItemCreated`` member.
 
-Out of scope here (later F3 tasks): REST/MCP exposure (T5/T6), inline anchors
-(T7), outbox events and ``DOC-P5``/``DOC-P7`` rules (T8), frontend (T9).
-Deliberately **no** outbox event is emitted yet — ``DomainEventOutbox.EventType``
-grows its WorkItem members with F3-T8; emitting a free-string event now would
-publish a contract the migration later has to rewrite.
+Out of scope here (later F3 tasks): frontend (T9).
 
 Content revisions (``ArtifactVersion``) are recorded from F3-T5 on: every path
 that bumps ``version`` also appends a snapshot built from the ``WorkItem`` entry
@@ -83,6 +88,7 @@ from application.inline_anchor_service import (
     InlineAnchorService,
 )
 from application.local_uid import generate_local_uid
+from application.models import DomainEventOutbox
 from application.optimistic_lock import (
     assert_expected_version,
     lock_for_version_check,
@@ -735,11 +741,40 @@ class WorkItemService(ServiceBase):
             raise NotFoundError(f"Work item {item_id} not found")
         assert_expected_version(item, expected_version, entity_type="WorkItem")
 
+        previous_progress = item.progress
+        current_state = state_reader.current_state(
+            WORK_ITEM_ITEM_TYPE, item.id
+        ) or state_reader.initial_state(WORK_ITEM_ITEM_TYPE)
+
         item.progress = progress
-        self._touch(item, actor=_actor_label(ctx, actor))
+        actor_label = _actor_label(ctx, actor)
+        self._touch(item, actor=actor_label)
         item.save(update_fields=["progress", "last_activity_at", "last_actor", "modified_at"])
         self._bump_version(item)
         self._record_revision(item, ctx, change_reason=change_reason or "")
+
+        # F3-T8: progress is part of the item's observable state (resume and
+        # the UI read it next to the workflow state), so the same
+        # ``ITEM_STATE_CHANGED`` signal covers it. The state itself does not
+        # move here; ``previous_state``/``new_state`` are equal by contract.
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.ITEM_STATE_CHANGED,
+                entity_id=item.id,
+                workspace_id=item.workspace_id,
+                payload={
+                    "previous_state": current_state,
+                    "new_state": current_state,
+                    "previous_progress": previous_progress,
+                    "progress": progress,
+                    "version": item.version,
+                    "artifact_id": str(item.artifact_id),
+                    "uid": item.uid,
+                    "document_id": str(item.document_id),
+                    "last_actor": actor_label,
+                },
+            )
+        )
 
         self._audit(
             ctx=ctx,
@@ -845,6 +880,13 @@ class WorkItemService(ServiceBase):
             # sees the reason inside the same transaction.
             item.save(update_fields=["blocked_reason", "modified_at"])
 
+        # F3-T8: the previous state is read before the engine moves it, so the
+        # outbox payload can name both ends of the transition instead of
+        # forcing a subscriber to guess (or re-read the pre-event row).
+        previous_state = state_reader.current_state(
+            WORK_ITEM_ITEM_TYPE, item.id
+        ) or state_reader.initial_state(WORK_ITEM_ITEM_TYPE)
+
         from application.workflow_facade import WorkflowFacade
 
         WorkflowFacade().transition(
@@ -865,6 +907,40 @@ class WorkItemService(ServiceBase):
         item.save()
         self._bump_version(item)
         self._record_revision(item, ctx, change_reason=change_reason or "")
+
+        event_payload = {
+            "previous_state": previous_state,
+            "new_state": target_state,
+            "version": item.version,
+            "artifact_id": str(item.artifact_id),
+            "uid": item.uid,
+            "document_id": str(item.document_id),
+            "progress": item.progress,
+            "change_reason": change_reason,
+            "last_actor": actor_label,
+        }
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.ITEM_STATE_CHANGED,
+                entity_id=item.id,
+                workspace_id=item.workspace_id,
+                payload=event_payload,
+            )
+        )
+        if entering_blocked:
+            # Spec §8.4/§10: a blocked item is its own observable signal, so a
+            # subscriber does not have to compare state names to notice it.
+            self._emit_event(
+                self._make_event(
+                    event_type=DomainEventOutbox.EventType.ITEM_BLOCKED,
+                    entity_id=item.id,
+                    workspace_id=item.workspace_id,
+                    payload={
+                        **event_payload,
+                        "blocked_reason": item.blocked_reason,
+                    },
+                )
+            )
         return item
 
     # ---------- Checkpoint ----------

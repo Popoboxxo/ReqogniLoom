@@ -6,8 +6,8 @@ req_id  : REQ-L1-020, REQ-L3-SEARCH-001 through REQ-L3-SEARCH-009
 
 Search over every artifact type listed in ``SEARCHABLE_ARTIFACT_TYPES``
 (Requirement, ArchitectureElement, TestCase, StakeholderNeed, Adr, Risk,
-Issue, ChangeRequest, Goal, GlossaryTerm, Icd, Document, TraceLink). Two passes
-run per type and are merged (issue #345):
+Issue, ChangeRequest, Goal, GlossaryTerm, Icd, Document, WorkItem, TraceLink).
+Two passes run per type and are merged (issue #345):
 
   1. full-text: PostgreSQL tsvector / tsquery, relevance-ranked via ts_rank
   2. lexical:   case-insensitive substring match on title, uid and IDs
@@ -308,6 +308,19 @@ _TABLE_SPECS: dict[str, _TableSpec] = {
     # so the inner join is correct here (unlike the ``as_*`` tables).
     "Document": _TableSpec(
         table="pl_document",
+        join_sql=_ARTIFACT_JOIN,
+        workspace_col="a.workspace_id",
+        artifact_id_col="e.artifact_id",
+        extra_fulltext_col="e.body",
+    ),
+    # Plan F F3-T8: a work item's markdown ``body`` is part of its searchable
+    # text, folded in through ``extra_fulltext_col`` so the hit preview stays
+    # the resume hint rather than "hint + entire section". ``pl_work_item`` has
+    # no ``description`` column, so ``description_col`` points at
+    # ``next_action`` — the field the resume contract shows next to the title.
+    "WorkItem": _TableSpec(
+        table="pl_work_item",
+        description_col="COALESCE(e.next_action, '')",
         join_sql=_ARTIFACT_JOIN,
         workspace_col="a.workspace_id",
         artifact_id_col="e.artifact_id",

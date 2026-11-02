@@ -61,6 +61,9 @@ class PresetRules:
         document_mandatory_fields_by_kind: G-4 gate policy for documents
             (Plan F F2-T4): kind -> tuple of required field names, with ``"*"``
             as the fallback entry.
+        work_item_stale_after_days: ``DOC-P5`` threshold in days (Plan F
+            F3-T8): an ``in_progress`` work item without a heartbeat for longer
+            than this is reported as abandoned work state.
     """
 
     def __init__(self, config: PresetConfig) -> None:
@@ -106,6 +109,16 @@ class PresetRules:
         its own key.
         """
         return dict(self._config.document_mandatory_fields_by_kind)
+
+    @property
+    def work_item_stale_after_days(self) -> int:
+        """Return the ``DOC-P5`` staleness threshold in days (Plan F F3-T8).
+
+        Read by the SE-Auditor rule, never hard-coded there: a workspace that
+        changes its preset policy changes what "abandoned work state" means
+        without a code change (spec §11).
+        """
+        return self._config.work_item_stale_after_days
 
     def as_dict(self) -> dict:
         """Return serialisable dict (for API responses).

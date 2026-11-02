@@ -62,6 +62,15 @@ _ITEM_TYPE = "WorkItem"
 #: client does not have to guess the enum (#345-style honesty).
 _KINDS: tuple[str, ...] = tuple(WorkItem.Kind.values)
 
+#: Spec §12 (Loom vs. memory), named verbatim in every ``work_item.*`` tool
+#: description (F3-T8). An agent choosing between the groups must be able to
+#: tell "where the work stands" (Loom) from "what was said" (memory/Honcho).
+LOOM_MEMORY_BOUNDARY = (
+    "Loom work state ('where the work stands', explicit and queryable) is not "
+    "conversation memory ('what was said', memory.*/Honcho); memory is not "
+    "duplicated here."
+)
+
 
 def _iso(value: Any) -> str | None:
     """Render a ``date``/``datetime`` as ISO-8601, or ``None``."""
@@ -540,6 +549,14 @@ class WorkItemToolGroup(BaseToolGroup):
             },
         },
     ]
+
+    # F3-T8 (spec §12): the boundary is named verbatim in every tool
+    # description, not only in this module's docstring.
+    for _schema in _TOOL_SCHEMAS:
+        _schema["description"] = (
+            f"{_schema['description']} {LOOM_MEMORY_BOUNDARY}"
+        )
+    del _schema
 
     def _svc(self) -> WorkItemService:
         return WorkItemService()

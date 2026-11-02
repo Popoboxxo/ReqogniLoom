@@ -41,6 +41,7 @@ from persistence.models import (
     StakeholderNeed,
     TestCase,
     TraceLink,
+    WorkItem,
 )
 from persistence.qdrant_config import (
     build_collection_alias,
@@ -65,6 +66,7 @@ _EXPECTED_SOURCES = {
     "Interview",
     "Icd",
     "Document",
+    "WorkItem",
     "TraceLink",
 }
 
@@ -204,6 +206,16 @@ def _make_all(tenant, workspace) -> dict[str, Any]:
         kind="Spec",
         body="# Body\n\nIndexable markdown.",
     )
+    rows["WorkItem"] = WorkItem.objects.create(
+        tenant=tenant,
+        artifact=artifact("WorkItem"),
+        workspace=workspace,
+        document=rows["Document"],
+        kind=WorkItem.Kind.STEP,
+        title="Indexed work item",
+        body="## Step\n\nDo the indexed work.",
+        next_action="continue indexing",
+    )
     target = ArchitectureElement.objects.create(
         tenant=tenant,
         artifact=artifact("ArchitectureElement"),
@@ -243,14 +255,15 @@ def _points(client: FakeQdrantClient, tenant_id, workspace_id) -> list:
     return client.collections[_collection_name(tenant_id, workspace_id)]
 
 
-def test_sources_cover_all_sixteen_entity_types() -> None:
+def test_sources_cover_all_seventeen_entity_types() -> None:
     assert set(SOURCES) == _EXPECTED_SOURCES
     assert "Icd" in SOURCES
+    assert "WorkItem" in SOURCES
     assert "TraceLink" in SOURCES
 
 
 @pytest.mark.django_db
-def test_each_of_16_sources_produces_one_point_with_entity_type(monkeypatch) -> None:
+def test_each_of_17_sources_produces_one_point_with_entity_type(monkeypatch) -> None:
     monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
     client = FakeQdrantClient()
     indexer = _indexer(client)

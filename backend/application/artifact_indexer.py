@@ -2,11 +2,12 @@
 
 ``application.artifact_vector_store`` provisions one ``..._artifacts_v2``
 collection per workspace; this module decides which entity becomes which point.
-Sixteen sources are indexed: Requirement, StakeholderNeed, ArchitectureElement,
-TestCase, Adr, Risk, Issue, ChangeRequest, Goal, MainGoal, GlossaryTerm, Diagram,
-Interview (``InterviewSession``), Icd, Document and TraceLink. Fifteen sit
-behind a ``persistence.Artifact`` row; ``TraceLink`` has its own table and no
-backing artifact, so its workspace is the workspace of its *source* artifact.
+Seventeen sources are indexed: Requirement, StakeholderNeed,
+ArchitectureElement, TestCase, Adr, Risk, Issue, ChangeRequest, Goal, MainGoal,
+GlossaryTerm, Diagram, Interview (``InterviewSession``), Icd, Document, WorkItem
+and TraceLink. Sixteen sit behind a ``persistence.Artifact`` row; ``TraceLink``
+has its own table and no backing artifact, so its workspace is the workspace of
+its *source* artifact.
 
 Point: ``id`` = entity UUID; ``vector`` = ``{"dense": v, "bm25": Document(text,
 model="qdrant/bm25")}``; payload = ``tenant_id, workspace_id, entity_type,
@@ -150,6 +151,7 @@ _ARTIFACT_ACCESSORS: dict[str, str] = {
     "Interview": "interview_session",
     "Icd": "icd",
     "Document": "document",
+    "WorkItem": "work_item",
 }
 
 
@@ -200,6 +202,14 @@ SOURCES: dict[str, SourceSpec] = {
     # bookkeeping, not content, so it is deliberately not part of the text.
     "Document": SourceSpec("persistence", "Document", _workspace_of,
         ("title", "description", "body", "kind", "doc_date")),
+    # Plan F F3-T8: the WorkItem artifact. ``body`` is the markdown of the
+    # section; title/next_action/exit_criteria keep the state-bearing text
+    # searchable and ``kind`` keeps the point filterable by work-item kind.
+    # ``progress`` is deliberately not rendered into the text: it is a numeric
+    # state column, not prose, and would make every heartbeat re-embed the
+    # point for no recall gain.
+    "WorkItem": SourceSpec("persistence", "WorkItem", _workspace_of,
+        ("title", "body", "next_action", "exit_criteria", "blocked_reason", "kind")),
     # ``select_related`` fetches the two endpoint Artifacts only: the reverse
     # OneToOne rows that carry the readable uid (``_artifact_label``) are not
     # covered and cost two extra queries per TraceLink. Proposal links

@@ -148,6 +148,16 @@ class DomainEventOutbox(models.Model):
         DOCUMENT_DELETED = "DocumentDeleted"
         DOCUMENT_STATE_CHANGED = "DocumentStateChanged"
         DOCUMENT_PUBLISHED = "DocumentPublished"
+        # Plan F F3-T8 (#1374): the work item's lifecycle. Purely additive --
+        # declares the emission sites ``WorkItemService`` now writes
+        # (application/0038). ``ItemStateChanged`` is the item's observable
+        # state transition (workflow state and progress); ``ItemBlocked`` is
+        # the separate, mandatory-reason signal a subscriber needs to react to
+        # a blocked item without comparing state names. Neither is an indexer
+        # hook: the indexer derives its entity mapping from
+        # ``<EntityType>{Created,Updated,Deleted}`` only.
+        ITEM_STATE_CHANGED = "ItemStateChanged"
+        ITEM_BLOCKED = "ItemBlocked"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     event_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
