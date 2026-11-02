@@ -116,6 +116,8 @@ from application.import_idempotency import (
     finalize_success as finalize_idempotency_success,
 )
 from application.main_goal_service import MainGoalService
+# Plan F F3-T5: the WorkItem artifact's single write entry point (ADR-01).
+from application.work_item_service import WorkItemService
 from application.requirement_bundle_formatters import (
     format_bundle_csv,
     format_bundle_json,
@@ -241,6 +243,7 @@ from rest_api.serializers import (
     TraceLinkSerializer,
     TracePathSerializer,
     WorkflowDefinitionSerializer,
+    WorkItemSerializer,
     WorkspaceSerializer,
     build_error_response,
     detect_lang,
@@ -7536,6 +7539,45 @@ def _document_to_dict(document: Any) -> dict[str, Any]:
     }
 
 
+def _work_item_to_dict(item: Any) -> dict[str, Any]:
+    """Convert a ``WorkItem`` ORM row to the serializer-compatible dict.
+
+    ``status`` is intentionally absent — ``WorkItemSerializer`` resolves it
+    from the workflow engine (``WorkflowStateSerializerMixin``), which is also
+    what turns a soft-deleted item into ``"outdated"`` (G1.5). ``due_date``,
+    ``approved_at`` and ``last_activity_at`` stay ``datetime`` values so the
+    DRF fields render them as ISO-8601. The wire key for the house
+    ``modified_at`` column is ``updated_at``, matching every other artifact.
+    """
+    return {
+        "id": str(item.id),
+        "workspace_id": str(item.workspace_id),
+        "document_id": str(item.document_id),
+        "artifact_id": (
+            str(item.artifact_id) if getattr(item, "artifact_id", None) else None
+        ),
+        "uid": getattr(item, "uid", None),
+        "title": item.title,
+        "kind": item.kind,
+        "ordinal": item.ordinal,
+        "body": getattr(item, "body", ""),
+        "progress": item.progress,
+        "blocked_reason": getattr(item, "blocked_reason", ""),
+        "next_action": getattr(item, "next_action", ""),
+        "last_activity_at": item.last_activity_at,
+        "last_actor": getattr(item, "last_actor", ""),
+        "evidence_ref": getattr(item, "evidence_ref", ""),
+        "approved_by": getattr(item, "approved_by", ""),
+        "approved_at": item.approved_at,
+        "due_date": item.due_date,
+        "exit_criteria": getattr(item, "exit_criteria", ""),
+        "custom_fields": _artifact_custom_fields(item),
+        "version": item.version,
+        "created_at": item.created_at,
+        "updated_at": item.modified_at,
+    }
+
+
 def _goal_to_dict(goal: Any) -> dict[str, Any]:
     """Convert Goal ORM object to serializer-compatible dict (Task 6).
 
@@ -9510,6 +9552,633 @@ class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+
+# ---------------------------------------------------------------------------
+# WorkItemViewSet — Plan F F3-T5 (PR-F24b, #1374)
+# ---------------------------------------------------------------------------
+
+
+_WORK_ITEM_RESUME_RESPONSE = inline_serializer(
+    name="WorkItemResumeResponse",
+    fields={
+        "checkpoint": serializers.JSONField(allow_null=True),
+        "open_items": serializers.ListField(child=serializers.JSONField()),
+    },
+)
+
+_WORK_ITEM_TRANSITION_REQUEST = inline_serializer(
+    name="WorkItemTransitionRequest",
+    fields={
+        "target_state": serializers.CharField(),
+        "blocked_reason": serializers.CharField(required=False, allow_blank=True),
+        "change_reason": serializers.CharField(required=False, allow_blank=True),
+        "credential": serializers.CharField(required=False, allow_blank=True),
+        "expected_version": serializers.IntegerField(required=False, min_value=1),
+    },
+)
+
+_WORK_ITEM_TRANSITION_RESPONSE = inline_serializer(
+    name="WorkItemTransitionResponse",
+    fields={
+        "id": serializers.UUIDField(),
+        "previous_state": serializers.CharField(),
+        "new_state": serializers.CharField(),
+        "version": serializers.IntegerField(),
+        "work_item": WorkItemSerializer(),
+    },
+)
+
+
+class WorkItemViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
+    """REST surface for the ``WorkItem`` artifact (Plan F F3-T5, #1374).
+
+    Delegates every write to :class:`application.work_item_service
+    .WorkItemService` (ADR-01). A work item is the explicit, queryable agent
+    state store (progress, blocked reason, resume hint, heartbeat), always owned
+    by one document.
+
+    Contract highlights
+    -------------------
+    * **Document is mandatory.** ``POST`` without ``document_id`` answers
+      ``400 VALIDATION_ERROR``; a document from another workspace is refused by
+      the service instead of being silently re-homed.
+    * **ETag / If-Match (KA-F-08).** ``WorkItem.version`` is the
+      optimistic-lock counter; GET, POST and PATCH emit it as ``ETag`` and a
+      PATCH accepts ``If-Match``. A stale strong tag answers ``412``, a stale
+      body ``expected_version`` ``409``, a malformed header ``400
+      INVALID_IF_MATCH``. The ``transition/`` POST guards the same entity
+      version (412 for a stale strong tag, 409 for the body field).
+    * **Resume.** ``GET .../resume/?workspace_id=&document_id=&actor=`` returns
+      the newest checkpoint and every open item, sorted ``(ordinal, id)``.
+    * **Soft delete (G1.5).** ``DELETE`` answers ``204`` and only flips the
+      backing Artifact's lifecycle flag; GET still answers ``200`` with
+      ``status="outdated"``, lists hide it unless ``?include_deleted=true``,
+      and ``POST .../reactivate/`` restores it.
+    * **Ordering (G2.1).** The list is ordered by ``(ordinal, id)`` in the
+      service, so pagination is deterministic.
+    """
+
+    serializer_class = WorkItemSerializer
+    preset_endpoint_key = ""
+    workflow_item_type = "WorkItem"
+
+    def _svc(self) -> WorkItemService:
+        return WorkItemService()
+
+    def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
+        item = self._svc().get_work_item(UUID(pk), ctx)
+        return item.id, item.workspace_id
+
+    # ---------- Read ----------
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Workspace whose work items are listed.",
+            ),
+            OpenApiParameter(
+                "document_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Only items of this document.",
+            ),
+            OpenApiParameter(
+                "include_deleted",
+                OpenApiTypes.BOOL,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Include soft-deleted (outdated) items. Defaults to false; "
+                    "the detail GET still answers 200 with status='outdated'."
+                ),
+            ),
+        ]
+    )
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/work-items/?workspace_id=<id>[&document_id=<id>]
+
+        Items are ordered by ``(ordinal, id)`` (G2.1), so OFFSET/LIMIT
+        pagination is stable. Soft-deleted items are hidden unless
+        ``include_deleted`` is true (G1.5 V4).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"), lang
+            )
+            if error is not None:
+                return error
+            document_id = None
+            raw_document_id = request.query_params.get("document_id")
+            if raw_document_id not in (None, ""):
+                document_id, error = parse_uuid_param(
+                    raw_document_id, lang, name="document_id"
+                )
+                if error is not None:
+                    return error
+            items = self._svc().list_work_items(
+                workspace_id=workspace_id,
+                ctx=ctx,
+                document_id=document_id,
+                include_deleted=parse_include_deleted(request.query_params),
+            )
+        except (ValidationError, ValueError) as exc:
+            return _service_error_response(
+                exc if isinstance(exc, ValidationError) else ValidationError(str(exc)),
+                lang,
+            )
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return self._paginate(
+            request,
+            items,
+            serialize_page=lambda page: WorkItemSerializer(
+                [_work_item_to_dict(item) for item in page], many=True
+            ).data,
+        )
+
+    @extend_schema(parameters=[_ETAG_RESPONSE_HEADER])
+    def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/work-items/{pk}/ — retrieve a work item.
+
+        A soft-deleted item still answers ``200`` with ``status="outdated"``
+        (G1.5 V3); an unknown id answers ``404``. The response carries
+        ``ETag: "<version>"`` for a subsequent conditional PATCH.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get_work_item(UUID(pk), ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return self.with_etag(
+            Response(WorkItemSerializer(_work_item_to_dict(item)).data), item
+        )
+
+    # ---------- Create ----------
+
+    @extend_schema(parameters=[_ETAG_RESPONSE_HEADER])
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/work-items/ — create a work item. Returns 201.
+
+        ``workspace_id``, ``document_id``, ``title`` and ``kind`` are required.
+        The local identifier is allocated server-side as ``WI-NNN`` and the
+        initial workflow state comes from the workspace's tier-matched WorkItem
+        definition (``todo``). The 201 carries the new ``ETag``.
+        """
+        lang = detect_lang(request)
+        ser = WorkItemSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().create_work_item(
+                workspace_id=UUID(str(data["workspace_id"])),
+                document_id=UUID(str(data["document_id"])),
+                ctx=ctx,
+                kind=data["kind"],
+                title=data["title"],
+                body=data.get("body", ""),
+                ordinal=data.get("ordinal", 0),
+                progress=data.get("progress"),
+                blocked_reason=data.get("blocked_reason", ""),
+                next_action=data.get("next_action", ""),
+                evidence_ref=data.get("evidence_ref", ""),
+                due_date=data.get("due_date"),
+                exit_criteria=data.get("exit_criteria", ""),
+                custom_fields=data.get("custom_fields"),
+                actor=data.get("actor") or "",
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return self.with_etag(
+            Response(
+                WorkItemSerializer(_work_item_to_dict(item)).data,
+                status=status.HTTP_201_CREATED,
+            ),
+            item,
+        )
+
+    # ---------- Update ----------
+
+    @extend_schema(
+        parameters=[_IF_MATCH_PARAMETER, _ETAG_RESPONSE_HEADER],
+        responses={
+            200: WorkItemSerializer,
+            412: _PRECONDITION_FAILED_RESPONSE,
+        },
+    )
+    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """PATCH /api/v1/work-items/{pk}/ — update a work item. Returns 200.
+
+        ``If-Match`` is evaluated first (400 ``INVALID_IF_MATCH`` for a
+        malformed header), then the service compares the version (412 for a
+        stale strong ``If-Match``, 409 for a stale body ``expected_version``).
+        ``document_id`` is immutable: moving an item to another document is
+        refused instead of silently ignored.
+        """
+        lang = detect_lang(request)
+        invalid = self.if_match_parse_error(request)
+        if invalid is not None:
+            return invalid
+        invalid = self._validate_patch_payload(
+            request,
+            lang,
+            serializer_cls=WorkItemSerializer,
+            pk=pk,
+            ctx=get_auth_context(request),
+        )
+        if invalid is not None:
+            return invalid
+        ser = WorkItemSerializer(data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+
+        def _current() -> Any:
+            return self._svc().get_work_item(UUID(pk), get_auth_context(request))
+
+        if "document_id" in data:
+            try:
+                current = _current()
+            except (NotFoundError, PermissionDeniedError) as exc:
+                return _service_error_response(exc, lang)
+            except ValueError:
+                return Response(
+                    build_error_response("NOT_FOUND", lang),
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            if str(data["document_id"]) != str(current.document_id):
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        details=[
+                            {
+                                "field": "document_id",
+                                "errors": [
+                                    "document_id is immutable; a work item "
+                                    "cannot be moved to another document."
+                                ],
+                            }
+                        ],
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        # ``progress`` and ``due_date`` use a sentinel in the service, so an
+        # explicit ``null`` must be forwarded while an omitted key must not.
+        extra_kwargs: dict[str, Any] = {}
+        if "progress" in data:
+            extra_kwargs["progress"] = data["progress"]
+        if "due_date" in data:
+            extra_kwargs["due_date"] = data["due_date"]
+        if "custom_fields" in data:
+            extra_kwargs["custom_fields"] = data["custom_fields"]
+
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().update_work_item(
+                item_id=UUID(pk),
+                ctx=ctx,
+                title=data.get("title"),
+                kind=data.get("kind"),
+                body=data.get("body"),
+                ordinal=data.get("ordinal"),
+                blocked_reason=data.get("blocked_reason"),
+                next_action=data.get("next_action"),
+                evidence_ref=data.get("evidence_ref"),
+                exit_criteria=data.get("exit_criteria"),
+                change_reason=data.get("change_reason"),
+                expected_version=self.resolve_expected_version(
+                    request, data, current=_current
+                ),
+                actor=data.get("actor") or "",
+                **extra_kwargs,
+            )
+        except (InvalidIfMatch, IfMatchMismatch) as exc:
+            return self.if_match_error(request, exc)
+        except OptimisticLockError as exc:
+            return self.optimistic_lock_response(request, exc, lang)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return self.with_etag(
+            Response(WorkItemSerializer(_work_item_to_dict(item)).data), item
+        )
+
+    # ---------- Soft delete / restore (G1.5) ----------
+
+    @soft_delete_schema()
+    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """DELETE /api/v1/work-items/{pk}/ — soft-delete a work item. Returns 204.
+
+        The row is not removed: ``Artifact.lifecycle_status`` moves to
+        ``"outdated"`` (G1.5 V1/V2), a subsequent GET still answers ``200`` with
+        ``status="outdated"``, and lists hide it unless ``?include_deleted=true``.
+        ``change_reason`` may be sent in the body or as ``?change_reason=``; a
+        preset that mandates one answers ``400 VALIDATION_ERROR`` without it.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            self._svc().delete_work_item(
+                UUID(pk), ctx, change_reason=parse_change_reason(request)
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="reactivate")
+    def reactivate(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/work-items/{pk}/reactivate/ — undo the soft-delete.
+
+        Restores the workflow state the item held throughout (soft delete is an
+        orthogonal flag), so a previously finished item comes back finished.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().restore_work_item(UUID(pk), ctx)
+            new_state = self._svc().current_status(UUID(pk), ctx)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return Response(
+            {
+                "id": str(pk),
+                "previous_state": "outdated",
+                "new_state": new_state,
+                "work_item": WorkItemSerializer(_work_item_to_dict(item)).data,
+            }
+        )
+
+    # ---------- Workflow transition / versions / diff / resume ----------
+
+    @action(detail=True, methods=["get", "post"], url_path="transitions")
+    def transitions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET/POST /api/v1/work-items/{pk}/transitions/.
+
+        Both verbs are routed through this class on purpose. The inherited
+        generic POST calls ``WorkflowFacade`` directly, which would bypass the
+        work-item rules the service owns — rule 10 (a ``blocked_reason`` before
+        entering ``blocked``) and the extended preset's human sign-off
+        bookkeeping (``approved_by``/``approved_at``). Delegating keeps
+        ``POST .../transition/`` and ``POST .../transitions/`` on one code path
+        (spec §4/§9).
+
+        GET answers ``{current_state, version, states, allowed_transitions[]}``
+        like every other entity, but reports the **entity** revision as
+        ``version`` (the ETag source) and keeps the workflow-engine revision
+        under ``workflow_version`` — same deviation as ``DocumentViewSet``.
+        """
+        if request.method.upper() == "GET":
+            response = super().transitions(request, pk, **kwargs)
+            if response.status_code == status.HTTP_200_OK and isinstance(
+                response.data, dict
+            ):
+                try:
+                    ctx = get_auth_context(request)
+                    item = self._svc().get_work_item(UUID(pk), ctx)
+                except Exception:  # noqa: BLE001 — keep the parent's answer
+                    return response
+                response.data["workflow_version"] = response.data.get("version")
+                response.data["version"] = item.version
+            return response
+        return self._post_work_item_transition(request, pk)
+
+    @extend_schema(
+        request=_WORK_ITEM_TRANSITION_REQUEST,
+        responses={200: _WORK_ITEM_TRANSITION_RESPONSE},
+    )
+    @action(detail=True, methods=["post"], url_path="transition")
+    def transition(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/work-items/{pk}/transition/ — move the item.
+
+        Body ``{target_state, blocked_reason?, change_reason?, credential?,
+        expected_version?}``. The service enforces the tiered graph, rule 10
+        (``blocked`` needs a reason) and the human sign-off in the extended
+        preset; this route only translates. ``If-Match``/``expected_version``
+        guard the item's ``version`` (412 for a stale strong tag, 409 for the
+        body field), not the workflow revision.
+        """
+        return self._post_work_item_transition(request, pk)
+
+    def _post_work_item_transition(self, request: Request, pk: str) -> Response:
+        """Perform a gated work-item transition through ``WorkItemService``."""
+        lang = detect_lang(request)
+        target_state = request.data.get("target_state")
+        if not target_state:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="target_state is required"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            self._svc().get_work_item(UUID(pk), ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            expected_version = self.resolve_expected_version(
+                request,
+                request.data,
+                current=lambda: self._svc().get_work_item(UUID(pk), ctx),
+            )
+        except InvalidIfMatch as exc:
+            return Response(
+                build_error_response(
+                    "INVALID_IF_MATCH",
+                    lang,
+                    details=[{"reason": exc.reason}] if exc.reason else None,
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except IfMatchMismatch:
+            return self.precondition_failed(request)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+
+        try:
+            previous_state = self._svc().current_status(UUID(pk), ctx)
+            item = self._svc().transition(
+                UUID(pk),
+                str(target_state),
+                ctx,
+                blocked_reason=request.data.get("blocked_reason"),
+                change_reason=request.data.get("change_reason") or "",
+                credential=request.data.get("credential") or "",
+                expected_version=expected_version,
+                actor=request.data.get("actor") or "",
+            )
+            new_state = self._svc().current_status(item.id, ctx)
+        except OptimisticLockError as exc:
+            return self.optimistic_lock_response(request, exc, lang)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+
+        return Response(
+            {
+                "id": str(item.id),
+                "previous_state": previous_state,
+                "new_state": new_state,
+                "version": item.version,
+                "work_item": WorkItemSerializer(_work_item_to_dict(item)).data,
+            }
+        )
+
+    @action(detail=True, methods=["get"], url_path="versions")
+    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/work-items/{pk}/versions/ — recorded content revisions.
+
+        Every item starts at revision 1 and gains one on every write (the same
+        gate that bumps the optimistic-lock counter).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get_work_item(UUID(pk), ctx)
+            result = ArtifactDiffService().list_versions(item.artifact_id, ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="diff")
+    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/work-items/{pk}/diff/?from_version=0&to_version=2
+
+        Field-level diff over the item's content fields (``kind``, ``ordinal``,
+        ``title``, ``body``, ``progress``, ``blocked_reason``, ``next_action``,
+        ``evidence_ref``, ``due_date``, ``exit_criteria``). The workflow state
+        is not a column and therefore not part of the diff.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get_work_item(UUID(pk), ctx)
+            from_version = int(request.query_params.get("from_version", "0"))
+            to_version = int(
+                request.query_params.get("to_version", str(item.version))
+            )
+            result = ArtifactDiffService().diff(
+                artifact_id=item.artifact_id,
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Workspace of the document.",
+            ),
+            OpenApiParameter(
+                "document_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Document whose work state is resumed.",
+            ),
+            OpenApiParameter(
+                "actor",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description="Caller label (informational; not persisted).",
+            ),
+        ],
+        responses={200: _WORK_ITEM_RESUME_RESPONSE},
+    )
+    @action(detail=False, methods=["get"], url_path="resume")
+    def resume(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/work-items/resume/?workspace_id=&document_id=&actor=
+
+        Returns ``{"checkpoint": {...}|null, "open_items": [...]}`` sorted by
+        ``(ordinal, id)`` — the single read an agent without repo access needs
+        to continue (spec §6). Read-only: it never creates a heartbeat.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"), lang
+            )
+            if error is not None:
+                return error
+            document_id, error = parse_uuid_param(
+                request.query_params.get("document_id"), lang, name="document_id"
+            )
+            if error is not None:
+                return error
+            result = self._svc().resume(
+                workspace_id,
+                document_id,
+                ctx,
+                actor=request.query_params.get("actor", "") or "",
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)

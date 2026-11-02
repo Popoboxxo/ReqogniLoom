@@ -193,6 +193,13 @@ class _Exclusion:
 #: change -- that is the discipline the list exists to force.
 REST_ONLY_BY_DESIGN: tuple[_Exclusion, ...] = (
     _Exclusion(
+        "/api/v1/work-items/",
+        "Plan F F3-T5 exposes the WorkItem artifact over REST first; the "
+        "work_item.* MCP tool group is F3-T6 (PR-F24b). This entry must be "
+        "removed and a work_item spec added to ENTITY_SPECS in the same change.",
+        issue="#1374",
+    ),
+    _Exclusion(
         "/api/v1/api-keys/",
         "API-key management is a REST-only governance path by decision: MCP "
         "exposes no key-management tool, so a compromised MCP client cannot "

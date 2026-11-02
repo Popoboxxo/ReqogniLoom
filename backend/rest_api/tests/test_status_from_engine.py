@@ -32,6 +32,8 @@ EXPECTED_ITEM_TYPES = {
     "RiskSerializer": "Risk",
     # Plan F F2-T5: the Document artifact resolves its status from the engine.
     "DocumentSerializer": "Document",
+    # Plan F F3-T5: the WorkItem artifact resolves its status the same way.
+    "WorkItemSerializer": "WorkItem",
     "IssueSerializer": "Issue",
     "ChangeRequestSerializer": "ChangeRequest",
     "GoalSerializer": "Goal",
