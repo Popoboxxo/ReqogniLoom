@@ -156,6 +156,23 @@ _ENTITY_FIELDS: dict[str, list[str]] = {
     # bookkeeping, not document content, and would turn every release into a
     # diff of themselves.
     "Document": ["title", "description", "body", "kind", "doc_date"],
+    # Plan F F3-T5: a work item records a content revision on create and on
+    # every write, so ``/work-items/{id}/versions/`` and ``/diff/`` have a
+    # payload to compare. ``status`` is deliberately absent — it lives in
+    # ``WorkflowItemState`` and has no column on the row; including it would
+    # snapshot ``None`` on both sides and never render a change.
+    "WorkItem": [
+        "kind",
+        "ordinal",
+        "title",
+        "body",
+        "progress",
+        "blocked_reason",
+        "next_action",
+        "evidence_ref",
+        "due_date",
+        "exit_criteria",
+    ],
     # Datenmodell-Konsolidierung Phase 5 (Task 27): these two types record
     # content revisions into ArtifactVersion and therefore need a field list —
     # `snapshot_fields()` reads exactly this table, so a missing entry would be

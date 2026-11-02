@@ -151,6 +151,7 @@ WORKSPACE_SCOPED_PATHS = [
     "/api/v1/adrs/",
     "/api/v1/risks/",
     "/api/v1/documents/",
+    "/api/v1/work-items/",
     "/api/v1/issues/",
     "/api/v1/goals/",
     "/api/v1/main-goals/",

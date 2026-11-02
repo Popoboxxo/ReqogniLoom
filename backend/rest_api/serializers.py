@@ -42,6 +42,7 @@ from persistence.models import (
     ScenarioKind,
     TestCaseOrigin,
     TestCaseType,
+    WorkItem,
 )
 from rest_api.mixins.workflow_state import WorkflowStateSerializerMixin
 from rest_api.mixins.workflow_transitions import _ALWAYS_ALLOWED_PATCH_FIELDS
@@ -2672,6 +2673,112 @@ class DocumentSerializer(
         child=serializers.CharField(),
         read_only=True,
         help_text="Content fields locked by the release (F-1/F-2).",
+    )
+    change_reason = SanitizedCharField(
+        required=False, allow_blank=True, max_length=2000
+    )
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+
+class WorkItemSerializer(
+    ClientUidRejectionMixin,
+    WorkflowStateSerializerMixin,
+    CustomFieldsSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
+):
+    """Serializer for the ``WorkItem`` artifact (Plan F F3-T5, #1374).
+
+    Mirrors :class:`DocumentSerializer`: the workflow ``status`` is read-only and
+    engine-resolved (REQ-143), ``custom_fields`` lives on the backing Artifact,
+    and ``expected_version`` is the write-only half of the ETag contract
+    (KA-F-08). ``uid`` stays system-owned (``WI-NNN``).
+
+    ``document_id`` is mandatory on create (concept E11/O7: a work item never
+    exists without a document) and immutable afterwards; the view rejects a
+    PATCH that tries to move the item to another document, so this serializer
+    accepts the key on both paths but never silently drops a change.
+
+    ``actor`` is a write-only free-text identity for the heartbeat (``A-3``);
+    ``last_actor``/``approved_by`` are read-only observations of what the
+    service actually recorded. An agent has no ``User`` row, so the identity is
+    a string rather than an actor FK (spec §3.2).
+    """
+
+    workflow_item_type = "WorkItem"
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(required=True)
+    document_id = serializers.UUIDField(required=True)
+    # REQ-016: the backing Artifact id, needed to attach trace links/comments.
+    artifact_id = serializers.UUIDField(read_only=True)
+    uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
+    title = SanitizedCharField(max_length=255)
+    kind = serializers.ChoiceField(
+        choices=WorkItem.Kind.choices,
+        help_text="Work-item kind (Phase, Step, Milestone, OpenPoint, Checkpoint).",
+    )
+    ordinal = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Position inside the document; resume sorts by (ordinal, id).",
+    )
+    body = SanitizedCharField(
+        allow_blank=True,
+        default="",
+        help_text="Markdown of the section (used by Step/Checkpoint).",
+    )
+    progress = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=100,
+        help_text="Optional 0-100 progress, independent of the workflow state.",
+    )
+    blocked_reason = SanitizedCharField(
+        allow_blank=True,
+        default="",
+        max_length=20000,
+        help_text="Required while the item is 'blocked'; also carries the dismissal reason.",
+    )
+    next_action = SanitizedCharField(
+        allow_blank=True,
+        default="",
+        max_length=255,
+        help_text="Resume hint ('where to continue') for an agent.",
+    )
+    evidence_ref = SanitizedCharField(
+        allow_blank=True,
+        default="",
+        max_length=512,
+        help_text="Evidence (commit, test run, artifact id).",
+    )
+    last_activity_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    last_actor = serializers.CharField(read_only=True, allow_blank=True)
+    approved_by = serializers.CharField(read_only=True, allow_blank=True)
+    approved_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    due_date = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="Optional due date."
+    )
+    exit_criteria = SanitizedCharField(
+        allow_blank=True,
+        default="",
+        max_length=20000,
+        help_text="Definition of done for this item.",
+    )
+    #: Write-only heartbeat identity; the service records it as ``last_actor``.
+    actor = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        max_length=128,
+        help_text="Agent/session identity recorded as last_actor (A-1/A-3).",
     )
     change_reason = SanitizedCharField(
         required=False, allow_blank=True, max_length=2000

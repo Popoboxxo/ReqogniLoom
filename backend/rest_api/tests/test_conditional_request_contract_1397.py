@@ -128,11 +128,12 @@ def _operations_declaring_if_match(schema: dict) -> set[tuple[str, str]]:
 class TestAllowlistMatchesTheSchema:
     """Bidirectional: no undeclared ``412`` and no allowlist entry without one."""
 
-    def test_allowlist_has_the_expected_six_path_method_pairs(self) -> None:
-        """Five ViewSets, six paths — ``testcases`` is routed twice."""
+    def test_allowlist_has_the_expected_seven_path_method_pairs(self) -> None:
+        """Six ViewSets, seven paths — ``testcases`` is routed twice."""
         assert CONDITIONAL_REQUEST_OPERATIONS == {
             ("/api/v1/baselines/{id}/", "patch"),
             ("/api/v1/documents/{id}/", "patch"),
+            ("/api/v1/work-items/{id}/", "patch"),
             ("/api/v1/requirements/{id}/", "patch"),
             ("/api/v1/test-cases/{id}/", "patch"),
             ("/api/v1/testcases/{id}/", "patch"),
@@ -155,9 +156,9 @@ class TestAllowlistMatchesTheSchema:
             "these allowlisted operations no longer declare a 412"
         )
 
-    def test_the_schema_actually_has_six_412_paths(self, openapi_schema: dict) -> None:
-        """Regression count for #1397 (5) plus Document (F2-T5) = 6."""
-        assert len(_operations_declaring(openapi_schema, "412")) == 6
+    def test_the_schema_actually_has_seven_412_paths(self, openapi_schema: dict) -> None:
+        """Regression count for #1397 (5) plus Document (F2-T5) and WorkItem (F3-T5)."""
+        assert len(_operations_declaring(openapi_schema, "412")) == 7
 
 
 # ---------------------------------------------------------------------------

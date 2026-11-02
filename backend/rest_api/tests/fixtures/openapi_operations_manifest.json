@@ -1858,6 +1858,58 @@
    "get"
   ],
   [
+   "/api/v1/work-items/",
+   "get"
+  ],
+  [
+   "/api/v1/work-items/",
+   "post"
+  ],
+  [
+   "/api/v1/work-items/resume/",
+   "get"
+  ],
+  [
+   "/api/v1/work-items/{id}/",
+   "delete"
+  ],
+  [
+   "/api/v1/work-items/{id}/",
+   "get"
+  ],
+  [
+   "/api/v1/work-items/{id}/",
+   "patch"
+  ],
+  [
+   "/api/v1/work-items/{id}/diff/",
+   "get"
+  ],
+  [
+   "/api/v1/work-items/{id}/reactivate/",
+   "post"
+  ],
+  [
+   "/api/v1/work-items/{id}/transition/",
+   "post"
+  ],
+  [
+   "/api/v1/work-items/{id}/transitions/",
+   "get"
+  ],
+  [
+   "/api/v1/work-items/{id}/transitions/",
+   "post"
+  ],
+  [
+   "/api/v1/work-items/{id}/versions/",
+   "get"
+  ],
+  [
+   "/api/v1/work-items/{id}/workflow-history/",
+   "get"
+  ],
+  [
    "/api/v1/workflow-defaults/",
    "get"
   ],

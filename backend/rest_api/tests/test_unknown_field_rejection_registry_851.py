@@ -61,6 +61,7 @@ from rest_api.serializers import (
     TraceLinkSerializer,
     UnknownFieldRejectionMixin,
     WorkflowDefinitionSerializer,
+    WorkItemSerializer,
     WorkspaceSerializer,
 )
 from rest_api.serializers_diagram import (
@@ -97,6 +98,8 @@ _GUARDED_WRITE_SERIALIZERS: tuple[type, ...] = (
     ChangeRequestSerializer,
     # Plan F F2-T5: the Document artifact's REST write serializer.
     DocumentSerializer,
+    # Plan F F3-T5: the WorkItem artifact's REST write serializer.
+    WorkItemSerializer,
     GlossaryTermSerializer,
     AdrSerializer,
     RiskSerializer,

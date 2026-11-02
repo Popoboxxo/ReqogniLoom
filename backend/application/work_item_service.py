@@ -46,11 +46,11 @@ Deliberately **no** outbox event is emitted yet — ``DomainEventOutbox.EventTyp
 grows its WorkItem members with F3-T8; emitting a free-string event now would
 publish a contract the migration later has to rewrite.
 
-Content revisions (``ArtifactVersion``) are also not recorded yet: the diff
-engine's ``_ENTITY_FIELDS`` registry has no ``WorkItem`` entry (F3-T1 did not
-add one), so ``snapshot_fields`` would store an empty payload. The revision and
-diff surface belongs to the REST task (T5), which registers the diffable field
-list together with its view.
+Content revisions (``ArtifactVersion``) are recorded from F3-T5 on: every path
+that bumps ``version`` also appends a snapshot built from the ``WorkItem`` entry
+in the diff engine's ``_ENTITY_FIELDS`` registry, so ``/versions/`` and
+``/diff/`` stay aligned with the optimistic-lock counter. ``due_date`` is stored
+as an ISO-8601 string because the revision payload is a ``JSONField``.
 """
 from __future__ import annotations
 
@@ -67,6 +67,10 @@ from application.artifact_service import (
     clean_free_text_field,
     has_field_changes,
     snapshot_versioned_fields,
+)
+from application.artifact_version_service import (
+    ArtifactVersionService,
+    snapshot_fields,
 )
 from application.base import (
     NotFoundError,
@@ -199,6 +203,22 @@ def _isoformat(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
 
 
+def _work_item_snapshot(item: WorkItem) -> dict[str, Any]:
+    """Return a JSON-safe content snapshot of *item* for ``ArtifactVersion``.
+
+    ``snapshot_fields`` reads the diffable field list verbatim; ``due_date`` is
+    the one ``datetime`` in it, and the version payload is a ``JSONField`` — an
+    unserialisable value would turn every recorded revision into a 500. Storing
+    the ISO-8601 string keeps the snapshot human-readable and stable.
+    """
+    payload = snapshot_fields(item, WORK_ITEM_ITEM_TYPE)
+    due_date = payload.get("due_date")
+    if due_date is not None:
+        payload["due_date"] = due_date.isoformat()
+    return payload
+
+
+
 # ---------------------------------------------------------------------------
 # WorkItemService
 # ---------------------------------------------------------------------------
@@ -257,6 +277,24 @@ class WorkItemService(ServiceBase):
         """
         WorkItem.objects.filter(id=item.id).update(version=F("version") + 1)
         item.refresh_from_db(fields=["version"])
+
+    def _record_revision(
+        self, item: WorkItem, ctx: AuthContext, *, change_reason: str = ""
+    ) -> None:
+        """Append the current content as an ``ArtifactVersion`` (F3-T5).
+
+        Called wherever :meth:`_bump_version` runs, so the stored revision and
+        the optimistic-lock counter never diverge: ``/versions/`` lists real
+        revisions and ``/diff/`` can compare any two of them. A write that
+        bumps ``version`` without a snapshot would make the documented
+        ``to_version = version`` default answer 404.
+        """
+        ArtifactVersionService().record(
+            item.artifact_id,
+            _work_item_snapshot(item),
+            ctx,
+            change_reason=change_reason,
+        )
 
     def _resolve_document(
         self, workspace_id: UUID, document_id: UUID | None, ctx: AuthContext
@@ -448,6 +486,10 @@ class WorkItemService(ServiceBase):
             last_actor=actor_label,
         )
 
+        # F3-T5 provenance: the initial content is revision 1 so ``/versions/``
+        # and a later ``/diff/`` have a baseline to compare against.
+        self._record_revision(item, ctx)
+
         # Every artifact type is initialised lazily at its definition's initial
         # state. A workspace provisioned before F3-T2 (or a unit test that skips
         # provisioning) has no definition; the item then reports the type's
@@ -614,6 +656,7 @@ class WorkItemService(ServiceBase):
         # for a no-op PATCH.
         if has_field_changes(item, before) or custom_fields_changed:
             self._bump_version(item)
+            self._record_revision(item, ctx, change_reason=change_reason or "")
 
         self._audit(
             ctx=ctx,
@@ -678,6 +721,7 @@ class WorkItemService(ServiceBase):
         self._touch(item, actor=_actor_label(ctx, actor))
         item.save(update_fields=["progress", "last_activity_at", "last_actor", "modified_at"])
         self._bump_version(item)
+        self._record_revision(item, ctx, change_reason=change_reason or "")
 
         self._audit(
             ctx=ctx,
@@ -802,6 +846,7 @@ class WorkItemService(ServiceBase):
         self._touch(item, actor=actor_label)
         item.save()
         self._bump_version(item)
+        self._record_revision(item, ctx, change_reason=change_reason or "")
         return item
 
     # ---------- Checkpoint ----------
@@ -1060,6 +1105,7 @@ class WorkItemService(ServiceBase):
         self._touch(item, actor=_actor_label(ctx, actor))
         item.save(update_fields=["last_activity_at", "last_actor", "modified_at"])
         self._bump_version(item)
+        self._record_revision(item, ctx, change_reason=change_reason or "")
 
         from workflow.services import outdate
 
@@ -1135,6 +1181,7 @@ class WorkItemService(ServiceBase):
         self._touch(item, actor=_actor_label(ctx, actor))
         item.save(update_fields=["last_activity_at", "last_actor", "modified_at"])
         self._bump_version(item)
+        self._record_revision(item, ctx, change_reason="restored")
 
         self._audit(
             ctx=ctx,
