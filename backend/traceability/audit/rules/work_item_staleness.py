@@ -62,9 +62,6 @@ class StaleWorkItemRule(Rule):
         from presets.services import get_preset
         from workflow import state_reader
 
-        threshold_days = get_preset(context.workspace_id).work_item_stale_after_days
-        cutoff = timezone.now() - timedelta(days=threshold_days)
-
         rows = list(
             WorkItem.unscoped.filter(
                 tenant_id=context.tenant_id,
@@ -78,8 +75,14 @@ class StaleWorkItemRule(Rule):
                 "created_at",
             )
         )
+        # Short-circuit before any preset/policy read: a workspace without work
+        # items cannot have stale work state, and the audit query budget
+        # (#1385) must not pay for a rule that has nothing to inspect.
         if not rows:
             return []
+
+        threshold_days = get_preset(context.workspace_id).work_item_stale_after_days
+        cutoff = timezone.now() - timedelta(days=threshold_days)
 
         # ``current_states`` overlays soft deletes as ``"outdated"``, so a
         # deleted item can never be reported as stale work. An item without a
