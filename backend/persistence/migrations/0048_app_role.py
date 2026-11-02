@@ -33,6 +33,19 @@ from django.db import DatabaseError, migrations, transaction
 from persistence.db_roles import APP_DB_ROLE
 
 
+def _duplicate_role_pgcode(exc):
+    """SQLSTATE of a duplicate-role error, unwrapping Django's psycopg2 cause.
+
+    Django raises ``django.db.utils.ProgrammingError`` and keeps the psycopg2
+    exception on ``__cause__``; the ``pgcode`` attribute lives there, not on the
+    wrapper. Reading only the wrapper makes the duplicate 23505/42710 invisible
+    and the migration aborts exactly in the xdist race this guard exists for.
+    """
+    return getattr(exc, "pgcode", None) or getattr(
+        getattr(exc, "__cause__", None), "pgcode", None
+    )
+
+
 def _create_app_role(apps, schema_editor):
     if schema_editor.connection.vendor != "postgresql":
         return
@@ -42,39 +55,47 @@ def _create_app_role(apps, schema_editor):
             "DB_APP_PASSWORD must be set to create the least-privilege app DB role "
             "(persistence/migrations/0048_app_role.py) — no default is provided."
         )
+    lock_key = f"{APP_DB_ROLE}:create"
     with schema_editor.connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT 1 FROM pg_roles WHERE rolname = %s", [APP_DB_ROLE]
-        )
-        role_exists = cursor.fetchone() is not None
-        if role_exists:
+        # xdist workers create SEPARATE test databases against ONE Postgres
+        # cluster, so the role namespace is shared. A plain SELECT-then-CREATE
+        # still races: two workers can both see "absent". A cluster-wide
+        # session advisory lock serialises the check/create; the savepoint
+        # below stays as belt-and-braces for callers that bypass the lock.
+        cursor.execute("SELECT pg_advisory_lock(hashtext(%s))", [lock_key])
+        try:
             cursor.execute(
-                f'ALTER ROLE "{APP_DB_ROLE}" WITH LOGIN NOSUPERUSER '
-                f"PASSWORD %s",
-                [app_role_password],
+                "SELECT 1 FROM pg_roles WHERE rolname = %s", [APP_DB_ROLE]
             )
-        else:
-            # xdist workers migrate separate test databases against one
-            # Postgres cluster, so two workers can pass the SELECT above
-            # concurrently. The loser gets duplicate_object (42710) or, as
-            # observed on pg_authid_rolname_index, unique_violation (23505).
-            # The savepoint keeps the outer migration transaction usable and
-            # the loser simply ALTERs the role the winner just created.
-            try:
-                with transaction.atomic():
-                    cursor.execute(
-                        f'CREATE ROLE "{APP_DB_ROLE}" WITH LOGIN NOSUPERUSER '
-                        f"PASSWORD %s",
-                        [app_role_password],
-                    )
-            except DatabaseError as exc:
-                if getattr(exc, "pgcode", None) not in {"42710", "23505"}:
-                    raise
+            role_exists = cursor.fetchone() is not None
+            if role_exists:
                 cursor.execute(
                     f'ALTER ROLE "{APP_DB_ROLE}" WITH LOGIN NOSUPERUSER '
                     f"PASSWORD %s",
                     [app_role_password],
                 )
+            else:
+                # The loser gets duplicate_object (42710) or, as observed on
+                # pg_authid_rolname_index, unique_violation (23505). Django
+                # wraps psycopg2, so the SQLSTATE lives on the cause, not on
+                # the caught DatabaseError itself.
+                try:
+                    with transaction.atomic():
+                        cursor.execute(
+                            f'CREATE ROLE "{APP_DB_ROLE}" WITH LOGIN NOSUPERUSER '
+                            f"PASSWORD %s",
+                            [app_role_password],
+                        )
+                except DatabaseError as exc:
+                    if _duplicate_role_pgcode(exc) not in {"42710", "23505"}:
+                        raise
+                    cursor.execute(
+                        f'ALTER ROLE "{APP_DB_ROLE}" WITH LOGIN NOSUPERUSER '
+                        f"PASSWORD %s",
+                        [app_role_password],
+                    )
+        finally:
+            cursor.execute("SELECT pg_advisory_unlock(hashtext(%s))", [lock_key])
         db_name = schema_editor.connection.settings_dict["NAME"]
         cursor.execute(f'GRANT CONNECT ON DATABASE "{db_name}" TO "{APP_DB_ROLE}"')
         cursor.execute(f'GRANT USAGE ON SCHEMA public TO "{APP_DB_ROLE}"')
