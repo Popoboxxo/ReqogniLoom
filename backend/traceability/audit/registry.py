@@ -140,6 +140,11 @@ IFC_001 = "IFC-001"
 QUAL_P1 = "QUAL-P1"
 QUAL_P2 = "QUAL-P2"
 QUAL_P3 = "QUAL-P3"
+#: Plan F F3-T8 (#1374) — stale work state: an ``in_progress`` work item whose
+#: heartbeat (``last_activity_at``) is older than the preset's
+#: ``work_item_stale_after_days`` threshold. WARNING at Standard and Extended;
+#: see rules/work_item_staleness.py.
+DOC_P5 = "DOC-P5"
 #: Plan F F3-T7 (#1374) — dead inline reference: an ``InlineAnchor`` whose
 #: target artifact was soft-deleted or archived. WARNING at Standard, BLOCKER
 #: at Extended; see rules/document_references.py.
@@ -167,6 +172,9 @@ _STANDARD_RULES: frozenset[str] = frozenset(
         # Plan F F3-T7: dead inline references — WARNING at Standard, BLOCKER
         # at Extended (severity_for_tier); Minimal never runs it.
         DOC_P7,
+        # Plan F F3-T8: stale work state — WARNING at Standard and Extended
+        # (severity_for_tier); Minimal never runs it.
+        DOC_P5,
     }
 )
 

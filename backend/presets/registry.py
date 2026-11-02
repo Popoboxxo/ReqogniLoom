@@ -96,6 +96,12 @@ class PresetConfig:
             mapping without key validation here: the canonical kind list lives
             in ``persistence.models.Document.Kind`` and Layer 1 must not import
             Layer 0 models just to reject a typo.
+        work_item_stale_after_days: Plan F F3-T8 / concept §9 (A-3) — the
+            ``DOC-P5`` threshold: an ``in_progress`` work item whose heartbeat
+            (``last_activity_at``) is older than this many days is reported as
+            abandoned work state. A configuration default, never a literal in
+            the rule code (spec §11, RVW-2026-11-02-002-03). The rule is
+            inactive at Minimal, so the value there is inert.
         is_default: True for the three built-in tiers; False for custom.
         parent_tier: For custom presets, the default tier they were cloned from.
     """
@@ -109,6 +115,7 @@ class PresetConfig:
     document_mandatory_fields_by_kind: dict[str, tuple[str, ...]] = field(
         default_factory=dict
     )
+    work_item_stale_after_days: int = 7
     is_default: bool = True
     parent_tier: str | None = None
 
@@ -133,6 +140,15 @@ class PresetConfig:
             raise ConfigurationError(
                 f"change_reason must be 'optional' or 'mandatory'; "
                 f"got '{self.change_reason}'"
+            )
+        if (
+            isinstance(self.work_item_stale_after_days, bool)
+            or not isinstance(self.work_item_stale_after_days, int)
+            or self.work_item_stale_after_days < 1
+        ):
+            raise ConfigurationError(
+                "work_item_stale_after_days must be a positive integer; "
+                f"got {self.work_item_stale_after_days!r}"
             )
 
     def is_scope_allowed(self, scope: str) -> bool:
@@ -173,6 +189,7 @@ class PresetConfig:
                 kind: list(fields)
                 for kind, fields in self.document_mandatory_fields_by_kind.items()
             },
+            "work_item_stale_after_days": self.work_item_stale_after_days,
         }
 
 
@@ -198,6 +215,9 @@ _MINIMAL = PresetConfig(
     # field — the release gate must not turn a lightweight backlog into a
     # documentation exercise.
     document_mandatory_fields_by_kind={"*": ("title",)},
+    # Plan F F3-T8: DOC-P5 does not run at Minimal (the tier has no audit
+    # rules); the value is inert but kept explicit for a later custom clone.
+    work_item_stale_after_days=7,
     is_default=True,
 )
 
@@ -222,6 +242,9 @@ _STANDARD = PresetConfig(
     # acceptance-criteria links, Plan: issues/estimate, AuditReport: findings)
     # arrive with the fields F3/F5 introduce.
     document_mandatory_fields_by_kind={"*": ("title", "body")},
+    # Plan F F3-T8 / spec §11: seven days without a heartbeat is abandoned
+    # work state.
+    work_item_stale_after_days=7,
     is_default=True,
 )
 
@@ -261,6 +284,9 @@ _EXTENDED = PresetConfig(
     # Extended tier's *additional* rigor for documents is the review workflow
     # (``In Prüfung``) and the mandatory change_reason — not a longer field list.
     document_mandatory_fields_by_kind={"*": ("title", "body")},
+    # Plan F F3-T8 / spec §11: the Extended tier reports stale work state with
+    # the same threshold as Standard (both are WARNING; see severity_for_tier).
+    work_item_stale_after_days=7,
     is_default=True,
 )
 

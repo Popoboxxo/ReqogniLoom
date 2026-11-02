@@ -103,6 +103,16 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
+#: Spec §12 (Loom vs. memory), named verbatim in every ``memory.*`` tool
+#: description (F3-T8). Conversation memory ("what was said") is not Loom's
+#: explicit work state ("where the work stands", ``work_item.*``/documents).
+LOOM_MEMORY_BOUNDARY = (
+    "Conversation memory ('what was said', Honcho) is not Loom work state "
+    "('where the work stands', work_item.*/documents, explicit and queryable); "
+    "Loom work state is not duplicated here."
+)
+
+
 class MemoryToolGroup(BaseToolGroup):
     """MCP tool group for consolidated AI long-term memory."""
 
@@ -370,6 +380,14 @@ class MemoryToolGroup(BaseToolGroup):
             },
         },
     ]
+
+    # F3-T8 (spec §12): the boundary is named verbatim in every tool
+    # description, not only in this module's docstring.
+    for _schema in _TOOL_SCHEMAS:
+        _schema["description"] = (
+            f"{_schema['description']} {LOOM_MEMORY_BOUNDARY}"
+        )
+    del _schema
 
     # ------------------------------------------------------------------
     # Handlers
