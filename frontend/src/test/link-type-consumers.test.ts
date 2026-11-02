@@ -52,6 +52,13 @@ const ALLOWED = new Set<string>([
   // Asserts the human EN upstream *label* of `documented-in` (Plan F F2-T3):
   // the word is label text there, not a link_type key.
   "constants/traceLinkLabels.ts",
+  // Plan F F2-T8: the Document artifact's TanStack Query-key namespace
+  // (`["documents", …]`) and the SplitView persistence key
+  // (`moduleType="documents"`). Both are cache/layout identifiers, not a
+  // trace link type — the retired catalog key `documents` is superseded by
+  // `documented-in` (F2-T3).
+  "queries/documents.ts",
+  "components/Documents/Documents.tsx",
 ]);
 
 function collectSourceFiles(dir: string): string[] {

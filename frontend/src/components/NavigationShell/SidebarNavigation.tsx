@@ -111,6 +111,13 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/adrs", labelKey: "nav.adrs", feature: "adr", group: "requirements" },
   { path: "/risks", labelKey: "nav.risks", feature: "risk", group: "requirements" },
   { path: "/issues", labelKey: "nav.issues", feature: "issue", group: "requirements" },
+  // Plan F F2-T8 / ADR-026: Documents are a first-class artifact, not an
+  // optional per-preset surface — a Minimal workspace still writes specs and
+  // plans. The entry is therefore always visible (`dashboard` means "not
+  // filtered by preset", like glossary/workflows/audit) and carries no
+  // `requires`: every member may read documents, while create/edit/delete are
+  // gated in the view and enforced server-side by the editor+ write path.
+  { path: "/documents", labelKey: "nav.documents", feature: "dashboard", group: "requirements" },
   { path: "/glossary", labelKey: "nav.glossary", feature: "dashboard", group: "requirements" },
 
   { path: "/architecture", labelKey: "nav.architecture", feature: "architecture", group: "architecture" },
