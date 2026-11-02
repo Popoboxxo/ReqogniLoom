@@ -46,6 +46,8 @@ ARTIFACT_TYPE_MODELS: dict[str, tuple[str, str]] = {
     "Icd": ("icd", "Icd"),
     # Plan F F2-T1 (#1374): the document artifact.
     "Document": ("persistence", "Document"),
+    # Plan F F3-T1 (#1374): the state-bearing work node inside a document.
+    "WorkItem": ("persistence", "WorkItem"),
 }
 
 

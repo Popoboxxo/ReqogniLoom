@@ -35,6 +35,8 @@ UID_PREFIXES: dict[str, str] = {
     "Issue": "ISSUE",
     # Plan F F2-T1 (#1374): document artifact.
     "Document": "DOC",
+    # Plan F F3-T1 (#1374): work node inside a document.
+    "WorkItem": "WI",
 }
 
 #: Model labels that carry a local readable ``uid`` (issue #932, G1.1).
@@ -53,6 +55,7 @@ UID_MODELS: tuple[str, ...] = (
     "persistence.Risk",
     "persistence.Issue",
     "persistence.Document",
+    "persistence.WorkItem",
 )
 
 

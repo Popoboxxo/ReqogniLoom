@@ -348,6 +348,40 @@ def _make_document(
     return entity.id
 
 
+def _make_work_item(
+    ctx: AuthContext, workspace: Workspace, tenant: Tenant, user: User
+) -> UUID:
+    """Plan F F3-T1: the model exists before its service does.
+
+    F3-T4 adds ``WorkItemService.create_work_item``; until then this factory
+    seeds the row, its backing Artifact and its owning document through the ORM
+    so the linkability property of the new registry type is already pinned. Like
+    ``_make_document`` above it is a deliberately provisional raw-ORM factory —
+    a real work item's create path will be the service.
+    """
+    from persistence.models import Artifact, Document, WorkItem
+
+    document_id = _make_document(ctx, workspace, tenant, user)
+
+    set_request_tenant(tenant.id)
+    try:
+        artifact = Artifact.objects.create(
+            tenant=tenant, workspace=workspace, artifact_type="WorkItem"
+        )
+        entity = WorkItem.objects.create(
+            tenant=tenant,
+            artifact=artifact,
+            workspace=workspace,
+            document=Document.objects.get(pk=document_id),
+            kind=WorkItem.Kind.STEP,
+            ordinal=1,
+            title="Write the work item model",
+        )
+    finally:
+        clear_request_tenant()
+    return entity.id
+
+
 def _make_icd(
     ctx: AuthContext, workspace: Workspace, tenant: Tenant, user: User
 ) -> UUID:
@@ -404,6 +438,7 @@ _ENTITY_FACTORIES: dict[str, _EntityFactory] = {
     "Diagram": _make_diagram,
     "Icd": _make_icd,
     "Document": _make_document,
+    "WorkItem": _make_work_item,
 }
 
 
