@@ -4563,6 +4563,136 @@ class QualityAssessment(TenantScopedModel):
         return f"QualityAssessment({self.entity_type}/{self.score:.2f})"
 
 
+class Document(ArtifactWorkspaceMirrorMixin, TenantScopedModel):
+    """Document artifact with its own lifecycle (Plan F F2-T1, #1374).
+
+    A document (spec, plan, audit report, review, conclusion, concept, guide) is
+    a first-class artifact: it owns a backing :class:`Artifact` row, so it is a
+    valid TraceLink endpoint, a baseline-diff subject and an interview target,
+    exactly like Requirement/Adr/Risk.
+
+    The lifecycle state does **not** live here. Like every other artifact type
+    it is stored in ``WorkflowItemState`` and surfaced as ``status`` by the
+    serializer (REQ-143, ADR-026 R2). Soft-delete likewise lives on
+    ``Artifact.lifecycle_status`` — the single soft-delete flag (Plan G G1.5
+    V1, ADR-026 R7); this model deliberately has no ``status`` column.
+
+    ``frozen_at``/``frozen_fields`` back the field freeze on entering
+    ``Freigegeben`` (concept §5.3, ADR-026 R4): the write path populates both and
+    rejects changes to a frozen field with ``409 FIELD_FROZEN``. ``version`` is
+    the inherited optimistic-lock counter (never a content revision).
+
+    Source/projection fields (``owner_mode``, ``source*``, ``projection_mode``)
+    are intentionally absent: ENT-F5 = a moves projection/adoption into its own
+    work package.
+
+    leaf_id : COMP-PL-001
+    req_id  : REQ-L2-PL-004, REQ-L2-PL-010
+    """
+
+    class Kind(models.TextChoices):
+        """Document kinds the artifact contract covers (ADR-026 R2)."""
+
+        SPEC = "Spec", "Spec"
+        PLAN = "Plan", "Plan"
+        AUDIT_REPORT = "AuditReport", "Audit Report"
+        REVIEW = "Review", "Review"
+        CONCLUSION = "Conclusion", "Conclusion"
+        CONCEPT = "Concept", "Concept"
+        GUIDE = "Guide", "Guide"
+
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="document",
+        help_text="Backing Artifact for TraceLinks, baselines and history.",
+    )
+    # Non-null on purpose: the partial ``uq_document_workspace_uid`` only holds
+    # while the column is populated, and a document without a workspace could
+    # never be listed or authorized. ``ArtifactWorkspaceMirrorMixin`` fills it
+    # from ``artifact.workspace_id`` when a writer omits it.
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="workspace_documents",
+        help_text="Owning workspace; mirrored from artifact.workspace_id on save.",
+    )
+    uid = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text=(
+            "Local readable identifier, auto-generated per (workspace, "
+            "item_type) as 'DOC-NNN' (issue #932 / Plan G G1.1). The concept's "
+            "source identity ('doc:<repo>:<path>') belongs to the F5 "
+            "SourceBinding, not here."
+        ),
+    )
+    title = models.CharField(max_length=255)
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text="Purpose/summary; not the document content.",
+    )
+    body = models.TextField(
+        blank=True,
+        default="",
+        help_text="Markdown content of the document.",
+    )
+    doc_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Document date (e.g. derived from a source file name).",
+    )
+    frozen_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Set when the document enters 'Freigegeben' (freeze F-1).",
+    )
+    frozen_fields = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Names of the fields frozen by the approval (freeze F-2).",
+    )
+
+    class Meta:
+        db_table = "pl_document"
+        # G1.3/#1402 pattern: partial per-workspace uid uniqueness. The literal
+        # kind list mirrors ``Kind`` because a class body cannot read the
+        # enclosing class namespace.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_document_workspace_uid",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    kind__in=[
+                        "Spec",
+                        "Plan",
+                        "AuditReport",
+                        "Review",
+                        "Conclusion",
+                        "Concept",
+                        "Guide",
+                    ]
+                ),
+                name="ck_document_kind",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["tenant", "workspace", "-modified_at"],
+                name="idx_doc_workspace_modified",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Document({self.uid or self.pk}:{self.title[:40]})"
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -4623,4 +4753,6 @@ __all__ = [
     # WP B5 (#378): advisory, append-only quality assessment.
     "AppendOnlyViolation",
     "QualityAssessment",
+    # Plan F F2-T1 (#1374): document artifact.
+    "Document",
 ]

@@ -317,6 +317,37 @@ def _make_diagram(
     return entity.id
 
 
+def _make_document(
+    ctx: AuthContext, workspace: Workspace, tenant: Tenant, user: User
+) -> UUID:
+    """Plan F F2-T1: the model exists before its service does.
+
+    F2-T4 adds ``DocumentService.create_document``; until then this factory
+    seeds the row and its backing Artifact through the ORM so the linkability
+    property of the new registry type is already pinned. It is deliberately the
+    only raw-ORM factory here — a real document's create path will be the
+    service, exactly like every other type in this matrix.
+    """
+    from persistence.models import Artifact, Document
+
+    set_request_tenant(tenant.id)
+    try:
+        artifact = Artifact.objects.create(
+            tenant=tenant, workspace=workspace, artifact_type="Document"
+        )
+        entity = Document.objects.create(
+            tenant=tenant,
+            artifact=artifact,
+            workspace=workspace,
+            title="Document artifact design",
+            kind=Document.Kind.CONCEPT,
+            body="# Design\n\nA document is an artifact.",
+        )
+    finally:
+        clear_request_tenant()
+    return entity.id
+
+
 def _make_icd(
     ctx: AuthContext, workspace: Workspace, tenant: Tenant, user: User
 ) -> UUID:
@@ -372,6 +403,7 @@ _ENTITY_FACTORIES: dict[str, _EntityFactory] = {
     "ChangeRequest": _make_change_request,
     "Diagram": _make_diagram,
     "Icd": _make_icd,
+    "Document": _make_document,
 }
 
 

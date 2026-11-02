@@ -44,6 +44,8 @@ ARTIFACT_TYPE_MODELS: dict[str, tuple[str, str]] = {
     "ChangeRequest": ("persistence", "ChangeRequest"),
     "Diagram": ("diagram", "Diagram"),
     "Icd": ("icd", "Icd"),
+    # Plan F F2-T1 (#1374): the document artifact.
+    "Document": ("persistence", "Document"),
 }
 
 

@@ -18,6 +18,7 @@ ARTIFACT_MODELS = [
     ("persistence", "ChangeRequest"),
     ("persistence", "Goal"),
     ("persistence", "MainGoal"),
+    ("persistence", "Document"),
 ]
 
 KEPT_STATUS_MODELS = [

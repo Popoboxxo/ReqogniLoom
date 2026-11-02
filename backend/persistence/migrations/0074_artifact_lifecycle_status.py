@@ -52,7 +52,15 @@ def backfill_from_workflow_state(apps_registry, schema_editor):
     WorkflowItemState = apps_registry.get_model("workflow", "WorkflowItemState")
 
     for artifact_type, (app_label, model_name) in ARTIFACT_TYPE_MODELS.items():
-        model = apps_registry.get_model(app_label, model_name)
+        try:
+            model = apps_registry.get_model(app_label, model_name)
+        except LookupError:
+            # ``ARTIFACT_TYPE_MODELS`` is a live registry, but this migration
+            # runs against the *historical* state frozen at 0074. A type added
+            # later (e.g. Document in 0123) does not exist here yet and has no
+            # outdated workflow rows to carry over, so skipping it is correct
+            # and keeps the migration replayable.
+            continue
         outdated_entity_ids = WorkflowItemState.objects.filter(
             item_type=artifact_type, current_state="outdated"
         ).values_list("item_id", flat=True)
