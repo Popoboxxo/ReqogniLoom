@@ -38,6 +38,10 @@ ALLOWED = {
     # the REST collection path ``/api/v1/documents/`` (Plan F F2-T5) — a router
     # segment, not ``TraceLink.link_type``.
     "rest_api/urls.py",
+    # the MCP list response key ``documents`` (Plan F F2-T6) — a collection
+    # name in the tool payload, not a retired link_type.
+    "mcp_server/tools/document.py",
+    "mcp_server/tests/test_document_tool_group.py",
 }
 
 
