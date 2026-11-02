@@ -81,6 +81,9 @@ All planned features are implemented (spec/plan PRs #901/#902, implementation PR
 
 ## Open / deferred (not archived)
 
+## [2026-11-02-f3-workitem-design.md](2026-11-02-f3-workitem-design.md)
+**Partly implemented — new spec (2026-11-02), Plan F WP F3.** F3-T0 (this spec + review protocol `RVW-2026-11-02-002`) and F3-T1 (the `WorkItem` model, persistence `0125`/`0126`, UID/registry wiring) are implemented. F3-T2…T9 (tiered workflow seeds, link types, service with resume/checkpoint, REST/MCP, inline-anchor register, events, frontend) remain open. ENT-F3 = a is binding: authors type `[[Begriff]]`, storage keeps the existing `[[glossary:<uuid>@<rev>]]` token — no migration, no second grammar. The work item is the explicit agent state store (progress, blocked reason, next action, heartbeat); conversation memory stays in Honcho, bridged only through the existing memory digest.
+
 ## [2026-11-02-f2-document-design.md](2026-11-02-f2-document-design.md)
 **Partly implemented — new spec (2026-11-02), Plan F WP F2.** F2-T0 (this spec + ADR-026 + review) and F2-T1 (the `Document` model, persistence `0123`/`0124`, UID/registry wiring) are implemented; F2-T2…T8 (workflow seeds, three link types, service, REST/MCP, events, frontend) remain open. Per ENT-F2 = b the artifact keeps the name `Document`, while the older read-only Dokumentensicht model is renamed `DocumentView` (see the 2026-09-03 entry below); `Baseline.scope="document"` accepts a `Document` as a contract for F4. Architecture decision: [ADR-026](../../se/ADR/ADR-026_document_artefakt.md).
 
