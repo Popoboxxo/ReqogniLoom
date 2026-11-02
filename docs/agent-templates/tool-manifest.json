@@ -884,6 +884,7 @@
                 "Adr",
                 "ArchitectureElement",
                 "ChangeRequest",
+                "Document",
                 "GlossaryTerm",
                 "Goal",
                 "Icd",

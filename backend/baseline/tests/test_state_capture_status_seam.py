@@ -173,7 +173,7 @@ def test_multi_item_capture_resolves_status_in_one_batched_call(capture_fixture)
     assert states[str(extra_artifact.id)]["status"] == "draft"
 
 
-def test_engine_status_uses_the_correct_item_type_for_all_eight_types():
+def test_engine_status_uses_the_correct_item_type_for_all_nine_types():
     """Regression guard for a wrong ``item_type`` string (e.g. "ADR" vs "Adr").
 
     A typo here would silently and permanently fall back to the column for
@@ -181,7 +181,7 @@ def test_engine_status_uses_the_correct_item_type_for_all_eight_types():
     test in this module would still pass, because
     ``test_no_entity_status_attribute_read_remains`` only proves the direct
     column read is gone, not that the *correct* engine item_type replaced it.
-    All eight domain queries are mocked to return no rows, so this exercises
+    All nine domain queries are mocked to return no rows, so this exercises
     only the item_type strings each block passes to ``_engine_status`` /
     ``state_reader.current_states`` -- not their DB behaviour (covered by the
     other tests in this module and the pre-existing baseline suite).
@@ -196,7 +196,9 @@ def test_engine_status_uses_the_correct_item_type_for_all_eight_types():
         "persistence.models.Requirement"
     ) as mock_req, patch("persistence.models.ArchitectureElement") as mock_ae, patch(
         "persistence.models.StakeholderNeed"
-    ) as mock_sn, patch("persistence.models.TestCase") as mock_tc, patch.dict(
+    ) as mock_sn, patch("persistence.models.TestCase") as mock_tc, patch(
+        "persistence.models.Document"
+    ) as mock_doc, patch.dict(
         "persistence.domain_model_registry._registry",
         {
             "Adr": mock_adr,
@@ -213,6 +215,7 @@ def test_engine_status_uses_the_correct_item_type_for_all_eight_types():
         mock_ae.unscoped.filter.return_value = []
         mock_sn.unscoped.filter.return_value = []
         mock_tc.unscoped.filter.return_value = []
+        mock_doc.unscoped.filter.return_value = []
         for mock_model in (mock_adr, mock_risk, mock_issue, mock_goal, mock_main_goal):
             mock_model.objects.filter.return_value = []
 
@@ -228,4 +231,5 @@ def test_engine_status_uses_the_correct_item_type_for_all_eight_types():
         "Issue",
         "Goal",
         "MainGoal",
+        "Document",
     }
