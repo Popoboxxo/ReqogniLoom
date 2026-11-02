@@ -4,7 +4,7 @@
 
 **Name:** ReqogniLoom
 **Präfix:** ReqLo
-**Plattform:** Django 6.1+ (Backend) + React 19 + TypeScript 5.5+ (Frontend) + PostgreSQL 16 via pgvector/pgvector:pg16 (Django ORM + pgvector) + Redis 7 (Cache/Celery-Broker) + Celery 5.6+ (Async) + Docker Compose (8 Default-Services: postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend; optionale Profile: honcho (+4 Services), bluepencil (+1 Service))
+**Plattform:** Django 6.1+ (Backend) + React 19 + TypeScript 5.5+ (Frontend) + PostgreSQL 16 via pgvector/pgvector:pg16 (Django ORM + pgvector) + Redis 7 (Cache/Celery-Broker) + Celery 5.6+ (Async) + Docker Compose (8 Default-Services: postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend; optionale Profile: honcho (+4 Services))
 **Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (41 Tool-Gruppen-Präfixe, 259 Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/Azure/mock), Multi-Tenancy mit Row-Level-Isolation, 11 core/built-in Trace-Link-Typen (tenant-extensible catalog), Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
 
 > Struktur: siehe Verzeichnisstruktur im Repo (`ls`/`find`); deklarativ: `.meta-config/project.yaml` → `variables.PROJECT_STRUCTURE`.

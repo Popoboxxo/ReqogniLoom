@@ -45,7 +45,7 @@ _E2E_MFA_USERNAME = "e2e-mfa"
 # On the host that is <repo>; inside the test container the mounted backend
 # lives at /app, so it resolves to / and the deploy files are absent. The guard
 # therefore SKIPS there instead of erroring — same pattern as
-# backend/tests/test_bluepencil_deploy_contract.py.
+# the other deploy-contract guards.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _PROD_COMPOSE = _REPO_ROOT / "deploy" / "docker-compose.yml"
 _MINIMAL_COMPOSE = _REPO_ROOT / "deploy" / "docker-compose.minimal.yml"

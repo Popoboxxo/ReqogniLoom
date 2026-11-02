@@ -112,7 +112,7 @@ variables:
     16 via pgvector/pgvector:pg16 (Django ORM + pgvector) + Redis 7 (Cache/Celery-Broker)
     + Celery 5.6+ (Async) + Docker Compose (8 Default-Services: postgres, postgres-backup,
     redis, backend, migrate, celery, celery-beat, frontend; optionale Profile: honcho
-    (+4 Services), bluepencil (+1 Service))'
+    (+4 Services))'
   RUNTIME: Python 3.12 (Container python:3.12-slim; Django 6.1+, DRF 3.18+, drf-spectacular,
     psycopg2-binary, pgvector, celery, redis, reportlab, gunicorn+uvicorn) + Node.js
     22 (Container node:22.17.0-slim; Vite 8 Dev-Server bzw. nginx:1.27-alpine Prod-Image)
@@ -204,7 +204,6 @@ variables:
       src/components/                        # 42 Component-Bereiche (Dashboard, Editors, Diff)
       src/context/                           # React Context (Auth, Workspace)
       src/queries/                           # TanStack Query Hooks
-      src/bluepencil/                        # optionale Review-Layer (VITE_BLUEPENCIL_ENABLED)
       src/i18n/locales/{de,en}.json          # i18next Uebersetzungen
       src/styles/{tokens,global}.css         # Design-System (CSS Custom Properties)
       src/{__tests__,__mocks__}/             # Vitest 4 Unit-Tests
@@ -213,7 +212,7 @@ variables:
       tests/**/*.spec.ts                     # Playwright/Chromium E2E-Tests (54 Spec-Dateien)
       playwright.config.ts                   # 4 Shards, globalTimeout 10 min
     deploy/
-      docker-compose.yml                    # Full-Stack-Basis: 8 Default-Services (postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend) + honcho-Profil (4 Services) + bluepencil-Profil (1 Service); pinnt fertige GHCR-Images
+      docker-compose.yml                    # Full-Stack-Basis: 8 Default-Services (postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend) + honcho-Profil (4 Services); pinnt fertige GHCR-Images
       docker-compose.override.yml           # Dev-Overlay (Hot-Reload, pull_policy: build, Vite 5173, uvicorn --reload)
       docker-compose.minimal.yml            # Schlanke Variante (5 Services: postgres, redis, backend, migrate, frontend)
       .env                                  # Beispiel-Env (DB, LLM, Ports, Secrets)
@@ -366,7 +365,7 @@ variables:
     Postgres: pgvector/pgvector:pg16 (pgvector für VectorField/HnswIndex, REQ-L2-VS-004); Postgres-Backup: pgvector/pgvector:pg16; Redis: redis:7-alpine.
     Volumes (Dev-Overlay): ./backend:/app + ./docs:/app/docs:ro, ./frontend:/app + /app/node_modules — Hot-Reload-fähig.
     Healthchecks: pg_isready (postgres), redis-cli ping (redis), curl /health/ (backend), node-fetch (frontend) — services_healthy als DependsOn-Bedingung.
-    Kein separates Build-Artifact — Deployment via Docker Compose (8 Default-Services, optionale Profile honcho/bluepencil).
+    Kein separates Build-Artifact — Deployment via Docker Compose (8 Default-Services, optionales Profil honcho).
     `scripts/build.sh` (Makefile-Target `build`) ruft `docker compose -f deploy/docker-compose.yml --project-directory . build` mit den Build-Args APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME auf; Build-Images werden in .github/workflows/docker-publish.yml nach GHCR publiziert.
     Seed: `docker compose -f deploy/docker-compose.yml --project-directory . exec backend python manage.py migrate && python manage.py seed_demo`.
     Demo-Credentials: Username `admin`; Passwort gibt `seed_demo` am Laufzeit-Ende aus (Override per Env-Var `DEMO_ADMIN_PASSWORD`; Tenant "demo", Workspace "Demo Workspace").
@@ -395,7 +394,6 @@ variables:
     - frontend (React 19 / Node 22.17, Prod: nginx:1.27-alpine auf 8080; Dev-Overlay: Vite 8 auf 5173, Host-Port 5173)
     Optionale Compose-Profile (kein Pull/Start, solange das Profil nicht aktiviert wird):
     - Profil `honcho`: honcho-postgres, honcho-redis, honcho-migrate, honcho (Host-Port 127.0.0.1:8010) — optionaler Memory-Backend (`MEMORY_BACKEND=honcho`)
-    - Profil `bluepencil`: bluepencil (node:22-slim, Port 8787 nur im Compose-Netz) — DEBUG/QS-only Review-Layer
     Test-Overlay unter testing/docker-compose.test.yml (dedizierte backend-test/frontend-test Services, source-gemountet, gegen das laufende Compose-Postgres/Redis; kein Deployment-File, siehe `make test`).
     E2E-Tests (Playwright/Chromium) laufen lokal auf dem Host gegen den laufenden Stack; CI (.github/workflows/playwright.yml) nutzt einen GitHub-hosted ubuntu-latest-Runner mit Postgres-/Redis-Service-Containern und 4 Shards.
     Binary-Strategie: B (Apt im Dockerfile) — keine init-container / externen Binaries.

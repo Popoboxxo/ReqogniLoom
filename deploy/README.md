@@ -15,82 +15,10 @@ combination), run it from the **repository root**, and the stack comes up.
 | `docker-compose.override.yml` | Dev overlay: hot-reload (`uvicorn --reload` / Vite dev server), source bind-mounts, weaker defaults. Auto-applied by `make up` (see repo-root `Makefile`). | Local development against the full stack only — **not** compatible with `docker-compose.minimal.yml` (it re-adds `celery`/`celery-beat`, defeating the point of minimal). |
 | `docker-compose.override.example.yml` | Documentation only — a commented-out template for optional local services (e.g. Ollama). **Never read by Compose itself** (wrong filename on purpose); copy it to `docker-compose.override.yml` and uncomment what you need. | Reference when wiring up an optional local service. |
 
-## Overlays that replace the frontend image (#1436)
-
-The base `docker-compose.yml` pins the frontend as a **registry image**:
-
-```yaml
-frontend:
-  image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.22}
-```
-
-Compose merges `image:` from the base unless the overlay **also sets `image:`**. An overlay that only
-overrides `ports:`, `deploy:` limits or `build:` therefore still starts the GHCR image. That is the
-#1436 failure mode: a locally built frontend with the re-vendored Bluepencil 0.5.0 layer was built,
-the stack reported `healthy`, and `/bluepencil/latest/latest.json` still served the repo default
-`0.1.0-alpha.2` because the overlay never overrode `image:`.
-
-A correct overlay that replaces the frontend:
-
-```yaml
-services:
-  frontend:
-    image: reqogniloom-frontend:bluepencil-${REQOGNILOOM_VERSION}
-    pull_policy: build        # or `never` for a prebuilt local image
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      target: production
-      args:
-        VITE_BLUEPENCIL_ENABLED: "1"
-        VITE_BLUEPENCIL_ENVIRONMENT: dev
-    ports: !override
-      - "5173:8080"
-```
-
-Rules:
-
-- `image:` is **mandatory** (and must be a different name/tag from the base registry image) whenever
-  an overlay replaces the frontend.
-- `pull_policy: build` (with `build:`) makes `up` rebuild instead of reusing a stale local tag;
-  `pull_policy: never` is correct for a pre-built local image.
-- `ports:` still needs `!override` (Compose appends port lists); see INFRA-01 in
-  `docker-compose.override.yml`.
-- The dev overlay already follows this pattern
-  (`image: ${COMPOSE_PROJECT_NAME:-reqogniloom}-frontend:dev`).
-
-### `docker compose pull` with a locally built frontend
-
-A plain `docker compose pull` tries to pull every `image:` — including the local
-`reqogniloom-frontend:bluepencil-…` tag, which has no registry entry — and aborts with
-`pull access denied for reqogniloom-frontend`. Pull only the registry-backed services:
-
-```bash
-docker compose -f deploy/docker-compose.yml --project-directory . \
-  pull postgres redis backend celery celery-beat migrate postgres-backup
-```
-
-If the overlay declares a `build:` section for the frontend, `pull --ignore-buildable` skips it
-instead.
-
-### Guard
-
-After `up`, when `BLUEPENCIL_ENABLED=1`, verify that the running container is actually the locally
-built image and serves the re-vendored layer:
-
-```bash
-bash deploy/verify-frontend-image.sh
-```
-
-It fails when the container runs a registry image, or when `BLUEPENCIL_IMAGE` names a different or
-older layer. Run it as part of the runbook gate (see
-[`docs/DEPLOY_RUNBOOK.md`](../docs/DEPLOY_RUNBOOK.md) §7).
-
 ## No frontend restart after a backend recreate (#1054)
 
 The frontend's nginx resolves its upstreams **per request** through Docker's embedded DNS
-(`resolver 127.0.0.11 ipv6=off valid=10s;` plus a `set $…_upstream` variable), for `/api/`, `/mcp/`
-and the bluepencil sidecar alike.
+(`resolver 127.0.0.11 ipv6=off valid=10s;` plus a `set $…_upstream` variable), for `/api/` and `/mcp/` alike.
 
 **This is resolved — you do not have to restart the frontend after recreating the backend.** The old
 `proxy_pass http://backend:8000;` resolved the name once, at worker start, and kept that IP, so every
@@ -147,7 +75,7 @@ digest makes the reference immutable, so a re-push of a moving tag (`python:3.12
 |---|---|
 | `backend/Dockerfile` (builder + runtime) | `python:3.12-slim@sha256:cb33f7f7…` |
 | `frontend/Dockerfile` | `node:22.17.0-slim@sha256:b04ce4ae…`, `nginx:1.27-alpine@sha256:65645c7b…` |
-| `deploy/docker-compose.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…` (×3), `redis:7-alpine@sha256:892022f9…` (×2), `node:22-slim@sha256:de170b39…` (bluepencil sidecar) |
+| `deploy/docker-compose.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…` (×3), `redis:7-alpine@sha256:892022f9…` (×2) |
 | `deploy/docker-compose.yml` (optional profiles) | `ghcr.io/plastic-labs/honcho:v3.3.0@sha256:5bb8cf7a…` (×3), `qdrant/qdrant:v1.19.2@sha256:b7b0444c…` |
 | `deploy/docker-compose.minimal.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…`, `redis:7-alpine@sha256:892022f9…` |
 | `testing/docker-compose.test.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…`, `redis:7-alpine@sha256:892022f9…` |
@@ -238,7 +166,6 @@ per-invocation: a `down` without the same `--profile` flags leaves those contain
 |---|---|---|
 | `honcho` | Optional Honcho memory backend (`honcho-postgres`, `honcho-redis`, `honcho-migrate`, `honcho`). | Optional feature — fine to enable in production if you want it. |
 | `qdrant` | Optional Qdrant vector backend (`qdrant`), for `MEMORY_BACKEND=qdrant` and/or `ARTIFACT_VECTOR_BACKEND=qdrant` (ADR-020; the two selectors are independent since T-A2-1). | Optional feature — **pgvector stays the default**; the vector index is regenerable from Postgres. Fine to enable in production if you want it (see below). |
-| `bluepencil` | Sidecar for the in-app annotation/review layer. | **DEBUG/QS ONLY — never enable it in production.** It is a *debugging* aid for seeing and measuring the layer in the real app, not a product feature: the sidecar has **no user auth and no tenant isolation** — one JSON file is shared by every workspace. A future production path would be a DRF `review_notes` store with server-side auth, RBAC, CSRF, and tenant isolation (`docs/bluepencil-integration.md`). See `deploy/bluepencil/README.md`. |
 
 ## First Stumbling Block: CSRF Cookie Requires Matching Security Settings
 
@@ -537,14 +464,13 @@ that used profiles needs those profiles on `down` too — see the teardown secti
 | `postgres_backup_data` | `postgres-backup:/backups` | nightly `pg_dump` dumps (full stack only) |
 | `backend_dr_backups` | `backend:/app/backups` | admin DR dumps (`admin.backup_create`) |
 | `honcho_postgres_data`, `honcho_redis_data` | Honcho services | only with `--profile honcho` |
-| `bluepencil_data` | `bluepencil:/data` | review notes, only with the `bluepencil` profile |
 | `qdrant_data` | `qdrant:/qdrant/storage` | Qdrant vector index, only with the `qdrant` profile — **not** in the Postgres dump; regenerable from Postgres (see the Qdrant section) |
 
 ## Teardown and upgrades: include every profile you ever started
 
 Profiles are opt-in at **start** time, and Compose only manages the containers whose profiles are
 active in the *same* invocation. A plain `docker compose down` therefore leaves profiled containers
-(`honcho`, `honcho-*`, `qdrant`, `bluepencil`) running — and `--remove-orphans` does **not** remove
+(`honcho`, `honcho-*`, `qdrant`) running — and `--remove-orphans` does **not** remove
 them: they belong to the project, they are merely profiled. The result after a version upgrade is a
 mixed stack in which the default services are recreated while a profiled container keeps running for
 days (#1354).
@@ -553,7 +479,7 @@ Name the full profile set on `down` (run from the repository root):
 
 ```bash
 docker compose -f deploy/docker-compose.yml --project-directory . \
-  --profile honcho --profile qdrant --profile bluepencil down
+  --profile honcho --profile qdrant down
 ```
 
 `make down` does not activate profiles either; use the command above whenever a profile was ever
@@ -563,7 +489,7 @@ started.
 cannot disagree:
 
 ```bash
-export COMPOSE_PROFILES=honcho,qdrant,bluepencil   # bluepencil: DEBUG/QS only
+export COMPOSE_PROFILES=honcho,qdrant
 docker compose -f deploy/docker-compose.yml --project-directory . up -d
 docker compose -f deploy/docker-compose.yml --project-directory . down
 ```
@@ -573,9 +499,9 @@ removes them — the database, the Celery queue, Honcho's memory and the Qdrant 
 a deliberate reset:
 
 ```bash
-# DESTRUCTIVE: wipes postgres/redis/honcho/bluepencil/qdrant volumes
+# DESTRUCTIVE: wipes postgres/redis/honcho/qdrant volumes
 docker compose -f deploy/docker-compose.yml --project-directory . \
-  --profile honcho --profile qdrant --profile bluepencil down -v
+  --profile honcho --profile qdrant down -v
 ```
 
 **Recommended upgrade sequence:** `down` with the full profile set → `docker compose pull` → `up -d`
