@@ -3,7 +3,6 @@ import { act, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { advanceAuthSessionGeneration } from "../api/client";
-import { teardownBluepencilReviewLayer } from "../bluepencil/loader";
 import { AuthProvider, useAuth, type AuthState } from "../context/AuthContext";
 
 function response(body: unknown, status = 200): Response {
@@ -29,7 +28,6 @@ describe("AuthContext login timeout", () => {
   });
 
   afterEach(() => {
-    teardownBluepencilReviewLayer();
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
     vi.useRealTimers();

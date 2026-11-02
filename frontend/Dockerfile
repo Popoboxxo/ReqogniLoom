@@ -23,12 +23,6 @@ FROM base AS builder
 
 ARG VITE_API_BASE_URL
 ARG VITE_ALLOWED_HOSTS
-# Issue #980: the bluepencil review layer guard is read at *build* time
-# (`import.meta.env.VITE_BLUEPENCIL_ENABLED`, loader.ts). Without these ARGs a
-# `--build-arg VITE_BLUEPENCIL_ENABLED=1` was silently ignored and every
-# prebuilt/production image evaluated the guard as false.
-ARG VITE_BLUEPENCIL_ENABLED
-ARG VITE_BLUEPENCIL_ENVIRONMENT
 
 RUN npm ci
 
@@ -36,8 +30,6 @@ COPY . .
 
 RUN VITE_API_BASE_URL=$VITE_API_BASE_URL \
     VITE_ALLOWED_HOSTS=$VITE_ALLOWED_HOSTS \
-    VITE_BLUEPENCIL_ENABLED=$VITE_BLUEPENCIL_ENABLED \
-    VITE_BLUEPENCIL_ENVIRONMENT=$VITE_BLUEPENCIL_ENVIRONMENT \
     npm run build
 
 # Production serve stage (nginx)
@@ -57,20 +49,7 @@ RUN addgroup -S app && adduser -S app -G app
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Plan D / D1.1 (ENT-D2 = B, QR-S02): the config is a TEMPLATE, not a finished
-# file, because the bluepencil proxy injects the hub's shared secret and that
-# secret must never be baked into an image layer. The base image's entrypoint
-# (docker-entrypoint.d/20-envsubst-on-templates.sh) renders every
-# `/etc/nginx/templates/*.template` into `/etc/nginx/conf.d/` at container
-# start. `NGINX_ENVSUBST_FILTER` restricts substitution to the BLUEPENCIL_*
-# variables, so nginx's own `$host`, `$http_cookie`, … stay untouched.
-COPY nginx.conf /etc/nginx/templates/default.conf.template
-
-# Empty default = fail-closed: the hub requires the header, and an empty value
-# makes nginx send none, so every bluepencil call is answered 401 until an
-# operator supplies the real secret (compose env / `-e BLUEPENCIL_AUTH_SECRET`).
-ENV BLUEPENCIL_AUTH_SECRET=""
-ENV NGINX_ENVSUBST_FILTER=^BLUEPENCIL_
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Plan D / D1.0: the security headers are a snippet because every location
 # with its own add_header must include them (nginx drops inherited headers).

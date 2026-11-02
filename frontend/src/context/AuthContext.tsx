@@ -33,16 +33,6 @@ import {
   setUnauthorizedHandler,
 } from "../api/client";
 import { mfaApi } from "../api/mfa";
-import {
-  installBluepencilReviewLayer,
-  teardownBluepencilReviewLayer,
-} from "../bluepencil/loader";
-import {
-  bluepencilIdentityFromUser,
-  installBluepencilHost,
-  setBluepencilIdentitySource,
-} from "../bluepencil/host";
-
 const AUTH_TRANSITION_TIMEOUT_MS = 30_000;
 
 // ---------------------------------------------------------------------------
@@ -179,17 +169,12 @@ export function AuthProvider({
     setRoles([]);
     setIsTenantAdmin(false);
     setStatus("anonymous");
-    setBluepencilIdentitySource(null);
   }, []);
 
-  const invalidateAuth = useCallback(
-    (teardownLayer = true) => {
-      authGeneration.current += 1;
-      if (teardownLayer) teardownBluepencilReviewLayer();
-      clearAuth();
-    },
-    [clearAuth],
-  );
+  const invalidateAuth = useCallback(() => {
+    authGeneration.current += 1;
+    clearAuth();
+  }, [clearAuth]);
 
   const enqueueCookieTransition = useCallback(
     <T,>(operation: () => Promise<T>): Promise<T> => {
@@ -218,9 +203,6 @@ export function AuthProvider({
     setRoles(data.roles ?? []);
     setIsTenantAdmin(data.is_tenant_admin ?? false);
     setStatus("authenticated");
-    installBluepencilHost();
-    setBluepencilIdentitySource(() => bluepencilIdentityFromUser(data.user));
-    void installBluepencilReviewLayer();
     resetUnauthorizedGuard();
   }, []);
 
@@ -386,8 +368,6 @@ export function AuthProvider({
       const data = await apiClient.patch<{ user: AuthUser }>("/auth/me/", update);
       if (generation !== authGeneration.current) return;
       setUser(data.user);
-      installBluepencilHost();
-      setBluepencilIdentitySource(() => bluepencilIdentityFromUser(data.user));
     },
     []
   );
