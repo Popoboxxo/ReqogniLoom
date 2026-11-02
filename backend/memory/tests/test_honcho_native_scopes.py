@@ -594,8 +594,8 @@ def _shipped_config_files():
     files += sorted((_REPO_ROOT / "deploy").glob("*.yml"))
     files += sorted((_REPO_ROOT / "testing").glob("*.yml"))
     files += sorted((_REPO_ROOT / "backend" / "reqogniloom").glob("settings*.py"))
-    # 10 today: .env.example + 6 deploy/*.yml + 1 testing/*.yml + 2 settings*.py
-    assert len(files) >= 10, f"config discovery found too few files: {files}"
+    # 9 today: .env.example + 5 deploy/*.yml + 1 testing/*.yml + 2 settings*.py
+    assert len(files) >= 9, f"config discovery found too few files: {files}"
     return files
 
 
