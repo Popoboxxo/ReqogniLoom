@@ -138,6 +138,11 @@ ENTITY_SPECS: dict[str, _Spec] = {
     "diagram": _Spec(
         "/api/v1/diagrams/", ("diagram.get", "diagram.query"), "Diagram"
     ),
+    # Plan F F2-T6 (ADR-026): the Document artifact's MCP group closes the
+    # REST/MCP asymmetry F2-T5 recorded here.
+    "document": _Spec(
+        "/api/v1/documents/", ("document.read", "document.query"), "Document"
+    ),
     "artifact": _Spec(
         "/api/v1/artifacts/",
         ("artifact.search", "artifact.get_tree"),
@@ -187,13 +192,6 @@ class _Exclusion:
 #: removed from this list *and* added to :data:`ENTITY_SPECS` in the same
 #: change -- that is the discipline the list exists to force.
 REST_ONLY_BY_DESIGN: tuple[_Exclusion, ...] = (
-    _Exclusion(
-        "/api/v1/documents/",
-        "Plan F F2-T5 exposes the Document artifact over REST first; the "
-        "document.* MCP tool group is F2-T6 (PR-F18b). This entry must be "
-        "removed and a document spec added to ENTITY_SPECS in the same change.",
-        issue="#1374",
-    ),
     _Exclusion(
         "/api/v1/api-keys/",
         "API-key management is a REST-only governance path by decision: MCP "

@@ -124,6 +124,12 @@ _TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "context.query": (("artifact_id", "artifact"),),
     "context.test_coverage": (("requirement_id", "requirement"),),
+    # Plan F F2-T6 (ADR-026): every document tool that names its target by id
+    # resolves the gate from the document's own workspace. document.create and
+    # document.query declare a required ``workspace_id`` and need no entry here.
+    "document.read": (("id", "document"),),
+    "document.versions": (("id", "document"),),
+    "document.diff": (("id", "document"),),
     "diagram.get": (("id", "diagram"),),
     "glossary.read": (("id", "glossary"),),
     "icd.read": (("id", "icd"),),
@@ -190,6 +196,11 @@ _TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
     "diagram.outdate": (("id", "diagram"),),
     "diagram.reactivate": (("id", "diagram"),),
     "diagram.update": (("id", "diagram"),),
+    # Plan F F2-T6 (ADR-026): document writes name their target by ``id``.
+    "document.update": (("id", "document"),),
+    "document.transition": (("id", "document"),),
+    "document.outdate": (("id", "document"),),
+    "document.reactivate": (("id", "document"),),
     "glossary.delete": (("id", "glossary"),),
     "glossary.outdate": (("id", "glossary"),),
     "glossary.reactivate": (("id", "glossary"),),
