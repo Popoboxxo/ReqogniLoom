@@ -12,10 +12,11 @@ The runtime copies now derive from :data:`WORKFLOW_ITEM_TYPES` here, and
 The historical migrations stay frozen (data migrations must not change once
 released); their union is asserted against this registry instead.
 
-``Requirement`` is deliberately **not** in the tuple: its preset is the
-workspace's rigor tier (``minimal``/``standard``/``extended``), resolved at
-provisioning time, not a fixed per-entity key. It is nevertheless a known
-workflow item type — see :data:`KNOWN_WORKFLOW_ITEM_TYPES`.
+``Requirement`` and ``WorkItem`` are deliberately **not** in the tuple: their
+preset is the workspace's rigor tier (``minimal``/``standard``/``extended``),
+resolved at provisioning time, not a fixed per-entity key. They are
+nevertheless known workflow item types — see
+:data:`KNOWN_WORKFLOW_ITEM_TYPES` and :data:`TIER_DRIVEN_ITEM_TYPES`.
 """
 from __future__ import annotations
 
@@ -68,16 +69,52 @@ COLUMNLESS_ITEM_TYPES: frozenset[str] = frozenset(WORKFLOW_ITEM_TYPE_PRESETS) - 
     STATUS_MIRROR_ITEM_TYPES
 )
 
+#: Item types whose workflow preset depends on the workspace's rigor tier
+#: instead of a dedicated per-entity preset key. ``Requirement`` maps 1:1 to
+#: the tier (``minimal``/``standard``/``extended``); ``WorkItem`` prefixes it
+#: (``work_item_<tier>``, Plan F F3-T2). Kept out of
+#: :data:`WORKFLOW_ITEM_TYPES` because the fixed-preset provisioning loops must
+#: not seed them with a single dedicated key.
+TIER_DRIVEN_ITEM_TYPES: tuple[str, ...] = ("Requirement", "WorkItem")
+
+#: Prefix of ``WorkItem``'s tier-dependent preset keys.
+WORK_ITEM_PRESET_PREFIX = "work_item_"
+
+#: Rigor tiers a :class:`~persistence.models.WorkItem` workflow can be
+#: provisioned for, in the order the global-defaults tab lists them.
+WORK_ITEM_TIERS: tuple[str, ...] = ("minimal", "standard", "extended")
+
+
+def work_item_preset_key(tier: str) -> str:
+    """Return the ``WorkItem`` workflow preset key for *tier*.
+
+    >>> work_item_preset_key("extended")
+    'work_item_extended'
+    """
+    return f"{WORK_ITEM_PRESET_PREFIX}{tier}"
+
+
+#: ``tier -> preset key`` lookup for :class:`~persistence.models.WorkItem`.
+WORK_ITEM_PRESET_BY_TIER: dict[str, str] = {
+    tier: work_item_preset_key(tier) for tier in WORK_ITEM_TIERS
+}
+
 #: Every item type accepted by ``workflow-defaults`` and the workflow editor.
-#: Adds the tier-driven ``Requirement`` to the fixed-preset registry.
+#: Adds the tier-driven ``Requirement`` and ``WorkItem`` to the fixed-preset
+#: registry.
 KNOWN_WORKFLOW_ITEM_TYPES: frozenset[str] = frozenset(
-    {"Requirement", *WORKFLOW_ITEM_TYPE_PRESETS}
+    {*TIER_DRIVEN_ITEM_TYPES, *WORKFLOW_ITEM_TYPE_PRESETS}
 )
 
 __all__ = [
     "COLUMNLESS_ITEM_TYPES",
     "KNOWN_WORKFLOW_ITEM_TYPES",
     "STATUS_MIRROR_ITEM_TYPES",
+    "TIER_DRIVEN_ITEM_TYPES",
     "WORKFLOW_ITEM_TYPES",
     "WORKFLOW_ITEM_TYPE_PRESETS",
+    "WORK_ITEM_PRESET_BY_TIER",
+    "WORK_ITEM_PRESET_PREFIX",
+    "WORK_ITEM_TIERS",
+    "work_item_preset_key",
 ]

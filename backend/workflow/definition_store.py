@@ -497,6 +497,135 @@ def _document_transitions() -> list[dict[str, Any]]:
     ]
 
 
+def _work_item_minimal_transitions() -> list[dict[str, Any]]:
+    """Plan F F3-T2 — the smallest work-item lifecycle (concept §5.2, E8).
+
+    ``work_item_minimal`` deliberately carries only the execution state:
+    ``todo -> in_progress -> done`` plus the ``dropped`` terminal. The
+    ``blocked``/``in_review`` states belong to the tiered schemas
+    (``work_item_standard``/``work_item_extended``), not to a superset here —
+    each preset is provisioned independently.
+    """
+    return [
+        {
+            "from_state": "todo",
+            "to_state": "in_progress",
+            "allowed_roles": ["editor", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "in_progress",
+            "to_state": "done",
+            "allowed_roles": ["editor", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "todo",
+            "to_state": "dropped",
+            "allowed_roles": ["editor", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "in_progress",
+            "to_state": "dropped",
+            "allowed_roles": ["editor", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+    ]
+
+
+def _work_item_standard_transitions() -> list[dict[str, Any]]:
+    """``work_item_minimal`` plus the ``blocked`` state (concept §5.2).
+
+    Entering ``blocked`` is additionally guarded by the data precondition
+    ``blocked_reason`` (``workflow.precondition_rules``, rule 10); the graph
+    itself only carries the role/reason structure every other transition has.
+    """
+    transitions = _work_item_minimal_transitions()
+    transitions.extend(
+        [
+            {
+                "from_state": "in_progress",
+                "to_state": "blocked",
+                "allowed_roles": ["editor", "admin"],
+                "requires_change_reason": False,
+                "signature_gate": False,
+            },
+            {
+                "from_state": "blocked",
+                "to_state": "in_progress",
+                "allowed_roles": ["editor", "admin"],
+                "requires_change_reason": False,
+                "signature_gate": False,
+            },
+            {
+                "from_state": "blocked",
+                "to_state": "dropped",
+                "allowed_roles": ["editor", "admin"],
+                "requires_change_reason": False,
+                "signature_gate": False,
+            },
+        ]
+    )
+    return transitions
+
+
+def _work_item_extended_transitions() -> list[dict[str, Any]]:
+    """``work_item_standard`` plus a human approval gate before ``done``.
+
+    The extended lifecycle deliberately declares **no** direct
+    ``in_progress -> done`` edge: ``done`` can only be reached from
+    ``in_review`` and only by an ``approver``/``admin`` (spec §4). That is the
+    structural half of "done in extended requires a human sign-off"; the
+    service that performs the transition records ``approved_by``/
+    ``approved_at`` (F3-T4), signalled by
+    ``state_meta["done"]["requires_approval"]``.
+    """
+    transitions = [
+        t
+        for t in _work_item_standard_transitions()
+        if (t["from_state"], t["to_state"]) != ("in_progress", "done")
+    ]
+    transitions.extend(
+        [
+            {
+                "from_state": "in_progress",
+                "to_state": "in_review",
+                "allowed_roles": ["editor", "approver", "admin"],
+                "requires_change_reason": False,
+                "signature_gate": False,
+            },
+            {
+                "from_state": "in_review",
+                "to_state": "in_progress",
+                "allowed_roles": ["editor", "admin"],
+                "requires_change_reason": False,
+                "signature_gate": False,
+            },
+            {
+                # Human sign-off: the only edge into "done" in this preset.
+                "from_state": "in_review",
+                "to_state": "done",
+                "allowed_roles": ["approver", "admin"],
+                "requires_change_reason": False,
+                "signature_gate": False,
+            },
+            {
+                "from_state": "in_review",
+                "to_state": "dropped",
+                "allowed_roles": ["editor", "admin"],
+                "requires_change_reason": False,
+                "signature_gate": False,
+            },
+        ]
+    )
+    return transitions
+
+
 def _risk_transitions() -> list[dict[str, Any]]:
     # State values match application.models.Risk.RiskStatus.
     return [
@@ -691,7 +820,20 @@ PROPOSED_ROLES: tuple[str, ...] = ("editor", "approver", "admin")
 #:   taking either. The session could never reach ``completed``, and no
 #:   review surface exists to let a human unblock it. Neither ``proposed``
 #:   nor the injected ``rejected`` is a valid InterviewSession status either.
-SCHEMAS_WITHOUT_PROPOSED: frozenset[str] = frozenset({"minimal", "interview_default"})
+#: * ``work_item_*`` (Plan F F3-T2) — a WorkItem *is* the agent's own work
+#:   state store (concept §9): agents must be able to create and advance it.
+#:   Injecting ``proposed`` would park every agent-created item in a state
+#:   Rule 0 forbids that agent to leave, and ``rejected`` is foreign to the
+#:   work-item vocabulary. The tiered graphs stay exact mirrors of spec §4.
+SCHEMAS_WITHOUT_PROPOSED: frozenset[str] = frozenset(
+    {
+        "minimal",
+        "interview_default",
+        "work_item_minimal",
+        "work_item_standard",
+        "work_item_extended",
+    }
+)
 
 #: Per-schema override for the discard target. Every schema not listed gets a
 #: new "rejected" state. These four already own a terminal dead-end whose name
@@ -1012,10 +1154,33 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
             "Archiviert": {"is_outdated_equivalent": True},
         },
     },
+    # Plan F F3-T2 — the three tier-dependent WorkItem lifecycles
+    # (``work_item_<tier>``, spec §4). ``todo`` is ``states[0]`` in every tier,
+    # so a work item created before its definition existed still projects a
+    # sensible status. ``dropped`` is the terminal dead-end in all three;
+    # extended additionally flags ``done`` as requiring a human approval.
+    "work_item_minimal": {
+        "states": ["todo", "in_progress", "done", "dropped"],
+        "transitions": _work_item_minimal_transitions(),
+        "state_meta": {"dropped": {"is_outdated_equivalent": True}},
+    },
+    "work_item_standard": {
+        "states": ["todo", "in_progress", "blocked", "done", "dropped"],
+        "transitions": _work_item_standard_transitions(),
+        "state_meta": {"dropped": {"is_outdated_equivalent": True}},
+    },
+    "work_item_extended": {
+        "states": ["todo", "in_progress", "blocked", "in_review", "done", "dropped"],
+        "transitions": _work_item_extended_transitions(),
+        "state_meta": {
+            "done": {"requires_approval": True},
+            "dropped": {"is_outdated_equivalent": True},
+        },
+    },
 }
 
-# Spec §4.1: every default graph except "minimal" gains the proposal state.
-# Applied here rather than inline in each literal so the 16 schemas cannot
+# Spec §4.1: every default graph except the exempt ones gains the proposal
+# state. Applied here rather than inline in each literal so the schemas cannot
 # drift apart and so `SCHEMAS_WITHOUT_PROPOSED` stays the single exemption
 # list. Runs once at import; PRESET_SCHEMAS is rebound in place so existing
 # `from .definition_store import PRESET_SCHEMAS` importers see the result.

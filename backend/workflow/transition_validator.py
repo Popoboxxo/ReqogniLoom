@@ -44,6 +44,7 @@ from .precondition_rules import (
     check_testcase_steps,
     check_verification_evidence,
     check_verifies_link,
+    check_work_item_preconditions,
     is_approval_transition,
     is_verification_transition,
 )
@@ -453,6 +454,21 @@ class TransitionValidator:
                     error_code=violation[0],
                     error_message=violation[1],
                 )
+
+        # ---- Rule 10: WorkItem preconditions (Plan F F3-T2) ------------------
+        # Only fires on a transition into "blocked" for a WorkItem: the state
+        # requires a non-empty blocked_reason (spec §4). The extended "done"
+        # approval gate is structural (approver-only in_review -> done edge).
+        violation = check_work_item_preconditions(
+            workspace_id=ws_str,
+            item_type=request.item_type,
+            item_id=request.item_id,
+            target_state=request.target_state,
+        )
+        if violation is not None:
+            return ValidationResult(
+                valid=False, error_code=violation[0], error_message=violation[1]
+            )
 
         # ---- Rule 9: document release gates G-1…G-4 (Plan F F2-T4) ----------
         # Only fires when a Document enters the state its workflow marks with
