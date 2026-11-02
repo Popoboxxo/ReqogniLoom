@@ -1,0 +1,201 @@
+/*
+ * Documents — layout and form styles (Plan F F2-T8).
+ *
+ * Every colour, spacing, radius and type value reads a `styles/tokens.css`
+ * custom property; no hardcoded colours or button geometry live here. Buttons
+ * use the shared `btn-*` classes from `styles/global.css`, so the C1
+ * button-geometry ratchet measures them from the design system, not from this
+ * file. Only layout/typography-only class names are declared here, which is
+ * why none of them trip the button-ish selector scan.
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.listRoot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  height: 100%;
+  min-height: 0;
+}
+
+.listFooter {
+  padding: 0 var(--space-2) var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+
+.detailHeader {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.detailTitle {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  line-height: var(--leading-tight);
+  color: var(--color-text);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.lifecycle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+.sectionLabel {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.description {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text);
+  line-height: var(--leading-normal);
+}
+
+.bodyText {
+  margin-top: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: var(--leading-relaxed);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.freezeBanner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.freezeBanner p {
+  margin: 0;
+}
+
+.error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.placeholder {
+  padding: var(--space-6);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+
+.formHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.input,
+.select,
+.textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+}
+
+.textarea {
+  resize: vertical;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/*
+ * Lifecycle controls: the select/reason/credential fields share one wrapping
+ * row with the execute action. Width overrides keep them content-sized
+ * instead of each taking a full line inside the flex row.
+ */
+.transitionControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+  flex: 1 1 100%;
+}
+
+.transitionControls .select,
+.transitionControls .input,
+.transitionControls .textarea {
+  flex: 1 1 12rem;
+  width: auto;
+}

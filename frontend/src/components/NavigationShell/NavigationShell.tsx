@@ -65,6 +65,7 @@ const ImpactView = lazy(() =>
 const BaselinesView = lazy(
   () => import("../BaselinesView/BaselinesView")
 );
+const DocumentsView = lazy(() => import("../Documents/Documents"));
 const ReviewsView = lazy(
   () => import("../Reviews/ReviewsView")
 );
@@ -167,6 +168,8 @@ function AppShell(): JSX.Element {
               <Route path="/traceability" element={<TraceabilityView />} />
               <Route path="/impact" element={<ImpactView />} />
               <Route path="/baselines" element={<BaselinesView />} />
+              <Route path="/documents" element={<DocumentsView />} />
+              <Route path="/documents/:id" element={<DocumentsView />} />
               <Route path="/reviews" element={<ReviewsView />} />
               <Route path="/adrs" element={<AdrEditors />} />
               <Route path="/adrs/:id" element={<AdrEditors />} />

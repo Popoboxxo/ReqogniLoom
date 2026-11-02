@@ -24,6 +24,75 @@ const COMMENT_KEYS = [
 
 const NOTIFICATION_KEYS = ["ariaLabel", "label", "empty", "markAllRead"];
 
+// Plan F F2-T8: the Documents route's own namespace. Listed explicitly so a
+// newly added call site cannot ship with only one language filled in — the
+// generic de/en key-set parity guard covers presence, this covers usage.
+const DOCUMENT_KEYS = [
+  "title",
+  "summary",
+  "newDocument",
+  "emptyTitle",
+  "emptyDescription",
+  "emptyLabel",
+  "noMatches",
+  "untitled",
+  "loading",
+  "loadFailed",
+  "retry",
+  "createFailed",
+  "saveFailed",
+  "deleteFailed",
+  "reactivateFailed",
+  "searchPlaceholder",
+  "allKinds",
+  "allStatuses",
+  "sortDefault",
+  "sortTitle",
+  "sortKind",
+  "sortUpdated",
+  "sortLabel",
+  "filteredCount",
+  "resetFilters",
+  "selectDocument",
+  "notFound",
+  "edit",
+  "delete",
+  "reactivate",
+  "lifecycle",
+  "frozenTitle",
+  "frozenSince",
+  "frozenHint",
+  "frozenFields",
+  "frozenEditHint",
+  "description",
+  "body",
+  "bodyEmpty",
+  "editTitle",
+  "fieldTitle",
+  "fieldKind",
+  "fieldDate",
+  "fieldDescription",
+  "fieldBody",
+  "fieldChangeReason",
+  "save",
+  "saving",
+  "cancel",
+  "versionLabel",
+  "deleteTitle",
+  "deleteMessage",
+  "deleteConfirm",
+];
+
+const DOCUMENT_KIND_KEYS = [
+  "spec",
+  "plan",
+  "auditReport",
+  "review",
+  "conclusion",
+  "concept",
+  "guide",
+];
+
 // Keys the NotificationsSection component calls as
 // `t("notificationPreferences.<key>", "<English fallback>")`. The four
 // trigger labels (`assigned`, `comment_added`, `transition_pending`,
@@ -59,6 +128,24 @@ describe.each([
 
   it.each(NOTIFICATION_PREFERENCE_KEYS)("has notificationPreferences.%s", (key) => {
     expect((locale.notificationPreferences as Record<string, string>)[key]).toBeTruthy();
+  });
+
+  it.each(DOCUMENT_KEYS)("has documents.%s", (key) => {
+    expect((locale.documents as Record<string, string>)[key]).toBeTruthy();
+  });
+
+  it.each(DOCUMENT_KIND_KEYS)("has documents.kinds.%s", (key) => {
+    expect(
+      ((locale.documents as Record<string, unknown>).kinds as Record<string, string>)[key]
+    ).toBeTruthy();
+  });
+
+  it("has nav.documents", () => {
+    expect((locale.nav as Record<string, string>).documents).toBeTruthy();
+  });
+
+  it("uses no flat dotted keys in the documents namespace", () => {
+    expect(Object.keys(locale).some((k) => k.startsWith("documents."))).toBe(false);
   });
 
   it("has a locale entry for every notification preference kind", () => {

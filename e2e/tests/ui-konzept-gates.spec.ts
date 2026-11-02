@@ -70,6 +70,7 @@ const ROUTES: RouteUnderTest[] = [
   { path: '/baselines', label: 'Baselines' },
   { path: '/reviews', label: 'Reviews' },
   { path: '/adrs', label: 'ADRs' },
+  { path: '/documents', label: 'Documents' },
   { path: '/risks', label: 'Risks' },
   { path: '/issues', label: 'Issues' },
   { path: '/testcases', label: 'Test cases' },
