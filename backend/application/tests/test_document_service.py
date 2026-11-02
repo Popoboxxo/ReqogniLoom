@@ -614,6 +614,90 @@ def test_delete_does_not_require_a_change_reason_on_standard(
 
 
 # ---------------------------------------------------------------------------
+# F-6 — superseding a document
+# ---------------------------------------------------------------------------
+
+
+def _provision_link_types(workspace: Workspace) -> None:
+    from link_types.workspace_store import provision_workspace_link_types
+
+    with _tenant_scope(workspace.tenant_id):
+        provision_workspace_link_types(
+            workspace_id=workspace.id, tenant_id=workspace.tenant_id
+        )
+
+
+def test_supersede_links_and_retires_without_rewriting_identity(
+    service, workspace, editor_ctx, approver_ctx
+):
+    from persistence.models import TraceLink
+
+    _provision_link_types(workspace)
+    old = _released(service, workspace, editor_ctx, approver_ctx)
+    successor = _create(service, workspace, editor_ctx, title="System Spec v2")
+
+    retired = service.supersede(
+        old.id, successor.id, approver_ctx, change_reason="replaced by v2"
+    )
+
+    # F-6: identity is never rewritten.
+    assert retired.id == old.id
+    assert retired.uid == old.uid
+    assert retired.artifact_id == old.artifact_id
+    assert service.current_status(old.id, approver_ctx) == "Abgelöst"
+    # A superseded release stays frozen (its content is history).
+    assert retired.frozen_at is not None
+    assert retired.frozen_fields == list(FROZEN_FIELDS)
+    # ...and the successor points at it with the documented rationale.
+    link = TraceLink.objects.get(
+        source_id=successor.artifact_id,
+        target_id=old.artifact_id,
+        link_type="references",
+    )
+    assert link.rationale == "supersedes"
+    # The successor was not modified by the retire.
+    successor.refresh_from_db()
+    assert successor.uid == "DOC-002"
+
+
+def test_supersede_is_not_repeatable(
+    service, workspace, editor_ctx, approver_ctx
+):
+    from persistence.models import TraceLink
+
+    _provision_link_types(workspace)
+    old = _released(service, workspace, editor_ctx, approver_ctx)
+    successor = _create(service, workspace, editor_ctx, title="System Spec v2")
+    service.supersede(old.id, successor.id, approver_ctx, change_reason="replaced")
+
+    with pytest.raises(ValidationError):
+        service.supersede(old.id, successor.id, approver_ctx, change_reason="again")
+
+    assert (
+        TraceLink.objects.filter(
+            source_id=successor.artifact_id,
+            target_id=old.artifact_id,
+            link_type="references",
+        ).count()
+        == 1
+    )
+
+
+def test_supersede_rejects_itself_and_cross_workspace_pairs(
+    service, tenant, workspace, editor_ctx
+):
+    document = _create(service, workspace, editor_ctx)
+    with pytest.raises(ValidationError):
+        service.supersede(document.id, document.id, editor_ctx)
+
+    other = _make_workspace(tenant, "Second Workspace")
+    _provision_document_workflow(other)
+    elsewhere = _create(service, other, editor_ctx)
+    with pytest.raises(ValidationError):
+        service.supersede(document.id, elsewhere.id, editor_ctx)
+
+
+# ---------------------------------------------------------------------------
 # Tenant isolation
 # ---------------------------------------------------------------------------
 

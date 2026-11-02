@@ -88,6 +88,12 @@ FROZEN_FIELDS: tuple[str, ...] = ("title", "description", "body", "kind")
 #: ``state_meta`` flag marking the release state (spec §4, F-1).
 _FREEZE_STATE_META_KEY = "freeze_on_enter"
 
+#: F-6 label of the "replaced by a successor" state. Only a preference for
+#: resolving the target from the workspace's own transition graph — a customised
+#: lifecycle that names the state differently still resolves, as long as its
+#: target is unambiguous.
+SUPERSEDED_STATE = "Abgelöst"
+
 #: Title limit mirrors ``Document.title``'s ``max_length``.
 _MAX_TITLE_LENGTH = 255
 
@@ -556,6 +562,46 @@ class DocumentService(ServiceBase):
 
     # ---------- Release / re-open ----------
 
+    @classmethod
+    def _resolve_supersede_state(cls, document: Document) -> str | None:
+        """Return the "replaced by a successor" target reachable right now (F-6).
+
+        Restricted to transitions out of the document's *current* state whose
+        target is flagged ``is_outdated_equivalent``, so a document is never
+        retired through an edge its workflow does not offer. ``Abgelöst`` wins
+        when it is a candidate (the spec's label); otherwise a single remaining
+        candidate is used. Anything else is fail-closed (``None``).
+
+        A document that is *already* in an outdated-equivalent state resolves to
+        ``None``: it has been retired, and the only outdated-equivalent edge left
+        (``Abgelöst -> Archiviert``) is archiving, not superseding. Without that
+        guard a repeated :meth:`supersede` would silently archive the document it
+        was asked to supersede a second time.
+        """
+        from workflow.definition_store import get_state_meta
+
+        workflow_json = cls._workflow_json(document.workspace_id)
+        current_state = state_reader.current_state(DOCUMENT_ITEM_TYPE, document.id)
+        if not workflow_json or current_state is None:
+            return None
+        if get_state_meta(workflow_json, current_state).get("is_outdated_equivalent"):
+            return None
+
+        candidates = {
+            str(transition.get("to_state"))
+            for transition in workflow_json.get("transitions", []) or []
+            if transition.get("from_state") == current_state
+            and transition.get("to_state") != current_state
+            and get_state_meta(
+                workflow_json, str(transition.get("to_state"))
+            ).get("is_outdated_equivalent")
+        }
+        if SUPERSEDED_STATE in candidates:
+            return SUPERSEDED_STATE
+        if len(candidates) == 1:
+            return candidates.pop()
+        return None
+
     @atomic_transaction
     def transition_status(
         self,
@@ -767,6 +813,110 @@ class DocumentService(ServiceBase):
             expected_version=expected_version,
         )
 
+    # ---------- Superseding (F-6) ----------
+
+    @atomic_transaction
+    def supersede(
+        self,
+        document_id: UUID,
+        successor_id: UUID,
+        ctx: AuthContext,
+        *,
+        change_reason: str = "",
+        expected_version: int | None = None,
+    ) -> Document:
+        """Retire a document in favour of its successor (F-6).
+
+        F-6 requires that identity is *never* rewritten: a new source document
+        is a new ``Document`` row, and the old one is retired with a
+        ``references`` edge whose rationale is ``"supersedes"`` (successor ->
+        old, matching the concept's "the new plan replaces the old" direction).
+
+        This method does exactly those two things and nothing else — it does not
+        touch ``uid``, title or content of either document. Creating the
+        successor is the caller's job (:meth:`create_document`), and the edge is
+        only written once, so a repeated call is a no-op on the link and a
+        rejected transition afterwards (already retired).
+
+        Args:
+            document_id: UUID of the document being replaced.
+            successor_id: UUID of the replacing document (same workspace).
+            ctx: Resolved AuthContext.
+            change_reason: Recorded on the retire transition. Defaults to
+                ``"superseded"`` because the ``document_default`` retire edge
+                requires a reason.
+            expected_version: Caller's last-seen ``Document.version`` of the
+                **replaced** document.
+
+        Returns:
+            The retired (``Abgelöst``) document.
+
+        Raises:
+            NotFoundError: Either document is not in the active tenant.
+            ValidationError: Same document twice, cross-workspace pair, a
+                soft-deleted document, or no unambiguous retire state.
+            PermissionDeniedError: Role gate blocked the retire transition.
+            OptimisticLockError: *expected_version* does not match.
+        """
+        self._set_tenant_context(ctx)
+        self._assert_write_permission(ctx)
+
+        document = self.get_document(document_id, ctx)
+        successor = self.get_document(successor_id, ctx)
+
+        if document.id == successor.id:
+            raise ValidationError("A document cannot supersede itself")
+        if document.workspace_id != successor.workspace_id:
+            raise ValidationError(
+                "A document can only be superseded by a document in the same "
+                "workspace"
+            )
+
+        from workflow.services import outdated_item_ids
+
+        if document.id in set(
+            outdated_item_ids(DOCUMENT_ITEM_TYPE, tenant_id=ctx.tenant_id)
+        ):
+            raise ValidationError(
+                f"Document {document_id} is deleted; restore it before "
+                "superseding it"
+            )
+
+        from persistence.models import TraceLink
+
+        already_linked = TraceLink.objects.filter(
+            source_id=successor.artifact_id,
+            target_id=document.artifact_id,
+            link_type="references",
+        ).exists()
+        if not already_linked:
+            from application.trace_link_service import TraceLinkService
+
+            TraceLinkService().create_trace_link(
+                successor.id,
+                document.id,
+                "references",
+                ctx,
+                rationale="supersedes",
+            )
+
+        retire_state = self._resolve_supersede_state(document)
+        if retire_state is None:
+            raise ValidationError(
+                "This workspace's Document workflow offers no unambiguous "
+                f"'replaced by a successor' state from "
+                f"{self.current_status(document.id, ctx)!r}. Retire the document "
+                "with an explicit workflow transition instead."
+            )
+
+        return self.transition_status(
+            document.id,
+            retire_state,
+            ctx,
+            change_reason=change_reason or "superseded",
+            expected_version=expected_version,
+        )
+
     # ---------- Soft delete / restore (G1.5) ----------
 
     @atomic_transaction
@@ -885,5 +1035,6 @@ class DocumentService(ServiceBase):
 __all__ = [
     "DOCUMENT_ITEM_TYPE",
     "FROZEN_FIELDS",
+    "SUPERSEDED_STATE",
     "DocumentService",
 ]
