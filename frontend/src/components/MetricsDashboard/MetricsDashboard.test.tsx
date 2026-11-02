@@ -129,8 +129,12 @@ describe("MetricsDashboard", () => {
       // Click to enable help mode
       fireEvent.click(helpBtn);
 
-      // After click: primary background color
-      expect(helpBtn).toHaveStyle("background: var(--color-primary)");
+      // After click: primary background color. Assert the inline declaration
+      // directly: jsdom 30.1.3 no longer round-trips a var() through the
+      // background shorthand in getComputedStyle.
+      expect(helpBtn.getAttribute("style")).toContain(
+        "background: var(--color-primary)"
+      );
     });
   });
 
