@@ -79,14 +79,23 @@ not an oversight: it is the behaviour for callers that do not track versions.
 
 ### Which resources — conditional requests are opt-in
 
-Four resources support them **on `PATCH`**:
+Five resources support them **on `PATCH`**:
 
 | Resource | `ETag` on GET/PATCH | `If-Match` on PATCH | `412` declared |
 |----------|--------------------|---------------------|----------------|
 | `/api/v1/requirements/{id}/` | yes | yes | yes |
+| `/api/v1/documents/{id}/` | yes (also on `POST /documents/` → `201`) | yes | yes |
 | `/api/v1/test-cases/{id}/` (legacy alias `testcases`) | yes | yes | yes (`testcases` too) |
 | `/api/v1/workspaces/{id}/` | yes | yes | yes |
 | `/api/v1/baselines/{id}/` | yes — a `created_at` timestamp, not a counter | yes — evaluated *before* the `405` | yes |
+
+`Document` is the one workflow-backed type whose **`POST .../transitions/`**
+also honours the *entity* `ETag`: `DocumentService.transition_status` compares
+`expected_version` against `Document.version`, so a stale strong tag answers
+`412` and a stale body field `409`. Every other entity's `transitions/` POST
+guards the `WorkflowItemState` revision (see the action table below), and the
+Document `GET .../transitions/` therefore reports the entity revision as
+`version` while preserving the workflow revision as `workflow_version`.
 
 **On `PATCH`**, the six core artifact families below do not support conditional
 requests: their `PATCH` emits no `ETag` and ignores `If-Match`. It still accepts

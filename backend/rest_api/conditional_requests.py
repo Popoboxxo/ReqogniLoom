@@ -11,13 +11,14 @@ the generated document and this module disagree in either direction.
 
 The decision (recorded for #1397, deliberately not extended in that issue)
 --------------------------------------------------------------------------
-Only four *PATCH* operations implement optimistic locking through an ``ETag``
-they also emit on ``GET``: ``Requirement``, ``TestCase``, ``Baseline`` and
-``Workspace``. They are the only entities whose ``ETag`` is derived from a
-monotonic ``version`` counter (or, for the immutable ``Baseline``, a stable
-``created_at`` timestamp) — the very value ``expected_version`` compares
-against, so an ``ETag`` and the body field can never disagree about which
-revision is current.
+Only five *PATCH* operations implement optimistic locking through an ``ETag``
+they also emit on ``GET``: ``Requirement``, ``Document``, ``TestCase``,
+``Baseline`` and ``Workspace``. They are the only entities whose ``ETag`` is
+derived from a monotonic ``version`` counter (or, for the immutable
+``Baseline``, a stable ``created_at`` timestamp) — the very value
+``expected_version`` compares against, so an ``ETag`` and the body field can
+never disagree about which revision is current. ``Document`` joined this set in
+Plan F F2-T5 (KA-F-08): its ``DocumentService`` compares the very same counter.
 
 Retrofitting ``ETag``/``If-Match`` onto the six core artifact families — ``Adr``,
 ``ArchitectureElement``, ``ChangeRequest``, ``Issue``, ``Risk`` and
@@ -85,13 +86,14 @@ __all__ = [
 #: ``If-Match`` request header. ``method`` is the lowercase HTTP method as it
 #: appears in the generated document.
 #:
-#: Five entries for four ViewSets: ``TestCaseViewSet`` is routed twice —
+#: Six entries for five ViewSets: ``TestCaseViewSet`` is routed twice —
 #: ``rest_api/urls.py`` registers ``testcases`` (legacy, un-hyphenated) and
 #: ``test-cases`` (canonical kebab-case, #1177) — and drf-spectacular documents
 #: both as separate paths. They are the *same* view, so both are honest.
 CONDITIONAL_REQUEST_OPERATIONS: Final[frozenset[tuple[str, str]]] = frozenset(
     {
         ("/api/v1/baselines/{id}/", "patch"),
+        ("/api/v1/documents/{id}/", "patch"),
         ("/api/v1/requirements/{id}/", "patch"),
         ("/api/v1/test-cases/{id}/", "patch"),
         ("/api/v1/testcases/{id}/", "patch"),
@@ -201,9 +203,10 @@ UNSUPPORTED_CONDITIONAL_FAMILIES: Final[dict[str, str]] = {
 #: summary and the machine-readable sets cannot drift: both are computed from
 #: the same module, and the gate test checks the schema against it.
 CONDITIONAL_REQUESTS_DESCRIPTION: Final[str] = (
-    "Conditional requests (ETag / If-Match): the requirement, test-case "
-    "(both the /test-cases/ and legacy /testcases/ spellings), workspace and "
-    "baseline PATCH operations implement HTTP optimistic locking. Their GET "
+    "Conditional requests (ETag / If-Match): the requirement, document, "
+    "test-case (both the /test-cases/ and legacy /testcases/ spellings), "
+    "workspace and baseline PATCH operations implement HTTP optimistic "
+    "locking. Their GET "
     "responses carry an ETag (a successful PATCH returns the new one), and "
     "their PATCH accepts an optional If-Match request header; a "
     "strong-comparison mismatch answers 412 "

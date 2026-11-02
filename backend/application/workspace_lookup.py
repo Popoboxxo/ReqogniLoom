@@ -90,6 +90,8 @@ ENTITY_SPECS: dict[str, EntityWorkspaceSpec] = {
     "interview": EntityWorkspaceSpec("persistence.models.InterviewSession"),
     "adr": EntityWorkspaceSpec("persistence.models.Adr"),
     "risk": EntityWorkspaceSpec("persistence.models.Risk"),
+    # Plan F F2-T5 (ADR-026): Document carries a direct, non-null workspace FK.
+    "document": EntityWorkspaceSpec("persistence.models.Document"),
     "issue": EntityWorkspaceSpec("persistence.models.Issue"),
     "change_request": EntityWorkspaceSpec("persistence.models.ChangeRequest"),
     "goal": EntityWorkspaceSpec("persistence.models.Goal"),

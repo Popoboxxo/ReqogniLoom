@@ -22,6 +22,7 @@ Registers:
   /api/v1/adrs/               AdrViewSet (REQ-L1-029)
   /api/v1/adrs/derive-from-decision/  AdrViewSet.derive_from_decision (#1358 REST parity)
   /api/v1/risks/              RiskViewSet (REQ-L1-029)
+  /api/v1/documents/          DocumentViewSet (Plan F F2-T5, ADR-026)
   /api/v1/architecture/{pk}/derive-risks/  ArchitectureElementViewSet.derive_risks (#1358)
   /api/v1/glossary/derive/    GlossaryTermViewSet.derive (#1358 REST parity)
   /api/v1/goals/               GoalViewSet (REQ-L2-TE-020)
@@ -237,6 +238,7 @@ from rest_api.views import (
     ConsistencyStatusView,
     CsvExportView,
     CsvImportView,
+    DocumentViewSet,
     GlossaryTermViewSet,
     GoalViewSet,
     IssueViewSet,
@@ -285,6 +287,8 @@ router.register(r"workflows", WorkflowDefinitionViewSet, basename="workflow")
 router.register(r"workspaces", WorkspaceViewSet, basename="workspace")
 router.register(r"adrs", AdrViewSet, basename="adr")
 router.register(r"risks", RiskViewSet, basename="risk")
+# Plan F F2-T5 (PR-F18a): the Document artifact REST surface (ADR-026).
+router.register(r"documents", DocumentViewSet, basename="document")
 router.register(r"goals", GoalViewSet, basename="goal")
 router.register(r"main-goals", MainGoalViewSet, basename="main-goal")
 # #1177 alias: the un-hyphenated legacy spelling stays reachable alongside the

@@ -45,6 +45,7 @@ from rest_api.serializers import (
     BaselineTagsRequestSerializer,
     ChangeRequestSerializer,
     CommentSerializer,
+    DocumentSerializer,
     GlossaryTermSerializer,
     GoalSerializer,
     IcdParameterSerializer,
@@ -94,6 +95,8 @@ _GUARDED_WRITE_SERIALIZERS: tuple[type, ...] = (
     MainGoalSerializer,
     IssueSerializer,
     ChangeRequestSerializer,
+    # Plan F F2-T5: the Document artifact's REST write serializer.
+    DocumentSerializer,
     GlossaryTermSerializer,
     AdrSerializer,
     RiskSerializer,

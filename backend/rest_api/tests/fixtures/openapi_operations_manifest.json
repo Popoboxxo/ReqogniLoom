@@ -610,6 +610,50 @@
    "get"
   ],
   [
+   "/api/v1/documents/",
+   "get"
+  ],
+  [
+   "/api/v1/documents/",
+   "post"
+  ],
+  [
+   "/api/v1/documents/{id}/",
+   "delete"
+  ],
+  [
+   "/api/v1/documents/{id}/",
+   "get"
+  ],
+  [
+   "/api/v1/documents/{id}/",
+   "patch"
+  ],
+  [
+   "/api/v1/documents/{id}/diff/",
+   "get"
+  ],
+  [
+   "/api/v1/documents/{id}/reactivate/",
+   "post"
+  ],
+  [
+   "/api/v1/documents/{id}/transitions/",
+   "get"
+  ],
+  [
+   "/api/v1/documents/{id}/transitions/",
+   "post"
+  ],
+  [
+   "/api/v1/documents/{id}/versions/",
+   "get"
+  ],
+  [
+   "/api/v1/documents/{id}/workflow-history/",
+   "get"
+  ],
+  [
    "/api/v1/glossary/",
    "get"
   ],

@@ -570,6 +570,44 @@ class ETagMixin:
             return None
         return self.precondition_failed(request)
 
+    def optimistic_lock_response(
+        self, request: Request, exc: Exception, lang: str = "en"
+    ) -> Response:
+        """Map an ``OptimisticLockError`` to ``412`` or ``409`` (KA-F-08/E2.4).
+
+        The one place that decides which half of the optimistic-locking
+        contract a lost race belongs to:
+
+        * the request carried a **strong** ``If-Match`` entity-tag → ``412
+          PRECONDITION_FAILED`` (the HTTP precondition was evaluated and did
+          not hold);
+        * otherwise (body ``expected_version``, ``If-Match: *`` or no header)
+          → ``409 CONFLICT`` (the legacy, non-HTTP contract).
+
+        ``If-Match: *`` deliberately answers ``409`` here: it asserts existence
+        only, so a version conflict cannot be a failed precondition (Plan E
+        E2.4).
+
+        Args:
+            request: The incoming request that carried the precondition.
+            exc: The ``OptimisticLockError`` raised by the service.
+            lang: Response language (falls back to the request's
+                ``Accept-Language`` when empty).
+
+        Returns:
+            A 412 response for a strong header, else the standard 409 envelope.
+        """
+        parsed = parse_if_match(request.headers.get(_IF_MATCH))
+        if parsed.kind is IfMatchKind.TAGS and parsed.strong_tags:
+            return self.precondition_failed(request)
+
+        # Local import: ``rest_api.views`` imports this mixin at module load,
+        # so a module-level back-import would close the cycle.
+        from rest_api.serializers import detect_lang
+        from rest_api.views import _service_error_response
+
+        return _service_error_response(exc, lang or detect_lang(request))
+
     def precondition_failed(self, request: Request) -> Response:
         """Build the ``412 Precondition Failed`` response (standard envelope)."""
         # Local import: see ``invalid_if_match`` for the cycle.

@@ -35,6 +35,9 @@ ALLOWED = {
     # asserts the human EN upstream *label* of ``documented-in`` — the word is a
     # label text here, not a link_type key (Plan F F2-T3).
     "link_types/tests/test_document_link_types_1374.py",
+    # the REST collection path ``/api/v1/documents/`` (Plan F F2-T5) — a router
+    # segment, not ``TraceLink.link_type``.
+    "rest_api/urls.py",
 }
 
 

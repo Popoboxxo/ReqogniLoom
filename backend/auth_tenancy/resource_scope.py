@@ -235,6 +235,7 @@ for _name, _entity in {
     "TestCaseViewSet": "testcase",
     "AdrViewSet": "adr",
     "RiskViewSet": "risk",
+    "DocumentViewSet": "document",
     "GoalViewSet": "goal",
     "MainGoalViewSet": "main_goal",
     "IssueViewSet": "issue",

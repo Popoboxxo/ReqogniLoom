@@ -76,6 +76,8 @@ from application.artifact_attribute_gateway import (
     transport_field_names,
 )
 from application.base import (
+    DocumentGateFailedError,
+    FieldFrozenError,
     ProducerContextRequiredError,
     SuppressionExpiredError,
     WaiverFindingNotBlockingError,
@@ -96,6 +98,9 @@ from application.baseline_rollback_service import (
     RollbackTooLargeError,
 )
 from application.change_request_service import ChangeRequestDTO
+# Plan F F2-T5 (PR-F18a): the Document artifact's single write entry point
+# (ADR-01). Exposed over REST here; MCP follows in F2-T6.
+from application.document_service import DocumentService
 from application.goal_service import GoalService
 from application.import_idempotency import (
     IdempotencyConflict,
@@ -214,6 +219,7 @@ from rest_api.serializers import (
     BaselineTagsResponseSerializer,
     ChangeRequestSerializer,
     CsvImportReportSerializer,
+    DocumentSerializer,
     GlossaryTermSerializer,
     GoalSerializer,
     ImpactNodeSerializer,
@@ -401,6 +407,14 @@ _EXC_TO_HTTP: dict[type, int] = {
     RollbackForbiddenError: status.HTTP_403_FORBIDDEN,
     NotFoundError: status.HTTP_404_NOT_FOUND,
     OptimisticLockError: status.HTTP_409_CONFLICT,
+    # Plan F F2-T5 / ADR-026 F-3 & §4.2: the two Document domain refusals are
+    # ``ValidationError`` subclasses, so without their exact-type entries the
+    # generic lookup would answer a 500 — which is precisely the contract the
+    # F2-T4 service docstrings reserve for this PR. 409 for both: the release
+    # gate is a rejected precondition on a well-formed request, and a frozen
+    # field is a state conflict, not a malformed payload.
+    FieldFrozenError: status.HTTP_409_CONFLICT,
+    DocumentGateFailedError: status.HTTP_409_CONFLICT,
     # GH-1396: shared safety net for routes that do not map the header
     # themselves (the workflow-transition special routes). A malformed
     # ``If-Match`` is a request defect (400); a header whose strong tags cannot
@@ -459,6 +473,10 @@ _EXC_TO_CODE: dict[type, str] = {
     RollbackForbiddenError: "PERMISSION_DENIED",
     NotFoundError: "NOT_FOUND",
     OptimisticLockError: "CONFLICT",
+    # Plan F F2-T5: dedicated codes + structured ``details`` (one entry per
+    # frozen field / one per violated gate), per ADR-026 F-3 and §4.2.
+    FieldFrozenError: "FIELD_FROZEN",
+    DocumentGateFailedError: "DOCUMENT_GATE_FAILED",
     # GH-1396: see _EXC_TO_HTTP. INVALID_IF_MATCH is its own code so a client
     # can tell "your header did not parse" (fix the request) from
     # PRECONDITION_FAILED ("re-read and retry").
@@ -4427,7 +4445,13 @@ class TraceLinkViewSet(BaseEntityViewSet):
         return TraceLinkService()
 
     def _list_workspace_links(
-        self, request: Request, svc: TraceLinkService, workspace_id: Any, ctx: Any
+        self,
+        request: Request,
+        svc: TraceLinkService,
+        workspace_id: Any,
+        ctx: Any,
+        *,
+        link_type: str | None = None,
     ) -> Response:
         """List every TraceLink whose source lives in the workspace.
 
@@ -4451,7 +4475,7 @@ class TraceLinkViewSet(BaseEntityViewSet):
         being rewritten to a 500.
         """
         links_qs = svc.list_links_for_workspace_queryset(
-            workspace_id=workspace_id, ctx=ctx
+            workspace_id=workspace_id, ctx=ctx, link_type=link_type
         )
         page = self.paginator.paginate_queryset(links_qs, request, view=self)
         if page is not None:
@@ -4479,7 +4503,12 @@ class TraceLinkViewSet(BaseEntityViewSet):
         )
 
     def _list_artifact_links(
-        self, svc: TraceLinkService, artifact_id_str: str, ctx: Any
+        self,
+        svc: TraceLinkService,
+        artifact_id_str: str,
+        ctx: Any,
+        *,
+        link_type: str | None = None,
     ) -> list[dict[str, Any]]:
         """List upstream + downstream TraceLinks for one artifact.
 
@@ -4517,6 +4546,7 @@ class TraceLinkViewSet(BaseEntityViewSet):
                     entity_id=artifact_id,
                     direction=direction,
                     ctx=ctx,
+                    link_type=link_type,
                 )
                 for tl in results:
                     if tl.id in seen_ids:
@@ -4574,12 +4604,48 @@ class TraceLinkViewSet(BaseEntityViewSet):
                 )
         return items
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Workspace whose links are listed (or filter).",
+            ),
+            OpenApiParameter(
+                "artifact_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Return the upstream + downstream links attached to this "
+                    "artifact instead of the workspace-wide list."
+                ),
+            ),
+            OpenApiParameter(
+                "link_type",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Only return links of this type (e.g. `verifies`, "
+                    "`documented-in`). Filters both the workspace-wide and the "
+                    "per-artifact listing (R-X-1, Plan F F2-T5)."
+                ),
+            ),
+        ]
+    )
     def list(self, request: Request, **kwargs: Any) -> Response:
-        """GET /api/v1/tracelinks/?workspace_id=<id>[&artifact_id=<id>]
+        """GET /api/v1/tracelinks/?workspace_id=<id>[&artifact_id=<id>][&link_type=<type>]
 
         When artifact_id is provided: returns upstream + downstream links for that artifact.
         When only workspace_id is provided: returns every link whose source
         lives in that workspace.
+
+        ``link_type`` narrows either branch (R-X-1): before Plan F F2-T5 the
+        parameter was silently ignored, so a client filtering by ``verifies``
+        saw every link and could not compute coverage from this endpoint.
 
         Fix #264 (Befund B): the workspace-level branch used to return an
         unconditional empty page, so this endpoint reported ``count: 0`` for
@@ -4607,12 +4673,17 @@ class TraceLinkViewSet(BaseEntityViewSet):
                 return error
 
             artifact_id_str = request.query_params.get("artifact_id")
+            link_type = request.query_params.get("link_type") or None
             svc = self._svc()
 
             if not artifact_id_str:
-                return self._list_workspace_links(request, svc, workspace_id, ctx)
+                return self._list_workspace_links(
+                    request, svc, workspace_id, ctx, link_type=link_type
+                )
 
-            items = self._list_artifact_links(svc, artifact_id_str, ctx)
+            items = self._list_artifact_links(
+                svc, artifact_id_str, ctx, link_type=link_type
+            )
             # REQ-002: batch-resolve titles for all unique artifact IDs so the
             # frontend can display human-readable labels without extra requests.
             _enrich_tracelink_titles(items)
@@ -7430,6 +7501,41 @@ def _risk_to_dict(risk: Any) -> dict[str, Any]:
     }
 
 
+def _document_to_dict(document: Any) -> dict[str, Any]:
+    """Convert a ``Document`` ORM row to the serializer-compatible dict.
+
+    ``status`` is intentionally absent: ``DocumentSerializer`` resolves it from
+    the workflow engine (``WorkflowStateSerializerMixin``), which is also what
+    turns a soft-deleted document into ``"outdated"`` via the state reader's
+    lifecycle join. ``doc_date`` is passed through as a ``date``; the DRF
+    ``DateField`` renders it as ISO-8601.
+    """
+    return {
+        "id": str(document.id),
+        "workspace_id": str(document.workspace_id),
+        "artifact_id": (
+            str(document.artifact_id)
+            if getattr(document, "artifact_id", None)
+            else None
+        ),
+        "uid": getattr(document, "uid", None),
+        "title": document.title,
+        "kind": document.kind,
+        "description": getattr(document, "description", ""),
+        "body": getattr(document, "body", ""),
+        "doc_date": getattr(document, "doc_date", None),
+        "frozen_at": getattr(document, "frozen_at", None),
+        "frozen_fields": list(getattr(document, "frozen_fields", None) or []),
+        "custom_fields": _artifact_custom_fields(document),
+        "version": document.version,
+        "created_at": document.created_at,
+        # ``Document`` inherits the house ``modified_at`` column (it does not
+        # define its own ``updated_at`` like Adr/Risk); the wire key stays
+        # ``updated_at`` so the contract matches every other artifact.
+        "updated_at": document.modified_at,
+    }
+
+
 def _goal_to_dict(goal: Any) -> dict[str, Any]:
     """Convert Goal ORM object to serializer-compatible dict (Task 6).
 
@@ -8947,6 +9053,463 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+
+# ---------------------------------------------------------------------------
+# DocumentViewSet — Plan F F2-T5 (PR-F18a, ADR-026)
+# ---------------------------------------------------------------------------
+
+
+class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
+    """REST surface for the ``Document`` artifact (Plan F F2-T5, ADR-026).
+
+    Delegates every write to :class:`application.document_service.DocumentService`
+    (ADR-01) — no business logic in this class (REQ-L3-RA001-004).
+
+    Contract highlights
+    -------------------
+    * **ETag / If-Match (KA-F-08, ADR-026 §9).** ``Document.version`` is the
+      optimistic-lock counter; GET, POST and PATCH emit it as ``ETag`` and a
+      PATCH accepts ``If-Match``. A stale strong tag answers ``412``, a stale
+      body ``expected_version`` ``409``, a malformed header ``400``. Unlike the
+      generic ``transitions/`` route, the Document transition POST also guards
+      the **entity** version (the service's ``expected_version``), not the
+      ``WorkflowItemState`` revision.
+    * **Freeze (F-3).** A PATCH that touches a frozen field answers ``409``
+      ``FIELD_FROZEN`` with one ``details`` entry per field.
+    * **Gates (G-1…G-4).** A release refused by rule 9 answers ``409``
+      ``DOCUMENT_GATE_FAILED`` with one ``details`` entry per violated gate.
+    * **Soft delete (G1.5).** ``DELETE`` answers ``204`` and only flips the
+      backing Artifact's lifecycle flag; GET still answers ``200`` with
+      ``status="outdated"``, lists hide it unless ``?include_deleted=true``,
+      and ``POST .../reactivate/`` restores it.
+    * **Ordering (G2.1).** The list is ordered by ``-modified_at, id`` in the
+      service, so pagination is deterministic.
+    """
+
+    serializer_class = DocumentSerializer
+    preset_endpoint_key = ""
+    workflow_item_type = "Document"
+
+    def _svc(self) -> DocumentService:
+        return DocumentService()
+
+    def _resolve_workflow_target(self, pk: str, ctx: Any) -> tuple[UUID, UUID]:
+        item = self._svc().get_document(UUID(pk), ctx)
+        return item.id, item.workspace_id
+
+    # ---------- Read ----------
+
+    @list_schema()
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/documents/?workspace_id=<id>[&include_deleted=true]
+
+        Documents are ordered by ``-modified_at, id`` (G2.1), so OFFSET/LIMIT
+        pagination is stable. Soft-deleted documents are hidden unless
+        ``include_deleted`` is true (G1.5 V4).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"), lang
+            )
+            if error is not None:
+                return error
+            items = self._svc().list_documents(
+                workspace_id=workspace_id,
+                ctx=ctx,
+                include_deleted=parse_include_deleted(request.query_params),
+            )
+        except (ValidationError, ValueError) as exc:
+            return _service_error_response(
+                exc if isinstance(exc, ValidationError) else ValidationError(str(exc)),
+                lang,
+            )
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return self._paginate(
+            request,
+            items,
+            serialize_page=lambda page: DocumentSerializer(
+                [_document_to_dict(item) for item in page], many=True
+            ).data,
+        )
+
+    @extend_schema(parameters=[_ETAG_RESPONSE_HEADER])
+    def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/documents/{pk}/ — retrieve a document.
+
+        A soft-deleted document still answers ``200`` with ``status="outdated"``
+        (G1.5 V3); an unknown id answers ``404``. The response carries
+        ``ETag: "<version>"`` for a subsequent conditional PATCH.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get_document(UUID(pk), ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return self.with_etag(
+            Response(DocumentSerializer(_document_to_dict(item)).data), item
+        )
+
+    # ---------- Create ----------
+
+    @extend_schema(parameters=[_ETAG_RESPONSE_HEADER])
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/documents/ — create a document. Returns 201.
+
+        ``title`` and ``kind`` are required; ``kind`` is one of
+        ``Document.Kind``. The local identifier is allocated server-side as
+        ``DOC-NNN`` and the initial workflow state is ``Entwurf``. The 201
+        carries the new ``ETag`` so a client can PATCH conditionally without a
+        second GET.
+        """
+        lang = detect_lang(request)
+        ser = DocumentSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().create_document(
+                workspace_id=UUID(str(data["workspace_id"])),
+                ctx=ctx,
+                title=data["title"],
+                kind=data["kind"],
+                description=data.get("description", ""),
+                body=data.get("body", ""),
+                doc_date=data.get("doc_date"),
+                custom_fields=data.get("custom_fields"),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return self.with_etag(
+            Response(
+                DocumentSerializer(_document_to_dict(item)).data,
+                status=status.HTTP_201_CREATED,
+            ),
+            item,
+        )
+
+    # ---------- Update ----------
+
+    @extend_schema(
+        # KA-F-08: the 412 is conditioned on the declared request header, and
+        # the response supplies the next tag.
+        parameters=[_IF_MATCH_PARAMETER, _ETAG_RESPONSE_HEADER],
+        responses={
+            200: DocumentSerializer,
+            412: _PRECONDITION_FAILED_RESPONSE,
+        },
+    )
+    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """PATCH /api/v1/documents/{pk}/ — update a document. Returns 200.
+
+        Ordering follows ADR-026 F-3 exactly: the ``If-Match`` syntax gate runs
+        first (400 ``INVALID_IF_MATCH``), then the service applies the
+        frozen-field gate (409 ``FIELD_FROZEN``), then the version compare
+        (412 for a stale strong ``If-Match``, 409 for a stale body
+        ``expected_version``). ``doc_date`` and ``custom_fields`` stay writable
+        while the document is frozen (F-2).
+        """
+        lang = detect_lang(request)
+        # GH-1396: a malformed If-Match is a request defect, refused before any
+        # read or write.
+        invalid = self.if_match_parse_error(request)
+        if invalid is not None:
+            return invalid
+        invalid = self._validate_patch_payload(
+            request,
+            lang,
+            serializer_cls=DocumentSerializer,
+            pk=pk,
+            ctx=get_auth_context(request),
+        )
+        if invalid is not None:
+            return invalid
+        ser = DocumentSerializer(data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        # PATCH semantics: `doc_date` and `custom_fields` use a sentinel in the
+        # service, so forwarding `None` for an omitted key would clear the
+        # stored value. Only forward what the request actually carried.
+        extra_kwargs: dict[str, Any] = {}
+        if "doc_date" in data:
+            extra_kwargs["doc_date"] = data["doc_date"]
+        if "custom_fields" in data:
+            extra_kwargs["custom_fields"] = data["custom_fields"]
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().update_document(
+                document_id=UUID(pk),
+                ctx=ctx,
+                title=data.get("title"),
+                kind=data.get("kind"),
+                description=data.get("description"),
+                body=data.get("body"),
+                change_reason=data.get("change_reason"),
+                expected_version=self.resolve_expected_version(
+                    request,
+                    data,
+                    current=lambda: self._svc().get_document(UUID(pk), ctx),
+                ),
+                **extra_kwargs,
+            )
+        except (InvalidIfMatch, IfMatchMismatch) as exc:
+            return self.if_match_error(request, exc)
+        except OptimisticLockError as exc:
+            # KA-F-08: strong If-Match → 412; body expected_version → 409.
+            return self.optimistic_lock_response(request, exc, lang)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return self.with_etag(
+            Response(DocumentSerializer(_document_to_dict(item)).data), item
+        )
+
+    # ---------- Soft delete / restore (G1.5) ----------
+
+    @soft_delete_schema()
+    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """DELETE /api/v1/documents/{pk}/ — soft-delete a document. Returns 204.
+
+        The row is not removed: ``Artifact.lifecycle_status`` moves to
+        ``"outdated"`` (G1.5 V1/V2), a subsequent GET still answers ``200`` with
+        ``status="outdated"``, and lists hide it unless ``?include_deleted=true``.
+        ``change_reason`` may be sent in the body or as ``?change_reason=``; a
+        preset that mandates one answers ``400 VALIDATION_ERROR`` without it.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            self._svc().delete_document(
+                UUID(pk), ctx, change_reason=parse_change_reason(request)
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="reactivate")
+    def reactivate(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/documents/{pk}/reactivate/ — undo the soft-delete.
+
+        Restores the workflow state the document held throughout (soft delete
+        is an orthogonal flag), so a previously released document comes back
+        released and still frozen. Delegates to
+        ``DocumentService.restore_document`` — the audited service path — rather
+        than the generic facade so the restore is recorded on the audit trail.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().restore_document(UUID(pk), ctx)
+            new_state = self._svc().current_status(UUID(pk), ctx)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return Response(
+            {
+                "id": str(pk),
+                "previous_state": "outdated",
+                "new_state": new_state,
+                "document": DocumentSerializer(_document_to_dict(item)).data,
+            }
+        )
+
+    # ---------- Workflow transitions (F-1/F-5 and gates) ----------
+
+    @action(detail=True, methods=["get", "post"], url_path="transitions")
+    def transitions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET/POST /api/v1/documents/{pk}/transitions/.
+
+        GET is inherited from ``WorkflowTransitionsMixin`` but re-expressed for
+        this entity: ``version`` is the **Document** revision (the ETag source
+        the POST expects), and the workflow-engine revision is preserved under
+        ``workflow_version``.
+
+        POST goes through ``DocumentService.transition_status`` instead of the
+        generic facade so the F-1 freeze, the F-5 re-open version bump and the
+        G-1…G-4 gates cannot be bypassed by this route. ``expected_version`` /
+        ``If-Match`` therefore guard the Document version (412 for a stale
+        strong tag, 409 for a stale body field) — a deliberate deviation from
+        the generic ``transitions/`` contract, which guards the workflow
+        revision.
+        """
+        if request.method.upper() == "GET":
+            response = super().transitions(request, pk, **kwargs)
+            if response.status_code == status.HTTP_200_OK and isinstance(
+                response.data, dict
+            ):
+                try:
+                    ctx = get_auth_context(request)
+                    document = self._svc().get_document(UUID(pk), ctx)
+                except Exception:  # noqa: BLE001 — keep the parent's answer
+                    return response
+                response.data["workflow_version"] = response.data.get("version")
+                response.data["version"] = document.version
+            return response
+        return self._post_document_transition(request, pk)
+
+    def _post_document_transition(self, request: Request, pk: str) -> Response:
+        """Perform a gated document transition through ``DocumentService``."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            self._resolve_workflow_target(pk, ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        target_state = request.data.get("target_state")
+        if not target_state:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR", lang, message="target_state is required"
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            raw_version = self.resolve_expected_version(
+                request,
+                request.data,
+                current=lambda: self._svc().get_document(UUID(pk), ctx),
+            )
+            expected_version = int(raw_version) if raw_version is not None else None
+        except InvalidIfMatch as exc:
+            return Response(
+                build_error_response(
+                    "INVALID_IF_MATCH",
+                    lang,
+                    details=[{"reason": exc.reason}] if exc.reason else None,
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except IfMatchMismatch:
+            # Document transition guards the entity ETag, so a lost
+            # precondition is the standard 412 (not the generic route's 409).
+            return self.precondition_failed(request)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            previous_state = self._svc().current_status(UUID(pk), ctx)
+            item = self._svc().transition_status(
+                UUID(pk),
+                str(target_state),
+                ctx,
+                change_reason=request.data.get("change_reason") or "",
+                credential=request.data.get("credential") or "",
+                expected_version=expected_version,
+            )
+        except OptimisticLockError as exc:
+            return self.optimistic_lock_response(request, exc, lang)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+
+        return Response(
+            {
+                "id": str(item.id),
+                "previous_state": previous_state,
+                "new_state": self._svc().current_status(item.id, ctx),
+                # The value the client echoes as ``expected_version``/``If-Match``
+                # on its next call — the Document revision, not the workflow one.
+                "version": item.version,
+                "document": DocumentSerializer(_document_to_dict(item)).data,
+            }
+        )
+
+    # ---------- Versions / diff ----------
+
+    @action(detail=True, methods=["get"], url_path="versions")
+    def versions(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/documents/{pk}/versions/ — recorded content revisions.
+
+        Every document starts with revision 1 and gains one on every content
+        change and on release/re-open (F-5). Reads the shared
+        ``ArtifactVersion`` store through the generic artifact-id API.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get_document(UUID(pk), ctx)
+            result = ArtifactDiffService().list_versions(item.artifact_id, ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return Response(result)
+
+    @action(detail=True, methods=["get"], url_path="diff")
+    def diff(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/documents/{pk}/diff/?from_version=0&to_version=2
+
+        Field-level diff over ``title``/``description``/``body``/``kind``/
+        ``doc_date`` (the fields ``snapshot_fields`` records for ``Document``).
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get_document(UUID(pk), ctx)
+            from_version = int(request.query_params.get("from_version", "0"))
+            to_version = int(
+                request.query_params.get("to_version", str(item.version))
+            )
+            result = ArtifactDiffService().diff(
+                artifact_id=item.artifact_id,
+                from_version=from_version,
+                to_version=to_version,
+                ctx=ctx,
+            )
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
@@ -12400,6 +12963,7 @@ __all__ = [
     "BaselineViewSet",
     "CsvExportView",
     "CsvImportView",
+    "DocumentViewSet",
     "IssueViewSet",
     "ReqifExportView",
     "RequirementViewSet",
