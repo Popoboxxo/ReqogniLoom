@@ -314,6 +314,14 @@ _WRITE_TOOL_PREFIXES: tuple[str, ...] = (
     "document.transition",
     "document.outdate",
     "document.reactivate",
+    # Plan F F3-T6 (#1374): the WorkItem artifact's mutating tools.
+    # work_item.read/query/resume are read-only (see _READ_ONLY_TOOL_NAMES);
+    # the rest stay fail-closed write-gated.
+    "work_item.create",
+    "work_item.update",
+    "work_item.transition",
+    "work_item.set_progress",
+    "work_item.checkpoint",
     # Issue #114: BaselineToolGroup — baseline.create is the only mutating tool.
     "baseline.create",
     "baseline.set_tags",
@@ -502,6 +510,10 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # and diff do not end on either, so they are listed explicitly.
         "document.versions",
         "document.diff",
+        # Plan F F3-T6 (#1374): work_item.read/work_item.query are already
+        # exempt via the shared ".read"/".query" suffix convention; resume does
+        # not end on either, so it is listed explicitly.
+        "work_item.resume",
         "admin.backup_list",
         "review.list_pending",
         # ADR-019 WP3: the proposal inbox read; accept/reject are write-gated.
@@ -1057,6 +1069,7 @@ class ToolRegistry:
         from mcp_server.tools.tests import TestToolGroup
         from mcp_server.tools.tree_display_config import TreeDisplayConfigToolGroup
         from mcp_server.tools.users import UsersToolGroup
+        from mcp_server.tools.work_items import WorkItemToolGroup
 
         # REQ-129: share ONE instance across prefixes that belong to the same
         # tool group. CrossCuttingToolGroup owns both the ``traceability`` and
@@ -1098,6 +1111,12 @@ class ToolRegistry:
             # create/update/transition/outdate/reactivate stay fail-closed
             # write-gated.
             "document": DocumentToolGroup(),
+            # Plan F F3-T6 (#1374): the WorkItem artifact's MCP surface — the
+            # counterpart of WorkItemViewSet (F3-T5). Reads are
+            # work_item.read/query/resume (see _READ_ONLY_TOOL_NAMES);
+            # create/update/transition/set_progress/checkpoint stay fail-closed
+            # write-gated.
+            "work_item": WorkItemToolGroup(),
             "review": ReviewToolGroup(),
             # ADR-019 WP3: the durable proposal inbox (list/accept/reject).
             # suggestion.list is read-exempt below; accept/reject stay

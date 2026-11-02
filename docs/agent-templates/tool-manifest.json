@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 268,
+  "tool_count": 276,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -7992,6 +7992,383 @@
           "user_id",
           "workspace_id",
           "role"
+        ]
+      }
+    },
+    {
+      "name": "work_item.checkpoint",
+      "prefix": "work_item",
+      "is_write": true,
+      "description": "Create a Checkpoint item carrying the resume hint ('continue here') in a document (write). A checkpoint is an informational marker, not a work deliverable, so it needs no trace link.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Required. UUID of the target workspace."
+          },
+          "document_id": {
+            "type": "string",
+            "description": "Required. Owning document."
+          },
+          "next_action": {
+            "type": "string",
+            "description": "Required. Where to continue — the resume hint."
+          },
+          "title": {
+            "type": "string",
+            "description": "Checkpoint title. Defaults to 'Checkpoint'."
+          },
+          "body": {
+            "type": "string",
+            "description": "Optional markdown note."
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Position inside the document. Defaults to 0."
+          },
+          "actor": {
+            "type": "string",
+            "description": "Optional free-text actor label for the heartbeat."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "document_id",
+          "next_action"
+        ]
+      }
+    },
+    {
+      "name": "work_item.create",
+      "prefix": "work_item",
+      "is_write": true,
+      "description": "Create a WorkItem inside a document (write). A work item is the explicit, queryable work state of the Loom (progress, blocked reason, resume hint, heartbeat) — not conversation memory, which stays in memory.*. The local identifier WI-NNN and the initial workflow state are assigned server-side.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Required. UUID of the target workspace."
+          },
+          "document_id": {
+            "type": "string",
+            "description": "Required. Owning document; a work item never exists without one."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "Phase",
+              "Step",
+              "Milestone",
+              "OpenPoint",
+              "Checkpoint"
+            ],
+            "description": "Required. Work-item kind."
+          },
+          "title": {
+            "type": "string",
+            "description": "Required. Item title (max 255 characters)."
+          },
+          "body": {
+            "type": "string",
+            "description": "Markdown of the section. Defaults to ''."
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Position inside the document. Resume sorts by (ordinal, id). Defaults to 0."
+          },
+          "progress": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Optional 0-100 progress."
+          },
+          "blocked_reason": {
+            "type": "string",
+            "description": "Reason for a blocked item (or the dismissal reason of a dropped one)."
+          },
+          "next_action": {
+            "type": "string",
+            "description": "Resume hint ('where to continue')."
+          },
+          "evidence_ref": {
+            "type": "string",
+            "description": "Evidence (commit, test run, artifact id)."
+          },
+          "due_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional due date (ISO-8601 datetime)."
+          },
+          "exit_criteria": {
+            "type": "string",
+            "description": "Definition of done for this item."
+          },
+          "custom_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
+          },
+          "actor": {
+            "type": "string",
+            "description": "Optional free-text actor label for the heartbeat; defaults to the API key's agent label."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "document_id",
+          "kind",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "work_item.query",
+      "prefix": "work_item",
+      "is_write": false,
+      "description": "List a workspace's work items, ordered by (ordinal, id) (read-only). Soft-deleted items are omitted unless include_outdated is true. This is the queryable Loom work state, not conversation memory (memory.*).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Required. UUID of the target workspace."
+          },
+          "document_id": {
+            "type": "string",
+            "description": "Optional. Only items of this document."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "If true, include soft-deleted items (REST's ?include_deleted=true). Defaults to false."
+          },
+          "uid": {
+            "type": "string",
+            "description": "Optional local identifier (e.g. 'WI-004'); when supplied, only the item carrying it is returned."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "work_item.read",
+      "prefix": "work_item",
+      "is_write": false,
+      "description": "Fetch a single WorkItem by ID, including progress, blocked reason, resume hint, heartbeat and extended attributes (read-only). Loom owns this explicit work state; conversation memory is memory.* (Honcho), not here.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the work item."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "work_item.resume",
+      "prefix": "work_item",
+      "is_write": false,
+      "description": "Return the document's newest checkpoint and every open work item, sorted by (ordinal, id) (read-only). This is the single call an agent without repo access needs to answer 'where do I continue?' — Loom's explicit work state, not conversation memory (memory.*).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Required. UUID of the workspace."
+          },
+          "document_id": {
+            "type": "string",
+            "description": "Required. Document whose work state is resumed."
+          },
+          "actor": {
+            "type": "string",
+            "description": "Optional caller label (informational; not persisted)."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "document_id"
+        ]
+      }
+    },
+    {
+      "name": "work_item.set_progress",
+      "prefix": "work_item",
+      "is_write": true,
+      "description": "Set a WorkItem's progress (0-100) and stamp the heartbeat (write). Progress is independent of the workflow state in every preset.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the work item."
+          },
+          "progress": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "Required. New progress, 0-100."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Optional audit reason."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Last-seen item version. A stale value is refused instead of overwriting."
+          },
+          "actor": {
+            "type": "string",
+            "description": "Optional free-text actor label for the heartbeat."
+          }
+        },
+        "required": [
+          "id",
+          "progress"
+        ]
+      }
+    },
+    {
+      "name": "work_item.transition",
+      "prefix": "work_item",
+      "is_write": true,
+      "description": "Move a WorkItem through its workflow (write). Entering 'blocked' requires a non-empty blocked_reason; the extended preset's sign-off transition requires an approver/admin role. A stale expected_version is refused with CONFLICT.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the work item."
+          },
+          "target_state": {
+            "type": "string",
+            "description": "Requested workflow state (e.g. 'in_progress', 'blocked', 'done'). The states are workspace-configured."
+          },
+          "blocked_reason": {
+            "type": "string",
+            "description": "Mandatory when entering 'blocked'; otherwise an optional reason/history hint."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason recorded on the transition."
+          },
+          "credential": {
+            "type": "string",
+            "description": "Password/TOTP token for a signature-gated transition."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Last-seen item version. A stale value is refused instead of overwriting."
+          },
+          "actor": {
+            "type": "string",
+            "description": "Optional free-text actor label for the heartbeat."
+          }
+        },
+        "required": [
+          "id",
+          "target_state"
+        ]
+      }
+    },
+    {
+      "name": "work_item.update",
+      "prefix": "work_item",
+      "is_write": true,
+      "description": "Update a WorkItem's content fields and/or extended attributes (write). Omitted fields keep their current value; the owning document is immutable. A stale expected_version is refused with CONFLICT.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the work item."
+          },
+          "title": {
+            "type": "string",
+            "description": "New title."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "Phase",
+              "Step",
+              "Milestone",
+              "OpenPoint",
+              "Checkpoint"
+            ],
+            "description": "New work-item kind."
+          },
+          "body": {
+            "type": "string",
+            "description": "New markdown body."
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "New position inside the document."
+          },
+          "progress": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100,
+            "description": "New progress; null clears it."
+          },
+          "blocked_reason": {
+            "type": "string"
+          },
+          "next_action": {
+            "type": "string"
+          },
+          "evidence_ref": {
+            "type": "string"
+          },
+          "due_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "New due date (ISO-8601 datetime); null clears it."
+          },
+          "exit_criteria": {
+            "type": "string"
+          },
+          "custom_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason recorded on the change/revision."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Last-seen item version (the ETag source). A stale value is refused instead of overwriting."
+          },
+          "actor": {
+            "type": "string",
+            "description": "Optional free-text actor label for the heartbeat."
+          }
+        },
+        "required": [
+          "id"
         ]
       }
     },
