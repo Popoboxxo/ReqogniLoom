@@ -123,14 +123,20 @@ describe("MetricsDashboard", () => {
 
       const helpBtn = await screen.findByTestId("metrics-help-toggle-btn");
 
-      // Initial state: transparent background
-      expect(helpBtn).toHaveStyle("background: transparent");
+      // Initial state: transparent background. Both states assert the inline
+      // declaration: jsdom 30.1.3 no longer round-trips the background
+      // shorthand (with or without a var()) through getComputedStyle.
+      expect(helpBtn.getAttribute("style")).toContain("background: transparent");
 
       // Click to enable help mode
       fireEvent.click(helpBtn);
 
-      // After click: primary background color
-      expect(helpBtn).toHaveStyle("background: var(--color-primary)");
+      // After click: primary background color. Assert the inline declaration
+      // directly: jsdom 30.1.3 no longer round-trips a var() through the
+      // background shorthand in getComputedStyle.
+      expect(helpBtn.getAttribute("style")).toContain(
+        "background: var(--color-primary)"
+      );
     });
   });
 
