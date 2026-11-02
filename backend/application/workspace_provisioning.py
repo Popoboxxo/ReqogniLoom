@@ -23,6 +23,7 @@ from auth_tenancy.services.permission_definition import (
 )
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from workflow.global_definition_store import GlobalWorkflowDefinitionStore
+from workflow.item_types import WORKFLOW_ITEM_TYPES
 from workflow.services import create_default_workflow
 
 logger = logging.getLogger(__name__)
@@ -39,24 +40,10 @@ _GLOBAL_TAB_PRESETS: tuple[str, ...] = ("minimal", "standard", "extended")
 # extended); the types below always use their dedicated per-entity preset key.
 # ``ChangeRequest`` reuses the existing ``ccb_approval`` preset.
 #
-# Canonical list — ``application.workspace_service`` imports it from here. The
-# ``workflow.provision_workflow_definitions`` management command keeps its own
-# copy on purpose: as a Layer 1 command it must not import upward from Layer 2.
-WORKFLOW_ENTITY_TYPES: tuple[tuple[str, str], ...] = (
-    ("StakeholderNeed", "need_default"),
-    ("Adr", "adr_default"),
-    ("Risk", "risk_default"),
-    ("Issue", "issue_default"),
-    ("TestCase", "testcase_default"),
-    ("ChangeRequest", "ccb_approval"),
-    ("ArchitectureElement", "architecture_default"),
-    ("Icd", "icd_default"),
-    ("Diagram", "diagram_default"),
-    ("GlossaryTerm", "glossary_term_default"),
-    ("Goal", "goal_default"),
-    ("MainGoal", "main_goal_default"),
-    ("Interview", "interview_default"),
-)
+# Canonical source is ``workflow.item_types.WORKFLOW_ITEM_TYPES`` (Plan F
+# F2-T2). Re-exported under the historical name so
+# ``application.workspace_service`` and its tests keep importing it from here.
+WORKFLOW_ENTITY_TYPES: tuple[tuple[str, str], ...] = WORKFLOW_ITEM_TYPES
 
 
 def provision_workspace_defaults(

@@ -126,6 +126,29 @@ def _validation(lang: str, message: str, *, code: str = "VALIDATION_ERROR") -> R
     )
 
 
+def _unknown_item_type(item_type: str, lang: str) -> Response | None:
+    """R-F2-2: an unknown ``{item_type}`` path segment is a 404, not a 200/400.
+
+    Before Plan F F2-T2 the detail route answered ``200`` with an empty graph
+    for any string, so a typo silently looked like an uninitialised workflow
+    and ``initialize``/``states`` created permanent orphan rows nothing would
+    ever match. The known set is the canonical workflow item-type registry plus
+    the tier-driven ``Requirement``.
+    """
+    from workflow.item_types import KNOWN_WORKFLOW_ITEM_TYPES
+
+    if item_type in KNOWN_WORKFLOW_ITEM_TYPES:
+        return None
+    return Response(
+        build_error_response(
+            "NOT_FOUND",
+            lang,
+            message=f"Unknown workflow item type: {item_type!r}",
+        ),
+        status=status.HTTP_404_NOT_FOUND,
+    )
+
+
 def _map_workflow_error(exc: Exception, lang: str) -> Response:
     """Map a workflow-definition error to a precise HTTP status."""
     from workflow.services import (
@@ -467,6 +490,9 @@ class GlobalWorkflowDefinitionDetailView(APIView):
         if isinstance(gate, Response):
             return gate
         ctx, _lang = gate
+        unknown = _unknown_item_type(item_type, _lang)
+        if unknown is not None:
+            return unknown
         obj = WorkflowFacade().get_global_definition(
             ctx, item_type=item_type, preset=preset
         )
@@ -497,6 +523,9 @@ class GlobalWorkflowInitializeView(APIView):
         if isinstance(gate, Response):
             return gate
         ctx, lang = gate
+        unknown = _unknown_item_type(item_type, lang)
+        if unknown is not None:
+            return unknown
         try:
             obj = WorkflowFacade().initialize_global_definition(
                 ctx, item_type=item_type, preset=preset
@@ -531,6 +560,9 @@ class GlobalWorkflowStatesView(APIView):
         if isinstance(gate, Response):
             return gate
         ctx, lang = gate
+        unknown = _unknown_item_type(item_type, lang)
+        if unknown is not None:
+            return unknown
         name = (request.data.get("name") or "").strip()
         if not name:
             return _validation(lang, "name is required")
@@ -577,6 +609,9 @@ class GlobalWorkflowStateDetailView(APIView):
         if isinstance(gate, Response):
             return gate
         ctx, lang = gate
+        unknown = _unknown_item_type(item_type, lang)
+        if unknown is not None:
+            return unknown
         new_name = (request.data.get("name") or "").strip()
         if not new_name:
             return _validation(lang, "name is required")
@@ -620,6 +655,9 @@ class GlobalWorkflowStateDetailView(APIView):
         if isinstance(gate, Response):
             return gate
         ctx, lang = gate
+        unknown = _unknown_item_type(item_type, lang)
+        if unknown is not None:
+            return unknown
         try:
             obj, count = WorkflowFacade().delete_global_state(
                 ctx, item_type=item_type, preset=preset, name=unquote(state_id)
@@ -657,6 +695,9 @@ class GlobalWorkflowTransitionsView(APIView):
         if isinstance(gate, Response):
             return gate
         ctx, lang = gate
+        unknown = _unknown_item_type(item_type, lang)
+        if unknown is not None:
+            return unknown
         from_state = request.data.get("from_state")
         to_state = request.data.get("to_state")
         if not from_state or not to_state:
@@ -721,6 +762,9 @@ class GlobalWorkflowTransitionDetailView(APIView):
         if isinstance(gate, Response):
             return gate
         ctx, lang = gate
+        unknown = _unknown_item_type(item_type, lang)
+        if unknown is not None:
+            return unknown
         parsed = self._split(transition_id, lang)
         if isinstance(parsed, Response):
             return parsed
@@ -769,6 +813,9 @@ class GlobalWorkflowTransitionDetailView(APIView):
         if isinstance(gate, Response):
             return gate
         ctx, lang = gate
+        unknown = _unknown_item_type(item_type, lang)
+        if unknown is not None:
+            return unknown
         parsed = self._split(transition_id, lang)
         if isinstance(parsed, Response):
             return parsed

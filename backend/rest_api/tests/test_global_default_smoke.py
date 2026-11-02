@@ -72,25 +72,48 @@ def test_global_workflow_default_lifecycle(admin_client):
     assert resp.status_code == 200, resp.content
     assert "workflow_defaults" in resp.json()
 
-    # Detail for an uninitialized (item_type, preset) → initialized:false, no 404.
-    resp = client.get("/api/v1/workflow-defaults/SmokeType/extended/")
+    # Detail for an uninitialized (item_type, preset) → initialized:false, no
+    # 404. Workspace provisioning pre-seeds the three rigor presets for every
+    # item type, so use a preset key this type does not provision.
+    resp = client.get("/api/v1/workflow-defaults/Document/ccb_approval/")
     assert resp.status_code == 200
     assert resp.json()["initialized"] is False
 
     # Initialize, then add a state.
-    resp = client.post("/api/v1/workflow-defaults/SmokeType/extended/initialize/")
+    resp = client.post("/api/v1/workflow-defaults/Document/ccb_approval/initialize/")
     assert resp.status_code == 201, resp.content
     assert resp.json()["scope"] == "global"
 
     resp = client.post(
-        "/api/v1/workflow-defaults/SmokeType/extended/states/", {"name": "draft"}
+        "/api/v1/workflow-defaults/Document/ccb_approval/states/", {"name": "draft"}
     )
     assert resp.status_code == 201, resp.content
     assert "draft" in resp.json()["states"]
 
     # Re-initialize → 409 already initialized.
-    resp = client.post("/api/v1/workflow-defaults/SmokeType/extended/initialize/")
+    resp = client.post("/api/v1/workflow-defaults/Document/ccb_approval/initialize/")
     assert resp.status_code == 409
+
+
+@override_settings(**_JWT)
+@pytest.mark.django_db
+def test_unknown_workflow_item_type_is_not_found(admin_client):
+    """R-F2-2 (Plan F F2-T2): a typo must not look like an empty workflow."""
+    client, tenant, user, ws = admin_client
+
+    resp = client.get("/api/v1/workflow-defaults/NoSuchType/extended/")
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "NOT_FOUND"
+
+    resp = client.post("/api/v1/workflow-defaults/NoSuchType/extended/initialize/")
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "NOT_FOUND"
+
+    resp = client.post(
+        "/api/v1/workflow-defaults/NoSuchType/extended/states/", {"name": "draft"}
+    )
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "NOT_FOUND"
 
 
 @override_settings(**_JWT)

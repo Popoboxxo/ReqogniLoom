@@ -21,6 +21,11 @@ from persistence.artifact_backing import model_for
 from persistence.models import Artifact, LifecycleStatus
 
 from .definition_store import PRESET_SCHEMAS
+from .item_types import (
+    COLUMNLESS_ITEM_TYPES,
+    STATUS_MIRROR_ITEM_TYPES,
+    WORKFLOW_ITEM_TYPE_PRESETS,
+)
 from .models import WorkflowItemState
 
 #: The universal soft-delete marker. Before Datenmodell-Konsolidierung Phase 4
@@ -36,34 +41,26 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 # item type, used only to resolve the fallback initial state when
 # ``current_state`` returns ``None`` (no ``WorkflowItemState`` row -- the
 # item's workspace had no workflow definition when ``workflow/0003``/``0005``
-# backfilled it). Mirrors ``workflow.management.commands
-# .provision_workflow_definitions._ENTITY_PRESETS`` / ``application
-# .workspace_provisioning.WORKFLOW_ENTITY_TYPES`` — kept as its own copy for
-# the same "Layer 1 must not import upward from Layer 2" reason documented
-# there. ``Requirement``'s own preset is the workspace's rigor tier (minimal/
+# backfilled it). The canonical source is
+# :data:`workflow.item_types.WORKFLOW_ITEM_TYPE_PRESETS` (Plan F F2-T2);
+# ``Requirement``'s own preset is the workspace's rigor tier (minimal/
 # standard/extended), but all three share ``"draft"`` as ``states[0]``, so it
 # is hardcoded below rather than resolved per-workspace.
 #
-# Scoped to exactly the nine non-Requirement types whose ``status`` *column*
-# Task 12 drops -- used as-is by :data:`STATUS_TRACKED_ITEM_TYPES` below
+# Scoped to exactly the non-Requirement types whose ``status`` *column* Task 12
+# drops -- used as-is by :data:`STATUS_TRACKED_ITEM_TYPES` below
 # (``mcp_server.tools.generic`` needs to know precisely this set, not every
 # workflow-tracked type, to decide whether a wire response should carry a
 # ``"status"`` key at all).
 _DEFAULT_PRESET_BY_ITEM_TYPE: dict[str, str] = {
-    "StakeholderNeed": "need_default",
-    "TestCase": "testcase_default",
-    "Interview": "interview_default",
-    "Adr": "adr_default",
-    "Risk": "risk_default",
-    "Issue": "issue_default",
-    "ChangeRequest": "ccb_approval",
-    "Goal": "goal_default",
-    "MainGoal": "main_goal_default",
+    item_type: preset
+    for item_type, preset in WORKFLOW_ITEM_TYPE_PRESETS.items()
+    if item_type in STATUS_MIRROR_ITEM_TYPES
 }
 
 # Item types tracked by the WorkflowEngine that never had a denormalized
 # ``status`` column to begin with (ArchitectureElement/Icd/Diagram/
-# GlossaryTerm — see e.g. ``workflow/definition_store.py``'s
+# GlossaryTerm/Document — see e.g. ``workflow/definition_store.py``'s
 # ``architecture_default``/``icd_default`` comments). Kept separate from
 # :data:`_DEFAULT_PRESET_BY_ITEM_TYPE` so :data:`STATUS_TRACKED_ITEM_TYPES`
 # stays exactly the Task 12 column-drop set — but :func:`initial_state` must
@@ -71,10 +68,9 @@ _DEFAULT_PRESET_BY_ITEM_TYPE: dict[str, str] = {
 # .WorkflowStateSerializerMixin`` (this module's other consumer) serves both
 # groups through the identical fallback path.
 _COLUMNLESS_PRESET_BY_ITEM_TYPE: dict[str, str] = {
-    "ArchitectureElement": "architecture_default",
-    "Icd": "icd_default",
-    "Diagram": "diagram_default",
-    "GlossaryTerm": "glossary_term_default",
+    item_type: preset
+    for item_type, preset in WORKFLOW_ITEM_TYPE_PRESETS.items()
+    if item_type in COLUMNLESS_ITEM_TYPES
 }
 
 
@@ -239,7 +235,7 @@ def initial_state(item_type: str) -> str:
     provisioned when ``workflow/0003``/``0005`` backfilled
     ``WorkflowItemState``.
 
-    Also resolves the four column-less types
+    Also resolves the column-less types
     (:data:`_COLUMNLESS_PRESET_BY_ITEM_TYPE`) for
     ``rest_api.mixins.workflow_state.WorkflowStateSerializerMixin``, which
     serves both groups through this same fallback path.

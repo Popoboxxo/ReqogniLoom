@@ -430,6 +430,73 @@ def _goal_transitions() -> list[dict[str, Any]]:
     ]
 
 
+def _document_transitions() -> list[dict[str, Any]]:
+    """Plan F F2-T2 / ADR-026 — the Document lifecycle (spec §4).
+
+    States use the German house vocabulary; "Entwurf" is ``states[0]`` (the
+    definition's ``initial_state``). Freeze/gate behaviour is not encoded here:
+    entry into "Freigegeben" is signalled via ``state_meta.freeze_on_enter``
+    and the G-1…G-4 gates arrive with ``DocumentService`` in F2-T4.
+    """
+    return [
+        {
+            "from_state": "Entwurf",
+            "to_state": "In Prüfung",
+            "allowed_roles": ["editor", "approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            # F-1: entry freezes the content fields (state_meta.freeze_on_enter).
+            "from_state": "In Prüfung",
+            "to_state": "Freigegeben",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            # Rejection / rework path.
+            "from_state": "In Prüfung",
+            "to_state": "Entwurf",
+            "allowed_roles": ["editor", "approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            # F-5: reopening an approved document starts a new version and
+            # lifts the freeze; the rationale is the mandatory change reason.
+            "from_state": "Freigegeben",
+            "to_state": "In Prüfung",
+            "allowed_roles": ["editor", "approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            # F-6: the document is replaced by a successor (new Document +
+            # "references" link with rationale "supersedes").
+            "from_state": "Freigegeben",
+            "to_state": "Abgelöst",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Freigegeben",
+            "to_state": "Archiviert",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "Abgelöst",
+            "to_state": "Archiviert",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": False,
+            "signature_gate": False,
+        },
+    ]
+
+
 def _risk_transitions() -> list[dict[str, Any]]:
     # State values match application.models.Risk.RiskStatus.
     return [
@@ -635,6 +702,9 @@ _PROPOSED_REJECT_STATE: dict[str, str] = {
     "ccb_approval": "rejected",
     "goal_default": "Archiviert",
     "main_goal_default": "Archiviert",
+    # Plan F F2-T2: a discarded Document proposal is out of service, like an
+    # archived document — never silently dropped into "Entwurf".
+    "document_default": "Archiviert",
 }
 
 _DEFAULT_REJECT_STATE = "rejected"
@@ -927,6 +997,20 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
         "states": ["Entwurf", "Freigegeben", "Archiviert"],
         "transitions": _goal_transitions(),
         "state_meta": {"Archiviert": {"is_outdated_equivalent": True}},
+    },
+    # Plan F F2-T2 / ADR-026: Document artifact lifecycle. Approval detection
+    # uses ``freeze_on_enter`` (spec §4) rather than an approval-target state,
+    # so the Goal approval ("Freigegeben") cannot leak into foreign rules.
+    # "Abgelöst" (replaced by a successor) and "Archiviert" (out of service)
+    # are both terminal dead-ends for the automatic policies.
+    "document_default": {
+        "states": ["Entwurf", "In Prüfung", "Freigegeben", "Abgelöst", "Archiviert"],
+        "transitions": _document_transitions(),
+        "state_meta": {
+            "Freigegeben": {"freeze_on_enter": True},
+            "Abgelöst": {"is_outdated_equivalent": True},
+            "Archiviert": {"is_outdated_equivalent": True},
+        },
     },
 }
 

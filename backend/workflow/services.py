@@ -64,6 +64,7 @@ from .definition_store import (
     WorkflowDefinitionStore,
     get_state_meta,
 )
+from .item_types import WORKFLOW_ITEM_TYPE_PRESETS
 from .lifecycle_manager import (
     StateLifecycleManager,
     TransitionOutcome,
@@ -1249,23 +1250,11 @@ def update_custom_workflow(
 # to precise HTTP statuses (400 vs 409).
 # ---------------------------------------------------------------------------
 
-# Entity types provisioned with a fixed per-entity preset (see
-# application/workspace_service._WORKFLOW_ENTITY_TYPES). "Requirement" uses the
-# workspace tier instead and is resolved dynamically in initialize_definition.
-_ENTITY_DEFAULT_PRESET: dict[str, str] = {
-    "StakeholderNeed": "need_default",
-    "Adr": "adr_default",
-    "Risk": "risk_default",
-    "Issue": "issue_default",
-    "TestCase": "testcase_default",
-    "ChangeRequest": "ccb_approval",
-    "ArchitectureElement": "architecture_default",
-    "Icd": "icd_default",
-    "Diagram": "diagram_default",
-    "GlossaryTerm": "glossary_term_default",
-    "Goal": "goal_default",
-    "MainGoal": "main_goal_default",
-}
+# Entity types provisioned with a fixed per-entity preset (canonical registry:
+# ``workflow.item_types.WORKFLOW_ITEM_TYPE_PRESETS``, Plan F F2-T2).
+# "Requirement" uses the workspace tier instead and is resolved dynamically in
+# initialize_definition.
+_ENTITY_DEFAULT_PRESET: dict[str, str] = dict(WORKFLOW_ITEM_TYPE_PRESETS)
 
 
 def _persist_edit(fn_name: str, workspace_id: UUID | str, item_type: str, *args, **kwargs):

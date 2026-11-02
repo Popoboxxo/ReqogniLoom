@@ -65,32 +65,14 @@ from auth_tenancy.services.permission_definition import (
 from persistence.models import Workspace
 from persistence.tenancy import TenantContext
 from workflow.global_definition_store import GlobalWorkflowDefinitionStore
+from workflow.item_types import WORKFLOW_ITEM_TYPES
 from workflow.models import WorkflowEngineDefinition, WorkflowItemState
 from workflow.services import create_default_workflow
 
-# (item_type, preset key). Kept in sync with the canonical
-# application.workspace_provisioning.WORKFLOW_ENTITY_TYPES. This Layer 1 command
-# keeps its own copy on purpose: it must not import upward from the Layer 2
-# application package.
-_ENTITY_PRESETS = (
-    ("StakeholderNeed", "need_default"),
-    ("Adr", "adr_default"),
-    ("Risk", "risk_default"),
-    ("Issue", "issue_default"),
-    ("TestCase", "testcase_default"),
-    ("ChangeRequest", "ccb_approval"),
-    ("ArchitectureElement", "architecture_default"),
-    # REQ-173: Icd, Diagram, GlossaryTerm lifecycle. Diagram.workspace_id is
-    # nullable (migration 0005) — pre-existing rows are backfilled separately,
-    # so DiagramViewSet only exposes workflow transitions once a workspace has
-    # been assigned (see application.workspace_service._WORKFLOW_ENTITY_TYPES).
-    ("Icd", "icd_default"),
-    ("Diagram", "diagram_default"),
-    ("GlossaryTerm", "glossary_term_default"),
-    ("Goal", "goal_default"),
-    ("MainGoal", "main_goal_default"),
-    ("Interview", "interview_default"),
-)
+# (item_type, preset key). Canonical source:
+# ``workflow.item_types.WORKFLOW_ITEM_TYPES`` (Plan F F2-T2) — one declaration
+# for every runtime consumer, so a new artifact type cannot be forgotten here.
+_ENTITY_PRESETS = WORKFLOW_ITEM_TYPES
 
 
 class Command(BaseCommand):
