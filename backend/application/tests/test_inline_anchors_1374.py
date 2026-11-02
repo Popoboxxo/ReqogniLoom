@@ -29,7 +29,11 @@ from rest_framework.test import APIClient
 
 from application.base import AnchorsPresentError, ValidationError
 from application.document_service import DocumentService
-from application.glossary_reference_service import build_reference_token
+from application.glossary_reference_service import (
+    PREFERRED_REFERENCE_LINK_TYPE,
+    REFERENCE_LINK_TYPE,
+    build_reference_token,
+)
 from application.glossary_service import GlossaryService
 from application.inline_anchor_service import (
     ANCHOR_FIELD_BODY,
@@ -176,7 +180,10 @@ class TestI1AnchorCreatesEdge:
         link = _link(document.artifact_id, term.artifact_id)
         assert link is not None
         assert str(link.id) == str(anchor.link_id)
-        assert link.link_type in {"references", "uses-term"}
+        assert link.link_type in {
+            PREFERRED_REFERENCE_LINK_TYPE,
+            REFERENCE_LINK_TYPE,
+        }
 
     def test_sync_is_idempotent(self, env, term):
         _, workspace, ctx = env
