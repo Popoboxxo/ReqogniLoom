@@ -58,6 +58,9 @@ class PresetRules:
         baseline_scopes: Tuple of allowed baseline scope strings.
         workflow_configurability: "fixed" | "partial" | "full".
         change_reason: "optional" | "mandatory".
+        document_mandatory_fields_by_kind: G-4 gate policy for documents
+            (Plan F F2-T4): kind -> tuple of required field names, with ``"*"``
+            as the fallback entry.
     """
 
     def __init__(self, config: PresetConfig) -> None:
@@ -92,6 +95,17 @@ class PresetRules:
     def change_reason(self) -> str:
         """Return change_reason policy string."""
         return self._config.change_reason
+
+    @property
+    def document_mandatory_fields_by_kind(self) -> dict[str, tuple[str, ...]]:
+        """Return the G-4 document gate policy (Plan F F2-T4).
+
+        A copy, like :attr:`features`: the underlying ``PresetConfig`` is
+        process-wide and immutable, and this mapping is the one policy value a
+        caller iterates. ``"*"`` is the fallback entry for every kind without
+        its own key.
+        """
+        return dict(self._config.document_mandatory_fields_by_kind)
 
     def as_dict(self) -> dict:
         """Return serialisable dict (for API responses).

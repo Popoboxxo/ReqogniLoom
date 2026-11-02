@@ -148,6 +148,14 @@ _ENTITY_FIELDS: dict[str, list[str]] = {
     # above.
     "Goal": ["title", "description"],
     "MainGoal": ["content", "source"],
+    # Plan F F2-T4 / ADR-026 F-5: releasing a document records the approved
+    # content as an ``ArtifactVersion`` snapshot, which is what makes "the
+    # released state remains provable" true. ``snapshot_fields`` reads exactly
+    # this table, so a missing entry would record an empty payload. ``frozen_at``
+    # and ``frozen_fields`` are deliberately excluded: they are the freeze
+    # bookkeeping, not document content, and would turn every release into a
+    # diff of themselves.
+    "Document": ["title", "description", "body", "kind", "doc_date"],
     # Datenmodell-Konsolidierung Phase 5 (Task 27): these two types record
     # content revisions into ArtifactVersion and therefore need a field list —
     # `snapshot_fields()` reads exactly this table, so a missing entry would be

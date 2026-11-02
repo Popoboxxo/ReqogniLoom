@@ -142,6 +142,57 @@ class ProducerContextRequiredError(ValidationError):
     error_code = "PRODUCER_CONTEXT_REQUIRED"
 
 
+class FieldFrozenError(ValidationError):
+    """Raised when a write touches a frozen field of a released document.
+
+    Plan F F2-T4 / ADR-026 F-3: once a ``Document`` enters ``Freigegeben`` the
+    content fields listed in ``frozen_fields`` are immutable. A write attempt
+    is answered with ``409`` ``FIELD_FROZEN`` and
+    ``details`` = ``[{"field": "title"}, …]`` (one entry per offending field,
+    sorted) — the shape the spec's error envelope publishes.
+
+    A ``ValidationError`` subclass for the same reason as
+    :class:`BaselineGateBlockedError`: every existing ``except ValidationError``
+    caller keeps working, while the REST layer can answer its own code/status.
+    **The REST PR (F2-T5) must register this exact type** in
+    ``rest_api.views._EXC_TO_HTTP``/``_EXC_TO_CODE`` (the lookup there is by
+    exact type; an unregistered subclass degrades to a 500).
+    """
+
+    error_code = "FIELD_FROZEN"
+    http_status = 409
+
+    def __init__(self, message: str, details: list[dict] | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.details = details if details is not None else []
+
+
+class DocumentGateFailedError(ValidationError):
+    """Raised when a document release fails one or more gates G-1…G-4.
+
+    Plan F F2-T4 / ADR-026 §4.2: ``workflow.precondition_rules`` rule 9
+    evaluates the gates on the transition into the document's release state.
+    ``application.workflow_facade`` re-raises its ``DOCUMENT_GATE_FAILED``
+    verdict as this type so the transport layers get
+    ``details`` = ``[{"gate": "G-1"…"G-4", "message": …}, …]`` without parsing
+    the message.
+
+    Same ``ValidationError``-subclass precedent as
+    :class:`FieldFrozenError`. **F2-T5 must register this exact type** in
+    ``rest_api.views._EXC_TO_HTTP``/``_EXC_TO_CODE`` before a document route can
+    surface it; today no document endpoint exists, so nothing can leak it.
+    """
+
+    error_code = "DOCUMENT_GATE_FAILED"
+    http_status = 409
+
+    def __init__(self, message: str, details: list[dict] | None = None) -> None:
+        super().__init__(message)
+        self.message = message
+        self.details = details if details is not None else []
+
+
 def require_producer_context(ctx: AuthContext) -> None:
     """Fail closed unless *ctx* is an agent/API-key producer context.
 
@@ -411,6 +462,8 @@ class ServiceBase:
 
 __all__ = [
     "BaselineGateBlockedError",
+    "DocumentGateFailedError",
+    "FieldFrozenError",
     "LlmNotConfiguredError",
     "NotFoundError",
     "OptimisticLockError",

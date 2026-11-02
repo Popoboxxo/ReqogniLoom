@@ -104,11 +104,22 @@ class WorkflowTransitionError(Exception):
     Attributes:
         error_code:    Short code (EC_* constants from transition_validator).
         error_message: Human-readable description.
+        details:       Optional machine-readable failure payload (Plan F
+                       F2-T4). Populated by the document release gates with a
+                       list of ``{"gate": ..., "message": ...}`` entries; empty
+                       for every other rule. The application layer forwards it
+                       to the transport layers unchanged.
     """
 
-    def __init__(self, error_code: str, error_message: str) -> None:
+    def __init__(
+        self,
+        error_code: str,
+        error_message: str,
+        details: list[dict] | None = None,
+    ) -> None:
         self.error_code = error_code
         self.error_message = error_message
+        self.details = details if details is not None else []
         super().__init__(error_message)
 
 
@@ -353,6 +364,7 @@ def transition(
             raise WorkflowTransitionError(
                 error_code=result.error_code or "UNKNOWN",
                 error_message=result.error_message or "Transition rejected",
+                details=result.details,
             )
 
         # Perform transition (COMP-WE-003)

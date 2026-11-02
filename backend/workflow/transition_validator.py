@@ -32,11 +32,13 @@ from .definition_store import (
     WorkflowDefinitionStore,
 )
 from .precondition_rules import (
+    EC_DOCUMENT_GATE_FAILED,
     EC_MANDATORY_FIELDS_MISSING,
     EC_REQUIREMENT_VERIFICATION_MISSING,
     EC_TEST_STEPS_MISSING,
     EC_VERIFICATION_EVIDENCE_MISSING,
     EC_VERIFIES_LINK_MISSING,
+    check_document_gates,
     check_mandatory_fields,
     check_requirement_verification_evidence,
     check_testcase_steps,
@@ -130,12 +132,19 @@ class ValidationResult:
         error_message: Human-readable explanation on failure.
         seal:          HMAC-SHA256 signature seal; non-None only when
                        valid=True and the transition had a SignatureGate.
+        details:       Optional machine-readable failure detail (list of
+                       ``{"gate": …, "message": …}`` entries for the document
+                       release gates, ``None`` for every other rule). Carried
+                       to the transport layers unchanged so a client can show
+                       *which* gate blocked the release instead of parsing a
+                       sentence.
     """
 
     valid: bool
     error_code: str | None = None
     error_message: str | None = None
     seal: str | None = None
+    details: list[dict] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +209,8 @@ class TransitionValidator:
       8. Extended approval preconditions (#1267/#1269): Requirement verification
          evidence, and non-empty TestCase steps unless it is an inspection/
          analysis/demonstration.
+      9. Document release gates G-1…G-4 (Plan F F2-T4): only when a ``Document``
+         enters the state its workflow marks with ``freeze_on_enter``.
       6. Verification evidence on "-> verified" transitions (V&V §3 "Passed").
       4. SignatureGate: credential present and valid.
 
@@ -443,6 +454,24 @@ class TransitionValidator:
                     error_message=violation[1],
                 )
 
+        # ---- Rule 9: document release gates G-1…G-4 (Plan F F2-T4) ----------
+        # Only fires when a Document enters the state its workflow marks with
+        # ``freeze_on_enter`` (spec §4). All violated gates are reported
+        # together via ``details``, so the caller sees the whole list.
+        violation = check_document_gates(
+            workspace_id=ws_str,
+            item_type=request.item_type,
+            item_id=request.item_id,
+            target_state=request.target_state,
+        )
+        if violation is not None:
+            return ValidationResult(
+                valid=False,
+                error_code=violation[0],
+                error_message=violation[1],
+                details=violation[2],
+            )
+
         # ---- Rule 6: verification evidence (SE lever 3) ----------------------
         # Only fires on "-> verified"; derives the V&V strategy §3 "Passed"
         # state from the actual trace links + latest test-run results.
@@ -495,6 +524,7 @@ class TransitionValidator:
 __all__ = [
     "EC_CHANGE_REASON_REQUIRED",
     "EC_DEFINITION_NOT_FOUND",
+    "EC_DOCUMENT_GATE_FAILED",
     "EC_MANDATORY_FIELDS_MISSING",
     "EC_REQUIREMENT_VERIFICATION_MISSING",
     "EC_ROLE_NOT_ALLOWED",
