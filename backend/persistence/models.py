@@ -4614,7 +4614,7 @@ class Document(ArtifactWorkspaceMirrorMixin, TenantScopedModel):
     workspace = models.ForeignKey(
         Workspace,
         on_delete=models.CASCADE,
-        related_name="documents",
+        related_name="workspace_documents",
         help_text="Owning workspace; mirrored from artifact.workspace_id on save.",
     )
     uid = models.CharField(

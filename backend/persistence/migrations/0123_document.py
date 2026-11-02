@@ -42,7 +42,7 @@ class Migration(migrations.Migration):
                 ('created_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to=settings.AUTH_USER_MODEL)),
                 ('modified_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to=settings.AUTH_USER_MODEL)),
                 ('tenant', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='%(class)s_set', to='persistence.tenant')),
-                ('workspace', models.ForeignKey(help_text='Owning workspace; mirrored from artifact.workspace_id on save.', on_delete=django.db.models.deletion.CASCADE, related_name='documents', to='persistence.workspace')),
+                ('workspace', models.ForeignKey(help_text='Owning workspace; mirrored from artifact.workspace_id on save.', on_delete=django.db.models.deletion.CASCADE, related_name='workspace_documents', to='persistence.workspace')),
             ],
             options={
                 'db_table': 'pl_document',
