@@ -144,6 +144,21 @@ def _uid_index_names() -> set[str]:
         return {row[0] for row in cursor.fetchall()}
 
 
+def _restore_leaf() -> None:
+    """Migrate every app back to its leaf after a rollback probe.
+
+    The two ``transaction=True`` tests below roll ``persistence`` back to
+    ``0117``/``0118``. Migrations commit outside the per-test transaction, so
+    without this restore the *whole session* stays at 0118: every later test
+    that touches a table added after it (``pl_document`` 0123, ``pl_work_item``
+    0125, …) then fails with ``relation … does not exist`` — a leak that only
+    shows up in full-suite runs, never in isolation. Same restore contract as
+    ``test_prompt_template_migration.py``.
+    """
+    executor = MigrationExecutor(connection)
+    executor.migrate(executor.loader.graph.leaf_nodes())
+
+
 def _assert_reversed_by_name() -> None:
     """The reverse must drop exactly 0118's indexes and keep 0055's."""
     after_reverse = _uid_index_names()
@@ -303,6 +318,7 @@ def test_migration_dedupes_existing_collisions(transactional_db):
         )
         assert all(len(uid) <= 64 for uid in uids)
     finally:
+        _restore_leaf()
         clear_request_tenant()
 
 
@@ -314,20 +330,23 @@ def test_migration_reverse_roundtrip(transactional_db):
     0118's seven indexes must disappear while 0055's survives. The final
     forward pass must restore all eight.
     """
-    executor = MigrationExecutor(connection)
-    executor.migrate([("persistence", _PREREQUISITE)])
-    _assert_reversed_by_name()
+    try:
+        executor = MigrationExecutor(connection)
+        executor.migrate([("persistence", _PREREQUISITE)])
+        _assert_reversed_by_name()
 
-    executor = MigrationExecutor(connection)
-    executor.migrate([("persistence", _CONSTRAINTS)])
+        executor = MigrationExecutor(connection)
+        executor.migrate([("persistence", _CONSTRAINTS)])
 
-    executor = MigrationExecutor(connection)
-    executor.migrate([("persistence", _PREREQUISITE)])
-    _assert_reversed_by_name()
+        executor = MigrationExecutor(connection)
+        executor.migrate([("persistence", _PREREQUISITE)])
+        _assert_reversed_by_name()
 
-    executor = MigrationExecutor(connection)
-    executor.migrate([("persistence", _CONSTRAINTS)])
-    assert _UID_INDEXES <= _uid_index_names()
+        executor = MigrationExecutor(connection)
+        executor.migrate([("persistence", _CONSTRAINTS)])
+        assert _UID_INDEXES <= _uid_index_names()
+    finally:
+        _restore_leaf()
 
 
 def _dedupe_module():
