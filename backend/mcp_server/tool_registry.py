@@ -306,6 +306,14 @@ _WRITE_TOOL_PREFIXES: tuple[str, ...] = (
     "diagram.update",
     "diagram.outdate",
     "diagram.reactivate",
+    # Plan F F2-T6 (ADR-026): the Document artifact's mutating tools.
+    # document.read/query/versions/diff are read-only (see
+    # _READ_ONLY_TOOL_NAMES below); the rest stay fail-closed write-gated.
+    "document.create",
+    "document.update",
+    "document.transition",
+    "document.outdate",
+    "document.reactivate",
     # Issue #114: BaselineToolGroup — baseline.create is the only mutating tool.
     "baseline.create",
     "baseline.set_tags",
@@ -489,6 +497,11 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "prompt_variable.get",
         "diagram.get",
         "diagram.query",
+        # Plan F F2-T6 (ADR-026): document.read/document.query are already
+        # exempt via the shared ".read"/".query" suffix convention; versions
+        # and diff do not end on either, so they are listed explicitly.
+        "document.versions",
+        "document.diff",
         "admin.backup_list",
         "review.list_pending",
         # ADR-019 WP3: the proposal inbox read; accept/reject are write-gated.
@@ -1023,6 +1036,7 @@ class ToolRegistry:
         from mcp_server.tools.create_form_config import CreateFormConfigToolGroup
         from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
         from mcp_server.tools.diagram import DiagramToolGroup
+        from mcp_server.tools.document import DocumentToolGroup
         from mcp_server.tools.generic import GenericCrudToolGroup
         from mcp_server.tools.goals import GoalToolGroup, MainGoalToolGroup
         from mcp_server.tools.icd import IcdToolGroup
@@ -1078,6 +1092,12 @@ class ToolRegistry:
             "prompt_variable": PromptVariableToolGroup(),
             "ai_derivation": AiDerivationToolGroup(),
             "diagram": DiagramToolGroup(),
+            # Plan F F2-T6 (ADR-026): the Document artifact's MCP surface —
+            # the counterpart of DocumentViewSet (F2-T5). Reads are
+            # document.read/query/versions/diff (see _READ_ONLY_TOOL_NAMES);
+            # create/update/transition/outdate/reactivate stay fail-closed
+            # write-gated.
+            "document": DocumentToolGroup(),
             "review": ReviewToolGroup(),
             # ADR-019 WP3: the durable proposal inbox (list/accept/reject).
             # suggestion.list is read-exempt below; accept/reject stay

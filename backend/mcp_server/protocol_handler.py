@@ -158,6 +158,19 @@ ERROR_CODES = {
         "The request conflicts with the current state of the resource. Nothing "
         "was changed; read the current state and retry if the conflict resolves."
     ),
+    # Plan F F2-T6 (ADR-026): the two document-specific refusals the REST
+    # surface already publishes (409 FIELD_FROZEN / 409 DOCUMENT_GATE_FAILED).
+    # Same reasoning as CONFLICT: a caller-actionable state conflict, not an
+    # internal error, so it must not collapse to -32603 on the direct-method
+    # dispatch path.
+    "FIELD_FROZEN": (
+        "The document is released and one or more content fields are frozen; "
+        "open a new revision before changing them."
+    ),
+    "DOCUMENT_GATE_FAILED": (
+        "One or more release gates (G-1…G-4) are not satisfied; read the "
+        "details and resolve them before releasing the document."
+    ),
 }
 
 # Protocol-level error codes (REQ-086 / MCP spec).
@@ -215,6 +228,10 @@ ERROR_CODE_MAP = {
     "LLM_UNAVAILABLE": -32014,          # Server-defined: provider unreachable (#1416)
     "LLM_OUTPUT_INVALID": -32015,       # Server-defined: unusable completion (#1416)
     "LLM_TOKEN_LIMIT_EXCEEDED": -32016,  # Server-defined: REQ-106 daily budget (#1416)
+    # Plan F F2-T6 (ADR-026): the document freeze/gate conflicts. Next free
+    # server-defined codes after the #1416 LLM codes.
+    "FIELD_FROZEN": -32017,            # Server-defined: released document frozen
+    "DOCUMENT_GATE_FAILED": -32018,    # Server-defined: release gate not satisfied
 }
 
 

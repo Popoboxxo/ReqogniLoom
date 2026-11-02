@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 259,
+  "tool_count": 268,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -2912,6 +2912,288 @@
           "id",
           "payload_format",
           "content"
+        ]
+      }
+    },
+    {
+      "name": "document.create",
+      "prefix": "document",
+      "is_write": true,
+      "description": "Create a Document artifact (write). Title and kind are required; the local identifier DOC-NNN and the initial workflow state are assigned server-side.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Required. UUID of the target workspace."
+          },
+          "title": {
+            "type": "string",
+            "description": "Required. Document title (max 255 characters)."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "Spec",
+              "Plan",
+              "AuditReport",
+              "Review",
+              "Conclusion",
+              "Concept",
+              "Guide"
+            ],
+            "description": "Required. Document kind."
+          },
+          "description": {
+            "type": "string",
+            "description": "Purpose/summary (not the content). Defaults to ''."
+          },
+          "body": {
+            "type": "string",
+            "description": "Markdown content. Defaults to ''."
+          },
+          "doc_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional document date (ISO-8601 date)."
+          },
+          "custom_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Extended user-defined attributes (flat key/value map) defined by this workspace's attribute definition."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "title",
+          "kind"
+        ]
+      }
+    },
+    {
+      "name": "document.diff",
+      "prefix": "document",
+      "is_write": false,
+      "description": "Field-level diff between two revisions of a Document (read-only). from_version 0 is the creation baseline.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the document."
+          },
+          "from_version": {
+            "type": "integer",
+            "description": "Source version (default 0 = empty baseline).",
+            "default": 0
+          },
+          "to_version": {
+            "type": "integer",
+            "description": "Target version. Defaults to the document's current version."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "document.outdate",
+      "prefix": "document",
+      "is_write": true,
+      "description": "Soft-delete a Document via the workflow engine's outdate escape hatch (write). The row is kept; status becomes 'outdated'.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the document."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional audit reason (may be mandatory per preset)."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "document.query",
+      "prefix": "document",
+      "is_write": false,
+      "description": "List a workspace's documents, ordered by -modified_at, id (read-only). Soft-deleted documents are omitted unless include_outdated is true.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Required. UUID of the target workspace."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "If true, include soft-deleted documents (REST's ?include_deleted=true). Defaults to false."
+          },
+          "uid": {
+            "type": "string",
+            "description": "Optional local identifier (e.g. 'DOC-004'); when supplied, only the document carrying it is returned."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "document.reactivate",
+      "prefix": "document",
+      "is_write": true,
+      "description": "Restore a soft-deleted Document to its previous workflow state (write).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the document."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "document.read",
+      "prefix": "document",
+      "is_write": false,
+      "description": "Fetch a single Document by ID, including its content, freeze state and extended attributes (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the document."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "document.transition",
+      "prefix": "document",
+      "is_write": true,
+      "description": "Move a Document through its workflow (write). Entering the release state applies the F-1 freeze; leaving it re-opens the document (F-5). Release gates answer DOCUMENT_GATE_FAILED.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the document."
+          },
+          "target_state": {
+            "type": "string",
+            "description": "Requested workflow state (e.g. 'In Prüfung', 'Freigegeben'). The states are workspace-configured."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason recorded on the transition."
+          },
+          "credential": {
+            "type": "string",
+            "description": "Password/TOTP token for a signature-gated transition."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Last-seen Document version. A stale value is refused instead of overwriting."
+          }
+        },
+        "required": [
+          "id",
+          "target_state"
+        ]
+      }
+    },
+    {
+      "name": "document.update",
+      "prefix": "document",
+      "is_write": true,
+      "description": "Update a Document's content fields and/or extended attributes (write). Omitted fields keep their current value. A frozen content field is refused with FIELD_FROZEN; a stale expected_version with CONFLICT.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the document."
+          },
+          "title": {
+            "type": "string",
+            "description": "New title."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "Spec",
+              "Plan",
+              "AuditReport",
+              "Review",
+              "Conclusion",
+              "Concept",
+              "Guide"
+            ],
+            "description": "New document kind."
+          },
+          "description": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "doc_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "New document date; null clears it."
+          },
+          "custom_fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Extended user-defined attributes (flat key/value map). Replaces the stored map."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason recorded on the change/revision."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Last-seen Document version (the ETag source). A stale value is refused instead of overwriting."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "document.versions",
+      "prefix": "document",
+      "is_write": false,
+      "description": "List a Document's recorded content revisions, oldest first (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the document."
+          }
+        },
+        "required": [
+          "id"
         ]
       }
     },
