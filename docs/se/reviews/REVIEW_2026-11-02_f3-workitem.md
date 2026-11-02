@@ -59,12 +59,13 @@ sind in dieser Fassung bereits korrigiert, die übrigen sind Präzisierungen fü
 | `RVW-2026-11-02-002-05` | minor | Delete-Semantik | `document`-`PROTECT` war als „Dokument wird nicht gelöscht" formuliert; der reguläre Pfad ist aber Soft-Delete über `Artifact.lifecycle_status`, sodass `PROTECT` nur harte Deletes trifft. Die Formulierung konnte als Konflikt mit G1.5 gelesen werden. | §3.1 präzisieren: `PROTECT` greift nur bei hartem Delete; Soft-Delete lässt Items unangetastet. | eingearbeitet (Spec §3.1) |
 | `RVW-2026-11-02-002-06` | minor | Test-Strategie | Die Linkability-Matrix braucht je Registry-Typ eine Factory; der `WorkItemService` existiert erst in F3-T4. Eine test-lokale ORM-Factory ist ein bewusstes Provisorium. | Wie F2 (R2): Factory im Test begründen und in F3-T4 durch den Service ersetzen. | akzeptiert (Spec §17 R2) |
 | `RVW-2026-11-02-002-07` | info | Härtung über Plan hinaus | `ck_work_item_progress_range` steht nicht in Plan F; er ist eine additive DB-Absicherung des 0–100-Vertrags. | Beibehalten, im Spec-Text als additiv kennzeichnen (bereits §3.3). | akzeptiert |
+| `RVW-2026-11-02-002-08` | minor | Schnittstelle F3-T1 ↔ F2-Gate | `workflow/precondition_rules._document_item_gate_violations` (F2-T4) liest für G-2 ein `informational`-Flag am Item, das in der F3-T1-Feldliste des Plans nicht vorkommt. Mit dem Modell wird G-2 fail-closed für jedes Item ohne Kante. | Als offenen Modellpunkt in §5 festhalten: Ausnahme kommt mit F3-T3/T4; bis dahin ist der Pfad nur über den noch fehlenden Service erreichbar. | eingearbeitet (Spec §5) |
 
 ## Verdict
 
-**APPROVED** — 0 critical / 0 major / 5 minor / 2 info. Kein Befund blockiert den Merge von F3-T0
-oder F3-T1. Die Befunde 01–05 sind in dieser Fassung eingearbeitet; 06 (test-lokale Factory) ist
-ein dokumentiertes Provisorium bis F3-T4, 07 eine bewusste Härtung.
+**APPROVED** — 0 critical / 0 major / 6 minor / 2 info. Kein Befund blockiert den Merge von F3-T0
+oder F3-T1. Die Befunde 01–05 und 08 sind in dieser Fassung eingearbeitet; 06 (test-lokale
+Factory) ist ein dokumentiertes Provisorium bis F3-T4, 07 eine bewusste Härtung.
 
 Die Spec ändert weder ADR-026 noch den F2-Vertrag; sie setzt ihn fort. Der Status bleibt
 `proposed` im Sinne der SE-Kaskade — ein Statuswechsel ist hier nicht vorgesehen, weil F3-T0 kein

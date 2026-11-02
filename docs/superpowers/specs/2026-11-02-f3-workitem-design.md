@@ -164,6 +164,12 @@ Workflow-Mechanismus**:
 `ordinal` ist die **Reihenfolge**, `depends-on` die **Abhängigkeit** — zwei Achsen, bewusst
 getrennt. Die Kanten ohne Textanker bleiben auch im Zustand `Freigegeben` frei schreibbar (F-2).
 
+**Offener Modellpunkt (bewusst nicht F3-T1):** G-2 liest in
+`workflow/precondition_rules._document_item_gate_violations` ein `informational`-Flag am Item
+(`getattr(item, "informational", False)`). Es steht **nicht** in der F3-T1-Feldliste; die
+G-2-Ausnahme wird mit F3-T3/T4 geliefert. Bis dahin ist G-2 für jedes Item ohne Kante
+fail-closed — erreichbar erst, wenn F3-T4 Items anlegt, also nicht vor dem Service.
+
 ## 6. Resume, Checkpoint, Heartbeat (F3-T4/T6, Vertrag)
 
 ```
