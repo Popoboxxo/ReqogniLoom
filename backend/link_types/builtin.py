@@ -4,7 +4,8 @@ Single source of truth for three consumers that must never drift apart:
 the seed/backfill migrations (``0003_seed_builtin_link_types``,
 ``0008_seed_satisfaction_link_types``, ``0011_seed_validates_link_type``,
 ``0012_seed_performs_and_satisfies_function_pair``,
-``0013_seed_issue_risk_link_types`` and ``0014_seed_document_link_types``),
+``0013_seed_issue_risk_link_types``, ``0014_seed_document_link_types`` and
+``0015_merge_work_item_pairs``),
 workspace provisioning
 (``link_types.workspace_store.provision_workspace_link_types``), and the tests
 that pin the spec table.
@@ -151,6 +152,11 @@ BUILTIN_LINK_TYPES: dict[str, dict[str, Any]] = {
         "allowed_pairs": _pairs(
             ("Requirement", "Requirement"),
             ("ArchitectureElement", "ArchitectureElement"),
+            # Plan F F3-T3 (spec §5): a Document is broken into WorkItems, and a
+            # WorkItem (phase) into further WorkItems (steps). Additive pairs on
+            # the shipped type — no second decomposition key.
+            ("Document", "WorkItem"),
+            ("WorkItem", "WorkItem"),
         ),
         "coverage_relevant": False,
         "suspect_rule": "parent_change_flags_children",
@@ -629,6 +635,11 @@ BUILTIN_LINK_TYPES: dict[str, dict[str, Any]] = {
             # ``documented-in`` (provenance) and ``evidences`` (result edge).
             ("Document", "*"),
             ("*", "Document"),
+            # Plan F F3-T3 (spec §5): a WorkItem references anything (replaces
+            # the concept's ``implements``/``traces``, which stay aliases of
+            # ``references``). WorkItem is only a *source* here; the target side
+            # stays whatever the other pairs already accept.
+            ("WorkItem", "*"),
         ),
         "coverage_relevant": False,
         "suspect_rule": "none",
