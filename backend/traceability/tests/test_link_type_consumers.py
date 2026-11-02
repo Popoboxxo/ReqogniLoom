@@ -32,6 +32,9 @@ ALLOWED = {
     "link_types/tests/test_catalog.py",   # writes an unknown key to prove the catalog is listed back
     "link_types/tests/test_inventory_command.py",  # writes legacy 'traces' rows on purpose to test legacy-mapping detection
     "persistence/tests/test_migrate_trace_link_types.py",  # writes the legacy rows migration 0081 has to swallow (issue #893)
+    # asserts the human EN upstream *label* of ``documented-in`` — the word is a
+    # label text here, not a link_type key (Plan F F2-T3).
+    "link_types/tests/test_document_link_types_1374.py",
 }
 
 

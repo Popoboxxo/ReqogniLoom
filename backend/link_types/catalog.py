@@ -42,7 +42,16 @@ CACHE_NAMESPACE = "link_types"
 
 #: artifact type -> entity field holding its sub-type value. Only a type listed
 #: here may carry a ``Typ:Subtag`` tag in a pair or an endpoint.
-SUBTYPE_FIELDS: dict[str, str] = {"ArchitectureElement": "element_type"}
+#:
+#: ``Document`` joins the register in Plan F F2-T3 (KA-F-02): ``evidences`` is
+#: restricted to the document kinds ``Conclusion``/``Review``/``AuditReport`` via
+#: ``Document:<kind>`` — the generic mechanism from Plan B B3-T2, never a second
+#: validation rule. The stored tag is lower-cased (``Document:auditreport``)
+#: because the endpoint resolver normalises the entity field the same way.
+SUBTYPE_FIELDS: dict[str, str] = {
+    "ArchitectureElement": "element_type",
+    "Document": "kind",
+}
 
 _cache_lock = threading.Lock()
 #: workspace_id (str) -> (generation, {key: definition_json})
