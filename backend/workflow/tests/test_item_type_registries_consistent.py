@@ -9,7 +9,8 @@ The migrations before ``0024`` are deliberately frozen: once released, a data
 migration must not change (see the header of
 ``workflow/0022_we_engine_definition_workspace_fk``). They are therefore
 asserted as a **subset** of the canonical registry, while the newly added
-``0024_seed_document_workflow_definitions`` must name a known item type.
+``0024_seed_document_workflow_definitions``/``0025_seed_work_item_workflow_definitions``
+must name a known item type.
 """
 from __future__ import annotations
 
@@ -21,6 +22,7 @@ from application.workspace_provisioning import WORKFLOW_ENTITY_TYPES
 from workflow import services, state_reader
 from workflow.item_types import (
     KNOWN_WORKFLOW_ITEM_TYPES,
+    TIER_DRIVEN_ITEM_TYPES,
     WORKFLOW_ITEM_TYPE_PRESETS,
     WORKFLOW_ITEM_TYPES,
 )
@@ -70,10 +72,19 @@ def test_document_is_registered_everywhere():
     assert "Document" not in state_reader.STATUS_TRACKED_ITEM_TYPES
 
 
-def test_known_set_adds_only_requirement():
-    assert KNOWN_WORKFLOW_ITEM_TYPES == {"Requirement"} | set(
+def test_known_set_adds_only_the_tier_driven_types():
+    assert KNOWN_WORKFLOW_ITEM_TYPES == set(TIER_DRIVEN_ITEM_TYPES) | set(
         WORKFLOW_ITEM_TYPE_PRESETS
     )
+
+
+def test_work_item_is_tier_driven_not_a_fixed_preset():
+    """Plan F F3-T2: WorkItem's preset is the workspace tier, like Requirement."""
+    assert "WorkItem" in TIER_DRIVEN_ITEM_TYPES
+    assert "WorkItem" not in WORKFLOW_ITEM_TYPE_PRESETS
+    assert "WorkItem" in KNOWN_WORKFLOW_ITEM_TYPES
+    assert state_reader.initial_state("WorkItem") == "todo"
+    assert "WorkItem" not in state_reader.STATUS_TRACKED_ITEM_TYPES
 
 
 @pytest.mark.parametrize(
@@ -98,4 +109,13 @@ def test_document_seed_migration_names_a_known_type():
     )
     assert module._ITEM_TYPE == "Document"
     assert module._PRESET == WORKFLOW_ITEM_TYPE_PRESETS["Document"]
+    assert module._ITEM_TYPE in KNOWN_WORKFLOW_ITEM_TYPES
+
+
+def test_work_item_seed_migration_names_a_known_tier_driven_type():
+    module = import_module(
+        "workflow.migrations.0025_seed_work_item_workflow_definitions"
+    )
+    assert module._ITEM_TYPE == "WorkItem"
+    assert set(module._PRESET_BY_TIER) == {"minimal", "standard", "extended"}
     assert module._ITEM_TYPE in KNOWN_WORKFLOW_ITEM_TYPES

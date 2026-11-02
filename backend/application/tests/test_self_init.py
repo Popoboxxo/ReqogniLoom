@@ -39,11 +39,13 @@ from auth_tenancy.provisioning import DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_USERNAM
 from persistence.models import User, Workspace
 from persistence.tenancy import TenantContext
 from workflow.models import GlobalWorkflowDefinition, WorkflowEngineDefinition
+from workflow.item_types import TIER_DRIVEN_ITEM_TYPES
 
 pytestmark = pytest.mark.django_db
 
-# Requirement (tier-dependent) + the fixed-preset per-entity types.
-_EXPECTED_WORKFLOW_ITEM_TYPES = {"Requirement"} | {
+# Tier-dependent types (Requirement, WorkItem) + the fixed-preset per-entity
+# types.
+_EXPECTED_WORKFLOW_ITEM_TYPES = set(TIER_DRIVEN_ITEM_TYPES) | {
     item_type for item_type, _preset in WORKFLOW_ENTITY_TYPES
 }
 
@@ -53,6 +55,27 @@ _EXPECTED_WORKFLOW_ITEM_TYPES = {"Requirement"} | {
 # actually uses. All three must be pre-seeded, not just the base workspace's
 # own tier ("extended").
 _GLOBAL_TAB_PRESETS = ("minimal", "standard", "extended")
+
+
+def _expected_global_keys() -> set[tuple[str, str]]:
+    """The (item_type, preset) global rows self-init must seed.
+
+    ``Requirement`` rides the tier-name presets; ``WorkItem`` uses its own
+    ``work_item_<tier>`` keys (Plan F F3-T2), so it cannot be folded into the
+    same product.
+    """
+    fixed_types = [
+        item_type for item_type, _preset in WORKFLOW_ENTITY_TYPES
+    ] + ["Requirement"]
+    expected = {
+        (item_type, preset)
+        for item_type in fixed_types
+        for preset in _GLOBAL_TAB_PRESETS
+    }
+    expected |= {
+        ("WorkItem", f"work_item_{tier}") for tier in _GLOBAL_TAB_PRESETS
+    }
+    return expected
 
 
 def _workflow_item_types_for(workspace_id) -> set[str]:
@@ -186,11 +209,7 @@ def test_run_self_init_seeds_all_three_presets_as_global_workflow_defaults(
             "item_type", "preset"
         )
     )
-    expected = {
-        (item_type, preset)
-        for item_type in _EXPECTED_WORKFLOW_ITEM_TYPES
-        for preset in _GLOBAL_TAB_PRESETS
-    }
+    expected = _expected_global_keys()
     missing = expected - seeded
     assert not missing, f"missing GlobalWorkflowDefinition rows: {sorted(missing)}"
 
@@ -221,12 +240,11 @@ def test_run_self_init_global_preset_seeding_is_idempotent(monkeypatch):
 
     run_self_init()
 
-    for item_type in _EXPECTED_WORKFLOW_ITEM_TYPES:
-        for preset in _GLOBAL_TAB_PRESETS:
-            count = GlobalWorkflowDefinition.unscoped.filter(
-                tenant_id=tenant_id, item_type=item_type, preset=preset
-            ).count()
-            assert count == 1, f"duplicate global row for {item_type}/{preset}"
+    for item_type, preset in sorted(_expected_global_keys()):
+        count = GlobalWorkflowDefinition.unscoped.filter(
+            tenant_id=tenant_id, item_type=item_type, preset=preset
+        ).count()
+        assert count == 1, f"duplicate global row for {item_type}/{preset}"
 
     customized.refresh_from_db()
     assert customized.workflow_json["states"] == ["draft", "custom_state"], (

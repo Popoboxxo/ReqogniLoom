@@ -4837,6 +4837,21 @@ class WorkItem(ArtifactWorkspaceMirrorMixin, TenantScopedModel):
         help_text="Definition of done for this item (gates, concept §5.4).",
     )
 
+    @property
+    def informational(self) -> bool:
+        """G-2 exception: a marker item needs no trace link (ADR-026 §4.2).
+
+        The document-release gate G-2 (``workflow.precondition_rules``)
+        requires every WorkItem to carry at least one trace link *or* be
+        flagged informational. Plan F F3-T2 resolves that flag as a **rule**,
+        not a column: only a ``Checkpoint`` is informational, because it is a
+        resume marker ("continue here"), not a work deliverable that could be
+        traced. A real model field would need a persistence migration and a
+        UI surface, both of which belong to F3-T4/T9; a derived property keeps
+        the G-2 path honest today without an unused flag on every other row.
+        """
+        return self.kind == self.Kind.CHECKPOINT
+
     class Meta:
         db_table = "pl_work_item"
         # G1.3/#1402 pattern: partial per-workspace uid uniqueness. The literal

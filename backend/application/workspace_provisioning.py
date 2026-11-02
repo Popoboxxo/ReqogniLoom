@@ -23,7 +23,11 @@ from auth_tenancy.services.permission_definition import (
 )
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from workflow.global_definition_store import GlobalWorkflowDefinitionStore
-from workflow.item_types import WORKFLOW_ITEM_TYPES
+from workflow.item_types import (
+    WORK_ITEM_PRESET_BY_TIER,
+    WORKFLOW_ITEM_TYPES,
+    work_item_preset_key,
+)
 from workflow.services import create_default_workflow
 
 logger = logging.getLogger(__name__)
@@ -51,6 +55,7 @@ def provision_workspace_defaults(
     workspace_id: UUID | str,
     tenant_id: UUID | str,
     requirement_preset: str,
+    work_item_preset: str | None = None,
 ) -> None:
     """Seed the default workflow + permission definitions for a workspace.
 
@@ -65,6 +70,10 @@ def provision_workspace_defaults(
         requirement_preset: Tier for the ``Requirement`` workflow — one of
             ``minimal`` / ``standard`` / ``extended``. The per-entity workflows
             use their own fixed presets regardless of this tier.
+        work_item_preset: Tier for the ``WorkItem`` workflow (Plan F F3-T2).
+            Defaults to *requirement_preset* — both are the workspace's rigor
+            tier — and is only overridden when a caller needs a different
+            lifecycle for its work items.
     """
     # Requirement workflow (tier-dependent). Without it a requirement's status
     # stays stuck at "draft" because no WorkflowEngineDefinition exists to
@@ -73,6 +82,17 @@ def provision_workspace_defaults(
         workspace_id=workspace_id,
         preset=requirement_preset,
         item_type="Requirement",
+        tenant_id=tenant_id,
+    )
+
+    # WorkItem workflow (tier-dependent, Plan F F3-T2): the workspace's rigor
+    # tier selects ``work_item_minimal``/``work_item_standard``/
+    # ``work_item_extended``. Same rationale as Requirement — without the row a
+    # work item has no definition to initialise its ``todo`` state against.
+    create_default_workflow(
+        workspace_id=workspace_id,
+        preset=work_item_preset_key(work_item_preset or requirement_preset),
+        item_type="WorkItem",
         tenant_id=tenant_id,
     )
 
@@ -106,6 +126,12 @@ def provision_workspace_defaults(
         for preset in _GLOBAL_TAB_PRESETS:
             global_store.get_or_seed_from_preset(tenant_id, item_type, preset)
 
+    # WorkItem's three tier presets use their own keys (``work_item_<tier>``),
+    # so they cannot ride the tier-name loop above — but the Global Workflow
+    # Defaults tab must still show all three, exactly like Requirement's tiers.
+    for preset_key in WORK_ITEM_PRESET_BY_TIER.values():
+        global_store.get_or_seed_from_preset(tenant_id, "WorkItem", preset_key)
+
     # REQ-181/182: link the workspace to the tenant-wide permission global with
     # is_customized=False ("on-default"). Does not touch UserRole/ItemPermission
     # rows, so real access control is unchanged (shadow phase).
@@ -128,6 +154,7 @@ def provision_workspace_defaults_scoped(
     workspace_id: UUID | str,
     tenant_id: UUID | str,
     requirement_preset: str,
+    work_item_preset: str | None = None,
 ) -> None:
     """:func:`provision_workspace_defaults` wrapped in an explicit tenant scope.
 
@@ -154,6 +181,7 @@ def provision_workspace_defaults_scoped(
             workspace_id=workspace_id,
             tenant_id=tenant_id,
             requirement_preset=requirement_preset,
+            work_item_preset=work_item_preset,
         )
     finally:
         clear_request_tenant()

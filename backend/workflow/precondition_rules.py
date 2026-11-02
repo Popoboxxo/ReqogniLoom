@@ -52,6 +52,13 @@ Rule 9 — document release gates G-1…G-4 (Plan F F2-T4, ADR-026 §4.2)
     fail-closed on *known* violations and reports every violated gate at once;
     an unevaluable gate is still fail-open, like every other rule here.
 
+Rule 10 — WorkItem preconditions (Plan F F3-T2, spec §4)
+    A WorkItem may only enter ``blocked`` with a non-empty ``blocked_reason``
+    (:func:`check_work_item_preconditions`). The other two tier requirements
+    are structural: ``done`` in the extended preset is reachable only through
+    the ``approver``-gated ``in_review -> done`` edge, and G-1/G-2 evaluate the
+    document's items on the release transition (rule 9).
+
 Tier awareness (verified against ``presets/registry.py`` and
 ``workflow/definition_store.PRESET_SCHEMAS``, not assumed):
 
@@ -105,6 +112,9 @@ EC_TEST_STEPS_MISSING = "TEST_STEPS_MISSING"
 #: Plan F F2-T4 / ADR-026 §4.2: one or more of the document release gates
 #: (G-1…G-4) failed. ``details`` names each violated gate.
 EC_DOCUMENT_GATE_FAILED = "DOCUMENT_GATE_FAILED"
+#: Plan F F3-T2 / spec §4: a WorkItem can only enter ``blocked`` with a
+#: non-empty ``blocked_reason``.
+EC_WORK_ITEM_BLOCKED_REASON_REQUIRED = "WORK_ITEM_BLOCKED_REASON_REQUIRED"
 
 # ---------------------------------------------------------------------------
 # State recognition
@@ -1094,6 +1104,70 @@ def check_document_gates(
     )
 
 
+# ---------------------------------------------------------------------------
+# Rule 10 — WorkItem preconditions (Plan F F3-T2, spec §4)
+# ---------------------------------------------------------------------------
+
+_WORK_ITEM_ITEM_TYPE = "WorkItem"
+_WORK_ITEM_BLOCKED_STATE = "blocked"
+
+
+def check_work_item_preconditions(
+    *,
+    workspace_id: str,
+    item_type: str,
+    item_id: UUID,
+    target_state: str,
+) -> tuple[str, str] | None:
+    """Check the WorkItem-specific transition preconditions (Plan F F3-T2).
+
+    Two of the three spec §4 requirements are already structural and therefore
+    need no code here:
+
+    * **"done in extended requires a human sign-off"** — ``work_item_extended``
+      declares no ``in_progress -> done`` edge; ``done`` is reachable only from
+      ``in_review`` and only by ``approver``/``admin`` (rule 2). That gate is
+      pinned by the preset tests instead.
+    * **G-1/G-2** — evaluated on the *document* release transition by rule 9
+      (:func:`check_document_gates`), not here.
+
+    This rule covers the remaining data precondition: a transition *into*
+    ``blocked`` requires a non-empty ``WorkItem.blocked_reason`` (spec §3.2,
+    concept §5.4 A-4). The column is deliberately nullable/blank because a
+    ``dropped`` item carries its dismissal reason in the same field; only the
+    ``blocked`` state makes it mandatory.
+
+    Fails open like every other precondition: a row that cannot be loaded is
+    left to the structural rules (rule 1 already rejects a transition whose
+    source state does not exist).
+
+    Returns:
+        ``(error_code, message)`` or ``None`` when the precondition holds (or
+        does not apply).
+    """
+    if item_type != _WORK_ITEM_ITEM_TYPE or target_state != _WORK_ITEM_BLOCKED_STATE:
+        return None
+
+    try:
+        from persistence.models import WorkItem
+
+        item = WorkItem.objects.filter(pk=item_id).first()
+    except Exception:  # noqa: BLE001 — fail-open, see module docstring
+        logger.exception(
+            "precondition_rules: WorkItem lookup failed for pk=%s", item_id
+        )
+        return None
+
+    if item is None:
+        return None
+    if (item.blocked_reason or "").strip():
+        return None
+    return (
+        EC_WORK_ITEM_BLOCKED_REASON_REQUIRED,
+        "A WorkItem can only enter 'blocked' with a non-empty blocked_reason.",
+    )
+
+
 def policy_fields_without_consumer(
     policy_fields: Iterable[str],
     *,
@@ -1166,12 +1240,14 @@ __all__ = [
     "EC_TEST_STEPS_MISSING",
     "EC_VERIFICATION_EVIDENCE_MISSING",
     "EC_VERIFIES_LINK_MISSING",
+    "EC_WORK_ITEM_BLOCKED_REASON_REQUIRED",
     "check_document_gates",
     "check_mandatory_fields",
     "check_requirement_verification_evidence",
     "check_testcase_steps",
     "check_verification_evidence",
     "check_verifies_link",
+    "check_work_item_preconditions",
     "is_approval_transition",
     "is_freeze_transition",
     "is_verification_transition",

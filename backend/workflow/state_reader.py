@@ -73,6 +73,15 @@ _COLUMNLESS_PRESET_BY_ITEM_TYPE: dict[str, str] = {
     if item_type in COLUMNLESS_ITEM_TYPES
 }
 
+#: Initial state of the tier-driven item types. They have no single preset key
+#: in :data:`WORKFLOW_ITEM_TYPE_PRESETS` (their preset is the workspace tier),
+#: but every tier shares the same ``states[0]`` — ``draft`` for Requirement,
+#: ``todo`` for WorkItem (Plan F F3-T2) — so one literal per type is enough.
+_TIER_DRIVEN_INITIAL_STATES: dict[str, str] = {
+    "Requirement": "draft",
+    "WorkItem": "todo",
+}
+
 
 def current_states(
     item_type: str,
@@ -242,16 +251,16 @@ def initial_state(item_type: str) -> str:
 
     Args:
         item_type: Entity type string, e.g. ``"Requirement"`` or ``"Adr"``.
-            ``"Requirement"`` always resolves to ``"draft"`` — the workspace's
-            rigor tier (minimal/standard/extended) governs its live
-            transitions, but all three presets share ``"draft"`` as their
-            first state.
+            The tier-driven types resolve to their shared ``states[0]``:
+            ``"Requirement"`` always to ``"draft"`` and ``"WorkItem"`` (Plan F
+            F3-T2) always to ``"todo"`` — the workspace's rigor tier governs
+            their live transitions, but every tier starts in the same state.
 
     Returns:
         The state name.
     """
-    if item_type == "Requirement":
-        return "draft"
+    if item_type in _TIER_DRIVEN_INITIAL_STATES:
+        return _TIER_DRIVEN_INITIAL_STATES[item_type]
     preset_key = _DEFAULT_PRESET_BY_ITEM_TYPE.get(item_type) or _COLUMNLESS_PRESET_BY_ITEM_TYPE[
         item_type
     ]
