@@ -2631,9 +2631,11 @@ class DocumentSerializer(
     * ``ClientUidRejectionMixin`` keeps ``uid`` system-owned (``DOC-NNN``).
 
     The Artifact-level system fields (``owner``/``reporter``/``priority``) are
-    intentionally **not** declared yet: wiring ``entity_type="Document"`` into
-    the attribute definitions is F2-T7 (spec §11). Declaring them here would
-    advertise a write path the gateway cannot validate for this type.
+    intentionally **not** declared: ``Document`` is deliberately absent from
+    ``SYSTEM_FIELDS_ENABLED_ITEM_TYPES`` (F2-T7 wired the definition, not this
+    transport), so the attribute gateway keeps those fields hidden for this
+    type. Declaring them here would advertise a write path the gateway cannot
+    validate.
 
     ``frozen_at``/``frozen_fields`` are read-only. They are the F-1 freeze
     bookkeeping the service writes on release; a client can observe that a

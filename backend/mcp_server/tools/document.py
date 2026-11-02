@@ -26,7 +26,8 @@ never removed, ``status`` becomes ``"outdated"`` and ``document.query`` hides it
 unless ``include_outdated`` is true. The MCP parameter keeps the surface-wide
 ``include_outdated`` name; it maps to REST's ``?include_deleted=``.
 
-No ORM access in this module (ADR-01) and no events (F2-T7 owns the outbox).
+No ORM access in this module (ADR-01); the outbox events are emitted by
+``DocumentService`` in the same transaction as the write (F2-T7).
 """
 from __future__ import annotations
 

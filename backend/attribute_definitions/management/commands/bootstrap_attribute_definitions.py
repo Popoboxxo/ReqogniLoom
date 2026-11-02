@@ -118,6 +118,8 @@ MODEL_LOCATIONS: dict[str, tuple[tuple[str, str], ...]] = {
     "Issue": (("persistence", "Issue"), ("application", "Issue")),
     "Goal": (("persistence", "Goal"), ("application", "Goal")),
     "ChangeRequest": (("persistence", "ChangeRequest"),),
+    # Plan F F2-T7 (#1374): Document's content columns.
+    "Document": (("persistence", "Document"),),
 }
 
 #: Columns that are never user-facing attributes. ``status`` and
@@ -198,6 +200,15 @@ EXCLUDED_MODEL_FIELDS: frozenset[str] = frozenset(
         # out of the introspected definition exactly like the other
         # system-managed columns above.
         "embedding_model",
+        # Plan F F2-T7: the release-freeze bookkeeping (F-1/F-5). ``frozen_at``
+        # is set/cleared only by DocumentService's lifecycle transition, never
+        # by a create or PATCH payload; exposing it as an editable (or even
+        # read-only) attribute would advertise a control whose value the
+        # service owns. ``frozen_fields`` is a JSONField and would be dropped
+        # anyway (no basic renderer) -- named explicitly so the decision is not
+        # mistaken for the JSON fallback.
+        "frozen_at",
+        "frozen_fields",
     }
 )
 
@@ -284,14 +295,16 @@ SHARED_AI_ELICIT_FIELDS: frozenset[str] = frozenset({"title", "description"})
 #: the stage matrix already uses for its new attributes (``stage_matrix.SEC_*``),
 #: so core and extended attributes of one item type now share one vocabulary.
 IDENTIFICATION_FIELDS: frozenset[str] = frozenset({"uid", "title", "name", "term"})
-CONTENT_FIELDS: frozenset[str] = frozenset({"description", "acceptance_criteria"})
+CONTENT_FIELDS: frozenset[str] = frozenset(
+    {"description", "acceptance_criteria", "body"}
+)
 ATTRIBUTION_FIELDS: frozenset[str] = frozenset({"owner", "reporter"})
 VERIFICATION_FIELDS: frozenset[str] = frozenset({"verification_method"})
 
 CLASSIFICATION_FIELDS: frozenset[str] = frozenset(
     {
-        "category", "type", "level", "test_type", "element_type", "severity_level",
-        "moscow_priority", "complexity_fibonacci",
+        "category", "type", "kind", "level", "test_type", "element_type",
+        "severity_level", "moscow_priority", "complexity_fibonacci",
         "probability", "impact", "detection",
     }
 )

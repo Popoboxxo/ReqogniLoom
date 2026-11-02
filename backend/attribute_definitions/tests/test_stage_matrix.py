@@ -236,6 +236,8 @@ def test_stage_mandatory_is_seeded_for_always_required_names() -> None:
 
 
 def test_priority_is_stage_scoped_enum() -> None:
+    from attribute_definitions.schema import SYSTEM_FIELDS_ENABLED_ITEM_TYPES
+
     for item_type in BOOTSTRAP_ITEM_TYPES:
         minimal = _by_name(item_type, "minimal")["priority"]
         standard = _by_name(item_type, "standard")["priority"]
@@ -251,12 +253,21 @@ def test_priority_is_stage_scoped_enum() -> None:
         # Matrix section 0: priority is ``-`` at stage 1, ``P`` from stage 2.
         assert minimal["visible"] is False, item_type
         assert minimal["stage_mandatory"] is False, item_type
-        # WS7 (#940) resolved the WS2 Risk deferral: every item type is in the
-        # transport rollout gate now.
-        assert standard["visible"] is True, item_type
-        assert extended["visible"] is True, item_type
-        assert standard["stage_mandatory"] is True, item_type
-        assert extended["stage_mandatory"] is True, item_type
+        if item_type in SYSTEM_FIELDS_ENABLED_ITEM_TYPES:
+            # WS7 (#940) resolved the WS2 Risk deferral: every type whose
+            # transport carries the system fields shows priority from stage 2.
+            assert standard["visible"] is True, item_type
+            assert extended["visible"] is True, item_type
+            assert standard["stage_mandatory"] is True, item_type
+            assert extended["stage_mandatory"] is True, item_type
+        else:
+            # Plan F F2-T7: Document is an ITEM_TYPES member, but its REST/MCP
+            # serializers do not carry owner/reporter/priority yet, so the
+            # rollout gate keeps the system fields hidden for it.
+            assert standard["visible"] is False, item_type
+            assert extended["visible"] is False, item_type
+            assert standard["stage_mandatory"] is False, item_type
+            assert extended["stage_mandatory"] is False, item_type
 
 
 def test_priority_scale_is_definition_configurable() -> None:

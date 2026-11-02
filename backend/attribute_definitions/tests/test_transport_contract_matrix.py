@@ -328,6 +328,18 @@ _SPECS: dict[str, _Spec] = {
         "data",
         lambda token: {"title": f"cm-{token}"},
     ),
+    # Plan F F2-T7: Document joined ITEM_TYPES, so the AUC now covers it. The
+    # MCP group nests the payload under ``document`` (like the ``data``-keyed
+    # groups); ``kind`` is the one required create field beyond ``title``.
+    "Document": _Spec(
+        "/api/v1/documents/",
+        "document",
+        "document.create",
+        "document.read",
+        "document.update",
+        "document",
+        lambda token: {"title": f"cm-{token}", "kind": "Spec"},
+    ),
 }
 
 
@@ -1877,9 +1889,9 @@ def _dump_actual(
 
 
 def test_vocabulary_is_the_documented_matrix() -> None:
-    """Guard the matrix axes: 11 item types, 3 presets (spec sections 2 / 11)."""
-    assert len(ITEM_TYPES) == 11, ITEM_TYPES
-    assert len(set(ITEM_TYPES)) == 11
+    """Guard the matrix axes: 12 item types, 3 presets (spec sections 2 / 11)."""
+    assert len(ITEM_TYPES) == 12, ITEM_TYPES
+    assert len(set(ITEM_TYPES)) == 12
     assert PRESETS == ("minimal", "standard", "extended")
     assert set(_SPECS) == set(ITEM_TYPES), "every item type needs a transport spec"
 

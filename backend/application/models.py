@@ -137,6 +137,17 @@ class DomainEventOutbox(models.Model):
         ICD_CREATED = "IcdCreated"
         ICD_UPDATED = "IcdUpdated"
         ICD_DELETED = "IcdDeleted"
+        # Plan F F2-T7 (#1374): the Document artifact's lifecycle. Purely
+        # additive -- declares the emission sites DocumentService now writes
+        # (application/0037). ``DocumentStateChanged``/``DocumentPublished``
+        # are not indexer hooks: the indexer derives its entity mapping from
+        # ``<EntityType>{Created,Updated,Deleted}`` only, and a release is a
+        # state transition, not a content revision.
+        DOCUMENT_CREATED = "DocumentCreated"
+        DOCUMENT_UPDATED = "DocumentUpdated"
+        DOCUMENT_DELETED = "DocumentDeleted"
+        DOCUMENT_STATE_CHANGED = "DocumentStateChanged"
+        DOCUMENT_PUBLISHED = "DocumentPublished"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     event_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)

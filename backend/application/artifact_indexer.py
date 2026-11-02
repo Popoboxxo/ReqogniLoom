@@ -2,11 +2,11 @@
 
 ``application.artifact_vector_store`` provisions one ``..._artifacts_v2``
 collection per workspace; this module decides which entity becomes which point.
-Fifteen sources are indexed: Requirement, StakeholderNeed, ArchitectureElement,
+Sixteen sources are indexed: Requirement, StakeholderNeed, ArchitectureElement,
 TestCase, Adr, Risk, Issue, ChangeRequest, Goal, MainGoal, GlossaryTerm, Diagram,
-Interview (``InterviewSession``), Icd and TraceLink. Fourteen sit behind a
-``persistence.Artifact`` row; ``TraceLink`` has its own table and no backing
-artifact, so its workspace is the workspace of its *source* artifact.
+Interview (``InterviewSession``), Icd, Document and TraceLink. Fifteen sit
+behind a ``persistence.Artifact`` row; ``TraceLink`` has its own table and no
+backing artifact, so its workspace is the workspace of its *source* artifact.
 
 Point: ``id`` = entity UUID; ``vector`` = ``{"dense": v, "bm25": Document(text,
 model="qdrant/bm25")}``; payload = ``tenant_id, workspace_id, entity_type,
@@ -149,6 +149,7 @@ _ARTIFACT_ACCESSORS: dict[str, str] = {
     "Diagram": "diagram",
     "Interview": "interview_session",
     "Icd": "icd",
+    "Document": "document",
 }
 
 
@@ -193,6 +194,12 @@ SOURCES: dict[str, SourceSpec] = {
     "Interview": SourceSpec("persistence", "InterviewSession", _workspace_of,
         ("artifact_type", "session_kind", "collected_fields", "transcript_summary")),
     "Icd": SourceSpec("icd", "Icd", _workspace_of, ("name", "semantic_description")),
+    # Plan F F2-T7: the Document artifact. ``body`` is the markdown content and
+    # is the reason this type is indexed at all; ``kind``/``doc_date`` keep the
+    # point searchable by classification and date. ``frozen_at`` is release
+    # bookkeeping, not content, so it is deliberately not part of the text.
+    "Document": SourceSpec("persistence", "Document", _workspace_of,
+        ("title", "description", "body", "kind", "doc_date")),
     # ``select_related`` fetches the two endpoint Artifacts only: the reverse
     # OneToOne rows that carry the readable uid (``_artifact_label``) are not
     # covered and cost two extra queries per TraceLink. Proposal links

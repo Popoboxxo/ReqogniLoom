@@ -30,6 +30,7 @@ from persistence.models import (
     ArchitectureElement,
     Artifact,
     ChangeRequest,
+    Document,
     GlossaryTerm,
     Goal,
     InterviewSession,
@@ -63,6 +64,7 @@ _EXPECTED_SOURCES = {
     "Diagram",
     "Interview",
     "Icd",
+    "Document",
     "TraceLink",
 }
 
@@ -194,6 +196,14 @@ def _make_all(tenant, workspace) -> dict[str, Any]:
         name="Indexed interface",
         semantic_description="Exchanges artifact metadata.",
     )
+    rows["Document"] = Document.objects.create(
+        tenant=tenant,
+        artifact=artifact("Document"),
+        workspace=workspace,
+        title="Indexed document",
+        kind="Spec",
+        body="# Body\n\nIndexable markdown.",
+    )
     target = ArchitectureElement.objects.create(
         tenant=tenant,
         artifact=artifact("ArchitectureElement"),
@@ -233,14 +243,14 @@ def _points(client: FakeQdrantClient, tenant_id, workspace_id) -> list:
     return client.collections[_collection_name(tenant_id, workspace_id)]
 
 
-def test_sources_cover_all_fifteen_entity_types() -> None:
+def test_sources_cover_all_sixteen_entity_types() -> None:
     assert set(SOURCES) == _EXPECTED_SOURCES
     assert "Icd" in SOURCES
     assert "TraceLink" in SOURCES
 
 
 @pytest.mark.django_db
-def test_each_of_15_sources_produces_one_point_with_entity_type(monkeypatch) -> None:
+def test_each_of_16_sources_produces_one_point_with_entity_type(monkeypatch) -> None:
     monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
     client = FakeQdrantClient()
     indexer = _indexer(client)

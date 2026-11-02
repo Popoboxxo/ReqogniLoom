@@ -61,11 +61,13 @@ _UID_ITEM_TYPES = frozenset(
         "Adr",
         "Risk",
         "Issue",
+        "Document",
     }
 )
 
-#: The 8 special models that carry a ``uid`` column (#932). Keyed by
-#: ``(app_label, model_name)`` so the same list resolves through ``apps.get_model``.
+#: The 9 special models that carry a ``uid`` column (#932; ``Document`` added
+#: by Plan F F2-T7). Keyed by ``(app_label, model_name)`` so the same list
+#: resolves through ``apps.get_model``.
 _UID_MODELS = (
     ("persistence", "StakeholderNeed"),
     ("persistence", "Requirement"),
@@ -75,6 +77,7 @@ _UID_MODELS = (
     ("persistence", "Adr"),
     ("persistence", "Risk"),
     ("persistence", "Issue"),
+    ("persistence", "Document"),
 )
 
 
@@ -292,7 +295,7 @@ def test_uid_is_auto_generated_for_the_uid_bearing_types() -> None:
 
 
 def test_uid_model_fields_document_the_local_identifier() -> None:
-    """All 8 ``uid`` columns state the local-identifier semantics (#932)."""
+    """All 9 ``uid`` columns state the local-identifier semantics (#932)."""
     from django.apps import apps
 
     failures: list[str] = []
@@ -315,6 +318,7 @@ def test_uid_serializer_fields_are_read_only_and_documented() -> None:
         UID_HELP_TEXT,
         AdrSerializer,
         ArchitectureElementSerializer,
+        DocumentSerializer,
         IssueSerializer,
         RequirementSerializer,
         RiskSerializer,
@@ -332,6 +336,7 @@ def test_uid_serializer_fields_are_read_only_and_documented() -> None:
         RiskSerializer,
         TestRunSerializer,
         IssueSerializer,
+        DocumentSerializer,
     ):
         field = serializer_cls().fields["uid"]
         assert field.read_only is True, f"{serializer_cls.__name__}.uid is writable"

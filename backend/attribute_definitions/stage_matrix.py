@@ -140,6 +140,8 @@ CORE_ATTRIBUTE_LABELS_DE: Mapping[str, str] = {
     "abbreviation": "Abkürzung",
     # -- content ------------------------------------------------------------
     "description": "Beschreibung",
+    # Plan F F2-T7: Document's markdown content column.
+    "body": "Inhalt",
     "semantic_description": "Semantische Beschreibung",
     "context": "Kontext",
     "decision": "Entscheidung",
@@ -150,6 +152,8 @@ CORE_ATTRIBUTE_LABELS_DE: Mapping[str, str] = {
     # -- classification -----------------------------------------------------
     "category": "Kategorie",
     "type": "Typ",
+    # Plan F F2-T7: Document.Kind (Spec/Plan/AuditReport/...).
+    "kind": "Dokumentart",
     # Decomposition/hierarchy level. ``TestCase.test_level`` uses "Testebene",
     # so the bare hierarchy level stays "Ebene".
     "level": "Ebene",
@@ -207,6 +211,8 @@ CORE_ATTRIBUTE_LABELS_DE: Mapping[str, str] = {
     "supersedes": "Ersetzt",
     # -- lifecycle ----------------------------------------------------------
     "due_date": "Fälligkeitsdatum",
+    # Plan F F2-T7: the document's own date (not a workflow due date).
+    "doc_date": "Dokumentdatum",
     "change_reason": "Änderungsgrund",
     "change_class": "Änderungsklasse",
     "target_baseline": "Ziel-Baseline",

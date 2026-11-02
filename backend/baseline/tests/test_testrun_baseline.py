@@ -368,6 +368,7 @@ class TestStateCaptureTestRuns:
              patch("persistence.models.ArchitectureElement") as MockAE, \
              patch("persistence.models.StakeholderNeed") as MockSN, \
              patch("persistence.models.TestCase") as MockTC, \
+             patch("persistence.models.Document") as MockDoc, \
              patch.dict(
                  "persistence.domain_model_registry._registry",
                  {
@@ -393,6 +394,7 @@ class TestStateCaptureTestRuns:
             MockAE.unscoped.filter.return_value = []
             MockSN.unscoped.filter.return_value = []
             MockTC.unscoped.filter.return_value = []
+            MockDoc.unscoped.filter.return_value = []
             for mock_model in (MockAdr, MockRisk, MockIssue, MockGoal, MockMainGoal):
                 mock_model.objects.filter.return_value = []
 

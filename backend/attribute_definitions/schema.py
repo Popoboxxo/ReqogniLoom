@@ -32,6 +32,11 @@ ITEM_TYPES: tuple[str, ...] = (
     "Icd",
     "GlossaryTerm",
     "ChangeRequest",
+    # Plan F F2-T7 (#1374): the Document artifact is a first-class attribute
+    # subject. Deliberately NOT added to SYSTEM_FIELDS_ENABLED_ITEM_TYPES: its
+    # REST/MCP serializers do not carry owner/reporter/priority yet, so those
+    # stay hidden/non-editable for this type.
+    "Document",
 )
 
 PRESETS: tuple[str, ...] = ("minimal", "standard", "extended")
