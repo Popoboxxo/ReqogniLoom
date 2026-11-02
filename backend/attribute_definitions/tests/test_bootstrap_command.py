@@ -35,10 +35,11 @@ def tenant(db) -> Tenant:
     return Tenant.objects.create(name="t", slug=f"t-{uuid.uuid4().hex[:8]}")
 
 
-def test_eleven_item_types_are_covered() -> None:
+def test_twelve_item_types_are_covered() -> None:
     assert BOOTSTRAP_ITEM_TYPES == (
         "Requirement", "StakeholderNeed", "ArchitectureElement", "TestCase",
         "Adr", "Risk", "Issue", "Goal", "Icd", "GlossaryTerm", "ChangeRequest",
+        "Document",
     )
 
 

@@ -117,9 +117,10 @@ logger = logging.getLogger(__name__)
 #: project baseline needs several change requests instead of a background job.
 MAX_ROLLBACK_ITEMS = 2000
 
-#: The eight artifact types an additive rollback addresses (ADR-025 R4 /
-#: F4.1). Keep in sync with ``baseline.restorable_fields.RESTORABLE_FIELDS`` —
-#: the F4.1 meta-test asserts the two sets are equal.
+#: The nine artifact types an additive rollback addresses (ADR-025 R4 /
+#: F4.1; ``Document`` joined with Plan F F2-T7). Keep in sync with
+#: ``baseline.restorable_fields.RESTORABLE_FIELDS`` — the F4.1 meta-test asserts
+#: the two sets are equal.
 SUPPORTED_ITEM_TYPES: frozenset[str] = frozenset(RESTORABLE_FIELDS)
 
 #: Captured ``state["artifact_type"]`` label -> ADR item type. ``state_capture``
@@ -140,6 +141,7 @@ _LABEL_TO_ITEM_TYPE: dict[str, str] = {
     "adr": "Adr",
     "risk": "Risk",
     "issue": "Issue",
+    "document": "Document",
 }
 
 #: Artifact hull keys restored through ``ArtifactAttributeGateway`` (R4). They
@@ -158,6 +160,7 @@ _HULL_FIELDS_WITHOUT_OWNER: frozenset[str] = _HULL_FIELDS - {"owner"}
 #: string (``state_capture`` serialises them for JSON round-tripping).
 _DATE_FIELDS: dict[str, frozenset[str]] = {
     "Issue": frozenset({"due_date"}),
+    "Document": frozenset({"doc_date"}),
 }
 
 #: Content fields per type that the updating service accepts 1:1 by name.
@@ -198,6 +201,10 @@ _CONTENT_FIELDS: dict[str, frozenset[str]] = {
         {"title", "description", "severity", "category", "due_date", "tags"}
     ),
     "GlossaryTerm": frozenset({"term", "definition", "synonyms", "abbreviation"}),
+    # Plan F F2-T7: the Document content fields its update service accepts.
+    # ``doc_date`` goes through ``_DATE_FIELDS`` so the ISO snapshot string is
+    # parsed back to a ``date``.
+    "Document": frozenset({"title", "description", "body", "kind", "doc_date"}),
 }
 
 
@@ -1139,11 +1146,11 @@ class BaselineRollbackService(ServiceBase):
     def _resolve_entity_ids(
         self, artifact_ids: set[str], ctx: AuthContext
     ) -> dict[str, tuple[str, int]]:
-        """``artifact_id -> (entity row id, entity version)`` in 8 batched queries.
+        """``artifact_id -> (entity row id, entity version)`` in 9 batched queries.
 
         Constant in the number of items (one query per artifact-backed ADR
         type), mirroring ``baseline.state_capture``'s batching discipline. All
-        eight models live in ``persistence`` (Datenmodell-Konsolidierung Phase
+        nine models live in ``persistence`` (Datenmodell-Konsolidierung Phase
         2), so this is a plain downward import — no registry indirection needed.
         """
         if not artifact_ids:
@@ -1152,6 +1159,7 @@ class BaselineRollbackService(ServiceBase):
         from persistence.models import (
             Adr,
             ArchitectureElement,
+            Document,
             GlossaryTerm,
             Issue,
             Requirement,
@@ -1169,6 +1177,7 @@ class BaselineRollbackService(ServiceBase):
             "Adr": Adr,
             "Risk": Risk,
             "Issue": Issue,
+            "Document": Document,
         }
         ids = list(artifact_ids)
         resolved: dict[str, tuple[str, int]] = {}
@@ -1510,6 +1519,16 @@ class BaselineRollbackService(ServiceBase):
             from application.issue_service import IssueService
 
             IssueService().update_issue(
+                entity_id,
+                ctx,
+                change_reason=change_reason,
+                expected_version=expected_version,
+                **kwargs,
+            )
+        elif item_type == "Document":
+            from application.document_service import DocumentService
+
+            DocumentService().update_document(
                 entity_id,
                 ctx,
                 change_reason=change_reason,

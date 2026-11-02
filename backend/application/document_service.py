@@ -34,11 +34,10 @@ forwarded to ``WorkflowFacade.transition`` as the ``WorkflowItemState``
 revision: those are two different counters, and a client that read an ETag off
 the document would otherwise get spurious 409s.
 
-Out of scope here (later F2 tasks): REST/MCP exposure (T5/T6), outbox events
-and indexer registration (T7), projection/adoption (F5). No event is emitted,
-because ``DomainEventOutbox.EventType`` gains its ``DOCUMENT_*`` members in
-T7 with their own choices migration — emitting an unknown type would silently
-break every outbox consumer.
+Out of scope here (later F2 tasks): REST/MCP exposure (T5/T6),
+projection/adoption (F5). Outbox events (``DOCUMENT_CREATED/UPDATED/DELETED/
+STATE_CHANGED/PUBLISHED``, F2-T7) are written inside the same transaction as the
+mutation, mirroring ``AdrService``.
 """
 from __future__ import annotations
 
@@ -59,6 +58,7 @@ from application.artifact_service import (
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import FieldFrozenError, NotFoundError, ServiceBase, ValidationError
 from application.local_uid import generate_local_uid
+from application.models import DomainEventOutbox
 from application.optimistic_lock import (
     assert_expected_version,
     lock_for_version_check,
@@ -433,6 +433,18 @@ class DocumentService(ServiceBase):
             entity_type=DOCUMENT_ITEM_TYPE,
             entity_id=document.id,
         )
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.DOCUMENT_CREATED,
+                entity_id=document.id,
+                workspace_id=workspace_id,
+                payload={
+                    "title": title,
+                    "kind": kind,
+                    "artifact_id": str(document.artifact_id),
+                },
+            )
+        )
         return document
 
     # ---------- Update ----------
@@ -549,6 +561,23 @@ class DocumentService(ServiceBase):
                 _document_snapshot(document),
                 ctx,
                 change_reason=change_reason or "",
+            )
+            # "DOCUMENT_UPDATED = inhaltliche Änderung" (ADR-026 §10): emitted
+            # only on the same gate as the version bump, so a no-op PATCH does
+            # not re-index (and does not embed) an unchanged document.
+            self._emit_event(
+                self._make_event(
+                    event_type=DomainEventOutbox.EventType.DOCUMENT_UPDATED,
+                    entity_id=document.id,
+                    workspace_id=document.workspace_id,
+                    payload={
+                        "change_reason": change_reason,
+                        "version": document.version,
+                        "artifact_id": str(document.artifact_id),
+                        "fields": sorted(supplied),
+                        "custom_fields_changed": custom_fields_changed,
+                    },
+                )
             )
 
         self._audit(
@@ -710,6 +739,41 @@ class DocumentService(ServiceBase):
             # own ``WorkflowItemState`` counter, which is a different axis.
             Document.objects.filter(id=document.id).update(version=F("version") + 1)
             document.refresh_from_db(fields=["version"])
+
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.DOCUMENT_STATE_CHANGED,
+                entity_id=document.id,
+                workspace_id=document.workspace_id,
+                payload={
+                    "previous_state": previous_state,
+                    "new_state": new_state,
+                    "version": document.version,
+                    "artifact_id": str(document.artifact_id),
+                    "change_reason": change_reason,
+                },
+            )
+        )
+        if release_state is not None and new_state == release_state:
+            # ADR-026 §10: the release is its own event so a subscriber does
+            # not have to compare state names. ``frozen_at`` is the flag the
+            # rest of the system reads; it is set just above.
+            self._emit_event(
+                self._make_event(
+                    event_type=DomainEventOutbox.EventType.DOCUMENT_PUBLISHED,
+                    entity_id=document.id,
+                    workspace_id=document.workspace_id,
+                    payload={
+                        "artifact_id": str(document.artifact_id),
+                        "version": document.version,
+                        "frozen_at": (
+                            document.frozen_at.isoformat()
+                            if document.frozen_at is not None
+                            else None
+                        ),
+                    },
+                )
+            )
         return document
 
     @atomic_transaction
@@ -980,6 +1044,17 @@ class DocumentService(ServiceBase):
             entity_id=document.id,
             change_reason=change_reason or None,
         )
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.DOCUMENT_DELETED,
+                entity_id=document.id,
+                workspace_id=document.workspace_id,
+                payload={
+                    "artifact_id": str(document.artifact_id),
+                    "change_reason": change_reason or None,
+                },
+            )
+        )
         return document
 
     @atomic_transaction
@@ -1028,6 +1103,23 @@ class DocumentService(ServiceBase):
             entity_type=DOCUMENT_ITEM_TYPE,
             entity_id=document.id,
             change_reason="restored",
+        )
+        # DOCUMENT_UPDATED is the re-index signal: DOCUMENT_DELETED removed the
+        # search point, and without an event on restore the document would stay
+        # invisible to the artifact index until its next content edit. There is
+        # no DOCUMENT_REACTIVATED member by design (ADR-026 §10 lists five
+        # events); the payload names the action.
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.DOCUMENT_UPDATED,
+                entity_id=document.id,
+                workspace_id=document.workspace_id,
+                payload={
+                    "action": "reactivated",
+                    "artifact_id": str(document.artifact_id),
+                    "version": document.version,
+                },
+            )
         )
         return document
 

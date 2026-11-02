@@ -6,8 +6,8 @@ req_id  : REQ-L1-020, REQ-L3-SEARCH-001 through REQ-L3-SEARCH-009
 
 Search over every artifact type listed in ``SEARCHABLE_ARTIFACT_TYPES``
 (Requirement, ArchitectureElement, TestCase, StakeholderNeed, Adr, Risk,
-Issue, ChangeRequest, Goal, GlossaryTerm, Icd, TraceLink). Two passes run per
-type and are merged (issue #345):
+Issue, ChangeRequest, Goal, GlossaryTerm, Icd, Document, TraceLink). Two passes
+run per type and are merged (issue #345):
 
   1. full-text: PostgreSQL tsvector / tsquery, relevance-ranked via ts_rank
   2. lexical:   case-insensitive substring match on title, uid and IDs
@@ -196,6 +196,10 @@ class _TableSpec:
     table: str
     title_col: str = "e.title"
     description_col: str = "COALESCE(e.description, '')"
+    #: Extra column folded into the *full-text* expression only (#1374 /
+    #: ADR-026 §11: Document's markdown ``body`` must be searchable without
+    #: turning the hit's displayed ``description`` into description+body).
+    extra_fulltext_col: str | None = None
     join_sql: str = ""
     workspace_col: str = "e.workspace_id"
     uid_col: str | None = "e.uid"
@@ -296,6 +300,18 @@ _TABLE_SPECS: dict[str, _TableSpec] = {
         artifact_id_col="e.artifact_id",
         join_sql=_ARTIFACT_LEFT_JOIN,
         permission_scoped=True,
+    ),
+    # Plan F F2-T7 (ADR-026 §11): a Document's markdown ``body`` is part of
+    # the searchable text. It is folded in through ``extra_fulltext_col`` so
+    # the hit's displayed ``description`` stays the summary rather than
+    # "description + entire document". The backing Artifact FK is non-null,
+    # so the inner join is correct here (unlike the ``as_*`` tables).
+    "Document": _TableSpec(
+        table="pl_document",
+        join_sql=_ARTIFACT_JOIN,
+        workspace_col="a.workspace_id",
+        artifact_id_col="e.artifact_id",
+        extra_fulltext_col="e.body",
     ),
     # T-A3-3: a TraceLink has neither a title nor a uid of its own. The
     # fulltext/lexical SQL matches the link type (plus the raw endpoint ids, so
@@ -1175,8 +1191,11 @@ def _run_fulltext_query(
 
     tsv = (
         f"to_tsvector('german', COALESCE({spec.title_col}, '') || ' ' "
-        f"|| {spec.description_col})"
+        f"|| {spec.description_col}"
     )
+    if spec.extra_fulltext_col:
+        tsv += f" || ' ' || COALESCE({spec.extra_fulltext_col}, '')"
+    tsv += ")"
 
     where_parts = ["e.tenant_id = %s", f"{tsv} @@ plainto_tsquery('german', %s)"]
     params: list[Any] = [str(tenant_id), tsquery_str]

@@ -291,6 +291,40 @@ def _capture_items(
         )
     )
 
+    # Document (Plan F F2-T1/T7, #1374). ADR-026 §11 makes the document a
+    # baseline subject; without this branch it would fall through to the bare
+    # ``{"artifact_type": "Document"}`` hull, so the whole markdown body and the
+    # release freeze would be invisible to a diff and to a rollback. Keys
+    # mirror ``DocumentService``'s snapshot fields plus the two workflow axes
+    # (``status`` from the engine, ``lifecycle_status`` from the Artifact).
+    from persistence.models import Document
+
+    documents = list(
+        Document.unscoped.filter(artifact_id__in=uuids, tenant_id=tenant_id)
+    )
+    doc_states = _engine_status("Document", [doc.id for doc in documents])
+    doc_initial_state = state_reader.initial_state("Document")
+    for doc in documents:
+        states[str(doc.artifact_id)] = {
+            "artifact_type": (
+                (artifact_header_by_id.get(str(doc.artifact_id)) or {}).get(
+                    "artifact_type_raw"
+                )
+                or "Document"
+            ),
+            "uid": doc.uid,
+            "title": doc.title,
+            "kind": doc.kind,
+            "description": doc.description,
+            "body": doc.body,
+            "doc_date": doc.doc_date.isoformat() if doc.doc_date else None,
+            "frozen_at": doc.frozen_at.isoformat() if doc.frozen_at else None,
+            "frozen_fields": list(doc.frozen_fields or []),
+            "status": doc_states.get(str(doc.id)) or doc_initial_state,
+            "lifecycle_status": artifact_lifecycle.get(str(doc.artifact_id), "active"),
+            "version": doc.version,
+        }
+
     # Icd (Ext layer, Artifact-backed). Plan F F4.1 (R-F4-2): project and global
     # scope used to capture an ICD only as a bare Artifact hull, so the whole
     # Design-by-Contract payload was invisible to a baseline diff and to a

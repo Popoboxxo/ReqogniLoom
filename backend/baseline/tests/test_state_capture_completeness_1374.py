@@ -30,7 +30,8 @@ from baseline.restorable_fields import NON_RESTORABLE, RESTORABLE_FIELDS
 from baseline.state_capture import capture_states
 from baseline.types import DeltaIndexTuple
 
-#: The eight artifact types ADR-025 restricts a rollback to.
+#: The nine artifact types ADR-025 restricts a rollback to (``Document`` joined
+#: with Plan F F2-T7).
 COVERED_TYPES: tuple[str, ...] = (
     "Requirement",
     "StakeholderNeed",
@@ -40,6 +41,7 @@ COVERED_TYPES: tuple[str, ...] = (
     "Risk",
     "Issue",
     "GlossaryTerm",
+    "Document",
 )
 
 #: Columns that exist to bind a row to its tenant/artifact/parent storage and
@@ -87,10 +89,13 @@ def _seed_and_capture(env: dict[str, Any]) -> dict[str, dict[str, Any]]:
         the ``glossary_term`` entry — that is the entry a rollback uses (the
         ``item`` entry of an Artifact-backed glossary term stays a bare hull).
     """
+    from datetime import date
+
     from persistence.models import (
         Adr,
         ArchitectureElement,
         Artifact,
+        Document,
         GlossaryTerm,
         Issue,
         Requirement,
@@ -202,6 +207,19 @@ def _seed_and_capture(env: dict[str, Any]) -> dict[str, dict[str, Any]]:
     )
     capture_keys["Issue"] = str(issue_artifact.id)
 
+    document_artifact = _artifact("Document")
+    Document.objects.create(
+        tenant=tenant,
+        artifact=document_artifact,
+        workspace=workspace,
+        title="Document",
+        kind="Spec",
+        description="d",
+        body="# markdown body",
+        doc_date=date(2026, 1, 2),
+    )
+    capture_keys["Document"] = str(document_artifact.id)
+
     term = GlossaryTerm.objects.create(
         tenant=tenant,
         workspace=workspace,
@@ -247,6 +265,7 @@ def _model_for(artifact_type: str):
     from persistence.models import (
         Adr,
         ArchitectureElement,
+        Document,
         GlossaryTerm,
         Issue,
         Requirement,
@@ -264,6 +283,7 @@ def _model_for(artifact_type: str):
         "Risk": Risk,
         "Issue": Issue,
         "GlossaryTerm": GlossaryTerm,
+        "Document": Document,
     }[artifact_type]
 
 

@@ -148,6 +148,18 @@ RESTORABLE_FIELDS: dict[str, tuple[str, ...]] = {
         "synonyms",
         "abbreviation",
     ),
+    # Plan F F2-T7 (ADR-026 §11): the Document artifact's authored content.
+    # ``frozen_at``/``frozen_fields`` are release bookkeeping and stay
+    # NON_RESTORABLE — a rollback must not move a document in or out of the
+    # release freeze without going through the lifecycle transition.
+    "Document": (
+        "title",
+        "description",
+        "body",
+        "kind",
+        "doc_date",
+        *_ARTIFACT_HULL_RESTORABLE,
+    ),
 }
 
 #: ``artifact_type -> {field: reason}`` — captured (or model-level) fields a
@@ -235,5 +247,16 @@ NON_RESTORABLE: dict[str, dict[str, str]] = {
         "version": "optimistic lock",
         "lifecycle_status": "via reactivate",
         "artifact_type": "identity/type discriminator",
+    },
+    "Document": {
+        "status": "workflow governance",
+        "uid": "identity",
+        "version": "optimistic lock",
+        "lifecycle_status": "via reactivate",
+        # F-1/F-5: the freeze is entered/left only through the lifecycle
+        # transition (DocumentService.transition_status), never by a rollback.
+        "frozen_at": "release bookkeeping (freeze F-1), set by the transition",
+        "frozen_fields": "release bookkeeping (freeze F-1), set by the transition",
+        **_ARTIFACT_HULL_NON_RESTORABLE,
     },
 }
