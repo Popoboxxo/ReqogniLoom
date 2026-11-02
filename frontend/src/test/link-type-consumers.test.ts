@@ -49,6 +49,9 @@ const ALLOWED = new Set<string>([
   // pre-catalog default) still renders as a disabled option instead of being
   // silently downgraded on save. The retired value IS the fixture.
   "components/WorkspaceSettings/WorkspaceSettings.test.tsx",
+  // Asserts the human EN upstream *label* of `documented-in` (Plan F F2-T3):
+  // the word is label text there, not a link_type key.
+  "constants/traceLinkLabels.ts",
 ]);
 
 function collectSourceFiles(dir: string): string[] {
