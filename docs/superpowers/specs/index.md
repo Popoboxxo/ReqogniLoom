@@ -81,6 +81,9 @@ All planned features are implemented (spec/plan PRs #901/#902, implementation PR
 
 ## Open / deferred (not archived)
 
+## [2026-11-02-f2-document-design.md](2026-11-02-f2-document-design.md)
+**Partly implemented — new spec (2026-11-02), Plan F WP F2.** F2-T0 (this spec + ADR-026 + review) and F2-T1 (the `Document` model, persistence `0123`/`0124`, UID/registry wiring) are implemented; F2-T2…T8 (workflow seeds, three link types, service, REST/MCP, events, frontend) remain open. Per ENT-F2 = b the artifact keeps the name `Document`, while the older read-only Dokumentensicht model is renamed `DocumentView` (see the 2026-09-03 entry below); `Baseline.scope="document"` accepts a `Document` as a contract for F4. Architecture decision: [ADR-026](../../se/ADR/ADR-026_document_artefakt.md).
+
 ## [2026-07-25-phase6-agent-templates-design.md](2026-07-25-phase6-agent-templates-design.md)
 **Decided against (2026-08-20), not a gap to fix.** Mirrors the corresponding implementation plan's status (`docs/superpowers/plans/2026-07-25-phase6-agent-templates.md`): `requirements-architect.md` was never created under that exact name — `requirements-architecture-manager.md` exists instead. Reviewed and the user explicitly chose not to rename/create the file to match. The rest of the spec (`change-manager.md`, `quality-auditor.md`, `risk-analyst.md`, `test-engineer.md`, hook scripts) is implemented. Do not re-flag the naming deviation.
 
@@ -103,6 +106,10 @@ All planned features are implemented (spec/plan PRs #901/#902, implementation PR
 **Not implemented — new spec (2026-09-03).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. Q1.3/C8. Ninth of several independent follow-up specs from the same audit. Table view with type-aware per-column filtering and multi-sort, driven by the same Attribute-Definition metadata `ArtifactForm` already uses (also structurally fixes C8's "filters not in schema" complaint as a byproduct). Two persistence concepts per explicit design choice: `UserTableViewState` (unnamed, auto-updating "where I left off") and `SavedView` (named, explicitly saved, optionally workspace-shared) — the user asked specifically for saveable filters. Generic `ARTIFACT_UPDATE_ADAPTERS`-based bulk-update/bulk-transition endpoints with partial-success responses; workflow-state fields (`editable: "workflow"`) are hard-rejected from bulk-update regardless of caller, enforced in code per explicit user requirement ("unter Wahrung aller Workflows"), not just documented. Explicitly excludes formulas/pivot-tables/drag-fill. Implementation plan not yet written.
 
 ## [2026-09-03-dokumentensicht-design.md](2026-09-03-dokumentensicht-design.md)
+**Naming note (2026-11-02, ENT-F2 = b):** the read-only view described here is now called
+**`DocumentView`**; the artifact named `Document` is specified in
+[2026-11-02-f2-document-design.md](2026-11-02-f2-document-design.md). The file is kept
+unchanged as the view's design record.
 **Not implemented — new spec (2026-09-03).** From `docs/SYSTEMAUDIT_2026-09-02_GROB.md` Kap. Q1.4. Tenth of several independent follow-up specs from the same audit. New `Document`/`DocumentSection` entities with three reused mechanisms instead of new ones: sections reuse the tabellenansicht spec's filter DSL (`content_type="query"`), a curated fixed list, or the existing `Artifact.parent`-subtree walk `Baseline.scope="document"` already does today (verified against `baseline/delta_index_builder.py` — that scope currently resolves an arbitrary root artifact's subtree, no real Document object behind it). Read mode and MCP `resources/read` (mcp-modernisierung spec) share one markdown renderer. `Baseline.scope="document"` gets rebound to a real `Document.id` with a migration path for existing document-scope baselines. Implementation plan not yet written.
 
 ## [2026-09-03-rollenbasierte-sichten-design.md](2026-09-03-rollenbasierte-sichten-design.md)
