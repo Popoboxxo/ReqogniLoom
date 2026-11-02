@@ -470,7 +470,7 @@ def test_honcho_sdk_lock_matches_requirements() -> None:
     documented resolved closure used to check a CVE advisory against transitive
     packages *without* a build. When the two disagree, the lock answers for a
     client that is not running: before this guard ``requirements.txt`` pinned
-    ``honcho-ai==2.5.1`` (``honcho_backend.py`` is written against 2.5.1's
+    ``honcho-ai==2.7.0`` (``honcho_backend.py`` is written against 2.7.0's
     ``honcho.conclusions.ConclusionsView``) while the lock still said 2.3.0.
     That drift is exactly what ADR-023 AC-SDK closes (plan A, T-A0-1).
     """
