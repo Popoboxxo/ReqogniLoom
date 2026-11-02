@@ -130,6 +130,10 @@ _TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
     "document.read": (("id", "document"),),
     "document.versions": (("id", "document"),),
     "document.diff": (("id", "document"),),
+    # Plan F F3-T6 (#1374): work_item.read/write name their target by ``id``.
+    # work_item.create/query/checkpoint/resume declare a required
+    # ``workspace_id`` and need no entry here.
+    "work_item.read": (("id", "work_item"),),
     "diagram.get": (("id", "diagram"),),
     "glossary.read": (("id", "glossary"),),
     "icd.read": (("id", "icd"),),
@@ -201,6 +205,9 @@ _TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
     "document.transition": (("id", "document"),),
     "document.outdate": (("id", "document"),),
     "document.reactivate": (("id", "document"),),
+    "work_item.update": (("id", "work_item"),),
+    "work_item.transition": (("id", "work_item"),),
+    "work_item.set_progress": (("id", "work_item"),),
     "glossary.delete": (("id", "glossary"),),
     "glossary.outdate": (("id", "glossary"),),
     "glossary.reactivate": (("id", "glossary"),),

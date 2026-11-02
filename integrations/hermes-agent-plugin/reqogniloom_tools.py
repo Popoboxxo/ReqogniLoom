@@ -79,6 +79,8 @@ MUTATE_EXACT = frozenset(
         "requirement.decompose",  # AI decomposition, persists derived requirements
         "requirement.suggest_level",  # persists an open suggestion
         "comment.resolve",
+        # Plan F F3-T6: persists a Checkpoint work item without a write verb.
+        "work_item.checkpoint",
         "memory.forget",  # deletes a memory entry
         "traceability.suggest_links",  # persists the top candidate + an inbox receipt
         "ai_derivation.decompose_requirement_next_level",  # mode='write' persists drafts
