@@ -193,6 +193,35 @@ class DocumentGateFailedError(ValidationError):
         self.details = details if details is not None else []
 
 
+class AnchorsPresentError(ValidationError):
+    """Raised when deleting a trace link would silently drop inline anchors.
+
+    Plan F F3-T7 / I-3 (#1374): a link that still carries ``InlineAnchor`` rows
+    is a trace edge *with a text place*. Deleting it would leave the stored
+    token in the markdown but no edge behind it, so the deletion is answered
+    with ``409`` ``ANCHORS_PRESENT`` and
+    ``details = {"count": n}`` until the caller confirms the exact count with
+    ``?confirm_anchor_count=n``. The count is part of the contract: a stale
+    confirmation (the anchors changed in between) is refused with the current
+    count instead of deleting more than the caller saw.
+
+    A ``ValidationError`` subclass for the same reason as
+    :class:`FieldFrozenError`: existing ``except ValidationError`` callers keep
+    working, while the REST layer answers its own code/status. **The REST layer
+    must register this exact type** in ``rest_api.views._EXC_TO_HTTP``/
+    ``_EXC_TO_CODE`` (the lookup there is by exact type).
+    """
+
+    error_code = "ANCHORS_PRESENT"
+    http_status = 409
+
+    def __init__(self, message: str, count: int) -> None:
+        super().__init__(message)
+        self.message = message
+        self.count = count
+        self.details = {"count": count}
+
+
 def require_producer_context(ctx: AuthContext) -> None:
     """Fail closed unless *ctx* is an agent/API-key producer context.
 

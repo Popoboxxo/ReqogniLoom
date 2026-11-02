@@ -78,6 +78,10 @@ from application.base import (
     ServiceBase,
     ValidationError,
 )
+from application.inline_anchor_service import (
+    ANCHOR_FIELD_BODY,
+    InlineAnchorService,
+)
 from application.local_uid import generate_local_uid
 from application.optimistic_lock import (
     assert_expected_version,
@@ -490,6 +494,12 @@ class WorkItemService(ServiceBase):
         # and a later ``/diff/`` have a baseline to compare against.
         self._record_revision(item, ctx)
 
+        # F3-T7 (I-1): tokens in the body get their anchor + edge in the same
+        # transaction as the item.
+        InlineAnchorService().sync_text(
+            ctx, item.artifact_id, ANCHOR_FIELD_BODY, item.body
+        )
+
         # Every artifact type is initialised lazily at its definition's initial
         # state. A workspace provisioned before F3-T2 (or a unit test that skips
         # provisioning) has no definition; the item then reports the type's
@@ -650,6 +660,14 @@ class WorkItemService(ServiceBase):
 
         self._touch(item, actor=_actor_label(ctx, actor))
         item.save()
+
+        # F3-T7 I-1/I-2: a supplied body is a text edit; other field updates
+        # leave the anchor register untouched.
+        if body is not None:
+            InlineAnchorService().sync_text(
+                ctx, item.artifact_id, ANCHOR_FIELD_BODY, item.body
+            )
+
         # A heartbeat is a real write on every action, so ``has_field_changes``
         # is true for the timestamp alone — but keep the gate explicit so a
         # future edit that stops touching the heartbeat does not bump versions

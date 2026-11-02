@@ -76,6 +76,7 @@ from application.artifact_attribute_gateway import (
     transport_field_names,
 )
 from application.base import (
+    AnchorsPresentError,
     DocumentGateFailedError,
     FieldFrozenError,
     ProducerContextRequiredError,
@@ -418,6 +419,9 @@ _EXC_TO_HTTP: dict[type, int] = {
     # field is a state conflict, not a malformed payload.
     FieldFrozenError: status.HTTP_409_CONFLICT,
     DocumentGateFailedError: status.HTTP_409_CONFLICT,
+    # Plan F F3-T7 / I-3: deleting a link that still carries inline anchors is
+    # a rejected precondition (confirm the count and retry), hence 409.
+    AnchorsPresentError: status.HTTP_409_CONFLICT,
     # GH-1396: shared safety net for routes that do not map the header
     # themselves (the workflow-transition special routes). A malformed
     # ``If-Match`` is a request defect (400); a header whose strong tags cannot
@@ -480,6 +484,9 @@ _EXC_TO_CODE: dict[type, str] = {
     # frozen field / one per violated gate), per ADR-026 F-3 and §4.2.
     FieldFrozenError: "FIELD_FROZEN",
     DocumentGateFailedError: "DOCUMENT_GATE_FAILED",
+    # Plan F F3-T7 / I-3: distinct code so a client can read the count and
+    # retry with ?confirm_anchor_count=n instead of retrying blindly.
+    AnchorsPresentError: "ANCHORS_PRESENT",
     # GH-1396: see _EXC_TO_HTTP. INVALID_IF_MATCH is its own code so a client
     # can tell "your header did not parse" (fix the request) from
     # PRECONDITION_FAILED ("re-read and retry").
@@ -4773,10 +4780,53 @@ class TraceLinkViewSet(BaseEntityViewSet):
         )
 
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """DELETE /api/v1/tracelinks/{id}/[?confirm_anchor_count=n].
+
+        Plan F F3-T7 / I-3: a link carrying inline anchors answers
+        ``409 ANCHORS_PRESENT`` with ``details.count`` until the caller repeats
+        the request with the exact count in ``confirm_anchor_count``. The
+        count is validated as a non-negative integer; a missing parameter is
+        the "no confirmation seen" case and is handled by the service.
+        """
         lang = detect_lang(request)
+        raw_count = request.query_params.get("confirm_anchor_count")
+        confirm_anchor_count: int | None = None
+        if raw_count is not None:
+            try:
+                confirm_anchor_count = int(raw_count)
+            except (TypeError, ValueError):
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        details=[
+                            {
+                                "field": "confirm_anchor_count",
+                                "errors": ["Must be an integer."],
+                            }
+                        ],
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if confirm_anchor_count < 0:
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        details=[
+                            {
+                                "field": "confirm_anchor_count",
+                                "errors": ["Must be zero or greater."],
+                            }
+                        ],
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         try:
             ctx = get_auth_context(request)
-            self._svc().delete_trace_link(UUID(pk), ctx)
+            self._svc().delete_trace_link(
+                UUID(pk), ctx, confirm_anchor_count=confirm_anchor_count
+            )
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly

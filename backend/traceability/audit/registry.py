@@ -140,6 +140,10 @@ IFC_001 = "IFC-001"
 QUAL_P1 = "QUAL-P1"
 QUAL_P2 = "QUAL-P2"
 QUAL_P3 = "QUAL-P3"
+#: Plan F F3-T7 (#1374) — dead inline reference: an ``InlineAnchor`` whose
+#: target artifact was soft-deleted or archived. WARNING at Standard, BLOCKER
+#: at Extended; see rules/document_references.py.
+DOC_P7 = "DOC-P7"
 
 # ---------------------------------------------------------------------------
 # Preset → active rule ids (single source of truth, §2.2)
@@ -160,6 +164,9 @@ _STANDARD_RULES: frozenset[str] = frozenset(
         CONS_P12,
         # #1268: interface coverage — advisory at every tier it runs in.
         IFC_001,
+        # Plan F F3-T7: dead inline references — WARNING at Standard, BLOCKER
+        # at Extended (severity_for_tier); Minimal never runs it.
+        DOC_P7,
     }
 )
 
