@@ -20,6 +20,8 @@ BACKED = [
     ("persistence", "ChangeRequest"),
     ("diagram", "Diagram"),
     ("icd", "Icd"),
+    # Plan F F2-T1: artifact-first (the OneToOne is mandatory).
+    ("persistence", "Document"),
 ]
 
 

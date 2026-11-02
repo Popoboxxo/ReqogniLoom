@@ -39,6 +39,8 @@ def test_registry_covers_every_backed_type():
         "ChangeRequest",
         "Diagram",
         "Icd",
+        # Plan F F2-T1 (#1374).
+        "Document",
     }
 
     assert set(ARTIFACT_TYPE_MODELS) == expected
