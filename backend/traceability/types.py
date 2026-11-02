@@ -79,6 +79,14 @@ class LinkType(str, Enum):
     BLOCKS = "blocks"
     RESOLVES = "resolves"
     THREATENS = "threatens"
+    # Plan F F2-T3 (ADR-026): the three Document link types. `documented-in`
+    # records provenance (artifact -> Document), `evidences` is the non-test
+    # evidence edge (Document:<kind> -> Requirement/Arch/StakeholderNeed) and
+    # `depends-on` orders WorkItems. Listed here for the same reason: the
+    # Layer-1 fail-safe must stay a superset of the catalog.
+    DOCUMENTED_IN = "documented-in"
+    EVIDENCES = "evidences"
+    DEPENDS_ON = "depends-on"
 
     @classmethod
     def values(cls) -> frozenset[str]:

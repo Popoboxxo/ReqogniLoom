@@ -3,8 +3,9 @@
 Single source of truth for three consumers that must never drift apart:
 the seed/backfill migrations (``0003_seed_builtin_link_types``,
 ``0008_seed_satisfaction_link_types``, ``0011_seed_validates_link_type``,
-``0012_seed_performs_and_satisfies_function_pair`` and
-``0013_seed_issue_risk_link_types``), workspace provisioning
+``0012_seed_performs_and_satisfies_function_pair``,
+``0013_seed_issue_risk_link_types`` and ``0014_seed_document_link_types``),
+workspace provisioning
 (``link_types.workspace_store.provision_workspace_link_types``), and the tests
 that pin the spec table.
 
@@ -28,6 +29,9 @@ Direction conventions, authoritative for every ``allowed_pairs`` entry below
     blocks         source = Issue                     target = anything
     resolves       source = anything                  target = Issue
     threatens      source = Risk                      target = anything
+    documented-in  source = the documented artifact   target = Document
+    evidences      source = Document:<kind>           target = Requirement/Arch/StakeholderNeed
+    depends-on     source = WorkItem                  target = WorkItem
     references     source = anything                  target = a reference entity
     diagram-ref    source = Diagram                   target = anything
 
@@ -471,6 +475,105 @@ BUILTIN_LINK_TYPES: dict[str, dict[str, Any]] = {
         "active": True,
         "built_in": True,
     },
+    # Plan F F2-T3 (ADR-026, spec §5): exactly three new link types for the
+    # document artifact — no matrix extension. ``documented-in`` records
+    # provenance, ``evidences`` is the non-test evidence edge (test coverage
+    # stays exclusively ``verifies``), and ``depends-on`` orders WorkItems
+    # (inert until F3 ships the WorkItem artifact).
+    #
+    # The kind restriction of ``evidences`` (Conclusion/Review/AuditReport) is a
+    # ``Document:<kind>`` tag in the generic sub-type register
+    # (``link_types.catalog.SUBTYPE_FIELDS``, Plan B B3-T2) — never a second
+    # validation rule.
+    "documented-in": {
+        "label": {
+            "de": {
+                "downstream": "dokumentiert in",
+                "upstream": "dokumentiert",
+                "neutral": "Dokumentation",
+            },
+            "en": {
+                "downstream": "documented in",
+                "upstream": "documents",
+                "neutral": "Documentation",
+            },
+        },
+        "allowed_pairs": _pairs(
+            ("Requirement", "Document"),
+            ("StakeholderNeed", "Document"),
+            ("ArchitectureElement", "Document"),
+            ("Adr", "Document"),
+            ("Risk", "Document"),
+            ("Issue", "Document"),
+            ("Goal", "Document"),
+        ),
+        "coverage_relevant": False,
+        "suspect_rule": "target_change_flags_source",
+        "impact_weight": 0.3,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    "evidences": {
+        "label": {
+            "de": {
+                "downstream": "belegt",
+                "upstream": "wird belegt durch",
+                "neutral": "Beleg",
+            },
+            "en": {
+                "downstream": "evidences",
+                "upstream": "is evidenced by",
+                "neutral": "Evidence",
+            },
+        },
+        # Only the document kinds that state a result — a Spec/Plan/Concept is
+        # not evidence. The tag is lower-cased like every stored sub-type value.
+        "allowed_pairs": _pairs(
+            ("Document:conclusion", "Requirement"),
+            ("Document:conclusion", "ArchitectureElement"),
+            ("Document:conclusion", "StakeholderNeed"),
+            ("Document:review", "Requirement"),
+            ("Document:review", "ArchitectureElement"),
+            ("Document:review", "StakeholderNeed"),
+            ("Document:auditreport", "Requirement"),
+            ("Document:auditreport", "ArchitectureElement"),
+            ("Document:auditreport", "StakeholderNeed"),
+        ),
+        "coverage_relevant": False,
+        "suspect_rule": "target_change_flags_source",
+        "impact_weight": 0.5,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
+    # Ordering edge of the WorkItem layer (F3): step B needs step A, also across
+    # documents. Shipped now so F3 only has to make WorkItem linkable; until
+    # then the pair can never match, which is inert, not an error.
+    "depends-on": {
+        "label": {
+            "de": {
+                "downstream": "hängt ab von",
+                "upstream": "ist Voraussetzung für",
+                "neutral": "Abhängigkeit",
+            },
+            "en": {
+                "downstream": "depends on",
+                "upstream": "is prerequisite for",
+                "neutral": "Dependency",
+            },
+        },
+        "allowed_pairs": _pairs(("WorkItem", "WorkItem")),
+        "coverage_relevant": False,
+        "suspect_rule": "target_change_flags_source",
+        "impact_weight": 0.5,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
     "references": {
         "label": {
             "de": {
@@ -521,6 +624,11 @@ BUILTIN_LINK_TYPES: dict[str, dict[str, Any]] = {
             ("Interview", "*"),
             ("*", "Issue"),
             ("Issue", "*"),
+            # Plan F F2-T3: Document is a reference endpoint in both directions,
+            # additive to the shipped list (spec §5). Distinct from
+            # ``documented-in`` (provenance) and ``evidences`` (result edge).
+            ("Document", "*"),
+            ("*", "Document"),
         ),
         "coverage_relevant": False,
         "suspect_rule": "none",

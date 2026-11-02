@@ -99,6 +99,20 @@ export const FALLBACK_TRI_LABELS: Record<string, TriLabelEntry> = {
     de: { downstream: "bedroht", upstream: "wird bedroht durch", neutral: "Bedrohung" },
     en: { downstream: "threatens", upstream: "is threatened by", neutral: "Threat" },
   },
+  // Plan F F2-T3 (ADR-026): the three Document link types. `evidences` is the
+  // non-test evidence edge (test coverage stays exclusively `verifies`).
+  "documented-in": {
+    de: { downstream: "dokumentiert in", upstream: "dokumentiert", neutral: "Dokumentation" },
+    en: { downstream: "documented in", upstream: "documents", neutral: "Documentation" },
+  },
+  evidences: {
+    de: { downstream: "belegt", upstream: "wird belegt durch", neutral: "Beleg" },
+    en: { downstream: "evidences", upstream: "is evidenced by", neutral: "Evidence" },
+  },
+  "depends-on": {
+    de: { downstream: "hängt ab von", upstream: "ist Voraussetzung für", neutral: "Abhängigkeit" },
+    en: { downstream: "depends on", upstream: "is prerequisite for", neutral: "Dependency" },
+  },
   references: {
     de: { downstream: "verweist auf", upstream: "wird referenziert von", neutral: "Verweis" },
     en: { downstream: "references", upstream: "is referenced by", neutral: "Reference" },
