@@ -4693,6 +4693,194 @@ class Document(ArtifactWorkspaceMirrorMixin, TenantScopedModel):
         return f"Document({self.uid or self.pk}:{self.title[:40]})"
 
 
+class WorkItem(ArtifactWorkspaceMirrorMixin, TenantScopedModel):
+    """State-bearing work node inside a document (Plan F F3-T1, #1374).
+
+    A work item is the explicit, queryable agent state store the concept (§9)
+    puts in place of progress-ledger files: it carries progress, a blocked
+    reason, the "where to continue" hint and an evidence reference, and it owns
+    a backing :class:`Artifact` row, so it is a valid TraceLink endpoint, a
+    baseline-diff subject and an interview target — exactly like ``Document``.
+
+    ``document`` is mandatory and ``PROTECT``ed (concept E11/O7): a work item
+    never exists without a document, and a hard delete of a document with items
+    fails instead of silently discarding the work state. The regular delete path
+    is the soft delete on ``Artifact.lifecycle_status`` (Plan G G1.5 V1), which
+    leaves items untouched.
+
+    The workflow state does **not** live here. Like every other artifact type it
+    is stored in ``WorkflowItemState`` and surfaced as ``status`` by the
+    serializer (REQ-143, ADR-026 R2); there is deliberately no ``item_state`` or
+    ``status`` column. The tiered state sets (minimal/standard/extended) are
+    workflow definitions, not schema (F3-T2).
+
+    ``owner``/``reporter``/``priority``/``custom_fields`` are inherited from the
+    backing ``Artifact`` (attribute v3, #936) and are not duplicated here.
+    ``last_actor``/``approved_by`` are free text on purpose: an agent has no
+    ``User`` row, so an ``Actor`` FK would force dummy rows or silently lose the
+    identity.
+
+    leaf_id : COMP-PL-001
+    req_id  : REQ-L2-PL-004, REQ-L2-PL-010
+    """
+
+    class Kind(models.TextChoices):
+        """Work-item kinds the artifact contract covers (concept §4.2)."""
+
+        PHASE = "Phase", "Phase"
+        STEP = "Step", "Step"
+        MILESTONE = "Milestone", "Milestone"
+        OPEN_POINT = "OpenPoint", "Open Point"
+        CHECKPOINT = "Checkpoint", "Checkpoint"
+
+    artifact = models.OneToOneField(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="work_item",
+        help_text="Backing Artifact for TraceLinks, baselines and history.",
+    )
+    # Non-null on purpose: the partial ``uq_work_item_workspace_uid`` only holds
+    # while the column is populated, and an item without a workspace could never
+    # be listed or authorized. ``ArtifactWorkspaceMirrorMixin`` fills it from
+    # ``artifact.workspace_id`` when a writer omits it.
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="workspace_work_items",
+        help_text="Owning workspace; mirrored from artifact.workspace_id on save.",
+    )
+    document = models.ForeignKey(
+        "persistence.Document",
+        on_delete=models.PROTECT,
+        related_name="work_items",
+        help_text=(
+            "Owning document (mandatory, concept E11/O7). PROTECT only bites on "
+            "a hard delete; the regular path is the Artifact soft delete."
+        ),
+    )
+    uid = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text=(
+            "Local readable identifier, auto-generated per (workspace, "
+            "item_type) as 'WI-NNN' (issue #932 / Plan G G1.1). The concept's "
+            "source identity ('item:<document-uid>:<selector>') belongs to the "
+            "F5 SourceBinding, not here."
+        ),
+    )
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+    ordinal = models.IntegerField(
+        default=0,
+        help_text=(
+            "Position inside the document. Replaces the rejected 'precedes' "
+            "link type; resume sorts by (ordinal, id)."
+        ),
+    )
+    title = models.CharField(max_length=255)
+    body = models.TextField(
+        blank=True,
+        default="",
+        help_text="Markdown of the section (used by Step/Checkpoint).",
+    )
+    progress = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="0-100, for Phase/Milestone. DB-checked by ck_work_item_progress_range.",
+    )
+    blocked_reason = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Why the item is blocked (mandatory while the workflow state is "
+            "'blocked', enforced by the service) or why it was dropped."
+        ),
+    )
+    next_action = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Resume hint for agents ('where to continue').",
+    )
+    last_activity_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Heartbeat (A-3); DOC-P5 reports stale in_progress items.",
+    )
+    last_actor = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text="Agent/human identifier of the last action (A-1).",
+    )
+    evidence_ref = models.CharField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text="Evidence (commit, test run, artifact id).",
+    )
+    approved_by = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text="Human approval identity; only the extended preset sets this.",
+    )
+    approved_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Human approval timestamp; only the extended preset sets this.",
+    )
+    due_date = models.DateTimeField(null=True, blank=True)
+    exit_criteria = models.TextField(
+        blank=True,
+        default="",
+        help_text="Definition of done for this item (gates, concept §5.4).",
+    )
+
+    class Meta:
+        db_table = "pl_work_item"
+        # G1.3/#1402 pattern: partial per-workspace uid uniqueness. The literal
+        # kind list mirrors ``Kind`` because a class body cannot read the
+        # enclosing class namespace.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "uid"],
+                condition=~models.Q(uid=None) & ~models.Q(uid=""),
+                name="uq_work_item_workspace_uid",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    kind__in=[
+                        "Phase",
+                        "Step",
+                        "Milestone",
+                        "OpenPoint",
+                        "Checkpoint",
+                    ]
+                ),
+                name="ck_work_item_kind",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(progress__isnull=True)
+                    | models.Q(progress__gte=0, progress__lte=100)
+                ),
+                name="ck_work_item_progress_range",
+            ),
+        ]
+        indexes = [
+            # Resume query and every per-document item list: ordered by
+            # (ordinal, id) inside one document.
+            models.Index(
+                fields=["tenant", "document", "ordinal"],
+                name="idx_workitem_document_ordinal",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"WorkItem({self.uid or self.pk}:{self.kind}:{self.title[:32]})"
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -4755,4 +4943,6 @@ __all__ = [
     "QualityAssessment",
     # Plan F F2-T1 (#1374): document artifact.
     "Document",
+    # Plan F F3-T1 (#1374): state-bearing work node inside a document.
+    "WorkItem",
 ]

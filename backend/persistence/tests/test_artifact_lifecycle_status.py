@@ -41,6 +41,8 @@ def test_registry_covers_every_backed_type():
         "Icd",
         # Plan F F2-T1 (#1374).
         "Document",
+        # Plan F F3-T1 (#1374).
+        "WorkItem",
     }
 
     assert set(ARTIFACT_TYPE_MODELS) == expected
