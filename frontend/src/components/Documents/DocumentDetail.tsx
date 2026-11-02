@@ -12,6 +12,8 @@
 import { useTranslation } from "react-i18next";
 
 import { DocumentLifecycle } from "./DocumentLifecycle";
+import { WorkItemsPanel } from "../WorkItems/WorkItemsPanel";
+import { InlineReferenceHints } from "../WorkItems/InlineReferenceHints";
 import { getWorkflowStatusLabel } from "../../utils/workflowStatus";
 import { isOutdatedState } from "../../utils/outdatedStates";
 import type { Document, DocumentKind } from "../../types";
@@ -174,7 +176,18 @@ export function DocumentDetail({
         <div className={styles.bodyText} data-testid="document-detail-body">
           {document.body || t("documents.bodyEmpty")}
         </div>
+        <InlineReferenceHints
+          text={document.body}
+          workspaceId={workspaceId}
+          testId="document-inline-reference-hints"
+        />
       </section>
+
+      <WorkItemsPanel
+        documentId={document.id}
+        workspaceId={workspaceId}
+        canWrite={canWrite}
+      />
     </article>
   );
 }

@@ -18,6 +18,7 @@ export * from "./similarity";
 export * from "./testing";
 export * from "./artifact";
 export * from "./documents";
+export * from "./workItems";
 export * from "./diagram";
 export * from "./diff";
 export * from "./glossary";

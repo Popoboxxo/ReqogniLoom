@@ -80,3 +80,35 @@
   color: var(--color-danger, var(--color-text));
   cursor: help;
 }
+
+/*
+ * F3-T9: `[[` reference autocomplete listbox. The options carry the shared
+ * `btn-ghost` chrome so the design-system gate sees a real button class; this
+ * module owns only the popup layout and the active-row colour.
+ */
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1);
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.suggestion {
+  justify-content: flex-start;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.suggestionActive {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
