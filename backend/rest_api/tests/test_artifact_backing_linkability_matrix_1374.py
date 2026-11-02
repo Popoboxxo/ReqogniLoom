@@ -351,34 +351,27 @@ def _make_document(
 def _make_work_item(
     ctx: AuthContext, workspace: Workspace, tenant: Tenant, user: User
 ) -> UUID:
-    """Plan F F3-T1: the model exists before its service does.
+    """Plan F F3-T4: the real service create path (R2 from RVW-2026-11-02-002).
 
-    F3-T4 adds ``WorkItemService.create_work_item``; until then this factory
-    seeds the row, its backing Artifact and its owning document through the ORM
-    so the linkability property of the new registry type is already pinned. Like
-    ``_make_document`` above it is a deliberately provisional raw-ORM factory —
-    a real work item's create path will be the service.
+    F3-T1 pinned this type with a provisional raw-ORM factory because
+    ``WorkItemService`` did not exist yet. F3-T4 delivers it, so the matrix now
+    goes through the same entry point every other type uses; the owning
+    document is still seeded by ``_make_document`` (its own service lands in a
+    later task).
     """
-    from persistence.models import Artifact, Document, WorkItem
+    from application.work_item_service import WorkItemService
+    from persistence.models import WorkItem
 
     document_id = _make_document(ctx, workspace, tenant, user)
 
-    set_request_tenant(tenant.id)
-    try:
-        artifact = Artifact.objects.create(
-            tenant=tenant, workspace=workspace, artifact_type="WorkItem"
-        )
-        entity = WorkItem.objects.create(
-            tenant=tenant,
-            artifact=artifact,
-            workspace=workspace,
-            document=Document.objects.get(pk=document_id),
-            kind=WorkItem.Kind.STEP,
-            ordinal=1,
-            title="Write the work item model",
-        )
-    finally:
-        clear_request_tenant()
+    entity = WorkItemService().create_work_item(
+        workspace.id,
+        document_id,
+        ctx,
+        kind=WorkItem.Kind.STEP,
+        ordinal=1,
+        title="Write the work item model",
+    )
     return entity.id
 
 
