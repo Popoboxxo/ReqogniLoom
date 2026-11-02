@@ -591,6 +591,9 @@ class TestUntypedMarker:
 #: to, plus the baseline 201 create (which is immutable afterwards, so its
 #: create response is the only place a client can learn the tag).
 _ETAG_HEADER_OPERATIONS = {
+    ("/api/v1/documents/", "post"): {"201"},
+    ("/api/v1/documents/{id}/", "get"): {"200"},
+    ("/api/v1/documents/{id}/", "patch"): {"200"},
     ("/api/v1/requirements/{id}/", "get"): {"200"},
     ("/api/v1/requirements/{id}/", "patch"): {"200"},
     ("/api/v1/testcases/{id}/", "get"): {"200"},

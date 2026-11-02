@@ -36,7 +36,13 @@ from rest_framework import pagination, serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from persistence.models import ElementType, ScenarioKind, TestCaseOrigin, TestCaseType
+from persistence.models import (
+    Document,
+    ElementType,
+    ScenarioKind,
+    TestCaseOrigin,
+    TestCaseType,
+)
 from rest_api.mixins.workflow_state import WorkflowStateSerializerMixin
 from rest_api.mixins.workflow_transitions import _ALWAYS_ALLOWED_PATCH_FIELDS
 from rest_api.preset_guard import FieldFilter
@@ -2600,6 +2606,81 @@ class RiskSerializer(
     updated_at = serializers.DateTimeField(read_only=True)
 
 
+class DocumentSerializer(
+    ClientUidRejectionMixin,
+    WorkflowStateSerializerMixin,
+    CustomFieldsSerializerMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
+):
+    """Serializer for the Document artifact (Plan F F2-T5, ADR-026).
+
+    ``Document`` is an artifact-backed entity like Adr/Risk, so it reuses the
+    same four shared seams:
+
+    * ``WorkflowStateSerializerMixin`` supplies the read-only ``status`` from
+      ``WorkflowItemState`` (the model deliberately has no lifecycle column,
+      REQ-143).
+    * ``CustomFieldsSerializerMixin`` also carries
+      ``UnknownFieldRejectionMixin`` (#851) and the flat-map validation for
+      ``custom_fields``.
+    * ``ExpectedVersionSerializerMixin`` declares the write-only
+      ``expected_version`` used by the HTTP precondition (KA-F-08). The ETag
+      itself is emitted by ``DocumentViewSet`` via ``ETagMixin.with_etag``.
+    * ``ClientUidRejectionMixin`` keeps ``uid`` system-owned (``DOC-NNN``).
+
+    The Artifact-level system fields (``owner``/``reporter``/``priority``) are
+    intentionally **not** declared yet: wiring ``entity_type="Document"`` into
+    the attribute definitions is F2-T7 (spec §11). Declaring them here would
+    advertise a write path the gateway cannot validate for this type.
+
+    ``frozen_at``/``frozen_fields`` are read-only. They are the F-1 freeze
+    bookkeeping the service writes on release; a client can observe that a
+    document is frozen, but never set or clear the flag directly.
+    """
+
+    # REQ-143 / Datenmodell-Konsolidierung: see RequirementSerializer.
+    workflow_item_type = "Document"
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(required=True)
+    # REQ-016: the backing Artifact id, needed to attach trace links and
+    # comments from the client. Read-only — the service creates the Artifact.
+    artifact_id = serializers.UUIDField(read_only=True)
+    uid = serializers.CharField(read_only=True, allow_null=True, help_text=UID_HELP_TEXT)
+    title = SanitizedCharField(max_length=255)
+    kind = serializers.ChoiceField(
+        choices=Document.Kind.choices,
+        help_text="Document kind (Spec, Plan, AuditReport, Review, …).",
+    )
+    description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
+    body = SanitizedCharField(
+        allow_blank=True,
+        default="",
+        help_text="Markdown content of the document.",
+    )
+    doc_date = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text="Document date, e.g. derived from a source file name.",
+    )
+    frozen_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    frozen_fields = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Content fields locked by the release (F-1/F-2).",
+    )
+    change_reason = SanitizedCharField(
+        required=False, allow_blank=True, max_length=2000
+    )
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+
 class GoalSerializer(
     CustomFieldsSerializerMixin,
     WorkflowStateSerializerMixin,
@@ -3346,6 +3427,7 @@ __all__ = [
     "CsvImportRowErrorSerializer",
     "CustomFieldsSerializerMixin",
     "DiffItemSerializer",
+    "DocumentSerializer",
     "FieldChangeSerializer",
     "GlossaryTermSerializer",
     "IssueSerializer",

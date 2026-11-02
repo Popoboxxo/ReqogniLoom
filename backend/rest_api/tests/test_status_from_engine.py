@@ -30,6 +30,8 @@ EXPECTED_ITEM_TYPES = {
     "TestCaseSerializer": "TestCase",
     "AdrSerializer": "Adr",
     "RiskSerializer": "Risk",
+    # Plan F F2-T5: the Document artifact resolves its status from the engine.
+    "DocumentSerializer": "Document",
     "IssueSerializer": "Issue",
     "ChangeRequestSerializer": "ChangeRequest",
     "GoalSerializer": "Goal",
