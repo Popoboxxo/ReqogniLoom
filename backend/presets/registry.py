@@ -86,6 +86,16 @@ class PresetConfig:
         baseline_scopes: Ordered list of allowed baseline scope strings.
         workflow_configurability: "fixed" | "partial" | "full".
         change_reason: "optional" | "mandatory".
+        document_mandatory_fields_by_kind: Plan F F2-T4 / ADR-026 — the G-4
+            gate's mandatory document fields per :class:`Document.Kind`. Keys
+            are the kind values (``"Spec"``, ``"Plan"``, …) plus the wildcard
+            ``"*"`` for every kind without its own entry; values are ordered
+            tuples of concrete ``pl_document`` column names. Tier-dependent
+            like ``mandatory_fields``: Minimal only demands the identity field,
+            Standard/Extended also demand the content. Deliberately a plain
+            mapping without key validation here: the canonical kind list lives
+            in ``persistence.models.Document.Kind`` and Layer 1 must not import
+            Layer 0 models just to reject a typo.
         is_default: True for the three built-in tiers; False for custom.
         parent_tier: For custom presets, the default tier they were cloned from.
     """
@@ -96,6 +106,9 @@ class PresetConfig:
     baseline_scopes: tuple[str, ...]
     workflow_configurability: str
     change_reason: str
+    document_mandatory_fields_by_kind: dict[str, tuple[str, ...]] = field(
+        default_factory=dict
+    )
     is_default: bool = True
     parent_tier: str | None = None
 
@@ -156,6 +169,10 @@ class PresetConfig:
             "baseline_scopes": list(self.baseline_scopes),
             "workflow_configurability": self.workflow_configurability,
             "change_reason": self.change_reason,
+            "document_mandatory_fields_by_kind": {
+                kind: list(fields)
+                for kind, fields in self.document_mandatory_fields_by_kind.items()
+            },
         }
 
 
@@ -177,6 +194,10 @@ _MINIMAL = PresetConfig(
     baseline_scopes=(),
     workflow_configurability="fixed",
     change_reason="optional",
+    # Plan F F2-T4 / ADR-026 (G-4): the minimal tier only demands the identity
+    # field — the release gate must not turn a lightweight backlog into a
+    # documentation exercise.
+    document_mandatory_fields_by_kind={"*": ("title",)},
     is_default=True,
 )
 
@@ -194,6 +215,13 @@ _STANDARD = PresetConfig(
     baseline_scopes=("document", "project"),
     workflow_configurability="partial",
     change_reason="optional",
+    # Plan F F2-T4 / ADR-026 (G-4): a released document must carry its content.
+    # ``description`` is deliberately not required — the model declares it an
+    # optional summary (``blank=True, default=""``), and G-4 must not invent a
+    # requirement the artifact contract does not make. Per-kind entries (Spec:
+    # acceptance-criteria links, Plan: issues/estimate, AuditReport: findings)
+    # arrive with the fields F3/F5 introduce.
+    document_mandatory_fields_by_kind={"*": ("title", "body")},
     is_default=True,
 )
 
@@ -229,6 +257,10 @@ _EXTENDED = PresetConfig(
     baseline_scopes=("document", "project", "global"),
     workflow_configurability="full",
     change_reason="mandatory",
+    # Plan F F2-T4 / ADR-026 (G-4): same content requirement as Standard. The
+    # Extended tier's *additional* rigor for documents is the review workflow
+    # (``In Prüfung``) and the mandatory change_reason — not a longer field list.
+    document_mandatory_fields_by_kind={"*": ("title", "body")},
     is_default=True,
 )
 

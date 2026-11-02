@@ -41,6 +41,17 @@ Rule 8 — Requirement verification evidence + TestCase steps (#1267/#1269)
     not an inspection/analysis/demonstration must have a non-empty step list
     (:func:`check_testcase_steps`).
 
+Rule 9 — document release gates G-1…G-4 (Plan F F2-T4, ADR-026 §4.2)
+    A ``Document`` is "released" by entering the state its own workflow marks
+    with ``state_meta.freeze_on_enter`` (spec §4) — not by any "approved" label.
+    :func:`check_document_gates` runs the four gates from ADR-026 §4.2 there:
+    no open WorkItem (G-1), every WorkItem traceable or informational (G-2), no
+    open source drift (G-3, inert until F5 introduces a source binding) and the
+    kind's mandatory fields filled (G-4, policy key
+    ``document_mandatory_fields_by_kind``). Unlike the rules above it is
+    fail-closed on *known* violations and reports every violated gate at once;
+    an unevaluable gate is still fail-open, like every other rule here.
+
 Tier awareness (verified against ``presets/registry.py`` and
 ``workflow/definition_store.PRESET_SCHEMAS``, not assumed):
 
@@ -91,6 +102,9 @@ EC_VERIFICATION_EVIDENCE_MISSING = "VERIFICATION_EVIDENCE_MISSING"
 EC_VERIFIES_LINK_MISSING = "VERIFIES_LINK_MISSING"
 EC_REQUIREMENT_VERIFICATION_MISSING = "REQUIREMENT_VERIFICATION_MISSING"
 EC_TEST_STEPS_MISSING = "TEST_STEPS_MISSING"
+#: Plan F F2-T4 / ADR-026 §4.2: one or more of the document release gates
+#: (G-1…G-4) failed. ``details`` names each violated gate.
+EC_DOCUMENT_GATE_FAILED = "DOCUMENT_GATE_FAILED"
 
 # ---------------------------------------------------------------------------
 # State recognition
@@ -160,6 +174,10 @@ _ENTITY_MODELS: dict[str, tuple[str, str]] = {
     "GlossaryTerm": ("persistence.models", "GlossaryTerm"),
     "Icd": ("icd.models", "Icd"),
     "Diagram": ("diagram.models", "Diagram"),
+    # Plan F F2-T4: rule 9 (document release gates) loads the document row
+    # through this registry. Rule 5 never fires for it — a document is released
+    # by ``freeze_on_enter``, not by an "approved" target state.
+    "Document": ("persistence.models", "Document"),
 }
 
 #: Entity types whose "approved" state is a *decision*, not a declaration that
@@ -823,6 +841,259 @@ def check_testcase_steps(
     )
 
 
+# ---------------------------------------------------------------------------
+# Rule 9 — document release gates G-1…G-4 (Plan F F2-T4, ADR-026 §4.2)
+# ---------------------------------------------------------------------------
+
+#: The only entity type rule 9 applies to. A ``Document`` is released by
+#: entering the state its workflow marks with ``freeze_on_enter`` (spec §4) —
+#: not by entering a state named "approved", which is why this rule does not
+#: reuse :func:`is_approval_transition`.
+_DOCUMENT_ITEM_TYPE = "Document"
+
+#: ``state_meta`` flag that marks the release state (spec §4, F-1). Resolved
+#: from the workspace's *own* workflow document, so a customised Document
+#: lifecycle (ADR-06) with a differently named release state is still gated.
+_FREEZE_STATE_META_KEY = "freeze_on_enter"
+
+#: WorkItem workflow states G-1 treats as "still open". Lower-case comparison
+#: because F3's preset schemas use the lower-case spelling (``in_progress``,
+#: ``blocked``) while the entity types' states use German/Title-Case labels.
+_DOCUMENT_OPEN_ITEM_STATES = frozenset({"in_progress", "blocked"})
+
+
+def is_freeze_transition(
+    workspace_id: str, item_type: str, target_state: str
+) -> bool:
+    """Return True when *target_state* is *item_type*'s document release state.
+
+    A document is released by entering the state its workflow definition marks
+    with ``state_meta.freeze_on_enter`` (Plan F spec §4). Deliberately **not**
+    name-based and **not** :func:`is_approval_transition`: ``goal_default`` and
+    ``main_goal_default`` also call their approval state ``"Freigegeben"``, and
+    aliasing the two would let the Goal release path trip the document gates.
+
+    Fails open (``False``) when the definition cannot be read — the transition
+    itself cannot happen without a definition (rule 1 answers
+    ``DEFINITION_NOT_FOUND`` first), so there is nothing to gate.
+    """
+    if item_type != _DOCUMENT_ITEM_TYPE:
+        return False
+    try:
+        from workflow.definition_store import get_state_meta
+        from workflow.services import get_workflow_json
+
+        workflow_json = get_workflow_json(workspace_id, item_type)
+    except Exception:  # noqa: BLE001 — fail-open, see module docstring
+        logger.exception(
+            "precondition_rules: document workflow lookup failed for ws=%s",
+            workspace_id,
+        )
+        return False
+    if not workflow_json:
+        return False
+    return bool(
+        get_state_meta(workflow_json, target_state).get(_FREEZE_STATE_META_KEY)
+    )
+
+
+def _document_work_items(document_id: UUID) -> list:
+    """Return the document's ``WorkItem`` rows, or ``[]`` before F3 ships.
+
+    G-1/G-2 evaluate WorkItems, which Plan F introduces in its own work package
+    (F3). Until the model exists the gates are satisfied by construction — the
+    spec's "bis F3: keine Items ⇒ erfüllt". Reading the model lazily (rather
+    than hard-coding "no items") is what makes the gates switch on by
+    themselves once F3 lands, instead of silently staying off.
+
+    A missing model is the expected pre-F3 state (``ImportError``); any other
+    failure is logged and treated as "no items", consistent with this module's
+    fail-open policy.
+    """
+    try:
+        from persistence.models import WorkItem
+    except ImportError:
+        return []
+    try:
+        return list(WorkItem.objects.filter(document_id=document_id))
+    except Exception:  # noqa: BLE001 — fail-open, see module docstring
+        logger.exception(
+            "precondition_rules: document work-item lookup failed for %s",
+            document_id,
+        )
+        return []
+
+
+def _document_item_gate_violations(document_id: UUID) -> list[dict]:
+    """Evaluate G-1 and G-2 over the document's WorkItems.
+
+    Returns one ``{"gate", "message"}`` entry per violated gate (empty when the
+    document has no items, the pre-F3 case).
+
+    G-1: no item is ``in_progress``/``blocked``.
+    G-2: every item carries at least one trace link or is flagged
+         ``informational``. The flag is read via ``getattr`` because F3 owns the
+         field; an item that has neither is a violation (fail-closed).
+    """
+    items = _document_work_items(document_id)
+    if not items:
+        return []
+
+    from workflow import state_reader
+
+    states = state_reader.current_states("WorkItem", [item.pk for item in items])
+    violations: list[dict] = []
+
+    open_items = sorted(
+        str(item.pk)
+        for item in items
+        if (states.get(str(item.pk)) or "").strip().lower()
+        in _DOCUMENT_OPEN_ITEM_STATES
+    )
+    if open_items:
+        violations.append(
+            {
+                "gate": "G-1",
+                "message": (
+                    "The document still has WorkItems in progress or blocked: "
+                    + ", ".join(open_items)
+                ),
+            }
+        )
+
+    unlinked = [
+        item
+        for item in items
+        if not getattr(item, "informational", False)
+        and getattr(item, "artifact_id", None) is not None
+    ]
+    if unlinked:
+        from persistence.models import TraceLink
+
+        artifact_ids = [item.artifact_id for item in unlinked]
+        linked = set(
+            TraceLink.objects.filter(source_id__in=artifact_ids).values_list(
+                "source_id", flat=True
+            )
+        ) | set(
+            TraceLink.objects.filter(target_id__in=artifact_ids).values_list(
+                "target_id", flat=True
+            )
+        )
+        dangling = sorted(
+            str(item.pk) for item in unlinked if item.artifact_id not in linked
+        )
+        if dangling:
+            violations.append(
+                {
+                    "gate": "G-2",
+                    "message": (
+                        "These WorkItems carry no trace link and are not marked "
+                        "informational: " + ", ".join(dangling)
+                    ),
+                }
+            )
+    return violations
+
+
+def _document_missing_required_fields(
+    entity: object, policy: dict[str, tuple[str, ...]]
+) -> list[str]:
+    """Return the G-4 mandatory fields of *entity*'s kind that are not filled.
+
+    The per-kind policy comes from the workspace preset
+    (``document_mandatory_fields_by_kind``, Plan F F2-T4). ``"*"`` is the
+    fallback for every kind without its own entry; when neither is configured
+    the identity field is still demanded, so a missing policy can never turn
+    G-4 into a no-op (fail-closed).
+    """
+    kind = str(getattr(entity, "kind", "") or "")
+    required = policy.get(kind) or policy.get("*") or ("title",)
+    return sorted(
+        field for field in required if _is_blank(getattr(entity, field, None))
+    )
+
+
+def check_document_gates(
+    *,
+    workspace_id: str,
+    item_type: str,
+    item_id: UUID,
+    target_state: str,
+) -> tuple[str, str, list[dict]] | None:
+    """Evaluate the document release gates G-1…G-4 (Plan F F2-T4).
+
+    Runs only on the document *release* transition — the state the workspace's
+    Document workflow marks with ``state_meta.freeze_on_enter`` (see
+    :func:`is_freeze_transition`). Every other transition, every other entity
+    type and every workspace without a Document workflow is untouched.
+
+    Gates (ADR-026 §4.2):
+
+    * **G-1** no ``WorkItem`` in ``in_progress``/``blocked``;
+    * **G-2** every ``WorkItem`` has ≥ 1 trace link or is ``informational``;
+    * **G-3** no open drift against a source — vacuously satisfied until F5
+      gives a document a source binding at all (``owner_mode = loom``);
+    * **G-4** the kind's mandatory fields are filled
+      (``presets.registry.document_mandatory_fields_by_kind``).
+
+    All violated gates are reported together, not fail-fast: a caller fixing a
+    document should see the whole list in one answer.
+
+    Returns:
+        ``None`` when every gate holds (including every non-release
+        transition, every non-document type and every case that cannot be
+        evaluated — fail-open, see the module docstring). Otherwise
+        ``(EC_DOCUMENT_GATE_FAILED, message, details)`` where ``details`` is a
+        list of ``{"gate": "G-1"…"G-4", "message": str}`` entries, plus
+        ``"missing_fields"`` on a G-4 entry.
+    """
+    if not is_freeze_transition(workspace_id, item_type, target_state):
+        return None
+
+    entity = _load_entity(item_type, item_id)
+    if entity is None:
+        # The row is unreadable: the transition's own state read is the
+        # authority on existence, so do not invent a gate failure here.
+        return None
+
+    try:
+        from presets.services import get_preset
+
+        policy = get_preset(str(workspace_id)).document_mandatory_fields_by_kind
+    except Exception:  # noqa: BLE001 — fail-open, see module docstring
+        logger.exception(
+            "precondition_rules: document gate policy lookup failed for ws=%s",
+            workspace_id,
+        )
+        return None
+
+    details = _document_item_gate_violations(entity.pk)
+
+    missing = _document_missing_required_fields(entity, policy)
+    if missing:
+        details.append(
+            {
+                "gate": "G-4",
+                "message": (
+                    "The document's kind requires these field(s) to be filled "
+                    "in before release: " + ", ".join(missing)
+                ),
+                "missing_fields": missing,
+            }
+        )
+
+    if not details:
+        return None
+
+    gates = ", ".join(entry["gate"] for entry in details)
+    return (
+        EC_DOCUMENT_GATE_FAILED,
+        f"Cannot release this document: {gates} not satisfied.",
+        details,
+    )
+
+
 def policy_fields_without_consumer(
     policy_fields: Iterable[str],
     *,
@@ -889,17 +1160,20 @@ def policy_fields_without_consumer(
 
 
 __all__ = [
+    "EC_DOCUMENT_GATE_FAILED",
     "EC_MANDATORY_FIELDS_MISSING",
     "EC_REQUIREMENT_VERIFICATION_MISSING",
     "EC_TEST_STEPS_MISSING",
     "EC_VERIFICATION_EVIDENCE_MISSING",
     "EC_VERIFIES_LINK_MISSING",
+    "check_document_gates",
     "check_mandatory_fields",
     "check_requirement_verification_evidence",
     "check_testcase_steps",
     "check_verification_evidence",
     "check_verifies_link",
     "is_approval_transition",
+    "is_freeze_transition",
     "is_verification_transition",
     "policy_fields_without_consumer",
 ]

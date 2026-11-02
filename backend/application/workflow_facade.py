@@ -869,6 +869,7 @@ def _state_guard_message(exc: Exception) -> str | None:
 def _remap_workflow_exc(exc: Exception) -> None:
     """Re-raise workflow-domain exceptions as application-layer exceptions."""
     from application.base import (
+        DocumentGateFailedError,
         OptimisticLockError,
         PermissionDeniedError,
         ValidationError,
@@ -877,6 +878,7 @@ def _remap_workflow_exc(exc: Exception) -> None:
     from workflow.services import WorkflowTransitionError
     from workflow.transition_validator import (
         EC_AGENT_SELF_CONFIRM,
+        EC_DOCUMENT_GATE_FAILED,
         EC_ROLE_NOT_ALLOWED,
     )
 
@@ -889,6 +891,14 @@ def _remap_workflow_exc(exc: Exception) -> None:
         raise ValidationError(state_guard) from exc
 
     if isinstance(exc, WorkflowTransitionError):
+        if exc.error_code == EC_DOCUMENT_GATE_FAILED:
+            # Plan F F2-T4: the document release gates are a business-rule
+            # refusal with a per-gate payload. Keeping the dedicated type (still
+            # a ValidationError) is what lets F2-T5 answer ``DOCUMENT_GATE_FAILED``
+            # with structured ``details`` instead of one opaque sentence.
+            raise DocumentGateFailedError(
+                exc.error_message, details=getattr(exc, "details", None)
+            ) from exc
         if exc.error_code in (EC_ROLE_NOT_ALLOWED, EC_AGENT_SELF_CONFIRM):
             # GH-913: the agent self-confirm/self-approve guard is a policy
             # denial, not a malformed request. It already shares its error code
