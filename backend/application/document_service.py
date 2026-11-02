@@ -57,6 +57,11 @@ from application.artifact_service import (
 )
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import FieldFrozenError, NotFoundError, ServiceBase, ValidationError
+from application.inline_anchor_service import (
+    ANCHOR_FIELD_BODY,
+    ANCHOR_FIELD_DESCRIPTION,
+    InlineAnchorService,
+)
 from application.local_uid import generate_local_uid
 from application.models import DomainEventOutbox
 from application.optimistic_lock import (
@@ -406,6 +411,14 @@ class DocumentService(ServiceBase):
             document.artifact_id, _document_snapshot(document), ctx
         )
 
+        # F3-T7 (I-1): a stored glossary token in the initial content gets its
+        # anchor + trace edge in the same transaction as the document.
+        anchor_service = InlineAnchorService()
+        anchor_service.sync_text(
+            ctx, document.artifact_id, ANCHOR_FIELD_DESCRIPTION, description
+        )
+        anchor_service.sync_text(ctx, document.artifact_id, ANCHOR_FIELD_BODY, body)
+
         # Every artifact type is initialised lazily at its definition's initial
         # state. A workspace provisioned before F2-T2 (or a unit test that skips
         # provisioning) has no definition; the document then reports the type's
@@ -550,6 +563,23 @@ class DocumentService(ServiceBase):
             document.artifact.save(update_fields=["custom_fields", "modified_at"])
 
         document.save()
+
+        # F3-T7 I-1/I-2: only a supplied markdown field is a text edit that can
+        # add or remove an anchor. A title-only PATCH must not retroactively
+        # create edges for legacy tokens.
+        anchor_service = InlineAnchorService()
+        if description is not None:
+            anchor_service.sync_text(
+                ctx,
+                document.artifact_id,
+                ANCHOR_FIELD_DESCRIPTION,
+                document.description,
+            )
+        if body is not None:
+            anchor_service.sync_text(
+                ctx, document.artifact_id, ANCHOR_FIELD_BODY, document.body
+            )
+
         if has_field_changes(document, before) or custom_fields_changed:
             # Atomic DB-side increment (REQ-L3-PL001-002) — never ``version += 1``
             # on a read-modify-write, which is exactly the lost update this

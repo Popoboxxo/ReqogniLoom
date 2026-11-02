@@ -9,9 +9,10 @@ line per new rule file) — see the guide in ``traceability/audit/registry.py``.
 Fully implemented (§2.2 Pflichtmatrix): TRACE-P1/P1b/P2/P3
 (trace_derivation_allocation), TRACE-P4/P5/ARCH-003 (decomposition_consistency),
 TRACE-P6/VERIF-P8/CONS-P9/CONS-P10 (coverage_consistency), and TRACE-P7
-(trace_p7, baseline-scope consistency), plus VAL-P1 (validation_goals) and the
+(trace_p7, baseline-scope consistency), plus VAL-P1 (validation_goals), the
 advisory quality rules QUAL-P1/P2/P3 (quality_score, #378 — Extended only,
-WARNING at every tier).
+WARNING at every tier), and DOC-P7 (document_references, Plan F F3-T7 —
+Standard WARNING / Extended BLOCKER).
 
 ADR-005 removed CONS-P11 (level_progression). It asserted that
 ``Requirement.level`` agrees with the decomposition graph, and the same ADR made
@@ -46,6 +47,7 @@ from __future__ import annotations
 from . import (
     coverage_consistency,  # noqa: F401  (registration side effect)
     decomposition_consistency,  # noqa: F401  (registration side effect)
+    document_references,  # noqa: F401  (registration side effect)
     interface_coverage,  # noqa: F401  (registration side effect)
     level_consistency,  # noqa: F401  (registration side effect)
     quality_score,  # noqa: F401  (registration side effect)
@@ -57,6 +59,7 @@ from . import (
 __all__ = [
     "coverage_consistency",
     "decomposition_consistency",
+    "document_references",
     "interface_coverage",
     "level_consistency",
     "quality_score",

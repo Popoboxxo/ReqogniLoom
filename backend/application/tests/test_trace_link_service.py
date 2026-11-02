@@ -427,10 +427,14 @@ class TestDeleteTraceLink:
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
             patch(
+                "persistence.models.InlineAnchor"
+            ) as mock_anchor_model,
+            patch(
                 "traceability.trace_link_manager.TraceLinkManager",
                 return_value=mock_manager,
             ),
         ):
+            mock_anchor_model.objects.filter.return_value.count.return_value = 0
             svc.delete_trace_link(link_id, ctx)
 
         mock_manager.delete.assert_called_once_with(link_id)
@@ -448,10 +452,14 @@ class TestDeleteTraceLink:
         with (
             patch("application.trace_link_service.ServiceBase._set_tenant_context"),
             patch(
+                "persistence.models.InlineAnchor"
+            ) as mock_anchor_model,
+            patch(
                 "traceability.trace_link_manager.TraceLinkManager",
                 return_value=mock_manager,
             ),
         ):
+            mock_anchor_model.objects.filter.return_value.count.return_value = 0
             with pytest.raises(NotFoundError):
                 svc.delete_trace_link(link_id, ctx)
 
@@ -467,10 +475,14 @@ class TestDeleteTraceLink:
                 "application.trace_link_service.ServiceBase._set_tenant_context"
             ) as mock_set_ctx,
             patch(
+                "persistence.models.InlineAnchor"
+            ) as mock_anchor_model,
+            patch(
                 "traceability.trace_link_manager.TraceLinkManager",
                 return_value=mock_manager,
             ),
         ):
+            mock_anchor_model.objects.filter.return_value.count.return_value = 0
             svc.delete_trace_link(link_id, ctx)
 
         mock_set_ctx.assert_called_once_with(ctx)

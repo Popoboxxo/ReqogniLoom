@@ -44,7 +44,12 @@ from uuid import UUID
 
 from django.db.models import Q
 
-from application.base import NotFoundError, ServiceBase, ValidationError
+from application.base import (
+    AnchorsPresentError,
+    NotFoundError,
+    ServiceBase,
+    ValidationError,
+)
 from auth_tenancy.context import AuthContext
 from persistence.transactions import atomic_transaction
 from traceability.audit.hierarchy import (
@@ -1289,7 +1294,13 @@ class TraceLinkService(ServiceBase):
         return link
 
     @atomic_transaction
-    def delete_trace_link(self, link_id: UUID, ctx: AuthContext) -> None:
+    def delete_trace_link(
+        self,
+        link_id: UUID,
+        ctx: AuthContext,
+        *,
+        confirm_anchor_count: int | None = None,
+    ) -> None:
         """Delete a single TraceLink by its own id (Codeberg #336).
 
         Unlike :meth:`cascade_delete_trace_links` (which deletes links whose
@@ -1297,12 +1308,29 @@ class TraceLinkService(ServiceBase):
         identified by *link_id* itself, e.g. for ``DELETE
         /api/v1/trace-links/{id}/``.
 
+        Plan F F3-T7 / I-3: a link that still carries ``InlineAnchor`` rows is
+        a trace edge *with a text place*. Deleting it silently would leave the
+        stored token in the markdown and no edge behind it, so the first call
+        answers ``409 ANCHORS_PRESENT`` with the affected count; the caller
+        repeats the request with ``confirm_anchor_count=n`` (naming the exact
+        count it saw) and this method removes the anchors and the link in one
+        transaction. A stale/tampered count is refused with the current count.
+
+        Args:
+            link_id: UUID of the TraceLink to delete.
+            ctx: Resolved AuthContext.
+            confirm_anchor_count: The anchor count the caller explicitly
+                confirmed. ``None`` means "I did not see a confirmation" and is
+                refused when anchors exist.
+
         Raises:
             NotFoundError: *link_id* does not exist in the active tenant.
             AgentSelfConfirmError: ``ctx`` is an agent and the link is still a
                 proposal (Rule 0, security review M1).
+            AnchorsPresentError: The link still has inline anchors and the
+                supplied confirmation does not match their count (409).
         """
-        from persistence.models import TraceLink
+        from persistence.models import InlineAnchor, TraceLink
         from traceability.trace_link_manager import TraceLinkManager
 
         self._set_tenant_context(ctx)
@@ -1332,6 +1360,19 @@ class TraceLinkService(ServiceBase):
                 "An AI agent may not delete a proposed trace link. A human "
                 "principal must confirm or discard it."
             )
+
+        # I-3: the anchor register is part of the link's visible state, so a
+        # deletion always names the number of text places it will remove.
+        anchor_count = InlineAnchor.objects.filter(link_id=link_id).count()
+        if anchor_count and confirm_anchor_count != anchor_count:
+            raise AnchorsPresentError(
+                f"TraceLink {link_id} has {anchor_count} inline anchor(s). "
+                "Repeat the deletion with confirm_anchor_count="
+                f"{anchor_count} to remove the anchors and the link.",
+                count=anchor_count,
+            )
+        if anchor_count:
+            InlineAnchor.objects.filter(link_id=link_id).delete()
 
         try:
             TraceLinkManager().delete(link_id)

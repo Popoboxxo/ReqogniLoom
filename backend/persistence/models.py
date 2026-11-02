@@ -4896,6 +4896,104 @@ class WorkItem(ArtifactWorkspaceMirrorMixin, TenantScopedModel):
         return f"WorkItem({self.uid or self.pk}:{self.kind}:{self.title[:32]})"
 
 
+class InlineAnchor(TenantScopedModel):
+    """Text anchor for an inline reference (Plan F F3-T7, #1374).
+
+    The anchor register is the *content side* of an inline reference: the
+    stored markdown keeps the existing ``[[glossary:<uuid>@<rev>]]`` token
+    (ENT-F3 = a), while this row records **where** the token sits and which
+    trace edge it implies. The stable id therefore lives here, never in the
+    free text.
+
+    ``source_artifact`` is the artifact whose markdown field carries the token
+    (a ``Document`` or ``WorkItem`` backing artifact); ``field`` is the field
+    name (``"body"``/``"description"``). One row per
+    ``(source_artifact, field, token)`` — the field is the finest addressable
+    "Fundort" the register stores.
+
+    ``link`` is the ``Artifact --link_type--> target`` edge the anchor implies
+    (I-1). It is deliberately a real FK: deleting the edge cascades the
+    anchors with it (I-3), and the confirmed delete path removes them
+    explicitly in the same transaction.
+
+    ``target_artifact`` is the referenced artifact. It stays a foreign key to
+    ``Artifact`` rather than a bare UUID so the rule engine can render a
+    target's title/type. A *soft* delete only flips
+    ``Artifact.lifecycle_status`` (Plan G G1.5 V1), so the anchor survives and
+    ``DOC-P7`` reports it as a dead reference (I-5) instead of silently
+    dropping it.
+
+    leaf_id : COMP-PL-001
+    req_id  : REQ-L2-PL-004, REQ-L2-PL-010
+    """
+
+    source_artifact = models.ForeignKey(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="inline_anchors",
+        help_text="Artifact owning the markdown field that carries the token.",
+    )
+    field = models.CharField(
+        max_length=64,
+        help_text=(
+            "Markdown field of the source artifact, e.g. 'body' or "
+            "'description'."
+        ),
+    )
+    target_artifact = models.ForeignKey(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="incoming_inline_anchors",
+        help_text=(
+            "Referenced artifact. A soft delete keeps this row so DOC-P7 can "
+            "report the anchor as a dead reference (I-5)."
+        ),
+    )
+    link = models.ForeignKey(
+        "persistence.TraceLink",
+        on_delete=models.CASCADE,
+        related_name="inline_anchors",
+        help_text=(
+            "Trace edge implied by the anchor (I-1). Removing the edge removes "
+            "its anchors (I-3)."
+        ),
+    )
+    token = models.CharField(
+        max_length=512,
+        help_text=(
+            "The stored token text, e.g. '[[glossary:<uuid>@<rev>]]'. The "
+            "display form '[[Begriff]]' is editor-only and never stored."
+        ),
+    )
+
+    class Meta:
+        db_table = "pl_inline_anchor"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source_artifact", "field", "token"],
+                name="uq_inline_anchor_source_field_token",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["tenant", "source_artifact", "field"],
+                name="idx_inline_anchor_source_field",
+            ),
+            # DOC-P7 walks anchors by target; I-3 counts them by link.
+            models.Index(
+                fields=["tenant", "target_artifact"],
+                name="idx_inline_anchor_target",
+            ),
+            models.Index(
+                fields=["tenant", "link"],
+                name="idx_inline_anchor_link",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"InlineAnchor({self.source_artifact_id}:{self.field}:{self.token[:32]})"
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -4960,4 +5058,6 @@ __all__ = [
     "Document",
     # Plan F F3-T1 (#1374): state-bearing work node inside a document.
     "WorkItem",
+    # Plan F F3-T7 (#1374): text anchors for inline references.
+    "InlineAnchor",
 ]
