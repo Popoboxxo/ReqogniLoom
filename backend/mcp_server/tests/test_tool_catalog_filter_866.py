@@ -106,6 +106,9 @@ def test_compact_trims_prose_but_keeps_the_callable_schema():
 def test_list_tools_page_reports_total_and_toolsets_without_widening():
     registry = ToolRegistry()
     registry.list_tools = lambda api_key, workspace_id=None: [dict(t) for t in _SAMPLE]  # type: ignore[assignment]
+    # #1593: the ungated catalogue size comes from all_tool_schemas(); stub it
+    # so this unit test does not instantiate the real registry.
+    registry.all_tool_schemas = lambda: [dict(t) for t in _SAMPLE]  # type: ignore[assignment]
 
     page = registry.list_tools_page("any-key", toolset="authoring")
 
@@ -113,6 +116,11 @@ def test_list_tools_page_reports_total_and_toolsets_without_widening():
     assert page["count"] == 2
     assert {t["name"] for t in page["tools"]} == {"requirement.get", "architecture.create"}
     assert set(page["toolsets"]) == set(TOOLSET_NAMES)
+    # #1593 filter metadata — the client-side filter narrowed 3 -> 2.
+    assert page["catalogue_total"] == 3
+    assert page["hidden_by_scope"] == 0
+    assert page["filtered"] is True
+    assert page["workspace_id"] is None
 
 
 def test_list_tools_page_rejects_a_malformed_filter():
@@ -134,6 +142,10 @@ class _FakeRegistry:
             "tools": [{"name": "requirement.get", "description": "x", "inputSchema": {}}],
             "count": 1,
             "total": 3,
+            "catalogue_total": 3,
+            "hidden_by_scope": 0,
+            "filtered": True,
+            "workspace_id": None,
             "toolsets": {"core": ["requirement"]},
         }
 
@@ -156,8 +168,23 @@ def test_tools_list_forwards_filter_params_and_returns_a_standard_shape():
         {"toolset": "authoring", "compact": True, "filter": {"search": "req"}},
     )
     assert "error" not in response
-    # Standard MCP tools/list payload: just {"tools": [...]}.
-    assert set(response["result"]) == {"tools"}
+    # Standard MCP tools/list payload: `tools` is unchanged; the catalogue
+    # metadata is additive (#1593).
+    result = response["result"]
+    assert result["tools"] == [
+        {"name": "requirement.get", "description": "x", "inputSchema": {}}
+    ]
+    assert set(result) == {
+        "tools",
+        "count",
+        "total",
+        "catalogue_total",
+        "hidden_by_scope",
+        "filtered",
+        "workspace_id",
+    }
+    # The protocol must not invent a pagination cursor where there is none.
+    assert "nextCursor" not in result
     assert registry.seen is not None
     assert registry.seen["toolset"] == "authoring"
     assert registry.seen["compact"] is True
@@ -181,3 +208,46 @@ def test_tools_list_maps_a_bad_filter_to_a_named_validation_error():
     response = _handle(_Raising(), "tools/list", {"toolset": "nope"})
     assert response["error"]["code"] == -32602  # VALIDATION_ERROR / invalid params
     assert "Unknown toolset" in response["error"]["message"]
+
+
+def test_tools_list_metadata_distinguishes_a_scope_filtered_catalogue():
+    """#1593: a fenced key must be able to tell a subset from the full set.
+
+    Two registries return the same handler contract but different gating
+    outcomes: the full key sees everything, the scoped one sees a read-only
+    subset. ``tools`` stays what it was; only the metadata differs.
+    """
+
+    class _Full(_FakeRegistry):
+        def list_tools_page(self, **kwargs):
+            return {
+                "tools": [{"name": "requirement.get", "description": "x", "inputSchema": {}}],
+                "count": 1,
+                "total": 1,
+                "catalogue_total": 1,
+                "hidden_by_scope": 0,
+                "filtered": False,
+                "workspace_id": None,
+                "toolsets": {},
+            }
+
+    class _Scoped(_FakeRegistry):
+        def list_tools_page(self, **kwargs):
+            return {
+                "tools": [{"name": "requirement.get", "description": "x", "inputSchema": {}}],
+                "count": 1,
+                "total": 1,
+                "catalogue_total": 3,
+                "hidden_by_scope": 2,
+                "filtered": True,
+                "workspace_id": None,
+                "toolsets": {},
+            }
+
+    full = _handle(_Full(), "tools/list", {})["result"]
+    scoped = _handle(_Scoped(), "tools/list", {})["result"]
+
+    assert full["tools"] == scoped["tools"]
+    assert full["filtered"] is False and full["hidden_by_scope"] == 0
+    assert scoped["filtered"] is True and scoped["hidden_by_scope"] == 2
+    assert scoped["catalogue_total"] > scoped["total"]

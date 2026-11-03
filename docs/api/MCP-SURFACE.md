@@ -443,10 +443,29 @@ receipt (ADR-019 WP5), where it used to be a read-only advisory ranking.
 `tools/list` also narrows, never widens: both `tools/list` and the custom
 `tools/filter` accept `toolset` (a named phase preset), `filter`
 (`{groups, names, search}`) and `compact`. The named toolsets are `core`,
-`authoring`, `verification`, `auditing`, `admin` and `ai`. `tools/filter`
-additionally returns `count`, `total` (the caller's full RBAC-gated catalogue
-size) and `toolsets`, so a client can see what a filter saved. The catalogue is
+`authoring`, `verification`, `auditing`, `admin` and `ai`. The catalogue is
 always RBAC-gated *before* filtering, so a filter can only ever narrow it.
+
+Both methods report how much of the catalogue the caller is seeing
+(additive since [#1593](https://github.com/Popoboxxo/ReqogniLoom/issues/1593);
+`tools` and `nextCursor` are unchanged):
+
+| Field | Meaning |
+|-------|---------|
+| `total` | The caller's own RBAC-gated catalogue size — what a client-side filter saves against |
+| `catalogue_total` | Every tool the registry holds, before role/capability gating |
+| `hidden_by_scope` | `catalogue_total - total`: tools this key's role or capability scope hid |
+| `filtered` | `true` when the response is narrower than `catalogue_total` (key scope or a named filter) |
+| `workspace_id` | The workspace roles were resolved against; `null` = tenant-wide aggregate |
+| `count` | Number of entries in `tools` |
+| `toolsets` | `tools/filter` only: the named toolsets and their prefixes |
+
+So a scope-fenced read-only key answers
+`{"total": N, "catalogue_total": M, "hidden_by_scope": M-N, "filtered": true, ...}`:
+the list is not the complete capability set, and an unlisted tool means "not
+visible to this key" — it is still *known* to the server, so `tools/call` on it
+answers `PERMISSION_DENIED` (`-32001`), never `-32601` (see §7's error-shape
+note below).
 
 `tools/call` still works for any tool the key's scope and role permit,
 regardless of the filter — `ApiKey.tool_groups` is catalogue curation, not a
