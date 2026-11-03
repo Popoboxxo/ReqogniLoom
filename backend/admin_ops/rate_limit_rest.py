@@ -3,9 +3,12 @@ admin_ops — REST adapter for the runtime rate-limit overrides (GitHub #944).
 
 Endpoints:
     GET/PUT/DELETE /api/v1/admin/rate-limits/
-        GET: any authenticated caller with ``Operation.READ`` — the effective
-        ceiling for every scope, together with *where* it came from, so an
-        operator can tell "settings" from "my override".
+        GET: admin/approver only (#1597, ENT-B7-1). The effective ceiling for
+        every scope, together with *where* it came from, so an operator can
+        tell "settings" from "my override". A pure reader role (``viewer``)
+        gets ``403 PERMISSION_DENIED``: the neighbouring ``/admin/*`` routes
+        (``admin/backups``, ``permission-defaults``) are equally admin-gated,
+        and the payload exposes the tenant id plus the whole ceiling policy.
         PUT: System-Admin only. Body ``{"overrides": {"<scope>": "<rate>"|null}}``
         writes tenant-scoped overrides; ``null`` deletes the override instead of
         storing it, so the global/settings value applies again. An empty string
@@ -31,7 +34,7 @@ from __future__ import annotations
 from typing import Any
 
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.exceptions import ValidationError as DrfValidationError
 from rest_framework.request import Request
@@ -48,6 +51,7 @@ from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService
 from persistence.tenancy import TenantContext
 from rest_api.auth_enforcer import AdminScopeRequiredMixin, get_auth_context
+from rest_api.serializers import build_error_response, detect_lang
 
 
 def _is_admin(ctx: Any) -> bool:
@@ -57,6 +61,23 @@ def _is_admin(ctx: Any) -> bool:
     return AuthorizationService().is_tenant_admin(
         user_id=ctx.user_id, tenant_id=ctx.tenant_id
     )
+
+
+def _can_read(ctx: Any) -> bool:
+    """Whether *ctx* may read the effective ceilings (ENT-B7-1).
+
+    ``admin`` (and tenant-admin, which is the tenant-wide admin equivalent) plus
+    ``approver`` — the role that owns release decisions and therefore needs the
+    operational ceiling picture. ``viewer``/``editor`` do not: the tenant id and
+    limit policy are operational data, and every neighbouring ``/admin/*`` route
+    is admin-gated (#1597).
+
+    The RBAC/API-key permission layer already requires ``Operation.READ`` for a
+    GET; this is the role gate on top, mirroring the in-body check the mutation
+    verbs use. Kept in the view (not a permission class) so direct view calls
+    are gated identically to routed ones.
+    """
+    return _is_admin(ctx) or ctx.has_role("approver")
 
 
 def _parse_overrides(data: Any) -> dict[str, Any]:
@@ -92,9 +113,25 @@ class RateLimitsView(AdminScopeRequiredMixin, APIView):
 
     permission_classes = [HasOperationPermission]
 
-    @extend_schema(responses=RateLimitEffectiveResponseSerializer)
+    @extend_schema(
+        responses={
+            200: RateLimitEffectiveResponseSerializer,
+            403: OpenApiResponse(
+                description="Admin or approver role required (ENT-B7-1, #1597)."
+            ),
+        }
+    )
     def get(self, request: Request, **kwargs: Any) -> Response:
         ctx = get_auth_context(request)
+        if not _can_read(ctx):
+            return Response(
+                build_error_response(
+                    "PERMISSION_DENIED",
+                    detect_lang(request),
+                    message="Admin or approver role required.",
+                ),
+                status=status.HTTP_403_FORBIDDEN,
+            )
         TenantContext.set_tenant(ctx.tenant_id)
         return Response(_payload(ctx, RateLimitService.get_effective(ctx.tenant_id)))
 

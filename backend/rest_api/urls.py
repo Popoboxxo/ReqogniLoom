@@ -509,7 +509,8 @@ urlpatterns = [
         GlobalRateLimitsView.as_view(),
         name="admin-rate-limits-global",
     ),
-    # /admin/rate-limits/ -> GET any user, PUT/DELETE System-Admin only.
+    # /admin/rate-limits/ -> GET admin/approver, PUT/DELETE System-Admin only
+    # (#1597, ENT-B7-1: a viewer must not read the tenant's ceiling policy).
     path(
         "admin/rate-limits/",
         RateLimitsView.as_view(),

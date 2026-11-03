@@ -240,6 +240,62 @@ class TestRateLimitsApi:
         assert set(response.data["scopes"]) == set(RATE_LIMIT_SCOPES)
         assert response.data["tenant_id"] == str(tenant_a.id)
 
+    def test_viewer_get_is_denied(self, viewer_ctx: AuthContext, tenant_a: Tenant):
+        """#1597: ``admin/*`` is not readable by a pure reader role.
+
+        The tenant's ceiling policy and tenant id are operational data, and the
+        neighbouring admin routes (``admin/backups``, ``permission-defaults``)
+        already answer 403 for a viewer. Before the fix this GET returned 200
+        with the full configuration.
+        """
+        with active_tenant(tenant_a):
+            response = RateLimitsView().get(_request(viewer_ctx))
+
+        assert response.status_code == 403
+        assert response.data["error"]["code"] == "PERMISSION_DENIED"
+
+    def test_approver_get_is_allowed(self, tenant_a: Tenant, admin_user):
+        """An approver may read the ceiling policy (ENT-B7-1: admin/approver).
+
+        The role owns release decisions, so knowing the effective limits is
+        part of its operational picture; it still may not change them.
+        """
+        from auth_tenancy.context import AuthMethod
+        from auth_tenancy.models import ROLE_APPROVER
+
+        ctx = AuthContext(
+            user_id=admin_user.id,
+            tenant_id=tenant_a.id,
+            active_roles=(ROLE_APPROVER,),
+            auth_method=AuthMethod.BEARER_TOKEN,
+        )
+        with active_tenant(tenant_a):
+            response = RateLimitsView().get(_request(ctx))
+
+        assert response.status_code == 200
+
+    def test_approver_write_is_denied(self, tenant_a: Tenant, admin_user):
+        """Read is admin/approver; mutation stays System-Admin only."""
+        from auth_tenancy.context import AuthMethod
+        from auth_tenancy.models import ROLE_APPROVER
+
+        ctx = AuthContext(
+            user_id=admin_user.id,
+            tenant_id=tenant_a.id,
+            active_roles=(ROLE_APPROVER,),
+            auth_method=AuthMethod.BEARER_TOKEN,
+        )
+        with active_tenant(tenant_a):
+            response = RateLimitsView().put(
+                _request(
+                    ctx,
+                    body={"overrides": {"user": "42/min"}},
+                    method="put",
+                )
+            )
+
+        assert response.status_code == 403
+
     def test_admin_can_set_a_tenant_override(self, admin_ctx: AuthContext, tenant_a: Tenant):
         with active_tenant(tenant_a):
             response = RateLimitsView().put(
@@ -284,6 +340,25 @@ class TestRateLimitsApi:
             response = RateLimitsView().delete(_request(regular_ctx, method="delete"))
 
         assert response.status_code == 403
+
+    def test_viewer_put_and_delete_are_denied(
+        self, viewer_ctx: AuthContext, tenant_a: Tenant
+    ):
+        """The read gate must not leak into the mutation gate (#1597)."""
+        with active_tenant(tenant_a):
+            put = RateLimitsView().put(
+                _request(
+                    viewer_ctx,
+                    body={"overrides": {"user": "42/min"}},
+                    method="put",
+                )
+            )
+            delete = RateLimitsView().delete(
+                _request(viewer_ctx, method="delete")
+            )
+
+        assert put.status_code == 403
+        assert delete.status_code == 403
 
     def test_delete_clears_tenant_overrides(self, admin_ctx: AuthContext, tenant_a: Tenant):
         with active_tenant(tenant_a):
