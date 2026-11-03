@@ -3,6 +3,16 @@
 > Stand: 2026-11-01 · Status: Entwurf, nicht freigegeben · Branch-Vorschlag: `feat/opencode-v2-support`
 > Quellen: [Migrationsguide](https://opencode.ai/v2/docs/migrate-v1), [MCP-Seite V2](https://opencode.ai/v2/docs/mcp-servers), [Skills-Seite V2](https://opencode.ai/v2/docs/skills)
 
+## Stand 2026-11-03 (Spike-Ergebnis, ersetzt §3 und §4)
+
+Ein Spike mit `@opencode/cli@2.2.5` und OpenCode 1.18.35 gegen einen Mock-MCP-Server hat die Annahmen dieses Entwurfs geprüft:
+
+- V2 spricht nur Streamable HTTP (kein SSE-Fallback); die heutige URL `/mcp/sse/` scheitert dort. V1 verbindet auf `/mcp/` direkt und nutzt SSE nur als Fallback.
+- V2 liest die V1-Form `mcp.reqogniloom` und normalisiert sie. `oauth:false` ist bei gültigem Key nicht nötig.
+- V2 ist bei npm `latest` (2.2.5), nicht mehr Beta; das Paket bringt die Binaries `opencode` und `opencode2`.
+
+Folge: **Eine** Konfiguration (V1-Form, URL `…/mcp/`) trägt beide Versionen. Zweiter Registry-Eintrag, V2-Snippet, Merge-Tool und Versions-Autodetect entfallen. Was nicht belegt ist (echter Endpunkt, Code Mode, CI, Stage-2, `subagent_depth`), steht in den Issues #1702–#1706. Der gültige Umsetzungsplan ist `docs/superpowers/plans/2026-11-01-opencode-v2-support.md`.
+
 ## 1. Ziel und Nicht-Ziele
 
 **Ziel:** ReqogniLoom verbindet sich mit OpenCode V1 (heute `1.18.x`) **und** OpenCode V2 (Beta). V2 ist die Zukunft, V1 bleibt Übergang. Installer, Snippets, Doku und Tests decken beide ab.
