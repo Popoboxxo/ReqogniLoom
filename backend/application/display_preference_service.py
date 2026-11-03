@@ -27,10 +27,10 @@ caller's user level through ``set_level``. The response contract did not change.
 per-user widget selection with no tenant-wide meaning, so Q1 would only add
 churn (see the plan's O3 / ENT-C5 decision).
 
-The legacy ``show_readable_ids`` column is not read here any more; migration
-``auth_tenancy/0031_backfill_show_readable_ids`` copied the pre-existing
-``False`` values into Q1 and its reverse restores the column, so a rollback of
-this change keeps every user's choice.
+The legacy ``show_readable_ids`` column is gone (Plan C T-C2-9): ``0031``
+copied the pre-existing ``False`` values into Q1, and ``0033`` drops the
+column; its reverse recreates it from Q1, so a rollback keeps every user's
+choice.
 
 Requirements: Issue #1096, Plan C T-C2-6.
 """
@@ -59,8 +59,9 @@ ALL_DISPLAY_PREFERENCES: tuple[str, ...] = ("show_readable_ids", "visible_metric
 SHOW_READABLE_IDS_KEY = "ui.ids.show_readable"
 
 #: Server-side default. Mirrors the frontend fallback (readable ids visible) so
-#: an absent row never changes the rendered behaviour. The Q1 registry entry
-#: declares the same default; this constant only seeds a display row.
+#: an absent Q1 row never changes the rendered behaviour. The Q1 registry entry
+#: declares the same default; the column that used to be seeded with it is gone
+#: (T-C2-9).
 SHOW_READABLE_IDS_DEFAULT = True
 
 #: Sentinel returned for ``visible_metrics`` when the caller has no explicit
@@ -183,10 +184,7 @@ class DisplayPreferenceService(ServiceBase):
         row, created = UserDisplayPreference.objects.get_or_create(
             user_id=ctx.user_id,
             tenant_id=ctx.tenant_id,
-            defaults={
-                "show_readable_ids": SHOW_READABLE_IDS_DEFAULT,
-                "visible_metrics": value,
-            },
+            defaults={"visible_metrics": value},
         )
         if not created:
             row.visible_metrics = value
