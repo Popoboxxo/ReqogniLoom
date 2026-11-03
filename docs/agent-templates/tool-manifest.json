@@ -5184,7 +5184,12 @@
           },
           "timeframe": {
             "type": "string",
-            "description": "Optional ISO-8601 period for the volatility window, e.g. \"P30D\" (default)."
+            "enum": [
+              "P7D",
+              "P30D",
+              "P90D"
+            ],
+            "description": "Optional ISO-8601 period for the volatility window: P7D, P30D or P90D (default P30D)."
           },
           "refresh": {
             "type": "boolean",

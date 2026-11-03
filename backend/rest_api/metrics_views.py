@@ -51,6 +51,7 @@ from rest_api.serializers import (
     build_error_response,
     detect_lang,
 )
+from se_metrics.registry import VALID_METRIC_TIMEFRAMES
 from se_metrics.services import (
     compute_metrics,
     get_metric_catalog,
@@ -68,7 +69,7 @@ _TRUTHY = frozenset({"1", "true", "yes", "on"})
 #: P7D/P30D/P90D). Anything else used to be echoed back in the response (or,
 #: for a non-PnD value, silently coerced to 30 days by the aggregator), so a
 #: typo produced a result object that looked valid.
-_VALID_TIMEFRAMES: tuple[str, ...] = ("P7D", "P30D", "P90D")
+_VALID_TIMEFRAMES = VALID_METRIC_TIMEFRAMES
 
 #: 200 body of ``GET /api/v1/metrics/``: the full report, or — when ``keys`` is
 #: given — the narrower values envelope. A ``oneOf`` is the honest description;
