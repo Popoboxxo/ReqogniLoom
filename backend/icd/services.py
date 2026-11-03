@@ -38,6 +38,7 @@ from application.models import DomainEventOutbox
 from auth_tenancy.context import AuthContext
 from icd.contract_validator import ValidationResult
 from icd.icd_manager import (
+    IcdConflictError,
     IcdCreateDTO,
     IcdPgVectorUnavailableError,
     IcdResult,
@@ -451,6 +452,7 @@ __all__ = [
     "IcdResult",
     "SimilarIcdDTO",
     "IcdPgVectorUnavailableError",
+    "IcdConflictError",
     "ValidationResult",
     "IcdParameterCreateDTO",
     "IcdParameterUpdateDTO",

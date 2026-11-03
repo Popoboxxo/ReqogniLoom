@@ -425,6 +425,62 @@ def write_mcp_audit(
 # ---------------------------------------------------------------------------
 
 
+def map_tool_exception(exc: Exception) -> tuple[str, str] | None:
+    """Map a known domain exception to ``(error_code, message)``.
+
+    Central mapping for every tool group (#1663, #1661, N2-N4): a domain
+    validation, not-found, permission, optimistic-lock or integrity failure is
+    a caller-actionable answer, not ``INTERNAL_ERROR``. Returning ``None``
+    keeps the transport's CWE-209 masking for anything genuinely unexpected.
+
+    The imports are deliberately lazy: this module is loaded at MCP start-up,
+    while ``application.base`` pulls in the event bus and Django settings.
+    """
+    from application.base import OptimisticLockError
+    from persistence.errors import (
+        NotFoundError,
+        PermissionDeniedError,
+        ValidationError,
+    )
+
+    if isinstance(exc, ValidationError):
+        return "VALIDATION_ERROR", str(exc)
+    if isinstance(exc, NotFoundError):
+        return "NOT_FOUND", str(exc)
+    if isinstance(exc, PermissionDeniedError):
+        return "PERMISSION_DENIED", str(exc)
+    if isinstance(exc, OptimisticLockError):
+        return "CONFLICT", f"Version conflict: {exc}"
+
+    try:
+        from django.db import IntegrityError
+    except Exception:  # pragma: no cover - Django is always available in-app
+        IntegrityError = ()  # type: ignore[assignment,misc]
+    if IntegrityError and isinstance(exc, IntegrityError):
+        # Never surface the driver message (constraint/table names, SQL).
+        return (
+            "CONFLICT",
+            "The request conflicts with existing data; nothing was changed.",
+        )
+
+    try:
+        from workflow.lifecycle_manager import (
+            WorkflowConflictError,
+            WorkflowStateError,
+        )
+        from workflow.services import WorkflowItemNotFoundError
+    except Exception:  # pragma: no cover - workflow is always installed
+        return None
+
+    if isinstance(exc, WorkflowConflictError):
+        return "CONFLICT", str(exc)
+    if isinstance(exc, WorkflowItemNotFoundError):
+        return "NOT_FOUND", str(exc)
+    if isinstance(exc, WorkflowStateError):
+        return "INVALID_STATE", str(exc)
+    return None
+
+
 class BaseToolGroup(ABC):
     """Common base for all MCP tool groups.
 
@@ -510,6 +566,13 @@ class BaseToolGroup(ABC):
         except ParameterError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         except Exception as exc:
+            mapped = map_tool_exception(exc)
+            if mapped is not None:
+                code, message = mapped
+                logger.debug(
+                    "Tool %s returned %s: %s", tool_name, code, message
+                )
+                return ToolResult.error(code, message)
             # fix #108: str(exc) on an unmapped exception (IntegrityError,
             # ProgrammingError, KeyError, ...) can contain SQL fragments,
             # table/column names, or constraint names. Log the real detail,
@@ -524,6 +587,7 @@ __all__ = [
     "ParameterError",
     "artifact_custom_fields",
     "mcp_audit_handoff",
+    "map_tool_exception",
     "optional_uuid",
     "reject_unknown_params",
     "require_admin_tier",

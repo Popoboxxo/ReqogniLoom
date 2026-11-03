@@ -394,6 +394,19 @@ class TestIcdCreate:
         assert result.icd.current_revision == result.current_version.version_number
         assert result.icd.interface_type == result.current_version.interface_type
 
+    def test_create_duplicate_pair_raises_conflict(
+        self, tenant_a, workspace_id, src_id, tgt_id
+    ):
+        """#1661: the same source/target pair is a 409 conflict, not a 500."""
+        from icd.services import IcdConflictError, create_icd
+
+        with active_tenant(tenant_a):
+            dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
+            with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
+                create_icd(dto)
+                with pytest.raises(IcdConflictError, match="already exists"):
+                    create_icd(dto)
+
 
 @pytest.mark.django_db
 class TestIcdEmbeddingDimensionGuard:

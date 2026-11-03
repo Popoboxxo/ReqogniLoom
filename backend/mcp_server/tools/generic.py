@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Any
 
 from application.artifact_attribute_gateway import artifact_system_fields
-from application.base import NotFoundError, OptimisticLockError, ValidationError
+from application.base import NotFoundError, ValidationError
 from auth_tenancy.context import AuthContext
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -520,10 +520,6 @@ class GenericCrudToolGroup(BaseToolGroup):
             return ToolResult.error(
                 "VALIDATION_ERROR", f"Missing or invalid field for {self.prefix}.create: {exc}"
             )
-        except Exception:
-            # #697 (CWE-209): mask the unmapped cause, log it server-side.
-            logger.exception("%s.create failed", self.prefix)
-            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
     def _handle_update(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         obj_id = require_uuid(params, "id")
@@ -584,27 +580,6 @@ class GenericCrudToolGroup(BaseToolGroup):
             except NotFoundError as exc:
                 return ToolResult.error("NOT_FOUND", str(exc))
             return ToolResult.ok({"data": self._to_dict(obj)})
-        except NotFoundError as exc:
-            # #1290: an unknown id answered the masked INTERNAL_ERROR because
-            # it fell through to the bare ``except Exception`` below -- the
-            # five entities served by this generic group (adr, risk, issue,
-            # glossary, change_request) were the only update/delete tools that
-            # did, while the entity-specific groups (goal/icd/diagram/needs/
-            # requirement/architecture) all report NOT_FOUND. The id may be
-            # unknown on the workspace-resolution read
-            # (``_resolve_workspace_id``) OR on the update call itself; both
-            # raise ``NotFoundError`` with a "<Type> <id> not found" message.
-            return ToolResult.error("NOT_FOUND", str(exc))
-        except OptimisticLockError as exc:
-            # SYSTEMAUDIT_2026-08-29 (REST finding 1): the wrapped services now
-            # accept ``expected_version``, and these schemas are derived from
-            # the service signature — so the field became advertised here the
-            # moment the guard landed. Without this branch it would surface as
-            # a bare INTERNAL_ERROR, i.e. the same "advertised but mishandled"
-            # shape the audit flagged. Mirrors architecture.update's mapping.
-            return ToolResult.error(
-                "VALIDATION_ERROR", f"Version conflict: {exc}"
-            )
         except TypeError as exc:
             # Any other unexpected/misnamed field: surface a clear, actionable
             # message instead of letting it fall through to a bare
@@ -612,25 +587,13 @@ class GenericCrudToolGroup(BaseToolGroup):
             return ToolResult.error(
                 "VALIDATION_ERROR", f"Invalid field for {self.prefix}.update: {exc}"
             )
-        except Exception:
-            # #697 (CWE-209): mask the unmapped cause, log it server-side.
-            logger.exception("%s.update failed", self.prefix)
-            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
     def _handle_delete(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         obj_id = require_uuid(params, "id")
-        try:
-            self._delete_method(ctx=auth_context, **{self._delete_id_param: obj_id})
-            return ToolResult.ok({"status": "deleted"})
-        except NotFoundError as exc:
-            # #1290: mirror the update path -- an unknown id is NOT_FOUND, not
-            # the masked INTERNAL_ERROR the bare catch-all below would emit.
-            # See ``_handle_update``'s NotFoundError branch for the full note.
-            return ToolResult.error("NOT_FOUND", str(exc))
-        except Exception:
-            # #697 (CWE-209): mask the unmapped cause, log it server-side.
-            logger.exception("%s.delete failed", self.prefix)
-            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+        # Domain errors (NotFound/Validation/OptimisticLock/Integrity) are
+        # mapped centrally by BaseToolGroup.execute_tool (#1663, N2-N4).
+        self._delete_method(ctx=auth_context, **{self._delete_id_param: obj_id})
+        return ToolResult.ok({"status": "deleted"})
 
     def _resolve_workspace_id(self, *, obj_id: uuid.UUID, auth_context: AuthContext) -> uuid.UUID:
         """Fetch the entity and read its ``workspace_id`` — the same
@@ -645,21 +608,15 @@ class GenericCrudToolGroup(BaseToolGroup):
         reason = params.get("reason", "")
         from workflow.services import outdate
 
-        try:
-            workspace_id = self._resolve_workspace_id(obj_id=obj_id, auth_context=auth_context)
-            outdate(
-                item_id=obj_id,
-                item_type=self._item_type,
-                workspace_id=workspace_id,
-                ctx=auth_context,
-                reason=reason,
-            )
-        except NotFoundError as exc:
-            return ToolResult.error("NOT_FOUND", str(exc))
-        except Exception:
-            # #697 (CWE-209): mask the unmapped cause, log it server-side.
-            logger.exception("%s.outdate failed", self.prefix)
-            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+        workspace_id = self._resolve_workspace_id(obj_id=obj_id, auth_context=auth_context)
+        # Domain errors are mapped centrally by BaseToolGroup.execute_tool.
+        outdate(
+            item_id=obj_id,
+            item_type=self._item_type,
+            workspace_id=workspace_id,
+            ctx=auth_context,
+            reason=reason,
+        )
         return ToolResult.ok({"id": str(obj_id), "status": "outdated"})
 
     def _handle_reactivate(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
@@ -696,30 +653,27 @@ class GenericCrudToolGroup(BaseToolGroup):
         uid_filter = params.get("uid")
         if uid_filter is not None:
             uid_filter = str(uid_filter).strip() or None
-        try:
-            results = list(
-                self._list_method(
-                    workspace_id=workspace_id, ctx=auth_context, include_deleted=include_outdated
-                )
+        # Domain errors (ValidationError from a bad filter, NotFoundError from a
+        # vanished workspace) are mapped centrally by BaseToolGroup.
+        results = list(
+            self._list_method(
+                workspace_id=workspace_id, ctx=auth_context, include_deleted=include_outdated
             )
-            if uid_filter is not None:
-                results = [r for r in results if str(getattr(r, "uid", "") or "") == uid_filter]
-            # Batch-resolve status for the whole page in one query instead of
-            # one engine lookup per row (N+1 avoidance).
-            status_map = resolve_status_map(
-                self._item_type, [getattr(r, "id", None) for r in results]
-            )
-            # #1147 B1: every query response now carries `count` alongside its
-            # list key, so an agent can read the size without len()-ing the
-            # list. The generic group keeps its canonical key `items`; the
-            # entity-specific groups keep their own list keys — the invariant
-            # this issue asks for is `count` on every query, not a single
-            # shared key name across unrelated handlers.
-            return ToolResult.ok({
-                "items": [self._to_dict(r, status_map=status_map) for r in results],
-                "count": len(results),
-            })
-        except Exception:
-            # #697 (CWE-209): mask the unmapped cause, log it server-side.
-            logger.exception("%s.query failed", self.prefix)
-            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+        )
+        if uid_filter is not None:
+            results = [r for r in results if str(getattr(r, "uid", "") or "") == uid_filter]
+        # Batch-resolve status for the whole page in one query instead of
+        # one engine lookup per row (N+1 avoidance).
+        status_map = resolve_status_map(
+            self._item_type, [getattr(r, "id", None) for r in results]
+        )
+        # #1147 B1: every query response now carries `count` alongside its
+        # list key, so an agent can read the size without len()-ing the
+        # list. The generic group keeps its canonical key `items`; the
+        # entity-specific groups keep their own list keys — the invariant
+        # this issue asks for is `count` on every query, not a single
+        # shared key name across unrelated handlers.
+        return ToolResult.ok({
+            "items": [self._to_dict(r, status_map=status_map) for r in results],
+            "count": len(results),
+        })

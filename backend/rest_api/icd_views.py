@@ -62,6 +62,7 @@ from application.base import NotFoundError
 from application.workspace_context_service import get_tenant, get_user
 from icd.models import Icd, IcdDirection, IcdParameter, IcdRevision
 from icd.services import (
+    IcdConflictError,
     IcdCreateDTO,
     IcdParameterCreateDTO,
     IcdParameterNotFoundError,
@@ -965,6 +966,13 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     "created_at": result.icd.created_at.isoformat() if result.icd.created_at else None,
                 },
                 status=status.HTTP_201_CREATED,
+            )
+        except IcdConflictError as exc:
+            # #1661: a second ICD for the same source/target pair is a
+            # caller-visible conflict, not a server fault.
+            return Response(
+                build_error_response("CONFLICT", lang, message=str(exc)),
+                status=status.HTTP_409_CONFLICT,
             )
         except ValueError as exc:
             # #104: create_icd() raises ValueError on ContractValidator syntax

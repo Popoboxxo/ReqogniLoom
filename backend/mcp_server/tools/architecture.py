@@ -694,20 +694,15 @@ class ArchitectureToolGroup(BaseToolGroup):
 
         from workflow.services import outdate
 
-        try:
-            outdate(
-                item_id=arch_id,
-                item_type="ArchitectureElement",
-                workspace_id=el.artifact.workspace_id,
-                ctx=auth_context,
-                reason=reason,
-            )
-        except Exception:
-            # #697 (CWE-209): str(exc) on an unmapped exception can carry SQL
-            # fragments, table names or driver details. Log the real cause,
-            # answer with the canonical masked message.
-            logger.exception("architecture.outdate failed")
-            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+        # Domain errors (INVALID_STATE from the workflow engine, ValidationError,
+        # NotFoundError) are mapped centrally by BaseToolGroup.execute_tool.
+        outdate(
+            item_id=arch_id,
+            item_type="ArchitectureElement",
+            workspace_id=el.artifact.workspace_id,
+            ctx=auth_context,
+            reason=reason,
+        )
 
         write_mcp_audit(
             ctx=auth_context,
@@ -749,10 +744,6 @@ class ArchitectureToolGroup(BaseToolGroup):
             )
         except ValueError as exc:
             return ToolResult.error("INVALID_STATE", str(exc))
-        except Exception:
-            # #697 (CWE-209): mask the unmapped cause, log it server-side.
-            logger.exception("architecture.reactivate failed")
-            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         write_mcp_audit(
             ctx=auth_context,

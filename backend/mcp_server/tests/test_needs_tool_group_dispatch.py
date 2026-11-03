@@ -564,10 +564,10 @@ def test_derive_unknown_need_returns_not_found(caller):
 def test_viewer_write_is_refused_and_persists_nothing(caller):
     """A viewer context is refused on the write path (service RBAC fence).
 
-    The needs group — unlike its sibling ``mcp_server.tools.tests`` — does not
-    catch ``PermissionDeniedError``, so the dispatcher's own mask applies: the
-    write fails closed and the caller only sees a static message. What matters
-    here is that nothing is persisted.
+    The needs group does not catch ``PermissionDeniedError`` itself; the
+    dispatcher maps it centrally (#1663), so the caller sees
+    ``PERMISSION_DENIED`` instead of the old masked ``INTERNAL_ERROR``. What
+    matters here is that nothing is persisted.
     """
     tenant, workspace, ctx, user_id = caller
     viewer = _viewer_ctx(tenant, user_id)
@@ -581,8 +581,8 @@ def test_viewer_write_is_refused_and_persists_nothing(caller):
     )
 
     assert result.success is False
-    assert result.error_code == "INTERNAL_ERROR"
-    assert result.message == "An internal error occurred."
+    assert result.error_code == "PERMISSION_DENIED"
+    assert result.message != "An internal error occurred."
     listed = _exec(group, "needs.query", {"workspace_id": str(workspace.id)}, ctx)
     assert listed.data["count"] == 0
 

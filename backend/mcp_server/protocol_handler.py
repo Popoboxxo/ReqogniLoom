@@ -158,6 +158,15 @@ ERROR_CODES = {
         "The request conflicts with the current state of the resource. Nothing "
         "was changed; read the current state and retry if the conflict resolves."
     ),
+    # A lifecycle transition the item's current state does not permit (e.g.
+    # reactivating an item that is not soft-deleted). Used by several tool
+    # groups since #573, but never registered here — the same #1082 failure
+    # mode: the bare code was echoed and the direct-dispatch path collapsed it
+    # to -32603 (Internal error) instead of an actionable state error.
+    "INVALID_STATE": (
+        "The item is not in a state that permits this operation. Read its "
+        "current state and use a valid transition."
+    ),
     # Plan F F2-T6 (ADR-026): the two document-specific refusals the REST
     # surface already publishes (409 FIELD_FROZEN / 409 DOCUMENT_GATE_FAILED).
     # Same reasoning as CONFLICT: a caller-actionable state conflict, not an
@@ -215,6 +224,7 @@ ERROR_CODE_MAP = {
     # attribute-definition reset that would change nothing. Without this entry
     # the direct-method dispatch path reported it as -32603 (Internal error).
     "CONFLICT": -32011,                 # Server-defined: state conflict (#1082)
+    "INVALID_STATE": -32019,            # Server-defined: transition not permitted
     # Next free server-defined code after CONFLICT. #1148: a capability gated
     # off by LLM_CAPABILITIES. Without this entry the direct-method dispatch
     # path reported it as -32603 (Internal error) via the fallback in
