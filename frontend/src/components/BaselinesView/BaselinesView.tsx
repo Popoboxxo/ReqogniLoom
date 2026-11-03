@@ -41,6 +41,7 @@ import {
 } from "./BaselinesPanels";
 import { BaselineTagsEditor } from "./BaselineTagsEditor";
 import { BaselineRollbackPanel } from "./BaselineRollbackPanel";
+import { MilestoneList } from "./MilestoneList";
 import { MAX_TAGS, isValidTagLabel } from "./baselineTags";
 import { TagInput } from "../shared/tag-input";
 import styles from "./BaselinesView.module.css";
@@ -617,6 +618,16 @@ export default function BaselinesView(): JSX.Element {
         }
       />
       </div>
+
+      {/* Plan B B6-T2 (#879): planned review milestones live under the
+          Baselines route. Prop-driven (workspace + write authority), so the
+          container stays the single owner of both values. */}
+      {activeWorkspaceId && (
+        <MilestoneList
+          workspaceId={activeWorkspaceId}
+          canEdit={canEdit}
+        />
+      )}
 
       {/* #1282: baseline creation runs in the shared modal <Dialog> (role=dialog,
           focus trap, Escape, focus return) like every other entity route —

@@ -20,6 +20,9 @@ import React from "react";
 
 vi.mock("../../api/baselines");
 vi.mock("../../api/artifacts");
+// Plan B B6-T2: the mounted MilestoneList reads its own list; this suite only
+// pins the page header, so the milestone query resolves empty.
+vi.mock("../../api/milestones");
 vi.mock("../../context/WorkspaceContext");
 vi.mock("../../context/AuthContext", () => ({
   useAuth: () => ({ roles: ["admin"] }),
@@ -32,6 +35,7 @@ vi.mock("react-i18next", () => {
 
 import * as baselinesModule from "../../api/baselines";
 import * as artifactsModule from "../../api/artifacts";
+import * as milestonesModule from "../../api/milestones";
 import * as workspaceContext from "../../context/WorkspaceContext";
 
 import BaselinesView from "./BaselinesView";
@@ -59,6 +63,9 @@ describe("BaselinesView page header (#1405 R1-04)", () => {
       results: [],
     } as any);
     vi.mocked(baselinesModule.baselinesApi.list).mockResolvedValue({
+      results: [],
+    } as any);
+    vi.mocked(milestonesModule.milestonesApi.list).mockResolvedValue({
       results: [],
     } as any);
   });
