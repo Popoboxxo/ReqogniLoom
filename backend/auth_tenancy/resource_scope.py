@@ -102,6 +102,7 @@ __all__ = [
     "API_KEY_FENCE_FILTER",
     "API_KEY_NO_OWNER_ROLE_IN_FENCE_DENIAL",
     "API_KEY_NO_OWNER_ROLE_IN_WORKSPACE_DENIAL",
+    "API_KEY_SCOPE_EXCEEDS_CREATOR_RIGHTS_DENIAL",
     "UNCLASSIFIED_DENIAL",
     "WORKSPACE_MEMBERSHIP_DENIAL",
     "WORKSPACE_TARGET_MISMATCH_DENIAL",
@@ -109,6 +110,7 @@ __all__ = [
     "ResourceClassification",
     "ResourceScope",
     "api_key_fence_precheck",
+    "api_key_scope_creation_denial",
     "classify_class_name",
     "classify_view",
     "enforce_request_scope",
@@ -943,6 +945,140 @@ def fenced_rbac_denial(
             workspace_id=target_workspace_id
         )
     return f"RBAC denied: {decision_reason}"
+
+
+# ---------------------------------------------------------------------------
+# API-key scope at creation time (#1608)
+# ---------------------------------------------------------------------------
+
+#: Denial text for ``POST /api/v1/api-keys/`` when the requested capability
+#: tier exceeds the creator's own effective rights.
+API_KEY_SCOPE_EXCEEDS_CREATOR_RIGHTS_DENIAL = (
+    "Access denied: the requested API-key scope '{scope}' would exceed your own "
+    "permissions. That scope requires effective 'write' permission in at least "
+    "one workspace the key addresses, and you hold none there. Request a key "
+    "with scope '{read_only}' instead."
+)
+
+
+def api_key_scope_creation_denial(
+    *,
+    user_id: UUID,
+    tenant_id: UUID,
+    scope: str | None,
+    workspace_ids: Iterable[str] | None = None,
+) -> str | None:
+    """Return why *user_id* may not mint a key of *scope*, else ``None`` (#1608).
+
+    Creating a key is a deliberately self-service action (#716), so the RBAC
+    matrix never answers "may this caller hand out a write capability?". The
+    key's ``scope`` is a capability tier *above* the matrix, which meant a pure
+    Viewer could mint an ADMIN-tier credential (legacy ``write`` == tier 2).
+    This seam closes that by bounding the tier with the creator's own rights:
+
+    * read-only scopes (``read``/``read_only``) are always allowed — every
+      caller that reaches the endpoint already holds an active role in the
+      tenant (the RBAC READ gate);
+    * any scope above read-only requires effective ``write`` in **at least one
+      addressed workspace**. Addressed means the key's own fence
+      (``workspace_ids``) when one is given, and every workspace where the
+      owner holds a role otherwise — a fence is the set of workspaces the key
+      can act in, so rights outside it are irrelevant;
+    * a tenant-admin (System-Admin) is allowed: the documented tenant-wide
+      elevation, consistent with :func:`_has_workspace_authority`.
+
+    ``scope=None`` is treated as ``write`` because that is what the service
+    persists for a user key — without it, omitting the field would be a trivial
+    way around the bound.
+
+    The result is a denial **text**, not an exception: the REST view turns it
+    into ``403 PERMISSION_DENIED`` and the service reuses it as defence in
+    depth for the non-REST entry points (same pattern as the agent-key rules in
+    ``ApiKeyCreateSerializer``). There is deliberately no silent downgrade — a
+    narrower key than requested would hide the caller's real permission state.
+    """
+    from .services.authorization import (
+        SCOPE_READ_ONLY,
+        WRITE_SCOPE,
+        Operation,
+        required_scope_tier,
+        scope_tier,
+    )
+
+    effective_scope = WRITE_SCOPE if scope is None else scope
+    tier = scope_tier(effective_scope)
+    if tier is None or tier < required_scope_tier(Operation.WRITE):
+        # Unknown scope names are rejected by the request serializer (400) and
+        # read-only tiers need no rights beyond the tenant membership the RBAC
+        # gate already established.
+        return None
+
+    # The role lookups below are tenant-scoped queries. Routed traffic always
+    # arrives with the tenant already activated (AuthTenancyAuthentication), but
+    # direct service callers — management commands, tests, any future non-HTTP
+    # entry point — may not. Activate *this* tenant for the check and restore
+    # the caller's state, so the decision never silently reads another tenant
+    # (which would deny a legitimate caller) or leaks a context afterwards.
+    from persistence.middleware import clear_request_tenant, set_request_tenant
+    from persistence.tenancy import TenantContext
+
+    previous_tenant = TenantContext.get_tenant() if TenantContext.is_set() else None
+    switched = previous_tenant != tenant_id
+    if switched:
+        set_request_tenant(tenant_id)
+    try:
+        denial = _api_key_scope_write_rights_denial(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            effective_scope=effective_scope,
+            workspace_ids=workspace_ids,
+            read_only_scope=SCOPE_READ_ONLY,
+        )
+    finally:
+        if switched:
+            if previous_tenant is None:
+                clear_request_tenant()
+            else:
+                set_request_tenant(previous_tenant)
+
+    return denial
+
+
+def _api_key_scope_write_rights_denial(
+    *,
+    user_id: UUID,
+    tenant_id: UUID,
+    effective_scope: str,
+    workspace_ids: Iterable[str] | None,
+    read_only_scope: str,
+) -> str | None:
+    """Return the denial for a write-capable scope, else ``None`` (see above)."""
+    from .services.authorization import AuthorizationService, Operation
+
+    authz = AuthorizationService()
+    if authz.is_tenant_admin(user_id=user_id, tenant_id=tenant_id):
+        return None
+
+    addressed: list[UUID] = [
+        workspace_uuid
+        for workspace_uuid in (
+            _coerce_uuid(value) for value in (workspace_ids or ())
+        )
+        if workspace_uuid is not None
+    ]
+    if not addressed:
+        addressed = authz.accessible_workspace_ids(
+            user_id=user_id, tenant_id=tenant_id
+        )
+
+    for workspace_uuid in addressed:
+        roles = authz.active_roles_for(user_id=user_id, workspace_id=workspace_uuid)
+        if authz.decide_access(roles, Operation.WRITE).allow:
+            return None
+
+    return API_KEY_SCOPE_EXCEEDS_CREATOR_RIGHTS_DENIAL.format(
+        scope=effective_scope, read_only=read_only_scope
+    )
 
 
 # ---------------------------------------------------------------------------

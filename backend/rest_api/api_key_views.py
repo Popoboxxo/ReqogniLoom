@@ -36,6 +36,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
 from auth_tenancy.errors import AuthenticationFailed
+from auth_tenancy.resource_scope import api_key_scope_creation_denial
 from auth_tenancy.services import Operation, UserProfileService
 from auth_tenancy.services.authentication import (
     ApiKeyPolicyError,
@@ -286,6 +287,11 @@ class ApiKeyViewSet(ViewSet):
                 ``MFA_STAFF_ENFORCEMENT=required`` whose session has no
                 ``"otp"`` in ``amr``. Distinct from the 409 ``MFA_REQUIRED``
                 (disable refuses to remove the factor).
+          403 — ``PERMISSION_DENIED`` when the requested ``scope`` exceeds the
+                creator's own effective rights (#1608): any tier above
+                read-only requires ``write`` in at least one addressed
+                workspace (the key's fence, or every workspace the owner holds
+                a role in). Read-only scopes stay available to every role.
           400 — ``VALIDATION_ERROR`` with an ``expires_at`` field error when the
                 same staff owner supplies no strictly future, timezone-aware
                 ``expires_at`` (provisional ENT-E8 = A).
@@ -336,6 +342,24 @@ class ApiKeyViewSet(ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         data = serializer.validated_data
+
+        # #1608: the key may not carry a capability tier above its creator's own
+        # effective rights — a Viewer must not be able to mint an ADMIN-tier
+        # credential. This endpoint is the only surface that issues credentials
+        # for an authenticated caller, so the bound lives here: the service has
+        # no actor and cannot tell a self-service request from seeding/ops code
+        # (see AuthenticationService.create_api_key's "Scope bound" note).
+        scope_denial = api_key_scope_creation_denial(
+            user_id=UUID(user_id),
+            tenant_id=UUID(tenant_id),
+            scope=data["scope"],
+            workspace_ids=data["workspace_ids"],
+        )
+        if scope_denial is not None:
+            return Response(
+                build_error_response(code="PERMISSION_DENIED", message=scope_denial),
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         try:
             result = self._authn.create_api_key(

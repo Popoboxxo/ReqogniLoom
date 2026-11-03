@@ -799,6 +799,15 @@ class AuthenticationService:
                 ``MFA_STAFF_ENFORCEMENT=required`` supplied no strictly future,
                 timezone-aware ``expires_at`` (WP E3.6). Subclass of
                 ``ValueError`` and carries ``field="expires_at"``.
+        Scope bound (#1608): ``scope`` is *not* validated against the owner's
+        rights here. This method has no actor — it is the credential writer, and
+        its callers range from the issuing endpoint to seeding/ops code that
+        mints a key for a user whose roles are provisioned afterwards. The
+        bound belongs to the authenticated boundary, where caller == owner is
+        guaranteed: ``POST /api/v1/api-keys/`` calls
+        :func:`auth_tenancy.resource_scope.api_key_scope_creation_denial` and
+        answers 403 ``PERMISSION_DENIED``. Any future surface that issues keys
+        must call the same helper before reaching this method.
 
         SA-39 (Systemaudit 2026-08-27 §4.1 #11): count-then-create is a
         time-of-check/time-of-use window — N parallel requests all read
