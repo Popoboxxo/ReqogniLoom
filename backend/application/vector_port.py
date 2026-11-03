@@ -541,7 +541,7 @@ class PgVectorVectorPort:
 
     Byte-for-byte the queries the four sites used to build themselves --
     ``tenant_id`` + ``embedding__isnull=False`` always, an optional workspace
-    filter, ``exclude_id``, ``order_by("distance")[:limit]`` and (only when
+    filter, ``exclude_id``, ``order_by("distance", "id")[:limit]`` and (only when
     asked) an ``atomic()`` savepoint around ``enable_iterative_ann_scan``.
     """
 
@@ -601,7 +601,9 @@ class PgVectorVectorPort:
             qs = qs.filter(model_filter)
         qs = (
             qs.annotate(distance=CosineDistance("embedding", query_vector))
-            .order_by("distance")[:limit]
+            # id tie-break: distance alone is not a total order, so the cap
+            # boundary under equal distances would be up to Postgres (#977).
+            .order_by("distance", "id")[:limit]
         )
 
         # T-A0-6: strict mode adds a provenance predicate the HNSW index cannot
