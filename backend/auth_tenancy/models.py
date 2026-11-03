@@ -537,17 +537,19 @@ class UserDisplayPreference(TenantScopedModel):
     same as the sibling ``users/me/**`` routes), so the row carries the standard
     tenant column and is covered by the RLS policy sweep (REQ-L2-PL-010).
 
-    ``show_readable_ids`` mirrors the frontend fallback in
-    ``frontend/src/hooks/useReadableIdsVisible.ts`` — readable ids are visible
-    unless the user hides them — so a missing row leaves the rendered behaviour
-    unchanged and the server default never has to be re-derived by the client.
+    There is no ``show_readable_ids`` column any more (Plan C T-C2-9): the
+    "readable ids may be hidden" toggle is served by the generic three-level
+    preference store (Q1, ``ui.ids.show_readable``), mirroring the frontend
+    fallback in ``frontend/src/hooks/useReadableIdsVisible.ts`` — readable ids
+    are visible unless the user hides them, so an absent preference row leaves
+    the rendered behaviour unchanged.
 
     ``visible_metrics`` (Issue #1265) is the per-user selection/order of the
     SE-statistics widgets: a JSON list of metric keys (see
     ``se_metrics.registry``). ``NULL`` means "no explicit selection" — the
     client then renders the registry's ``default_visible`` set. It is stored on
     the same row because it shares the exact same lifecycle (self-service,
-    account-scoped, no admin gate) as ``show_readable_ids``.
+    account-scoped, no admin gate) as ``tree_display_fields``.
     """
 
     user = models.OneToOneField(
@@ -555,7 +557,6 @@ class UserDisplayPreference(TenantScopedModel):
         on_delete=models.CASCADE,
         related_name="display_preference",
     )
-    show_readable_ids = models.BooleanField(default=True)
     visible_metrics = models.JSONField(
         null=True, blank=True, default=None
     )
@@ -563,9 +564,9 @@ class UserDisplayPreference(TenantScopedModel):
     #: JSON map ``{item_type: [{"key": …, "width": …}, …]}``. ``NULL`` means "no
     #: personal selection" — resolution then falls through to the workspace level,
     #: then the global level, then the built-in default. Stored on the same row
-    #: as ``show_readable_ids``/``visible_metrics`` because it shares their exact
-    #: lifecycle (self-service, account-scoped, no admin gate) and their RLS
-    #: coverage (REQ-L2-PL-010).
+    #: as ``visible_metrics`` because it shares its exact lifecycle
+    #: (self-service, account-scoped, no admin gate) and its RLS coverage
+    #: (REQ-L2-PL-010).
     tree_display_fields = models.JSONField(null=True, blank=True, default=None)
     #: Issue #1263 — the personal level of the create-dialog form definition: a
     #: JSON map ``{item_type: [{"field_key": …, "visible": …, "required": …,
@@ -580,9 +581,8 @@ class UserDisplayPreference(TenantScopedModel):
         db_table = "at_user_display_preference"
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
-        # ``show_readable_ids`` is deliberately absent: since Plan C T-C2-6 the
-        # flag is served from Q1 (``ui.ids.show_readable``) and this column is
-        # read nowhere; T-C2-9 drops it.
+        # ``show_readable_ids`` is deliberately absent: it is served from Q1
+        # (``ui.ids.show_readable``), not from this table.
         return (
             f"UserDisplayPreference(user={self.user_id}, "
             f"visible_metrics={self.visible_metrics})"
