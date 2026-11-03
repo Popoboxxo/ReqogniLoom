@@ -4994,6 +4994,126 @@ class InlineAnchor(TenantScopedModel):
         return f"InlineAnchor({self.source_artifact_id}:{self.field}:{self.token[:32]})"
 
 
+class Milestone(TenantScopedModel):
+    """Planned review milestone for a workspace (Plan B B6-T1, #879).
+
+    "Technical Planning" in the plan's WP B6: a milestone records *when* a
+    formal review (SRR/PDR/CDR/TRR/ORR) is planned, which :class:`Baseline` it
+    refers to and what the SE-Auditor reported at the moment the audit was
+    frozen. It is deliberately **not** an ``Artifact``-backed entity (ENT-B2 =
+    a: only ``Milestone``, no ``Measure``): it carries no ``uid``, no workflow
+    state and no trace-link endpoints, so nothing here duplicates the artifact
+    contract.
+
+    ``audit_snapshot`` is an immutable copy of one audit run
+    (``{tier, counts: {total, blockers, warnings}, run_at}``), written by
+    :class:`application.milestone_service.MilestoneService.record_audit`. It is
+    a *record*, never a gate: recording an audit with open blockers is allowed
+    and does not block anything (unlike the baseline gate, GH-513).
+
+    ``baseline`` is ``PROTECT``ed: a milestone that references a baseline keeps
+    that baseline from being hard-deleted. Baseline rows are immutable in the
+    normal path anyway (``BaselineStore`` refuses deletes), so this only bites
+    on a hard delete.
+
+    ``version`` (Plan B B6-T1 / KA-B-06, ETag contract) is declared here as a
+    ``PositiveIntegerField`` instead of the inherited ``AuditableModel``
+    ``IntegerField`` purely to match the specified column type; it is the same
+    optimistic-concurrency counter — never a content revision number (see
+    ``AuditableModel.version``). ``updated_at`` is kept next to the inherited
+    ``modified_at`` because it is part of the published REST/MCP contract for
+    planned entities (same precedent as ``Adr``/``Risk``).
+
+    leaf_id : COMP-PL-001
+    req_id  : REQ-L2-PL-004, REQ-L2-PL-010
+    """
+
+    class ReviewType(models.TextChoices):
+        """Formal review a milestone plans (plan B B6-T1)."""
+
+        SRR = "SRR", "System Requirements Review"
+        PDR = "PDR", "Preliminary Design Review"
+        CDR = "CDR", "Critical Design Review"
+        TRR = "TRR", "Test Readiness Review"
+        ORR = "ORR", "Operational Readiness Review"
+        OTHER = "OTHER", "Other"
+
+    class Status(models.TextChoices):
+        """Planning/execution state of a milestone (plan B B6-T1)."""
+
+        PLANNED = "planned", "Planned"
+        IN_REVIEW = "in_review", "In review"
+        PASSED = "passed", "Passed"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="milestones",
+        help_text="Owning workspace.",
+    )
+    name = models.CharField(
+        max_length=200,
+        help_text="Human-readable milestone name, e.g. 'PDR Fahrwerk'.",
+    )
+    review_type = models.CharField(
+        max_length=16,
+        choices=ReviewType.choices,
+        help_text="Formal review this milestone plans.",
+    )
+    target_date = models.DateField(
+        help_text="Planned review date; the primary sort key of every list.",
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PLANNED,
+        help_text="Planning/execution state (default 'planned').",
+    )
+    baseline = models.ForeignKey(
+        "baseline.BaselineSnapshot",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="milestones",
+        help_text=(
+            "Baseline the milestone refers to. PROTECT keeps a bound baseline "
+            "from being hard-deleted; the normal path is immutable anyway."
+        ),
+    )
+    audit_snapshot = models.JSONField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Frozen copy of one SE-Auditor run "
+            "({tier, counts: {total, blockers, warnings}, run_at}); a record, "
+            "never a gate."
+        ),
+    )
+    # Overrides the inherited AuditableModel.version with the column type the
+    # plan specifies; same optimistic-concurrency counter, still bumped by
+    # every mutation (never a content revision number).
+    version = models.PositiveIntegerField(default=1)
+    # Kept next to the inherited ``modified_at`` on purpose (see class docstring).
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "pl_milestone"
+        # D-SORT: every list is deterministic — target_date, then id.
+        ordering = ["target_date", "id"]
+        indexes = [
+            # The only list query: one workspace, ordered by target_date.
+            models.Index(
+                fields=["tenant", "workspace", "target_date"],
+                name="idx_milestone_ws_target",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"Milestone({self.name[:32]}, {self.review_type}, {self.target_date})"
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -5060,4 +5180,6 @@ __all__ = [
     "WorkItem",
     # Plan F F3-T7 (#1374): text anchors for inline references.
     "InlineAnchor",
+    # Plan B B6-T1 (#879): planned review milestones.
+    "Milestone",
 ]
