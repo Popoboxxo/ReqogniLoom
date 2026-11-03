@@ -1,0 +1,35 @@
+{
+  "name": "@popoboxxo/reqogniloom-opencode",
+  "version": "1.8.0-beta.24",
+  "description": "ReqogniLoom MCP server (Streamable HTTP) and SE process skills for OpenCode.",
+  "license": "MIT",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "skills/",
+    "DOMAIN_MODEL.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.14"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Popoboxxo/ReqogniLoom.git",
+    "directory": "dist/npm/reqogniloom-opencode"
+  },
+  "homepage": "https://github.com/Popoboxxo/ReqogniLoom",
+  "bugs": "https://github.com/Popoboxxo/ReqogniLoom/issues",
+  "keywords": [
+    "opencode",
+    "mcp",
+    "requirements-management",
+    "traceability",
+    "systems-engineering"
+  ]
+}

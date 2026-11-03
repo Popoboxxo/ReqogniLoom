@@ -9,13 +9,18 @@ BUILD_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BUILD_DIR.parent.parent
 
 
-def test_build_opencode_package(tmp_path):
+def _run_builder(*args: str) -> None:
     result = subprocess.run(
-        [sys.executable, str(BUILD_DIR / "build_opencode_package.py"),
-         "--out", str(tmp_path)],
+        [sys.executable, str(BUILD_DIR / "build_opencode_package.py"), *args],
         capture_output=True, text=True, cwd=REPO_ROOT,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_build_opencode_package(tmp_path):
+    # --npm-out is explicit so the snippet test never writes into the repo's
+    # tracked dist/npm tree (the builder's CLI default is still the real path).
+    _run_builder("--out", str(tmp_path), "--npm-out", str(tmp_path / "npm"))
 
     snippet = json.loads((tmp_path / "opencode.json.snippet").read_text())
     server = snippet["mcp"]["reqogniloom"]
@@ -75,3 +80,71 @@ def test_discover_skill_names_matches_the_canonical_skill_set():
         "test-lifecycle", "traceability-audit", "vmodell-decomposition",
     ]
 
+
+def _package_files(root: Path) -> dict[str, bytes]:
+    return {
+        str(path.relative_to(root)): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def test_npm_package_is_generated_and_versioned(tmp_path):
+    """D5.3: the Stufe-2 npm package is a real, deterministic artifact.
+
+    Covers the four properties a publish would otherwise discover too late:
+    the decided name/version (E2 + VERSION), the module/skills that ``npm pack``
+    must contain, no literal credential anywhere in the tree, and byte-for-byte
+    reproducibility (so a re-run never produces a spurious diff).
+    """
+    npm_out = tmp_path / "npm"
+    _run_builder(
+        "--out", str(tmp_path / "opencode"),
+        "--npm-out", str(npm_out),
+    )
+
+    package_dir = npm_out / "reqogniloom-opencode"
+    manifest = json.loads((package_dir / "package.json").read_text())
+    version = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
+
+    assert manifest["name"] == "@popoboxxo/reqogniloom-opencode"
+    assert manifest["version"] == version
+    assert manifest["main"] == "index.js"
+    assert manifest["type"] == "module"
+    assert manifest["license"] == "MIT"
+    assert manifest["engines"] == {"node": ">=22.14"}
+    assert manifest["repository"]["url"].endswith("github.com/Popoboxxo/ReqogniLoom.git")
+    assert manifest["files"] == [
+        "index.js", "skills/", "DOMAIN_MODEL.md", "README.md", "LICENSE",
+    ]
+    # No timestamp / build metadata of any kind: the artifact is reproducible.
+    assert "time" not in manifest and "buildTime" not in manifest
+
+    module = (package_dir / "index.js").read_text(encoding="utf-8")
+    assert 'type: "remote"' in module
+    # V2 (the package's target): Streamable HTTP on /mcp/ through ctx.mcp.
+    assert '"{env:REQOGNILOOM_MCP_URL}/mcp/"' in module
+    assert "ctx.mcp" in module and "transform(" in module and "editor.set" in module
+    assert 'headers: { "X-API-Key": API_KEY }' in module
+    assert '"{env:REQOGNILOOM_API_KEY}"' in module
+    assert "export default" in module
+    # V1 compatibility (SSE + mcp.<name>) and the named v1 plugin export.
+    assert "/mcp/sse/" in module
+    assert "config:" in module and "server: ReqogniLoomPlugin" in module
+    # No literal key anywhere in the package (module, manifest, skills, docs).
+    for name, content in _package_files(package_dir).items():
+        assert b"reqlo_" not in content, f"{name} contains a literal API key"
+
+    for skill_name in discover_skill_names(REPO_ROOT / "dist" / "agent-skills"):
+        assert (package_dir / "skills" / skill_name / "SKILL.md").is_file()
+    # Self-contained: ../../DOMAIN_MODEL.md from skills/<name>/SKILL.md resolves.
+    assert (package_dir / "DOMAIN_MODEL.md").is_file()
+    assert (package_dir / "LICENSE").is_file()
+
+    # Determinism: a second generation into a different parent is identical.
+    second = tmp_path / "npm-again"
+    _run_builder(
+        "--out", str(tmp_path / "opencode-again"),
+        "--npm-out", str(second),
+    )
+    assert _package_files(package_dir) == _package_files(second / "reqogniloom-opencode")

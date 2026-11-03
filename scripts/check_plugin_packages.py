@@ -18,6 +18,11 @@ otherwise only surface as a silent "installed != shipped" drift:
    ``dist/plugins/**`` builders it *can* drift; before this check that drift
    was invisible until someone diffed the carriers by hand.
 
+The OpenCode npm package (``dist/npm/reqogniloom-opencode``, plan D5.3) is
+version-coupled and presence-checked like the ``dist/plugins/**`` builders:
+its ``package.json`` version IS the released ``VERSION`` and a publish would
+otherwise ship a stale manifest.
+
 Independently-versioned POC artifacts (the Python Hermes *agent* plugin,
 ADR-017 decision 2: own SemVer + ``minServerVersion``) are checked for
 presence only and are deliberately **not** forced onto ``VERSION``.
@@ -102,6 +107,11 @@ VERSION_COUPLED: tuple[VersionLocation, ...] = (
         "server.json",
         ("version",),
     ),
+    VersionLocation(
+        "OpenCode npm package manifest",
+        "dist/npm/reqogniloom-opencode/package.json",
+        ("version",),
+    ),
 )
 
 #: Source-tree files that must exist for a first-party plugin package to be
@@ -116,6 +126,9 @@ REQUIRED_SOURCES: tuple[tuple[str, str], ...] = (
     ("Antigravity plugin manifest", "dist/plugins/antigravity/reqogniloom/plugin.json"),
     ("Claude Code plugin builder", "dist/plugins/claude-code/build_claude_plugin.py"),
     ("Antigravity plugin builder", "dist/plugins/antigravity/build_antigravity_plugin.py"),
+    ("OpenCode npm package manifest", "dist/npm/reqogniloom-opencode/package.json"),
+    ("OpenCode npm package module", "dist/npm/reqogniloom-opencode/index.js"),
+    ("OpenCode package builder", "dist/opencode/build_opencode_package.py"),
 )
 
 #: Independently-versioned POC artifacts (ADR-017 decision 2). Presence and a
