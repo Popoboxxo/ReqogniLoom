@@ -1,4 +1,4 @@
-# ReqFlow Docker Compose Orchestration
+# ReqogniLoom Docker Compose Orchestration
 # ADR-08: Self-Hosted via Docker Compose — Production-Ready Configuration
 #
 # ┌─ SETUP ─────────────────────────────────────────────────────────┐
@@ -33,10 +33,10 @@
 # ARTIFACT_VECTOR_BACKEND=qdrant (artifact ANN search, independent since T-A2-1).
 #
 # DEVELOPMENT OVERRIDE:
-# For development with hot-reload, docker-compose.override.yml
-# is automatically merged by Docker Compose. To use it, ensure the
-# file exists in the project root (it does, by default).
-# For production, delete docker-compose.override.yml.
+# For development with hot-reload, deploy/docker-compose.override.yml is
+# merged automatically only when Compose is invoked from deploy/ WITHOUT an
+# explicit `-f`. Production always passes explicit `-f` files, so it never
+# picks up the override.
 # The dev overlay replaces (not extends) the frontend `ports:` list from this
 # file using the `!override` merge tag, so Docker Compose >= 2.24.4 is required
 # (compose-go PR #552, first shipped in Compose v2.24.4). Older Compose — and

@@ -35,6 +35,7 @@ python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().
 docker compose -f deploy/docker-compose.yml --project-directory . up -d
 docker compose -f deploy/docker-compose.yml --project-directory . ps       # wait for "healthy"
 curl -sf http://localhost:8001/health/                                    # {"status":"ok",...} = fully up
+curl -s http://localhost:8001/health/ | jq .advisory.django_env           # != "production" = dev overlay active
 ```
 
 Facts, not narrative:

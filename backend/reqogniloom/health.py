@@ -717,6 +717,11 @@ def _collect_advisory(
     trade-off (``/health*`` is not meant to be internet-reachable, see
     ``deploy/README.md``), not a bug this docstring should claim away.
     """
+    # Deployment identity (Plan D / D3.4, #792 item 18): a non-production
+    # DJANGO_ENV marks the dev overlay. Advisory only — never a warning, so
+    # ``status`` and monitoring/E2E stay unchanged.
+    advisory["django_env"] = django_settings.DJANGO_ENV
+
     # Embedding-column dimension check (#1018/#1019): the physical pgvector
     # column width is fixed by the last migration that ran, while the
     # configured embedding provider's width is fixed at container start.
