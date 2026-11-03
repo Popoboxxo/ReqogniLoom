@@ -17,7 +17,7 @@ from application.attribute_definition_service import (
     AttributeDefinitionNotFound,
     AttributeDefinitionService,
 )
-from application.base import NotFoundError
+from application.base import NotFoundError, ValidationError
 from application.interview_multi_protocol import (
     _MULTI_PROTOCOL_FACTORY_DEFAULT,
     _MULTI_PROTOCOL_SLOT,
@@ -38,6 +38,103 @@ IN_SCOPE_ARTIFACT_TYPES = (
     "Issue",
     "Goal",
 )
+
+#: Real artifact types the interview surface deliberately does not cover.
+#: They are *known*, so a request naming one is a domain answer ("not
+#: available"), never an "unknown value" error (#1611).
+OUT_OF_SCOPE_ARTIFACT_TYPES = ("MainGoal",)
+
+#: Squashed-lowercase name -> canonical artifact type (#1611).
+#:
+#: The REST body field and the MCP ``interview.start`` parameter used to be a
+#: bare string compared against :data:`IN_SCOPE_ARTIFACT_TYPES` by exact
+#: equality, so ``requirement``/``need`` were answered with the same "not
+#: available" sentence as a typo. Every canonical type has an entry here (the
+#: drift guard is ``TestNormalizeArtifactType``); the extra keys are the
+#: spellings a client actually sends.
+ARTIFACT_TYPE_ALIASES: dict[str, str] = {
+    "requirement": "Requirement",
+    "requirements": "Requirement",
+    "req": "Requirement",
+    "architectureelement": "ArchitectureElement",
+    "architecture": "ArchitectureElement",
+    "arch": "ArchitectureElement",
+    "stakeholderneed": "StakeholderNeed",
+    "stakeholder": "StakeholderNeed",
+    "need": "StakeholderNeed",
+    "needs": "StakeholderNeed",
+    "risk": "Risk",
+    "risks": "Risk",
+    "testcase": "TestCase",
+    "test": "TestCase",
+    "adr": "Adr",
+    "adrs": "Adr",
+    "issue": "Issue",
+    "issues": "Issue",
+    "goal": "Goal",
+    "goals": "Goal",
+    "maingoal": "MainGoal",
+}
+
+
+def artifact_type_key(value: str) -> str:
+    """Return the lookup key for *value*: case-insensitive, separator-free.
+
+    ``"Stakeholder Need"``, ``"stakeholder_need"`` and ``"STAKEHOLDER-NEED"``
+    all collapse to ``"stakeholderneed"``.
+    """
+    return "".join(ch for ch in value.casefold() if ch not in " _-")
+
+
+def normalize_artifact_type(value: Any) -> str | None:
+    """Resolve a client-supplied ``artifact_type`` to its canonical name (#1611).
+
+    Accepts the canonical PascalCase names as well as the aliases and
+    case/separator variants in :data:`ARTIFACT_TYPE_ALIASES`.
+
+    Args:
+        value: The raw request value. ``None`` (and an empty string, which keeps
+            the pre-#1611 "not supplied" semantics) pass through unchanged so
+            the session-shape gate still reports the mode-specific error.
+
+    Returns:
+        The canonical artifact type, or the falsy input unchanged.
+
+    Raises:
+        ValidationError: the value names no known artifact type. The exception
+            carries ``details=[{"field": "artifact_type", "allowed_values": ...}]``
+            — this is a *value* error, deliberately distinct from the
+            "known type, no interview protocol" answer
+            (:data:`OUT_OF_SCOPE_ARTIFACT_TYPES`).
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise _unknown_artifact_type_error(value)
+    stripped = value.strip()
+    if not stripped:
+        return value
+    canonical = ARTIFACT_TYPE_ALIASES.get(artifact_type_key(stripped))
+    if canonical is None:
+        raise _unknown_artifact_type_error(value)
+    return canonical
+
+
+def _unknown_artifact_type_error(value: Any) -> ValidationError:
+    """Build the 400 ``VALIDATION_ERROR`` for an unrecognised ``artifact_type``.
+
+    The value is echoed truncated: an error message is not a place to reflect
+    an arbitrarily large payload back to the caller.
+    """
+    allowed = list(IN_SCOPE_ARTIFACT_TYPES)
+    shown = repr(value)
+    if len(shown) > 64:
+        shown = shown[:61] + "..."
+    exc = ValidationError(
+        f"Unknown artifact_type {shown}; allowed values: {', '.join(allowed)}."
+    )
+    exc.details = [{"field": "artifact_type", "allowed_values": allowed}]
+    return exc
 
 
 class ProtocolValidationError(Exception):

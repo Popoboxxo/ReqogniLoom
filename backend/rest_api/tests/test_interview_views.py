@@ -66,6 +66,112 @@ class TestInterviewStartAndList:
         )
         assert response.status_code == 400
 
+    # ------------------------------------------------------------------
+    # #1611 — artifact_type is normalised, and "unknown" is told apart
+    # from "known but not interviewable".
+    # ------------------------------------------------------------------
+
+    @pytest.mark.parametrize(
+        ("sent", "canonical"),
+        [
+            ("requirement", "Requirement"),
+            ("Requirement", "Requirement"),
+            ("need", "StakeholderNeed"),
+            ("StakeholderNeed", "StakeholderNeed"),
+            ("architecture_element", "ArchitectureElement"),
+            ("test", "TestCase"),
+        ],
+    )
+    def test_start_normalises_artifact_type(
+        self, authed_client, workspace, sent, canonical
+    ):
+        """Aliases/case variants resolve to the canonical PascalCase type.
+
+        Before #1611 the field was a bare ``CharField`` checked against the
+        exact canonical tuple, so ``requirement``/``need`` were refused as
+        if they were unknown types.
+        """
+        from persistence.models import InterviewSession
+
+        response = authed_client.post(
+            "/api/v1/interviews/",
+            {"artifact_type": sent, "workspace_id": str(workspace.id)},
+            format="json",
+        )
+
+        assert response.status_code == 201, response.content
+        session = InterviewSession.unscoped.get(id=response.data["id"])
+        assert session.artifact_type == canonical
+
+        summary = authed_client.get(f"/api/v1/interviews/{response.data['id']}/")
+        assert summary.status_code == 200, summary.content
+        assert summary.data["artifact_type"] == canonical
+
+    def test_start_unknown_artifact_type_reports_allowed_values(
+        self, authed_client, workspace
+    ):
+        """An unknown value is a *value* error: 400 + ``allowed_values``.
+
+        The old message claimed a domain exclusion ("MainGoal stays read-only;
+        other unknown types are unsupported"), which sent the caller looking
+        for a product decision instead of a typo.
+        """
+        from application.interview_protocol import IN_SCOPE_ARTIFACT_TYPES
+
+        response = authed_client.post(
+            "/api/v1/interviews/",
+            {"artifact_type": "unknown", "workspace_id": str(workspace.id)},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+        body = response.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        details = {entry["field"]: entry for entry in body["error"]["details"]}
+        assert details["artifact_type"]["allowed_values"] == list(
+            IN_SCOPE_ARTIFACT_TYPES
+        )
+        assert "allowed values" in body["error"]["message"].lower()
+
+    def test_start_main_goal_reports_unsupported_not_unknown(
+        self, authed_client, workspace
+    ):
+        """MainGoal is a *known* type without an interview protocol.
+
+        It must not be answered with the unknown-value envelope
+        (``allowed_values``) — that is a different caller mistake.
+        """
+        response = authed_client.post(
+            "/api/v1/interviews/",
+            {"artifact_type": "MainGoal", "workspace_id": str(workspace.id)},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+        body = response.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert "not available" in body["error"]["message"]
+        assert all(
+            "allowed_values" not in entry for entry in body["error"]["details"]
+        )
+
+    def test_start_multi_session_is_unchanged(
+        self, authed_client, workspace
+    ):
+        """#1611 must not touch the multi discovery mode (artifact_type absent).
+
+        REST keeps its strict shape check -- the explicit ``session_kind`` is
+        what selects multi mode here (the MCP facade derives it, REST does not).
+        """
+        response = authed_client.post(
+            "/api/v1/interviews/",
+            {"workspace_id": str(workspace.id), "session_kind": "multi"},
+            format="json",
+        )
+
+        assert response.status_code == 201, response.content
+        assert response.data["session_kind"] == "multi"
+
     def test_start_explicit_null_session_kind_normalises_to_single(
         self, authed_client, workspace
     ):
