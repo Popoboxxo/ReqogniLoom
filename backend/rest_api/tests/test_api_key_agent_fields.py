@@ -8,10 +8,9 @@ from uuid import uuid4
 import pytest
 from django.utils import timezone
 
-from auth_tenancy.models import ROLE_EDITOR, ApiKey, UserRole
+from auth_tenancy.models import ApiKey
 from auth_tenancy.services.authentication import AuthenticationService
-from persistence.middleware import clear_request_tenant, set_request_tenant
-from persistence.models import Tenant, User, Workspace
+from persistence.models import Tenant, User
 
 
 @pytest.fixture
@@ -20,18 +19,6 @@ def owner(db):
     user = User.objects.create(
         tenant=tenant, email="owner-rest@example.com", is_active=True
     )
-    # #1608: a write-scoped key requires effective write in at least one
-    # workspace the key addresses, so the fixture owner is an editor — the
-    # realistic shape (a key is minted by someone who can already write), and
-    # it keeps the default-scope assertion below meaningful.
-    set_request_tenant(tenant.id)
-    try:
-        workspace = Workspace.objects.create(tenant=tenant, name="t-agent-ws")
-        UserRole.objects.create(
-            tenant=tenant, user=user, workspace=workspace, role=ROLE_EDITOR
-        )
-    finally:
-        clear_request_tenant()
     return tenant, user
 
 

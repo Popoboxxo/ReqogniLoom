@@ -88,7 +88,7 @@ def user(db, tenant_a):
 @pytest.mark.django_db
 def test_new_keys_are_stored_peppered(user):
     result = AuthenticationService().create_api_key(
-        user_id=user.id, tenant_id=user.tenant_id, name="new", scope="read"
+        user_id=user.id, tenant_id=user.tenant_id, name="new"
     )
     row = ApiKey.unscoped.get(id=result.api_key_id)
     assert row.key_hash.startswith("sha256p1:")
@@ -118,7 +118,7 @@ def test_pre_pepper_keys_keep_working(user):
 @pytest.mark.django_db
 def test_wrong_key_is_still_rejected(user):
     AuthenticationService().create_api_key(
-        user_id=user.id, tenant_id=user.tenant_id, name="k", scope="read"
+        user_id=user.id, tenant_id=user.tenant_id, name="k"
     )
     with pytest.raises(AuthenticationFailed):
         AuthenticationService().validate_api_key("reqlo_not_a_real_key")
@@ -133,7 +133,7 @@ def test_rotating_the_pepper_invalidates_peppered_keys(user):
     """
     with override_settings(API_KEY_PEPPER=_PEPPER):
         result = AuthenticationService().create_api_key(
-            user_id=user.id, tenant_id=user.tenant_id, name="k", scope="read"
+            user_id=user.id, tenant_id=user.tenant_id, name="k"
         )
 
     with override_settings(API_KEY_PEPPER="rotated-pepper"):

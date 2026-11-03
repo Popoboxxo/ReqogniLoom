@@ -318,3 +318,38 @@ def test_the_fence_is_the_addressed_workspace_not_every_membership(tenant, works
 
     _assert_scope_denied(resp)
 
+
+@pytest.mark.django_db
+def test_scope_bound_helper_activates_the_tenant_it_judges(tenant, workspace):
+    """The shared helper works for callers without an active tenant context.
+
+    Routed traffic always arrives with the tenant activated by
+    ``AuthTenancyAuthentication``, but the helper is the documented seam for any
+    future issuing surface (an MCP tool, a management command). It therefore
+    activates the tenant it was asked about for its tenant-scoped role lookups
+    and restores the caller's state afterwards, instead of raising
+    ``TenantContextNotSetError`` or silently reading another tenant.
+    """
+    from auth_tenancy.resource_scope import api_key_scope_creation_denial
+    from persistence.tenancy import TenantContext
+
+    _make_authed_client(tenant, workspace, role=ROLE_VIEWER)
+    viewer = User.objects.get(username="ak-rbac-viewer")
+
+    assert TenantContext.is_set() is False
+
+    assert (
+        api_key_scope_creation_denial(
+            user_id=viewer.id, tenant_id=tenant.id, scope="write"
+        )
+        is not None
+    )
+    assert (
+        api_key_scope_creation_denial(
+            user_id=viewer.id, tenant_id=tenant.id, scope="read"
+        )
+        is None
+    )
+    # The caller's (empty) context is restored — the helper leaked nothing.
+    assert TenantContext.is_set() is False
+

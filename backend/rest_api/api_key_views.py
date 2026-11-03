@@ -40,7 +40,6 @@ from auth_tenancy.resource_scope import api_key_scope_creation_denial
 from auth_tenancy.services import Operation, UserProfileService
 from auth_tenancy.services.authentication import (
     ApiKeyPolicyError,
-    ApiKeyScopeDeniedError,
     AuthenticationService,
 )
 from auth_tenancy.services.mfa import MfaService
@@ -346,9 +345,10 @@ class ApiKeyViewSet(ViewSet):
 
         # #1608: the key may not carry a capability tier above its creator's own
         # effective rights — a Viewer must not be able to mint an ADMIN-tier
-        # credential. Checked in the view so the REST surface answers the
-        # precise 403 PERMISSION_DENIED (the service repeats the same check as
-        # defence in depth for the non-REST entry points).
+        # credential. This endpoint is the only surface that issues credentials
+        # for an authenticated caller, so the bound lives here: the service has
+        # no actor and cannot tell a self-service request from seeding/ops code
+        # (see AuthenticationService.create_api_key's "Scope bound" note).
         scope_denial = api_key_scope_creation_denial(
             user_id=UUID(user_id),
             tenant_id=UUID(tenant_id),
@@ -371,14 +371,6 @@ class ApiKeyViewSet(ViewSet):
                 scope=data["scope"],
                 workspace_ids=data["workspace_ids"],
                 expires_at=data["expires_at"],
-            )
-        except ApiKeyScopeDeniedError as exc:
-            # #1608: the requested tier exceeds the creator's own rights. A
-            # refusal, never a silent downgrade — the caller asked for
-            # something they may not hand out.
-            return Response(
-                build_error_response(code="PERMISSION_DENIED", message=str(exc)),
-                status=status.HTTP_403_FORBIDDEN,
             )
         except ApiKeyPolicyError as exc:
             # WP E3.6: a policy rejection names the offending field, so the 400
