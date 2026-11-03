@@ -409,7 +409,15 @@ def render_server_json(registry: dict[str, Any], version: str) -> str:
         "remotes": [
             {
                 "type": "streamable-http",
-                "url": f"https://<host>{mcp['remote_path']}",
+                "url": f"https://{{host}}{mcp['remote_path']}",
+                "variables": {
+                    "host": {
+                        "description": (
+                            "Hostname of your self-hosted ReqogniLoom instance"
+                        ),
+                        "isRequired": True,
+                    }
+                },
                 "headers": [
                     {
                         "name": mcp["auth_header"],
@@ -582,6 +590,14 @@ def validate_store_artifacts(
                     "server.json: remote requires type 'streamable-http' + url",
                     problems,
                 )
+                variables = remote.get("variables") or {}
+                if "{host}" in (remote.get("url") or ""):
+                    host_variable = variables.get("host") or {}
+                    _expect(
+                        host_variable.get("isRequired") is True,
+                        "server.json: {host} URL requires variables.host.isRequired",
+                        problems,
+                    )
                 headers = remote.get("headers") or []
                 _expect(
                     any(
@@ -591,6 +607,11 @@ def validate_store_artifacts(
                     "server.json: remote must carry the X-API-Key header",
                     problems,
                 )
+            _expect(
+                "<host>" not in server_raw,
+                "server.json: legacy <host> placeholder remains",
+                problems,
+            )
             _expect(
                 "reqlo_" not in server_raw,
                 "server.json embeds a literal reqlo_ key",
