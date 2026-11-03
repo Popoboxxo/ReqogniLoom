@@ -16,6 +16,7 @@ Only stdlib + PyYAML; no Django/DB. Runs from the repo root.
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -137,3 +138,14 @@ def test_generated_hermes_version_matches_repo_version() -> None:
     for name in ("hermes.md", "hermes.de.md"):
         page = files[render.DOCS_DIR / name]
         assert f"`{version}`" in page, f"{name} does not carry VERSION {version}"
+
+
+def test_server_json_remote_uses_host_variable() -> None:
+    """D5.2: the registry manifest asks for the self-hosted host via a variable."""
+    registry = render.load_registry()
+    payload = json.loads(render.render_server_json(registry, render.load_version()))
+    remote = payload["remotes"][0]
+    assert remote["url"] == "https://{host}/mcp/"
+    assert remote["variables"]["host"]["isRequired"] is True
+    assert "Hostname" in remote["variables"]["host"]["description"]
+    assert "<host>" not in json.dumps(payload)

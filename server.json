@@ -10,7 +10,13 @@
   "remotes": [
     {
       "type": "streamable-http",
-      "url": "https://<host>/mcp/",
+      "url": "https://{host}/mcp/",
+      "variables": {
+        "host": {
+          "description": "Hostname of your self-hosted ReqogniLoom instance",
+          "isRequired": true
+        }
+      },
       "headers": [
         {
           "name": "X-API-Key",
