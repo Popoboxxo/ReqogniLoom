@@ -338,16 +338,21 @@ jobs:
           python-version: '3.12'
 
       - name: Install test dependencies
-        run: pip install pytest pyyaml
+        # cryptography is for scripts/test_setup_script.py, which validates the
+        # generated FIELD_ENCRYPTION_KEY by constructing a real Fernet instance.
+        run: pip install pytest pyyaml cryptography
 
-      - name: Run pytest for docs/agent-templates and dist
-        # RB-D18: a bare scripts/test_*.py runs in no job by default, so both
-        # contract tests are listed explicitly (P1-3 adds the prompt-regression
-        # one, P1-4 the .gitignore/env one).
+      - name: Run pytest for docs/agent-templates, dist and repository scripts
+        # RB-D18: a bare scripts/test_*.py runs in no job by default, so every
+        # contract test is listed explicitly (P1-3 adds the prompt-regression
+        # one, P1-4 the .gitignore/env one, D3.2/D3.3 the setup + off-host
+        # backup gates).
         run: >-
           pytest docs/agent-templates dist
           scripts/test_gitignore_env.py
           scripts/test_prompt_regression_workflow.py
+          scripts/test_setup_script.py
+          scripts/test_offhost_backup_check.py
 
   # AUD-2026-09 (integrations stability, #1156): the Hermes agent plugin's
   # capture-queue suite (integrations/hermes-agent-plugin/tests) was fully
