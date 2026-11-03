@@ -117,6 +117,8 @@ from application.import_idempotency import (
     finalize_success as finalize_idempotency_success,
 )
 from application.main_goal_service import MainGoalService
+# Plan B B6-T2 (#879): the Milestone write entry point (ADR-01).
+from application.milestone_service import MilestoneService
 # Plan F F3-T5: the WorkItem artifact's single write entry point (ADR-01).
 from application.work_item_service import WorkItemService
 from application.requirement_bundle_formatters import (
@@ -228,6 +230,9 @@ from rest_api.serializers import (
     ImpactNodeSerializer,
     IssueSerializer,
     MainGoalSerializer,
+    MilestoneBindBaselineSerializer,
+    MilestoneRecordAuditSerializer,
+    MilestoneSerializer,
     NeedValidationCoverageResponseSerializer,
     RequirementSerializer,
     ResolvedArtifactSerializer,
@@ -7628,6 +7633,34 @@ def _work_item_to_dict(item: Any) -> dict[str, Any]:
     }
 
 
+def _milestone_to_dict(milestone: Any) -> dict[str, Any]:
+    """Convert a ``Milestone`` ORM row to the serializer-compatible dict.
+
+    The wire key for the house ``modified_at`` column is ``updated_at``, but
+    ``Milestone`` keeps its own ``updated_at`` column next to it (Plan B B6-T1
+    published both). ``target_date`` stays a ``date`` so DRF renders it as
+    ISO-8601; ``audit_snapshot`` is passed through unchanged.
+    """
+    return {
+        "id": str(milestone.id),
+        "workspace_id": str(milestone.workspace_id),
+        "name": milestone.name,
+        "review_type": milestone.review_type,
+        "target_date": milestone.target_date,
+        "status": milestone.status,
+        "baseline_id": (
+            str(milestone.baseline_id)
+            if getattr(milestone, "baseline_id", None)
+            else None
+        ),
+        "audit_snapshot": getattr(milestone, "audit_snapshot", None),
+        "version": milestone.version,
+        "created_at": milestone.created_at,
+        "updated_at": getattr(milestone, "updated_at", None)
+        or getattr(milestone, "modified_at", None),
+    }
+
+
 def _goal_to_dict(goal: Any) -> dict[str, Any]:
     """Convert Goal ORM object to serializer-compatible dict (Task 6).
 
@@ -11865,6 +11898,395 @@ class TestRunViewSet(BaseEntityViewSet):
             ),
             status=status.HTTP_405_METHOD_NOT_ALLOWED,
         )
+
+
+# ---------------------------------------------------------------------------
+# MilestoneViewSet — planned review milestones (Plan B B6-T2, #879)
+# PLAN-B-B6-T2: CRUD + baseline binding + audit freezing (ENT-B2 = a, no Measure)
+# ---------------------------------------------------------------------------
+
+
+class MilestoneViewSet(BaseEntityViewSet):
+    """REST surface for the ``Milestone`` entity (Plan B B6-T2, #879).
+
+    Delegates every write to :class:`application.milestone_service
+    .MilestoneService` (ADR-01) — no business logic in this class
+    (REQ-L3-RA001-004). A milestone plans a formal review (SRR/PDR/CDR/TRR/ORR)
+    and is deliberately **not** an Artifact: no ``uid``, no workflow state, no
+    trace-link endpoints (ENT-B2 = a — only ``Milestone``, no ``Measure``).
+
+    Endpoints::
+
+        GET    /api/v1/milestones/?workspace_id=<id>
+        POST   /api/v1/milestones/
+        GET    /api/v1/milestones/{id}/
+        PATCH  /api/v1/milestones/{id}/
+        DELETE /api/v1/milestones/{id}/
+        POST   /api/v1/milestones/{id}/bind-baseline/   {"baseline_id": "<uuid>"}
+        POST   /api/v1/milestones/{id}/record-audit/
+
+    Contract highlights
+    -------------------
+    * **ETag / If-Match (KA-B-06).** ``Milestone.version`` is the
+      optimistic-lock counter; GET, POST and PATCH emit it as ``ETag`` and a
+      PATCH accepts ``If-Match``. A stale strong tag answers ``412``, a stale
+      body ``expected_version`` ``409``, a malformed header ``400
+      INVALID_IF_MATCH``. The two domain actions accept ``expected_version`` in
+      the body (stale → ``409``): they guard the *entity* version, unlike the
+      workflow actions that guard ``WorkflowItemState``.
+    * **Cross-workspace binding.** ``bind-baseline`` refuses a baseline from
+      another workspace with ``400 VALIDATION_ERROR``; the service never
+      re-homes the row.
+    * **Record, never a gate.** ``record-audit`` freezes the workspace's current
+      SE-Auditor counts onto ``audit_snapshot``; open blockers do not refuse it
+      (unlike the baseline gate, GH-513).
+    * **Ordering (D-SORT).** The list is ordered by ``target_date, id`` in the
+      service, so OFFSET/LIMIT pagination is deterministic.
+    """
+
+    serializer_class = MilestoneSerializer
+    preset_endpoint_key = ""
+
+    def _svc(self) -> MilestoneService:
+        return MilestoneService()
+
+    def _current(self, request: Request, pk: str) -> Any:
+        """Load the current row for the ``If-Match`` tag-list comparison."""
+        return self._svc().get(UUID(pk), get_auth_context(request))
+
+    def _detail_response(self, item: Any, *, status_code: int = status.HTTP_200_OK):
+        """Serialize *item* and attach its current ``ETag``."""
+        return self.with_etag(
+            Response(
+                MilestoneSerializer(_milestone_to_dict(item)).data,
+                status=status_code,
+            ),
+            item,
+        )
+
+    # ---------- Read ----------
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Workspace whose milestones are listed.",
+            )
+        ]
+    )
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        """GET /api/v1/milestones/?workspace_id=<id> — list milestones.
+
+        Ordered by ``target_date``, then ``id`` (D-SORT), so OFFSET/LIMIT
+        pagination is stable. A foreign or unknown workspace answers ``404``;
+        milestones of another tenant are never listed.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            workspace_id, error = parse_workspace_id(
+                request.query_params.get("workspace_id"), lang
+            )
+            if error is not None:
+                return error
+            items = self._svc().list(workspace_id, ctx)
+        except (ValidationError, ValueError) as exc:
+            return _service_error_response(
+                exc if isinstance(exc, ValidationError) else ValidationError(str(exc)),
+                lang,
+            )
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return self._paginate(
+            request,
+            items,
+            serialize_page=lambda page: MilestoneSerializer(
+                [_milestone_to_dict(item) for item in page], many=True
+            ).data,
+        )
+
+    @extend_schema(parameters=[_ETAG_RESPONSE_HEADER])
+    def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/milestones/{id}/ — retrieve a milestone.
+
+        The response carries ``ETag: "<version>"`` for a subsequent conditional
+        PATCH. An unknown id (or one of another tenant) answers ``404``.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().get(UUID(pk), ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return self._detail_response(item)
+
+    # ---------- Create ----------
+
+    @extend_schema(parameters=[_ETAG_RESPONSE_HEADER])
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/milestones/ — create a milestone. Returns 201.
+
+        ``workspace_id``, ``name``, ``review_type`` and ``target_date`` are
+        required; ``status`` defaults to ``planned``. An optional
+        ``baseline_id`` must belong to the same workspace. The 201 carries the
+        new ``ETag`` so a client can PATCH conditionally without a second GET.
+        """
+        lang = detect_lang(request)
+        ser = MilestoneSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().create(
+                ctx,
+                workspace_id=data["workspace_id"],
+                name=data["name"],
+                review_type=data["review_type"],
+                target_date=data["target_date"],
+                status=data.get("status", "planned"),
+                baseline_id=data.get("baseline_id"),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return self._detail_response(item, status_code=status.HTTP_201_CREATED)
+
+    # ---------- Update ----------
+
+    @extend_schema(
+        parameters=[_IF_MATCH_PARAMETER, _ETAG_RESPONSE_HEADER],
+        responses={
+            200: MilestoneSerializer,
+            412: _PRECONDITION_FAILED_RESPONSE,
+        },
+    )
+    def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """PATCH /api/v1/milestones/{id}/ — update a milestone. Returns 200.
+
+        ``If-Match`` is evaluated first (400 ``INVALID_IF_MATCH`` for a
+        malformed header), then the service compares the version (412 for a
+        stale strong ``If-Match``, 409 for a stale body ``expected_version``).
+        ``workspace_id`` is immutable and ``baseline_id`` is not a PATCH field:
+        rebinding goes through ``POST /{id}/bind-baseline/``.
+        """
+        lang = detect_lang(request)
+        invalid = self.if_match_parse_error(request)
+        if invalid is not None:
+            return invalid
+        ser = MilestoneSerializer(data=request.data, partial=True)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+
+        if "baseline_id" in data:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[
+                        {
+                            "field": "baseline_id",
+                            "errors": [
+                                "baseline_id is not a PATCH field; use "
+                                "POST /api/v1/milestones/{id}/bind-baseline/."
+                            ],
+                        }
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if "workspace_id" in data:
+            try:
+                current = self._current(request, pk)
+            except (NotFoundError, PermissionDeniedError) as exc:
+                return _service_error_response(exc, lang)
+            except ValueError:
+                return Response(
+                    build_error_response("NOT_FOUND", lang),
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            if str(data["workspace_id"]) != str(current.workspace_id):
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        details=[
+                            {
+                                "field": "workspace_id",
+                                "errors": [
+                                    "workspace_id is immutable; a milestone "
+                                    "cannot be moved to another workspace."
+                                ],
+                            }
+                        ],
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().update(
+                UUID(pk),
+                ctx,
+                name=data.get("name"),
+                review_type=data.get("review_type"),
+                target_date=data.get("target_date"),
+                status=data.get("status"),
+                change_reason=data.get("change_reason"),
+                expected_version=self.resolve_expected_version(
+                    request, data, current=lambda: self._current(request, pk)
+                ),
+            )
+        except (InvalidIfMatch, IfMatchMismatch) as exc:
+            return self.if_match_error(request, exc)
+        except OptimisticLockError as exc:
+            return self.optimistic_lock_response(request, exc, lang)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return self._detail_response(item)
+
+    # ---------- Delete ----------
+
+    def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """DELETE /api/v1/milestones/{id}/ — hard-delete a milestone. Returns 204.
+
+        A milestone is a plain planning row (no Artifact, no append-only
+        child), so it is removed instead of being soft-deleted. A baseline that
+        the milestone references stays untouched; ``Milestone.baseline`` is
+        ``PROTECT`` in the other direction. ``change_reason`` may be sent in the
+        body or as ``?change_reason=``.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            self._svc().delete(
+                UUID(pk), ctx, change_reason=parse_change_reason(request)
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    # ---------- Domain actions ----------
+
+    @extend_schema(
+        request=MilestoneBindBaselineSerializer,
+        responses={200: MilestoneSerializer},
+        parameters=[_ETAG_RESPONSE_HEADER],
+    )
+    @action(detail=True, methods=["post"], url_path="bind-baseline")
+    def bind_baseline(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/milestones/{id}/bind-baseline/ — bind a baseline.
+
+        ``{"baseline_id": "<uuid>"}`` is required; the baseline must belong to
+        the milestone's own workspace (otherwise ``400 VALIDATION_ERROR``). An
+        optional ``expected_version`` body field guards the entity version
+        (stale → ``409 CONFLICT``), and the response carries the new ``ETag``.
+        """
+        lang = detect_lang(request)
+        ser = MilestoneBindBaselineSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().bind_baseline(
+                UUID(pk),
+                data["baseline_id"],
+                ctx,
+                change_reason=data.get("change_reason"),
+                expected_version=data.get("expected_version"),
+            )
+        except OptimisticLockError as exc:
+            return self.optimistic_lock_response(request, exc, lang)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return self._detail_response(item)
+
+    @extend_schema(
+        request=MilestoneRecordAuditSerializer,
+        responses={200: MilestoneSerializer},
+        parameters=[_ETAG_RESPONSE_HEADER],
+    )
+    @action(detail=True, methods=["post"], url_path="record-audit")
+    def record_audit(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/milestones/{id}/record-audit/ — freeze the audit counts.
+
+        Runs the SE-Auditor for the milestone's workspace and stores
+        ``{tier, counts: {total, blockers, warnings}, run_at}`` in
+        ``audit_snapshot``. Recording is a record, never a gate, so open
+        blockers do not refuse it. An optional ``expected_version`` body field
+        guards the entity version (stale → ``409 CONFLICT``).
+        """
+        lang = detect_lang(request)
+        ser = MilestoneRecordAuditSerializer(data=request.data)
+        if not ser.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": k, "errors": v} for k, v in ser.errors.items()],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = ser.validated_data
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().record_audit(
+                UUID(pk),
+                ctx,
+                change_reason=data.get("change_reason"),
+                expected_version=data.get("expected_version"),
+            )
+        except OptimisticLockError as exc:
+            return self.optimistic_lock_response(request, exc, lang)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return self._detail_response(item)
 
 
 # ---------------------------------------------------------------------------

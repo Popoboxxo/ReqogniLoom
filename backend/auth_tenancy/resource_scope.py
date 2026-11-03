@@ -237,6 +237,8 @@ for _name, _entity in {
     "RiskViewSet": "risk",
     "DocumentViewSet": "document",
     "WorkItemViewSet": "work_item",
+    # Plan B B6-T2 (#879): a milestone is a plain workspace-scoped planning row.
+    "MilestoneViewSet": "milestone",
     "GoalViewSet": "goal",
     "MainGoalViewSet": "main_goal",
     "IssueViewSet": "issue",

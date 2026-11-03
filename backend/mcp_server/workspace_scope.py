@@ -134,6 +134,11 @@ _TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
     # work_item.create/query/checkpoint/resume declare a required
     # ``workspace_id`` and need no entry here.
     "work_item.read": (("id", "work_item"),),
+    # Plan B B6-T2 (#879): every milestone tool that names its target by ``id``
+    # resolves the gate from the milestone's own workspace.
+    # milestone.create/milestone.list declare a required ``workspace_id`` and
+    # need no entry here.
+    "milestone.get": (("id", "milestone"),),
     "diagram.get": (("id", "diagram"),),
     "glossary.read": (("id", "glossary"),),
     "icd.read": (("id", "icd"),),
@@ -206,6 +211,9 @@ _TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
     "document.outdate": (("id", "document"),),
     "document.reactivate": (("id", "document"),),
     "work_item.update": (("id", "work_item"),),
+    "milestone.update": (("id", "milestone"),),
+    "milestone.bind_baseline": (("id", "milestone"),),
+    "milestone.record_audit": (("id", "milestone"),),
     "work_item.transition": (("id", "work_item"),),
     "work_item.set_progress": (("id", "work_item"),),
     "glossary.delete": (("id", "glossary"),),

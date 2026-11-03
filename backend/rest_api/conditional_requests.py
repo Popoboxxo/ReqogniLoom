@@ -11,15 +11,16 @@ the generated document and this module disagree in either direction.
 
 The decision (recorded for #1397, deliberately not extended in that issue)
 --------------------------------------------------------------------------
-Only six *PATCH* operations implement optimistic locking through an ``ETag``
+Seven *PATCH* operations implement optimistic locking through an ``ETag``
 they also emit on ``GET``: ``Requirement``, ``Document``, ``WorkItem``,
-``TestCase``, ``Baseline`` and ``Workspace``. They are the only entities whose
-``ETag`` is derived from a monotonic ``version`` counter (or, for the immutable
-``Baseline``, a stable ``created_at`` timestamp) — the very value
+``TestCase``, ``Baseline``, ``Workspace`` and ``Milestone``. They are the only
+entities whose ``ETag`` is derived from a monotonic ``version`` counter (or, for
+the immutable ``Baseline``, a stable ``created_at`` timestamp) — the very value
 ``expected_version`` compares against, so an ``ETag`` and the body field can
 never disagree about which revision is current. ``Document`` joined this set in
 Plan F F2-T5 (KA-F-08); ``WorkItem`` follows in F3-T5 with the same
-``WorkItemService`` counter.
+``WorkItemService`` counter; ``Milestone`` in Plan B B6-T2 (#879, KA-B-06) with
+``MilestoneService``.
 
 Retrofitting ``ETag``/``If-Match`` onto the six core artifact families — ``Adr``,
 ``ArchitectureElement``, ``ChangeRequest``, ``Issue``, ``Risk`` and
@@ -34,7 +35,7 @@ Scope of the machine-checkable negative half
 :data:`UNSUPPORTED_CONDITIONAL_FAMILIES` enumerates the detail paths of those
 six core artifact families, plus the legacy ``changerequests`` alias of the
 change-request detail route and ``GlossaryTerm`` (artifact-shaped, but not one
-of the six). It is deliberately **not** an inventory of the whole API: 36 other
+of the six). It is deliberately **not** an inventory of the whole API: the remaining
 ``PATCH`` operations declare neither ``412`` nor ``If-Match`` and are covered by
 the other gate direction ("no operation outside
 :data:`CONDITIONAL_REQUEST_OPERATIONS` declares the header") instead of being
@@ -87,7 +88,7 @@ __all__ = [
 #: ``If-Match`` request header. ``method`` is the lowercase HTTP method as it
 #: appears in the generated document.
 #:
-#: Seven entries for six ViewSets: ``TestCaseViewSet`` is routed twice —
+#: Eight entries for seven ViewSets: ``TestCaseViewSet`` is routed twice —
 #: ``rest_api/urls.py`` registers ``testcases`` (legacy, un-hyphenated) and
 #: ``test-cases`` (canonical kebab-case, #1177) — and drf-spectacular documents
 #: both as separate paths. They are the *same* view, so both are honest.
@@ -95,6 +96,7 @@ CONDITIONAL_REQUEST_OPERATIONS: Final[frozenset[tuple[str, str]]] = frozenset(
     {
         ("/api/v1/baselines/{id}/", "patch"),
         ("/api/v1/documents/{id}/", "patch"),
+        ("/api/v1/milestones/{id}/", "patch"),
         ("/api/v1/work-items/{id}/", "patch"),
         ("/api/v1/requirements/{id}/", "patch"),
         ("/api/v1/test-cases/{id}/", "patch"),
@@ -207,8 +209,8 @@ UNSUPPORTED_CONDITIONAL_FAMILIES: Final[dict[str, str]] = {
 CONDITIONAL_REQUESTS_DESCRIPTION: Final[str] = (
     "Conditional requests (ETag / If-Match): the requirement, document, "
     "work-item, test-case (both the /test-cases/ and legacy /testcases/ "
-    "spellings), workspace and baseline PATCH operations implement HTTP "
-    "optimistic locking. Their GET "
+    "spellings), workspace, baseline and milestone PATCH operations implement "
+    "HTTP optimistic locking. Their GET "
     "responses carry an ETag (a successful PATCH returns the new one), and "
     "their PATCH accepts an optional If-Match request header; a "
     "strong-comparison mismatch answers 412 "

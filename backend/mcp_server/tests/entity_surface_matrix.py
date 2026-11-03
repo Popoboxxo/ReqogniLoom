@@ -148,6 +148,11 @@ ENTITY_SPECS: dict[str, _Spec] = {
     "work_item": _Spec(
         "/api/v1/work-items/", ("work_item.read", "work_item.query"), "WorkItem"
     ),
+    # Plan B B6-T2 (#879): the Milestone planning entity, exposed on both
+    # transports in the same task.
+    "milestone": _Spec(
+        "/api/v1/milestones/", ("milestone.get", "milestone.list"), "Milestone"
+    ),
     "artifact": _Spec(
         "/api/v1/artifacts/",
         ("artifact.search", "artifact.get_tree"),

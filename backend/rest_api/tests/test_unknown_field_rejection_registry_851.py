@@ -51,6 +51,9 @@ from rest_api.serializers import (
     IcdParameterSerializer,
     IssueSerializer,
     MainGoalSerializer,
+    MilestoneBindBaselineSerializer,
+    MilestoneRecordAuditSerializer,
+    MilestoneSerializer,
     RequirementSerializer,
     RiskSerializer,
     StakeholderNeedSerializer,
@@ -100,6 +103,11 @@ _GUARDED_WRITE_SERIALIZERS: tuple[type, ...] = (
     DocumentSerializer,
     # Plan F F3-T5: the WorkItem artifact's REST write serializer.
     WorkItemSerializer,
+    # Plan B B6-T2 (#879): the Milestone write serializer and its two action
+    # bodies (`bind-baseline`, `record-audit`).
+    MilestoneSerializer,
+    MilestoneBindBaselineSerializer,
+    MilestoneRecordAuditSerializer,
     GlossaryTermSerializer,
     AdrSerializer,
     RiskSerializer,

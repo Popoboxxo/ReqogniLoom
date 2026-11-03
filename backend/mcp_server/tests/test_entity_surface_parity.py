@@ -211,6 +211,8 @@ _COLLECTION_TOOLS = frozenset(
         "document.query",
         # Plan F F3-T6 (#1374): the WorkItem collection tool.
         "work_item.query",
+        # Plan B B6-T2 (#879): the Milestone collection tool.
+        "milestone.list",
         "comment.list",
         "baseline.list",
         "link_type.list",
@@ -612,15 +614,16 @@ def test_tools_list_and_the_committed_manifest_agree_on_the_count() -> None:
         f"{live['tool_count']}"
     )
     groups = {tool["prefix"] for tool in live["tools"]}
-    assert len(groups) == 43, (
-        f"tool-group prefix count changed to {len(groups)} (expected 43 as of "
-        f"Plan F F3-T6; ADR-019 WP3 added the 'suggestion' "
+    assert len(groups) == 44, (
+        f"tool-group prefix count changed to {len(groups)} (expected 44 as of "
+        f"Plan B B6-T2; ADR-019 WP3 added the 'suggestion' "
         f"prefix, #1265 added the 'metrics' prefix, #1257 added the "
         f"'tree_display_config' prefix, #1263 added the "
         f"'create_form_definition' prefix, Plan C T-C2-4 added the "
         f"'preference' prefix, Plan B B5-T3 added the 'quality' "
-        f"prefix, Plan F F2-T6 added the 'document' prefix, and Plan F F3-T6 "
-        f"added the 'work_item' prefix). "
+        f"prefix, Plan F F2-T6 added the 'document' prefix, Plan F F3-T6 "
+        f"added the 'work_item' prefix, and Plan B B6-T2 added the "
+        f"'milestone' prefix). "
         "If that is intended, update the number in docs/api/MCP-SURFACE.md "
         "together with the version and commit it was measured at."
     )

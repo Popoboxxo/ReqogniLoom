@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 276,
+  "tool_count": 282,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -5193,6 +5193,212 @@
         },
         "required": [
           "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "milestone.bind_baseline",
+      "prefix": "milestone",
+      "is_write": true,
+      "description": "Bind a baseline to a milestone of the same workspace (write). A baseline from another workspace is refused with VALIDATION_ERROR; a stale expected_version with CONFLICT.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the milestone."
+          },
+          "baseline_id": {
+            "type": "string",
+            "description": "Required. UUID of the baseline to bind."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason recorded on the audit trail."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Last-seen milestone version. A stale value is refused with CONFLICT."
+          }
+        },
+        "required": [
+          "id",
+          "baseline_id"
+        ]
+      }
+    },
+    {
+      "name": "milestone.create",
+      "prefix": "milestone",
+      "is_write": true,
+      "description": "Plan a formal review milestone (SRR/PDR/CDR/TRR/ORR/OTHER) in a workspace (write). An optional baseline_id must belong to the same workspace; a cross-workspace binding is refused with VALIDATION_ERROR.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Required. UUID of the target workspace."
+          },
+          "name": {
+            "type": "string",
+            "description": "Required. Milestone name (max 200 characters)."
+          },
+          "review_type": {
+            "type": "string",
+            "enum": [
+              "SRR",
+              "PDR",
+              "CDR",
+              "TRR",
+              "ORR",
+              "OTHER"
+            ],
+            "description": "Required. Formal review this milestone plans."
+          },
+          "target_date": {
+            "type": "string",
+            "description": "Required. Planned review date (YYYY-MM-DD)."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "in_review",
+              "passed",
+              "failed",
+              "cancelled"
+            ],
+            "description": "Planning/execution state. Defaults to 'planned'."
+          },
+          "baseline_id": {
+            "type": "string",
+            "description": "Optional. Baseline of the same workspace to bind."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "name",
+          "review_type",
+          "target_date"
+        ]
+      }
+    },
+    {
+      "name": "milestone.get",
+      "prefix": "milestone",
+      "is_write": false,
+      "description": "Fetch a single milestone by ID, including its bound baseline and the frozen audit snapshot (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the milestone."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "milestone.list",
+      "prefix": "milestone",
+      "is_write": false,
+      "description": "List a workspace's milestones, ordered by target_date then id (read-only). A foreign or unknown workspace answers NOT_FOUND.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Required. UUID of the target workspace."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "milestone.record_audit",
+      "prefix": "milestone",
+      "is_write": true,
+      "description": "Run the SE-Auditor for the milestone's workspace and freeze {tier, counts, run_at} into its audit_snapshot (write). This is a record, never a gate: open blockers do not refuse it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the milestone."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason recorded on the audit trail."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Last-seen milestone version. A stale value is refused with CONFLICT."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "milestone.update",
+      "prefix": "milestone",
+      "is_write": true,
+      "description": "Update a milestone's name, review type, target date and/or status (write). Omitted fields keep their current value; the owning workspace is immutable. A stale expected_version is refused with CONFLICT.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the milestone."
+          },
+          "name": {
+            "type": "string",
+            "description": "New name."
+          },
+          "review_type": {
+            "type": "string",
+            "enum": [
+              "SRR",
+              "PDR",
+              "CDR",
+              "TRR",
+              "ORR",
+              "OTHER"
+            ],
+            "description": "New review type."
+          },
+          "target_date": {
+            "type": "string",
+            "description": "New target date (YYYY-MM-DD)."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "in_review",
+              "passed",
+              "failed",
+              "cancelled"
+            ],
+            "description": "New planning/execution state."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason recorded on the audit trail."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Last-seen milestone version (the ETag source). A stale value is refused with CONFLICT."
+          }
+        },
+        "required": [
+          "id"
         ]
       }
     },

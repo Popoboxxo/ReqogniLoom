@@ -81,6 +81,9 @@ MUTATE_EXACT = frozenset(
         "comment.resolve",
         # Plan F F3-T6: persists a Checkpoint work item without a write verb.
         "work_item.checkpoint",
+        # Plan B B6-T2: both persist without a recognised mutation verb.
+        "milestone.bind_baseline",  # binds a baseline reference
+        "milestone.record_audit",  # freezes the audit counts on the milestone
         "memory.forget",  # deletes a memory entry
         "traceability.suggest_links",  # persists the top candidate + an inbox receipt
         "ai_derivation.decompose_requirement_next_level",  # mode='write' persists drafts

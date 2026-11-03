@@ -322,6 +322,13 @@ _WRITE_TOOL_PREFIXES: tuple[str, ...] = (
     "work_item.transition",
     "work_item.set_progress",
     "work_item.checkpoint",
+    # Plan B B6-T2 (#879): the Milestone planning surface. get/list are
+    # read-only (see _READ_ONLY_TOOL_NAMES); the four mutating tools stay
+    # fail-closed write-gated. Deletion is REST-only by design.
+    "milestone.create",
+    "milestone.update",
+    "milestone.bind_baseline",
+    "milestone.record_audit",
     # Issue #114: BaselineToolGroup — baseline.create is the only mutating tool.
     "baseline.create",
     "baseline.set_tags",
@@ -514,6 +521,11 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # exempt via the shared ".read"/".query" suffix convention; resume does
         # not end on either, so it is listed explicitly.
         "work_item.resume",
+        # Plan B B6-T2 (#879): milestone.get/milestone.list read the planned
+        # reviews of one workspace — plain reads, nothing persisted. The four
+        # mutating tools stay fail-closed WRITE-gated above.
+        "milestone.get",
+        "milestone.list",
         "admin.backup_list",
         "review.list_pending",
         # ADR-019 WP3: the proposal inbox read; accept/reject are write-gated.
@@ -1056,6 +1068,7 @@ class ToolRegistry:
         from mcp_server.tools.link_type import LinkTypeToolGroup
         from mcp_server.tools.memory import MemoryToolGroup
         from mcp_server.tools.metrics import MetricsToolGroup
+        from mcp_server.tools.milestones import MilestoneToolGroup
         from mcp_server.tools.needs import StakeholderNeedsToolGroup
         from mcp_server.tools.permissions import PermissionsToolGroup
         from mcp_server.tools.preference import PreferenceToolGroup
@@ -1117,6 +1130,11 @@ class ToolRegistry:
             # create/update/transition/set_progress/checkpoint stay fail-closed
             # write-gated.
             "work_item": WorkItemToolGroup(),
+            # Plan B B6-T2 (#879): planned review milestones — the MCP
+            # counterpart of MilestoneViewSet. Reads are milestone.get/list (see
+            # _READ_ONLY_TOOL_NAMES); create/update/bind_baseline/record_audit
+            # stay fail-closed write-gated.
+            "milestone": MilestoneToolGroup(),
             "review": ReviewToolGroup(),
             # ADR-019 WP3: the durable proposal inbox (list/accept/reject).
             # suggestion.list is read-exempt below; accept/reject stay

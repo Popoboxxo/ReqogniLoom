@@ -23,6 +23,7 @@ Registers:
   /api/v1/adrs/derive-from-decision/  AdrViewSet.derive_from_decision (#1358 REST parity)
   /api/v1/risks/              RiskViewSet (REQ-L1-029)
   /api/v1/documents/          DocumentViewSet (Plan F F2-T5, ADR-026)
+  /api/v1/milestones/         MilestoneViewSet (Plan B B6-T2, #879)
   /api/v1/work-items/         WorkItemViewSet (Plan F F3-T5, #1374)
   /api/v1/architecture/{pk}/derive-risks/  ArchitectureElementViewSet.derive_risks (#1358)
   /api/v1/glossary/derive/    GlossaryTermViewSet.derive (#1358 REST parity)
@@ -229,6 +230,7 @@ from rest_api.tree_display_config_views import (
 )
 from rest_api.user_management_views import UserViewSet
 from rest_api.views import (
+    MilestoneViewSet,
     AdrViewSet,
     ArchitectureElementViewSet,
     ArtifactViewSet,
@@ -291,6 +293,8 @@ router.register(r"adrs", AdrViewSet, basename="adr")
 router.register(r"risks", RiskViewSet, basename="risk")
 # Plan F F2-T5 (PR-F18a): the Document artifact REST surface (ADR-026).
 router.register(r"documents", DocumentViewSet, basename="document")
+# Plan B B6-T2 (#879): planned review milestones (no Artifact backing).
+router.register(r"milestones", MilestoneViewSet, basename="milestone")
 # Plan F F3-T5 (PR-F24b): the WorkItem artifact REST surface (#1374).
 router.register(r"work-items", WorkItemViewSet, basename="work-item")
 router.register(r"goals", GoalViewSet, basename="goal")
