@@ -38,6 +38,9 @@ from auth_tenancy.services.permission_definition import (
     MismatchCountStaleError,
     NoGlobalSourceError,
     PermissionDefinitionService,
+    assignable_roles_for_preset,
+    permission_catalog_for_preset,
+    restore_non_assignable_roles,
 )
 from auth_tenancy.services.permission_matrix import MatrixValidationError
 from rest_api.auth_enforcer import get_auth_context
@@ -316,10 +319,19 @@ class GlobalPermissionWriteSerializer(serializers.Serializer):
 
 
 class WorkspacePermissionDefinitionSerializer(serializers.Serializer):
-    """One workspace's permission definition (``_serialize_workspace_permission``)."""
+    """One workspace's permission definition (``_serialize_workspace_permission``).
+
+    ``permission_json`` is the preset-truthful catalogue: only the roles the
+    workspace's preset can actually assign (#1592). ``assignable_roles`` names
+    that role set explicitly so a client does not have to infer it from the
+    payload keys.
+    """
 
     workspace_id = serializers.CharField()
     permission_json = serializers.JSONField()
+    assignable_roles = serializers.ListField(
+        child=serializers.CharField(), required=False
+    )
     is_customized = serializers.BooleanField()
     source_global_id = serializers.CharField(required=False, allow_null=True)
     updated_at = serializers.DateTimeField(required=False, allow_null=True)
@@ -1060,10 +1072,26 @@ class EnforcementFlipView(APIView):
 # ---------------------------------------------------------------------------
 
 
-def _serialize_workspace_permission(obj: Any) -> dict[str, Any]:
+def _workspace_preset(workspace_id: Any) -> str:
+    """Resolve the workspace's active rigor preset through the public facade."""
+    from presets.services import get_preset
+
+    return get_preset(str(workspace_id)).preset
+
+
+def _serialize_workspace_permission(obj: Any, *, preset: str) -> dict[str, Any]:
+    """Serialize the workspace definition as the preset's truthful catalogue.
+
+    The stored ``permission_json`` stays the full matrix (writing it unchanged
+    is what keeps a preset switch lossless); the response only advertises the
+    roles the active preset can assign (#1592).
+    """
     return {
         "workspace_id": str(obj.workspace_id),
-        "permission_json": obj.permission_json,
+        "permission_json": permission_catalog_for_preset(
+            obj.permission_json, preset=preset
+        ),
+        "assignable_roles": list(assignable_roles_for_preset(preset)),
         "is_customized": obj.is_customized,
         "source_global_id": (
             str(obj.source_global_id) if obj.source_global_id else None
@@ -1102,7 +1130,11 @@ class WorkspacePermissionDefinitionView(APIView):
         obj = PermissionDefinitionService().get_or_create_workspace(
             ctx.tenant_id, workspace_id
         )
-        return Response(_serialize_workspace_permission(obj))
+        return Response(
+            _serialize_workspace_permission(
+                obj, preset=_workspace_preset(workspace_id)
+            )
+        )
 
     @extend_schema(
         summary="Replace the workspace's permission definition",
@@ -1151,6 +1183,15 @@ class WorkspacePermissionDefinitionView(APIView):
             return _validation(lang, "permission_json is required")
         matrix = body["permission_json"]
         svc = PermissionDefinitionService()
+        preset = _workspace_preset(workspace_id)
+        if not partial and isinstance(matrix, dict):
+            # GET exposes only the preset's assignable roles; a caller echoing
+            # that payload must not fail validation because the non-assignable
+            # rows are absent. Supplied roles are left untouched.
+            stored = svc.get_or_create_workspace(ctx.tenant_id, workspace_id)
+            matrix = restore_non_assignable_roles(
+                matrix, stored.permission_json, preset=preset
+            )
         try:
             if partial:
                 obj = svc.patch_workspace(ctx, workspace_id, matrix)
@@ -1158,7 +1199,7 @@ class WorkspacePermissionDefinitionView(APIView):
                 obj = svc.replace_workspace(ctx, workspace_id, matrix)
         except MatrixValidationError as exc:
             return _validation(lang, str(exc))
-        return Response(_serialize_workspace_permission(obj))
+        return Response(_serialize_workspace_permission(obj, preset=preset))
 
 
 class WorkspacePermissionResetView(APIView):
@@ -1195,7 +1236,11 @@ class WorkspacePermissionResetView(APIView):
                 build_error_response("NO_GLOBAL_SOURCE", lang, message=str(exc)),
                 status=status.HTTP_409_CONFLICT,
             )
-        return Response(_serialize_workspace_permission(obj))
+        return Response(
+            _serialize_workspace_permission(
+                obj, preset=_workspace_preset(workspace_id)
+            )
+        )
 
 
 # ---------------------------------------------------------------------------

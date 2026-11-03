@@ -188,6 +188,67 @@ def test_global_permission_matrix_and_flip(admin_client):
 
 @override_settings(**_JWT)
 @pytest.mark.django_db
+def test_workspace_permission_catalog_is_preset_truthful(admin_client):
+    """#1592: the workspace catalogue advertises only assignable roles.
+
+    ``members`` rejects ``approver`` outside the extended preset; the catalogue
+    must not advertise it there. The stored matrix keeps the row so a later
+    preset upgrade is lossless, and a GET→PUT round-trip of the filtered
+    catalogue is accepted.
+    """
+    client, tenant, user, extended_ws = admin_client
+    TenantContext.set_tenant(tenant.id)
+    try:
+        ctx = _admin_ctx(tenant, user)
+        minimal_ws = WorkspaceService().create_workspace(
+            ctx, name="WS-minimal", preset="minimal"
+        )
+        standard_ws = WorkspaceService().create_workspace(
+            ctx, name="WS-standard", preset="standard"
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    minimal_catalog = None
+    for ws in (minimal_ws, standard_ws):
+        body = client.get(
+            f"/api/v1/workspaces/{ws.id}/permission-definition/"
+        ).json()
+        assert set(body["permission_json"]) == {"admin", "editor", "viewer"}
+        assert body["assignable_roles"] == ["admin", "editor", "viewer"]
+        assert "approver" not in body["permission_json"]
+        if ws is minimal_ws:
+            minimal_catalog = body["permission_json"]
+
+    extended = client.get(
+        f"/api/v1/workspaces/{extended_ws.id}/permission-definition/"
+    ).json()
+    assert set(extended["permission_json"]) == {
+        "admin",
+        "editor",
+        "viewer",
+        "approver",
+    }
+    assert extended["assignable_roles"] == [
+        "admin",
+        "editor",
+        "viewer",
+        "approver",
+    ]
+
+    # Echoing the filtered catalogue back must not fail matrix validation —
+    # the non-assignable approver row is restored from the stored matrix.
+    echoed = client.put(
+        f"/api/v1/workspaces/{minimal_ws.id}/permission-definition/",
+        {"permission_json": minimal_catalog},
+        format="json",
+    )
+    assert echoed.status_code == 200, echoed.content
+    assert "approver" not in echoed.json()["permission_json"]
+
+
+@override_settings(**_JWT)
+@pytest.mark.django_db
 def test_workspace_permission_override_and_reset(admin_client):
     client, tenant, user, ws = admin_client
 

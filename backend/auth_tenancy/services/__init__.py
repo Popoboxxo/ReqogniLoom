@@ -20,6 +20,7 @@ from .authentication import (
     hash_api_key,
 )
 from .authorization import (
+    ALL_ROLES,
     GOVERNANCE_OPERATIONS,
     READ_ONLY_SCOPE,
     SCOPE_ADMIN,
@@ -34,6 +35,7 @@ from .authorization import (
     WorkspaceMember,
     operation_for_method,
     required_scope_tier,
+    roles_with_capability,
     scope_allows,
     scope_denial_reason,
     scope_tier,
@@ -52,6 +54,7 @@ from .tenant_context import TenantContextService
 from .user_account import UserAccountService
 
 __all__ = [
+    "ALL_ROLES",
     "DEFAULT_TTL_SECONDS",
     "GOVERNANCE_OPERATIONS",
     "NO_RULE_REASON",
@@ -82,6 +85,7 @@ __all__ = [
     "operation_for_method",
     "required_scope_tier",
     "resolve_roles_for_user",
+    "roles_with_capability",
     "scope_allows",
     "scope_denial_reason",
     "scope_tier",

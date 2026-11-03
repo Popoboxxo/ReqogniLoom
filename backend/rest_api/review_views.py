@@ -41,11 +41,12 @@ Scoping and permissions
   route exists because the issue names it and because it matches the
   ``?workspace_id=`` convention every other unscoped list endpoint in this API
   already uses; it is not a second code path (both call one shared handler).
-* **Role** — a member of the workspace (any non-suspended ``UserRole`` row) and
-  additionally holding one of ``workflow.definition_store.PROPOSED_ROLES``
-  (``editor``/``approver``/``admin``). A ``viewer`` is refused: the queue's
-  entire content is "things you may act on", and a role that cannot confirm or
-  discard any of them has no use for the list.
+* **Role** — a member of the workspace (any non-suspended ``UserRole`` row)
+  holding the RBAC READ capability (``roles_with_capability(Operation.READ)``,
+  i.e. every role). The queue is a pure read (#1594), so a ``viewer`` may see
+  what is pending — deciding an item still requires the workflow transition's
+  own approval gate. The gate is derived from the same matrix the permission
+  catalogue reports, so ``viewer.read == true`` is truthful.
 """
 from __future__ import annotations
 
@@ -204,7 +205,7 @@ def _pending_response(
     diverge — the only difference between them is where the workspace id comes
     from, and that is resolved by the caller before this runs.
     """
-    from workflow.definition_store import PROPOSED_ROLES
+    from auth_tenancy.services import Operation, roles_with_capability
 
     try:
         ctx = get_auth_context(request)
@@ -213,7 +214,12 @@ def _pending_response(
             workspace_id=workspace_id,
             item_type=_parse_item_type(request),
             states=_parse_states(request),
-            required_roles=PROPOSED_ROLES,
+            # #1594: the queue is a pure read, so its gate is the RBAC READ
+            # capability — the same source the permission catalogue reports.
+            # A viewer may see which decisions are pending; confirming or
+            # discarding still requires a workflow transition with its own
+            # (approval-gated) roles.
+            required_roles=roles_with_capability(Operation.READ),
         )
     except Exception as exc:  # noqa: BLE001 — mapped in _queue_error
         return _queue_error(exc, lang)

@@ -398,18 +398,21 @@ def test_caller_without_a_role_in_the_workspace_is_403(env):
 
 
 @override_settings(**_JWT_OVERRIDES)
-def test_viewer_is_403(env):
-    """``PROPOSED_ROLES`` is (editor, approver, admin): a viewer cannot confirm
-    or discard any queue entry, so the list is noise for them."""
+def test_viewer_can_read_the_queue(env):
+    """#1594: the queue is a pure read; ``viewer.read`` must be truthful.
+
+    Seeing which decisions are pending is the read-only role's core task.
+    Confirming/discarding remains gated by the workflow transition's own
+    approval roles — this endpoint never decides anything.
+    """
     _create_proposal(env)
 
     resp = _login(env["viewer"]).get(
         f"/api/v1/workspaces/{env['workspace'].id}/reviews/pending/"
     )
 
-    assert resp.status_code == 403, resp.content
-    _assert_envelope(resp.json(), "PERMISSION_DENIED")
-    assert "requires one of the roles" in resp.json()["error"]["message"]
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["count"] >= 1
 
 
 @override_settings(**_JWT_OVERRIDES)

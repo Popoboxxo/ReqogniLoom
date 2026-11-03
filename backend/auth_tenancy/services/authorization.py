@@ -257,6 +257,11 @@ class LastAdminError(Exception):
         )
 
 
+#: Every RBAC role, in the presentation-stable order used by the permission
+#: matrix and the REST catalogues. One tuple so role order cannot drift between
+#: the matrix, the catalogue and the assignment gate.
+ALL_ROLES: tuple[str, ...] = (ROLE_ADMIN, ROLE_EDITOR, ROLE_VIEWER, ROLE_APPROVER)
+
 # Hard-coded RBAC matrix (ADR-L3-AT002-01). role -> set of allowed operations.
 # Approver = Editor + approval transitions; Admin = everything.
 _RBAC_MATRIX: dict[str, frozenset[Operation]] = {
@@ -278,6 +283,18 @@ _RBAC_MATRIX: dict[str, frozenset[Operation]] = {
 # Presets in which the Approver role may be assigned / be effective
 # (REQ-L2-AT-004, REQ-L3-AT002-002).
 _APPROVER_ENABLED_PRESETS = frozenset({"extended"})
+
+
+def roles_with_capability(operation: Operation) -> tuple[str, ...]:
+    """Return every role the RBAC matrix grants *operation*.
+
+    The inverse of :meth:`AuthorizationService.decide_access` for a single role.
+    Enforcement points that are naturally expressed as a role list (for example
+    the review queue's workspace-member gate) derive that list from the matrix
+    here instead of hard-coding it, so the gate cannot drift from the permission
+    catalogue (#1594).
+    """
+    return tuple(role for role in ALL_ROLES if operation in _RBAC_MATRIX[role])
 
 
 @dataclass(frozen=True)
@@ -321,6 +338,22 @@ class PresetPolicyValidator:
         if role.lower() == ROLE_APPROVER:
             return (preset or "").lower() in _APPROVER_ENABLED_PRESETS
         return True
+
+    @staticmethod
+    def assignable_roles(preset: str) -> tuple[str, ...]:
+        """Return every role that can actually be assigned under ``preset``.
+
+        The catalogue's single source for "which roles exist here" (#1592):
+        :meth:`is_role_allowed_in_preset` is what
+        :meth:`AuthorizationService.assign_role` enforces, so a role is only
+        advertised where an assignment would succeed. Under ``minimal`` and
+        ``standard`` that excludes ``approver``.
+        """
+        return tuple(
+            role
+            for role in ALL_ROLES
+            if PresetPolicyValidator.is_role_allowed_in_preset(role, preset)
+        )
 
 
 class AuthorizationService:
@@ -1051,6 +1084,7 @@ class AuthorizationService:
 
 
 __all__ = [
+    "ALL_ROLES",
     "GOVERNANCE_OPERATIONS",
     "READ_ONLY_SCOPE",
     "SCOPE_ADMIN",
@@ -1066,6 +1100,7 @@ __all__ = [
     "WorkspaceMember",
     "operation_for_method",
     "required_scope_tier",
+    "roles_with_capability",
     "scope_allows",
     "scope_denial_reason",
     "scope_tier",

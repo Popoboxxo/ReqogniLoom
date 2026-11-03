@@ -179,14 +179,16 @@ class ReviewQueueService(ServiceBase):
                 resolved the caller's roles workspace-scoped and fenced the key
                 to the target workspace before the handler runs
                 (``mcp_server.tool_registry._resolve_roles`` /
-                ``_check_workspace_fence``). REST passes
-                ``workflow.definition_store.PROPOSED_ROLES`` because a REST
-                request's ``active_roles`` are the tenant-wide union — the
-                workspace arrives as a path/query parameter, not from the
-                token — so the gate has to happen here. Any non-``None`` value
-                requires the caller to be a member of the workspace AND to
-                hold one of the named roles there; an empty iterable means
-                "any active role in the workspace".
+                ``_check_workspace_fence``). REST passes the RBAC READ role
+                list from ``auth_tenancy.services.roles_with_capability``
+                because a REST request's ``active_roles`` are the tenant-wide
+                union — the workspace arrives as a path/query parameter, not
+                from the token — so the gate has to happen here. Any
+                non-``None`` value requires the caller to be a member of the
+                workspace AND to hold one of the named roles there; an empty
+                iterable means "any active role in the workspace". The queue is
+                a pure read, so every role passes the role test and membership
+                is the effective gate (#1594).
 
         Returns:
             The pending items, ordered by ``(item_type, current_state,
