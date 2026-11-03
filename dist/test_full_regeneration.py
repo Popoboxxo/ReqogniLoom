@@ -95,7 +95,8 @@ def test_full_pipeline_regenerates_cleanly(tmp_path):
     opencode_out = tmp_path / "opencode"
     run(
         [sys.executable, "dist/opencode/build_opencode_package.py",
-         "--out", str(opencode_out), "--skills-src", str(skills_dir)],
+         "--out", str(opencode_out), "--skills-src", str(skills_dir),
+         "--npm-out", str(tmp_path / "npm")],
         cwd=REPO_ROOT,
     )
     assert (opencode_out / "opencode.json.snippet").exists()
@@ -116,6 +117,11 @@ def test_full_pipeline_regenerates_cleanly(tmp_path):
     ).read_text(), (
         "dist/opencode/opencode.v2.json.snippet is stale — re-run "
         "dist/opencode/build_opencode_package.py and commit the result."
+    )
+    assert_dirs_equal(
+        tmp_path / "npm" / "reqogniloom-opencode",
+        REPO_ROOT / "dist" / "npm" / "reqogniloom-opencode",
+        "dist/opencode/build_opencode_package.py --npm-out dist/npm",
     )
 
     codex_out = tmp_path / "codex"
