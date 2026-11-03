@@ -27,6 +27,9 @@ import React from "react";
 
 vi.mock("../../api/baselines");
 vi.mock("../../api/artifacts");
+// Plan B B6-T2: the mounted MilestoneList reads its own list; this suite only
+// pins the Baselines container, so the milestone query resolves empty.
+vi.mock("../../api/milestones");
 vi.mock("../../context/WorkspaceContext");
 // UI-21: BaselinesView now reads `roles` to gate the GH-513 override panel.
 // F6 (ui-review): mutable, so one test can exercise the read-only (viewer)
@@ -46,6 +49,7 @@ vi.mock("react-i18next", () => {
 
 import * as baselinesModule from "../../api/baselines";
 import * as artifactsModule from "../../api/artifacts";
+import * as milestonesModule from "../../api/milestones";
 import * as workspaceContext from "../../context/WorkspaceContext";
 
 import BaselinesView from "./BaselinesView";
@@ -114,6 +118,9 @@ describe("BaselinesView container (REQ-053 smoke tests)", () => {
       activeWorkspace: MOCK_WORKSPACE,
     } as any);
     vi.mocked(artifactsModule.artifactsApi.list).mockResolvedValue({
+      results: [],
+    } as any);
+    vi.mocked(milestonesModule.milestonesApi.list).mockResolvedValue({
       results: [],
     } as any);
   });

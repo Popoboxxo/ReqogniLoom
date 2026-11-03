@@ -36,6 +36,9 @@ vi.mock("../../api/baselines", async (importOriginal) => {
   };
 });
 vi.mock("../../api/artifacts");
+// Plan B B6-T2: the mounted MilestoneList reads its own list; this suite only
+// pins the SE-Auditor override path, so the milestone query resolves empty.
+vi.mock("../../api/milestones");
 vi.mock("../../context/WorkspaceContext");
 // UI-21: the waiver panel is now gated on 'admin'/'approver' — these tests
 // exercise the panel itself (offered/submits/withheld-for-non-waivable), not
@@ -54,6 +57,7 @@ vi.mock("react-i18next", () => {
 
 import * as baselinesModule from "../../api/baselines";
 import * as artifactsModule from "../../api/artifacts";
+import * as milestonesModule from "../../api/milestones";
 import * as workspaceContext from "../../context/WorkspaceContext";
 
 import BaselinesView from "./BaselinesView";
@@ -112,6 +116,9 @@ describe("BaselinesView — SE-Auditor override (GH-513)", () => {
     vi.mocked(baselinesModule.baselinesApi.previewScope).mockResolvedValue({
       count: 0,
       sample: [],
+    } as any);
+    vi.mocked(milestonesModule.milestonesApi.list).mockResolvedValue({
+      results: [],
     } as any);
   });
 
