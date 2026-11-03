@@ -479,7 +479,7 @@ class HasOperationPermission(permissions.BasePermission):
         # must reach the same verdict for a fenced key.
         from auth_tenancy.resource_scope import (
             api_key_fence_precheck,
-            fenced_collection_roles,
+            fence_filtered_list_decision,
             fenced_rbac_denial,
             is_fence_filtered_list,
         )
@@ -491,7 +491,11 @@ class HasOperationPermission(permissions.BasePermission):
         fenced = bool(getattr(auth_context, "api_key_workspace_ids", ()))
         collection_roles = auth_context.active_roles
         if fenced and is_fence_filtered_list(view):
-            collection_roles = fenced_collection_roles(auth_context)
+            # #1444: the shared verdict (roles + denial text) the MCP
+            # ``workspace.list`` path uses too, so both doors agree.
+            collection_roles, list_denial = fence_filtered_list_decision(auth_context)
+            if list_denial is not None:
+                raise exceptions.PermissionDenied(detail=list_denial)
 
         # ADR-013 review B1-3: every ``allow`` path must leave ``decision``
         # bound — the ``operation is None`` shortcut below never consults the

@@ -1648,6 +1648,19 @@ class ToolRegistry:
                 return ToolResult.error("VALIDATION_ERROR", param_error)
             return ToolResult.error("PERMISSION_DENIED", fence_error)
 
+        if fence_filtered and getattr(context.gate_ctx, "api_key_workspace_ids", ()):
+            # #1444: an opted-in list is exempt from the *fence* only — REST
+            # still decides it with the fence-scoped roles, so MCP must not
+            # answer 200 with an empty list where REST answers 403. The verdict
+            # and its text come from the same ``auth_tenancy`` helper REST uses.
+            # Only a fenced key needs it: an unfenced key's list carries no
+            # fence to intersect and keeps the tenant-scoped read behaviour.
+            from auth_tenancy.resource_scope import fence_filtered_list_decision
+
+            _, list_denial = fence_filtered_list_decision(context.gate_ctx)
+            if list_denial is not None:
+                return ToolResult.error("PERMISSION_DENIED", list_denial)
+
         if self._is_write_tool(tool_name):
             error = self._authorize_write_tool(context, tool_name, params)
             if error is not None:
@@ -1871,8 +1884,18 @@ class ToolRegistry:
 
         Used when no workspace context is available (REQ-127, REQ-108). Returns
         an empty tuple if the lookup fails.
+
+        #1444: a workspace-fenced key must not borrow a role it holds *outside*
+        its fence. Such a key resolves to the same fence-scoped tuple REST uses
+        for its list decision (:func:`fenced_collection_roles`), so both doors
+        decide with identical roles; without this, an Editor in workspace B
+        passed the workspace-less MCP gate on a key fenced to workspace A.
         """
         try:
+            if getattr(ctx, "api_key_workspace_ids", ()):
+                from auth_tenancy.resource_scope import fenced_collection_roles
+
+                return fenced_collection_roles(ctx)
             roles = self._authz_service.active_roles_across_workspaces(
                 user_id=ctx.user_id
             )

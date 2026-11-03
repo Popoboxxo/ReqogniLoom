@@ -114,6 +114,7 @@ __all__ = [
     "classify_class_name",
     "classify_view",
     "enforce_request_scope",
+    "fence_filtered_list_decision",
     "fenced_collection_roles",
     "fenced_rbac_denial",
     "fenced_visible_workspace_ids",
@@ -913,6 +914,40 @@ def api_key_fence_precheck(
         auth_context.api_key_workspace_ids,
         resolve_target_workspace_id(request, view),
     )
+
+
+def fence_filtered_list_decision(
+    auth_context: AuthContext,
+) -> tuple[tuple[str, ...], str | None]:
+    """Return ``(roles, denial)`` for a fence-filtered collection list.
+
+    A fenced key's list names no target workspace, so the workspace fence has
+    nothing to check and the service narrows the result instead (E1.2/E1.3).
+    The RBAC decision still has to be made — with the roles the key owner holds
+    **inside the fence** (:func:`fenced_collection_roles`), because the
+    workspace-less context deliberately carries an empty role tuple (E2.1).
+
+    This is the one shared verdict for that decision (issue #1444). It used to
+    exist twice: REST exempted the list from the fence precheck only and still
+    ran the matrix on the fence-scoped roles, while the MCP dispatcher treated
+    an opted-in list as exempt from *both* gates and answered 200 with an empty
+    result. The same key therefore got a 403 from ``GET /api/v1/workspaces/``
+    and a 200 from MCP ``workspace.list``.
+
+    Returns:
+        ``(roles, denial)`` — ``roles`` is the tuple the decision was made with
+        and ``denial`` is ``None`` when the caller may list. REST keeps
+        evaluating the matrix (and its shadow seam) with ``roles``; MCP answers
+        ``denial`` directly, so the two doors also share the denial text.
+    """
+    # Local import: ``resource_scope`` is imported from the permission layer,
+    # and ``auth_tenancy.services`` pulls in modules that import this one.
+    from .services import AuthorizationService, Operation
+
+    roles = fenced_collection_roles(auth_context)
+    if AuthorizationService().decide_access(roles, Operation.READ).allow:
+        return roles, None
+    return roles, API_KEY_NO_OWNER_ROLE_IN_FENCE_DENIAL
 
 
 def fenced_rbac_denial(
