@@ -177,6 +177,15 @@ class InterviewStartRequestSerializer(serializers.Serializer):
 
     ``artifact_type`` is omitted for a multi-kind discovery session; an unknown
     ``session_kind`` is rejected by the service, not here.
+
+    ``artifact_type`` stays a plain ``CharField`` on purpose (#1611): the
+    service resolves the caller's spelling (canonical PascalCase, plus the
+    aliases and case/separator variants in
+    ``application.interview_protocol.normalize_artifact_type``) in one place,
+    so the REST facade and the MCP ``interview.start`` tool cannot drift. An
+    unrecognised value is a 400 whose ``details`` carry ``allowed_values`` —
+    deliberately distinct from the "known type without an interview protocol"
+    answer (MainGoal).
     """
 
     workspace_id = serializers.UUIDField()

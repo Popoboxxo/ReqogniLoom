@@ -18,7 +18,11 @@ from django.db.models import F
 from django.utils import timezone
 
 from application.base import NotFoundError, ServiceBase, ValidationError
-from application.interview_protocol import IN_SCOPE_ARTIFACT_TYPES, get_protocol
+from application.interview_protocol import (
+    IN_SCOPE_ARTIFACT_TYPES,
+    get_protocol,
+    normalize_artifact_type,
+)
 from application.models import DomainEventOutbox
 from persistence.models import (
     InterviewSession,
@@ -159,6 +163,12 @@ class InterviewService(ServiceBase):
         chat and created later by ``_formalize_multi``.
         """
         self._assert_known_session_kind(session_kind)
+        # #1611: resolve the caller's spelling ("requirement", "need", ...) to
+        # the canonical type before the shape gate below, which still compares
+        # against the exact canonical tuple. An unknown value is refused here
+        # with `allowed_values`; a *known* type without a protocol (MainGoal)
+        # falls through to the shape gate's own "not available" answer.
+        artifact_type = normalize_artifact_type(artifact_type)
         self._assert_session_shape(session_kind, artifact_type)
         self._set_tenant_context(ctx)
         # Fail fast with a clean NotFoundError (same pattern as
@@ -208,12 +218,21 @@ class InterviewService(ServiceBase):
         # branch (artifact_type=None by definition) can never reach it;
         # for every non-multi kind this is the exact same check in the
         # exact same position as before Task 6.
+        #
+        # #1611: by now the value has been resolved by
+        # ``normalize_artifact_type``, so reaching this branch means the type
+        # is *known* but has no interview protocol (MainGoal). The old message
+        # lumped that together with unknown values ("other unknown types are
+        # unsupported"), which is why a lowercase ``requirement`` looked like a
+        # product limitation instead of a spelling problem.
         if session_kind != InterviewSession.SESSION_KIND_MULTI and (
             artifact_type not in IN_SCOPE_ARTIFACT_TYPES
         ):
             raise ValidationError(
-                f"Interviews are not available for artifact_type={artifact_type!r} "
-                f"(MainGoal stays read-only; other unknown types are unsupported)."
+                f"Interviews are not available for artifact_type={artifact_type!r}: "
+                f"it is a known artifact type without an interview protocol "
+                f"(MainGoal stays read-only). Supported types: "
+                f"{', '.join(IN_SCOPE_ARTIFACT_TYPES)}."
             )
 
     @staticmethod

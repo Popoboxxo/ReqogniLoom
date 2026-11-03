@@ -5,11 +5,16 @@ import uuid
 
 import pytest
 
-from application.base import NotFoundError
+from application.base import NotFoundError, ValidationError
 from application.interview_protocol import (
+    ARTIFACT_TYPE_ALIASES,
+    IN_SCOPE_ARTIFACT_TYPES,
     INTERVIEW_PROTOCOL_DEFAULTS,
+    OUT_OF_SCOPE_ARTIFACT_TYPES,
     ProtocolValidationError,
+    artifact_type_key,
     get_protocol,
+    normalize_artifact_type,
     parse_protocol_yaml,
 )
 from auth_tenancy.context import AuthContext, AuthMethod
@@ -352,3 +357,69 @@ class TestParseProtocolYamlEdgeCases:
         malformed_yaml = "phases: [1, 2, 3]\n"
         with pytest.raises(ProtocolValidationError):
             parse_protocol_yaml(malformed_yaml)
+
+
+class TestNormalizeArtifactType:
+    """#1611 — client-supplied ``artifact_type`` is resolved to the canonical name.
+
+    The REST body field used to be a bare ``CharField`` compared against the
+    exact PascalCase tuple, so ``requirement``/``need`` were refused as if they
+    were unknown artifact types. The normaliser is the single resolution point
+    shared by the REST facade and the MCP ``interview.start`` tool.
+    """
+
+    def test_every_canonical_type_round_trips(self):
+        for artifact_type in IN_SCOPE_ARTIFACT_TYPES:
+            assert normalize_artifact_type(artifact_type) == artifact_type
+
+    @pytest.mark.parametrize(
+        ("sent", "canonical"),
+        [
+            ("requirement", "Requirement"),
+            ("REQUIREMENT", "Requirement"),
+            ("req", "Requirement"),
+            ("need", "StakeholderNeed"),
+            ("needs", "StakeholderNeed"),
+            ("stakeholder_need", "StakeholderNeed"),
+            ("stakeholderneed", "StakeholderNeed"),
+            ("architecture_element", "ArchitectureElement"),
+            ("architecture-element", "ArchitectureElement"),
+            ("arch", "ArchitectureElement"),
+            ("risk", "Risk"),
+            ("test", "TestCase"),
+            ("testcase", "TestCase"),
+            ("test_case", "TestCase"),
+            ("adr", "Adr"),
+            ("issue", "Issue"),
+            ("goal", "Goal"),
+            ("main_goal", "MainGoal"),
+        ],
+    )
+    def test_aliases_and_case_variants_resolve(self, sent, canonical):
+        assert normalize_artifact_type(sent) == canonical
+
+    def test_missing_value_stays_missing(self):
+        assert normalize_artifact_type(None) is None
+        # An empty string keeps the pre-#1611 "not supplied" semantics so the
+        # shape gate can still answer "artifact_type is required".
+        assert normalize_artifact_type("") == ""
+
+    def test_unknown_value_raises_with_allowed_values(self):
+        with pytest.raises(ValidationError) as exc_info:
+            normalize_artifact_type("unknown")
+
+        exc = exc_info.value
+        assert "allowed values" in str(exc).lower()
+        assert exc.details == [
+            {"field": "artifact_type", "allowed_values": list(IN_SCOPE_ARTIFACT_TYPES)}
+        ]
+
+    def test_non_string_value_is_refused_not_coerced(self):
+        with pytest.raises(ValidationError):
+            normalize_artifact_type({"type": "Requirement"})  # type: ignore[arg-type]
+
+    def test_alias_table_covers_every_canonical_type(self):
+        """Drift guard: a new canonical type must get an alias entry."""
+        for artifact_type in (*IN_SCOPE_ARTIFACT_TYPES, *OUT_OF_SCOPE_ARTIFACT_TYPES):
+            assert artifact_type_key(artifact_type) in ARTIFACT_TYPE_ALIASES
+            assert ARTIFACT_TYPE_ALIASES[artifact_type_key(artifact_type)] == artifact_type
