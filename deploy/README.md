@@ -496,13 +496,20 @@ docker compose -f deploy/docker-compose.yml --project-directory . down
 
 **Warning: `-v` deletes data.** `down` alone keeps the named volumes listed above; adding `-v`
 removes them — the database, the Celery queue, Honcho's memory and the Qdrant index. Use it only for
-a deliberate reset:
+a deliberate reset, and use `make wipe`, not the raw Compose call:
 
 ```bash
-# DESTRUCTIVE: wipes postgres/redis/honcho/qdrant volumes
-docker compose -f deploy/docker-compose.yml --project-directory . \
-  --profile honcho --profile qdrant down -v
+# DESTRUCTIVE: one verified off-host backup, then down -v
+make wipe CONFIRM=yes        # BACKUP_OFFHOST_DIR is taken from .env
 ```
+
+`make wipe` refuses to run without `CONFIRM=yes`. It first runs the `postgres-backup` sidecar once
+with the off-host overlay (`BACKUP_OFFHOST_DIR`, required — set it in `.env` or pass it on the
+command line), then `deploy/check-offhost-backup.sh` verifies the newest
+`reqogniloom_*.sql.gz` in that directory (younger than 5 minutes, non-empty, valid gzip, with a
+`PostgreSQL database dump` header). Only when **both** steps succeed does it execute
+`--profile honcho --profile qdrant down -v`. The `postgres_backup_data` volume is deleted by that
+last step too, so a missing, stale or truncated off-host export aborts before anything is removed.
 
 **Recommended upgrade sequence:** `down` with the full profile set → `docker compose pull` → `up -d`
 with the same profile set. That guarantees no container from the previous release survives the

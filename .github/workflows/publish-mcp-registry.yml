@@ -17,7 +17,10 @@
 # label so a pre-release is never silent; nothing here hard-blocks a
 # pre-release (plan §5.2 rule 2).
 #
-# TODO before activation: pin mcp-publisher release tag + verify SHA256 (repo hardening convention)
+# SUPPLY CHAIN: the third-party `mcp-publisher` binary is pinned to the release
+# tag v1.8.1 and verified against the SHA256 of that exact artifact
+# (linux_amd64). Bump the version and the digest together; never resolve
+# `latest` at run time (plan D5.1, repo hardening convention).
 #
 # NOTE: a cross-workflow `needs: ci` is not possible in GitHub Actions — a job
 # may only depend on jobs in the SAME file, and `ci` lives in ci.yml. This
@@ -74,23 +77,17 @@ jobs:
             echo "::notice title=Pre-release::VERSION=${VERSION_VALUE} is a pre-release; curated stores (S3/S6) are NOT automated and refuse pre-releases."
           fi
 
-      # TODO before activation: pin mcp-publisher release tag + verify SHA256 (repo hardening convention)
       # Inert by default: the third-party binary runs only when a human sets
       # enable_publish=true. A plain dispatch downloads and executes nothing.
-      - name: Install mcp-publisher
+      - name: Install mcp-publisher (v1.8.1, SHA256 pinned)
         if: inputs.enable_publish == true
         run: |
           set -euo pipefail
-          OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
-          case "$(uname -m)" in
-            x86_64) ARCH=amd64 ;;
-            aarch64|arm64) ARCH=arm64 ;;
-            *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
-          esac
-          # TODO before activation: pin this to a release tag and verify its SHA256
-          # instead of resolving `latest` at run time (repo hardening convention).
-          URL="https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${OS}_${ARCH}.tar.gz"
+          # The runner is ubuntu-latest, i.e. linux/amd64; the digest below is
+          # bound to that artifact. A different platform needs its own digest.
+          URL="https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz"
           curl -fsSL -o /tmp/mcp-publisher.tar.gz "$URL"
+          echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  /tmp/mcp-publisher.tar.gz" | sha256sum -c -
           tar -xzf /tmp/mcp-publisher.tar.gz -C /tmp mcp-publisher
           sudo install -m 0755 /tmp/mcp-publisher /usr/local/bin/mcp-publisher
           mcp-publisher --help >/dev/null

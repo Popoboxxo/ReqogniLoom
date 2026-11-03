@@ -207,10 +207,25 @@ make build
 
 ### 2. Configure Secrets (REQUIRED)
 
-Before starting the stack, you **must** set up three critical secrets in a `.env` file — the application refuses to start in production mode if any is missing or empty:
+The repository ships a setup script for this step — it copies `.env.example` to `.env`, fills in
+every `CHANGE-ME` placeholder (`SECRET_KEY`, `AUTH_JWT_SECRET`, `DB_PASSWORD`, `DB_APP_PASSWORD`,
+`SYSTEM_ADMIN_PASSWORD`, `FIELD_ENCRYPTION_KEY`), sets the file to mode 600 and prints only the
+**names** of the generated keys, never a value:
 
 ```bash
-# Copy the example .env
+bash scripts/setup.sh --check-ports
+```
+
+`--check-ports` also verifies that `BACKEND_PORT` (default 8001) and `FRONTEND_PORT` (default 5173)
+are free and exits with code 2 (naming the port) if another stack already holds one — override the
+port in `.env` and run it again. Re-running the script is safe: it only replaces values that still
+carry the `CHANGE-ME` marker, so anything you edited by hand stays untouched. If it has to modify an
+existing `.env`, the backup is written **outside** the repository
+(`${XDG_STATE_HOME:-$HOME/.local/state}/reqogniloom/env-backups/`), never as a `.env.bak` next to it.
+
+**Manual alternative** (if you prefer to generate the values yourself):
+
+```bash
 cp .env.example .env
 
 # Generate SECRET_KEY (Django)

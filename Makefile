@@ -53,7 +53,16 @@ MINIMAL_COMPOSE := $(COMPOSE) -f deploy/docker-compose.minimal.yml --project-dir
 TEST_PROJECT := $(if $(COMPOSE_PROJECT_NAME),$(COMPOSE_PROJECT_NAME)-test,reqogniloom-test)
 TEST_COMPOSE := $(COMPOSE) -p $(TEST_PROJECT) -f testing/docker-compose.test.yml --project-directory .
 
-.PHONY: up down minimal minimal-down honcho qdrant qdrant-down build release-bump test test-backend test-frontend test-down test-e2e test-e2e-reseed help
+# `make wipe` (plan D3.3, #792 point 13): the off-host overlay is mandatory for
+# a wipe, because `down -v` also deletes `postgres_backup_data` — only the copy
+# exported to BACKUP_OFFHOST_DIR survives.
+WIPE_COMPOSE := $(COMPOSE) -f deploy/docker-compose.yml -f deploy/docker-compose.offhost.yml --project-directory .
+# `make` does not read .env, but the off-host destination normally lives there.
+# Command line/env wins; otherwise take the last uncommented value from .env so
+# the verification step inspects the same directory Compose writes to.
+BACKUP_OFFHOST_DIR ?= $(shell sed -n 's/^BACKUP_OFFHOST_DIR=//p' .env 2>/dev/null | tail -n 1 | tr -d '\r')
+
+.PHONY: up down wipe minimal minimal-down honcho qdrant qdrant-down build release-bump test test-backend test-frontend test-down test-e2e test-e2e-reseed help
 
 ## up: Start the full dev stack (hot-reload override applied)
 up:
@@ -62,6 +71,20 @@ up:
 ## down: Stop the full dev stack
 down:
 	$(DEV_COMPOSE) down
+
+## wipe: DESTRUCTIVE — take a fresh off-host backup, verify it, then `down -v`. Requires CONFIRM=yes and BACKUP_OFFHOST_DIR
+wipe:
+	@if [ "$(CONFIRM)" != "yes" ]; then \
+		echo "refusing to wipe: pass CONFIRM=yes — this deletes the postgres/redis/honcho/qdrant volumes" >&2; \
+		exit 1; \
+	fi
+	@if [ -z "$(BACKUP_OFFHOST_DIR)" ]; then \
+		echo "refusing to wipe: BACKUP_OFFHOST_DIR is not set — set it in .env or pass it on the command line" >&2; \
+		exit 1; \
+	fi
+	$(WIPE_COMPOSE) run --rm -e BACKUP_ONCE=true -e BACKUP_INITIAL_DELAY=0 postgres-backup
+	./deploy/check-offhost-backup.sh "$(BACKUP_OFFHOST_DIR)"
+	$(WIPE_COMPOSE) --profile honcho --profile qdrant down -v
 
 ## minimal: Start the minimal stack (postgres, redis, backend, migrate, frontend)
 minimal:
