@@ -28,7 +28,7 @@ Design:
 """
 from __future__ import annotations
 
-from collections.abc import Container, Mapping
+from collections.abc import Container, Mapping, Sequence
 from typing import Any
 
 from django.utils import translation
@@ -495,6 +495,34 @@ def detect_lang(request: Any) -> str:
     if accept and accept.lower().startswith("de"):
         return "de"
     return "en"
+
+
+class InvalidEnumValue(ValueError):
+    """A query-parameter value outside its documented enum (issue #1613).
+
+    Raised at the transport boundary so a typo in a filter cannot be silently
+    dropped or echoed back as if it were honoured. ``details`` carries the
+    ``[{"field": ..., "allowed_values": [...]}]`` block
+    :func:`build_error_response` serialises — the same shape the interview
+    surface uses for an unknown ``artifact_type`` — so a client can correct the
+    call without guessing.
+    """
+
+    def __init__(
+        self, parameter: str, value: Any, allowed: Sequence[str]
+    ) -> None:
+        values = list(allowed)
+        shown = repr(value)
+        # An error message is not a place to reflect an arbitrarily large
+        # payload back to the caller.
+        if len(shown) > 64:
+            shown = shown[:61] + "..."
+        super().__init__(
+            f"Invalid {parameter} {shown}; allowed values: {', '.join(values)}."
+        )
+        self.details: list[dict[str, Any]] = [
+            {"field": parameter, "allowed_values": values}
+        ]
 
 
 def build_error_response(

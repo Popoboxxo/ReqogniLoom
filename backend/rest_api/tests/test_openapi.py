@@ -275,6 +275,7 @@ AUDIT_QUERY_PARAMETERS = {
     "rule_id",
     "severity",
     "artifact_type",
+    "tier",
 }
 
 #: Response-body fields #1382/#1383 make part of the public contract.
@@ -428,3 +429,40 @@ class TestAuditReportContract:
     def test_declares_the_400_validation_response(self, openapi_schema: dict) -> None:
         operation = openapi_schema["paths"][AUDIT_PATH]["get"]
         assert "400" in operation["responses"]
+
+
+# ---------------------------------------------------------------------------
+# #1613 — filter values are documented enums, not free text
+# ---------------------------------------------------------------------------
+
+
+METRICS_PATH = "/api/v1/metrics/"
+
+
+class TestFilterEnumParameters:
+    """#1613: ``audit?tier=`` and ``metrics?timeframe=`` reject unknown values.
+
+    The parser and the generated document must agree: if the endpoint answers
+    400 for a value, the parameter description has to say which values it
+    accepts instead.
+    """
+
+    def test_audit_tier_is_documented_as_an_enum(self, openapi_schema: dict) -> None:
+        params = _query_params(openapi_schema, AUDIT_PATH)
+        # drf-spectacular sorts enum values; the accepted set is what matters.
+        assert set(params["tier"]["schema"]["enum"]) == {
+            "minimal",
+            "standard",
+            "extended",
+        }
+
+    def test_metrics_timeframe_is_documented_as_an_enum(
+        self, openapi_schema: dict
+    ) -> None:
+        params = _query_params(openapi_schema, METRICS_PATH)
+        # drf-spectacular sorts enum values; the accepted set is what matters.
+        assert set(params["timeframe"]["schema"]["enum"]) == {
+            "P7D",
+            "P30D",
+            "P90D",
+        }

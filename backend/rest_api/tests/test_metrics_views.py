@@ -268,3 +268,71 @@ class TestMetricValuesByKeys:
             response = view(req)
 
         assert response.status_code == 404
+
+
+class TestTimeframeValidation:
+    """Issue #1613 — ``?timeframe=`` is an enum, not a free-text echo.
+
+    ``GET /api/v1/metrics/?workspace_id=…&timeframe=quatsch`` used to answer
+    200 with the raw value mirrored into the response, so a typo looked like a
+    valid selection. It is now a 400 ``VALIDATION_ERROR`` naming the allowed
+    values, and a valid value is echoed in its normalised form.
+    """
+
+    def test_unknown_timeframe_is_a_400_with_allowed_values(self) -> None:
+        req = _metrics_request(
+            params={"workspace_id": str(uuid.uuid4()), "timeframe": "quatsch"}
+        )
+        view = MetricsViewSet.as_view({"get": "list"})
+        with patch(
+            "rest_api.metrics_views.WorkspaceService.get_workspace",
+            return_value=MagicMock(),
+        ), patch("rest_api.metrics_views.compute_metrics") as mock_compute:
+            response = view(req)
+
+        assert response.status_code == 400
+        body = response.data
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert body["error"]["details"] == [
+            {"field": "timeframe", "allowed_values": ["P7D", "P30D", "P90D"]}
+        ]
+        assert "Invalid timeframe" in body["error"]["message"]
+        mock_compute.assert_not_called()
+
+    def test_valid_timeframe_is_normalised_and_echoed(self) -> None:
+        req = _metrics_request(
+            params={"workspace_id": str(uuid.uuid4()), "timeframe": " p7d "}
+        )
+        view = MetricsViewSet.as_view({"get": "list"})
+
+        def _compute(**kwargs):
+            result = MagicMock()
+            result.to_dict.return_value = {"timeframe": kwargs["timeframe"]}
+            return result
+
+        with patch(
+            "rest_api.metrics_views.WorkspaceService.get_workspace",
+            return_value=MagicMock(),
+        ), patch(
+            "rest_api.metrics_views.compute_metrics", side_effect=_compute
+        ):
+            response = view(req)
+
+        assert response.status_code == 200
+        assert response.data["timeframe"] == "P7D"
+
+    def test_absent_timeframe_keeps_the_service_default(self) -> None:
+        req = _metrics_request(params={"workspace_id": str(uuid.uuid4())})
+        view = MetricsViewSet.as_view({"get": "list"})
+        result = MagicMock()
+        result.to_dict.return_value = {"timeframe": "P30D"}
+        with patch(
+            "rest_api.metrics_views.WorkspaceService.get_workspace",
+            return_value=MagicMock(),
+        ), patch(
+            "rest_api.metrics_views.compute_metrics", return_value=result
+        ) as mock_compute:
+            response = view(req)
+
+        assert response.status_code == 200
+        assert mock_compute.call_args.kwargs["timeframe"] is None

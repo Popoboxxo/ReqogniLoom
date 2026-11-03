@@ -9,7 +9,9 @@ the view only translates HTTP <-> service call):
   GET  /api/v1/workspaces/<workspace_id>/audit/
        Run the SE-Auditor for the workspace and return the findings (grouped by
        the frontend), each with a remediation proposal. The rigor tier is
-       resolved from the workspace's active preset by the service. Optional
+       resolved from the workspace's active preset by the service unless the
+       caller overrides it with ``tier`` (minimal|standard|extended; any other
+       value is a 400, #1613). Optional
        query params: ``scope`` (document|project|global, default: project),
        ``scope_artifact_id`` (required when scope=document), ``page_size`` /
        ``limit`` (aliases, >= 1, capped at 500) + ``offset`` for a sequential
@@ -88,9 +90,11 @@ from application.base import (
 )
 from baseline.exceptions import GovernanceAuthorityError
 from baseline.waivers import assert_gate_waiver_authority
+from presets.registry import TIER_ORDER
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.openapi import ErrorResponseSerializer
 from rest_api.serializers import (
+    InvalidEnumValue,
     SanitizedCharField,
     UnknownFieldRejectionMixin,
     build_error_response,
@@ -107,6 +111,14 @@ from traceability.audit.finding_filters import (
 logger = logging.getLogger(__name__)
 
 _VALID_SCOPES = frozenset({"document", "project", "global"})
+
+#: Rigor tiers the SE-Auditor engine can resolve a rule set for. Taken from
+#: ``presets.registry.TIER_ORDER`` (the canonical ordering) so the ``tier``
+#: query parameter, the MCP ``audit.se_audit`` gate and the preset matrix
+#: cannot drift. Before issue #1613 an unknown value was silently ignored and
+#: the report echoed the workspace's own preset — a typo looked like a valid
+#: selection.
+_VALID_SE_TIERS: tuple[str, ...] = tuple(TIER_ORDER)
 
 #: Suppression lifecycle states accepted by ``?state=`` on the waiver list
 #: (#569/m2). ``active`` is the default; anything else is a 400.
@@ -341,6 +353,18 @@ _AUDIT_QUERY_PARAMETERS = [
         description="Document subtree root; required when scope=document.",
     ),
     OpenApiParameter(
+        name="tier",
+        type=str,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        enum=list(_VALID_SE_TIERS),
+        description=(
+            "Rigor tier override (minimal|standard|extended); resolved from "
+            "the workspace preset when omitted. Any other value is a 400 "
+            "VALIDATION_ERROR listing the allowed values (#1613)."
+        ),
+    ),
+    OpenApiParameter(
         name="rule_id",
         type=str,
         location=OpenApiParameter.QUERY,
@@ -418,6 +442,27 @@ def _parse_scopes(request: Request) -> list[AuditScope] | None:
     if scope == "document" and not artifact_id:
         raise ValueError("scope_artifact_id is required when scope=document.")
     return [AuditScope(scope, artifact_id=artifact_id)]
+
+
+def _parse_tier(request: Request) -> str | None:
+    """Parse ``?tier=minimal|standard|extended`` strictly (issue #1613).
+
+    Absent -> ``None`` so the service keeps resolving the workspace's own
+    preset (the documented default). A present value is matched
+    case-insensitively with surrounding whitespace trimmed and echoed back in
+    its normalised lowercase form; anything else raises
+    :class:`InvalidEnumValue` -> 400 ``VALIDATION_ERROR`` with
+    ``allowed_values``. Deliberately no silent fallback: ``?tier=quatsch``
+    used to return 200 with the preset's tier, so a typo looked like a valid
+    override.
+    """
+    raw = request.query_params.get("tier")
+    if raw is None:
+        return None
+    normalised = str(raw).strip().lower()
+    if normalised not in _VALID_SE_TIERS:
+        raise InvalidEnumValue("tier", raw, _VALID_SE_TIERS)
+    return normalised
 
 
 def _parse_page_size(raw: str, parameter: str) -> int:
@@ -913,13 +958,19 @@ class WorkspaceAuditView(APIView):
     ) -> Response:
         lang = detect_lang(request)
         try:
+            tier = _parse_tier(request)
             scopes = _parse_scopes(request)
             limit, offset = _parse_pagination(request)
             include_suppressed = _parse_include_suppressed(request)
             filters = _parse_finding_filters(request)
         except ValueError as exc:
             return Response(
-                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=getattr(exc, "details", None),
+                    message=str(exc),
+                ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
@@ -947,6 +998,7 @@ class WorkspaceAuditView(APIView):
             report = AuditService().run_audit(
                 workspace_id,
                 ctx,
+                tier=tier,
                 scopes=scopes,
                 limit=limit,
                 offset=offset,
