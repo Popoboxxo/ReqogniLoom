@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -73,9 +74,19 @@ def test_version_drift_in_desktop_manifest_is_reported(tmp_path: Path) -> None:
 
 def test_independent_poc_version_is_not_forced_to_version(tmp_path: Path) -> None:
     _materialize(tmp_path)
-    # The POC agent plugin legitimately carries its own SemVer (ADR-017).
+    # The POC agent plugin legitimately carries its own SemVer (ADR-017) and is
+    # NOT forced onto VERSION. Derive the value from the source so a legitimate
+    # plugin bump does not make this guard stale (it was hardcoded to 0.2.0 and
+    # went red when the plugin shipped 1.0.0).
+    source = (REPO_ROOT / "integrations/hermes-agent-plugin/plugin.yaml").read_text(
+        encoding="utf-8"
+    )
+    match = re.search(r"^version:\s*(\S+)\s*$", source, re.MULTILINE)
+    assert match is not None, "the POC plugin.yaml carries no version"
+    independent = match.group(1)
+    assert independent != ratchet.load_expected_version(REPO_ROOT)
     plugin_yaml = tmp_path / "integrations/hermes-agent-plugin/plugin.yaml"
-    assert "version: 0.2.0" in plugin_yaml.read_text(encoding="utf-8")
+    assert f"version: {independent}" in plugin_yaml.read_text(encoding="utf-8")
     problems = ratchet.collect_problems(tmp_path, ratchet.load_expected_version(REPO_ROOT))
     assert problems == [], problems
 
