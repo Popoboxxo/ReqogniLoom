@@ -108,6 +108,28 @@ class TestPgVectorRequirementParity:
         assert [hit.id for hit in excluded] == [far.id]
         assert [hit.id for hit in limited] == [near.id]
 
+    def test_limit_is_deterministic_under_distance_ties(self):
+        # #977: distance alone is not a total order; the cap boundary must be
+        # decided by the `id` tie-breaker, not by whatever Postgres returns.
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ids = []
+            for index in range(60):
+                requirement = make_requirement(ws, title=f"Tie {index}")
+                requirement.embedding = [0.3] * _DIM
+                requirement.save(update_fields=["embedding"])
+                ids.append(requirement.id)
+            hits = PgVectorVectorPort().query_similar(
+                collection=COLLECTION_REQUIREMENT,
+                query_vector=[0.3] * _DIM,
+                tenant_id=tenant.id,
+                workspace_id=ws.id,
+                workspace_field="artifact__workspace_id",
+                limit=50,
+            )
+
+        assert [hit.id for hit in hits] == sorted(ids)[:50]
+
 
 @pytest.mark.django_db(transaction=True)
 class TestPgVectorTraceLinkParity:
