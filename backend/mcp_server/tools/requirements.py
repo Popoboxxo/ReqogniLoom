@@ -54,6 +54,7 @@ from mcp_server.tools.base import (
     resolve_engine_status,
     resolve_status_map,
     validate_artifact_write,
+    workspace_query_required,
     write_mcp_audit,
 )
 from mcp_server.tools.system_fields import (
@@ -198,7 +199,13 @@ class RequirementsToolGroup(BaseToolGroup):
                         "type": "boolean",
                         "description": "If true, include outdated (soft-deleted) requirements. Defaults to false.",
                     },
-                }
+                },
+                # Issue #1615: the handler already refuses a call without a
+                # workspace; the schema used to leave it optional, so a client
+                # reading ``tools/list`` could not tell. Built through the
+                # shared helper so this cannot drift from the sibling
+                # ``*.query`` tools again.
+                "required": workspace_query_required(),
             }
         },
         {

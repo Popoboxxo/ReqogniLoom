@@ -21,6 +21,7 @@ from mcp_server.tools.base import (
     require_param,
     require_uuid,
     validate_artifact_write,
+    workspace_query_required,
     write_mcp_audit,
 )
 from mcp_server.tools.system_fields import (
@@ -100,7 +101,7 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                         "description": "Include soft-deleted needs (default: false).",
                     },
                 },
-                "required": ["workspace_id"],
+                "required": workspace_query_required(),
             },
         },
         {

@@ -1017,6 +1017,31 @@ class ToolRegistry:
         # Registered schemas changed — the published-parameter index is stale.
         self._schema_param_index = None
 
+    def all_tool_schemas(self) -> list[dict[str, Any]]:
+        """Return every registered tool schema, before any RBAC/scope gating.
+
+        The *complete* catalogue the server can offer — the denominator a
+        caller needs to notice that its own ``tools/list`` answer is narrowed
+        (issue #1593). :meth:`list_tools` starts from exactly this list and
+        then removes what the calling key/role may not execute, so the two can
+        never disagree about which tools exist.
+
+        Deduplicates by group object identity (REQ-129): several prefixes
+        intentionally share one group instance (``audit``/``events``,
+        ``traceability``/``artifact``), so iterating ``_groups.values()``
+        naively would emit the same schemas once per prefix.
+        """
+        self._ensure_groups()
+        tools: list[dict[str, Any]] = []
+        seen_group_ids: set[int] = set()
+        for group in self._groups.values():
+            if id(group) in seen_group_ids:
+                continue
+            seen_group_ids.add(id(group))
+            if hasattr(group, "get_tool_schemas"):
+                tools.extend(group.get_tool_schemas())
+        return tools
+
     def _ensure_groups(self) -> None:
         """Lazy-initialise default tool groups if none registered."""
         if self._router is not None:
@@ -1276,17 +1301,9 @@ class ToolRegistry:
             # Deduplicate by group object identity (REQ-129): several prefixes
             # intentionally share a single instance (e.g. "audit"/"events" →
             # one AuditToolGroup, "traceability"/"artifact" → one
-            # CrossCuttingToolGroup). Iterating _groups.values() naively would
-            # emit each shared group's schemas once per prefix, producing
-            # duplicate tool entries in tools/list.
-            tools: list[dict[str, Any]] = []
-            seen_group_ids: set[int] = set()
-            for group in self._groups.values():
-                if id(group) in seen_group_ids:
-                    continue
-                seen_group_ids.add(id(group))
-                if hasattr(group, "get_tool_schemas"):
-                    tools.extend(group.get_tool_schemas())
+            # CrossCuttingToolGroup). ``all_tool_schemas`` owns that rule so the
+            # gated list and the ungated catalogue size cannot diverge.
+            tools: list[dict[str, Any]] = self.all_tool_schemas()
 
             if not can_write:
                 # Hide write tools from read-only callers (Viewer role) —

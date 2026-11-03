@@ -6487,7 +6487,10 @@
             "type": "boolean",
             "description": "If true, include outdated (soft-deleted) requirements. Defaults to false."
           }
-        }
+        },
+        "required": [
+          "workspace_id"
+        ]
       }
     },
     {

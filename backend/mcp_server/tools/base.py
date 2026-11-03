@@ -65,6 +65,32 @@ def require_uuid(params: dict[str, Any], name: str) -> UUID:
         raise ParameterError(f"Parameter '{name}' is not a valid UUID: '{val}'")
 
 
+#: Canonical ``required`` head of every workspace-scoped ``*.query`` tool
+#: (issue #1615). ``requirement.query`` used to advertise ``workspace_id`` as
+#: optional while its siblings required it, so a client could not tell from
+#: ``tools/list`` which calls are guaranteed to be workspace-bound. Building
+#: the list through :func:`workspace_query_required` makes that requirement a
+#: single source of truth instead of one hand-maintained literal per tool.
+WORKSPACE_QUERY_REQUIRED: tuple[str, ...] = ("workspace_id",)
+
+
+def workspace_query_required(*extra: str) -> list[str]:
+    """Return the ``required`` list for a workspace-scoped ``*.query`` tool.
+
+    Every ``*.query`` tool whose catalogue is scoped to exactly one workspace
+    must require ``workspace_id``; handlers already reject a call without it
+    (e.g. ``requirement.query``), so a schema that omits it is the kind of
+    contract drift issue #1615 reported. ``extra`` appends additional required
+    parameters for tools that need more than the workspace (``quality.query``).
+
+    The runtime twin of this constraint is
+    ``mcp_server/tests/test_query_tool_workspace_required.py``, which checks
+    the *advertised* catalogue rather than trusting each tool to use this
+    helper — a new tool cannot silently opt out.
+    """
+    return [*WORKSPACE_QUERY_REQUIRED, *extra]
+
+
 def reject_unknown_params(
     params: dict[str, Any], allowed: list[str], tool_name: str
 ) -> None:
@@ -506,5 +532,6 @@ __all__ = [
     "resolve_engine_status",
     "resolve_status_map",
     "validate_artifact_write",
+    "workspace_query_required",
     "write_mcp_audit",
 ]

@@ -51,6 +51,7 @@ from mcp_server.tools.base import (
     require_uuid,
     resolve_engine_status,
     resolve_status_map,
+    workspace_query_required,
 )
 from persistence.errors import PermissionDeniedError
 from persistence.models import WorkItem
@@ -317,7 +318,7 @@ class WorkItemToolGroup(BaseToolGroup):
                         ),
                     },
                 },
-                "required": ["workspace_id"],
+                "required": workspace_query_required(),
             },
         },
         {
