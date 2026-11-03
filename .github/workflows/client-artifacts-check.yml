@@ -55,6 +55,40 @@ jobs:
         run: pip install --disable-pip-version-check pyyaml
       - name: Render check (drift / parity / registry-vs-snippet)
         run: python scripts/clients/render.py --check
+      - name: Claude plugin validate (pinned CLI)
+        # --strict treats warnings as errors, so a manifest regression (e.g. a
+        # dropped `userConfig` key, or an `.mcp.json` reference to an
+        # undeclared key) fails the PR instead of an install. The CLI is
+        # pinned: an unpinned install would let a future Claude release change
+        # this gate without a code change here.
+        #
+        # The runner cannot always provide the CLI (no npm, registry outage).
+        # In that case the step reports the reason in the job summary and
+        # skips — visible, never a silent green. A CLI that IS present but
+        # fails validation still fails the job.
+        run: |
+          set -euo pipefail
+          CLI_VERSION="2.1.306"
+          skip() {
+            echo "::warning title=claude plugin validate skipped::$1"
+            {
+              echo "### claude plugin validate — SKIPPED"
+              echo ""
+              echo "Reason: $1"
+              echo ""
+              echo "This is a reported skip, not a passing validation."
+            } >> "${GITHUB_STEP_SUMMARY:-/dev/stdout}"
+            exit 0
+          }
+          command -v npm >/dev/null 2>&1 \
+            || skip "npm is not available on this runner"
+          npm install -g "@anthropic-ai/claude-code@${CLI_VERSION}" \
+            || skip "npm install -g @anthropic-ai/claude-code@${CLI_VERSION} failed (registry/network)"
+          command -v claude >/dev/null 2>&1 \
+            || skip "claude CLI is not on PATH after installing ${CLI_VERSION}"
+          claude --version
+          claude plugin validate --strict dist/plugins/claude-code/reqogniloom
+          claude plugin validate .
       - name: Bash syntax of installer/verifier
         run: |
           set -euo pipefail

@@ -18,6 +18,12 @@ What the backend accepts (the backend wins; the `dist/` side must follow):
   ``TransportAdapter._extract_api_key`` in
   ``backend/mcp_server/protocol_handler.py``).
 
+Claude Code's package is the one exception to the env-var convention: its
+plugin manifest declares ``userConfig`` prompts and ``.mcp.json`` interpolates
+them as ``${user_config.<key>}`` — that is the only accepted non-env reference
+form, and only for the ``claude-code`` builder. Every other package interpolates
+the two ``REQOGNILOOM_`` env vars below.
+
 Codex's snippet uses the Bearer transport and ships no ``headers`` at all.
 That is deliberate, not an oversight: Codex's Streamable-HTTP transport offers
 ``bearer_token_env_var`` and — since 0.151 — also custom headers
@@ -94,6 +100,20 @@ _ENV_REF_RE: Final = re.compile(
 )
 _EXACT_ENV_REF_RE: Final = re.compile(
     r"^(?:\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\{env:([A-Za-z_][A-Za-z0-9_]*)\})$"
+)
+
+#: Claude Code resolves `${user_config.<key>}` from the `userConfig` block of
+#: its plugin manifest. This is the only accepted reference form that is not
+#: an environment variable, and it is valid for the `claude-code` builder only
+#: (the other clients do not have a plugin manifest of that shape).
+CLAUDE_CODE_BUILDER: Final = "claude-code"
+USER_CONFIG_URL_KEY: Final = "mcp_url"
+USER_CONFIG_API_KEY_KEY: Final = "api_key"
+_USER_CONFIG_REF_RE: Final = re.compile(
+    r"\$\{user_config\.([A-Za-z_][A-Za-z0-9_]*)\}"
+)
+_EXACT_USER_CONFIG_REF_RE: Final = re.compile(
+    r"^\$\{user_config\.([A-Za-z_][A-Za-z0-9_]*)\}$"
 )
 
 
@@ -215,12 +235,21 @@ class EmittedServer:
             names.add(self.bearer_token_env_var)
         return names
 
+    def user_config_refs(self) -> set[str]:
+        """Every ``userConfig`` key this entry interpolates."""
+        values = [self.url, *self.headers.values()]
+        return {
+            key
+            for value in values
+            for key in _USER_CONFIG_REF_RE.findall(value)
+        }
+
     def key_values(self) -> dict[str, str]:
         """Emitted values that carry the API key, keyed by where they sit."""
         values = {
             f"headers[{name}]": value
             for name, value in self.headers.items()
-            if API_KEY_ENV_VAR in value
+            if API_KEY_ENV_VAR in value or _is_user_config_api_key(value)
         }
         if self.bearer_token_env_var is not None:
             values["bearer_token_env_var"] = self.bearer_token_env_var
@@ -230,6 +259,12 @@ class EmittedServer:
 def env_refs(value: str) -> set[str]:
     """Every env-var name `value` references, in either interpolation syntax."""
     return {dollar or brace for dollar, brace in _ENV_REF_RE.findall(value)}
+
+
+def _is_user_config_api_key(value: str) -> bool:
+    """True when `value` is exactly Claude Code's API-key userConfig reference."""
+    match = _EXACT_USER_CONFIG_REF_RE.match(value)
+    return bool(match and match.group(1) == USER_CONFIG_API_KEY_KEY)
 
 
 def _string_leaves(value: Any) -> set[str]:
@@ -318,21 +353,30 @@ def emitted(
     return _server_from(spec, origin, path.read_text(encoding="utf-8"))
 
 
-def test_every_env_var_uses_the_canonical_prefix(emitted: EmittedServer) -> None:
+def test_every_reference_uses_an_accepted_form(emitted: EmittedServer) -> None:
     """The anti-drift guard against the submodule's `MCP_REQOGNILOOM_*` variant.
 
     The server never reads any of these names -- they are client-side
     interpolation only -- so a wrong prefix ships a config that silently
-    expands to nothing and authenticates nobody.
+    expands to nothing and authenticates nobody. Claude Code's
+    ``${user_config.<key>}`` form is the single, builder-scoped exception.
     """
     names = emitted.env_refs()
-    assert names, f"{emitted.builder}/{emitted.origin}: no env var referenced"
+    config_names = emitted.user_config_refs()
+    assert names or config_names, (
+        f"{emitted.builder}/{emitted.origin}: no reference form used"
+    )
     wrong = {n for n in names if not n.startswith(CANONICAL_ENV_PREFIX)}
     assert not wrong, (
         f"{emitted.builder}/{emitted.origin} interpolates env vars outside the "
         f"{CANONICAL_ENV_PREFIX} prefix: {sorted(wrong)}. The "
         f"{NON_CANONICAL_ENV_PREFIX} variant lives only in the .agent-meta "
         f"submodule and is read by nothing."
+    )
+    assert not config_names or emitted.builder == CLAUDE_CODE_BUILDER, (
+        f"{emitted.builder}/{emitted.origin} uses the Claude-Code-only "
+        f"`${{user_config.*}}` form (keys: {sorted(config_names)}); no other "
+        f"client resolves it."
     )
 
 
@@ -391,13 +435,25 @@ def test_the_key_is_an_env_reference_never_a_literal(
             )
             continue
         match = _EXACT_ENV_REF_RE.match(value)
-        assert match, (
+        if match:
+            assert (match.group(1) or match.group(2)) == API_KEY_ENV_VAR, (
+                f"{emitted.builder}/{emitted.origin}: {location} must "
+                f"reference {API_KEY_ENV_VAR}, got {value!r}"
+            )
+            continue
+        config_match = _EXACT_USER_CONFIG_REF_RE.match(value)
+        assert config_match, (
             f"{emitted.builder}/{emitted.origin}: {location} must be an "
-            f"env-var reference (${{NAME}} or {{env:NAME}}), got {value!r}"
+            f"env-var reference (${{NAME}} or {{env:NAME}}) or Claude Code's "
+            f"`${{user_config.{USER_CONFIG_API_KEY_KEY}}}`, got {value!r}"
         )
-        assert (match.group(1) or match.group(2)) == API_KEY_ENV_VAR, (
+        assert emitted.builder == CLAUDE_CODE_BUILDER, (
+            f"{emitted.builder}/{emitted.origin}: {location} uses the "
+            f"Claude-Code-only `${{user_config.*}}` form, got {value!r}"
+        )
+        assert config_match.group(1) == USER_CONFIG_API_KEY_KEY, (
             f"{emitted.builder}/{emitted.origin}: {location} must reference "
-            f"{API_KEY_ENV_VAR}, got {value!r}"
+            f"userConfig key {USER_CONFIG_API_KEY_KEY!r}, got {value!r}"
         )
 
 
@@ -438,23 +494,76 @@ def test_codex_bearer_shape_is_intentional(generated_roots: dict[str, Path]) -> 
     assert server.transports <= ACCEPTED_AUTH_TRANSPORTS
 
 
-def test_the_documented_env_var_names_are_the_only_ones_used(
+def test_the_documented_reference_names_are_the_only_ones_used(
     generated_roots: dict[str, Path],
 ) -> None:
-    """Across all five packages, exactly the two names INSTALL.md documents are
-    interpolated -- so the docs and the shipped configs cannot part ways."""
-    referenced: set[str] = set()
+    """Across all packages, exactly the reference names the docs describe are
+    interpolated -- so the docs and the shipped configs cannot part ways.
+
+    The four non-Claude packages use the two ``REQOGNILOOM_`` env vars;
+    Claude Code uses the two ``userConfig`` keys its manifest declares.
+    """
+    env_names: set[str] = set()
+    config_names: set[str] = set()
     for spec in CONFIG_BUILDERS:
         raw = (generated_roots[spec.name] / spec.out_subpath).read_text(
             encoding="utf-8"
         )
-        referenced |= _server_from(spec, ORIGIN_BUILT, raw).env_refs()
+        emitted = _server_from(spec, ORIGIN_BUILT, raw)
+        if spec.name == CLAUDE_CODE_BUILDER:
+            config_names |= emitted.user_config_refs()
+            assert not emitted.env_refs(), (
+                "Claude Code must not keep an ambient-env fallback beside its "
+                "userConfig prompts"
+            )
+        else:
+            env_names |= emitted.env_refs()
 
-    assert referenced == {MCP_URL_ENV_VAR, API_KEY_ENV_VAR}, (
-        f"the packages interpolate {sorted(referenced)}, but "
+    assert env_names == {MCP_URL_ENV_VAR, API_KEY_ENV_VAR}, (
+        f"the packages interpolate {sorted(env_names)}, but "
         f"docs/agent-templates/INSTALL.md documents "
         f"{{{MCP_URL_ENV_VAR}, {API_KEY_ENV_VAR}}}"
     )
+    assert config_names == {USER_CONFIG_URL_KEY, USER_CONFIG_API_KEY_KEY}, (
+        f"Claude Code interpolates userConfig keys {sorted(config_names)}, "
+        f"expected {{{USER_CONFIG_URL_KEY}, {USER_CONFIG_API_KEY_KEY}}}"
+    )
+
+
+def test_claude_user_config_refs_are_declared_in_the_plugin_manifest(
+    generated_roots: dict[str, Path],
+) -> None:
+    """Every `${user_config.<key>}` in `.mcp.json` — built and committed — must
+    be declared in the matching `plugin.json`, or the reference expands to
+    nothing at install time."""
+    spec = next(
+        s for s in CONFIG_BUILDERS if s.name == CLAUDE_CODE_BUILDER
+    )
+    mcp_paths = {
+        ORIGIN_BUILT: generated_roots[CLAUDE_CODE_BUILDER] / spec.out_subpath,
+        ORIGIN_COMMITTED: REPO_ROOT / spec.committed_path,
+    }
+    manifests = {
+        ORIGIN_BUILT: (
+            generated_roots[CLAUDE_CODE_BUILDER]
+            / "reqogniloom/.claude-plugin/plugin.json"
+        ),
+        ORIGIN_COMMITTED: (
+            REPO_ROOT / "dist/plugins/claude-code/reqogniloom"
+            "/.claude-plugin/plugin.json"
+        ),
+    }
+    for origin, manifest_path in manifests.items():
+        raw = mcp_paths[origin].read_text(encoding="utf-8")
+        referenced = _server_from(spec, origin, raw).user_config_refs()
+        declared = set(
+            json.loads(manifest_path.read_text(encoding="utf-8"))["userConfig"]
+        )
+        assert referenced == declared, (
+            f"{origin} Claude Code package: .mcp.json references "
+            f"{sorted(referenced)} but plugin.json declares "
+            f"{sorted(declared)}"
+        )
 
 
 def test_no_builder_mentions_the_non_canonical_prefix() -> None:

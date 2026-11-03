@@ -23,8 +23,8 @@
 # Stage 1 (local, from the cloned repo):
 claude plugin marketplace add ./dist/plugins/claude-code
 claude plugin install reqogniloom@reqogniloom-marketplace --scope user -y
-export REQOGNILOOM_MCP_URL="https://<host>"
-export REQOGNILOOM_API_KEY="reqlo_…"
+# Set the two required options (base URL + reqlo_… key):
+claude plugin configure reqogniloom@reqogniloom-marketplace
 ```
 
 ## 3. Configuration
@@ -63,5 +63,7 @@ claude mcp add --transport sse reqogniloom \
 ## 8. Update / uninstall
 
 - `claude plugin update reqogniloom` (version fed from `VERSION`).
+- Change the configuration: `claude plugin configure reqogniloom` (2.1.x wants the full id `claude plugin configure reqogniloom@reqogniloom-marketplace`) re-sets `mcp_url` and `api_key`.
+- Breaking: the plugin no longer reads `REQOGNILOOM_*` environment variables — run `claude plugin configure reqogniloom` once after updating.
 - Uninstall: `claude plugin uninstall reqogniloom`.
 - The installer copies no skills for this client (the plugin ships them) — `--refresh` is a no-op here.

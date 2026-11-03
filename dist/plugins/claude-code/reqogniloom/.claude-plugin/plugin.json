@@ -4,5 +4,20 @@
   "description": "SE-domain agent roles + native MCP connection for a ReqogniLoom requirements/architecture/test workspace.",
   "author": {
     "name": "ReqogniLoom"
+  },
+  "userConfig": {
+    "mcp_url": {
+      "type": "string",
+      "title": "ReqogniLoom URL",
+      "description": "Base URL, e.g. https://reqlo.example.com",
+      "required": true
+    },
+    "api_key": {
+      "type": "string",
+      "title": "API key",
+      "description": "ReqogniLoom API key created in your workspace settings.",
+      "sensitive": true,
+      "required": true
+    }
   }
 }

@@ -1,6 +1,8 @@
 """Render the canonical role templates + tool manifest into a Claude Code
-plugin: .claude-plugin/plugin.json, .mcp.json (SSE, env-templated, never a
-literal key), agents/<role>.md (Claude Code subagent format with MCP tool
+plugin: .claude-plugin/plugin.json (including the ``userConfig`` prompts the
+installer/`claude plugin configure` fills in), .mcp.json (SSE, interpolated
+from ``userConfig``, never a literal key), agents/<role>.md (Claude Code
+subagent format with MCP tool
 names rewritten to mcp__<server>__<tool>) — the tool-restricted RBAC
 identities from Task 3 — plus skills/<name>/SKILL.md (the unrestricted
 process skills from Task 4, copied verbatim), and a marketplace.json so
@@ -72,6 +74,30 @@ def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
                     "ReqogniLoom requirements/architecture/test workspace."
                 ),
                 "author": {"name": "ReqogniLoom"},
+                # Required installer prompts (Claude Code `userConfig`); the
+                # .mcp.json interpolates them as ${user_config.<key>}. The key
+                # description deliberately avoids the literal prefix spelling
+                # so no plugin artifact reads like a credential.
+                "userConfig": {
+                    "mcp_url": {
+                        "type": "string",
+                        "title": "ReqogniLoom URL",
+                        "description": (
+                            "Base URL, e.g. https://reqlo.example.com"
+                        ),
+                        "required": True,
+                    },
+                    "api_key": {
+                        "type": "string",
+                        "title": "API key",
+                        "description": (
+                            "ReqogniLoom API key created in your workspace "
+                            "settings."
+                        ),
+                        "sensitive": True,
+                        "required": True,
+                    },
+                },
             },
             indent=2,
         )
@@ -85,8 +111,8 @@ def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
                 "mcpServers": {
                     SERVER_NAME: {
                         "type": "sse",
-                        "url": "${REQOGNILOOM_MCP_URL}/mcp/sse/",
-                        "headers": {"X-API-Key": "${REQOGNILOOM_API_KEY}"},
+                        "url": "${user_config.mcp_url}/mcp/sse/",
+                        "headers": {"X-API-Key": "${user_config.api_key}"},
                     }
                 }
             },

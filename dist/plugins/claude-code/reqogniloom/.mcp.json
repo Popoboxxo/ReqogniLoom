@@ -2,9 +2,9 @@
   "mcpServers": {
     "reqogniloom": {
       "type": "sse",
-      "url": "${REQOGNILOOM_MCP_URL}/mcp/sse/",
+      "url": "${user_config.mcp_url}/mcp/sse/",
       "headers": {
-        "X-API-Key": "${REQOGNILOOM_API_KEY}"
+        "X-API-Key": "${user_config.api_key}"
       }
     }
   }
