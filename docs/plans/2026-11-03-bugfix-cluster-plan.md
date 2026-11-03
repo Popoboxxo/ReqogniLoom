@@ -469,7 +469,7 @@ Release, A11y und Hygiene ab.
 | C1 — Hierarchie & Zyklen | **umgesetzt** | `b5dc889` — tier-unabhängiger Selbstbezug-Guard, visited-set, Repair-Command; 15 + 46 Tests grün |
 | C2 — Fehler-Mapping | **umgesetzt** | `6ea8848` — zentrales Mapping, `INVALID_STATE` registriert, ICD 409; 186 + 135 + 12 Tests grün |
 | C4 — Soft-Delete-Vertrag | **umgesetzt** | `7da945c` — Architecture-Detail 200/outdated, ICD Soft-Delete + reactivate; 204 Tests grün |
-| C3 — Request-Contract | offen | — |
+| C3 — Request-Contract | **umgesetzt** | `ed4f195` — strikte Query-Params (400), Filter-Parität ADR/Risk/Issue/Glossary, `allocated`/`level`, MCP `limit`/`offset`; #1669 bereits durch `CONS-P13` abgedeckt |
 | C5 — Datenintegrität | offen | — |
 | C6 — Embedding-Write-Path | offen | — |
 | C7 — Search/Index | offen | — |
