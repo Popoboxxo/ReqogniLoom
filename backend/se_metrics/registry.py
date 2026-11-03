@@ -53,6 +53,10 @@ SCOPE_WORKSPACE = "workspace"
 SCOPE_TENANT = "tenant"
 SCOPE_ARTIFACT_TYPE = "artifact_type"
 
+#: Accepted ``timeframe`` values (ISO-8601 periods). One source for REST and MCP
+#: so a typo cannot mean two different windows at the two doors (#1613/#1695).
+VALID_METRIC_TIMEFRAMES: tuple[str, ...] = ("P7D", "P30D", "P90D")
+
 SCOPES: tuple[str, ...] = (SCOPE_WORKSPACE, SCOPE_TENANT, SCOPE_ARTIFACT_TYPE)
 
 #: Scalar value type a metric extracts from a computed ``MetricsResult``.

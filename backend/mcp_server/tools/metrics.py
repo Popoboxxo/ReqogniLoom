@@ -39,6 +39,7 @@ from mcp_server.tools.base import (
     ParameterError,
     require_uuid,
 )
+from se_metrics.registry import VALID_METRIC_TIMEFRAMES
 from se_metrics.services import get_metric_catalog, get_metric_values
 
 
@@ -134,9 +135,10 @@ class MetricsToolGroup(BaseToolGroup):
                     },
                     "timeframe": {
                         "type": "string",
+                        "enum": list(VALID_METRIC_TIMEFRAMES),
                         "description": (
                             "Optional ISO-8601 period for the volatility "
-                            "window, e.g. \"P30D\" (default)."
+                            "window: P7D, P30D or P90D (default P30D)."
                         ),
                     },
                     "refresh": {
@@ -172,6 +174,11 @@ class MetricsToolGroup(BaseToolGroup):
         timeframe = params.get("timeframe")
         if timeframe is not None:
             timeframe = str(timeframe).strip() or None
+        if timeframe is not None and timeframe not in VALID_METRIC_TIMEFRAMES:
+            raise ParameterError(
+                "Parameter 'timeframe' must be one of "
+                f"{', '.join(VALID_METRIC_TIMEFRAMES)}."
+            )
 
         payload = get_metric_values(
             workspace_id=str(workspace_id),
