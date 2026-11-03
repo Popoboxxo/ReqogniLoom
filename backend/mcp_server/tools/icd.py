@@ -52,6 +52,7 @@ from mcp_server.tools.base import (
     resolve_engine_status,
     resolve_status_map,
     validate_artifact_write,
+    workspace_query_required,
 )
 from mcp_server.tools.system_fields import (
     SYSTEM_FIELD_SCHEMA,
@@ -241,7 +242,7 @@ class IcdToolGroup(BaseToolGroup):
                         "description": "UUID of the workspace.",
                     },
                 },
-                "required": ["workspace_id"],
+                "required": workspace_query_required(),
             },
         },
     ]

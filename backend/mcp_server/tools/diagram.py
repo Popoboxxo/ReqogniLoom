@@ -46,6 +46,7 @@ from mcp_server.tools.base import (
     optional_uuid,
     require_param,
     require_uuid,
+    workspace_query_required,
     write_mcp_audit,
 )
 
@@ -205,7 +206,7 @@ class DiagramToolGroup(BaseToolGroup):
                         "description": "If true, include outdated (soft-deleted) diagrams. Defaults to false.",
                     },
                 },
-                "required": ["workspace_id"],
+                "required": workspace_query_required(),
             },
         },
         {

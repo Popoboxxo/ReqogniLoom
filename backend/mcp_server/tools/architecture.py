@@ -53,6 +53,7 @@ from mcp_server.tools.base import (
     resolve_engine_status,
     resolve_status_map,
     validate_artifact_write,
+    workspace_query_required,
     write_mcp_audit,
 )
 from mcp_server.tools.system_fields import (
@@ -156,7 +157,7 @@ class ArchitectureToolGroup(BaseToolGroup):
                         "description": "If true, include outdated (soft-deleted) elements. Defaults to false.",
                     },
                 },
-                "required": ["workspace_id"],
+                "required": workspace_query_required(),
             },
         },
         {

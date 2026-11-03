@@ -31,6 +31,7 @@ from mcp_server.tools.base import (
     reject_unknown_params,
     require_param,
     require_uuid,
+    workspace_query_required,
     write_mcp_audit,
 )
 
@@ -84,7 +85,7 @@ class QualityToolGroup(BaseToolGroup):
                         ),
                     },
                 },
-                "required": ["workspace_id", "entity_type", "entity_id"],
+                "required": workspace_query_required("entity_type", "entity_id"),
             },
         },
         {
