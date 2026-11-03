@@ -2,7 +2,7 @@
 type: Plan
 title: "Bugfix-Cluster-Plan — 20 Issues, 10 Cluster, 14 neue Befunde"
 scope: "backend/application, backend/rest_api, backend/mcp_server, backend/persistence, backend/icd, backend/diagram, backend/workflow, frontend/src, scripts/, .github/workflows"
-status: proposed
+status: in_progress
 date: 2026-11-03
 branch_base: "origin/main @ f64b31e3 (v1.8.0-beta.25)"
 author_agent: orchestrator
@@ -459,6 +459,26 @@ Release, A11y und Hygiene ab.
 | #1381 | C4 | #1411/#1399 | C7 |
 | #1378 | C6 | #1410 | C10 |
 | #1401 | C6 | #1564 | C11 (separat) |
+
+---
+
+## 8b. Umsetzungsstand
+
+| Cluster | Status | Commit / Beleg |
+|---|---|---|
+| C1 — Hierarchie & Zyklen | **umgesetzt** | `b5dc889` — tier-unabhängiger Selbstbezug-Guard, visited-set, Repair-Command; 15 + 46 Tests grün |
+| C2 — Fehler-Mapping | **umgesetzt** | `6ea8848` — zentrales Mapping, `INVALID_STATE` registriert, ICD 409; 186 + 135 + 12 Tests grün |
+| C4 — Soft-Delete-Vertrag | **umgesetzt** | `7da945c` — Architecture-Detail 200/outdated, ICD Soft-Delete + reactivate; 204 Tests grün |
+| C3 — Request-Contract | offen | — |
+| C5 — Datenintegrität | offen | — |
+| C6 — Embedding-Write-Path | offen | — |
+| C7 — Search/Index | offen | — |
+| C8 — Version-Carrier | offen | — |
+| C9 — Accessibility | offen | — |
+| C10 — Datenhygiene | offen | — |
+| C11 — Typed Steps | separat | — |
+
+**Branch:** `fix/bugfix-cluster-batch` (von `main @ f64b31e3`).
 
 ---
 
