@@ -313,7 +313,7 @@ clients:
 
   - id: opencode
     name: OpenCode
-    tested_version: "1.18.31"
+    tested_version: "1.19.5"
     target_level: L3
     status: supported
     transport: sse
@@ -399,9 +399,11 @@ clients:
     update_de:
       - "`bash scripts/clients/install.sh --client opencode --url \"$REQOGNILOOM_MCP_URL\" --refresh` aktualisiert vorhandene Skills + `DOMAIN_MODEL.md` (vorheriges Ziel als `.bak-<ts>`)."
       - "MCP-Transport geändert: Eintrag gemäß Snippet in `opencode.jsonc` ersetzen; Stufe 2: `opencode plugin <modul>` installiert MCP + Skills in einem Schritt."
+      - "Eigene Agenten: `opencode agent create --description \"...\" --mode subagent --path .opencode/agents` (CLI 1.19.5; Optionen per `--help`)."
     update_en:
       - "`bash scripts/clients/install.sh --client opencode --url \"$REQOGNILOOM_MCP_URL\" --refresh` updates existing skills + `DOMAIN_MODEL.md` (previous target kept as `.bak-<ts>`)."
       - "Changed MCP transport: replace the entry per the snippet in `opencode.jsonc`; Stage 2: `opencode plugin <module>` installs MCP + skills in one step."
+      - "Own agents: `opencode agent create --description \"...\" --mode subagent --path .opencode/agents` (CLI 1.19.5; options via `--help`)."
 
   - id: opencode-v2
     name: OpenCode V2 (Beta)

@@ -474,13 +474,26 @@ table is in
 [`docs/clients/README.md`](docs/clients/README.md#placeholder-forms).
 
 **stdio-only clients.** Claude Desktop and Cursor do not speak HTTP/SSE
-natively and need a local bridge. No bridge command is documented here yet:
-invoking `mcp-remote` through `npx` is deliberately **not** shown un-pinned —
-versions before 0.1.16 are affected by CVE-2025-6514, and the exact pinned
-version has to be verified against a live deployment first. Until then, use
-one of the clients in [`docs/clients/`](docs/clients/README.md) that speaks
-SSE or Streamable HTTP natively, or drive the server with `curl` as in the
-[Manual MCP Test](#manual-mcp-test-curl) below.
+natively; bridge them with `mcp-remote`, pinned to **0.16.0** (verified against
+a live server on 2026-11-03; versions before 0.1.16 are affected by
+CVE-2025-6514):
+
+```json
+{
+  "mcpServers": {
+    "reqogniloom": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote@0.16.0",
+        "${REQOGNILOOM_MCP_URL}/mcp/",
+        "--header",
+        "X-API-Key:${REQOGNILOOM_API_KEY}"
+      ]
+    }
+  }
+}
+```
 
 ## Manual MCP Test (curl)
 
@@ -1241,10 +1254,8 @@ shape (`.mcp.json`) is shown in
 Streamable-HTTP alternative in
 [Quickstart — Call a Tool](#quickstart--call-a-tool).
 
-For clients that speak only stdio, see the note on the deliberately
-un-pinned `mcp-remote` bridge in
-[Step 9](#9-connect-an-mcp-client) — no unverified bridge command is
-documented here.
+For clients that speak only stdio, use the verified `mcp-remote@0.16.0`
+bridge in [Step 9](#9-connect-an-mcp-client).
 
 ### Tool Groups (39 prefixes)
 
