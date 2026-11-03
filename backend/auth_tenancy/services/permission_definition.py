@@ -16,7 +16,9 @@ implements the guarded ``enforcement_mode`` flip (REQ-187).
 from __future__ import annotations
 
 import copy
+from collections.abc import Mapping
 from datetime import timedelta
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -30,7 +32,9 @@ from auth_tenancy.models import (
     WorkspacePermissionDefinition,
 )
 
+from .authorization import PresetPolicyValidator
 from .permission_matrix import (
+    ROLE_KEYS,
     default_permission_matrix,
     merge_matrix,
     validate_matrix,
@@ -40,6 +44,65 @@ from .permission_matrix import (
 # the shadow -> authoritative flip. Kept in one place so the GET status endpoint
 # and the flip guard use an identical window (REQ-187).
 DEFAULT_MISMATCH_WINDOW_DAYS = 30
+
+
+# ---------------------------------------------------------------------------
+# Preset-truthful role catalogue (#1592)
+# ---------------------------------------------------------------------------
+
+
+def assignable_roles_for_preset(preset: str) -> tuple[str, ...]:
+    """Return the roles a preset can actually assign, in canonical order.
+
+    Delegates to :meth:`PresetPolicyValidator.is_role_allowed_in_preset` — the
+    predicate :meth:`AuthorizationService.assign_role` enforces — so the
+    catalogue and the ``members`` assignment can never disagree about whether
+    ``approver`` exists in a preset (#1592).
+    """
+    return PresetPolicyValidator.assignable_roles(preset)
+
+
+def permission_catalog_for_preset(
+    permission_json: Mapping[str, Mapping[str, bool]], *, preset: str
+) -> dict[str, dict[str, bool]]:
+    """Project a stored matrix onto the preset's truthful role catalogue.
+
+    Only assignable roles are returned, in :data:`ROLE_KEYS` order. The stored
+    matrix is never mutated: a workspace provisioned under ``extended`` keeps
+    its approver row after switching to ``standard``, so switching back does not
+    lose configuration — it is simply not advertised while the role cannot be
+    assigned.
+    """
+    allowed = set(assignable_roles_for_preset(preset))
+    return {
+        role: dict(permission_json[role])
+        for role in ROLE_KEYS
+        if role in allowed and role in permission_json
+    }
+
+
+def restore_non_assignable_roles(
+    submitted: Mapping[str, Any],
+    stored: Mapping[str, Mapping[str, bool]],
+    *,
+    preset: str,
+) -> dict[str, Any]:
+    """Backfill roles a preset cannot assign from the stored matrix.
+
+    ``GET …/permission-definition/`` exposes only the assignable roles, so a
+    client that echoes that payload back must not fail matrix validation just
+    because the non-assignable rows are absent. Supplied roles are left
+    untouched; only absent non-assignable roles are restored.
+    """
+    merged: dict[str, Any] = dict(submitted)
+    for role in ROLE_KEYS:
+        if role in merged:
+            continue
+        if PresetPolicyValidator.is_role_allowed_in_preset(role, preset):
+            continue
+        if role in stored:
+            merged[role] = copy.deepcopy(stored[role])
+    return merged
 
 
 class NoGlobalSourceError(Exception):
@@ -385,4 +448,7 @@ __all__ = [
     "MismatchCountStaleError",
     "NoGlobalSourceError",
     "PermissionDefinitionService",
+    "assignable_roles_for_preset",
+    "permission_catalog_for_preset",
+    "restore_non_assignable_roles",
 ]

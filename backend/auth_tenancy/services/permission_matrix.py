@@ -21,11 +21,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from ..models import ROLE_ADMIN, ROLE_APPROVER, ROLE_EDITOR, ROLE_VIEWER
-from .authorization import _RBAC_MATRIX, Operation
+from .authorization import ALL_ROLES, _RBAC_MATRIX, Operation
 
-# Canonical role keys (closed set) — order is presentation-stable.
-ROLE_KEYS: tuple[str, ...] = (ROLE_ADMIN, ROLE_EDITOR, ROLE_VIEWER, ROLE_APPROVER)
+# Canonical role keys (closed set) — order is presentation-stable and shared
+# with the RBAC matrix so the catalogue cannot list a different role set than
+# the enforcement layer evaluates (#1592).
+ROLE_KEYS: tuple[str, ...] = ALL_ROLES
 
 # Canonical capability keys (closed set) — the six ``Operation`` values.
 CAPABILITY_KEYS: tuple[str, ...] = tuple(op.value for op in Operation)
