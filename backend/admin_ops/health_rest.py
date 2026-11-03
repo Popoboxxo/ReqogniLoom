@@ -476,10 +476,11 @@ def _check_qdrant() -> dict[str, str]:
 
     The configured/not-configured gate is the EFFECTIVE configuration
     (:func:`memory.qdrant_backend.resolve_effective_qdrant_config`, i.e. the
-    ``SystemMemorySettings`` ``qdrant_*`` override overlaid on the env --
-    exactly what ``QdrantMemoryBackend`` itself talks to), NOT the env-only
-    ``persistence.qdrant_config.is_qdrant_configured()``. A Qdrant configured
-    solely via the admin ``qdrant_base_url`` override therefore gets probed
+    ``SystemMemorySettings`` ``backend_options["qdrant"]`` override overlaid on
+    the env -- exactly what ``QdrantMemoryBackend`` itself talks to), NOT the
+    env-only ``persistence.qdrant_config.is_qdrant_configured()``. A Qdrant
+    configured solely via the admin ``backend_options["qdrant"]["base_url"]``
+    override therefore gets probed
     instead of being reported ``not_configured`` while the backend is actually
     using Qdrant (B1, split-brain fix).
 

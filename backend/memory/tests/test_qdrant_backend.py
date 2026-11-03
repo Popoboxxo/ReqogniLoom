@@ -630,8 +630,9 @@ class TestQdrantEffectiveConfig:
         monkeypatch.setenv("QDRANT_BASE_URL", "http://env.invalid")
         monkeypatch.setenv("QDRANT_DISTANCE", "euclid")
         SystemMemorySettings.objects.create(
-            qdrant_base_url="http://db.invalid",
-            qdrant_distance="cosine",
+            backend_options={
+                "qdrant": {"base_url": "http://db.invalid", "distance": "cosine"}
+            },
         )
 
         config = resolve_effective_qdrant_config()

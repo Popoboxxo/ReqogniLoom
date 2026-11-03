@@ -741,7 +741,9 @@ class TestSystemHealthQdrant:
         from memory.qdrant_backend import QdrantMemoryBackend
 
         monkeypatch.delenv("QDRANT_BASE_URL", raising=False)
-        SystemMemorySettings.objects.create(qdrant_base_url="http://qdrant.from-db:6333")
+        SystemMemorySettings.objects.create(
+            backend_options={"qdrant": {"base_url": "http://qdrant.from-db:6333"}}
+        )
 
         with patch.object(
             QdrantMemoryBackend,

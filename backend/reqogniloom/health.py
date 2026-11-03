@@ -1093,8 +1093,9 @@ def _collect_advisory(
             warnings.append(
                 "qdrant_api_key_missing: the artifact store is configured for "
                 "Qdrant in a production deployment and no API key resolves — "
-                "neither QDRANT_API_KEY nor SystemMemorySettings."
-                "qdrant_api_key is set. Unless the qdrant service itself "
+                "neither QDRANT_API_KEY nor "
+                "SystemMemorySettings.backend_secrets['qdrant']['api_key'] is "
+                "set. Unless the qdrant service itself "
                 "enforces QDRANT__SERVICE__API_KEY, the store accepts "
                 "unauthenticated callers, so every container on the network can "
                 "read and delete tenant vectors. Set QDRANT_API_KEY (and the "

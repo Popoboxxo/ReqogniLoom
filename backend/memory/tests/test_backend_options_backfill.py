@@ -7,6 +7,10 @@ depend on the live model's custom ``save()``/properties.
 Two properties matter: a round trip preserves the configuration, and a
 ciphertext the current key cannot decrypt aborts the migration instead of
 silently dropping a configured API key (QR-S13).
+
+Since ``0012_drop_legacy_backend_columns`` the live schema no longer has the
+legacy columns, so each test first migrates the database DOWN to ``0011`` --
+otherwise the historical model's INSERT would reference dropped columns.
 """
 from importlib import import_module
 import json
@@ -21,13 +25,22 @@ from persistence.encryption import decrypt_secret, encrypt_secret
 MIGRATION = ("memory", "0011_backfill_backend_options")
 
 
-def _historical_apps():
-    return MigrationExecutor(connection).loader.project_state(MIGRATION).apps
-
-
 def _module():
     # Module name starts with a digit, so import by string.
     return import_module("memory.migrations.0011_backfill_backend_options")
+
+
+@pytest.fixture
+def at_0011():
+    """Migrate the test DB to ``0011`` for the duration of one test."""
+    latest = MigrationExecutor(connection).loader.graph.leaf_nodes()
+    executor = MigrationExecutor(connection)
+    executor.migrate([MIGRATION])
+    executor.loader.build_graph()
+    try:
+        yield executor.loader.project_state(MIGRATION).apps
+    finally:
+        MigrationExecutor(connection).migrate(latest)
 
 
 def _create_legacy_row(SystemMemorySettings):
@@ -47,13 +60,12 @@ def _create_legacy_row(SystemMemorySettings):
     )
 
 
-@pytest.mark.django_db
-def test_forward_then_backward_preserves_the_configuration():
-    apps = _historical_apps()
-    SystemMemorySettings = apps.get_model("memory", "SystemMemorySettings")
+@pytest.mark.django_db(transaction=True)
+def test_forward_then_backward_preserves_the_configuration(at_0011):
+    SystemMemorySettings = at_0011.get_model("memory", "SystemMemorySettings")
     _create_legacy_row(SystemMemorySettings)
 
-    _module().forwards(apps, None)
+    _module().forwards(at_0011, None)
 
     row = SystemMemorySettings.objects.get(pk=SYSTEM_MEMORY_SETTINGS_ID)
     assert row.backend_options["honcho"]["base_url"] == "http://honcho:8000"
@@ -72,7 +84,7 @@ def test_forward_then_backward_preserves_the_configuration():
         "qdrant": {"api_key": "sk-qdrant"},
     }
 
-    _module().backwards(apps, None)
+    _module().backwards(at_0011, None)
 
     row.refresh_from_db()
     assert row.honcho_base_url == "http://honcho:8000"
@@ -82,10 +94,9 @@ def test_forward_then_backward_preserves_the_configuration():
     assert decrypt_secret(row.qdrant_api_key_encrypted) == "sk-qdrant"
 
 
-@pytest.mark.django_db
-def test_undecryptable_legacy_secret_aborts_the_backfill():
-    apps = _historical_apps()
-    SystemMemorySettings = apps.get_model("memory", "SystemMemorySettings")
+@pytest.mark.django_db(transaction=True)
+def test_undecryptable_legacy_secret_aborts_the_backfill(at_0011):
+    SystemMemorySettings = at_0011.get_model("memory", "SystemMemorySettings")
     SystemMemorySettings.objects.all().delete()
     SystemMemorySettings.objects.create(
         pk=SYSTEM_MEMORY_SETTINGS_ID,
@@ -94,4 +105,4 @@ def test_undecryptable_legacy_secret_aborts_the_backfill():
     )
 
     with pytest.raises(Exception):
-        _module().forwards(apps, None)
+        _module().forwards(at_0011, None)
