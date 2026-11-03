@@ -12,7 +12,7 @@
  * value untouched — only the preview resolves it.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import { useTranslation } from "react-i18next";
 import { SlidersHorizontal } from "lucide-react";
@@ -24,6 +24,11 @@ import {
 } from "../shared/MarkdownField/markdown-format";
 import { MarkdownToolbar } from "../shared/MarkdownField/MarkdownToolbar";
 import { GlossaryTooltip } from "./GlossaryTooltip";
+import {
+  filterReferenceSuggestions,
+  findReferenceTrigger,
+  type ReferenceTrigger,
+} from "../WorkItems/referenceAutocomplete";
 import type {
   GlossaryReferenceResolution,
   GlossaryReferenceResolutionPayload,
@@ -98,7 +103,11 @@ export function MarkdownPreview({
   const { activeWorkspace } = useWorkspace();
   const [terms, setTerms] = useState<GlossaryTerm[]>([]);
   const [resolved, setResolved] = useState<GlossaryReferenceResolutionPayload | null>(null);
+  const [trigger, setTrigger] = useState<ReferenceTrigger | null>(null);
+  const [suggestionIndex, setSuggestionIndex] = useState(0);
+  const suggestionListId = useId();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const termsLoadingRef = useRef(false);
   /**
    * #1287: a formatting action changes `value`, which re-renders the textarea
    * and puts the caret at the end. The offsets computed by
@@ -133,6 +142,33 @@ export function MarkdownPreview({
     terms.forEach((term) => map.set(term.term.toLowerCase(), term));
     return map;
   }, [terms]);
+
+  const suggestions = useMemo(
+    () => (trigger ? filterReferenceSuggestions(terms, trigger.query) : []),
+    [terms, trigger]
+  );
+
+  const buildToken = useCallback(
+    (term: GlossaryTerm): string => {
+      if (!term.global_uuid) return "";
+      return referenceMode === "always_head" || term.version === undefined
+        ? `[[glossary:${term.global_uuid}]]`
+        : `[[glossary:${term.global_uuid}@${term.version}]]`;
+    },
+    [referenceMode]
+  );
+
+  const ensureTermsForAutocomplete = useCallback((): void => {
+    if (!workspaceId || terms.length > 0 || termsLoadingRef.current) return;
+    termsLoadingRef.current = true;
+    glossaryApi
+      .list(workspaceId)
+      .then(setTerms)
+      .catch(console.error)
+      .finally(() => {
+        termsLoadingRef.current = false;
+      });
+  }, [workspaceId, terms.length]);
 
   const hasToken = REFERENCE_PRESENCE.test(value ?? "");
 
@@ -283,13 +319,44 @@ export function MarkdownPreview({
           console.error("Failed to create glossary reference link", err);
         }
       }
-      const token =
-        referenceMode === "always_head" || term.version === undefined
-          ? `[[glossary:${globalUuid}]]`
-          : `[[glossary:${globalUuid}@${term.version}]]`;
-      insertAtCursor(token);
+      insertAtCursor(buildToken(term));
     },
-    [terms, workspaceId, artifactId, referenceMode, insertAtCursor]
+    [terms, workspaceId, artifactId, buildToken, insertAtCursor]
+  );
+
+  /**
+   * Insert the chosen term over the open `[[…` trigger. A saved artifact goes
+   * through `references/insert/` so the usage trace link exists (I-1); an
+   * unsaved one builds the same token locally.
+   */
+  const chooseSuggestion = useCallback(
+    async (term: GlossaryTerm): Promise<void> => {
+      if (!trigger || !term.global_uuid) return;
+      const el = textareaRef.current;
+      const start = trigger.start;
+      const end =
+        el?.selectionEnd ?? trigger.start + 2 + trigger.query.length;
+      let token = buildToken(term);
+      if (workspaceId && artifactId) {
+        try {
+          const result = await glossaryApi.insertReference(
+            workspaceId,
+            artifactId,
+            term.global_uuid
+          );
+          token = result.token;
+        } catch (err) {
+          console.error("Failed to create glossary reference link", err);
+        }
+      }
+      setTrigger(null);
+      onChange(`${value.slice(0, start)}${token}${value.slice(end)}`);
+      pendingSelectionRef.current = {
+        start: start + token.length,
+        end: start + token.length,
+      };
+    },
+    [trigger, buildToken, workspaceId, artifactId, value, onChange]
   );
 
   const handleUpgradeToHead = useCallback(async (): Promise<void> => {
@@ -418,14 +485,86 @@ export function MarkdownPreview({
           <textarea
             ref={textareaRef}
             id={id}
+            data-testid={id ? `${id}-textarea` : "md-textarea"}
             aria-label={id ? undefined : ariaLabel}
             value={value}
-            onChange={(e) => onChange(e.target.value)}
+            aria-autocomplete={trigger ? "list" : undefined}
+            aria-controls={
+              trigger && suggestions.length > 0 ? suggestionListId : undefined
+            }
+            aria-activedescendant={
+              trigger && suggestions.length > 0
+                ? `${suggestionListId}-${suggestionIndex}`
+                : undefined
+            }
+            onChange={(e) => {
+              const next = e.target.value;
+              onChange(next);
+              const caret = e.target.selectionStart ?? next.length;
+              const nextTrigger = findReferenceTrigger(next, caret);
+              if (nextTrigger) {
+                ensureTermsForAutocomplete();
+                setTrigger(nextTrigger);
+                setSuggestionIndex(0);
+              } else {
+                setTrigger(null);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (!trigger || suggestions.length === 0) return;
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setSuggestionIndex(
+                  (current) => (current + 1) % suggestions.length
+                );
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setSuggestionIndex(
+                  (current) =>
+                    (current - 1 + suggestions.length) % suggestions.length
+                );
+              } else if (e.key === "Enter" || e.key === "Tab") {
+                e.preventDefault();
+                const chosen = suggestions[suggestionIndex];
+                if (chosen) void chooseSuggestion(chosen);
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                setTrigger(null);
+              }
+            }}
             disabled={disabled}
             rows={6}
             className={styles.textarea}
             placeholder={t("editor.descriptionPlaceholder")}
           />
+          {trigger && suggestions.length > 0 && (
+            <ul
+              role="listbox"
+              id={suggestionListId}
+              className={styles.suggestions}
+              data-testid="md-reference-suggestions"
+              aria-label={t("markdown.reference.suggestions")}
+            >
+              {suggestions.map((term, index) => (
+                <li
+                  key={term.global_uuid}
+                  id={`${suggestionListId}-${index}`}
+                  role="option"
+                  aria-selected={index === suggestionIndex}
+                  className={`${styles.suggestion} ${
+                    index === suggestionIndex ? styles.suggestionActive : ""
+                  } btn-ghost`}
+                  data-testid={`md-reference-option-${term.global_uuid}`}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    void chooseSuggestion(term);
+                  }}
+                >
+                  {term.term}
+                </li>
+              ))}
+            </ul>
+          )}
         </>
       )}
     </div>
