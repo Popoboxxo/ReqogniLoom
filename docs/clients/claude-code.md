@@ -32,7 +32,8 @@ export REQOGNILOOM_API_KEY="reqlo_…"
 Complete, generated configuration (env-var references, never a literal key):
 
 ```bash
-claude mcp add --transport http reqogniloom \
+# Transport is SSE (matching the plugin's `.mcp.json`) — not HTTP:
+claude mcp add --transport sse reqogniloom \
   "$REQOGNILOOM_MCP_URL/mcp/sse/" \
   --header "X-API-Key: $REQOGNILOOM_API_KEY"
 ```

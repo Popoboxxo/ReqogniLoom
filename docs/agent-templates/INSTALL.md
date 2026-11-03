@@ -50,7 +50,7 @@ OpenCode already looks for them:
    `{env:REQOGNILOOM_API_KEY}` is an OpenCode env placeholder — the literal key
    never lands in argv, shell history or the config file.
    Or merge `dist/opencode/opencode.json.snippet`'s `mcp.reqogniloom` block
-   into your project's `opencode.json` (or `~/.config/opencode/opencode.json`
+   into your project's `opencode.jsonc` (or `~/.config/opencode/opencode.jsonc`
    for a user-wide install). This is the **canonical** shape — earlier
    documentation showed a `type:"http"` + `options.headers` variant that never
    matched the shipped snippet and is now a CI failure to reintroduce:
@@ -80,7 +80,7 @@ OpenCode already looks for them:
 3. Set the same two environment variables as the Claude Code install
    (`REQOGNILOOM_MCP_URL`, `REQOGNILOOM_API_KEY`) — OpenCode's `{env:...}`
    syntax resolves them at connection time, never store the literal key in
-   `opencode.json`.
+   `opencode.jsonc`.
 4. Verify: `opencode mcp list` should show `reqogniloom` as connected; ask
    any OpenCode agent to use the `traceability-audit` skill and call
    `traceability.query` to confirm read access end to end. OpenCode has no
@@ -117,13 +117,40 @@ Antigravity with a **read-only-role API key** (mirroring the
 `quality-auditor` role's tool scope) against a production workspace, rather
 than relying on skill choice to hold that boundary.
 
+## Per-client pages (Codex, Kimi Code, Hermes)
+
+Codex, Kimi Code and Hermes are documented per client in
+[`docs/clients/`](../clients/README.md), generated from
+`clients/registry.yaml` in German and English. Each page carries the
+one-command install, the complete config, the verification command and the
+pitfalls for the tested client version:
+
+- Codex CLI — [`docs/clients/codex.md`](../clients/codex.md)
+- Kimi Code — [`docs/clients/kimi-code.md`](../clients/kimi-code.md)
+- Hermes — [`docs/clients/hermes.md`](../clients/hermes.md)
+
+The Claude Code, OpenCode and Antigravity sections above describe the
+packaging side; the client pages remain authoritative for transport and auth.
+The placeholder syntax differs per client (`${VAR}`, `{env:VAR}`,
+`bearer_token_env_var`, `bearerTokenEnvVar`) — the comparison table is in
+[`docs/clients/README.md`](../clients/README.md#placeholder-forms).
+
+## Model / Provider
+
+Model and provider setup is client-specific and deliberately not duplicated
+here: see section 4 ("Model / Provider") of the respective page under
+[`docs/clients/`](../clients/README.md). The `REQOGNILOOM_*` env-var and auth
+convention below applies to every client.
+
 ## Regenerating after a ReqogniLoom version upgrade
 
 Every package in `dist/` is generated, not hand-maintained. After any
 change to `backend/mcp_server/tool_registry.py`, a `VERSION` bump, a manual
 edit to a `docs/agent-templates/<role>.md` role's `tools:` whitelist, or an
 edit to a `docs/agent-templates/skills/<name>/SKILL.md` process skill, run
-in order (each depends on the previous step's output):
+in this order. `package_skills.py` stages `dist/agent-skills/`, which every
+builder below reads, so it must run first; the four builders are independent
+of each other:
 
 ```bash
 # 1. Regenerate the canonical manifest. `export_tool_manifest` defaults to
@@ -134,18 +161,22 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.ym
   exec backend python3 manage.py export_tool_manifest --out /tmp/tool-manifest.json
 docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.yml --project-directory . \
   cp backend:/tmp/tool-manifest.json docs/agent-templates/tool-manifest.json
+# 2. Verify the role/skill references against that manifest:
 python3 -m pytest docs/agent-templates/test_role_tools_exist_in_manifest.py \
                    docs/agent-templates/test_process_skills_reference_real_tools.py -v
+# 3. Stage dist/agent-skills/ (input for every builder in step 4):
 python3 docs/agent-templates/package_skills.py
+# 4. Build the four packages (each reads dist/agent-skills/ from step 3):
 python3 dist/plugins/claude-code/build_claude_plugin.py
 python3 dist/plugins/antigravity/build_antigravity_plugin.py
 python3 dist/opencode/build_opencode_package.py
+python3 dist/codex/build_codex_package.py
 ```
 
 The `test_tool_manifest_drift` test (`backend/mcp_server/tests/test_tool_manifest_drift.py`)
-fails CI if step 1's output is committed stale relative to the registry —
+fails CI if the exported manifest is committed stale relative to the registry —
 treat a CI failure there as "you forgot to regenerate," not a code bug. The
-`test_role_tools_exist_in_manifest.py` run in step 2 catches the same class
+`test_role_tools_exist_in_manifest.py` run above catches the same class
 of drift one level up: a role file referencing a tool that got renamed or
 removed since the role was last updated.
 
@@ -165,10 +196,13 @@ what defines it:
 | Key prefix | `reqlo_` — MCP *requires* it, a JWT in `Authorization: Bearer` is rejected | `backend/auth_tenancy/rest.py` |
 | Auth header | `X-API-Key`, or `Authorization: Bearer` — the backend accepts both | `backend/mcp_server/protocol_handler.py` |
 
-Codex is the one package that uses the Bearer form: its Streamable-HTTP
-transport has no custom-header mechanism, only `bearer_token_env_var`, which
-the client expands into `Authorization: Bearer`. That is the *other* accepted
-transport, not a workaround.
+Codex is the one package that uses the Bearer form: `bearer_token_env_var`
+names an env var whose value Codex sends as `Authorization: Bearer` — the
+*other* accepted transport, not a workaround. Codex ≥ 0.151 also supports
+custom headers (`env_http_headers` / `http_headers`); the shipped package
+deliberately does not use them — one key, one transport keeps the config
+minimal, and `dist/test_mcp_convention_parity.py` pins that choice so nobody
+"fixes" it by accident.
 
 A second, divergent variant of this convention exists in the `.agent-meta`
 submodule (`config/plugin-catalog.yaml`, regenerated by `sync.py` into

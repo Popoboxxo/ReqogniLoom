@@ -13,8 +13,10 @@ Two deliberate deviations from the JSON-based packages:
    gets quoting right without adding a tomli-w dependency for four lines.
 
 2. Authorization: Bearer, not X-API-Key. Codex's url-based (Streamable HTTP)
-   transport has no custom-header mechanism; it has bearer_token_env_var, which
-   names an env var whose value Codex sends as "Authorization: Bearer <value>".
+   transport offers ``bearer_token_env_var`` (an env var name whose value Codex
+   sends as "Authorization: Bearer <value>") and, since 0.151, custom headers
+   via ``env_http_headers``/``http_headers``. This package deliberately uses
+   the Bearer form: one key, one transport, and no header value to keep in sync.
    backend/mcp_server/views.py accepts either header for a reqlo_ key, so the
    same API key works — only the transport differs. Endpoint is /mcp/ (the
    single-request/response JSON-RPC endpoint) rather than /mcp/sse/, matching

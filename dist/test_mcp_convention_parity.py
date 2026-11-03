@@ -20,10 +20,12 @@ What the backend accepts (the backend wins; the `dist/` side must follow):
 
 Codex's snippet uses the Bearer transport and ships no ``headers`` at all.
 That is deliberate, not an oversight: Codex's Streamable-HTTP transport offers
-only ``bearer_token_env_var`` and has no custom-header mechanism, so the same
-key travels over the other of the two accepted transports. It is pinned as
-intentional by `test_codex_bearer_shape_is_intentional` below so nobody
-"fixes" it to ``X-API-Key``.
+``bearer_token_env_var`` and — since 0.151 — also custom headers
+(``env_http_headers`` / ``http_headers``); the shipped package uses the Bearer
+form because it is the other of the two accepted transports and keeps one key
+on one path. It is pinned as intentional by
+`test_codex_bearer_shape_is_intentional` below so nobody "fixes" it to
+``X-API-Key``.
 
 Every invariant is checked twice -- against a fresh build, and against the
 committed artifact on disk. `dist/test_full_regeneration.py` already
@@ -409,15 +411,17 @@ def test_no_config_carries_a_plaintext_key(emitted: EmittedServer) -> None:
 
 
 def test_codex_bearer_shape_is_intentional(generated_roots: dict[str, Path]) -> None:
-    """Pins Codex's deviation from the X-API-Key shape as intentional.
+    """Pins Codex's use of the Bearer shape as intentional.
 
-    Codex's Streamable-HTTP transport has no custom-header mechanism at all --
-    only `bearer_token_env_var`, which the client expands into
-    `Authorization: Bearer`. That is the *other* of the two transports the
-    backend accepts for a `reqlo_` key, so the same API key works and only
-    the transport differs (see the rationale in build_codex_package.py). This
-    test exists so the asymmetry is read as a decision rather than corrected
-    into a header Codex would silently drop.
+    The shipped package authenticates Codex through ``bearer_token_env_var``,
+    which the client expands into ``Authorization: Bearer`` — the *other* of the
+    two transports the backend accepts for a ``reqlo_`` key, so the same API key
+    works and only the transport differs (see the rationale in
+    build_codex_package.py). Codex 0.151+ does also support custom headers
+    (``env_http_headers``/``http_headers``); the package deliberately uses one
+    transport form per client and no custom-header block. This test exists so
+    the asymmetry is read as a decision rather than corrected into a different
+    shape by accident.
     """
     spec = next(s for s in CONFIG_BUILDERS if s.name == "codex")
     raw = (generated_roots["codex"] / spec.out_subpath).read_text(
@@ -426,8 +430,8 @@ def test_codex_bearer_shape_is_intentional(generated_roots: dict[str, Path]) -> 
     server = _server_from(spec, ORIGIN_BUILT, raw)
 
     assert "headers" not in _server_node(spec, raw), (
-        "Codex must not gain a custom headers block: its transport would "
-        "ignore it, leaving the snippet looking authenticated when it is not"
+        "Codex must not gain a custom headers block: the package deliberately "
+        "keeps one transport form per client (bearer_token_env_var)"
     )
     assert server.bearer_token_env_var == API_KEY_ENV_VAR
     assert server.transports == {BEARER_TRANSPORT}

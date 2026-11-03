@@ -436,76 +436,51 @@ docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.override.ym
 
 All containers should show `Up (healthy)` or `Up`.
 
-### 9. Connect an MCP Client (Claude Desktop / Cursor / OpenCode / Codex CLI)
+### 9. Connect an MCP Client
 
-You can connect external AI assistants like Claude Desktop, Cursor, OpenCode or Codex CLI to ReqogniLoom's MCP server.
-ReqogniLoom exposes an SSE (Server-Sent Events) transport endpoint for remote connections.
+ReqogniLoom exposes its MCP server over two transports: Streamable HTTP at
+`/mcp/` (preferred when the client speaks it natively) and SSE at `/mcp/sse/`.
+**Important:** you need an active API key (see Step 5 above). The credential is
+always a `reqlo_` API key — never a JWT.
 
-**Important:** You need an active API key to authenticate (see Step 5 above).
+> **Per-client, one-command installs (German + English):** see
+> [`docs/clients/`](docs/clients/README.md) — generated from
+> `clients/registry.yaml` for Claude Code, Codex, OpenCode (V1 and V2), Kimi
+> Code, Antigravity and Hermes. Each page carries the exact install command,
+> the full configuration, the verification command and the pitfalls for the
+> tested client version.
 
-> **One command per client, German + English:** see [`docs/clients/`](docs/clients/README.md) —
-> generated from `clients/registry.yaml` for Claude Code, Codex, OpenCode, Kimi Code,
-> Antigravity and Hermes (transport, auth, verification and pitfalls per client).
-
-#### Example: Claude Desktop Configuration
-
-Edit your `claude_desktop_config.json` (usually located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or `%APPDATA%\\Claude\\claude_desktop_config.json` on Windows):
+The shipped, verified configuration shape for the SSE clients is this
+`.mcp.json` fragment — it is exactly what the Claude Code plugin ships:
 
 ```json
 {
   "mcpServers": {
     "reqogniloom": {
-      "command": "curl",
-      "args": [
-        "-N", 
-        "-s",
-        "-H", "X-API-Key: YOUR_API_KEY",
-        "http://localhost:8000/mcp/sse/"
-      ]
+      "type": "sse",
+      "url": "${REQOGNILOOM_MCP_URL}/mcp/sse/",
+      "headers": {
+        "X-API-Key": "${REQOGNILOOM_API_KEY}"
+      }
     }
   }
 }
 ```
-*Note: Since ReqogniLoom provides an HTTP/SSE endpoint, we use `curl -N` to pipe the SSE stream into Claude Desktop's standard input. Alternatively, you can write a tiny Node.js script that connects to the SSE URL and bridges it to stdio.*
 
-#### Example: Cursor IDE
+`${VAR}` is expanded by the client at config load, so the key never lands in
+the file. Placeholder syntax differs per client (OpenCode uses `{env:VAR}`,
+Codex `bearer_token_env_var`, Kimi Code `bearerTokenEnvVar`); the comparison
+table is in
+[`docs/clients/README.md`](docs/clients/README.md#placeholder-forms).
 
-In Cursor, go to **Settings > Features > MCP**:
-1. Click **+ Add new MCP server**
-2. **Name**: `ReqogniLoom`
-3. **Type**: `sse`
-4. **URL**: `http://localhost:8000/mcp/sse/`
-5. **Headers**: Add a header `X-API-Key` with your API Key value.
-
-#### Example: OpenCode
-
-ReqogniLoom ships a ready-made config snippet plus the six SE-domain agent skills:
-`dist/opencode/opencode.json.snippet` and `dist/opencode/skills/`.
-
-1. Merge the snippet into your `opencode.json` (it defines a remote MCP server
-   named `reqogniloom` pointing at `{env:REQOGNILOOM_MCP_URL}/mcp/sse/` with an
-   `X-API-Key: {env:REQOGNILOOM_API_KEY}` header).
-2. Export both env vars, e.g. `REQOGNILOOM_MCP_URL=http://localhost:8000` and
-   `REQOGNILOOM_API_KEY=reqlo_...`.
-3. Optionally copy `dist/opencode/skills/*` into your project's `.opencode/skills/`.
-
-Regenerate with `python3 dist/opencode/build_opencode_package.py`.
-
-#### Example: Codex CLI
-
-Codex CLI reads MCP servers from TOML, so it gets its own snippet:
-`dist/codex/config.toml.snippet` and `dist/codex/skills/`.
-
-1. Paste the snippet into `~/.codex/config.toml` (global) or `.codex/config.toml`
-   (project-scoped, trusted projects only) and replace the `url` host with your
-   deployment, e.g. `http://localhost:8000/mcp/`.
-2. Export `REQOGNILOOM_API_KEY=reqlo_...` — Codex reads that env var (via
-   `bearer_token_env_var`) and sends it as `Authorization: Bearer <key>`, which the
-   MCP server accepts just like `X-API-Key`.
-3. Optionally copy `dist/codex/skills/*` into your project's skills directory.
-
-Codex uses the Streamable HTTP endpoint `/mcp/` rather than the SSE stream.
-Regenerate with `python3 dist/codex/build_codex_package.py`.
+**stdio-only clients.** Claude Desktop and Cursor do not speak HTTP/SSE
+natively and need a local bridge. No bridge command is documented here yet:
+invoking `mcp-remote` through `npx` is deliberately **not** shown un-pinned —
+versions before 0.1.16 are affected by CVE-2025-6514, and the exact pinned
+version has to be verified against a live deployment first. Until then, use
+one of the clients in [`docs/clients/`](docs/clients/README.md) that speaks
+SSE or Streamable HTTP natively, or drive the server with `curl` as in the
+[Manual MCP Test](#manual-mcp-test-curl) below.
 
 ## Manual MCP Test (curl)
 
@@ -1234,7 +1209,7 @@ curl -X POST http://localhost:8000/api/v1/api-keys/ \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"claude-desktop"}'
-# Response: {"id":7, "key":"reqlo_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12", ...}
+# Response: {"id":7, "key":"reqlo_…", ...}
 ```
 
 The plaintext key is returned **once** at creation. Store it securely.
@@ -1244,7 +1219,7 @@ The plaintext key is returned **once** at creation. Store it securely.
 ```bash
 curl -X POST http://localhost:8000/mcp/ \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: reqlo_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12" \
+  -H "X-API-Key: $REQOGNILOOM_API_KEY" \
   -d '{
     "jsonrpc":"2.0",
     "id":1,
@@ -1258,42 +1233,18 @@ curl -X POST http://localhost:8000/mcp/ \
 
 ### Client Configuration Examples
 
-**Cursor (`.cursor/mcp.json`)**
-```json
-{
-  "mcpServers": {
-    "reqogniloom": {
-      "command": "curl",
-      "args": [
-        "-s",
-        "-X", "POST",
-        "http://localhost:8000/mcp/stdio/",
-        "-H", "X-API-Key: reqlo_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12",
-        "-d", "@-"
-      ]
-    }
-  }
-}
-```
-*(Note: Since Cursor only supports stdio currently, we use `curl` to bridge stdio to the HTTP endpoint).*
+Shipped, version-pinned client configurations live in
+[`docs/clients/`](docs/clients/README.md) — one page per client (DE/EN) with
+the config artifact, install command and verification. The canonical SSE
+shape (`.mcp.json`) is shown in
+[Step 9](#9-connect-an-mcp-client); `POST /mcp/` with `X-API-Key` is the
+Streamable-HTTP alternative in
+[Quickstart — Call a Tool](#quickstart--call-a-tool).
 
-**Claude Desktop (`claude_desktop_config.json`)**
-```json
-{
-  "mcpServers": {
-    "reqogniloom": {
-      "command": "curl",
-      "args": [
-        "-s",
-        "-X", "POST",
-        "http://localhost:8000/mcp/stdio/",
-        "-H", "X-API-Key: reqlo_Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78St90Uv12",
-        "-d", "@-"
-      ]
-    }
-  }
-}
-```
+For clients that speak only stdio, see the note on the deliberately
+un-pinned `mcp-remote` bridge in
+[Step 9](#9-connect-an-mcp-client) — no unverified bridge command is
+documented here.
 
 ### Tool Groups (39 prefixes)
 

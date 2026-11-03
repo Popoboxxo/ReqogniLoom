@@ -82,6 +82,19 @@ def test_stage2_docs_are_parity_equal() -> None:
     assert render.check_stage2_parity() == []
 
 
+def test_placeholder_forms_are_documented_in_both_languages() -> None:
+    """#1171 gap L3: the three-plus placeholder syntaxes share one table."""
+    files = render.plan_outputs(render.load_registry())
+    for name, heading, needle in (
+        ("README.md", "### Placeholder forms", "bearer_token_env_var"),
+        ("README.de.md", "### Platzhalterformen", "bearerTokenEnvVar"),
+    ):
+        page = files[render.DOCS_DIR / name]
+        assert heading in page, f"{name} has no placeholder table"
+        assert needle in page, f"{name} does not document {needle}"
+        assert "{env:VAR}" in page, f"{name} does not document the OpenCode form"
+
+
 def test_hermes_documents_the_desktop_plugin() -> None:
     """The Hermes page must describe the desktop plugin (#1285): its build,
     the registered items and the release version."""

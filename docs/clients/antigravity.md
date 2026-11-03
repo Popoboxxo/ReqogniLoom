@@ -48,8 +48,8 @@ Complete, generated configuration (env-var references, never a literal key):
 
 ## 5. Verification
 
-- **Command:** `SSE-Handshake gegen /mcp/sse/ mit X-API-Key`
-- **Expected:** `initialize` (202 + event) → `tools/list` returns **282 tools**; the Antigravity panel shows `reqogniloom` connected.
+- **Command:** `curl -sN --max-time 5 -H "X-API-Key: $REQOGNILOOM_API_KEY" "$REQOGNILOOM_MCP_URL/mcp/sse/"`
+- **Expected:** The first two lines are `event: endpoint` and `data: /mcp/messages/?session_id=…`; then `--max-time` ends the stream (exit 28 is expected here). An `initialize` against the reported endpoint answers 202, `tools/list` returns **282 tools**; the Antigravity panel shows `reqogniloom` connected.
 - **Tool-call result:** 282 tools
 
 ## 6. Pitfalls
