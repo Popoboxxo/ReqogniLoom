@@ -122,7 +122,7 @@ class RbacPermission(permissions.BasePermission):
         # hides that the fence (not the role matrix) is the deciding gate.
         from auth_tenancy.resource_scope import (
             api_key_fence_precheck,
-            fenced_collection_roles,
+            fence_filtered_list_decision,
             fenced_rbac_denial,
             is_fence_filtered_list,
         )
@@ -134,10 +134,14 @@ class RbacPermission(permissions.BasePermission):
         # E1.2: a fenced key's filtered collection list is decided with the
         # roles the owner holds across the workspaces the key may see —
         # ``active_roles`` is empty on the workspace-less path by design.
+        # #1444: the verdict (roles + denial text) comes from the shared
+        # ``auth_tenancy`` helper, so MCP ``workspace.list`` answers identically.
         fenced = bool(getattr(auth_context, "api_key_workspace_ids", ()))
         collection_roles = auth_context.active_roles
         if fenced and is_fence_filtered_list(view):
-            collection_roles = fenced_collection_roles(auth_context)
+            collection_roles, list_denial = fence_filtered_list_decision(auth_context)
+            if list_denial is not None:
+                raise exceptions.PermissionDenied(detail=list_denial)
 
         decision = self._authz.decide_access(collection_roles, operation)
 
