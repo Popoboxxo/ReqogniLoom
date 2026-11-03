@@ -389,6 +389,21 @@ class ArchitectureElementInvariantValidator:
         effective_id = element_id if element_id is not None else getattr(
             element, "id", None
         )
+        # #1660: a self-parent is a one-node cycle and must be rejected on
+        # *every* rigor tier. I1 (the general cycle guard) is only active on
+        # standard/extended, so at ``minimal`` this assignment used to pass and
+        # corrupted the Artifact tree (``Artifact.parent_id == Artifact.id``),
+        # after which the recursive CTEs in ``annotate_levels``/``get_tree``
+        # never terminated and the whole workspace tree answered 500.
+        if (
+            parent_id is not None
+            and effective_id is not None
+            and str(parent_id) == str(effective_id)
+        ):
+            raise ValidationError(
+                f"[I1] Self-parent reference rejected: ArchitectureElement "
+                f"{effective_id} cannot be its own parent"
+            )
         if parent_id is None:
             self.check_i5(
                 new_parent_id=None,

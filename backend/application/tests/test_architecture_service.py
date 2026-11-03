@@ -1111,6 +1111,23 @@ class TestInvariantI1CycleDetection:
         el_id = uuid.uuid4()
         v.check_i1(element_id=el_id, parent_id=el_id)  # must not raise
 
+    @pytest.mark.parametrize("tier", ["minimal", "standard", "extended"])
+    def test_self_parent_rejected_on_every_tier(self, tier):
+        """#1660: the one-node cycle must not depend on the rigor tier.
+
+        ``check_i1`` is intentionally a no-op on ``minimal``; the tier-
+        independent guard lives in ``validate_parent_assignment``, which is the
+        entry point both the serializer and the service call.
+        """
+        el_id = uuid.uuid4()
+        v = ArchitectureElementInvariantValidator.for_tier(tier)
+        with pytest.raises(ValidationError, match="Self-parent"):
+            v.validate_parent_assignment(
+                parent_id=el_id,
+                element_id=el_id,
+                workspace_id=WS_ID,
+            )
+
 
 class TestInvariantI2LevelOrdering:
     """REQ-L1-044 I2: parent.level < child.level (standard/extended)."""

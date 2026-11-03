@@ -284,6 +284,33 @@ class TestCycleDetection:
 
         assert result is None
 
+    def test_pre_existing_cycle_terminates(self):
+        """#1660: a cycle that does not contain ``child_id`` must not hang.
+
+        The old walk only stopped when it reached ``child_id``; any other loop
+        (e.g. one written before the self-parent guard existed) walked forever.
+        """
+        a_id = uuid.uuid4()
+        b_id = uuid.uuid4()
+        child_id = uuid.uuid4()
+        db = {
+            a_id: {"parent_id": b_id},
+            b_id: {"parent_id": a_id},
+        }
+
+        def mock_filter(id):
+            qs = MagicMock()
+            qs.values.return_value.first.return_value = db.get(id)
+            return qs
+
+        with patch("application.artifact_service.Artifact.unscoped") as mock_unscoped:
+            mock_unscoped.filter = lambda id: mock_filter(id)
+            result = ArtifactService._detect_cycle(
+                new_parent_id=a_id, child_id=child_id
+            )
+
+        assert result is None
+
 
 # ---------------------------------------------------------------------------
 # update_artifact

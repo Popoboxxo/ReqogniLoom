@@ -292,6 +292,18 @@ class ArchitectureService(ServiceBase):
             arch_el.artifact.custom_fields = _clean_custom_fields(custom_fields)
             arch_el.artifact.save(update_fields=["custom_fields", "modified_at"])
 
+        # #1660: defence in depth — the invariant validator below rejects a
+        # self-parent on every tier, but the service must not rely on a single
+        # call site for an invariant whose violation corrupts the tree.
+        if (
+            parent_id is not _UNSET
+            and parent_id is not None
+            and str(parent_id) == str(arch_el_id)
+        ):
+            raise ValidationError(
+                f"ArchitectureElement {arch_el_id} cannot be its own parent"
+            )
+
         # REQ-L1-044 + SysEng 2.0 §1.2 (I5): invariant checks before re-parenting.
         # Runs for any explicit parent_id change, including detaching to root
         # (parent_id=None) so I5 rejects creating a second root. The element
