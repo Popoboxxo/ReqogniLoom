@@ -30,6 +30,7 @@ export function UserPicker({
   onChange,
   disabled,
   errors,
+  invalid,
   testId,
 }: FieldProps<string | null>): JSX.Element {
   const { i18n, t } = useTranslation();
@@ -73,7 +74,7 @@ export function UserPicker({
         value={current}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value || null)}
-        {...ariaProps(attribute, testId, errors)}
+        {...ariaProps(attribute, testId, errors, { invalid })}
       >
         <option value="">{t("artifactForm.unassignedOption")}</option>
         {isUnknown ? (

@@ -102,6 +102,23 @@ describe("EditorPageShell", () => {
     expect(screen.getByTestId("thing-create-cancel-btn")).toBeDisabled();
   });
 
+  // #1595: a disabled Create button must be explainable. The host renders the
+  // hint on its required field and hands its id in; the button points at it
+  // only while it is actually blocked.
+  it("points the disabled Create button at the required-field hint (#1595)", () => {
+    const { rerender } = renderShell({ canSave: false, saveHintId: "thing-new-title-hint" });
+
+    expect(screen.getByTestId("thing-new-save-btn")).toHaveAttribute(
+      "aria-describedby",
+      "thing-new-title-hint",
+    );
+
+    rerender({ canSave: true });
+    expect(screen.getByTestId("thing-new-save-btn")).not.toHaveAttribute(
+      "aria-describedby",
+    );
+  });
+
   it("submits once through the Create button", async () => {
     const { props } = renderShell();
     const user = userEvent.setup();

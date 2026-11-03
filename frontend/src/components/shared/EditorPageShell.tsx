@@ -100,6 +100,14 @@ export interface EditorPageShellProps {
   error?: string | null;
   /** Class for the error paragraph — the host's own `styles.createError`. */
   errorClassName?: string;
+  /**
+   * #1595: id of the visible "required value missing" hint the host renders on
+   * its required field (`<FormField hintId=…>`). While `canSave` is false the
+   * disabled Create button points at it with `aria-describedby`, so the reason
+   * the button cannot act is stated at the control that has to be filled
+   * instead of leaving a silent disabled button.
+   */
+  saveHintId?: string;
   /** The dialog's form fields (labels, inputs, textareas, selects). */
   children: ReactNode;
 }
@@ -118,6 +126,7 @@ export function EditorPageShell({
   saveTestId,
   error,
   errorClassName,
+  saveHintId,
   children,
 }: EditorPageShellProps): JSX.Element | null {
   const { t } = useTranslation();
@@ -180,6 +189,9 @@ export function EditorPageShell({
             data-testid={saveTestId}
             className="btn-primary"
             disabled={isSaving || !canSave}
+            // #1595: the disabled state stays, but it is now explainable —
+            // the button points at the host's "field is still empty" hint.
+            aria-describedby={!canSave && saveHintId ? saveHintId : undefined}
             aria-keyshortcuts={SAVE_SHORTCUT_ARIA}
             title={t("artifactForm.saveShortcutHint", "Speichern (Strg/Cmd+S)")}
           >

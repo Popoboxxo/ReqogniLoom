@@ -273,6 +273,14 @@ export function NeedList({
               htmlFor="need-new-title"
               label={t('editor.title', 'Title')}
               required={field('title').required}
+              // #1595: while the title is empty the Create button is disabled;
+              // this hint states why and is wired to the control via
+              // `aria-describedby` + `aria-invalid` (FormField).
+              hint={
+                (newTitle || '').trim().length === 0
+                  ? t('editor.titleRequired', 'Titel ist erforderlich.')
+                  : null
+              }
               error={creationErrors.title?.join(', ')}
               labelClassName={fieldHints.createLabel}
             >
@@ -381,6 +389,11 @@ export function NeedList({
                 // than relying on translation strings staying different.
                 aria-label={t('needs.submitCreateLabel', 'Bedarf jetzt erstellen')}
                 disabled={isCreating || !(newTitle || '').trim()}
+                // #1595: the disabled state stays, but it points at the title
+                // hint so the blocked action is explainable.
+                aria-describedby={
+                  (newTitle || '').trim().length === 0 ? 'need-new-title-hint' : undefined
+                }
                 className="btn-primary"
                 // #1100: the submit button is reachable via `Ctrl`/`Cmd`+`S`
                 // (wired in NeedsEditors) — advertise the binding here, the

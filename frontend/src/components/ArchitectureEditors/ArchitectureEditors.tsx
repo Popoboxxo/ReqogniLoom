@@ -652,6 +652,14 @@ export default function ArchitectureEditors(): JSX.Element {
             htmlFor="arch-new-title"
             label={t('editor.title', 'Title')}
             required={field('title').required}
+            // #1595: while the title is empty the Create button is disabled;
+            // this hint states why and is wired to the control via
+            // `aria-describedby` + `aria-invalid` (FormField).
+            hint={
+              newTitle.trim().length === 0
+                ? t('editor.titleRequired', 'Titel ist erforderlich.')
+                : null
+            }
             error={createFieldErrors.title?.join(', ')}
             labelClassName={styles.createTitleLabel}
           >
@@ -704,6 +712,11 @@ export default function ArchitectureEditors(): JSX.Element {
               type="submit"
               className="btn-primary"
               disabled={isCreating || !newTitle.trim()}
+              // #1595: the disabled state stays, but it points at the title
+              // hint so the blocked action is explainable.
+              aria-describedby={
+                newTitle.trim().length === 0 ? 'arch-new-title-hint' : undefined
+              }
               aria-keyshortcuts={SAVE_SHORTCUT_ARIA}
               title={t('artifactForm.saveShortcutHint', 'Speichern (Strg/Cmd+S)')}
             >

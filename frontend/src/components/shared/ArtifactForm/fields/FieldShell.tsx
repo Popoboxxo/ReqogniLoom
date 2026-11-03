@@ -22,6 +22,13 @@ export interface FieldProps<T = unknown> {
   errors?: string[];
   /** Stable `data-testid` for the control itself: `artifact-field-<name>`. */
   testId: string;
+  /**
+   * #1595: `true` when this is a required field whose value is still empty in
+   * create mode — the reason the Create button is disabled. Forwarded to
+   * `ariaProps`, so the control carries `aria-invalid` while it blocks the
+   * action, not only after a rejected save.
+   */
+  invalid?: boolean;
 }
 
 /**
@@ -222,6 +229,12 @@ export interface AriaPropsOptions {
    * `"${testId}-required"` word to `aria-labelledby`.
    */
   groupContainer?: boolean;
+  /**
+   * #1595: the field is a required field whose value is still empty in create
+   * mode. Marks the control `aria-invalid` so the disabled Create button is
+   * explained at the field, not only by the form-level hint text.
+   */
+  invalid?: boolean;
 }
 
 export function ariaProps(
@@ -238,7 +251,7 @@ export function ariaProps(
     "aria-required": options.groupContainer
       ? undefined
       : isEffectiveRequired(attribute),
-    "aria-invalid": Boolean(errors?.length),
+    "aria-invalid": Boolean(errors?.length) || options.invalid === true,
     "aria-describedby": described.length ? described.join(" ") : undefined,
   };
 }

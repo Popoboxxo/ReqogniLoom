@@ -874,6 +874,37 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
     });
   });
 
+  // #1595: Requirement creates through the definition-driven ArtifactForm, so
+  // the explanation lives there: the form names the still-empty required fields
+  // and the disabled Create button points at that hint; the blocking control
+  // itself carries `aria-invalid`.
+  it("explains the disabled create button while the required title is empty (#1595)", async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("create-req-btn")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("create-req-btn"));
+    await screen.findByTestId("artifact-form");
+
+    const input = screen.getByTestId("req-new-title-input");
+    const save = screen.getByTestId("req-new-save-btn");
+
+    expect(save).toBeDisabled();
+    const hint = screen.getByTestId("artifact-form-create-hint");
+    expect(hint).toHaveAttribute("role", "status");
+    expect(hint.textContent?.trim().length).toBeGreaterThan(0);
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(save).toHaveAttribute("aria-describedby", "artifact-form-create-hint");
+
+    await user.type(input, "Ein Titel");
+
+    expect(screen.queryByTestId("artifact-form-create-hint")).not.toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-invalid", "false");
+    expect(save).toBeEnabled();
+  });
+
   it("surfaces a refused list-level action in the page banner", async () => {
     // The PDF export is the reachable list-level action on this page (the
     // list's own delete confirmation is currently unreachable — its

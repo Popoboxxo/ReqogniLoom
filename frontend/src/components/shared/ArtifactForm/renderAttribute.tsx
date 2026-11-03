@@ -192,13 +192,25 @@ export function renderAttribute({
     );
   }
 
+  const value = readValue(values, attribute);
+  // #1595: in create mode an empty required field is the reason the create
+  // action is blocked. Mark the control itself (`aria-invalid`) so the reason
+  // is machine-readable at the field, next to the form-level hint.
+  const createMissing =
+    artifactId === null &&
+    attribute.required === true &&
+    attribute.editable === true &&
+    attribute.default == null &&
+    (value == null ||
+      (typeof value === "string" && !value.trim()) ||
+      (Array.isArray(value) && value.length === 0));
   const shared = {
     attribute,
     disabled,
     errors,
     testId,
+    invalid: createMissing,
   } as const;
-  const value = readValue(values, attribute);
   const onChange = (next: unknown): void => update(attribute, next);
 
   switch (attribute.type) {

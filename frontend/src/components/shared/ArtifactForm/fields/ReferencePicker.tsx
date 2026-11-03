@@ -39,6 +39,7 @@ export function ReferencePicker({
   onChange,
   disabled,
   errors,
+  invalid,
   testId,
 }: FieldProps<string | null>): JSX.Element {
   const { i18n, t } = useTranslation();
@@ -75,7 +76,7 @@ export function ReferencePicker({
         disabled={disabled}
         placeholder={t("artifactForm.referenceIdPlaceholder")}
         onChange={(event) => onChange(event.target.value || null)}
-        {...ariaProps(attribute, testId, errors)}
+        {...ariaProps(attribute, testId, errors, { invalid })}
       />
       {value && resolved?.route ? (
         <span className={styles.help} data-testid={`${testId}-preview`}>

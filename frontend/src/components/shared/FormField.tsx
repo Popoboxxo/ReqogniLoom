@@ -71,6 +71,21 @@ export interface FormFieldProps {
   error?: string | null;
   /** The host dialog's own label class (each route has its own layout). */
   labelClassName?: string;
+  /**
+   * #1595: visible explanation shown while a required value is still missing
+   * and the create action is therefore disabled ("Titel ist erforderlich"). It
+   * is wired to the control through `aria-describedby` + `aria-invalid`, so the
+   * blocked button is explained at the field the user has to fill instead of
+   * being a disabled control with no stated reason.
+   *
+   * Unlike `error` (a server rejection) this is a *state* message: it is
+   * rendered with `role="status"` and disappears as soon as the field is
+   * filled. Pass `null`/`undefined` for healthy fields — nothing is rendered
+   * and `aria-invalid` is not set.
+   */
+  hint?: string | null;
+  /** DOM id of the hint element. Defaults to `<control id>-hint`. */
+  hintId?: string;
   /** The control. */
   children: ReactNode;
 }
@@ -81,9 +96,15 @@ export function FormField({
   required,
   error,
   labelClassName,
+  hint,
+  hintId,
   children,
 }: FormFieldProps): JSX.Element {
-  const errorId = `${htmlFor}-error`;
+  const errorId = error ? `${htmlFor}-error` : null;
+  const resolvedHintId = hint ? (hintId ?? `${htmlFor}-hint`) : null;
+  const describedIds = [resolvedHintId, errorId].filter(
+    (id): id is string => id !== null
+  );
   return (
     <>
       <label htmlFor={htmlFor} className={labelClassName}>
@@ -97,8 +118,18 @@ export function FormField({
           {required ? <RequiredMark /> : null}
         </span>
       </label>
-      {associateError(children, error ? errorId : null)}
-      <FieldErrorText error={error} testId={errorId} />
+      {associateMessages(children, describedIds)}
+      {resolvedHintId ? (
+        <p
+          id={resolvedHintId}
+          data-testid={resolvedHintId}
+          role="status"
+          className={styles.fieldHint}
+        >
+          {hint}
+        </p>
+      ) : null}
+      <FieldErrorText error={error} testId={`${htmlFor}-error`} />
     </>
   );
 }
@@ -110,31 +141,36 @@ export function FormField({
  * `FieldShell` solves that with `ariaProps` (`aria-describedby` +
  * `aria-invalid`); this is the same wiring for the hand-written dialogs.
  *
+ * #1595 extends the same association to the client-side "required value
+ * missing" hint: both message ids are merged into one `aria-describedby`, and
+ * either one marks the control `aria-invalid`.
+ *
  * Deliberately tolerant: the control is the caller's own element and there are
  * callers that pass more than one node, so anything that is not exactly one
  * valid element is returned untouched instead of throwing. An
- * `aria-describedby` the caller already set is preserved (the error id is
- * appended), and with no error NOTHING is added — `aria-invalid` must not
+ * `aria-describedby` the caller already set is preserved (the message ids are
+ * appended), and with no message NOTHING is added — `aria-invalid` must not
  * appear on a healthy field.
  */
-type ErrorBoundProps = {
+type MessageBoundProps = {
   "aria-describedby"?: string;
   "aria-invalid"?: boolean | "true" | "false";
 };
 
-function associateError(children: ReactNode, errorId: string | null): ReactNode {
-  if (errorId === null) return children;
+function associateMessages(children: ReactNode, describedIds: readonly string[]): ReactNode {
+  if (describedIds.length === 0) return children;
   if (Children.count(children) !== 1 || !isValidElement(children)) return children;
-  const element = children as ReactElement<ErrorBoundProps>;
+  const element = children as ReactElement<MessageBoundProps>;
   const existing = element.props["aria-describedby"];
-  const describedBy =
-    typeof existing === "string" && existing.length > 0
-      ? existing.split(/\s+/).includes(errorId)
-        ? existing
-        : `${existing} ${errorId}`
-      : errorId;
+  const current = typeof existing === "string" && existing.length > 0
+    ? existing.split(/\s+/)
+    : [];
+  const merged = [
+    ...current,
+    ...describedIds.filter((id) => !current.includes(id)),
+  ].join(" ");
   return cloneElement(element, {
-    "aria-describedby": describedBy,
+    "aria-describedby": merged,
     "aria-invalid": true,
   });
 }

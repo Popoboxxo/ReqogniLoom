@@ -253,6 +253,9 @@ export default function IssueEditors(): JSX.Element {
         onSubmit={handleCreateNew}
         isSaving={isCreating}
         canSave={newTitle.trim().length > 0}
+        // #1595: the blocked Create button points at the field hint
+        // rendered below, so the disabled state is explainable.
+        saveHintId={newTitle.trim().length === 0 ? 'issue-new-title-hint' : undefined}
         cancelTestId="issue-create-cancel-btn"
         saveTestId="issue-new-save-btn"
         error={createError}
@@ -264,6 +267,11 @@ export default function IssueEditors(): JSX.Element {
           htmlFor="issue-new-title"
           label={t('editor.title', 'Title')}
           required={field('title').required}
+          hint={
+            newTitle.trim().length === 0
+              ? t('editor.titleRequired', 'Titel ist erforderlich.')
+              : null
+          }
           error={createFieldErrors.title?.join(', ')}
           labelClassName={styles.createLabel}
         >

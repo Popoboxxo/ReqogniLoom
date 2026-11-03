@@ -10,6 +10,7 @@ export function TextField({
   onChange,
   disabled,
   errors,
+  invalid,
   testId,
 }: FieldProps<string | null>): JSX.Element {
   const { i18n } = useTranslation();
@@ -32,7 +33,7 @@ export function TextField({
         disabled={disabled}
         maxLength={attribute.validation?.length}
         onChange={(event) => onChange(event.target.value)}
-        {...ariaProps(attribute, testId, errors)}
+        {...ariaProps(attribute, testId, errors, { invalid })}
       />
       {/* #1282: show proximity to the definition's length limit (80%+). */}
       <LengthFeedback

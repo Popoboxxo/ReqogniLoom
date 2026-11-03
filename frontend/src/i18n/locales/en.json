@@ -3117,6 +3117,7 @@
     "deprecateTitle": "Mark artifact outdated",
     "deprecateConfirm": "Mark this artifact outdated? It will no longer appear in the active list.",
     "deprecateReason": "Reason",
+    "createRequiredHint": "Required fields are still empty: {{fields}}",
     "saveShortcutHint": "Save (Ctrl/Cmd+S)"
   },
   "sections": {
@@ -3133,6 +3134,7 @@
   },
   "attributes": {
     "pageSummary": "Defines each element type's attributes: visibility, required state, sections and layout.",
+    "adminOnly": "You must be an admin to view or edit the attribute catalog.",
     "entityType": "Entity type",
     "entityTypes": {
       "Requirement": "Requirement",

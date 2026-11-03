@@ -242,6 +242,78 @@ describe("FormField + RequiredMark (GitHub #1393)", () => {
     expect(input).not.toHaveAttribute("aria-invalid");
   });
 
+  // ---------------------------------------------------------------
+  // #1595: a disabled Create button with no stated reason is the bug.
+  // The hand-written dialogs render a visible hint on the still-empty
+  // required field and wire it to the control.
+  // ---------------------------------------------------------------
+  it("renders a missing-required hint and links the control to it (#1595)", () => {
+    render(
+      <FormField
+        htmlFor="demo-title"
+        label="Titel"
+        required
+        hint="Titel ist erforderlich."
+      >
+        <input id="demo-title" />
+      </FormField>
+    );
+
+    const hint = screen.getByTestId("demo-title-hint");
+    expect(hint).toHaveTextContent("Titel ist erforderlich.");
+    // A state message, not a rejection: polite live region, not role=alert.
+    expect(hint).toHaveAttribute("role", "status");
+
+    const input = screen.getByRole("textbox");
+    expect(input).toHaveAttribute("aria-describedby", "demo-title-hint");
+    expect(input).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("removes the hint and the invalid state once the value is entered (#1595)", () => {
+    const { rerender } = render(
+      <FormField
+        htmlFor="demo-title"
+        label="Titel"
+        required
+        hint="Titel ist erforderlich."
+      >
+        <input id="demo-title" defaultValue="" />
+      </FormField>
+    );
+
+    expect(screen.getByTestId("demo-title-hint")).toBeInTheDocument();
+
+    rerender(
+      <FormField htmlFor="demo-title" label="Titel" required hint={null}>
+        <input id="demo-title" defaultValue="Ein Titel" />
+      </FormField>
+    );
+
+    expect(screen.queryByTestId("demo-title-hint")).not.toBeInTheDocument();
+    const input = screen.getByRole("textbox");
+    expect(input).not.toHaveAttribute("aria-invalid");
+    expect(input).not.toHaveAttribute("aria-describedby");
+  });
+
+  it("merges the hint id and the error id into one aria-describedby (#1595)", () => {
+    render(
+      <FormField
+        htmlFor="demo-title"
+        label="Titel"
+        required
+        hint="Titel ist erforderlich."
+        error="Zu lang."
+      >
+        <input id="demo-title" />
+      </FormField>
+    );
+
+    expect(screen.getByRole("textbox")).toHaveAttribute(
+      "aria-describedby",
+      "demo-title-hint demo-title-error"
+    );
+  });
+
   it("merges the error id into an aria-describedby the caller already set", () => {
     render(
       <FormField htmlFor="demo-title" label="Titel" required error="Zu lang.">
@@ -371,6 +443,30 @@ describe("ADR create dialog honours the contract (GitHub #1393/#1392)", () => {
 
     const fieldError = await screen.findByTestId("adr-new-title-error");
     expect(fieldError).toHaveTextContent("no more than 200 characters");
+  });
+
+  it("explains the disabled Create button while the title is empty (#1595)", async () => {
+    const user = userEvent.setup();
+    render(<AdrEditors />);
+
+    await user.click(screen.getByTestId("create-adr-btn"));
+    const input = screen.getByTestId("adr-new-title-input");
+    const save = screen.getByTestId("adr-new-save-btn");
+
+    expect(save).toBeDisabled();
+    const hint = screen.getByTestId("adr-new-title-hint");
+    expect(hint).toHaveTextContent("Titel ist erforderlich.");
+    expect(hint).toHaveAttribute("role", "status");
+    // The blocking fact is on the field AND the disabled button points at it.
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveAttribute("aria-describedby", "adr-new-title-hint");
+    expect(save).toHaveAttribute("aria-describedby", "adr-new-title-hint");
+
+    await user.type(input, "Ein Titel");
+
+    expect(screen.queryByTestId("adr-new-title-hint")).not.toBeInTheDocument();
+    expect(input).not.toHaveAttribute("aria-invalid");
+    expect(save).toBeEnabled();
   });
 });
 

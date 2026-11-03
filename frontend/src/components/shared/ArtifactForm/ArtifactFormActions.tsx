@@ -17,12 +17,24 @@ import { ConfirmDialog } from "../ConfirmDialog";
 import { RequiredMark } from "../FormField";
 import styles from "./ArtifactForm.module.css";
 
+/**
+ * #1595: stable id of the visible "required fields are still empty" hint. The
+ * disabled Create button points at it via `aria-describedby`, so the blocked
+ * action is explained instead of being a silent disabled control.
+ */
+const CREATE_HINT_ID = "artifact-form-create-hint";
+
 export interface ArtifactFormActionsProps {
   isReadOnly: boolean;
   saving: boolean;
   artifactId: string | null;
   saveTestId: string;
   missingCreateValue: boolean;
+  /**
+   * #1595: labels of the required fields still empty in create mode. Rendered
+   * in the hint above the action row; empty in edit mode.
+   */
+  missingCreateLabels: readonly string[];
   onCancel?: () => void;
   changeReasonNeeded: boolean;
   changeReason: string;
@@ -48,6 +60,7 @@ export function ArtifactFormActions({
   artifactId,
   saveTestId,
   missingCreateValue,
+  missingCreateLabels,
   onCancel,
   changeReasonNeeded,
   changeReason,
@@ -111,6 +124,23 @@ export function ArtifactFormActions({
         </label>
       ) : null}
 
+      {/* #1595: the create action is disabled while required fields are empty.
+          This hint names them, and the disabled Save/Create button below points
+          at it — a disabled control with no stated reason is the bug. */}
+      {!isReadOnly && artifactId === null && missingCreateLabels.length > 0 ? (
+        <p
+          id={CREATE_HINT_ID}
+          data-testid={CREATE_HINT_ID}
+          role="status"
+          className={styles.createHint}
+        >
+          {t("artifactForm.createRequiredHint", {
+            fields: missingCreateLabels.join(", "),
+            defaultValue: "Required fields are still empty: {{fields}}",
+          })}
+        </p>
+      ) : null}
+
       {!isReadOnly ? (
         <div className={styles.actions}>
           {onDeprecate && deprecateTransition ? (
@@ -134,6 +164,13 @@ export function ArtifactFormActions({
             className="btn-primary"
             data-testid={saveTestId}
             disabled={saving || missingCreateValue}
+            // #1595: while disabled by empty required fields, point the button
+            // at the hint that names them.
+            aria-describedby={
+              artifactId === null && missingCreateLabels.length > 0
+                ? CREATE_HINT_ID
+                : undefined
+            }
             // Issue #1087: the shortcut has to be discoverable on the control
             // that also performs it. `aria-keyshortcuts` is the machine-
             // readable form (WAI-ARIA 1.2) and the only one assistive tech can
