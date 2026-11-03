@@ -352,6 +352,7 @@ jobs:
           scripts/test_gitignore_env.py
           scripts/test_prompt_regression_workflow.py
           scripts/test_setup_script.py
+          scripts/test_check_plugin_packages.py
           scripts/test_offhost_backup_check.py
 
   # AUD-2026-09 (integrations stability, #1156): the Hermes agent plugin's
