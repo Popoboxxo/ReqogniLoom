@@ -120,10 +120,14 @@ describe("AttributeEditorPage catalog entry (WS5 #942)", () => {
     });
   });
 
-  it("hides the catalog entry point from non-admins", async () => {
+  // #1596 tightened this from "the catalog button is hidden" to "the routed
+  // page is admin-only": an editor opening /attributes directly now gets the
+  // admin notice, so the catalog entry point is unreachable by construction.
+  it("hides the catalog entry point from non-admins (#1596 routed gate)", () => {
     authState.roles = ["editor"];
     renderPage();
-    await screen.findByTestId("attribute-row-title");
+    expect(screen.getByTestId("attribute-editor-admin-gate")).toBeInTheDocument();
+    expect(screen.queryByTestId("attribute-editor")).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("attribute-editor-add-from-catalog")
     ).not.toBeInTheDocument();

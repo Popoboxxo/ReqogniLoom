@@ -36,6 +36,7 @@ import { useFormDirty } from "../../../hooks/use-form-dirty";
 import { useSaveShortcut } from "../../../hooks/useSaveShortcut";
 import { useCreateFormFields } from "../../../hooks/useCreateFormFields";
 import { fieldErrorsFromException } from "./field-errors";
+import { attributeLabel } from "./fields";
 import {
   FOCUSABLE_SELECTOR,
   findFieldControl,
@@ -83,6 +84,12 @@ export interface ArtifactFormState {
   isReadOnly: boolean;
   isCreateMode: boolean;
   missingCreateValue: boolean;
+  /**
+   * #1595: labels of the required fields that are still empty in create mode.
+   * Drives the visible hint next to the disabled Create button, so the blocked
+   * action names what is missing instead of being a silent disabled control.
+   */
+  missingCreateLabels: string[];
   /** Refs the shell attaches: the `<form>`, the error banner, the change-reason input. */
   formRef: React.RefObject<HTMLFormElement | null>;
   formErrorRef: React.RefObject<HTMLDivElement | null>;
@@ -126,7 +133,7 @@ export function useArtifactFormState({
   attributeOverrides,
   fieldTestIds,
 }: UseArtifactFormStateArgs): ArtifactFormState {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { definition: resolvedDefinition, loading, error: loadError } =
     useArtifactDefinition(itemType);
   // GitHub #1192: field names the active preset's approval gate (Rule 5) will
@@ -509,13 +516,24 @@ export function useArtifactFormState({
   // The bootstrap rule is `required = not blank AND not has_default`, so a
   // required attribute that declares a default is satisfiable without input —
   // the backend applies the default for a field the create payload omits.
-  const missingCreateValue = isCreateMode && renderedEditableAttributes.some((attribute) => {
-    if (!attribute.required || attribute.editable !== true || attribute.type === "widget") return false;
-    if (attribute.default != null) return false;
-    const value = readValue(formValues, attribute);
-    return value == null || (typeof value === "string" && !value.trim()) ||
-      (Array.isArray(value) && value.length === 0);
-  });
+  const missingCreateAttributes = useMemo(() => {
+    if (!isCreateMode) return [] as AttributeSpec[];
+    return renderedEditableAttributes.filter((attribute) => {
+      if (!attribute.required || attribute.editable !== true || attribute.type === "widget") return false;
+      if (attribute.default != null) return false;
+      const value = readValue(formValues, attribute);
+      return value == null || (typeof value === "string" && !value.trim()) ||
+        (Array.isArray(value) && value.length === 0);
+    });
+  }, [isCreateMode, renderedEditableAttributes, formValues]);
+  const missingCreateValue = missingCreateAttributes.length > 0;
+  // #1595: the visible explanation the disabled Create button points at. The
+  // label comes from the same `attributeLabel` chain the field renders, so the
+  // hint never names a field differently from its own label.
+  const missingCreateLabels = useMemo(
+    () => missingCreateAttributes.map((attribute) => attributeLabel(attribute, i18n.language)),
+    [missingCreateAttributes, i18n.language]
+  );
 
   const handleSave = useCallback(async (): Promise<void> => {
     // Issue #1087: `savingRef` rather than the `saving` state — see its
@@ -682,6 +700,7 @@ export function useArtifactFormState({
     isReadOnly,
     isCreateMode,
     missingCreateValue,
+    missingCreateLabels,
     formRef,
     formErrorRef,
     changeReasonRef,

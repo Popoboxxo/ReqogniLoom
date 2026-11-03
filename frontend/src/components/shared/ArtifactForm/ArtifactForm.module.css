@@ -228,6 +228,14 @@
   justify-content: flex-end;
 }
 
+/* #1595: visible explanation for the disabled create action — `margin: 0`
+ * because the form is a gap-spaced column (same reasoning as `.errors`). */
+.createHint {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
 /* #1288: the criteria-list widget — one row per ordered criterion. */
 .criteriaList {
   display: flex;

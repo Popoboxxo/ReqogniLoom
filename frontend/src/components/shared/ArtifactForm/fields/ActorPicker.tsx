@@ -66,6 +66,7 @@ export function ActorPicker({
   onChange,
   disabled,
   errors,
+  invalid,
   testId,
 }: FieldProps<ActorFieldValue>): JSX.Element {
   const { i18n, t } = useTranslation();
@@ -235,7 +236,7 @@ export function ActorPicker({
           readOnly
           rows={1}
           value={label || t("artifactForm.unassignedOption")}
-          {...ariaProps(attribute, testId, errors)}
+          {...ariaProps(attribute, testId, errors, { invalid })}
         />
       </FieldShell>
     );
@@ -315,7 +316,7 @@ export function ActorPicker({
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={onInputKeyDown}
-          {...ariaProps(attribute, testId, errors)}
+          {...ariaProps(attribute, testId, errors, { invalid })}
         />
 
         {open ? (

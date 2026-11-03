@@ -30,6 +30,7 @@ export function CriteriaList({
   onChange,
   disabled,
   errors,
+  invalid,
   testId,
 }: FieldProps<CriteriaItem[] | null>): JSX.Element {
   const { t, i18n } = useTranslation();
@@ -80,7 +81,7 @@ export function CriteriaList({
         aria-labelledby={
           required ? `${testId}-label ${testId}-required` : `${testId}-label`
         }
-        {...ariaProps(attribute, testId, errors, { groupContainer: true })}
+        {...ariaProps(attribute, testId, errors, { groupContainer: true, invalid })}
       >
         {items.map((item, index) => (
           <div

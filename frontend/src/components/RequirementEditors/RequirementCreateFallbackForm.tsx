@@ -102,6 +102,14 @@ export function RequirementCreateFallbackForm({
         htmlFor="new-req-title"
         label={t('editor.title')}
         required={FALLBACK_TITLE_CONTRACT.required}
+        // #1595: while the title is empty the Create button is disabled; this
+        // hint states why and is wired to the control via `aria-describedby` +
+        // `aria-invalid` (FormField).
+        hint={
+          title.trim().length === 0
+            ? t('editor.titleRequired', 'Titel ist erforderlich.')
+            : null
+        }
         labelClassName={styles.createLabel}
       >
         <input
@@ -183,6 +191,11 @@ export function RequirementCreateFallbackForm({
           // BUG-02: title is required — disable rather than silently
           // substitute a placeholder title on submit.
           disabled={isCreating || !title.trim()}
+          // #1595: the disabled state stays, but it points at the title hint
+          // so the blocked action is explainable.
+          aria-describedby={
+            title.trim().length === 0 ? 'new-req-title-hint' : undefined
+          }
           aria-keyshortcuts={SAVE_SHORTCUT_ARIA}
           title={t('artifactForm.saveShortcutHint', 'Speichern (Strg/Cmd+S)')}
         >

@@ -806,6 +806,27 @@ export function AttributeEditorPage({
     [isRouted, navigate, setSearchParams]
   );
 
+  // #1596: the sidebar entry is admin-gated (`requires: "admin"`), but the
+  // direct URL was not — a viewer opening /attributes got the whole editor
+  // (export/import included, merely disabled). Mirror the
+  // WorkspaceSettings/SystemSettings admin-gate notice and render nothing that
+  // can be acted on. The guard is deliberately routed-only: the embedded mounts
+  // (WorkspaceSettings' "Attributes" tab, SystemSettings' "Attribute Defaults")
+  // sit behind their host page's own admin check.
+  if (isRouted && !isAdmin) {
+    return (
+      <div className={styles.page} data-testid="attribute-editor-admin-gate">
+        <PageHeader title={t("nav.attributeCatalog")} />
+        <p className={styles.error} data-testid="attribute-editor-admin-only">
+          {t(
+            "attributes.adminOnly",
+            "You must be an admin to view or edit the attribute catalog."
+          )}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.page} data-testid="attribute-editor">
       {/* #1281: /attributes is a routed page of its own and had no page

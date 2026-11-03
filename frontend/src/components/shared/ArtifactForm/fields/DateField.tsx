@@ -9,6 +9,7 @@ export function DateField({
   onChange,
   disabled,
   errors,
+  invalid,
   testId,
 }: FieldProps<string | null>): JSX.Element {
   const { i18n } = useTranslation();
@@ -30,7 +31,7 @@ export function DateField({
         value={value ? String(value).slice(0, 10) : ""}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value || null)}
-        {...ariaProps(attribute, testId, errors)}
+        {...ariaProps(attribute, testId, errors, { invalid })}
       />
     </FieldShell>
   );

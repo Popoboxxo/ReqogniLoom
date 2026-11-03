@@ -9,6 +9,7 @@ export function NumberField({
   onChange,
   disabled,
   errors,
+  invalid,
   testId,
 }: FieldProps<number | null>): JSX.Element {
   const { i18n } = useTranslation();
@@ -35,7 +36,7 @@ export function NumberField({
           const raw = event.target.value;
           onChange(raw === "" ? null : Number(raw));
         }}
-        {...ariaProps(attribute, testId, errors)}
+        {...ariaProps(attribute, testId, errors, { invalid })}
       />
     </FieldShell>
   );

@@ -9,6 +9,7 @@ export function BooleanToggle({
   onChange,
   disabled,
   errors,
+  invalid,
   testId,
 }: FieldProps<boolean | null>): JSX.Element {
   const { i18n } = useTranslation();
@@ -32,7 +33,7 @@ export function BooleanToggle({
           checked={Boolean(value)}
           disabled={disabled}
           onChange={(event) => onChange(event.target.checked)}
-          {...ariaProps(attribute, testId, errors)}
+          {...ariaProps(attribute, testId, errors, { invalid })}
         />
       </label>
     </FieldShell>

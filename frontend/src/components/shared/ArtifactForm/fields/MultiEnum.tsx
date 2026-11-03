@@ -15,6 +15,7 @@ export function MultiEnum({
   onChange,
   disabled,
   errors,
+  invalid,
   testId,
 }: FieldProps<string[] | null>): JSX.Element {
   const { t, i18n } = useTranslation();
@@ -62,7 +63,7 @@ export function MultiEnum({
         // `aria-describedby` wiring every other control in the shell gets; the
         // required flag is suppressed here (`groupContainer`) because it is
         // carried by the name above.
-        {...ariaProps(attribute, testId, errors, { groupContainer: true })}
+        {...ariaProps(attribute, testId, errors, { groupContainer: true, invalid })}
       >
         {attribute.options.map((option) => {
           const isOn = selected.includes(option.value);

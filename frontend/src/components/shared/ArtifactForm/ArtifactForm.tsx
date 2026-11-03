@@ -68,6 +68,7 @@ export function ArtifactForm({
     isReadOnly,
     isCreateMode,
     missingCreateValue,
+    missingCreateLabels,
     formRef,
     formErrorRef,
     changeReasonRef,
@@ -222,6 +223,7 @@ export function ArtifactForm({
         artifactId={artifactId}
         saveTestId={saveTestId}
         missingCreateValue={missingCreateValue}
+        missingCreateLabels={missingCreateLabels}
         onCancel={onCancel}
         changeReasonNeeded={changeReasonNeeded}
         changeReason={changeReason}

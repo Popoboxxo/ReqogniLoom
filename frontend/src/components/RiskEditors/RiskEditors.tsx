@@ -251,6 +251,9 @@ export default function RiskEditors(): JSX.Element {
         onSubmit={handleCreateNew}
         isSaving={isCreating}
         canSave={newTitle.trim().length > 0}
+        // #1595: the blocked Create button points at the field hint
+        // rendered below, so the disabled state is explainable.
+        saveHintId={newTitle.trim().length === 0 ? 'risk-new-title-hint' : undefined}
         cancelTestId="risk-create-cancel-btn"
         saveTestId="risk-new-save-btn"
         error={createError}
@@ -262,6 +265,11 @@ export default function RiskEditors(): JSX.Element {
           htmlFor="risk-new-title"
           label={t('editor.title', 'Title')}
           required={field('title').required}
+          hint={
+            newTitle.trim().length === 0
+              ? t('editor.titleRequired', 'Titel ist erforderlich.')
+              : null
+          }
           error={createFieldErrors.title?.join(', ')}
           labelClassName={styles.createLabel}
         >

@@ -33,6 +33,30 @@ test.describe('Architecture Management', () => {
     await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
   });
 
+  test('[REQ-L1-004] disabled create button explains the missing title (#1595)', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/architecture`);
+    await page.locator('[data-testid="create-arch-btn"]').click();
+
+    const title = page.locator('[data-testid="arch-new-title-input"]');
+    const save = page.locator('[data-testid="arch-new-save-btn"]');
+    const hint = page.locator('[data-testid="arch-new-title-hint"]');
+
+    // Keyboard flow unchanged: the dialog focuses the title field on open.
+    await expect(title).toBeFocused();
+    // The button stays disabled, but the reason is stated at the field and the
+    // button points at it.
+    await expect(save).toBeDisabled();
+    await expect(hint).toBeVisible();
+    await expect(title).toHaveAttribute('aria-invalid', 'true');
+    await expect(save).toHaveAttribute('aria-describedby', 'arch-new-title-hint');
+
+    await title.fill('E2E Hint Element');
+
+    await expect(hint).toHaveCount(0);
+    await expect(title).not.toHaveAttribute('aria-invalid', 'true');
+    await expect(save).toBeEnabled();
+  });
+
   test('[REQ-L1-004] create architecture element via API', async ({ request }) => {
     const token = await getAuthToken();
     const response = await request.post(`${BACKEND_URL}/api/v1/architecture/`, {
