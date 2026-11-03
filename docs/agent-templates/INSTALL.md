@@ -17,14 +17,21 @@
    ```bash
    claude plugin install reqogniloom
    ```
-3. Set the two required environment variables before starting Claude Code
-   (never commit real values — use your shell profile or a secrets
-   manager, matching this repo's own `templates/configs/mcp-secrets.local-template.yaml`
-   convention):
+3. Set the plugin's two required options (`mcp_url`, `api_key`). They are
+   declared as `userConfig` in `plugin.json` and stored per user by Claude
+   Code, not read from the environment:
    ```bash
-   export REQOGNILOOM_MCP_URL="https://your-reqogniloom-instance"
-   export REQOGNILOOM_API_KEY="reqlo_..."
+   claude plugin configure reqogniloom@reqogniloom-marketplace
    ```
+   Non-interactively, pass them at install time:
+   ```bash
+   claude plugin install reqogniloom \
+     --config "mcp_url=https://your-reqogniloom-instance" \
+     --config "api_key=reqlo_..."
+   ```
+   Never commit real values — use your shell profile or a secrets manager,
+   matching this repo's own `templates/configs/mcp-secrets.local-template.yaml`
+   convention.
 4. Verify: `/plugin` inside Claude Code should list `reqogniloom` as
    installed with 5 agents and 1 MCP server (`reqogniloom`, SSE).
 5. Invoke a role: `@requirements-architecture-manager` and ask it to call
@@ -77,8 +84,8 @@ OpenCode already looks for them:
    `docs/agent-templates/DOMAIN_MODEL.md` to `.opencode/DOMAIN_MODEL.md`
    (one level above `skills/`, i.e. two levels up from
    `.opencode/skills/<name>/SKILL.md`) so that link resolves.
-3. Set the same two environment variables as the Claude Code install
-   (`REQOGNILOOM_MCP_URL`, `REQOGNILOOM_API_KEY`) — OpenCode's `{env:...}`
+3. Set the two environment variables (`REQOGNILOOM_MCP_URL`,
+   `REQOGNILOOM_API_KEY`) — OpenCode's `{env:...}`
    syntax resolves them at connection time, never store the literal key in
    `opencode.jsonc`.
 4. Verify: `opencode mcp list` should show `reqogniloom` as connected; ask

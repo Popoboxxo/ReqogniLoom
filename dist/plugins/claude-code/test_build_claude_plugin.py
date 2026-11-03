@@ -28,8 +28,8 @@ def test_build_claude_plugin_produces_valid_manifests(tmp_path):
     )
     server = mcp_json["mcpServers"]["reqogniloom"]
     assert server["type"] == "sse"
-    assert server["url"] == "${REQOGNILOOM_MCP_URL}/mcp/sse/"
-    assert server["headers"]["X-API-Key"] == "${REQOGNILOOM_API_KEY}"
+    assert server["url"] == "${user_config.mcp_url}/mcp/sse/"
+    assert server["headers"]["X-API-Key"] == "${user_config.api_key}"
     assert "reqlo_" not in json.dumps(mcp_json)  # no real key leaked into template
 
     architect_md = (
@@ -73,6 +73,51 @@ def test_build_claude_plugin_produces_valid_manifests(tmp_path):
     assert "](../DOMAIN_MODEL.md)" in architect_md
     assert "](../../DOMAIN_MODEL.md)" in skill
     assert "](../skills/vmodell-decomposition/SKILL.md)" in architect_md
+
+
+def test_plugin_declares_user_config_and_mcp_uses_it(tmp_path):
+    """`.mcp.json` must not depend on ambient environment variables.
+
+    Claude Code expands `${user_config.<key>}` in a plugin's `.mcp.json` from
+    the `userConfig` block in `.claude-plugin/plugin.json`, so the two files
+    are one contract: every reference needs a declared key, and both required
+    keys need to be prompt-visible (`title`/`description`) — an unset key
+    silently yields an unusable MCP url or an empty API key.
+    """
+    result = subprocess.run(
+        [sys.executable, str(BUILD_DIR / "build_claude_plugin.py"),
+         "--out", str(tmp_path)],
+        capture_output=True, text=True, cwd=REPO_ROOT,
+    )
+    assert result.returncode == 0, result.stderr
+
+    plugin = json.loads(
+        (tmp_path / "reqogniloom" / ".claude-plugin" / "plugin.json").read_text()
+    )
+    user_config = plugin["userConfig"]
+    assert set(user_config) == {"mcp_url", "api_key"}
+    assert user_config["mcp_url"] == {
+        "type": "string",
+        "title": "ReqogniLoom URL",
+        "description": "Base URL, e.g. https://reqlo.example.com",
+        "required": True,
+    }
+    assert user_config["api_key"]["type"] == "string"
+    assert user_config["api_key"]["title"] == "API key"
+    assert user_config["api_key"]["sensitive"] is True
+    assert user_config["api_key"]["required"] is True
+
+    server = json.loads(
+        (tmp_path / "reqogniloom" / ".mcp.json").read_text()
+    )["mcpServers"]["reqogniloom"]
+    assert server["url"] == "${user_config.mcp_url}/mcp/sse/"
+    assert "mcp_url" in server["url"]
+    assert server["headers"]["X-API-Key"] == "${user_config.api_key}"
+
+    # No ambient-env fallback and no literal credential in either manifest.
+    rendered = json.dumps(plugin) + json.dumps(server)
+    assert "REQOGNILOOM_" not in rendered
+    assert "reqlo_" not in rendered
 
 
 def test_build_claude_plugin_all_json_files_parse(tmp_path):
