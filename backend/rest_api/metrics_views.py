@@ -46,7 +46,11 @@ from rest_api.platform_schema_serializers import (
     MetricValuesEnvelopeSerializer,
     MetricsReportSerializer,
 )
-from rest_api.serializers import build_error_response, detect_lang
+from rest_api.serializers import (
+    InvalidEnumValue,
+    build_error_response,
+    detect_lang,
+)
 from se_metrics.services import (
     compute_metrics,
     get_metric_catalog,
@@ -58,6 +62,13 @@ logger = logging.getLogger(__name__)
 
 #: ``refresh`` is opt-in and must be spelled out; anything else is "no refresh".
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+#: Timeframes the volatility window accepts (issue #1613). This is the
+#: documented contract of REQ-L2-SM-002 (ISO-8601 period, acceptance criteria
+#: P7D/P30D/P90D). Anything else used to be echoed back in the response (or,
+#: for a non-PnD value, silently coerced to 30 days by the aggregator), so a
+#: typo produced a result object that looked valid.
+_VALID_TIMEFRAMES: tuple[str, ...] = ("P7D", "P30D", "P90D")
 
 #: 200 body of ``GET /api/v1/metrics/``: the full report, or — when ``keys`` is
 #: given — the narrower values envelope. A ``oneOf`` is the honest description;
@@ -79,6 +90,24 @@ set_override(_METRICS_RESPONSE, "many", False)
 def _is_truthy(raw: str | None) -> bool:
     """Parse an opt-in boolean query parameter (default False)."""
     return raw is not None and str(raw).strip().lower() in _TRUTHY
+
+
+def _parse_timeframe(raw: str | None) -> str | None:
+    """Normalise and validate ``?timeframe=`` (issue #1613).
+
+    Absent -> ``None`` (the aggregator's documented P30D default). A present
+    value is trimmed, upper-cased and matched against
+    :data:`_VALID_TIMEFRAMES`; the normalised form is both used and echoed
+    back. Anything else raises :class:`InvalidEnumValue` -> 400
+    ``VALIDATION_ERROR`` with ``allowed_values`` — no silent fallback and no
+    echo of an invalid value.
+    """
+    if raw is None:
+        return None
+    normalised = str(raw).strip().upper()
+    if normalised not in _VALID_TIMEFRAMES:
+        raise InvalidEnumValue("timeframe", raw, _VALID_TIMEFRAMES)
+    return normalised
 
 
 def _parse_keys(raw: str | None) -> list[str] | None:
@@ -117,7 +146,13 @@ class MetricsViewSet(ViewSet):
                 type=str,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="ISO-8601 period for the volatility window, e.g. 'P30D'.",
+                enum=list(_VALID_TIMEFRAMES),
+                description=(
+                    "ISO-8601 period for the volatility window. "
+                    f"One of {', '.join(_VALID_TIMEFRAMES)} (default: 'P30D'). "
+                    "Any other value is a 400 VALIDATION_ERROR listing the "
+                    "allowed values (#1613)."
+                ),
             ),
             OpenApiParameter(
                 "keys",
@@ -150,7 +185,10 @@ class MetricsViewSet(ViewSet):
                 ),
             ),
             400: OpenApiResponse(
-                description="Missing/malformed workspace_id."
+                description=(
+                    "Missing/malformed workspace_id, or a timeframe outside "
+                    "P7D|P30D|P90D (`VALIDATION_ERROR` with `allowed_values`)."
+                )
             ),
             401: OpenApiResponse(description="AUTHENTICATION_REQUIRED."),
             404: OpenApiResponse(description="Workspace not in the caller's tenant."),
@@ -162,7 +200,8 @@ class MetricsViewSet(ViewSet):
         Query parameters:
           workspace_id  (required) — UUID of the workspace
           type          (optional) — metric type filter (e.g. "coverage")
-          timeframe     (optional) — ISO-8601 period, e.g. "P30D"
+          timeframe     (optional) — "P7D" | "P30D" | "P90D" (default P30D);
+                          any other value is a 400 (#1613)
           keys          (optional, #1265) — comma-separated statistic keys.
                           When present the response is the *values envelope*
                           (``{"metrics": {...}, "unknown_keys": [...]}``)
@@ -207,7 +246,20 @@ class MetricsViewSet(ViewSet):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-            timeframe = request.query_params.get("timeframe")
+            try:
+                timeframe = _parse_timeframe(request.query_params.get("timeframe"))
+            except InvalidEnumValue as exc:
+                # #1613: a typo must not come back as a 200 with an echoed
+                # value. The details block names the accepted periods.
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        details=exc.details,
+                        message=str(exc),
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             keys = _parse_keys(request.query_params.get("keys"))
             refresh = _is_truthy(request.query_params.get("refresh"))
 

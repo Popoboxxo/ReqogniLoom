@@ -249,6 +249,42 @@ class TestAuditPaginationContract:
                 req, workspace_id=str(workspace.id)
             )
 
+    def test_unknown_tier_is_a_400_with_allowed_values(
+        self, tenant, workspace, user
+    ):
+        """#1613: ``?tier=quatsch`` used to be ignored and echoed as the preset.
+
+        The workspace is on the ``extended`` preset, so the old behaviour
+        returned 200 ``{"tier": "standard"|"extended"}`` for a typo. It must be
+        a value error naming the accepted tiers.
+        """
+        resp = self._get(tenant, workspace, user, "&tier=quatsch")
+
+        assert resp.status_code == 400, resp.data
+        body = resp.data
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert body["error"]["details"] == [
+            {"field": "tier", "allowed_values": ["minimal", "standard", "extended"]}
+        ]
+        assert "tier" not in body
+
+    def test_a_valid_tier_override_is_applied_and_normalised(
+        self, tenant, workspace, user
+    ):
+        """A valid value overrides the preset and is echoed in lowercase."""
+        resp = self._get(tenant, workspace, user, "&tier=MINIMAL")
+
+        assert resp.status_code == 200, resp.data
+        assert resp.data["tier"] == "minimal"
+
+    def test_absent_tier_keeps_resolving_the_workspace_preset(
+        self, tenant, workspace, user
+    ):
+        resp = self._get(tenant, workspace, user)
+
+        assert resp.status_code == 200, resp.data
+        assert resp.data["tier"] == "extended"
+
     def test_page_size_is_an_alias_of_limit(self, tenant, workspace, user):
         with _active(tenant):
             _untraced_requirements(tenant, workspace, 8)
