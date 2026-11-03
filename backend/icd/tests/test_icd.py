@@ -92,6 +92,19 @@ def tgt_id() -> uuid.UUID:
     return uuid.uuid4()
 
 
+@pytest.fixture
+def icd_ctx(tenant_a: Tenant):
+    """AuthContext for the soft-delete/reactivate service calls (#1381)."""
+    from auth_tenancy.context import AuthContext, AuthMethod
+
+    return AuthContext(
+        user_id=uuid.uuid4(),
+        tenant_id=tenant_a.id,
+        active_roles=("admin",),
+        auth_method=AuthMethod.BEARER_TOKEN,
+    )
+
+
 def _make_create_dto(
     tenant: Tenant,
     workspace_id: uuid.UUID,
@@ -568,28 +581,24 @@ class TestIcdGetAndDelete:
             with pytest.raises(Icd.DoesNotExist):
                 get_icd(result.icd.id, tenant_b.id)
 
-    def test_delete_icd_removes_row(self, tenant_a, workspace_id, src_id, tgt_id):
-        # Task 28c-2: a plain cascading delete. The transaction-local
-        # app.allow_icd_version_delete GUC this used to need went away with
-        # the icd_version table and its immutability trigger.
+    def test_delete_icd_marks_row_outdated(
+        self, tenant_a, workspace_id, src_id, tgt_id, icd_ctx
+    ):
+        """#1381: delete is a soft-delete; the row and its contract stay."""
         from icd.models import Icd
         from icd.services import delete_icd
 
         with active_tenant(tenant_a):
             result = self._create(tenant_a, workspace_id, src_id, tgt_id)
-            delete_icd(result.icd.id, tenant_a.id)
+            delete_icd(result.icd.id, tenant_a.id, ctx=icd_ctx)
 
-        assert not Icd.unscoped.filter(id=result.icd.id).exists()
+            stored = Icd.unscoped.get(id=result.icd.id)
+            assert stored.artifact.lifecycle_status == "outdated"
 
-    def test_delete_icd_removes_child_parameters(
-        self, tenant_a, workspace_id, src_id, tgt_id
+    def test_delete_icd_keeps_child_parameters_for_restore(
+        self, tenant_a, workspace_id, src_id, tgt_id, icd_ctx
     ):
-        """delete_icd must cascade to the ICD's structured parameters.
-
-        Task 28c-2: this used to guard the icd_version cascade through the
-        immutability trigger's allow-path. IcdParameter is now the only child
-        table, and its FK is on_delete=CASCADE.
-        """
+        """#1381: a soft-delete must not destroy the ICD's parameters."""
         from icd.icd_parameter_service import IcdParameterCreateDTO
         from icd.models import IcdParameter
         from icd.services import create_icd_parameter, delete_icd
@@ -602,9 +611,9 @@ class TestIcdGetAndDelete:
             )
             assert IcdParameter.unscoped.filter(icd_id=result.icd.id).exists()
 
-            delete_icd(result.icd.id, tenant_a.id)
+            delete_icd(result.icd.id, tenant_a.id, ctx=icd_ctx)
 
-        assert not IcdParameter.unscoped.filter(icd_id=result.icd.id).exists()
+        assert IcdParameter.unscoped.filter(icd_id=result.icd.id).exists()
 
     # Task 28c-2 deleted two tests here that drove raw SQL against
     # ``icd_version`` to prove its BEFORE DELETE/UPDATE immutability trigger
@@ -1079,8 +1088,10 @@ class TestIcdInterfaceTypeChoices:
 
         with active_tenant(tenant_a):
             for iface_type in ["provides", "requires", "event-in", "event-out", "data", "control"]:
+                # #1661: one ICD per source/target pair — use a fresh pair per
+                # interface type instead of re-using src_id/tgt_id.
                 dto = _make_create_dto(
-                    tenant_a, workspace_id, src_id, tgt_id,
+                    tenant_a, workspace_id, uuid.uuid4(), uuid.uuid4(),
                     name=f"Test ICD {iface_type}",
                     interface_type=iface_type,
                 )
