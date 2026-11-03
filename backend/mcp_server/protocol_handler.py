@@ -627,7 +627,24 @@ class ProtocolHandler:
                     tool_filter=clean_params.get("filter"),
                     compact=bool(clean_params.get("compact", False)),
                 )
-                payload = page if method == "tools/filter" else {"tools": page["tools"]}
+                if method == "tools/filter":
+                    payload = page
+                else:
+                    # Standard MCP tools/list shape: `tools` and the (absent)
+                    # nextCursor are unchanged. The catalogue metadata is
+                    # additive (issue #1593) so a client can tell that its own
+                    # view is narrowed (``total`` vs ``catalogue_total``,
+                    # ``hidden_by_scope``) instead of reading the filtered list
+                    # as the complete server capability set.
+                    payload = {
+                        "tools": page["tools"],
+                        "count": page["count"],
+                        "total": page["total"],
+                        "catalogue_total": page["catalogue_total"],
+                        "hidden_by_scope": page["hidden_by_scope"],
+                        "filtered": page["filtered"],
+                        "workspace_id": page["workspace_id"],
+                    }
                 response = ErrorFormatter.format_jsonrpc_result(request_id, payload)
             except McpAuthenticationError as exc:
                 response = ErrorFormatter.format_jsonrpc_error(request_id, "AUTH_FAILED", str(exc))

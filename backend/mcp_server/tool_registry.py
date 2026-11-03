@@ -1362,9 +1362,23 @@ class ToolRegistry:
                 descriptions) while keeping the callable schema.
 
         Returns:
-            ``{"tools", "count", "total", "toolsets"}`` — ``total`` is the
-            caller's full (RBAC-gated) catalogue size, so a client can see how
-            much a filter saved.
+            ``{"tools", "count", "total", "catalogue_total", "hidden_by_scope",
+            "filtered", "workspace_id", "toolsets"}``.
+
+            * ``total`` — the caller's full **RBAC-gated** catalogue size (the
+              ``tools/filter`` contract since #866), so a client can see what a
+              *client-side* filter saved;
+            * ``catalogue_total`` — every tool the registry holds, before role
+              and capability-tier gating (issue #1593). Without it a key that
+              sees 98 of 248 tools had no way to tell its catalogue is
+              filtered at all;
+            * ``hidden_by_scope`` — ``catalogue_total - total``, i.e. how many
+              tools this key's role/capability scope hid;
+            * ``filtered`` — ``count < catalogue_total``: True whenever *this
+              response* is narrower than the complete catalogue, whether
+              because of the key's scope or an explicit filter/toolset;
+            * ``workspace_id`` — the workspace roles were resolved against
+              (``None`` = tenant-wide aggregate).
 
         Raises:
             McpAuthenticationError: propagated from :meth:`list_tools`.
@@ -1372,6 +1386,7 @@ class ToolRegistry:
         """
         tools = self.list_tools(api_key, workspace_id)
         total = len(tools)
+        catalogue_total = len(self.all_tool_schemas())
 
         f = tool_filter or {}
         if not isinstance(f, dict):
@@ -1398,6 +1413,13 @@ class ToolRegistry:
             "tools": selected,
             "count": len(selected),
             "total": total,
+            # #1593: the filter metadata. `tools` and the (absent) nextCursor
+            # stay byte-compatible; these keys are purely additive so a client
+            # can tell "98 of 248" from "the catalogue really is 98 tools".
+            "catalogue_total": catalogue_total,
+            "hidden_by_scope": max(catalogue_total - total, 0),
+            "filtered": len(selected) < catalogue_total,
+            "workspace_id": workspace_id,
             "toolsets": {name: list(prefixes) for name, prefixes in _TOOLSETS.items()},
         }
 
