@@ -15,7 +15,12 @@ while the documentation lies to the next reader.
    simply do not run any more — ``docker-compose`` (the standalone binary is
    gone; it is ``docker compose`` now) and a bare ``python`` interpreter that is
    not on ``PATH`` in every environment (``python3`` is). This gate fails on the
-   next reintroduction instead of shipping it a third time.
+   next reintroduction instead of shipping it a third time. The same gate pins
+   the client-doc defects from #1171 (D4.1): a ``/mcp/stdio/`` route that 404s,
+   a ``YOUR_API_KEY`` placeholder that is sent literally, a literal ``reqlo_``
+   key, the retired ``opencode.json`` name (``opencode.jsonc`` is documented),
+   ``--transport http`` against the SSE endpoint, and an unpinned ``mcp-remote``
+   (CVE-2025-6514).
 
 Why a *marker* rule for the tool count
 --------------------------------------
@@ -55,6 +60,72 @@ SHELL_COMMAND_DOCS = (
     "README.md",
     "docs/agent-templates/INSTALL.md",
     "docs/api/MCP-SURFACE.md",
+    "docs/clients/STAGE2.md",
+    "docs/clients/STAGE2.de.md",
+)
+
+#: Of those, the pages that document the command *inline* rather than in a
+#: fence (#1171 gap K3: ``STAGE2`` names the render gate inline). A fence-only
+#: scan would silently stop guarding them.
+INLINE_COMMAND_DOCS = (
+    "docs/clients/STAGE2.md",
+    "docs/clients/STAGE2.de.md",
+)
+
+#: Documents scanned for silently wrong copy-paste patterns (#1171, D4.1). The
+#: per-client pages are generated; a defect there is a rendering defect, but the
+#: gate fails on the rendered text either way.
+PROHIBITION_DOCS = (
+    "README.md",
+    "docs/agent-templates/INSTALL.md",
+)
+PROHIBITION_DOC_GLOB = "docs/clients/*.md"
+
+#: ``docs/clients/**`` pages that may legitimately name OpenCode V2's plain-JSON
+#: config file. V2's merge step refuses JSONC (``dist/opencode/merge_config.py``)
+#: and therefore writes ``opencode.json``; the ``opencode.jsonc`` rule covers the
+#: V1 documentation only (see #1638).
+OPENCODE_JSON_V2_PAGES = frozenset(
+    {"docs/clients/opencode-v2.md", "docs/clients/opencode-v2.de.md"}
+)
+
+#: ``(label, pattern)`` — every entry is a *silent* documentation defect: the
+#: snippet looks executable but 404s, sends a literal placeholder, leaks a key or
+#: installs an unpinned package.
+_PROHIBITIONS = (
+    (
+        "a `/mcp/stdio/` route — the stdio transport has no HTTP route (404)",
+        re.compile(r"/mcp/stdio/"),
+    ),
+    (
+        "the `YOUR_API_KEY` placeholder — it is never substituted, the literal "
+        "text is sent as the credential",
+        re.compile(r"\bYOUR_API_KEY\b"),
+    ),
+    (
+        "a literal `reqlo_` API key — use `$REQOGNILOOM_API_KEY`",
+        re.compile(r"reqlo_[A-Za-z0-9]{8,}"),
+    ),
+    (
+        "`--transport http` against `/mcp/sse/` — the SSE endpoint needs the "
+        "SSE transport",
+        re.compile(
+            r"--transport\s+http\b[^\n]*/mcp/sse/|/mcp/sse/[^\n]*--transport\s+http\b"
+        ),
+    ),
+    (
+        "an unpinned `mcp-remote` — CVE-2025-6514 affects < 0.1.16, pin "
+        "`mcp-remote@<x.y.z>`",
+        re.compile(r"npx\s+(?:-y\s+)?mcp-remote(?!@\d)"),
+    ),
+)
+
+#: The retired config-file name (gap K12). ``opencode.jsonc`` is the documented
+#: form; the submodule's own ``.agent-meta/opencode.json`` is a real upstream
+#: file and stays out of scope.
+_OPENCODE_JSON_PROHIBITION = (
+    "`opencode.json` — use `opencode.jsonc` (V1 docs)",
+    re.compile(r"(?<!\.agent-meta/)opencode\.json(?![.c])"),
 )
 
 #: ``clients/registry.yaml`` Client id whose ``verify`` block repeats the count.
@@ -131,6 +202,31 @@ def _shell_fence_lines(text: str) -> List[str]:
     return lines
 
 
+def _prohibition_problems(root: Path) -> List[str]:
+    """Scan README/INSTALL/client pages for copy-paste-broken snippets."""
+    problems: List[str] = []
+    documents: List[tuple[str, str]] = []
+    for rel in PROHIBITION_DOCS:
+        path = root / rel
+        if not path.is_file():
+            problems.append(f"{rel} is missing at {path}")
+            continue
+        documents.append((rel, path.read_text(encoding="utf-8")))
+    for path in sorted(root.glob(PROHIBITION_DOC_GLOB)):
+        rel = path.relative_to(root).as_posix()
+        documents.append((rel, path.read_text(encoding="utf-8")))
+
+    for rel, text in documents:
+        patterns = list(_PROHIBITIONS)
+        if rel not in OPENCODE_JSON_V2_PAGES:
+            patterns.append(_OPENCODE_JSON_PROHIBITION)
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            for label, pattern in patterns:
+                if pattern.search(line):
+                    problems.append(f"{rel}:{line_number}: {label} — {line.strip()}")
+    return problems
+
+
 def find_doc_surface_problems(root: Optional[Path] = None) -> List[str]:
     """Return one problem per doc-surface defect; empty means green."""
     if root is None:
@@ -191,7 +287,12 @@ def find_doc_surface_problems(root: Optional[Path] = None) -> List[str]:
         if not path.is_file():
             problems.append(f"{rel} is missing at {path}")
             continue
-        for line in _shell_fence_lines(path.read_text(encoding="utf-8")):
+        text = path.read_text(encoding="utf-8")
+        lines = _shell_fence_lines(text)
+        if rel in INLINE_COMMAND_DOCS:
+            # Commands documented in inline code spans, not in a fence.
+            lines += [line for line in text.splitlines() if "`" in line]
+        for line in lines:
             if _LEGACY_COMPOSE_RE.search(line):
                 problems.append(
                     f"{rel}: legacy `docker-compose` command — use "
@@ -202,6 +303,7 @@ def find_doc_surface_problems(root: Optional[Path] = None) -> List[str]:
                     f"{rel}: bare `python` interpreter — use `python3`: "
                     f"{line.strip()}"
                 )
+    problems += _prohibition_problems(root)
     return problems
 
 
@@ -243,6 +345,20 @@ def find_installer_problems(root: Optional[Path] = None) -> List[str]:
     return problems
 
 
+def _seed_minimal_docs(root: Path, *, tool_count: int = 1) -> None:
+    """Create every doc the gate reads, with a correct, clean tool count."""
+    (root / "docs" / "agent-templates").mkdir(parents=True, exist_ok=True)
+    (root / MANIFEST_REL).write_text(
+        json.dumps({"tool_count": tool_count, "tools": []}), encoding="utf-8"
+    )
+    for rel in (*TOOL_COUNT_DOCS, *SHELL_COMMAND_DOCS, *PROHIBITION_DOCS):
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            f"{tool_count} tools in the MCP catalogue.\n", encoding="utf-8"
+        )
+
+
 def test_doc_surface_is_consistent() -> None:
     """The real repository must be green (the positive gate)."""
     problems = find_doc_surface_problems()
@@ -257,22 +373,13 @@ def test_installer_defects_are_pinned() -> None:
 
 def test_stale_tool_count_goes_red(tmp_path: Path) -> None:
     """NEGATIVE proof: a stale prose count must fail, a historical one must not."""
-    (tmp_path / "docs" / "agent-templates").mkdir(parents=True)
-    (tmp_path / MANIFEST_REL).write_text(
-        json.dumps({"tool_count": 239, "tools": []}), encoding="utf-8"
-    )
+    _seed_minimal_docs(tmp_path, tool_count=239)
     (tmp_path / "README.md").write_text(
         "The server exposes 36 tool-group prefixes, 227 individual tools.\n"
         # historical "N tools" without a catalogue marker must be ignored:
         "| 172 tools / 30 groups | audit snapshot | historical |\n",
         encoding="utf-8",
     )
-    for rel in TOOL_COUNT_DOCS:
-        if rel == "README.md":
-            continue
-        path = tmp_path / rel
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("36 tool-group prefixes, 239 tools.\n", encoding="utf-8")
 
     problems = find_doc_surface_problems(tmp_path)
     assert any("README.md" in p and "227" in p for p in problems), problems
@@ -281,14 +388,7 @@ def test_stale_tool_count_goes_red(tmp_path: Path) -> None:
 
 def test_legacy_shell_commands_go_red(tmp_path: Path) -> None:
     """NEGATIVE proof: `docker-compose` / bare `python` in a fence must fail."""
-    (tmp_path / "docs" / "agent-templates").mkdir(parents=True)
-    (tmp_path / MANIFEST_REL).write_text(
-        json.dumps({"tool_count": 1, "tools": []}), encoding="utf-8"
-    )
-    for rel in TOOL_COUNT_DOCS:
-        path = tmp_path / rel
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("1 tools in the MCP catalogue.\n", encoding="utf-8")
+    _seed_minimal_docs(tmp_path)
     (tmp_path / "README.md").write_text(
         "1 tools in the MCP catalogue.\n"
         "```bash\n"
@@ -298,9 +398,6 @@ def test_legacy_shell_commands_go_red(tmp_path: Path) -> None:
         "```\n",
         encoding="utf-8",
     )
-    (tmp_path / "docs" / "agent-templates" / "INSTALL.md").write_text(
-        "1 tools in the MCP catalogue.\n", encoding="utf-8"
-    )
 
     problems = find_doc_surface_problems(tmp_path)
     joined = "\n".join(problems)
@@ -308,3 +405,72 @@ def test_legacy_shell_commands_go_red(tmp_path: Path) -> None:
     assert "bare `python`" in joined, problems
     # `deploy/docker-compose.yml` is a file name, not a retired command.
     assert not any("deploy/docker-compose.yml up" in p for p in problems), problems
+
+
+def test_inline_retired_command_in_stage2_goes_red(tmp_path: Path) -> None:
+    """K3 regression guard: STAGE2 names the command inline, not in a fence."""
+    _seed_minimal_docs(tmp_path)
+    (tmp_path / "docs" / "clients" / "STAGE2.md").write_text(
+        "Run `python scripts/clients/render.py --check`.\n", encoding="utf-8"
+    )
+
+    problems = find_doc_surface_problems(tmp_path)
+    assert any("STAGE2.md" in p and "bare `python`" in p for p in problems), problems
+
+
+def test_client_doc_prohibitions_go_red(tmp_path: Path) -> None:
+    """NEGATIVE proof for every D4.1 prohibition (#1171)."""
+    _seed_minimal_docs(tmp_path)
+    (tmp_path / "README.md").write_text(
+        "1 tools in the MCP catalogue.\n"
+        'curl "http://localhost:8000/mcp/stdio/"\n'
+        '"-H", "X-API-Key: YOUR_API_KEY"\n'
+        '"key":"reqlo_Ab12Cd34Ef56Gh78"\n'
+        'npx -y mcp-remote "https://host/mcp/"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "docs" / "agent-templates" / "INSTALL.md").write_text(
+        "merge the block into opencode.json\n"
+        'claude mcp add --transport http reqogniloom "$URL/mcp/sse/"\n',
+        encoding="utf-8",
+    )
+
+    problems = find_doc_surface_problems(tmp_path)
+    joined = "\n".join(problems)
+    for needle in (
+        "/mcp/stdio/",
+        "YOUR_API_KEY",
+        "reqlo_",
+        "opencode.json",
+        "`--transport http`",
+        "mcp-remote",
+    ):
+        assert needle in joined, (needle, problems)
+
+
+def test_pinned_mcp_remote_and_jsonc_are_accepted(tmp_path: Path) -> None:
+    """The fixed forms must stay green: a pinned bridge and `opencode.jsonc`."""
+    _seed_minimal_docs(tmp_path)
+    (tmp_path / "README.md").write_text(
+        "1 tools in the MCP catalogue.\n"
+        'npx -y mcp-remote@0.1.38 "https://host/mcp/"\n'
+        "merge the block into opencode.jsonc\n",
+        encoding="utf-8",
+    )
+
+    problems = find_doc_surface_problems(tmp_path)
+    assert not any(
+        "mcp-remote" in p or "opencode.json" in p for p in problems
+    ), problems
+
+
+def test_opencode_v2_page_may_name_its_json_config(tmp_path: Path) -> None:
+    """V2's merge refuses JSONC, so its page may name `opencode.json` (#1638)."""
+    _seed_minimal_docs(tmp_path)
+    page = tmp_path / "docs" / "clients" / "opencode-v2.md"
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text("merge into opencode.json\n", encoding="utf-8")
+
+    problems = find_doc_surface_problems(tmp_path)
+    assert not any("opencode.json" in p for p in problems), problems
+

@@ -23,6 +23,9 @@
 # One command: MCP server + skills (-> ~/.codex/skills):
 bash scripts/clients/install.sh --client codex \
   --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
+# Or register just the server directly (no skills copy):
+codex mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/" \
+  --bearer-token-env-var REQOGNILOOM_API_KEY
 codex mcp list            # -> reqogniloom   enabled
 export REQOGNILOOM_API_KEY="reqlo_…"   # read via bearer_token_env_var
 ```
@@ -57,7 +60,7 @@ bearer_token_env_var = "REQOGNILOOM_API_KEY"
 
 ## 7. Roles & key scope
 
-- Bearer is the only transport Codex supports for a `reqlo_` key; the key scope governs permissions.
+- Bearer is the transport form used here. Since 0.151 Codex also knows `env_http_headers`/`http_headers`; the package deliberately does not use them (one transport form per client). The key scope governs permissions.
 
 ## 8. Update / uninstall
 

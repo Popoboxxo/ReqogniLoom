@@ -69,4 +69,4 @@ Vollständige, generierte Konfiguration (Env-Var-Referenzen, nie ein literaler K
 ## 8. Update / Deinstallation
 
 - `bash scripts/clients/install.sh --client opencode --url "$REQOGNILOOM_MCP_URL" --refresh` aktualisiert vorhandene Skills + `DOMAIN_MODEL.md` (vorheriges Ziel als `.bak-<ts>`).
-- MCP-Transport geändert: Eintrag gemäß Snippet in `opencode.json` ersetzen; Stufe 2: `opencode plugin <modul>` installiert MCP + Skills in einem Schritt.
+- MCP-Transport geändert: Eintrag gemäß Snippet in `opencode.jsonc` ersetzen; Stufe 2: `opencode plugin <modul>` installiert MCP + Skills in einem Schritt.

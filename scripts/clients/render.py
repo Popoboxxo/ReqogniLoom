@@ -327,6 +327,29 @@ def render_matrix(registry: dict[str, Any], *, lang: str) -> str:
         "",
         _bullets(conv["transport_rule_de" if de else "transport_rule_en"]),
         "",
+    ]
+
+    # Env-var placeholder syntax differs per client (#1171 gap L3). Rendering
+    # the comparison from the registry keeps the matrix and the per-client
+    # pages from drifting apart on the one detail that silently sends a
+    # literal `${VAR}` as the credential.
+    forms = conv.get("placeholder_forms") or []
+    if forms:
+        parts += [
+            "### " + ("Platzhalterformen" if de else "Placeholder forms"),
+            "",
+            "| Form | Clients | " + ("Hinweis" if de else "Note") + " |",
+            "|---|---|---|",
+        ]
+        for entry in forms:
+            parts.append(
+                f"| `{entry['form']}` | "
+                f"{entry['clients_de' if de else 'clients_en']} | "
+                f"{entry['note_de' if de else 'note_en']} |"
+            )
+        parts.append("")
+
+    parts += [
         "## " + ("Einheitlicher Smoke-Test" if de else "Unified smoke test"),
         "",
         f"- **{'Aufgabe' if de else 'Task'}:** {smoke['task_de' if de else 'task_en']}",

@@ -40,6 +40,16 @@ One client, one page, **German and English**. Every page is generated from `clie
 - **SSE** (`/mcp/sse/`): plugin/store path expects SSE (Claude plugin, Antigravity).
 - **stdio bridge** (local script): when a client only speaks stdio.
 
+### Placeholder forms
+
+| Form | Clients | Note |
+|---|---|---|
+| `${VAR}` | Claude Code, Antigravity, Hermes | Expanded by the client at start-up / config load. |
+| `{env:VAR}` | OpenCode | OpenCode syntax; a bare `{…}` is **not** expanded and is sent literally. |
+| `bearer_token_env_var` | Codex | Name of an environment variable; Codex sends its value as `Authorization: Bearer <value>`. |
+| `env_http_headers / http_headers` | Codex | Codex header variant (0.151+) — available, deliberately unused here: one transport form per client. |
+| `bearerTokenEnvVar` | Kimi Code | Name of an environment variable in `~/.kimi-code/mcp.json`; a literal `headers.Authorization` is not interpolated. |
+
 ## Unified smoke test
 
 - **Task:** Use the reqogniloom MCP tool and report the number of requirements in workspace <workspace-id>.

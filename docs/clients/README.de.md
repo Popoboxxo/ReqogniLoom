@@ -40,6 +40,16 @@ Ein Client, eine Seite, **Deutsch und Englisch**. Alle Seiten sind aus `clients/
 - **SSE** (`/mcp/sse/`): Plugin-/Store-Weg sieht SSE vor (Claude-Plugin, Antigravity).
 - **stdio-Bridge** (lokales Skript): falls ein Client ausschließlich stdio spricht.
 
+### Platzhalterformen
+
+| Form | Clients | Hinweis |
+|---|---|---|
+| `${VAR}` | Claude Code, Antigravity, Hermes | Wird vom Client beim Start bzw. beim Laden der Config expandiert. |
+| `{env:VAR}` | OpenCode | OpenCode-Syntax; ein blankes `{…}` wird **nicht** expandiert, sondern literal gesendet. |
+| `bearer_token_env_var` | Codex | Name einer Env-Variable; Codex sendet ihren Wert als `Authorization: Bearer <Wert>`. |
+| `env_http_headers / http_headers` | Codex | Header-Variante von Codex (ab 0.151) — vorhanden, hier bewusst nicht verwendet: eine Transportform pro Client. |
+| `bearerTokenEnvVar` | Kimi Code | Name einer Env-Variable in `~/.kimi-code/mcp.json`; ein literales `headers.Authorization` wird nicht interpoliert. |
+
 ## Einheitlicher Smoke-Test
 
 - **Aufgabe:** Nutze das reqogniloom-MCP-Werkzeug und nenne die Anzahl der Requirements im Workspace <workspace-id>.

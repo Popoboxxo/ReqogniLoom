@@ -20,7 +20,7 @@
 | `.github/workflows/publish-mcp-registry.yml` | S1 | MCP registry | draft workflow (inert, `workflow_dispatch`) | no |
 | `.github/workflows/client-smoke.yml` | — | nightly smoke test | draft workflow (`workflow_dispatch`) | no |
 
-`claude plugin validate .` must stay green; `python scripts/clients/render.py --check`
+`claude plugin validate .` must stay green; `python3 scripts/clients/render.py --check`
 is the drift gate. Details: [plan §5](../plans/2026-10-04-one-click-client-installation.md),
 [client matrix](README.md).
 
