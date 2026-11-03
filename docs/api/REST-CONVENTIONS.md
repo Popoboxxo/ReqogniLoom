@@ -79,12 +79,14 @@ not an oversight: it is the behaviour for callers that do not track versions.
 
 ### Which resources — conditional requests are opt-in
 
-Five resources support them **on `PATCH`**:
+Seven resources support them **on `PATCH`**:
 
 | Resource | `ETag` on GET/PATCH | `If-Match` on PATCH | `412` declared |
 |----------|--------------------|---------------------|----------------|
 | `/api/v1/requirements/{id}/` | yes | yes | yes |
 | `/api/v1/documents/{id}/` | yes (also on `POST /documents/` → `201`) | yes | yes |
+| `/api/v1/work-items/{id}/` | yes (also on `POST /work-items/` → `201`) | yes | yes |
+| `/api/v1/milestones/{id}/` | yes (also on `POST /milestones/` → `201`); both domain `POST` actions (`bind-baseline`, `record-audit`) emit the new tag and accept `expected_version` in the body (stale → `409`) | yes | yes |
 | `/api/v1/test-cases/{id}/` (legacy alias `testcases`) | yes | yes | yes (`testcases` too) |
 | `/api/v1/workspaces/{id}/` | yes | yes | yes |
 | `/api/v1/baselines/{id}/` | yes — a `created_at` timestamp, not a counter | yes — evaluated *before* the `405` | yes |

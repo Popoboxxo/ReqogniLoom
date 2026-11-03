@@ -7,7 +7,8 @@ The single write entry point (ADR-01) for the ``Milestone`` entity introduced in
 Plan B B6-T1 (#879). A milestone plans a formal review (SRR/PDR/CDR/TRR/ORR), so
 it is a **plain** tenant-scoped row: no backing ``Artifact``, no ``uid``, no
 workflow state and no trace-link endpoints (ENT-B2 = a — only ``Milestone``, no
-``Measure``). The whole surface is therefore CRUD plus two domain actions:
+``Measure``). The whole surface is therefore CRUD (including a hard delete)
+plus two domain actions:
 
 * :meth:`bind_baseline` — attach the baseline the review refers to. The
   baseline must live in the *same workspace*: a cross-workspace binding would
@@ -25,7 +26,8 @@ caller's last-seen ``Milestone.version``; a stale value is refused with
 via ``F("version") + 1`` — never a Python-level ``version += 1`` (REQ-L3-PL001-002).
 
 ``list`` is deterministic (D-SORT): ``target_date`` first, ``id`` as tiebreaker.
-REST/MCP exposure (B6-T2) is deliberately out of scope here.
+REST and MCP exposure live in B6-T2 (``rest_api.views.MilestoneViewSet`` and
+``mcp_server.tools.milestones``); both delegate every write to this service.
 """
 from __future__ import annotations
 
@@ -437,3 +439,57 @@ class MilestoneService(ServiceBase):
             details={"action": "record_audit"},
         )
         return milestone
+
+    # ---------- Delete ----------
+
+    @atomic_transaction
+    def delete(
+        self,
+        milestone_id: UUID | str,
+        ctx: AuthContext,
+        *,
+        change_reason: str | None = None,
+        expected_version: int | None = None,
+    ) -> None:
+        """Hard-delete one milestone of the caller's tenant.
+
+        A milestone owns no ``Artifact`` and no append-only child rows, so
+        removal is a real delete rather than an ``outdated`` soft-delete (the
+        workflow escape hatch other entities use does not exist for this plain
+        tenant-scoped row). A baseline referenced *by* a milestone is protected
+        the other way round (``Milestone.baseline`` is ``PROTECT``); deleting
+        the milestone itself releases that reference.
+
+        Args:
+            milestone_id: UUID of the milestone.
+            ctx: Resolved AuthContext.
+            change_reason: Optional rationale recorded on the audit trail.
+            expected_version: Caller's last-seen ``Milestone.version``; a stale
+                value raises ``OptimisticLockError`` (REST 409).
+
+        Raises:
+            PermissionDeniedError: The caller may not write.
+            NotFoundError: No such milestone in the active tenant.
+            OptimisticLockError: *expected_version* does not match.
+        """
+        self._set_tenant_context(ctx)
+        self._assert_write_permission(ctx)
+
+        milestone = lock_for_version_check(
+            Milestone.objects.filter(id=milestone_id, tenant_id=ctx.tenant_id),
+            expected_version,
+        ).first()
+        if milestone is None:
+            raise NotFoundError(f"Milestone {milestone_id} not found")
+        assert_expected_version(milestone, expected_version, entity_type=MILESTONE_ITEM_TYPE)
+
+        # ``Model.delete()`` clears the instance pk, so capture it first.
+        deleted_id = milestone.id
+        milestone.delete()
+        self._audit(
+            ctx=ctx,
+            operation="delete",
+            entity_type=MILESTONE_ITEM_TYPE,
+            entity_id=deleted_id,
+            change_reason=change_reason,
+        )

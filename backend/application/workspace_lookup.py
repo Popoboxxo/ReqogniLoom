@@ -94,6 +94,9 @@ ENTITY_SPECS: dict[str, EntityWorkspaceSpec] = {
     "document": EntityWorkspaceSpec("persistence.models.Document"),
     # Plan F F3-T5: WorkItem mirrors the document workspace on its own column.
     "work_item": EntityWorkspaceSpec("persistence.models.WorkItem"),
+    # Plan B B6-T2 (#879): Milestone is a plain tenant-scoped planning row with
+    # a direct, non-null workspace FK (no backing Artifact).
+    "milestone": EntityWorkspaceSpec("persistence.models.Milestone"),
     "issue": EntityWorkspaceSpec("persistence.models.Issue"),
     "change_request": EntityWorkspaceSpec("persistence.models.ChangeRequest"),
     "goal": EntityWorkspaceSpec("persistence.models.Goal"),

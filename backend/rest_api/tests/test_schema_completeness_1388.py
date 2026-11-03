@@ -597,6 +597,13 @@ _ETAG_HEADER_OPERATIONS = {
     ("/api/v1/work-items/", "post"): {"201"},
     ("/api/v1/work-items/{id}/", "get"): {"200"},
     ("/api/v1/work-items/{id}/", "patch"): {"200"},
+    # Plan B B6-T2 (#879): Milestone — GET/POST/PATCH plus both domain actions
+    # (each mutation emits the new tag).
+    ("/api/v1/milestones/", "post"): {"201"},
+    ("/api/v1/milestones/{id}/", "get"): {"200"},
+    ("/api/v1/milestones/{id}/", "patch"): {"200"},
+    ("/api/v1/milestones/{id}/bind-baseline/", "post"): {"200"},
+    ("/api/v1/milestones/{id}/record-audit/", "post"): {"200"},
     ("/api/v1/requirements/{id}/", "get"): {"200"},
     ("/api/v1/requirements/{id}/", "patch"): {"200"},
     ("/api/v1/testcases/{id}/", "get"): {"200"},

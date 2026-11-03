@@ -39,6 +39,7 @@ from rest_framework.response import Response
 from persistence.models import (
     Document,
     ElementType,
+    Milestone,
     ScenarioKind,
     TestCaseOrigin,
     TestCaseType,
@@ -2788,6 +2789,122 @@ class WorkItemSerializer(
     )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
+
+
+class MilestoneSerializer(
+    UnknownFieldRejectionMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
+):
+    """Serializer for the ``Milestone`` entity (Plan B B6-T2, #879).
+
+    A milestone plans a formal review (SRR/PDR/CDR/TRR/ORR), so it is a plain
+    tenant-scoped row: no backing ``Artifact``, no ``uid``, no workflow state
+    and no trace-link endpoints (ENT-B2 = a). The two relation changes are
+    deliberately *not* general purpose fields:
+
+    * ``baseline_id`` is only honoured on create; rebinding afterwards goes
+      through ``POST /milestones/{id}/bind-baseline/`` so the cross-workspace
+      refusal in ``MilestoneService.bind_baseline`` cannot be bypassed with a
+      PATCH body.
+    * ``status`` is a plain enum column (no ``WorkflowEngine`` state), so it is
+      writable here.
+    * ``audit_snapshot`` is read-only: it is the frozen output of the SE-Auditor
+      written by ``POST /milestones/{id}/record-audit/``.
+
+    ``ExpectedVersionSerializerMixin`` supplies the write-only
+    ``expected_version`` field; ``MilestoneViewSet`` emits the matching
+    ``ETag``. ``UnknownFieldRejectionMixin`` (#851) rejects a key no declared
+    field accepts instead of silently dropping it.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    workspace_id = serializers.UUIDField(
+        required=True,
+        help_text="Owning workspace (immutable after create).",
+    )
+    name = SanitizedCharField(
+        max_length=200,
+        help_text="Human-readable milestone name, e.g. 'PDR Fahrwerk'.",
+    )
+    review_type = serializers.ChoiceField(
+        choices=Milestone.ReviewType.choices,
+        help_text="Formal review this milestone plans.",
+    )
+    target_date = serializers.DateField(
+        help_text="Planned review date; the primary sort key of every list.",
+    )
+    status = serializers.ChoiceField(
+        choices=Milestone.Status.choices,
+        required=False,
+        default=Milestone.Status.PLANNED,
+        help_text="Planning/execution state (default 'planned').",
+    )
+    baseline_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Create only: bind a baseline of the same workspace. Rebinding an "
+            "existing milestone uses POST /{id}/bind-baseline/."
+        ),
+    )
+    audit_snapshot = serializers.JSONField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Frozen copy of the last SE-Auditor run "
+            "({tier, counts, run_at}); written by POST /{id}/record-audit/."
+        ),
+    )
+    change_reason = SanitizedCharField(
+        required=False, allow_blank=True, max_length=2000
+    )
+    version = serializers.IntegerField(
+        read_only=True, help_text=LOCK_VERSION_HELP_TEXT
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True)
+
+
+class MilestoneBindBaselineSerializer(
+    UnknownFieldRejectionMixin,
+    ExpectedVersionSerializerMixin,
+    serializers.Serializer,
+):
+    """Request body of ``POST /milestones/{id}/bind-baseline/`` (B6-T2).
+
+    The baseline must live in the milestone's own workspace; the service refuses
+    a cross-workspace binding with ``ValidationError`` (400). ``expected_version``
+    is the body half of the optimistic-lock contract (stale → 409); the ETag
+    header is not part of the POST contract here.
+    """
+
+    baseline_id = serializers.UUIDField(
+        help_text="Baseline of the same workspace to bind."
+    )
+    change_reason = SanitizedCharField(
+        required=False, allow_blank=True, max_length=2000
+    )
+
+
+class MilestoneRecordAuditSerializer(
+    UnknownFieldRejectionMixin,
+    ExpectedVersionSerializerMixin,
+    PresetAwareSerializerMixin,
+    serializers.Serializer,
+):
+    """Request body of ``POST /milestones/{id}/record-audit/`` (B6-T2).
+
+    Both fields are optional, so an empty body is valid: the action freezes the
+    workspace's current SE-Auditor counts as
+    ``{tier, counts: {total, blockers, warnings}, run_at}``. Recording is a
+    record, never a gate, so open blockers do not refuse it.
+    """
+
+    change_reason = SanitizedCharField(
+        required=False, allow_blank=True, max_length=2000
+    )
 
 
 class GoalSerializer(

@@ -1106,6 +1106,34 @@
    "get"
   ],
   [
+   "/api/v1/milestones/",
+   "get"
+  ],
+  [
+   "/api/v1/milestones/",
+   "post"
+  ],
+  [
+   "/api/v1/milestones/{id}/",
+   "delete"
+  ],
+  [
+   "/api/v1/milestones/{id}/",
+   "get"
+  ],
+  [
+   "/api/v1/milestones/{id}/",
+   "patch"
+  ],
+  [
+   "/api/v1/milestones/{id}/bind-baseline/",
+   "post"
+  ],
+  [
+   "/api/v1/milestones/{id}/record-audit/",
+   "post"
+  ],
+  [
    "/api/v1/needs/",
    "get"
   ],
