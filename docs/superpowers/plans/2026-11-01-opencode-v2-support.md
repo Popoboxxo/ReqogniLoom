@@ -1,191 +1,124 @@
-# OpenCode V2 Support Implementation Plan
+# OpenCode 2 Native Support Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** ReqogniLoom verbindet sich mit OpenCode V1 (unverändert) und OpenCode V2 (Beta) über je einen eigenen Client-Eintrag, Snippet, Installer-Pfad und Doku-Seite.
+**Goal:** ReqogniLoom unterstützt OpenCode 2 nativ und OpenCode 1 weiterhin, mit einer gemeinsamen, getesteten Konfiguration. Was nicht belegt ist, steht als offenes Issue (#1702–#1706), nicht als Annahme.
 
-**Architecture:** V2 bekommt einen eigenen Registry-Eintrag `opencode-v2`, ein eigenes Snippet `opencode.v2.json.snippet` (Form `mcp.servers.reqogniloom`, Streamable HTTP `/mcp/`, `oauth:false`, `codemode:false`) und einen Installer-Pfad, der die Config per JSON-Merge schreibt. `install.sh --client opencode` erkennt die Major-Version und wählt V1 oder V2. Der V1-Pfad bleibt unangetastet.
+**Architecture:** Beide Versionen verbinden sich per Streamable HTTP auf `/mcp/`. Der Spike vom 2026-11-03 zeigt: V2 hat keinen SSE-Fallback (POST auf `/mcp/sse/` → 404), V1 spricht Streamable HTTP und fällt nur bei Misserfolg auf SSE zurück, und V2 liest die V1-Form `mcp.reqogniloom` und normalisiert sie selbst. Eine einzige Konfiguration (V1-Form, URL `…/mcp/`) genügt daher; es gibt keinen zweiten Registry-Eintrag, kein Merge-Tool und keinen Versions-Autodetect.
 
 **Tech Stack:** Bash (`install.sh`, `verify.sh`), Python 3 + pytest + PyYAML (Builder, Renderer, Tests), YAML-Registry, GitHub Actions.
 
-**Spec:** `docs/superpowers/specs/2026-11-01-opencode-v2-support-design.md`
+**Spec:** `docs/superpowers/specs/2026-11-01-opencode-v2-support-design.md` (Abschnitt „Stand 2026-11-03" ersetzt dort §3 und §4)
+
+## Messstand des Spikes (2026-11-03)
+
+Gemessen mit `@opencode/cli@2.2.5` (npm, Binaries `opencode` und `opencode2`) und OpenCode 1.18.35 gegen einen **Mock**-MCP-Server (stdlib-Python, Streamable HTTP auf `POST /mcp/`, Header `X-API-Key`). `opencode mcp list`:
+
+| Config | V1 1.18.35 | V2 2.2.5 |
+|---|---|---|
+| V1-Form, URL `/mcp/` | verbunden | verbunden |
+| V1-Form, URL `/mcp/sse/` (heutiges Snippet) | verbunden über SSE-Fallback | **fehlgeschlagen** (POST → 404) |
+| V2-Form `mcp.servers.…`, URL `/mcp/` | nicht geprüft | verbunden, mit und ohne `oauth:false` |
+| V2-Form, URL `/mcp/sse/` | nicht geprüft | **fehlgeschlagen** |
+
+**Nicht belegt** (je ein Issue): echter ReqogniLoom-Endpunkt (#1703), Code Mode und Tool-Aufrufe über das LLM (#1704), CI-Abdeckung und Stage-2-Paket (#1705), Warnung zu `subagent_depth` in der Repo-`opencode.json` (#1706). Weiteres V2-Verhalten: Nach einer Config-Änderung muss der V2-Hintergrunddienst neu starten, sonst zeigt `mcp list` „No MCP servers configured".
 
 ## Global Constraints
 
-- Branch `feat/opencode-v2-support`, **von `origin/main`** abzweigen (lokales `main` ist divergiert, nie auschecken/resetten).
-- Git-Mutationen (Branch, Commit, Push, PR) nur über den `git`-Agenten, nie als Self-Declare im Hook.
-- Kein Plugin-Code, keine Änderung an `opencode_go` (LLM-Provider) und keine Änderung am V1-Snippet oder V1-Installerpfad.
+- Branch `fix/opencode-two-streamable-http` (oder `feat/…`) **von `origin/main`**; lokales `main` nicht auschecken/resetten. Git-Mutationen nur über den `git`-Agenten.
+- Kein Plugin-Code. Der `opencode_go`-LLM-Provider bleibt unverändert.
 - Nie einen literalen `reqlo_`-Key in Config, Snippet oder argv; nur `{env:NAME}`-Platzhalter. `--key-env` ist ein Env-Var-**Name**.
-- Generierte Dateien (`docs/clients/**`) nie von Hand editieren: `python scripts/clients/render.py` ausführen und das Ergebnis committen.
-- Die lokale V1-Installation (`~/.config/opencode`) wird in keinem Task angefasst; alle Läufe mit gesetztem `HOME`/`XDG_CONFIG_HOME` auf ein Scratch-Verzeichnis.
-- Commits: Conventional Commits, Englisch, max. 72 Zeichen, Imperativ.
-- Doku-Sprachen: `*_de` und `*_en` im Registry-Eintrag immer paritätisch (gleiche Anzahl Überschriften und Code-Blöcke).
-- Tests laufen sequenziell (Host hat ~5,8 GiB RAM).
+- Generierte Dateien (`docs/clients/**`) nie von Hand editieren: `python scripts/clients/render.py` ausführen und committen.
+- `*_de` und `*_en` im Registry-Eintrag paritätisch halten.
+- Die lokale OpenCode-Installation und `~/.config/opencode` werden nicht angefasst; Tests mit gesetztem `HOME`/`XDG_CONFIG_HOME` auf ein Scratch-Verzeichnis.
+- Tests sequenziell (Host-RAM ~5,8 GiB). Commits: Conventional Commits, Englisch, ≤72 Zeichen.
 
 ## Review Focus
 
-- Bestehende `opencode.json` hat **Kommentare (JSONC)** oder ist ungültig → Merge bricht mit Exit ≠ 0 ab und schreibt nichts (Backup bleibt unberührt).
-- Bestehende `opencode.json` enthält **andere MCP-Server** und V1-Einträge (`mcp.<name>`) → bleiben byte-gleich erhalten.
-- `opencode.json` existiert nicht → wird angelegt, Verzeichnis inklusive.
-- Zweiter Lauf des Installers → identisches Ergebnis, kein doppelter Eintrag, keine Verschachtelung.
-- `--key-env` mit Leerzeichen, `$`, `{` oder `}` → Installer lehnt ab (kein Config-Injection-Pfad).
-- `opencode --version` fehlt oder liefert Unparsebares → Erkennung fällt auf V1 zurück, V1-Pfad läuft wie bisher.
+- Installer-Aufruf mit `--url` mit und ohne Schrägstrich am Ende → URL ist immer genau `<base>/mcp/` (nie `//mcp/`, nie `/mcp/sse/`).
+- `--key-env` mit Leerzeichen, `$`, `{`, `}` → Installer lehnt ab, schreibt nichts.
+- Snippet und Registry enthalten nirgends `sse` als Transport oder `/mcp/sse/` für OpenCode; andere Clients (Claude Code, Antigravity) bleiben unverändert auf SSE.
+- V1-Nutzer mit bestehender SSE-Config: Update-Hinweis in der Doku („Eintrag ersetzen"), der Installer überschreibt keinen vorhandenen Eintrag ohne `--refresh`.
 
 ---
 
-### Task 0: Spike — V2 in Isolation gegen eine echte Instanz
-
-Gate für alle weiteren Tasks. Kein Repo-Code. Ergebnis ist ein Bericht; weichen Befunde von den Annahmen in `Architecture` ab, wird dieser Plan **vor Task 1** angepasst.
+### Task 1: Config auf Streamable HTTP umstellen (#1702)
 
 **Files:**
-- Create: `docs/test-reports/opencode-v2-spike.md`
-
-**Interfaces:**
-- Produces: Antworten auf F1 (Streamable HTTP auf `/mcp/` mit V2), F2 (`oauth:false` verhindert OAuth-Flow), F4 (Tool-Namen mit `codemode:false`), F7 (kann `mcp add` `oauth:false` setzen?), F8 (Binary-Name `opencode` vs `opencode2`), V1-Frage (spricht V1 `1.18.x` Streamable HTTP auf `/mcp/`?).
-
-- [ ] **Step 1: Scratch-Umgebung anlegen.** `export SCRATCH=$(mktemp -d)`, dann `export HOME=$SCRATCH/home XDG_CONFIG_HOME=$SCRATCH/home/.config XDG_DATA_HOME=$SCRATCH/home/.local/share` und `mkdir -p "$HOME"`. Alle folgenden Befehle in derselben Shell.
-- [ ] **Step 2: V2 installieren, ohne das System-V1 zu ersetzen.** Installationsweg laut `https://opencode.ai/v2/docs` wählen und auf einen Prefix unter `$SCRATCH` lenken. Lässt sich der Installer nicht isolieren (die Doku sagt, er ersetze das V1-Binary), **abbrechen und den Nutzer fragen**. Erwartet: `"$SCRATCH"/…/opencode --version` zeigt `2.x`.
-- [ ] **Step 3: Testinstanz und Key bereitstellen.** Backend lokal mit `make up`, `reqlo_`-Key mit Read-only-Rolle als `REQOGNILOOM_API_KEY` exportieren, `REQOGNILOOM_MCP_URL=http://localhost:8001`.
-- [ ] **Step 4: V2-Matrix ausführen.** Für jede Zeile die Config in `$XDG_CONFIG_HOME/opencode/opencode.json` von Hand schreiben, dann `opencode mcp list` und ein Tool-Call über `opencode run "call requirement_query"` (oder interaktiv): (a) `mcp.servers.reqogniloom` mit `url …/mcp/`, `oauth:false`, `codemode:false`; (b) dieselbe URL `…/mcp/sse/`; (c) `…/mcp/` ohne `oauth:false`; (d) `codemode:true`; (e) `opencode mcp add reqogniloom --url …/mcp/ --header 'X-API-Key={env:REQOGNILOOM_API_KEY}'` und die entstandene Config lesen.
-- [ ] **Step 5: V1-Frage prüfen.** Mit dem System-`opencode` (1.18.x, aber **gleiches Scratch-`HOME`**) einen V1-Eintrag `mcp.reqogniloom` mit URL `…/mcp/` anlegen, `opencode mcp list` und Tool-Call.
-- [ ] **Step 6: Bericht schreiben.** `docs/test-reports/opencode-v2-spike.md` mit einer Tabelle (Test, V1, V2, Beobachtung, genaue Version) und den fünf Entscheidungen: Transport, `oauth`, `codemode`, `mcp add` ausreichend ja/nein, Binary-Name.
-- [ ] **Step 7: Gate.** Wenn V2 `/mcp/` mit Key-Header nicht verbindet oder `oauth:false` nicht wirkt: Plan hier stoppen und mit dem Nutzer neu entscheiden. Sonst Weiter.
-- [ ] **Step 8: Commit (über `git`-Agent).** `git add docs/test-reports/opencode-v2-spike.md` · `git commit -m "docs: record OpenCode V2 spike results"`
-
----
-
-### Task 1: V2-Snippet und Server-Eintrag im Builder
-
-**Files:**
-- Modify: `dist/opencode/build_opencode_package.py`
-- Modify: `dist/opencode/test_build_opencode_package.py`
-- Modify: `dist/test_mcp_convention_parity.py:130-134` (zweiter Eintrag `opencode-v2`)
-- Create (generiert): `dist/opencode/opencode.v2.json.snippet`
-
-**Interfaces:**
-- Produces: `v2_server_entry(url: str, key_env: str) -> dict[str, Any]` in `build_opencode_package.py`. `url` ist die Basis ohne Pfad (`"http://h:8001"` oder `"{env:REQOGNILOOM_MCP_URL}"`); Rückgabe:
-  `{"type": "remote", "url": f"{url}/mcp/", "headers": {"X-API-Key": f"{{env:{key_env}}}"}, "oauth": False, "codemode": False}`. Task 2 und 4 konsumieren das.
-- Produces: Datei `opencode.v2.json.snippet` = `{"mcp": {"servers": {"reqogniloom": v2_server_entry("{env:REQOGNILOOM_MCP_URL}", "REQOGNILOOM_API_KEY")}}}`.
-
-- [ ] **Step 1: Failing Test schreiben** in `dist/opencode/test_build_opencode_package.py`: `test_v2_snippet_shape` baut nach `tmp_path`, lädt `opencode.v2.json.snippet`, assertet `snippet["mcp"]["servers"]["reqogniloom"] == {"type": "remote", "url": "{env:REQOGNILOOM_MCP_URL}/mcp/", "headers": {"X-API-Key": "{env:REQOGNILOOM_API_KEY}"}, "oauth": False, "codemode": False}` und `"reqlo_" not in json.dumps(snippet)`. Zweiter Test `test_v2_entry_uses_literal_url_and_env_key` ruft `v2_server_entry("http://h:8001", "MY_KEY")` und assertet `url == "http://h:8001/mcp/"` sowie `headers == {"X-API-Key": "{env:MY_KEY}"}`.
-- [ ] **Step 2: Test laufen lassen.** `pytest dist/opencode/test_build_opencode_package.py -v` — Erwartet: FAIL (`v2_server_entry` / Datei fehlt).
-- [ ] **Step 3: `v2_server_entry` und Snippet-Ausgabe implementieren** in `build_opencode_package.py`; `build()` schreibt `opencode.v2.json.snippet` nach demselben Muster (`json.dumps(..., indent=2) + "\n"`) wie das V1-Snippet. V1-Ausgabe bleibt unverändert.
-- [ ] **Step 4: Parity-Eintrag ergänzen.** In `dist/test_mcp_convention_parity.py` den `opencode`-Block (Z. 130–134) kopieren: `name="opencode-v2"`, `out_subpath="opencode.v2.json.snippet"`, `committed_path=Path("dist/opencode/opencode.v2.json.snippet")`.
-- [ ] **Step 5: Snippet erzeugen.** `python dist/opencode/build_opencode_package.py` (Default `--out` ist das Verzeichnis selbst).
-- [ ] **Step 6: Tests laufen lassen.** `pytest dist/opencode dist/test_mcp_convention_parity.py -v` — Erwartet: PASS.
-- [ ] **Step 7: Commit.** `git add dist/opencode dist/test_mcp_convention_parity.py` · `git commit -m "feat(opencode): add V2 config snippet and entry builder"`
-
----
-
-### Task 2: Config-Merge für V2
-
-**Files:**
-- Create: `dist/opencode/merge_config.py`
-- Create: `dist/opencode/test_merge_config.py`
-
-**Interfaces:**
-- Consumes: `v2_server_entry(url: str, key_env: str) -> dict[str, Any]` aus Task 1 (Import per `from build_opencode_package import v2_server_entry`, gleiche Konvention wie der vorhandene Test).
-- Produces: `merge_v2(config: dict[str, Any], url: str, key_env: str) -> dict[str, Any]` (setzt `config["mcp"]["servers"]["reqogniloom"]`, mutiert nicht den Eingang, lässt alles andere unberührt) und CLI `python dist/opencode/merge_config.py --config PATH --url URL --key-env NAME [--dry-run]`. Exit 0 bei Erfolg, Exit 2 bei Eingabefehler (ungültiges JSON, ungültiger Env-Name), Exit 3 wenn die Datei nicht schreibbar ist. Task 4 ruft die CLI.
-
-- [ ] **Step 1: Failing Tests schreiben** in `dist/opencode/test_merge_config.py`:
-  - `test_merge_keeps_other_servers_and_v1_entries`: Eingang `{"mcp": {"legacy": {"type": "remote", "url": "x"}, "servers": {"other": {"type": "local", "command": ["x"]}}}, "model": "m"}` → `legacy`, `other` und `model` unverändert, `servers.reqogniloom == v2_server_entry(url, key_env)`.
-  - `test_merge_is_idempotent`: zweimal anwenden → gleiches Ergebnis.
-  - `test_merge_creates_missing_structure`: `merge_v2({}, …)` liefert `{"mcp": {"servers": {"reqogniloom": …}}}`.
-  - `test_cli_creates_file_and_parent_dir`: `--config tmp/new/dir/opencode.json` → Datei existiert, valides JSON.
-  - `test_cli_refuses_jsonc_and_leaves_file_untouched`: Datei mit `// comment\n{}` → Exit 2, Inhalt byte-gleich, **kein** `.bak-*` angelegt.
-  - `test_cli_rejects_bad_key_env`: `--key-env 'A B'`, `'A$B'`, `'{x}'` → Exit 2.
-  - `test_cli_dry_run_writes_nothing`.
-  - `test_cli_writes_backup_before_changing_existing_file`: bestehende Datei → danach existiert `opencode.json.bak-<14 Ziffern>` mit altem Inhalt.
-- [ ] **Step 2: Test laufen lassen.** `pytest dist/opencode/test_merge_config.py -v` — Erwartet: FAIL (Modul fehlt).
-- [ ] **Step 3: Implementieren** in `merge_config.py`: Env-Name gegen `^[A-Za-z_][A-Za-z0-9_]*$` prüfen; Datei mit `json.load` lesen (Fehler → Exit 2, Meldung nennt „JSONC/Kommentare werden nicht unterstützt, Eintrag von Hand einfügen" und das Snippet `opencode.v2.json.snippet`); Backup nach Muster `<datei>.bak-%Y%m%d%H%M%S` nur wenn die Datei existiert und sich der Inhalt ändert; atomar schreiben (Temp-Datei im selben Verzeichnis + `os.replace`); JSON mit `indent=2` und Newline am Ende.
-- [ ] **Step 4: Tests laufen lassen.** `pytest dist/opencode -v` — Erwartet: PASS.
-- [ ] **Step 5: Commit.** `git add dist/opencode/merge_config.py dist/opencode/test_merge_config.py` · `git commit -m "feat(opencode): add safe V2 config merge tool"`
-
----
-
-### Task 3: Registry-Eintrag `opencode-v2` und generierte Doku
-
-**Files:**
-- Modify: `clients/registry.yaml` (neuer Eintrag nach `opencode`, vor `kimi-code`, ca. Z. 363)
-- Modify: `scripts/clients/render.py:54-61` (`CLIENT_IDS`)
-- Generate: `docs/clients/opencode-v2.md`, `docs/clients/opencode-v2.de.md`, `docs/clients/README.md`, `docs/clients/README.de.md`
-- Test: `scripts/clients/test_render.py` (bestehende Tests, keine neuen Funktionen nötig)
-
-**Interfaces:**
-- Consumes: Datei `dist/opencode/opencode.v2.json.snippet` aus Task 1 (muss `/mcp/` enthalten).
-- Produces: Client-Id `opencode-v2`, auf die `install.sh`/`verify.sh`/CI (Task 4/5) verweisen.
-
-- [ ] **Step 1: `opencode-v2` in `CLIENT_IDS` eintragen** (nach `"opencode"`). `pytest scripts/clients/test_render.py -v` — Erwartet: FAIL (`test_every_client_has_both_language_pages`, Registry kennt die Id nicht).
-- [ ] **Step 2: Registry-Eintrag anlegen.** Alle Felder, die `render_client` liest: `id: opencode-v2`, `name: OpenCode V2 (Beta)`, `tested_version` = **im Spike ermittelte V2-Version** (als String), `target_level: L2`, `status: beta`, `transport: streamable_http`, `url_path: /mcp/`, `auth_header: X-API-Key`, `config_artifact: dist/opencode/opencode.v2.json.snippet`, `skills_dir: "~/.config/opencode/skills"`, `install_de/en` (Befehl `bash scripts/clients/install.sh --client opencode-v2 --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY`), `fallback_de/en` (Inhalt des V2-Snippets als `json`-Block), `verify` (`command: "opencode mcp list"`, erwartet verbundenen Server, danach `requirement_query` → `tool_result: "49 Requirements"`), `prereq_de/en`, `pitfalls_de/en`, `roles_de/en`, `update_de/en`. `roles_*` und `provider_*` aus dem `opencode`-Eintrag übernehmen. `pitfalls_*` nennen mindestens: Beta-Hinweis (Daten/APIs können sich ändern), `oauth:false` ist nötig, `codemode:false` und warum, `mcp.servers` statt `mcp.<name>`, JSONC-Configs werden vom Installer nicht gemergt, Streamable HTTP statt SSE.
-- [ ] **Step 3: Generieren.** `python scripts/clients/render.py` — Erwartet: neue/geänderte Dateien unter `docs/clients/`, Exit 0.
-- [ ] **Step 4: Tests laufen lassen.** `pytest scripts/clients/test_render.py -v` und `python scripts/clients/render.py --check` — Erwartet: PASS bzw. Exit 0 (inkl. DE/EN-Parität und Snippet-Pfad-Prüfung).
-- [ ] **Step 5: Commit.** `git add clients/registry.yaml scripts/clients/render.py docs/clients` · `git commit -m "feat(clients): register OpenCode V2 (beta) and render docs"`
-
----
-
-### Task 4: Installer und Verify für V2 mit Versionserkennung
-
-**Files:**
-- Modify: `scripts/clients/install.sh` (neue Funktionen nach `install_opencode`, Z. ~209; `case` Z. ~369; Kopfkommentar „Supported ids")
-- Modify: `scripts/clients/verify.sh:52-57` (Fall `opencode`, neuer Fall `opencode-v2`)
+- Modify: `clients/registry.yaml` (Eintrag `opencode`, ca. Z. 271–340)
+- Modify: `dist/opencode/build_opencode_package.py` (URL im Snippet)
+- Modify: `dist/opencode/test_build_opencode_package.py` (URL-Assertion)
+- Modify: `scripts/clients/install.sh` (`install_opencode`, ca. Z. 209–225)
 - Create: `scripts/clients/test_install_opencode.py`
+- Generate: `dist/opencode/opencode.json.snippet`, `docs/clients/opencode.md`, `docs/clients/opencode.de.md`, `docs/clients/README.md`, `docs/clients/README.de.md`
 
 **Interfaces:**
-- Consumes: CLI `python dist/opencode/merge_config.py --config PATH --url URL --key-env NAME [--dry-run]` aus Task 2; Client-Id `opencode-v2` aus Task 3.
-- Produces: Bash-Funktionen `detect_opencode_major` (gibt `1` oder `2` auf stdout, Default `1`), `install_opencode_v1` (= bisheriger Rumpf von `install_opencode`), `install_opencode_v2`; Umgebungsvariable `OPENCODE_BIN` (Default `opencode`) für den Fall `opencode2`.
+- Produces: Snippet `{"mcp": {"reqogniloom": {"type": "remote", "url": "{env:REQOGNILOOM_MCP_URL}/mcp/", "headers": {"X-API-Key": "{env:REQOGNILOOM_API_KEY}"}}}}`; Installer-Aufruf `opencode mcp add reqogniloom --url "<base>/mcp/" --header "X-API-Key={env:<KEY_ENV>}"`.
 
-- [ ] **Step 1: Failing Tests schreiben** in `scripts/clients/test_install_opencode.py`. Hilfsfunktion `run_install(args, env)` startet `bash scripts/clients/install.sh … --yes` mit `HOME`/`XDG_CONFIG_HOME` in `tmp_path` und `PATH` auf ein Verzeichnis mit einem Fake-`opencode`-Skript (`tmp_path/bin/opencode`; `--version` gibt `$FAKE_VERSION` aus, `mcp add` protokolliert seine Argumente in eine Datei). Tests:
-  - `test_v2_writes_servers_entry_with_env_key_only`: `--client opencode-v2 --url http://h:8001 --key-env MY_KEY` → `tmp/.config/opencode/opencode.json` enthält `mcp.servers.reqogniloom.url == "http://h:8001/mcp/"`, `headers["X-API-Key"] == "{env:MY_KEY}"`, `oauth is False`, und `"reqlo_"` kommt nirgends vor; Skills landen in `--skills-dir`.
-  - `test_auto_detect_picks_v2_for_major_2`: `--client opencode`, `FAKE_VERSION=2.0.0-beta.3` → V2-Eintrag geschrieben, `mcp add` **nicht** aufgerufen.
-  - `test_auto_detect_picks_v1_for_major_1`: `FAKE_VERSION=1.18.35` → Fake-`mcp add` mit `/mcp/sse/` aufgerufen, keine `opencode.json` geschrieben.
-  - `test_missing_or_garbled_version_falls_back_to_v1`: Fake gibt `garbage` aus bzw. fehlt → V1-Pfad.
-  - `test_v2_rerun_is_idempotent`: zweimal ausführen → `opencode.json` danach unverändert, höchstens ein `.bak-*`.
-  - `test_v2_keeps_existing_servers`: vorab angelegte `opencode.json` mit `mcp.servers.other` → bleibt.
-  - `test_v2_aborts_on_jsonc_without_touching_file`: Datei mit Kommentar → Exit ≠ 0, Inhalt gleich.
-  - `test_bad_key_env_is_rejected`: `--key-env 'A B'` → Exit ≠ 0, nichts geschrieben.
-  - `test_dry_run_v2_writes_nothing`: `--dry-run` → keine Datei, Ausgabe beginnt Zeilen mit `[dry-run]`.
-- [ ] **Step 2: Test laufen lassen.** `pytest scripts/clients/test_install_opencode.py -v` — Erwartet: FAIL (Client `opencode-v2` unbekannt).
-- [ ] **Step 3: `install.sh` anpassen.** (a) `OPENCODE_BIN="${OPENCODE_BIN:-opencode}"`; (b) `detect_opencode_major`: `"$OPENCODE_BIN" --version 2>/dev/null | sed -n 's/^\([0-9][0-9]*\)\..*/\1/p' | head -1`, leer → `1`; (c) bisheriges `install_opencode` unverändert nach `install_opencode_v1` umbenennen (nutzt `$OPENCODE_BIN`); (d) `install_opencode_v2`: Env-Name per Regex `^[A-Za-z_][A-Za-z0-9_]*$` prüfen (sonst `exit 2`), `run python3 "${REPO_ROOT}/dist/opencode/merge_config.py" --config "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json" --url "$URL" --key-env "$KEY_ENV"` (bei `DRY_RUN` mit `--dry-run`), danach Skills und `DOMAIN_MODEL.md` wie im V1-Pfad kopieren; (e) `install_opencode` wird zur Weiche (`[ "$(detect_opencode_major)" = 2 ]`); (f) `case`: `opencode-v2) confirm; install_opencode_v2 ;;` und Kopfkommentar „Supported ids" um `opencode-v2` ergänzen. `require_bin` im V2-Pfad **nicht** aufrufen (kein Binary nötig zum Schreiben der Config).
-- [ ] **Step 4: `verify.sh` anpassen.** Fall `opencode|opencode-v2)`: `OPENCODE_BIN` nutzen, `mcp list` prüfen wie bisher (`expect_marker "$out" "reqogniloom"`); bei `opencode-v2` zusätzlich Zeile `info: OpenCode V2 is a beta; config lives in mcp.servers.reqogniloom`.
-- [ ] **Step 5: Tests laufen lassen.** `pytest scripts/clients -v` und `bash -n scripts/clients/install.sh scripts/clients/verify.sh` — Erwartet: PASS, keine Syntaxfehler.
-- [ ] **Step 6: Commit.** `git add scripts/clients` · `git commit -m "feat(clients): install and verify OpenCode V2 with auto-detect"`
+- [ ] **Step 1: Failing Tests schreiben.**
+  - In `test_build_opencode_package.py`: `server["url"] == "{env:REQOGNILOOM_MCP_URL}/mcp/"` und `"sse" not in json.dumps(snippet)`.
+  - In `scripts/clients/test_install_opencode.py` (neu): Hilfsfunktion `dry_run(url, key_env="REQOGNILOOM_API_KEY")` startet `bash scripts/clients/install.sh --client opencode --url <url> --key-env <key_env> --dry-run --yes` mit `HOME` in `tmp_path` und gibt stdout zurück. Tests: `test_url_gets_mcp_path_exactly_once` (für `http://h:8001` und `http://h:8001/` enthält die Ausgabe `--url http://h:8001/mcp/` und nicht `/mcp/sse/` und nicht `//mcp/`), `test_key_header_is_env_placeholder` (Ausgabe enthält `X-API-Key={env:MY_KEY}` für `--key-env MY_KEY`, kein `reqlo_`), `test_bad_key_env_is_rejected` (`'A B'`, `'A$B'`, `'{x}'` → Exit ≠ 0).
+- [ ] **Step 2: Tests laufen lassen.** `pytest dist/opencode/test_build_opencode_package.py scripts/clients/test_install_opencode.py -v` — Erwartet: FAIL.
+- [ ] **Step 3: Builder anpassen.** URL im Snippet auf `{env:REQOGNILOOM_MCP_URL}/mcp/` ändern.
+- [ ] **Step 4: Installer anpassen.** In `install_opencode` `"$URL/mcp/sse/"` durch `"$URL/mcp/"` ersetzen; vor dem Aufruf den Env-Namen gegen `^[A-Za-z_][A-Za-z0-9_]*$` prüfen (sonst `exit 2` mit Meldung).
+- [ ] **Step 5: Registry anpassen.** Im Eintrag `opencode`: `transport: streamable_http`, `url_path: /mcp/`, URLs in `install_*` und `fallback_*` auf `/mcp/`, `tested_version: "1.18.35 / 2.2.5"`, Hinweis in `pitfalls_*` („OpenCode 2 hat keinen SSE-Fallback; Update von älterer Config: Eintrag `reqogniloom` auf `…/mcp/` ersetzen"; „nach Config-Änderung V2-Hintergrunddienst neu starten") und in `update_*` (SSE-Hinweis streichen).
+- [ ] **Step 6: Snippet und Doku erzeugen.** `python dist/opencode/build_opencode_package.py` und `python scripts/clients/render.py`.
+- [ ] **Step 7: Tests laufen lassen.** `pytest scripts/clients dist/opencode dist/test_mcp_convention_parity.py -v` und `python scripts/clients/render.py --check` — Erwartet: PASS bzw. Exit 0.
+- [ ] **Step 8: Commit.** `git add clients dist scripts docs/clients` · `git commit -m "fix(clients): connect OpenCode via Streamable HTTP /mcp/ (#1702)"`
 
 ---
 
-### Task 5: CI, Release-Artefakt, Changelog
+### Task 2: Echter Endpunkt und Tool-Call für V1 und V2 (#1703)
+
+Braucht eine laufende Instanz und einen `reqlo_`-Key mit Read-only-Rolle. Kein Repo-Code außer dem Bericht.
 
 **Files:**
-- Modify: `.github/workflows/client-smoke.yml:40-46` (Matrix, `continue-on-error`)
-- Modify: `.github/workflows/release-client-artifacts.yml:101`
-- Modify: `CHANGELOG.md` (Abschnitt Unreleased)
+- Create: Testbericht (Ablageort laut Entscheidung in #1703; `docs/test-reports/` ist gitignored, Alternative `docs/clients/`)
 
-**Interfaces:**
-- Consumes: Client-Id `opencode-v2` und Datei `dist/opencode/opencode.v2.json.snippet`.
-
-- [ ] **Step 1: Smoke-Matrix erweitern.** `opencode-v2` unter `client:` ergänzen und am Job `continue-on-error: ${{ matrix.client == 'opencode-v2' }}` setzen (Beta darf Release nicht blockieren). Kommentar nennt Grund.
-- [ ] **Step 2: Release-Tarball erweitern.** In Z. 101 `opencode.v2.json.snippet` neben `opencode.json.snippet` aufnehmen.
-- [ ] **Step 3: Changelog.** Ein Eintrag unter Unreleased: „OpenCode V2 (beta): own client entry, `opencode.v2.json.snippet`, installer auto-detects the major version".
-- [ ] **Step 4: Prüfen.** `python -c "import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" .github/workflows/client-smoke.yml .github/workflows/release-client-artifacts.yml` — Erwartet: kein Fehler. Prüfen, dass `git grep -n "opencode.json.snippet" .github` den Tarball-Eintrag mit beiden Dateien zeigt.
-- [ ] **Step 5: Commit.** `git add .github CHANGELOG.md` · `git commit -m "ci(clients): smoke and ship OpenCode V2 snippet"`
+- [ ] **Step 1: Instanz bereitstellen.** `make up` (Platte prüfen: `df -h /` ≥ 10 GB frei; Docker-Daten notfalls nach `/var/tmp`). Key als `REQOGNILOOM_API_KEY`, `REQOGNILOOM_MCP_URL=http://localhost:8001` exportieren.
+- [ ] **Step 2: V2 isoliert installieren.** `npm install --prefix <scratch>/npm @opencode/cli@2.2.5`; `HOME`/`XDG_*` auf Scratch setzen.
+- [ ] **Step 3: Installer pro Version laufen lassen.** `bash scripts/clients/install.sh --client opencode --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY --yes` je einmal mit V1- und V2-Binary im `PATH`; danach `bash scripts/clients/verify.sh --client opencode`. V2 vorher: Hintergrunddienst beenden bzw. `mcp list --standalone`.
+- [ ] **Step 4: Handshake prüfen.** Serverseitig `initialize`, Notification, `GET /mcp/` (SSE-Stream), `tools/list` mit allen Tools (282 laut `CLAUDE.md`, Wert aus `docs/agent-templates/tool-manifest.json` prüfen) und ein echter Aufruf `requirement_query` je Version (Erwartung laut Registry: 49 Requirements in der QA-Instanz).
+- [ ] **Step 5: Bericht schreiben** mit Tabelle Version × Schritt, genauen Versionen und Abweichungen; bei Abweichung Issue anlegen statt Plan anpassen.
 
 ---
 
-### Task 6: Gesamtabnahme
+### Task 3: Code Mode in OpenCode 2 klären (#1704)
 
-**Files:** keine Änderungen, nur Läufe.
+**Files:**
+- Modify (je nach Ergebnis): `dist/opencode/build_opencode_package.py`, `clients/registry.yaml`, `dist/opencode/skills/*/SKILL.md` (generiert aus `dist/agent-skills/`; Quelle ändern, nicht die Kopie)
 
-- [ ] **Step 1: Alle betroffenen Tests, sequenziell.** `pytest scripts/clients dist/opencode dist/test_mcp_convention_parity.py -v` — Erwartet: alles PASS.
-- [ ] **Step 2: Drift-Gate.** `python scripts/clients/render.py --check` — Erwartet: Exit 0.
-- [ ] **Step 3: Echter End-to-End in Isolation** (Scratch-`HOME` wie Task 0): `bash scripts/clients/install.sh --client opencode --url http://localhost:8001 --key-env REQOGNILOOM_API_KEY --yes` mit V2-Binary im `PATH`, dann `bash scripts/clients/verify.sh --client opencode-v2` und ein echter `requirement_query`. Danach dasselbe mit V1-Binary und `--client opencode`. Erwartet: beide verbunden, V1-Konfig byte-gleich zu vorher.
-- [ ] **Step 4: Ergebnis in den Bericht.** Befunde und Versionsnummern in `docs/test-reports/opencode-v2-spike.md` unter „Abnahme" nachtragen.
-- [ ] **Step 5: Commit und PR (über `git`-Agent).** `git commit -m "docs: add OpenCode V2 acceptance results"`, Push, PR gegen `main` mit Verweis auf Spec und Plan.
+- [ ] **Step 1: Messen.** Mit der Instanz aus Task 2 in V2 `codemode` an (Default) und aus (`"codemode": false`, V2-Form `mcp.servers.reqogniloom`) vergleichen: wie sieht das Modell die Tools (Namen `reqogniloom_<tool>`), Katalog-Latenz gegen `timeout.catalog` (Default 30 s), Token-Kosten, und ob die sechs Skills ihre Tools finden.
+- [ ] **Step 2: V1-Verträglichkeit prüfen.** Nimmt V1 den Schlüssel `codemode` an oder lehnt es die Config ab? (Nur relevant, wenn die gemeinsame V1-Form ihn bekommen soll; sonst V2-Form im Snippet erwägen.)
+- [ ] **Step 3: Entscheidung dokumentieren** im Issue #1704 (Default behalten + Skills anpassen, oder `codemode:false` ausliefern) und die Umsetzung als eigenen Commit mit Test liefern (Snippet-Assertion in `test_build_opencode_package.py`).
+
+---
+
+### Task 4: CI, Registry und Stage-2-Paket für V2 (#1705)
+
+**Files:**
+- Modify: `.github/workflows/client-smoke.yml` (Matrix, Z. ~40–46), `.github/workflows/release-client-artifacts.yml` (Z. ~101), `.github/workflows/publish-npm.yml` (nur prüfen)
+- Modify: `clients/registry.yaml` und generierte Doku
+
+- [ ] **Step 1: Smoke-Matrix.** Zweites OpenCode-Glied `opencode-2` ergänzen (Node 22, `npm install -g @opencode/cli@2.2.5`, SHA-gepinnte Actions wie im Rest der Datei) und im Job `continue-on-error` nur dann setzen, wenn Task 2 Instabilität zeigt; Grund im Kommentar.
+- [ ] **Step 2: `verify.sh` für V2.** Vor `mcp list` bei V2 `--standalone` nutzen oder den Hintergrunddienst neu starten (Erkennung über `opencode --version`, Major 2).
+- [ ] **Step 3: Stage-2 prüfen.** Passt `opencode plugin <module>` (Registry `update_*`, `@popoboxxo/reqogniloom-opencode`) zu V2 (V1-Plugins laufen nicht, wir liefern keinen Plugin-Code)? Ergebnis in #1705 und Doku festhalten.
+- [ ] **Step 4: Tarball** in `release-client-artifacts.yml` bleibt bei einem Snippet; prüfen, dass `opencode.json.snippet` die neue URL enthält.
+- [ ] **Step 5: Tests und Commit.** `pytest scripts/clients -v`, YAML laden (`python -c "import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" .github/workflows/*.yml`) · `git commit -m "ci(clients): cover OpenCode 2 in client smoke (#1705)"`
+
+---
+
+### Task 5: `subagent_depth` in der Repo-`opencode.json` (#1706)
+
+- [ ] **Step 1: Herkunft klären.** `git log --follow opencode.json`; Vergleich mit `.agent-meta/opencode.json` (Submodul, nicht editieren).
+- [ ] **Step 2: V2-Normalisierung prüfen.** `opencode debug config` (V2) im Repo laufen lassen; alle „configuration normalization diagnostic"-Zeilen sammeln (z. B. `permissions`-Form).
+- [ ] **Step 3: Ergebnis festhalten.** Wenn der Fehler aus agent-meta kommt: Issue im agent-meta-Repo anlegen und #1706 verlinken; sonst Korrektur in `opencode.json` mit Commit `chore(opencode): drop settings OpenCode 2 does not support`.
 
 ---
 
 ## Self-Review
 
-- **Spec-Abdeckung:** F1/F2/F4/F7/F8 → Task 0 (Beweis) und Task 1/4 (Umsetzung); F3 (Config-Form) → Task 1/2; F5 → kein Aufwand, im Snippet nicht gesetzt; F6 (Skills) → keine Änderung nötig, Task 4 kopiert dieselben Skills; F9 (Beta) → `status: beta`, `continue-on-error`. D1 (V1 ebenfalls auf `/mcp/`) bewusst **nicht** umgesetzt: V1 bleibt unverändert, Folgeticket falls Task 0 es stützt. D2/D3/D4 → Task 1/3.
-- **Abweichung vom Spec:** `variants` im Registry entfällt zugunsten eines eigenen Eintrags `opencode-v2` (Renderer-Umbau gespart, Spec entsprechend angepasst).
-- **Typkonsistenz:** `v2_server_entry(url, key_env)` (Task 1) wird in Task 2 (`merge_v2`) und Task 4 (CLI-Parameter `--url`/`--key-env`) mit denselben Namen genutzt; `OPENCODE_BIN` und `detect_opencode_major` nur in Task 4.
-- **Annahmen mit Spike-Vorbehalt:** `/mcp/`, `oauth:false`, `codemode:false`, Binary `opencode`. Task 0 Step 7 ist das Gate.
-- **Nicht abgedeckt:** `opencode2`-Binary-Autodetect (nur über `OPENCODE_BIN` manuell), JSONC-Merge (Installer bricht ab und verweist aufs Snippet), Plugin-Migration (entfällt).
+- **Abdeckung:** F1 (SSE) → Task 1; F2 (OAuth) gemessen, kein Handlungsbedarf (Header-Auth läuft ohne `oauth:false`); F4 (Code Mode) → Task 3; F7/F8 (Installer, Binary-Name) → Task 1/4 (`opencode` bleibt Befehl, `opencode2` ist Alias); F9 (Beta) entfällt, `@opencode/cli` steht bei `latest` 2.2.5; Skills (F6) unverändert; Spike-Lücken → Tasks 2–5, je ein Issue.
+- **Verworfen gegenüber dem ersten Entwurf:** zweiter Registry-Eintrag `opencode-v2`, V2-Snippet, `merge_config.py`, Versions-Autodetect im Installer. Der Spike zeigt, dass sie nicht nötig sind.
+- **Typkonsistenz:** Snippet-URL `{env:REQOGNILOOM_MCP_URL}/mcp/` in Task 1 (Builder, Registry, Doku) und in Task 4 (Tarball-Prüfung) identisch; Env-Namensregex nur in Task 1.
+- **Offene Annahmen:** Alles bis Task 2 beruht auf dem Mock; Task 2 ist das Gate für „nativ unterstützt".
