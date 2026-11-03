@@ -17,12 +17,18 @@ from django.utils import timezone
 from auth_tenancy.context import AuthMethod
 from auth_tenancy.errors import AuthenticationFailed
 from auth_tenancy.jwt_tokens import encode_hs256
-from auth_tenancy.models import MAX_ACTIVE_API_KEYS_PER_USER, ApiKey
+from auth_tenancy.models import (
+    MAX_ACTIVE_API_KEYS_PER_USER,
+    ROLE_EDITOR,
+    ApiKey,
+    UserRole,
+)
 from auth_tenancy.services.authentication import (
     AuthenticationService,
     generate_api_key_plaintext,
     hash_api_key,
 )
+from persistence.middleware import clear_request_tenant, set_request_tenant
 
 _SECRET = "test-secret-not-a-real-key"
 
@@ -282,8 +288,30 @@ def test_api_key_comparison_uses_compare_digest(user_a):
     assert spy.called, "hmac.compare_digest must be used for key comparison"
 
 
+@pytest.fixture
+def _write_rights(user_a, workspace_a):
+    """Give ``user_a`` WRITE so the default (write) key scope is allowed (#1608).
+
+    A key tier above read-only may only be minted by someone who can write in
+    at least one addressed workspace. These lifecycle tests exercise the
+    default scope, so they need an owner with rights; the shared ``user_a``
+    fixture deliberately stays role-less for the RBAC tests that rely on it.
+    """
+    set_request_tenant(user_a.tenant_id)
+    try:
+        UserRole.objects.create(
+            tenant_id=user_a.tenant_id,
+            user=user_a,
+            workspace=workspace_a,
+            role=ROLE_EDITOR,
+        )
+    finally:
+        clear_request_tenant()
+    return user_a
+
+
 @pytest.mark.django_db
-def test_plaintext_key_never_persisted(user_a):
+def test_plaintext_key_never_persisted(user_a, _write_rights):
     """The DB must contain only the hash, never the plaintext (REQ-L3-AT001-002)."""
     result = _service().create_api_key(
         user_id=user_a.id, tenant_id=user_a.tenant_id, name="ci"
@@ -303,7 +331,7 @@ def test_generated_key_format():
 
 
 @pytest.mark.django_db
-def test_create_returns_plaintext_once(user_a):
+def test_create_returns_plaintext_once(user_a, _write_rights):
     result = _service().create_api_key(
         user_id=user_a.id, tenant_id=user_a.tenant_id, name="ci"
     )
@@ -311,7 +339,7 @@ def test_create_returns_plaintext_once(user_a):
 
 
 @pytest.mark.django_db
-def test_list_returns_metadata_only(user_a):
+def test_list_returns_metadata_only(user_a, _write_rights):
     svc = _service()
     svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="ci")
     listing = svc.list_api_keys(user_id=user_a.id)
@@ -322,7 +350,7 @@ def test_list_returns_metadata_only(user_a):
 
 
 @pytest.mark.django_db
-def test_max_active_keys_enforced(user_a):
+def test_max_active_keys_enforced(user_a, _write_rights):
     svc = _service()
     for _ in range(MAX_ACTIVE_API_KEYS_PER_USER):
         svc.create_api_key(user_id=user_a.id, tenant_id=user_a.tenant_id, name="k")
@@ -331,7 +359,7 @@ def test_max_active_keys_enforced(user_a):
 
 
 @pytest.mark.django_db
-def test_max_active_keys_is_configurable_via_settings(user_a, settings):
+def test_max_active_keys_is_configurable_via_settings(user_a, settings, _write_rights):
     """#606: CI/CD environments can raise the cap without a code change."""
     settings.MAX_ACTIVE_API_KEYS_PER_USER = 2
     svc = _service()
@@ -342,7 +370,7 @@ def test_max_active_keys_is_configurable_via_settings(user_a, settings):
 
 
 @pytest.mark.django_db
-def test_max_active_keys_does_not_count_revoked_keys(user_a, settings):
+def test_max_active_keys_does_not_count_revoked_keys(user_a, settings, _write_rights):
     """Revoked keys never blocked creation (the count query already filters
     them out) — pinned explicitly since #606's report conflated the two."""
     settings.MAX_ACTIVE_API_KEYS_PER_USER = 1
@@ -354,7 +382,7 @@ def test_max_active_keys_does_not_count_revoked_keys(user_a, settings):
 
 
 @pytest.mark.django_db
-def test_expired_keys_do_not_consume_creation_slots(user_a, settings):
+def test_expired_keys_do_not_consume_creation_slots(user_a, settings, _write_rights):
     settings.MAX_ACTIVE_API_KEYS_PER_USER = 1
     plaintext = generate_api_key_plaintext()
     ApiKey.unscoped.create(
@@ -373,7 +401,7 @@ def test_expired_keys_do_not_consume_creation_slots(user_a, settings):
 
 
 @pytest.mark.django_db
-def test_many_revoked_keys_do_not_block_new_active_key(user_a):
+def test_many_revoked_keys_do_not_block_new_active_key(user_a, _write_rights):
     """Issue #711: a user with a pile of revoked keys and fewer than
     ``MAX_ACTIVE_API_KEYS_PER_USER`` active keys must still be able to
     create a new one — revoked rows must never count against the cap,

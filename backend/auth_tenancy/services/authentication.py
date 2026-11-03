@@ -141,6 +141,16 @@ class ApiKeyPolicyError(ValueError):
         super().__init__(message)
 
 
+class ApiKeyScopeDeniedError(ValueError):
+    """The requested key scope exceeds the creator's own effective rights.
+
+    Distinct from :class:`ApiKeyPolicyError` on purpose: that one is a malformed
+    request (400), this one is an authorization decision (403
+    ``PERMISSION_DENIED``). Kept as a ``ValueError`` subclass so a caller that
+    only knows the historical contract still gets a 4xx instead of a 500.
+    """
+
+
 def canonical_workspace_ids(workspace_ids: object) -> list[str] | None:
     """Return the canonical UUID strings of an agent workspace fence.
 
@@ -799,6 +809,11 @@ class AuthenticationService:
                 ``MFA_STAFF_ENFORCEMENT=required`` supplied no strictly future,
                 timezone-aware ``expires_at`` (WP E3.6). Subclass of
                 ``ValueError`` and carries ``field="expires_at"``.
+            ApiKeyScopeDeniedError: The requested ``scope`` exceeds the
+                creator's own effective rights (#1608): any tier above
+                read-only needs effective ``write`` in at least one addressed
+                workspace. Subclass of ``ValueError``; the REST layer answers
+                403 ``PERMISSION_DENIED``.
 
         SA-39 (Systemaudit 2026-08-27 §4.1 #11): count-then-create is a
         time-of-check/time-of-use window — N parallel requests all read
@@ -833,6 +848,22 @@ class AuthenticationService:
                 raise ValueError(AGENT_EXPIRY_REQUIRED_MESSAGE)
         else:
             effective_workspace_ids = list(workspace_ids or [])
+
+        # #1608: the key's capability tier may not exceed the creator's own
+        # effective rights. Enforced here as well as in the REST view so every
+        # entry point — REST, MCP, management command — answers the same way,
+        # and so a future caller cannot mint a wider credential by bypassing
+        # the view's pre-check.
+        from ..resource_scope import api_key_scope_creation_denial
+
+        scope_denial = api_key_scope_creation_denial(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            scope=effective_scope,
+            workspace_ids=effective_workspace_ids,
+        )
+        if scope_denial is not None:
+            raise ApiKeyScopeDeniedError(scope_denial)
 
         # #606: configurable via settings (env var) so CI/CD environments that
         # provision a key per agent/QA-run aren't stuck with the fixed default.

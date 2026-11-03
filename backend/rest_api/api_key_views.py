@@ -36,9 +36,11 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
 from auth_tenancy.errors import AuthenticationFailed
+from auth_tenancy.resource_scope import api_key_scope_creation_denial
 from auth_tenancy.services import Operation, UserProfileService
 from auth_tenancy.services.authentication import (
     ApiKeyPolicyError,
+    ApiKeyScopeDeniedError,
     AuthenticationService,
 )
 from auth_tenancy.services.mfa import MfaService
@@ -286,6 +288,11 @@ class ApiKeyViewSet(ViewSet):
                 ``MFA_STAFF_ENFORCEMENT=required`` whose session has no
                 ``"otp"`` in ``amr``. Distinct from the 409 ``MFA_REQUIRED``
                 (disable refuses to remove the factor).
+          403 — ``PERMISSION_DENIED`` when the requested ``scope`` exceeds the
+                creator's own effective rights (#1608): any tier above
+                read-only requires ``write`` in at least one addressed
+                workspace (the key's fence, or every workspace the owner holds
+                a role in). Read-only scopes stay available to every role.
           400 — ``VALIDATION_ERROR`` with an ``expires_at`` field error when the
                 same staff owner supplies no strictly future, timezone-aware
                 ``expires_at`` (provisional ENT-E8 = A).
@@ -337,6 +344,23 @@ class ApiKeyViewSet(ViewSet):
             )
         data = serializer.validated_data
 
+        # #1608: the key may not carry a capability tier above its creator's own
+        # effective rights — a Viewer must not be able to mint an ADMIN-tier
+        # credential. Checked in the view so the REST surface answers the
+        # precise 403 PERMISSION_DENIED (the service repeats the same check as
+        # defence in depth for the non-REST entry points).
+        scope_denial = api_key_scope_creation_denial(
+            user_id=UUID(user_id),
+            tenant_id=UUID(tenant_id),
+            scope=data["scope"],
+            workspace_ids=data["workspace_ids"],
+        )
+        if scope_denial is not None:
+            return Response(
+                build_error_response(code="PERMISSION_DENIED", message=scope_denial),
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         try:
             result = self._authn.create_api_key(
                 user_id=UUID(user_id),
@@ -347,6 +371,14 @@ class ApiKeyViewSet(ViewSet):
                 scope=data["scope"],
                 workspace_ids=data["workspace_ids"],
                 expires_at=data["expires_at"],
+            )
+        except ApiKeyScopeDeniedError as exc:
+            # #1608: the requested tier exceeds the creator's own rights. A
+            # refusal, never a silent downgrade — the caller asked for
+            # something they may not hand out.
+            return Response(
+                build_error_response(code="PERMISSION_DENIED", message=str(exc)),
+                status=status.HTTP_403_FORBIDDEN,
             )
         except ApiKeyPolicyError as exc:
             # WP E3.6: a policy rejection names the offending field, so the 400

@@ -23,8 +23,9 @@ import threading
 import pytest
 from django.db import connection, connections
 
-from auth_tenancy.models import ApiKey
+from auth_tenancy.models import ROLE_EDITOR, ApiKey, UserRole
 from auth_tenancy.services.authentication import AuthenticationService
+from persistence.middleware import clear_request_tenant, set_request_tenant
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
@@ -37,7 +38,27 @@ def _service() -> AuthenticationService:
     )
 
 
-def test_cap_still_enforced_sequentially(user_a, settings) -> None:
+@pytest.fixture
+def _write_rights(user_a, workspace_a):
+    """Give ``user_a`` WRITE — #1608 requires it for the default (write) scope.
+
+    The cap behaviour under test is independent of the scope, but a write-scoped
+    key may only be minted by someone who can write in an addressed workspace.
+    """
+    set_request_tenant(user_a.tenant_id)
+    try:
+        UserRole.objects.create(
+            tenant_id=user_a.tenant_id,
+            user=user_a,
+            workspace=workspace_a,
+            role=ROLE_EDITOR,
+        )
+    finally:
+        clear_request_tenant()
+    return user_a
+
+
+def test_cap_still_enforced_sequentially(user_a, settings, _write_rights) -> None:
     """Baseline: the lock must not change the single-threaded contract."""
     settings.MAX_ACTIVE_API_KEYS_PER_USER = 2
     svc = _service()
@@ -48,7 +69,7 @@ def test_cap_still_enforced_sequentially(user_a, settings) -> None:
 
 
 @pytest.mark.skipif(not _IS_POSTGRES, reason="row locking is PostgreSQL-specific")
-def test_concurrent_creates_cannot_exceed_the_cap(user_a, settings) -> None:
+def test_concurrent_creates_cannot_exceed_the_cap(user_a, settings, _write_rights) -> None:
     """Two simultaneous creates at ``max - 1`` must yield exactly one new key.
 
     Before the fix both threads read the same count, both passed the check and

@@ -70,6 +70,24 @@ def _grant(tenant: Tenant, user: User, workspace: Workspace, role: str) -> None:
         clear_request_tenant()
 
 
+def _revoke_role(tenant: Tenant, user: User, workspace: Workspace) -> None:
+    """Drop the owner's role *after* key issuance.
+
+    #1608 bounds a write-scoped key's issuance by the creator's rights, so a
+    key fenced to a workspace the owner cannot write in can only come into
+    existence this way — which is also the realistic drift (the role is
+    removed, the credential lives on). The runtime fence denials below are
+    asserted against exactly that state.
+    """
+    set_request_tenant(tenant.id)
+    try:
+        UserRole.objects.filter(
+            tenant=tenant, user=user, workspace=workspace
+        ).delete()
+    finally:
+        clear_request_tenant()
+
+
 def _requirement_in(tenant: Tenant, workspace: Workspace) -> Requirement:
     set_request_tenant(tenant.id)
     try:
@@ -141,9 +159,12 @@ def test_fenced_key_lists_only_its_workspaces() -> None:
 @pytest.mark.django_db
 def test_fenced_key_without_owner_role_gets_specific_403() -> None:
     tenant, user, ws_a, ws_b = _tenant_with_two_workspaces()
-    # The owner holds a role only in B, the key is fenced to A.
-    _grant(tenant, user, ws_b, ROLE_EDITOR)
+    # The key is issued while the owner can write in A, then the role is
+    # removed: the owner now holds a role only in B while the key is fenced to A.
+    _grant(tenant, user, ws_a, ROLE_EDITOR)
     client = _fenced_key_client(tenant, user, [ws_a])
+    _revoke_role(tenant, user, ws_a)
+    _grant(tenant, user, ws_b, ROLE_EDITOR)
 
     resp = client.get("/api/v1/workspaces/")
 
@@ -158,15 +179,19 @@ def test_fenced_key_without_owner_role_in_target_workspace_names_that_workspace(
     """ADR-013 review B1-4: the E1.2 workspace-specific denial text.
 
     The key is fenced to workspace A, so A *is* inside the fence and the fence
-    precheck passes — but the owner holds no role in A, so A is not part of the
-    visible set and the RBAC matrix denies. The 403 must name A (with its UUID)
-    instead of the generic "no active role permits ..." text.
+    precheck passes — but the owner holds no role in A (it was removed after
+    issuance), so A is not part of the visible set and the RBAC matrix denies.
+    The 403 must name A (with its UUID) instead of the generic "no active role
+    permits ..." text.
     """
     tenant, user, ws_a, ws_b = _tenant_with_two_workspaces()
-    # Role only in B: A stays in the fence but carries no owner role.
-    _grant(tenant, user, ws_b, ROLE_EDITOR)
+    # Role only in B by the time of the call: A stays in the fence but carries
+    # no owner role (the assignment existed at issuance, see _revoke_role).
+    _grant(tenant, user, ws_a, ROLE_EDITOR)
     req_a = _requirement_in(tenant, ws_a)
     client = _fenced_key_client(tenant, user, [ws_a])
+    _revoke_role(tenant, user, ws_a)
+    _grant(tenant, user, ws_b, ROLE_EDITOR)
 
     resp = client.get(f"/api/v1/requirements/{req_a.id}/")
 

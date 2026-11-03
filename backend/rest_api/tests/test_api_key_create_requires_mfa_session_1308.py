@@ -155,9 +155,14 @@ def test_a_confirmed_non_staff_account_also_needs_the_step_up(
 @override_settings(MFA_STAFF_ENFORCEMENT="required")
 @pytest.mark.django_db
 def test_non_staff_key_needs_no_step_up_under_required(plain_user):
-    """A non-staff account is not covered by the staff second-factor policy."""
+    """A non-staff account is not covered by the staff second-factor policy.
+
+    ``scope`` is explicit because #1608 bounds the key's scope by the
+    creator's own rights — this fixture is a Viewer, so the default ``write``
+    would be refused before the MFA gate this test is about.
+    """
     resp = _client(plain_user, amr=("pwd",)).post(
-        _API_KEYS_URL, {"name": "viewer-key"}, format="json"
+        _API_KEYS_URL, {"name": "viewer-key", "scope": "read"}, format="json"
     )
 
     assert resp.status_code == 201
