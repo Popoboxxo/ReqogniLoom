@@ -11,9 +11,11 @@ from typing import Any
 from application.artifact_attribute_gateway import artifact_system_fields
 from application.base import NotFoundError, ValidationError
 from auth_tenancy.context import AuthContext
+from django.db.models import QuerySet
 from mcp_server.tools.base import (
     BaseToolGroup,
     ToolResult,
+    parse_pagination,
     require_uuid,
     resolve_engine_status,
     resolve_status_map,
@@ -384,6 +386,22 @@ class GenericCrudToolGroup(BaseToolGroup):
                                 "change_request) match nothing."
                             ),
                         },
+                        "status": {
+                            "type": "string",
+                            "description": "Only rows in this workflow state (or 'outdated').",
+                        },
+                        "search": {
+                            "type": "string",
+                            "description": "Case-insensitive match on title, description or uid.",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "description": "Page size (default 50, max 500).",
+                        },
+                        "offset": {
+                            "type": "integer",
+                            "description": "Rows to skip (default 0).",
+                        },
                     },
                     "required": ["workspace_id"],
                 },
@@ -643,7 +661,10 @@ class GenericCrudToolGroup(BaseToolGroup):
 
     def _handle_query(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         workspace_id = require_uuid(params, "workspace_id")
-        include_outdated = params.get("include_outdated", False)
+        include_outdated = bool(params.get("include_outdated", False))
+        status = params.get("status") or None
+        search = params.get("search") or None
+        limit, offset = parse_pagination(params)
         # #1147 B3: a client-supplied `uid` used to be silently discarded —
         # the handler never read it, so a caller narrowing by local readable
         # identifier got the whole workspace back and could not tell. Apply it
@@ -653,15 +674,41 @@ class GenericCrudToolGroup(BaseToolGroup):
         uid_filter = params.get("uid")
         if uid_filter is not None:
             uid_filter = str(uid_filter).strip() or None
+
+        list_kwargs: dict[str, Any] = {
+            "workspace_id": workspace_id,
+            "ctx": auth_context,
+            "include_deleted": include_outdated,
+        }
+        # The five generic services do not share one filter keyword:
+        # ChangeRequest uses ``status_filter``; Glossary/Adr/Risk/Issue use
+        # ``status``. Deriving the call from the real signature keeps the
+        # handler honest without a per-entity branch.
+        sig = inspect.signature(self._list_method)
+        if status:
+            if "status" in sig.parameters:
+                list_kwargs["status"] = status
+            elif "status_filter" in sig.parameters:
+                list_kwargs["status_filter"] = status
+        if search and "search" in sig.parameters:
+            list_kwargs["search"] = search
+
         # Domain errors (ValidationError from a bad filter, NotFoundError from a
         # vanished workspace) are mapped centrally by BaseToolGroup.
-        results = list(
-            self._list_method(
-                workspace_id=workspace_id, ctx=auth_context, include_deleted=include_outdated
-            )
-        )
+        rows = self._list_method(**list_kwargs)
         if uid_filter is not None:
-            results = [r for r in results if str(getattr(r, "uid", "") or "") == uid_filter]
+            all_rows = [
+                r for r in rows if str(getattr(r, "uid", "") or "") == uid_filter
+            ]
+            total = len(all_rows)
+            results = all_rows[offset : offset + limit]
+        elif isinstance(rows, QuerySet):
+            total = rows.count()
+            results = list(rows[offset : offset + limit])
+        else:
+            total = len(rows)
+            results = rows[offset : offset + limit]
+
         # Batch-resolve status for the whole page in one query instead of
         # one engine lookup per row (N+1 avoidance).
         status_map = resolve_status_map(
@@ -676,4 +723,7 @@ class GenericCrudToolGroup(BaseToolGroup):
         return ToolResult.ok({
             "items": [self._to_dict(r, status_map=status_map) for r in results],
             "count": len(results),
+            "total_count": total,
+            "limit": limit,
+            "offset": offset,
         })

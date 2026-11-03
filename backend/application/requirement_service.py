@@ -1162,6 +1162,8 @@ class RequirementService(ServiceBase):
         include_deleted: bool = False,
         status: str | None = None,
         search: str | None = None,
+        allocated: bool | None = None,
+        level: int | None = None,
     ) -> QuerySet[Requirement]:
         """Return Requirements in *workspace_id*.
 
@@ -1243,6 +1245,21 @@ class RequirementService(ServiceBase):
                 | Q(description__icontains=search)
                 | Q(uid__icontains=search)
             )
+        if level is not None:
+            qs = qs.filter(level=level)
+        if allocated is not None:
+            # #1668: an 'allocated-to' TraceLink runs Requirement -> Element,
+            # so its ``source_id`` is the Requirement's backing Artifact id.
+            from persistence.models import TraceLink
+
+            allocated_artifact_ids = TraceLink.unscoped.filter(
+                tenant_id=ctx.tenant_id,
+                link_type="allocated-to",
+            ).values_list("source_id", flat=True)
+            if allocated:
+                qs = qs.filter(artifact_id__in=allocated_artifact_ids)
+            else:
+                qs = qs.exclude(artifact_id__in=allocated_artifact_ids)
         # Deterministic order for pagination (#1390): Requirement declares no
         # Meta.ordering, so an unordered queryset let LIMIT/OFFSET pages
         # overlap or skip rows (DRF's UnorderedObjectListWarning). Oldest

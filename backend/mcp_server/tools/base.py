@@ -65,6 +65,35 @@ def require_uuid(params: dict[str, Any], name: str) -> UUID:
         raise ParameterError(f"Parameter '{name}' is not a valid UUID: '{val}'")
 
 
+def parse_pagination(
+    params: dict[str, Any],
+    *,
+    default_limit: int = 50,
+    max_limit: int = 500,
+) -> tuple[int, int]:
+    """Return ``(limit, offset)`` for a ``*.query`` tool (C3 / #1668).
+
+    A ``*.query`` used to load the whole workspace; ``limit``/``offset`` bound
+    it. An over-large ``limit`` is capped (not rejected), matching the REST
+    paginator's documented behaviour; a non-integer or a negative offset is a
+    caller error.
+    """
+    raw_limit = params.get("limit", default_limit)
+    raw_offset = params.get("offset", 0)
+    try:
+        limit = int(raw_limit)
+        offset = int(raw_offset)
+    except (TypeError, ValueError):
+        raise ParameterError("'limit' and 'offset' must be integers.") from None
+    if limit < 1:
+        raise ParameterError("'limit' must be >= 1.")
+    if limit > max_limit:
+        limit = max_limit
+    if offset < 0:
+        raise ParameterError("'offset' must be >= 0.")
+    return limit, offset
+
+
 #: Canonical ``required`` head of every workspace-scoped ``*.query`` tool
 #: (issue #1615). ``requirement.query`` used to advertise ``workspace_id`` as
 #: optional while its siblings required it, so a client could not tell from
@@ -589,6 +618,7 @@ __all__ = [
     "mcp_audit_handoff",
     "map_tool_exception",
     "optional_uuid",
+    "parse_pagination",
     "reject_unknown_params",
     "require_admin_tier",
     "require_param",

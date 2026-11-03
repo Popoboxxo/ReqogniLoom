@@ -25,7 +25,7 @@ import logging
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from django.db.models import F, QuerySet
+from django.db.models import F, Q, QuerySet
 
 from application.artifact_service import (
     _clean_custom_fields,
@@ -448,27 +448,26 @@ class AdrService(ServiceBase):
         return adr
 
     def list_adrs(
-        self, workspace_id: UUID, ctx: AuthContext, include_deleted: bool = False
+        self,
+        workspace_id: UUID,
+        ctx: AuthContext,
+        include_deleted: bool = False,
+        status: str | None = None,
+        search: str | None = None,
     ) -> QuerySet[Adr]:
         """Return ADRs in *workspace_id* (tenant-scoped, REQ-L3-ADR-008).
 
         REQ-006: Excludes soft-deleted ADRs (status='Deleted') by default.
         Pass ``include_deleted=True`` for admin/audit access.
 
-        Args:
-            workspace_id: Target workspace UUID.
-            ctx: Resolved AuthContext.
-            include_deleted: If True, include ADRs with status='Deleted'.
-
-        Returns:
-            QuerySet of Adr ORM instances.
-
-        REQ-088: Returns a lazy ``QuerySet`` so the paginating ViewSet
-        (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
+        C3 / #1668: ``status`` filters by the workflow state (``"outdated"``
+        routes to the soft-delete flag) and ``search`` matches title,
+        description or uid case-insensitively — the same contract the
+        Requirement list already had.
         """
         self._set_tenant_context(ctx)
         qs = Adr.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
-        if not include_deleted:
+        if not include_deleted and status != "outdated":
             # Datenmodell-Konsolidierung Phase 4 (D-3): soft-delete routes
             # through workflow.services.outdate(), which sets
             # Artifact.lifecycle_status and no longer writes an "outdated"
@@ -477,6 +476,18 @@ class AdrService(ServiceBase):
             from workflow.services import outdated_item_ids
 
             qs = qs.exclude(id__in=outdated_item_ids("Adr", tenant_id=ctx.tenant_id))
+        if status:
+            from workflow.services import item_ids_with_status
+
+            qs = qs.filter(
+                id__in=item_ids_with_status("Adr", status, tenant_id=ctx.tenant_id)
+            )
+        if search:
+            qs = qs.filter(
+                Q(title__icontains=search)
+                | Q(description__icontains=search)
+                | Q(uid__icontains=search)
+            )
         # #1398: the REST DTO builder reads the backing Artifact (custom_fields
         # + owner/reporter system fields) and the carrier-backed ``deciders``
         # selection for every row. Without eager loading each of those is its

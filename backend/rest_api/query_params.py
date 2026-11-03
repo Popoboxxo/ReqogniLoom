@@ -40,12 +40,19 @@ from rest_api.serializers import build_error_response
 __all__ = [
     "INVALID_UUID_TEMPLATE",
     "MISSING_TEMPLATE",
+    "parse_bool_param",
     "parse_change_reason",
     "parse_include_deleted",
+    "parse_int_param",
     "parse_uuid_param",
     "parse_workspace_id",
+    "reject_unknown_query_params",
     "require_non_empty_param",
 ]
+
+#: Accepted spellings for a true/false query parameter.
+_BOOL_TRUE = frozenset({"true", "1", "yes", "on"})
+_BOOL_FALSE = frozenset({"false", "0", "no", "off", ""})
 
 #: Emitted when a required parameter is absent or empty.
 MISSING_TEMPLATE = "{name} is required"
@@ -117,9 +124,10 @@ def parse_include_deleted(query_params: Any) -> bool:
     same expression; naming it once keeps the remaining ones from drifting to a
     different spelling of "true".
 
-    Accepts ``true``/``1``/``yes`` in any casing — a bare ``?include_deleted``
-    (no value) is *not* enough, matching the pre-existing behaviour rather than
-    widening it.
+    Accepts ``true``/``1``/``yes``/``on`` in any casing. Unknown values are
+    rejected by :func:`reject_unknown_query_params` at the transport boundary;
+    this helper keeps its historical "anything else is false" fallback so a
+    direct unit-test call cannot raise.
 
     Args:
         query_params: ``request.query_params`` (any ``.get``-capable mapping).
@@ -128,7 +136,90 @@ def parse_include_deleted(query_params: Any) -> bool:
         ``True`` when soft-deleted records should be included.
     """
     raw = query_params.get("include_deleted", "")
-    return str(raw).strip().lower() in {"true", "1", "yes"}
+    return str(raw).strip().lower() in _BOOL_TRUE
+
+
+def parse_bool_param(
+    query_params: Any,
+    name: str,
+    *,
+    default: bool | None = False,
+) -> bool | None:
+    """Parse a strict boolean query parameter.
+
+    Raises:
+        ValueError: The parameter is present but not a recognised boolean.
+            The message names the parameter and never echoes its value.
+    """
+    raw = query_params.get(name)
+    if raw is None:
+        return default
+    value = str(raw).strip().lower()
+    if value in _BOOL_TRUE:
+        return True
+    if value in _BOOL_FALSE:
+        return False
+    raise ValueError(f"'{name}' must be a boolean (true/false).")
+
+
+def parse_int_param(
+    query_params: Any,
+    name: str,
+    *,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int | None:
+    """Parse an optional integer query parameter with bounds.
+
+    Raises:
+        ValueError: Not an integer, or outside ``[minimum, maximum]``.
+    """
+    raw = query_params.get(name)
+    if raw is None:
+        return None
+    try:
+        value = int(str(raw))
+    except (TypeError, ValueError):
+        raise ValueError(f"'{name}' must be an integer.") from None
+    if minimum is not None and value < minimum:
+        raise ValueError(f"'{name}' must be >= {minimum}.")
+    if maximum is not None and value > maximum:
+        raise ValueError(f"'{name}' must be <= {maximum}.")
+    return value
+
+
+def reject_unknown_query_params(
+    request: Any,
+    allowed: Any,
+    lang: str = "en",
+) -> Response | None:
+    """Reject query parameters the endpoint does not declare (C3 / #1668).
+
+    Unknown parameters used to be accepted with 200 and no effect (the same
+    class as #1509), so a typo such as ``?alocated=false`` silently returned
+    the unfiltered list. The allow-list is derived from the endpoint's own
+    ``@list_schema`` declaration, so it cannot drift from the OpenAPI contract.
+
+    Returns ``None`` when the request is valid, otherwise a ready-to-return
+    HTTP 400. Parameter *names* may be echoed (they are bounded by the request
+    line); values are never echoed.
+    """
+    allowed_set = frozenset(allowed)
+    unknown = sorted(
+        key for key in request.query_params.keys() if key not in allowed_set
+    )
+    if unknown:
+        return _validation_error(
+            "Unknown query parameter(s): "
+            f"{', '.join(unknown)}. Allowed: {', '.join(sorted(allowed_set))}.",
+            lang,
+        )
+    if "include_deleted" in request.query_params:
+        try:
+            parse_bool_param(request.query_params, "include_deleted")
+        except ValueError as exc:
+            return _validation_error(str(exc), lang)
+    return None
 
 
 def parse_change_reason(request: Any) -> str:
