@@ -97,13 +97,15 @@ class TestSystemMemorySettings:
         assert row.ollama_base_url is None
         assert row.embedding_timeout is None
         assert row.memory_backend is None
-        assert row.honcho_base_url is None
+        assert row.backend_options == {}
+        assert row.backend_secrets == {}
 
-    def test_honcho_api_key_roundtrips_encrypted(self):
+    def test_backend_secret_roundtrips_encrypted(self):
+        """Secrets live only in the encrypted map since Plan A T-A0b-6."""
         row = SystemMemorySettings.objects.create()
-        row.honcho_api_key = "sk-test-secret"
+        row.backend_secrets = {"honcho": {"api_key": "sk-test-secret"}}
         row.save()
-        assert row.honcho_api_key_encrypted != "sk-test-secret"
-        assert row.honcho_api_key_encrypted != ""
+        assert row.backend_secrets_encrypted != "sk-test-secret"
+        assert row.backend_secrets_encrypted != ""
         reloaded = SystemMemorySettings.objects.get(pk=SYSTEM_MEMORY_SETTINGS_ID)
-        assert reloaded.honcho_api_key == "sk-test-secret"
+        assert reloaded.backend_secrets["honcho"]["api_key"] == "sk-test-secret"

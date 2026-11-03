@@ -24,22 +24,36 @@ from persistence.transactions import atomic_transaction
 
 logger = logging.getLogger(__name__)
 
+#: Real columns on ``SystemMemorySettings``. Per-backend values are NOT
+#: columns since Plan A T-A0b-6; they live in the maps below and are exposed
+#: through the flat compatibility fields in ``_DERIVED_OPTION_FIELDS``.
 _OVERRIDABLE_FIELDS = (
     "embedding_provider",
     "embedding_model_name",
     "ollama_base_url",
     "embedding_timeout",
     "memory_backend",
-    "honcho_base_url",
-    "qdrant_base_url",
-    "qdrant_collection_prefix",
-    "qdrant_distance",
-    "qdrant_timeout",
-    "qdrant_hnsw_m",
-    "qdrant_hnsw_ef_construct",
-    "qdrant_prefer_grpc",
     "memory_write_rate_limit_per_hour",
 )
+
+#: Flat REST compatibility field -> (backend, ``backend_options`` field).
+#: Derived on read, mapped on write; the maps are the only store (T-A0b-6).
+_DERIVED_OPTION_FIELDS: dict[str, tuple[str, str]] = {
+    "honcho_base_url": ("honcho", "base_url"),
+    "qdrant_base_url": ("qdrant", "base_url"),
+    "qdrant_collection_prefix": ("qdrant", "collection_prefix"),
+    "qdrant_distance": ("qdrant", "distance"),
+    "qdrant_timeout": ("qdrant", "timeout"),
+    "qdrant_hnsw_m": ("qdrant", "hnsw_m"),
+    "qdrant_hnsw_ef_construct": ("qdrant", "hnsw_ef_construct"),
+    "qdrant_prefer_grpc": ("qdrant", "prefer_grpc"),
+}
+
+#: Flat write-only secret field -> (backend, ``backend_secrets`` field).
+_DERIVED_SECRET_FIELDS: dict[str, tuple[str, str]] = {
+    "honcho_api_key": ("honcho", "api_key"),
+    "qdrant_api_key": ("qdrant", "api_key"),
+}
 
 # Free-text override fields: an empty string here means "no override", not
 # "override with an empty value" (final whole-branch review I-3). The read
@@ -59,24 +73,6 @@ _BLANKABLE_TEXT_FIELDS = (
     "qdrant_collection_prefix",
     "qdrant_distance",
 )
-
-
-#: Legacy flat column <-> (backend, option field) for the dual-write.
-_BACKEND_OPTION_LEGACY: dict[tuple[str, str], str] = {
-    ("honcho", "base_url"): "honcho_base_url",
-    ("qdrant", "base_url"): "qdrant_base_url",
-    ("qdrant", "collection_prefix"): "qdrant_collection_prefix",
-    ("qdrant", "distance"): "qdrant_distance",
-    ("qdrant", "timeout"): "qdrant_timeout",
-    ("qdrant", "hnsw_m"): "qdrant_hnsw_m",
-    ("qdrant", "hnsw_ef_construct"): "qdrant_hnsw_ef_construct",
-    ("qdrant", "prefer_grpc"): "qdrant_prefer_grpc",
-}
-#: Legacy secret property <-> (backend, secret field).
-_BACKEND_SECRET_LEGACY: dict[tuple[str, str], str] = {
-    ("honcho", "api_key"): "honcho_api_key",
-    ("qdrant", "api_key"): "qdrant_api_key",
-}
 
 
 class BackendSettingsValidationError(Exception):
@@ -113,26 +109,49 @@ class MemorySettingsService:
     """Read/write the singleton SystemMemorySettings row."""
 
     @staticmethod
+    def _row_maps(row: SystemMemorySettings | None) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Return ``(backend_options, backend_secrets)`` for a read surface.
+
+        ``backend_secrets`` decrypts the blob and raises ``InvalidToken`` once
+        ``FIELD_ENCRYPTION_KEY`` was rotated without re-encrypting stored data.
+        A read surface must never 500 over that (F8), so the secret map degrades
+        to ``{}`` here -- it reports "no key set", which is all an unreadable
+        ciphertext can honestly say. Write paths keep using the strict property.
+        """
+        if row is None:
+            return {}, {}
+        options = row.backend_options or {}
+        try:
+            secrets = row.backend_secrets or {}
+        except Exception:  # noqa: BLE001 - see docstring; a GET must never 500.
+            logger.warning(
+                "MemorySettingsService: backend secrets are unreadable (rotated key?)",
+                exc_info=True,
+            )
+            secrets = {}
+        return options, secrets
+
+    @staticmethod
     def _serialize(row: SystemMemorySettings | None) -> dict[str, Any]:
         data: dict[str, Any] = {}
         for field in _OVERRIDABLE_FIELDS:
             value = getattr(row, field, None) if row is not None else None
             data[field] = value
             data[f"{field}_is_override"] = value is not None
-        # Derive the "is set" flags from the PRESENCE of the encrypted column,
-        # never from the decrypting property (F8): ``row.qdrant_api_key`` calls
-        # ``decrypt_secret``, which raises ``InvalidToken`` over stored
-        # ciphertext once FIELD_ENCRYPTION_KEY has been rotated. That turned
-        # every admin GET into a 500 even though presence -- not decryptability
-        # -- is the only thing this flag reports. Presence is what the column
-        # already encodes (``encrypt_secret("")`` keeps ""), so the flag stays
-        # identical for healthy rows.
-        data["honcho_api_key_is_set"] = (
-            bool(row.honcho_api_key_encrypted) if row is not None else False
-        )
-        data["qdrant_api_key_is_set"] = (
-            bool(row.qdrant_api_key_encrypted) if row is not None else False
-        )
+
+        options, secrets = MemorySettingsService._row_maps(row)
+
+        # Plan A T-A0b-6: the flat per-backend fields stay in the REST contract
+        # as derived compatibility fields. Their value comes from
+        # ``backend_options``; ``_with_env_fallback`` fills the env value when
+        # the map holds no override.
+        for field, (backend, option) in _DERIVED_OPTION_FIELDS.items():
+            backend_options = options.get(backend) or {}
+            data[field] = backend_options.get(option)
+            data[f"{field}_is_override"] = option in backend_options
+
+        for field, (backend, secret) in _DERIVED_SECRET_FIELDS.items():
+            data[f"{field}_is_set"] = bool((secrets.get(backend) or {}).get(secret))
         return data
 
     @staticmethod
@@ -189,8 +208,7 @@ class MemorySettingsService:
         from memory.backends import MEMORY_BACKEND_REGISTRY
 
         row = SystemMemorySettings.objects.first()
-        options = (row.backend_options if row is not None else {}) or {}
-        secrets = (row.backend_secrets if row is not None else {}) or {}
+        options, secrets = self._row_maps(row)
         payload: dict[str, Any] = {}
         for name, cls in MEMORY_BACKEND_REGISTRY.items():
             key = cls.settings_key or name
@@ -329,7 +347,7 @@ class MemorySettingsService:
     def _apply_backend_maps(
         cls, row: SystemMemorySettings, options: Any, secrets: Any
     ) -> None:
-        """Merge the maps into the row and dual-write the legacy columns."""
+        """Merge the maps into the row (the sole store since T-A0b-6)."""
         options = options or {}
         secrets = secrets or {}
 
@@ -363,31 +381,28 @@ class MemorySettingsService:
                 current_secrets.pop(key, None)
         row.backend_secrets = current_secrets
 
-        # Dual-write (QR-T15): old code reads the legacy columns until the
-        # contract migration (T-A0b-6) drops them.
-        for (backend, field_name), legacy in _BACKEND_OPTION_LEGACY.items():
-            if backend in options and field_name in (options.get(backend) or {}):
-                setattr(row, legacy, (current_options.get(backend) or {}).get(field_name))
-        for (backend, field_name), legacy in _BACKEND_SECRET_LEGACY.items():
-            if backend in secrets and field_name in (secrets.get(backend) or {}):
-                value = (current_secrets.get(backend) or {}).get(field_name) or ""
-                setattr(row, legacy, value)
-
     @staticmethod
     def _mirror_flat_fields(row: SystemMemorySettings, data: dict[str, Any]) -> None:
-        """Keep the maps in sync when a caller uses the legacy flat fields."""
+        """Map the flat compatibility fields onto the backend maps.
+
+        The flat fields are derived on read (``_serialize``); on write they
+        still have to land in ``backend_options``/``backend_secrets`` because
+        those maps are the only store since Plan A T-A0b-6.
+        """
         options = dict(row.backend_options or {})
         changed = False
-        for (backend, field_name), legacy in _BACKEND_OPTION_LEGACY.items():
-            if legacy not in data:
+        for field, (backend, option) in _DERIVED_OPTION_FIELDS.items():
+            if field not in data:
                 continue
-            value = getattr(row, legacy)
+            value = data[field]
+            if field in _BLANKABLE_TEXT_FIELDS and value == "":
+                value = None
             key = _settings_key(backend)
             merged = dict(options.get(key) or {})
             if value is None:
-                merged.pop(field_name, None)
+                merged.pop(option, None)
             else:
-                merged[field_name] = value
+                merged[option] = value
             if merged:
                 options[key] = merged
             else:
@@ -396,24 +411,22 @@ class MemorySettingsService:
         if changed:
             row.backend_options = options
 
-        secrets = dict(row.backend_secrets)
-        secrets_changed = False
-        for (backend, field_name), legacy in _BACKEND_SECRET_LEGACY.items():
-            if legacy not in data:
-                continue
-            value = getattr(row, legacy)
-            key = _settings_key(backend)
-            merged = dict(secrets.get(key) or {})
-            if value:
-                merged[field_name] = value
-            else:
-                merged.pop(field_name, None)
-            if merged:
+        # Only touch (and therefore decrypt) the secret blob when the caller
+        # actually sent a secret; an unrelated PUT must work even with a
+        # rotated FIELD_ENCRYPTION_KEY.
+        secret_updates = {
+            field: data[field]
+            for field in _DERIVED_SECRET_FIELDS
+            if data.get(field)
+        }
+        if secret_updates:
+            secrets = dict(row.backend_secrets)
+            for field, value in secret_updates.items():
+                backend, secret = _DERIVED_SECRET_FIELDS[field]
+                key = _settings_key(backend)
+                merged = dict(secrets.get(key) or {})
+                merged[secret] = value
                 secrets[key] = merged
-            else:
-                secrets.pop(key, None)
-            secrets_changed = True
-        if secrets_changed:
             row.backend_secrets = secrets
 
     def get_effective_settings(self) -> dict[str, Any]:
@@ -460,11 +473,6 @@ class MemorySettingsService:
                 if field in _BLANKABLE_TEXT_FIELDS and value == "":
                     value = None
                 setattr(row, field, value)
-        if "honcho_api_key" in data and data["honcho_api_key"]:
-            row.honcho_api_key = data["honcho_api_key"]
-        if "qdrant_api_key" in data and data["qdrant_api_key"]:
-            row.qdrant_api_key = data["qdrant_api_key"]
-
         # T-A0b-3: validate the whole backend maps before touching the row, so
         # a rejected field cannot leave a half-applied write behind.
         details = self._validate_backend_maps(
@@ -507,8 +515,6 @@ class MemorySettingsService:
         row, created = SystemMemorySettings.objects.get_or_create(pk=SYSTEM_MEMORY_SETTINGS_ID)
         for field in _OVERRIDABLE_FIELDS:
             setattr(row, field, None)
-        row.honcho_api_key_encrypted = ""
-        row.qdrant_api_key_encrypted = ""
         row.backend_options = {}
         row.backend_secrets_encrypted = ""
         if user_id is not None:

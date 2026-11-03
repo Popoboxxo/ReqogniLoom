@@ -130,7 +130,7 @@ _HINTS: dict[str, str] = {
         "The artifact store is configured for Qdrant ("
         f"{ARTIFACT_VECTOR_BACKEND_ENV_VAR}=qdrant) in a production deployment "
         f"and no API key resolves: neither {QDRANT_API_KEY_ENV_VAR} nor the "
-        "persisted SystemMemorySettings.qdrant_api_key is set. Unless the qdrant "
+        "persisted SystemMemorySettings.backend_secrets['qdrant']['api_key'] is set. Unless the qdrant "
         "service itself enforces QDRANT__SERVICE__API_KEY, such a store accepts "
         "unauthenticated callers, so any container on the network can read and "
         "delete every tenant's collections; tenant isolation would rest on "
@@ -361,7 +361,7 @@ def _qdrant_api_key_configured() -> bool:
     """Whether an API key is configured for Qdrant (DB override over env).
 
     Resolves through the same helper the artifact port and the memory backend
-    use, because a key persisted in ``SystemMemorySettings.qdrant_api_key``
+    use, because a key persisted in ``SystemMemorySettings.backend_secrets["qdrant"]["api_key"]``
     never appears in the environment — reading only ``os.environ`` reported a
     false ``memory.W003`` on every readiness probe of such a deployment.
 
@@ -407,7 +407,7 @@ def qdrant_api_key_missing() -> bool:
        ``prod`` or a typo stays production (see
        :func:`_deployment_is_production`).
     3. No API key is resolvable — neither ``QDRANT_API_KEY`` nor the persisted
-       ``SystemMemorySettings.qdrant_api_key`` (DB override over env, resolved by
+       ``SystemMemorySettings.backend_secrets["qdrant"]["api_key"]`` (DB override over env, resolved by
        the same helper the backends use).
 
     Shared by :func:`check_qdrant_api_key` (``manage.py check``, ``memory.W003``)
@@ -447,7 +447,7 @@ def check_qdrant_api_key(
                 f"{ARTIFACT_VECTOR_BACKEND_ENV_VAR}=qdrant is configured in a "
                 "production deployment but no Qdrant API key resolves: "
                 f"{QDRANT_API_KEY_ENV_VAR} is not set and "
-                "SystemMemorySettings.qdrant_api_key is empty."
+                "SystemMemorySettings.backend_secrets['qdrant']['api_key'] is empty."
             ),
             hint=_HINTS.get(QDRANT_API_KEY_MISSING, ""),
             id=QDRANT_API_KEY_MISSING,

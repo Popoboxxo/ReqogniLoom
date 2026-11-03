@@ -1759,7 +1759,9 @@ class TestHonchoBackendDbOverride:
         from memory.models import SystemMemorySettings
 
         monkeypatch.setenv("HONCHO_BASE_URL", "http://env-honcho.invalid")
-        SystemMemorySettings.objects.create(honcho_base_url="http://db-honcho.invalid")
+        SystemMemorySettings.objects.create(
+            backend_options={"honcho": {"base_url": "http://db-honcho.invalid"}}
+        )
         backend = HonchoMemoryBackend()
         assert backend._base_url == "http://db-honcho.invalid"
 

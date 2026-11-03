@@ -222,7 +222,7 @@ class TestQdrantApiKeyCheck:
 
         self._configure(monkeypatch)
         row = SystemMemorySettings()
-        row.qdrant_api_key = "db-configured-key"
+        row.backend_secrets = {"qdrant": {"api_key": "db-configured-key"}}
         row.save()
 
         assert check_qdrant_api_key() == []

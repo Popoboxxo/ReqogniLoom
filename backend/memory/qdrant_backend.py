@@ -243,8 +243,9 @@ def _distance_from_score(score: Any) -> float | None:
 def resolve_effective_qdrant_config() -> QdrantConfig:
     """The Qdrant connection the backend actually uses.
 
-    Overlays the ``SystemMemorySettings`` ``qdrant_*`` fields onto the
-    ``QDRANT_*`` env defaults -- a non-``None`` DB field WINS over the env value
+    Overlays the ``SystemMemorySettings.backend_options["qdrant"]`` map (plus
+    the ``backend_secrets["qdrant"]["api_key"]`` secret) onto the ``QDRANT_*``
+    env defaults -- a non-``None`` DB value WINS over the env value
     (ADR-020 §6). Best-effort and non-raising for a missing DB row or an
     unavailable DB: the env defaults are the fallback, mirroring
     :meth:`memory.honcho_backend.HonchoMemoryBackend._resolve_config`.
@@ -258,18 +259,24 @@ def resolve_effective_qdrant_config() -> QdrantConfig:
 
         row = SystemMemorySettings.objects.first()
         if row is not None:
-            for field, value in (
-                ("base_url", row.qdrant_base_url),
-                ("api_key", row.qdrant_api_key or None),
-                ("collection_prefix", row.qdrant_collection_prefix),
-                ("distance", row.qdrant_distance),
-                ("timeout", row.qdrant_timeout),
-                ("hnsw_m", row.qdrant_hnsw_m),
-                ("hnsw_ef_construct", row.qdrant_hnsw_ef_construct),
-                ("prefer_grpc", row.qdrant_prefer_grpc),
+            # T-A0b-6: read the maps, the legacy flat columns no longer exist.
+            options = (row.backend_options or {}).get("qdrant", {}) or {}
+            secrets = (row.backend_secrets or {}).get("qdrant", {}) or {}
+            for field in (
+                "base_url",
+                "collection_prefix",
+                "distance",
+                "timeout",
+                "hnsw_m",
+                "hnsw_ef_construct",
+                "prefer_grpc",
             ):
+                value = options.get(field)
                 if value is not None:
                     overrides[field] = value
+            api_key = secrets.get("api_key") or None
+            if api_key is not None:
+                overrides["api_key"] = api_key
     except Exception:  # noqa: BLE001 - settings are best-effort; env is the fallback.
         overrides = {}
     return resolve_qdrant_config(**overrides)

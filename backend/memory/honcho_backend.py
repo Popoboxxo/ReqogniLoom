@@ -907,8 +907,12 @@ class HonchoMemoryBackend(MemoryBackend):
 
             row = SystemMemorySettings.objects.first()
             if row is not None:
-                base_url = row.honcho_base_url or os.environ.get("HONCHO_BASE_URL", "")
-                api_key = row.honcho_api_key or os.environ.get("HONCHO_API_KEY")
+                # T-A0b-6: ``backend_options``/``backend_secrets`` are the only
+                # store; the legacy flat columns are gone.
+                options = (row.backend_options or {}).get("honcho", {}) or {}
+                secrets = (row.backend_secrets or {}).get("honcho", {}) or {}
+                base_url = options.get("base_url") or os.environ.get("HONCHO_BASE_URL", "")
+                api_key = secrets.get("api_key") or os.environ.get("HONCHO_API_KEY")
                 return base_url, api_key
         except Exception:  # noqa: BLE001, S110 - settings are best-effort; env is the fallback.
             pass

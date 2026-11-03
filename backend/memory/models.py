@@ -187,33 +187,17 @@ class SystemMemorySettings(AuditableModel):
     ollama_base_url = models.CharField(max_length=255, null=True, blank=True)
     embedding_timeout = models.PositiveIntegerField(null=True, blank=True)
     memory_backend = models.CharField(max_length=32, null=True, blank=True)
-    honcho_base_url = models.CharField(max_length=255, null=True, blank=True)
     # RFC #1002 PR B: admin-configurable, fixed-window write ratelimit for
     # ``memory.write``. NULL = "no override, env/default wins" (the env var is
     # ``MEMORY_WRITE_RATE_LIMIT_PER_HOUR``, default 60); ``0`` is an explicit
     # "unlimited" override. ``PositiveIntegerField`` therefore rules out a
     # negative value that could only ever be a typo.
     memory_write_rate_limit_per_hour = models.PositiveIntegerField(null=True, blank=True)
-    # Fernet ciphertext, mirrors LlmSettings.api_key_encrypted. Never read/write
-    # directly -- use the honcho_api_key property below.
-    honcho_api_key_encrypted = models.TextField(blank=True, default="")
-    # -- Qdrant optional vector backend (ADR-020 V1) ---------------------
-    # NULL means "no override, env wins", exactly like the honcho_* fields.
-    # NOTE: there is deliberately NO dimension override -- the vector width
-    # always mirrors persistence.embedding_dimensions.EMBEDDING_VECTOR_DIMENSIONS
-    # (ADR-020 §6); a drift is a configuration error, not a knob.
-    qdrant_base_url = models.CharField(max_length=255, null=True, blank=True)
-    qdrant_collection_prefix = models.CharField(max_length=64, null=True, blank=True)
-    qdrant_distance = models.CharField(max_length=16, null=True, blank=True)
-    qdrant_timeout = models.FloatField(null=True, blank=True)
-    qdrant_hnsw_m = models.PositiveIntegerField(null=True, blank=True)
-    qdrant_hnsw_ef_construct = models.PositiveIntegerField(null=True, blank=True)
-    qdrant_prefer_grpc = models.BooleanField(null=True, blank=True)
-    # Fernet ciphertext, mirrors honcho_api_key_encrypted. Never read/write
-    # directly -- use the qdrant_api_key property below.
-    qdrant_api_key_encrypted = models.TextField(blank=True, default="")
 
     # -- backend-neutral settings (Plan A T-A0b-3, #1316) ----------------
+    # The sole store of per-backend configuration since Plan A T-A0b-6 dropped
+    # the legacy flat columns.
+    #
     # Non-secret values per backend: ``{"honcho": {"dialectic_level": "low"},
     # "qdrant": {...}}``. Never holds a ``secret`` field -- those live only in
     # ``backend_secrets_encrypted`` so a GET can never leak one.
@@ -228,22 +212,6 @@ class SystemMemorySettings(AuditableModel):
     def save(self, *args, **kwargs) -> None:
         self.pk = SYSTEM_MEMORY_SETTINGS_ID
         super().save(*args, **kwargs)
-
-    @property
-    def honcho_api_key(self) -> str:
-        return decrypt_secret(self.honcho_api_key_encrypted)
-
-    @honcho_api_key.setter
-    def honcho_api_key(self, value: str) -> None:
-        self.honcho_api_key_encrypted = encrypt_secret(value or "")
-
-    @property
-    def qdrant_api_key(self) -> str:
-        return decrypt_secret(self.qdrant_api_key_encrypted)
-
-    @qdrant_api_key.setter
-    def qdrant_api_key(self, value: str) -> None:
-        self.qdrant_api_key_encrypted = encrypt_secret(value or "")
 
     @property
     def backend_secrets(self) -> dict:

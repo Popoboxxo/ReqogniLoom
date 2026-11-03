@@ -2213,7 +2213,8 @@ class TestBackendNeutralSettings:
             assert row.backend_secrets["honcho"]["api_key"] == "sk-never-returned"
             assert "sk-never-returned" not in (row.backend_secrets_encrypted or "")
 
-    def test_backend_options_dual_write_the_legacy_columns(self):
+    def test_backend_options_are_the_only_store(self):
+        """T-A0b-6: no legacy columns exist; the flat fields are derived."""
         from memory.models import SystemMemorySettings
 
         with active_tenant() as tenant:
@@ -2228,9 +2229,11 @@ class TestBackendNeutralSettings:
                 format="json",
             )
             assert response.status_code == 200, response.data
+            assert response.data["honcho_base_url"] == "http://honcho.test:8000"
+            assert response.data["qdrant_base_url"] == "http://qdrant.test:6333"
             row = SystemMemorySettings.objects.first()
-            assert row.honcho_base_url == "http://honcho.test:8000"
-            assert row.qdrant_base_url == "http://qdrant.test:6333"
+            assert row.backend_options["honcho"]["base_url"] == "http://honcho.test:8000"
+            assert row.backend_options["qdrant"]["base_url"] == "http://qdrant.test:6333"
 
     def test_legacy_honcho_name_fields_are_accepted_and_logged(self, caplog):
         with active_tenant() as tenant:

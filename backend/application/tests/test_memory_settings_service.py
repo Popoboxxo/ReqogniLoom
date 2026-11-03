@@ -1,32 +1,36 @@
 """Regression tests for ``MemorySettingsService`` serialization (F8).
 
-``_serialize`` must derive the ``*_api_key_is_set`` flags from the PRESENCE of
-the stored ciphertext column, never by decrypting it. A rotated
-``FIELD_ENCRYPTION_KEY`` makes ``decrypt_secret`` raise ``InvalidToken`` over
-already-stored tokens (see ``persistence.encryption``); going through the
-decrypting ``SystemMemorySettings.<provider>_api_key`` property therefore
-turned every admin ``GET /api/v1/system/memory-settings/`` into a 500. The flag
-answers "is a key stored", not "is it decryptable right now", so reading the
-column directly is both correct and side-effect free.
+Plan A T-A0b-6 moved every per-backend value into
+``backend_options``/``backend_secrets_encrypted``; the flat REST fields are
+derived from those maps. ``_serialize`` therefore decrypts the secret blob to
+answer ``*_api_key_is_set``, and must degrade to ``{}`` instead of raising when
+``FIELD_ENCRYPTION_KEY`` was rotated (``decrypt_secret`` raises ``InvalidToken``
+over ciphertext the current key cannot read). An admin ``GET`` must never 500
+over that (the original F8 report).
 """
 from __future__ import annotations
+
+import json
 
 import pytest
 
 from application.memory_settings_service import MemorySettingsService
 from memory.models import SystemMemorySettings
+from persistence.encryption import encrypt_secret
 
 #: A Fernet-shaped token (the ``gAAAA`` prefix is exactly what
-#: ``decrypt_secret`` keys on) that is NOT decryptable with the test key -- the
-#: old property-based code raised ``InvalidToken`` over it.
+#: ``decrypt_secret`` keys on) that is NOT decryptable with the test key.
 _UNDECRYPTABLE_CIPHERTEXT = "gAAAA" + "not-a-valid-fernet-token"
 
 
-def test_serialize_reports_api_key_set_without_decrypting() -> None:
-    """``_is_set`` is True for a stored (even undecryptable) ciphertext."""
+def _secrets_blob(**secrets: str) -> str:
+    return encrypt_secret(json.dumps({"honcho": secrets, "qdrant": secrets}))
+
+
+def test_serialize_reports_api_key_set_from_backend_secrets() -> None:
+    """``_is_set`` reflects the decrypted map, never the plaintext."""
     row = SystemMemorySettings(
-        qdrant_api_key_encrypted=_UNDECRYPTABLE_CIPHERTEXT,
-        honcho_api_key_encrypted=_UNDECRYPTABLE_CIPHERTEXT,
+        backend_secrets_encrypted=_secrets_blob(api_key="sk-stored"),
     )
 
     data = MemorySettingsService._serialize(row)
@@ -38,24 +42,33 @@ def test_serialize_reports_api_key_set_without_decrypting() -> None:
     assert "honcho_api_key" not in data
 
 
-def test_serialize_does_not_call_decrypt(monkeypatch) -> None:
-    """Prove the decrypting property is never touched during serialization."""
-    from memory import models as memory_models
-
-    def _boom(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("_serialize must not decrypt the stored API key")
-
-    monkeypatch.setattr(memory_models, "decrypt_secret", _boom)
-
+def test_serialize_derives_flat_option_fields_from_the_map() -> None:
+    """The flat compatibility fields survive as derived values (T-A0b-6)."""
     row = SystemMemorySettings(
-        qdrant_api_key_encrypted=_UNDECRYPTABLE_CIPHERTEXT,
-        honcho_api_key_encrypted=_UNDECRYPTABLE_CIPHERTEXT,
+        backend_options={
+            "honcho": {"base_url": "http://honcho.test:8000"},
+            "qdrant": {"base_url": "http://qdrant.test:6333", "prefer_grpc": True},
+        }
     )
 
     data = MemorySettingsService._serialize(row)
 
-    assert data["qdrant_api_key_is_set"] is True
-    assert data["honcho_api_key_is_set"] is True
+    assert data["honcho_base_url"] == "http://honcho.test:8000"
+    assert data["honcho_base_url_is_override"] is True
+    assert data["qdrant_base_url"] == "http://qdrant.test:6333"
+    assert data["qdrant_prefer_grpc"] is True
+    assert data["qdrant_timeout"] is None
+    assert data["qdrant_timeout_is_override"] is False
+
+
+def test_serialize_survives_undecryptable_blob() -> None:
+    """A rotated key degrades the flags instead of raising."""
+    row = SystemMemorySettings(backend_secrets_encrypted=_UNDECRYPTABLE_CIPHERTEXT)
+
+    data = MemorySettingsService._serialize(row)
+
+    assert data["qdrant_api_key_is_set"] is False
+    assert data["honcho_api_key_is_set"] is False
 
 
 def test_serialize_empty_or_missing_row_is_not_set() -> None:
@@ -70,16 +83,12 @@ def test_serialize_empty_or_missing_row_is_not_set() -> None:
 
 @pytest.mark.django_db
 def test_get_effective_settings_survives_undecryptable_stored_key() -> None:
-    """End-to-end F8: the admin read must not 500 on undecryptable ciphertext.
-
-    A row whose ciphertext was encrypted under a since-rotated key would raise
-    ``InvalidToken`` on every GET under the old property-based serialization.
-    """
+    """End-to-end F8: the admin read must not 500 on undecryptable ciphertext."""
     SystemMemorySettings.objects.create(
-        qdrant_api_key_encrypted=_UNDECRYPTABLE_CIPHERTEXT,
+        backend_secrets_encrypted=_UNDECRYPTABLE_CIPHERTEXT,
     )
 
     data = MemorySettingsService().get_effective_settings()
 
-    assert data["qdrant_api_key_is_set"] is True
+    assert data["qdrant_api_key_is_set"] is False
     assert "qdrant_api_key" not in data
