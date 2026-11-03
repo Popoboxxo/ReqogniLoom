@@ -847,6 +847,38 @@ class SanitizedCharField(FreeTextFieldMarker, serializers.CharField):
         return validate_free_text(value)
 
 
+class AcceptanceCriteriaListField(serializers.JSONField):
+    """Structured acceptance-criteria list, validated on write (#1609).
+
+    ``RequirementSerializer.acceptance_criteria_items`` used to be declared
+    ``read_only``: a ``PATCH``/``POST`` carrying the list answered **200** and
+    wrote nothing — the value was dropped by DRF without a word. It is a
+    writable field now, validated through the same ``criteria-list`` contract
+    the dedicated ``/requirements/{id}/acceptance-criteria/`` endpoint uses
+    (:func:`attribute_definitions.field_validation.normalize_criteria_list`),
+    so a malformed list is a field-level 400 instead of a silent no-op.
+
+    The value is deliberately *not* handed to ``super().to_internal_value``:
+    a JSON-encoded string would otherwise be parsed into a list, which hides a
+    client bug behind an accidental success. Only a real list is accepted.
+    """
+
+    def to_internal_value(self, data: Any) -> list[dict[str, Any]]:
+        from attribute_definitions.field_validation import (
+            FieldValidationError,
+            normalize_criteria_list,
+        )
+
+        try:
+            return normalize_criteria_list(data)
+        except FieldValidationError as exc:
+            # As in SanitizedCharField above: DRF already nests field errors
+            # under the field's own key, so the bare message list is enough.
+            raise serializers.ValidationError(
+                exc.errors.get("criteria-list") or [str(exc)]
+            ) from exc
+
+
 class SanitizedJSONField(FreeTextFieldMarker, serializers.JSONField):
     """JSONField whose *nested* strings obey the free-text rules.
 
@@ -1332,13 +1364,18 @@ class RequirementSerializer(
             "the override and restores the derived value. #1289."
         ),
     )
-    # #1288: the structured acceptance criteria list, read-only on the main
-    # Requirement payload. Individual items are written through the dedicated
-    # ``.../acceptance-criteria/{index}/`` endpoint.
-    acceptance_criteria_items = serializers.JSONField(
-        read_only=True,
+    # #1288: the structured acceptance criteria list. Readable on the main
+    # Requirement payload and, since #1609, writable there too: the view
+    # persists it through ``RequirementService.set_acceptance_criteria`` (the
+    # same contract the dedicated ``.../acceptance-criteria/{index}/`` endpoint
+    # uses). It used to be ``read_only``, so a PATCH carrying the list answered
+    # 200 and silently dropped it. Individual items are still addressable at
+    # ``.../acceptance-criteria/{index}/``.
+    acceptance_criteria_items = AcceptanceCriteriaListField(
+        required=False,
         help_text=(
-            "Ordered acceptance criteria {text, fulfilled, evidence_ref} (#1288)."
+            "Ordered acceptance criteria {text, fulfilled, evidence_ref} (#1288). "
+            "Writable: a PATCH/POST replaces the whole list (#1609)."
         ),
     )
     # Issue [U2, systemaudit 2026-09-02]: the model field and its propagation

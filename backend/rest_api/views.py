@@ -1897,6 +1897,17 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     int(data["level_override"]),
                     change_reason=data.get("change_reason"),
                 )
+            # #1609: the structured criteria list is a real write path now.
+            # Persisted through the same service method the dedicated
+            # ``/acceptance-criteria/`` endpoint uses, so the 201 cannot claim
+            # a list that was never stored.
+            if "acceptance_criteria_items" in data:
+                item = self._persist_acceptance_criteria(
+                    item,
+                    data["acceptance_criteria_items"],
+                    data.get("change_reason"),
+                    ctx,
+                )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
@@ -2045,6 +2056,17 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     None if override is None else int(override),
                     change_reason=data.get("change_reason"),
                 )
+            # #1609: same write path as create — the list is persisted through
+            # ``RequirementService.set_acceptance_criteria`` instead of being
+            # dropped by the serializer, and the response is re-read so it
+            # carries what is actually stored.
+            if "acceptance_criteria_items" in data:
+                item = self._persist_acceptance_criteria(
+                    item,
+                    data["acceptance_criteria_items"],
+                    data.get("change_reason"),
+                    ctx,
+                )
         except (InvalidIfMatch, IfMatchMismatch) as exc:
             # GH-1396: a malformed header is a 400 INVALID_IF_MATCH; a header
             # whose strong tags cannot match is 412 — the body field below keeps
@@ -2078,6 +2100,31 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return self._svc().get_requirement(UUID(pk), get_auth_context(request)).level
         except Exception:  # noqa: BLE001 — the guard refuses anyway
             return None
+
+    def _persist_acceptance_criteria(
+        self,
+        item: Any,
+        criteria: list[dict[str, Any]],
+        change_reason: str | None,
+        ctx: Any,
+    ) -> Any:
+        """Store a payload-supplied criteria list and return the fresh row.
+
+        #1609: the serializer used to declare ``acceptance_criteria_items``
+        ``read_only``, so a PATCH answered 200 while the list was dropped. The
+        list is now written through ``RequirementService.set_acceptance_criteria``
+        — the very method the dedicated ``/acceptance-criteria/`` endpoint and
+        the MCP ``requirement.acceptance_criteria_set`` tool use — so every
+        write path shares one validator and one audit entry.
+
+        The row is re-read because the service writes its own instance; the
+        caller's ``item`` (from ``create_requirement``/``update_requirement``)
+        would otherwise serialise the pre-write list back to the client.
+        """
+        self._svc().set_acceptance_criteria(
+            item.id, ctx, criteria, change_reason=change_reason
+        )
+        return self._svc().get_requirement(item.id, ctx)
 
     @staticmethod
     def _build_requirement_patch_extra_kwargs(data: dict[str, Any]) -> dict[str, Any]:
