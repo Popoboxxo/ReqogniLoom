@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+## [1.8.0-beta.25] — 2026-11-03
+
+### Added
+- feat(documents): Document artifact end to end — model + RLS, `document_default` workflow, `documented-in`/`evidences`/`depends-on` link types, freeze/gate service, REST with ETag/soft-delete, MCP `document.*`, events/search/tree/baseline/attribute and the DocumentsView (#1645–#1653)
+- feat(work-items): agent working state — WorkItem model + RLS, tiered workflows, decomposition links, resume/checkpoint/heartbeat, REST/MCP, inline anchors I-1…I-5 with DOC-P7, events/DOC-P5/digest and the document panel (#1655–#1671)
+- feat(milestones): Milestone planning — model/service, REST/MCP `milestone.*` (+6 tools), baselines view (#1672–#1674)
+- feat(dx): `scripts/setup.sh` (env init, CHANGE-ME rotation, port pre-check, off-repo env backups), `make wipe` with verified off-host backup, `advisory.django_env`, pinned `mcp-publisher` (#1675/#1676)
+- feat(clients): corrected/completed DE/EN client guides, Claude plugin `userConfig` + `claude plugin validate`, `server.json` host variable, OpenCode npm package builder, pinned `mcp-remote@0.16.0` + `opencode agent create` (#1678–#1681, #1697)
+- fix(security): viewer cannot mint write-scoped API keys; rate-limit config is admin/approver-only; one truthful role catalogue per preset; REST/MCP agent-key fence parity (#1685–#1688)
+- fix: `acceptance_criteria_items` persist on write; interview `artifact_type` normalization; audit tier/metrics timeframe enums; `requirement.query` requires `workspace_id`; `tools/list` filter metadata; `metrics.get` timeframe enum (#1689–#1693, #1696)
+- fix(ui): explained disabled create actions and admin-gated `/attributes` (#1694)
+
+### Changed
+- **Breaking:** the Bluepencil review layer is removed (runtime, Compose profile, env vars, tests, docs); the default stack is back to 8 services plus the optional `honcho`/`qdrant` profiles (#1643)
+- **Breaking:** memory legacy backend columns are dropped; `backend_options`/`backend_secrets_encrypted` are the only stores (flat REST fields remain derived) (#1683)
+- **Breaking:** `UserDisplayPreference.show_readable_ids` is dropped; Q1 `ui.ids.show_readable` is the store (#1684)
+- **Breaking:** `metrics?timeframe=` accepts only `P7D|P30D|P90D`; invalid values are rejected with 400 (#1692)
+- Dependencies: Python 3.15-slim, Node 26.13, Redis 8, Honcho 3.5.0, honcho-ai 2.7.0, jsdom 30.1.3, openai ≥3.40, @xyflow/react 12.12 (#1467, #1541, #1545, #1546, #1620–#1622, #1624–#1626)
+
+### Fixed
+- xdist app-role creation is serialized cluster-wide (advisory lock + SQLSTATE cause), ending the 2222-setup-error race (#1654)
+- plugin-package ratchet derives the independent POC version instead of a stale literal; the guard now runs in CI (#1682)
+- Hermes desktop plugin has a source README (#1698)
+
 ## [1.8.0-beta.24] — 2026-11-01
 
 > Supersedes `1.8.0-beta.23`, whose Docker images were not published by the tag pipeline.
