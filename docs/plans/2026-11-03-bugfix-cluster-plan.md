@@ -216,12 +216,12 @@ architecture/icd); REST-ICD-Duplikat → 409; Glossary-MCP → `VALIDATION_ERROR
 | `rest_api/views.py` `BaseEntityViewSet` | Guard zentral in `list()`/Detail-Actions |
 | `rest_api/views.py:8498, 8985, 11130, 13597` | `status` + `search` an ADR/Risk/Issue/Glossary durchreichen (N5) |
 | `rest_api/views.py:1755` + `requirement_service.py:1158` | `allocated` + `level` (#1668) |
-| `requirement_level_service.py` / `traceability/audit/hierarchy.py` | `CONS-P14`-Warnung: Level ≠ Allokationstiefe (#1669) |
+| `traceability/audit/rules/level_consistency.py` | **bereits vorhanden:** `CONS-P13` meldet Level ≠ Allokationstiefe (#1669) — kein neuer Code nötig |
 | `mcp_server/tools/requirements.py:584` | `allocated`, `level`, `status`, `search`, `limit`, `offset` (N6) |
 | `mcp_server/tools/generic.py:687` | `limit`/`offset` (Default 50, Max 500) |
 
 **Tests:** Endpoint×Parameter-Matrix; `?alocated=false` → 400; `?status=`/`?search=`
-liefern gefilterte Ergebnisse; MCP-Pagination; `CONS-P14`-Warnung ohne Level-Änderung.
+liefern gefilterte Ergebnisse; MCP-Pagination; `CONS-P13`-Warnung bereits vorhanden.
 
 **DoD:** Kein dokumentierter Filter wird mehr still ignoriert; unbekannte Parameter → 400.
 
