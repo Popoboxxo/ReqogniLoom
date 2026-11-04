@@ -62,6 +62,7 @@ from application.base import NotFoundError
 from application.workspace_context_service import get_tenant, get_user
 from icd.models import Icd, IcdDirection, IcdParameter, IcdRevision
 from icd.services import (
+    IcdConflictError,
     IcdCreateDTO,
     IcdParameterCreateDTO,
     IcdParameterNotFoundError,
@@ -77,12 +78,17 @@ from icd.services import (
     get_icd_history,
     list_icd_parameters,
     list_icds,
+    reactivate_icd,
     update_icd,
     update_icd_parameter,
 )
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.mixins.workflow_transitions import WorkflowTransitionsMixin
-from rest_api.query_params import parse_workspace_id
+from rest_api.query_params import (
+    parse_change_reason,
+    parse_include_deleted,
+    parse_workspace_id,
+)
 from rest_api.serializers import (
     IcdParameterSerializer,
     StandardPagination,
@@ -862,6 +868,7 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             icds = list_icds(
                 workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
+                include_deleted=parse_include_deleted(request.query_params),
             )
             status_map = _icd_status_map(icds)
             serialized = [
@@ -965,6 +972,13 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                     "created_at": result.icd.created_at.isoformat() if result.icd.created_at else None,
                 },
                 status=status.HTTP_201_CREATED,
+            )
+        except IcdConflictError as exc:
+            # #1661: a second ICD for the same source/target pair is a
+            # caller-visible conflict, not a server fault.
+            return Response(
+                build_error_response("CONFLICT", lang, message=str(exc)),
+                status=status.HTTP_409_CONFLICT,
             )
         except ValueError as exc:
             # #104: create_icd() raises ValueError on ContractValidator syntax
@@ -1096,22 +1110,28 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     # -- destroy -----------------------------------------------------------
 
     @extend_schema(
-        summary="Delete an ICD and its parameters",
+        summary="Delete an ICD (soft-delete)",
         responses={
             204: OpenApiResponse(response=None, description="Deleted; no body."),
             404: OpenApiResponse(description="ICD not found."),
         },
     )
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """DELETE /api/v1/icds/<pk>/ — delete an ICD and its parameters.
+        """DELETE /api/v1/icds/<pk>/ — soft-delete an ICD (#1381).
 
-        Task 28c-2: a plain cascading delete. The immutability trigger this
-        used to work around went away with the ``icd_version`` table.
+        Returns 204, but the row is not removed: a subsequent GET answers 200
+        with ``status="outdated"``, matching every other artifact type. Restore
+        with ``POST /api/v1/icds/<pk>/reactivate/``.
         """
         lang = detect_lang(request)
         try:
             ctx = get_auth_context(request)
-            delete_icd(UUID(pk), ctx.tenant_id)
+            delete_icd(
+                UUID(pk),
+                ctx.tenant_id,
+                ctx=ctx,
+                change_reason=parse_change_reason(request),
+            )
             return Response(status=status.HTTP_204_NO_CONTENT)
         except Icd.DoesNotExist:
             return Response(
@@ -1120,6 +1140,31 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
         except Exception:  # noqa: BLE001 — module-wide boundary; _internal_error logs
             return _internal_error(lang, "destroy")
+
+    # -- reactivate --------------------------------------------------------
+
+    @extend_schema(
+        summary="Restore a soft-deleted ICD",
+        responses={
+            200: IcdDetailSerializer,
+            404: OpenApiResponse(description="ICD not found."),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="reactivate")
+    def reactivate(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/icds/<pk>/reactivate/ — undo the soft-delete (#1381)."""
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            icd = reactivate_icd(UUID(pk), ctx.tenant_id, ctx=ctx)
+            return Response(self._icd_detail_to_dict(icd))
+        except Icd.DoesNotExist:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception:  # noqa: BLE001 — module-wide boundary; _internal_error logs
+            return _internal_error(lang, "reactivate")
 
     # -- versions ----------------------------------------------------------
 

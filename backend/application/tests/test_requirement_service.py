@@ -1841,3 +1841,67 @@ class TestListRequirementsSearchFilter:
         ids = {r.id for r in results}
 
         assert {a.id, b.id} <= ids
+
+
+# ---------------------------------------------------------------------------
+# C3 / #1668 — allocated / level filters
+# ---------------------------------------------------------------------------
+
+
+class TestListRequirementsAllocationAndLevelFilter:
+    """``?allocated=`` and ``?level=`` are real filters, not silent no-ops."""
+
+    def test_level_filter(self, req_outdate_ctx, req_outdate_workspace):
+        from persistence.models import Requirement
+
+        svc = RequirementService()
+        low = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id, title="Level 1", ctx=req_outdate_ctx
+        )
+        high = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id, title="Level 3", ctx=req_outdate_ctx
+        )
+        Requirement.objects.filter(id=low.id).update(level=1)
+        Requirement.objects.filter(id=high.id).update(level=3)
+
+        results = svc.list_requirements(
+            req_outdate_workspace.id, req_outdate_ctx, level=3
+        )
+        assert {r.id for r in results} == {high.id}
+
+    def test_allocated_filter(self, req_outdate_ctx, req_outdate_workspace):
+        from persistence.models import Artifact, TraceLink
+
+        svc = RequirementService()
+        allocated = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Allocated",
+            ctx=req_outdate_ctx,
+        )
+        unallocated = svc.create_requirement(
+            workspace_id=req_outdate_workspace.id,
+            title="Unallocated",
+            ctx=req_outdate_ctx,
+        )
+        target = Artifact.objects.create(
+            tenant=req_outdate_workspace.tenant,
+            workspace=req_outdate_workspace,
+            artifact_type="ArchitectureElement",
+        )
+        TraceLink.unscoped.create(
+            tenant=req_outdate_workspace.tenant,
+            source_id=allocated.artifact_id,
+            target_id=target.id,
+            link_type="allocated-to",
+        )
+
+        only_allocated = svc.list_requirements(
+            req_outdate_workspace.id, req_outdate_ctx, allocated=True
+        )
+        assert {r.id for r in only_allocated} == {allocated.id}
+
+        only_unallocated = svc.list_requirements(
+            req_outdate_workspace.id, req_outdate_ctx, allocated=False
+        )
+        assert unallocated.id in {r.id for r in only_unallocated}
+        assert allocated.id not in {r.id for r in only_unallocated}

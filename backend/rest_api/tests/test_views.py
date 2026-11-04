@@ -28,6 +28,7 @@ from rest_framework.test import APIRequestFactory
 
 from rest_api.serializers import build_error_response
 from rest_api.views import (
+    AdrViewSet,
     ArchitectureElementViewSet,
     ArtifactViewSet,
     BaselineViewSet,
@@ -922,6 +923,87 @@ class TestRequirementListSearchFilter:
 
         assert response.status_code == 200
         assert svc_mock.list_requirements.call_args.kwargs["search"] is None
+
+
+# ---------------------------------------------------------------------------
+# C3 / #1668 — strict query contract + filter parity
+# ---------------------------------------------------------------------------
+
+
+class TestRequirementListStrictQueryContract:
+    """Unknown params and invalid filter values are 400, not silent 200."""
+
+    def _get(self, extra: dict) -> Any:
+        return _make_request(
+            "get",
+            params={"workspace_id": str(uuid.uuid4()), **extra},
+        )
+
+    def _svc_mock(self) -> MagicMock:
+        svc = MagicMock()
+        svc.list_requirements.return_value = []
+        return svc
+
+    def test_unknown_query_param_returns_400(self) -> None:
+        response = RequirementViewSet.as_view({"get": "list"})(
+            self._get({"alocated": "false"})
+        )
+        assert response.status_code == 400
+        assert response.data["error"]["code"] == "VALIDATION_ERROR"
+        assert "alocated" in response.data["error"]["message"]
+
+    def test_out_of_range_level_returns_400(self) -> None:
+        response = RequirementViewSet.as_view({"get": "list"})(
+            self._get({"level": "99"})
+        )
+        assert response.status_code == 400
+
+    def test_invalid_include_deleted_returns_400(self) -> None:
+        response = RequirementViewSet.as_view({"get": "list"})(
+            self._get({"include_deleted": "maybe"})
+        )
+        assert response.status_code == 400
+
+    def test_allocated_filter_is_forwarded(self) -> None:
+        svc_mock = self._svc_mock()
+        with patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock):
+            response = RequirementViewSet.as_view({"get": "list"})(
+                self._get({"allocated": "false"})
+            )
+        assert response.status_code == 200
+        assert svc_mock.list_requirements.call_args.kwargs["allocated"] is False
+
+    def test_level_filter_is_forwarded(self) -> None:
+        svc_mock = self._svc_mock()
+        with patch("rest_api.views.RequirementViewSet._svc", return_value=svc_mock):
+            response = RequirementViewSet.as_view({"get": "list"})(
+                self._get({"level": "2"})
+            )
+        assert response.status_code == 200
+        assert svc_mock.list_requirements.call_args.kwargs["level"] == 2
+
+
+class TestAdrListFilterParity:
+    """ADR/Risk/Issue/Glossary now honour the same status/search contract."""
+
+    def test_status_and_search_are_forwarded(self) -> None:
+        svc_mock = MagicMock()
+        svc_mock.list_adrs.return_value = []
+        req = _make_request(
+            "get",
+            params={
+                "workspace_id": str(uuid.uuid4()),
+                "status": "draft",
+                "search": "payment",
+            },
+        )
+        with patch("rest_api.views.AdrViewSet._svc", return_value=svc_mock):
+            response = AdrViewSet.as_view({"get": "list"})(req)
+
+        assert response.status_code == 200
+        kwargs = svc_mock.list_adrs.call_args.kwargs
+        assert kwargs["status"] == "draft"
+        assert kwargs["search"] == "payment"
 
 
 # ---------------------------------------------------------------------------

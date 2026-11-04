@@ -89,7 +89,19 @@ class Diagram(TenantScopedModel):
     # see migration 0005 for the Expand/Contract backfill strategy.
     # A single named index is declared in Meta (idx_diagram_workspace) rather
     # than db_index=True here, to avoid a redundant second index on the column.
-    workspace_id = models.UUIDField(null=True, blank=True)
+    # G1.4/#1403: a real FK so a workspace delete cascades its Diagrams. The
+    # backing Artifact is SET_NULL, so the workspace FK is the cascade owner.
+    # Nullable because legacy rows predate workspace scoping; ``db_column``
+    # keeps the column name and ``idx_diagram_workspace`` stays the query index.
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        on_delete=models.CASCADE,
+        db_column="workspace_id",
+        related_name="+",
+        null=True,
+        blank=True,
+        db_index=False,
+    )
     diagram_type = models.CharField(
         max_length=32,
         choices=DiagramType.choices,
@@ -142,7 +154,7 @@ class Diagram(TenantScopedModel):
         indexes = [
             # Workspace scoping index, mirrors idx_icd_workspace (icd/models.py):
             # serves DiagramViewSet workspace-filtered list/resolve queries.
-            models.Index(fields=["workspace_id"], name="idx_diagram_workspace"),
+            models.Index(fields=["workspace"], name="idx_diagram_workspace"),
         ]
 
     def __str__(self) -> str:

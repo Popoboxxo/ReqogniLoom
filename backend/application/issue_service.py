@@ -25,7 +25,7 @@ import logging
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from django.db.models import F, QuerySet
+from django.db.models import F, Q, QuerySet
 
 from application.artifact_service import (
     _clean_custom_fields,
@@ -480,29 +480,22 @@ class IssueService(ServiceBase):
         return issue
 
     def list_issues(
-        self, workspace_id: UUID, ctx: AuthContext, include_deleted: bool = False
+        self,
+        workspace_id: UUID,
+        ctx: AuthContext,
+        include_deleted: bool = False,
+        status: str | None = None,
+        search: str | None = None,
     ) -> QuerySet[Issue]:
         """Return all Issues in *workspace_id* (tenant-scoped, REQ-L3-ISSUE-011).
 
-        Args:
-            workspace_id: Target workspace UUID.
-            ctx: Resolved AuthContext.
-            include_deleted: When False (default), excludes Issues soft-deleted
-                via ``workflow.services.outdate()`` (REQ-006, Phase 0). ``Issue``
-                is registered in
-                ``workflow.lifecycle_manager._STATUS_MIRROR_MODELS``, so
-                ``outdate()`` writes ``"outdated"`` into the mirrored
-                ``status`` field.
-
-        Returns:
-            QuerySet of Issue ORM instances.
-
-        REQ-088: Returns a lazy ``QuerySet`` so the paginating ViewSet
-        (REQ-034) slices with LIMIT/OFFSET instead of materialising all rows.
+        C3 / #1668: ``status`` filters by the workflow state (``"outdated"``
+        routes to the soft-delete flag) and ``search`` matches title,
+        description or uid case-insensitively.
         """
         self._set_tenant_context(ctx)
         qs = Issue.objects.filter(workspace_id=workspace_id, tenant_id=ctx.tenant_id)
-        if not include_deleted:
+        if not include_deleted and status != "outdated":
             # Datenmodell-Konsolidierung Phase 4 (D-3): soft-delete routes
             # through workflow.services.outdate(), which sets
             # Artifact.lifecycle_status and no longer writes an "outdated"
@@ -511,6 +504,18 @@ class IssueService(ServiceBase):
             from workflow.services import outdated_item_ids
 
             qs = qs.exclude(id__in=outdated_item_ids("Issue", tenant_id=ctx.tenant_id))
+        if status:
+            from workflow.services import item_ids_with_status
+
+            qs = qs.filter(
+                id__in=item_ids_with_status("Issue", status, tenant_id=ctx.tenant_id)
+            )
+        if search:
+            qs = qs.filter(
+                Q(title__icontains=search)
+                | Q(description__icontains=search)
+                | Q(uid__icontains=search)
+            )
         # #1398: the REST DTO builder reads the backing Artifact (custom_fields
         # + owner/reporter system fields) and the carrier-backed ``assignee``
         # selection for every row. Without eager loading each of those is its

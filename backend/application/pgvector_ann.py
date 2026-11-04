@@ -43,6 +43,13 @@ logger = logging.getLogger(__name__)
 #: of distance order, which these nearest-neighbour callers cannot tolerate.
 _ITERATIVE_SCAN_MODE = "strict_order"
 
+#: Candidate pool per ANN query. pgvector's default (40) caps a ``LIMIT 50``
+#: below its requested size and makes a filtered scan return fewer rows than
+#: asked for; 100 covers the project's list page sizes while keeping the scan
+#: cheap. ``iterative_scan`` keeps producing candidates beyond this when the
+#: workspace filter discards them.
+_EF_SEARCH = 100
+
 
 def enable_iterative_ann_scan() -> None:
     """Ask HNSW for enough filtered candidates to satisfy the ``LIMIT``.
@@ -54,6 +61,9 @@ def enable_iterative_ann_scan() -> None:
     """
     try:
         with connection.cursor() as cursor:
+            # ef_search exists on every pgvector version with HNSW, so set it
+            # before the 0.8-only iterative_scan probe.
+            cursor.execute(f"SET LOCAL hnsw.ef_search = {_EF_SEARCH}")
             cursor.execute("SELECT current_setting('hnsw.iterative_scan', true)")
             row = cursor.fetchone()
             if row is None or row[0] is None:

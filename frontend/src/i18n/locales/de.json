@@ -274,7 +274,8 @@
   "common": {
     "close": "Schließen",
     "yes": "Ja",
-    "no": "Nein"
+    "no": "Nein",
+    "tableCaption": "Datentabelle"
   },
   "actions": {
     "add": "Hinzufügen",

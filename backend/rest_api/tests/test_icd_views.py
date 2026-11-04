@@ -81,6 +81,41 @@ class TestIcdViewSetCreateValidation:
         assert response.data["error"]["code"] == "VALIDATION_ERROR"
         assert "semantic_description" in response.data["error"]["message"]
 
+    def test_create_duplicate_icd_returns_409(self) -> None:
+        """#1661: a duplicate source/target pair is a 409, not a 500."""
+        from icd.services import IcdConflictError
+
+        factory = APIRequestFactory()
+        req = factory.post(
+            "/api/v1/icds/",
+            data={
+                "name": "My ICD",
+                "workspace_id": str(uuid.uuid4()),
+                "source_element_id": str(uuid.uuid4()),
+                "target_element_id": str(uuid.uuid4()),
+                "semantic_description": "short",
+            },
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+        view = IcdViewSet.as_view({"post": "create"})
+
+        with patch(
+            "rest_api.icd_views.get_auth_context", return_value=req.auth_context
+        ):
+            with patch("rest_api.icd_views.get_tenant"), patch("rest_api.icd_views.get_user"):
+                with patch(
+                    "rest_api.icd_views.create_icd",
+                    side_effect=IcdConflictError(
+                        "An ICD for this source/target element pair already exists"
+                    ),
+                ):
+                    response = view(req)
+
+        assert response.status_code == 409
+        assert response.data["error"]["code"] == "CONFLICT"
+        assert "already exists" in response.data["error"]["message"]
+
     def test_create_success_still_returns_201(self) -> None:
         """Sanity check: a valid payload is unaffected by the new error mapping."""
         factory = APIRequestFactory()

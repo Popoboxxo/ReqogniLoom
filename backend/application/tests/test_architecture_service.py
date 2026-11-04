@@ -576,8 +576,8 @@ class TestGetArchitectureElement:
             with pytest.raises(NotFoundError):
                 svc.get_architecture_element(ARCH_EL_ID, ctx)
 
-    def test_get_raises_not_found_when_outdated(self):
-        """REQ-006: get_architecture_element treats soft-deleted (outdated) elements as not found."""
+    def test_get_returns_outdated_element(self):
+        """#1381: a soft-deleted element is returned, not reported as 404."""
         svc = ArchitectureService()
         ctx = _make_ctx()
         mock_el = _make_arch_el()
@@ -594,10 +594,10 @@ class TestGetArchitectureElement:
                     )
                 ),
             ),
-            patch("workflow.services.outdated_item_ids", return_value=[mock_el.id]),
         ):
-            with pytest.raises(NotFoundError):
-                svc.get_architecture_element(ARCH_EL_ID, ctx)
+            result = svc.get_architecture_element(ARCH_EL_ID, ctx)
+
+        assert result is mock_el
 
     def test_list_returns_all_elements(self):
         """list_architecture_elements returns active elements, excludes deleted (REQ-006)."""
@@ -1110,6 +1110,23 @@ class TestInvariantI1CycleDetection:
         v = ArchitectureElementInvariantValidator.for_tier("minimal")
         el_id = uuid.uuid4()
         v.check_i1(element_id=el_id, parent_id=el_id)  # must not raise
+
+    @pytest.mark.parametrize("tier", ["minimal", "standard", "extended"])
+    def test_self_parent_rejected_on_every_tier(self, tier):
+        """#1660: the one-node cycle must not depend on the rigor tier.
+
+        ``check_i1`` is intentionally a no-op on ``minimal``; the tier-
+        independent guard lives in ``validate_parent_assignment``, which is the
+        entry point both the serializer and the service call.
+        """
+        el_id = uuid.uuid4()
+        v = ArchitectureElementInvariantValidator.for_tier(tier)
+        with pytest.raises(ValidationError, match="Self-parent"):
+            v.validate_parent_assignment(
+                parent_id=el_id,
+                element_id=el_id,
+                workspace_id=WS_ID,
+            )
 
 
 class TestInvariantI2LevelOrdering:

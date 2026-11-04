@@ -131,9 +131,11 @@ test.describe('[REQ-L2-ICD-001] ICD CRUD API', () => {
     const deleteResp = await request.delete(`${BACKEND_URL}/api/v1/icds/${icdId}/`, { headers });
     expect(deleteResp.status()).toBe(204);
 
-    // Step 7: Verify deletion
+    // Step 7: Verify soft-deletion (C4/#1381)
     const getDeletedResp = await request.get(`${BACKEND_URL}/api/v1/icds/${icdId}/`, { headers });
-    expect(getDeletedResp.status()).toBe(404);
+    expect(getDeletedResp.status()).toBe(200);
+    const deleted = await getDeletedResp.json();
+    expect(deleted.status).toBe('outdated');
 
     // Cleanup: remove only the architecture elements provisioned above (leaves
     // first, so a child is never orphaned) so repeated runs against a

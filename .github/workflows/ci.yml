@@ -355,6 +355,12 @@ jobs:
           scripts/test_check_plugin_packages.py
           scripts/test_offhost_backup_check.py
 
+      - name: Check version carriers
+        # C8/#1662: VERSION, the frontend app package and every plugin/store
+        # manifest must agree. This is the gate that would have caught the
+        # beta.25 tag shipping frontend/package.json at beta.22.
+        run: python scripts/check_plugin_packages.py
+
   # AUD-2026-09 (integrations stability, #1156): the Hermes agent plugin's
   # capture-queue suite (integrations/hermes-agent-plugin/tests) was fully
   # mocked but matched by NO CI job -- the backend-test matrix only

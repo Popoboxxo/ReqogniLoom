@@ -107,7 +107,17 @@ class Icd(TenantScopedModel):
     IF:      IF-L1-040 (output to PersistenceLayer)
     """
 
-    workspace_id = models.UUIDField(db_index=True)
+    # G1.4/#1403: a real FK so a workspace delete cascades its ICDs instead of
+    # leaving orphan rows behind (the backing Artifact is SET_NULL, so it
+    # cannot carry the cascade). ``db_column`` keeps the column name; the
+    # existing ``idx_icd_workspace`` index in Meta stays the query index.
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        on_delete=models.CASCADE,
+        db_column="workspace_id",
+        related_name="+",
+        db_index=False,
+    )
     # Datenmodell-Konsolidierung Phase 3 (spec §4): backing Artifact row so an
     # ICD is a valid TraceLink endpoint and a Document-scope baseline subject.
     # SET_NULL rather than CASCADE, matching Diagram.artifact: removing the
@@ -183,7 +193,7 @@ class Icd(TenantScopedModel):
     class Meta:
         db_table = "icd_icd"
         indexes = [
-            models.Index(fields=["workspace_id"], name="idx_icd_workspace"),
+            models.Index(fields=["workspace"], name="idx_icd_workspace"),
             models.Index(
                 fields=["source_element_id", "target_element_id"],
                 name="idx_icd_source_target",

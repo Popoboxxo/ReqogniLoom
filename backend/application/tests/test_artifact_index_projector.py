@@ -244,7 +244,7 @@ def test_new_event_types_emitted_by_icd_and_glossary() -> None:
                 IcdUpdateDTO(semantic_description="Exchanges artifact metadata."),
                 tenant.id,
             )
-            delete_icd(result.icd.id, tenant.id)
+            delete_icd(result.icd.id, tenant.id, ctx=ctx)
 
         emitted = set(DomainEventOutbox.objects.values_list("event_type", flat=True))
         assert {

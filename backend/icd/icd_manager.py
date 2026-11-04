@@ -41,7 +41,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from application.event_bus import publish_entity_event
 from application.models import DomainEventOutbox
@@ -312,6 +312,16 @@ class IcdPgVectorUnavailableError(RuntimeError):
     """
 
 
+class IcdConflictError(Exception):
+    """Raised when an ICD for the same source/target element pair exists.
+
+    The ICD's contract is anchored by a unique ``decomposes`` TraceLink between
+    the two architecture elements, so a second ICD for the same pair cannot be
+    linked. That is a caller-visible conflict (HTTP 409 / MCP ``CONFLICT``),
+    not a server fault (#1661).
+    """
+
+
 class IcdQdrantUnavailableError(IcdPgVectorUnavailableError):
     """Raised when the optional Qdrant vector backend is unavailable.
 
@@ -399,6 +409,32 @@ class IcdManager:
         with transaction.atomic():
             tenant = Tenant.objects.get(pk=payload.tenant_id)
 
+            # #1661: the contract is anchored by a unique (source, target,
+            # 'decomposes') TraceLink, so a second *active* ICD for the same
+            # pair could never be linked. Detect it up front for a deterministic
+            # 409 and keep the IntegrityError handler below for the concurrent
+            # race. A soft-deleted ICD must not block a replacement, so outdated
+            # rows are excluded.
+            from workflow.services import outdated_item_ids
+
+            duplicate = (
+                Icd.unscoped.filter(
+                    tenant_id=tenant.id,
+                    workspace_id=payload.workspace_id,
+                    source_element_id=payload.source_element_id,
+                    target_element_id=payload.target_element_id,
+                )
+                .exclude(
+                    id__in=outdated_item_ids("Icd", tenant_id=tenant.id)
+                )
+                .exists()
+            )
+            if duplicate:
+                raise IcdConflictError(
+                    "An ICD for this source/target element pair already exists "
+                    "in this workspace"
+                )
+
             icd = Icd(
                 id=uuid.uuid4(),
                 tenant=tenant,
@@ -447,12 +483,23 @@ class IcdManager:
             target_artifact = self._resolve_arch_artifact_id(
                 payload.target_element_id
             )
-            self._connector.link_to_architecture(
-                icd_id=icd.id,
-                source_element_id=source_artifact,
-                target_element_id=target_artifact,
-                created_by_id=payload.created_by_id,
-            )
+            try:
+                self._connector.link_to_architecture(
+                    icd_id=icd.id,
+                    source_element_id=source_artifact,
+                    target_element_id=target_artifact,
+                    created_by_id=payload.created_by_id,
+                )
+            except IntegrityError as exc:
+                # Concurrent create won the unique-edge race after the
+                # pre-check above. A duplicate is a client conflict, not a
+                # server fault (#1661).
+                if "uq_tracelink_edge" in str(exc):
+                    raise IcdConflictError(
+                        "An ICD for this source/target element pair already "
+                        "exists in this workspace"
+                    ) from exc
+                raise
 
             # Plan A, T-A2-4: index hook, in this write's transaction (SA-02).
             publish_entity_event(

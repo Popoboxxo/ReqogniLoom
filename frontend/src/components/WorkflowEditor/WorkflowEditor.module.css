@@ -667,15 +667,26 @@
   top: 0;
   left: 0;
   bottom: 0;
-  width: 4px;
+  /* C9/#1406: 24px hitbox (WCAG 2.2 SC 2.5.8); the 2px line is visual only. */
+  width: 24px;
   cursor: col-resize;
   background: transparent;
   z-index: 5;
+}
+
+.inspectorResize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
   transition: background var(--transition-fast);
 }
 
-.inspectorResize:hover,
-.inspectorResize:active {
+.inspectorResize:hover::after,
+.inspectorResize:active::after {
   background: var(--color-primary);
 }
 

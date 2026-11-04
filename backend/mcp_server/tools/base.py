@@ -65,6 +65,35 @@ def require_uuid(params: dict[str, Any], name: str) -> UUID:
         raise ParameterError(f"Parameter '{name}' is not a valid UUID: '{val}'")
 
 
+def parse_pagination(
+    params: dict[str, Any],
+    *,
+    default_limit: int = 50,
+    max_limit: int = 500,
+) -> tuple[int, int]:
+    """Return ``(limit, offset)`` for a ``*.query`` tool (C3 / #1668).
+
+    A ``*.query`` used to load the whole workspace; ``limit``/``offset`` bound
+    it. An over-large ``limit`` is capped (not rejected), matching the REST
+    paginator's documented behaviour; a non-integer or a negative offset is a
+    caller error.
+    """
+    raw_limit = params.get("limit", default_limit)
+    raw_offset = params.get("offset", 0)
+    try:
+        limit = int(raw_limit)
+        offset = int(raw_offset)
+    except (TypeError, ValueError):
+        raise ParameterError("'limit' and 'offset' must be integers.") from None
+    if limit < 1:
+        raise ParameterError("'limit' must be >= 1.")
+    if limit > max_limit:
+        limit = max_limit
+    if offset < 0:
+        raise ParameterError("'offset' must be >= 0.")
+    return limit, offset
+
+
 #: Canonical ``required`` head of every workspace-scoped ``*.query`` tool
 #: (issue #1615). ``requirement.query`` used to advertise ``workspace_id`` as
 #: optional while its siblings required it, so a client could not tell from
@@ -425,6 +454,62 @@ def write_mcp_audit(
 # ---------------------------------------------------------------------------
 
 
+def map_tool_exception(exc: Exception) -> tuple[str, str] | None:
+    """Map a known domain exception to ``(error_code, message)``.
+
+    Central mapping for every tool group (#1663, #1661, N2-N4): a domain
+    validation, not-found, permission, optimistic-lock or integrity failure is
+    a caller-actionable answer, not ``INTERNAL_ERROR``. Returning ``None``
+    keeps the transport's CWE-209 masking for anything genuinely unexpected.
+
+    The imports are deliberately lazy: this module is loaded at MCP start-up,
+    while ``application.base`` pulls in the event bus and Django settings.
+    """
+    from application.base import OptimisticLockError
+    from persistence.errors import (
+        NotFoundError,
+        PermissionDeniedError,
+        ValidationError,
+    )
+
+    if isinstance(exc, ValidationError):
+        return "VALIDATION_ERROR", str(exc)
+    if isinstance(exc, NotFoundError):
+        return "NOT_FOUND", str(exc)
+    if isinstance(exc, PermissionDeniedError):
+        return "PERMISSION_DENIED", str(exc)
+    if isinstance(exc, OptimisticLockError):
+        return "CONFLICT", f"Version conflict: {exc}"
+
+    try:
+        from django.db import IntegrityError
+    except Exception:  # pragma: no cover - Django is always available in-app
+        IntegrityError = ()  # type: ignore[assignment,misc]
+    if IntegrityError and isinstance(exc, IntegrityError):
+        # Never surface the driver message (constraint/table names, SQL).
+        return (
+            "CONFLICT",
+            "The request conflicts with existing data; nothing was changed.",
+        )
+
+    try:
+        from workflow.lifecycle_manager import (
+            WorkflowConflictError,
+            WorkflowStateError,
+        )
+        from workflow.services import WorkflowItemNotFoundError
+    except Exception:  # pragma: no cover - workflow is always installed
+        return None
+
+    if isinstance(exc, WorkflowConflictError):
+        return "CONFLICT", str(exc)
+    if isinstance(exc, WorkflowItemNotFoundError):
+        return "NOT_FOUND", str(exc)
+    if isinstance(exc, WorkflowStateError):
+        return "INVALID_STATE", str(exc)
+    return None
+
+
 class BaseToolGroup(ABC):
     """Common base for all MCP tool groups.
 
@@ -510,6 +595,13 @@ class BaseToolGroup(ABC):
         except ParameterError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         except Exception as exc:
+            mapped = map_tool_exception(exc)
+            if mapped is not None:
+                code, message = mapped
+                logger.debug(
+                    "Tool %s returned %s: %s", tool_name, code, message
+                )
+                return ToolResult.error(code, message)
             # fix #108: str(exc) on an unmapped exception (IntegrityError,
             # ProgrammingError, KeyError, ...) can contain SQL fragments,
             # table/column names, or constraint names. Log the real detail,
@@ -524,7 +616,9 @@ __all__ = [
     "ParameterError",
     "artifact_custom_fields",
     "mcp_audit_handoff",
+    "map_tool_exception",
     "optional_uuid",
+    "parse_pagination",
     "reject_unknown_params",
     "require_admin_tier",
     "require_param",

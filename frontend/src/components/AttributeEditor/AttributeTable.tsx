@@ -84,11 +84,15 @@ export function AttributeTable({
 
   return (
     <table className={styles.table} data-testid="attribute-table">
+      <caption className="visually-hidden">
+        {t("common.tableCaption")}
+      </caption>
       <thead>
         <tr>
           {COLUMNS.map((column) => (
             <th
               key={column}
+              scope="col"
               data-testid={`attribute-table-sort-${column}`}
               onClick={() => handleSort(column)}
             >

@@ -170,6 +170,19 @@ describe("SplitView — concept contract", () => {
     expect(computed.scrollbarGutter).toBe("stable");
   });
 
+  it("C9/#1406: the divider hitbox is at least 24px", () => {
+    render(
+      <SplitView
+        leftPanel={<div>Left</div>}
+        rightPanel={<div>Right</div>}
+        responsiveMode={false}
+      />
+    );
+
+    const divider = screen.getByTestId("splitview-divider");
+    expect(divider.style.flex).toBe("0 0 24px");
+  });
+
   it("#1252: the detail panel keeps both-axis scrolling and can shrink (min-width: 0)", () => {
     render(
       <SplitView

@@ -254,14 +254,26 @@ class ArtifactService(ServiceBase):
         Returns a list of UUIDs forming the cycle path if found, else None.
         O(depth) — acceptable for < 10-level hierarchies per ADR-L3-AS001-01.
         """
-        visited: list[UUID] = []
+        path: list[UUID] = []
+        # #1660: a visited-set is what makes the walk terminate on a
+        # *pre-existing* cycle (e.g. a self-parent written before the guard
+        # existed). The old list only detected a cycle that closed on
+        # ``child_id``; any other loop walked forever.
+        visited: set[UUID] = set()
         current_id: UUID | None = new_parent_id
 
         while current_id is not None:
             if current_id == child_id:
-                visited.append(current_id)
-                return visited
-            visited.append(current_id)
+                path.append(current_id)
+                return path
+            if current_id in visited:
+                logger.debug(
+                    "Cycle detection aborted at pre-existing cycle node %s",
+                    current_id,
+                )
+                return None
+            visited.add(current_id)
+            path.append(current_id)
             try:
                 artifact = Artifact.unscoped.filter(id=current_id).values("parent_id").first()
             except Exception:

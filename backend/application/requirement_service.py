@@ -81,6 +81,11 @@ logger = logging.getLogger(__name__)
 # Sentinel to distinguish "not provided" from "set to None" in update calls.
 _UNSET = object()
 
+#: C6/#1401: the write path must not inherit the provider's full 30 s timeout.
+#: A cold/slow embedding call is capped here; the row simply stays without an
+#: embedding and ``backfill_embeddings`` (or the next text change) catches up.
+_EMBEDDING_WRITE_TIMEOUT_SECONDS = 3.0
+
 # #45 (IEEE 29148 §5.2.4): "and"/"or" conjunctions in a requirement title
 # usually indicate it bundles more than one testable statement. Word-boundary
 # match so this doesn't false-positive on substrings ("Android", "Norway").
@@ -1162,6 +1167,8 @@ class RequirementService(ServiceBase):
         include_deleted: bool = False,
         status: str | None = None,
         search: str | None = None,
+        allocated: bool | None = None,
+        level: int | None = None,
     ) -> QuerySet[Requirement]:
         """Return Requirements in *workspace_id*.
 
@@ -1243,6 +1250,21 @@ class RequirementService(ServiceBase):
                 | Q(description__icontains=search)
                 | Q(uid__icontains=search)
             )
+        if level is not None:
+            qs = qs.filter(level=level)
+        if allocated is not None:
+            # #1668: an 'allocated-to' TraceLink runs Requirement -> Element,
+            # so its ``source_id`` is the Requirement's backing Artifact id.
+            from persistence.models import TraceLink
+
+            allocated_artifact_ids = TraceLink.unscoped.filter(
+                tenant_id=ctx.tenant_id,
+                link_type="allocated-to",
+            ).values_list("source_id", flat=True)
+            if allocated:
+                qs = qs.filter(artifact_id__in=allocated_artifact_ids)
+            else:
+                qs = qs.exclude(artifact_id__in=allocated_artifact_ids)
         # Deterministic order for pagination (#1390): Requirement declares no
         # Meta.ordering, so an unordered queryset let LIMIT/OFFSET pages
         # overlap or skip rows (DRF's UnorderedObjectListWarning). Oldest
@@ -1289,6 +1311,11 @@ class RequirementService(ServiceBase):
         ``warn_dimension_mismatch``.
         """
         try:
+            from concurrent.futures import (
+                ThreadPoolExecutor,
+                TimeoutError as FuturesTimeout,
+            )
+
             from llm_adapter.embedding_service import (
                 generate_embedding_with_model,
                 get_embedding_text,
@@ -1298,9 +1325,31 @@ class RequirementService(ServiceBase):
             # T-A0-6: one call yields the vector AND the id of the model that
             # produced it, so the two columns cannot drift apart. The id is only
             # persisted together with the vector (never on a skipped write).
-            embedding, model_id = generate_embedding_with_model(
-                get_embedding_text(requirement)
-            )
+            #
+            # #1401: run it behind a short wall-clock budget. The provider
+            # itself has a 30 s timeout, which is far longer than the UI's save
+            # budget; a cold provider used to block the first POST for ~9 s.
+            pool = ThreadPoolExecutor(max_workers=1)
+            try:
+                future = pool.submit(
+                    generate_embedding_with_model,
+                    get_embedding_text(requirement),
+                )
+                try:
+                    embedding, model_id = future.result(
+                        timeout=_EMBEDDING_WRITE_TIMEOUT_SECONDS
+                    )
+                except FuturesTimeout:
+                    logger.warning(
+                        "RequirementService: embedding generation for req=%s "
+                        "exceeded %.1fs; leaving it pending for backfill.",
+                        requirement.id,
+                        _EMBEDDING_WRITE_TIMEOUT_SECONDS,
+                    )
+                    return None
+            finally:
+                # Never wait for a slow provider thread on the request path.
+                pool.shutdown(wait=False)
             field_dimensions = Requirement._meta.get_field("embedding").dimensions
             if embedding is not None and len(embedding) == field_dimensions:
                 Requirement.objects.filter(id=requirement.id).update(

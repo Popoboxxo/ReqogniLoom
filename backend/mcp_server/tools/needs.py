@@ -454,18 +454,14 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
 
         from workflow.services import outdate
 
-        try:
-            outdate(
-                item_id=need_id,
-                item_type="StakeholderNeed",
-                workspace_id=need.workspace_id,
-                ctx=auth_context,
-                reason=reason,
-            )
-        except Exception:
-            # #697 (CWE-209): mask the unmapped cause, log it server-side.
-            logger.exception("needs.outdate failed")
-            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+        # Domain errors are mapped centrally by BaseToolGroup.execute_tool.
+        outdate(
+            item_id=need_id,
+            item_type="StakeholderNeed",
+            workspace_id=need.workspace_id,
+            ctx=auth_context,
+            reason=reason,
+        )
 
         write_mcp_audit(
             ctx=auth_context,
@@ -505,10 +501,6 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
             )
         except ValueError as exc:
             return ToolResult.error("INVALID_STATE", str(exc))
-        except Exception:
-            # #697 (CWE-209): mask the unmapped cause, log it server-side.
-            logger.exception("needs.reactivate failed")
-            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         write_mcp_audit(
             ctx=auth_context,

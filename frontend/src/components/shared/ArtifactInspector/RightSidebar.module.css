@@ -107,15 +107,27 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: 4px;
+  /* C9/#1406: 24px hitbox (WCAG 2.2 SC 2.5.8); the visible 2px line is the
+   * pseudo-element so the larger target does not look like a thick bar. */
+  width: 24px;
   cursor: col-resize;
   background: transparent;
   z-index: 5;
+}
+
+.resizeHandle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
   transition: background var(--transition-fast);
 }
 
-.resizeHandle:hover,
-.resizeHandle:active {
+.resizeHandle:hover::after,
+.resizeHandle:active::after {
   background: var(--color-primary);
 }
 

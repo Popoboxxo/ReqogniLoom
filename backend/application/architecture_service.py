@@ -292,6 +292,18 @@ class ArchitectureService(ServiceBase):
             arch_el.artifact.custom_fields = _clean_custom_fields(custom_fields)
             arch_el.artifact.save(update_fields=["custom_fields", "modified_at"])
 
+        # #1660: defence in depth — the invariant validator below rejects a
+        # self-parent on every tier, but the service must not rely on a single
+        # call site for an invariant whose violation corrupts the tree.
+        if (
+            parent_id is not _UNSET
+            and parent_id is not None
+            and str(parent_id) == str(arch_el_id)
+        ):
+            raise ValidationError(
+                f"ArchitectureElement {arch_el_id} cannot be its own parent"
+            )
+
         # REQ-L1-044 + SysEng 2.0 §1.2 (I5): invariant checks before re-parenting.
         # Runs for any explicit parent_id change, including detaching to root
         # (parent_id=None) so I5 rejects creating a second root. The element
@@ -424,14 +436,15 @@ class ArchitectureService(ServiceBase):
     ) -> ArchitectureElement:
         """Fetch a single ArchitectureElement.
 
-        REQ-006: soft-deleted elements are treated as not found by default,
-        matching ``list_architecture_elements()``. Soft-delete is the
-        Datenmodell-Konsolidierung Phase-4 model: ``outdate()`` sets
-        ``Artifact.lifecycle_status = "outdated"`` (Decision D-3, the single
-        soft-delete flag) and ``workflow.services.outdated_item_ids()`` is how
-        this query asks whether an element is outdated — no per-type status
-        column is involved. Pass ``include_deleted=True`` for flows that
-        legitimately need to see an outdated item (e.g. ``architecture.reactivate``).
+        #1381: detail reads follow the system-wide soft-delete contract —
+        ``DELETE`` 204, then ``GET`` 200 with ``status="outdated"`` — matching
+        every other artifact type. ``list_architecture_elements()`` still hides
+        outdated elements by default; only the detail read is reachable so a
+        client can tell "gone" (404) from "soft-deleted" and restore it.
+
+        ``include_deleted`` is kept for callers that ask for the row regardless
+        of its lifecycle state; it no longer turns a soft-deleted element into a
+        404. The serializer/status projection reports ``"outdated"``.
         """
         self._set_tenant_context(ctx)
         arch_el = ArchitectureElement.objects.select_related("artifact").filter(
@@ -439,10 +452,6 @@ class ArchitectureService(ServiceBase):
         ).first()
         if arch_el is None:
             raise NotFoundError(f"ArchitectureElement {arch_el_id} not found")
-        if not include_deleted:
-            from workflow.services import outdated_item_ids
-            if arch_el.id in outdated_item_ids("ArchitectureElement"):
-                raise NotFoundError(f"ArchitectureElement {arch_el_id} not found")
         return arch_el
 
     def list_architecture_elements(

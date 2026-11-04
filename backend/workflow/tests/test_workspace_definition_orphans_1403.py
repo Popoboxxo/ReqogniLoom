@@ -393,12 +393,35 @@ def test_orphan_archive_tables_have_forced_rls():
 
 
 @pytest.mark.django_db
-def test_outbox_orphans_are_never_deleted():
-    """ENT-G3 = A: no FK on the outbox — O-2 keeps orphan events."""
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT count(*) FROM pg_constraint "
-            "WHERE conrelid = 'as_domain_event_outbox'::regclass AND contype = 'f' "
-            "AND confrelid = 'pl_workspace'::regclass"
-        )
-        assert cursor.fetchone()[0] == 0
+def test_outbox_rows_cascade_with_their_workspace():
+    """C5/#1403: deleting a workspace removes its outbox rows.
+
+    The earlier ENT-G3 = A decision kept orphan events by design; the bugfix
+    batch replaced it with a real ``on_delete=CASCADE`` FK. Django implements
+    that cascade in the ORM collector, so the behaviour is asserted rather than
+    the raw ``confdeltype`` (which stays ``NO ACTION`` at the DB level).
+    """
+    import uuid
+
+    from application.models import DomainEventOutbox
+    from persistence.models import Tenant, Workspace
+
+    tenant = Tenant.objects.create(
+        name=f"outbox-cascade-{uuid.uuid4().hex}",
+        slug=f"outbox-cascade-{uuid.uuid4().hex}",
+    )
+    workspace = Workspace.unscoped.create(
+        tenant=tenant, name=f"outbox-cascade-{uuid.uuid4().hex}"
+    )
+    row = DomainEventOutbox.objects.create(
+        event_id=uuid.uuid4(),
+        event_type=DomainEventOutbox.EventType.REQUIREMENT_CREATED,
+        workspace_id=workspace.id,
+        tenant_id=tenant.id,
+        entity_id=uuid.uuid4(),
+        payload={},
+    )
+
+    Workspace.unscoped.filter(pk=workspace.id).delete()
+
+    assert not DomainEventOutbox.objects.filter(pk=row.pk).exists()

@@ -33,6 +33,8 @@ import logging
 import os
 from typing import Any
 
+from django.db.models import QuerySet
+
 from application.services import (
     LlmNotConfiguredError,
     NotFoundError,
@@ -48,6 +50,7 @@ from mcp_server.tools.base import (
     artifact_custom_fields,
     mcp_audit_handoff,
     optional_uuid,
+    parse_pagination,
     reject_unknown_params,
     require_param,
     require_uuid,
@@ -198,6 +201,30 @@ class RequirementsToolGroup(BaseToolGroup):
                     "include_outdated": {
                         "type": "boolean",
                         "description": "If true, include outdated (soft-deleted) requirements. Defaults to false.",
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "Only rows in this workflow state (or 'outdated').",
+                    },
+                    "search": {
+                        "type": "string",
+                        "description": "Case-insensitive match on title, description or uid.",
+                    },
+                    "allocated": {
+                        "type": "boolean",
+                        "description": "true = only allocated requirements, false = only unallocated.",
+                    },
+                    "level": {
+                        "type": "integer",
+                        "description": "Only rows with this V-model level (1..4).",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Page size (default 50, max 500).",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Rows to skip (default 0).",
                     },
                 },
                 # Issue #1615: the handler already refuses a call without a
@@ -592,12 +619,23 @@ class RequirementsToolGroup(BaseToolGroup):
                 "Parameter 'workspace_id' is required for requirement.query.",
             )
         include_outdated = bool(params.get("include_outdated", False))
+        status = params.get("status") or None
+        search = params.get("search") or None
+        allocated = params.get("allocated")
+        level = params.get("level")
+        limit, offset = parse_pagination(params)
         try:
-            reqs = list(
-                self._service.list_requirements(
-                    workspace_id, auth_context, include_deleted=include_outdated
-                )
+            qs = self._service.list_requirements(
+                workspace_id,
+                auth_context,
+                include_deleted=include_outdated,
+                status=status,
+                search=search,
+                allocated=allocated,
+                level=level,
             )
+            total = qs.count() if isinstance(qs, QuerySet) else len(qs)
+            reqs = list(qs[offset : offset + limit])
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         # Batch-resolve status for the whole page in one query instead of one
@@ -607,6 +645,9 @@ class RequirementsToolGroup(BaseToolGroup):
         return ToolResult.ok({
             "requirements": [_requirement_to_dict(r, status_map) for r in reqs],
             "count": len(reqs),
+            "total_count": total,
+            "limit": limit,
+            "offset": offset,
         })
 
     # ------------------------------------------------------------------

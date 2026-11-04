@@ -362,12 +362,15 @@ export function MemoryVisualizationSection(): JSX.Element {
           {!entriesLoading && entries.length > 0 && (
             <>
               <table className={styles.table} data-testid="memory-viz-list-table">
+                <caption className="visually-hidden">
+                  {t("common.tableCaption")}
+                </caption>
                 <thead>
                   <tr>
-                    <th>{t("systemSettings.memory.viz.colContent")}</th>
-                    <th>{t("systemSettings.memory.viz.colTimestamp")}</th>
-                    <th>{t("systemSettings.memory.viz.colConfidence")}</th>
-                    <th>{t("systemSettings.memory.viz.colOwner")}</th>
+                    <th scope="col">{t("systemSettings.memory.viz.colContent")}</th>
+                    <th scope="col">{t("systemSettings.memory.viz.colTimestamp")}</th>
+                    <th scope="col">{t("systemSettings.memory.viz.colConfidence")}</th>
+                    <th scope="col">{t("systemSettings.memory.viz.colOwner")}</th>
                   </tr>
                 </thead>
                 <tbody>

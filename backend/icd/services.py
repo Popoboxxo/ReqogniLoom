@@ -38,6 +38,7 @@ from application.models import DomainEventOutbox
 from auth_tenancy.context import AuthContext
 from icd.contract_validator import ValidationResult
 from icd.icd_manager import (
+    IcdConflictError,
     IcdCreateDTO,
     IcdPgVectorUnavailableError,
     IcdResult,
@@ -79,7 +80,12 @@ def get_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> Icd:
     return Icd.objects.select_related("artifact").get(id=icd_id, tenant_id=tenant_id)
 
 
-def list_icds(workspace_id: uuid.UUID, tenant_id: uuid.UUID) -> list[Icd]:
+def list_icds(
+    workspace_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    *,
+    include_deleted: bool = False,
+) -> list[Icd]:
     """Return all ICDs for a workspace, tenant-scoped (ADR-01 facade).
 
     Encapsulates the tenant-scoped ORM lookup so REST views stay ORM-free
@@ -88,6 +94,7 @@ def list_icds(workspace_id: uuid.UUID, tenant_id: uuid.UUID) -> list[Icd]:
     Args:
         workspace_id: UUID of the owning workspace.
         tenant_id:    Active tenant primary key (isolation boundary).
+        include_deleted: Include soft-deleted ICDs (default False, #1381).
 
     Returns:
         List of Icd ORM objects, newest first.
@@ -95,31 +102,37 @@ def list_icds(workspace_id: uuid.UUID, tenant_id: uuid.UUID) -> list[Icd]:
     req_id: REQ-066, REQ-L2-ICD-001
     leaf_id: COMP-ICD-001
     """
-    return list(
-        Icd.objects.select_related("artifact")
-        .filter(workspace_id=workspace_id, tenant_id=tenant_id)
-        .order_by("-created_at")
+    qs = Icd.objects.select_related("artifact").filter(
+        workspace_id=workspace_id, tenant_id=tenant_id
     )
+    if not include_deleted:
+        from workflow.services import outdated_item_ids
+
+        qs = qs.exclude(id__in=outdated_item_ids("Icd", tenant_id=tenant_id))
+    return list(qs.order_by("-created_at"))
 
 
-def delete_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
-    """Delete a tenant-scoped ICD and its structured parameters (REQ-066).
+def delete_icd(
+    icd_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    *,
+    ctx: AuthContext,
+    change_reason: str = "",
+) -> None:
+    """Soft-delete a tenant-scoped ICD (REQ-066, #1381).
 
-    Datenmodell-Konsolidierung Task 28c-2 removed the ``IcdVersion`` table and
-    with it the ownership problem this function used to work around: the
-    immutability trigger on ``icd_version`` had to be bypassed through the
-    transaction-local ``app.allow_icd_version_delete`` GUC, because
-    ``ALTER TABLE ... DISABLE TRIGGER`` needs table ownership the runtime role
-    does not have (REQ-L2-PL-010). No trigger guards ``icd_icd`` or
-    ``icd_parameter``, so the delete is now a plain cascading ORM delete.
-
-    The ICD's contract history in ``persistence.ArtifactVersion`` hangs off the
-    backing Artifact and is deliberately not touched here — same as for every
-    other artifact type.
+    Datenmodell-Konsolidierung Phase 4 (Decision D-3): the ICD is no longer
+    hard-deleted. It routes through ``workflow.services.outdate()`` like every
+    other artifact type, so the row, its parameters and its contract history
+    stay available and ``reactivate_icd`` can restore it. The ``ICD_DELETED``
+    index event still fires — for the artifact indexer a soft-delete is a
+    delete.
 
     Args:
         icd_id:    UUID of the Icd to delete.
         tenant_id: Active tenant primary key (isolation boundary).
+        ctx:       AuthContext (the actor recorded by ``outdate``).
+        change_reason: Optional audit reason.
 
     Raises:
         Icd.DoesNotExist: When no ICD with the given id exists for the tenant.
@@ -130,17 +143,59 @@ def delete_icd(icd_id: uuid.UUID, tenant_id: uuid.UUID) -> None:
     from django.db import transaction
 
     with transaction.atomic():
-        # IcdParameter.icd is on_delete=CASCADE, so parameters go with it.
         icd = Icd.objects.get(id=icd_id, tenant_id=tenant_id)
         workspace_id = icd.workspace_id
-        icd.delete()
-        # Plan A, T-A2-4: index hook. This is a HARD delete, so the event must
-        # carry the workspace the (now gone) row used to live in.
+        from workflow.definition_store import WorkflowDefinitionError
+        from workflow.services import outdate
+
+        try:
+            outdate(
+                item_id=icd.id,
+                item_type="Icd",
+                workspace_id=workspace_id,
+                ctx=ctx,
+                reason=change_reason,
+            )
+        except WorkflowDefinitionError:
+            # A workspace provisioned before the Icd workflow existed has no
+            # definition for ``outdate``'s lazy state init. The D-3 flag on the
+            # backing Artifact is the only state the read projection needs, so
+            # write it directly instead of failing the delete.
+            if icd.artifact_id is not None:
+                icd.artifact.lifecycle_status = "outdated"
+                icd.artifact.save(
+                    update_fields=["lifecycle_status", "modified_at"]
+                )
+        # Plan A, T-A2-4: index hook. Soft-delete is still a delete for the
+        # indexer, so the event must carry the workspace the row lives in.
         publish_entity_event(
             DomainEventOutbox.EventType.ICD_DELETED,
-            entity_id=icd_id,
+            entity_id=icd.id,
             workspace_id=workspace_id,
         )
+
+
+def reactivate_icd(
+    icd_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    *,
+    ctx: AuthContext,
+) -> Icd:
+    """Restore a soft-deleted ICD (REQ-066, #1381).
+
+    Raises:
+        Icd.DoesNotExist: When no ICD with the given id exists for the tenant.
+    """
+    from workflow.services import reactivate
+
+    icd = Icd.objects.get(id=icd_id, tenant_id=tenant_id)
+    reactivate(
+        item_id=icd.id,
+        item_type="Icd",
+        workspace_id=icd.workspace_id,
+        ctx=ctx,
+    )
+    return icd
 
 
 def create_icd(payload: IcdCreateDTO) -> IcdResult:
@@ -435,6 +490,7 @@ __all__ = [
     "create_icd",
     "get_icd",
     "delete_icd",
+    "reactivate_icd",
     "update_icd",
     "validate_compatibility",
     "get_icd_history",
@@ -451,6 +507,7 @@ __all__ = [
     "IcdResult",
     "SimilarIcdDTO",
     "IcdPgVectorUnavailableError",
+    "IcdConflictError",
     "ValidationResult",
     "IcdParameterCreateDTO",
     "IcdParameterUpdateDTO",

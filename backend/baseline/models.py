@@ -229,7 +229,9 @@ class BaselineGateWaiver(TenantScopedModel):
 
     #: Baseline scope the finding was reported in ("document"|"project"|...).
     scope = models.CharField(max_length=32, blank=True, default="")
-    scope_artifact_id = models.CharField(max_length=64, blank=True, default="")
+    scope_artifact_id = models.CharField(
+        max_length=64, null=True, blank=True, default=None
+    )
 
     #: Mandatory justification — a waiver without a stated reason is not a
     #: governance record. Enforced here (non-blank) AND by the DB constraint
@@ -262,6 +264,16 @@ class BaselineGateWaiver(TenantScopedModel):
             models.CheckConstraint(
                 condition=~models.Q(reason=""),
                 name="ck_baseline_waiver_reason_not_blank",
+            ),
+            # C5 / #1412: "" and NULL both meant "not bound to a document" and
+            # were counted as two different states. Normalise to NULL and
+            # forbid the empty string at the DB level.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(scope_artifact_id__isnull=True)
+                    | ~models.Q(scope_artifact_id="")
+                ),
+                name="ck_baseline_waiver_scope_artifact_not_empty",
             ),
         ]
         indexes = [

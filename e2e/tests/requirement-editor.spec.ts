@@ -296,11 +296,10 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     const divider = page.locator('[data-testid="splitview-divider"]');
 
     // Verify divider styling
-    // REQ-007: divider hitbox widened to 12px (2px visual center line via
-    // gradient), up from the earlier 4px.
+    // C9/#1406: 24px hitbox (WCAG 2.2 SC 2.5.8), 2px visual center line.
     const width = await divider.evaluate((el) => window.getComputedStyle(el).width);
     const cursor = await divider.evaluate((el) => window.getComputedStyle(el).cursor);
-    expect(width).toBe('12px');
+    expect(width).toBe('24px');
     expect(cursor).toBe('col-resize');
 
     // Verify hover effect changes background

@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Check, TriangleAlert, X } from "lucide-react";
 import {
   permissionDefaultsApi,
@@ -48,6 +49,7 @@ function DecisionMark({ value }: { value: boolean }): JSX.Element {
 }
 
 export function MismatchReviewTable(): JSX.Element {
+  const { t } = useTranslation();
   const [items, setItems] = useState<PermissionDecisionMismatch[]>([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
@@ -167,15 +169,18 @@ export function MismatchReviewTable(): JSX.Element {
             data-testid="mismatch-table"
             className={styles.table}
           >
+            <caption className="visually-hidden">
+              {t("common.tableCaption")}
+            </caption>
             <thead>
               <tr>
-                <th className={styles.th}>Time</th>
-                <th className={styles.th}>Subject</th>
-                <th className={styles.th}>Capability</th>
-                <th className={styles.th}>Workspace</th>
-                <th className={styles.th}>Artifact</th>
-                <th className={styles.th}>Legacy</th>
-                <th className={styles.th}>New</th>
+                <th scope="col" className={styles.th}>Time</th>
+                <th scope="col" className={styles.th}>Subject</th>
+                <th scope="col" className={styles.th}>Capability</th>
+                <th scope="col" className={styles.th}>Workspace</th>
+                <th scope="col" className={styles.th}>Artifact</th>
+                <th scope="col" className={styles.th}>Legacy</th>
+                <th scope="col" className={styles.th}>New</th>
               </tr>
             </thead>
             <tbody>

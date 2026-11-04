@@ -130,19 +130,28 @@ class GlossaryService(ServiceBase):
         return dto
 
     def list_by_workspace(
-        self, ctx: AuthContext, workspace_id: UUID, include_deleted: bool = False
+        self,
+        ctx: AuthContext,
+        workspace_id: UUID,
+        include_deleted: bool = False,
+        status: str | None = None,
+        search: str | None = None,
     ) -> list[GlossaryTermDTO]:
         """Return GlossaryTerms for *workspace_id*.
 
         REQ-006: Excludes soft-deleted terms (``status`` == "outdated") by
         default. Pass ``include_deleted=True`` for admin/audit access.
+
+        C3 / #1668: ``status`` filters by the workflow state (``"outdated"``
+        routes to the soft-delete flag) and ``search`` matches term, definition
+        or abbreviation case-insensitively.
         """
         qs = GlossaryTerm.objects.select_related(
             "artifact", "artifact__owner", "artifact__reporter"
         ).filter(
             Q(workspace_id=workspace_id) | Q(workspace__isnull=True)
         )
-        if not include_deleted:
+        if not include_deleted and status != "outdated":
             # Phase 0: delete() routes soft-delete through
             # workflow.services.outdate(). GlossaryTerm is NOT wired into
             # _STATUS_MIRROR_MODELS (no mirrored status column), so the
@@ -151,6 +160,20 @@ class GlossaryService(ServiceBase):
             from workflow.services import outdated_item_ids
 
             qs = qs.exclude(id__in=outdated_item_ids("GlossaryTerm"))
+        if status:
+            from workflow.services import item_ids_with_status
+
+            qs = qs.filter(
+                id__in=item_ids_with_status(
+                    "GlossaryTerm", status, tenant_id=ctx.tenant_id
+                )
+            )
+        if search:
+            qs = qs.filter(
+                Q(term__icontains=search)
+                | Q(definition__icontains=search)
+                | Q(abbreviation__icontains=search)
+            )
         return [GlossaryTermDTO.from_orm(t) for t in qs.order_by("term")]
 
     @atomic_transaction
