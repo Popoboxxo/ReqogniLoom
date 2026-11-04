@@ -274,7 +274,8 @@
   "common": {
     "close": "Close",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "tableCaption": "Data table"
   },
   "actions": {
     "add": "Add",

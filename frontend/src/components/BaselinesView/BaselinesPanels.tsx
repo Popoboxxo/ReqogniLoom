@@ -429,11 +429,14 @@ export const DiffItemRow = memo(function DiffItemRow({
           data-testid="diff-field-table"
           className={styles.diffTable}
         >
+          <caption className="visually-hidden">
+            {t("common.tableCaption")}
+          </caption>
           <thead>
             <tr>
-              <th className={styles.diffTh}>{t("baselines.field")}</th>
-              <th className={styles.diffTh}>{t("baselines.before")}</th>
-              <th className={styles.diffTh}>{t("baselines.after")}</th>
+              <th scope="col" className={styles.diffTh}>{t("baselines.field")}</th>
+              <th scope="col" className={styles.diffTh}>{t("baselines.before")}</th>
+              <th scope="col" className={styles.diffTh}>{t("baselines.after")}</th>
             </tr>
           </thead>
           <tbody>

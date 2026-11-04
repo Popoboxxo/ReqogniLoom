@@ -382,10 +382,13 @@ export function PermissionsSection({
           </p>
         ) : (
           <table data-testid="workspace-members-table" className={styles.table}>
+            <caption className="visually-hidden">
+              {t("common.tableCaption")}
+            </caption>
             <thead>
               <tr>
-                <th className={styles.th}>{t("permissions.members.member", "Member")}</th>
-                <th className={styles.th}>{t("permissions.members.roles", "Roles")}</th>
+                <th scope="col" className={styles.th}>{t("permissions.members.member", "Member")}</th>
+                <th scope="col" className={styles.th}>{t("permissions.members.roles", "Roles")}</th>
               </tr>
             </thead>
             <tbody>
@@ -564,12 +567,15 @@ export function PermissionsSection({
 
       {permissions.length > 0 && (
         <table data-testid="permissions-table" className={styles.table}>
+          <caption className="visually-hidden">
+            {t("common.tableCaption")}
+          </caption>
           <thead>
             <tr>
-              <th className={styles.th}>{t("permissions.user", "User")}</th>
-              <th className={styles.th}>{t("permissions.artifact", "Artifact")}</th>
-              <th className={styles.th}>{t("permissions.level", "Level")}</th>
-              <th className={styles.th} />
+              <th scope="col" className={styles.th}>{t("permissions.user", "User")}</th>
+              <th scope="col" className={styles.th}>{t("permissions.artifact", "Artifact")}</th>
+              <th scope="col" className={styles.th}>{t("permissions.level", "Level")}</th>
+              <th scope="col" className={styles.th} />
             </tr>
           </thead>
           <tbody>

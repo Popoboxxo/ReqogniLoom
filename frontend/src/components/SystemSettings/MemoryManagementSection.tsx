@@ -97,17 +97,20 @@ export function MemoryManagementSection(): JSX.Element {
 
       {rows.length > 0 && (
         <table className={styles.table} data-testid="memory-management-table">
+          <caption className="visually-hidden">
+            {t("common.tableCaption")}
+          </caption>
           <thead>
             <tr>
-              <th>{t("systemSettings.memory.colWorkspace")}</th>
-              <th>{t("systemSettings.memory.colEnabled")}</th>
-              <th>{t("systemSettings.memory.colWorkspaceEntries")}</th>
-              <th>{t("systemSettings.memory.colUserEntries")}</th>
-              <th>{t("systemSettings.memory.colArtifactEntries")}</th>
-              <th>{t("systemSettings.memory.colContributors")}</th>
-              <th>{t("systemSettings.memory.colStatus")}</th>
-              <th>{t("systemSettings.memory.colLastConsolidated")}</th>
-              <th />
+              <th scope="col">{t("systemSettings.memory.colWorkspace")}</th>
+              <th scope="col">{t("systemSettings.memory.colEnabled")}</th>
+              <th scope="col">{t("systemSettings.memory.colWorkspaceEntries")}</th>
+              <th scope="col">{t("systemSettings.memory.colUserEntries")}</th>
+              <th scope="col">{t("systemSettings.memory.colArtifactEntries")}</th>
+              <th scope="col">{t("systemSettings.memory.colContributors")}</th>
+              <th scope="col">{t("systemSettings.memory.colStatus")}</th>
+              <th scope="col">{t("systemSettings.memory.colLastConsolidated")}</th>
+              <th scope="col" />
             </tr>
           </thead>
           <tbody>

@@ -240,10 +240,10 @@ const DESKTOP_ROOT_STYLE: React.CSSProperties = {
   color: 'var(--color-text)',
 };
 
-/** Desktop divider: 12px hitbox, 2px visual center line via gradient. */
+/** Desktop divider: 24px hitbox (WCAG 2.2 SC 2.5.8), 2px visual center line via gradient. */
 const DIVIDER_BASE_STYLE: React.CSSProperties = {
-  flex: '0 0 12px',
-  background: 'linear-gradient(90deg, transparent 5px, var(--color-border) 5px, var(--color-border) 7px, transparent 7px)',
+  flex: '0 0 24px',
+  background: 'linear-gradient(90deg, transparent 11px, var(--color-border) 11px, var(--color-border) 13px, transparent 13px)',
   cursor: 'col-resize',
   userSelect: 'none',
 };

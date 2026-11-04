@@ -108,24 +108,27 @@ export function PromptVariableTable({
   return (
     <div style={wrapperStyle} data-testid={`prompt-vars-${slotName}`}>
       <table style={tableStyle}>
+        <caption className="visually-hidden">
+          {t("common.tableCaption")}
+        </caption>
         <thead>
           <tr>
-            <th style={headCellStyle}>
+            <th scope="col" style={headCellStyle}>
               {t("settings.promptVariables.columnName", "Variable")}
             </th>
-            <th style={headCellStyle}>
+            <th scope="col" style={headCellStyle}>
               {t("settings.promptVariables.columnKind", "Art")}
             </th>
-            <th style={headCellStyle}>
+            <th scope="col" style={headCellStyle}>
               {t("settings.promptVariables.columnType", "Typ")}
             </th>
-            <th style={headCellStyle}>
+            <th scope="col" style={headCellStyle}>
               {t("settings.promptVariables.columnDescription", "Beschreibung")}
             </th>
-            <th style={headCellStyle}>
+            <th scope="col" style={headCellStyle}>
               {t("settings.promptVariables.columnValue", "Effektiver Wert")}
             </th>
-            <th style={headCellStyle}>
+            <th scope="col" style={headCellStyle}>
               {t("settings.promptVariables.columnOrigin", "Herkunft")}
             </th>
           </tr>

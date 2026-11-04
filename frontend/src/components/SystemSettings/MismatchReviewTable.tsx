@@ -167,15 +167,18 @@ export function MismatchReviewTable(): JSX.Element {
             data-testid="mismatch-table"
             className={styles.table}
           >
+            <caption className="visually-hidden">
+              {t("common.tableCaption")}
+            </caption>
             <thead>
               <tr>
-                <th className={styles.th}>Time</th>
-                <th className={styles.th}>Subject</th>
-                <th className={styles.th}>Capability</th>
-                <th className={styles.th}>Workspace</th>
-                <th className={styles.th}>Artifact</th>
-                <th className={styles.th}>Legacy</th>
-                <th className={styles.th}>New</th>
+                <th scope="col" className={styles.th}>Time</th>
+                <th scope="col" className={styles.th}>Subject</th>
+                <th scope="col" className={styles.th}>Capability</th>
+                <th scope="col" className={styles.th}>Workspace</th>
+                <th scope="col" className={styles.th}>Artifact</th>
+                <th scope="col" className={styles.th}>Legacy</th>
+                <th scope="col" className={styles.th}>New</th>
               </tr>
             </thead>
             <tbody>

@@ -330,3 +330,17 @@ input, select, textarea {
  * callers (every button in the app — PageHeader, Dialog, form editors,
  * ~23 files — already uses `.btn-primary`), so it was removed rather than
  * migrated. `.btn-primary` is the single surviving primary-button style. */
+
+/* C9/#1406: reusable visually-hidden utility for accessible names (e.g. a
+ * table <caption>) that should not take visual space. */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
