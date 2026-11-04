@@ -470,12 +470,12 @@ Release, A11y und Hygiene ab.
 | C2 — Fehler-Mapping | **umgesetzt** | `6ea8848` — zentrales Mapping, `INVALID_STATE` registriert, ICD 409; 186 + 135 + 12 Tests grün |
 | C4 — Soft-Delete-Vertrag | **umgesetzt** | `7da945c` — Architecture-Detail 200/outdated, ICD Soft-Delete + reactivate; 204 Tests grün |
 | C3 — Request-Contract | **umgesetzt** | `ed4f195` — strikte Query-Params (400), Filter-Parität ADR/Risk/Issue/Glossary, `allocated`/`level`, MCP `limit`/`offset`; #1669 bereits durch `CONS-P13` abgedeckt |
-| C5 — Datenintegrität | offen | — |
-| C6 — Embedding-Write-Path | offen | — |
-| C7 — Search/Index | offen | — |
-| C8 — Version-Carrier | offen | — |
-| C9 — Accessibility | offen | — |
-| C10 — Datenhygiene | offen | — |
+| C5 — Datenintegrität | **umgesetzt** | `707b6c1` — FK/CASCADE für Outbox/ICD/Diagram, `scope_artifact_id` NULL, Interview-Waisen-Cleanup; 628 + 196 Tests grün |
+| C6 — Embedding-Write-Path | **umgesetzt** | `588e37f` — Sampling vor Embedding, gespeicherter Vektor bevorzugt, 25s-`partial`, 3s-Write-Cap; 49 Tests grün |
+| C7 — Search/Index | **umgesetzt** | `08b75fd` — Qdrant-Payload-Indizes + Quantization, `ef_search=100`, `ANALYZE`-Command; 77 Tests grün |
+| C8 — Version-Carrier | **umgesetzt** | `63544c5` — Frontend-Package + Lock im Ratchet, CI-Gate, Carrier auf beta.25; Ratchet grün |
+| C9 — Accessibility | **umgesetzt** | `5e0bde7` — 24px-Resize-Handles, `<th scope>` + `<caption>`; 67 Tests grün |
+| C10 — Datenhygiene | **umgesetzt** | `8601ed5` — `audit_orphan_artifacts` (Report + Soft-Delete); die typ-spezifischen Waisen-Regeln existieren bereits als TRACE-P1/P4/P6 |
 | C11 — Typed Steps | separat | — |
 
 **Branch:** `fix/bugfix-cluster-batch` (von `main @ f64b31e3`).
