@@ -66,11 +66,24 @@ def _unbound_records(caplog) -> list:
     return [r for r in caplog.records if UNBOUND_MARKER in r.getMessage()]
 
 
+def _make_workspace_id() -> uuid.UUID:
+    """Create a real Workspace for outbox rows (#1403 FK)."""
+    from persistence.models import Tenant, Workspace
+
+    tenant = Tenant.objects.create(
+        name=f"outbox-{uuid.uuid4().hex}", slug=f"outbox-{uuid.uuid4().hex}"
+    )
+    workspace = Workspace.unscoped.create(
+        tenant=tenant, name=f"outbox-{uuid.uuid4().hex}"
+    )
+    return workspace.id
+
+
 def _make_event(event_type: str = "RequirementCreated") -> DomainEvent:
     return DomainEvent(
         event_type=event_type,
         entity_id=uuid.uuid4(),
-        workspace_id=uuid.uuid4(),
+        workspace_id=_make_workspace_id(),
     )
 
 

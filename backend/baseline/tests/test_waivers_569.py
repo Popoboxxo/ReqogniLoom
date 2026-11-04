@@ -193,7 +193,7 @@ class TestSuppressionApplies:
             tenant, workspace, scope="project", scope_artifact_id=""
         )
         assert row.scope == "project"
-        assert row.scope_artifact_id == ""
+        assert row.scope_artifact_id is None
         record = _load_one(tenant, workspace, row)
         assert suppression_applies(record, "TRACE-P1", ["art-1"]) is True
 

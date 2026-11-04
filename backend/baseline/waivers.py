@@ -560,7 +560,9 @@ def record_waiver(
             "rule_id": rule_id,
             "artifact_ids": list(request.artifact_ids),
             "scope": scope or "",
-            "scope_artifact_id": scope_artifact_id or "",
+            # C5/#1412: NULL and "" both mean "not bound to a document"; store
+            # the single normalised form the DB constraint enforces.
+            "scope_artifact_id": scope_artifact_id or None,
             "reason": request.reason,
             "granted_by": granted_by,
             "expires_at": effective_expiry,

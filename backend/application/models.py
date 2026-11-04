@@ -162,7 +162,17 @@ class DomainEventOutbox(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     event_id = models.UUIDField(unique=True, default=uuid.uuid4, editable=False)
     event_type = models.CharField(max_length=64, choices=EventType.choices)
-    workspace_id = models.UUIDField(db_index=True)
+    # G1.4/#1403: a real FK so a workspace delete cascades the outbox rows
+    # instead of leaving unreachable events behind. ``db_column`` keeps the
+    # column name, so every ``workspace_id=...`` filter keeps working through
+    # the FK's attname.
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        on_delete=models.CASCADE,
+        db_column="workspace_id",
+        related_name="+",
+        db_index=False,
+    )
     # Staged RLS (#1136): nullable tenant anchor backfilled from
     # ``pl_workspace.tenant_id`` (application/0031) and guarded by a
     # GUC-permissive policy (application/0032, DEFAULT OFF). Still a plain
@@ -191,7 +201,7 @@ class DomainEventOutbox(models.Model):
                 fields=["published", "created_at"],
                 name="idx_outbox_unpublished",
             ),
-            models.Index(fields=["workspace_id", "created_at"], name="idx_outbox_ws"),
+            models.Index(fields=["workspace", "created_at"], name="idx_outbox_ws"),
         ]
         ordering = ["created_at"]
 

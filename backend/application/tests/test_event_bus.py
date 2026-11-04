@@ -340,7 +340,7 @@ class TestPublishTransactionalOutboxGuarantee:
         return DomainEvent(
             event_type="RequirementCreated",
             entity_id=uuid.uuid4(),
-            workspace_id=uuid.uuid4(),
+            workspace_id=_make_workspace_id(),
         )
 
     def test_outbox_row_survives_commit(self):
@@ -585,6 +585,23 @@ class TestPollAndDispatch:
 # ---------------------------------------------------------------------------
 
 
+def _make_workspace_id() -> uuid.UUID:
+    """Create a real Workspace for outbox rows (#1403 FK).
+
+    The outbox ``workspace_id`` is a real FK now, so a random UUID no longer
+    satisfies an INSERT. Tests that exercise the real table need a real row.
+    """
+    from persistence.models import Tenant, Workspace
+
+    tenant = Tenant.objects.create(
+        name=f"outbox-{uuid.uuid4().hex}", slug=f"outbox-{uuid.uuid4().hex}"
+    )
+    workspace = Workspace.unscoped.create(
+        tenant=tenant, name=f"outbox-{uuid.uuid4().hex}"
+    )
+    return workspace.id
+
+
 def _make_outbox_row(**overrides):
     """Create a real, unclaimed DomainEventOutbox row."""
     from application.models import DomainEventOutbox
@@ -592,7 +609,7 @@ def _make_outbox_row(**overrides):
     defaults = dict(
         event_id=uuid.uuid4(),
         event_type="RequirementCreated",
-        workspace_id=uuid.uuid4(),
+        workspace_id=_make_workspace_id(),
         entity_id=uuid.uuid4(),
         payload={},
     )
