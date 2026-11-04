@@ -212,6 +212,22 @@
           "uid": {
             "type": "string",
             "description": "Optional local readable identifier (e.g. 'ADR-004'). When supplied, only the entity carrying this uid is returned (#1147). Entities without a uid column (glossary, change_request) match nothing."
+          },
+          "status": {
+            "type": "string",
+            "description": "Only rows in this workflow state (or 'outdated')."
+          },
+          "search": {
+            "type": "string",
+            "description": "Case-insensitive match on title, description or uid."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (default 50, max 500)."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Rows to skip (default 0)."
           }
         },
         "required": [
@@ -2278,6 +2294,22 @@
           "uid": {
             "type": "string",
             "description": "Optional local readable identifier (e.g. 'ADR-004'). When supplied, only the entity carrying this uid is returned (#1147). Entities without a uid column (glossary, change_request) match nothing."
+          },
+          "status": {
+            "type": "string",
+            "description": "Only rows in this workflow state (or 'outdated')."
+          },
+          "search": {
+            "type": "string",
+            "description": "Case-insensitive match on title, description or uid."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (default 50, max 500)."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Rows to skip (default 0)."
           }
         },
         "required": [
@@ -3367,6 +3399,22 @@
           "uid": {
             "type": "string",
             "description": "Optional local readable identifier (e.g. 'ADR-004'). When supplied, only the entity carrying this uid is returned (#1147). Entities without a uid column (glossary, change_request) match nothing."
+          },
+          "status": {
+            "type": "string",
+            "description": "Only rows in this workflow state (or 'outdated')."
+          },
+          "search": {
+            "type": "string",
+            "description": "Case-insensitive match on title, description or uid."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (default 50, max 500)."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Rows to skip (default 0)."
           }
         },
         "required": [
@@ -4401,6 +4449,22 @@
           "uid": {
             "type": "string",
             "description": "Optional local readable identifier (e.g. 'ADR-004'). When supplied, only the entity carrying this uid is returned (#1147). Entities without a uid column (glossary, change_request) match nothing."
+          },
+          "status": {
+            "type": "string",
+            "description": "Only rows in this workflow state (or 'outdated')."
+          },
+          "search": {
+            "type": "string",
+            "description": "Case-insensitive match on title, description or uid."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (default 50, max 500)."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Rows to skip (default 0)."
           }
         },
         "required": [
@@ -6491,6 +6555,30 @@
           "include_outdated": {
             "type": "boolean",
             "description": "If true, include outdated (soft-deleted) requirements. Defaults to false."
+          },
+          "status": {
+            "type": "string",
+            "description": "Only rows in this workflow state (or 'outdated')."
+          },
+          "search": {
+            "type": "string",
+            "description": "Case-insensitive match on title, description or uid."
+          },
+          "allocated": {
+            "type": "boolean",
+            "description": "true = only allocated requirements, false = only unallocated."
+          },
+          "level": {
+            "type": "integer",
+            "description": "Only rows with this V-model level (1..4)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (default 50, max 500)."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Rows to skip (default 0)."
           }
         },
         "required": [
@@ -7003,6 +7091,22 @@
           "uid": {
             "type": "string",
             "description": "Optional local readable identifier (e.g. 'ADR-004'). When supplied, only the entity carrying this uid is returned (#1147). Entities without a uid column (glossary, change_request) match nothing."
+          },
+          "status": {
+            "type": "string",
+            "description": "Only rows in this workflow state (or 'outdated')."
+          },
+          "search": {
+            "type": "string",
+            "description": "Case-insensitive match on title, description or uid."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (default 50, max 500)."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Rows to skip (default 0)."
           }
         },
         "required": [

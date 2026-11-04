@@ -878,14 +878,14 @@ class WorkspaceService(ServiceBase):
             # 6. Artifact rows
             Artifact.unscoped.filter(workspace_id=workspace_pk).delete()
 
-        # C5/#1403: the new workspace FKs cascade as well, but deleting these
-        # explicitly keeps the cascade deterministic and avoids a window where
-        # an Icd/Diagram row has already lost its backing Artifact (SET_NULL).
-        from application.models import DomainEventOutbox
+        # C5/#1403: the new workspace FKs cascade as well, but deleting the
+        # ICDs/Diagrams explicitly keeps the cascade deterministic and avoids a
+        # window where such a row has already lost its backing Artifact
+        # (SET_NULL). The outbox has no SET_NULL shadow: its workspace FK
+        # cascades directly, so it needs no explicit delete here.
         from diagram.models import Diagram
         from icd.models import Icd
 
-        DomainEventOutbox.objects.filter(workspace_id=workspace_pk).delete()
         Icd.unscoped.filter(workspace_id=workspace_pk).delete()
         Diagram.unscoped.filter(workspace_id=workspace_pk).delete()
 

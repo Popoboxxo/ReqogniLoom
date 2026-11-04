@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Check, TriangleAlert, X } from "lucide-react";
 import {
   permissionDefaultsApi,
@@ -48,6 +49,7 @@ function DecisionMark({ value }: { value: boolean }): JSX.Element {
 }
 
 export function MismatchReviewTable(): JSX.Element {
+  const { t } = useTranslation();
   const [items, setItems] = useState<PermissionDecisionMismatch[]>([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);

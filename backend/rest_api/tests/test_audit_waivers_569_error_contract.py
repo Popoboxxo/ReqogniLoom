@@ -239,7 +239,7 @@ def test_no_new_endpoint_emits_422():
         rule_id=finding.rule_id,
         artifact_ids=list(finding.artifact_ids),
         scope="project",
-        scope_artifact_id="",
+        scope_artifact_id=None,
         reason="An earlier justification that has since expired.",
         granted_by=str(user.id),
         expires_at=datetime.now(UTC) - timedelta(days=1),

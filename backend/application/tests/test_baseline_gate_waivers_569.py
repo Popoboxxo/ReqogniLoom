@@ -178,7 +178,7 @@ class TestGateDecision:
             finding_key="TRACE-P1\x1fart-1",
             artifact_ids=["art-1"],
             scope="project",
-            scope_artifact_id="",
+            scope_artifact_id=None,
             reason="Expired acceptance, superseded by the re-audit.",
             granted_by=str(ctx.user_id),
             expires_at=datetime.now(UTC) - timedelta(days=1),
@@ -234,7 +234,8 @@ class TestGh821CompatibilityAtTheGate:
 
         row = _rows(workspace).get()
         assert row.scope == "project"
-        assert row.scope_artifact_id == ""
+        # C5/#1412: unbound document scope is stored as NULL, not "".
+        assert row.scope_artifact_id is None
 
         # Second build: same finding, waiver NOT resent.
         p1, p2, p3, p4, p5, p6 = _gate_patches(findings=findings)

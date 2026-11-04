@@ -1622,7 +1622,7 @@ class TestAuditWaiveFindingFailClosed:
                 rule_id="TRACE-P1",
                 artifact_ids=["a1"],
                 scope="project",
-                scope_artifact_id="",
+                scope_artifact_id=None,
                 reason=_VALID_REASON,
                 granted_by=str(USER_ID),
             )

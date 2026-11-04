@@ -49,7 +49,7 @@ from llm_adapter.embedding_service import (
 )
 from memory.tests.qdrant_fakes import FakeQdrantClient, FakeQdrantModels
 from persistence.embedding_dimensions import EMBEDDING_VECTOR_DIMENSIONS
-from persistence.models import Artifact, Requirement, Tenant, TraceLink
+from persistence.models import Artifact, Requirement, Tenant, TraceLink, Workspace
 from persistence.qdrant_config import build_collection_alias, resolve_qdrant_config
 from persistence.tests.factories import (
     active_tenant,
@@ -189,9 +189,13 @@ class TestPgVectorIcdParity:
             foreign_tenant = Tenant.objects.create(
                 name="Foreign", slug=f"foreign-{uuid4().hex[:8]}", is_active=True
             )
+            # C5/#1403: Icd.workspace is a real FK now.
+            foreign_ws = Workspace.unscoped.create(
+                tenant=foreign_tenant, name=f"foreign-{uuid4().hex[:8]}"
+            )
             foreign = Icd.unscoped.create(
                 tenant_id=foreign_tenant.id,
-                workspace_id=uuid4(),
+                workspace_id=foreign_ws.id,
                 source_element_id=uuid4(),
                 target_element_id=uuid4(),
                 name="Foreign",

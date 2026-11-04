@@ -410,15 +410,25 @@ class IcdManager:
             tenant = Tenant.objects.get(pk=payload.tenant_id)
 
             # #1661: the contract is anchored by a unique (source, target,
-            # 'decomposes') TraceLink, so a second ICD for the same pair could
-            # never be linked. Detect it up front for a deterministic 409 and
-            # keep the IntegrityError handler below for the concurrent race.
-            duplicate = Icd.unscoped.filter(
-                tenant_id=tenant.id,
-                workspace_id=payload.workspace_id,
-                source_element_id=payload.source_element_id,
-                target_element_id=payload.target_element_id,
-            ).exists()
+            # 'decomposes') TraceLink, so a second *active* ICD for the same
+            # pair could never be linked. Detect it up front for a deterministic
+            # 409 and keep the IntegrityError handler below for the concurrent
+            # race. A soft-deleted ICD must not block a replacement, so outdated
+            # rows are excluded.
+            from workflow.services import outdated_item_ids
+
+            duplicate = (
+                Icd.unscoped.filter(
+                    tenant_id=tenant.id,
+                    workspace_id=payload.workspace_id,
+                    source_element_id=payload.source_element_id,
+                    target_element_id=payload.target_element_id,
+                )
+                .exclude(
+                    id__in=outdated_item_ids("Icd", tenant_id=tenant.id)
+                )
+                .exists()
+            )
             if duplicate:
                 raise IcdConflictError(
                     "An ICD for this source/target element pair already exists "

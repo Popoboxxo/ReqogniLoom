@@ -33,6 +33,8 @@ import logging
 import os
 from typing import Any
 
+from django.db.models import QuerySet
+
 from application.services import (
     LlmNotConfiguredError,
     NotFoundError,
@@ -632,7 +634,7 @@ class RequirementsToolGroup(BaseToolGroup):
                 allocated=allocated,
                 level=level,
             )
-            total = qs.count()
+            total = qs.count() if isinstance(qs, QuerySet) else len(qs)
             reqs = list(qs[offset : offset + limit])
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))

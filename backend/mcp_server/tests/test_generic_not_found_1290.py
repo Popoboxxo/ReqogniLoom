@@ -62,8 +62,8 @@ class TestUnknownIdIsNotFoundPerEntity:
             ctx = editor_ctx(tenant, ws)
             missing = uuid4()
             group = _group(prefix, service_path, item_type)
-            result = group._handle_update(
-                params={"id": str(missing)}, auth_context=ctx, api_key=None
+            result = group.execute_tool(
+                f"{prefix}.update", {"id": str(missing)}, ctx, "reqlo_test"
             )
 
         assert result.success is False
@@ -81,8 +81,8 @@ class TestUnknownIdIsNotFoundPerEntity:
             ctx = editor_ctx(tenant, ws)
             missing = uuid4()
             group = _group(prefix, service_path, item_type)
-            result = group._handle_delete(
-                params={"id": str(missing)}, auth_context=ctx, api_key=None
+            result = group.execute_tool(
+                f"{prefix}.delete", {"id": str(missing)}, ctx, "reqlo_test"
             )
 
         assert result.success is False

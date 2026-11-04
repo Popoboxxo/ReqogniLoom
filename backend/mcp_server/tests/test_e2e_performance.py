@@ -130,7 +130,7 @@ def test_requirement_query_with_100_requirements_under_2s(
     response = post_mcp(
         admin_client,
         "requirement.query",
-        {"workspace_id": str(e2e_workspace.id)},
+        {"workspace_id": str(e2e_workspace.id), "limit": 100},
     )
     elapsed = time.perf_counter() - start
 

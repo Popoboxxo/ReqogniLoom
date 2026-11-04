@@ -105,6 +105,10 @@ class TestGlossaryServiceSoftDelete:
             # #1483: delete() now writes the AuditEntry its siblings always
             # wrote; this test has no tenant/DB row behind the mocked term.
             patch("application.glossary_service.GlossaryService._audit"),
+            # C5/#1403: the outbox workspace_id is a real FK now, and this
+            # mocked term's workspace does not exist. The event hook is not
+            # what this test asserts.
+            patch("application.glossary_service.GlossaryService._emit_event"),
         ):
             mock_mgr.filter.return_value.first.return_value = mock_term
             svc.delete(ctx, TERM_ID)

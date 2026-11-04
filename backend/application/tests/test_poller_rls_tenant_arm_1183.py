@@ -121,11 +121,24 @@ def _make_outbox_row(tenant: Tenant, workspace: Workspace) -> DomainEventOutbox:
 
 
 def _make_orphan_row() -> DomainEventOutbox:
-    """An unpublished outbox row with no resolvable tenant anchor (O-2)."""
+    """An unpublished outbox row with no resolvable tenant anchor (O-2).
+
+    C5/#1403 made ``workspace_id`` a real FK, so the row must point at a real
+    workspace; "orphan" here means the *tenant* anchor is NULL, which is what
+    the poller's fail-closed path keys on.
+    """
+    from persistence.models import Tenant, Workspace
+
+    tenant = Tenant.objects.create(
+        name=f"orphan-{uuid.uuid4().hex}", slug=f"orphan-{uuid.uuid4().hex}"
+    )
+    workspace = Workspace.unscoped.create(
+        tenant=tenant, name=f"orphan-{uuid.uuid4().hex}"
+    )
     return DomainEventOutbox.objects.create(
         event_id=uuid.uuid4(),
         event_type=_PROBE_EVENT_TYPE,
-        workspace_id=uuid.uuid4(),  # resolves to no workspace / no tenant
+        workspace_id=workspace.id,
         tenant_id=None,
         entity_id=uuid.uuid4(),
         payload={},
@@ -195,8 +208,15 @@ def test_publish_fails_closed_when_tenant_unresolvable_and_enforced():
             get_event_bus().publish(event)
 
 
-def test_publish_leaves_null_when_unresolvable_and_off(settings):
-    """DEFAULT OFF keeps the pre-#1183 behaviour: NULL, no raise, visible."""
+def test_publish_with_unresolvable_workspace_is_rejected_by_the_fk(settings):
+    """C5/#1403: an unresolvable workspace can no longer produce an outbox row.
+
+    The pre-#1183 behaviour left ``tenant_id`` NULL for an unknown workspace;
+    the workspace FK now rejects the insert outright, which is the stronger
+    invariant (no row can point at a workspace that does not exist).
+    """
+    from django.db import IntegrityError
+
     settings.RLS_AS_ENFORCED = False
     _clear_context()
     event = DomainEvent(
@@ -205,14 +225,9 @@ def test_publish_leaves_null_when_unresolvable_and_off(settings):
         workspace_id=uuid.uuid4(),
     )
 
-    with transaction.atomic():
-        get_event_bus().publish(event)
-
-    row = DomainEventOutbox.objects.get(event_id=event.event_id)
-    assert row.tenant_id is None, (
-        "with RLS_AS_ENFORCED off an unresolvable tenant must not raise or "
-        "invent a value — the policy is permissive, so NULL stays visible"
-    )
+    with pytest.raises(IntegrityError):
+        with transaction.atomic():
+            get_event_bus().publish(event)
 
 
 def test_dlq_replay_stamps_the_request_tenant():

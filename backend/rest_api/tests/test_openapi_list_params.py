@@ -60,19 +60,17 @@ def test_status_is_declared_only_where_the_service_filters():
         "/api/v1/requirements/",
         "/api/v1/testcases/",
         "/api/v1/change-requests/",
+        # C3/#1668: these four now filter status too (the services already had
+        # list_*_by_status; the ViewSets previously dropped the parameter).
+        "/api/v1/adrs/",
+        "/api/v1/risks/",
+        "/api/v1/issues/",
+        "/api/v1/glossary/",
     ):
         declared = {
             parameter["name"] for parameter in paths[path]["get"].get("parameters", [])
         }
         assert "status" in declared, f"{path} filters status but does not declare it"
-
-    # ADRs do not filter on status; advertising it would repeat the silent
-    # no-op the other way round.
-    adr_parameters = {
-        parameter["name"]
-        for parameter in paths["/api/v1/adrs/"]["get"].get("parameters", [])
-    }
-    assert "status" not in adr_parameters
 
 
 def test_testcase_status_filter_is_applied(tenant, workspace, authed_client):

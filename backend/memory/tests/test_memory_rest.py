@@ -1091,10 +1091,11 @@ class TestSystemMemoryProjectionRest:
                 response.data
             )
             assert {"backend", "degraded"} <= set(response.data)
-            assert response.data["total_size"] == 3
+            assert response.data["total_size"] == 4
             assert response.data["sample_size"] == 3
             assert response.data["sampled"] is False
             assert response.data["excluded_no_embedding"] == 1
+            assert response.data["partial"] is True
             point = response.data["points"][0]
             assert set(point) == {
                 "id",

@@ -103,6 +103,8 @@ class TraceabilityConnector:
         """
         # Import is deferred to avoid circular imports at module load time.
         # The traceability app is always available at runtime (INSTALLED_APPS).
+        from django.db import IntegrityError
+
         from traceability.services import create_trace_link
 
         logger.debug(
@@ -111,14 +113,28 @@ class TraceabilityConnector:
             target_element_id,
             icd_id,
         )
-        create_trace_link(
-            source_id=source_element_id,
-            target_id=target_element_id,
-            link_type="decomposes",
-            created_by_id=created_by_id,
-        )
+        try:
+            create_trace_link(
+                source_id=source_element_id,
+                target_id=target_element_id,
+                link_type="decomposes",
+                created_by_id=created_by_id,
+            )
+        except IntegrityError as exc:
+            # C5/#1381: a previously soft-deleted ICD keeps its contract edge
+            # (the edge belongs to the element pair, not the ICD row). Reuse it
+            # so a replacement ICD for the same pair can still be created.
+            if "uq_tracelink_edge" not in str(exc):
+                raise
+            logger.info(
+                "TraceLink 'decomposes' already exists for source=%s -> target=%s; "
+                "reusing it for ICD %s",
+                source_element_id,
+                target_element_id,
+                icd_id,
+            )
         logger.info(
-            "TraceLink 'decomposes' created: source=%s -> target=%s for ICD %s",
+            "TraceLink 'decomposes' ready: source=%s -> target=%s for ICD %s",
             source_element_id,
             target_element_id,
             icd_id,
