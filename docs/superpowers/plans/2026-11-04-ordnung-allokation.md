@@ -141,9 +141,9 @@
 
 **Files:** Modify baseline `state_capture` and `Diff` (V8), `restorable_fields.py` (R9); Test `baseline/tests/test_sort_key_baseline.py`
 
-**Interfaces:** Snapshot contains `sort_key`; diff reports `"Position geändert"` for a changed `sort_key`; a block rebuild yields **one** bundled event; snapshots without `sort_key` compare without error and without a diff entry.
+**Interfaces:** Snapshot contains `sort_key`; diff reports `"Position geändert"` for a changed `sort_key` and, per affected requirement, `"Stufe verschoben"` (old/new `tier_key`) grouped under cause `Baumänderung`; a block rebuild yields **one** bundled event; snapshots without `sort_key` compare without error and without a diff entry.
 
-- [ ] **Step 1: Failing tests:** `test_snapshot_contains_sort_key`, `test_single_move_one_diff_entry`, `test_old_snapshot_without_sort_key_no_crash_no_noise`, `test_rebalance_one_bundled_event`, `test_sort_key_classified_in_restorable_fields`.
+- [ ] **Step 1: Failing tests:** `test_snapshot_contains_sort_key`, `test_single_move_one_diff_entry`, `test_old_snapshot_without_sort_key_no_crash_no_noise`, `test_rebalance_one_bundled_event`, `test_tier_shift_row_grouped_by_cause`, `test_sort_key_classified_in_restorable_fields`.
 - [ ] **Step 2–4:** run, implement, run. **Step 5:** Commit `feat: include sort_key in baseline snapshot and diff`.
 
 ### Task 1.7: Frontend — reorder and move in both trees
@@ -204,7 +204,7 @@
 **Files:** Modify `backend/traceability/audit/hierarchy.py:~665-720` (`recompute_requirement_levels`, remove `ARCHITECTURE_DEPTH_TO_LEVEL` use at `:218`); Test `traceability/tests/test_tier_compute.py`
 
 **Interfaces:**
-- Produces pure function `tier_for_element(element_id, ladder, tree) -> str | None` and `recompute_requirement_levels(workspace_id, *, dry_run: bool = False) -> list[LevelChange]`. Rules: root → `first`; else height h = longest path down to a leaf; `from_end` entry with `n == h` wins; otherwise the `middle` entry; no match → `None`. Source order per requirement (V6): `manual` (unchanged) > allocation (tier of target, `derived_allocation`) > `derives-from`/`decomposes` parent requirement's tier **moved one position toward the end of the ladder** (`derived_hierarchy`; **[Annahme, to confirm with the PO]**: from the last ladder entry the result is `None`/`unresolved`) > type default (`derived_type`) > `None` + `unresolved`. Writes `tier_key`, the integer alias `level`, `level_source` by bulk `UPDATE` (stays the single writer, ADR-005 successor). Nothing is clamped or guessed.
+- Produces pure function `tier_for_element(element_id, ladder, tree) -> str | None` and `recompute_requirement_levels(workspace_id, *, dry_run: bool = False) -> list[LevelChange]`. Rules: root → `first`; else height h = longest path down to a leaf (decided by the PO; mixed children → `middle`); `from_end` entry with `n == h` wins; otherwise the `middle` entry; no match → `None`. Source order per requirement (V6): `manual` (unchanged) > allocation (tier of target, `derived_allocation`) > `derives-from`/`decomposes` parent requirement's tier **moved one position toward the end of the ladder** (`derived_hierarchy`; **decided by the PO**: from the last ladder entry the result is `None`/`unresolved` plus a finding) > type default (`derived_type`) > `None` + `unresolved`. Writes `tier_key`, the integer alias `level`, `level_source` by bulk `UPDATE` (stays the single writer, ADR-005 successor). Nothing is clamped or guessed.
 
 - [ ] **Step 1: Failing tests:** `test_root_is_first`, `test_leaf_is_last`, `test_parent_of_leaf_is_vorletzte`, `test_unequal_branch_depths` (3-deep and 6-deep branches), `test_single_node_tree_is_first`, `test_allocation_beats_derivation`, `test_manual_wins`, `test_unallocated_without_derivation_is_none_unresolved`, `test_dry_run_writes_nothing_and_lists_changes`, `test_appending_child_shifts_ancestor_tiers`.
 - [ ] **Step 2–4:** run, implement, run. **Step 5:** Commit `feat: compute requirement tier from allocation leaf-relative`.
@@ -222,7 +222,7 @@
 
 **Files:** inventory first: `grep -rn "RequirementLevel\|\.level\b\|level_source\|ARCHITECTURE_DEPTH_TO_LEVEL\|stage_matrix" backend frontend/src --include=*.py --include=*.ts --include=*.tsx`. Expected: serializers, MCP tools, `stage_matrix.py`, bootstrap, audit rules VERIF-P8, ARCH-003, TRACE-P5, CONS-P13, exports, `RequirementList`, `TraceSpine`. Test: one per consumer.
 
-**Interfaces:** Consumers read `tier_key` and the display name; they no longer assume values 1–4. CONS-P13 is replaced by "every requirement has `level_source` set". API keeps `level` (alias) and adds `tier_key`, `tier_name`.
+**Interfaces:** Consumers read `tier_key` and the display name; they no longer assume values 1–4. CONS-P13 is replaced by "every requirement has `level_source` set". API keeps `level` (permanent alias, decided by the PO) and adds `tier_key`, `tier_name`; no deprecation.
 
 - [ ] **Step 1:** write the inventory as a checklist in the PR description and one failing test per consumer using a ladder with 3 and with 6 entries.
 - [ ] **Step 2–4:** run, convert, run (backend then frontend, sequentially).
@@ -408,8 +408,8 @@
 
 ## Open items carried into execution (do not guess; ask the PO)
 
-- Integer alias `level`: how long it stays in exports and API (O3).
-- How the baseline diff presents tier shifts after appending a child (O3).
-- Task 2.5 derivation rule from the last ladder entry (marked **[Annahme]**).
+Decided by the PO on 2026-11-04 (no longer open): `level` alias stays permanently; tier shifts show as "Stufe verschoben" rows grouped by cause; height = longest path; no tier below the last ladder entry.
+
+Still open:
 - O4: layout limits for very deep trees; measure in Task 5.1 and file an issue if the budget is missed.
 - Norm clause citations are unverified (R11); do not copy them into ADR-027 without checking the sources.
