@@ -1,5 +1,13 @@
 # Tabellenansicht und Massenbearbeitung — Design
 
+> **Stand 2026-11-04:** Fakten gegen `main` (814cb998) korrigiert, Bulk-Update-Vertrag ersetzt
+> (Abschnitt 3.1; Verbraucher: [Dokumentensicht neu](2026-11-04-dokumentensicht-neu-design.md)).
+> Entscheidungen der Spec sind unverändert. Umsetzungsplan:
+> [`../plans/2026-11-04-tabellenansicht-neu.md`](../plans/2026-11-04-tabellenansicht-neu.md)
+> (ersetzt `../plans/2026-09-03-tabellenansicht.md`). Neu in diesem Stand: Schreibzugriff läuft
+> über eine Layer-2-Funktion (`update_artifact_fields`, Abschnitt 3.1), die Filter-Sprache ist eine
+> reine Python-API (Abschnitt 4.1), die Umsetzung ist in fünf Scheiben geschnitten (Plan).
+
 **Status:** Draft, pending user review
 **Quelle:** `docs/SYSTEMAUDIT_2026-09-02_GROB.md`, Kap. Q1.3 ("Ein Systems Engineer mit
 400 Requirements arbeitet in Tabellen"), C8 (Filterung handgestrickt), S4
@@ -11,16 +19,20 @@ Folge-Specs aus demselben Audit — baut auf
 **Scope:** "Excel-artig" heißt hier reichhaltiges Filtern/Sortieren/Spaltenverwalten plus
 speicherbare Ansichten — **nicht** Formeln, Pivot-Tabellen oder Zellen-Drag-Fill. Diese
 Spec erweitert und ersetzt teilweise das ursprünglich knapper skizzierte Design
-(`UserTableViewPreference` wird durch die hier definierten `SavedView`/
-`UserTableViewState` ersetzt, siehe Abschnitt 4).
+(`SavedView`/`UserTableViewState`, siehe Abschnitt 4; ein früher skizziertes
+`UserTableViewPreference` hat es im Code nie gegeben, vorhanden ist nur
+`UserWorkspacePreference` mit `optional_artifact_visibility`).
 
 ## 1. Problem
 
 Alles ist Split-View mit Liste links, Formular rechts. Keine Grid-Ansicht, kein
 Bulk-Edit-Endpoint, keine Spaltenauswahl, kein Inline-Edit. Filterung ist handgestrickt:
-10 `ordering_fields`/`search_fields`/`filterset_fields` gegen 86 manuelle
-`query_params.get(...)`-Aufrufe in `views.py` (C8) — Filter-Parameter tauchen dadurch
-nicht im OpenAPI-Schema auf. Ein Systems Engineer mit 400 Requirements und ein Agent, der
+`django_filters` ist nicht im Einsatz; die Listen lesen ihre Filter über rund 190 manuelle
+`query_params.get(...)`-Aufrufe in `rest_api/*views.py` (C8). Teilweise gemildert:
+`@list_schema(...)` deklariert Parameter im OpenAPI-Schema und
+`reject_unknown_query_params` (`rest_api/query_params.py`) weist unbekannte Parameter ab; die
+Requirement-Liste kennt `?allocated=` und `?level=`. Die Filter bleiben je Endpunkt
+handgeschrieben, ohne gemeinsame, typ-bewusste Sprache. Ein Systems Engineer mit 400 Requirements und ein Agent, der
 40 Requirements gebündelt bearbeiten soll, haben dasselbe unbediente Bedürfnis.
 
 ## 2. Ziel — unter Wahrung aller Workflow-Regeln
@@ -42,17 +54,51 @@ gilt für jede Schreiboperation dieser Spec, nicht nur für eine.
 
 ### 3.1 Bulk-Update
 
-`PATCH artifacts/bulk-update/` — `{item_type, ids[], fields: {...}}`. Neue
-`ARTIFACT_UPDATE_ADAPTERS`-Registry (gleiches Muster wie `ARTIFACT_CREATION_ADAPTERS` aus
-der Interview-Engine-Fix-Spec), dispatcht pro Artefakt an den bestehenden
-`update_X()`-Service, validiert über `AttributeDefinitionService.validate_artifact_fields`
-(Attribut-Definition-Spec, Abschnitt 5). **Harte Ablehnung** (400, kein Teilerfolg für
-diesen einen Fall) für jedes Feld mit `editable: "workflow"` im `fields`-Payload — das ist
-die zentrale Leitplanke aus Abschnitt 2, technisch erzwungen, nicht nur dokumentiert.
+`PATCH artifacts/bulk-update/` — Body:
 
-**Partial-Success sonst:** Antwort `{updated: [...], failed: [{id, error}]}` — ein
-fehlerhaftes Item (z. B. Validierungsfehler nur bei einem von 40) bricht nicht den ganzen
-Batch ab.
+```json
+{"mode": "atomic" | "partial",
+ "items": [{"artifact_id": "<uuid>", "expected_version": 3, "fields": {"title": "..."}}]}
+```
+
+- `artifact_id` ist die ID des tragenden `Artifact` (`pl_artifact`), nicht die des Fachobjekts
+  (Requirement, ArchitectureElement, ... haben eigene UUIDs). Die Tabellenzeile liefert beide
+  (`artifact_id`, `id`) und die `version` des Fachobjekts; diese ist `expected_version`.
+- Höchstens **100** Einträge je Anfrage (101 → 400).
+- `expected_version` je Eintrag (optimistisches Sperren). Abweichung → Fehlereintrag der
+  Klasse 409 (`CONFLICT`) für diesen Eintrag.
+- **`mode: "atomic"` (Vorgabe, Vorschlag des Plans):** eine Transaktion, alles oder nichts.
+  Ist ein Eintrag ungültig, wird nichts geschrieben; die Antwort listet jeden fehlerhaften
+  Eintrag mit Code und Grund.
+- **`mode: "partial"`:** gültige Einträge werden geschrieben, Fehler gemeldet:
+  `{updated: [...], failed: [{artifact_id, code, reason}]}`.
+- **Harte Ablehnung** (400 für die **ganze** Anfrage, in beiden Modi, nichts geschrieben) für
+  jedes Feld, das der Workflow oder das System besitzt (`editable` ∈ `"workflow"`, `"system"`,
+  `"automation"` oder `false`) — die zentrale Leitplanke aus Abschnitt 2, technisch erzwungen —
+  und ebenso für `parent_id`, `uid` und `sort_key` (nie bulk-schreibbar: Struktur und Identität).
+- **Workspace:** der Body enthält kein `workspace_id`; der Workspace wird aus den
+  `artifact_id`s abgeleitet, alle Einträge müssen zu **einem** Workspace gehören (sonst 400 mit
+  dem ersten fremden Eintrag). Rollenprüfung und MCP-Scoping nutzen den abgeleiteten Workspace.
+- **`change_reason`** ist ein optionales Feld der Anfrage (nicht je Eintrag); es ist Pflicht, wenn
+  das Preset es verlangt (Extended). Der Dokumentensicht-Client muss es dann senden.
+- **Atomar ohne Nebenwirkung:** im atomaren Modus entsteht beim Rollback keine Nebenwirkung
+  (Embedding-Auffrischung läuft erst nach dem Commit).
+- **Sperre (Freeze):** ist der Zustand eines Artefakts über `freeze_on_enter` gesperrt, lautet
+  der Fehler 409 `CONFLICT` mit dem Zustandsnamen als Grund. Der Mechanismus existiert für
+  Requirement und ArchitectureElement erst mit #1670 P4; bis dahin gilt die Regel nur für
+  `Document` (nicht Teil der Tabelle).
+
+**Gleicher Dienst wie das Einzel-Update:** jeder Eintrag läuft durch die neue Layer-2-Funktion
+`update_artifact_fields(ctx, item_type, artifact_id, fields, expected_version, *, change_reason=None)`. Sie setzt
+zusammen, was der Einzel-PATCH heute in Layer 3 verteilt (Workflow-Leitplanke,
+`ArtifactAttributeGateway.validate`/`validate_actor_system_fields`, `update_X(...,
+expected_version=)`, `ArtifactAttributeGateway.write` für `owner`/`reporter`/`priority`/
+Extended-Werte) und prüft zusätzlich das Schreibrecht je Artefakt (`ItemPermission`: Regel
+`read` → verboten, `none` → wie nicht vorhanden). Jeder erfolgreiche Schreibvorgang erhöht die
+`version` des Fachobjekts. Je Typ gibt es eine ausdrückliche Liste schreibbarer Felder (keine
+Signatur-Introspektion); `editable_fields(ctx, item_type, artifact_id)` liefert sie als reine
+Lesefunktion (Verbraucher: Dokumentensicht). Der Einzel-PATCH bleibt unverändert; ein Regressionstest belegt
+gleiches Ergebnis.
 
 ### 3.2 Bulk-Transition
 
@@ -82,16 +128,32 @@ Rendering nutzt:
 | `number` | `gte`, `lte` |
 | `date` | `gte`, `lte` (Zeitraum) |
 | `boolean` | `eq` (all/true/false) |
-| `reference`, `user` | `in` (mehrere Referenzen) |
+| `reference`, `user`, `actor` | `in` (mehrere Referenzen) |
+| `criteria-list`, `widget` | nicht filterbar (nur anzeigbar) |
 | `editable: "workflow"` (Status) | `in` (mehrere Zielzustände) — **nur lesend**, Filtern ist kein Schreiben, verletzt die Leitplanke aus Abschnitt 2 nicht |
 
-**REST:** `GET artifacts/?item_type=Requirement&filters=<JSON>` — `filters` ist ein JSON-
-Objekt `{"field_name": {"op": "...", "value": ...}}`, serverseitig gegen die
-Attribut-Definition validiert (unbekanntes Feld oder unerlaubter Operator → 400 mit
-Klartext-Fehler, nicht stilles Ignorieren wie die heutigen 86 `query_params.get()`-Stellen
-laut C8). Ersetzt keine der 10 bestehenden `filterset_fields`-Endpoints, ist aber die
-neue, einzige Quelle für die Tabellenansicht — Migration der 86 Altstellen ist eine
-verwandte, aber eigenständige Aufräumarbeit außerhalb dieser Spec.
+**Python-API:** die Sprache ist eine reine Funktionsschicht ohne HTTP
+(`application/table_filter_dsl.py`), damit auch serverseitige Verbraucher (Kapitelfilter der
+Dokumentensicht) sie nutzen. Je Feld gilt eine **Liste von Constraints**, UND-verknüpft (ein
+einzelnes Objekt ist die Kurzform); so lässt sich ein Zeitraum (`gte` und `lte`) ausdrücken.
+Rechte: filter- und sortierbar sind die sichtbaren Felder der Attribut-Definition (eine
+rollenabhängige Feldausblendung gibt es im System nicht); die Zeilen unterliegen dem Leserecht
+der Rolle und den Artefaktrechten (`ItemPermission`: eine artefaktbezogene Regel schlägt die
+workspaceweite; `none` blendet aus). Sortierung: nur echte Spalten; der symbolische Schlüssel
+`"tree"` (Baumreihenfolge `sort_key`, #1670 P1) ist für Verbraucher wie die Dokumentensicht
+vorgesehen. Zwei Pseudo-Felder für Requirements,
+`allocated` (boolean, `eq`) und `level` (Zahl, `eq`), rufen dieselbe Implementierung wie
+`?allocated=`/`?level=` der Requirement-Liste auf (eine Implementierung, nicht zwei).
+
+**REST:** `GET artifacts/table/?workspace_id=&item_type=Requirement&filters=<JSON>&sort=<JSON>` —
+`filters` ist ein JSON-Objekt `{"field_name": {"op": "...", "value": ...}}` oder je Feld eine
+Liste solcher Objekte, serverseitig gegen die Attribut-Definition validiert (unbekanntes Feld
+oder unerlaubter Operator → 400 mit Klartext-Fehler). Der Pfad `artifacts/` selbst bleibt
+unverändert (`ArtifactViewSet.list` liefert Baum-Zusammenfassungen). Ersetzt keine der
+bestehenden Listen-Endpunkte, ist aber die einzige Quelle für die Tabellenansicht — Migration
+der Altstellen ist eine eigenständige Aufräumarbeit außerhalb dieser Spec. Extended-Attribute
+(`kind: "extended"`, liegen in `Artifact.custom_fields`) sind in der ersten Umsetzung weder
+filter- noch sortierbar.
 
 **Mehrfach-Sortierung:** `sort=<JSON>` — `[{"field": "priority", "dir": "desc"},
 {"field": "title", "dir": "asc"}]`.
@@ -103,13 +165,13 @@ User+Workspace+Typ, überschreibt sich laufend):
 ```python
 class UserTableViewState(TenantScopedModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    workspace_id = models.UUIDField(db_index=True)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
     item_type = models.CharField(max_length=128)
     columns = models.JSONField(default=list)   # [{"field": "...", "order": int}]
     filters = models.JSONField(default=dict)
     sort = models.JSONField(default=list)
-    updated_at = models.DateTimeField(auto_now=True)
-    # unique(user, workspace_id, item_type)
+    # created_at / modified_at / version kommen von TenantScopedModel
+    # unique(user, workspace, item_type)
 ```
 Kein expliziter Speichern-Klick nötig — "wo ich zuletzt war" ist immer da, wenn die
 Tabellenansicht neu geöffnet wird.
@@ -117,7 +179,7 @@ Tabellenansicht neu geöffnet wird.
 **`SavedView`** (benannt, explizites Speichern, optional geteilt):
 ```python
 class SavedView(TenantScopedModel):
-    workspace_id = models.UUIDField(db_index=True)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
     item_type = models.CharField(max_length=128)
     owner = models.ForeignKey(User, on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
@@ -125,8 +187,7 @@ class SavedView(TenantScopedModel):
     filters = models.JSONField(default=dict)
     sort = models.JSONField(default=list)
     visibility = models.CharField(max_length=16, choices=[("private", "Private"), ("workspace", "Workspace")], default="private")
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    # unique(workspace, item_type, owner, name); created_at / modified_at / version von TenantScopedModel
 ```
 `visibility="workspace"` macht die Ansicht für alle Workspace-Mitglieder sichtbar
 (read-only für Nicht-Owner — bearbeiten/löschen nur Owner oder Admin), z. B. "Offene
@@ -146,6 +207,9 @@ laden statt Filter-JSON von Hand zu bauen.
   Aktive Filter als Chips über der Tabelle, einzeln entfernbar.
   Spalten-Header-Klick (ohne Filter-Icon) sortiert; Shift-Klick fügt Sekundär-Sortierung
   hinzu.
+- Die Feldbibliothek von `ArtifactForm` umfasst auch `NumberField`, `CriteriaList`,
+  `ActorPicker`/`ActorDisplay`; neue Typen (`actor`, `criteria-list`) sind in der
+  Spalten- und Operator-Zuordnung bewusst entschieden (Abschnitt 4.1).
 - Spaltenauswahl über ein Zahnrad-Menü (welche Attribute als Spalten, Reihenfolge per
   Drag) — schreibt in `UserTableViewState`.
 - "Ansicht speichern"-Button neben dem Zahnrad öffnet Dialog (Name, privat/Workspace) —

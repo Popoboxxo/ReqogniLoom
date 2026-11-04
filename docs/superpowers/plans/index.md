@@ -36,7 +36,7 @@ Update 2026-11-04: PR #1073 (the W2 slice) was merged on 2026-09-26, so the "PR 
 **Open — decision log; items 2, 5, 6, 7 still undecided or moot.** Decision log from the 2026-09 plan series. Decision 1 is settled; the traceability decisions (3, 4) were effectively executed with the plan defaults, but decision 2 (provenance deletion on TraceLink confirm, `trace_link_service.py` still sets `proposed_by = None`) is still unapplied and decisions 5-7 belong to plans that are not implemented. Stays open until those plans are built or dropped.
 
 ## [2026-09-03-dokumentensicht.md](2026-09-03-dokumentensicht.md)
-**Open — not implemented; needs re-scoping.** The 2026-11 `Document` artifact (ADR-026, #1374) took the name; the section-tree/read-mode design in this plan was re-framed as a future read-only `DocumentView` projection. No `DocumentSection`, numbered read mode, Markdown export or document-bound baseline exists. Needs re-scoping before pickup.
+**Superseded by [`specs/2026-11-04-dokumentensicht-neu-design.md`](../specs/2026-11-04-dokumentensicht-neu-design.md) — do not implement.** The 2026-11 `Document` artifact (ADR-026, #1374) took the name; the section-tree/read-mode design in this plan was replaced by the editable `DocumentView` spec of 2026-11-04. No implementation plan exists yet; it waits for #1670 P1/P4 and slice 1 of the Tabellenansicht plan.
 
 ## [2026-09-03-github-jira-integration.md](2026-09-03-github-jira-integration.md)
 **Open — not implemented.** There is no `integrations` app, no `ExternalRef`/`IntegrationConfig`/credential model, no webhook receivers and no GitHub/Jira adapters on main. The plan's dependency specs (audit series) are mostly landed, so it could be picked up after a freshness check.
@@ -47,8 +47,11 @@ Update 2026-11-04: PR #1073 (the W2 slice) was merged on 2026-09-26, so the "PR 
 ## [2026-09-03-rollenbasierte-sichten.md](2026-09-03-rollenbasierte-sichten.md)
 **Open — not implemented.** No navigation-visibility system object, no `expert_mode_enabled` user preference and no role-resolved sidebar exist on main. Issues #810/#848 are closed, but the planned deliverables are absent, so the plan needs a freshness review before use.
 
+## [2026-11-04-tabellenansicht-neu.md](2026-11-04-tabellenansicht-neu.md)
+**Open — not implemented (plan written 2026-11-04, replaces the 2026-09-03 plan).** Five slices: (1) backend core — the Layer-2 update seam `update_artifact_fields`, the Python filter DSL, the table query service, `PATCH artifacts/bulk-update/` (atomic/partial, max 100, `expected_version`) with REST and `artifact.bulk_update`; (2) bulk-transition; (3) saved views and per-user table state (models, RLS, REST, MCP); (4) frontend `ArtifactTable`; (5) E2E guardrail. Slice 1 ships alone and is what the Dokumentensicht needs. Freeze (409) tests are documented xfail until #1670 P4. Spec: [`specs/2026-09-03-tabellenansicht-design.md`](../specs/2026-09-03-tabellenansicht-design.md) (updated 2026-11-04).
+
 ## [2026-09-03-tabellenansicht.md](2026-09-03-tabellenansicht.md)
-**Open — not implemented.** None of the planned services (`TableQueryService`, `BulkEditService`), models (`SavedView`, `UserTableViewState`), MCP tools or the `ArtifactTable` UI exist on main. The workflow-field guardrail design is still valid input for a future implementation.
+**Superseded by [2026-11-04-tabellenansicht-neu.md](2026-11-04-tabellenansicht-neu.md) — do not implement.** The old 24-task plan has a stale bulk-update contract (partial success, `ids[]`, limit 200 against the Dokumentensicht's all-or-nothing, `items[]`, 100), no update seam, a wrong migration number and React 18. Nothing of it exists on main.
 
 ## [2026-08-08-reqmd-interop-and-inspiration-concept.md](2026-08-08-reqmd-interop-and-inspiration-concept.md)
 **Deferred — concept document, no task list.** The proposed reqmd import/export bridge and the CTRF test-result adapter do not exist in the backend, and version-pinned trace links are not implemented (only the `suspect` flag). Only the audited-waiver idea was realised, independently, through #569. Stays deferred until the bridge is explicitly wanted.

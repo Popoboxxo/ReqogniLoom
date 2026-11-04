@@ -1,3 +1,5 @@
+> **Superseded by [2026-11-04-tabellenansicht-neu.md](2026-11-04-tabellenansicht-neu.md).** Dieser Plan ist veraltet (bulk-update-Vertrag, Zugriffsnaht, Migrationsnummer, React-Version, Dateistand). Nicht mehr umsetzen; der Neuplan übernimmt die gültigen Teile.
+
 # Tabellenansicht und Massenbearbeitung Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

@@ -27,14 +27,13 @@ vice versa.
 **Open — not implemented beyond the ICD read tools (`icd.read`, `icd.query`).** The server still negotiates MCP 2024-11-05, has no `resources/*` or `prompts/*`, no `Mcp-Session-Id` streamable transport and no `ApiKey.tool_groups` curation or `tool.list_groups` tool. The spec remains valid but is unstarted.
 
 ## [2026-09-03-tabellenansicht-design.md](2026-09-03-tabellenansicht-design.md)
-**Open — not implemented.** There is no table view filter DSL, no `SavedView` or `UserTableViewState`, and no `artifacts/bulk-update` or `bulk-transition` endpoint or MCP tool. The workflow-safe bulk-edit rules the spec requires are therefore not enforced anywhere yet, and the spec remains the design for that work.
+**Open — not implemented; updated 2026-11-04.** There is no table view filter DSL, no `SavedView` or `UserTableViewState`, and no `artifacts/bulk-update` or `bulk-transition` endpoint or MCP tool. The spec was corrected against main (no `django_filters`, `@list_schema` and `reject_unknown_query_params` exist, `actor`/`criteria-list` in the operator table, list of constraints per field) and its bulk-update contract replaced (`mode` atomic/partial, `items[]` with `expected_version`, max 100, freeze 409). Plan: [`../plans/2026-11-04-tabellenansicht-neu.md`](../plans/2026-11-04-tabellenansicht-neu.md).
 
 ## [2026-09-03-dokumentensicht-design.md](2026-09-03-dokumentensicht-design.md)
-**Naming note (2026-11-02, ENT-F2 = b):** the read-only view described here is now called
-**`DocumentView`**; the artifact named `Document` is specified in
-[2026-11-02-f2-document-design.md](Archive/2026-11-02-f2-document-design.md). The file is kept
-unchanged as the view's design record.
-**Open — not implemented.** The read-only "living specification document" view (sections from a query, a curated list or an artifact subtree, with numbering, markdown export and print) has not been built. Since 2026-11-02 it is called `DocumentView`, because the name `Document` now belongs to the Plan F artifact. It also depends on the unbuilt table-view filter DSL and the MCP resources renderer.
+**Superseded by [2026-11-04-dokumentensicht-neu-design.md](2026-11-04-dokumentensicht-neu-design.md).** Naming note (2026-11-02, ENT-F2 = b): the view is called **`DocumentView`**; the artifact named `Document` is specified in [2026-11-02-f2-document-design.md](Archive/2026-11-02-f2-document-design.md). This file stays as the design record of the old read-only view; nothing of it is built.
+
+## [2026-11-04-dokumentensicht-neu-design.md](2026-11-04-dokumentensicht-neu-design.md)
+**Open — design draft, no plan yet.** Editable `DocumentView` (chapters from subtree, filter or list; read, edit-immediately and collect modes; Markdown export; MCP `document_view.*`). Waits for #1670 P1 (`sort_key`), #1670 P4 (freeze) and slice 1 of the Tabellenansicht plan (filter DSL, `bulk-update`); an implementation plan is written only after those are merged.
 
 ## [2026-09-03-rollenbasierte-sichten-design.md](2026-09-03-rollenbasierte-sichten-design.md)
 **Open — not implemented apart from the `audience: basic | expert` attribute flag and its editor toggle.** Navigation role gating is still the hardcoded `NAV_ITEMS.requires` array, there are no `NavigationVisibility` tables or editor, and the form does not collapse expert sections or offer an expert mode. The reference to issue #848 is stale (closed, different title).
