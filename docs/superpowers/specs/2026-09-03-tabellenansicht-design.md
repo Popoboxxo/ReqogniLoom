@@ -67,7 +67,7 @@ gilt für jede Schreiboperation dieser Spec, nicht nur für eine.
 - Höchstens **100** Einträge je Anfrage (101 → 400).
 - `expected_version` je Eintrag (optimistisches Sperren). Abweichung → Fehlereintrag der
   Klasse 409 (`CONFLICT`) für diesen Eintrag.
-- **`mode: "atomic"` (Vorgabe, Vorschlag des Plans):** eine Transaktion, alles oder nichts.
+- **`mode: "atomic"` (Vorgabe, vom Product Owner bestätigt 2026-11-05):** eine Transaktion, alles oder nichts.
   Ist ein Eintrag ungültig, wird nichts geschrieben; die Antwort listet jeden fehlerhaften
   Eintrag mit Code und Grund.
 - **`mode: "partial"`:** gültige Einträge werden geschrieben, Fehler gemeldet:
@@ -80,11 +80,11 @@ gilt für jede Schreiboperation dieser Spec, nicht nur für eine.
   `artifact_id`s abgeleitet, alle Einträge müssen zu **einem** Workspace gehören (sonst 400 mit
   dem ersten fremden Eintrag). Rollenprüfung und MCP-Scoping nutzen den abgeleiteten Workspace.
 - **`change_reason`** ist ein optionales Feld der Anfrage (nicht je Eintrag); es ist Pflicht, wenn
-  das Preset es verlangt (Extended). Der Dokumentensicht-Client muss es dann senden.
+  das Preset es verlangt (Extended); fehlt es dann, wird die **ganze** Anfrage mit 400 abgelehnt. Ein Grund gilt für alle Einträge. Der Dokumentensicht-Client muss es dann senden.
 - **Atomar ohne Nebenwirkung:** im atomaren Modus entsteht beim Rollback keine Nebenwirkung
   (Embedding-Auffrischung läuft erst nach dem Commit).
 - **Sperre (Freeze):** ist der Zustand eines Artefakts über `freeze_on_enter` gesperrt, lautet
-  der Fehler 409 `CONFLICT` mit dem Zustandsnamen als Grund. Der Mechanismus existiert für
+  der Fehler 409 `CONFLICT` mit dem Zustandsnamen als Grund. Die Sperre gilt für **alle** Felder des Artefakts, auch Inhalte (Titel, Beschreibung, Akzeptanzkriterien); das erweitert die Ordnung-Allokation-Spec, die nur Struktur sperrt (dort bei der Umsetzung von #1670 P4 anzugleichen). Der Mechanismus existiert für
   Requirement und ArchitectureElement erst mit #1670 P4; bis dahin gilt die Regel nur für
   `Document` (nicht Teil der Tabelle).
 
