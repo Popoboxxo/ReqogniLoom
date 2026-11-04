@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [1.8.0-beta.26] — 2026-11-04
+
+### Added
+- feat(api): strict list-filter contract — unknown query parameters now answer 400; ADR/Risk/Issue/Glossary honour `status`/`search`, Requirements add `allocated`/`level`, and `requirement.query`/generic `*.query` accept `limit`/`offset` (#1668)
+- feat(ops): `audit_orphan_artifacts` (report + soft-delete), `analyze_embedding_indexes`, and `repair_architecture_cycles` for pre-existing hierarchy cycles (#1410/#1399/#1660)
+- feat(accessibility): 24 px resize handles (WCAG 2.2 SC 2.5.8), `scope`/`caption` on the affected tables, shared `.visually-hidden` utility (#1406)
+
+### Changed
+- **Breaking:** ICD `DELETE` is a soft-delete; `POST /api/v1/icds/{id}/reactivate/` restores it. A second ICD for the same element pair answers 409 (#1661/#1381)
+- **Breaking:** unknown query parameters are rejected with 400 instead of silently ignored (#1668)
+- Architecture detail reads answer 200 + `status="outdated"` after `DELETE`, matching every other artifact type (#1381)
+- `BaselineGateWaiver.scope_artifact_id` is normalised from `""` to `NULL` (#1412)
+
+### Fixed
+- fix(architecture): a self-parent PATCH is rejected on every rigor tier; the cycle walker terminates on pre-existing cycles (#1660)
+- fix(mcp): domain `ValidationError`/`NotFoundError`/`PermissionDeniedError`/`OptimisticLockError`/`IntegrityError` and workflow state errors are mapped centrally instead of masked as `INTERNAL_ERROR`; `INVALID_STATE` is registered on both dispatch paths (#1663)
+- fix(data): `DomainEventOutbox`, `Icd` and `Diagram` now carry a real workspace FK, so a workspace delete cannot leave orphan rows behind (#1403)
+- fix(memory): the projection samples before embedding and returns a partial result under a 25 s budget; the requirement write path caps a cold embedding call at 3 s (#1378/#1401)
+- fix(search): Qdrant payload indexes + int8 quantization for the memory collections; `hnsw.ef_search=100` for the pgvector ANN paths (#1314/#1399)
+- fix(release): the frontend `package.json`/lockfile are part of the version ratchet and a CI gate fails on carrier drift (#1662)
+
 ## [1.8.0-beta.25] — 2026-11-03
 
 ### Added
