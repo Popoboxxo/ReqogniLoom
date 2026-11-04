@@ -84,6 +84,7 @@ from persistence.qdrant_config import (
     DEFAULT_QDRANT_HNSW_M,
     DEFAULT_QDRANT_TIMEOUT,
     QDRANT_DISTANCE_ATTRS,
+    QDRANT_QUANTIZATION_INT8,
     QdrantConfig,
     build_collection_name,
     resolve_qdrant_config,
@@ -105,6 +106,18 @@ _PAYLOAD_ENTRY_ID = "entry_id"
 _PAYLOAD_SCOPE = "scope"
 _PAYLOAD_SCOPE_ID = "scope_id"
 _PAYLOAD_TENANT_ID = "tenant_id"
+
+#: Payload fields the scope filter uses. Without an index Qdrant must scan the
+#: whole collection for every search (C7/#1314); the fields are keyword values,
+#: so a KEYWORD payload index is enough.
+_PAYLOAD_INDEX_FIELDS: tuple[str, ...] = (
+    _PAYLOAD_TENANT_ID,
+    _PAYLOAD_SCOPE,
+    _PAYLOAD_SCOPE_ID,
+)
+
+#: Qdrant's recommended quantile for int8 scalar quantization on cosine.
+_QUANTIZATION_QUANTILE = 0.99
 
 #: Page size used by :meth:`QdrantMemoryBackend.iter_scope_points` (the READ-ONLY
 #: reconciliation scan). Bounded so the report cannot enumerate an unbounded
@@ -209,6 +222,33 @@ def _collection_dimension(info: Any) -> int | None:
         if len(sizes) == 1:
             return sizes.pop()
     return None
+
+
+def _payload_index_fields(client: Any, name: str) -> set[str]:
+    """Return the payload fields already indexed on collection *name*.
+
+    Best-effort: a client that cannot answer ``get_collection`` yields an empty
+    set, so the caller simply attempts the (idempotent) index creation.
+    """
+    try:
+        info = client.get_collection(name)
+    except Exception:  # noqa: BLE001 - index creation is best-effort
+        return set()
+    schema = getattr(info, "payload_schema", None) or {}
+    return set(schema)
+
+
+def _quantization_config(models: Any, config: QdrantConfig) -> Any:
+    """Int8 scalar quantization config, or ``None`` when it is disabled."""
+    if config.quantization != QDRANT_QUANTIZATION_INT8:
+        return None
+    return models.ScalarQuantization(
+        scalar=models.ScalarQuantizationConfig(
+            type=models.ScalarType.INT8,
+            quantile=_QUANTIZATION_QUANTILE,
+            always_ram=True,
+        )
+    )
 
 
 def _safe_generate_embedding(text: str) -> list[float] | None:
@@ -440,7 +480,14 @@ class QdrantMemoryBackend(MemoryBackend):
         )
 
     def _ensure_collection(self, client: Any, name: str) -> None:
-        """Create the collection if absent; enforce the dimension guard if present."""
+        """Create the collection if absent; enforce the dimension guard if present.
+
+        C7/#1314: the scope filter must be backed by payload indexes, otherwise
+        Qdrant scans the whole collection for every search. Index creation is
+        idempotent, so this runs on both the create and the reuse path. Int8
+        scalar quantization is applied when ``QDRANT_QUANTIZATION=int8`` (the
+        default), mirroring the artifact vector store.
+        """
         models = self._models()
         if not client.collection_exists(name):
             distance = getattr(
@@ -455,12 +502,24 @@ class QdrantMemoryBackend(MemoryBackend):
                         m=self._config.hnsw_m,
                         ef_construct=self._config.hnsw_ef_construct,
                     ),
+                    quantization_config=_quantization_config(models, self._config),
                 ),
             )
-            return
-        assert_collection_dimension(
-            _collection_dimension(client.get_collection(name)), self._config.vector_dimensions
-        )
+        else:
+            assert_collection_dimension(
+                _collection_dimension(client.get_collection(name)),
+                self._config.vector_dimensions,
+            )
+
+        existing_fields = _payload_index_fields(client, name)
+        for field_name in _PAYLOAD_INDEX_FIELDS:
+            if field_name in existing_fields:
+                continue
+            client.create_payload_index(
+                collection_name=name,
+                field_name=field_name,
+                field_schema=models.PayloadSchemaType.KEYWORD,
+            )
 
     def _collection_names(self, client: Any) -> list[str]:
         """Names of every Qdrant collection under the configured prefix.

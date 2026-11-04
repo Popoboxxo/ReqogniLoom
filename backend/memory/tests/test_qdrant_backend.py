@@ -463,6 +463,28 @@ class TestQdrantDimensionGuard:
         with pytest.raises(ImproperlyConfigured):
             backend._ensure_collection(client, "stale")
 
+    def test_ensure_collection_creates_scope_payload_indexes(self, monkeypatch):
+        """C7/#1314: the scope filter must not scan the whole collection."""
+        backend = _backend_with_fake_client(monkeypatch)
+        client = backend._client
+
+        backend._ensure_collection(client, "fresh")
+
+        assert set(client.payload_indexes["fresh"]) == {
+            "tenant_id",
+            "scope",
+            "scope_id",
+        }
+
+    def test_ensure_collection_applies_int8_quantization(self, monkeypatch):
+        """C7/#1314: the default QDRANT_QUANTIZATION=int8 must be applied."""
+        backend = _backend_with_fake_client(monkeypatch)
+        client = backend._client
+
+        backend._ensure_collection(client, "fresh")
+
+        assert client.vector_configs["fresh"].quantization_config is not None
+
     def test_resolve_config_override_wins_over_env(self, monkeypatch):
         monkeypatch.setenv("QDRANT_BASE_URL", "http://env.invalid")
         monkeypatch.setenv("QDRANT_DISTANCE", "euclid")
