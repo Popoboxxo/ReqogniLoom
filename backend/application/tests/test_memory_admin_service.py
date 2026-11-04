@@ -596,7 +596,11 @@ class TestMemoryAdminServiceProjection:
 
             assert [p["id"] for p in result["points"]] == [str(embedded.id)]
             assert result["excluded_no_embedding"] == 1
-            assert result["total_size"] == 1
+            # #1378: total_size is the scoped corpus, sample_size the rows
+            # that could actually be projected.
+            assert result["total_size"] == 2
+            assert result["sample_size"] == 1
+            assert result["partial"] is True
 
     def test_superseded_entries_are_excluded(self, monkeypatch):
         _patch_embeddings(monkeypatch, {"live": _unit_vector(0), "stale": _unit_vector(5)})
@@ -629,6 +633,8 @@ class TestMemoryAdminServiceProjection:
                 "sample_size": 0,
                 "total_size": 0,
                 "excluded_no_embedding": 0,
+                "partial": False,
+                "timed_out": False,
             }
 
     def test_single_entry_short_circuits_without_svd(self, monkeypatch):
@@ -678,6 +684,37 @@ class TestMemoryAdminServiceProjection:
             assert result["total_size"] == 5
             assert result["sample_size"] == 2
             assert len(result["points"]) == 2
+
+    def test_sampling_happens_before_embedding(self, monkeypatch):
+        """#1378: only the sampled rows may cost a provider call."""
+        calls: list[str] = []
+
+        def _counting_embedding(text):
+            calls.append(text)
+            return _unit_vector(len(calls))
+
+        monkeypatch.setattr(
+            "application.memory_admin_service.generate_embedding",
+            _counting_embedding,
+            raising=True,
+        )
+        monkeypatch.setattr(
+            "application.memory_admin_service.MAX_PROJECTION_POINTS", 2, raising=True
+        )
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            for i in range(5):
+                _make_ws_memory(tenant, ws, f"fact {i}")
+
+            result = MemoryAdminService().get_projection(
+                _system_admin_ctx(tenant),
+                scope="workspace",
+                workspace_id=ws.id,
+            )
+
+        assert len(calls) == 2
+        assert result["total_size"] == 5
+        assert result["sample_size"] == 2
 
     def test_both_tiers_appear_with_owner_labels(self, monkeypatch):
         _patch_embeddings(monkeypatch, {"ws fact": _unit_vector(0), "user fact": _unit_vector(100)})

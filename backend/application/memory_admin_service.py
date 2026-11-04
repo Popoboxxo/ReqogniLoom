@@ -27,6 +27,7 @@ a view-level coercion loop that a cached response would have to repeat.
 """
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -61,6 +62,13 @@ MAX_PROJECTION_POINTS = 5000
 # TTL-only plus the watermark in the cache key (Phase 5 plan Ruling 10) —
 # memory writes never bust this cache explicitly.
 _CACHE_TTL_SECONDS = 300
+
+#: C3/#1378: the projection must answer inside the UI's 30 s budget even when
+#: the embedding provider is slow. Sampling happens before embedding, so this
+#: bound applies to at most ``MAX_PROJECTION_POINTS`` provider calls; when it
+#: is hit the response is a partial one (``partial: true``) rather than a hard
+#: timeout.
+_PROJECTION_EMBEDDING_BUDGET_SECONDS = 25.0
 
 
 def _deterministic_sample(rows: list[Any], max_size: int) -> tuple[list[Any], bool]:
@@ -570,32 +578,31 @@ class MemoryAdminService(ServiceBase):
             return cached
 
         rows: list[dict[str, Any]] = []
-        excluded_no_embedding = 0
-        for entry in ws_qs.only("id", "workspace", "content", "created_at"):
-            embedding = generate_embedding(entry.content)
-            if embedding is None:
-                excluded_no_embedding += 1
-                continue
+        for entry in ws_qs.only(
+            "id", "workspace", "content", "created_at", "embedding"
+        ):
             rows.append(
                 {
                     "id": str(entry.id),
                     "sort_key": (entry.created_at, entry.id),
-                    "embedding": embedding,
+                    "content": entry.content,
+                    # Prefer the stored vector; only sampled rows without one
+                    # are embedded on the fly below.
+                    "stored_embedding": entry.embedding,
                     "owner_type": "workspace",
                     "owner_id": str(entry.workspace_id),
                     "owner_pk": entry.workspace_id,
                 }
             )
-        for entry in user_qs.only("id", "user", "content", "created_at"):
-            embedding = generate_embedding(entry.content)
-            if embedding is None:
-                excluded_no_embedding += 1
-                continue
+        for entry in user_qs.only(
+            "id", "user", "content", "created_at", "embedding"
+        ):
             rows.append(
                 {
                     "id": str(entry.id),
                     "sort_key": (entry.created_at, entry.id),
-                    "embedding": embedding,
+                    "content": entry.content,
+                    "stored_embedding": entry.embedding,
                     "owner_type": "user",
                     "owner_id": str(entry.user_id),
                     "owner_pk": entry.user_id,
@@ -604,7 +611,26 @@ class MemoryAdminService(ServiceBase):
         rows.sort(key=lambda row: row["sort_key"])
 
         total_size = len(rows)
+        # #1378: cap BEFORE the expensive provider calls. The previous order
+        # embedded every row first and only then sampled, so a large corpus
+        # paid O(total) remote calls inside the request.
         sample, sampled = _deterministic_sample(rows, MAX_PROJECTION_POINTS)
+
+        deadline = time.monotonic() + _PROJECTION_EMBEDDING_BUDGET_SECONDS
+        excluded_no_embedding = 0
+        timed_out = False
+        for row in sample:
+            embedding = row.pop("stored_embedding", None)
+            if embedding is None:
+                if time.monotonic() >= deadline:
+                    timed_out = True
+                    continue
+                embedding = generate_embedding(row["content"])
+            if embedding is None:
+                excluded_no_embedding += 1
+                continue
+            row["embedding"] = embedding
+        sample = [row for row in sample if "embedding" in row]
 
         ws_labels, user_labels = self._owner_labels(
             {r["owner_pk"] for r in sample if r["owner_type"] == "workspace"},
@@ -653,14 +679,20 @@ class MemoryAdminService(ServiceBase):
             for i, row in enumerate(sample)
         ]
 
+        partial = timed_out or excluded_no_embedding > 0
         result = {
             "points": points,
             "sampled": sampled,
             "sample_size": len(sample),
             "total_size": total_size,
             "excluded_no_embedding": excluded_no_embedding,
+            # #1378: never fail the UI with a hard timeout; tell it that the
+            # picture is incomplete and why.
+            "partial": partial,
+            "timed_out": timed_out,
         }
-        cache.set(cache_key, result, _CACHE_TTL_SECONDS)
+        if not partial:
+            cache.set(cache_key, result, _CACHE_TTL_SECONDS)
         return result
 
 
