@@ -112,6 +112,24 @@ VERSION_COUPLED: tuple[VersionLocation, ...] = (
         "dist/npm/reqogniloom-opencode/package.json",
         ("version",),
     ),
+    # C8/#1662: the frontend app is a first-party release artifact too. It was
+    # missing from this ratchet, so a tag could ship a stale app version while
+    # every plugin manifest was correct.
+    VersionLocation(
+        "Frontend package.json",
+        "frontend/package.json",
+        ("version",),
+    ),
+    VersionLocation(
+        "Frontend lockfile (root)",
+        "frontend/package-lock.json",
+        ("version",),
+    ),
+    VersionLocation(
+        "Frontend lockfile (packages[''])",
+        "frontend/package-lock.json",
+        ("packages", "", "version"),
+    ),
 )
 
 #: Source-tree files that must exist for a first-party plugin package to be
