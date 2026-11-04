@@ -1,6 +1,6 @@
 """REST through-path: an Issue is linked to a Requirement via ``references``.
 
-Plan F, F1.1-T1 (``docs/plans/2026-10-21-plan-f-dokumente-baselines.md``):
+Plan F, F1.1-T1 (``docs/plans/Archive/2026-10-21-plan-f-dokumente-baselines.md``):
 after consolidating the Issue/Risk link path onto the central link-type
 catalog, a user creates an Issue link through the *generic* surface —
 ``POST /api/v1/trace-links/`` — not through a private ``create_tracelink``

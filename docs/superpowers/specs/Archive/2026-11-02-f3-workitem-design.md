@@ -1,13 +1,13 @@
 # WorkItem, Agenten-Zustand und Inline-Verweise — Design (Plan F, WP F3)
 
 > **Status:** freigegeben für die Umsetzung (2026-11-02, Nutzerauftrag Welle 4 / Plan F F3-T0).
-> **Quellen:** Konzept [Dokument-Artefakte & Dokumenten-Workflow v4](../../concepts/2026-10-16-dokument-artefakte-workitem.md)
-> (#1374), Umsetzungsplan [Plan F](../../plans/2026-10-21-plan-f-dokumente-baselines.md) §WP F3,
-> Entscheidungsliste [§0b](../../plans/2026-10-21-entscheidungen-offen.md#0b-entschieden-am-2026-10-26-nutzer-welle-24).
+> **Quellen:** Konzept [Dokument-Artefakte & Dokumenten-Workflow v4](../../../concepts/2026-10-16-dokument-artefakte-workitem.md)
+> (#1374), Umsetzungsplan [Plan F](../../../plans/Archive/2026-10-21-plan-f-dokumente-baselines.md) §WP F3,
+> Entscheidungsliste [§0b](../../../plans/2026-10-21-entscheidungen-offen.md#0b-entschieden-am-2026-10-26-nutzer-welle-24).
 > **Entscheidungen:** ENT-F3 = a (Inline-Verweise; bindend, §0b), ENT-G1 = A (Soft-Delete-Vertrag,
 > vorläufig), ENT-E2 = A (ETag-Regel, vorläufig), ENT-F1 = a/b (Link-Typen, F3-T3).
 > **Vorgänger:** [F2-Spec](2026-11-02-f2-document-design.md) und
-> [ADR-026](../../se/ADR/ADR-026_document_artefakt.md) — F2 ist vollständig gemergt.
+> [ADR-026](../../../se/ADR/ADR-026_document_artefakt.md) — F2 ist vollständig gemergt.
 > **Abgrenzung:** Dieses Dokument beschreibt den gesamten F3-Umfang. Umgesetzt wird in diesem
 > Auftrag nur **F3-T0 (Spec + Review-Protokoll)** und **F3-T1 (Modell + RLS-Migrationen)**;
 > Workflow-Seeds, Link-Typen, Service, REST, MCP, Inline-Anker-Register, Events und Frontend

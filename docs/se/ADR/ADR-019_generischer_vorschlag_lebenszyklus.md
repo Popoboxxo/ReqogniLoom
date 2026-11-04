@@ -23,7 +23,7 @@ superseded_by: null
 `proposed → accepted` nach positivem `concept-reviewer`-Review `RVW-2026-10-06-003`
 (Iteration 3, APPROVED) und User-Entscheid. Das **STOP-Gate ist aufgehoben**; die
 Umsetzung erfolgt gemäß
-[`2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md`](../../plans/2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md)
+[`2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md`](../../plans/Archive/2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md)
 (WP1–WP7, vollständig inkl. UI-Inbox WP6). Der einzige offene, nicht blockierende Befund
 `003-01` (HTTP-Status-Mapping `409` vs. `403`) wird bei WP3/WP4 in der REST-/MCP-Fehler-Taxonomie
 verankert.
@@ -469,10 +469,10 @@ Alle Findings `001-01`…`001-11` sind geschlossen bzw. adressiert; keine critic
 
 **Umsetzung:** Der geordnete Umsetzungsplan (Arbeitspakete WP1–WP7, Reihenfolge/Wellen,
 Risiken, DoD) liegt in
-[`docs/plans/2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md`](../plans/2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md)
+[`docs/plans/Archive/2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md`](../plans/Archive/2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md)
 — er startet erst nach `proposed → accepted` und implementiert selbst nichts.
 **Restpfade & Gesamtübersicht (2026-10-07):**
-[`docs/plans/2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md`](../plans/2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md) §1
+[`docs/plans/Archive/2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md`](../plans/Archive/2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md) §1
 ordnet die Restpfade (Human-Bearer-REST-Trigger, `#1095`, `#1197`, `#1196`) ein; §0 führt die
 Gesamt-Reihenfolge über #1155/#1201/#1202/#1204. Dieses ADR bleibt inhaltlich unverändert.
 

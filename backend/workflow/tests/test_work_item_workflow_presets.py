@@ -1,6 +1,6 @@
 """Plan F F3-T2 — the three tier-dependent WorkItem lifecycles.
 
-Covers the contract fixed in ``docs/superpowers/specs/2026-11-02-f3-workitem-design.md``
+Covers the contract fixed in ``docs/superpowers/specs/Archive/2026-11-02-f3-workitem-design.md``
 §4/§5 and plan F §WP F3:
 
 * ``work_item_minimal`` = ``todo -> in_progress -> done`` plus ``dropped``;

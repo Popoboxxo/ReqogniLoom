@@ -28,10 +28,10 @@ integration: "Stufe 2 (Korrekturaufträge KA-F-01…14, KA-ALL-01…11) eingearb
 > **Belege:** Belege unter `docs/test-reports/` sind gitignored (`.gitignore:91`); DoD-Nachweise stehen im PR-Text bzw. als
 > CI-Artefakt (vorläufig, ENT-X3 = C). Nach ENT-X3 = B gehen neue DoD-Artefakte nach `docs/se/reports/` bzw. `docs/reviews/`
 > (Index §f.6). QS-Adressen in Verifikationsbefehlen nur als `$QS_URL` (Workspace-ID als `$Z`).
-> **Vorrang:** Planbasis > [Plan-Index](2026-10-21-backlog-umsetzung-index.md) > dieser Plan. Offene Nutzerentscheidungen heißen
-> `ENT-*` ([Entscheidungsliste](2026-10-21-entscheidungen-offen.md)); Stellen mit „vorläufig, ENT-…“ tragen deren Empfehlung bis
+> **Vorrang:** Planbasis > [Plan-Index](../2026-10-21-backlog-umsetzung-index.md) > dieser Plan. Offene Nutzerentscheidungen heißen
+> `ENT-*` ([Entscheidungsliste](../2026-10-21-entscheidungen-offen.md)); Stellen mit „vorläufig, ENT-…“ tragen deren Empfehlung bis
 > zur Entscheidung. Die Plan-internen IDs ENT-F0…ENT-F6 sind ENT-F0…ENT-F6 (§ix).
-> **Migrationen:** siehe [Plan-Index §e](2026-10-21-backlog-umsetzung-index.md#e-konsolidierte-migrationsvergabe-bindend) und
+> **Migrationen:** siehe [Plan-Index §e](../2026-10-21-backlog-umsetzung-index.md#e-konsolidierte-migrationsvergabe-bindend) und
 > Abschnitt „Migrationen“ am Ende dieses Plans (nur Namen + Index-Verweis, keine eigene Reservierung).
 > `graphify-out/` existiert im Arbeitsbaum nicht; Navigation per gezieltem Grep/Read.
 >
@@ -187,7 +187,7 @@ Konzept-Entscheidungen E1–E12 (#1374 §0) gelten für F2/F3 als Eingabe; Konfl
 
 Konventionen für alle Tasks (wie Plan B):
 
-- **Testbefehl Backend:** Makro `BT <pfade>` aus [Index §f.3](2026-10-21-backlog-umsetzung-index.md#f3-lokale-testbefehle-und-passwort-variable-qr-t23)
+- **Testbefehl Backend:** Makro `BT <pfade>` aus [Index §f.3](../2026-10-21-backlog-umsetzung-index.md#f3-lokale-testbefehle-und-passwort-variable-qr-t23)
   (Superuser `DB_USER=reqogniloom`, Passwort `DB_PASSWORD` aus der Env-Datei des laufenden Stacks, nie ausschreiben; Pfade relativ zu `backend/`).
 - **Testbefehl Frontend:** `docker exec reqogniloom-frontend-1 sh -c 'cd /app && npx vitest run <pfad>'` → `VITEST <pfad>` (Index §f.3).
 - „Grün" = letzte pytest-Zeile `N passed` ohne `failed`/`error`; Vitest `Tests  N passed`.
@@ -778,7 +778,7 @@ Annahmen: ein Entwickler, Dev-Stack läuft, CI grün; Personentage inkl. Tests u
 
 ## (ix) Entscheidung nötig
 
-Die Plan-IDs ENT-F0…ENT-F6 sind in der [Entscheidungsliste](2026-10-21-entscheidungen-offen.md) als **ENT-F0…ENT-F6** geführt (KA-F-10); maßgeblich ist
+Die Plan-IDs ENT-F0…ENT-F6 sind in der [Entscheidungsliste](../2026-10-21-entscheidungen-offen.md) als **ENT-F0…ENT-F6** geführt (KA-F-10); maßgeblich ist
 die Liste. Vorläufig-Status laut Liste: ENT-F0 nein (blockiert PR-F1…F6), ENT-F1 nein für PR-F2 / ja für PR-F1, ENT-F2…ENT-F5 nein (Welle 4),
 ENT-F6 ja (Plan arbeitet mit a). Weitere ENT-Bezüge dieses Plans: ENT-X3 (Belege, vorläufig C), ENT-X4 (ADR-Rollen, vorläufig A, F4.0 startet erst nach
 Entscheidung), ENT-X5 (`project.yaml` vor Tool-PRs), ENT-E2 (ETag-Umfang, vorläufig A), ENT-E3 (E2.1, vorläufig A), ENT-G1 (Soft-Delete, blockiert F4.4/F2-T5),
@@ -1011,7 +1011,7 @@ erwartete Vorgänger-Migration laut Index §e; maßgeblich ist beim Merge die **
 
 ## Migrationen (ersetzt „Migrations-Reservierung“, KA-ALL-01)
 
-Migrationen: siehe [Plan-Index §e](2026-10-21-backlog-umsetzung-index.md#e-konsolidierte-migrationsvergabe-bindend). Dieser Plan legt an:
+Migrationen: siehe [Plan-Index §e](../2026-10-21-backlog-umsetzung-index.md#e-konsolidierte-migrationsvergabe-bindend). Dieser Plan legt an:
 
 | App · Name (Index §e) | Task / PR | Bedingung |
 |---|---|---|
@@ -1036,7 +1036,7 @@ Rückwärts-Probe und Rollback nur mit Migrationsnamen (Index §e Regel 4).
 
 ## Änderungsprotokoll Stufe 2
 
-Integration der [Korrekturaufträge](2026-10-21-korrekturauftraege.md) (Abschnitt F und alle KA-ALL) am 2026-10-21/22. „vorläufig“ = Empfehlung der
+Integration der [Korrekturaufträge](../2026-10-21-korrekturauftraege.md) (Abschnitt F und alle KA-ALL) am 2026-10-21/22. „vorläufig“ = Empfehlung der
 Entscheidungsliste eingearbeitet und im Text als „vorläufig, ENT-…“ markiert; wo die Liste „Vorläufig: nein“ führt, trägt die Task das
 Eintrittskriterium „ENT-… entschieden“ (ENT-F0, ENT-F1 für PR-F2, ENT-F2…F5, ENT-G1, ENT-X4, ENT-X5).
 

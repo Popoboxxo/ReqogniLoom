@@ -5,7 +5,7 @@ Covers the wiring the WorkItem artifact needs beyond model/service/REST/MCP
 stale-work-state rule and the read-only memory digest. Real DB, real services —
 no mock stands in for the behaviour under test.
 
-Contracts (docs/superpowers/specs/2026-11-02-f3-workitem-design.md §10–§12):
+Contracts (docs/superpowers/specs/Archive/2026-11-02-f3-workitem-design.md §10–§12):
 
 * ``ItemStateChanged`` on a workflow transition and on a progress change;
 * an additional ``ItemBlocked`` when a transition enters ``blocked``, with the

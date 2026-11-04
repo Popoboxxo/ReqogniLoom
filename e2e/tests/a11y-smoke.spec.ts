@@ -1,6 +1,6 @@
 /**
  * Automated accessibility gate — Phase 6 step 8 of
- * `docs/plans/2026-10-15-frontend-audit-fixes.md` (§Phase 6, "Entscheidung 2",
+ * `docs/plans/Archive/2026-10-15-frontend-audit-fixes.md` (§Phase 6, "Entscheidung 2",
  * §Tooling-Lücken, §Phase 8 step 5).
  *
  * Before this spec the repo had axe-core only as a *manual* script

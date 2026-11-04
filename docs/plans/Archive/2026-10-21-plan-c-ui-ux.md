@@ -24,8 +24,8 @@ integration: "Stufe 2 (Korrekturaufträge KA-C-01…15, KA-ALL-01…11) eingearb
 > **Belege:** Alles unter `docs/test-reports/` ist gitignored (`.gitignore:91`); DoD-Nachweise stehen im
 > PR-Text bzw. als CI-Artefakt (vorläufig, ENT-X3 = C). Nach ENT-X3 = B gehen neue DoD-Artefakte nach
 > `docs/se/reports/` bzw. `docs/reviews/` (Index §f.6). QS-Adressen in Verifikationsbefehlen nur als `$QS_URL`.
-> **Vorrang:** Planbasis > [Plan-Index](2026-10-21-backlog-umsetzung-index.md) > dieser Plan. Offene
-> Nutzerentscheidungen heißen `ENT-*` ([Entscheidungsliste](2026-10-21-entscheidungen-offen.md));
+> **Vorrang:** Planbasis > [Plan-Index](../2026-10-21-backlog-umsetzung-index.md) > dieser Plan. Offene
+> Nutzerentscheidungen heißen `ENT-*` ([Entscheidungsliste](../2026-10-21-entscheidungen-offen.md));
 > Stellen mit „vorläufig, ENT-…“ tragen deren Empfehlung bis zur Entscheidung.
 
 | Feld | Wert |
@@ -34,7 +34,7 @@ integration: "Stufe 2 (Korrekturaufträge KA-C-01…15, KA-ALL-01…11) eingearb
 | **Issues** | #598 (W4a), #1258, #186, #1094, #1287, #1257 (CLOSED 2026-10-15, PR #1331), #801, #946, #85; Übergaben aus Plan G: #1379 (G4.4), #1405 R1-04 |
 | **Besitz** | Plan C/WP C2 **besitzt Q1** (generischer 3-Ebenen-Präferenzdienst). Plan A (T-A1-4) registriert nur seine Schlüssel `memory.enabled`, `memory.disabled_slots`, `memory.allow_user_opt_out` (vorläufig, ENT-A5 = A). |
 | **Nicht-Teil** | G4.1–G4.3 (spezifiziert Plan G, hier nur referenziert = C4), BluePencil-Hub/-Dialoge (Plan D/D1), Memory-Schalter-UI (Plan A/T-A1-7) |
-| **Migrationen** | siehe [Plan-Index §e](2026-10-21-backlog-umsetzung-index.md#e-konsolidierte-migrationsvergabe-bindend) und §14. Dieser Plan legt an: `auth_tenancy` · `0029_preferencevalue`, `0030_preferencevalue_rls` (T-C2-1) · `0031_backfill_show_readable_ids` (T-C2-6) · `0033_drop_userdisplaypreference_show_readable_ids` (T-C2-9, contract). Keine `persistence`-Migration. |
+| **Migrationen** | siehe [Plan-Index §e](../2026-10-21-backlog-umsetzung-index.md#e-konsolidierte-migrationsvergabe-bindend) und §14. Dieser Plan legt an: `auth_tenancy` · `0029_preferencevalue`, `0030_preferencevalue_rls` (T-C2-1) · `0031_backfill_show_readable_ids` (T-C2-6) · `0033_drop_userdisplaypreference_show_readable_ids` (T-C2-9, contract). Keine `persistence`-Migration. |
 
 ---
 
@@ -138,7 +138,7 @@ Reihenfolge laut Planbasis: C0 = Welle 0, Q1 und C1 = Welle 1, C2/C3 = Welle 2 (
 
 ## 4. Arbeitspakete (iv)
 
-Konventionen: **BT** `<pfade>` = Backend-Testmakro aus [Plan-Index §f.3](2026-10-21-backlog-umsetzung-index.md#f3-lokale-testbefehle-und-passwort-variable-qr-t23) (Superuser `DB_USER=reqogniloom`, Passwort `DBPW` aus der Env-Datei des laufenden Stacks), `<pfade>` relativ zu `backend/` → erwartet letzte Zeile `N passed` ohne `failed`/`error`. **FT** `<pfad>` = `docker exec reqogniloom-frontend-1 sh -c 'cd /app && npx vitest run <pfad>'` → `Tests  N passed`. **E2E** nur gezielt: `cd e2e && npx playwright test <spec> [--grep …]` (voller Lauf nur nach Nutzerfreigabe). Lint/Typen: `npm run lint` und `npx tsc --noEmit -p tsconfig.json` in `frontend/` → Exit 0. CI-Checks nur aus Index §f.2 (`lint` = nur Frontend-ESLint).
+Konventionen: **BT** `<pfade>` = Backend-Testmakro aus [Plan-Index §f.3](../2026-10-21-backlog-umsetzung-index.md#f3-lokale-testbefehle-und-passwort-variable-qr-t23) (Superuser `DB_USER=reqogniloom`, Passwort `DBPW` aus der Env-Datei des laufenden Stacks), `<pfade>` relativ zu `backend/` → erwartet letzte Zeile `N passed` ohne `failed`/`error`. **FT** `<pfad>` = `docker exec reqogniloom-frontend-1 sh -c 'cd /app && npx vitest run <pfad>'` → `Tests  N passed`. **E2E** nur gezielt: `cd e2e && npx playwright test <spec> [--grep …]` (voller Lauf nur nach Nutzerfreigabe). Lint/Typen: `npm run lint` und `npx tsc --noEmit -p tsconfig.json` in `frontend/` → Exit 0. CI-Checks nur aus Index §f.2 (`lint` = nur Frontend-ESLint).
 
 **Gemeinsame DoD-Zeilen (gelten für jede Task, auf die sie zutreffen):**
 - **Neue Liste/Route mit Mehrfachergebnis:** deterministisch sortiert (`order_by` mit eindeutigem Tiebreaker bzw. Sortierung nach Schlüssel); nach Plan G PR 6 macht `UnorderedObjectListWarning` den Test rot (KA-ALL-10).
@@ -683,7 +683,7 @@ Alle PRs gegen `main` (Branch von `origin/main`), grün auf den realen CI-Jobs a
 
 ## 11. Entscheidung nötig (ix)
 
-Maßgeblich ist die [Entscheidungsliste](2026-10-21-entscheidungen-offen.md); diese Tabelle fasst nur die Plan-C-Sicht zusammen. Die bisherigen Plan-IDs E-C1…E-C4 heißen jetzt ENT-C1…ENT-C4 (KA-C-15).
+Maßgeblich ist die [Entscheidungsliste](../2026-10-21-entscheidungen-offen.md); diese Tabelle fasst nur die Plan-C-Sicht zusammen. Die bisherigen Plan-IDs E-C1…E-C4 heißen jetzt ENT-C1…ENT-C4 (KA-C-15).
 
 | ID | Frage | Optionen | Empfehlung |
 |---|---|---|---|
@@ -770,7 +770,7 @@ Maßgeblich ist die [Entscheidungsliste](2026-10-21-entscheidungen-offen.md); di
 
 ## 14. Migrationen
 
-Migrationen: siehe [Plan-Index §e](2026-10-21-backlog-umsetzung-index.md#e-konsolidierte-migrationsvergabe-bindend) (bindend; keine eigene Reservierung). Ist-Stand `b175c970`: `auth_tenancy` höchste `0027_create_form_config`.
+Migrationen: siehe [Plan-Index §e](../2026-10-21-backlog-umsetzung-index.md#e-konsolidierte-migrationsvergabe-bindend) (bindend; keine eigene Reservierung). Ist-Stand `b175c970`: `auth_tenancy` höchste `0027_create_form_config`.
 Dieser Plan legt an (Nummer = höchste Nummer der App auf `main` + 1 beim Merge; `dependencies` zeigen auf die zuletzt gemergte Migration; `CreateModel` und RLS-Policy im selben PR; `persistence/tests/test_rls_coverage.py` ist Pflicht-Check):
 
 | App | Name (Index §e) | Task / PR | Welle | Art | Rollback-Ziel (Name) |
@@ -786,7 +786,7 @@ Dieser Plan legt an (Nummer = höchste Nummer der App auf `main` + 1 beim Merge;
 
 ## 15. Änderungsprotokoll Stufe 2
 
-Integration der [Korrekturaufträge](2026-10-21-korrekturauftraege.md) (Abschnitt C und KA-ALL) am 2026-10-21. „vorläufig“ = Empfehlung der Entscheidungsliste eingearbeitet und im Text als „vorläufig, ENT-…“ markiert.
+Integration der [Korrekturaufträge](../2026-10-21-korrekturauftraege.md) (Abschnitt C und KA-ALL) am 2026-10-21. „vorläufig“ = Empfehlung der Entscheidungsliste eingearbeitet und im Text als „vorläufig, ENT-…“ markiert.
 
 | Auftrag | Task-ID / Stelle | Status | Anmerkung |
 |---|---|---|---|

@@ -109,7 +109,7 @@ Dieselbe Festlegung steht in der zugehörigen Zerlegung
 (`docs/se/L1/Gesamtsystem/L2_architectural_decomposition_iter-1.md:55,59`). Ein optionaler
 Qdrant-Backend ist damit **keine additive Neuerung, sondern eine Revision** und braucht dieses
 ADR — **vor** jeder Zeile Code (vgl. Plan §4.2/§4.7,
-`docs/plans/2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md`).
+`docs/plans/Archive/2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md`).
 
 **4. Abgrenzung zu #1002 / #1023 / #1155.** #1002 hat den *kanonischen* Memory-Store geschaffen
 (`mem_memory_entry`, RLS, `MemoryBackend`-ABC). #1023 hat den **Artefakt-Scope** und die
@@ -355,7 +355,7 @@ Postgres-Wahrheit aufzugeben.
 ## Abnahmekriterien
 
 > Übernommen aus #1204, abgeglichen mit dem code-verifizierten Plan
-> `docs/plans/2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md` §4.8. AC beziehen sich auf die
+> `docs/plans/Archive/2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md` §4.8. AC beziehen sich auf die
 > Umsetzung **nach** `proposed → accepted`; das ADR selbst implementiert nichts.
 
 - [ ] **AC-ADR:** ADR-020 ist entschieden (Collection-Strategie A, Umfang V1+V2, pgvector Default)

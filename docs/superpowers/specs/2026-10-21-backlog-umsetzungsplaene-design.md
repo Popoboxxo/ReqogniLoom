@@ -151,7 +151,7 @@ ergänzt nur Verweise und markiert Fakten, die die Live-Checks und Code-Prüfung
 | [Entscheidungsliste](../../plans/2026-10-21-entscheidungen-offen.md) | 54 offene Nutzerentscheidungen `ENT-*` (21 Konflikte), Nutzer-Gates |
 | [Korrekturaufträge](../../plans/2026-10-21-korrekturauftraege.md) | Stufe-2-Arbeitsliste nach den Querreviews |
 | [Review-Bericht](../../reviews/PLAN_REVIEW_2026-10-21_BACKLOG_UMSETZUNG.md) | Abschlussbericht: Befunde, Live-Check-Matrix, widerlegte Annahmen |
-| [Plan A](../../plans/2026-10-21-plan-a-memory-und-suche.md) · [B](../../plans/2026-10-21-plan-b-se-modell.md) · [C](../../plans/2026-10-21-plan-c-ui-ux.md) · [D](../../plans/2026-10-21-plan-d-deployment-dx.md) · [E](../../plans/2026-10-21-plan-e-security-api.md) · [F](../../plans/2026-10-21-plan-f-dokumente-baselines.md) · [G](../../plans/2026-10-21-plan-g-qa-haertung.md) | Umsetzungspläne, je Plan Stufe 2 integriert, Status `proposed` |
+| [Plan A](../../plans/2026-10-21-plan-a-memory-und-suche.md) · [B](../../plans/Archive/2026-10-21-plan-b-se-modell.md) · [C](../../plans/Archive/2026-10-21-plan-c-ui-ux.md) · [D](../../plans/2026-10-21-plan-d-deployment-dx.md) · [E](../../plans/Archive/2026-10-21-plan-e-security-api.md) · [F](../../plans/Archive/2026-10-21-plan-f-dokumente-baselines.md) · [G](../../plans/2026-10-21-plan-g-qa-haertung.md) | Umsetzungspläne, je Plan Stufe 2 integriert, Status `proposed` |
 
 **Abweichung von §2 (nur Form, keine Entscheidung):** Die Pläne sind direkt als Umsetzungspläne unter `docs/plans/`
 entstanden. Eigene Specs je Plan entstehen nur für F1–F3 (ENT-F0) und vor Welle 4.

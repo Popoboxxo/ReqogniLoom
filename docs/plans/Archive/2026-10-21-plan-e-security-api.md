@@ -25,8 +25,8 @@ integration: "Stufe 2 (Korrekturaufträge KA-E-01…14, KA-ALL-01/02/03/06/07/08
 > stehen im PR-Text bzw. als CI-Artefakt (vorläufig, ENT-X3 = C). Nach ENT-X3 = B gehen neue
 > DoD-Artefakte nach `docs/se/reports/` bzw. `docs/reviews/` (Index §f.6). QS-Adressen in
 > Verifikationsbefehlen nur als `$QS_URL`.
-> **Vorrang:** Planbasis > [Plan-Index](2026-10-21-backlog-umsetzung-index.md) > dieser Plan. Offene
-> Nutzerentscheidungen heißen `ENT-*` ([Entscheidungsliste](2026-10-21-entscheidungen-offen.md));
+> **Vorrang:** Planbasis > [Plan-Index](../2026-10-21-backlog-umsetzung-index.md) > dieser Plan. Offene
+> Nutzerentscheidungen heißen `ENT-*` ([Entscheidungsliste](../2026-10-21-entscheidungen-offen.md));
 > Stellen mit „vorläufig, ENT-…“ tragen deren Empfehlung bis zur Entscheidung.
 
 | Feld | Wert |
@@ -35,7 +35,7 @@ integration: "Stufe 2 (Korrekturaufträge KA-E-01…14, KA-ALL-01/02/03/06/07/08
 | **Issues** | #1444, #1443, #1439 (E1) · #1380, #1388, #1396, #1397 (E2) · #1308 (E3) |
 | **ADR-Bezug** | ADR-011 (Autorisierungsachse, SEC-03 Fence), ADR-021 O5 (2FA-Residuum, Nachtrag) |
 | **Wellen** | E1, E2 in Welle 0; E2-Burn-down (WP E2.8) und E2.9 (Listen-Parameter) in Welle 2; E3 in Welle 3 (Sicherheitsgate vor Welle 3: QR-S01, QR-S10, Index §b) |
-| **Migrationen** | siehe [Plan-Index §e](2026-10-21-backlog-umsetzung-index.md#e-konsolidierte-migrationsvergabe-bindend). Dieser Plan legt an: `auth_tenancy` · `0031_user_mfa` (E3.1) · `audit` · `0016_alter_auditentry_op_mfa` (E3.1). Nummer = höchste Nummer der App auf `main` + 1 beim Merge; `dependencies` zeigen auf die zuletzt gemergte Migration der App (erwartet `auth_tenancy 0030_backfill_show_readable_ids` aus Plan C, `audit 0015_alter_auditentry_op`). Beide Tabellen sind global (kein `TenantScopedModel`, Begründung E3.1) → keine RLS-Policy; `persistence/tests/test_rls_coverage.py` bleibt Pflicht-Check und grün. E1/E2: keine Migration. |
+| **Migrationen** | siehe [Plan-Index §e](../2026-10-21-backlog-umsetzung-index.md#e-konsolidierte-migrationsvergabe-bindend). Dieser Plan legt an: `auth_tenancy` · `0031_user_mfa` (E3.1) · `audit` · `0016_alter_auditentry_op_mfa` (E3.1). Nummer = höchste Nummer der App auf `main` + 1 beim Merge; `dependencies` zeigen auf die zuletzt gemergte Migration der App (erwartet `auth_tenancy 0030_backfill_show_readable_ids` aus Plan C, `audit 0015_alter_auditentry_op`). Beide Tabellen sind global (kein `TenantScopedModel`, Begründung E3.1) → keine RLS-Policy; `persistence/tests/test_rls_coverage.py` bleibt Pflicht-Check und grün. E1/E2: keine Migration. |
 
 ---
 
@@ -950,7 +950,7 @@ Zahlen sind Schätzungen des Plan-Autors; Schärfung durch `effort-estimator` (P
 
 ## (ix) Entscheidung nötig
 
-IDs laut [Entscheidungsliste](2026-10-21-entscheidungen-offen.md); alte Plan-IDs in Klammern.
+IDs laut [Entscheidungsliste](../2026-10-21-entscheidungen-offen.md); alte Plan-IDs in Klammern.
 
 | ID | Frage | Optionen | Empfehlung | Vorläufig im Plan | blockiert |
 |---|---|---|---|---|---|
@@ -988,8 +988,8 @@ Plan-übergreifend relevant: ENT-X3 (Belege, vorläufig C), ENT-X4 (ADR-Rolle, E
 | RB-15 | niedrig | E-L4 | Pfadzahl wächst (353→357) — Zahlen im Issue sind Momentaufnahmen | E2.7 (Ratchet statt fester Zahl) |
 | RB-16 | niedrig | DRF `validate()` läuft erst nach gültigen Feldern | Sammel-400 wäre sonst wieder seriell | E1.5 (Sammlung in `to_internal_value`) |
 
-**Querreview-Befunde** ([TECHNISCH](../reviews/PLAN_QUERREVIEW_2026-10-21_TECHNISCH.md),
-[SICHERHEIT](../reviews/PLAN_QUERREVIEW_2026-10-21_SICHERHEIT.md)) — korrigiert in Stufe 2:
+**Querreview-Befunde** ([TECHNISCH](../../reviews/PLAN_QUERREVIEW_2026-10-21_TECHNISCH.md),
+[SICHERHEIT](../../reviews/PLAN_QUERREVIEW_2026-10-21_SICHERHEIT.md)) — korrigiert in Stufe 2:
 
 | ID | Schwere | Auswirkung | Korrigiert in |
 |---|---|---|---|
@@ -1191,7 +1191,7 @@ Lokal über das Makro `BT` (Index §f.3) bzw. Frontend-Befehl aus Index §f.3; Q
 
 ## Änderungsprotokoll Stufe 2
 
-Integration der [Korrekturaufträge](2026-10-21-korrekturauftraege.md) (Abschnitt E und die für E
+Integration der [Korrekturaufträge](../2026-10-21-korrekturauftraege.md) (Abschnitt E und die für E
 zutreffenden KA-ALL) am 2026-10-21. „vorläufig“ = Empfehlung der Entscheidungsliste eingearbeitet und
 im Text als „vorläufig, ENT-…“ markiert; die betroffene Task trägt das Eintrittskriterium
 „ENT-… entschieden“, wo die Entscheidungsliste „Vorläufig: nein“ führt (ENT-E7, ENT-X4).

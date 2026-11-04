@@ -1,7 +1,7 @@
 """The three Document link types are regular catalog built-ins (#1374).
 
-Plan F, F2-T3 (``docs/plans/2026-10-21-plan-f-dokumente-baselines.md``, spec
-``docs/superpowers/specs/2026-11-02-f2-document-design.md`` §5, ADR-026):
+Plan F, F2-T3 (``docs/plans/Archive/2026-10-21-plan-f-dokumente-baselines.md``, spec
+``docs/superpowers/specs/Archive/2026-11-02-f2-document-design.md`` §5, ADR-026):
 ``documented-in``, ``evidences`` and ``depends-on`` join ``BUILTIN_LINK_TYPES``,
 and ``references`` is extended additively with ``Document`` as source and target.
 

@@ -8,7 +8,7 @@ on the same state machines the product uses:
 * ``work_item_extended`` — adds ``in_review`` and makes ``in_review -> done``
   an ``approver``-only edge that records ``approved_by``/``approved_at``.
 
-Covered contracts (docs/superpowers/specs/2026-11-02-f3-workitem-design.md §4,
+Covered contracts (docs/superpowers/specs/Archive/2026-11-02-f3-workitem-design.md §4,
 §6, §9; plan F §WP F3):
 
 * ``document`` is mandatory and must belong to the item's workspace;

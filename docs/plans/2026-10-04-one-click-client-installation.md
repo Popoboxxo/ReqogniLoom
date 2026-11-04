@@ -45,7 +45,7 @@ Beleg: `docs/bugfix-hub/smoke/2026-10-05-client-smoke.md`.
 - **Offene Einzel-Issues:** #92 (Workspace-Tokens + UI-MCP-Config), #1138 (Plugin-Versionierungs-Anker).
 - **Hermes agenten-nativ (#1201/#1202):** Die Konsolidierung des Hermes-Pakets (MCP statt
   Eigen-REST-Client) und die One-Click-Anbindung sind geordnet in
-  [`2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md`](2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md) §2/§3.
+  [`2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md`](Archive/2026-10-07-umsetzungsplaene-1155-1201-1202-1204.md) §2/§3.
 
 ### Umsetzungsstand 2026-10-09 — Entscheidungen geschlossen
 

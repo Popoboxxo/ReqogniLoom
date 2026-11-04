@@ -119,7 +119,7 @@ Aus `.local/VISION_REQOGNILOOM.md`, Abschnitt 1 („Kern"):
 
 ### Phase 6: Agenten-Templates für Downstream-Projekte
 
-**Plan:** `docs/superpowers/plans/2026-07-25-phase6-agent-templates.md` (not archived — one open item remains, see the plans index)  
+**Plan:** `docs/superpowers/plans/Archive/2026-07-25-phase6-agent-templates.md` (archived; the single naming deviation was decided against, see the plans index)  
 **Ziel:** Publikation von 5 provider-agnostischen, agent-meta-kompatiblen Agent-Template-Dateien + Bootstrap-Snippet unter `docs/agent-templates/`.
 
 **Implementierte Rollen (alle vollständig ausgearbeitet):**
@@ -180,7 +180,7 @@ Jede Rolle: YAML-Frontmatter (name, version, compatible_with, tools) + Prose Sys
 |---|---|
 | `.local/VISION_REQOGNILOOM.md` | Original-Vision (Abschnitt 10: Roadmap mit Prio 1–6) |
 | `docs/superpowers/specs/Archive/2026-07-23-reqogniloom-status-unification-design.md` | Design-Dokument (7 Phasen abgeleitet) |
-| `docs/superpowers/plans/Archive/2026-07-23-phase0-*.md` … `2026-07-25-phase5-*.md` (Archive) + `docs/superpowers/plans/2026-07-25-phase6-agent-templates.md` (nicht archiviert, ein offener Punkt) | Implementierungs-Pläne (7 Dateien) |
+| `docs/superpowers/plans/Archive/2026-07-23-phase0-*.md` … `2026-07-25-phase5-*.md` (Archive) + `docs/superpowers/plans/Archive/2026-07-25-phase6-agent-templates.md` (archiviert; einzige Abweichung bewusst entschieden) | Implementierungs-Pläne (7 Dateien) |
 | `.superpowers/sdd/progress*.md` | Ledger pro Phase (Commits, Findings, Verifikation) |
 | `docs/CODEBASE_OVERVIEW.md` | Code-API nach Umsetzung (Domäne des documenter-Agents) |
 

@@ -1,6 +1,6 @@
 """The Issue/Risk vocabulary are regular catalog built-ins (#1374).
 
-Plan F, F1.1-T2 (``docs/plans/2026-10-21-plan-f-dokumente-baselines.md``),
+Plan F, F1.1-T2 (``docs/plans/Archive/2026-10-21-plan-f-dokumente-baselines.md``),
 decision ENT-F1 = b: ``blocks``, ``resolves`` and ``threatens`` stop being
 aliases of ``references`` and become own built-in link types with pinned
 endpoint pairs.

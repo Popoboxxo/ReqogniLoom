@@ -1,7 +1,7 @@
 # Umsetzungsplan ADR-019 — Generischer Vorschlags-Lebenszyklus (MVP `trace_link`)
 
 > **Reiner Umsetzungsplan. Kein Code, keine Migration, keine Config-Änderung.**
-> Dieses Dokument ordnet ausschließlich die in [ADR-019](../se/ADR/ADR-019_generischer_vorschlag_lebenszyklus.md)
+> Dieses Dokument ordnet ausschließlich die in [ADR-019](../../se/ADR/ADR-019_generischer_vorschlag_lebenszyklus.md)
 > getroffenen Entscheidungen in Arbeitspakete, Dateien und eine Reihenfolge — es entscheidet
 > **keine** offenen Punkte neu.
 
@@ -9,8 +9,8 @@
 |---|---|
 | **Status** | **Freigegeben** — ADR-019 `proposed → accepted` (2026-10-08); Umsetzung läuft (WP1–WP7, vollständig inkl. UI-Inbox WP6) |
 | **Datum** | 2026-10-06 |
-| **Bezug** | [ADR-019](../se/ADR/ADR-019_generischer_vorschlag_lebenszyklus.md) · #1155 (Aspekt 2 „Vorschlags-Schleife") · #1156 („Zuhören & Antizipieren") · #856 (nur Design) · #121 (`suggest_links` ohne Accept-Schritt) · #1089 (AI-Proposal-Authoring + Pending-Review-Queue) |
-| **Grundlage** | ADR-019 (Status `proposed`, entscheidungsreif; Review-Trail `RVW-2026-10-06-001…003`, Iteration 3 APPROVED); Arbeitseinheit **AP-B5.4** in [`2026-10-05-bugfix-hub-integrationen.md`](2026-10-05-bugfix-hub-integrationen.md) §3.6 |
+| **Bezug** | [ADR-019](../../se/ADR/ADR-019_generischer_vorschlag_lebenszyklus.md) · #1155 (Aspekt 2 „Vorschlags-Schleife") · #1156 („Zuhören & Antizipieren") · #856 (nur Design) · #121 (`suggest_links` ohne Accept-Schritt) · #1089 (AI-Proposal-Authoring + Pending-Review-Queue) |
+| **Grundlage** | ADR-019 (Status `proposed`, entscheidungsreif; Review-Trail `RVW-2026-10-06-001…003`, Iteration 3 APPROVED); Arbeitseinheit **AP-B5.4** in [`2026-10-05-bugfix-hub-integrationen.md`](../2026-10-05-bugfix-hub-integrationen.md) §3.6 |
 | **Geltung / Scope** | Backend-MVP: **genau ein Produzent** (`TraceabilitySuggestService.suggest_links` → M2-Proposal-TraceLink; Accept = `confirm_proposed_link`), neue mandanten-gescopte `Suggestion`-Entität, Per-Kind-Adapter-Registry, MCP-Tool-Gruppe + REST-Endpunkte + Manifest |
 | **Nicht-Teil** | UI-Vorschlags-Inbox (eigener, nachgelagerter Schritt WP6, s. O6) · weitere Produzenten `AiDerivationService` / `ArchitectureDecomposeService` / `AuditService.propose_remediation` (O1) · Migration/Deprecation von `TraceLink.proposed_by`/`proposed_at` (O4) · Retention/GC (O9) · Human-Bearer-REST-Trigger der Produktion (explizit out of MVP, ADR-019 Decision 3/4, 001-09) · Generic-Artifact-Umstellung der Entität (O8) |
 

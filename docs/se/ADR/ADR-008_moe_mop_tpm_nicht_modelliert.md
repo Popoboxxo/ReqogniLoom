@@ -134,7 +134,7 @@ SRR/PDR/CDR) sind nicht dieselbe Entscheidung und werden nicht mit dieser gebün
 #879 braucht **keine** `Measure`-Entität: ein Meilenstein ist ein **Zeitpunkt-Ereignis
 mit Freigabetor**, ein Measure ist ein **Wert mit Ziel und Schwelle**. Das ist ein
 anderer Sachverhalt mit einer anderen Datenform.
-`docs/superpowers/plans/2026-09-22-se-validation-completeness-spec.md:1067` gruppiert
+`docs/superpowers/plans/Archive/2026-09-22-se-validation-completeness-spec.md:1067` gruppiert
 alle drei als „Cluster 6" — **ein Cluster in einem Planungsdokument ist keine
 gemeinsame Entscheidung.** Jeder der beiden Punkte bleibt eine eigenständige
 Scope-Frage.

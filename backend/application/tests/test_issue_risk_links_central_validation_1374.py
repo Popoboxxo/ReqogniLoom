@@ -1,6 +1,6 @@
 """Issue/Risk TraceLinks are validated by the central link-type catalog only.
 
-Plan F, F1.1-T1 (``docs/plans/2026-10-21-plan-f-dokumente-baselines.md``):
+Plan F, F1.1-T1 (``docs/plans/Archive/2026-10-21-plan-f-dokumente-baselines.md``):
 ``IssueService.create_tracelink`` / ``RiskService.create_tracelink`` and the
 private link-type frozensets they validated against were dead code with a
 second, divergent validation path — their vocabularies

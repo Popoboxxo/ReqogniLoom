@@ -1,7 +1,7 @@
 /**
  * ARCH-L1-001 ReactFrontend — WorkspaceContext value characterization.
  *
- * plan Phase 5a (docs/plans/2026-10-15-frontend-audit-fixes.md, §5 bullet 5a;
+ * plan Phase 5a (docs/plans/Archive/2026-10-15-frontend-audit-fixes.md, §5 bullet 5a;
  * FE-01/F-03 "God-Components", FE-02/F-05 "doppelter State"):
  *
  *   "Charakterisierungs-Test des Context-Values […] VOR dem Refactor

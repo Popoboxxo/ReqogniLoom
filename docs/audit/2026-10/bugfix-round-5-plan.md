@@ -38,7 +38,7 @@ scope: beta.21-QA-Batch (#1342–#1368) + Residuen (#1239/#1247/#1153/#1258/#127
 | Backend-Potenzial-Batch | #1314/#1315/#1316/#1317/#1334/#1336/#1337/#1339 (beta.20-Analyse) + #1308 (2FA-Roadmap) |
 | Offene Residuen | #1239, #1247/#1153, #1258, #1279, #1287, #1094 |
 | Separater Strang A | **Code-Quality-Audit** `docs/audit/2026-10/AUDIT_CODE_QUALITY.md` (Branch dieses Dokuments) → W17 |
-| Separater Strang B | **Frontend-Audit-Plan** `docs/plans/2026-10-15-frontend-audit-fixes.md` (Status „geplant", per #1340 nur als Dokument gemergt) → eigener Zyklus, nicht Teil von R5 |
+| Separater Strang B | **Frontend-Audit-Plan** `docs/plans/Archive/2026-10-15-frontend-audit-fixes.md` (Status „geplant", per #1340 nur als Dokument gemergt) → eigener Zyklus, nicht Teil von R5 |
 
 ### 0.2 Verifizierte Befunde (eigene Prüfung) und Ursachenkorrekturen
 

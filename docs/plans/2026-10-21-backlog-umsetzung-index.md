@@ -11,11 +11,11 @@ language: de
 basis:
   - docs/superpowers/specs/2026-10-21-backlog-umsetzungsplaene-design.md
   - docs/plans/2026-10-21-plan-a-memory-und-suche.md
-  - docs/plans/2026-10-21-plan-b-se-modell.md
-  - docs/plans/2026-10-21-plan-c-ui-ux.md
+  - docs/plans/Archive/2026-10-21-plan-b-se-modell.md
+  - docs/plans/Archive/2026-10-21-plan-c-ui-ux.md
   - docs/plans/2026-10-21-plan-d-deployment-dx.md
-  - docs/plans/2026-10-21-plan-e-security-api.md
-  - docs/plans/2026-10-21-plan-f-dokumente-baselines.md
+  - docs/plans/Archive/2026-10-21-plan-e-security-api.md
+  - docs/plans/Archive/2026-10-21-plan-f-dokumente-baselines.md
   - docs/plans/2026-10-21-plan-g-qa-haertung.md
   - docs/reviews/PLAN_QUERREVIEW_2026-10-21_TECHNISCH.md
   - docs/reviews/PLAN_QUERREVIEW_2026-10-21_SICHERHEIT.md
@@ -49,11 +49,11 @@ companions:
 | Plan | Ziel (1 Zeile) | Issues | Aufwand grob (Planautor, Stand Stufe 2) | Datei |
 |---|---|---|---|---|
 | **A** Memory & Suche | Embedding-Fundament, gehärteter Memory-Port, 3-Ebenen-Injektion mit HARD_OFF, Qdrant-Vollbetrieb mit pgvector-Fallback, pgvector-Hybrid, Honcho-Ausbau | #1317, #1336, #1337, #1339, #1314, #1334, #1316, #18, #1378 | ≈ 40,5 PT (inkl. Stufe-2-Zuschlag +2,5) | [plan-a](2026-10-21-plan-a-memory-und-suche.md) |
-| **B** SE-Modell | SE-Attribute real befüllt, `validates`, Funktionsebene `function`/`performs`, Attribut-v3-Abschluss, Qualitätsbewertung advisory, `Milestone` | #272, #878, #877, #934, #941, #378, #879, #393 | ≈ 23,5–32 PT (ohne `Measure`, ENT-B2 = b: +8–12 d) | [plan-b](2026-10-21-plan-b-se-modell.md) |
-| **C** UI/UX | ErrorBoundary-Leck, Button-Standard als Gate, Präferenzdienst Q1 + Verbraucher, Inspector-Rest, A11y/i18n-Rest | #598, #1258, #186, #1094, #1287, #801, #946, #85, #1379 | ≈ 14–15,5 PT (ohne G4) | [plan-c](2026-10-21-plan-c-ui-ux.md) |
+| **B** SE-Modell | SE-Attribute real befüllt, `validates`, Funktionsebene `function`/`performs`, Attribut-v3-Abschluss, Qualitätsbewertung advisory, `Milestone` | #272, #878, #877, #934, #941, #378, #879, #393 | ≈ 23,5–32 PT (ohne `Measure`, ENT-B2 = b: +8–12 d) | [plan-b](Archive/2026-10-21-plan-b-se-modell.md) |
+| **C** UI/UX | ErrorBoundary-Leck, Button-Standard als Gate, Präferenzdienst Q1 + Verbraucher, Inspector-Rest, A11y/i18n-Rest | #598, #1258, #186, #1094, #1287, #801, #946, #85, #1379 | ≈ 14–15,5 PT (ohne G4) | [plan-c](Archive/2026-10-21-plan-c-ui-ux.md) |
 | **D** Deployment/DX | nginx-Header (D1.0), Promptfoo-Netz vor A1, Env-Secret-Scan (D2.6), BluePencil-Hub als Image, #792/#1171/#1230, `seed_demo`-Guard | #1418, #587, #792, #1171, #1230, #92, #89 | ≈ 15–17 PT (+ Nutzerzeit D5) | [plan-d](2026-10-21-plan-d-deployment-dx.md) |
-| **E** Security/API | Key-Fence wie MCP, ehrlicher API-Vertrag (Routen, If-Match, ETag, OpenAPI-Ratchet, Listen-Parameter E2.9), TOTP-2FA für Staff | #1444, #1443, #1439, #1380, #1388, #1396, #1397, #1308 | ≈ 24–31 PT (E3 inkl. Stufe 2 +≈ 1 PT; E2.9 ≈ 0,5 PT Index-Schätzung) | [plan-e](2026-10-21-plan-e-security-api.md) |
-| **F** Dokumente & Baselines | Link-Validierung zentral, Verlinkbarkeit, verlustfreier Import, Baseline-Tags, additiver Rollback, `Document`, `WorkItem` | #1374, #50 | ≈ 47,5–63,5 PT (F2/F3 inkl. Spec; +1 d bei ENT-F1 = b im oberen Wert) | [plan-f](2026-10-21-plan-f-dokumente-baselines.md) |
+| **E** Security/API | Key-Fence wie MCP, ehrlicher API-Vertrag (Routen, If-Match, ETag, OpenAPI-Ratchet, Listen-Parameter E2.9), TOTP-2FA für Staff | #1444, #1443, #1439, #1380, #1388, #1396, #1397, #1308 | ≈ 24–31 PT (E3 inkl. Stufe 2 +≈ 1 PT; E2.9 ≈ 0,5 PT Index-Schätzung) | [plan-e](Archive/2026-10-21-plan-e-security-api.md) |
+| **F** Dokumente & Baselines | Link-Validierung zentral, Verlinkbarkeit, verlustfreier Import, Baseline-Tags, additiver Rollback, `Document`, `WorkItem` | #1374, #50 | ≈ 47,5–63,5 PT (F2/F3 inkl. Spec; +1 d bei ENT-F1 = b im oberen Wert) | [plan-f](Archive/2026-10-21-plan-f-dokumente-baselines.md) |
 | **G** QA-Härtung | `uid`/Workspace-FK in der DB, deterministische Listen, ruhiger Betrieb, Pflicht/Länge/24-px-Treffer, Sammel-Lows | #1379–#1412 (24 Befunde) | ≈ 11,5–15,5 PT | [plan-g](2026-10-21-plan-g-qa-haertung.md) |
 
 Summe ≈ 176–215 PT (aus den Aufwandstabellen der Pläne nach Stufe 2 addiert; vorher ≈ 170–205 PT).
@@ -105,7 +105,7 @@ erlaubt (ENT-V1); Verschieben nach hinten nur mit Index-Update.
 **Korrektur Welle 0, E (Ist-Stand 2026-10-22, `origin/main`):** Die offene E-P1-Lücke war nur **P1-4**
 plus der **E2.3**-Rest; beides ist in Welle 0 umgesetzt. P1-1/P1-2/P1-3/P1-5/P1-6/P1-7 sind auf `main`
 erfüllt — abweichend, wo im Korrekturblock von Plan E vermerkt; E2.5 bleibt offen. Details:
-[Plan E](2026-10-21-plan-e-security-api.md#xiii-phasen-und-pr-grenzen) (Block „Korrektur nach Ist-Stand-Abgleich“).
+[Plan E](Archive/2026-10-21-plan-e-security-api.md#xiii-phasen-und-pr-grenzen) (Block „Korrektur nach Ist-Stand-Abgleich“).
 
 **Promptfoo-Gate (Q2) — Voraussetzung für jede A1-Task (T-A1-1 … T-A1-8):**
 - **G1** `python manage.py export_promptfoo_configs --check` → Exit 0, letzte Zeile
