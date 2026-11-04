@@ -522,7 +522,7 @@ auf QS nur lesend. „TDD" = genannter Test zuerst, rot gegen `b175c970`.
 
 - `.gitignore`: `promptfoo/generated/`, `promptfoo/results*.json`, `promptfoo/node_modules/`
   (`.gitignore`-Queue Index §d.2: nur eigene Zeilen).
-- `docs/superpowers/specs/2026-08-16-prompt-variable-catalog-design.md` §6 Nachtrag (echo statt Mock,
+- `docs/superpowers/specs/Archive/2026-08-16-prompt-variable-catalog-design.md` §6 Nachtrag (echo statt Mock,
   kein `--fail-on-error`, Templating aus); `docs/superpowers/specs/index.md:91` Phase 3 → „umgesetzt in PR …".
 - Kurzabschnitt „Prompt-Regressionsnetz" in `README.md` „Running Tests" (Befehle aus D2.4).
 

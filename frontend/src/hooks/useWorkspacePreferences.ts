@@ -1,7 +1,7 @@
 /**
  * ARCH-L1-001 ReactFrontend — per-user visibility preference hook.
  *
- * plan Phase 5a (docs/plans/2026-10-15-frontend-audit-fixes.md, §5 bullet 5a;
+ * plan Phase 5a (docs/plans/Archive/2026-10-15-frontend-audit-fixes.md, §5 bullet 5a;
  * frontend audit FE-01/F-03 "WorkspaceContext God-Component" and FE-02/F-05
  * "doppelter State: `overriddenKeys`-Set neben `userOverrides`-Map").
  *

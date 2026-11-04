@@ -25,9 +25,9 @@ evidence: "docs/test-reports/plan-review-2026-10-21/plan-b/"
 > graphify-Graph (`graphify-out/graph.json`) existiert im Arbeitsbaum nicht; Navigation daher per gezieltem Grep/Read.
 >
 > **Stufe 2 (Integration Querreview, 2026-10-21):** Korrekturaufträge KA-B-01 … KA-B-15 und KA-ALL-01 … KA-ALL-11 aus
-> [`2026-10-21-korrekturauftraege.md`](2026-10-21-korrekturauftraege.md) sind eingearbeitet; Nachweis im
-> [Änderungsprotokoll Stufe 2](#änderungsprotokoll-stufe-2). **Vorrang:** Planbasis > [Plan-Index](2026-10-21-backlog-umsetzung-index.md) > dieser Plan.
-> Offene Nutzerentscheidungen: [`2026-10-21-entscheidungen-offen.md`](2026-10-21-entscheidungen-offen.md) (IDs `ENT-*`);
+> [`2026-10-21-korrekturauftraege.md`](../2026-10-21-korrekturauftraege.md) sind eingearbeitet; Nachweis im
+> [Änderungsprotokoll Stufe 2](#änderungsprotokoll-stufe-2). **Vorrang:** Planbasis > [Plan-Index](../2026-10-21-backlog-umsetzung-index.md) > dieser Plan.
+> Offene Nutzerentscheidungen: [`2026-10-21-entscheidungen-offen.md`](../2026-10-21-entscheidungen-offen.md) (IDs `ENT-*`);
 > Stellen mit vorläufiger Empfehlung sind mit „vorläufig, ENT-…“ markiert.
 
 ---
@@ -76,7 +76,7 @@ Reihenfolge (Planbasis §3): B1–B5 in **Welle 3**, B6 in **Welle 4**. „B5 nu
 
 Querschnitt: Link-Typ-Katalog-Erweiterungen `validates` + `performs` sind **Besitz dieses Plans** (Plan-Brief).
 
-**Entscheidungs-Konflikte** (nicht umgebogen, siehe (ix)): K-1 = ENT-B1 (alle ENT-IDs: [Entscheidungsliste](2026-10-21-entscheidungen-offen.md))
+**Entscheidungs-Konflikte** (nicht umgebogen, siehe (ix)): K-1 = ENT-B1 (alle ENT-IDs: [Entscheidungsliste](../2026-10-21-entscheidungen-offen.md))
 B4 (WS3/WS4/WS7 bereits erledigt, `B-L11`); K-2 = ENT-B2 B6 (`Measure` widerspricht dem akzeptierten ADR-008);
 K-3 = ENT-B3 „B5 nutzt `HARD_OFF` aus A1“ als harte oder weiche Abhängigkeit (vorläufig, ENT-B3 = A: hart, wie Planbasis).
 
@@ -171,7 +171,7 @@ K-3 = ENT-B3 „B5 nutzt `HARD_OFF` aus A1“ als harte oder weiche Abhängigkei
 ## (iv) Arbeitspakete
 
 Konventionen für alle Tasks:
-- **Testbefehl Backend:** Makro `BT` aus [Plan-Index §f.3](2026-10-21-backlog-umsetzung-index.md#f3-lokale-testbefehle-und-passwort-variable-qr-t23)
+- **Testbefehl Backend:** Makro `BT` aus [Plan-Index §f.3](../2026-10-21-backlog-umsetzung-index.md#f3-lokale-testbefehle-und-passwort-variable-qr-t23)
   (Superuser `DB_USER=reqogniloom`, Passwort aus der Env-Datei des laufenden Stacks, nie ausschreiben). Abgekürzt unten als `PYTEST <pfade>` (= `BT` mit `<pfade>`).
 - **Testbefehl Frontend:** `docker exec reqogniloom-frontend-1 sh -c 'cd /app && npx vitest run <pfad>'` → `VITEST <pfad>`.
 - Erwartete Ausgabe „grün" = letzte pytest-Zeile `N passed` ohne `failed`/`error`; Vitest `Tests  N passed`.
@@ -181,7 +181,7 @@ Konventionen für alle Tasks:
 - Nach Code-Änderung: `graphify update .` (falls graphify-Graph angelegt ist).
 
 **Plan-weite DoD-Regeln (Stufe 2, gelten zusätzlich zur Task-DoD):**
-- **D-MIG** (KA-ALL-01/02): Migrationen laut [Plan-Index §e](2026-10-21-backlog-umsetzung-index.md#e-konsolidierte-migrationsvergabe-bindend);
+- **D-MIG** (KA-ALL-01/02): Migrationen laut [Plan-Index §e](../2026-10-21-backlog-umsetzung-index.md#e-konsolidierte-migrationsvergabe-bindend);
   Nummer = höchste Nummer der App auf `main` + 1 beim Merge, `dependencies` auf die zuletzt gemergte Migration der App;
   `python manage.py makemigrations --check --dry-run` → `No changes detected`; Rückwärts-Probe
   `migrate <app> <name-der-vorgänger-migration>` → `migrate <app>`. Rollback- und Testangaben nennen **Namen**, nie nackte Nummern;
@@ -813,7 +813,7 @@ Querreview-Befunde (Stufe 2, „korrigiert in Stufe 2, KA-…“):
 ## (xii) Parallelisierungs-Matrix
 
 Obergrenze **4 gleichzeitige Agenten über alle Pläne** (Host-RAM ~5,8 GiB; volle Testläufe nie parallel).
-**Slot-Belegung laut [Plan-Index §d.1](2026-10-21-backlog-umsetzung-index.md#d1-slot-belegung-je-welle):** Plan B hat in Welle 3 **einen** Slot
+**Slot-Belegung laut [Plan-Index §d.1](../2026-10-21-backlog-umsetzung-index.md#d1-slot-belegung-je-welle):** Plan B hat in Welle 3 **einen** Slot
 („B: P1 → P2 → P3“), in Welle 4 einen Slot für B6 (PR-B19 → PR-B20). Die Spalte „parallel zu“ nennt nur fachlich zulässige Parallelität;
 genutzt wird sie nur, wenn ein Index-Slot frei ist. Standard: seriell P1 → P2 → P3. Gleiche Konfliktdatei = Entwicklung parallel erlaubt, Merge seriell (Index §d.2).
 
@@ -942,7 +942,7 @@ Regel: kein PR enthält zwei unabhängige Features; alle Migrationen additiv (ex
 
 ## Migrationen
 
-Migrationen: siehe [Plan-Index §e](2026-10-21-backlog-umsetzung-index.md#e-konsolidierte-migrationsvergabe-bindend). Dieser Plan legt an:
+Migrationen: siehe [Plan-Index §e](../2026-10-21-backlog-umsetzung-index.md#e-konsolidierte-migrationsvergabe-bindend). Dieser Plan legt an:
 
 | App | erwartete Nr. (Index §e) | Name | Task / PR | Bedingung |
 |---|---|---|---|---|

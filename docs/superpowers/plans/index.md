@@ -5,7 +5,8 @@ proven against the source code (not against the plan's own claims).
 
 - **`Archive/`** — plans whose full scope has been implemented and verified. Kept for historical reference
   (design rationale, rejected alternatives, task-by-task execution record); no more action expected.
-- **This directory (top level)** — plans with real open work, or explicitly deferred/decided-against.
+- **This directory (top level)** — plans with real open work, or explicitly deferred/superseded. Statuses re-checked against `origin/main` on 2026-11-04.
+
 
 ## Top level — open work
 
@@ -20,8 +21,43 @@ Implementation status as of 2026-09-26 (recorded in the plan's own §14 "Umsetzu
 
 Do not read the waves as closed: green tests alone never establish `VERIFIZIERT` (the evidence register's §6 also requires a commit/revision binding), and the open items — the deferred D1 `UniqueConstraint(session, artifact)`, the missing correlation field, W2 negative test 6 (chat/provider outage), `CR-13`, `CR-17`/`CR-22`/`CR-26`, `pl_user`, the service-wrapper `expected_version` gap, and the orphan-gate residual window — all remain **open**.
 
+Update 2026-11-04: PR #1073 (the W2 slice) was merged on 2026-09-26, so the "PR #1073 open" wording above is stale; the plan's §14 itself was not refreshed. No evidence that the W3-W5 exit criteria were met. Backlog plans A-G in `docs/plans/` carry some of the follow-up work, but the waves are not closed.
+
+## [2026-11-01-opencode-v2-support.md](2026-11-01-opencode-v2-support.md)
+**Open — rewritten 2026-11-03, tasks not started.** Implementation plan for native OpenCode 2 support next to OpenCode 1 with one shared Streamable HTTP config (URL `…/mcp/`, V1 form). Based on a 2026-11-03 spike against a mock MCP server; what the spike did not prove is tracked in #1702–#1706. All 25 task checkboxes are unchecked. Spec: [`specs/2026-11-01-opencode-v2-support-design.md`](../specs/2026-11-01-opencode-v2-support-design.md).
+
+## [2026-08-07-artifact-quality-assessment-scoping.md](2026-08-07-artifact-quality-assessment-scoping.md)
+**Open — v1, v1.1 and v3 delivered; v2 and v2.1 missing.** Scoping doc for the LLM-based content quality score (#378). The v1 vertical (append-only `QualityAssessment`, `quality.assess`/`quality.query`, REST, UI badge/panel), the extra prompt slots (ADR/TestCase/Risk) and the SE-Auditor `QUAL-P1/P2/P3` rules are implemented. The automatic trigger on workflow transitions (v2, tracked as #1578) and the periodic sweep (v2.1) are not built, so the document stays open.
+
 ## [2026-09-21-open-issues-bundle.md](2026-09-21-open-issues-bundle.md)
-Cluster/sequencing plan for the open GitHub issues as of `main` @ `e11140d6` (v1.8.0-beta.14). 40 open issues reviewed, 27 actionable grouped into 7 clusters (C1 deploy/embedding, C2 SE-audit correctness, C3 frontend integrity, C4 E2E hardening, C5 SE completeness, C6 data-model identity, C7 attribute-v3 epic), 13 deliberately dispositioned out. Execution order C1→C2→C3→C4→C5→C6→C7; C1/C2 are the immediate start. Not yet implemented — no source claim verified beyond the `file:line` references quoted from the issue bodies.
+**Open — mostly executed, four items remain (the earlier "not yet implemented" text was stale).** Cluster plan for 40 open issues as of 2026-09-21. Clusters C1-C6 have been executed (embedding alignment, SE-audit cycle/waivers, frontend integrity, E2E hardening, SE completeness, ReqIF identity; MOE/MOP/TPM was decided against in ADR-008). Still open: #801 (inspector for other entity types), #587 (Promptfoo), #879 (milestones, partly present: `milestone_service.py` exists but the issue is unreconciled) and #946 (debug annotations).
+
+## [2026-09-04-open-decisions.md](2026-09-04-open-decisions.md)
+**Open — decision log; items 2, 5, 6, 7 still undecided or moot.** Decision log from the 2026-09 plan series. Decision 1 is settled; the traceability decisions (3, 4) were effectively executed with the plan defaults, but decision 2 (provenance deletion on TraceLink confirm, `trace_link_service.py` still sets `proposed_by = None`) is still unapplied and decisions 5-7 belong to plans that are not implemented. Stays open until those plans are built or dropped.
+
+## [2026-09-03-dokumentensicht.md](2026-09-03-dokumentensicht.md)
+**Open — not implemented; needs re-scoping.** The 2026-11 `Document` artifact (ADR-026, #1374) took the name; the section-tree/read-mode design in this plan was re-framed as a future read-only `DocumentView` projection. No `DocumentSection`, numbered read mode, Markdown export or document-bound baseline exists. Needs re-scoping before pickup.
+
+## [2026-09-03-github-jira-integration.md](2026-09-03-github-jira-integration.md)
+**Open — not implemented.** There is no `integrations` app, no `ExternalRef`/`IntegrationConfig`/credential model, no webhook receivers and no GitHub/Jira adapters on main. The plan's dependency specs (audit series) are mostly landed, so it could be picked up after a freshness check.
+
+## [2026-09-03-mcp-modernisierung.md](2026-09-03-mcp-modernisierung.md)
+**Open — not implemented.** The server still advertises protocol 2024-11-05; there is no `resources/*`, `prompts/*`, session-id or `ApiKey.tool_groups` support. Only the ICD read tools (`icd.get`/`icd.query`) exist. The markdown-renderer conflict with the dokumentensicht plan is moot until either is built.
+
+## [2026-09-03-rollenbasierte-sichten.md](2026-09-03-rollenbasierte-sichten.md)
+**Open — not implemented.** No navigation-visibility system object, no `expert_mode_enabled` user preference and no role-resolved sidebar exist on main. Issues #810/#848 are closed, but the planned deliverables are absent, so the plan needs a freshness review before use.
+
+## [2026-09-03-tabellenansicht.md](2026-09-03-tabellenansicht.md)
+**Open — not implemented.** None of the planned services (`TableQueryService`, `BulkEditService`), models (`SavedView`, `UserTableViewState`), MCP tools or the `ArtifactTable` UI exist on main. The workflow-field guardrail design is still valid input for a future implementation.
+
+## [2026-08-08-reqmd-interop-and-inspiration-concept.md](2026-08-08-reqmd-interop-and-inspiration-concept.md)
+**Deferred — concept document, no task list.** The proposed reqmd import/export bridge and the CTRF test-result adapter do not exist in the backend, and version-pinned trace links are not implemented (only the `suspect` flag). Only the audited-waiver idea was realised, independently, through #569. Stays deferred until the bridge is explicitly wanted.
+
+## [2026-09-03-menschen-im-system.md](2026-09-03-menschen-im-system.md)
+**Superseded — kept at top level as historical record of the original scope.** The owner/assignment half was replaced by the central `Artifact.owner`/`reporter` model (Attribut-System v3, AWMS migration plans); the collaboration half (comments, notifications, preferences) was re-scoped, implemented and merged in PR #956, see [Archive/2026-09-03-menschen-im-system-collaboration.md](Archive/2026-09-03-menschen-im-system-collaboration.md). Original header notes: tasks 1–6, 12, 13, 14, 21, 26 cancelled; the physical column drop is left as an AWMS-owned contract step.
+
+## [2026-08-13-hermes-ide-plugin-requirements-mvp.md](2026-08-13-hermes-ide-plugin-requirements-mvp.md)
+**Superseded — nothing left to action.** Plan for a REST-backed requirements CRUD panel in the Hermes IDE plugin. The plugin on main implements the MCP-backed interview approach instead (see the archived interview-management plugin plan), and the planned CI workflow was never added.
 
 ## Archive/ — fully implemented
 
@@ -194,43 +230,22 @@ Implemented (spec/plan PRs #901/#902, implementation PR #905, merged 2026-09-11,
 
 ## [Archive/2026-09-03-menschen-im-system-collaboration.md](Archive/2026-09-03-menschen-im-system-collaboration.md)
 Implemented (2026-09-15, PR #956 — CI running, awaiting human merge). The collaboration half of the Menschen-im-System plan, re-scoped after the owner/assignment half was superseded by Attribut-System v3 (#934/#936/#940) and AWMS. 19 tasks (7, 8, 9, 26, 27, 10, 15, 16, 17, 18, 19, 20, 28, 22, 23, 24, 25, 29, 30; Task 21 superseded): `Comment`/`Notification` models + RLS, `resolve_artifact_id_or_none`, user-global `UserNotificationPreference` (opt-out, four switches, `auth_tenancy/0014`, no RLS by design), `NotificationPreferenceService`/`NotificationService`/`CommentService`, four triggers (`assigned` bound to `ArtifactAttributeGateway.write()`, `transition_pending`, `suspect_flagged`, `comment_added`), REST (artifact comments, notification feed, self-service preferences) + MCP `comment.*`, frontend `CommentPanel`/`NotificationBell`/profile switches, de/en i18n. Commit range `7c935827`–`d5b52dc3`. DoD PASS, no blockers; the local test-gate reds are not branch-attributable — see [`docs/se/reports/KNOWN_TEST_GATE_REDS.md`](../../se/reports/KNOWN_TEST_GATE_REDS.md).
+## [Archive/2026-07-25-phase6-agent-templates.md](Archive/2026-07-25-phase6-agent-templates.md)
+All planned features are implemented, with one deliberate deviation decided against. All five role templates, the review-policy hook (`review-policy-gate.sh`/`.md`), `README.md` and `BOOTSTRAP.md` exist under `docs/agent-templates/`, with manifest-membership tests. The first role ships as `requirements-architecture-manager.md` instead of the planned `requirements-architect.md`; the user explicitly decided against renaming it (2026-08-20).
 
----
+## [Archive/2026-09-22-se-auditor-waivers-569-spec.md](Archive/2026-09-22-se-auditor-waivers-569-spec.md)
+Spec fully realised (#569 closed); sampled by surface and tests, not every one of the 33 ACs was checked individually. `BaselineGateWaiver` with RLS and expiry, REST `audit/waivers/`, MCP `audit.waive_finding`/`audit.waivers`, gate semantics with waiver metadata, and the dashboard action/filter. Revoking a waiver was left as an explicit non-goal.
 
-## Open / deferred (not archived)
+Review files (APPROVED on the last iteration):
+- [Archive/2026-09-22-se-auditor-waivers-569-spec-review.md](Archive/2026-09-22-se-auditor-waivers-569-spec-review.md)
+- [Archive/2026-09-22-se-auditor-waivers-569-spec-review-rev2.md](Archive/2026-09-22-se-auditor-waivers-569-spec-review-rev2.md)
+- [Archive/2026-09-22-se-auditor-waivers-569-spec-review-rev3.md](Archive/2026-09-22-se-auditor-waivers-569-spec-review-rev3.md)
+- [Archive/2026-09-22-se-auditor-waivers-569-spec-review-rev3-iter2.md](Archive/2026-09-22-se-auditor-waivers-569-spec-review-rev3-iter2.md)
 
-## [2026-07-25-phase6-agent-templates.md](2026-07-25-phase6-agent-templates.md)
-**Decided against (2026-08-20), not a gap to fix.** The `requirements-architect.md` agent template file was never created under that exact name — `requirements-architecture-manager.md` exists instead. Reviewed and the user explicitly chose not to rename/create the file to match the plan's literal naming. The rest of the templates (`test-engineer.md`, `risk-analyst.md`, `change-manager.md`, `quality-auditor.md`) and the hook scripts (`review-policy-gate.sh`/`.md`) are implemented and present. Do not re-flag the naming deviation as an action item.
+## [Archive/2026-09-22-se-validation-completeness-spec.md](Archive/2026-09-22-se-validation-completeness-spec.md)
+Cluster 5 spec, realised; sampled per section, individual AC test rows not re-run. All four parts are on main: TestCase origin/review status with AI-review-aware coverage (#424), default-on goals with the `VAL-P1` rule (#402), baseline membership and drift (#399), and the #272 remainder (verification_method gate, live-endpoint link check, coverage report, creation-baseline marker, demo fixture). Issues #424/#402/#399/#272 are closed.
 
-## [2026-08-07-artifact-quality-assessment-scoping.md](2026-08-07-artifact-quality-assessment-scoping.md)
-**Not implemented — deferred (2026-08-20).** Scoping document only (explicitly labelled "no implementation, no branch, no migration" at the top). None of the outlined components exist: no `QualityAssessment` class in `backend/application/models.py`, no `quality_views.py` in `backend/rest_api/`, no `quality.py` in `backend/mcp_server/tools/`, no SE-Auditor `QUAL-*` rules. The doc's own effort estimate is ~8–11 dev-days for the recommended v1 cut alone (~19–26 d for the full issue) and there is no task-by-task implementation plan yet — reviewed and explicitly deferred rather than started; re-scope before picking this up.
-
-## [2026-08-08-reqmd-interop-and-inspiration-concept.md](2026-08-08-reqmd-interop-and-inspiration-concept.md)
-**Not implemented — deferred (2026-08-20).** Concept document; three recommended components are absent: `ReqmdExportService`/`ReqmdImportService`, a CTRF-Adapter (`application/ctrf_adapter.py`), and SE-Auditor rule `VERIF-P8b`. Reviewed alongside the workspace-context-graph work and explicitly deferred (not started).
-
-## [2026-08-13-hermes-ide-plugin-requirements-mvp.md](2026-08-13-hermes-ide-plugin-requirements-mvp.md)
-**Superseded, not implemented as written — kept out of Archive/ deliberately.** The direct REST-backed CRUD architecture (connect → list → detail → form) this plan describes was never built; the plan's own text states it was superseded by an interview-management approach, which was built instead (see the three `2026-08-14-interview-management-*.md` entries in `Archive/`). Nothing left to action here, but the plan's *own* scope was not implemented — kept at top level rather than archived so that distinction stays visible.
-
-## [2026-09-03-menschen-im-system.md](2026-09-03-menschen-im-system.md)
-**Partly superseded, partly re-scoped (2026-09-15) — owner/assignment half not implemented; collaboration half implemented (see below; its re-scoped plan is now archived).** Sixth of 11. The owner/assignment half was overtaken by the merged Attribut-System v3 (#934/#936/#940), which put attribution on one central `Artifact.owner`/`Artifact.reporter` pair of `Actor` FKs (`backend/persistence/models.py:1096-1111`), and by the AWMS migration plans (`risk_owner_to_actor.yaml`, `issue_assignee_to_actor.yaml`) — tasks 1–6, 12, 13, 14, 21, 26 are cancelled, with the physical column drop left as an AWMS-owned contract step.
-
-**Re-scope (collaboration half only):** [Archive/2026-09-03-menschen-im-system-collaboration.md](Archive/2026-09-03-menschen-im-system-collaboration.md) — Comments + Notifications, tasks 7, 8, 9, 10, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25 adopted and re-verified against the current tree: migration prefixes `application/0025`/`0026`, `resolve_artifact_id_or_none` retargeted onto the public `resolve_entity_to_artifact_id` (fix #264), the 10-relation owner probe deleted (owner/reporter are columns on `Artifact`), the suspect call site pinned to `trace_link_service.py:1445`, an MCP manifest-regeneration step added for the new `comment.*` group, and the `build_error_response` import corrected to `rest_api.serializers`. **The `assigned` trigger binds to `ArtifactAttributeGateway.write()`, `backend/application/artifact_attribute_gateway.py:710`** — neither REST nor MCP directly, and explicitly *not* the never-built `apply_assignment`.
-
-**Amendment (2026-09-15): OD-1…OD-4 resolved, scope extended by five tasks.** OD-1 resolved *with a scope extension*: notification delivery becomes configurable **in the user's own profile** — one **user-global** opt-out preference (`auth_tenancy.UserNotificationPreference`, next free prefix `auth_tenancy/0014`, user-global and **not** a `TenantScopedModel`, hence **no RLS migration**; JSON `disabled_triggers`, not four boolean columns), **four switches** (`assigned`/`comment_added`/`transition_pending`/`suspect_flagged`, all on by default), filtered in exactly **one** place inside `create_notifications` via `NotificationPreferenceService.apply_preferences` — which is why the new Task 27 runs **before** Task 10 despite its higher number. New tasks **26** model+migrations, **27** filter+service, **28** self-service REST `/api/v1/users/me/notification-preferences/` (Layer-2 only, zero direct-ORM lines — the `rest_api/*_views.py` glob ratchet covers it), **29** `NotificationsSection` in `UserProfileSettings`, **30** de/en i18n. OD-2 `Comment.author` = `User` FK; OD-3 `comment_added` fan-out = owner + reporter, author excluded; OD-4 no suspect notification to external owners. Three assumptions recorded (A1 **resolved as truly user-global** — one row per user across all tenants, **not** per `(tenant,user)`; A2 JSON list over boolean columns; A3 filter fails **open**) and one editorial item left open (**OD-5**: the re-scope's Task 26 re-uses a *dropped* original-plan number 26). Out of scope by decision: e-mail/webhooks/digest, per-workspace preferences, notification history.
-
-**Implemented and committed (2026-09-15) — collaboration half.** Tasks 7, 8, 9, 26, 27, 10, 15, 16, 17, 18, 19, 20, 28, 22, 23, 24, 25, 29 and 30 are implemented and committed on `feat/menschen-im-system`; Task 21 is superseded. Commit range `7c935827`–`d5b52dc3` (25 commits, PR #956). The re-scoped plan is archived at [Archive/2026-09-03-menschen-im-system-collaboration.md](Archive/2026-09-03-menschen-im-system-collaboration.md). DoD PASS. Local test-gate status: **red, but not branch-attributable** — every observed red is green in isolation or deterministically environment-caused; see [`docs/se/reports/KNOWN_TEST_GATE_REDS.md`](../../se/reports/KNOWN_TEST_GATE_REDS.md) (KI-1 correction, F2, F3, F4).
-
-## [2026-09-03-mcp-modernisierung.md](2026-09-03-mcp-modernisierung.md)
-**Not implemented — plan written (2026-09-03, regenerated 2026-09-04).** Seventh of 11. Original version lost to the race condition (see above); now **15 tasks**, 111 steps. No blocking questions. `TenantToolRegistry` doesn't exist (the class is `ToolRegistry`), confirmed again independently. `resources/*`/`prompts/*` dispatch as internal pseudo-tools through the existing `ToolRegistry.dispatch_request()` with empty `get_tool_schemas()`, inheriting the full auth/RBAC/preset chain for free while staying invisible in `tools/list`. Protocol version bump is turned into version negotiation (not a hard swap) since `initialize` today ignores `params.protocolVersion` entirely. Depends on `ApiKey.scope` from the ki-vorschlag-als-zustand plan (checked and blocked-not-duplicated). **⚠️ Unresolved cross-plan conflict with dokumentensicht's Task 4** — both plans independently built `application/artifact_markdown.render_artifact_markdown()` with different, incompatible signatures (this plan's is ID+ctx-resolving; dokumentensicht's is dict+numbering-based) because both were regenerated in parallel without seeing each other. Both plans now carry a `⚠️ KNOWN CROSS-PLAN CONFLICT` note with the same reconciliation recommendation — see `2026-09-04-open-decisions.md` item 6.
-
-## [2026-09-03-github-jira-integration.md](2026-09-03-github-jira-integration.md)
-**Not implemented — plan written (2026-09-04).** Eighth of 11. 30 tasks across Stage 1 Link-Only / Stage 2 Inbound-Sync / Stage 3 Outbound+Agent / surface verification. No blocking questions. One cross-spec ownership gap found: `WorkflowHistoryEntry.actor_type`/`client_name` are required by both this spec and ki-vorschlag-als-zustand, but neither spec's migration list actually creates them — this plan's Task 17 creates them (needs cross-checking against the ki-vorschlag-als-zustand plan before implementation to avoid a collision). Confirms `WebhookDispatcher.subscribe_to_events()` is already wired from `ApplicationConfig.ready()` (2026-08-27 P0-3c), so Stage 3 is not the first consumer of that dispatch path.
-
-## [2026-09-03-tabellenansicht.md](2026-09-03-tabellenansicht.md)
-**Not implemented — plan written (2026-09-04).** Ninth of 11. 24 tasks, 120 steps. No blocking questions. The user's explicit "never bypass workflow rules via bulk edit" requirement is enforced in one function (`assert_no_workflow_owned_fields`) and proven at five levels (unit, service-against-real-rows, REST 400, MCP, E2E via a hand-built PATCH that goes around the UI). Found the spec's C8 finding is itself outdated — `django-filter` isn't installed at all, filtering is in-memory, not `filterset_fields`-based.
-
-## [2026-09-03-dokumentensicht.md](2026-09-03-dokumentensicht.md)
-**Not implemented — plan written (2026-09-03, regenerated 2026-09-04).** Tenth of 11. Original version lost to the race condition (see above); now **20 tasks** (11 backend, 8 frontend, 1 E2E). Found `BaselineSnapshot.artifact` is dead — the column exists but is never written anywhere in the current code, so every existing `scope="document"` row has `artifact_id = NULL` and a naive migration would read data that doesn't exist. Also found `bl_baseline_snapshot` has an unconditional UPDATE-blocking DB trigger with no GUC escape hatch — a naive backfill migration would die there; fixed with a GUC-gated trigger exception. **One open question, not blocking:** how to reconstruct legacy document-scope baselines into real `Document` objects when the source data (Baseline.artifact) never existed — see `2026-09-04-open-decisions.md` item 7. **⚠️ Unresolved cross-plan conflict with mcp-modernisierung's Task 5** — both plans independently built `application/artifact_markdown.render_artifact_markdown()` with incompatible signatures; see `2026-09-04-open-decisions.md` item 6.
-
-## [2026-09-03-rollenbasierte-sichten.md](2026-09-03-rollenbasierte-sichten.md)
-**Not implemented — plan written (2026-09-03, regenerated 2026-09-04).** Eleventh and last of 11. Original version lost to the race condition (see above); now **15 tasks**, 110 steps, 6 phases. Re-confirmed independently: `NAV_ITEMS.requires` and `useHasRole` already exist in `main` as of commit `54b09760` (predates this whole spec series) — GitHub issue #848 is likely already resolved by that commit and should be checked/closed rather than re-implemented; this plan extends the existing system rather than rebuilding it. Roles confirmed as exactly `admin`/`editor`/`viewer`/`approver`. Section §4 (`audience`) needs zero new work — the attribute-definition plan already delivers the field, validation, editor toggle and section-collapse behavior; this plan only consumes it.
+Review files (APPROVED on the last iteration):
+- [Archive/2026-09-22-se-validation-completeness-review.md](Archive/2026-09-22-se-validation-completeness-review.md)
+- [Archive/2026-09-22-se-validation-completeness-review-rev2.md](Archive/2026-09-22-se-validation-completeness-review-rev2.md)
+- [Archive/2026-09-22-se-validation-completeness-review-rev3.md](Archive/2026-09-22-se-validation-completeness-review-rev3.md)

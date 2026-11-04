@@ -1,6 +1,6 @@
 ---
 review_id: RVW-2026-11-02-002
-target_spec: docs/superpowers/specs/2026-11-02-f3-workitem-design.md
+target_spec: docs/superpowers/specs/Archive/2026-11-02-f3-workitem-design.md
 iteration: 1
 status: open
 date: 2026-11-02
@@ -9,11 +9,11 @@ reviewer: concept-reviewer
 
 # Review-Protokoll RVW-2026-11-02-002 — F3-Spec (WorkItem)
 
-**Gegenstand:** `docs/superpowers/specs/2026-11-02-f3-workitem-design.md` (WorkItem,
+**Gegenstand:** `docs/superpowers/specs/Archive/2026-11-02-f3-workitem-design.md` (WorkItem,
 Agenten-Zustand, Inline-Verweise), Textfassung vom 2026-11-02, sowie der zugehörige
 Umsetzungsstand F3-T1 (Modell + RLS-Migrationen).
 **Normative Quellen:** Konzept `docs/concepts/2026-10-16-dokument-artefakte-workitem.md` (#1374);
-Plan F §WP F3 (`docs/plans/2026-10-21-plan-f-dokumente-baselines.md`); Entscheidungen
+Plan F §WP F3 (`docs/plans/Archive/2026-10-21-plan-f-dokumente-baselines.md`); Entscheidungen
 ENT-F3/ENT-G1/ENT-E2 in `docs/plans/2026-10-21-entscheidungen-offen.md` §0b; F2-Spec und ADR-026
 als unmittelbare Vorgänger.
 **Datenquelle:** eigene Prüfung von Spec, Plan und Ist-Code am 2026-11-02. Gelesen wurden u. a.

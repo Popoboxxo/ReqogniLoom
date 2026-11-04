@@ -20,7 +20,7 @@ Nutzerentscheidung, nicht Teil dieses Dokuments.
 **Betroffene REQs:** REQ-L2-BL-001, REQ-L2-BL-002 (Immutability der Baseline-Tabellen),
 REQ-L2-BL-012.
 **Bezug:** Issue **#50** (Kommentar 2: Rollback additiv als neue Version, Immutability-Zusage
-halten); Plan `docs/plans/2026-10-21-plan-f-dokumente-baselines.md` §F4.0 (`:383`), §F4.4
+halten); Plan `docs/plans/Archive/2026-10-21-plan-f-dokumente-baselines.md` §F4.0 (`:383`), §F4.4
 (`:482`), §(vii) Risiken (`:739`), §(ix) ENT-F4/ENT-F6 (`:793`, `:795`).
 **Beleg (Code, gelesen am 2026-10-31):** `backend/baseline/migrations/0001_initial.py:159-193`;
 `backend/baseline/migrations/0011_baseline_admin_delete_trigger.py`;

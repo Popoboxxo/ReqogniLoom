@@ -1,11 +1,11 @@
 # Dokument-Artefakt (`Document`) — Design (Plan F, WP F2)
 
 > **Status:** freigegeben für die Umsetzung (2026-11-02, Nutzerauftrag Welle 4 / Plan F F2-T0).
-> **Quellen:** Konzept [Dokument-Artefakte & Dokumenten-Workflow v4](../../concepts/2026-10-16-dokument-artefakte-workitem.md)
-> (#1374), Umsetzungsplan [Plan F](../../plans/2026-10-21-plan-f-dokumente-baselines.md) §WP F2,
-> Entscheidungsliste [§0b](../../plans/2026-10-21-entscheidungen-offen.md#0b-entschieden-am-2026-10-26-nutzer-welle-24).
+> **Quellen:** Konzept [Dokument-Artefakte & Dokumenten-Workflow v4](../../../concepts/2026-10-16-dokument-artefakte-workitem.md)
+> (#1374), Umsetzungsplan [Plan F](../../../plans/Archive/2026-10-21-plan-f-dokumente-baselines.md) §WP F2,
+> Entscheidungsliste [§0b](../../../plans/2026-10-21-entscheidungen-offen.md#0b-entschieden-am-2026-10-26-nutzer-welle-24).
 > **Entscheidungen:** ENT-F0 = a, ENT-F2 = b, ENT-F4 = a, ENT-F5 = a (alle §0b, bindend).
-> **Architektur:** [ADR-026](../../se/ADR/ADR-026_document_artefakt.md).
+> **Architektur:** [ADR-026](../../../se/ADR/ADR-026_document_artefakt.md).
 > **Abgrenzung:** Dieses Dokument beschreibt den gesamten F2-Umfang. Umgesetzt wird in
 > diesem Auftrag nur **F2-T0 (Spec + ADR)** und **F2-T1 (Modell + RLS-Migrationen)**;
 > Workflow-Seeds, Link-Typen, Service, REST, MCP, Events und Frontend folgen in F2-T2…T8.

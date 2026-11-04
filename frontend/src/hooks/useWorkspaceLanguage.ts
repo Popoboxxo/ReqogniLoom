@@ -1,7 +1,7 @@
 /**
  * ARCH-L1-001 ReactFrontend — workspace language ownership hook.
  *
- * plan Phase 5a (docs/plans/2026-10-15-frontend-audit-fixes.md, §5 bullet 5a;
+ * plan Phase 5a (docs/plans/Archive/2026-10-15-frontend-audit-fixes.md, §5 bullet 5a;
  * frontend audit FE-01/F-03 "WorkspaceContext is a 588-LOC God-Component").
  *
  * Extracted verbatim from `context/WorkspaceContext.tsx`: the module (a) owns

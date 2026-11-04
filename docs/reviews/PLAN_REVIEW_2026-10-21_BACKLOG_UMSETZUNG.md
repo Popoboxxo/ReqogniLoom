@@ -53,11 +53,11 @@ Stufe-2-Bilanz je Plan (aus den Änderungsprotokollen):
 | Plan | Aufträge | erledigt | vorläufig | abgelehnt | Abschnitt |
 |---|---|---|---|---|---|
 | A | 36 | 30 | 6 | 0 | [§16](../plans/2026-10-21-plan-a-memory-und-suche.md#16-änderungsprotokoll-stufe-2) |
-| B | 26 | 22 | 4 | 0 | [Änderungsprotokoll](../plans/2026-10-21-plan-b-se-modell.md#änderungsprotokoll-stufe-2) |
-| C | 26 | 22 | 4 | 0 | [§15](../plans/2026-10-21-plan-c-ui-ux.md#15-änderungsprotokoll-stufe-2) |
+| B | 26 | 22 | 4 | 0 | [Änderungsprotokoll](../plans/Archive/2026-10-21-plan-b-se-modell.md#änderungsprotokoll-stufe-2) |
+| C | 26 | 22 | 4 | 0 | [§15](../plans/Archive/2026-10-21-plan-c-ui-ux.md#15-änderungsprotokoll-stufe-2) |
 | D | 18 | 15 | 3 | 0 | [Änderungsprotokoll](../plans/2026-10-21-plan-d-deployment-dx.md#änderungsprotokoll-stufe-2) |
-| E | 22 (+2 Abschluss) | 18 (+2) | 4 | 0 | [Änderungsprotokoll](../plans/2026-10-21-plan-e-security-api.md#änderungsprotokoll-stufe-2) |
-| F | 25 | 21 | 4 | 0 | [Änderungsprotokoll](../plans/2026-10-21-plan-f-dokumente-baselines.md#änderungsprotokoll-stufe-2) |
+| E | 22 (+2 Abschluss) | 18 (+2) | 4 | 0 | [Änderungsprotokoll](../plans/Archive/2026-10-21-plan-e-security-api.md#änderungsprotokoll-stufe-2) |
+| F | 25 | 21 | 4 | 0 | [Änderungsprotokoll](../plans/Archive/2026-10-21-plan-f-dokumente-baselines.md#änderungsprotokoll-stufe-2) |
 | G | 23 (+5 Integrator) | 20 (+3) | 3 (+1) | 0 | [Änderungsprotokoll](../plans/2026-10-21-plan-g-qa-haertung.md#änderungsprotokoll-stufe-2) |
 
 ## 3. Befunde nach Schwere
@@ -125,11 +125,11 @@ eine andere Basis, einen anderen Store und einen root-eigenen Store. Der Layer f
 | QR-S05–QR-S13, QR-S16 | mittel | Prompt-Injection über Memory, `slot_name` fail-open, Qdrant-Hydrierung, Cross-Workspace B5/F4, Cutover-Altsitzungen, Promptfoo-Lieferkette, Secret-Routing A0b, Waisen-Löschung G1.4 | KA-A-16/-17/-18/-19, KA-B-10, KA-F-04, KA-E-05/-07, KA-D-04, KA-G-09 |
 | QR-S11, QR-S14, QR-S15, QR-S17–QR-S23 | niedrig | Recovery-Lookup, Tenant-Rücksetzung, `seed_demo`-Passwort, CSP-Gate, `mcp-remote`-Pin, RLS im selben PR, Link-Ziel-Titel, Settings-Leak, Backup-Prüfung, Qdrant ohne Key | siehe [Sicherheits-Querreview](PLAN_QUERREVIEW_2026-10-21_SICHERHEIT.md#befundtabelle) |
 | Plan A RB5–RB16 | 9 mittel, 3 niedrig | ADR-020 §4, Domain-Events, `ask_available`, Limits, SDK-Lock u. a. | [Plan A §12](../plans/2026-10-21-plan-a-memory-und-suche.md#12-review-befunde-x) |
-| Plan B (13 weitere) | mittel/niedrig | siehe Plan | [Plan B (x)](../plans/2026-10-21-plan-b-se-modell.md#x-review-befunde) |
-| Plan C (17 weitere) | mittel/niedrig | siehe Plan | [Plan C §12](../plans/2026-10-21-plan-c-ui-ux.md#12-review-befunde-x) |
+| Plan B (13 weitere) | mittel/niedrig | siehe Plan | [Plan B (x)](../plans/Archive/2026-10-21-plan-b-se-modell.md#x-review-befunde) |
+| Plan C (17 weitere) | mittel/niedrig | siehe Plan | [Plan C §12](../plans/Archive/2026-10-21-plan-c-ui-ux.md#12-review-befunde-x) |
 | Plan D (20 weitere) | mittel/niedrig | u. a. RB-D18 `scripts/test_*.py` laufen in CI nicht | [Plan D (x)](../plans/2026-10-21-plan-d-deployment-dx.md#x-review-befunde) |
-| Plan E RB-04–RB-10, RB-12–RB-16 | 8 mittel, 4 niedrig | Detail-404-Stub, Comments-405, If-Match-Semantik, ETag-Zeitstempel, `decrypt_secret` fail-open u. a. | [Plan E (x)](../plans/2026-10-21-plan-e-security-api.md#x-review-befunde) |
-| Plan F (14 weitere) | mittel/niedrig | siehe Plan | [Plan F (x)](../plans/2026-10-21-plan-f-dokumente-baselines.md#x-review-befunde) |
+| Plan E RB-04–RB-10, RB-12–RB-16 | 8 mittel, 4 niedrig | Detail-404-Stub, Comments-405, If-Match-Semantik, ETag-Zeitstempel, `decrypt_secret` fail-open u. a. | [Plan E (x)](../plans/Archive/2026-10-21-plan-e-security-api.md#x-review-befunde) |
+| Plan F (14 weitere) | mittel/niedrig | siehe Plan | [Plan F (x)](../plans/Archive/2026-10-21-plan-f-dokumente-baselines.md#x-review-befunde) |
 | Plan G R3–R14 | mittel/niedrig | u. a. R9 Listen-Parameter → Plan E E2.9 | [Plan G §11](../plans/2026-10-21-plan-g-qa-haertung.md#11-review-befunde) |
 
 ## 4. Live-Check-Matrix

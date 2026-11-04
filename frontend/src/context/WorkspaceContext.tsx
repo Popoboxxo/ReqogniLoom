@@ -13,7 +13,7 @@
  * one as active.  Falls back to DEFAULT_WORKSPACE only if the API call
  * fails or returns no workspaces (legacy / offline mode).
  *
- * plan Phase 5a (docs/plans/2026-10-15-frontend-audit-fixes.md, §5 bullet 5a;
+ * plan Phase 5a (docs/plans/Archive/2026-10-15-frontend-audit-fixes.md, §5 bullet 5a;
  * FE-01/F-03): this file used to be a 588-LOC God-Component carrying three
  * unrelated concerns. It now orchestrates two focused hooks —
  * `useWorkspaceLanguage` (language override + i18next restore) and

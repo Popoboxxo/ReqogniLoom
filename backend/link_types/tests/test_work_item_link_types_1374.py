@@ -1,6 +1,6 @@
 """WorkItem link types (Plan F, F3-T3, #1374).
 
-Spec: ``docs/superpowers/specs/2026-11-02-f3-workitem-design.md`` §5 (Link-Fabric)
+Spec: ``docs/superpowers/specs/Archive/2026-11-02-f3-workitem-design.md`` §5 (Link-Fabric)
 and plan F §WP F3. A ``WorkItem`` is a first-class artifact, so two shipped link
 types gain a pair instead of a new key:
 

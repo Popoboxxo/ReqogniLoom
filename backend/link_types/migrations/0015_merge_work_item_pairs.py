@@ -1,6 +1,6 @@
 """Merge the WorkItem pairs into ``decomposes`` and ``references``.
 
-Plan F, F3-T3 (``docs/plans/2026-10-21-plan-f-dokumente-baselines.md``, spec
+Plan F, F3-T3 (``docs/plans/Archive/2026-10-21-plan-f-dokumente-baselines.md``, spec
 ``2026-11-02-f3-workitem-design.md`` §5): a ``WorkItem`` is a first-class,
 decomposable artifact. Two already-shipped link types gain a pair — no new key
 is introduced:

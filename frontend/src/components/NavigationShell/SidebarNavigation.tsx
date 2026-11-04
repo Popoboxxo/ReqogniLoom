@@ -586,7 +586,7 @@ export function SidebarNavigation(): JSX.Element {
         any element that carries `aria-modal` without a literal
         role="dialog"). The pairing is guaranteed here by construction; the
         shared <Dialog> is not an option because the drawer must stay the nav
-        chrome (no portal). See docs/plans/2026-10-15-frontend-audit-fixes.md
+        chrome (no portal). See docs/plans/Archive/2026-10-15-frontend-audit-fixes.md
         Phase 6 step 4. */}
     {/* eslint-disable-next-line no-restricted-syntax */}
     <nav

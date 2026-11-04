@@ -19,9 +19,9 @@ Nutzerentscheidung und nicht Teil dieses Dokuments.
 **Betroffene REQs:** REQ-L2-PL-004 (Entitäten/Schema), REQ-L2-PL-005 (Auditfelder),
 REQ-L2-PL-009 (on_delete-Regeln), REQ-L2-PL-010 (RLS), REQ-L2-TE-001 (TraceLink-Verwaltung).
 **Bezug:** Issue #1374; Konzept `docs/concepts/2026-10-16-dokument-artefakte-workitem.md`;
-Plan F `docs/plans/2026-10-21-plan-f-dokumente-baselines.md` §WP F2; Entscheidungen
+Plan F `docs/plans/Archive/2026-10-21-plan-f-dokumente-baselines.md` §WP F2; Entscheidungen
 ENT-F0/F2/F4/F5 in `docs/plans/2026-10-21-entscheidungen-offen.md` §0b.
-**Design:** `docs/superpowers/specs/2026-11-02-f2-document-design.md`.
+**Design:** `docs/superpowers/specs/Archive/2026-11-02-f2-document-design.md`.
 
 ---
 
