@@ -3112,6 +3112,62 @@ class ArtifactViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(detail=True, methods=["post"], url_path="move")
+    def move(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/artifacts/{pk}/move/ — reparent and/or reorder (P1).
+
+        Body: ``{"parent_id": <uuid|null>, "after_id": <uuid|null>}``.
+        ``after_id`` omitted appends at the end, ``null`` inserts first.
+        """
+        lang = detect_lang(request)
+        raw_parent = request.data.get("parent_id", None)
+        try:
+            parent_id = UUID(str(raw_parent)) if raw_parent else None
+        except (TypeError, ValueError):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="'parent_id' must be a well-formed UUID or null.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if "after_id" in request.data:
+            raw_after = request.data.get("after_id")
+            if raw_after is None:
+                after_id: Any = None
+            else:
+                try:
+                    after_id = UUID(str(raw_after))
+                except (TypeError, ValueError):
+                    return Response(
+                        build_error_response(
+                            "VALIDATION_ERROR",
+                            lang,
+                            message="'after_id' must be a well-formed UUID or null.",
+                        ),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+        else:
+            from application.artifact_service import UNSET
+
+            after_id = UNSET
+
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().move(
+                artifact_id=UUID(pk),
+                new_parent_id=parent_id,
+                after_id=after_id,
+                ctx=ctx,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return Response(ArtifactSerializer(_artifact_to_dict(item)).data)
+
     @action(detail=True, methods=["get"], url_path="baseline-membership")
     def baseline_membership(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/artifacts/{pk}/baseline-membership/ (#399).
@@ -7173,18 +7229,6 @@ def _artifact_custom_fields(entity: Any) -> dict:
     return getattr(artifact, "custom_fields", None) or {}
 
 
-def _tree_node_to_dict(node: Any) -> dict[str, Any]:
-    """Convert TreeNodeDTO to dict."""
-    if hasattr(node, "as_dict"):
-        return node.as_dict()
-    return {
-        "id": str(getattr(node, "id", "")),
-        "artifact_type": getattr(node, "artifact_type", ""),
-        "workspace_id": str(getattr(node, "workspace_id", "")),
-        "parent_id": str(getattr(node, "parent_id", "")) if getattr(node, "parent_id", None) else None,
-    }
-
-
 def _artifact_to_dict(art: Any) -> dict[str, Any]:
     """Convert Artifact ORM object to dict."""
     return {
@@ -7196,6 +7240,7 @@ def _artifact_to_dict(art: Any) -> dict[str, Any]:
         # NULL and express hierarchy via 'derives-from' TraceLinks instead
         # (see persistence/models.py Artifact.parent docstring).
         "parent_id": str(art.parent_id) if getattr(art, "parent_id", None) else None,
+        "sort_key": getattr(art, "sort_key", None),
         "custom_fields": getattr(art, "custom_fields", None) or {},
         "version": art.version,
         "created_at": art.created_at,
@@ -7971,6 +8016,51 @@ class WorkspaceViewSet(BaseEntityViewSet):
             )
         return self.with_etag(
             Response(WorkspaceSerializer(_workspace_to_dict(item)).data), item
+        )
+
+    @action(detail=True, methods=["get"], url_path="tree")
+    def tree(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/workspaces/{pk}/tree/?type=requirement|architecture.
+
+        P1: the ordered sibling forest of one tree, soft-deleted nodes hidden.
+        Roots and every sibling list are sorted by ``sort_key``.
+        """
+        lang = detect_lang(request)
+        raw_type = (request.query_params.get("type") or "requirement").lower()
+        artifact_type = {
+            "requirement": "Requirement",
+            "architecture": "ArchitectureElement",
+            "architectureelement": "ArchitectureElement",
+        }.get(raw_type)
+        if artifact_type is None:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="'type' must be 'requirement' or 'architecture'.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            roots = ArtifactService().get_workspace_tree(
+                workspace_id=UUID(pk), artifact_type=artifact_type, ctx=ctx
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return Response(
+            {
+                "workspace_id": str(pk),
+                "type": raw_type,
+                "tree": [node.as_dict() for node in roots],
+            }
         )
 
     def create(self, request: Request, **kwargs: Any) -> Response:

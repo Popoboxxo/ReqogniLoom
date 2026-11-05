@@ -214,6 +214,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
         "traceability.create_link": "_handle_traceability_create_link",
         "artifact.search": "_handle_artifact_search",
         "artifact.get_tree": "_handle_artifact_get_tree",
+        "artifact.move": "_handle_artifact_move",
         "workspace.get_context": "_handle_workspace_get_context",
         "workspace.list": "_handle_workspace_list",
         "workspace.resolve_references": "_handle_workspace_resolve_references",
@@ -502,6 +503,36 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     "workspace_id": {"type": "string", "description": "UUID of the workspace."},
                 },
                 "required": ["root_id", "workspace_id"],
+            },
+        },
+        {
+            "name": "artifact.move",
+            "description": (
+                "Reparent and/or reorder a Requirement or ArchitectureElement "
+                "(write, audited). ``after_id`` omitted appends at the end, "
+                "``null`` inserts first. Only these two artifact types "
+                "participate in ordered trees."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "artifact_id": {
+                        "type": "string",
+                        "description": "UUID of the backing Artifact.",
+                    },
+                    "parent_id": {
+                        "type": ["string", "null"],
+                        "description": "New parent Artifact UUID, or null for a root.",
+                    },
+                    "after_id": {
+                        "type": ["string", "null"],
+                        "description": (
+                            "Insert behind this sibling UUID; omit to append, "
+                            "null to insert first."
+                        ),
+                    },
+                },
+                "required": ["artifact_id"],
             },
         },
         {
@@ -1411,6 +1442,64 @@ class CrossCuttingToolGroup(BaseToolGroup):
         return ToolResult.ok({
             "root_id": str(root_id),
             "tree": tree.as_dict() if hasattr(tree, "as_dict") else str(tree),
+        })
+
+    # ------------------------------------------------------------------
+    # artifact.move
+    # ------------------------------------------------------------------
+
+    def _handle_artifact_move(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """artifact.move — reparent/reorder an ordered artifact (write, audited)."""
+        from application.artifact_service import UNSET
+
+        artifact_id = require_uuid(params, "artifact_id")
+        parent_raw = params.get("parent_id")
+        parent_id = None if parent_raw in (None, "") else optional_uuid(params, "parent_id")
+
+        if "after_id" in params:
+            after_raw = params.get("after_id")
+            after_id: Any = None if after_raw in (None, "") else optional_uuid(
+                params, "after_id"
+            )
+        else:
+            after_id = UNSET
+
+        try:
+            with mcp_audit_handoff():
+                artifact = self._artifact_service.move(
+                    artifact_id=artifact_id,
+                    new_parent_id=parent_id,
+                    after_id=after_id,
+                    ctx=auth_context,
+                )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="reordered",
+            entity_type="Artifact",
+            entity_id=artifact.id,
+            tool_name="artifact.move",
+            api_key=api_key,
+            details={
+                "parent_id": str(artifact.parent_id) if artifact.parent_id else None,
+                "after_id": str(after_id) if after_id not in (UNSET, None) else None,
+            },
+        )
+        return ToolResult.ok({
+            "artifact": {
+                "id": str(artifact.id),
+                "artifact_type": artifact.artifact_type,
+                "parent_id": str(artifact.parent_id) if artifact.parent_id else None,
+                "sort_key": artifact.sort_key,
+            }
         })
 
     # ------------------------------------------------------------------

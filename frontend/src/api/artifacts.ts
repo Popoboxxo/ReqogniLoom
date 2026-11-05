@@ -45,6 +45,23 @@ export interface BaselineMembershipResponse {
   memberships: ArtifactBaselineMembership[];
 }
 
+/**
+ * Body of `POST /api/v1/artifacts/{id}/move/` (P1 Task 1.4).
+ *
+ * The two fields encode *three* cases, because the server distinguishes an
+ * absent `after_id` from an explicit `null` (spec B8):
+ *   - `parent_id` only            → append at the end of the new parent,
+ *   - `after_id: null`            → insert as the first child,
+ *   - `after_id: '<sibling id>'`  → insert directly behind that sibling.
+ *
+ * `after_id` is therefore optional and never derived from `parent_id`; a
+ * caller that means "first" must pass `null`, not `undefined`.
+ */
+export interface MoveArtifactOptions {
+  parent_id: UUID | null;
+  after_id?: UUID | null;
+}
+
 export const artifactsApi = {
   list(workspaceId: UUID, parentId?: UUID): Promise<PaginatedResponse<Artifact>> {
     const params: Record<string, string> = { workspace_id: workspaceId };
@@ -73,6 +90,24 @@ export const artifactsApi = {
     parent_id?: UUID;
   }): Promise<Artifact> {
     return apiClient.post<Artifact>("/artifacts/", data);
+  },
+
+  /**
+   * Reparent and/or reorder one artifact (`POST /artifacts/{id}/move/`).
+   *
+   * `id` is the **backing Artifact** id, not the entity id an editor route
+   * uses — `Requirement.artifact_id` / `ArchitectureElement.artifact_id` is
+   * the value this route keys on. Passing an entity id answers 404.
+   */
+  move(id: UUID, options: MoveArtifactOptions): Promise<Artifact> {
+    const body: { parent_id: UUID | null; after_id?: UUID | null } = {
+      parent_id: options.parent_id,
+    };
+    // Presence, not truthiness: `null` means "insert first" and must survive,
+    // while an omitted/undefined key means "append at the end". JSON drops an
+    // undefined value either way, so only the key is written when it is set.
+    if (options.after_id !== undefined) body.after_id = options.after_id;
+    return apiClient.post<Artifact>(`/artifacts/${id}/move/`, body);
   },
 
   delete(id: UUID): Promise<void> {

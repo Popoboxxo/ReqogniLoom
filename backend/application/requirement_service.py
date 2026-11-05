@@ -401,13 +401,18 @@ class RequirementService(ServiceBase):
         # duplicate. Non-blocking (see the docstring).
         duplicate_title_warning = self._duplicate_title_warning(workspace_id, title)
 
-        # Create the backing Artifact first
+        # Create the backing Artifact first. P1: append it to the end of its
+        # sibling block so a new requirement never jumps ahead of an existing
+        # fractional order.
+        from application.artifact_service import append_sort_key
+
         artifact = Artifact.objects.create(
             tenant=tenant,
             workspace=workspace,
             artifact_type="Requirement",
             parent_id=parent_id,
             custom_fields=_clean_custom_fields(custom_fields),
+            sort_key=append_sort_key(workspace_id, parent_id, "Requirement"),
         )
 
         requirement = Requirement.objects.create(
@@ -1265,11 +1270,13 @@ class RequirementService(ServiceBase):
                 qs = qs.filter(artifact_id__in=allocated_artifact_ids)
             else:
                 qs = qs.exclude(artifact_id__in=allocated_artifact_ids)
-        # Deterministic order for pagination (#1390): Requirement declares no
-        # Meta.ordering, so an unordered queryset let LIMIT/OFFSET pages
-        # overlap or skip rows (DRF's UnorderedObjectListWarning). Oldest
-        # first by creation, with the primary key as a unique tie-breaker.
-        return qs.order_by("created_at", "id")
+        # P1: siblings follow the persistent fractional order. ``sort_key`` is
+        # NULL for requirements created before the backfill or outside an
+        # ordered block; those sort last, then by creation (the former
+        # deterministic order, which stays the tie-breaker for pagination).
+        return qs.order_by(
+            F("artifact__sort_key").asc(nulls_last=True), "created_at", "id"
+        )
 
     # ---------- Semantic similarity (REQ-L2-VS-004) ----------
 

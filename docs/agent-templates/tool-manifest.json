@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 282,
+  "tool_count": 283,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -873,6 +873,38 @@
         "required": [
           "root_id",
           "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "artifact.move",
+      "prefix": "artifact",
+      "is_write": true,
+      "description": "Reparent and/or reorder a Requirement or ArchitectureElement (write, audited). ``after_id`` omitted appends at the end, ``null`` inserts first. Only these two artifact types participate in ordered trees.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "description": "UUID of the backing Artifact."
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "New parent Artifact UUID, or null for a root."
+          },
+          "after_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Insert behind this sibling UUID; omit to append, null to insert first."
+          }
+        },
+        "required": [
+          "artifact_id"
         ]
       }
     },

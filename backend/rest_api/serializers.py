@@ -1249,6 +1249,9 @@ class ArtifactSerializer(
     workspace_id = serializers.UUIDField(required=True)
     artifact_type = serializers.CharField(max_length=64)
     parent_id = serializers.UUIDField(required=False, allow_null=True)
+    # P1: fractional sibling order, exposed so a reorder client can compare
+    # positions without a second lookup.
+    sort_key = serializers.CharField(read_only=True, allow_null=True)
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )

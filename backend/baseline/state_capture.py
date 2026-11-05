@@ -157,14 +157,31 @@ def _capture_items(
     # no separate query needed to resolve it.
     artifact_header_by_id: dict[str, dict[str, Any]] = {}
     artifact_lifecycle: dict[str, str] = {}
-    for art_id, art_type, custom_fields, parent_id, lifecycle_status in (
+    for (
+        art_id,
+        art_type,
+        custom_fields,
+        parent_id,
+        lifecycle_status,
+        sort_key,
+    ) in (
         Artifact.unscoped.filter(id__in=uuids, tenant_id=tenant_id)
-        .values_list("id", "artifact_type", "custom_fields", "parent_id", "lifecycle_status")
+        .values_list(
+            "id",
+            "artifact_type",
+            "custom_fields",
+            "parent_id",
+            "lifecycle_status",
+            "sort_key",
+        )
     ):
         artifact_header_by_id[str(art_id)] = {
             "artifact_type_raw": art_type,
             "custom_fields": custom_fields or {},
             "artifact_parent_id": str(parent_id) if parent_id else None,
+            # P1 (V8): the persistent sibling position is part of the captured
+            # state so a move shows up as a diff instead of being invisible.
+            "sort_key": sort_key,
         }
         artifact_lifecycle[str(art_id)] = lifecycle_status
 
@@ -377,6 +394,7 @@ def _capture_items(
         state.setdefault("stakeholder", system.get("stakeholder", []))
         state["custom_fields"] = header["custom_fields"]
         state["artifact_parent_id"] = header["artifact_parent_id"]
+        state["sort_key"] = header["sort_key"]
 
     return states
 

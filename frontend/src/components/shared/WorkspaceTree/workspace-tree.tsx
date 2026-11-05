@@ -33,8 +33,10 @@ import {
   useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import { extractApiErrorMessage } from '../../../api/client';
 import { Badge } from '../Badge';
 import { LevelBadge } from '../LevelBadge';
+import { useToast } from '../Toast/useToast';
 import { useWorkspaceTreeState } from '../../../context/WorkspaceTreeStateContext';
 import { TreeDisplayFieldsProvider } from './tree-display-fields-context';
 import { useTreeDisplayFieldsSelection } from './tree-display-fields';
@@ -45,6 +47,12 @@ import {
   useTreeDrag,
   type TreeRowDragProps,
 } from './tree-drag';
+import {
+  orderedSiblingIds,
+  predictReorder,
+  resolveStepTarget,
+  type TreeStepDirection,
+} from './tree-reorder';
 import { useTreeVirtualization } from './tree-virtualization';
 import styles from './workspace-tree.module.css';
 
@@ -329,6 +337,25 @@ export interface WorkspaceTreeProps {
    */
   onReparent?: (id: string, newParentId: string | null) => void;
   /**
+   * P1 Task 1.7: positional move — re-parent *and* reorder in one call. When
+   * provided it takes precedence over `onReparent`, which stays supported for
+   * callers that only ever change the parent.
+   *
+   * `afterId` follows the backend's move contract (B8): `undefined` appends at
+   * the end of `newParentId`'s children, `null` inserts as the first child, any
+   * other id inserts directly behind that sibling.
+   *
+   * The tree updates its own order optimistically (no waiting for the refetch),
+   * rolls that prediction back if the returned promise rejects, and surfaces the
+   * server message through the shared toast primitive. Both are why the prop is
+   * a `Promise` rather than a fire-and-forget callback.
+   */
+  onReorder?: (
+    id: string,
+    newParentId: string | null,
+    afterId: string | null | undefined,
+  ) => Promise<void>;
+  /**
    * Label inside the root dropzone. Only used when `onReparent` is set.
    * Callers that want a domain-specific wording (e.g. Architecture's "…make
    * root (L0)") pass it here; otherwise the translated default applies.
@@ -453,6 +480,7 @@ export function WorkspaceTree({
   workspaceId,
   virtualRowHeight,
   onReparent,
+  onReorder,
   rootDropzoneLabel,
   stateKey,
   'data-testid': testId = 'workspace-tree',
@@ -494,6 +522,20 @@ export function WorkspaceTree({
   // <WorkspaceTreeStateProvider>. Outside a provider this is a no-op store, so
   // the restore below finds nothing and behaviour is unchanged.
   const { getExpanded, setExpanded: persistExpanded } = useWorkspaceTreeState();
+  // P1 Task 1.7: optimistic order. `base` pins the prediction to the exact
+  // `nodes` array it was derived from, so the first prop update after a
+  // successful move (the caller's refetch) discards it automatically — no
+  // effect, no render with a stale order.
+  const [pendingReorder, setPendingReorder] = useState<{
+    base: WorkspaceTreeNode[];
+    nodes: WorkspaceTreeNode[];
+  } | null>(null);
+  const renderedNodes =
+    pendingReorder && pendingReorder.base === nodes ? pendingReorder.nodes : nodes;
+  // Shared transient-notification primitive (UI-51): the tree's only error
+  // surface for a rejected move, so a failed reorder explains itself instead of
+  // silently springing back.
+  const { message: reorderError, show: showReorderError } = useToast();
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set((stateKey ? getExpanded(stateKey) : null) ?? []),
   );
@@ -511,7 +553,7 @@ export function WorkspaceTree({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didInitRef = useRef(false);
 
-  const tree = useMemo(() => buildInternalTree(nodes), [nodes]);
+  const tree = useMemo(() => buildInternalTree(renderedNodes), [renderedNodes]);
 
   // Auto-expand root nodes on first data load (design doc §7 step 1), unless
   // issue #665 restored a persisted expand state for this `stateKey` — that is
@@ -556,10 +598,10 @@ export function WorkspaceTree({
 
   useEffect(() => {
     if (!selectedId || revealedSelectionRef.current === selectedId) return;
-    if (!nodes.some((n) => n.id === selectedId)) return;
+    if (!renderedNodes.some((n) => n.id === selectedId)) return;
     revealedSelectionRef.current = selectedId;
     pendingRevealScrollRef.current = selectedId;
-    const ancestors = collectAncestorIds(nodes, selectedId);
+    const ancestors = collectAncestorIds(renderedNodes, selectedId);
     if (ancestors.length === 0) return;
     setExpanded((prev) => {
       // Returning the identical Set keeps React from re-rendering when the
@@ -569,7 +611,7 @@ export function WorkspaceTree({
       for (const id of ancestors) next.add(id);
       return next;
     });
-  }, [nodes, selectedId]);
+  }, [renderedNodes, selectedId]);
 
   // 300ms debounce on search input (design doc §4 — type_in_search_field).
   useEffect(() => {
@@ -584,16 +626,16 @@ export function WorkspaceTree({
   const visibleIds = useMemo((): Set<string> | null => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return null;
-    const idSet = new Set(nodes.map((n) => n.id));
+    const idSet = new Set(renderedNodes.map((n) => n.id));
     const parentById = new Map<string, string | null>();
-    for (const n of nodes) {
+    for (const n of renderedNodes) {
       parentById.set(
         n.id,
         n.parentId && idSet.has(n.parentId) ? n.parentId : null,
       );
     }
     const visible = new Set<string>();
-    for (const n of nodes) {
+    for (const n of renderedNodes) {
       if (!n.name.toLowerCase().includes(q)) continue;
       let cursor: string | null = n.id;
       while (cursor && !visible.has(cursor)) {
@@ -602,7 +644,7 @@ export function WorkspaceTree({
       }
     }
     return visible;
-  }, [nodes, searchQuery]);
+  }, [renderedNodes, searchQuery]);
 
   const visibleRows = useMemo(
     () => flattenVisible(tree, expanded, visibleIds),
@@ -620,8 +662,8 @@ export function WorkspaceTree({
    */
   const selectedAncestorIds = useMemo((): Set<string> => {
     if (!selectedId || visibleIds !== null) return new Set<string>();
-    return new Set(collectAncestorIds(nodes, selectedId));
-  }, [nodes, selectedId, visibleIds]);
+    return new Set(collectAncestorIds(renderedNodes, selectedId));
+  }, [renderedNodes, selectedId, visibleIds]);
 
   const toggleExpand = useCallback((id: string): void => {
     setExpanded((prev) => {
@@ -632,6 +674,72 @@ export function WorkspaceTree({
     });
     onToggle?.(id);
   }, [onToggle]);
+
+  /**
+   * P1 Task 1.7: applies a positional move optimistically, forwards it to the
+   * caller and rolls the prediction back if the request fails.
+   *
+   * This is the single entry point for the drag drop, the Alt+↑/↓ step and the
+   * "Move…" dialog, so all three share the same no-op/cycle guards (they live
+   * in `predictReorder`) and the same error handling.
+   *
+   * @returns whether the move was forwarded (i.e. was not a no-op).
+   */
+  const forwardReorder = useCallback(
+    (
+      nodeId: string,
+      newParentId: string | null,
+      afterId: string | null | undefined,
+    ): boolean => {
+      if (!onReorder) return false;
+      const predicted = predictReorder(
+        renderedNodes,
+        nodeId,
+        newParentId,
+        afterId,
+      );
+      if (!predicted) return false;
+
+      setPendingReorder({ base: nodes, nodes: predicted });
+
+      // Announce the move with its 1-based position in the new sibling block:
+      // a repeated move of the same node produces a different text, which the
+      // single live region below needs in order to re-announce (F-01).
+      const moved = renderedNodes.find((node) => node.id === nodeId);
+      const position =
+        orderedSiblingIds(predicted, newParentId).indexOf(nodeId) + 1;
+      setMoveAnnouncement(
+        t('editor.reorderDone', {
+          name: describeMoveTarget(moved, t('editor.moveNodeRoot')),
+          position,
+        }),
+      );
+
+      void (async (): Promise<void> => {
+        try {
+          await onReorder(nodeId, newParentId, afterId);
+        } catch (err: unknown) {
+          setPendingReorder(null);
+          showReorderError(
+            extractApiErrorMessage(err) ?? t('editor.reorderFailed'),
+          );
+        }
+      })();
+      return true;
+    },
+    [nodes, onReorder, renderedNodes, setMoveAnnouncement, showReorderError, t],
+  );
+
+  /** Alt+↑ / Alt+↓: one step inside the current sibling block. */
+  const stepReorder = useCallback(
+    (nodeId: string, direction: TreeStepDirection): void => {
+      if (!onReorder) return;
+      const target = resolveStepTarget(renderedNodes, nodeId, direction);
+      if (!target) return;
+      forwardReorder(nodeId, target.newParentId, target.afterId);
+    },
+    [forwardReorder, onReorder, renderedNodes],
+  );
 
   // REQ-091: virtualize only when opted in and the visible list is large.
   // The harness lives in `tree-virtualization.tsx`.
@@ -763,10 +871,20 @@ export function WorkspaceTree({
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();
+          if (e.altKey) {
+            // P1 Task 1.7: the keyboard alternative to dragging (WCAG 2.1.1 /
+            // 2.5.7) — one sibling step, no pointer needed.
+            stepReorder(currentRow.internal.node.id, 'down');
+            break;
+          }
           focusRowAtIndex(Math.min(safeIndex + 1, visibleRows.length - 1));
           break;
         case 'ArrowUp':
           e.preventDefault();
+          if (e.altKey) {
+            stepReorder(currentRow.internal.node.id, 'up');
+            break;
+          }
           focusRowAtIndex(Math.max(safeIndex - 1, 0));
           break;
         case 'ArrowRight':
@@ -841,20 +959,39 @@ export function WorkspaceTree({
         }
       }
     },
-    [visibleRows, focusedId, selectedId, toggleExpand, onSelect, focusRowAtIndex],
+    [
+      visibleRows,
+      focusedId,
+      selectedId,
+      toggleExpand,
+      onSelect,
+      focusRowAtIndex,
+      stepReorder,
+    ],
   );
 
   // -------------------------------------------------------------------
-  // Drag & drop reparenting (opt-in via onReparent) — native HTML5 D&D.
-  // The state machine lives in `tree-drag.ts`; the row and root-dropzone JSX
-  // stays here so the design-system ratchet baseline keeps its anchors.
+  // Drag & drop reordering/reparenting (opt-in via onReorder or onReparent) —
+  // native HTML5 D&D. The state machine lives in `tree-drag.ts`; the row and
+  // root-dropzone JSX stays here so the design-system ratchet baseline keeps
+  // its anchors.
   // -------------------------------------------------------------------
-  const drag = useTreeDrag(nodes, onReparent);
-  const { dndEnabled, draggingId, dropTargetId, rowDragProps, reparent } = drag;
+  const drag = useTreeDrag(
+    renderedNodes,
+    onReparent,
+    onReorder ? forwardReorder : undefined,
+  );
+  const {
+    dndEnabled,
+    draggingId,
+    dropTargetId,
+    rowDragProps,
+    reparent,
+  } = drag;
 
-  // H-1: the keyboard path shares `reparent` with the drop handler, so the
-  // cycle/no-op guards are identical. A forwarded move is announced through the
-  // single polite live region below (the tree's only live region).
+  // H-1: the keyboard path shares the move entry point with the drop handler,
+  // so the cycle/no-op guards are identical. A forwarded move is announced
+  // through the single polite live region below (the tree's only live region).
   //
   // F-01 (SC 4.1.3, Phase 6 review): the announcement has to be a *different*
   // string for every move. Assigning the constant `t('editor.moveNodeDone')`
@@ -864,13 +1001,21 @@ export function WorkspaceTree({
   // and its new parent makes consecutive announcements distinct; an identical
   // repeat is impossible because moving a node to the parent it already has is
   // a no-op that never reaches this branch.
+  //
+  // P1 Task 1.7: with `onReorder` the dialog is a positional move too (append
+  // under the chosen parent), so it goes through `forwardReorder`, which
+  // already announces the move — announcing again here would duplicate it.
   const handleMoveConfirm = useCallback(
     (newParentId: string | null): void => {
       if (moveNodeId === null) return;
-      if (reparent(moveNodeId, newParentId)) {
-        const moved = nodes.find((n) => n.id === moveNodeId);
+      if (onReorder) {
+        forwardReorder(moveNodeId, newParentId, undefined);
+      } else if (reparent(moveNodeId, newParentId)) {
+        const moved = renderedNodes.find((n) => n.id === moveNodeId);
         const parent =
-          newParentId === null ? null : nodes.find((n) => n.id === newParentId);
+          newParentId === null
+            ? null
+            : renderedNodes.find((n) => n.id === newParentId);
         setMoveAnnouncement(
           `${t('editor.moveNodeDone')} ${describeMoveTarget(
             moved,
@@ -880,11 +1025,11 @@ export function WorkspaceTree({
       }
       setMoveNodeId(null);
     },
-    [moveNodeId, nodes, reparent, t],
+    [moveNodeId, renderedNodes, onReorder, forwardReorder, reparent, t],
   );
   const moveNode = useMemo(
-    () => nodes.find((n) => n.id === moveNodeId) ?? null,
-    [nodes, moveNodeId],
+    () => renderedNodes.find((n) => n.id === moveNodeId) ?? null,
+    [renderedNodes, moveNodeId],
   );
 
   return (
@@ -925,7 +1070,7 @@ export function WorkspaceTree({
         </div>
       )}
 
-      {nodes.length === 0 ? (
+      {renderedNodes.length === 0 ? (
         <p
           data-testid={`${testId}-empty`}
           className={styles.emptyText}
@@ -980,6 +1125,7 @@ export function WorkspaceTree({
                   dragProps={rowDragProps}
                   labels={rowLabels}
                   onRequestMove={dndEnabled ? setMoveNodeId : undefined}
+                  canReorder={Boolean(onReorder)}
                   rowStyle={rowPositionStyle(virtualRow.start)}
                 />
               );
@@ -1017,6 +1163,7 @@ export function WorkspaceTree({
               dragProps={rowDragProps}
               labels={rowLabels}
               onRequestMove={dndEnabled ? setMoveNodeId : undefined}
+              canReorder={Boolean(onReorder)}
             />
           ))}
         </ul>
@@ -1037,10 +1184,24 @@ export function WorkspaceTree({
         {moveAnnouncement}
       </p>
 
+      {/* P1 Task 1.7: a rejected move rolls the optimistic order back above;
+          this is the visible half of that rollback, otherwise the row would
+          silently jump back with no explanation. Rendered through the shared
+          `useToast` primitive rather than a page-local timer (UI-51). */}
+      {reorderError && (
+        <p
+          role="alert"
+          data-testid={`${testId}-reorder-error`}
+          className={styles.reorderError}
+        >
+          {reorderError}
+        </p>
+      )}
+
       {moveNode && (
         <TreeMoveDialog
           node={moveNode}
-          nodes={nodes}
+          nodes={renderedNodes}
           testIdPrefix={testId}
           onClose={() => setMoveNodeId(null)}
           onConfirm={handleMoveConfirm}
@@ -1104,6 +1265,11 @@ interface TreeRowProps {
    */
   onRequestMove?: (id: string) => void;
   /**
+   * P1 Task 1.7: true when the tree accepts positional moves, so the row
+   * advertises the Alt+↑/↓ shortcut to assistive technology.
+   */
+  canReorder?: boolean;
+  /**
    * Issue #676: translated labels for the row's icon-only controls. Resolved
    * once in `WorkspaceTree` and handed down rather than calling
    * `useTranslation()` per row — a large virtualized tree mounts hundreds of
@@ -1146,6 +1312,7 @@ function TreeRow({
   onFocusRow,
   dragProps,
   onRequestMove,
+  canReorder,
   labels,
   rowStyle,
 }: TreeRowProps): JSX.Element {
@@ -1156,6 +1323,11 @@ function TreeRow({
 
   const isDragging = dragProps?.draggingId === node.id;
   const isDropTarget = Boolean(dragProps) && dragProps!.dropTargetId === node.id;
+  // P1 Task 1.7: the pointer position on the hovered row decides whether the
+  // drop appends/re-parents (`inside`) or inserts before/after it. The line is
+  // an additional visual channel, the outline stays for the `inside` case.
+  const dropPosition = isDropTarget ? dragProps?.dropPosition : null;
+  const dropsInside = dropPosition === 'inside';
   // Row chrome (background + left accent) is class-based, not inline — the
   // collapsed-ancestor tint below needs a class that is not beaten by an inline
   // `background`, and colour stays token-driven either way.
@@ -1173,7 +1345,9 @@ function TreeRow({
         : '',
       !hasCustomRow && isSelected ? styles.treeRowSelected : '',
       containsSelection ? styles.treeRowHasActiveDescendant : '',
-      isDropTarget ? styles.dropTarget : '',
+      dropsInside ? styles.dropTarget : '',
+      dropPosition === 'before' ? styles.dropBefore : '',
+      dropPosition === 'after' ? styles.dropAfter : '',
       isDragging ? styles.dragging : '',
     ]
       .filter(Boolean)
@@ -1206,6 +1380,8 @@ function TreeRow({
       draggable={dragProps ? true : undefined}
       data-dragging={isDragging ? 'true' : undefined}
       data-drop-target={isDropTarget ? 'true' : undefined}
+      data-drop-position={dropPosition ?? undefined}
+      aria-keyshortcuts={canReorder ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
       onDragStart={
         dragProps ? (e) => dragProps.onDragStartRow(e, node.id) : undefined
       }

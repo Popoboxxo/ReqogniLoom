@@ -233,6 +233,8 @@ _WRITE_TOOL_PREFIXES: tuple[str, ...] = (
     "architecture.decompose_commit",
     # Fix #121: generic TraceLink creation (CrossCuttingToolGroup).
     "traceability.create_link",
+    # P1: reparent/reorder via ArtifactService.move (CrossCuttingToolGroup).
+    "artifact.move",
     "architecture.outdate",
     "architecture.reactivate",
     "test.create",

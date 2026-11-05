@@ -55,6 +55,9 @@ _ARTIFACT_HULL_RESTORABLE: tuple[str, ...] = (
 _ARTIFACT_HULL_NON_RESTORABLE: dict[str, str] = {
     "artifact_type": "identity/type discriminator",
     "artifact_parent_id": "structural hierarchy, not additive content",
+    # P1: persistent sibling ordering. Captured and diffed, but a rollback must
+    # not silently reorder a tree; moves are explicit operations.
+    "sort_key": "structural ordering, not additive content (P1)",
 }
 
 #: ``artifact_type -> captured keys a rollback may write back``.

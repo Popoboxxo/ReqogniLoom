@@ -92,18 +92,40 @@
 }
 
 /*
- * Drag & drop reparenting (user decision 2026-08-15).
+ * Drag & drop reparenting (user decision 2026-08-15) and reordering
+ * (P1 Task 1.7).
  *
  * The drag affordances deliberately use properties the row chrome above does
- * not touch: outline for the drop target, opacity for the row in flight.
+ * not touch: outline for "drop into", a top/bottom rule for "insert before/
+ * after" and opacity for the row in flight. The insert rules are drawn as an
+ * inset box-shadow rather than a border so they neither shift the row's
+ * geometry nor fight the depth-indent padding.
  */
 .dropTarget {
   outline: 2px dashed var(--color-primary);
   outline-offset: -2px;
 }
 
+.dropBefore {
+  box-shadow: inset 0 2px 0 0 var(--color-primary);
+}
+
+.dropAfter {
+  box-shadow: inset 0 -2px 0 0 var(--color-primary);
+}
+
 .dragging {
   opacity: 0.5;
+}
+
+/*
+ * P1 Task 1.7: a rejected move explains itself below the tree. Colour is the
+ * readable danger-as-text token, not the border/icon accent.
+ */
+.reorderError {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger-text);
 }
 
 .rootDropzone {

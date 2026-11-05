@@ -1405,6 +1405,27 @@ class Artifact(TenantScopedModel):
             "changing its workflow state."
         ),
     )
+    # P1 "Ordnung und Allokation" (2026-11-04): persistent sibling order as a
+    # fractional index. The value is a short ASCII string; inserting between two
+    # siblings writes exactly one row (see ``persistence.sort_keys``). Only
+    # Requirements and ArchitectureElements populate it; every other artifact
+    # type keeps NULL and keeps sorting by ``created_at, id``.
+    #
+    # ``db_collation="C"`` is required: the sibling order must follow raw byte
+    # comparison, not the database's locale collation, so the generated key
+    # order is identical on every deployment. Nullable because the column is
+    # added before the backfill and because non-tree types never fill it.
+    sort_key = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        db_collation="C",
+        help_text=(
+            "Fractional sort key for persistent sibling order. Scoped by "
+            "``parent``; roots are ordered per ``(workspace, artifact_type)``. "
+            "NULL for artifact types that do not participate in ordered trees."
+        ),
+    )
 
     class Meta:
         db_table = "pl_artifact"
@@ -1437,6 +1458,11 @@ class Artifact(TenantScopedModel):
             models.Index(
                 fields=["tenant", "workspace", "artifact_type"],
                 name="idx_artifact_tnt_ws_type",
+            ),
+            # P1: sort/tie-break foundation for ordered sibling reads.
+            models.Index(
+                fields=["parent", "sort_key", "id"],
+                name="idx_artifact_parent_sort",
             ),
         ]
 

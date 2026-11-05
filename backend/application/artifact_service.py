@@ -36,6 +36,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import connection, transaction
+from django.db.models import F
 
 from auth_tenancy.context import AuthContext
 
@@ -47,6 +48,7 @@ from application.event_bus import DomainEvent
 from application.models import DomainEventOutbox
 from persistence.custom_fields import coerce_custom_fields
 from persistence.models import Artifact, Tenant, Workspace
+from persistence.sort_keys import key_between, rebalance_keys
 from persistence.tenancy import TenantContextNotSetError
 from persistence.transactions import atomic_transaction
 from traceability.audit.hierarchy import recompute_requirement_levels
@@ -55,10 +57,98 @@ logger = logging.getLogger(__name__)
 
 # Sentinel distinguishing "parameter omitted" from "clear custom_fields to {}".
 _UNSET = object()
+#: Public alias for transport adapters (REST/MCP) that must pass the same
+#: sentinel object through for "after_id omitted".
+UNSET = _UNSET
 
 #: Datenmodell-Konsolidierung Phase 1: status is no longer denormalized onto
 #: the entity row. WorkflowItemState is the only store; read it through
 #: ``workflow.services.outdated_item_ids`` / ``workflow.state_reader``.
+
+#: Artifact types that participate in persistent sibling ordering (P1). Every
+#: other type keeps ``sort_key = NULL`` and keeps sorting by ``created_at, id``.
+_ORDERED_ARTIFACT_TYPES = frozenset({"Requirement", "ArchitectureElement"})
+
+
+def _sibling_queryset(workspace_id: UUID, parent_id: UUID | None, artifact_type: str):
+    """Sibling block of one ``(workspace, parent, type)`` group.
+
+    Roots (``parent_id is None``) are grouped per ``(workspace, artifact_type)``
+    so the two trees never share a root block.
+    """
+    qs = Artifact.unscoped.filter(
+        workspace_id=workspace_id, artifact_type=artifact_type
+    )
+    if parent_id is None:
+        return qs.filter(parent_id__isnull=True)
+    return qs.filter(parent_id=parent_id)
+
+
+def ensure_sibling_keys(
+    workspace_id: UUID, parent_id: UUID | None, artifact_type: str
+) -> list[tuple[UUID, str]]:
+    """Return the ordered ``(artifact_id, sort_key)`` block, building keys if needed.
+
+    New rows normally always carry a key; this repairs legacy rows (or a block
+    whose keys are missing/duplicated/non-monotonic) by one ``rebalance_keys``
+    pass. Called under the parent-row lock from :meth:`ArtifactService.move`.
+    """
+    rows = list(
+        _sibling_queryset(workspace_id, parent_id, artifact_type)
+        .order_by("sort_key", "created_at", "id")
+        .values_list("id", "sort_key")
+    )
+    keys = [key for _, key in rows]
+    if all(key is not None for key in keys) and keys == sorted(keys) and len(set(keys)) == len(keys):
+        return [(artifact_id, key) for artifact_id, key in rows]
+
+    rebuilt = rebalance_keys(len(rows))
+    for (artifact_id, _), new_key in zip(rows, rebuilt, strict=True):
+        Artifact.unscoped.filter(id=artifact_id).update(sort_key=new_key)
+    return list(zip((artifact_id for artifact_id, _ in rows), rebuilt, strict=True))
+
+
+def append_sort_key(
+    workspace_id: UUID, parent_id: UUID | None, artifact_type: str
+) -> str | None:
+    """Key that appends a new artifact at the end of its sibling block."""
+    if artifact_type not in _ORDERED_ARTIFACT_TYPES:
+        return None
+    block = ensure_sibling_keys(workspace_id, parent_id, artifact_type)
+    last_key = block[-1][1] if block else None
+    return key_between(last_key, None)
+
+
+def assign_sort_keys_in_order(artifacts: list[Artifact]) -> None:
+    """Write sequential keys to *artifacts*, preserving their list order.
+
+    Used by importers: the caller hands the artifacts in source order, grouped
+    by sibling block internally. Non-ordered types are ignored. Existing
+    siblings that are not part of *artifacts* keep their position; the imported
+    block is appended after them.
+    """
+    groups: dict[tuple[UUID, UUID | None, str], list[Artifact]] = {}
+    for artifact in artifacts:
+        if artifact.artifact_type not in _ORDERED_ARTIFACT_TYPES:
+            continue
+        key = (artifact.workspace_id, artifact.parent_id, artifact.artifact_type)
+        groups.setdefault(key, []).append(artifact)
+
+    for (workspace_id, parent_id, artifact_type), members in groups.items():
+        member_ids = [member.id for member in members]
+        last_key = (
+            _sibling_queryset(workspace_id, parent_id, artifact_type)
+            .exclude(id__in=member_ids)
+            .exclude(sort_key__isnull=True)
+            .order_by("-sort_key")
+            .values_list("sort_key", flat=True)
+            .first()
+        )
+        for member in members:
+            new_key = key_between(last_key, None)
+            Artifact.unscoped.filter(id=member.id).update(sort_key=new_key)
+            member.sort_key = new_key
+            last_key = new_key
 
 
 def _clean_custom_fields(value: object) -> dict:
@@ -196,11 +286,15 @@ class TreeNodeDTO:
     #: REQ-L2-AS-037 / Epic #934 WS1: extended attributes of this node's
     #: backing Artifact, so ``artifact.get_tree`` reports attributes too.
     custom_fields: dict[str, Any] = field(default_factory=dict)
+    #: P1: the node's fractional sort key, so a tree client can send an exact
+    #: ``after_id`` back on reorder without a second lookup.
+    sort_key: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "id": str(self.id),
             "artifact_type": self.artifact_type,
+            "sort_key": self.sort_key,
             "custom_fields": (
                 dict(self.custom_fields)
                 if isinstance(self.custom_fields, dict)
@@ -343,6 +437,7 @@ class ArtifactService(ServiceBase):
             artifact_type=artifact_type,
             parent_id=parent_id,
             custom_fields=_clean_custom_fields(custom_fields),
+            sort_key=append_sort_key(workspace_id, parent_id, artifact_type),
         )
 
         self._audit(
@@ -410,6 +505,173 @@ class ArtifactService(ServiceBase):
         self._audit(ctx=ctx, operation="update", entity_type="Artifact", entity_id=artifact.id)
         return artifact
 
+    def _assert_not_frozen(self, artifact: Artifact) -> None:
+        """Hook point for the workflow freeze (P4, Task 4.2).
+
+        No-op in P1: the freeze rule does not exist yet, but every move path
+        already funnels through here so P4 only has to fill this method in.
+        """
+        return None
+
+    @atomic_transaction
+    def move(
+        self,
+        *,
+        artifact_id: UUID,
+        new_parent_id: UUID | None,
+        ctx: AuthContext,
+        after_id: UUID | None | object = _UNSET,
+    ) -> Artifact:
+        """Reparent and/or reorder an ordered artifact (P1, B8).
+
+        The single move entry point (REST ``POST …/move/``, MCP
+        ``artifact.move``). Semantics:
+
+        * ``after_id`` omitted (``_UNSET``) — append at the end of the new
+          sibling block;
+        * ``after_id=None`` — insert first;
+        * ``after_id=<id>`` — insert directly behind that sibling, which must
+          be a child of ``new_parent_id`` (else 400).
+
+        Only ``Requirement`` and ``ArchitectureElement`` participate. The write
+        is one ``QuerySet.update()`` on the artifact row (no ``save()``, so
+        ``version`` and ``modified_at`` stay untouched); the architecture
+        element hierarchy mirror is updated alongside.
+        """
+        self._set_tenant_context(ctx)
+        self._assert_write_permission(ctx)
+
+        artifact = Artifact.objects.filter(id=artifact_id).first()
+        if artifact is None:
+            raise NotFoundError(f"Artifact {artifact_id} not found")
+        if artifact.artifact_type not in _ORDERED_ARTIFACT_TYPES:
+            raise ValidationError(
+                f"Artifact type {artifact.artifact_type!r} does not participate "
+                "in ordered trees"
+            )
+        if after_id is not _UNSET and after_id is not None:
+            try:
+                after_id = UUID(str(after_id))
+            except (TypeError, ValueError):
+                raise ValidationError(f"Invalid after_id: {after_id!r}") from None
+
+        workspace_id = artifact.workspace_id
+        old_parent_id = artifact.parent_id
+        self._assert_not_frozen(artifact)
+
+        parent_artifact: Artifact | None = None
+        if new_parent_id is not None:
+            parent_artifact = Artifact.objects.filter(id=new_parent_id).first()
+            if parent_artifact is None:
+                raise NotFoundError(f"Parent artifact {new_parent_id} not found")
+            if parent_artifact.workspace_id != workspace_id:
+                raise ValidationError(
+                    "Cannot move an artifact across workspaces"
+                )
+            if parent_artifact.artifact_type != artifact.artifact_type:
+                raise ValidationError(
+                    f"A {artifact.artifact_type} cannot be moved under a "
+                    f"{parent_artifact.artifact_type}"
+                )
+            self._validate_no_cycle(artifact.id, parent_artifact.id)
+
+        # Serialise concurrent moves/additions in the same sibling block.
+        if parent_artifact is not None:
+            Artifact.unscoped.select_for_update().filter(id=parent_artifact.id).first()
+        else:
+            Workspace.objects.select_for_update().filter(id=workspace_id).first()
+
+        typed_element = None
+        typed_parent_id: UUID | None = None
+        if artifact.artifact_type == "ArchitectureElement":
+            from persistence.models import ArchitectureElement
+
+            typed_element = ArchitectureElement.objects.filter(
+                artifact_id=artifact.id
+            ).first()
+            if parent_artifact is not None:
+                typed_parent_id = (
+                    ArchitectureElement.objects.filter(
+                        artifact_id=parent_artifact.id
+                    )
+                    .values_list("id", flat=True)
+                    .first()
+                )
+                if typed_parent_id is None:
+                    raise ValidationError(
+                        "Parent artifact has no backing ArchitectureElement"
+                    )
+            if typed_element is not None:
+                from application.validators import (
+                    ArchitectureElementInvariantValidator,
+                )
+
+                validator = ArchitectureElementInvariantValidator.for_workspace(
+                    workspace_id
+                )
+                validator.validate_parent_assignment(
+                    parent_id=typed_parent_id,
+                    element=typed_element,
+                    element_id=typed_element.id,
+                    workspace_id=workspace_id,
+                )
+
+        block = [
+            row
+            for row in ensure_sibling_keys(
+                workspace_id, new_parent_id, artifact.artifact_type
+            )
+            if row[0] != artifact.id
+        ]
+        if after_id is _UNSET:
+            before_key = block[-1][1] if block else None
+            following_key = None
+        elif after_id is None:
+            before_key = None
+            following_key = block[0][1] if block else None
+        else:
+            index = next(
+                (i for i, (row_id, _) in enumerate(block) if row_id == after_id),
+                None,
+            )
+            if index is None:
+                raise ValidationError(
+                    f"after_id {after_id} is not a child of the target parent"
+                )
+            before_key = block[index][1]
+            following_key = block[index + 1][1] if index + 1 < len(block) else None
+
+        new_key = key_between(before_key, following_key)
+
+        Artifact.unscoped.filter(id=artifact.id).update(
+            parent_id=new_parent_id, sort_key=new_key
+        )
+        artifact.parent_id = new_parent_id
+        artifact.sort_key = new_key
+
+        if typed_element is not None and new_parent_id != old_parent_id:
+            from persistence.models import ArchitectureElement
+
+            ArchitectureElement.objects.filter(pk=typed_element.pk).update(
+                parent_id=typed_parent_id
+            )
+
+        if artifact.artifact_type == "Requirement" and new_parent_id != old_parent_id:
+            _recompute_derived_levels([artifact.id])
+
+        self._audit(
+            ctx=ctx,
+            operation="reordered",
+            entity_type="Artifact",
+            entity_id=artifact.id,
+            details={
+                "from_parent_id": str(old_parent_id) if old_parent_id else None,
+                "to_parent_id": str(new_parent_id) if new_parent_id else None,
+                "after_id": str(after_id) if after_id not in (_UNSET, None) else None,
+            },
+        )
+        return artifact
+
     @atomic_transaction
     def delete_artifact(self, artifact_id: UUID, ctx: AuthContext) -> None:
         """Delete artifact after cascading TraceLinks (ADR-L3-AS001-03).
@@ -474,8 +736,8 @@ class ArtifactService(ServiceBase):
         # first by creation, with the primary key as a unique tie-breaker.
         return (
             Artifact.unscoped.filter(workspace_id=workspace_id)
-            .values("id", "parent_id", "artifact_type")
-            .order_by("created_at", "id")
+            .values("id", "parent_id", "artifact_type", "sort_key")
+            .order_by(F("sort_key").asc(nulls_last=True), "created_at", "id")
         )
 
     def resolve_artifact_titles(
@@ -683,28 +945,38 @@ class ArtifactService(ServiceBase):
         # Recursive CTE: fetch all descendants in one query
         sql = """
             WITH RECURSIVE tree AS (
-                SELECT id, parent_id, artifact_type, custom_fields, 0 AS depth
+                SELECT id, parent_id, artifact_type, sort_key, custom_fields, 0 AS depth
                 FROM pl_artifact
                 WHERE id = %s
                   AND workspace_id = %s
 
                 UNION ALL
 
-                SELECT a.id, a.parent_id, a.artifact_type, a.custom_fields, t.depth + 1
+                SELECT a.id, a.parent_id, a.artifact_type, a.sort_key, a.custom_fields,
+                       t.depth + 1
                 FROM pl_artifact a
                 INNER JOIN tree t ON a.parent_id = t.id
                 WHERE t.depth < 20
             )
-            SELECT id, parent_id, artifact_type, custom_fields FROM tree ORDER BY depth;
+            SELECT id, parent_id, artifact_type, sort_key, custom_fields
+            FROM tree
+            ORDER BY depth, sort_key NULLS LAST, id;
         """
 
         rows: dict[UUID, dict] = {}
         with connection.cursor() as cursor:
             cursor.execute(sql, [str(root_id), str(workspace_id)])
-            for row_id, parent_id, artifact_type, custom_fields in cursor.fetchall():
+            for (
+                row_id,
+                parent_id,
+                artifact_type,
+                sort_key,
+                custom_fields,
+            ) in cursor.fetchall():
                 rows[row_id] = {
                     "parent_id": parent_id,
                     "artifact_type": artifact_type,
+                    "sort_key": sort_key,
                     "custom_fields": coerce_custom_fields(custom_fields),
                     "children": [],
                 }
@@ -720,6 +992,7 @@ class ArtifactService(ServiceBase):
                 id=uid,
                 artifact_type=data["artifact_type"],
                 custom_fields=data["custom_fields"],
+                sort_key=data["sort_key"],
             )
             for uid, data in rows.items()
         }
@@ -735,6 +1008,69 @@ class ArtifactService(ServiceBase):
             root_node = nodes[root_id]
 
         return root_node
+
+    def get_workspace_tree(
+        self, workspace_id: UUID, artifact_type: str, ctx: AuthContext
+    ) -> list[TreeNodeDTO]:
+        """Return every ordered root of *artifact_type* in *workspace_id*.
+
+        Sorted sibling forest for ``GET /api/v1/workspaces/{id}/tree/``. Soft-
+        deleted rows are hidden: Requirements carry the flag on
+        ``Artifact.lifecycle_status``, ArchitectureElements in
+        ``WorkflowItemState`` (their artifact row has no status mirror).
+        """
+        self._set_tenant_context(ctx)
+        if artifact_type not in _ORDERED_ARTIFACT_TYPES:
+            raise ValidationError(
+                f"Artifact type {artifact_type!r} does not participate in "
+                "ordered trees"
+            )
+
+        queryset = Artifact.unscoped.filter(
+            workspace_id=workspace_id, artifact_type=artifact_type
+        ).order_by(F("sort_key").asc(nulls_last=True), "created_at", "id")
+        if artifact_type == "Requirement":
+            queryset = queryset.exclude(lifecycle_status="outdated")
+        else:
+            from persistence.models import ArchitectureElement
+            from workflow.services import outdated_item_ids
+
+            element_by_artifact = dict(
+                ArchitectureElement.objects.filter(
+                    artifact__workspace_id=workspace_id
+                ).values_list("artifact_id", "id")
+            )
+            outdated_elements = set(
+                outdated_item_ids("ArchitectureElement").filter(
+                    id__in=element_by_artifact.values()
+                )
+            )
+            if outdated_elements:
+                queryset = queryset.exclude(
+                    id__in=[
+                        artifact_id
+                        for artifact_id, element_id in element_by_artifact.items()
+                        if element_id in outdated_elements
+                    ]
+                )
+
+        rows = list(queryset)
+        nodes = {
+            row.id: TreeNodeDTO(
+                id=row.id,
+                artifact_type=row.artifact_type,
+                custom_fields=coerce_custom_fields(row.custom_fields),
+                sort_key=row.sort_key,
+            )
+            for row in rows
+        }
+        roots: list[TreeNodeDTO] = []
+        for row in rows:
+            if row.parent_id in nodes:
+                nodes[row.parent_id].children.append(nodes[row.id])
+            else:
+                roots.append(nodes[row.id])
+        return roots
 
 
 __all__ = [

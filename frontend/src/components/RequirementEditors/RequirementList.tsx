@@ -189,6 +189,16 @@ interface RequirementListProps {
   onDelete: (id: UUID, changeReason?: string) => Promise<boolean>;
   /** Task 3.1: wired to the "empty" EmptyState's create action (ch. 12.7/13.3). */
   onCreateNew: () => void;
+  /**
+   * P1 Task 1.7: positional move from the tree (drag drop, Alt+↑/↓ or the
+   * "Move…" dialog). The tree forwards node ids — the caller maps them to the
+   * backing Artifact ids the move endpoint keys on.
+   */
+  onReorder?: (
+    id: UUID,
+    newParentId: UUID | null,
+    afterId: UUID | null | undefined,
+  ) => Promise<void>;
 }
 
 /**
@@ -203,6 +213,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
   onSelect,
   onDelete,
   onCreateNew,
+  onReorder,
 }) => {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
@@ -494,6 +505,9 @@ export const RequirementList: React.FC<RequirementListProps> = ({
           nodes={treeNodes}
           selectedId={selectedId}
           onSelect={onSelect}
+          // P1 Task 1.7: the requirement tree gains re-parenting + reordering,
+          // which it never had (only the architecture tree did).
+          onReorder={onReorder}
           showSearch={false}
           // Issue #1257: resolve the configured field selection for this
           // artifact type in this workspace (user > workspace > global).
