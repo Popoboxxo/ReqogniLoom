@@ -465,14 +465,18 @@ def map_tool_exception(exc: Exception) -> tuple[str, str] | None:
     The imports are deliberately lazy: this module is loaded at MCP start-up,
     while ``application.base`` pulls in the event bus and Django settings.
     """
-    from application.base import AllocationConflictError, OptimisticLockError
+    from application.base import (
+        AllocationConflictError,
+        OptimisticLockError,
+        WorkflowFrozenError,
+    )
     from persistence.errors import (
         NotFoundError,
         PermissionDeniedError,
         ValidationError,
     )
 
-    if isinstance(exc, AllocationConflictError):
+    if isinstance(exc, AllocationConflictError | WorkflowFrozenError):
         return "CONFLICT", str(exc)
     if isinstance(exc, ValidationError):
         return "VALIDATION_ERROR", str(exc)

@@ -1509,8 +1509,17 @@ class TraceLinkService(ServiceBase):
         return result
 
     def _assert_not_frozen(self, requirement) -> None:
-        """Hook point for the workflow freeze (P4, Task 4.2). No-op in P2."""
-        return None
+        """Raise 409 when the requirement's workflow state freezes it (P4)."""
+        from application.artifact_freeze import is_frozen
+        from application.base import WorkflowFrozenError
+
+        info = is_frozen(requirement.artifact)
+        if info is not None:
+            raise WorkflowFrozenError(
+                f"Requirement is frozen in state '{info.state_name}' and "
+                "cannot be (re-)allocated.",
+                info.state_name,
+            )
 
     @atomic_transaction
     def deallocate(self, *, requirement_id: UUID, ctx: AuthContext) -> None:

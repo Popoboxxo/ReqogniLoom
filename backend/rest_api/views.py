@@ -78,6 +78,7 @@ from application.artifact_attribute_gateway import (
 )
 from application.base import (
     AllocationConflictError,
+    WorkflowFrozenError,
     AnchorsPresentError,
     DocumentGateFailedError,
     FieldFrozenError,
@@ -430,6 +431,7 @@ _EXC_TO_HTTP: dict[type, int] = {
     FieldFrozenError: status.HTTP_409_CONFLICT,
     # P2: N:1 allocation conflict on the generic TraceLink create path.
     AllocationConflictError: status.HTTP_409_CONFLICT,
+    WorkflowFrozenError: status.HTTP_409_CONFLICT,
     DocumentGateFailedError: status.HTTP_409_CONFLICT,
     # Plan F F3-T7 / I-3: deleting a link that still carries inline anchors is
     # a rejected precondition (confirm the count and retry), hence 409.
@@ -496,6 +498,7 @@ _EXC_TO_CODE: dict[type, str] = {
     # frozen field / one per violated gate), per ADR-026 F-3 and §4.2.
     FieldFrozenError: "FIELD_FROZEN",
     AllocationConflictError: "CONFLICT",
+    WorkflowFrozenError: "WORKFLOW_FROZEN",
     DocumentGateFailedError: "DOCUMENT_GATE_FAILED",
     # Plan F F3-T7 / I-3: distinct code so a client can read the count and
     # retry with ?confirm_anchor_count=n instead of retrying blindly.

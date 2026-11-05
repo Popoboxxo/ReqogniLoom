@@ -506,12 +506,17 @@ class ArtifactService(ServiceBase):
         return artifact
 
     def _assert_not_frozen(self, artifact: Artifact) -> None:
-        """Hook point for the workflow freeze (P4, Task 4.2).
+        """Raise 409 when the artifact's workflow state freezes it (P4)."""
+        from application.artifact_freeze import is_frozen
+        from application.base import WorkflowFrozenError
 
-        No-op in P1: the freeze rule does not exist yet, but every move path
-        already funnels through here so P4 only has to fill this method in.
-        """
-        return None
+        info = is_frozen(artifact)
+        if info is not None:
+            raise WorkflowFrozenError(
+                f"Artifact is frozen in state '{info.state_name}' and cannot "
+                "be moved.",
+                info.state_name,
+            )
 
     @atomic_transaction
     def move(

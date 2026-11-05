@@ -142,6 +142,23 @@ class ProducerContextRequiredError(ValidationError):
     error_code = "PRODUCER_CONTEXT_REQUIRED"
 
 
+class WorkflowFrozenError(ValidationError):
+    """A workflow state marked ``freeze_on_enter`` locks the artifact (P4).
+
+    The frozen artifact may not be moved, re-parented or (re-)allocated.
+    Answered with **409 WORKFLOW_FROZEN**; ``details`` carries the state name so
+    the client can explain *why* the write was refused.
+    """
+
+    error_code = "WORKFLOW_FROZEN"
+    http_status = 409
+
+    def __init__(self, message: str, state_name: str) -> None:
+        super().__init__(message)
+        self.message = message
+        self.details = {"state": state_name}
+
+
 class AllocationConflictError(ValidationError):
     """A generic write tried to create a second ``allocated-to`` edge.
 
