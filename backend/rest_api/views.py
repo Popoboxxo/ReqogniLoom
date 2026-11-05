@@ -8132,6 +8132,50 @@ class WorkspaceViewSet(BaseEntityViewSet):
             }
         )
 
+    @action(detail=True, methods=["get"], url_path="allocation-view")
+    def allocation_view(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/workspaces/{pk}/allocation-view/ — flat view (P3)."""
+        from application.allocation_view_service import AllocationViewService
+
+        lang = detect_lang(request)
+        params = request.query_params
+
+        def _bool(name: str) -> bool | None:
+            raw = params.get(name)
+            if raw is None:
+                return None
+            return raw.lower() in {"1", "true", "yes"}
+
+        try:
+            ctx = get_auth_context(request)
+            payload = AllocationViewService().list(
+                UUID(pk),
+                ctx,
+                allocated=_bool("allocated"),
+                intent=params.get("intent"),
+                tier=params.get("tier"),
+                type=params.get("type"),
+                category=params.get("category"),
+                state=params.get("state"),
+                element_subtree=(
+                    UUID(params["element_subtree"])
+                    if params.get("element_subtree")
+                    else None
+                ),
+                q=params.get("q"),
+                open=_bool("open"),
+                page_size=int(params.get("page_size") or 200),
+                offset=int(params.get("offset") or 0),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except (TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(payload)
+
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/workspaces/ — create a new workspace + preset config.
 
