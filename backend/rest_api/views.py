@@ -14477,6 +14477,126 @@ class AttributeSchemaView(APIView):
         return Response(schema)
 
 
+class GroupViewSet(viewsets.ViewSet):
+    """Visual requirement groups (P6): CRUD + ordered membership."""
+
+    def _svc(self):
+        from application.group_service import GroupService
+
+        return GroupService()
+
+    def _group_dict(self, artifact) -> dict:
+        fields = getattr(artifact, "custom_fields", None) or {}
+        return {
+            "id": str(artifact.id),
+            "workspace_id": str(artifact.workspace_id),
+            "title": fields.get("title", ""),
+            "description": fields.get("description", ""),
+        }
+
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            workspace_id = UUID(str(request.query_params.get("workspace_id")))
+            groups = self._svc().list_groups(workspace_id, ctx)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except (TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"results": [self._group_dict(group) for group in groups]})
+
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            group = self._svc().create(
+                UUID(str(request.data["workspace_id"])),
+                str(request.data.get("title") or ""),
+                ctx,
+                description=str(request.data.get("description") or ""),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except (KeyError, TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(self._group_dict(group), status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["get", "post"], url_path="members")
+    def members(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        service = self._svc()
+        try:
+            ctx = get_auth_context(request)
+            if request.method == "POST":
+                service.add_member(
+                    UUID(pk),
+                    UUID(str(request.data["requirement_id"])),
+                    ctx,
+                    after_id=(
+                        UUID(str(request.data["after_id"]))
+                        if request.data.get("after_id")
+                        else None
+                    ),
+                )
+            members = service.members(UUID(pk), ctx)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except (KeyError, TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"members": members})
+
+    @action(detail=True, methods=["post"], url_path="members/remove")
+    def remove_member(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            self._svc().remove_member(
+                UUID(pk), UUID(str(request.data["requirement_id"])), ctx
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except (KeyError, TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="members/move")
+    def move_member(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            link = self._svc().move_member(
+                UUID(pk),
+                UUID(str(request.data["requirement_id"])),
+                ctx,
+                after_id=(
+                    UUID(str(request.data["after_id"]))
+                    if request.data.get("after_id")
+                    else None
+                ),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except (KeyError, TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"trace_link_id": str(link.id), "sort_key": link.sort_key})
+
+
 class AllocationListView(APIView):
     """GET /api/v1/allocations/ — flat requirement/allocation rows (P2)."""
 
@@ -14546,6 +14666,7 @@ class AllocationListView(APIView):
 
 
 __all__ = [
+    "GroupViewSet",
     "AllocationListView",
     "AdrViewSet",
     "ArchitectureElementViewSet",

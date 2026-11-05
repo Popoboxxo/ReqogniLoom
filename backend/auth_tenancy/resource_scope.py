@@ -260,6 +260,16 @@ for _name, _entity in {
 }.items():
     _declare(_name, ResourceClassification(ResourceScope.WORKSPACE, entity_key=_entity))
 
+# P6: a visual group is a plain ``Group`` Artifact, so a ``pk`` route resolves
+# the owning workspace from that artifact row. Create/list name the workspace in
+# the body/query instead and fall back to the request workspace.
+_declare(
+    "GroupViewSet",
+    ResourceClassification(
+        ResourceScope.WORKSPACE, entity_key="artifact", id_kwargs=("pk",)
+    ),
+)
+
 # Sub-resources that name their object with a non-``pk`` kwarg.
 _declare(
     "ArtifactCommentsView",
@@ -298,6 +308,7 @@ for _name in ("SuggestionAcceptView", "SuggestionRejectView"):
 # so ``resolve_request_workspace_id`` supplies the target. No object lookup.
 _WORKSPACE_VIA_REQUEST = (
     "CsvImportView",
+    "AllocationListView",
     "CsvExportView",
     "ReqifImportView",
     "ReqifExportView",

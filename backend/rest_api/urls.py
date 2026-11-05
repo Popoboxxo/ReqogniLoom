@@ -244,6 +244,7 @@ from rest_api.views import (
     DocumentViewSet,
     GlossaryTermViewSet,
     GoalViewSet,
+    GroupViewSet,
     IssueViewSet,
     MainGoalViewSet,
     MilestoneViewSet,
@@ -286,6 +287,7 @@ router.register(r"tracelinks", TraceLinkViewSet, basename="tracelink")
 # kept for backward compatibility (frontend/src/api/tracelinks.ts and docs
 # reference it extensively).
 router.register(r"trace-links", TraceLinkViewSet, basename="trace-link")
+router.register(r"groups", GroupViewSet, basename="group")
 router.register(r"traceability", TraceabilityViewSet, basename="traceability")
 router.register(r"baselines", BaselineViewSet, basename="baseline")
 router.register(r"workflows", WorkflowDefinitionViewSet, basename="workflow")
