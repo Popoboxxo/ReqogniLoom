@@ -2273,6 +2273,19 @@ class TraceLink(TenantScopedModel):
             "to reconstruct the intent from the two titles."
         ),
     )
+    # P6 (V11): membership order inside a visual group. Only ``grouped-in``
+    # edges fill it; every other link type keeps NULL and is ordered by
+    # ``created_at, id``.
+    sort_key = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        db_collation="C",
+        help_text=(
+            "P6: fractional order of this membership inside its group "
+            "(``grouped-in`` only; NULL for every other link type)."
+        ),
+    )
     suspect_flagged_at = models.DateTimeField(
         null=True,
         blank=True,
