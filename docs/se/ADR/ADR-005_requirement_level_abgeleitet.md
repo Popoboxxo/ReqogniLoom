@@ -1,16 +1,16 @@
 ---
 adr_id: ADR-005
 title: "Requirement.level wird abgeleitet und schreibgeschützt"
-status: accepted
+status: superseded
 date: "2026-09-27"
 deciders: [user]
 affected_reqs: [REQ-L0-039, REQ-L0-019]
-superseded_by: null
+superseded_by: ADR-027
 ---
 
 # ADR-005: Requirement.level wird abgeleitet und schreibgeschützt
 
-**Status:** accepted
+**Status:** superseded by ADR-027
 **Datum:** 2026-09-27
 **Entscheider:** user
 **Betroffene REQs:** REQ-L0-039 (Systemebenen-Orientierung durch Hierarchie-Darstellung),
