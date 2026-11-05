@@ -61,7 +61,6 @@ class AllocationViewService(ServiceBase):
             )
         )
         children: dict[UUID, list[UUID]] = {}
-        element_by_id = {row["id"]: row for row in elements}
         element_by_artifact = {row["artifact_id"]: row for row in elements}
         for row in elements:
             if row["parent_id"] is not None:

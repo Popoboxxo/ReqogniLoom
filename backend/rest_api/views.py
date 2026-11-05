@@ -4651,6 +4651,53 @@ class TraceLinkViewSet(BaseEntityViewSet):
     def _svc(self) -> TraceLinkService:
         return TraceLinkService()
 
+    @action(detail=False, methods=["post"], url_path="bulk")
+    def bulk(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/trace-links/bulk/ — all-or-nothing allocation (P3.5).
+
+        Body: ``{"items": [{"requirement_id": uuid, "element_id": uuid}]}``.
+        One failure rolls the whole batch back; nothing is written.
+        """
+        from django.db import transaction
+
+        lang = detect_lang(request)
+        items = request.data.get("items") if isinstance(request.data, dict) else None
+        if not isinstance(items, list) or not items:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="Body must be {\"items\": [{requirement_id, element_id}]}.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            service = self._svc()
+            with transaction.atomic():
+                results = []
+                for item in items:
+                    link = service.allocate(
+                        requirement_id=UUID(str(item["requirement_id"])),
+                        architecture_element_id=UUID(str(item["element_id"])),
+                        ctx=ctx,
+                    )
+                    results.append(
+                        {
+                            "requirement_id": str(item["requirement_id"]),
+                            "element_id": str(item["element_id"]),
+                            "trace_link_id": str(link.id),
+                        }
+                    )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except (KeyError, TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"allocated": results}, status=status.HTTP_201_CREATED)
+
     def _list_workspace_links(
         self,
         request: Request,
