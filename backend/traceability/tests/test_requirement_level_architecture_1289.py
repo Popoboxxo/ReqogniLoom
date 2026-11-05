@@ -110,14 +110,18 @@ class TestArchitectureAllocatedLevels:
     ):
         # Allocated to two elements at different depths -> disagreement -> None
         # (a guess would be wrong for at least one edge).
+        import pytest
+        from django.db import IntegrityError
+
         with active_tenant(tenant_a):
             root = _element(tenant_a, workspace_a, "System")
             child = _element(tenant_a, workspace_a, "Subsystem", parent=root)
             artifact, _ = _requirement(tenant_a, workspace_a, "R")
             _allocate(tenant_a, artifact, root)
-            _allocate(tenant_a, artifact, child)
-            levels = architecture_allocated_levels(tenant_a.id)
-        assert levels[artifact.id] is None
+            # P2 makes N:1 a database invariant, so the old "two allocations
+            # at disagreeing depths" scenario is no longer representable.
+            with pytest.raises(IntegrityError):
+                _allocate(tenant_a, artifact, child)
 
     def test_a_requirement_without_allocation_is_absent(
         self, tenant_a, workspace_a
@@ -174,7 +178,7 @@ class TestManualOverrideIsPreserved:
             recompute_requirement_levels([child_artifact.id])
             child.refresh_from_db()
         assert child.level == RequirementLevel.L2_SUBSYSTEM
-        assert child.level_source == RequirementLevelSource.DERIVED
+        assert child.level_source == RequirementLevelSource.DERIVED_HIERARCHY
 
 
 # ---------------------------------------------------------------------------

@@ -656,8 +656,13 @@ class ArtifactService(ServiceBase):
                 parent_id=typed_parent_id
             )
 
-        if artifact.artifact_type == "Requirement" and new_parent_id != old_parent_id:
-            _recompute_derived_levels([artifact.id])
+        if new_parent_id != old_parent_id:
+            if artifact.artifact_type == "Requirement":
+                _recompute_derived_levels([artifact.id])
+            else:
+                # An architecture move shifts the leaf-relative tier of every
+                # requirement allocated in that tree.
+                recompute_requirement_levels(workspace_id=workspace_id)
 
         self._audit(
             ctx=ctx,

@@ -277,6 +277,33 @@ class RequirementLevelSource(models.TextChoices):
 
     DERIVED = "derived", "Derived from hierarchy"
     MANUAL = "manual", "Manually overridden"
+    # P2 (V6): the leaf-relative ladder writes finer provenance. ``derived`` is
+    # kept for existing rows and for the legacy hierarchy path.
+    DERIVED_ALLOCATION = "derived_allocation", "Derived from allocation"
+    DERIVED_HIERARCHY = "derived_hierarchy", "Derived from parent hierarchy"
+    DERIVED_TYPE = "derived_type", "Derived from artifact type default"
+    UNRESOLVED = "unresolved", "Unresolved (no allocation or derivation)"
+
+
+class AllocationIntent(models.TextChoices):
+    """Why a Requirement has (or has not) an ``allocated-to`` edge (P2, V2).
+
+    ``allocated`` is written by the allocation service; ``not_allocatable``
+    marks a deliberate exclusion (coverage reports it as such, never as a
+    gap); ``unassigned`` is the default and means "not decided yet".
+    """
+
+    ALLOCATED = "allocated", "Allocated"
+    NOT_ALLOCATABLE = "not_allocatable", "Deliberately not allocatable"
+    UNASSIGNED = "unassigned", "Unassigned"
+
+
+class WorkspaceTierRule(models.TextChoices):
+    """Position of a ladder entry relative to the tree (P2, V4/V5)."""
+
+    FIRST = "first", "First (tree root)"
+    MIDDLE = "middle", "Middle (any height)"
+    FROM_END = "from_end", "From the last level upwards"
 
 
 class MoSCoWPriority(models.TextChoices):
@@ -1729,13 +1756,40 @@ class Requirement(TenantScopedModel):
         ),
     )
     level_source = models.CharField(
-        max_length=16,
+        max_length=32,
         choices=RequirementLevelSource.choices,
         default=RequirementLevelSource.DERIVED,
         help_text=(
             "#1289: provenance of `level` — 'derived' (written by the level "
             "derivation; the default) or 'manual' (an explicit human override "
             "that the derivation never overwrites)."
+        ),
+    )
+    # P2 (V2): "not allocatable" has no edge it could live on, so the decision
+    # belongs to the Requirement. ``allocated`` is maintained by
+    # TraceLinkService.allocate/deallocate.
+    allocation_intent = models.CharField(
+        max_length=16,
+        choices=AllocationIntent.choices,
+        default=AllocationIntent.UNASSIGNED,
+        db_index=True,
+        help_text=(
+            "P2: allocated | not_allocatable | unassigned. Coverage counts "
+            "'not_allocatable' as deliberately excluded, not as a gap."
+        ),
+    )
+    # P2 (V4): the stable ladder key this requirement's tier resolves to. The
+    # integer alias ``level`` stays the permanent published value; this is the
+    # name-independent carrier. NULL = unresolved.
+    tier_key = models.SlugField(
+        max_length=64,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "P2: workspace tier ladder key computed leaf-relative from the "
+            "allocation/hierarchy. NULL = unresolved. ``level`` remains the "
+            "permanent integer alias (position + 1)."
         ),
     )
     complexity_fibonacci = models.IntegerField(
@@ -2305,6 +2359,15 @@ class TraceLink(TenantScopedModel):
             models.CheckConstraint(
                 condition=~models.Q(link_type=""),
                 name="ck_tracelink_link_type_nonempty",
+            ),
+            # P2 (N:1 allocation): one Requirement -> at most one
+            # ArchitectureElement. The allocation is a TraceLink, so the
+            # cardinality must be enforced on the edge's source artifact, not
+            # on a second requirement column (which would be a second truth).
+            models.UniqueConstraint(
+                fields=["source"],
+                condition=models.Q(link_type="allocated-to"),
+                name="uniq_tracelink_allocated_to_source",
             ),
         ]
 
@@ -5140,6 +5203,67 @@ class Milestone(TenantScopedModel):
         return f"Milestone({self.name[:32]}, {self.review_type}, {self.target_date})"
 
 
+class WorkspaceTier(TenantScopedModel):
+    """One named position in a workspace's requirement tier ladder (P2, V4/V5).
+
+    The ladder is per workspace, ordered by ``position``. ``tier_key`` is the
+    stable machine key written to ``Requirement.tier_key``; ``name`` is the
+    editable ``{de, en}`` display label, so renaming never touches data.
+
+    ``rule`` decides how the leaf-relative computation maps a tree height:
+    ``first`` is the root, ``from_end`` entries match a height measured from
+    the last level (``from_end=0`` is a leaf), and at most one ``middle`` entry
+    catches every other height. The ladder must contain exactly one ``first``
+    and exactly one ``from_end=0`` (validated in ``TierLadderService``).
+
+    ``level`` on Requirement remains the permanent integer alias: position + 1.
+    """
+
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="tiers",
+        help_text="Owning workspace.",
+    )
+    tier_key = models.SlugField(max_length=64)
+    name = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Display label per language, e.g. {de, en}.",
+    )
+    position = models.PositiveSmallIntegerField(
+        help_text="Order in the ladder (0-based). ``level`` = position + 1."
+    )
+    rule = models.CharField(max_length=16, choices=WorkspaceTierRule.choices)
+    from_end = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Only for rule='from_end': 0 = leaf, 1 = parent of a leaf, …",
+    )
+
+    class Meta:
+        db_table = "pl_workspace_tier"
+        ordering = ["position", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "tier_key"],
+                name="uq_workspace_tier_key",
+            ),
+            models.UniqueConstraint(
+                fields=["workspace", "position"],
+                name="uq_workspace_tier_position",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["tenant", "workspace"], name="idx_workspace_tier_ws"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"WorkspaceTier({self.workspace_id}, {self.tier_key}, {self.position})"
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -5208,4 +5332,6 @@ __all__ = [
     "InlineAnchor",
     # Plan B B6-T1 (#879): planned review milestones.
     "Milestone",
+    # P2: per-workspace tier ladder.
+    "WorkspaceTier",
 ]

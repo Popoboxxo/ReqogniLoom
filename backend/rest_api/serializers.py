@@ -1364,12 +1364,24 @@ class RequirementSerializer(
         read_only=True,
         allow_null=True,
         min_value=1,
-        max_value=4,
         help_text=(
-            "V-model hierarchy level (1=System, 2=Subsystem, 3=Component, "
-            "4=Presentation). DERIVED and read-only (ADR-005): recomputed from "
-            "the Requirement hierarchy on every hierarchy change, NULL when the "
-            "hierarchy does not determine a level."
+            "P2: permanent integer alias of the requirement's position in the "
+            "workspace tier ladder (position + 1). DERIVED and read-only; NULL "
+            "when the ladder does not determine a tier. The old 1..4 V-model "
+            "assumption is gone: a ladder may have any number of entries."
+        ),
+    )
+    tier_key = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="P2: stable tier key (the workspace ladder entry).",
+    )
+    allocation_intent = serializers.ChoiceField(
+        choices=["allocated", "not_allocatable", "unassigned"],
+        required=False,
+        help_text=(
+            "P2: why the requirement is (not) allocated. 'not_allocatable' "
+            "requires no existing allocation."
         ),
     )
     # #1289: provenance of `level`. Read-only, additive to the wire contract.

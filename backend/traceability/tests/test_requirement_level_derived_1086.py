@@ -720,7 +720,9 @@ class TestL4ExceptionsStillApply:
     stopped looking at ``level`` altogether.
     """
 
-    def test_trace_p5_still_skips_an_l4_decomposition(self, tenant_a, workspace_a):
+    def test_trace_p5_reports_a_last_tier_decomposition(self, tenant_a, workspace_a):
+        """P2: leaf-relative tiers put every leaf on the last position, so the
+        old L4 skip would exempt every decomposed leaf from TRACE-P5."""
         with active_tenant(tenant_a):
             parent, _ = make_requirement(tenant_a, workspace_a, title="Parent Req")
             child_artifact, child = make_requirement(
@@ -729,10 +731,9 @@ class TestL4ExceptionsStillApply:
             child.level = RequirementLevel.L4_PRESENTATION
             child.save(update_fields=["level"])
             _link(tenant_a, parent, child_artifact, LinkType.DECOMPOSES.value)
-            # No derives-from back-link: exactly what TRACE-P5 reports — unless
-            # the child is L4.
+            # No derives-from back-link: TRACE-P5 must report it.
             result = _run(tenant_a, workspace_a)
-        assert _findings(result, TRACE_P5) == []
+        assert len(_findings(result, TRACE_P5)) == 1
 
     def test_trace_p5_still_reports_the_same_shape_at_l2(
         self, tenant_a, workspace_a

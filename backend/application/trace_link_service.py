@@ -45,6 +45,7 @@ from uuid import UUID
 from django.db.models import Q
 
 from application.base import (
+    AllocationConflictError,
     AnchorsPresentError,
     NotFoundError,
     ServiceBase,
@@ -723,6 +724,19 @@ class TraceLinkService(ServiceBase):
         # source (Extended rigor only, gated inside the validator).
         if link_type == LinkType.ALLOCATED_TO:
             self._check_allocation_invariant(resolved_source, resolved_target)
+            # P2 (N:1): only ``allocate`` may replace an existing allocation.
+            # The generic path must answer 409 instead of silently creating a
+            # second edge (which the DB partial unique index would reject with
+            # an IntegrityError anyway — this turns it into a clear conflict).
+            from persistence.models import TraceLink
+
+            if TraceLink.objects.filter(
+                source_id=resolved_source, link_type=LinkType.ALLOCATED_TO
+            ).exists():
+                raise AllocationConflictError(
+                    "This requirement is already allocated; use the "
+                    "allocation endpoint to re-allocate it."
+                )
 
     def _persist_trace_link(
         self,
@@ -1452,7 +1466,12 @@ class TraceLinkService(ServiceBase):
             NotFoundError: Requirement or ArchitectureElement not found.
             ValidationError: Invalid entity types or cross-tenant link.
         """
-        from persistence.models import ArchitectureElement, Requirement, TraceLink
+        from persistence.models import (
+            AllocationIntent,
+            ArchitectureElement,
+            Requirement,
+            TraceLink,
+        )
         from traceability.types import LinkType
 
         self._set_tenant_context(ctx)
@@ -1461,6 +1480,7 @@ class TraceLinkService(ServiceBase):
         req = Requirement.objects.filter(id=requirement_id).first()
         if req is None:
             raise NotFoundError(f"Requirement {requirement_id} not found")
+        self._assert_not_frozen(req)
 
         # Validate that architecture_element_id is an ArchitectureElement
         arch_el = ArchitectureElement.objects.filter(id=architecture_element_id).first()
@@ -1483,8 +1503,38 @@ class TraceLinkService(ServiceBase):
             link_type=LinkType.ALLOCATED_TO,
             ctx=ctx,
         )
-
+        Requirement.objects.filter(id=requirement_id).update(
+            allocation_intent=AllocationIntent.ALLOCATED
+        )
         return result
+
+    def _assert_not_frozen(self, requirement) -> None:
+        """Hook point for the workflow freeze (P4, Task 4.2). No-op in P2."""
+        return None
+
+    @atomic_transaction
+    def deallocate(self, *, requirement_id: UUID, ctx: AuthContext) -> None:
+        """Remove the requirement's ``allocated-to`` edge (P2).
+
+        Idempotent: no edge means nothing to do. The requirement and its
+        workspace are validated so a foreign-tenant id cannot be probed.
+        """
+        from persistence.models import Requirement, TraceLink
+        from traceability.types import LinkType
+
+        self._set_tenant_context(ctx)
+        req = Requirement.objects.filter(id=requirement_id).first()
+        if req is None:
+            raise NotFoundError(f"Requirement {requirement_id} not found")
+        self._assert_not_frozen(req)
+
+        TraceLink.objects.filter(
+            source_id=req.artifact_id, link_type=LinkType.ALLOCATED_TO
+        ).delete()
+        Requirement.objects.filter(id=requirement_id).update(
+            allocation_intent="unassigned"
+        )
+        recompute_requirement_levels([req.artifact_id])
 
     def get_allocation_coverage(
         self,
@@ -1565,7 +1615,7 @@ class TraceLinkService(ServiceBase):
             all_reqs = list(
                 Requirement.objects.filter(
                     artifact__workspace_id=workspace_id
-                ).values("id", "title", "artifact_id")
+                ).values("id", "title", "artifact_id", "allocation_intent")
             )
 
             # Issue #1384: one bulk lookup for the allocation edges instead of
@@ -1582,27 +1632,33 @@ class TraceLinkService(ServiceBase):
                 ).values_list("source_id", flat=True)
             )
 
-        # Count how many are allocated to this element
+        # Count how many are allocated to this element. ``not_allocatable`` is
+        # a deliberate exclusion (P2), so it is never reported as a gap and is
+        # removed from the coverage denominator.
         allocated_count = 0
+        not_allocatable_count = 0
         unallocated_list = []
 
         for req in all_reqs:
             if req["artifact_id"] in allocated_source_ids:
                 allocated_count += 1
+            elif req["allocation_intent"] == "not_allocatable":
+                not_allocatable_count += 1
             else:
                 unallocated_list.append({
                     "id": req["id"],
                     "title": req["title"],
                 })
 
-        # Calculate coverage ratio
-        total_reqs = len(all_reqs)
+        # Calculate coverage ratio over the allocatable requirements only.
+        allocatable_total = len(all_reqs) - not_allocatable_count
         coverage_ratio = (
-            (allocated_count / total_reqs * 100) if total_reqs > 0 else 0
+            (allocated_count / allocatable_total * 100) if allocatable_total > 0 else 0
         )
 
         return {
             "allocated_count": allocated_count,
+            "not_allocatable_count": not_allocatable_count,
             "coverage_ratio": coverage_ratio,
             "unallocated_requirements": unallocated_list,
         }

@@ -277,15 +277,16 @@ def _decomposes_requirement_pairs(
     between two Requirements, skipping any pair touching an L4 requirement.
     """
     pairs: list[tuple[str, str]] = []
-    l4 = _l4_level()
     for link in context.iter_trace_links():
         if link["link_type"] != LinkType.DECOMPOSES.value:
             continue
         parent_id, child_id = link["source_id"], link["target_id"]
         if parent_id not in requirement_levels or child_id not in requirement_levels:
             continue  # not a Requirement<->Requirement decomposition
-        if requirement_levels[parent_id] == l4 or requirement_levels[child_id] == l4:
-            continue  # L4 (Presentation) is out of scope for the whole matrix
+        # P2: the old "level == 4 means Presentation, out of scope" skip is
+        # retired. With leaf-relative tiers every decomposed leaf sits on the
+        # last ladder position, so keeping the skip would silently exempt the
+        # entire decomposition graph from TRACE-P5.
         pairs.append((parent_id, child_id))
     return pairs
 

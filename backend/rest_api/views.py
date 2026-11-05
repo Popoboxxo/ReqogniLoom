@@ -77,6 +77,7 @@ from application.artifact_attribute_gateway import (
     transport_field_names,
 )
 from application.base import (
+    AllocationConflictError,
     AnchorsPresentError,
     DocumentGateFailedError,
     FieldFrozenError,
@@ -427,6 +428,8 @@ _EXC_TO_HTTP: dict[type, int] = {
     # gate is a rejected precondition on a well-formed request, and a frozen
     # field is a state conflict, not a malformed payload.
     FieldFrozenError: status.HTTP_409_CONFLICT,
+    # P2: N:1 allocation conflict on the generic TraceLink create path.
+    AllocationConflictError: status.HTTP_409_CONFLICT,
     DocumentGateFailedError: status.HTTP_409_CONFLICT,
     # Plan F F3-T7 / I-3: deleting a link that still carries inline anchors is
     # a rejected precondition (confirm the count and retry), hence 409.
@@ -492,6 +495,7 @@ _EXC_TO_CODE: dict[type, str] = {
     # Plan F F2-T5: dedicated codes + structured ``details`` (one entry per
     # frozen field / one per violated gate), per ADR-026 F-3 and §4.2.
     FieldFrozenError: "FIELD_FROZEN",
+    AllocationConflictError: "CONFLICT",
     DocumentGateFailedError: "DOCUMENT_GATE_FAILED",
     # Plan F F3-T7 / I-3: distinct code so a client can read the count and
     # retry with ?confirm_anchor_count=n instead of retrying blindly.
@@ -1956,6 +1960,19 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             self._apply_artifact_system_fields(request, "Requirement", item, ctx)
+            # P2: 'not_allocatable' is a valid create-time intent; 'allocated'
+            # without an edge is not (the allocation service owns that).
+            requested_intent = data.get("allocation_intent")
+            if requested_intent == "allocated":
+                raise ValidationError(
+                    "Use the allocation endpoint to mark a requirement allocated."
+                )
+            if requested_intent == "not_allocatable":
+                item = self._svc().update_requirement(
+                    requirement_id=item.id,
+                    ctx=ctx,
+                    allocation_intent="not_allocatable",
+                )
             # #1289: an explicit manual level override, applied after create so
             # the derivation has already run and the override wins.
             if data.get("level_override") is not None:
@@ -2092,6 +2109,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 category=data.get("category"),
                 change_reason=data.get("change_reason"),
                 type=data.get("type"),
+                allocation_intent=data.get("allocation_intent"),
                 # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
                 # stale expected_version → OptimisticLockError → 409 CONFLICT.
                 #
@@ -8060,6 +8078,54 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 "workspace_id": str(pk),
                 "type": raw_type,
                 "tree": [node.as_dict() for node in roots],
+            }
+        )
+
+    @action(detail=True, methods=["get", "put"], url_path="tiers")
+    def tiers(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET/PUT /api/v1/workspaces/{pk}/tiers/ — the tier ladder (P2)."""
+        from application.tier_ladder_service import TierLadderService
+
+        lang = detect_lang(request)
+        service = TierLadderService()
+        try:
+            ctx = get_auth_context(request)
+            workspace_id = UUID(pk)
+            if request.method == "PUT":
+                payload = request.data.get("tiers") if isinstance(request.data, dict) else None
+                if not isinstance(payload, list):
+                    return Response(
+                        build_error_response(
+                            "VALIDATION_ERROR",
+                            lang,
+                            message="Body must be {\"tiers\": [...]}.",
+                        ),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                entries = service.replace(workspace_id, payload, ctx)
+            else:
+                entries = service.get(workspace_id).entries
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(
+            {
+                "workspace_id": str(pk),
+                "tiers": [
+                    {
+                        "tier_key": entry.tier_key,
+                        "name": entry.name,
+                        "position": entry.position,
+                        "rule": entry.rule,
+                        "from_end": entry.from_end,
+                        "level": entry.position + 1,
+                    }
+                    for entry in entries
+                ],
             }
         )
 
@@ -14317,7 +14383,76 @@ class AttributeSchemaView(APIView):
         return Response(schema)
 
 
+class AllocationListView(APIView):
+    """GET /api/v1/allocations/ — flat requirement/allocation rows (P2)."""
+
+    def get(self, request: Request) -> Response:
+        from application.allocation_query_service import AllocationQueryService
+
+        lang = detect_lang(request)
+        raw_workspace = request.query_params.get("workspace_id")
+        if not raw_workspace:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="'workspace_id' is required.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            workspace_id = UUID(raw_workspace)
+        except (TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        def _uuid_param(name: str) -> UUID | None:
+            raw = request.query_params.get(name)
+            return UUID(raw) if raw else None
+
+        def _bool_param(name: str) -> bool | None:
+            raw = request.query_params.get(name)
+            if raw is None:
+                return None
+            return raw.lower() in {"1", "true", "yes"}
+
+        try:
+            allocated_raw = request.query_params.get("allocated")
+            ctx = get_auth_context(request)
+            payload = AllocationQueryService().list(
+                workspace_id,
+                ctx,
+                requirement=_uuid_param("requirement"),
+                element=_uuid_param("element"),
+                allocated=(
+                    None
+                    if allocated_raw is None
+                    else allocated_raw.lower() in {"1", "true", "yes"}
+                ),
+                tier=request.query_params.get("tier"),
+                level=(
+                    int(request.query_params["level"])
+                    if request.query_params.get("level")
+                    else None
+                ),
+                intent=request.query_params.get("intent"),
+                limit=int(request.query_params.get("page_size") or 200),
+                offset=int(request.query_params.get("offset") or 0),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except (TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(payload)
+
+
 __all__ = [
+    "AllocationListView",
     "AdrViewSet",
     "ArchitectureElementViewSet",
     "ArtifactDiffService",

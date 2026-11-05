@@ -199,11 +199,11 @@ from rest_api.prompt_variable_views import (
     PromptVariableDetailView,
     PromptVariableListView,
 )
+from rest_api.quality_views import QualityAssessView, QualityHistoryView
 from rest_api.review_views import (
     ReviewsPendingView,
     WorkspaceReviewsPendingView,
 )
-from rest_api.quality_views import QualityAssessView, QualityHistoryView
 from rest_api.settings_views import (
     ContextGraphRebuildView,
     ContextGraphSettingsView,
@@ -230,8 +230,8 @@ from rest_api.tree_display_config_views import (
 )
 from rest_api.user_management_views import UserViewSet
 from rest_api.views import (
-    MilestoneViewSet,
     AdrViewSet,
+    AllocationListView,
     ArchitectureElementViewSet,
     ArtifactViewSet,
     AttributeSchemaView,
@@ -246,6 +246,7 @@ from rest_api.views import (
     GoalViewSet,
     IssueViewSet,
     MainGoalViewSet,
+    MilestoneViewSet,
     ReqifExportView,
     ReqifImportView,
     RequirementHistoryView,
@@ -581,6 +582,8 @@ urlpatterns = [
     # Tree-display configuration (Issue #1257) — the tenant-wide default
     # (global) level. Read: any member; write: admin (service-enforced) plus the
     # ADMIN-tier API-key capability (AdminScopeRequiredMixin).
+    # P2: flat requirement/allocation list.
+    path("allocations/", AllocationListView.as_view(), name="allocations"),
     path(
         "system/tree-display-config/",
         TreeDisplayConfigGlobalView.as_view(),

@@ -766,6 +766,7 @@ class RequirementService(ServiceBase):
         parent_id: object = _UNSET,
         uid: object = _UNSET,
         suspect: bool | None = None,
+        allocation_intent: str | None = None,
         custom_fields: object = _UNSET,
         expected_version: int | None = None,
     ) -> Requirement:
@@ -850,6 +851,26 @@ class RequirementService(ServiceBase):
         if hasattr(requirement, "suspect"):
             if suspect is not None:
                 requirement.suspect = suspect
+
+        if allocation_intent is not None:
+            from persistence.models import AllocationIntent, TraceLink
+
+            if allocation_intent not in AllocationIntent.values:
+                raise ValidationError(
+                    f"Unknown allocation_intent: {allocation_intent!r}"
+                )
+            if (
+                allocation_intent == AllocationIntent.NOT_ALLOCATABLE
+                and TraceLink.objects.filter(
+                    source_id=requirement.artifact_id,
+                    link_type="allocated-to",
+                ).exists()
+            ):
+                raise ValidationError(
+                    "Deallocate the requirement before marking it "
+                    "not_allocatable."
+                )
+            requirement.allocation_intent = allocation_intent
 
         self._persist_requirement_update(
             requirement,
