@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- feat(ordering): persistent sibling order via fractional `Artifact.sort_key` (collation C) with backfill migration `0132`; `POST /api/v1/artifacts/{id}/move/` and MCP `artifact.move`; sorted trees/lists; drag/keyboard reorder in both trees (P1, #1670)
+- feat(allocation): hard N:1 Requirement -> ArchitectureElement allocation (partial unique index, generic duplicate write answers 409), one allocation service with `deallocate`, `Requirement.allocation_intent` (`allocated`/`not_allocatable`/`unassigned`), per-workspace tier ladder (`WorkspaceTier`, REST `/workspaces/{id}/tiers/`), leaf-relative tier computation, `--dry-run`/`--apply` backfill report (P2, ADR-027, #1670)
+- feat(allocation): flat `GET /api/v1/workspaces/{id}/allocation-view/` and atomic `POST /api/v1/trace-links/bulk/`; Connection View with URL filters, saved views and tree/two-column/matrix renderers; interactive allocation card graph with configurable cards (P3/P5, #1670)
+- feat(groups): visual `Group` artifact + `grouped-in` link (many-to-many), ordered membership via `TraceLink.sort_key`, REST `/api/v1/groups/…` (P6, #1670)
+- feat(workflow): `state_meta.freeze_on_enter` freezes a Requirement/ArchitectureElement against move and (re-)allocation (409 `WORKFLOW_FROZEN`); frozen elements stay valid allocation targets (P4, #1670)
+
+### Changed
+- **Breaking:** requirement tiers are leaf-relative. `Requirement.level` remains the permanent integer alias, but its value now follows the workspace ladder; unallocated roots start on the first tier and deeper branches are no longer clamped to 4. The old TRACE-P5 "level 4 is out of scope" skip is retired (ADR-027).
+- **Breaking:** a second `allocated-to` link for the same requirement is a conflict (409), not a silent second edge.
+
+### Fixed
+- fix(hierarchy): a cyclic requirement graph no longer acquires a plausible tier; cyclic nodes and their unresolved descendants stay `NULL`.
+
 
 ## [1.8.0-beta.26] — 2026-11-04
 
