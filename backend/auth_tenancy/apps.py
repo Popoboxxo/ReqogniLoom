@@ -102,6 +102,37 @@ def _register_q1_preference_keys() -> None:
             choices=("overview", "requirements", "architecture", "test", "admin"),
             owner="C4",
         ),
+        # Saved connection-view documents (ordering plan, item 3): a personal
+        # collection of JSON-encoded view documents, so only the user level is
+        # allowed. Items are free-form JSON strings, hence no ``choices``.
+        PreferenceKey(
+            key="ui.connection_view.saved_views",
+            value_type="str_list",
+            default=[],
+            levels=frozenset({PREFERENCE_SCOPE_USER}),
+            mode="override",
+            ui_editor=None,
+            owner="P3",
+        ),
+        # Allocation-graph card configuration (ordering plan, item 3): the
+        # workspace default applies to every member, the user level overrides
+        # it, and the global level supplies the tenant-wide default. Items are
+        # JSON-encoded card configs, so no ``choices``.
+        PreferenceKey(
+            key="ui.allocation_graph.card_fields",
+            value_type="str_list",
+            default=[],
+            levels=frozenset(
+                {
+                    PREFERENCE_SCOPE_GLOBAL,
+                    PREFERENCE_SCOPE_WORKSPACE,
+                    PREFERENCE_SCOPE_USER,
+                }
+            ),
+            mode="override",
+            ui_editor=None,
+            owner="P5",
+        ),
     )
     for spec in specs:
         try:
