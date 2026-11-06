@@ -174,6 +174,12 @@ vi.mock("./McpConnectionSection", () => ({
 vi.mock("../shared/PreferenceLevelSection/PreferenceLevelSection", () => ({
   PreferenceLevelSection: () => <div data-testid="stub-preference-section" />,
 }));
+// P2 Task 2.10: the tier-ladder editor fetches the workspace ladder on mount;
+// this shell test mounts no API mock for it and its own contract is covered by
+// TierLadderSection.test.tsx.
+vi.mock("./TierLadderSection", () => ({
+  TierLadderSection: () => <div data-testid="stub-tier-ladder" />,
+}));
 
 describe("WorkspaceSettings tabs (REQ-015)", () => {
   beforeEach(() => {

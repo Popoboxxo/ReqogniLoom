@@ -52,6 +52,7 @@ import { WorkspaceBannerSection } from "./WorkspaceBannerSection";
 import { MemorySettingsSection } from "./MemorySettingsSection";
 import { TreeDisplaySection } from "./TreeDisplaySection";
 import { CreateFormSection } from "./CreateFormSection";
+import { TierLadderSection } from "./TierLadderSection";
 import { PreferenceLevelSection } from "../shared/PreferenceLevelSection/PreferenceLevelSection";
 import { useLinkTypes } from "../../context/LinkTypeContext";
 import { PageHeader } from "../shared/PageHeader";
@@ -428,6 +429,15 @@ export default function WorkspaceSettings(): JSX.Element {
                 </label>
               ))}
             </section>
+
+            {/* Requirement tier ladder (P2 Task 2.10): the named positions a
+                requirement's tier can take. Workspace configuration, so it sits
+                next to the preset and the terminology profile; the server
+                re-asserts workspace-admin on save. */}
+            <TierLadderSection
+              workspaceId={activeWorkspace.id}
+              readOnly={!isAdmin}
+            />
 
             {/* Ziele (Goal/MainGoal, REQ-L2-TE-020) — feature + AI-generation toggle */}
             <section className={styles.card}>

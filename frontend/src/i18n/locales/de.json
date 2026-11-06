@@ -3376,6 +3376,38 @@
       "hint": "Systemweite Vorgabe für den Anlage-Dialog. Workspace- und persönliche Einstellungen überschreiben sie."
     }
   },
+  "tiers": {
+    "title": "Stufen-Leiter",
+    "hint": "Die benannten Positionen, die die Stufe einer Anforderung annehmen kann, in Reihenfolge. Genau eine Stufe ist \"erste\" (Wurzel des Baums), höchstens eine ist \"dazwischen\", und genau eine liegt bei \"von hinten = 0\" (Blatt). Umbenennen ändert keine bestehenden Anforderungen.",
+    "loading": "Stufen-Leiter wird geladen …",
+    "saveFailed": "Die Stufen-Leiter konnte nicht gespeichert werden.",
+    "saved": "Stufen-Leiter gespeichert.",
+    "readOnly": "Nur Workspace-Administratoren können die Stufen-Leiter ändern.",
+    "addTier": "Stufe hinzufügen",
+    "save": "Leiter speichern",
+    "nameDe": "Name (DE)",
+    "nameEn": "Name (EN)",
+    "ruleLabel": "Regel",
+    "fromEnd": "Von hinten",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten",
+    "remove": "Stufe entfernen",
+    "defaultNameDe": "Ebene {{n}}",
+    "defaultNameEn": "Tier {{n}}",
+    "rule": {
+      "first": "Erste (Wurzel des Baums)",
+      "middle": "Dazwischen",
+      "from_end": "Von hinten"
+    },
+    "threeNames": {
+      "title": "Drei Namen",
+      "hint": "Ersetzt die Leiter durch genau drei Stufen: erste, dazwischen und letzte.",
+      "erste": "Erste",
+      "dazwischen": "Dazwischen",
+      "letzte": "Letzte",
+      "apply": "Drei Namen übernehmen"
+    }
+  },
   "preferences": {
     "title": "Darstellung",
     "inherited": "Geerbt von {{source}}",

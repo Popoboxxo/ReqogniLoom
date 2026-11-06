@@ -3376,6 +3376,38 @@
       "hint": "Tenant-wide default for the create dialog. Workspace and personal settings override it."
     }
   },
+  "tiers": {
+    "title": "Tier ladder",
+    "hint": "The named positions a requirement's tier can take, in order. Exactly one tier is \"first\" (the tree root), at most one is \"middle\", and exactly one sits at \"from the end = 0\" (the leaf). Renaming a position never changes existing requirements.",
+    "loading": "Loading tier ladder …",
+    "saveFailed": "The tier ladder could not be saved.",
+    "saved": "Tier ladder saved.",
+    "readOnly": "Only workspace admins can change the tier ladder.",
+    "addTier": "Add tier",
+    "save": "Save ladder",
+    "nameDe": "Name (DE)",
+    "nameEn": "Name (EN)",
+    "ruleLabel": "Rule",
+    "fromEnd": "From end",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "remove": "Remove tier",
+    "defaultNameDe": "Level {{n}}",
+    "defaultNameEn": "Tier {{n}}",
+    "rule": {
+      "first": "First (tree root)",
+      "middle": "Middle",
+      "from_end": "From the end"
+    },
+    "threeNames": {
+      "title": "Three names",
+      "hint": "Replaces the ladder with exactly three tiers: first, middle and last.",
+      "erste": "First",
+      "dazwischen": "Middle",
+      "letzte": "Last",
+      "apply": "Apply three names"
+    }
+  },
   "preferences": {
     "title": "Display",
     "inherited": "Inherited from {{source}}",
