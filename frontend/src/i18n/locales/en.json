@@ -78,6 +78,7 @@
     "baselines": "Baselines",
     "reviews": "Reviews",
     "traceability": "Traceability",
+    "connectionView": "Connections",
     "impact": "Impact Analysis",
     "metrics": "SE Metrics",
     "memory": "Memory",
@@ -3407,6 +3408,65 @@
       "letzte": "Last",
       "apply": "Apply three names"
     }
+  },
+  "connectionView": {
+    "title": "Connections",
+    "viewSwitcher": "Switch view",
+    "views": {
+      "tree": "Tree",
+      "twoColumn": "Two columns",
+      "matrix": "Matrix"
+    },
+    "quick": {
+      "open": "Open",
+      "unallocated": "Unallocated",
+      "locked": "Locked",
+      "findings": "Findings"
+    },
+    "filters": {
+      "tier": "Tier",
+      "type": "Type",
+      "category": "Category",
+      "state": "State",
+      "elementSubtree": "Element subtree",
+      "search": "Search",
+      "searchPlaceholder": "Search titles"
+    },
+    "all": "All",
+    "reset": "Reset filters",
+    "counters": {
+      "total": "Total",
+      "unallocated": "Unallocated",
+      "locked": "Locked",
+      "findings": "Findings"
+    },
+    "savedViews": {
+      "name": "View name",
+      "save": "Save view",
+      "delete": "Delete view {{name}}"
+    },
+    "type": {
+      "SyReq": "System requirement",
+      "UseCase": "Use case",
+      "FeatureReq": "Feature requirement"
+    },
+    "requirements": "Requirements",
+    "elements": "Architecture elements",
+    "unallocated": "Unallocated",
+    "unallocatedEmpty": "All requirements are allocated.",
+    "allocateTo": "Allocate to …",
+    "pickerTitle": "Allocate “{{title}}” to …",
+    "pickerSearch": "Search element",
+    "pickerEmpty": "No matching element found.",
+    "allocated": "Allocated",
+    "sum": "Sum",
+    "total": "Total",
+    "pageOf": "Page {{page}} of {{total}}",
+    "previous": "Previous",
+    "next": "Next",
+    "locked": "Locked",
+    "empty": "No requirements or architecture elements.",
+    "loading": "Loading connections …"
   },
   "preferences": {
     "title": "Display",

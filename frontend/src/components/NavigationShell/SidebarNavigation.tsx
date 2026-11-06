@@ -122,6 +122,7 @@ const NAV_ITEMS: NavItem[] = [
 
   { path: "/architecture", labelKey: "nav.architecture", feature: "architecture", group: "architecture" },
   { path: "/traceability", labelKey: "nav.traceability", feature: "traceability", group: "architecture" },
+  { path: "/connections", labelKey: "nav.connectionView", feature: "traceability", group: "architecture" },
   { path: "/impact", labelKey: "nav.impact", feature: "impact", group: "architecture" },
   { path: "/icds", labelKey: "nav.icds", feature: "icds", group: "architecture" },
   { path: "/diagrams", labelKey: "nav.diagrams", feature: "diagrams", group: "architecture" },

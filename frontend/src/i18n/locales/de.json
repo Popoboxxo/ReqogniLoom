@@ -78,6 +78,7 @@
     "baselines": "Baselines",
     "reviews": "Freigaben",
     "traceability": "Traceability",
+    "connectionView": "Verbindungen",
     "impact": "Auswirkungsanalyse",
     "metrics": "SE-Metriken",
     "memory": "Gedächtnis",
@@ -3407,6 +3408,65 @@
       "letzte": "Letzte",
       "apply": "Drei Namen übernehmen"
     }
+  },
+  "connectionView": {
+    "title": "Verbindungen",
+    "viewSwitcher": "Ansicht wechseln",
+    "views": {
+      "tree": "Baum",
+      "twoColumn": "Zwei Spalten",
+      "matrix": "Matrix"
+    },
+    "quick": {
+      "open": "Offen",
+      "unallocated": "Nicht allokiert",
+      "locked": "Gesperrt",
+      "findings": "Befunde"
+    },
+    "filters": {
+      "tier": "Stufe",
+      "type": "Typ",
+      "category": "Kategorie",
+      "state": "Status",
+      "elementSubtree": "Element-Teilbaum",
+      "search": "Suche",
+      "searchPlaceholder": "Titel durchsuchen"
+    },
+    "all": "Alle",
+    "reset": "Filter zurücksetzen",
+    "counters": {
+      "total": "Gesamt",
+      "unallocated": "Nicht allokiert",
+      "locked": "Gesperrt",
+      "findings": "Befunde"
+    },
+    "savedViews": {
+      "name": "Ansichtsname",
+      "save": "Ansicht speichern",
+      "delete": "Ansicht {{name}} löschen"
+    },
+    "type": {
+      "SyReq": "Systemanforderung",
+      "UseCase": "Anwendungsfall",
+      "FeatureReq": "Funktionsanforderung"
+    },
+    "requirements": "Anforderungen",
+    "elements": "Architekturelemente",
+    "unallocated": "Nicht allokiert",
+    "unallocatedEmpty": "Alle Anforderungen sind allokiert.",
+    "allocateTo": "Allokieren auf …",
+    "pickerTitle": "„{{title}}“ allokieren auf …",
+    "pickerSearch": "Element suchen",
+    "pickerEmpty": "Kein passendes Element gefunden.",
+    "allocated": "Allokiert",
+    "sum": "Summe",
+    "total": "Gesamt",
+    "pageOf": "Seite {{page}} von {{total}}",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "locked": "Gesperrt",
+    "empty": "Keine Anforderungen oder Architekturelemente vorhanden.",
+    "loading": "Verbindungen werden geladen …"
   },
   "preferences": {
     "title": "Darstellung",

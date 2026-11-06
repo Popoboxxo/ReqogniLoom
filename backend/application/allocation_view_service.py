@@ -97,18 +97,19 @@ class AllocationViewService(ServiceBase):
             ).values("id", "parent_id", "sort_key")
         }
         allocation_by_artifact = {
-            source_id: target_id
-            for source_id, target_id in TraceLink.objects.filter(
+            source_id: (target_id, link_id)
+            for source_id, target_id, link_id in TraceLink.objects.filter(
                 link_type="allocated-to",
                 source_id__in=[req["artifact_id"] for req in requirements],
-            ).values_list("source_id", "target_id")
+            ).values_list("source_id", "target_id", "id")
         }
         states = state_reader.current_states(
             "Requirement", (req["id"] for req in requirements)
         )
 
         def _requirement_row(req: dict) -> dict:
-            target = allocation_by_artifact.get(req["artifact_id"])
+            allocation = allocation_by_artifact.get(req["artifact_id"])
+            target = allocation[0] if allocation else None
             element = element_by_artifact.get(target) if target else None
             artifact = artifact_rows.get(req["artifact_id"], {})
             current_state = states.get(str(req["id"])) or "draft"
@@ -128,6 +129,7 @@ class AllocationViewService(ServiceBase):
                 "type": req["type"],
                 "category": req["category"],
                 "allocated_to": str(target) if target else None,
+                "allocation_trace_link_id": allocation[1] if allocation else None,
                 "element_id": str(element["id"]) if element else None,
                 "allocation_intent": req["allocation_intent"],
                 "locked": None,

@@ -59,6 +59,11 @@ const UserManagement = lazy(() =>
 const TraceabilityView = lazy(
   () => import("../TraceabilityView/TraceabilityView")
 );
+const ConnectionView = lazy(() =>
+  import("../ConnectionView/ConnectionView").then((m) => ({
+    default: m.ConnectionView,
+  }))
+);
 const ImpactView = lazy(() =>
   import("../ImpactView/ImpactView").then((m) => ({ default: m.ImpactView }))
 );
@@ -166,6 +171,7 @@ function AppShell(): JSX.Element {
               <Route path="/architecture" element={<ArchitectureEditors />} />
               <Route path="/architecture/:id" element={<ArchitectureEditors />} />
               <Route path="/traceability" element={<TraceabilityView />} />
+              <Route path="/connections" element={<ConnectionView />} />
               <Route path="/impact" element={<ImpactView />} />
               <Route path="/baselines" element={<BaselinesView />} />
               <Route path="/documents" element={<DocumentsView />} />
