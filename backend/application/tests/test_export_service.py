@@ -435,3 +435,71 @@ class TestFetchEntitiesResolvesStatusFromEngine:
 
         assert len(rows) == 1
         assert rows[0]["status"] == "in_review"
+
+
+class TestFetchEntitiesExposesRequirementTier:
+    """P2/V4/V5: the requirement export publishes the stable ladder key and the
+    ladder's display name next to the permanent integer alias ``level``."""
+
+    def test_requirement_export_exposes_tier_key_and_name(self):
+        from persistence.models import Artifact, Requirement, Tenant, Workspace
+        from persistence.tenancy import TenantContext
+
+        tenant = Tenant.objects.create(
+            name="export-tier-tenant", slug="export-tier-tenant"
+        )
+        TenantContext.set_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(tenant=tenant, name="export-tier-ws")
+            artifact = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="Requirement"
+            )
+            Requirement.objects.create(
+                tenant=tenant,
+                artifact=artifact,
+                workspace=workspace,
+                title="Tiered",
+                level=2,
+                tier_key="dazwischen",
+            )
+
+            rows = ExportService._fetch_entities("Requirement", workspace.id, None)
+        finally:
+            TenantContext.clear_tenant()
+
+        assert len(rows) == 1
+        # The integer alias is unchanged (no breaking rename).
+        assert rows[0]["level"] == 2
+        assert rows[0]["tier_key"] == "dazwischen"
+        assert rows[0]["tier_name"] == "Middle"
+
+    def test_non_requirement_export_has_no_tier_columns(self):
+        from persistence.models import Artifact, Tenant, Workspace
+        from persistence.tenancy import TenantContext
+
+        tenant = Tenant.objects.create(
+            name="export-notier-tenant", slug="export-notier-tenant"
+        )
+        TenantContext.set_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(tenant=tenant, name="export-notier-ws")
+            artifact = Artifact.objects.create(
+                tenant=tenant, workspace=workspace, artifact_type="ArchitectureElement"
+            )
+            from persistence.models import ArchitectureElement
+
+            ArchitectureElement.objects.create(
+                tenant=tenant, artifact=artifact, workspace=workspace, title="El"
+            )
+
+            rows = ExportService._fetch_entities(
+                "ArchitectureElement", workspace.id, None
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert "tier_key" not in rows[0]
+        assert "tier_name" not in rows[0]
+        # ArchitectureElement.level (tree depth) is a different concept and is
+        # not part of its export spec.
+        assert "level" not in rows[0]

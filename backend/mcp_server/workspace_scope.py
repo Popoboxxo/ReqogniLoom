@@ -141,6 +141,13 @@ _TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
     "milestone.get": (("id", "milestone"),),
     "diagram.get": (("id", "diagram"),),
     "glossary.read": (("id", "glossary"),),
+    # P6 visual groups: group.members names the group by ``group_id`` and its
+    # schema declares no ``workspace_id``, so without this entry it was a read
+    # tool with no enforced scoping (coverage ratchet). A group *is* an
+    # ``Artifact`` of type "Group", so the generic artifact lookup resolves the
+    # owning workspace; a foreign group then fails the role gate instead of
+    # leaking its membership list.
+    "group.members": (("group_id", "artifact"),),
     "icd.read": (("id", "icd"),),
     "goal.list_versions": (("lineage_id", "goal_lineage"),),
     "goal.read": (("goal_id", "goal"),),

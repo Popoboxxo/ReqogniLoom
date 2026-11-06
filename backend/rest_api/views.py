@@ -208,9 +208,18 @@ from rest_api.query_params import (
     require_non_empty_param,
 )
 from rest_api.platform_schema_serializers import (
+    AllocationListResponseSerializer,
     AttributeSchemaEntrySerializer,
     BundleCompressionStatusSerializer,
     ConsistencyStatusSerializer,
+    GroupCreateRequestSerializer,
+    GroupListResponseSerializer,
+    GroupMemberAddRequestSerializer,
+    GroupMemberMoveRequestSerializer,
+    GroupMemberRemoveRequestSerializer,
+    GroupMembersResponseSerializer,
+    GroupMoveMemberResponseSerializer,
+    GroupSerializer,
     RequirementHistoryResponseSerializer,
 )
 from rest_api.schema import ReqLoAutoSchema
@@ -1757,6 +1766,57 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def _svc(self) -> RequirementService:
         return RequirementService()
 
+    @staticmethod
+    def _tier_names(workspace_id: UUID | None) -> dict[str, str]:
+        """Return ``{tier_key: display_name}`` for one requirement response.
+
+        P2 (V5 naming layer): the ladder is read **once per request** and the
+        resulting map is handed to ``RequirementSerializer`` through its
+        context, so ``tier_name`` costs no query per row. The naming rule is
+        the one ``AllocationViewService`` uses (``en`` → ``de`` → the key), so
+        the two read surfaces cannot disagree.
+
+        Read-only enrichment: an unknown/absent workspace or a ladder failure
+        yields an empty map and the serializer renders ``tier_name: null``
+        instead of turning a requirement read into a 500.
+        """
+        if workspace_id is None:
+            return {}
+        from application.tier_ladder_service import TierLadderService
+
+        try:
+            return TierLadderService().get(workspace_id).name_map()
+        except Exception:  # noqa: BLE001 — enrichment must not fail the read
+            logger.debug(
+                "tier_name: ladder lookup failed for workspace=%s",
+                workspace_id,
+                exc_info=True,
+            )
+            return {}
+
+    def _requirement_context(self, workspace_id: UUID | None) -> dict[str, Any]:
+        """Serializer context for a Requirement payload (P2 ``tier_name``).
+
+        An empty map is omitted entirely: the serializer then behaves exactly
+        like one built without a context (``tier_name`` is ``None``).
+        """
+        names = self._tier_names(workspace_id)
+        return {"tier_names": names} if names else {}
+
+    def _requirement_serializer(
+        self, data: Any, workspace_id: UUID | None, *, many: bool = False
+    ) -> Any:
+        """Build the Requirement serializer with the ladder map in context.
+
+        The ``context`` keyword is only passed when a ladder map exists, so a
+        serialisation for an unresolvable workspace is byte-for-byte the
+        context-less one (``tier_name: null``).
+        """
+        context = self._requirement_context(workspace_id)
+        if context:
+            return RequirementSerializer(data, many=many, context=context)
+        return RequirementSerializer(data, many=many)
+
     # ADR-005: the V-model cascade level is DERIVED, so it is not a request
     # field. The serializer alone cannot express this honestly: a
     # ``read_only=True`` field makes DRF drop the value without a word, which
@@ -1869,8 +1929,10 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return self._paginate(
             request,
             items,
-            serialize_page=lambda page: RequirementSerializer(
-                [_dto_from_orm(i) for i in page], many=True
+            serialize_page=lambda page: self._requirement_serializer(
+                [_dto_from_orm(i) for i in page],
+                workspace_id,
+                many=True,
             ).data,
         )
 
@@ -1895,7 +1957,10 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        payload = RequirementSerializer(_dto_from_orm(item)).data
+        payload = self._requirement_serializer(
+            _dto_from_orm(item),
+            item.artifact.workspace_id,
+        ).data
         # #399: additive drift summary for the editor header (no extra request).
         payload["baseline_drift"] = _baseline_drift_summary(item.artifact_id, ctx)
         return self.with_etag(Response(payload), item)
@@ -2000,7 +2065,10 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
-        payload = RequirementSerializer(_dto_from_orm(item)).data
+        payload = self._requirement_serializer(
+            _dto_from_orm(item),
+            item.artifact.workspace_id,
+        ).data
         # Issue #1178: the duplicate-title warning is additive, so it is added
         # after serialisation (the serializer stays Contract-shaped, exactly
         # like ``baseline_drift`` on the detail GET).
@@ -2172,7 +2240,13 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self.with_etag(
-            Response(RequirementSerializer(_dto_from_orm(item)).data), item
+            Response(
+                self._requirement_serializer(
+                    _dto_from_orm(item),
+                    item.artifact.workspace_id,
+                ).data
+            ),
+            item,
         )
 
     def _current_requirement_level(self, request: Request, pk: str) -> Any | None:
@@ -7219,6 +7293,17 @@ def _dto_from_orm(req: Any) -> dict[str, Any]:
         "complexity_fibonacci": getattr(req, "complexity_fibonacci", None),
         "verification_method": getattr(req, "verification_method", None) or None,
         "level": getattr(req, "level", None),
+        # P2 (V4/V5): the stable ladder key. It was declared on the serializer
+        # but never sourced here, so DRF skipped it on every response and
+        # ``tier_name`` had nothing to resolve. Additive read field only.
+        "tier_key": getattr(req, "tier_key", None),
+        # P2: the allocation intent is declared on the serializer but was never
+        # sourced here, so DRF skipped it on every response (required=False).
+        # The attribute is visible in the bootstrapped definition — a read-back
+        # that omits it is the REST half of the parity gap the attribute
+        # contract matrix ratchets (#935). Additive read field only: writes
+        # still go through the allocation service / the create payload.
+        "allocation_intent": getattr(req, "allocation_intent", "unassigned"),
         "level_source": getattr(req, "level_source", "derived"),
         "suspect": getattr(req, "suspect", False),
         "custom_fields": _artifact_custom_fields(req),
@@ -8030,6 +8115,19 @@ def _cr_to_dict(cr: Any) -> dict[str, Any]:
 # WorkspaceViewSet (read-only — list + retrieve, REQ-L1-017)
 # ---------------------------------------------------------------------------
 
+# P4.4: response shape of ``GET /workspaces/{id}/locks/``. Declared explicitly
+# so the generated schema does not fall back to the ViewSet's
+# ``WorkspaceSerializer`` (which would describe a Workspace body for a map).
+_WORKSPACE_LOCKS_RESPONSE = inline_serializer(
+    name="WorkspaceLocksResponse",
+    fields={
+        "locks": serializers.DictField(
+            child=serializers.CharField(),
+            help_text="Frozen artifacts only: {tree node id: state name}.",
+        )
+    },
+)
+
 
 class WorkspaceViewSet(BaseEntityViewSet):
     """ViewSet for Workspace lookup (REQ-L1-017).
@@ -8222,6 +8320,94 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(payload)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="type",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                enum=["requirement", "architecture"],
+                description="Which classic tree the returned ids belong to.",
+            )
+        ],
+        responses={200: _WORKSPACE_LOCKS_RESPONSE},
+    )
+    @action(detail=True, methods=["get"], url_path="locks")
+    def locks(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/workspaces/{pk}/locks/?type=requirement|architecture.
+
+        P4 (§4.5): the batch read the classic trees use to grey out frozen
+        nodes. Returns ``{"locks": {"<id>": "<state name>"}}`` containing only
+        the artifacts whose **current workflow state** carries
+        ``state_meta.freeze_on_enter`` — an empty dict when none are frozen.
+
+        Semantics are the ones ``AllocationViewService`` already uses for its
+        ``locked`` column: the freeze-triggering states of the workspace's
+        workflow definition are read once per item type, and
+        ``workflow.state_reader.current_states`` resolves every item's state in
+        one query. The query count is therefore constant in the number of
+        items (10 vs 200 costs the same), which is the point of the endpoint.
+
+        ID SPACE — the keys are exactly the ids the two trees put on their
+        ``WorkspaceTreeNode``, and **the two trees differ**:
+
+        * ``type=requirement`` → ``Requirement.id`` (the entity row id). The
+          requirement tree renders ``id: req.id``
+          (``RequirementList.tsx``), not the backing Artifact id.
+        * ``type=architecture`` → ``ArchitectureElement.id`` (the entity row
+          id). The architecture tree renders ``id: el.id``
+          (``ArchitectureEditors.tsx``); it translates to the backing Artifact
+          id only for the move endpoint.
+
+        Neither id space is ``Artifact.id``. ``type`` is required; any other
+        value is a 400 naming the field. Unknown or foreign workspaces answer
+        the same 404/permission as the neighbouring workspace routes, and a
+        caller without READ is refused with 403.
+        """
+        from application.workspace_lock_service import ITEM_TYPES
+
+        lang = detect_lang(request)
+        raw_type = (request.query_params.get("type") or "").strip().lower()
+        if raw_type not in ITEM_TYPES:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="'type' must be 'requirement' or 'architecture'.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            ctx = get_auth_context(request)
+            workspace_id = UUID(pk)
+            # Tenant-scoped existence check: an unknown or foreign workspace is
+            # a 404, like ``tiers``/``allocation-view``. Also installs the
+            # tenant context the batched reads below rely on.
+            WorkspaceService().get_workspace(workspace_id, ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not _caller_may_read_workspace(workspace_id, ctx):
+            return _service_error_response(
+                PermissionDeniedError(
+                    f"Read access to workspace {workspace_id} is required."
+                ),
+                lang,
+            )
+
+        # The batched read (and the shared freeze definition) lives in the
+        # application layer: this adapter performs no ORM access of its own.
+        from application.workspace_lock_service import get_workspace_locks
+
+        return Response({"locks": get_workspace_locks(workspace_id, raw_type)})
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/workspaces/ — create a new workspace + preset config.
@@ -14494,6 +14680,25 @@ class GroupViewSet(viewsets.ViewSet):
             "description": fields.get("description", ""),
         }
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workspace whose visual groups are listed.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=GroupListResponseSerializer,
+                description="Every visual group of the workspace.",
+            ),
+            400: OpenApiResponse(description="workspace_id missing or not a UUID."),
+            404: OpenApiResponse(description="Workspace not found in this tenant."),
+        },
+    )
     def list(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -14509,6 +14714,17 @@ class GroupViewSet(viewsets.ViewSet):
             )
         return Response({"results": [self._group_dict(group) for group in groups]})
 
+    @extend_schema(
+        request=GroupCreateRequestSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=GroupSerializer, description="The created group."
+            ),
+            400: OpenApiResponse(description="Missing/invalid workspace_id or title."),
+            403: OpenApiResponse(description="Write role required in the workspace."),
+            404: OpenApiResponse(description="Workspace not found in this tenant."),
+        },
+    )
     def create(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
@@ -14528,6 +14744,20 @@ class GroupViewSet(viewsets.ViewSet):
             )
         return Response(self._group_dict(group), status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        request=GroupMemberAddRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=GroupMembersResponseSerializer,
+                description="The group's ordered members after the call.",
+            ),
+            400: OpenApiResponse(
+                description="Invalid requirement_id/after_id or duplicate member."
+            ),
+            403: OpenApiResponse(description="Write role required to add a member."),
+            404: OpenApiResponse(description="Group or requirement not found."),
+        },
+    )
     @action(detail=True, methods=["get", "post"], url_path="members")
     def members(self, request: Request, pk: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -14555,6 +14785,15 @@ class GroupViewSet(viewsets.ViewSet):
             )
         return Response({"members": members})
 
+    @extend_schema(
+        request=GroupMemberRemoveRequestSerializer,
+        responses={
+            204: OpenApiResponse(description="Membership removed (no body)."),
+            400: OpenApiResponse(description="Invalid requirement_id."),
+            403: OpenApiResponse(description="Write role required in the workspace."),
+            404: OpenApiResponse(description="Group or requirement not found."),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="members/remove")
     def remove_member(self, request: Request, pk: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -14572,6 +14811,20 @@ class GroupViewSet(viewsets.ViewSet):
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(
+        request=GroupMemberMoveRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=GroupMoveMemberResponseSerializer,
+                description="The moved membership with its new sort_key.",
+            ),
+            400: OpenApiResponse(
+                description="Invalid requirement_id/after_id or unknown member."
+            ),
+            403: OpenApiResponse(description="Write role required in the workspace."),
+            404: OpenApiResponse(description="Group or requirement not found."),
+        },
+    )
     @action(detail=True, methods=["post"], url_path="members/move")
     def move_member(self, request: Request, pk: str, **kwargs: Any) -> Response:
         lang = detect_lang(request)
@@ -14600,6 +14853,82 @@ class GroupViewSet(viewsets.ViewSet):
 class AllocationListView(APIView):
     """GET /api/v1/allocations/ — flat requirement/allocation rows (P2)."""
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workspace whose allocations are listed.",
+            ),
+            OpenApiParameter(
+                "requirement",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict to one Requirement id.",
+            ),
+            OpenApiParameter(
+                "element",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict to one allocation target element id.",
+            ),
+            OpenApiParameter(
+                "allocated",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="true = only allocated, false = only unallocated.",
+            ),
+            OpenApiParameter(
+                "tier",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict to one tier key.",
+            ),
+            OpenApiParameter(
+                "level",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict to one V-model level.",
+            ),
+            OpenApiParameter(
+                "intent",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict to one allocation intent.",
+            ),
+            OpenApiParameter(
+                "page_size",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=200,
+                description="Page size (1..500).",
+            ),
+            OpenApiParameter(
+                "offset",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=0,
+                description="Rows to skip.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=AllocationListResponseSerializer,
+                description="One page of allocation rows plus filtered counters.",
+            ),
+            400: OpenApiResponse(description="Missing/invalid parameter."),
+        },
+    )
     def get(self, request: Request) -> Response:
         from application.allocation_query_service import AllocationQueryService
 

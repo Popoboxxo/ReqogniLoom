@@ -135,6 +135,16 @@ def _requirement_to_dict(
         # visible attribute — a REST/MCP parity gap the attribute contract
         # matrix ratchets (#935).
         "level_source": getattr(req, "level_source", "derived"),
+        # P2 (V4/V5): the stable workspace-ladder key and the allocation
+        # intent. The definition exposes both as visible attributes and the
+        # REST read (``_dto_from_orm`` + ``RequirementSerializer``) returns
+        # them; without them here the MCP read projection omitted two visible
+        # attributes — the REST/MCP parity gap the attribute contract matrix
+        # ratchets (#935). Both are read-only on this surface: the ladder key
+        # is derived by ``tier_compute`` and the allocation service owns the
+        # intent, so the write tools do not accept them.
+        "tier_key": getattr(req, "tier_key", None),
+        "allocation_intent": getattr(req, "allocation_intent", "unassigned"),
         "suspect": getattr(req, "suspect", False),
         "version": req.version,
         # REQ-L2-AS-037 / Epic #934 WS1: the extended attributes live on the

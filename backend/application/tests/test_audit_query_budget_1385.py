@@ -66,6 +66,10 @@ QUERY_BUDGET = 34
 
 #: Frozen snapshot of the fixture's findings — see the class docstring of
 #: :func:`test_findings_snapshot_is_unchanged` for how to re-baseline it.
+#: Re-baselined for P2/V4: CONS-P12's message now speaks of "no determinable
+#: tier" (no allocation, no derivable parent, no type default) instead of a
+#: NULL V-model level. The rule set, severities and per-rule counts are
+#: unchanged.
 EXPECTED_PER_RULE = {
     "ARCH-003": 1,
     "CONS-P12": 16,
@@ -73,7 +77,7 @@ EXPECTED_PER_RULE = {
     "VERIF-P8": 12,
 }
 EXPECTED_MESSAGE_SHA256 = (
-    "681a86af900a13eca6c49aae2e592f87af7173f686e8659e6bb175d724692611"
+    "32e986c82cedb256a069d56cd86198d775f5856955986e56578945b2622f73ae"
 )
 
 

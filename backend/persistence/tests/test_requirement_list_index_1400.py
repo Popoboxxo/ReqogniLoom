@@ -1,6 +1,27 @@
-"""G2.2 (#1400): the requirement list query uses ``idx_req_ws_created``.
+"""G2.2 (#1400) / P1: the requirement list query is index-served.
 
-Measured, not assumed: the test seeds 20,000 requirements across five
+The list filters ``pl_requirement`` by workspace and orders by
+``pl_artifact.sort_key COLLATE "C" NULLS LAST, created_at, id``. Since P1 that
+mixed order cannot be served by ``idx_req_ws_created`` (workspace, created_at,
+id) — the old index is still useful for workspace filtering, but the first sort
+key now lives on the joined ``pl_artifact`` row. The plan therefore walks
+``idx_artifact_sort_id`` (sort_key, id) in sort_key order, nested-loops into
+``pl_requirement`` by its unique ``artifact_id`` and stops at LIMIT. Only the
+ties inside one sort key need an ``Incremental Sort``; neither table is scanned
+sequentially.
+
+The corpus models a *large* workspace: 20,000 requirements in the queried
+workspace plus four sibling workspaces with a handful of rows. That matters —
+the planner only prefers the ordered index walk when the workspace's rows
+dominate the artifact table, so the LIMIT can stop after ~100 nested-loop
+lookups. With five equally sized workspaces PostgreSQL measured the opposite:
+the soft-delete ``NOT IN`` sub-plan's startup cost is charged to every inner
+index access, which made the ordered path's LIMIT cost ~8x the hash-join +
+sort of one workspace's 4,000 rows. Both plans are correct; this test pins the
+case the index exists for, and the second assertion pins the original #1400
+ratchet (neither table is ever scanned sequentially).
+
+Measured, not assumed: the test seeds 20,040 requirements across five
 workspaces, refreshes the planner statistics, and explains the exact SQL
 ``RequirementService.list_requirements(...)[:100]`` produces.
 """
@@ -18,11 +39,14 @@ from persistence.models import Artifact, Requirement, Workspace
 
 pytestmark = pytest.mark.django_db
 
-_PER_WORKSPACE = 4_000
+#: The queried workspace holds the large list the ordering index protects.
+_TARGET_ROWS = 20_000
+#: Sibling workspaces prove the filter is workspace-scoped, not a full table.
+_SIBLING_ROWS = 10
 
 
 def _seed(tenant, workspace) -> list[Workspace]:
-    """Five workspaces with 4,000 requirements each; returns them."""
+    """One large workspace plus four siblings; returns all of them."""
     set_request_tenant(tenant.id)
     try:
         workspaces = [workspace]
@@ -34,14 +58,19 @@ def _seed(tenant, workspace) -> list[Workspace]:
                     preset={"name": "standard"},
                 )
             )
-        for ws in workspaces:
+        for ws_index, ws in enumerate(workspaces):
+            count = _TARGET_ROWS if ws_index == 0 else _SIBLING_ROWS
+            # P1: the 0132 backfill gives every Requirement a fractional
+            # ``sort_key``; distinct keys make the ordered walk stop at LIMIT
+            # instead of sorting one giant NULL tie group.
             artifacts = [
                 Artifact(
                     tenant=tenant,
                     workspace=ws,
                     artifact_type="Requirement",
+                    sort_key=f"{index:018d}{ws_index:02d}",
                 )
-                for _ in range(_PER_WORKSPACE)
+                for index in range(count)
             ]
             Artifact.objects.bulk_create(artifacts, batch_size=2_000)
             requirements = [
@@ -88,16 +117,22 @@ def test_list_query_uses_index(tenant, workspace):
     nodes = list(_walk(plan))
 
     assert any(
-        node.get("Index Name") == "idx_req_ws_created" for node in nodes
+        node.get("Index Name") == "idx_artifact_sort_id" for node in nodes
     ), (
-        "the requirement list must be served by idx_req_ws_created; "
+        "the requirement list must be served by idx_artifact_sort_id "
+        "(ordering by pl_artifact.sort_key); "
         f"plan={json.dumps(plan)[:2_000]}"
     )
-    assert not any(
-        node.get("Node Type") == "Seq Scan"
-        and node.get("Relation Name") == "pl_requirement"
+    seq_scans = [
+        node.get("Relation Name")
         for node in nodes
-    ), "a sequential scan of pl_requirement means the index was bypassed"
+        if node.get("Node Type") == "Seq Scan"
+        and node.get("Relation Name") in {"pl_requirement", "pl_artifact"}
+    ]
+    assert seq_scans == [], (
+        "a sequential scan of pl_requirement/pl_artifact means the ordering "
+        f"index was bypassed: {seq_scans}; plan={json.dumps(plan)[:2_000]}"
+    )
 
 
 def test_null_workspace_rows_absent(tenant, workspace):

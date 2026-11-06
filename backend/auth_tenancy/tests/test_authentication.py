@@ -12,6 +12,7 @@ from datetime import timedelta
 from unittest import mock
 
 import pytest
+from django.test import override_settings
 from django.utils import timezone
 
 from auth_tenancy.context import AuthMethod
@@ -283,13 +284,21 @@ def test_api_key_comparison_uses_compare_digest(user_a):
 
 
 @pytest.mark.django_db
+@override_settings(API_KEY_PEPPER="test-pepper-not-a-real-secret")
 def test_plaintext_key_never_persisted(user_a):
-    """The DB must contain only the hash, never the plaintext (REQ-L3-AT001-002)."""
+    """The DB must contain only the hash, never the plaintext (REQ-L3-AT001-002).
+
+    SA-34: once a pepper is configured (the deployed default) the canonical
+    stored form is the versioned ``sha256p1:`` HMAC, not the legacy bare
+    ``sha256:`` digest. The pepper is pinned explicitly so the assertion does
+    not depend on the ambient environment (the test stack loads ``API_KEY_PEPPER``
+    from ``.env``).
+    """
     result = _service().create_api_key(
         user_id=user_a.id, tenant_id=user_a.tenant_id, name="ci"
     )
     stored = ApiKey.unscoped.get(id=result.api_key_id)
-    assert stored.key_hash.startswith("sha256:")
+    assert stored.key_hash.startswith("sha256p1:")
     assert result.plaintext not in stored.key_hash
 
 

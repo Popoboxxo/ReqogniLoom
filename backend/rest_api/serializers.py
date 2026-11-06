@@ -1376,6 +1376,18 @@ class RequirementSerializer(
         allow_null=True,
         help_text="P2: stable tier key (the workspace ladder entry).",
     )
+    # P2 (V5 naming layer): the display name of `tier_key`. Resolved from the
+    # workspace ladder map the view puts into the serializer context — one
+    # ladder read per request, never a query per requirement. A serialisation
+    # whose context carries no map (nested/secondary serializers) answers
+    # `null` instead of reading the ladder itself.
+    tier_name = serializers.SerializerMethodField(
+        help_text=(
+            "P2: display name of `tier_key` from the workspace tier ladder "
+            "(`en` → `de` → the key itself). Null when the requirement has no "
+            "tier or the payload was built without a ladder map."
+        )
+    )
     allocation_intent = serializers.ChoiceField(
         choices=["allocated", "not_allocatable", "unassigned"],
         required=False,
@@ -1460,6 +1472,28 @@ class RequirementSerializer(
         # return "".
         title = obj.get("title", "") if isinstance(obj, dict) else getattr(obj, "title", "")
         return detect_non_atomic_terms(title or "") or None
+
+    def get_tier_name(self, obj: Any) -> str | None:
+        """Resolve ``tier_name`` from the view-supplied ladder map (P2, V5).
+
+        The view puts ``{tier_key: display_name}`` into ``context['tier_names']``
+        after exactly one ``TierLadderService.get()`` per request, so this
+        method never queries — that is what keeps the list endpoint's query
+        count independent of the number of requirements. Without the map
+        (nested serializers, direct serializer unit tests) the answer is
+        ``None`` rather than a per-row ladder read.
+        """
+        tier_key = (
+            obj.get("tier_key")
+            if isinstance(obj, dict)
+            else getattr(obj, "tier_key", None)
+        )
+        if not tier_key:
+            return None
+        names = (getattr(self, "context", None) or {}).get("tier_names")
+        if not isinstance(names, dict):
+            return None
+        return names.get(tier_key)
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         """Render conditional fields based on requirement type."""

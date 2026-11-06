@@ -6,6 +6,7 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
+from django.db import IntegrityError, transaction
 
 from application.base import NotFoundError
 from application.requirement_bundle_service import (
@@ -250,33 +251,52 @@ class TestGetBundleTruncationAndDedup:
         assert result.items == []  # req_deep exists but its element is unreachable
         assert result.truncated_at_depth is True
 
-    def test_diamond_allocation_dedups_to_shallowest_path(
+    def test_allocated_requirement_is_reported_once_at_its_own_depth(
         self, auth_ctx, workspace, make_architecture_element, make_requirement, make_allocated_to_link
     ):
-        """Regression test for ``DISTINCT ON (req_link.source_id) ... ORDER
-        BY req_link.source_id, arch_tree.depth ASC``: when a Requirement's
-        element is reachable from the root via two different ALLOCATED_TO
-        paths at two different depths, the shallower path must win and the
-        Requirement must appear exactly once (not once per path).
+        """N:1 rewrite of the former "diamond dedups to shallowest path" test.
+
+        Before P2 the same element could carry ALLOCATED_TO edges to two
+        parents, so one Requirement was reachable from the root at two
+        different depths; ``DISTINCT ON (req_link.source_id) ... ORDER BY
+        req_link.source_id, arch_tree.depth ASC`` then had to keep the
+        shallower row. P2's partial unique index
+        (``uniq_tracelink_allocated_to_source``, spec E4/B6) makes that state
+        unrepresentable: every element has at most one parent edge, so the
+        allocation graph is a forest and each Requirement is reachable along
+        exactly one path.
+
+        The observable property this test still pins is the one the guard
+        existed to produce: every Requirement surfaces exactly once, at the
+        depth of the element it is actually allocated to. The former second
+        allocation is now rejected by the database instead of multiplying the
+        result — asserted here so the reason this rewrite was necessary stays
+        covered.
         """
         root = make_architecture_element(workspace, title="Root")
-        # Path A: E allocated directly to root -> E at depth 1.
-        # Path B: E also allocated to F, and F allocated to root -> E also
-        # reachable at depth 2 via F. The shallower path (depth 1) must win.
-        f = make_architecture_element(workspace, title="F")
-        make_allocated_to_link(source=f, target=root)
-        e = make_architecture_element(workspace, title="E (diamond)")
-        make_allocated_to_link(source=e, target=root)
-        make_allocated_to_link(source=e, target=f)
-        req = make_requirement(workspace, title="On diamond element")
-        make_allocated_to_link(source=req, target=e)
+        child = make_architecture_element(workspace, title="Child")
+        make_allocated_to_link(source=child, target=root)
+        grandchild = make_architecture_element(workspace, title="Grandchild")
+        make_allocated_to_link(source=grandchild, target=child)
+
+        req_root = make_requirement(workspace, title="Allocated to root")
+        make_allocated_to_link(source=req_root, target=root)
+        req_deep = make_requirement(workspace, title="Allocated to grandchild")
+        make_allocated_to_link(source=req_deep, target=grandchild)
+
+        # The former diamond edge — the same element allocated to a second
+        # parent — is an N:1 violation now, not a duplicate result row.
+        with pytest.raises(IntegrityError):
+            with transaction.atomic():
+                make_allocated_to_link(source=grandchild, target=root)
 
         svc = RequirementBundleQueryService()
         result = svc.get_bundle(auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=None)
 
-        assert len(result.items) == 1
-        assert result.items[0].requirement_id == req.id
-        assert result.items[0].depth == 1
+        assert sorted((i.requirement_id, i.depth) for i in result.items) == sorted(
+            [(req_root.id, 0), (req_deep.id, 2)]
+        )
+        assert len({i.requirement_id for i in result.items}) == len(result.items)
 
     def test_truncation_flag_false_for_natural_boundary_at_exactly_max_depth(
         self, auth_ctx, workspace, make_architecture_element, make_requirement, make_allocated_to_link
@@ -346,41 +366,52 @@ class TestArchTreeWalkConstraints:
             i.found_under_element_id != req_a.artifact_id for i in result.items
         )
 
-    def test_diamond_allocation_at_equal_depth_returns_one_row(
+    def test_shared_ancestor_returns_one_row_per_requirement(
         self, auth_ctx, workspace, make_architecture_element, make_requirement, make_allocated_to_link
     ):
-        """Two parents both allocating to the same child (a diamond) must not
-        multiply the child's requirements."""
+        """N:1 rewrite of the former equal-depth diamond test.
+
+        The old fixture allocated one shared child to two parents, which P2's
+        partial unique index now rejects. The property that fixture was there
+        to protect is unchanged: two branches under the same ancestor must not
+        multiply or merge the rows of the Requirements attached to them —
+        every Requirement is reported exactly once, at its branch's depth.
+        """
         root = make_architecture_element(workspace, title="Root")
         p1 = make_architecture_element(workspace, title="P1")
         p2 = make_architecture_element(workspace, title="P2")
         make_allocated_to_link(source=p1, target=root)
         make_allocated_to_link(source=p2, target=root)
-        shared = make_architecture_element(workspace, title="Shared child")
-        make_allocated_to_link(source=shared, target=p1)
-        make_allocated_to_link(source=shared, target=p2)
-        req = make_requirement(workspace, title="Under the shared child")
-        make_allocated_to_link(source=req, target=shared)
+        req_p1 = make_requirement(workspace, title="Under P1")
+        make_allocated_to_link(source=req_p1, target=p1)
+        req_p2 = make_requirement(workspace, title="Under P2")
+        make_allocated_to_link(source=req_p2, target=p2)
 
         result = RequirementBundleQueryService().get_bundle(
             auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=None
         )
 
-        assert len(result.items) == 1
-        assert result.items[0].requirement_id == req.id
-        assert result.items[0].depth == 2
+        assert len(result.items) == 2
+        assert sorted((i.requirement_id, i.depth) for i in result.items) == sorted(
+            [(req_p1.id, 1), (req_p2.id, 1)]
+        )
 
-    def test_shared_cte_dedups_diamond_paths(
+    def test_shared_cte_yields_each_element_once_under_n_to_one(
         self, auth_ctx, workspace, make_architecture_element, make_allocated_to_link
     ):
-        """White-box guard on the shared CTE itself.
+        """White-box guard on the shared CTE itself (N:1 rewrite).
 
-        The outer ``DISTINCT ON (req_link.source_id)`` would mask row
-        multiplication inside ``arch_tree`` from the public result, so assert
-        the CTE directly: with ``UNION ALL`` the shared child appears once per
-        path (2 rows at depth 2); with ``UNION`` it appears once. Guarding
-        here is what keeps the walk bounded at nodes x (cap + 1) rows instead
-        of paths x (cap + 1).
+        The former version asserted that ``UNION`` (not ``UNION ALL``) collapses
+        a diamond: without it the walk would grow per path instead of per
+        node. P2's partial unique index makes a diamond unrepresentable
+        (an element has exactly one parent edge), so no data can trigger the
+        difference any more. Two guards remain here:
+
+        * structural: the query text must keep ``UNION`` — switching to
+          ``UNION ALL`` would silently remove the only path-multiplication
+          guard should the cardinality rule ever be relaxed again;
+        * behavioural: on the legal forest shape the walk returns each element
+          exactly once, at its real depth, with no duplicate rows.
         """
         from django.db import connection
 
@@ -389,14 +420,16 @@ class TestArchTreeWalkConstraints:
             MAX_DEPTH,
         )
 
+        assert "UNION ALL" not in _ARCH_TREE_CTE
+        assert "UNION" in _ARCH_TREE_CTE
+
         root = make_architecture_element(workspace, title="Root")
         p1 = make_architecture_element(workspace, title="P1")
         p2 = make_architecture_element(workspace, title="P2")
         make_allocated_to_link(source=p1, target=root)
         make_allocated_to_link(source=p2, target=root)
-        shared = make_architecture_element(workspace, title="Shared child")
-        make_allocated_to_link(source=shared, target=p1)
-        make_allocated_to_link(source=shared, target=p2)
+        child = make_architecture_element(workspace, title="Child of P1")
+        make_allocated_to_link(source=child, target=p1)
 
         svc = RequirementBundleQueryService()
         svc._set_tenant_context(auth_ctx)  # RLS GUC + thread-local tenant
@@ -417,10 +450,11 @@ class TestArchTreeWalkConstraints:
                 (root.artifact_id, 0),
                 (p1.artifact_id, 1),
                 (p2.artifact_id, 1),
-                (shared.artifact_id, 2),
+                (child.artifact_id, 2),
             ],
             key=lambda r: (r[1], str(r[0])),
         )
+        assert len(rows) == len({row[0] for row in rows})
 
 
 @pytest.mark.django_db
@@ -647,3 +681,66 @@ class TestDescribeAttributeSchemaRequired:
         rows = self._rows(auth_ctx, workspace)
         assert rows["acceptance_criteria"]["is_required"] is True
         assert rows["title"]["is_required"] is True
+
+
+@pytest.mark.django_db
+class TestBundleExposesRequirementTier:
+    """P2/V4/V5: a bundle export publishes the stable ladder key and the
+    ladder's display name next to the permanent integer alias ``level``."""
+
+    def test_all_mode_exposes_tier_key_name_and_level(
+        self,
+        auth_ctx,
+        workspace,
+        tenant,
+        make_architecture_element,
+        make_requirement,
+        make_allocated_to_link,
+    ):
+        root = make_architecture_element(workspace, title="Root")
+        req = make_requirement(workspace, title="Tiered")
+        with _active(tenant):
+            req.tier_key = "dazwischen"
+            req.level = 2
+            req.save(update_fields=["tier_key", "level"])
+        make_allocated_to_link(source=req, target=root)
+
+        result = RequirementBundleQueryService().get_bundle(
+            auth_ctx,
+            root_id=root.id,
+            workspace_id=workspace.id,
+            depth=0,
+            filter_mode="all",
+        )
+
+        fields = result.items[0].fields
+        assert fields["level"] == 2
+        assert fields["tier_key"] == "dazwischen"
+        assert fields["tier_name"] == "Middle"
+
+    def test_custom_mode_can_request_tier_name_only(
+        self,
+        auth_ctx,
+        workspace,
+        tenant,
+        make_architecture_element,
+        make_requirement,
+        make_allocated_to_link,
+    ):
+        root = make_architecture_element(workspace, title="Root")
+        req = make_requirement(workspace, title="Tiered")
+        with _active(tenant):
+            req.tier_key = "letzte"
+            req.save(update_fields=["tier_key"])
+        make_allocated_to_link(source=req, target=root)
+
+        result = RequirementBundleQueryService().get_bundle(
+            auth_ctx,
+            root_id=root.id,
+            workspace_id=workspace.id,
+            depth=0,
+            filter_mode="custom",
+            fields=["tier_name"],
+        )
+
+        assert result.items[0].fields == {"tier_name": "Last"}

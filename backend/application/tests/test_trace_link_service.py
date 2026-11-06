@@ -26,7 +26,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from application.base import NotFoundError, ValidationError
+from application.base import AllocationConflictError, NotFoundError, ValidationError
 from application.trace_link_service import (
     MANUAL_LINK_TYPES,
     VALID_LINK_TYPES,
@@ -966,6 +966,54 @@ class TestAllocationInvariantHook:
 
         mock_for_ws.assert_not_called()
 
+    def test_allocation_conflict_check_reads_tenant_from_ctx_not_thread_local(
+        self,
+    ):
+        """Regression (#1670 P2): the N:1 pre-check must not need a request scope.
+
+        ``_validate_new_trace_link`` used ``TraceLink.objects``, whose manager
+        resolves the tenant from the thread-local ``TenantContext``. Any call
+        that reached it without a request-scoped context — a Celery task, or
+        this suite's ``_set_tenant_context`` patch — died with
+        ``TenantContextNotSetError`` before the check could run, even though
+        the caller's ``AuthContext`` already named the tenant. It now reads
+        through ``TraceLink.unscoped`` narrowed by ``ctx.tenant_id``; this
+        test runs with the thread-local context explicitly cleared and asserts
+        both the tenant-scoped lookup and the conflict verdict.
+        """
+        from persistence.models import TraceLink
+        from persistence.tenancy import TenantContext
+
+        svc = TraceLinkService()
+        ctx = _make_ctx()
+        TenantContext.clear_tenant()
+        assert not TenantContext.is_set()
+
+        conflicting = MagicMock()
+        conflicting.filter.return_value.exists.return_value = True
+        with (
+            patch("application.trace_link_service.ServiceBase._set_tenant_context"),
+            patch.object(svc, "_resolve_artifact", side_effect=lambda x: (x, None)),
+            patch.object(svc, "_check_link_pair"),
+            patch.object(svc, "_check_allocation_invariant"),
+            patch.object(TraceLink, "unscoped", conflicting),
+            patch.object(TraceLink, "objects") as scoped_manager,
+        ):
+            with pytest.raises(AllocationConflictError):
+                svc.create_trace_link(
+                    source_id=SOURCE_ID,
+                    target_id=TARGET_ID,
+                    link_type="allocated-to",
+                    ctx=ctx,
+                )
+
+        conflicting.filter.assert_called_once_with(
+            tenant_id=ctx.tenant_id,
+            source_id=SOURCE_ID,
+            link_type="allocated-to",
+        )
+        scoped_manager.filter.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # propagate_suspect_status (SN-30)
@@ -1197,3 +1245,127 @@ class TestFindSimilarTraceLinksWorkspaceScope:
             )
 
         assert [row.id for row in results] == [visible.id]
+
+
+# ---------------------------------------------------------------------------
+# P2.6 — allocation create/change/remove recomputes the derived tier
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestAllocationRecomputesTier:
+    """A P2.6 allocation is a tier input, not just a stored edge.
+
+    Every write that creates, replaces or removes an ``allocated-to`` link must
+    re-derive ``Requirement.tier_key``/``level``/``level_source`` through the
+    canonical writer (``recompute_requirement_levels``). Before this, only
+    ``deallocate`` recomputed; ``allocate`` and the generic create/delete paths
+    left a requirement's tier stale.
+    """
+
+    def _env(self):
+        from persistence.tests.factories import (
+            active_tenant,
+            ctx_for_user,
+            make_user,
+            make_workspace,
+        )
+
+        return active_tenant, ctx_for_user, make_user, make_workspace
+
+    def test_allocate_create_change_and_deallocate_recompute(self):
+        from application.architecture_service import ArchitectureService
+        from application.requirement_service import RequirementService
+        from persistence.models import Requirement, RequirementLevelSource
+
+        active_tenant, ctx_for_user, make_user, make_workspace = self._env()
+        with active_tenant() as tenant:
+            workspace = make_workspace(tenant)
+            user = make_user(tenant)
+            ctx = ctx_for_user(tenant, user, workspace=workspace, roles=("editor",))
+
+            root = ArchitectureService().create_architecture_element(
+                workspace_id=workspace.id, title="Root", ctx=ctx
+            )
+            leaf = ArchitectureService().create_architecture_element(
+                workspace_id=workspace.id,
+                title="Leaf",
+                parent_id=root.id,
+                ctx=ctx,
+            )
+            req = RequirementService().create_requirement(
+                workspace_id=workspace.id, title="Allocated", ctx=ctx
+            )
+            svc = TraceLinkService()
+
+            # Create: allocated to the root -> first rung.
+            svc.allocate(
+                requirement_id=req.id,
+                architecture_element_id=root.id,
+                ctx=ctx,
+            )
+            row = Requirement.unscoped.get(id=req.id)
+            assert row.tier_key == "erste"
+            assert row.level_source == RequirementLevelSource.DERIVED_ALLOCATION
+            assert row.allocation_intent == "allocated"
+
+            # Change: replaced by an allocation to the leaf -> last rung.
+            svc.allocate(
+                requirement_id=req.id,
+                architecture_element_id=leaf.id,
+                ctx=ctx,
+            )
+            row = Requirement.unscoped.get(id=req.id)
+            assert row.tier_key == "letzte"
+            assert row.level == 4
+            assert row.level_source == RequirementLevelSource.DERIVED_ALLOCATION
+
+            # Remove: back to the type fallback (root requirement, no edge).
+            svc.deallocate(requirement_id=req.id, ctx=ctx)
+            row = Requirement.unscoped.get(id=req.id)
+            assert row.tier_key == "erste"
+            assert row.level == 1
+            assert row.level_source == RequirementLevelSource.DERIVED_TYPE
+            assert row.allocation_intent == "unassigned"
+
+    def test_generic_create_and_delete_recompute(self):
+        from application.architecture_service import ArchitectureService
+        from application.requirement_service import RequirementService
+        from persistence.models import Requirement, RequirementLevelSource
+
+        active_tenant, ctx_for_user, make_user, make_workspace = self._env()
+        with active_tenant() as tenant:
+            workspace = make_workspace(tenant)
+            user = make_user(tenant)
+            ctx = ctx_for_user(tenant, user, workspace=workspace, roles=("editor",))
+
+            root = ArchitectureService().create_architecture_element(
+                workspace_id=workspace.id, title="Root", ctx=ctx
+            )
+            leaf = ArchitectureService().create_architecture_element(
+                workspace_id=workspace.id,
+                title="Leaf",
+                parent_id=root.id,
+                ctx=ctx,
+            )
+            req = RequirementService().create_requirement(
+                workspace_id=workspace.id, title="Generic", ctx=ctx
+            )
+            svc = TraceLinkService()
+
+            # Generic create path (not allocate()) must also recompute.
+            link = svc.create_trace_link(
+                source_id=req.id,
+                target_id=leaf.id,
+                link_type="allocated-to",
+                ctx=ctx,
+            )
+            row = Requirement.unscoped.get(id=req.id)
+            assert row.tier_key == "letzte"
+            assert row.level_source == RequirementLevelSource.DERIVED_ALLOCATION
+
+            # Generic delete path must recompute back to the fallback.
+            svc.delete_trace_link(link.id, ctx)
+            row = Requirement.unscoped.get(id=req.id)
+            assert row.tier_key == "erste"
+            assert row.level_source == RequirementLevelSource.DERIVED_TYPE

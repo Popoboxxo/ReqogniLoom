@@ -230,6 +230,16 @@ def _capture_items(
             "type": req.type,
             "level": req.level,
             "level_source": req.level_source,
+            # P2 (V2): "not allocatable" is a decision no trace link can carry,
+            # so it lives on the Requirement and is editable through
+            # ``RequirementService.update_requirement`` -- captured here so a
+            # rollback can write it back (see baseline.restorable_fields).
+            "allocation_intent": req.allocation_intent,
+            # P2 (V4): the leaf-relative ladder key behind the integer ``level``
+            # alias. Captured so the snapshot/diff is complete; it is derived by
+            # ``application.tier_compute`` (single writer), so a rollback must
+            # not write it (NON_RESTORABLE).
+            "tier_key": req.tier_key,
             "complexity_fibonacci": req.complexity_fibonacci,
             "verification_method": req.verification_method,
             "suspect": req.suspect,

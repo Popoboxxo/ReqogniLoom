@@ -75,6 +75,11 @@ RESTORABLE_FIELDS: dict[str, tuple[str, ...]] = {
         "acceptance_criteria_items",
         "category",
         "type",
+        # P2 (V2): the allocation decision is editable content and
+        # ``RequirementService.update_requirement`` accepts it, so a rollback
+        # can restore it. ``tier_key`` is its derived counterpart and stays
+        # NON_RESTORABLE (single writer: application.tier_compute).
+        "allocation_intent",
         "complexity_fibonacci",
         "verification_method",
         *_ARTIFACT_HULL_RESTORABLE,
@@ -173,6 +178,10 @@ NON_RESTORABLE: dict[str, dict[str, str]] = {
         "level_source": (
             "only writable together with the derived 'level' via "
             "RequirementService.set_manual_level (ADR-005); Plan F F4.4"
+        ),
+        "tier_key": (
+            "derived leaf-relative tier ladder key (P2 V4); single writer "
+            "application.tier_compute"
         ),
         "status": "workflow governance",
         "uid": "identity",

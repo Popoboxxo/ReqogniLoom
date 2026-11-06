@@ -199,11 +199,13 @@ def _seed(tenant: Tenant, user: User) -> None:
         )
         # Every L1 requirement is allocated to the root element, so each L2
         # requirement (allocated to a component of that root) satisfies
-        # ARCH-003 — and TRACE-P3 sees the root covered.
-        link_svc.create_trace_link(
-            source_id=requirement.artifact_id,
-            target_id=root_element.artifact_id,
-            link_type="allocated-to",
+        # ARCH-003 — and TRACE-P3 sees the root covered. P2: allocation is the
+        # canonical write path, so the fixture also carries
+        # ``allocation_intent = allocated`` instead of the default
+        # ``unassigned``.
+        link_svc.allocate(
+            requirement_id=requirement.id,
+            architecture_element_id=root_element.id,
             ctx=ctx,
         )
 
@@ -232,12 +234,19 @@ def _seed(tenant: Tenant, user: User) -> None:
             link_type="derives-from",
             ctx=ctx,
         )
-        link_svc.create_trace_link(
-            source_id=requirement.artifact_id,
-            target_id=component.artifact_id,
-            link_type="allocated-to",
+        link_svc.allocate(
+            requirement_id=requirement.id,
+            architecture_element_id=component.id,
             ctx=ctx,
         )
+
+    # The leaf-relative tier ladder (P2) maps a *leaf* ArchitectureElement to
+    # the ladder's last rung, so a Requirement allocated to one derives that
+    # rung (integer level 4) — the slot the old ``L4_PRESENTATION`` label used
+    # to occupy. P2.7 retired the auditor's last-tier exclusion (TRACE-P3 and
+    # its siblings now audit every active Requirement), so the derivation is
+    # trusted as-is: no manual level override is needed to keep these
+    # subsystem Requirements visible to the gate.
     print(f"  Requirements: {len(l1_requirements) + len(l2_requirements)}")
 
     # --- TestCases: 12, one per leaf (L2) requirement --------------------------
@@ -360,18 +369,7 @@ class Command(BaseCommand):
     )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        tenant: Tenant | None = Tenant.objects.first()
-        if tenant is None:
-            tenant = Tenant.objects.create(name="Default Tenant")
-        admin = User.objects.filter(
-            tenant_id=tenant.id, username=DEFAULT_ADMIN_USERNAME
-        ).first()
-        if admin is None:
-            admin = User.objects.create(
-                email=DEFAULT_ADMIN_EMAIL,
-                username=DEFAULT_ADMIN_USERNAME,
-                tenant=tenant,
-            )
+        tenant, admin = self._resolve_tenant_and_admin()
 
         # Outside a request no middleware arms the RLS layer, so every write
         # below would be rejected by the Postgres policy (COMP-PL-006).
@@ -388,3 +386,38 @@ class Command(BaseCommand):
         finally:
             clear_request_tenant()
         print("Full-chain fixture seeded.")
+
+    def _resolve_tenant_and_admin(self) -> tuple[Tenant, User]:
+        """Pick the tenant/user to seed into, without ever colliding on a username.
+
+        ``User.username`` is globally unique while the old lookup was scoped to
+        the tenant: when a database holds more than one tenant and the
+        well-known ``admin`` already exists under a *different* one, the scoped
+        filter found nothing, and the follow-up create hit
+        ``pl_user_username_key``. That is not a production state — production
+        bootstraps the admin through ``migrate``'s post_migrate self-init on an
+        otherwise empty database — but it is the state a reused test database
+        reaches, and a fixture command must not turn it into a crash.
+
+        Resolution mirrors :func:`seed_toothbrush._resolve_tenant_and_user`,
+        which faced the same leftover-tenant problem: seed into the **admin's**
+        tenant (the account the consumer logs in as), falling back to the first
+        tenant, and only create the admin when no such user exists at all. What
+        the seed writes is unchanged; only which tenant it lands in is now
+        deterministic.
+        """
+        admin = User.objects.filter(username=DEFAULT_ADMIN_USERNAME).first()
+        tenant: Tenant | None = None
+        if admin is not None and admin.tenant_id is not None:
+            tenant = Tenant.objects.filter(id=admin.tenant_id).first()
+        if tenant is None:
+            tenant = Tenant.objects.first()
+        if tenant is None:
+            tenant = Tenant.objects.create(name="Default Tenant")
+        if admin is None:
+            admin = User.objects.create(
+                email=DEFAULT_ADMIN_EMAIL,
+                username=DEFAULT_ADMIN_USERNAME,
+                tenant=tenant,
+            )
+        return tenant, admin

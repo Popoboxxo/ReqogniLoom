@@ -1491,6 +1491,16 @@ class Artifact(TenantScopedModel):
                 fields=["parent", "sort_key", "id"],
                 name="idx_artifact_parent_sort",
             ),
+            # P1: the workspace-scoped requirement list orders by
+            # ``artifact.sort_key`` (NULLS LAST) and joins back to
+            # ``pl_requirement`` by its unique ``artifact_id``. This index is
+            # the only shape that can serve that order: when the queried
+            # workspace dominates the artifact table, the planner walks it and
+            # stops at LIMIT instead of sorting the whole join (migration 0138).
+            # The leading column must be ``sort_key``, not ``workspace_id``:
+            # the workspace predicate lives on ``pl_requirement``, so a
+            # workspace-prefixed index cannot be seeked for this order.
+            models.Index(fields=["sort_key", "id"], name="idx_artifact_sort_id"),
         ]
 
     def __str__(self) -> str:

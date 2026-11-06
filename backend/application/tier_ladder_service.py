@@ -93,6 +93,22 @@ class TierLadder:
                 return entry.tier_key
         return None
 
+    def name_map(self) -> dict[str, str]:
+        """Return ``{tier_key: display_name}`` for the whole ladder (P2).
+
+        One dict per ladder read, so a caller can resolve a page of
+        requirements without a query per row. The fallback chain is
+        ``name['en']`` → ``name['de']`` → the ``tier_key`` itself — exactly
+        the rule ``AllocationViewService`` applies, so both read surfaces show
+        the same label for the same tier.
+        """
+        return {
+            entry.tier_key: (entry.name or {}).get("en")
+            or (entry.name or {}).get("de")
+            or entry.tier_key
+            for entry in self.entries
+        }
+
 
 def _validate_ladder(payload: list[dict]) -> None:
     """Validate a replacement ladder before anything is written."""

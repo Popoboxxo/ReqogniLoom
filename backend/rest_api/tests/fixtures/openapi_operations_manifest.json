@@ -118,6 +118,10 @@
    "get"
   ],
   [
+   "/api/v1/allocations/",
+   "get"
+  ],
+  [
    "/api/v1/api-keys/",
    "get"
   ],
@@ -232,6 +236,10 @@
   [
    "/api/v1/artifacts/{id}/baseline-membership/",
    "get"
+  ],
+  [
+   "/api/v1/artifacts/{id}/move/",
+   "post"
   ],
   [
    "/api/v1/attribute-catalog/",
@@ -760,6 +768,30 @@
   [
    "/api/v1/goals/{id}/workflow-history/",
    "get"
+  ],
+  [
+   "/api/v1/groups/",
+   "get"
+  ],
+  [
+   "/api/v1/groups/",
+   "post"
+  ],
+  [
+   "/api/v1/groups/{id}/members/",
+   "get"
+  ],
+  [
+   "/api/v1/groups/{id}/members/",
+   "post"
+  ],
+  [
+   "/api/v1/groups/{id}/members/move/",
+   "post"
+  ],
+  [
+   "/api/v1/groups/{id}/members/remove/",
+   "post"
   ],
   [
    "/api/v1/icds/",
@@ -1706,6 +1738,10 @@
    "post"
   ],
   [
+   "/api/v1/trace-links/bulk/",
+   "post"
+  ],
+  [
    "/api/v1/trace-links/cycles/",
    "get"
   ],
@@ -1763,6 +1799,10 @@
   ],
   [
    "/api/v1/tracelinks/",
+   "post"
+  ],
+  [
+   "/api/v1/tracelinks/bulk/",
    "post"
   ],
   [
@@ -2050,6 +2090,10 @@
    "patch"
   ],
   [
+   "/api/v1/workspaces/{id}/allocation-view/",
+   "get"
+  ],
+  [
    "/api/v1/workspaces/{id}/clone/",
    "post"
   ],
@@ -2078,6 +2122,10 @@
    "post"
   ],
   [
+   "/api/v1/workspaces/{id}/locks/",
+   "get"
+  ],
+  [
    "/api/v1/workspaces/{id}/preset/",
    "patch"
   ],
@@ -2087,6 +2135,18 @@
   ],
   [
    "/api/v1/workspaces/{id}/reports/pdf/",
+   "get"
+  ],
+  [
+   "/api/v1/workspaces/{id}/tiers/",
+   "get"
+  ],
+  [
+   "/api/v1/workspaces/{id}/tiers/",
+   "put"
+  ],
+  [
+   "/api/v1/workspaces/{id}/tree/",
    "get"
   ],
   [

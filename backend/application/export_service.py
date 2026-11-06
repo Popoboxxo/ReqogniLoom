@@ -125,6 +125,11 @@ ENTITY_FIELD_SPECS: dict[str, list[tuple]] = {
         ("status", "str"),
         ("type", "str"),
         ("level", "int"),
+        # P2/V4: the stable ladder key next to its permanent integer alias
+        # ``level``. ``tier_name`` is the ladder display label, injected as a
+        # derived companion in ``_fetch_entities`` (it is not a model column
+        # and must never reach the import path as a create kwarg).
+        ("tier_key", "nstr"),
         ("complexity_fibonacci", "int"),
         ("verification_method", "nstr"),
         ("suspect", "bool"),
@@ -200,6 +205,18 @@ _APP_ENTITY_TYPES = frozenset({"Adr", "Risk", "Issue"})
 
 # Supported entity types (single source: the field registry).
 _VALID_ENTITY_TYPES = frozenset(ENTITY_FIELD_SPECS.keys())
+
+
+def tier_display_name(entry: Any) -> str:
+    """Return the ladder entry's display label (en, then de, then the key).
+
+    Shared by the export paths that publish a Requirement's ``tier_name``
+    next to ``tier_key`` (CSV/JSON/Markdown, Requirement bundle, ReqIF). The
+    label is presentation-only: renaming a ladder position never changes the
+    stored ``tier_key``.
+    """
+    name = getattr(entry, "name", None) or {}
+    return str(name.get("en") or name.get("de") or entry.tier_key)
 
 
 def _export_value(value: Any, kind: str) -> Any:
@@ -617,7 +634,18 @@ class ExportService(ServiceBase):
             )
             status_fallback = state_reader.initial_state(entity_type)
 
-        return [
+        tier_names: dict[str, str] = {}
+        if entity_type == "Requirement" and rows:
+            # P2/V4/V5: one ladder lookup per export (never per row), so the
+            # display label is resolved without an N+1 query.
+            from application.tier_ladder_service import TierLadderService
+
+            tier_names = {
+                entry.tier_key: tier_display_name(entry)
+                for entry in TierLadderService().get(workspace_id).entries
+            }
+
+        serialized = [
             ExportService._serialize_row(
                 obj,
                 spec,
@@ -625,6 +653,10 @@ class ExportService(ServiceBase):
             )
             for obj in rows
         ]
+        if tier_names:
+            for obj, row in zip(rows, serialized):
+                row["tier_name"] = tier_names.get(getattr(obj, "tier_key", None))
+        return serialized
 
     @staticmethod
     def _serialize_row(

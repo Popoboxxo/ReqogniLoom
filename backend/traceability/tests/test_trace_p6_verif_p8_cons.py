@@ -156,7 +156,9 @@ class TestTraceP6:
 
 
 # ---------------------------------------------------------------------------
-# VERIF-P8 — every leaf Requirement (non-L4) has a verifying TestCase.
+# VERIF-P8 — every leaf Requirement (dynamic-graph leaf) has a verifying
+# TestCase. The old L4-position skip is retired (P2/V4): every decomposed leaf
+# sits on the last ladder position.
 # ---------------------------------------------------------------------------
 
 
@@ -197,19 +199,24 @@ class TestVerifP8:
         # Only the leaf (child) needs a TestCase; the parent is exempt.
         assert _findings(result, VERIF_P8) == []
 
-    def test_l4_requirement_is_out_of_scope(self, tenant_a, workspace_a):
+    def test_last_tier_requirement_is_still_audited(self, tenant_a, workspace_a):
+        """P2/V4: a requirement on the last ladder position (formerly L4) is a
+        normal decomposition leaf and must not be exempted from VERIF-P8."""
         with active_tenant(tenant_a):
             artifact = make_artifact(tenant_a, workspace_a, artifact_type="requirement")
             Requirement.objects.create(
                 tenant=tenant_a,
                 artifact=artifact,
-                title="Presentation Req",
+                title="Last-tier Req",
                 level=RequirementLevel.L4_PRESENTATION,
+                tier_key="letzte",
             )
 
             result = _run(tenant_a, workspace_a, tier="extended")
 
-        assert _findings(result, VERIF_P8) == []
+        findings = _findings(result, VERIF_P8)
+        assert len(findings) == 1
+        assert str(artifact.id) in findings[0].artifact_ids
 
     def test_standard_preset_does_not_run_verif_p8(self, tenant_a, workspace_a):
         with active_tenant(tenant_a):

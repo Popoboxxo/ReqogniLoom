@@ -340,6 +340,34 @@ def test_capture_covers_every_editable_field(workspace_env):
 
 
 @pytest.mark.django_db
+def test_requirement_allocation_fields_captured_and_classified(workspace_env):
+    """P2: ``allocation_intent`` is restorable content, ``tier_key`` is derived.
+
+    Both are Requirement columns added by the ordering/allocation wave. The
+    meta-test above only knows "captured OR declared non-restorable"; this test
+    pins *which* of the two each one is, so a future change cannot satisfy the
+    meta-test by silently declaring editable content non-restorable (and vice
+    versa).
+    """
+    from persistence.models import AllocationIntent
+
+    captured = _seed_and_capture(workspace_env)["Requirement"]
+
+    # Both are in the snapshot, with the row's real values.
+    assert captured["allocation_intent"] == AllocationIntent.UNASSIGNED
+    assert captured["tier_key"] is None
+
+    # allocation_intent is editable content: a rollback may write it back.
+    assert "allocation_intent" in RESTORABLE_FIELDS["Requirement"]
+    assert "allocation_intent" not in NON_RESTORABLE["Requirement"]
+
+    # tier_key is derived by application.tier_compute: captured for diffing,
+    # never written by a rollback.
+    assert "tier_key" in NON_RESTORABLE["Requirement"]
+    assert "tier_key" not in RESTORABLE_FIELDS["Requirement"]
+
+
+@pytest.mark.django_db
 def test_capture_includes_artifact_system_fields(workspace_env):
     """R-F4-1: the Artifact hull must carry owner/reporter/priority/stakeholder.
 

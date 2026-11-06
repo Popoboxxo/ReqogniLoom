@@ -23,19 +23,15 @@ by both this module and ``trace_derivation_allocation``'s mirror-image root
 classification (and only those two — that module's docstring lists the other
 hierarchy representations it must *not* be unified with).
 
-L4 (Presentation) is out of scope for the whole §2.2 matrix (closing note
-of §2.2): a Requirement with ``level == RequirementLevel.L4_PRESENTATION`` is
-skipped by VERIF-P8. ADR-005 did not change that filter — it made
-``Requirement.level`` a derived, read-only field recomputed from the hierarchy
-on every hierarchy change
-(``traceability.audit.hierarchy.recompute_requirement_levels``), and the
-attribute is retained precisely because this filter, ARCH-003 and TRACE-P5 have
-no other L4 concept (``hierarchy.py`` has none of its own). Rows with
-``level IS NULL`` are never treated as L4 and are NOT skipped — so a row whose
-hierarchy does not determine a level is audited at full strength rather than
-silently exempted. The "overwhelming majority are NULL" remark above is a
-pre-ADR-005 observation about the un-backfilled corpus; it is no longer the
-reason NULL is handled this way, which is now the conservative one.
+The old "``level == L4_PRESENTATION`` is out of scope" skip is **retired**
+(P2, V4). With leaf-relative tiers every decomposed leaf legitimately sits on
+the *last* ladder position, so keeping an L4 skip would silently exempt the
+entire decomposition graph from VERIF-P8 — the same reasoning already
+documented in ``decomposition_consistency._decomposes_requirement_pairs`` for
+TRACE-P5. ``Requirement.level`` is now the permanent integer alias of a
+position in a per-workspace ladder of arbitrary length, not a fixed 1..4
+V-model level, and VERIF-P8 must audit every dynamic-graph leaf regardless of
+the position it occupies.
 
 --------------------------------------------------------------------------
 LinkType gap: CONS-P9/CONS-P10 are deferred (verified against code, 2026-07-19)
@@ -88,7 +84,7 @@ two rules that already implement it, rather than adding a third id for the same
 check:
 
   * ``VERIF-P8`` (:class:`LeafRequirementHasTestCaseRule`) — the requirement
-    side: every non-L4 leaf Requirement must be covered by a verifying
+    side: every dynamic-graph leaf Requirement must be covered by a verifying
     TestCase. This is the rule that answers "is anything verified?".
   * ``TRACE-P6`` (:class:`TestCaseVerifiesExistingArtifactRule`) — the test
     side: every TestCase must point at an artifact that exists, so coverage
@@ -109,7 +105,6 @@ from __future__ import annotations
 from persistence.models import (
     ArchitectureElement,
     Requirement,
-    RequirementLevel,
     TestCase,
 )
 from traceability.audit.hierarchy import leaf_requirement_ids as _leaf_requirement_ids
@@ -136,8 +131,8 @@ from workflow.services import outdated_item_ids
 # ---------------------------------------------------------------------------
 
 
-def _active_requirements(context: AuditContext) -> dict[str, tuple[str, int | None]]:
-    """Return ``{artifact_id: (title, level)}`` for active Requirements.
+def _active_requirements(context: AuditContext) -> dict[str, str]:
+    """Return ``{artifact_id: title}`` for active Requirements.
 
     Datenmodell-Konsolidierung Phase 1: "active" is resolved through
     ``WorkflowItemState`` (batched) — needed here because (unlike
@@ -152,14 +147,14 @@ def _active_requirements(context: AuditContext) -> dict[str, tuple[str, int | No
         Requirement.unscoped.filter(
             tenant_id=context.tenant_id,
             artifact__workspace_id=context.workspace_id,
-        ).values("id", "artifact_id", "title", "level")
+        ).values("id", "artifact_id", "title")
     )
     states = state_reader.current_states(
         "Requirement", (row["id"] for row in rows), tenant_id=context.tenant_id
     )
     requirement_initial_state = state_reader.initial_state("Requirement")
     return {
-        str(row["artifact_id"]): (row["title"], row["level"])
+        str(row["artifact_id"]): row["title"]
         for row in rows
         if (states.get(str(row["id"])) or requirement_initial_state) != "outdated"
     }
@@ -333,8 +328,8 @@ class TestCaseVerifiesExistingArtifactRule(Rule):
 
 
 # ---------------------------------------------------------------------------
-# VERIF-P8 — every leaf Requirement (dynamic-graph leaf, non-L4) has a
-# verifying TestCase. Extended only.
+# VERIF-P8 — every leaf Requirement (dynamic-graph leaf) has a verifying
+# TestCase. Extended only.
 # ---------------------------------------------------------------------------
 
 
@@ -345,15 +340,22 @@ class LeafRequirementHasTestCaseRule(Rule):
     The requirement-side half of the test-link obligation (ADR-007); the test
     side is ``TRACE-P6`` in the same module. Extended-only, and therefore
     blockable only at a Full-SE baseline.
+
+    "Leaf" is the dynamic decomposition-graph leaf (nothing hangs below it),
+    never a position in the tier ladder: with leaf-relative tiers every
+    decomposed leaf sits on the last ladder position, so a position-based
+    skip would exempt the whole decomposition graph (P2, V4).
     """
 
     rule_id = VERIF_P8
 
     title = "Leaf requirement has a verifying test case"
     description = (
-        "Every non-L4 leaf Requirement must be covered by at least one "
-        "'verifies' link from an active, verification-eligible TestCase. An "
-        "uncovered leaf Requirement has no verification evidence."
+        "Every leaf Requirement must be covered by at least one 'verifies' "
+        "link from an active, verification-eligible TestCase. A leaf is a "
+        "Requirement nothing was decomposed/derived from, regardless of which "
+        "ladder position it occupies. An uncovered leaf Requirement has no "
+        "verification evidence."
     )
     standard_ref = "UMSETZUNGSPLAN_SYSENG_2.0.md §2.2 (VERIF-P8)"
     remediation_hint = (
@@ -365,15 +367,7 @@ class LeafRequirementHasTestCaseRule(Rule):
         if not requirements:
             return []
 
-        non_l4_ids = frozenset(
-            artifact_id
-            for artifact_id, (_, level) in requirements.items()
-            if level != RequirementLevel.L4_PRESENTATION
-        )
-        if not non_l4_ids:
-            return []
-
-        leaf_ids = _leaf_requirement_ids(context, non_l4_ids)
+        leaf_ids = _leaf_requirement_ids(context, frozenset(requirements))
         if not leaf_ids:
             return []
 
@@ -390,7 +384,7 @@ class LeafRequirementHasTestCaseRule(Rule):
         for req_id in sorted(leaf_ids):
             if req_id in verified_requirement_ids:
                 continue
-            title = requirements[req_id][0]
+            title = requirements[req_id]
             findings.append(
                 Finding(
                     rule_id=self.rule_id,

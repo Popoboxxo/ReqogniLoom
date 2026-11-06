@@ -640,6 +640,7 @@ class TraceLinkService(ServiceBase):
             resolved_source,
             resolved_target,
             link_type,
+            ctx=ctx,
             source_artifact=source_artifact,
             target_artifact=target_artifact,
         )
@@ -668,6 +669,17 @@ class TraceLinkService(ServiceBase):
             resolved_target=resolved_target,
             source_artifact=source_artifact,
         )
+
+        # P2.6: an allocation is a tier input, not a hierarchy edge, so the
+        # hierarchy recompute in ``TraceLinkManager.create`` (which only fires
+        # for HIERARCHY_LINK_TYPES) never covered it. Recompute the source
+        # Requirement's tier here so a generic ``allocated-to`` write and the
+        # ``allocate()`` wrapper reach the same state. The call is a no-op for
+        # a non-Requirement source (``recompute_requirement_levels`` filters on
+        # ``artifact_type == "Requirement"``) and idempotent, which is why
+        # ``allocate()`` may call it a second time after its intent write.
+        if link_type == LinkType.ALLOCATED_TO:
+            recompute_requirement_levels([resolved_source])
         return result
 
     def _resolve_trace_link_endpoints(
@@ -693,6 +705,7 @@ class TraceLinkService(ServiceBase):
         resolved_target: UUID,
         link_type: str,
         *,
+        ctx: AuthContext,
         source_artifact: Artifact | None = None,
         target_artifact: Artifact | None = None,
     ) -> None:
@@ -728,10 +741,22 @@ class TraceLinkService(ServiceBase):
             # The generic path must answer 409 instead of silently creating a
             # second edge (which the DB partial unique index would reject with
             # an IntegrityError anyway — this turns it into a clear conflict).
+            #
+            # The tenant comes from ``ctx`` rather than from the thread-local
+            # ``TenantContext`` the default manager resolves: this pre-check
+            # must work wherever ``create_trace_link`` is called with a valid
+            # AuthContext. Going through ``TraceLink.objects`` made it raise
+            # ``TenantContextNotSetError`` whenever the thread-local context
+            # was absent (e.g. a service call outside a request, or a test
+            # that stubs ``_set_tenant_context``) even though the tenant was
+            # known all along. ``unscoped`` narrowed by ``tenant_id`` is the
+            # established pattern for that (see e.g. artifact_service).
             from persistence.models import TraceLink
 
-            if TraceLink.objects.filter(
-                source_id=resolved_source, link_type=LinkType.ALLOCATED_TO
+            if TraceLink.unscoped.filter(
+                tenant_id=ctx.tenant_id,
+                source_id=resolved_source,
+                link_type=LinkType.ALLOCATED_TO,
             ).exists():
                 raise AllocationConflictError(
                     "This requirement is already allocated; use the "
@@ -1355,7 +1380,13 @@ class TraceLinkService(ServiceBase):
         try:
             row = (
                 TraceLink.objects.filter(id=link_id)
-                .values("source_id", "target_id", "proposed_by_id", "proposed_at")
+                .values(
+                    "source_id",
+                    "target_id",
+                    "link_type",
+                    "proposed_by_id",
+                    "proposed_at",
+                )
                 .first()
             )
         except Exception:  # noqa: BLE001 — best-effort, see comment above
@@ -1394,6 +1425,15 @@ class TraceLinkService(ServiceBase):
             raise NotFoundError(f"TraceLink {link_id} not found") from exc
 
         if row is not None:
+            # P2.6: dropping an allocation removes the requirement's strongest
+            # tier source, so the derived tier must fall back to the hierarchy
+            # (or the type/unresolved fallback). ``TraceLinkManager.delete``
+            # only recomputes for HIERARCHY_LINK_TYPES; ``allocated-to`` is not
+            # one, hence the explicit call here. The snapshot above is
+            # best-effort: without it the link type is unknown and the caller's
+            # own delete path (e.g. the seed) is responsible for the recompute.
+            if row["link_type"] == LinkType.ALLOCATED_TO:
+                recompute_requirement_levels([row["source_id"]])
             self._emit_trace_link_event(
                 event_type_name="TRACE_LINK_DELETED",
                 link_id=link_id,
@@ -1506,6 +1546,13 @@ class TraceLinkService(ServiceBase):
         Requirement.objects.filter(id=requirement_id).update(
             allocation_intent=AllocationIntent.ALLOCATED
         )
+        # P2.6: allocation create/change/replace is a tier input. The
+        # ``create_trace_link`` call above already recomputed once for the new
+        # edge; this second call re-derives after the ``allocation_intent``
+        # write. It is idempotent: when the tier did not move the recompute
+        # returns no changes and writes nothing, so the duplicate is a no-op
+        # rather than a second mutation.
+        recompute_requirement_levels([req_artifact_id])
         return result
 
     def _assert_not_frozen(self, requirement) -> None:

@@ -53,10 +53,11 @@ def test_all_mode_uses_the_export_flagged_attributes(service) -> None:
         ]
         fields = service.resolve_export_fields(ctx, workspace_id, "all", None)
     # title/uid come from the definition; the rest are the system columns no
-    # definition can ever carry (see _SYSTEM_EXPORT_FIELDS).
+    # definition can ever carry (see _SYSTEM_EXPORT_FIELDS), including the
+    # P2/V4/V5 tier key + derived display name published next to ``level``.
     assert fields == {"title", "uid"} | {
         "id", "workspace_id", "version", "created_at", "modified_at",
-        "suspect", "lifecycle_status",
+        "suspect", "lifecycle_status", "tier_key", "tier_name",
     }
 
 
