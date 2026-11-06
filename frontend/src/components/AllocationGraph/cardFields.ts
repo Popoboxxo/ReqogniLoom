@@ -17,11 +17,12 @@
  * document can order it, but `validateCardFieldConfig` rejects hiding it —
  * the settings editor and the persistence layer both call that validator.
  *
- * There is no backend card-field store yet, so the configuration is persisted
- * through the existing three-level preference API (workspace scope). A
- * deployment that does not know the key rejects the write; exactly like the
- * connection view's saved views, the module then degrades to `localStorage`
- * and never blocks the view. `load()` never rejects.
+ * The configuration is persisted through the three-level preference API at the
+ * workspace level (the key is registered for global/workspace/user, resolved
+ * user > workspace > global). There is no client-side mirror: the preference
+ * store is the single source of truth. `load()` never rejects — an absent key
+ * yields the built-in defaults — while `save()` propagates a rejected write so
+ * the settings editor can report it.
  */
 
 import { preferenceValuesApi } from "../../api/preference-values";
@@ -95,11 +96,8 @@ export const MANDATORY_CARD_FIELDS: readonly CardFieldKey[] = ["lock"];
 export const MIN_CARD_ROWS = 1;
 export const MAX_CARD_ROWS = 4;
 
-/** Preference key holding the serialized configuration (workspace scope). */
+/** Preference key holding the serialized configuration. */
 export const CARD_FIELDS_PREFERENCE_KEY = "ui.allocation_graph.card_fields";
-
-/** `localStorage` fallback prefix (one entry per workspace). */
-const LOCAL_STORAGE_PREFIX = "reqlo.allocation_graph.card_fields";
 
 function defaultFields(kind: CardKind): CardFieldSetting[] {
   if (kind === "requirement") {
@@ -322,37 +320,11 @@ export function parseCardFieldConfigMap(raw: unknown): CardFieldConfigMap {
   return result;
 }
 
-function localKey(workspaceId: string | null | undefined): string {
-  return `${LOCAL_STORAGE_PREFIX}.${workspaceId ?? "default"}`;
-}
-
-function readLocal(workspaceId: string | null | undefined): CardFieldConfigMap | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const stored = window.localStorage.getItem(localKey(workspaceId));
-    if (!stored) return null;
-    return parseCardFieldConfigMap(JSON.parse(stored));
-  } catch {
-    return null;
-  }
-}
-
-function writeLocal(
-  workspaceId: string | null | undefined,
-  serialized: string[]
-): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(localKey(workspaceId), JSON.stringify(serialized));
-  } catch {
-    // Quota/private-mode failures must not break the graph.
-  }
-}
-
 export const cardFieldsApi = {
   /**
-   * Resolve the caller's effective card fields for a workspace. Preference
-   * store first, `localStorage` fallback; never rejects.
+   * Resolve the caller's effective card fields for a workspace from the
+   * preference store. An absent key (or an unavailable backend) yields the
+   * built-in defaults. Never rejects.
    */
   async load(workspaceId?: string | null): Promise<CardFieldConfigMap> {
     try {
@@ -362,16 +334,15 @@ export const cardFieldsApi = {
         return parseCardFieldConfigMap(stored.value);
       }
     } catch {
-      // Unregistered key or unavailable backend -> local mirror.
+      // Unavailable backend: keep rendering with the built-in defaults.
     }
-    return readLocal(workspaceId) ?? defaultCardFieldConfigMap();
+    return defaultCardFieldConfigMap();
   },
 
   /**
    * Persist the configuration at the workspace level. Validates first (a
-   * hidden mandatory marker never reaches the server), mirrors locally in
-   * every case, and swallows the "key not registered" rejection exactly like
-   * the saved connection views.
+   * hidden mandatory marker never reaches the server) and propagates any
+   * rejection so the settings editor can report a failed write.
    */
   async save(
     workspaceId: string,
@@ -379,23 +350,10 @@ export const cardFieldsApi = {
   ): Promise<void> {
     validateCardFieldConfig("requirement", config.requirement);
     validateCardFieldConfig("element", config.element);
-    const serialized = serializeCardFieldConfigMap(config);
-    writeLocal(workspaceId, serialized);
-    try {
-      await preferenceValuesApi.patchLevel(
-        "workspace",
-        { [CARD_FIELDS_PREFERENCE_KEY]: serialized },
-        workspaceId
-      );
-    } catch {
-      // Degraded (unregistered key): the local mirror is already written.
-    }
-  },
-
-  /** Restore the local mirror's default (used by the settings editor). */
-  resetLocal(workspaceId: string): CardFieldConfigMap {
-    const defaults = defaultCardFieldConfigMap();
-    writeLocal(workspaceId, serializeCardFieldConfigMap(defaults));
-    return defaults;
+    await preferenceValuesApi.patchLevel(
+      "workspace",
+      { [CARD_FIELDS_PREFERENCE_KEY]: serializeCardFieldConfigMap(config) },
+      workspaceId
+    );
   },
 };

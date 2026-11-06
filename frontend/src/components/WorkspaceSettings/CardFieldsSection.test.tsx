@@ -55,6 +55,7 @@ import { preferenceValuesApi } from "../../api/preference-values";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.restoreAllMocks();
   window.localStorage.clear();
   const stored = serializeCardFieldConfigMap(defaultCardFieldConfigMap());
   vi.mocked(preferenceValuesApi.effective).mockResolvedValue({
@@ -76,6 +77,7 @@ function renderSection(): void {
 
 describe("CardFieldsSection", () => {
   it("loads the stored configuration and saves an edited row count", async () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
     renderSection();
 
     const rows = await screen.findByTestId("card-fields-rows");
@@ -87,6 +89,7 @@ describe("CardFieldsSection", () => {
     await waitFor(() =>
       expect(preferenceValuesApi.patchLevel).toHaveBeenCalled()
     );
+    expect(setItem).not.toHaveBeenCalled();
     const [scope, values, workspaceId] = vi.mocked(
       preferenceValuesApi.patchLevel
     ).mock.calls[0];
@@ -133,6 +136,38 @@ describe("CardFieldsSection", () => {
     fireEvent.click(screen.getByTestId("card-fields-remove-lock"));
 
     expect(screen.getByTestId("card-fields-field-lock")).toBeInTheDocument();
+  });
+
+  it("surfaces a rejected save in the error state", async () => {
+    vi.mocked(preferenceValuesApi.patchLevel).mockRejectedValue(
+      new Error("preference store unavailable")
+    );
+    renderSection();
+    await screen.findByTestId("card-fields-rows");
+
+    fireEvent.click(screen.getByTestId("card-fields-save"));
+
+    expect(await screen.findByTestId("card-fields-error")).toHaveTextContent(
+      "preference store unavailable"
+    );
+    expect(screen.queryByTestId("card-fields-saved")).toBeNull();
+  });
+
+  it("resets to the built-in defaults through the normal save path", async () => {
+    renderSection();
+    await screen.findByTestId("card-fields-rows");
+
+    fireEvent.click(screen.getByTestId("card-fields-reset"));
+
+    await waitFor(() =>
+      expect(preferenceValuesApi.patchLevel).toHaveBeenCalled()
+    );
+    const values = vi.mocked(preferenceValuesApi.patchLevel).mock.calls[0][1] as
+      Record<string, string[]>;
+    expect(values[CARD_FIELDS_PREFERENCE_KEY]).toEqual(
+      serializeCardFieldConfigMap(defaultCardFieldConfigMap())
+    );
+    expect(await screen.findByTestId("card-fields-saved")).toBeInTheDocument();
   });
 
   it("switches between requirement and element cards", async () => {

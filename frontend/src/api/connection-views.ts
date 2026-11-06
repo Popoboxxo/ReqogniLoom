@@ -2,26 +2,24 @@
  * ARCH-L1-001 ReactFrontend — Saved connection-view filters (P3 Task 3.2).
  *
  * "Saved views" are a per-user convenience: a name plus the URL parameters
- * that reproduce a filter set. They are stored through the existing
- * three-level preference API (`/users/me/preference-values/`, user scope) so
- * they follow the account across devices, exactly like the sidebar's
+ * that reproduce a filter set. They are stored through the three-level
+ * preference API (`/users/me/preference-values/`, user scope only) so they
+ * follow the account across devices, exactly like the sidebar's
  * collapsed-group preference.
  *
- * The key is a `str_list` whose items are JSON-encoded view documents. If the
- * backend deployment does not yet know the key (the code registry rejects
- * unregistered keys with 400), the module degrades to `localStorage` so the
- * feature stays usable and never blocks the view. The fallback is deliberate,
- * not an error path the caller has to handle: `load` always answers a list and
- * `save` always succeeds locally.
+ * The key is a `str_list` whose items are JSON-encoded view documents and is
+ * registered in the backend preference registry, so no client-side mirror
+ * exists: the preference store is the single source of truth.
+ *
+ * `load` still never rejects — a transport error must not take the whole view
+ * down, and an absent key simply means "no saved views". `save` deliberately
+ * propagates its rejection so the caller can report a failed write.
  */
 
 import { preferenceValuesApi } from "./preference-values";
 
 /** Key under which the saved views live in the preference store. */
 export const SAVED_VIEWS_PREFERENCE_KEY = "ui.connection_view.saved_views";
-
-/** `localStorage` mirror used when the preference key is not registered. */
-const LOCAL_STORAGE_KEY = "reqlo.connection_view.saved_views";
 
 /** One named filter snapshot. `params` is the URL search string's data. */
 export interface SavedConnectionView {
@@ -57,55 +55,28 @@ function parseViews(raw: unknown): SavedConnectionView[] {
   return views;
 }
 
-function readLocal(): SavedConnectionView[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-    return raw ? parseViews(JSON.parse(raw)) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeLocal(views: SavedConnectionView[]): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(views));
-  } catch {
-    // Quota/private-mode failures are not worth breaking the view for.
-  }
-}
-
 export const connectionViewsApi = {
   /**
-   * Load the caller's saved views: preference store first, `localStorage` as
-   * the transparent fallback. Never rejects.
+   * Load the caller's saved views from the user level of the preference
+   * store. An absent key yields `[]` (no saved views). Never rejects.
    */
   async load(): Promise<SavedConnectionView[]> {
     try {
       const level = await preferenceValuesApi.getLevel("user");
-      const stored = level.values[SAVED_VIEWS_PREFERENCE_KEY];
-      if (stored !== undefined) return parseViews(stored);
+      return parseViews(level.values[SAVED_VIEWS_PREFERENCE_KEY]);
     } catch {
-      // Unregistered key or unavailable backend -> local mirror.
+      // Unavailable backend: show an empty list rather than breaking the view.
+      return [];
     }
-    return readLocal();
   },
 
   /**
-   * Persist the caller's saved views. Mirrors to `localStorage` in every case
-   * so a subsequent `load()` on a backend without the key still sees them.
+   * Persist the caller's saved views at the user level. A rejected write is
+   * handed to the caller — the UI reports it instead of pretending success.
    */
   async save(views: SavedConnectionView[]): Promise<void> {
-    writeLocal(views);
-    try {
-      await preferenceValuesApi.patchLevel("user", {
-        [SAVED_VIEWS_PREFERENCE_KEY]: views.map((view) =>
-          JSON.stringify(view)
-        ),
-      });
-    } catch {
-      // Degraded (unregistered key): the local mirror is already written.
-    }
+    await preferenceValuesApi.patchLevel("user", {
+      [SAVED_VIEWS_PREFERENCE_KEY]: views.map((view) => JSON.stringify(view)),
+    });
   },
 };

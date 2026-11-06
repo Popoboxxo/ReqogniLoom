@@ -378,6 +378,7 @@
     "treeDropRoot": "Drop here to move to the top level",
     "treeContainsSelection": "Contains the current selection",
     "moveNode": "Move…",
+    "lockedHint": "Locked: {{state}} — position, parent and allocation are read-only.",
     "showGroups": "Show groups",
     "groupMemberCount": "{{count}} requirements",
     "groupMembership": "In {{count}} groups",
@@ -1533,6 +1534,10 @@
     "L3": "L3 Component",
     "L4": "L4 Presentation",
     "derived": "derived",
+    "derivedAllocation": "derived (allocation)",
+    "derivedHierarchy": "derived (hierarchy)",
+    "derivedType": "derived (type)",
+    "unresolved": "unresolved",
     "manual": "manual"
   },
   "verificationMethod": {
@@ -2498,6 +2503,7 @@
       "initialStateHint": "Initial state — no incoming transitions.",
       "editState": "Edit State",
       "deleteState": "Delete",
+      "freezeState": "Locks editing",
       "editTransition": "Edit Transition",
       "deleteTransition": "Delete",
       "requiresChangeReason": "requires change reason",
@@ -3465,7 +3471,8 @@
     "savedViews": {
       "name": "View name",
       "save": "Save view",
-      "delete": "Delete view {{name}}"
+      "delete": "Delete view {{name}}",
+      "saveFailed": "Could not save the view: {{message}}"
     },
     "type": {
       "SyReq": "System requirement",

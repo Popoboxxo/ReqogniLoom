@@ -18,6 +18,7 @@ import { allocationViewApi } from "../../api/allocation-view";
 import { useHasRole } from "../../hooks/useHasRole";
 import { AllocationGraph } from "../AllocationGraph/AllocationGraph";
 import { useCardFields } from "../AllocationGraph/useCardFields";
+import { useToast } from "../shared/Toast/useToast";
 import {
   connectionViewsApi,
   type SavedConnectionView,
@@ -77,6 +78,10 @@ export function ConnectionView(): JSX.Element {
   });
 
   const [savedViews, setSavedViews] = useState<SavedConnectionView[]>([]);
+  // A rejected preference write is reported here instead of surfacing as an
+  // unhandled promise rejection; the in-memory list is kept so the user can
+  // retry the save without re-entering the name.
+  const { message: savedViewsError, show: showSavedViewsError } = useToast();
 
   useEffect(() => {
     let active = true;
@@ -124,7 +129,13 @@ export function ConnectionView(): JSX.Element {
 
   const persistSavedViews = (views: SavedConnectionView[]): void => {
     setSavedViews(views);
-    void connectionViewsApi.save(views);
+    void connectionViewsApi.save(views).catch((err: unknown) => {
+      showSavedViewsError(
+        t("connectionView.savedViews.saveFailed", {
+          message: err instanceof Error ? err.message : String(err),
+        })
+      );
+    });
   };
 
   const handleSaveView = (name: string): void => {
@@ -208,6 +219,16 @@ export function ConnectionView(): JSX.Element {
         >
           {error.message}
         </div>
+      )}
+
+      {savedViewsError && (
+        <p
+          role="alert"
+          className={styles.error}
+          data-testid="connection-view-saved-views-error"
+        >
+          {savedViewsError}
+        </p>
       )}
 
       {isLoading ? (

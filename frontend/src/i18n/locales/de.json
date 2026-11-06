@@ -378,6 +378,7 @@
     "treeDropRoot": "Hier ablegen, um auf oberste Ebene zu verschieben",
     "treeContainsSelection": "Enthält die aktuelle Auswahl",
     "moveNode": "Verschieben…",
+    "lockedHint": "Gesperrt: {{state}} — Position, Elternknoten und Allokation sind schreibgeschützt.",
     "showGroups": "Gruppen anzeigen",
     "groupMemberCount": "{{count}} Anforderungen",
     "groupMembership": "In {{count}} Gruppen",
@@ -1533,6 +1534,10 @@
     "L3": "L3 Komponente",
     "L4": "L4 Präsentation",
     "derived": "abgeleitet",
+    "derivedAllocation": "abgeleitet (Allokation)",
+    "derivedHierarchy": "abgeleitet (Hierarchie)",
+    "derivedType": "abgeleitet (Typ)",
+    "unresolved": "nicht auflösbar",
     "manual": "manuell"
   },
   "verificationMethod": {
@@ -2498,6 +2503,7 @@
       "initialStateHint": "Startzustand — keine eingehenden Übergänge.",
       "editState": "Zustand bearbeiten",
       "deleteState": "Löschen",
+      "freezeState": "Sperrt Bearbeitung",
       "editTransition": "Übergang bearbeiten",
       "deleteTransition": "Löschen",
       "requiresChangeReason": "Begründung erforderlich",
@@ -3465,7 +3471,8 @@
     "savedViews": {
       "name": "Ansichtsname",
       "save": "Ansicht speichern",
-      "delete": "Ansicht {{name}} löschen"
+      "delete": "Ansicht {{name}} löschen",
+      "saveFailed": "Ansicht konnte nicht gespeichert werden: {{message}}"
     },
     "type": {
       "SyReq": "Systemanforderung",

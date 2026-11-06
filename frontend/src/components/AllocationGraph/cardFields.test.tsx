@@ -1,11 +1,11 @@
 /**
  * P5 Task 5.2 — card-field configuration round-trip and mandatory-marker rule.
  *
- * The configuration has no backend store of its own; it travels through the
- * existing preference API with a localStorage fallback. These tests pin the
- * serialization, the normalization of stored documents, the row layout and the
- * one non-negotiable rule: a mandatory marker (lock) cannot be hidden — the
- * validator (and therefore `save`) rejects it before anything is written.
+ * The configuration travels through the registered preference key only — no
+ * client-side mirror. These tests pin the serialization, the normalization of
+ * stored documents, the row layout, the "absent key means defaults" contract
+ * and the one non-negotiable rule: a mandatory marker (lock) cannot be hidden —
+ * the validator (and therefore `save`) rejects it before anything is written.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,10 +33,12 @@ vi.mock("../../api/preference-values", () => ({
 
 import { preferenceValuesApi } from "../../api/preference-values";
 
-const LOCAL_KEY = "reqlo.allocation_graph.card_fields.ws-1";
+/** The mirror key the removed fallback used; it must stay unused. */
+const REMOVED_LOCAL_KEY = "reqlo.allocation_graph.card_fields.ws-1";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.restoreAllMocks();
   window.localStorage.clear();
 });
 
@@ -117,7 +119,7 @@ describe("card field configuration", () => {
   });
 });
 
-describe("cardFieldsApi — preference persistence with localStorage fallback", () => {
+describe("cardFieldsApi — preference persistence without a local mirror", () => {
   it("loads the stored configuration for the workspace", async () => {
     const custom: CardFieldConfigMap = defaultCardFieldConfigMap();
     custom.element = {
@@ -136,17 +138,23 @@ describe("cardFieldsApi — preference persistence with localStorage fallback", 
       },
     });
 
+    const getItem = vi.spyOn(Storage.prototype, "getItem");
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+
     await expect(cardFieldsApi.load("ws-1")).resolves.toEqual(custom);
     expect(preferenceValuesApi.effective).toHaveBeenCalledWith("ws-1");
+    expect(getItem).not.toHaveBeenCalled();
+    expect(setItem).not.toHaveBeenCalled();
   });
 
-  it("saves at the workspace level and mirrors to localStorage", async () => {
+  it("saves at the workspace level and writes no local mirror", async () => {
     vi.mocked(preferenceValuesApi.patchLevel).mockResolvedValue({
       scope: "workspace",
       workspace_id: "ws-1",
       values: {},
     });
     const config = defaultCardFieldConfigMap();
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
 
     await cardFieldsApi.save("ws-1", config);
 
@@ -156,9 +164,8 @@ describe("cardFieldsApi — preference persistence with localStorage fallback", 
       { [CARD_FIELDS_PREFERENCE_KEY]: serialized },
       "ws-1"
     );
-    expect(JSON.parse(window.localStorage.getItem(LOCAL_KEY) ?? "null")).toEqual(
-      serialized
-    );
+    expect(setItem).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem(REMOVED_LOCAL_KEY)).toBeNull();
   });
 
   it("never sends a configuration that hides a mandatory marker", async () => {
@@ -171,17 +178,46 @@ describe("cardFieldsApi — preference persistence with localStorage fallback", 
     expect(preferenceValuesApi.patchLevel).not.toHaveBeenCalled();
   });
 
-  it("falls back to localStorage when the preference key is unknown", async () => {
-    vi.mocked(preferenceValuesApi.effective).mockRejectedValue({
-      error: { code: "VALIDATION_ERROR", message: "unknown key", details: [] },
-    });
+  it("propagates a rejected save instead of swallowing it", async () => {
+    vi.mocked(preferenceValuesApi.patchLevel).mockRejectedValue(
+      new Error("preference store unavailable")
+    );
+
+    await expect(
+      cardFieldsApi.save("ws-1", defaultCardFieldConfigMap())
+    ).rejects.toThrow("preference store unavailable");
+  });
+
+  it("treats an absent preference key as the built-in defaults", async () => {
     const config = defaultCardFieldConfigMap();
     config.requirement.rows = 3;
     window.localStorage.setItem(
-      LOCAL_KEY,
+      REMOVED_LOCAL_KEY,
       JSON.stringify(serializeCardFieldConfigMap(config))
     );
+    vi.mocked(preferenceValuesApi.effective).mockResolvedValue({
+      workspace_id: "ws-1",
+      values: {},
+    });
 
-    await expect(cardFieldsApi.load("ws-1")).resolves.toEqual(config);
+    await expect(cardFieldsApi.load("ws-1")).resolves.toEqual(
+      defaultCardFieldConfigMap()
+    );
+  });
+
+  it("never rejects on a read error and ignores the removed local mirror", async () => {
+    const stale = defaultCardFieldConfigMap();
+    stale.requirement.rows = 3;
+    window.localStorage.setItem(
+      REMOVED_LOCAL_KEY,
+      JSON.stringify(serializeCardFieldConfigMap(stale))
+    );
+    vi.mocked(preferenceValuesApi.effective).mockRejectedValue({
+      error: { code: "VALIDATION_ERROR", message: "unknown key", details: [] },
+    });
+
+    await expect(cardFieldsApi.load("ws-1")).resolves.toEqual(
+      defaultCardFieldConfigMap()
+    );
   });
 });

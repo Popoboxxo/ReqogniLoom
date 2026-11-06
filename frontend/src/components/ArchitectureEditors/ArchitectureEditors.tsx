@@ -21,6 +21,7 @@ import { useArchitectureData } from "./useArchitectureData";
 import { SplitView } from "../SplitView/SplitView";
 import { WorkspaceTree } from "../shared/WorkspaceTree";
 import type { WorkspaceTreeNode } from "../shared/WorkspaceTree";
+import { useWorkspaceLocks } from "../shared/WorkspaceTree/useWorkspaceLocks";
 import { EmptyState } from "../shared/EmptyState";
 import { PageHeader } from "../shared/PageHeader";
 import { useInterviewStartCta } from "../shared/useInterviewStartCta";
@@ -93,6 +94,10 @@ export default function ArchitectureEditors(): JSX.Element {
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const { elements, element, isLoading, error, refresh } =
     useArchitectureData(selectedId, includeDeleted);
+  // P4.4: one batch read for the whole tree. Keys are ArchitectureElement.id —
+  // the id this tree already uses as node id. A failed read degrades to "no
+  // markers"; the backend still rejects a move of a frozen element with 409.
+  const locks = useWorkspaceLocks(activeWorkspace?.id ?? null, "architecture");
 
   // Feed the ArtifactInspector with the current version
   // (REQ-L2-RF-035). The full /versions/ list is fetched inside
@@ -520,8 +525,10 @@ export default function ArchitectureEditors(): JSX.Element {
       level: el.level != null ? `L${el.level}` : 'L0',
       outdated:
         el.lifecycle_status === 'outdated' || el.lifecycle_status === 'deprecated',
+      // P4.4: workflow lock — disables drag, Alt+↑/↓ and "Move…" for this row.
+      locked: locks[el.id] ? { state: locks[el.id] } : null,
     })),
-  [filteredElements, t]);
+  [filteredElements, locks, t]);
 
   // UI concept ch. 12.1: always-visible summary. `lifecycle_status` defaults
   // to 'active' server-side, so an absent value counts as active here too.

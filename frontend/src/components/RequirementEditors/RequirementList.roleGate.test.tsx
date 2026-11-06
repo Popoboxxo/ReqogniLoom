@@ -19,6 +19,11 @@ vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-a" } }),
   useOptionalWorkspace: () => ({ activeWorkspace: { id: "ws-a" } }),
 }));
+// P4.4: this focused role-gate spec never exercises locks. Stubbing the batch
+// read keeps the async state update out of the network / out of act() noise.
+vi.mock("../shared/WorkspaceTree/useWorkspaceLocks", () => ({
+  useWorkspaceLocks: () => ({}),
+}));
 // Avoids a "NO_I18NEXT_INSTANCE" warning: this focused unit test never
 // exercises a translated string, so a real i18next instance is unnecessary
 // (same stub react-i18next mock as RequirementForm.test.tsx).

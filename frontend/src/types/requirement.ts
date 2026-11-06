@@ -36,6 +36,29 @@ export type VerificationMethod = 'Test' | 'Review' | 'Analysis' | 'Inspection';
  */
 export type RequirementLevel = 1 | 2 | 3 | 4;
 
+/**
+ * P2.7 (V6) — where a requirement's resolved tier came from. The workspace
+ * ladder (settings → "Stufen") resolves `tier_key`; `level_source` records
+ * which rule produced it:
+ *
+ *   - `manual`              — an explicit override (wins over everything),
+ *   - `derived_allocation`  — the tier of the architecture element it is allocated to,
+ *   - `derived_hierarchy`   — the parent requirement's tier, one position toward the end,
+ *   - `derived_type`        — the requirement type's default tier,
+ *   - `derived`             — a legacy/unqualified derivation (pre-P2 rows),
+ *   - `unresolved`          — no rule matched; `tier_key` is null.
+ *
+ * The union is exhaustive so a UI that marks provenance compiles against every
+ * value the backend can send instead of falling through silently.
+ */
+export type RequirementLevelSource =
+  | "derived"
+  | "derived_allocation"
+  | "derived_hierarchy"
+  | "derived_type"
+  | "unresolved"
+  | "manual";
+
 // #1288: one structured acceptance criterion. `evidence_ref` is the optional
 // uuid of the verifying artifact/test-run set by an external verification tool.
 export interface CriteriaItem {
@@ -89,9 +112,14 @@ export interface Requirement extends SystemFieldValues {
   // Issue #394: V-model cascade level (1=System ... 4=Presentation). NULL
   // until assigned explicitly. See `RequirementLevel` above.
   level?: RequirementLevel | null;
-  // #1289: provenance of `level` — 'derived' (recomputed from the hierarchy)
-  // or 'manual' (an explicit override). Lets the UI mark the level as derived.
-  level_source?: "derived" | "manual";
+  // P2.7 (V4/V5): the stable ladder key the level was resolved to, and its
+  // human-readable display name from the workspace ladder (`tier_name` may be
+  // null when the ladder lookup was unavailable). `level` stays the permanent
+  // integer alias; `tier_key`/`tier_name` are the display contract.
+  tier_key?: string | null;
+  tier_name?: string | null;
+  // #1289 / P2.7: provenance of `level`/`tier_key` (see RequirementLevelSource).
+  level_source?: RequirementLevelSource;
   // #1288: structured acceptance criteria (ordered, individually check-off-able).
   acceptance_criteria_items?: CriteriaItem[];
   suspect?: boolean;

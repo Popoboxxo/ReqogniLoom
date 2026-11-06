@@ -8,9 +8,10 @@
  * remove action) and finding/unallocated markers are not configurable at all —
  * they are rendered by the cards unconditionally.
  *
- * Persistence goes through the existing preference API (`workspace` scope),
- * with the same transparent `localStorage` fallback as the connection view's
- * saved views. A rejected save is surfaced, never swallowed.
+ * Persistence goes through the preference API (`workspace` scope) and nowhere
+ * else. A rejected save is surfaced through the section's error state, never
+ * swallowed, and "reset" writes the built-in defaults through the same normal
+ * save path.
  */
 
 import { useCallback, useEffect, useState } from "react";

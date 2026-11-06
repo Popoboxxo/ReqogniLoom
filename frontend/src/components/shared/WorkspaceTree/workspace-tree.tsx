@@ -33,6 +33,7 @@ import {
   useState,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Lock } from 'lucide-react';
 import { extractApiErrorMessage } from '../../../api/client';
 import { Badge } from '../Badge';
 import { LevelBadge } from '../LevelBadge';
@@ -215,6 +216,17 @@ export interface WorkspaceTreeNode {
    * an artifact the default list would hide is recognizable when shown.
    */
   outdated?: boolean;
+  /**
+   * P4.4: the artifact's workflow lock. Set when its current state carries
+   * `state_meta.freeze_on_enter`; `state` is the state's display name, shown in
+   * the row tooltip. A locked row still renders, is selectable and shows its
+   * children — only moving (drag, Alt+↑/↓, "Move…") is disabled here.
+   *
+   * The flag is a *display* hint: the backend enforces the freeze and answers a
+   * rejected move with 409 CONFLICT naming the state, which the tree surfaces
+   * verbatim. `null`/omitted = unlocked.
+   */
+  locked?: { state: string } | null;
   /**
    * Issue #1257: the node's last-change timestamp, already formatted for
    * display. Rendered only when the configured selection includes
@@ -566,6 +578,7 @@ export function WorkspaceTree({
       containsSelection: t('editor.treeContainsSelection'),
       outdated: t('editor.outdatedBadge'),
       moveNode: t('editor.moveNode'),
+      locked: (state: string) => t('editor.lockedHint', { state }),
       groupMemberCount: (count: number) =>
         t('editor.groupMemberCount', { count }),
       groupMembership: (count: number) =>
@@ -610,6 +623,15 @@ export function WorkspaceTree({
     pendingReorder.baseGroups === groupsValue
       ? pendingReorder.nodes
       : displayNodes;
+  // P4.4: ids whose workflow state locks editing. A Set keeps the per-row drag
+  // guard O(1) in a virtualized tree that mounts hundreds of rows.
+  const lockedNodeIds = useMemo((): Set<string> => {
+    const ids = new Set<string>();
+    for (const node of renderedNodes) {
+      if (node.locked) ids.add(node.id);
+    }
+    return ids;
+  }, [renderedNodes]);
   // Shared transient-notification primitive (UI-51): the tree's only error
   // surface for a rejected move, so a failed reorder explains itself instead of
   // silently springing back.
@@ -813,6 +835,12 @@ export function WorkspaceTree({
       afterId: string | null | undefined,
     ): boolean => {
       const moved = renderedNodes.find((node) => node.id === nodeId);
+
+      // P4.4: a workflow-locked artifact is position/parent read-only. This is
+      // the single entry point of all three move gestures (drop, Alt+↑/↓ and
+      // "Move…"), so the guard here keeps them consistent; the backend still
+      // answers 409 for anything that bypasses the UI.
+      if (moved?.locked) return false;
 
       // P6 Task 6.3: a member clone reorders *inside its group* — its order is
       // the membership `sort_key`, never the artifact hierarchy. Dropping it
@@ -1199,6 +1227,10 @@ export function WorkspaceTree({
     renderedNodes,
     onReparent,
     onReorder ? forwardReorder : undefined,
+    // P4.4: locked nodes are never a drag source. Dropping *onto* a locked row
+    // stays possible on purpose — that write belongs to the dragged (unlocked)
+    // artifact, and the frozen artifact's own parent/position is untouched.
+    lockedNodeIds,
   );
   const {
     dndEnabled,
@@ -1534,6 +1566,8 @@ interface TreeRowLabels {
   outdated: string;
   /** H-1: accessible name of the visible keyboard reparenting button. */
   moveNode: string;
+  /** P4.4: tooltip naming the workflow state that locks this row. */
+  locked: (state: string) => string;
   /** P6: the "N Anforderungen" trailer of a group-folder row. */
   groupMemberCount: (count: number) => string;
   /** P6: the "In N Gruppen" marker of a requirement that appears several times. */
@@ -1572,6 +1606,11 @@ function TreeRow({
   // group folder is not routed through `renderRow`, so it keeps the default
   // row chrome.
   const hasCustomRow = Boolean(renderRow) && !isGroupFolder;
+  // P4.4: a workflow lock disables every move gesture on this row. Selection,
+  // expansion and children stay available — the lock covers position/parent,
+  // not reading.
+  const isLocked = Boolean(node.locked);
+  const canReorderNode = Boolean(canReorder) && !isLocked;
 
   const isDragging = dragProps?.draggingId === node.id;
   const isDropTarget = Boolean(dragProps) && dragProps!.dropTargetId === node.id;
@@ -1635,13 +1674,16 @@ function TreeRow({
       data-contains-selection={containsSelection ? 'true' : undefined}
       title={containsSelection ? labels.containsSelection : undefined}
       className={rowClassName}
-      draggable={dragProps ? true : undefined}
+      draggable={dragProps ? !isLocked : undefined}
       data-dragging={isDragging ? 'true' : undefined}
       data-drop-target={isDropTarget ? 'true' : undefined}
       data-drop-position={dropPosition ?? undefined}
-      aria-keyshortcuts={canReorder ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
+      data-locked={isLocked ? 'true' : undefined}
+      aria-keyshortcuts={canReorderNode ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
       onDragStart={
-        dragProps ? (e) => dragProps.onDragStartRow(e, node.id) : undefined
+        dragProps && !isLocked
+          ? (e) => dragProps.onDragStartRow(e, node.id)
+          : undefined
       }
       onDragEnd={dragProps ? () => dragProps.onDragEndRow() : undefined}
       onDragOver={
@@ -1811,6 +1853,22 @@ function TreeRow({
         </>
       )}
 
+      {/* P4.4: workflow lock marker. Rendered for custom rows too (the
+          requirement tree renders through `renderRow`), and deliberately not
+          gated by the configurable field selection — spec F4.2 says a lock
+          marker is not hideable. The tooltip names the freezing state. */}
+      {!isGroupFolder && node.locked && (
+        <span
+          className={styles.lockIcon}
+          data-testid={`${testIdPrefix}-lock-${node.id}`}
+          title={labels.locked(node.locked.state)}
+          aria-label={labels.locked(node.locked.state)}
+          role="img"
+        >
+          <Lock size={14} aria-hidden="true" />
+        </span>
+      )}
+
       {/* P6 Task 6.3: a requirement that appears under several groups is marked
           on every one of its rows, so a duplicate is recognizable as such —
           rendered for custom rows too, which is where the requirement tree
@@ -1853,7 +1911,7 @@ function TreeRow({
           this button IS the keyboard path, so it must be focusable. `tabIndex`
           follows the roving tabindex: only the focused row's button joins the
           tab order, keeping a 100-row tree at two stops instead of 101. */}
-      {onRequestMove && !isGroupFolder && (
+      {onRequestMove && !isGroupFolder && !isLocked && (
         <button
           type="button"
           className="btn-icon"

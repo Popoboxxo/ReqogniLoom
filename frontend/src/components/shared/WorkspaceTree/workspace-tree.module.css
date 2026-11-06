@@ -36,6 +36,18 @@
 }
 
 /*
+ * P4.4: workflow-lock marker. A state indicator (not a level/type), so it uses
+ * the warning token and never a hardcoded colour. Non-shrinking so it stays
+ * visible next to a long, ellipsized node name.
+ */
+.lockIcon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--color-warning);
+}
+
+/*
  * Row chrome — selection and the issue #668 collapsed-ancestor marker.
  *
  * These moved out of the row's inline `style={{...}}` on purpose: an inline

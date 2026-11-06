@@ -323,4 +323,21 @@ describe("ConnectionView — saved views", () => {  it("creates a saved view fro
       expect(screen.getByTestId("filter-q")).toHaveValue("bremse")
     );
   });
+
+  it("surfaces a rejected save instead of swallowing it", async () => {
+    vi.mocked(connectionViewsApi.save).mockRejectedValue(
+      new Error("preference store unavailable")
+    );
+    renderView();
+
+    fireEvent.change(screen.getByTestId("saved-view-name"), {
+      target: { value: "Meine Sicht" },
+    });
+    fireEvent.click(screen.getByTestId("saved-view-save"));
+
+    const alert = await screen.findByTestId(
+      "connection-view-saved-views-error"
+    );
+    expect(alert).toHaveTextContent("preference store unavailable");
+  });
 });

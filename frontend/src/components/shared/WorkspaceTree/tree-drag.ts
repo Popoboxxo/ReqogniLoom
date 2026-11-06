@@ -120,9 +120,20 @@ export function useTreeDrag(
     newParentId: string | null,
     afterId: string | null | undefined,
   ) => void,
+  /**
+   * P4.4: ids whose workflow state locks position/parent editing. They never
+   * become a drag source and never forward a move. Dropping *onto* a locked
+   * row is deliberately still allowed: that write belongs to the dragged
+   * artifact, not to the frozen one (the backend remains the authority).
+   */
+  lockedIds?: ReadonlySet<string>,
 ): TreeDragController {
   const dndEnabled = Boolean(onReparent || onReorder);
   const reorderEnabled = Boolean(onReorder);
+  const isLocked = useCallback(
+    (id: string): boolean => lockedIds?.has(id) ?? false,
+    [lockedIds],
+  );
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [dropPosition, setDropPosition] = useState<TreeDropPosition | null>(
@@ -152,11 +163,17 @@ export function useTreeDrag(
 
   const handleDragStart = useCallback(
     (e: ReactDragEvent, id: string): void => {
+      // P4.4: a locked artifact cannot be moved — never start the drag, so the
+      // row shows no drag affordance and no drop indicator can appear.
+      if (isLocked(id)) {
+        e.preventDefault();
+        return;
+      }
       e.dataTransfer?.setData('text/plain', id);
       if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
       setDraggingId(id);
     },
-    [],
+    [isLocked],
   );
 
   const handleDragOverTarget = useCallback(
@@ -198,6 +215,8 @@ export function useTreeDrag(
   const reparent = useCallback(
     (draggedId: string, newParentId: string | null): boolean => {
       if (!draggedId) return false;
+      // P4.4: the "Move…" dialog must not become a bypass around the lock.
+      if (isLocked(draggedId)) return false;
       if (onReorder) {
         // The dialog has no position control: append under the chosen parent.
         onReorder(draggedId, newParentId, undefined);
@@ -217,7 +236,7 @@ export function useTreeDrag(
       onReparent(draggedId, newParentId);
       return true;
     },
-    [nodes, parentById, onReparent, onReorder],
+    [nodes, parentById, onReparent, onReorder, isLocked],
   );
 
   /**
@@ -233,6 +252,9 @@ export function useTreeDrag(
       const position = dropPositionFromPointer(e.currentTarget, e.clientY);
       resetDrag();
       if (!draggedId) return;
+      // P4.4: belt and braces — an in-flight drag from before the node became
+      // locked must not forward a move either.
+      if (isLocked(draggedId)) return;
 
       if (onReorder) {
         const target =
@@ -245,7 +267,7 @@ export function useTreeDrag(
 
       reparent(draggedId, rowTargetId);
     },
-    [draggingId, nodes, onReorder, reparent, resetDrag],
+    [draggingId, nodes, onReorder, reparent, resetDrag, isLocked],
   );
 
   const handleRootDragOver = useCallback((e: ReactDragEvent): void => {
