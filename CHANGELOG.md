@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0-beta.27] — 2026-11-06
+
 ### Added
 - feat(ordering): persistent sibling order via fractional `Artifact.sort_key` (collation C) with backfill migration `0132`; `POST /api/v1/artifacts/{id}/move/` and MCP `artifact.move`; sorted trees/lists; drag/keyboard reorder in both trees (P1, #1670)
 - feat(allocation): hard N:1 Requirement -> ArchitectureElement allocation (partial unique index, generic duplicate write answers 409), one allocation service with `deallocate`, `Requirement.allocation_intent` (`allocated`/`not_allocatable`/`unassigned`), per-workspace tier ladder (`WorkspaceTier`, REST `/workspaces/{id}/tiers/`), leaf-relative tier computation, `--dry-run`/`--apply` backfill report (P2, ADR-027, #1670)
@@ -16,8 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat(ui): `ui.connection_view.saved_views` (user) and `ui.allocation_graph.card_fields` (global/workspace/user, resolved user > workspace > global) are registered preferences; the ad-hoc localStorage fallbacks are gone and a failed save is surfaced instead of swallowed (P3/P5, #1670)
 
 ### Changed
-- **Breaking:** requirement tiers are leaf-relative. `Requirement.level` remains the permanent integer alias, but its value now follows the workspace ladder; unallocated roots start on the first tier and deeper branches are no longer clamped to 4. The old TRACE-P5 "level 4 is out of scope" skip is retired (ADR-027). ARCH-003, VERIF-P8 and TRACE-P1/P1b/P2/P3 evaluate the last tier like any other, CONS-P13 requires a `level_source` on every active requirement, and CONS-P12 reports unresolved tiers.
-- **Breaking:** a second `allocated-to` link for the same requirement is a conflict (409), not a silent second edge.
+- **Breaking:** requirement tiers are leaf-relative. `Requirement.level` remains the permanent integer alias, but its value now follows the workspace ladder; unallocated roots start on the first tier and deeper branches are no longer clamped to 4. ARCH-003, VERIF-P8 and TRACE-P1/P1b/P2/P3 evaluate the last tier like any other, CONS-P13 requires a `level_source` on every active requirement, and CONS-P12 reports unresolved tiers (ADR-027).
+- **Breaking:** the TRACE-P5 "level 4 is out of scope" skip is retired — the deepest tier is audited like every other tier, so a previously silent L4 no longer passes the SE auditor (ADR-027).
+- **Breaking:** a second `allocated-to` link for the same requirement is a conflict (409), not a silent second edge; the generic write path answers 409 too.
+- **Breaking:** artifacts are ordered by the new `Artifact.sort_key` (fractional index, collation C) instead of the previous insertion order. Trees, lists, baselines and artifact diffs expose/capture `sort_key`, so a baseline taken before the field existed reports every artifact as position-changed and clients relying on the old order must re-read.
 
 ### Fixed
 - fix(hierarchy): a cyclic requirement graph no longer acquires a plausible tier; cyclic nodes and their unresolved descendants stay `NULL`.
