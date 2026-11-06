@@ -26,6 +26,7 @@ import {
 } from "../../api/allocation-view";
 import { loadGroupsWithMembers } from "../../api/groups";
 import { asError } from "../../queries/query-error";
+import { isRowLocked } from "../../utils/allocation";
 import { useWorkspace } from "../../context/WorkspaceContext";
 
 /** The four renderers: P3's three plus the P5 card graph. */
@@ -179,7 +180,7 @@ export function rowMatchesClientFilters(
   filters: ConnectionFilters
 ): boolean {
   if (row.kind !== "requirement") return true;
-  if (filters.locked && row.locked === null) return false;
+  if (filters.locked && !isRowLocked(row.locked)) return false;
   if (filters.hasFindings && row.findings.length === 0) return false;
   return true;
 }

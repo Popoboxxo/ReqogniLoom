@@ -20,10 +20,18 @@ import type { UUID } from "../types";
 /** Whether a row is a requirement or an architecture element. */
 export type AllocationRowKind = "requirement" | "element";
 
-/** Non-null while the requirement's workflow state freezes it (P4). */
-export interface AllocationLock {
-  state?: string;
-}
+/**
+ * Freeze marker of one row (P4).
+ *
+ * The committed read object sends the freeze-state name as a plain string (or
+ * `null` when the row is writable). Older fixtures passed `{state}`; both
+ * shapes are accepted so the UI keeps rendering after the backend switch.
+ */
+export type AllocationLock =
+  | string
+  | { state?: string | null }
+  | boolean
+  | null;
 
 /** One flat row of the allocation view. */
 export interface AllocationRow {
@@ -52,7 +60,7 @@ export interface AllocationRow {
   /** Element entity id (the `ArchitectureElement.id`), when resolved. */
   element_id: string | null;
   allocation_intent: string | null;
-  locked: AllocationLock | null;
+  locked: AllocationLock;
   findings: unknown[];
   group: string | null;
   /**
@@ -106,6 +114,35 @@ export interface BulkAllocationResult {
     element_id: string;
     trace_link_id: string;
   }>;
+}
+
+/** One architecture candidate returned by the suggestion endpoint. */
+export interface ArchitectureSuggestion {
+  element_id: string;
+  /** Why the LLM proposed this element; absent when the provider sent ids only. */
+  reason: string | null;
+  /** Optional title supplied by the provider (the element catalogue wins). */
+  title?: string | null;
+}
+
+/**
+ * `POST /requirements/{id}/suggest-architecture/` response.
+ *
+ * The committed backend (verified in `rest_api/views.py`) returns
+ * `suggested_arch_element_ids`; `suggested_elements` is accepted as a forward
+ * compatible shape so a richer answer (id + reason) needs no client change.
+ */
+export interface SuggestArchitectureResponse {
+  suggested_arch_element_ids?: string[];
+  suggested_elements?: Array<{
+    element_id?: string;
+    id?: string;
+    reason?: string;
+    rationale?: string;
+    title?: string;
+  }>;
+  is_mock_fallback?: boolean;
+  ephemeral?: boolean;
 }
 
 /** One tier of the workspace ladder (labels + position). */
@@ -168,7 +205,20 @@ export const allocationViewApi = {
   },
 
   /** DELETE one `allocated-to` TraceLink (deallocate). */
-  deallocate(traceLinkId: string): Promise<void> {
+  deallocate(traceLinkId: UUID): Promise<void> {
     return apiClient.delete<void>(`/trace-links/${traceLinkId}/`);
+  },
+
+  /**
+   * POST an LLM suggestion for one unallocated requirement. Ephemeral: the
+   * endpoint persists nothing, so the caller must confirm before writing.
+   */
+  suggestArchitecture(
+    requirementId: UUID
+  ): Promise<SuggestArchitectureResponse> {
+    return apiClient.post<SuggestArchitectureResponse>(
+      `/requirements/${requirementId}/suggest-architecture/`,
+      {}
+    );
   },
 };

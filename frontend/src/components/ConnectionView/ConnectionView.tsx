@@ -22,6 +22,7 @@ import {
   connectionViewsApi,
   type SavedConnectionView,
 } from "../../api/connection-views";
+import { AllocationAssistant } from "./AllocationAssistant";
 import { FilterBar } from "./FilterBar";
 import { MatrixRenderer } from "./MatrixRenderer";
 import { TreeRenderer } from "./TreeRenderer";
@@ -63,7 +64,7 @@ export function ConnectionView(): JSX.Element {
     resetFilters,
     setPage,
   } = useAllocationView();
-  const { allocate, deallocate } = useAllocationMutations();
+  const { allocate, allocateBulk, deallocate } = useAllocationMutations();
   const hasRole = useHasRole();
   const canEdit = hasRole("editor");
   const cardFields = useCardFields(workspaceId);
@@ -174,6 +175,14 @@ export function ConnectionView(): JSX.Element {
           ))}
         </div>
       </header>
+
+      <AllocationAssistant
+        requirements={requirements}
+        elements={elements}
+        allocateBulk={allocateBulk}
+        suggestArchitecture={allocationViewApi.suggestArchitecture}
+        canEdit={canEdit}
+      />
 
       <FilterBar
         filters={filters}

@@ -11,9 +11,11 @@
 
 import { useMemo, useState, type DragEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { Lock } from "lucide-react";
 
-import { extractErrorMessage } from "../../api/client";
 import type { AllocationRow } from "../../api/allocation-view";
+import { isRowLocked, lockStateName } from "../../utils/allocation";
+import { toAllocationError } from "../AllocationGraph/errors";
 import styles from "./ConnectionView.module.css";
 import type { AllocationRendererProps } from "./TreeRenderer";
 
@@ -40,7 +42,9 @@ export function TwoColumnRenderer({
     string | null
   >(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ code: string; message: string } | null>(
+    null
+  );
 
   const sortedRequirements = useMemo(
     () => requirements.slice().sort(sortRows),
@@ -57,7 +61,7 @@ export function TwoColumnRenderer({
     row: AllocationRow,
     event: DragEvent<HTMLElement>
   ): void => {
-    if (row.locked !== null) {
+    if (isRowLocked(row.locked)) {
       event.preventDefault();
       return;
     }
@@ -81,12 +85,13 @@ export function TwoColumnRenderer({
     const requirement = sortedRequirements.find(
       (row) => row.id === requirementId
     );
-    if (!requirement || requirement.locked !== null) return;
+    if (!requirement || isRowLocked(requirement.locked)) return;
     setError(null);
     try {
       await allocate(requirementId, elementId);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      const info = toAllocationError(err);
+      setError({ code: info.code, message: info.message });
     }
   };
 
@@ -97,8 +102,10 @@ export function TwoColumnRenderer({
           role="alert"
           className={styles.error}
           data-testid="allocation-error"
+          data-error-code={error.code}
         >
-          {error}
+          <span className={styles.errorCode}>{error.code}</span>
+          <span>{error.message}</span>
         </div>
       )}
 
@@ -106,9 +113,10 @@ export function TwoColumnRenderer({
         <h2 className={styles.columnTitle}>{t("connectionView.requirements")}</h2>
         <ul className={styles.columnList}>
           {sortedRequirements.map((row) => {
-            const locked = row.locked !== null;
+            const locked = isRowLocked(row.locked);
+            const lockedState = lockStateName(row.locked);
             const highlighted = selectedElementId
-              ? row.allocated_to === selectedElementId
+              ? (row.element_id ?? row.allocated_to) === selectedElementId
               : undefined;
             return (
               <li
@@ -138,6 +146,18 @@ export function TwoColumnRenderer({
                 >
                   {row.title}
                 </button>
+                {locked && (
+                  <span
+                    className={styles.lockIcon}
+                    data-testid={`twocol-locked-${row.id}`}
+                    title={lockedState ?? t("connectionView.locked")}
+                    aria-label={t("connectionView.lockedTooltip", {
+                      state: lockedState ?? t("connectionView.locked"),
+                    })}
+                  >
+                    <Lock aria-hidden="true" size={14} />
+                  </span>
+                )}
               </li>
             );
           })}

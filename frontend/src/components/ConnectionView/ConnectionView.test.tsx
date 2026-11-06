@@ -74,6 +74,7 @@ vi.mock("../../api/allocation-view", () => ({
     tiers: vi.fn(),
     bulkAllocate: vi.fn(),
     deallocate: vi.fn(),
+    suggestArchitecture: vi.fn(),
   },
 }));
 

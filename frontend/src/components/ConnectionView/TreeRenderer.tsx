@@ -16,9 +16,11 @@
 
 import { useMemo, useState, type DragEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { Lock } from "lucide-react";
 
-import { extractErrorMessage } from "../../api/client";
 import type { AllocationRow } from "../../api/allocation-view";
+import { isRowLocked, lockStateName } from "../../utils/allocation";
+import { toAllocationError } from "../AllocationGraph/errors";
 import { Dialog } from "../shared/Dialog";
 import styles from "./ConnectionView.module.css";
 
@@ -96,7 +98,9 @@ export function TreeRenderer({
   const [pickerRequirement, setPickerRequirement] =
     useState<AllocationRow | null>(null);
   const [pickerQuery, setPickerQuery] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ code: string; message: string } | null>(
+    null
+  );
 
   const { roots, unallocated } = useMemo(
     () => buildElementTree(elements, requirements),
@@ -109,7 +113,8 @@ export function TreeRenderer({
       await action();
       return true;
     } catch (err) {
-      setError(extractErrorMessage(err));
+      const info = toAllocationError(err);
+      setError({ code: info.code, message: info.message });
       return false;
     }
   };
@@ -121,7 +126,7 @@ export function TreeRenderer({
     row: AllocationRow,
     event: DragEvent<HTMLElement>
   ): void => {
-    if (row.locked !== null) {
+    if (isRowLocked(row.locked)) {
       event.preventDefault();
       return;
     }
@@ -144,7 +149,7 @@ export function TreeRenderer({
     setDropTarget(null);
     if (!requirementId) return;
     const requirement = requirementById(requirementId);
-    if (!requirement || requirement.locked !== null) return;
+    if (!requirement || isRowLocked(requirement.locked)) return;
     await run(() => allocate(requirementId, elementId));
   };
 
@@ -157,7 +162,7 @@ export function TreeRenderer({
     setDropTarget(null);
     if (!requirementId) return;
     const requirement = requirementById(requirementId);
-    if (!requirement || requirement.locked !== null) return;
+    if (!requirement || isRowLocked(requirement.locked)) return;
     if (!requirement.allocation_trace_link_id) return;
     await run(() =>
       deallocate(requirement.allocation_trace_link_id as string)
@@ -186,7 +191,8 @@ export function TreeRenderer({
   };
 
   const renderRequirement = (row: AllocationRow): JSX.Element => {
-    const locked = row.locked !== null;
+    const locked = isRowLocked(row.locked);
+    const lockedState = lockStateName(row.locked);
     return (
       <li
         key={row.id}
@@ -214,8 +220,18 @@ export function TreeRenderer({
           </span>
         )}
         {locked && (
-          <span className={styles.badge} data-testid={`req-locked-${row.id}`}>
-            {t("connectionView.locked")}
+          <span
+            className={styles.lockIcon}
+            data-testid={`req-locked-${row.id}`}
+            title={lockedState ?? t("connectionView.locked")}
+            aria-label={t("connectionView.lockedTooltip", {
+              state: lockedState ?? t("connectionView.locked"),
+            })}
+          >
+            <Lock aria-hidden="true" size={14} />
+            {lockedState && (
+              <span className={styles.lockState}>{lockedState}</span>
+            )}
           </span>
         )}
         <button
@@ -258,6 +274,22 @@ export function TreeRenderer({
         >
           <div className={styles.elementHeader}>
             <span className={styles.elementTitle}>{node.row.title}</span>
+            {isRowLocked(node.row.locked) && (
+              <span
+                className={styles.lockIcon}
+                data-testid={`element-locked-${node.row.id}`}
+                title={
+                  lockStateName(node.row.locked) ?? t("connectionView.locked")
+                }
+                aria-label={t("connectionView.lockedTooltip", {
+                  state:
+                    lockStateName(node.row.locked) ??
+                    t("connectionView.locked"),
+                })}
+              >
+                <Lock aria-hidden="true" size={14} />
+              </span>
+            )}
             {node.row.type && (
               <span className={styles.badge}>{node.row.type}</span>
             )}
@@ -286,8 +318,14 @@ export function TreeRenderer({
   return (
     <div className={styles.tree} data-testid="tree-renderer">
       {error && (
-        <div role="alert" className={styles.error} data-testid="allocation-error">
-          {error}
+        <div
+          role="alert"
+          className={styles.error}
+          data-testid="allocation-error"
+          data-error-code={error.code}
+        >
+          <span className={styles.errorCode}>{error.code}</span>
+          <span>{error.message}</span>
         </div>
       )}
 

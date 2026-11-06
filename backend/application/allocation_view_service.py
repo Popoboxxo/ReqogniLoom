@@ -106,6 +106,10 @@ class AllocationViewService(ServiceBase):
         states = state_reader.current_states(
             "Requirement", (req["id"] for req in requirements)
         )
+        element_states = state_reader.current_states(
+            "ArchitectureElement", (row["id"] for row in elements)
+        )
+        frozen_by_type = _frozen_states(workspace_id)
 
         def _requirement_row(req: dict) -> dict:
             allocation = allocation_by_artifact.get(req["artifact_id"])
@@ -132,7 +136,11 @@ class AllocationViewService(ServiceBase):
                 "allocation_trace_link_id": allocation[1] if allocation else None,
                 "element_id": str(element["id"]) if element else None,
                 "allocation_intent": req["allocation_intent"],
-                "locked": None,
+                "locked": (
+                    current_state
+                    if current_state in frozen_by_type["Requirement"]
+                    else None
+                ),
                 "findings": [],
                 "group": None,
             }
@@ -145,7 +153,7 @@ class AllocationViewService(ServiceBase):
                 "parent_id": str(row["parent_id"]) if row["parent_id"] else None,
                 "sort_key": None,
                 "title": row["title"],
-                "state": None,
+                "state": element_states.get(str(row["id"])),
                 "tier_key": None,
                 "tier_name": None,
                 "level": None,
@@ -154,7 +162,12 @@ class AllocationViewService(ServiceBase):
                 "allocated_to": None,
                 "element_id": str(row["id"]),
                 "allocation_intent": None,
-                "locked": None,
+                "locked": (
+                    element_states.get(str(row["id"]))
+                    if element_states.get(str(row["id"]))
+                    in frozen_by_type["ArchitectureElement"]
+                    else None
+                ),
                 "findings": [],
                 "group": None,
             }
@@ -214,3 +227,24 @@ class AllocationViewService(ServiceBase):
                 "offset": offset,
             },
         }
+
+
+def _frozen_states(workspace_id) -> dict[str, set[str]]:
+    """Return the freeze-triggering workflow states per item type."""
+    from workflow.definition_store import get_state_meta
+    from workflow.services import get_workflow_json
+
+    result: dict[str, set[str]] = {}
+    for item_type in ("Requirement", "ArchitectureElement"):
+        try:
+            workflow_json = get_workflow_json(workspace_id, item_type)
+        except Exception:  # noqa: BLE001 - no definition = nothing frozen
+            result[item_type] = set()
+            continue
+        states = {
+            state
+            for state in (workflow_json or {}).get("states", [])
+            if (get_state_meta(workflow_json, state) or {}).get("freeze_on_enter")
+        }
+        result[item_type] = states
+    return result

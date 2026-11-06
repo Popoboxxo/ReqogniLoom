@@ -6,7 +6,9 @@
  */
 
 import { useTranslation } from "react-i18next";
+import { Lock } from "lucide-react";
 
+import { lockStateName } from "../../utils/allocation";
 import type { AllocationRow } from "./buildGraph";
 import {
   layoutCardFields,
@@ -121,12 +123,7 @@ export function CardMarkers({ data }: { data: AllocationCardData }): JSX.Element
   const { t } = useTranslation();
   const { row } = data;
   const findings = row.findings ?? [];
-  const lockState =
-    typeof row.locked === "string"
-      ? row.locked
-      : row.locked && typeof row.locked === "object"
-        ? row.locked.state
-        : undefined;
+  const lockState = lockStateName(row.locked);
 
   return (
     <div className={styles.markers}>
@@ -135,9 +132,12 @@ export function CardMarkers({ data }: { data: AllocationCardData }): JSX.Element
           className={`${styles.marker} ${styles.markerLock}`}
           data-testid={`card-lock-${row.id}`}
           title={lockState ?? t("allocationGraph.locked")}
+          aria-label={t("allocationGraph.lockedTooltip", {
+            state: lockState ?? t("allocationGraph.locked"),
+          })}
         >
-          {t("allocationGraph.locked")}
-          {lockState ? `: ${lockState}` : ""}
+          <Lock aria-hidden="true" size={12} />
+          {lockState ?? t("allocationGraph.locked")}
         </span>
       )}
       {findings.length > 0 && (

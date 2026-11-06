@@ -203,6 +203,20 @@ describe("TreeRenderer — drag and drop", () => {
     expect(screen.getByTestId("allocate-open-r4")).toBeDisabled();
   });
 
+  it("shows a lock icon with the freeze state as its tooltip", () => {
+    const frozen = row({
+      id: "r5",
+      title: "Freigegeben",
+      locked: "Freigegeben",
+      sort_key: "e",
+    });
+    renderTree({ requirements: [frozen] });
+
+    const icon = screen.getByTestId("req-locked-r5");
+    expect(icon).toHaveAttribute("title", "Freigegeben");
+    expect(icon).toHaveTextContent("Freigegeben");
+  });
+
   it("shows the backend error verbatim when the allocation is rejected", async () => {
     const allocate = vi
       .fn<(requirementId: string, elementId: string) => Promise<void>>()
@@ -220,6 +234,31 @@ describe("TreeRenderer — drag and drop", () => {
         "Requirement ist gesperrt"
       )
     );
+    expect(screen.getByTestId("allocation-error")).toHaveAttribute(
+      "data-error-code",
+      "CONFLICT"
+    );
+  });
+
+  it("shows the 409 code and reason when the backend rejects a frozen write", async () => {
+    const allocate = vi
+      .fn<(requirementId: string, elementId: string) => Promise<void>>()
+      .mockRejectedValue({
+        error: {
+          code: "WORKFLOW_FROZEN",
+          message: "Requirement ist durch den Workflow gesperrt",
+        },
+        status: 409,
+      });
+    renderTree({ allocate });
+
+    const dataTransfer = fakeDataTransfer();
+    fireEvent.dragStart(screen.getByTestId("req-row-r3"), { dataTransfer });
+    fireEvent.drop(screen.getByTestId("element-node-e2"), { dataTransfer });
+
+    const alert = await screen.findByTestId("allocation-error");
+    expect(alert).toHaveAttribute("data-error-code", "WORKFLOW_FROZEN");
+    expect(alert).toHaveTextContent("Requirement ist durch den Workflow gesperrt");
   });
 });
 

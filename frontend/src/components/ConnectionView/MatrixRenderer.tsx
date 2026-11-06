@@ -11,8 +11,10 @@
 
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { Lock } from "lucide-react";
 
 import type { AllocationRow } from "../../api/allocation-view";
+import { isRowLocked, lockStateName } from "../../utils/allocation";
 import styles from "./ConnectionView.module.css";
 
 export interface MatrixRendererProps {
@@ -47,8 +49,13 @@ export function MatrixRenderer({
     const sums = new Map<string, number>();
     for (const element of elements) sums.set(element.id, 0);
     for (const row of windowRows) {
-      if (row.allocated_to && sums.has(row.allocated_to)) {
-        sums.set(row.allocated_to, (sums.get(row.allocated_to) ?? 0) + 1);
+      // `allocated_to` is the element's backing *Artifact* id, while the
+      // matrix columns are keyed by the element entity id. Prefer the
+      // resolved `element_id`; fall back for fixtures that only set the
+      // artifact id (and for rows an older read object did not resolve).
+      const target = row.element_id ?? row.allocated_to;
+      if (target && sums.has(target)) {
+        sums.set(target, (sums.get(target) ?? 0) + 1);
       }
     }
     return sums;
@@ -82,12 +89,34 @@ export function MatrixRenderer({
           </thead>
           <tbody>
             {windowRows.map((row) => (
-              <tr key={row.id} data-testid={`matrix-row-${row.id}`}>
+              <tr
+                key={row.id}
+                data-testid={`matrix-row-${row.id}`}
+                data-locked={isRowLocked(row.locked) ? "true" : "false"}
+              >
                 <th scope="row" className={styles.matrixRowHeader}>
-                  {row.title}
+                  <span className={styles.matrixRowTitle}>{row.title}</span>
+                  {isRowLocked(row.locked) && (
+                    <span
+                      className={styles.lockIcon}
+                      data-testid={`matrix-lock-${row.id}`}
+                      title={
+                        lockStateName(row.locked) ??
+                        t("connectionView.locked")
+                      }
+                      aria-label={t("connectionView.lockedTooltip", {
+                        state:
+                          lockStateName(row.locked) ??
+                          t("connectionView.locked"),
+                      })}
+                    >
+                      <Lock aria-hidden="true" size={14} />
+                    </span>
+                  )}
                 </th>
                 {elements.map((element) => {
-                  const allocated = row.allocated_to === element.id;
+                  const allocated =
+                    (row.element_id ?? row.allocated_to) === element.id;
                   return (
                     <td key={element.id}>
                       {allocated ? (

@@ -1,23 +1,30 @@
 /**
- * ARCH-L1-001 ReactFrontend — allocation write path (P3 Tasks 3.3/3.4).
+ * ARCH-L1-001 ReactFrontend — allocation write path (P3 Tasks 3.3/3.4, P3.5).
  *
- * Both mutations invalidate the whole `allocation-view` cache namespace so
- * every renderer re-reads the same authoritative rows instead of patching
- * local copies (the backend owns N:1 replacement and tier recomputation).
+ * Every mutation invalidates the whole `allocation-view` cache namespace so
+ * all renderers re-read the same authoritative rows instead of patching local
+ * copies (the backend owns N:1 replacement and tier recomputation).
  *
- * `allocate` uses the atomic bulk endpoint even for a single requirement: it
- * is the committed write path that replaces an existing `allocated-to` edge,
- * which makes it equally correct for re-allocation.
+ * `allocateBulk` is the assistant's write path: one request for the whole
+ * selection, all-or-nothing on the server. `allocate` is the single-item
+ * convenience wrapper used by drag/drop and the pickers.
  */
 
 import { useCallback } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { allocationViewApi } from "../../api/allocation-view";
+import {
+  allocationViewApi,
+  type BulkAllocationItem,
+  type BulkAllocationResult,
+} from "../../api/allocation-view";
 import { allocationViewKeys } from "./useAllocationView";
 
 export interface AllocationActions {
   allocate: (requirementId: string, elementId: string) => Promise<void>;
+  allocateBulk: (
+    items: BulkAllocationItem[]
+  ) => Promise<BulkAllocationResult>;
   deallocate: (allocationTraceLinkId: string) => Promise<void>;
 }
 
@@ -30,14 +37,9 @@ export function useAllocationMutations(): AllocationActions {
     });
   }, [queryClient]);
 
-  const allocateMutation = useMutation({
-    mutationFn: (variables: { requirementId: string; elementId: string }) =>
-      allocationViewApi.bulkAllocate([
-        {
-          requirement_id: variables.requirementId,
-          element_id: variables.elementId,
-        },
-      ]),
+  const bulkMutation = useMutation({
+    mutationFn: (items: BulkAllocationItem[]) =>
+      allocationViewApi.bulkAllocate(items),
     onSuccess: invalidate,
   });
 
@@ -47,11 +49,20 @@ export function useAllocationMutations(): AllocationActions {
     onSuccess: invalidate,
   });
 
+  const allocateBulk = useCallback(
+    async (items: BulkAllocationItem[]) => {
+      return bulkMutation.mutateAsync(items);
+    },
+    [bulkMutation]
+  );
+
   const allocate = useCallback(
     async (requirementId: string, elementId: string) => {
-      await allocateMutation.mutateAsync({ requirementId, elementId });
+      await allocateBulk([
+        { requirement_id: requirementId, element_id: elementId },
+      ]);
     },
-    [allocateMutation]
+    [allocateBulk]
   );
 
   const deallocate = useCallback(
@@ -61,5 +72,5 @@ export function useAllocationMutations(): AllocationActions {
     [deallocateMutation]
   );
 
-  return { allocate, deallocate };
+  return { allocate, allocateBulk, deallocate };
 }

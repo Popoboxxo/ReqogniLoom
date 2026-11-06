@@ -117,6 +117,31 @@ describe("MatrixRenderer", () => {
     ).toHaveLength(0);
   });
 
+  it("matches a real read row by element_id, not by the artifact id", () => {
+    const real = requirement({
+      id: "r9",
+      title: "Echte Zeile",
+      // The committed read object sends the element's Artifact id in
+      // `allocated_to` and its entity id in `element_id`.
+      allocated_to: "art-e1",
+      element_id: "e1",
+      allocation_trace_link_id: "link-9",
+      sort_key: "z",
+    });
+    render(
+      <MatrixRenderer
+        requirements={[real]}
+        elements={ELEMENTS}
+        page={1}
+        pageSize={50}
+        onPageChange={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId("matrix-dot-r9-e1")).toBeInTheDocument();
+    expect(screen.getByTestId("matrix-sum-e1")).toHaveTextContent("1");
+  });
+
   it("sums the visible window per column and in total", () => {
     render(
       <MatrixRenderer
@@ -154,6 +179,35 @@ describe("MatrixRenderer", () => {
 
     fireEvent.click(screen.getByTestId("matrix-next"));
     expect(onPageChange).toHaveBeenCalledWith(2);
+  });
+
+  it("marks a frozen row with a lock icon and a state tooltip (P4.4)", () => {
+    const locked = requirement({
+      id: "r4",
+      title: "Gesperrt",
+      locked: "Freigegeben",
+      sort_key: "d",
+    });
+    render(
+      <MatrixRenderer
+        requirements={[...ROWS, locked]}
+        elements={ELEMENTS}
+        page={1}
+        pageSize={50}
+        onPageChange={vi.fn()}
+      />
+    );
+
+    const icon = screen.getByTestId("matrix-lock-r4");
+    expect(icon).toHaveAttribute("title", "Freigegeben");
+    expect(screen.getByTestId("matrix-row-r4")).toHaveAttribute(
+      "data-locked",
+      "true"
+    );
+    expect(screen.getByTestId("matrix-row-r1")).toHaveAttribute(
+      "data-locked",
+      "false"
+    );
   });
 
   it("shows the second page and disables 'next' on the last page", () => {

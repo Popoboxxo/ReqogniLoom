@@ -71,8 +71,8 @@ export interface AllocationRow {
   title: string;
   allocated_to: string | null;
   allocation_intent?: string | null;
-  /** Optimised read-object shape is `{state}`; the boolean/string forms are
-   * kept for callers that pass a flat flag. */
+  /** Freeze marker: the read object sends the workflow state name as a plain
+   * string. `{state}`/boolean forms are kept for older callers. */
   locked?: string | boolean | { state?: string | null } | null;
   tier_key?: string | null;
   tier_name?: string | null;
