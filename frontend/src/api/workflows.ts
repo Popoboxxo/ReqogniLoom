@@ -102,6 +102,8 @@ export interface WorkflowDefinitionGraph {
   is_customized?: boolean;
   on_default?: boolean;
   source_global_id?: string | null;
+  /** P4: per-state metadata; ``freeze_on_enter`` locks the artifact. */
+  state_meta?: Record<string, { freeze_on_enter?: boolean }>;
 }
 
 /** A state ready for the editor: raw name plus derived type + counts. */
@@ -114,6 +116,8 @@ export interface WorkflowState {
   outgoingCount: number;
   incomingCount: number;
   isInitial: boolean;
+  /** P4: this workflow state freezes the artifact's position/allocation. */
+  frozen?: boolean;
 }
 
 /** A transition ready for the editor: derived id/name plus rule metadata. */
@@ -181,6 +185,7 @@ export function toWorkflowGraph(
       outgoingCount,
       incomingCount: incoming.get(name) ?? 0,
       isInitial: name === raw.initial_state,
+      frozen: Boolean(raw.state_meta?.[name]?.freeze_on_enter),
     };
   });
 

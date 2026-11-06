@@ -41,6 +41,7 @@ export interface GlobalWorkflowDefinitionGraph {
   initial_state: string | null;
   states: string[];
   transitions: WorkflowDefinitionGraph["transitions"];
+  state_meta?: Record<string, { freeze_on_enter?: boolean }>;
   updated_at?: string | null;
   /** Optional per contract-tolerance note — surfaced as a toast when present. */
   propagated_workspace_count?: number;
@@ -69,6 +70,7 @@ function toDefinitionGraph(
     initialized: raw.initialized,
     states: raw.states,
     transitions: raw.transitions,
+    state_meta: raw.state_meta,
   };
 }
 
@@ -139,6 +141,19 @@ export const workflowDefaultsApi = {
     const raw = await apiClient.patch<GlobalWorkflowDefinitionGraph>(
       `${basePath(entityType, preset)}/states/${encodeURIComponent(oldName)}/`,
       { name: newName }
+    );
+    return toResult(entityType, raw);
+  },
+
+  async setStateFreeze(
+    entityType: WorkflowEntityType,
+    preset: WorkspacePreset,
+    name: string,
+    freeze: boolean
+  ): Promise<GlobalWorkflowMutationResult> {
+    const raw = await apiClient.patch<GlobalWorkflowDefinitionGraph>(
+      `${basePath(entityType, preset)}/states/${encodeURIComponent(name)}/`,
+      { freeze_on_enter: freeze }
     );
     return toResult(entityType, raw);
   },

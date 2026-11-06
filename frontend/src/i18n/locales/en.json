@@ -1827,6 +1827,7 @@
       "toggleGrid": "Toggle grid"
     },
     "inspector": {
+      "freezeState": "Locks editing (position, parent, allocation)",
       "ariaLabel": "Properties panel",
       "title": "Properties",
       "emptyPrompt": "Select a node or edge to see its properties.",

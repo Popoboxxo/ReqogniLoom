@@ -1827,6 +1827,7 @@
       "toggleGrid": "Raster umschalten"
     },
     "inspector": {
+      "freezeState": "Sperrt Bearbeitung (Position, Eltern, Allokation)",
       "ariaLabel": "Eigenschaften-Panel",
       "title": "Eigenschaften",
       "emptyPrompt": "Knoten oder Kante auswählen, um Eigenschaften anzuzeigen.",
