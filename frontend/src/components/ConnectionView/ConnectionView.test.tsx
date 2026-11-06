@@ -15,6 +15,7 @@ import de from "../../i18n/locales/de.json";
 import type { AllocationRow } from "../../api/allocation-view";
 import { allocationViewApi } from "../../api/allocation-view";
 import { connectionViewsApi } from "../../api/connection-views";
+import { loadGroupsWithMembers } from "../../api/groups";
 import { preferenceValuesApi } from "../../api/preference-values";
 import { ConnectionView } from "./ConnectionView";
 
@@ -73,6 +74,22 @@ vi.mock("../../api/allocation-view", () => ({
     tiers: vi.fn(),
     bulkAllocate: vi.fn(),
     deallocate: vi.fn(),
+  },
+}));
+
+// P6 Task 6.3: the connection view loads group membership for the `group`
+// filter and the card's group field. These tests do not exercise groups, so
+// the read answers an empty list; the filter itself is covered by
+// `groups-filter.test.tsx`.
+vi.mock("../../api/groups", () => ({
+  loadGroupsWithMembers: vi.fn(),
+  groupsApi: {
+    list: vi.fn(),
+    create: vi.fn(),
+    members: vi.fn(),
+    addMember: vi.fn(),
+    removeMember: vi.fn(),
+    moveMember: vi.fn(),
   },
 }));
 
@@ -170,6 +187,7 @@ beforeEach(() => {
   });
   vi.mocked(allocationViewApi.deallocate).mockResolvedValue(undefined);
   vi.mocked(connectionViewsApi.load).mockResolvedValue([]);
+  vi.mocked(loadGroupsWithMembers).mockResolvedValue([]);
   vi.mocked(connectionViewsApi.save).mockResolvedValue(undefined);
   vi.mocked(preferenceValuesApi.effective).mockResolvedValue({
     workspace_id: "ws-1",

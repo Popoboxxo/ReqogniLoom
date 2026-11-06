@@ -36,7 +36,7 @@
 }
 
 .modeButtonActive {
-  background: var(--color-primary);
+  background-color: var(--color-primary);
   color: var(--color-on-primary);
 }
 
@@ -61,11 +61,11 @@
 }
 
 .errorTitle {
-  font-weight: var(--font-weight-semibold, 600);
+  font-weight: 600;
 }
 
 .errorCode {
-  font-family: var(--font-family-mono, monospace);
+  font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   border: 1px solid var(--color-danger);
   border-radius: var(--radius-sm);
@@ -141,7 +141,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: var(--font-weight-semibold, 600);
+  font-weight: 600;
 }
 
 .markers {
@@ -232,7 +232,7 @@
 .allocateHandle {
   width: 10px;
   height: 10px;
-  background: var(--color-primary);
+  background-color: var(--color-primary);
   border: 1px solid var(--color-on-primary);
 }
 

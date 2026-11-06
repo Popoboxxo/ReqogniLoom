@@ -53,6 +53,7 @@ export function ConnectionView(): JSX.Element {
     requirements,
     allRequirements,
     elements,
+    groups,
     meta,
     isLoading,
     isFetching,
@@ -179,6 +180,7 @@ export function ConnectionView(): JSX.Element {
         meta={meta}
         tiers={tiersQuery.data?.tiers ?? []}
         elements={elements}
+        groups={groups}
         states={states}
         categories={categories}
         savedViews={savedViews}

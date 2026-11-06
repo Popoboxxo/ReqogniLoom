@@ -10,6 +10,12 @@ export {
   resetUnauthorizedGuard,
 } from "./client";
 export { requirementsApi } from "./requirements";
+export { groupsApi, loadGroupsWithMembers } from "./groups";
+export type {
+  RequirementGroup,
+  GroupMember,
+  GroupWithMembers,
+} from "./groups";
 export { stakeholderNeedApi } from "./stakeholder-need";
 export { architectureApi } from "./architecture";
 export { tracelinksApi } from "./tracelinks";

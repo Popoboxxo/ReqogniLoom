@@ -378,6 +378,9 @@
     "treeDropRoot": "Hier ablegen, um auf oberste Ebene zu verschieben",
     "treeContainsSelection": "Enthält die aktuelle Auswahl",
     "moveNode": "Verschieben…",
+    "showGroups": "Gruppen anzeigen",
+    "groupMemberCount": "{{count}} Anforderungen",
+    "groupMembership": "In {{count}} Gruppen",
     "moveNodeTitle": "Element verschieben",
     "moveNodeDescription": "Ziel-Elternelement auswählen, unter das das Element verschoben wird.",
     "moveNodeTarget": "Neues Elternelement",
@@ -3446,6 +3449,7 @@
       "category": "Kategorie",
       "state": "Status",
       "elementSubtree": "Element-Teilbaum",
+      "group": "Gruppe",
       "search": "Suche",
       "searchPlaceholder": "Titel durchsuchen"
     },
@@ -3536,5 +3540,21 @@
         "off": "Nie"
       }
     }
+  },
+  "groups": {
+    "title": "Gruppen",
+    "name": "Name",
+    "namePlaceholder": "z. B. Bremssystem",
+    "description": "Beschreibung",
+    "create": "Gruppe anlegen",
+    "loading": "Gruppen werden geladen …",
+    "empty": "Noch keine Gruppen vorhanden.",
+    "noMembers": "Keine Mitglieder.",
+    "addMember": "Anforderung hinzufügen",
+    "searchPlaceholder": "Anforderung suchen",
+    "searchEmpty": "Keine passende Anforderung gefunden.",
+    "add": "Hinzufügen",
+    "removeMember": "{{name}} aus der Gruppe entfernen",
+    "actionFailed": "Die Gruppenaktion ist fehlgeschlagen."
   }
 }

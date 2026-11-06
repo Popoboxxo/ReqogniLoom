@@ -41,6 +41,14 @@ import { useWorkspaceTreeState } from '../../../context/WorkspaceTreeStateContex
 import { TreeDisplayFieldsProvider } from './tree-display-fields-context';
 import { useTreeDisplayFieldsSelection } from './tree-display-fields';
 import { collectAncestorIds } from './tree-hierarchy';
+import {
+  artifactNodeId,
+  buildGroupNodes,
+  groupFolderNodeId,
+  isGroupFolderNode,
+  resolveGroupReorderAfterId,
+  type WorkspaceTreeGroup,
+} from './tree-groups';
 import { TreeMoveDialog } from './tree-move-dialog';
 import {
   ROOT_DROP_TARGET,
@@ -213,6 +221,24 @@ export interface WorkspaceTreeNode {
    * `updated_at`; omit it (every pre-#1257 caller does) to render nothing.
    */
   updatedAt?: string | null;
+  /**
+   * P6 Task 6.3: set on the synthetic group-folder row that `tree-groups.ts`
+   * creates. The row is chrome, not an artifact: it toggles its children
+   * instead of selecting anything.
+   */
+  isGroupFolder?: boolean;
+  /** P6: group id of a folder row or of a member clone. */
+  groupId?: string;
+  /** P6: number of members inside a group-folder row. */
+  groupMemberCount?: number;
+  /**
+   * P6: underlying node id of a member clone. A requirement may appear in
+   * several groups, so each appearance gets its own synthetic row id while
+   * selection, click and `renderRow` keep addressing the artifact itself.
+   */
+  sourceNodeId?: string;
+  /** P6: how many groups the requirement is a member of (`> 1` is marked). */
+  groupCount?: number;
   /** Optional badge shown right of the name (status, type, …). */
   badge?: {
     text: string;
@@ -369,6 +395,30 @@ export interface WorkspaceTreeProps {
    * state local to the instance — the behaviour of every existing caller.
    */
   stateKey?: string;
+  /**
+   * P6 Task 6.3: the workspace's visual groups. When this prop is present the
+   * tree renders the "Gruppen anzeigen" toggle (default off). With the toggle
+   * on, every group becomes a collapsible pseudo-folder containing its members
+   * in the group's own order; members are marked when they belong to more than
+   * one group; requirements in no group keep their plain hierarchy.
+   *
+   * Omit the prop (every pre-P6 caller) and the tree renders exactly as
+   * before — no toggle, no synthetic rows.
+   */
+  groups?: WorkspaceTreeGroup[];
+  /**
+   * P6 Task 6.3: reorder one member inside a group (drag, Alt+↑/↓). `afterId`
+   * keeps the move contract's three-way meaning: `undefined` appends, `null`
+   * inserts first, an id places the member directly behind that member.
+   *
+   * The promise is awaited so a rejected move can roll the optimistic order
+   * back and surface the server message, exactly like `onReorder`.
+   */
+  onReorderGroupMember?: (
+    groupId: string,
+    id: string,
+    afterId: string | null | undefined,
+  ) => Promise<void>;
   'data-testid'?: string;
 }
 
@@ -483,6 +533,8 @@ export function WorkspaceTree({
   onReorder,
   rootDropzoneLabel,
   stateKey,
+  groups,
+  onReorderGroupMember,
   'data-testid': testId = 'workspace-tree',
   onToggle,
 }: WorkspaceTreeProps): JSX.Element {
@@ -514,6 +566,10 @@ export function WorkspaceTree({
       containsSelection: t('editor.treeContainsSelection'),
       outdated: t('editor.outdatedBadge'),
       moveNode: t('editor.moveNode'),
+      groupMemberCount: (count: number) =>
+        t('editor.groupMemberCount', { count }),
+      groupMembership: (count: number) =>
+        t('editor.groupMembership', { count }),
     }),
     [t],
   );
@@ -525,13 +581,35 @@ export function WorkspaceTree({
   // P1 Task 1.7: optimistic order. `base` pins the prediction to the exact
   // `nodes` array it was derived from, so the first prop update after a
   // successful move (the caller's refetch) discards it automatically — no
-  // effect, no render with a stale order.
+  // effect, no render with a stale order. `baseGroups` does the same for the
+  // group view: a refetched membership list discards a group prediction.
   const [pendingReorder, setPendingReorder] = useState<{
     base: WorkspaceTreeNode[];
+    baseGroups: WorkspaceTreeGroup[] | null;
     nodes: WorkspaceTreeNode[];
   } | null>(null);
+  // P6 Task 6.3: "Gruppen anzeigen" — off by default, and a tree without a
+  // `groups` prop has no toggle at all (every pre-P6 caller).
+  const [showGroups, setShowGroups] = useState(false);
+  const groupFoldersExpandedRef = useRef(false);
+  const groupViewActive = showGroups && Boolean(groups && groups.length > 0);
+  const groupsValue = groups ?? null;
+  // The plain node list, or the group view's synthetic list. A pending
+  // prediction was derived from exactly this list, so it replaces it wholesale
+  // (never re-wrapped by `buildGroupNodes`).
+  const displayNodes = useMemo(
+    () =>
+      groupViewActive && groups
+        ? buildGroupNodes(nodes, groups)
+        : nodes,
+    [groupViewActive, groups, nodes],
+  );
   const renderedNodes =
-    pendingReorder && pendingReorder.base === nodes ? pendingReorder.nodes : nodes;
+    pendingReorder &&
+    pendingReorder.base === nodes &&
+    pendingReorder.baseGroups === groupsValue
+      ? pendingReorder.nodes
+      : displayNodes;
   // Shared transient-notification primitive (UI-51): the tree's only error
   // surface for a rejected move, so a failed reorder explains itself instead of
   // silently springing back.
@@ -598,15 +676,28 @@ export function WorkspaceTree({
 
   useEffect(() => {
     if (!selectedId || revealedSelectionRef.current === selectedId) return;
-    if (!renderedNodes.some((n) => n.id === selectedId)) return;
+    // P6: a grouped requirement only exists as a clone of its own node, so
+    // presence is checked in the artifact id space (`sourceNodeId`).
+    const present = renderedNodes.some(
+      (n) => n.id === selectedId || n.sourceNodeId === selectedId,
+    );
+    if (!present) return;
     revealedSelectionRef.current = selectedId;
     pendingRevealScrollRef.current = selectedId;
-    const ancestors = collectAncestorIds(renderedNodes, selectedId);
-    if (ancestors.length === 0) return;
+    const ancestors = new Set(collectAncestorIds(renderedNodes, selectedId));
+    // A grouped requirement's row lives inside a synthetic folder; open those
+    // too, otherwise the revealed row would stay hidden behind a collapsed
+    // folder.
+    for (const node of renderedNodes) {
+      if (node.sourceNodeId === selectedId && node.parentId) {
+        ancestors.add(node.parentId);
+      }
+    }
+    if (ancestors.size === 0) return;
     setExpanded((prev) => {
       // Returning the identical Set keeps React from re-rendering when the
       // path was already open (the common case for an in-tree click).
-      if (ancestors.every((id) => prev.has(id))) return prev;
+      if ([...ancestors].every((id) => prev.has(id))) return prev;
       const next = new Set(prev);
       for (const id of ancestors) next.add(id);
       return next;
@@ -662,7 +753,15 @@ export function WorkspaceTree({
    */
   const selectedAncestorIds = useMemo((): Set<string> => {
     if (!selectedId || visibleIds !== null) return new Set<string>();
-    return new Set(collectAncestorIds(renderedNodes, selectedId));
+    const ancestors = new Set(collectAncestorIds(renderedNodes, selectedId));
+    // P6: the folder of a grouped selection counts as an ancestor, so a
+    // collapsed group still announces that the selection is inside it.
+    for (const node of renderedNodes) {
+      if (node.sourceNodeId === selectedId && node.parentId) {
+        ancestors.add(node.parentId);
+      }
+    }
+    return ancestors;
   }, [renderedNodes, selectedId, visibleIds]);
 
   const toggleExpand = useCallback((id: string): void => {
@@ -674,6 +773,28 @@ export function WorkspaceTree({
     });
     onToggle?.(id);
   }, [onToggle]);
+
+  /** P6: switch the group view on/off; switching on reveals the folders. */
+  const handleToggleGroups = useCallback((): void => {
+    setShowGroups((prev) => {
+      if (!prev) groupFoldersExpandedRef.current = false;
+      return !prev;
+    });
+  }, []);
+
+  // P6: the folders open once when the toggle is switched on (or when the
+  // groups arrive after the toggle). A manual collapse afterwards is the
+  // user's decision and is not overridden.
+  useEffect(() => {
+    if (!groupViewActive || !groups) return;
+    if (groupFoldersExpandedRef.current) return;
+    groupFoldersExpandedRef.current = true;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      for (const group of groups) next.add(groupFolderNodeId(group.id));
+      return next;
+    });
+  }, [groupViewActive, groups]);
 
   /**
    * P1 Task 1.7: applies a positional move optimistically, forwards it to the
@@ -691,7 +812,85 @@ export function WorkspaceTree({
       newParentId: string | null,
       afterId: string | null | undefined,
     ): boolean => {
+      const moved = renderedNodes.find((node) => node.id === nodeId);
+
+      // P6 Task 6.3: a member clone reorders *inside its group* — its order is
+      // the membership `sort_key`, never the artifact hierarchy. Dropping it
+      // on another group or out of the tree is not a group move and is
+      // swallowed here rather than silently reparenting the artifact.
+      if (moved?.groupId) {
+        if (moved.isGroupFolder) return false;
+        if (!onReorderGroupMember) return false;
+        const groupId = moved.groupId;
+        const folderId = groupFolderNodeId(groupId);
+        let afterCloneId = afterId;
+
+        if (newParentId === null) return false;
+        if (newParentId !== folderId) {
+          const target = renderedNodes.find((node) => node.id === newParentId);
+          // "inside" a member has no meaning for a flat group order; read it
+          // as "directly behind that member" so the gesture still does the
+          // obvious thing.
+          if (!target || target.groupId !== groupId) return false;
+          afterCloneId = newParentId;
+        }
+
+        const predicted = predictReorder(
+          renderedNodes,
+          nodeId,
+          folderId,
+          afterCloneId,
+        );
+        if (!predicted) return false;
+
+        setPendingReorder({
+          base: nodes,
+          baseGroups: groupsValue,
+          nodes: predicted,
+        });
+
+        const movedMemberId = moved.sourceNodeId ?? moved.id;
+        const afterMemberId = resolveGroupReorderAfterId(
+          renderedNodes,
+          afterCloneId,
+        );
+        const position =
+          orderedSiblingIds(predicted, folderId).indexOf(nodeId) + 1;
+        setMoveAnnouncement(
+          t('editor.reorderDone', {
+            name: describeMoveTarget(moved, t('editor.moveNodeRoot')),
+            position,
+          }),
+        );
+
+        void (async (): Promise<void> => {
+          try {
+            await onReorderGroupMember(
+              groupId,
+              movedMemberId,
+              afterMemberId,
+            );
+          } catch (err: unknown) {
+            setPendingReorder(null);
+            showReorderError(
+              extractApiErrorMessage(err) ?? t('editor.reorderFailed'),
+            );
+          }
+        })();
+        return true;
+      }
+
       if (!onReorder) return false;
+      // P6: a synthetic group folder is not an artifact — an artifact move can
+      // never target it.
+      if (
+        newParentId !== null &&
+        renderedNodes.some(
+          (node) => node.id === newParentId && node.isGroupFolder,
+        )
+      ) {
+        return false;
+      }
       const predicted = predictReorder(
         renderedNodes,
         nodeId,
@@ -700,12 +899,15 @@ export function WorkspaceTree({
       );
       if (!predicted) return false;
 
-      setPendingReorder({ base: nodes, nodes: predicted });
+      setPendingReorder({
+        base: nodes,
+        baseGroups: groupsValue,
+        nodes: predicted,
+      });
 
       // Announce the move with its 1-based position in the new sibling block:
       // a repeated move of the same node produces a different text, which the
       // single live region below needs in order to re-announce (F-01).
-      const moved = renderedNodes.find((node) => node.id === nodeId);
       const position =
         orderedSiblingIds(predicted, newParentId).indexOf(nodeId) + 1;
       setMoveAnnouncement(
@@ -727,7 +929,15 @@ export function WorkspaceTree({
       })();
       return true;
     },
-    [nodes, onReorder, renderedNodes, setMoveAnnouncement, showReorderError, t],
+    [
+      nodes,
+      groupsValue,
+      onReorder,
+      onReorderGroupMember,
+      renderedNodes,
+      showReorderError,
+      t,
+    ],
   );
 
   /** Alt+↑ / Alt+↓: one step inside the current sibling block. */
@@ -796,8 +1006,12 @@ export function WorkspaceTree({
   useEffect(() => {
     const pendingId = pendingRevealScrollRef.current;
     if (pendingId === null) return;
+    // P6: a grouped requirement's visible row is its clone, so the row is
+    // matched in the artifact id space as well.
     const index = visibleRows.findIndex(
-      (r) => r.internal.node.id === pendingId,
+      (r) =>
+        r.internal.node.id === pendingId ||
+        r.internal.node.sourceNodeId === pendingId,
     );
     // Still hidden (e.g. an active search filters it out) — leave the request
     // pending so it lands once the row becomes visible again.
@@ -920,9 +1134,14 @@ export function WorkspaceTree({
           focusRowAtIndex(visibleRows.length - 1);
           break;
         case 'Enter':
-          // Same activation the row's onClick already performs.
+          // Same activation the row's onClick already performs. A group folder
+          // is chrome, not an artifact: activating it opens/closes it.
           e.preventDefault();
-          onSelect(currentRow.internal.node.id);
+          if (isGroupFolderNode(currentRow.internal.node)) {
+            if (currentRow.hasChildren) toggleExpand(currentRow.internal.node.id);
+            break;
+          }
+          onSelect(artifactNodeId(currentRow.internal.node));
           break;
         case '*': {
           // ARIA treeview convention: expand every sibling at the current
@@ -1038,6 +1257,24 @@ export function WorkspaceTree({
         data-testid={testId}
         className={styles.treeRoot}
       >
+      {/* P6 Task 6.3: the group view is opt-in and off by default. The tree
+          renders the toggle only when the caller supplies `groups`, so every
+          pre-P6 consumer is untouched. */}
+      {groups !== undefined && (
+        <label
+          className={styles.groupToggle}
+          data-testid={`${testId}-groups-toggle-label`}
+        >
+          <input
+            type="checkbox"
+            data-testid={`${testId}-groups-toggle`}
+            checked={showGroups}
+            onChange={handleToggleGroups}
+          />
+          <span>{t('editor.showGroups')}</span>
+        </label>
+      )}
+
       {showSearch && (
         <input
           type="search"
@@ -1052,7 +1289,7 @@ export function WorkspaceTree({
 
       {/* Root dropzone — only mounted while a drag is in flight. Dropping
           here detaches the dragged node to root level (parent = null). */}
-      {dndEnabled && draggingId && (
+      {dndEnabled && draggingId && !groupViewActive && (
         // HTML5 drop target: it is only mounted while a pointer drag is in
         // flight, and HTML5 drag-and-drop has no keyboard trigger, so there is
         // no keyboard interaction to make reachable on this element.
@@ -1106,7 +1343,7 @@ export function WorkspaceTree({
                   key={internal.node.id}
                   node={internal.node}
                   depth={internal.depth}
-                  isSelected={internal.node.id === selectedId}
+                  isSelected={artifactNodeId(internal.node) === selectedId}
                   isFocused={internal.node.id === effectiveFocusedId}
                   hasChildren={hasChildren}
                   isExpanded={isExpanded}
@@ -1124,8 +1361,12 @@ export function WorkspaceTree({
                   onFocusRow={setFocusedId}
                   dragProps={rowDragProps}
                   labels={rowLabels}
-                  onRequestMove={dndEnabled ? setMoveNodeId : undefined}
-                  canReorder={Boolean(onReorder)}
+                  onRequestMove={
+                    dndEnabled && !groupViewActive ? setMoveNodeId : undefined
+                  }
+                  canReorder={
+                    Boolean(onReorder) && !internal.node.isGroupFolder
+                  }
                   rowStyle={rowPositionStyle(virtualRow.start)}
                 />
               );
@@ -1144,7 +1385,7 @@ export function WorkspaceTree({
               key={internal.node.id}
               node={internal.node}
               depth={internal.depth}
-              isSelected={internal.node.id === selectedId}
+              isSelected={artifactNodeId(internal.node) === selectedId}
               isFocused={internal.node.id === effectiveFocusedId}
               hasChildren={hasChildren}
               isExpanded={isExpanded}
@@ -1162,8 +1403,10 @@ export function WorkspaceTree({
               onFocusRow={setFocusedId}
               dragProps={rowDragProps}
               labels={rowLabels}
-              onRequestMove={dndEnabled ? setMoveNodeId : undefined}
-              canReorder={Boolean(onReorder)}
+              onRequestMove={
+                dndEnabled && !groupViewActive ? setMoveNodeId : undefined
+              }
+              canReorder={Boolean(onReorder) && !internal.node.isGroupFolder}
             />
           ))}
         </ul>
@@ -1291,6 +1534,10 @@ interface TreeRowLabels {
   outdated: string;
   /** H-1: accessible name of the visible keyboard reparenting button. */
   moveNode: string;
+  /** P6: the "N Anforderungen" trailer of a group-folder row. */
+  groupMemberCount: (count: number) => string;
+  /** P6: the "In N Gruppen" marker of a requirement that appears several times. */
+  groupMembership: (count: number) => string;
 }
 
 function TreeRow({
@@ -1316,10 +1563,15 @@ function TreeRow({
   labels,
   rowStyle,
 }: TreeRowProps): JSX.Element {
+  // P6 Task 6.3: a group pseudo-folder is chrome, not an artifact. It owns no
+  // selection, no `renderRow` slot and no move dialog — clicking it toggles it.
+  const isGroupFolder = isGroupFolderNode(node);
   // Task 3.1: when a custom row renderer is used (e.g. <ArtifactRow>), it
   // owns its own selected background/left-edge accent and hover state, so
-  // the <li> chrome around it stays neutral to avoid a double highlight.
-  const hasCustomRow = Boolean(renderRow);
+  // the <li> chrome around it stays neutral to avoid a double highlight. A
+  // group folder is not routed through `renderRow`, so it keeps the default
+  // row chrome.
+  const hasCustomRow = Boolean(renderRow) && !isGroupFolder;
 
   const isDragging = dragProps?.draggingId === node.id;
   const isDropTarget = Boolean(dragProps) && dragProps!.dropTargetId === node.id;
@@ -1339,6 +1591,7 @@ function TreeRow({
     [
       styles.treeRow,
       hasCustomRow ? styles.treeRowCustom : '',
+      isGroupFolder ? styles.treeRowGroupFolder : '',
       depth > 0 ? styles.treeLine : '',
       !hasCustomRow && !isSelected && !containsSelection
         ? styles.treeRowHoverable
@@ -1372,6 +1625,11 @@ function TreeRow({
       aria-expanded={hasChildren ? isExpanded : undefined}
       tabIndex={isFocused ? 0 : -1}
       data-testid={`${testIdPrefix}-node-${node.id}`}
+      // P6 Task 6.3: machine-readable counterparts of the group chrome, so
+      // tests and E2E can assert the pseudo-folder without reading classes.
+      data-group-folder={isGroupFolder ? 'true' : undefined}
+      data-group-id={node.groupId}
+      data-group-membership={node.groupCount && node.groupCount > 1 ? String(node.groupCount) : undefined}
       // Issue #668: machine-readable counterpart of the dashed accent below,
       // so E2E/unit tests can assert the marker without reading colours.
       data-contains-selection={containsSelection ? 'true' : undefined}
@@ -1406,7 +1664,12 @@ function TreeRow({
         }
       }}
       onClick={() => {
-        onSelect(node.id);
+        // P6: a group folder is not selectable — clicking it opens/closes it.
+        if (isGroupFolder) {
+          if (hasChildren) onToggle(node.id);
+          return;
+        }
+        onSelect(artifactNodeId(node));
         onFocusRow(node.id);
       }}
       style={dynamicRowStyle}
@@ -1438,7 +1701,26 @@ function TreeRow({
         <span aria-hidden="true" className={styles.toggleSpacer} />
       )}
 
-      {hasCustomRow ? (
+      {isGroupFolder ? (
+        // P6 Task 6.3: the pseudo-folder's own label. It deliberately never
+        // goes through `renderRow` — a folder is not an artifact and must not
+        // be hydrated against the caller's item map.
+        <>
+          <span
+            data-testid={`${testIdPrefix}-group-title-${node.id}`}
+            className={styles.groupFolderName}
+            title={node.name}
+          >
+            {node.name}
+          </span>
+          <span
+            data-testid={`${testIdPrefix}-group-count-${node.id}`}
+            className={styles.groupFolderCount}
+          >
+            {labels.groupMemberCount(node.groupMemberCount ?? 0)}
+          </span>
+        </>
+      ) : hasCustomRow ? (
         // Task 3.1: custom row content (e.g. <ArtifactRow>) replaces the
         // default name+badge label. The chevron above and depth indent
         // already applied via the <li> padding are the only tree chrome.
@@ -1529,6 +1811,21 @@ function TreeRow({
         </>
       )}
 
+      {/* P6 Task 6.3: a requirement that appears under several groups is marked
+          on every one of its rows, so a duplicate is recognizable as such —
+          rendered for custom rows too, which is where the requirement tree
+          lives. */}
+      {!isGroupFolder && node.groupCount !== undefined && node.groupCount > 1 && (
+        <Badge
+          variant="neutral"
+          testId={`${testIdPrefix}-group-membership-${node.id}`}
+          title={labels.groupMembership(node.groupCount)}
+          ariaLabel={labels.groupMembership(node.groupCount)}
+        >
+          {labels.groupMembership(node.groupCount)}
+        </Badge>
+      )}
+
       {/* Add-child button — Architecture view only (onAddChild prop) */}
       {onAddChild && (
         <button
@@ -1556,7 +1853,7 @@ function TreeRow({
           this button IS the keyboard path, so it must be focusable. `tabIndex`
           follows the roving tabindex: only the focused row's button joins the
           tab order, keeping a 100-row tree at two stops instead of 101. */}
-      {onRequestMove && (
+      {onRequestMove && !isGroupFolder && (
         <button
           type="button"
           className="btn-icon"

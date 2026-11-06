@@ -30,6 +30,7 @@ const FULL_FILTERS: ConnectionFilters = {
   state: "draft",
   elementSubtree: "element-1",
   q: "bremse",
+  group: "group-1",
   page: 3,
   pageSize: 25,
 };
@@ -56,6 +57,8 @@ describe("filtersToQuery", () => {
     const query = filtersToQuery(FULL_FILTERS);
     expect(query).not.toHaveProperty("locked");
     expect(query).not.toHaveProperty("has_findings");
+    // P6: group membership is a client-side join, not a server filter.
+    expect(query).not.toHaveProperty("group");
     expect(query).not.toHaveProperty("page");
     expect(query).not.toHaveProperty("page_size_client");
   });
@@ -82,6 +85,7 @@ describe("URL round-trip", () => {
       state: undefined,
       elementSubtree: undefined,
       q: undefined,
+      group: undefined,
       page: 1,
       pageSize: DEFAULT_PAGE_SIZE,
     });

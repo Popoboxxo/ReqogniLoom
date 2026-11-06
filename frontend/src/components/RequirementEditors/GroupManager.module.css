@@ -1,0 +1,136 @@
+/*
+ * P6 Task 6.3 — group administration panel.
+ *
+ * Sits above the requirement tree inside the left panel. Every colour, size and
+ * radius comes from `styles/tokens.css`; no inline styles (ui-ratchet).
+ */
+
+.manager {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+}
+
+.createForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 140px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.input {
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  box-sizing: border-box;
+  width: 100%;
+  outline: none;
+}
+
+.input:focus-visible {
+  border-color: var(--color-primary);
+}
+
+.createButton {
+  flex-shrink: 0;
+}
+
+.error {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger-text);
+}
+
+.status {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.groupList,
+.memberList,
+.candidateList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.groupHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.groupTitle {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.groupDescription {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.member,
+.candidate {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+.memberLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.removeButton {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.addButton {
+  flex-shrink: 0;
+}

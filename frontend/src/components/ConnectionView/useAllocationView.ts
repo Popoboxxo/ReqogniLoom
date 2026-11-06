@@ -24,6 +24,7 @@ import {
   type AllocationRow,
   type AllocationViewQuery,
 } from "../../api/allocation-view";
+import { loadGroupsWithMembers } from "../../api/groups";
 import { asError } from "../../queries/query-error";
 import { useWorkspace } from "../../context/WorkspaceContext";
 
@@ -64,6 +65,12 @@ export interface ConnectionFilters {
   state?: string;
   elementSubtree?: string;
   q?: string;
+  /**
+   * P6 Task 6.3: id of a visual group. The committed read object has no group
+   * filter, so membership is fetched separately and matched client-side over
+   * `row.artifact_id`.
+   */
+  group?: string;
   /** 1-based client-side matrix window. */
   page: number;
   pageSize: number;
@@ -96,6 +103,7 @@ export function parseConnectionSearch(
     state: params.get("state") || undefined,
     elementSubtree: params.get("element_subtree") || undefined,
     q: params.get("q") || undefined,
+    group: params.get("group") || undefined,
     page: Number.isFinite(page) && page > 0 ? page : 1,
     pageSize:
       Number.isFinite(pageSize) && pageSize > 0
@@ -128,6 +136,7 @@ export function buildConnectionSearch(
     params.set("element_subtree", filters.elementSubtree);
   }
   if (filters.q) params.set("q", filters.q);
+  if (filters.group) params.set("group", filters.group);
   if (filters.page > 1) params.set("page", String(filters.page));
   if (filters.pageSize !== DEFAULT_PAGE_SIZE) {
     params.set("page_size", String(filters.pageSize));
@@ -152,6 +161,8 @@ export function filtersToQuery(
   if (filters.state) query.state = filters.state;
   if (filters.elementSubtree) query.element_subtree = filters.elementSubtree;
   if (filters.q) query.q = filters.q;
+  // `filters.group` is deliberately not forwarded: group membership is a
+  // client-side join, the read object accepts no group parameter.
   return query;
 }
 
@@ -187,7 +198,15 @@ export const allocationViewKeys = {
     [...allocationViewKeys.all, "rows", workspaceId, query] as const,
   elements: (workspaceId: string | null) =>
     [...allocationViewKeys.all, "elements", workspaceId] as const,
+  groups: (workspaceId: string | null) =>
+    [...allocationViewKeys.all, "groups", workspaceId] as const,
 };
+
+/** One group option of the filter bar. */
+export interface ConnectionGroupOption {
+  id: string;
+  title: string;
+}
 
 export interface UseAllocationViewResult {
   workspaceId: string | null;
@@ -199,6 +218,8 @@ export interface UseAllocationViewResult {
   allRequirements: AllocationRow[];
   /** Full element catalogue (independent of the active filters). */
   elements: AllocationRow[];
+  /** P6: groups offered by the `group` filter (empty when none exist). */
+  groups: ConnectionGroupOption[];
   meta: {
     total: number;
     unallocated: number;
@@ -242,6 +263,50 @@ export function useAllocationView(): UseAllocationViewResult {
     enabled: Boolean(workspaceId),
   });
 
+  // P6 Task 6.3: groups + membership. A failed read degrades to "no groups"
+  // (the filter and the card field simply stay empty) instead of blocking the
+  // connection view.
+  const groupsQuery = useQuery({
+    queryKey: allocationViewKeys.groups(workspaceId),
+    queryFn: () => loadGroupsWithMembers(workspaceId as string),
+    enabled: Boolean(workspaceId),
+    staleTime: 60 * 1000,
+  });
+
+  const groups = useMemo(
+    (): ConnectionGroupOption[] =>
+      (groupsQuery.data ?? []).map((group) => ({
+        id: group.id,
+        title: group.title,
+      })),
+    [groupsQuery.data]
+  );
+
+  /** Requirement artifact id -> names of the groups it belongs to. */
+  const groupNamesByArtifact = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const group of groupsQuery.data ?? []) {
+      for (const member of group.members) {
+        const previous = map.get(member.requirement_artifact_id);
+        map.set(
+          member.requirement_artifact_id,
+          previous ? `${previous}, ${group.title}` : group.title
+        );
+      }
+    }
+    return map;
+  }, [groupsQuery.data]);
+
+  /** Membership set of the active group filter (empty when none is active). */
+  const groupMemberArtifactIds = useMemo((): Set<string> => {
+    if (!filters.group) return new Set<string>();
+    const group = (groupsQuery.data ?? []).find(
+      (candidate) => candidate.id === filters.group
+    );
+    if (!group) return new Set<string>();
+    return new Set(group.members.map((member) => member.requirement_artifact_id));
+  }, [filters.group, groupsQuery.data]);
+
   const allRows = useMemo(
     () => rowsQuery.data?.results ?? [],
     [rowsQuery.data]
@@ -257,10 +322,29 @@ export function useAllocationView(): UseAllocationViewResult {
   );
 
   const requirements = useMemo(() => {
-    return allRequirements.filter((row) =>
+    const filtered = allRequirements.filter((row) =>
       rowMatchesClientFilters(row, filters)
     );
-  }, [allRequirements, filters]);
+    // P6: the group filter is a client-side membership join (no server
+    // parameter exists on the committed read object).
+    if (!filters.group) return filtered;
+    return filtered.filter((row) => groupMemberArtifactIds.has(row.artifact_id));
+  }, [allRequirements, filters, groupMemberArtifactIds]);
+
+  /**
+   * P6 Task 6.3: the read object's `group` field is not populated by the
+   * backend yet. Where membership data is available, fill it with the group
+   * name(s) so the card field "group" shows a name instead of "—"; when there
+   * is nothing to resolve the original value wins.
+   */
+  const requirementsWithGroup = useMemo(
+    () =>
+      requirements.map((row) => {
+        const groupName = groupNamesByArtifact.get(row.artifact_id);
+        return groupName ? { ...row, group: groupName } : row;
+      }),
+    [requirements, groupNamesByArtifact]
+  );
 
   const elements = useMemo(() => {
     const fromCatalog =
@@ -342,9 +426,10 @@ export function useAllocationView(): UseAllocationViewResult {
     workspaceId,
     view,
     filters,
-    requirements,
+    requirements: requirementsWithGroup,
     allRequirements,
     elements,
+    groups,
     meta: {
       total: meta.total,
       unallocated: meta.unallocated,

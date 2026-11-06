@@ -42,6 +42,8 @@ import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
 import { RequirementList } from './RequirementList';
+import { GroupManager } from './GroupManager';
+import { useRequirementGroups } from './useRequirementGroups';
 import { RequirementArtifactForm, REQUIREMENT_ATTRIBUTE_OVERRIDES } from './RequirementArtifactForm';
 import { ArtifactForm, type ArtifactFormValues } from '../shared/ArtifactForm';
 import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
@@ -99,6 +101,15 @@ export default function RequirementEditors(): JSX.Element {
     error,
     refresh,
   } = useRequirementData(selectedId, { includeDeleted });
+
+  // P6 Task 6.3: visual groups. Loaded here (not in RequirementList) so the
+  // list itself stays free of group API state and its focused unit tests keep
+  // rendering without mocks; viewers get the read-only pseudo-folders, editors
+  // additionally get the manager panel below.
+  const requirementGroups = useRequirementGroups(
+    activeWorkspace?.id ?? null,
+    requirements,
+  );
 
   /**
    * P1 Task 1.7: the tree addresses nodes by Requirement id, the move route by
@@ -724,6 +735,23 @@ export default function RequirementEditors(): JSX.Element {
         onSelect={selectRequirement}
         onDelete={handleDelete}
         onReorder={handleReorder}
+        // P6 Task 6.3: groups as pseudo-folders in the requirement tree, plus
+        // the admin panel for editors. Viewers only get the read-only view.
+        groups={requirementGroups.treeGroups}
+        onReorderGroupMember={requirementGroups.reorderMember}
+        groupPanel={
+          hasRole('editor') ? (
+            <GroupManager
+              groups={requirementGroups.managerGroups}
+              requirements={requirements}
+              isLoading={requirementGroups.isLoading}
+              error={requirementGroups.error}
+              onCreate={requirementGroups.createGroup}
+              onAddMember={requirementGroups.addMember}
+              onRemoveMember={requirementGroups.removeMember}
+            />
+          ) : undefined
+        }
         onCreateNew={() => {
           setCreateError(null);
           setShowCreateForm(true);

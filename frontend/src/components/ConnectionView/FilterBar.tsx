@@ -12,7 +12,10 @@ import { useTranslation } from "react-i18next";
 
 import type { AllocationRow, WorkspaceTier } from "../../api/allocation-view";
 import type { SavedConnectionView } from "../../api/connection-views";
-import type { ConnectionFilters } from "./useAllocationView";
+import type {
+  ConnectionFilters,
+  ConnectionGroupOption,
+} from "./useAllocationView";
 import styles from "./ConnectionView.module.css";
 
 const REQUIREMENT_TYPES = ["SyReq", "UseCase", "FeatureReq"] as const;
@@ -29,6 +32,8 @@ export interface FilterBarProps {
   meta: ConnectionMeta;
   tiers: WorkspaceTier[];
   elements: AllocationRow[];
+  /** P6 Task 6.3: visual groups for the `group` filter (empty hides it). */
+  groups: ConnectionGroupOption[];
   states: string[];
   categories: string[];
   savedViews: SavedConnectionView[];
@@ -44,6 +49,7 @@ export function FilterBar({
   meta,
   tiers,
   elements,
+  groups,
   states,
   categories,
   savedViews,
@@ -213,6 +219,27 @@ export function FilterBar({
             ))}
           </select>
         </label>
+
+        {groups.length > 0 && (
+          <label className={styles.field}>
+            {t("connectionView.filters.group")}
+            <select
+              className={styles.select}
+              data-testid="filter-group"
+              value={filters.group ?? ""}
+              onChange={(event) =>
+                onChange({ group: event.target.value || undefined })
+              }
+            >
+              <option value="">{t("connectionView.all")}</option>
+              {groups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.title}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         <label className={styles.field}>
           {t("connectionView.filters.search")}

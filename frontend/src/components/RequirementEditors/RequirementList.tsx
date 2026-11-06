@@ -27,8 +27,15 @@ import { useHasRole } from '../../hooks/useHasRole';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useArtifactList, artifactId } from '../../hooks/useArtifactList';
 import { ListToolbar } from '../shared/ListToolbar';
-import { WorkspaceTree, getTypeBadgeAbbreviation } from '../shared/WorkspaceTree';
-import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
+import {
+  WorkspaceTree,
+  artifactNodeId,
+  getTypeBadgeAbbreviation,
+} from '../shared/WorkspaceTree';
+import type {
+  WorkspaceTreeGroup,
+  WorkspaceTreeNode,
+} from '../shared/WorkspaceTree';
 import { ArtifactRow } from '../shared/ArtifactRow';
 import type { ArtifactRowAttribute } from '../shared/ArtifactRow';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
@@ -199,6 +206,28 @@ interface RequirementListProps {
     newParentId: UUID | null,
     afterId: UUID | null | undefined,
   ) => Promise<void>;
+  /**
+   * P6 Task 6.3: the workspace's visual groups, resolved to tree node ids.
+   * Supplying them turns on WorkspaceTree's "Gruppen anzeigen" toggle; omitting
+   * them keeps the plain requirement tree (and every pre-P6 test) unchanged.
+   */
+  groups?: WorkspaceTreeGroup[];
+  /**
+   * P6 Task 6.3: reorder one group member. `afterId` is a requirement node id
+   * (the tree's id space); the caller owns the mapping to the membership link
+   * ids the REST surface expects.
+   */
+  onReorderGroupMember?: (
+    groupId: string,
+    id: string,
+    afterId: string | null | undefined,
+  ) => Promise<void>;
+  /**
+   * P6 Task 6.3: the group administration panel (create group, add/remove
+   * members). Rendered above the tree as an optional slot so this list stays
+   * free of group API state; omitted by every pre-P6 caller.
+   */
+  groupPanel?: React.ReactNode;
 }
 
 /**
@@ -214,6 +243,9 @@ export const RequirementList: React.FC<RequirementListProps> = ({
   onDelete,
   onCreateNew,
   onReorder,
+  groups,
+  onReorderGroupMember,
+  groupPanel,
 }) => {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
@@ -354,6 +386,8 @@ export const RequirementList: React.FC<RequirementListProps> = ({
 
   return (
     <div>
+      {groupPanel}
+
       <ListToolbar
         testIdPrefix="req-list"
         searchValue={listSearch}
@@ -508,6 +542,8 @@ export const RequirementList: React.FC<RequirementListProps> = ({
           // P1 Task 1.7: the requirement tree gains re-parenting + reordering,
           // which it never had (only the architecture tree did).
           onReorder={onReorder}
+          groups={groups}
+          onReorderGroupMember={onReorderGroupMember}
           showSearch={false}
           // Issue #1257: resolve the configured field selection for this
           // artifact type in this workspace (user > workspace > global).
@@ -525,7 +561,9 @@ export const RequirementList: React.FC<RequirementListProps> = ({
           emptyLabel={t('editor.empty')}
           noMatchesLabel={t('editor.noMatches')}
           renderRow={(node, { isSelected }) => {
-            const req = reqById?.get(node.id);
+            // P6: a grouped requirement is rendered as a clone with its own
+            // synthetic row id; the artifact's own id is `sourceNodeId`.
+            const req = reqById?.get(artifactNodeId(node));
             if (!req) return null;
             // Issue #807: a concise, self-explaining type label ("System")
             // instead of the cryptic abbreviation ("SR"); the spelled-out

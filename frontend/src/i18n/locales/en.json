@@ -378,6 +378,9 @@
     "treeDropRoot": "Drop here to move to the top level",
     "treeContainsSelection": "Contains the current selection",
     "moveNode": "Move…",
+    "showGroups": "Show groups",
+    "groupMemberCount": "{{count}} requirements",
+    "groupMembership": "In {{count}} groups",
     "moveNodeTitle": "Move element",
     "moveNodeDescription": "Choose the parent element to move this element under.",
     "moveNodeTarget": "New parent element",
@@ -3446,6 +3449,7 @@
       "category": "Category",
       "state": "State",
       "elementSubtree": "Element subtree",
+      "group": "Group",
       "search": "Search",
       "searchPlaceholder": "Search titles"
     },
@@ -3536,5 +3540,21 @@
         "off": "Never"
       }
     }
+  },
+  "groups": {
+    "title": "Groups",
+    "name": "Name",
+    "namePlaceholder": "e.g. Brake system",
+    "description": "Description",
+    "create": "Create group",
+    "loading": "Loading groups …",
+    "empty": "No groups yet.",
+    "noMembers": "No members.",
+    "addMember": "Add requirement",
+    "searchPlaceholder": "Search requirements",
+    "searchEmpty": "No matching requirement found.",
+    "add": "Add",
+    "removeMember": "Remove {{name}} from the group",
+    "actionFailed": "The group action failed."
   }
 }

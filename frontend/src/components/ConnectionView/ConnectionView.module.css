@@ -26,7 +26,7 @@
 .title {
   margin: 0;
   font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-semibold, 600);
+  font-weight: 600;
 }
 
 .viewSwitcher {
@@ -53,7 +53,7 @@
 }
 
 .viewButtonActive {
-  background: var(--color-primary);
+  background-color: var(--color-primary);
   color: var(--color-on-primary, var(--color-surface));
 }
 
@@ -226,7 +226,7 @@
 }
 
 .elementTitle {
-  font-weight: var(--font-weight-semibold, 600);
+  font-weight: 600;
   font-size: var(--font-size-sm);
 }
 
@@ -306,7 +306,7 @@
   gap: var(--space-2);
   margin: 0 0 var(--space-2);
   font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold, 600);
+  font-weight: 600;
 }
 
 .actionButton {
@@ -384,7 +384,7 @@
 .columnTitle {
   margin: 0 0 var(--space-2);
   font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold, 600);
+  font-weight: 600;
   color: var(--color-text-muted);
 }
 
@@ -461,7 +461,7 @@
   top: 0;
   background: var(--color-surface-raised);
   color: var(--color-text-muted);
-  font-weight: var(--font-weight-semibold, 600);
+  font-weight: 600;
 }
 
 .matrixRowHeader {
@@ -476,13 +476,13 @@
   width: 0.75rem;
   height: 0.75rem;
   border-radius: var(--radius-full);
-  background: var(--color-primary);
+  background-color: var(--color-primary);
 }
 
 .matrixFooter td {
   background: var(--color-surface-raised);
   color: var(--color-text-muted);
-  font-weight: var(--font-weight-semibold, 600);
+  font-weight: 600;
 }
 
 .pager {

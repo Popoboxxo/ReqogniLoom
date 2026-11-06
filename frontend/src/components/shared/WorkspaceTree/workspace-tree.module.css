@@ -330,3 +330,51 @@
   white-space: nowrap;
   border: 0;
 }
+
+/*
+ * --- P6 Task 6.3: visual groups as pseudo-folders -------------------------
+ *
+ * The "Gruppen anzeigen" toggle sits above the tree. It is a real checkbox and
+ * a <label>, so the whole text is a hit target; colour and spacing come from
+ * the design tokens like the rest of the row chrome.
+ */
+.groupToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.groupToggle input[type="checkbox"] {
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+/*
+ * A group folder is chrome, not an artifact: the name is bolder than a
+ * requirement row and carries the member count as muted metadata.
+ */
+.treeRowGroupFolder {
+  background: var(--color-surface-raised);
+}
+
+.groupFolderName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.groupFolderCount {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
