@@ -13,13 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat(allocation): flat `GET /api/v1/workspaces/{id}/allocation-view/` and atomic `POST /api/v1/trace-links/bulk/`; Connection View with URL filters, saved views and tree/two-column/matrix renderers; interactive allocation card graph with configurable cards (P3/P5, #1670)
 - feat(groups): visual `Group` artifact + `grouped-in` link (many-to-many), ordered membership via `TraceLink.sort_key`, REST `/api/v1/groups/…` (P6, #1670)
 - feat(workflow): `state_meta.freeze_on_enter` freezes a Requirement/ArchitectureElement against move and (re-)allocation (409 `WORKFLOW_FROZEN`); frozen elements stay valid allocation targets (P4, #1670)
+- feat(ui): `ui.connection_view.saved_views` (user) and `ui.allocation_graph.card_fields` (global/workspace/user, resolved user > workspace > global) are registered preferences; the ad-hoc localStorage fallbacks are gone and a failed save is surfaced instead of swallowed (P3/P5, #1670)
 
 ### Changed
-- **Breaking:** requirement tiers are leaf-relative. `Requirement.level` remains the permanent integer alias, but its value now follows the workspace ladder; unallocated roots start on the first tier and deeper branches are no longer clamped to 4. The old TRACE-P5 "level 4 is out of scope" skip is retired (ADR-027).
+- **Breaking:** requirement tiers are leaf-relative. `Requirement.level` remains the permanent integer alias, but its value now follows the workspace ladder; unallocated roots start on the first tier and deeper branches are no longer clamped to 4. The old TRACE-P5 "level 4 is out of scope" skip is retired (ADR-027). ARCH-003, VERIF-P8 and TRACE-P1/P1b/P2/P3 evaluate the last tier like any other, CONS-P13 requires a `level_source` on every active requirement, and CONS-P12 reports unresolved tiers.
 - **Breaking:** a second `allocated-to` link for the same requirement is a conflict (409), not a silent second edge.
 
 ### Fixed
 - fix(hierarchy): a cyclic requirement graph no longer acquires a plausible tier; cyclic nodes and their unresolved descendants stay `NULL`.
+- fix(ordering): both classic trees show the workflow lock (icon + tooltip with the state name) and disable drag, Alt+Up/Down and the move dialog on a frozen row; a 409 shows the backend's state name verbatim (P4.4)
+- fix(api): requirement payloads expose read-only `tier_name` next to `tier_key`; generic export, requirement bundle and ReqIF also emit `tier_key`/`tier_name` (`level` unchanged) (P2.7)
 
 
 ## [1.8.0-beta.26] — 2026-11-04
