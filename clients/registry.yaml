@@ -659,9 +659,9 @@ clients:
           }
     verify:
       command: 'curl -sN --max-time 5 -H "X-API-Key: $REQOGNILOOM_API_KEY" "$REQOGNILOOM_MCP_URL/mcp/sse/"'
-      expected_de: "Die ersten zwei Zeilen sind `event: endpoint` und `data: /mcp/messages/?session_id=…`; danach beendet `--max-time` den Stream (Exit 28 ist hier erwartet). Ein `initialize` auf den gemeldeten Endpoint antwortet 202, `tools/list` liefert **283 Tools**; das Antigravity-Panel zeigt `reqogniloom` verbunden."
-      expected_en: "The first two lines are `event: endpoint` and `data: /mcp/messages/?session_id=…`; then `--max-time` ends the stream (exit 28 is expected here). An `initialize` against the reported endpoint answers 202, `tools/list` returns **283 tools**; the Antigravity panel shows `reqogniloom` connected."
-      tool_result: "283 tools"
+      expected_de: "Die ersten zwei Zeilen sind `event: endpoint` und `data: /mcp/messages/?session_id=…`; danach beendet `--max-time` den Stream (Exit 28 ist hier erwartet). Ein `initialize` auf den gemeldeten Endpoint antwortet 202, `tools/list` liefert **290 Tools**; das Antigravity-Panel zeigt `reqogniloom` verbunden."
+      expected_en: "The first two lines are `event: endpoint` and `data: /mcp/messages/?session_id=…`; then `--max-time` ends the stream (exit 28 is expected here). An `initialize` against the reported endpoint answers 202, `tools/list` returns **290 tools**; the Antigravity panel shows `reqogniloom` connected."
+      tool_result: "290 tools"
     prereq_de:
       - "Antigravity-Installation."
       - "**Host-CPU mit `pclmulqdq`** — sonst bricht das Binary mit exit 132 ab („compiled with pclmul enabled\", nicht software-lösbar)."

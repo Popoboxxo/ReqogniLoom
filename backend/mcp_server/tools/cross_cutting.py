@@ -214,6 +214,13 @@ class CrossCuttingToolGroup(BaseToolGroup):
         "traceability.create_link": "_handle_traceability_create_link",
         "artifact.search": "_handle_artifact_search",
         "artifact.get_tree": "_handle_artifact_get_tree",
+        "allocation.query": "_handle_allocation_query",
+        "group.create": "_handle_group_create",
+        "group.list": "_handle_group_list",
+        "group.members": "_handle_group_members",
+        "group.add_member": "_handle_group_add_member",
+        "group.remove_member": "_handle_group_remove_member",
+        "group.move_member": "_handle_group_move_member",
         "artifact.move": "_handle_artifact_move",
         "workspace.get_context": "_handle_workspace_get_context",
         "workspace.list": "_handle_workspace_list",
@@ -533,6 +540,97 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     },
                 },
                 "required": ["artifact_id"],
+            },
+        },
+        {
+            "name": "allocation.query",
+            "description": (
+                "Flat requirement/allocation rows for one workspace (read-only). "
+                "Filters: requirement, element, allocated, tier, level, intent."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string"},
+                    "requirement": {"type": "string"},
+                    "element": {"type": "string"},
+                    "allocated": {"type": "boolean"},
+                    "tier": {"type": "string"},
+                    "level": {"type": "integer"},
+                    "intent": {"type": "string"},
+                    "page_size": {"type": "integer"},
+                    "offset": {"type": "integer"},
+                },
+                "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "group.create",
+            "description": "Create a visual requirement group (write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                },
+                "required": ["workspace_id", "title"],
+            },
+        },
+        {
+            "name": "group.list",
+            "description": "List the visual groups of a workspace (read-only).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"workspace_id": {"type": "string"}},
+                "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "group.members",
+            "description": "List the ordered members of a group (read-only).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"group_id": {"type": "string"}},
+                "required": ["group_id"],
+            },
+        },
+        {
+            "name": "group.add_member",
+            "description": "Add a requirement to a group, optionally behind after_id (write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "group_id": {"type": "string"},
+                    "requirement_id": {"type": "string"},
+                    "after_id": {"type": "string"},
+                },
+                "required": ["group_id", "requirement_id"],
+            },
+        },
+        {
+            "name": "group.remove_member",
+            "description": "Remove a requirement from a group (write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "group_id": {"type": "string"},
+                    "requirement_id": {"type": "string"},
+                },
+                "required": ["group_id", "requirement_id"],
+            },
+        },
+        {
+            "name": "group.move_member",
+            "description": "Reorder a member inside its group (write, audited).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "group_id": {"type": "string"},
+                    "requirement_id": {"type": "string"},
+                    "after_id": {"type": "string"},
+                },
+                "required": ["group_id", "requirement_id"],
             },
         },
         {
@@ -1501,6 +1599,153 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 "sort_key": artifact.sort_key,
             }
         })
+
+    # ------------------------------------------------------------------
+    # allocation.query / group.*
+    # ------------------------------------------------------------------
+
+    def _handle_allocation_query(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        from application.allocation_query_service import AllocationQueryService
+
+        workspace_id = require_uuid(params, "workspace_id")
+        try:
+            payload = AllocationQueryService().list(
+                workspace_id,
+                auth_context,
+                requirement=optional_uuid(params, "requirement"),
+                element=optional_uuid(params, "element"),
+                allocated=params.get("allocated"),
+                tier=params.get("tier"),
+                level=params.get("level"),
+                intent=params.get("intent"),
+                limit=int(params.get("page_size") or 200),
+                offset=int(params.get("offset") or 0),
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        return ToolResult.ok(payload)
+
+    def _group_service(self):
+        from application.group_service import GroupService
+
+        return GroupService()
+
+    def _handle_group_create(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        workspace_id = require_uuid(params, "workspace_id")
+        title = require_param(params, "title")
+        try:
+            group = self._group_service().create(
+                workspace_id, str(title), auth_context,
+                description=str(params.get("description") or ""),
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        write_mcp_audit(
+            ctx=auth_context, operation="create", entity_type="Artifact",
+            entity_id=group.id, tool_name="group.create", api_key=api_key,
+        )
+        return ToolResult.ok({"group": {"id": str(group.id), "title": title}})
+
+    def _handle_group_list(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        workspace_id = require_uuid(params, "workspace_id")
+        groups = self._group_service().list_groups(workspace_id, auth_context)
+        return ToolResult.ok({
+            "groups": [
+                {
+                    "id": str(group.id),
+                    "title": (group.custom_fields or {}).get("title", ""),
+                    "description": (group.custom_fields or {}).get("description", ""),
+                }
+                for group in groups
+            ]
+        })
+
+    def _handle_group_members(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        group_id = require_uuid(params, "group_id")
+        try:
+            members = self._group_service().members(group_id, auth_context)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        return ToolResult.ok({"members": members})
+
+    def _handle_group_add_member(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        group_id = require_uuid(params, "group_id")
+        requirement_id = require_uuid(params, "requirement_id")
+        try:
+            link = self._group_service().add_member(
+                group_id, requirement_id, auth_context,
+                after_id=optional_uuid(params, "after_id"),
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        write_mcp_audit(
+            ctx=auth_context, operation="create", entity_type="TraceLink",
+            entity_id=link.id, tool_name="group.add_member", api_key=api_key,
+        )
+        return ToolResult.ok({"trace_link_id": str(link.id), "sort_key": link.sort_key})
+
+    def _handle_group_remove_member(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        group_id = require_uuid(params, "group_id")
+        requirement_id = require_uuid(params, "requirement_id")
+        try:
+            self._group_service().remove_member(group_id, requirement_id, auth_context)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        write_mcp_audit(
+            ctx=auth_context, operation="delete", entity_type="TraceLink",
+            entity_id=group_id, tool_name="group.remove_member", api_key=api_key,
+        )
+        return ToolResult.ok({"removed": True})
+
+    def _handle_group_move_member(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        group_id = require_uuid(params, "group_id")
+        requirement_id = require_uuid(params, "requirement_id")
+        try:
+            link = self._group_service().move_member(
+                group_id, requirement_id, auth_context,
+                after_id=optional_uuid(params, "after_id"),
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        write_mcp_audit(
+            ctx=auth_context, operation="update", entity_type="TraceLink",
+            entity_id=link.id, tool_name="group.move_member", api_key=api_key,
+        )
+        return ToolResult.ok({"trace_link_id": str(link.id), "sort_key": link.sort_key})
 
     # ------------------------------------------------------------------
     # workspace.get_context

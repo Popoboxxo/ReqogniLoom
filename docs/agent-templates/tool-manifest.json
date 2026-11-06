@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 283,
+  "tool_count": 290,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -557,6 +557,47 @@
         },
         "required": [
           "requirement_id"
+        ]
+      }
+    },
+    {
+      "name": "allocation.query",
+      "prefix": "allocation",
+      "is_write": false,
+      "description": "Flat requirement/allocation rows for one workspace (read-only). Filters: requirement, element, allocated, tier, level, intent.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string"
+          },
+          "requirement": {
+            "type": "string"
+          },
+          "element": {
+            "type": "string"
+          },
+          "allocated": {
+            "type": "boolean"
+          },
+          "tier": {
+            "type": "string"
+          },
+          "level": {
+            "type": "integer"
+          },
+          "intent": {
+            "type": "string"
+          },
+          "page_size": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "workspace_id"
         ]
       }
     },
@@ -3872,6 +3913,133 @@
         },
         "required": [
           "goal_id"
+        ]
+      }
+    },
+    {
+      "name": "group.add_member",
+      "prefix": "group",
+      "is_write": true,
+      "description": "Add a requirement to a group, optionally behind after_id (write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "string"
+          },
+          "requirement_id": {
+            "type": "string"
+          },
+          "after_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_id",
+          "requirement_id"
+        ]
+      }
+    },
+    {
+      "name": "group.create",
+      "prefix": "group",
+      "is_write": true,
+      "description": "Create a visual requirement group (write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "title"
+        ]
+      }
+    },
+    {
+      "name": "group.list",
+      "prefix": "group",
+      "is_write": false,
+      "description": "List the visual groups of a workspace (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "group.members",
+      "prefix": "group",
+      "is_write": false,
+      "description": "List the ordered members of a group (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_id"
+        ]
+      }
+    },
+    {
+      "name": "group.move_member",
+      "prefix": "group",
+      "is_write": true,
+      "description": "Reorder a member inside its group (write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "string"
+          },
+          "requirement_id": {
+            "type": "string"
+          },
+          "after_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_id",
+          "requirement_id"
+        ]
+      }
+    },
+    {
+      "name": "group.remove_member",
+      "prefix": "group",
+      "is_write": true,
+      "description": "Remove a requirement from a group (write, audited).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "group_id": {
+            "type": "string"
+          },
+          "requirement_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_id",
+          "requirement_id"
         ]
       }
     },
