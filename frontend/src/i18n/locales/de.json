@@ -1330,6 +1330,22 @@
       "hardOffHint": "immer ohne Memory",
       "hardOffSummary": "KI-Aktivitäten, die nie Memory nutzen: {{total}}"
     },
+    "cardFields": {
+      "title": "Kartenfelder (Graph)",
+      "hint": "Welche Felder die Anforderungs- und Elementkarten im Allokationsgraphen zeigen, in welcher Reihenfolge und auf wie viele Zeilen verteilt. Sperr-, Befund- und Nicht-allokiert-Markierungen sind nicht ausblendbar.",
+      "kindRequirement": "Anforderungskarten",
+      "kindElement": "Elementkarten",
+      "rows": "Zeilen",
+      "addField": "Feld hinzufügen",
+      "moveUp": "Nach oben",
+      "moveDown": "Nach unten",
+      "remove": "Feld entfernen",
+      "mandatory": "Pflichtmarkierung – nicht ausblendbar",
+      "save": "Speichern",
+      "reset": "Auf Standard zurücksetzen",
+      "saved": "Gespeichert.",
+      "loading": "Kartenfelder werden geladen …"
+    },
     "customFields": {
       "title": "Benutzerdefinierte Felder",
       "description": "Definiere zusätzliche Felder für dieses Workspace. Definierte Felder erscheinen im Bearbeitungsformular jeder Anforderung (Requirement) und können dort ausgefüllt werden.",
@@ -3415,7 +3431,8 @@
     "views": {
       "tree": "Baum",
       "twoColumn": "Zwei Spalten",
-      "matrix": "Matrix"
+      "matrix": "Matrix",
+      "graph": "Graph"
     },
     "quick": {
       "open": "Offen",
@@ -3467,6 +3484,35 @@
     "locked": "Gesperrt",
     "empty": "Keine Anforderungen oder Architekturelemente vorhanden.",
     "loading": "Verbindungen werden geladen …"
+  },
+  "allocationGraph": {
+    "mode": "Modus",
+    "viewMode": "Ansicht",
+    "editMode": "Bearbeiten",
+    "modeHint": "Ansicht zeigt keine Schreibgriffe. Bearbeiten erlaubt das Ziehen von der Anforderung auf ein Architekturelement.",
+    "readOnly": "Nur-Lese-Zugriff: Bearbeiten benötigt eine Schreibrolle.",
+    "empty": "Keine Karten im aktuellen Filter.",
+    "locked": "Gesperrt",
+    "unallocated": "Nicht allokiert",
+    "findingCount": "{{count}} Befunde",
+    "collapse": "{{title}} einklappen",
+    "expand": "{{title}} ausklappen",
+    "errorTitle": "Allokation abgelehnt",
+    "pickerTitle": "„{{title}}“ allokieren auf …",
+    "pickerSearch": "Element suchen",
+    "pickerEmpty": "Kein passendes Element gefunden.",
+    "fields": {
+      "id": "ID",
+      "title": "Titel",
+      "state": "Status",
+      "tier": "Stufe",
+      "type": "Typ",
+      "category": "Kategorie",
+      "group": "Gruppe",
+      "allocationCount": "Allokationen",
+      "lock": "Gesperrt",
+      "owner": "Verantwortlich"
+    }
   },
   "preferences": {
     "title": "Darstellung",

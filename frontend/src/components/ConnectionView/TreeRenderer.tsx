@@ -64,8 +64,8 @@ function buildElementTree(
 
   const unallocated: AllocationRow[] = [];
   for (const requirement of requirements) {
-    const target = requirement.allocated_to
-      ? nodes.get(requirement.allocated_to)
+    const target = requirement.element_id
+      ? nodes.get(requirement.element_id)
       : undefined;
     if (target) target.requirements.push(requirement);
     else unallocated.push(requirement);

@@ -51,6 +51,7 @@ import { GlossaryReferenceSection } from "./GlossaryReferenceSection";
 import { WorkspaceBannerSection } from "./WorkspaceBannerSection";
 import { MemorySettingsSection } from "./MemorySettingsSection";
 import { TreeDisplaySection } from "./TreeDisplaySection";
+import { CardFieldsSection } from "./CardFieldsSection";
 import { CreateFormSection } from "./CreateFormSection";
 import { TierLadderSection } from "./TierLadderSection";
 import { PreferenceLevelSection } from "../shared/PreferenceLevelSection/PreferenceLevelSection";
@@ -571,6 +572,11 @@ export default function WorkspaceSettings(): JSX.Element {
                 fields. Personal (UserProfileSettings) and tenant-wide
                 (SystemSettings) levels are the other two. */}
             <TreeDisplaySection workspaceId={activeWorkspace.id} />
+
+            {/* P5 Task 5.2: which fields the allocation-graph cards show.
+                Persisted through the preference API with a localStorage
+                fallback (no backend card-field store yet). */}
+            <CardFieldsSection workspaceId={activeWorkspace.id} />
 
             {/* Issue #1263: the workspace default for the "new artifact"
                 dialog's fields. Tenant-wide (SystemSettings) is the other level;

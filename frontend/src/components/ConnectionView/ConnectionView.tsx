@@ -1,9 +1,10 @@
 /**
  * ARCH-L1-001 ReactFrontend — Connection View page (P3 Tasks 3.2–3.4).
  *
- * Route `/connections`. Header view switcher [Baum | Zwei Spalten | Matrix]
- * (default Baum), quick + free filters, counters from the read object's
- * `meta`, and per-user saved views. All filter state lives in the URL, so the
+ * Route `/connections`. Header view switcher
+ * [Baum | Zwei Spalten | Matrix | Graph] (default Baum; the card graph is the
+ * P5 renderer), quick + free filters, counters from the read object's `meta`,
+ * and per-user saved views. All filter state lives in the URL, so the
  * renderers switch without losing a filter and a reload/bookmark restores the
  * same view.
  */
@@ -14,6 +15,9 @@ import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 
 import { allocationViewApi } from "../../api/allocation-view";
+import { useHasRole } from "../../hooks/useHasRole";
+import { AllocationGraph } from "../AllocationGraph/AllocationGraph";
+import { useCardFields } from "../AllocationGraph/useCardFields";
 import {
   connectionViewsApi,
   type SavedConnectionView,
@@ -59,6 +63,9 @@ export function ConnectionView(): JSX.Element {
     setPage,
   } = useAllocationView();
   const { allocate, deallocate } = useAllocationMutations();
+  const hasRole = useHasRole();
+  const canEdit = hasRole("editor");
+  const cardFields = useCardFields(workspaceId);
 
   const tiersQuery = useQuery({
     queryKey: ["workspace-tiers", workspaceId],
@@ -110,6 +117,7 @@ export function ConnectionView(): JSX.Element {
     { mode: "tree", label: t("connectionView.views.tree") },
     { mode: "two-column", label: t("connectionView.views.twoColumn") },
     { mode: "matrix", label: t("connectionView.views.matrix") },
+    { mode: "graph", label: t("connectionView.views.graph") },
   ];
 
   const persistSavedViews = (views: SavedConnectionView[]): void => {
@@ -223,6 +231,15 @@ export function ConnectionView(): JSX.Element {
               page={filters.page}
               pageSize={filters.pageSize || DEFAULT_PAGE_SIZE}
               onPageChange={setPage}
+            />
+          )}
+          {view === "graph" && (
+            <AllocationGraph
+              requirements={requirements}
+              elements={elements}
+              allocate={allocate}
+              canEdit={canEdit}
+              cardFields={cardFields}
             />
           )}
         </div>

@@ -115,12 +115,13 @@ describe("URL round-trip", () => {
 });
 
 describe("parseConnectionView", () => {
-  it("defaults to the tree and only accepts the three known renderers", () => {
+  it("defaults to the tree and only accepts the four known renderers", () => {
     expect(parseConnectionView(new URLSearchParams())).toBe("tree");
     expect(parseConnectionView(new URLSearchParams("view=matrix"))).toBe("matrix");
     expect(parseConnectionView(new URLSearchParams("view=two-column"))).toBe(
       "two-column"
     );
-    expect(parseConnectionView(new URLSearchParams("view=graph"))).toBe("tree");
+    expect(parseConnectionView(new URLSearchParams("view=graph"))).toBe("graph");
+    expect(parseConnectionView(new URLSearchParams("view=unknown"))).toBe("tree");
   });
 });

@@ -1330,6 +1330,22 @@
       "hardOffHint": "never uses memory",
       "hardOffSummary": "AI activities that never use memory: {{total}}"
     },
+    "cardFields": {
+      "title": "Card fields (graph)",
+      "hint": "Which fields the requirement and element cards show in the allocation graph, in which order and over how many rows. Lock, finding and unallocated markers cannot be hidden.",
+      "kindRequirement": "Requirement cards",
+      "kindElement": "Element cards",
+      "rows": "Rows",
+      "addField": "Add field",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "remove": "Remove field",
+      "mandatory": "Mandatory marker – cannot be hidden",
+      "save": "Save",
+      "reset": "Reset to default",
+      "saved": "Saved.",
+      "loading": "Loading card fields …"
+    },
     "customFields": {
       "title": "Custom Fields",
       "description": "Define additional fields for this workspace. Defined fields appear on every requirement's edit form, where they can be filled in.",
@@ -3415,7 +3431,8 @@
     "views": {
       "tree": "Tree",
       "twoColumn": "Two columns",
-      "matrix": "Matrix"
+      "matrix": "Matrix",
+      "graph": "Graph"
     },
     "quick": {
       "open": "Open",
@@ -3467,6 +3484,35 @@
     "locked": "Locked",
     "empty": "No requirements or architecture elements.",
     "loading": "Loading connections …"
+  },
+  "allocationGraph": {
+    "mode": "Mode",
+    "viewMode": "View",
+    "editMode": "Edit",
+    "modeHint": "View mode shows no write handles. Edit mode allows dragging a requirement onto an architecture element.",
+    "readOnly": "Read-only access: editing requires a write role.",
+    "empty": "No cards in the current filter.",
+    "locked": "Locked",
+    "unallocated": "Unallocated",
+    "findingCount": "{{count}} findings",
+    "collapse": "Collapse {{title}}",
+    "expand": "Expand {{title}}",
+    "errorTitle": "Allocation rejected",
+    "pickerTitle": "Allocate “{{title}}” to …",
+    "pickerSearch": "Search element",
+    "pickerEmpty": "No matching element found.",
+    "fields": {
+      "id": "ID",
+      "title": "Title",
+      "state": "State",
+      "tier": "Tier",
+      "type": "Type",
+      "category": "Category",
+      "group": "Group",
+      "allocationCount": "Allocations",
+      "lock": "Locked",
+      "owner": "Owner"
+    }
   },
   "preferences": {
     "title": "Display",

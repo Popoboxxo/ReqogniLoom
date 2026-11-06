@@ -42,16 +42,27 @@ export interface AllocationRow {
   level: number | null;
   type: string | null;
   category: string | null;
-  /** Element entity id the requirement is allocated to (N:1). */
+  /**
+   * Element **Artifact** id the requirement is allocated to (N:1) — the
+   * `TraceLink.target` value, matching `buildGraph`'s edge lookup.
+   */
   allocated_to: string | null;
   /** Id of the `allocated-to` TraceLink (needed to deallocate). */
   allocation_trace_link_id: string | null;
-  /** Element entity id, set on both kinds when an element is resolved. */
+  /** Element entity id (the `ArchitectureElement.id`), when resolved. */
   element_id: string | null;
   allocation_intent: string | null;
   locked: AllocationLock | null;
   findings: unknown[];
   group: string | null;
+  /**
+   * P5 card field "owner". The read object does not guarantee the field yet
+   * (the committed row contract predates the card graph), so it is optional
+   * and the card falls back to "—".
+   */
+  owner?: string | { name?: string; id?: string } | null;
+  /** Local readable id when the backend supplies one (card field "ID"). */
+  uid?: string | null;
 }
 
 /** Counters computed over the filtered set (not over the current page). */

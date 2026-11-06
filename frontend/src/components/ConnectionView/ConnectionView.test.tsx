@@ -15,6 +15,7 @@ import de from "../../i18n/locales/de.json";
 import type { AllocationRow } from "../../api/allocation-view";
 import { allocationViewApi } from "../../api/allocation-view";
 import { connectionViewsApi } from "../../api/connection-views";
+import { preferenceValuesApi } from "../../api/preference-values";
 import { ConnectionView } from "./ConnectionView";
 
 vi.mock("react-i18next", () => {
@@ -43,6 +44,22 @@ vi.mock("react-i18next", () => {
     }),
   };
 });
+
+vi.mock("../../context/AuthContext", () => ({
+  useAuth: () => ({ roles: ["editor"] }),
+}));
+
+vi.mock("@xyflow/react", async () =>
+  (await import("../../test/xyflow-stub")).createXyflowStub()
+);
+
+vi.mock("../../api/preference-values", () => ({
+  preferenceValuesApi: {
+    effective: vi.fn(),
+    patchLevel: vi.fn(),
+    getLevel: vi.fn(),
+  },
+}));
 
 vi.mock("../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({
@@ -154,6 +171,10 @@ beforeEach(() => {
   vi.mocked(allocationViewApi.deallocate).mockResolvedValue(undefined);
   vi.mocked(connectionViewsApi.load).mockResolvedValue([]);
   vi.mocked(connectionViewsApi.save).mockResolvedValue(undefined);
+  vi.mocked(preferenceValuesApi.effective).mockResolvedValue({
+    workspace_id: "ws-1",
+    values: {},
+  });
 });
 
 describe("ConnectionView — filters are URL state", () => {
@@ -193,6 +214,26 @@ describe("ConnectionView — filters are URL state", () => {
     expect(allocationViewApi.view).toHaveBeenLastCalledWith(
       "ws-1",
       expect.objectContaining({ q: "bremse", allocated: false })
+    );
+  });
+
+  it("offers the card graph as the fourth renderer and keeps the filters", async () => {
+    renderView();
+    fireEvent.change(screen.getByTestId("filter-q"), {
+      target: { value: "bremse" },
+    });
+
+    fireEvent.click(screen.getByTestId("view-switch-graph"));
+
+    expect(await screen.findByTestId("allocation-graph")).toBeInTheDocument();
+    expect(screen.getByTestId("view-switch-graph")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.getByTestId("filter-q")).toHaveValue("bremse");
+    expect(allocationViewApi.view).toHaveBeenLastCalledWith(
+      "ws-1",
+      expect.objectContaining({ q: "bremse" })
     );
   });
 

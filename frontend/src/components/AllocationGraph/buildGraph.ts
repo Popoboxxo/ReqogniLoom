@@ -71,7 +71,9 @@ export interface AllocationRow {
   title: string;
   allocated_to: string | null;
   allocation_intent?: string | null;
-  locked?: string | boolean | null;
+  /** Optimised read-object shape is `{state}`; the boolean/string forms are
+   * kept for callers that pass a flat flag. */
+  locked?: string | boolean | { state?: string | null } | null;
   tier_key?: string | null;
   tier_name?: string | null;
   level?: number | null;

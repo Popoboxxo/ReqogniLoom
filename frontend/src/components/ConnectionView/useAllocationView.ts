@@ -27,13 +27,14 @@ import {
 import { asError } from "../../queries/query-error";
 import { useWorkspace } from "../../context/WorkspaceContext";
 
-/** The three renderers available in P3 (the card graph arrives in P5). */
-export type ConnectionViewMode = "tree" | "two-column" | "matrix";
+/** The four renderers: P3's three plus the P5 card graph. */
+export type ConnectionViewMode = "tree" | "two-column" | "matrix" | "graph";
 
 export const CONNECTION_VIEW_MODES: readonly ConnectionViewMode[] = [
   "tree",
   "two-column",
   "matrix",
+  "graph",
 ];
 
 /** Default client-side window for the matrix. */
@@ -157,7 +158,8 @@ export function filtersToQuery(
 /** Parse the selected renderer from the URL; `Baum` is the default. */
 export function parseConnectionView(params: URLSearchParams): ConnectionViewMode {
   const raw = params.get("view");
-  return raw === "two-column" || raw === "matrix" ? raw : "tree";
+  if (raw === "two-column" || raw === "matrix" || raw === "graph") return raw;
+  return "tree";
 }
 
 /** Whether a row passes the two client-side quick filters. */
