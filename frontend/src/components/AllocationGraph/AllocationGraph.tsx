@@ -36,6 +36,14 @@ import {
   type NodeTypes,
 } from "@xyflow/react";
 
+// React Flow ships its layout primitives as a stylesheet, not inline styles.
+// Without it `.react-flow__background` loses `pointer-events: none` /
+// `z-index: -1` and the full-canvas background `<svg>` paints above the nodes,
+// swallowing every card click (and the MiniMap/Controls lose their placement).
+// The other React Flow pages import this themselves; this component is the
+// only one that did not, so the graph route was rendered unstyled.
+import "@xyflow/react/dist/style.css";
+
 import type { AllocationRow as ApiAllocationRow } from "../../api/allocation-view";
 import { Dialog } from "../shared/Dialog";
 import { AllocationCard } from "./AllocationCard";
