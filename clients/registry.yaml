@@ -659,9 +659,9 @@ clients:
           }
     verify:
       command: 'curl -sN --max-time 5 -H "X-API-Key: $REQOGNILOOM_API_KEY" "$REQOGNILOOM_MCP_URL/mcp/sse/"'
-      expected_de: "Die ersten zwei Zeilen sind `event: endpoint` und `data: /mcp/messages/?session_id=…`; danach beendet `--max-time` den Stream (Exit 28 ist hier erwartet). Ein `initialize` auf den gemeldeten Endpoint antwortet 202, `tools/list` liefert **282 Tools**; das Antigravity-Panel zeigt `reqogniloom` verbunden."
-      expected_en: "The first two lines are `event: endpoint` and `data: /mcp/messages/?session_id=…`; then `--max-time` ends the stream (exit 28 is expected here). An `initialize` against the reported endpoint answers 202, `tools/list` returns **282 tools**; the Antigravity panel shows `reqogniloom` connected."
-      tool_result: "282 tools"
+      expected_de: "Die ersten zwei Zeilen sind `event: endpoint` und `data: /mcp/messages/?session_id=…`; danach beendet `--max-time` den Stream (Exit 28 ist hier erwartet). Ein `initialize` auf den gemeldeten Endpoint antwortet 202, `tools/list` liefert **290 Tools**; das Antigravity-Panel zeigt `reqogniloom` verbunden."
+      expected_en: "The first two lines are `event: endpoint` and `data: /mcp/messages/?session_id=…`; then `--max-time` ends the stream (exit 28 is expected here). An `initialize` against the reported endpoint answers 202, `tools/list` returns **290 tools**; the Antigravity panel shows `reqogniloom` connected."
+      tool_result: "290 tools"
     prereq_de:
       - "Antigravity-Installation."
       - "**Host-CPU mit `pclmulqdq`** — sonst bricht das Binary mit exit 132 ab („compiled with pclmul enabled\", nicht software-lösbar)."
@@ -711,7 +711,7 @@ clients:
           # `hermes config set` (Env-Referenz statt Key):
           bash scripts/clients/install.sh --client hermes \
             --url "https://<host>" --key-env REQOGNILOOM_API_KEY
-          hermes mcp test reqogniloom         # -> ✓ Connected, 248 Tools
+          hermes mcp test reqogniloom         # -> ✓ Connected, 290 Tools
     install_en:
       - lang: bash
         text: |
@@ -720,7 +720,7 @@ clients:
           # `hermes config set` (env reference instead of a key):
           bash scripts/clients/install.sh --client hermes \
             --url "https://<host>" --key-env REQOGNILOOM_API_KEY
-          hermes mcp test reqogniloom         # -> ✓ Connected, 248 tools
+          hermes mcp test reqogniloom         # -> ✓ Connected, 290 tools
     agent_plugin_de:
       intro: "Neben dem MCP-Server und dem Desktop-Plugin liefert das Repo das **Agent-/Dashboard-Plugin** für den Hermes-Agenten-Host (`integrations/hermes-agent-plugin/`): Slash-Command `/reqogniloom`, Dashboard-Tab `ReqogniLoom` und opt-in Listen-Mode. Dashboard-Tab und Agent-Plugin liegen im selben Verzeichnis; `dashboard/manifest.json` verweist auf die mitgelieferten Assets `dist/index.js`/`dist/style.css` (kein Build-Schritt). Quelle: `https://github.com/Popoboxxo/ReqogniLoom.git#integrations/hermes-agent-plugin`."
       install:
@@ -799,9 +799,9 @@ clients:
                 Authorization: "Bearer ${REQOGNILOOM_API_KEY}"
     verify:
       command: "hermes mcp test reqogniloom"
-      expected_de: "`✓ Connected` (QA: 2232 ms, 248 Tools); echte Calls: `requirement_query` → 49, `architecture_query` → 1."
-      expected_en: "`✓ Connected` (QA: 2232 ms, 248 tools); real calls: `requirement_query` → 49, `architecture_query` → 1."
-      tool_result: "248 tools; requirement_query = 49"
+      expected_de: "`✓ Connected` (QA: 2232 ms, 290 Tools); echte Calls: `requirement_query` → 49, `architecture_query` → 1."
+      expected_en: "`✓ Connected` (QA: 2232 ms, 290 tools); real calls: `requirement_query` → 49, `architecture_query` → 1."
+      tool_result: "290 tools; requirement_query = 49"
     prereq_de:
       - "Hermes-Installation (aktueller Stack)."
       - "Key in `~/.hermes/.env` — `${REQOGNILOOM_API_KEY}` wird beim Server-Start interpoliert."

@@ -641,6 +641,26 @@ class WorkflowFacade(ServiceBase):
         )
         return obj, count
 
+    def set_global_state_freeze(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str,
+        preset: str,
+        state: str,
+        freeze: bool,
+    ):
+        """Toggle ``state_meta.freeze_on_enter`` for one global workflow state."""
+        self._set_tenant_context(ctx)
+        obj, count = self._global_store().set_state_freeze(
+            ctx.tenant_id, item_type, preset, state, freeze
+        )
+        self._audit_global(
+            ctx, item_type, preset, "state.freeze",
+            {"state": state, "freeze": bool(freeze)},
+        )
+        return obj, count
+
     def delete_global_state(
         self, ctx: AuthContext, *, item_type: str, preset: str, name: str
     ):

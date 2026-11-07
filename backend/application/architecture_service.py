@@ -157,12 +157,18 @@ class ArchitectureService(ServiceBase):
         # spaces. Leaving Artifact.parent NULL made artifact.get_tree (a
         # recursive CTE over pl_artifact.parent_id) report every architecture
         # element as a childless root.
+        from application.artifact_service import append_sort_key
+
+        artifact_parent_id = self._parent_artifact_id(parent_id)
         artifact = Artifact.objects.create(
             tenant=tenant,
             workspace=workspace,
             artifact_type="ArchitectureElement",
-            parent_id=self._parent_artifact_id(parent_id),
+            parent_id=artifact_parent_id,
             custom_fields=_clean_custom_fields(custom_fields),
+            sort_key=append_sort_key(
+                workspace_id, artifact_parent_id, "ArchitectureElement"
+            ),
         )
 
         arch_el = ArchitectureElement.objects.create(
@@ -499,7 +505,11 @@ class ArchitectureService(ServiceBase):
         # and an unordered row order would silently make LIMIT/OFFSET windows
         # (the paginator's slicing) overlap or skip rows. ``created_at`` is not
         # unique, so the primary key is the tie-breaker.
-        qs = qs.order_by("created_at", "id")
+        # P1: follow the persistent fractional sibling order; NULL keys sort
+        # last, then by creation (the former deterministic order).
+        qs = qs.order_by(
+            F("artifact__sort_key").asc(nulls_last=True), "created_at", "id"
+        )
         elements = list(qs)
         # REQ-L2-RA-013 / REQ-070: eliminate N+1 on tree depth. The ``level``
         # property recurses into the DB (one query per ancestor per element)

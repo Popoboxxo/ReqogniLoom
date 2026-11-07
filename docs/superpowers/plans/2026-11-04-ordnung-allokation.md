@@ -413,3 +413,129 @@ Decided by the PO on 2026-11-04 (no longer open): `level` alias stays permanentl
 Still open:
 - O4: layout limits for very deep trees; measure in Task 5.1 and file an issue if the budget is missed.
 - Norm clause citations are unverified (R11); do not copy them into ADR-027 without checking the sources.
+
+---
+
+## Ausführungsstand 2026-11-06
+
+> **Status:** Umfang P0–P6 umgesetzt; die Live-E2E-Prüfung ist **unverifiziert**
+> (siehe 2.3). Dieser Abschnitt ist der maßgebliche Abschlussnachweis. Die
+> Schritt-Checkboxen oben wurden bewusst **nicht** nachträglich abgehakt — sie
+> bleiben der Planungsstand vom 2026-11-04.
+>
+> Branch: `feat/ordering-sort-key`. Referenz: ADR-027 (`accepted`).
+
+### 1. Abgeschlossener Umfang dieser Sitzung
+
+#### 1.1 P2.7 (Rest) — Stufen-Consumer
+
+- Das Requirement-REST-Payload liefert zusätzlich `tier_name`: schreibgeschützt,
+  aus der Workspace-Leiter aufgelöst, einmal pro Request gebatcht. `tier_key`
+  bleibt daneben bestehen, `level` bleibt der dauerhafte Integer-Alias.
+- Die Audit-Regeln lösen sich von der festen 1..4-Annahme: ARCH-003 und VERIF-P8
+  überspringen „L4“ nicht mehr; TRACE-P1/P1b/P2/P3 schließen L4 nicht mehr aus
+  (leaf-relative Stufen machen die letzte Stufe zu einem regulären Prüfobjekt).
+  CONS-P13 ist ersetzt durch „jedes aktive Requirement trägt einen
+  `level_source`“; CONS-P12 meldet den unaufgelösten Zustand unverändert.
+- Exporte (generischer Export, Requirement-Bundle, ReqIF) geben zusätzlich
+  `tier_key` + `tier_name` aus (eine Leiter-Auflösung pro Export); `level` bleibt
+  unverändert.
+
+#### 1.2 P4.4 (Rest) — Sperranzeige in beiden klassischen Bäumen
+
+- `RequirementList` und `ArchitectureEditors` lesen beim Mount einmal
+  `GET /api/v1/workspaces/{id}/locks/?type=requirement|architecture`. Die Antwort
+  `{locks: {<Entity-ID>: <Zustandsname>}}` wird zu einer Map Entity-ID →
+  Sperrzustand.
+- `WorkspaceTree` rendert ein Sperr-Symbol mit Tooltip, der den Zustandsnamen
+  nennt. Für gesperrte Zeilen sind Drag, Alt+↑/↓ und der „Verschieben…“-Dialog
+  deaktiviert.
+- Ein 409 zeigt den Zustandsnamen des Backends unverändert an.
+
+#### 1.3 Präferenz-Schlüssel statt localStorage
+
+- `ui.connection_view.saved_views` ist als `str_list` auf USER-Ebene registriert.
+- `ui.allocation_graph.card_fields` ist als `str_list` auf
+  GLOBAL/WORKSPACE/USER registriert; die Auflösung rangiert
+  user > workspace > global.
+- Die localStorage-Fallbacks für beide Schlüssel sind entfernt; ein
+  fehlgeschlagenes Speichern wird sichtbar gemacht (Toast bzw. Fehlerzustand).
+
+### 2. Verifikation
+
+#### 2.1 Backend
+
+| Lauf | Ergebnis |
+|---|---|
+| Volle Suite vor der letzten Fixrunde (4 Slices) | 14.869 passed / 13 failed / 1 error |
+| davon echt branchbedingt | 6 + 1 |
+| Ziel-Tests nach dem Fix | 7/7 grün |
+| Breite Gate-Läufe nach dem Fix | 684/684 und 692/692 grün |
+
+Die 6 echten Fehlschläge entstanden durch die neuen Attribute `tier_key` und
+`allocation_intent` gegen Serializer-, Transport- und i18n-Gates; der siebte war
+ein reihenfolgeabhängiger Seed-Isolationsfehler. Alle 7 sind behoben.
+
+Die verbleibenden 7 Fehlschläge waren ausschließlich umgebungsbedingt:
+
+- Redis-Alias: `redis` statt `redis-test`.
+- Repo-`.env` injizierte CSRF-/SESSION-Cookie-Flags.
+- Repo-Root-Dateien waren nicht unter `/app` gemountet.
+
+Gegenprobe ohne diese Umgebungseffekte bzw. mit gemountetem Repo-Root: grün
+(12/12 und 24/24).
+
+#### 2.2 Frontend
+
+| Lauf | Ergebnis |
+|---|---|
+| Volle Suite | 3.420/3.421 |
+| Ursache des einen Fehlers | Design-System-Ratchet: `CardFieldsSection.module.css`, `.iconButton` nutzte `--radius-sm` |
+| Fix | `--radius-btn` (gleicher gerenderter Wert) |
+| Nachverifikation | 40/40 grün, `tsc` Exit 0 |
+
+#### 2.3 E2E
+
+**Statisch:** Die drei Specs `connection-view`, `allocation-graph` und
+`tree-reorder` sammeln 6 Tests in 3 Dateien; keine Syntaxfehler, alle 34
+Selektoren lösen auf (keine fehlende `data-testid`).
+
+**Live-Lauf (versucht, nicht erfolgreich):** Alle 6 Tests scheiterten aus einem
+einzigen Grund: Die laufenden Container sind die Release-Images
+`1.8.0-beta.26`, **21 Commits hinter** dem Branch-HEAD, ohne Source-Mounts. Das
+ausgelieferte Bundle enthält keinen der neuen Testids, und
+`GET /workspaces/{id}/allocation-view/` sowie `/tiers/` antworten mit 404. Die
+Anmeldung über die Zugangsdaten aus `.env` funktionierte (kein 401).
+
+Das ist **kein Code-Fehler**. Vor einem aussagekräftigen Live-Lauf müssen
+Frontend und Backend aus dem Working Tree neu gebaut und neu gestartet werden.
+
+**Exakter Live-Aufruf:**
+
+```bash
+cd e2e
+FRONTEND_URL=http://localhost:5173 \
+BACKEND_URL=http://localhost:8001 \
+E2E_ADMIN_PASSWORD="$SYSTEM_ADMIN_PASSWORD" \
+npx playwright test tests/connection-view.spec.ts tests/allocation-graph.spec.ts tests/tree-reorder.spec.ts
+```
+
+**Voraussetzungen:**
+
+- Laufender Stack aus dem Working Tree (Frontend und Backend).
+- `E2E_ADMIN_PASSWORD` muss dem Passwort aus `SYSTEM_ADMIN_PASSWORD` entsprechen.
+- Geseedete Demo-Workspace (`manage.py seed_demo`, bei abweichendem Passwort
+  `--reset-password`).
+- Gebootstrappte globale Attributdefinitionen
+  (`manage.py bootstrap_attribute_definitions`); der Global-Setup prüft beides.
+
+**Status: UNVERIFIZIERT.** Der Live-Lauf ist nach dem Rebuild zu wiederholen.
+
+### 3. Offene Punkte
+
+- **O4 (Layout-Budget):** abgedeckt. `buildGraph.test.ts` legt 500 Zeilen aus
+  und prüft `< 1500 ms`.
+- **Norm-Zitat-Caveat (R11):** unverändert. Die Normstellen sind nicht geprüft
+  und wurden nicht in ADR-027 übernommen.
+
+Darüber hinaus sind keine Punkte offen.

@@ -314,6 +314,29 @@ BUILTIN_LINK_TYPES: dict[str, dict[str, Any]] = {
         "active": True,
         "built_in": True,
     },
+    "grouped-in": {
+        "label": {
+            "de": {
+                "downstream": "ist gruppiert in",
+                "upstream": "enthält",
+                "neutral": "Gruppenzugehörigkeit",
+            },
+            "en": {
+                "downstream": "is grouped in",
+                "upstream": "contains",
+                "neutral": "Group membership",
+            },
+        },
+        # P6 (V11): a requirement may be in several visual groups.
+        "allowed_pairs": _pairs(("Requirement", "Group")),
+        "coverage_relevant": False,
+        "suspect_rule": "none",
+        "impact_weight": 0.2,
+        "manual_creatable": True,
+        "system_owned": False,
+        "active": True,
+        "built_in": True,
+    },
     "verifies": {
         "label": {
             "de": {

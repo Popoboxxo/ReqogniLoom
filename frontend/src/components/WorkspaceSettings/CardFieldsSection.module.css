@@ -1,0 +1,131 @@
+/**
+ * P5 Task 5.2 — card-field settings editor styles (tokens only).
+ */
+
+.section {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  background: var(--color-surface-raised);
+}
+
+.heading {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-md);
+}
+
+.hint {
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.kindSwitcher {
+  display: inline-flex;
+  gap: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  padding: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.kindButton {
+  border-radius: var(--radius-full);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.kindButtonActive {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.status,
+.saved {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.saved {
+  color: var(--color-success);
+}
+
+.rowsRow,
+.addRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-2);
+}
+
+.rowsInput,
+.addSelect {
+  width: 6rem;
+}
+
+.fieldList {
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.fieldItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-size: var(--font-size-sm);
+}
+
+.fieldLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 1 1 auto;
+}
+
+.mandatory {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.fieldActions {
+  display: inline-flex;
+  gap: var(--space-1);
+}
+
+.iconButton {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-btn);
+  padding: 0 var(--space-1);
+  cursor: pointer;
+}
+
+.iconButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.error {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-left-width: 4px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-danger) 12%, var(--color-surface-raised));
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+}

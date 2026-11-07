@@ -34,11 +34,15 @@ _SEEDED_WORKSPACE_NAME = "SysEng Full-Chain Demo"
 def seeded_admin_client(db) -> tuple[APIClient, Workspace]:
     """Seed the full chain, then return an admin ``APIClient`` + its workspace.
 
-    Tenant determinism: the command resolves its tenant via
-    ``Tenant.objects.first()`` and takes no argument, so the fixture creates
-    exactly one ``Tenant`` (unique slug) in the rolled-back test database —
-    whichever row ``first()`` returns is then the one that owns the seeded
-    workspace.
+    Tenant determinism: the command takes no tenant argument and resolves both
+    the tenant and the well-known ``admin`` user itself (it seeds into the
+    admin's tenant, falling back to ``Tenant.objects.first()``). The fixture
+    therefore does **not** assume its own tenant wins — a module-scoped fixture
+    elsewhere in the suite can commit a ``Tenant``/``User`` pair *outside* the
+    per-test transaction, and this file's ``--reuse-db`` databases routinely
+    hold more than one tenant. It reads the tenant back from the workspace the
+    command actually produced, which is both order-independent and the only
+    tenant the coverage report below can legitimately be asked about.
 
     Context: the command is request-less and clears the armed tenant context in
     its own ``finally``, so the fixture re-arms it for the ``UserRole`` write
@@ -51,19 +55,17 @@ def seeded_admin_client(db) -> tuple[APIClient, Workspace]:
     """
     from django.core.management import call_command
 
-    tenant = Tenant.objects.create(
-        name="Full-Chain Coverage Tenant",
-        slug=f"full-chain-coverage-{uuid.uuid4().hex[:8]}",
-        is_active=True,
-    )
     call_command("seed_full_chain", verbosity=0)
+
+    # The command owns tenant selection, so the workspace it produced — not a
+    # fixture-chosen tenant — is the one the coverage report can legitimately be
+    # asked about. Pinning a fixture tenant here went red as soon as the
+    # database held a leftover tenant from another module.
+    workspace = Workspace.unscoped.get(name=_SEEDED_WORKSPACE_NAME)
+    tenant = Tenant.objects.get(pk=workspace.tenant_id)
 
     username = f"coverage-admin-{uuid.uuid4().hex[:8]}"
     try:
-        workspace = Workspace.unscoped.get(name=_SEEDED_WORKSPACE_NAME)
-        # Guard against the fixture silently measuring another tenant's seed.
-        assert workspace.tenant_id == tenant.id
-
         set_request_tenant(tenant.id)
         user = User.objects.create(
             username=username,

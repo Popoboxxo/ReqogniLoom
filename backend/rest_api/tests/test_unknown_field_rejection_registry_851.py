@@ -505,6 +505,55 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     "MetricValuesEnvelopeSerializer": "read-only response serializer (#1388)",
     "MetricCatalogueEntrySerializer": "read-only response serializer (#1388)",
     "MetricCatalogueSerializer": "read-only response serializer (#1388)",
+    # P2/P6: the flat allocation list and the visual-group surface. The four
+    # *Request* classes document bodies whose handlers read ``request.data``
+    # key-by-key (AllocationViewSet/GroupViewSet have no ``serializer_class``),
+    # so no serializer ever validates them — the same classification as the
+    # Diagram/Workflow/Icd request bodies above.
+    "AllocationRowSerializer": (
+        "read-only 200 row of GET /api/v1/allocations/ (P2); the route reads "
+        "its input from query parameters, never a request body"
+    ),
+    "AllocationMetaSerializer": (
+        "nested read-only counter block of AllocationListResponseSerializer"
+    ),
+    "AllocationListResponseSerializer": (
+        "read-only 200 body of GET /api/v1/allocations/ (P2); the route takes "
+        "its input from query parameters and accepts no request body at all"
+    ),
+    "GroupSerializer": "read-only 201/200 body of the visual-group routes (P6)",
+    "GroupListResponseSerializer": (
+        "read-only 200 body of GET /api/v1/groups/ (P6)"
+    ),
+    "GroupCreateRequestSerializer": (
+        "OpenAPI documentation-only serializer: POST /api/v1/groups/ reads "
+        "request.data key-by-key (no serializer validates it), so the class "
+        "describes the body but never guards it"
+    ),
+    "GroupMemberSerializer": (
+        "nested read-only membership row of GroupMembersResponseSerializer"
+    ),
+    "GroupMembersResponseSerializer": (
+        "read-only 200 body of GET/POST /api/v1/groups/{id}/members/"
+    ),
+    "GroupMemberAddRequestSerializer": (
+        "OpenAPI documentation-only serializer: POST "
+        "/api/v1/groups/{id}/members/ reads request.data key-by-key (no "
+        "serializer validates it)"
+    ),
+    "GroupMemberRemoveRequestSerializer": (
+        "OpenAPI documentation-only serializer: POST "
+        "/api/v1/groups/{id}/members/remove/ reads request.data key-by-key (no "
+        "serializer validates it)"
+    ),
+    "GroupMemberMoveRequestSerializer": (
+        "OpenAPI documentation-only serializer: POST "
+        "/api/v1/groups/{id}/members/move/ reads request.data key-by-key (no "
+        "serializer validates it)"
+    ),
+    "GroupMoveMemberResponseSerializer": (
+        "read-only 200 body of POST /api/v1/groups/{id}/members/move/"
+    ),
     # --- auth_tenancy.schema_serializers (#1388 burndown) ----------------
     # rest_item_permission / rest_workspace_members read request.data
     # directly and delegate to AuthorizationService; the *Request* classes

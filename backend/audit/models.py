@@ -156,6 +156,11 @@ class AuditEntry(TenantScopedModel):
     # over a DomainEventDLQ row, not a CRUD op on a business entity), so it
     # gets its own namespace — same reasoning as the ``ai.*`` family above.
     OP_EVENTS_REPLAY = "events.replay"
+    # P1 "Ordnung und Allokation": a reorder/reparent is a hierarchy write with
+    # no ordinary content edit behind it. Its own op keeps "who moved this and
+    # where to" answerable from the audit trail without reconstructing it from
+    # a generic ``update``. Fits the varchar(32) ``op`` column.
+    OP_REORDERED = "reordered"
     # #821: granting a per-blocker waiver on the SE-Auditor baseline gate is
     # its own governed act, not an ordinary baseline create: the audit query
     # "who accepted this deviation, when and why" must be answerable without
@@ -256,6 +261,7 @@ class AuditEntry(TenantScopedModel):
         (OP_ATTRIBUTE_MIGRATION_APPLY, "Attribute Migration Apply"),
         (OP_ATTRIBUTE_MIGRATION_ROLLBACK, "Attribute Migration Rollback"),
         (OP_EVENTS_REPLAY, "Events Replay"),
+        (OP_REORDERED, "Reordered"),
         (OP_BASELINE_WAIVER_CREATE, "Baseline Waiver Create"),
         (OP_BASELINE_PURGE, "Baseline Purge"),
         (OP_USER_MFA_ENROLL, "User MFA Enroll"),

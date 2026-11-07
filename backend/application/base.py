@@ -142,6 +142,38 @@ class ProducerContextRequiredError(ValidationError):
     error_code = "PRODUCER_CONTEXT_REQUIRED"
 
 
+class WorkflowFrozenError(ValidationError):
+    """A workflow state marked ``freeze_on_enter`` locks the artifact (P4).
+
+    The frozen artifact may not be moved, re-parented or (re-)allocated.
+    Answered with **409 WORKFLOW_FROZEN**; ``details`` carries the state name so
+    the client can explain *why* the write was refused.
+    """
+
+    error_code = "WORKFLOW_FROZEN"
+    http_status = 409
+
+    def __init__(self, message: str, state_name: str) -> None:
+        super().__init__(message)
+        self.message = message
+        self.details = {"state": state_name}
+
+
+class AllocationConflictError(ValidationError):
+    """A generic write tried to create a second ``allocated-to`` edge.
+
+    P2: allocation is N:1. ``TraceLinkService.allocate`` is the one service
+    that may replace an existing allocation (delete + insert in one
+    transaction); every other writer (generic TraceLink create, REST
+    ``/trace-links/``, MCP ``traceability.create_link``) must not silently
+    replace it. Answered with **409 CONFLICT** on REST and ``CONFLICT`` on MCP,
+    because the request is well-formed but conflicts with the current state.
+    """
+
+    error_code = "CONFLICT"
+    http_status = 409
+
+
 class FieldFrozenError(ValidationError):
     """Raised when a write touches a frozen field of a released document.
 

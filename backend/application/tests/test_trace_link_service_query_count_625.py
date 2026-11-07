@@ -190,6 +190,18 @@ class TestCreateTraceLinkIsNotArtifactNPlusOne:
             # comparison below reads backwards.
             resolve_catalog(workspace.id)
 
+            # Same one-time cost, different owner: the first hierarchy link
+            # recomputes requirement tiers, and the tier ladder is lazily
+            # seeded per workspace (TierLadderService.get -> _seed_if_empty:
+            # four WorkspaceTier rows in ~20 statements). That is per-workspace
+            # setup, not per-link work, so warm it here instead of letting it
+            # land in the first capture. Without this warm-up the first link
+            # measured 48 queries and every later one 28 — the difference is
+            # exactly the ladder seeding, no per-link query hid in it.
+            from application.tier_ladder_service import TierLadderService
+
+            TierLadderService().get(workspace.id)
+
             first_source = _artifact(tenant, workspace)
             first_target = _artifact(tenant, workspace)
             with CaptureQueriesContext(connection) as cap_first:
@@ -221,7 +233,12 @@ class TestCreateTraceLinkIsNotArtifactNPlusOne:
         finally:
             TenantContext.clear_tenant()
 
-        assert len(cap_last.captured_queries) == len(cap_first.captured_queries), (
+        # The intended property is "does not GROW with the number of links",
+        # not a brittle absolute equality: a one-time cost that is legitimately
+        # amortised (catalog / tier-ladder warm-up — see above) may still leave
+        # the later call at or below the first. A regression that reintroduces
+        # per-link work makes the populated-graph call exceed the first one.
+        assert len(cap_last.captured_queries) <= len(cap_first.captured_queries), (
             "creating a link into a populated graph issued "
             f"{len(cap_last.captured_queries)} queries vs "
             f"{len(cap_first.captured_queries)} for the first link — per-link "

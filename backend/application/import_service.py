@@ -110,6 +110,15 @@ _REQUIRED_FIELDS: dict[str, list[str]] = {
 # Valid entity types
 _VALID_ENTITY_TYPES = set(_REQUIRED_FIELDS.keys())
 
+# Derived, export-only columns that a round-trip CSV legitimately carries but
+# the importer must never consume: they are computed at export time from other
+# data, not model columns. ``tier_name`` is the workspace ladder's display label
+# for ``tier_key`` (P2/V4/V5) — importing it as a create kwarg would fail, and
+# re-deriving it from ``tier_key`` is the only correct behaviour. Excluding it
+# here keeps the export -> import round-trip warning-free instead of reporting
+# it as an "Unrecognized column".
+_DERIVED_EXPORT_COLUMNS: frozenset[str] = frozenset({"tier_name"})
+
 # Identity / audit columns handled specially by _insert_rows (not passed through
 # as plain content create kwargs).
 _IDENTITY_COLUMNS = frozenset(
@@ -1117,7 +1126,9 @@ class ImportService(ServiceBase):
         ignored rather than raising or being reported. This helper makes
         that gap visible so the caller can attach a warning.
         """
-        known = {col for col, _kind in ENTITY_FIELD_SPECS.get(entity_type, [])}
+        known = {
+            col for col, _kind in ENTITY_FIELD_SPECS.get(entity_type, [])
+        } | _DERIVED_EXPORT_COLUMNS
         return sorted(
             {
                 col

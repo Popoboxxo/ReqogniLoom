@@ -34,6 +34,7 @@ import { useHasRole } from '../../hooks/useHasRole';
 import { useCreateRequirement, useDeleteRequirement } from '../../queries/requirements';
 import { workspacesApi } from '../../api/workspaces';
 import { requirementsApi } from '../../api/requirements';
+import { artifactsApi } from '../../api/artifacts';
 import { extractApiErrorMessage } from '../../api/client';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { SplitView } from '../SplitView/SplitView';
@@ -41,6 +42,8 @@ import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
 import { RequirementList } from './RequirementList';
+import { GroupManager } from './GroupManager';
+import { useRequirementGroups } from './useRequirementGroups';
 import { RequirementArtifactForm, REQUIREMENT_ATTRIBUTE_OVERRIDES } from './RequirementArtifactForm';
 import { ArtifactForm, type ArtifactFormValues } from '../shared/ArtifactForm';
 import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
@@ -98,6 +101,53 @@ export default function RequirementEditors(): JSX.Element {
     error,
     refresh,
   } = useRequirementData(selectedId, { includeDeleted });
+
+  // P6 Task 6.3: visual groups. Loaded here (not in RequirementList) so the
+  // list itself stays free of group API state and its focused unit tests keep
+  // rendering without mocks; viewers get the read-only pseudo-folders, editors
+  // additionally get the manager panel below.
+  const requirementGroups = useRequirementGroups(
+    activeWorkspace?.id ?? null,
+    requirements,
+  );
+
+  /**
+   * P1 Task 1.7: the tree addresses nodes by Requirement id, the move route by
+   * backing Artifact id. Both id spaces exist side by side here (the very
+   * confusion the plan's risk R1 names), so the mapping is explicit rather than
+   * a cast: a node whose artifact_id has not been loaded falls back to its own
+   * id, which is what the pre-P1 reparent call effectively used.
+   */
+  const artifactIdByRequirementId = useMemo(
+    () =>
+      new Map<string, string>(
+        requirements.map((req) => [req.id, req.artifact_id ?? req.id]),
+      ),
+    [requirements],
+  );
+
+  const handleReorder = useCallback(
+    async (
+      id: string,
+      newParentId: string | null,
+      afterId: string | null | undefined,
+    ): Promise<void> => {
+      const toArtifactId = (nodeId: string | null): string | null =>
+        nodeId === null
+          ? null
+          : (artifactIdByRequirementId.get(nodeId) ?? nodeId);
+      const artifactId = toArtifactId(id);
+      if (artifactId === null) return;
+      await artifactsApi.move(artifactId, {
+        parent_id: toArtifactId(newParentId),
+        ...(afterId === undefined
+          ? {}
+          : { after_id: toArtifactId(afterId) }),
+      });
+      refresh();
+    },
+    [artifactIdByRequirementId, refresh],
+  );
 
   // Task 25: custom_fields is a free-form JSON blob the definition-driven
   // RequirementArtifactForm cannot render (no `kind: "extended"` attribute
@@ -684,6 +734,24 @@ export default function RequirementEditors(): JSX.Element {
         selectedId={selectedId}
         onSelect={selectRequirement}
         onDelete={handleDelete}
+        onReorder={handleReorder}
+        // P6 Task 6.3: groups as pseudo-folders in the requirement tree, plus
+        // the admin panel for editors. Viewers only get the read-only view.
+        groups={requirementGroups.treeGroups}
+        onReorderGroupMember={requirementGroups.reorderMember}
+        groupPanel={
+          hasRole('editor') ? (
+            <GroupManager
+              groups={requirementGroups.managerGroups}
+              requirements={requirements}
+              isLoading={requirementGroups.isLoading}
+              error={requirementGroups.error}
+              onCreate={requirementGroups.createGroup}
+              onAddMember={requirementGroups.addMember}
+              onRemoveMember={requirementGroups.removeMember}
+            />
+          ) : undefined
+        }
         onCreateNew={() => {
           setCreateError(null);
           setShowCreateForm(true);

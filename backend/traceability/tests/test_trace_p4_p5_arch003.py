@@ -152,28 +152,24 @@ class TestTraceP5:
         assert str(child_artifact.id) in findings[0].artifact_ids
         assert str(parent_artifact.id) in findings[0].artifact_ids
 
-    def test_l4_requirement_decomposition_is_skipped(self, tenant_a, workspace_a):
-        """L4 (Presentation) is explicitly out-of-scope for the whole matrix."""
-        from persistence.models import Requirement
-
+    def test_last_tier_decomposition_is_still_checked(self, tenant_a, workspace_a):
+        """P2 retires the old L4 skip: leaf-relative tiers put every leaf on the
+        last position, so the skip would exempt the whole decomposition graph."""
         with active_tenant(tenant_a):
-            parent_artifact, parent_req = make_requirement(
+            parent_artifact, _ = make_requirement(
                 tenant_a, workspace_a, title="Parent Req"
             )
-            child_artifact, child_req = make_requirement(
+            child_artifact, _ = make_requirement(
                 tenant_a, workspace_a, title="Child Req"
             )
-            child_req.level = RequirementLevel.L4_PRESENTATION
-            child_req.save(update_fields=["level"])
             make_trace_link(
                 parent_artifact, child_artifact, tenant_a, LinkType.DECOMPOSES.value
             )
-            # deliberately no derives-from link back — would fail without the
-            # L4 skip
+            # deliberately no derives-from link back
 
             result = _run(tenant_a, workspace_a)
 
-        assert _findings(result, TRACE_P5) == []
+        assert len(_findings(result, TRACE_P5)) == 1
 
     def test_standard_preset_does_not_run_p5(self, tenant_a, workspace_a):
         with active_tenant(tenant_a):

@@ -1,19 +1,24 @@
 /**
- * WorkspaceTree — opt-in drag & drop reparenting (FE-01 extraction).
+ * WorkspaceTree — opt-in drag & drop reordering and reparenting (FE-01 extraction).
  *
- * Native HTML5 drag & drop, enabled only when a consumer passes `onReparent`.
- * Extracted from `workspace-tree.tsx` so the drag state machine, the cycle
- * guard and the row/root-dropzone wiring live in one place instead of being
- * interleaved with the tree's rendering. The row and root-dropzone *JSX* stays
- * in `workspace-tree.tsx` (the `ui-ratchet` design-system baseline is pinned to
- * that file), this module owns the behaviour behind it.
+ * Native HTML5 drag & drop, enabled only when a consumer passes `onReparent`
+ * and/or `onReorder`. Extracted from `workspace-tree.tsx` so the drag state
+ * machine, the cycle guard and the row/root-dropzone wiring live in one place
+ * instead of being interleaved with the tree's rendering. The row and
+ * root-dropzone *JSX* stays in `workspace-tree.tsx` (the `ui-ratchet`
+ * design-system baseline is pinned to that file), this module owns the
+ * behaviour behind it.
  *
- * Contract (unchanged from the in-component version):
- *   - `onReparent` is opt-in; without it nothing is draggable and no handlers
- *     are attached (see the prop docs in `workspace-tree.tsx`).
- *   - Dropping a node on itself, on its current parent or into its own subtree
- *     is swallowed here and never reaches the callback (see
- *     `collectSelfAndDescendantIds` — a cycle makes a subtree unreachable).
+ * Contract:
+ *   - Both callbacks are opt-in; without either, nothing is draggable and no
+ *     handlers are attached (see the prop docs in `workspace-tree.tsx`).
+ *   - `onReparent` is the pre-P1 contract ("make this the parent"); it stays
+ *     supported for callers that only re-parent.
+ *   - `onReorder` additionally carries the position inside the new parent
+ *     (`afterId`, see `tree-reorder.ts`) and wins when both are supplied.
+ *   - Dropping a node on itself or into its own subtree is swallowed here and
+ *     never reaches a callback (see `collectSelfAndDescendantIds` — a cycle
+ *     makes a subtree unreachable).
  *   - `ROOT_DROP_TARGET` is a sentinel for the root dropzone; node ids come
  *     from the API, so a reserved non-UUID string cannot collide with one.
  */
@@ -28,6 +33,10 @@ import {
   collectSelfAndDescendantIds,
   type HierarchyRef,
 } from './tree-hierarchy';
+import {
+  type TreeDropPosition,
+  resolveDropTarget,
+} from './tree-reorder';
 
 /**
  * Sentinel drop-target id for the root dropzone. Not a node id — node ids come
@@ -35,19 +44,47 @@ import {
  */
 export const ROOT_DROP_TARGET = '__root__';
 
+/** Fraction of the row height on each edge that means "insert before/after". */
+const DROP_EDGE_RATIO = 0.25;
+
+/**
+ * Classifies the pointer position over a row: the outer quarters act as
+ * "insert before/after", the middle third as "drop into".
+ *
+ * jsdom reports a zero-height rect, so unit tests that need an edge override
+ * `getBoundingClientRect` on the row; the fallback keeps the previous
+ * behaviour (drop onto the row = make it the parent) there.
+ */
+export function dropPositionFromPointer(
+  element: Element | null,
+  clientY: number,
+): TreeDropPosition {
+  if (!element || typeof element.getBoundingClientRect !== 'function') {
+    return 'inside';
+  }
+  const rect = element.getBoundingClientRect();
+  if (rect.height <= 0) return 'inside';
+  const ratio = (clientY - rect.top) / rect.height;
+  if (ratio < DROP_EDGE_RATIO) return 'before';
+  if (ratio > 1 - DROP_EDGE_RATIO) return 'after';
+  return 'inside';
+}
+
 export interface TreeDragController {
-  /** True when the consumer opted in via `onReparent`. */
+  /** True when the consumer opted in via `onReparent` or `onReorder`. */
   dndEnabled: boolean;
   /** Id of the node currently being dragged, or `null`. */
   draggingId: string | null;
   /** Current drop target id; `ROOT_DROP_TARGET` marks the root dropzone. */
   dropTargetId: string | null;
+  /** Which zone of the hovered row the pointer is in (reorder mode only). */
+  dropPosition: TreeDropPosition | null;
   /** Row wiring, `undefined` when D&D is off (rows then render unchanged). */
   rowDragProps: TreeRowDragProps | undefined;
   /**
-   * Shared move entry point for the pointer drop and the keyboard "Move…"
-   * dialog. Runs the client-side guards and returns whether `onReparent` was
-   * invoked (i.e. whether the move was forwarded).
+   * Shared move entry point for the keyboard "Move…" dialog. With `onReorder`
+   * the target is appended as the last child of `newParentId`; with only
+   * `onReparent` it is the pre-P1 reparent call.
    */
   reparent: (draggedId: string, newParentId: string | null) => boolean;
   /** Root dropzone is only mounted while `draggingId` is set. */
@@ -60,26 +97,48 @@ export interface TreeDragController {
 export interface TreeRowDragProps {
   draggingId: string | null;
   dropTargetId: string | null;
+  dropPosition: TreeDropPosition | null;
   onDragStartRow: (e: ReactDragEvent, id: string) => void;
   onDragOverRow: (e: ReactDragEvent, id: string) => void;
   onDragLeaveRow: (e: ReactDragEvent, id: string) => void;
-  onDropRow: (e: ReactDragEvent, newParentId: string | null) => void;
+  onDropRow: (e: ReactDragEvent, id: string) => void;
   onDragEndRow: () => void;
 }
 
 /**
- * Wires up the drag & drop reparenting state for one tree.
+ * Wires up the drag & drop reordering state for one tree.
  *
- * @param nodes       Flat hierarchy the tree renders.
- * @param onReparent  Opt-in callback; omitting it disables D&D entirely.
+ * @param nodes       Flat hierarchy the tree renders (in render order).
+ * @param onReparent  Pre-P1 callback; omitted disables plain reparenting.
+ * @param onReorder   Positional callback; when given it takes precedence.
  */
 export function useTreeDrag(
   nodes: readonly HierarchyRef[],
   onReparent?: (id: string, newParentId: string | null) => void,
+  onReorder?: (
+    id: string,
+    newParentId: string | null,
+    afterId: string | null | undefined,
+  ) => void,
+  /**
+   * P4.4: ids whose workflow state locks position/parent editing. They never
+   * become a drag source and never forward a move. Dropping *onto* a locked
+   * row is deliberately still allowed: that write belongs to the dragged
+   * artifact, not to the frozen one (the backend remains the authority).
+   */
+  lockedIds?: ReadonlySet<string>,
 ): TreeDragController {
-  const dndEnabled = Boolean(onReparent);
+  const dndEnabled = Boolean(onReparent || onReorder);
+  const reorderEnabled = Boolean(onReorder);
+  const isLocked = useCallback(
+    (id: string): boolean => lockedIds?.has(id) ?? false,
+    [lockedIds],
+  );
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [dropPosition, setDropPosition] = useState<TreeDropPosition | null>(
+    null,
+  );
 
   const parentById = useMemo((): Map<string, string | null> => {
     const map = new Map<string, string | null>();
@@ -90,6 +149,7 @@ export function useTreeDrag(
   const resetDrag = useCallback((): void => {
     setDraggingId(null);
     setDropTargetId(null);
+    setDropPosition(null);
   }, []);
 
   /**
@@ -103,11 +163,17 @@ export function useTreeDrag(
 
   const handleDragStart = useCallback(
     (e: ReactDragEvent, id: string): void => {
+      // P4.4: a locked artifact cannot be moved — never start the drag, so the
+      // row shows no drag affordance and no drop indicator can appear.
+      if (isLocked(id)) {
+        e.preventDefault();
+        return;
+      }
       e.dataTransfer?.setData('text/plain', id);
       if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
       setDraggingId(id);
     },
-    [],
+    [isLocked],
   );
 
   const handleDragOverTarget = useCallback(
@@ -119,8 +185,13 @@ export function useTreeDrag(
       e.preventDefault();
       if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
       setDropTargetId((prev) => (prev === targetId ? prev : targetId));
+      setDropPosition(
+        reorderEnabled
+          ? dropPositionFromPointer(e.currentTarget, e.clientY)
+          : 'inside',
+      );
     },
-    [draggingId, forbiddenDropTargetIds],
+    [draggingId, forbiddenDropTargetIds, reorderEnabled],
   );
 
   const handleDragLeaveTarget = useCallback(
@@ -137,16 +208,21 @@ export function useTreeDrag(
   );
 
   /**
-   * Applies the client-side no-op guards and forwards the move to `onReparent`.
-   *
-   * Shared by the pointer drop and the keyboard "Move…" dialog so both paths
-   * swallow exactly the same cases (same parent, the node itself, its own
-   * subtree) instead of one of them drifting from the other. Returns whether
-   * the callback was invoked.
+   * Applies the client-side no-op guards and forwards the move. Shared by the
+   * pointer drop and the keyboard path so both swallow the same cases.
+   * Returns whether a callback was invoked.
    */
   const reparent = useCallback(
     (draggedId: string, newParentId: string | null): boolean => {
-      if (!draggedId || !onReparent) return false;
+      if (!draggedId) return false;
+      // P4.4: the "Move…" dialog must not become a bypass around the lock.
+      if (isLocked(draggedId)) return false;
+      if (onReorder) {
+        // The dialog has no position control: append under the chosen parent.
+        onReorder(draggedId, newParentId, undefined);
+        return true;
+      }
+      if (!onReparent) return false;
       // Dropping onto the parent it already has moves nothing.
       if ((parentById.get(draggedId) ?? null) === newParentId) return false;
       // Moving a node onto itself or into its own subtree would close a cycle.
@@ -160,19 +236,38 @@ export function useTreeDrag(
       onReparent(draggedId, newParentId);
       return true;
     },
-    [nodes, parentById, onReparent],
+    [nodes, parentById, onReparent, onReorder, isLocked],
   );
 
+  /**
+   * Forwards a positional move. The no-op/cycle guards live in
+   * `predictReorder` (inside the tree's own wrapper), so the drag path and the
+   * keyboard path cannot disagree about what a valid move is.
+   */
   const handleDrop = useCallback(
-    (e: ReactDragEvent, newParentId: string | null): void => {
+    (e: ReactDragEvent, rowTargetId: string | null): void => {
       e.preventDefault();
       e.stopPropagation();
       const draggedId = e.dataTransfer?.getData('text/plain') || draggingId;
+      const position = dropPositionFromPointer(e.currentTarget, e.clientY);
       resetDrag();
       if (!draggedId) return;
-      reparent(draggedId, newParentId);
+      // P4.4: belt and braces — an in-flight drag from before the node became
+      // locked must not forward a move either.
+      if (isLocked(draggedId)) return;
+
+      if (onReorder) {
+        const target =
+          rowTargetId === null
+            ? { newParentId: null, afterId: undefined }
+            : resolveDropTarget(nodes, draggedId, rowTargetId, position);
+        if (target) onReorder(draggedId, target.newParentId, target.afterId);
+        return;
+      }
+
+      reparent(draggedId, rowTargetId);
     },
-    [draggingId, resetDrag, reparent],
+    [draggingId, nodes, onReorder, reparent, resetDrag, isLocked],
   );
 
   const handleRootDragOver = useCallback((e: ReactDragEvent): void => {
@@ -181,6 +276,7 @@ export function useTreeDrag(
     setDropTargetId((prev) =>
       prev === ROOT_DROP_TARGET ? prev : ROOT_DROP_TARGET,
     );
+    setDropPosition(null);
   }, []);
 
   const handleRootDragLeave = useCallback((e: ReactDragEvent): void => {
@@ -191,6 +287,8 @@ export function useTreeDrag(
 
   const handleRootDrop = useCallback(
     (e: ReactDragEvent): void => {
+      // The root dropzone always means "top level"; with reorder enabled the
+      // node is appended to the roots (an omitted `after_id`).
       handleDrop(e, null);
     },
     [handleDrop],
@@ -200,6 +298,7 @@ export function useTreeDrag(
     ? {
         draggingId,
         dropTargetId,
+        dropPosition,
         onDragStartRow: handleDragStart,
         onDragOverRow: handleDragOverTarget,
         onDragLeaveRow: handleDragLeaveTarget,
@@ -212,6 +311,7 @@ export function useTreeDrag(
     dndEnabled,
     draggingId,
     dropTargetId,
+    dropPosition,
     rowDragProps,
     reparent,
     onRootDragOver: handleRootDragOver,

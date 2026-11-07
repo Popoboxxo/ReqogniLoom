@@ -74,6 +74,12 @@ vi.mock("../api/architecture", () => ({
   },
 }));
 
+vi.mock("../api/artifacts", () => ({
+  artifactsApi: {
+    move: vi.fn(),
+  },
+}));
+
 vi.mock("../api/tracelinks", () => ({
   tracelinksApi: {
     list: vi.fn(),
@@ -132,6 +138,7 @@ vi.mock("../api/workflow-transitions", () => ({
 // Must import AFTER vi.mock
 import ArchitectureEditors from "../components/ArchitectureEditors/ArchitectureEditors";
 import { architectureApi } from "../api/architecture";
+import { artifactsApi } from "../api/artifacts";
 import { tracelinksApi } from "../api/tracelinks";
 import { requirementsApi } from "../api/requirements";
 import { attributeDefinitionsApi } from "../api/attribute-definitions";
@@ -626,7 +633,7 @@ describe("ArchitectureEditors — drag & drop reparenting", () => {
       SECOND_ELEMENT,
     ] as any);
     vi.mocked(architectureApi.get).mockResolvedValue(ROOT_ELEMENT as any);
-    vi.mocked(architectureApi.reparent).mockResolvedValue(SECOND_ELEMENT as any);
+    vi.mocked(artifactsApi.move).mockResolvedValue(SECOND_ELEMENT as any);
     vi.mocked(requirementsApi.list).mockResolvedValue({
       results: [],
       count: 0,
@@ -646,10 +653,9 @@ describe("ArchitectureEditors — drag & drop reparenting", () => {
     await dragElementOnto("arch-002", "arch-001");
 
     await waitFor(() =>
-      expect(architectureApi.reparent).toHaveBeenCalledWith(
-        "arch-002",
-        "arch-001"
-      )
+      expect(artifactsApi.move).toHaveBeenCalledWith("arch-002", {
+        parent_id: "arch-001",
+      })
     );
   });
 
@@ -676,14 +682,16 @@ describe("ArchitectureEditors — drag & drop reparenting", () => {
     fireEvent.drop(dropzone, { dataTransfer });
 
     await waitFor(() =>
-      expect(architectureApi.reparent).toHaveBeenCalledWith("arch-003", null)
+      expect(artifactsApi.move).toHaveBeenCalledWith("arch-003", {
+        parent_id: null,
+      })
     );
   });
 
   it("shows the server's reason inline when the reparent is refused", async () => {
     // The backend owns the hierarchy invariant (cycles, depth); the tree
     // forwards such drops deliberately instead of second-guessing it.
-    vi.mocked(architectureApi.reparent).mockRejectedValueOnce({
+    vi.mocked(artifactsApi.move).mockRejectedValueOnce({
       error: {
         code: "VALIDATION_ERROR",
         message: "Validation failed.",
@@ -712,7 +720,7 @@ describe("ArchitectureEditors — drag & drop reparenting", () => {
 
     await dragElementOnto("arch-002", "arch-002");
 
-    expect(architectureApi.reparent).not.toHaveBeenCalled();
+    expect(artifactsApi.move).not.toHaveBeenCalled();
   });
 
   it("does not call the API when an element is dropped on its own descendant", async () => {
@@ -750,7 +758,7 @@ describe("ArchitectureEditors — drag & drop reparenting", () => {
 
     await dragElementOnto("arch-001", "arch-004");
 
-    expect(architectureApi.reparent).not.toHaveBeenCalled();
+    expect(artifactsApi.move).not.toHaveBeenCalled();
   });
 
   it("uses the unified + New Architecture Element trigger label instead of bare Erstellen", async () => {

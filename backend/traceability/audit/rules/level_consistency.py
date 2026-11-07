@@ -1,40 +1,46 @@
 """
-CONS-P12 / CONS-P13 — V-model level consistency (#1289).
+CONS-P12 / CONS-P13 — requirement tier consistency (P2, V4/V6/B10).
 
-``Requirement.level`` is derived (ADR-005): from the requirement hierarchy on
-every hierarchy write. #1289 adds the *architecture* axis (an ``allocated-to``
-link to an ``ArchitectureElement`` maps the element's tree depth to a cascade
-level) and two advisory rules that make the resulting gaps visible:
+``Requirement.tier_key`` is the stable ladder key computed leaf-relative from
+the workspace's tier ladder; ``Requirement.level`` is its **permanent integer
+alias** (position + 1) and ``Requirement.level_source`` records where the value
+came from (``derived_allocation``, ``derived_hierarchy``, ``derived_type``,
+``unresolved`` or ``manual``). There is no fixed 1..4 V-model assumption any
+more — the ladder is per workspace and of arbitrary length (V4).
 
-* **CONS-P12** — a Requirement whose ``level`` is NULL: neither the requirement
-  hierarchy nor an architecture allocation determines a level. This is the
-  honest "not derivable" state (never guessed), reported so it can be resolved
-  by hand or by adding a missing allocation.
-* **CONS-P13** — a Requirement whose stored ``level`` disagrees with the level
-  implied by its architecture allocation depth. A conflict between the two
-  sources means one of them is stale.
+Two advisory rules make the resulting gaps visible:
+
+* **CONS-P12** — a Requirement whose tier is not determinable: its
+  ``level_source`` is ``unresolved`` and/or its ``level`` alias is NULL. That is
+  the honest "no allocation, no derivable parent, no type default" state (never
+  guessed), reported so it can be resolved by hand or by adding a missing
+  allocation/parent.
+* **CONS-P13** — a Requirement whose ``level_source`` is empty/None. Every
+  active Requirement must carry a provenance value: an empty source means the
+  leaf-relative recompute never ran for the row (or a direct ORM/import write
+  bypassed it), which is a data-integrity gap independent of the tier itself.
 
 Both are **advisory (WARNING) at every tier they run in**: they describe a
 corpus gap, not a broken artifact, and a BLOCKER would retroactively block the
 baseline gate of every workspace whose Requirements predate the derivation
-(ADR-005) or the allocation (the #581 calibration lesson). CONS-P12 runs at
-standard + extended; the stricter architecture-conflict rule (CONS-P13) is
+(ADR-005) or the ladder (P2) — the #581 calibration lesson. CONS-P12 runs at
+standard + extended; the stricter data-integrity guard (CONS-P13) is
 extended-only.
 
-The rules read the graph through the shared :class:`AuditContext` and the
-existing derivation helpers — they never re-implement hierarchy or architecture
-resolution.
+The rules read the graph through the shared :class:`AuditContext`; they never
+re-implement hierarchy or architecture resolution (the old CONS-P13 compared
+``level`` with architecture depth, which the leaf-relative ladder retired).
 """
 from __future__ import annotations
 
-from traceability.audit.hierarchy import architecture_allocated_levels
+from persistence.models import RequirementLevelSource
 from traceability.audit.registry import CONS_P12, CONS_P13, Rule, register_rule
 from traceability.audit.types import AuditContext, Finding, Severity
 from workflow.services import outdated_item_ids
 
 
 def _active_requirements(context: AuditContext) -> dict[str, dict]:
-    """Return ``{artifact_id: {"uid", "level"}}`` for the workspace's active rows.
+    """Return ``{artifact_id: {"uid", "level", "level_source"}}`` for active rows.
 
     Memoised on the audit context (#1385): CONS-P12 and CONS-P13 both project
     the same rows, so the query runs once per engine context.
@@ -61,42 +67,35 @@ def _compute_active_requirements(context: AuditContext) -> dict[str, dict]:
             artifact__workspace_id=context.workspace_id,
         )
         .exclude(id__in=outdated_item_ids("Requirement", tenant_id=context.tenant_id))
-        .values("artifact_id", "uid", "level")
+        .values("artifact_id", "uid", "level", "level_source")
     )
     return {
-        str(row["artifact_id"]): {"uid": row["uid"], "level": row["level"]}
+        str(row["artifact_id"]): {
+            "uid": row["uid"],
+            "level": row["level"],
+            "level_source": row["level_source"],
+        }
         for row in qs
         if row["artifact_id"] is not None
     }
 
 
-def _architecture_levels(context: AuditContext) -> dict[str, int | None]:
-    """Return ``{requirement_artifact_id: architecture_level}`` for the tenant.
-
-    Thin string-keyed projection of
-    :func:`traceability.audit.hierarchy.architecture_allocated_levels` so the
-    rules can look a requirement up by the (string) artifact id the audit graph
-    uses. Only Requirements allocated to at least one element appear.
-    """
-    levels = architecture_allocated_levels(context.tenant_id)
-    return {str(artifact_id): level for artifact_id, level in levels.items()}
-
-
 @register_rule
 class RequirementLevelNullRule(Rule):
-    """CONS-P12: a Requirement whose V-model level is NULL."""
+    """CONS-P12: a Requirement whose tier is not determinable."""
 
     rule_id = CONS_P12
     is_scope_aware = False
 
-    title = "Requirement has no V-model level"
+    title = "Requirement has no determinable tier"
     description = (
-        "Requirement.level is derived from the requirement hierarchy and from an "
-        "'allocated-to' architecture allocation. A NULL level means neither "
-        "source determines one — the requirement sits in no V-model tier, which "
-        "makes level-based SE reports incomplete."
+        "A Requirement's tier is computed leaf-relative from its allocation, "
+        "its derivable parent or a type default. 'unresolved' (with a NULL "
+        "level alias) means none of those sources determines one — the "
+        "requirement sits in no ladder position, which makes tier-based SE "
+        "reports incomplete."
     )
-    standard_ref = "ADR-005 / #1289 (derived V-model level)"
+    standard_ref = "P2 V4/V6 / B10 (leaf-relative tier ladder)"
     remediation_hint = (
         "Decompose the requirement under a parent, allocate it to an "
         "ArchitectureElement, or set an explicit manual override."
@@ -111,7 +110,10 @@ class RequirementLevelNullRule(Rule):
         findings: list[Finding] = []
         for artifact_id in sorted(requirements):
             row = requirements[artifact_id]
-            if row["level"] is not None:
+            if (
+                row["level"] is not None
+                and row["level_source"] != RequirementLevelSource.UNRESOLVED
+            ):
                 continue
             label = row["uid"] or artifact_id
             findings.append(
@@ -119,9 +121,9 @@ class RequirementLevelNullRule(Rule):
                     rule_id=self.rule_id,
                     severity=Severity.WARNING,
                     message=(
-                        f"[CONS-P12] Requirement '{label}' ({artifact_id}) has a "
-                        "NULL V-model level — no hierarchy parent and no "
-                        "'allocated-to' architecture allocation determine one."
+                        f"[CONS-P12] Requirement '{label}' ({artifact_id}) has no "
+                        "determinable tier — no allocation, no derivable parent "
+                        "and no type default determine one."
                     ),
                     artifact_ids=(artifact_id,),
                 )
@@ -130,43 +132,36 @@ class RequirementLevelNullRule(Rule):
 
 
 @register_rule
-class RequirementLevelArchitectureMismatchRule(Rule):
-    """CONS-P13: ``level`` disagrees with the architecture allocation depth."""
+class RequirementLevelSourceMissingRule(Rule):
+    """CONS-P13: an active Requirement has no ``level_source`` provenance."""
 
     rule_id = CONS_P13
     is_scope_aware = False
 
-    title = "Requirement level contradicts architecture depth"
+    title = "Requirement has no level source"
     description = (
-        "The stored Requirement.level must agree with the V-model level implied "
-        "by the depth of the ArchitectureElement the requirement is allocated "
-        "to. A disagreement means the level or the allocation is stale."
+        "Every active Requirement must carry a level_source "
+        "(derived_allocation, derived_hierarchy, derived_type, unresolved or "
+        "manual). An empty source means the leaf-relative tier recompute never "
+        "ran for the row, or a direct ORM/import write bypassed it — a "
+        "data-integrity gap independent of the tier value itself."
     )
-    standard_ref = "ADR-005 / #1289 (architecture depth -> cascade level)"
+    standard_ref = "P2 V4/V6 / B10 (tier provenance)"
     remediation_hint = (
-        "Re-derive the level (move the requirement or re-run the level backfill) "
-        "or correct the allocation to an element at the intended depth."
+        "Re-run the tier recompute for the workspace (it writes level_source "
+        "for every row), or set the source explicitly."
     )
 
     def severity_for_tier(self, tier: str) -> Severity:
-        """Always WARNING — advisory conflict report, never a baseline block."""
+        """Always WARNING — a data-integrity guard, never a baseline block."""
         return Severity.WARNING
 
     def check(self, context: AuditContext) -> list[Finding]:
         requirements = _active_requirements(context)
-        if not requirements:
-            return []
-
-        architecture_levels = _architecture_levels(context)
         findings: list[Finding] = []
-        for artifact_id in sorted(architecture_levels):
-            architecture_level = architecture_levels[artifact_id]
-            if architecture_level is None:
-                continue
-            row = requirements.get(artifact_id)
-            if row is None or row["level"] is None:
-                continue
-            if row["level"] == architecture_level:
+        for artifact_id in sorted(requirements):
+            row = requirements[artifact_id]
+            if row["level_source"]:
                 continue
             label = row["uid"] or artifact_id
             findings.append(
@@ -174,9 +169,8 @@ class RequirementLevelArchitectureMismatchRule(Rule):
                     rule_id=self.rule_id,
                     severity=Severity.WARNING,
                     message=(
-                        f"[CONS-P13] Requirement '{label}' ({artifact_id}) has "
-                        f"level={row['level']} but its architecture allocation "
-                        f"implies level={architecture_level}."
+                        f"[CONS-P13] Requirement '{label}' ({artifact_id}) has no "
+                        "level_source — its tier provenance is empty."
                     ),
                     artifact_ids=(artifact_id,),
                 )
@@ -185,6 +179,6 @@ class RequirementLevelArchitectureMismatchRule(Rule):
 
 
 __all__ = [
-    "RequirementLevelArchitectureMismatchRule",
     "RequirementLevelNullRule",
+    "RequirementLevelSourceMissingRule",
 ]

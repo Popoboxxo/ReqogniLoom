@@ -29,8 +29,12 @@ SPEC-OBJECT-TYPEs (one per exported artifact type)
                            into a single opaque STRING attribute — see
                            "Known limitations" below.
 
-  Requirement-only attribute:
+  Requirement-only attributes:
     ATTR-VERIFICATION-METHOD <- Requirement.verification_method
+    ATTR-TIER-KEY            <- Requirement.tier_key (stable ladder key)
+    ATTR-TIER-NAME           <- the workspace ladder entry's display label
+                                (P2/V4/V5; ``level`` stays the internal
+                                integer alias and is not exported)
 
   StakeholderNeed-only attribute:
     ATTR-MOSCOW-PRIORITY <- StakeholderNeed.moscow_priority
@@ -251,6 +255,10 @@ _ATTR_CATEGORY = "ATTR-CATEGORY"
 _ATTR_CUSTOM_FIELDS = "ATTR-CUSTOM-FIELDS"
 _ATTR_VERIFICATION_METHOD = "ATTR-VERIFICATION-METHOD"
 _ATTR_MOSCOW_PRIORITY = "ATTR-MOSCOW-PRIORITY"
+#: P2/V4/V5 — the Requirement's tier: stable ladder key plus the ladder's
+#: display label. Requirement-only (a StakeholderNeed carries no tier).
+_ATTR_TIER_KEY = "ATTR-TIER-KEY"
+_ATTR_TIER_NAME = "ATTR-TIER-NAME"
 
 # INT-06 finding 076: the ReqIF XSD declares LAST-CHANGE (xsd:dateTime) and,
 # for DATATYPE-DEFINITION-STRING, MAX-LENGTH as *required* on the elements this
@@ -512,6 +520,8 @@ class ReqifExportService(ServiceBase):
                     "Verification Method",
                     last_change,
                 ),
+                cls._attribute_definition(_ATTR_TIER_KEY, "Tier Key", last_change),
+                cls._attribute_definition(_ATTR_TIER_NAME, "Tier Name", last_change),
             ],
         )
 
@@ -589,6 +599,17 @@ class ReqifExportService(ServiceBase):
         need_initial_state = state_reader.initial_state("StakeholderNeed")
         req_initial_state = state_reader.initial_state("Requirement")
 
+        # P2/V4/V5: one ladder lookup per export (never per Requirement), so
+        # every SPEC-OBJECT can publish its tier_key and the ladder display
+        # name next to it.
+        from application.export_service import tier_display_name
+        from application.tier_ladder_service import TierLadderService
+
+        tier_names = {
+            entry.tier_key: tier_display_name(entry)
+            for entry in TierLadderService().get(workspace_id).entries
+        }
+
         now = last_change if last_change is not None else _now_iso()
         for need in needs:
             exported_ids[need.artifact_id] = "StakeholderNeed"
@@ -616,6 +637,7 @@ class ReqifExportService(ServiceBase):
                         req.artifact_id, reqif_identifier_by_id
                     ),
                     external_uid=reqif_uid_by_id.get(req.artifact_id, ""),
+                    tier_name=tier_names.get(req.tier_key),
                     last_change=now,
                 )
             )
@@ -693,6 +715,7 @@ class ReqifExportService(ServiceBase):
         *,
         identifier: str | None = None,
         external_uid: str = "",
+        tier_name: str | None = None,
         last_change: str | None = None,
     ) -> ReqIFSpecObject:
         _load_reqif()
@@ -713,6 +736,14 @@ class ReqifExportService(ServiceBase):
         if req.verification_method:
             attributes.append(
                 cls._string_attr(_ATTR_VERIFICATION_METHOD, req.verification_method)
+            )
+        # P2/V4/V5: publish the stable ladder key and its display label. The
+        # integer alias ``level`` stays internal (position in the ladder); the
+        # key is the interchange-stable value.
+        if getattr(req, "tier_key", None):
+            attributes.append(cls._string_attr(_ATTR_TIER_KEY, req.tier_key))
+            attributes.append(
+                cls._string_attr(_ATTR_TIER_NAME, tier_name or req.tier_key)
             )
         if custom_fields:
             attributes.append(

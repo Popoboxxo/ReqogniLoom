@@ -59,6 +59,7 @@ function readWidth(): number {
 
 interface InspectorEditActions {
   onEditState: (name: string) => void;
+  onSetStateFreeze?: (name: string, freeze: boolean) => void;
   onDeleteState: (name: string) => void;
   onEditTransition: (fromState: string, toState: string) => void;
   onDeleteTransition: (fromState: string, toState: string) => void;
@@ -310,6 +311,18 @@ function StateInspector({
 
       {editMode && edit && (
         <div className={styles.editActions} data-testid="workflow-inspector-state-actions">
+          {edit.onSetStateFreeze && (
+            <label className={styles.freezeToggle} data-testid="workflow-inspector-freeze">
+              <input
+                type="checkbox"
+                checked={Boolean(state.frozen)}
+                onChange={(event) =>
+                  edit.onSetStateFreeze?.(state.id, event.target.checked)
+                }
+              />
+              {t("workflow.inspector.freezeState")}
+            </label>
+          )}
           <button
             type="button"
             className={`btn-secondary ${styles.editActionButton}`}

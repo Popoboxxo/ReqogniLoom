@@ -16,20 +16,13 @@ None of the three rules re-implement endpoint-type legality — that is
 only check graph-wide structural/derivation consistency at audit time, reading
 raw TraceLink rows via ``AuditContext.iter_trace_links()``.
 
-L4 (Presentation) is out of scope for the whole Section 2.2 matrix (Section 2.2
-closing note): a Requirement with ``level == RequirementLevel.L4_PRESENTATION`` is
-never required to carry a ``derives-from`` link by TRACE-P5/ARCH-003.
-
-ADR-005 made ``Requirement.level`` a **derived, read-only** field, recomputed
-from the hierarchy on every hierarchy change
-(``traceability.audit.hierarchy.recompute_requirement_levels``). That does not
-weaken the two L4 filters below: ``level == L4`` is still the only L4 concept
-these rules have (``traceability.audit.hierarchy`` has none of its own), and
-this is exactly why ADR-005 rejected removing the column. A derived value is a
-*better* L4 signal than a hand-set one, because it cannot be stale. Note the
-asymmetry that keeps working in our favour: ``level IS NULL`` is never treated as
-L4 (see ``_non_l4_requirements``), so a row whose hierarchy does not determine a
-level is audited at full strength rather than skipped.
+The old "``level == L4_PRESENTATION`` is out of scope" skip is **retired**
+(P2, V4). With leaf-relative tiers every decomposed leaf legitimately sits on
+the *last* ladder position, so an L4 skip would silently exempt the entire
+decomposition graph from ARCH-003 (and TRACE-P5). ``Requirement.level`` is now
+the permanent integer alias of a position in a per-workspace ladder of
+arbitrary length, not a fixed 1..4 V-model level, and neither rule may use a
+position as a scope filter.
 
 --------------------------------------------------------------------------
 TRACE-P4 — ArchitectureElement decomposition orphan check
@@ -110,15 +103,6 @@ from workflow import state_reader
 #: finding's JSON payload stays bounded regardless of how many Requirements a
 #: child element carries.
 _MAX_LISTED_REQUIREMENTS = 5
-
-
-def _l4_level() -> int:
-    """Return ``RequirementLevel.L4_PRESENTATION`` (deferred import — persistence is
-    Layer 0 but the audit package defers model imports to check-time, mirroring
-    ``AuditContext.iter_trace_links``)."""
-    from persistence.models import RequirementLevel
-
-    return RequirementLevel.L4_PRESENTATION
 
 
 def _fetch_architecture_elements(context: AuditContext) -> dict[str, dict[str, str | None]]:
@@ -274,18 +258,24 @@ def _decomposes_requirement_pairs(
     context: AuditContext, requirement_levels: dict[str, int | None]
 ) -> list[tuple[str, str]]:
     """Return ``[(parent_req_id, child_req_id), ...]`` for ``decomposes`` links
-    between two Requirements, skipping any pair touching an L4 requirement.
+    between two Requirements.
+
+    ``requirement_levels`` is used only to prove that both endpoints are
+    Requirements (the mapping is keyed by active Requirement artifact id); the
+    value itself (the tier position) is deliberately not a scope filter. P2/V4:
+    every decomposed leaf legitimately sits on the last ladder position.
     """
     pairs: list[tuple[str, str]] = []
-    l4 = _l4_level()
     for link in context.iter_trace_links():
         if link["link_type"] != LinkType.DECOMPOSES.value:
             continue
         parent_id, child_id = link["source_id"], link["target_id"]
         if parent_id not in requirement_levels or child_id not in requirement_levels:
             continue  # not a Requirement<->Requirement decomposition
-        if requirement_levels[parent_id] == l4 or requirement_levels[child_id] == l4:
-            continue  # L4 (Presentation) is out of scope for the whole matrix
+        # P2: the old "level == 4 means Presentation, out of scope" skip is
+        # retired. With leaf-relative tiers every decomposed leaf sits on the
+        # last ladder position, so keeping the skip would silently exempt the
+        # entire decomposition graph from TRACE-P5.
         pairs.append((parent_id, child_id))
     return pairs
 
@@ -381,7 +371,6 @@ class ArchitectureDecompositionRequirementDerivationRule(Rule):
     def check(self, context: AuditContext) -> list[Finding]:
         elements = _fetch_architecture_elements(context)
         levels = _fetch_requirement_levels(context)
-        l4 = _l4_level()
         requirement_ids: frozenset[str] = frozenset(levels)
         architecture_artifact_ids: frozenset[str] = frozenset(
             data["artifact_id"] for data in elements.values()
@@ -409,8 +398,7 @@ class ArchitectureDecompositionRequirementDerivationRule(Rule):
             violating = sorted(
                 req_child
                 for req_child in allocations_by_element.get(child_id, ())
-                if levels.get(req_child) != l4
-                and not any(
+                if not any(
                     (req_child, req_parent) in derives_from
                     for req_parent in parent_requirements
                 )

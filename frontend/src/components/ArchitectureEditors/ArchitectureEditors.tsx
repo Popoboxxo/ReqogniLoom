@@ -21,6 +21,7 @@ import { useArchitectureData } from "./useArchitectureData";
 import { SplitView } from "../SplitView/SplitView";
 import { WorkspaceTree } from "../shared/WorkspaceTree";
 import type { WorkspaceTreeNode } from "../shared/WorkspaceTree";
+import { useWorkspaceLocks } from "../shared/WorkspaceTree/useWorkspaceLocks";
 import { EmptyState } from "../shared/EmptyState";
 import { PageHeader } from "../shared/PageHeader";
 import { useInterviewStartCta } from "../shared/useInterviewStartCta";
@@ -48,6 +49,7 @@ import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { EntityTypeProvider } from "../../context/EntityTypeContext";
 import { architectureApi } from "../../api/architecture";
+import { artifactsApi } from "../../api/artifacts";
 import { extractApiErrorMessage } from "../../api/client";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type {
@@ -92,6 +94,10 @@ export default function ArchitectureEditors(): JSX.Element {
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const { elements, element, isLoading, error, refresh } =
     useArchitectureData(selectedId, includeDeleted);
+  // P4.4: one batch read for the whole tree. Keys are ArchitectureElement.id —
+  // the id this tree already uses as node id. A failed read degrades to "no
+  // markers"; the backend still rejects a move of a frozen element with 409.
+  const locks = useWorkspaceLocks(activeWorkspace?.id ?? null, "architecture");
 
   // Feed the ArtifactInspector with the current version
   // (REQ-L2-RF-035). The full /versions/ list is fetched inside
@@ -385,13 +391,14 @@ export default function ArchitectureEditors(): JSX.Element {
   const createTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   /**
-   * Drag & drop reparenting from the tree (user decision 2026-08-15).
+   * Drag & drop reordering/reparenting from the tree (P1 Task 1.7).
    *
-   * WorkspaceTree only reports the drop. It refuses cycle-forming drops
-   * itself (self, current parent, own subtree) using the same
-   * `collectSelfAndDescendantIds` helper that keeps descendants out of
-   * `ArchitectureForm`'s parent dropdown, so both ways of changing a parent
-   * forbid exactly the same set. That guard is deliberate rather than
+   * WorkspaceTree reports only the move (drop, Alt+↑/↓ or the "Move…"
+   * dialog); the tree applies it optimistically and rolls back on rejection.
+   * It refuses cycle-forming moves itself (self, current parent, own subtree)
+   * using the same `collectSelfAndDescendantIds` helper that keeps descendants
+   * out of `ArchitectureForm`'s parent dropdown, so both ways of changing a
+   * parent forbid exactly the same set. That guard is deliberate rather than
    * redundant: server-side invariant I1 (circular parent reference) only runs
    * at Standard/Extended rigor (`RIGOR_INVARIANT_PRESETS`,
    * backend/application/validators.py) while a workspace defaults to Minimal,
@@ -399,27 +406,55 @@ export default function ArchitectureEditors(): JSX.Element {
    * the tree view.
    *
    * Residual risk, unchanged by this: the guard is browser-side only. A REST
-   * or MCP client PATCHing `parent_id` directly on a Minimal-rigor workspace
-   * can still create a cycle. Closing that needs I1 enabled for every tier
+   * or MCP client calling the move endpoint on a Minimal-rigor workspace can
+   * still create a cycle. Closing that needs I1 enabled for every tier
    * server-side.
    *
-   * Rejections that do come back from the server (level order I2, single root
-   * I5, permissions) share the list-level error banner with create/delete
-   * (#340).
+   * The move endpoint keys on the backing Artifact id, while the tree's nodes
+   * carry the ArchitectureElement id (`el.id`, used by the route/selection),
+   * so every id in the triple is translated here. The rejection path is the
+   * tree's toast, which is why this handler lets the error propagate.
    */
-  const handleReparent = useCallback(
-    async (id: string, newParentId: string | null): Promise<void> => {
+  const artifactIdByElementId = useMemo(
+    () =>
+      new Map<string, string>(
+        elements.map((el) => [el.id, el.artifact_id ?? el.id]),
+      ),
+    [elements],
+  );
+
+  const handleReorder = useCallback(
+    async (
+      id: string,
+      newParentId: string | null,
+      afterId: string | null | undefined,
+    ): Promise<void> => {
       setListActionError(null);
+      const toArtifactId = (nodeId: string | null): string | null =>
+        nodeId === null
+          ? null
+          : (artifactIdByElementId.get(nodeId) ?? nodeId);
+      const artifactId = toArtifactId(id);
+      if (artifactId === null) return;
       try {
-        await architectureApi.reparent(id, newParentId);
+        await artifactsApi.move(artifactId, {
+          parent_id: toArtifactId(newParentId),
+          ...(afterId === undefined
+            ? {}
+            : { after_id: toArtifactId(afterId) }),
+        });
         refresh();
       } catch (err: unknown) {
+        // Keep the inline banner (#340) for a refused move while the tree
+        // rolls its optimistic order back; rethrow so the tree also surfaces
+        // the failure.
         setListActionError(
           extractApiErrorMessage(err) ?? t("arch.reparentFailed"),
         );
+        throw err;
       }
     },
-    [refresh, t],
+    [artifactIdByElementId, refresh, t],
   );
 
   const handleDelete = useCallback(
@@ -490,8 +525,10 @@ export default function ArchitectureEditors(): JSX.Element {
       level: el.level != null ? `L${el.level}` : 'L0',
       outdated:
         el.lifecycle_status === 'outdated' || el.lifecycle_status === 'deprecated',
+      // P4.4: workflow lock — disables drag, Alt+↑/↓ and "Move…" for this row.
+      locked: locks[el.id] ? { state: locks[el.id] } : null,
     })),
-  [filteredElements, t]);
+  [filteredElements, locks, t]);
 
   // UI concept ch. 12.1: always-visible summary. `lifecycle_status` defaults
   // to 'active' server-side, so an absent value counts as active here too.
@@ -733,9 +770,10 @@ export default function ArchitectureEditors(): JSX.Element {
           is deliberately not colour-ramped by depth anymore).
           onAddChild surfaces the "+ child" button on each tree row.
           showSearch=false: search is handled by the input above.
-          onReparent: drag & drop moves an element under a new parent, or onto
-          the root dropzone to detach it to L0. Reinstated on 2026-08-15,
-          reversing the 2026-07-13 "won't do" note that stood here before. */}
+          onReorder: drag & drop moves an element under a new parent or above/
+          below a sibling, Alt+↑/↓ steps it one place, and the "Move…" dialog
+          picks a parent by search. Reinstated on 2026-08-15, reversing the
+          2026-07-13 "won't do" note that stood here before. */}
       <div className={styles.treeSlot}>
         <IncludeDeletedToggle
           checked={includeDeleted}
@@ -779,7 +817,7 @@ export default function ArchitectureEditors(): JSX.Element {
             selectedId={selectedId}
             onSelect={selectElement}
             onAddChild={(parentId) => void handleCreate(parentId)}
-            onReparent={(id, newParentId) => void handleReparent(id, newParentId)}
+            onReorder={handleReorder}
             rootDropzoneLabel={t('arch.tree.dropRoot', 'Drop here to make root (L0)')}
             showLevelBadge={true}
             showSearch={false}

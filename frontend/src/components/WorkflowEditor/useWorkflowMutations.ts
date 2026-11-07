@@ -34,6 +34,7 @@ export interface WorkflowMutations {
   addState: (name: string) => Promise<boolean>;
   renameState: (oldName: string, newName: string) => Promise<boolean>;
   deleteState: (name: string) => Promise<boolean>;
+  setStateFreeze: (name: string, freeze: boolean) => Promise<boolean>;
   addTransition: (draft: TransitionDraft) => Promise<boolean>;
   updateTransition: (
     fromState: string,
@@ -128,6 +129,12 @@ export function useWorkflowMutations(
           ? workflowDefaultsApi.deleteState(entityType, preset!, name)
           : wrapWs(workflowsApi.deleteState(entityType, workspaceId!, name))
       ),
+    setStateFreeze: (name, freeze) =>
+      isGlobal
+        ? run(() =>
+            workflowDefaultsApi.setStateFreeze(entityType, preset!, name, freeze)
+          )
+        : Promise.resolve(false),
     addTransition: (draft) => {
       const payload = {
         from_state: draft.from_state,

@@ -200,7 +200,7 @@ export function WorkflowEditorPage({
   const handleConnectStates = useCallback(
     (from: string, to: string): void =>
       openDialog({ kind: "addTransition", from, to }),
-    [openDialog]
+    [openDialog, isGlobal, mutations]
   );
 
   const handleRenameState = useCallback(
@@ -222,6 +222,11 @@ export function WorkflowEditorPage({
   const editActions = useMemo(
     () => ({
       onEditState: (name: string) => openDialog({ kind: "editState", name }),
+      onSetStateFreeze: isGlobal
+        ? (name: string, freeze: boolean) => {
+            void mutations.setStateFreeze(name, freeze);
+          }
+        : undefined,
       onDeleteState: (name: string) =>
         openDialog({ kind: "confirmDeleteState", name }),
       onEditTransition: (from: string, to: string) =>

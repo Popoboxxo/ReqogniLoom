@@ -178,8 +178,15 @@ class GlobalWorkflowDefinitionStore:
         rolls back — callers must not report success from a raised exception;
         every re-read goes through the ORM (see the fault-injection tests).
         """
+        state_meta = dict((obj.workflow_json or {}).get("state_meta") or {})
         with transaction.atomic():
-            obj.workflow_json = {"states": states, "transitions": transitions}
+            workflow_json: dict[str, Any] = {
+                "states": states,
+                "transitions": transitions,
+            }
+            if state_meta:
+                workflow_json["state_meta"] = state_meta
+            obj.workflow_json = workflow_json
             obj.save(update_fields=["workflow_json", "modified_at"])
             propagated = self._propagate(obj)
         return propagated
@@ -463,6 +470,42 @@ class GlobalWorkflowDefinitionStore:
             target["signature_gate"] = bool(signature_gate)
         count = self._persist(obj, states, transitions)
         return obj, count
+
+    def set_state_freeze(
+        self,
+        tenant_id: UUID | str,
+        item_type: str,
+        preset: str,
+        state: str,
+        freeze: bool,
+    ) -> tuple[GlobalWorkflowDefinition, int]:
+        """Toggle ``state_meta.<state>.freeze_on_enter`` on the global template.
+
+        The flag propagates into every non-customized derived workspace
+        definition together with the rest of ``workflow_json``. Other
+        ``state_meta`` keys are preserved.
+        """
+        obj = self._require(tenant_id, item_type, preset)
+        with transaction.atomic():
+            locked = GlobalWorkflowDefinition.unscoped.select_for_update().get(pk=obj.pk)
+            states, transitions = self._graph(locked)
+            if state not in states:
+                raise WorkflowDefinitionError(f"Unknown state '{state}'")
+            workflow_json = dict(locked.workflow_json or {})
+            meta = dict(workflow_json.get("state_meta") or {})
+            state_meta = dict(meta.get(state) or {})
+            if freeze:
+                state_meta["freeze_on_enter"] = True
+            else:
+                state_meta.pop("freeze_on_enter", None)
+            if state_meta:
+                meta[state] = state_meta
+            else:
+                meta.pop(state, None)
+            workflow_json["state_meta"] = meta
+            locked.workflow_json = workflow_json
+            count = self._persist(locked, states, transitions)
+        return locked, count
 
     def delete_transition(
         self,

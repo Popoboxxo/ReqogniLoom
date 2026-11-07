@@ -3,7 +3,7 @@ version: 1.0.0
 # Host-minimum per ADR-017: this artifact keeps its own SemVer, independent of the
 # server's VERSION file. minServerVersion is the lowest ReqogniLoom server version
 # this plugin was actually verified against — 1.8.0-beta.21, where the tool
-# catalogue (248 tools), `tools/list`, the `workspace_id`-carrying tools and the
+# catalogue (290 tools), `tools/list`, the `workspace_id`-carrying tools and the
 # multi-server flows were exercised live. It is a statement, not a gate: the tool
 # list is read at runtime, so an older server works with however many tools it
 # publishes.

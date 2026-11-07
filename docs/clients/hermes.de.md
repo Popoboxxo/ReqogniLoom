@@ -24,7 +24,7 @@
 # `hermes config set` (Env-Referenz statt Key):
 bash scripts/clients/install.sh --client hermes \
   --url "https://<host>" --key-env REQOGNILOOM_API_KEY
-hermes mcp test reqogniloom         # -> ✓ Connected, 248 Tools
+hermes mcp test reqogniloom         # -> ✓ Connected, 290 Tools
 ```
 
 ### Agent-/Dashboard-Plugin
@@ -60,7 +60,7 @@ npm run build     # -> dist/plugin.js; der postbuild-Schritt führt scripts/veri
 - Statusbar-Eintrag `reqogniloom.status` (`area: statusBar.right`, Priorität 20).
 - Kommando `reqogniloom.open` (im Manifest `contributes.commands` deklariert) — öffnet das Panel.
 
-- **Version:** `1.8.0-beta.26` (aus dem Repo-`VERSION`) — Drift zwischen installiertem und ausgeliefertem Plugin erkennt `scripts/check_plugin_packages.py` beim Release; das Desktop-Plugin folgt dem Repo-`VERSION` (ADR-017 Option A).
+- **Version:** `1.8.0-beta.27` (aus dem Repo-`VERSION`) — Drift zwischen installiertem und ausgeliefertem Plugin erkennt `scripts/check_plugin_packages.py` beim Release; das Desktop-Plugin folgt dem Repo-`VERSION` (ADR-017 Option A).
 
 ## 3. Konfiguration
 
@@ -82,8 +82,8 @@ mcp_servers:
 ## 5. Verifikation
 
 - **Befehl:** `hermes mcp test reqogniloom`
-- **Erwartet:** `✓ Connected` (QA: 2232 ms, 248 Tools); echte Calls: `requirement_query` → 49, `architecture_query` → 1.
-- **Tool-Call-Ergebnis:** 248 tools; requirement_query = 49
+- **Erwartet:** `✓ Connected` (QA: 2232 ms, 290 Tools); echte Calls: `requirement_query` → 49, `architecture_query` → 1.
+- **Tool-Call-Ergebnis:** 290 tools; requirement_query = 49
 
 ## 6. Fallstricke
 

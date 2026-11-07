@@ -25,9 +25,21 @@ from __future__ import annotations
 from rest_framework import serializers
 
 __all__ = [
+    "AllocationListResponseSerializer",
+    "AllocationMetaSerializer",
+    "AllocationRowSerializer",
     "AttributeSchemaEntrySerializer",
     "BundleCompressionStatusSerializer",
     "ConsistencyStatusSerializer",
+    "GroupCreateRequestSerializer",
+    "GroupListResponseSerializer",
+    "GroupMemberAddRequestSerializer",
+    "GroupMemberMoveRequestSerializer",
+    "GroupMemberRemoveRequestSerializer",
+    "GroupMemberSerializer",
+    "GroupMembersResponseSerializer",
+    "GroupMoveMemberResponseSerializer",
+    "GroupSerializer",
     "LinkCandidateSerializer",
     "LinkSuggestionSerializer",
     "MetricCatalogueEntrySerializer",
@@ -432,3 +444,124 @@ class MetricCatalogueSerializer(serializers.Serializer):
         help_text="The set a caller with no explicit selection sees.",
     )
     all_keys = serializers.ListField(child=serializers.CharField())
+
+
+# ---------------------------------------------------------------------------
+# rest_api.views — flat allocation list and visual groups (P2 / P6)
+# ---------------------------------------------------------------------------
+
+
+class AllocationRowSerializer(serializers.Serializer):
+    """One row of ``AllocationQueryService.list`` (``GET /allocations/``)."""
+
+    requirement_id = serializers.CharField(help_text="Requirement entity id.")
+    artifact_id = serializers.CharField(help_text="Backing Artifact id.")
+    title = serializers.CharField()
+    uid = serializers.CharField(allow_blank=True, allow_null=True)
+    tier_key = serializers.CharField(allow_blank=True, allow_null=True)
+    level = serializers.IntegerField(allow_null=True)
+    level_source = serializers.CharField(allow_blank=True, allow_null=True)
+    allocation_intent = serializers.CharField(allow_blank=True, allow_null=True)
+    allocated = serializers.BooleanField()
+    element_id = serializers.CharField(
+        allow_null=True,
+        help_text="Allocation target's ArchitectureElement id, or null.",
+    )
+    element_title = serializers.CharField(allow_null=True)
+
+
+class AllocationMetaSerializer(serializers.Serializer):
+    """Counters over the *filtered* set, never over the returned page."""
+
+    total = serializers.IntegerField()
+    allocated = serializers.IntegerField()
+    unallocated = serializers.IntegerField()
+    not_allocatable = serializers.IntegerField()
+    limit = serializers.IntegerField()
+    offset = serializers.IntegerField()
+
+
+class AllocationListResponseSerializer(serializers.Serializer):
+    """``GET /api/v1/allocations/`` envelope."""
+
+    results = AllocationRowSerializer(many=True)
+    meta = AllocationMetaSerializer()
+
+
+class GroupSerializer(serializers.Serializer):
+    """A visual requirement group (an ``Artifact`` of type ``Group``).
+
+    Title and description live in the artifact's ``custom_fields``; the group
+    itself carries no workflow state and never changes an allocation.
+    """
+
+    id = serializers.CharField(help_text="Backing Artifact id of the group.")
+    workspace_id = serializers.CharField()
+    title = serializers.CharField(allow_blank=True)
+    description = serializers.CharField(allow_blank=True)
+
+
+class GroupListResponseSerializer(serializers.Serializer):
+    """``GET /api/v1/groups/`` envelope."""
+
+    results = GroupSerializer(many=True)
+
+
+class GroupCreateRequestSerializer(serializers.Serializer):
+    """Body of ``POST /api/v1/groups/``."""
+
+    workspace_id = serializers.CharField()
+    title = serializers.CharField()
+    description = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class GroupMemberSerializer(serializers.Serializer):
+    """One ordered membership row (a ``grouped-in`` TraceLink)."""
+
+    trace_link_id = serializers.CharField()
+    requirement_artifact_id = serializers.CharField()
+    sort_key = serializers.CharField(
+        allow_null=True,
+        help_text="Fractional index used for ordering; null for legacy rows.",
+    )
+
+
+class GroupMembersResponseSerializer(serializers.Serializer):
+    """``GET/POST /api/v1/groups/{id}/members/`` envelope."""
+
+    members = GroupMemberSerializer(many=True)
+
+
+class GroupMemberAddRequestSerializer(serializers.Serializer):
+    """Body of ``POST /api/v1/groups/{id}/members/``."""
+
+    requirement_id = serializers.CharField()
+    after_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Member to insert behind; omitted appends to the end.",
+    )
+
+
+class GroupMemberRemoveRequestSerializer(serializers.Serializer):
+    """Body of ``POST /api/v1/groups/{id}/members/remove/``."""
+
+    requirement_id = serializers.CharField()
+
+
+class GroupMemberMoveRequestSerializer(serializers.Serializer):
+    """Body of ``POST /api/v1/groups/{id}/members/move/``."""
+
+    requirement_id = serializers.CharField()
+    after_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Member to move behind; omitted moves to the front.",
+    )
+
+
+class GroupMoveMemberResponseSerializer(serializers.Serializer):
+    """Result of a successful reorder."""
+
+    trace_link_id = serializers.CharField()
+    sort_key = serializers.CharField(allow_null=True)

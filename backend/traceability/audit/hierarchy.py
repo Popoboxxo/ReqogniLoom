@@ -164,7 +164,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any, TypeVar
 from uuid import UUID
 
-from persistence.models import RequirementLevel, RequirementLevelSource
+from persistence.models import RequirementLevel
 from traceability.audit.types import AuditContext
 from traceability.types import LinkType
 
@@ -663,11 +663,25 @@ def architecture_allocated_levels(
 
 
 def recompute_requirement_levels(
-    changed_artifact_ids: Iterable[UUID | str],
+    changed_artifact_ids: Iterable[UUID | str] | None = None,
     *,
+    workspace_id: UUID | None = None,
     fill_only: bool = False,
+    dry_run: bool = False,
 ) -> dict[UUID, int | None]:
-    """Recompute ``Requirement.level`` for the hierarchy around *changed ids*.
+    """Recompute ``Requirement.tier_key``/``level`` leaf-relative (P2).
+
+    Two entry shapes share one implementation:
+
+    * ``recompute_requirement_levels(seed_artifact_ids)`` — the historical write
+      path. The workspace is resolved from the seeds, so callers do not have to
+      know it.
+    * ``recompute_requirement_levels(workspace_id=...)`` — whole-workspace
+      recompute used by allocation and architecture-tree triggers.
+
+    The actual computation lives in :func:`application.tier_compute.
+    recompute_workspace_tiers`; this function is the ADR-005-compatible seam
+    (its return value and ``fill_only`` contract are unchanged).
 
     **The single writer of ``Requirement.level``** (ADR-005). Every hierarchy
     write path calls it: ``RequirementService.create_requirement`` /
@@ -714,71 +728,40 @@ def recompute_requirement_levels(
         actually changed (``None`` for a row set back to ``NULL``). Empty when
         nothing moved.
     """
-    from persistence.models import Requirement
+    from application.tier_compute import recompute_workspace_tiers
+    from persistence.models import Artifact
 
-    seed_ids = {
-        artifact_id
-        for artifact_id in (
-            raw if isinstance(raw, UUID) else UUID(str(raw)) for raw in changed_artifact_ids
-        )
-    }
-    if not seed_ids:
-        return {}
-
-    tenant_id = _seed_tenant(seed_ids)
-    if tenant_id is None:
-        return {}
-    current, edges = _tenant_hierarchy_subgraph(tenant_id)
-    if not current:
-        return {}
-    seeds = seed_ids & set(current)
-    if not seeds:
-        return {}
-
-    parents: dict[UUID, set[UUID]] = defaultdict(set)
-    children: dict[UUID, set[UUID]] = defaultdict(set)
-    for parent_id, child_id in edges:
-        children[parent_id].add(child_id)
-        parents[child_id].add(parent_id)
-
-    # #1289: a manual override is never overwritten by the derivation. A
-    # ``level_source == MANUAL`` row is treated exactly like a pre-set value
-    # under ``fill_only``: the graph may have moved, but the human's explicit
-    # choice wins until they clear it (set_manual_level(level=None)).
-    manual_ids: set[UUID] = set(
-        Requirement.unscoped.filter(
-            tenant_id=tenant_id,
-            level_source=RequirementLevelSource.MANUAL,
-        ).values_list("artifact_id", flat=True)
-    )
-
-    # Ancestors up, descendants down — the smallest subgraph in which the
-    # topmost node is a true root and every shifted level is covered.
-    scope = _close_under(seeds, parents) | _close_under(seeds, children)
-    scope_edges = {edge for edge in edges if edge[1] in scope}
-    derived = derive_requirement_levels(scope_edges, sorted(scope, key=repr))
-
-    grouped: dict[int | None, list[UUID]] = defaultdict(list)
-    for artifact_id, level in derived.items():
-        if level == current.get(artifact_id):
-            continue
-        if fill_only and current.get(artifact_id) is not None:
-            continue
-        if artifact_id in manual_ids:
-            continue
-        grouped[level].append(artifact_id)
+    if workspace_id is not None:
+        workspace_ids = {workspace_id}
+    else:
+        seed_ids = {
+            artifact_id
+            for artifact_id in (
+                raw if isinstance(raw, UUID) else UUID(str(raw))
+                for raw in (changed_artifact_ids or ())
+            )
+        }
+        if not seed_ids:
+            return {}
+        # Only Requirement artifacts are seeds. ``TraceLinkManager`` passes both
+        # endpoints of every hierarchy link, including ArchitectureElements;
+        # those must cost nothing and change nothing (they trigger via the
+        # explicit workspace_id path instead).
+        requirement_seeds = Artifact.unscoped.filter(
+            id__in=seed_ids, artifact_type="Requirement"
+        ).values_list("workspace_id", flat=True)
+        workspace_ids = {workspace_id for workspace_id in requirement_seeds if workspace_id}
+        if not workspace_ids:
+            return {}
 
     changed: dict[UUID, int | None] = {}
-    for level, artifact_ids in grouped.items():
-        # A bulk UPDATE, not save(): ``level`` is a derived field, so a
-        # hierarchy edit must not append a content revision or bump the version
-        # counter of every node in the moved subtree. The cost of that choice
-        # is recorded in the ADR-005 report — the baseline diff engine sees a
-        # level change at the next content write, not at the hierarchy write.
-        Requirement.unscoped.filter(artifact_id__in=artifact_ids).update(
-            level=level, level_source=RequirementLevelSource.DERIVED
-        )
-        changed.update({artifact_id: level for artifact_id in artifact_ids})
+    for current_workspace_id in workspace_ids:
+        for change in recompute_workspace_tiers(
+            current_workspace_id,
+            dry_run=dry_run,
+            fill_only=fill_only,
+        ):
+            changed[change.artifact_id] = change.new_level
     return changed
 
 

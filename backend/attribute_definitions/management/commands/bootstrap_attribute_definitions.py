@@ -487,6 +487,18 @@ READ_ONLY_MODEL_FIELDS: frozenset[str] = frozenset(
         "requestor_id",
         "reviewed",
         "origin",
+        # P2: the tier ladder key. Derived by ``tier_compute`` (single writer)
+        # from the allocation/hierarchy and read-only on the serializer, exactly
+        # like ``level`` below; a definition-driven form control would render a
+        # value the PATCH drops.
+        "tier_key",
+        # P2: why a requirement is (not) allocated. The allocation service is
+        # the only writer of "allocated" — a generic create/PATCH carrying it
+        # answers a deliberate 400 ("Use the allocation endpoint to mark a
+        # requirement allocated."), so the attribute is service-owned and not an
+        # editable form field (the "set as not allocatable" path stays a create
+        # payload, which ``editable=False`` does not gate).
+        "allocation_intent",
         "level",
         # #1289: the provenance marker of the derived `level`. Read-only on the
         # serializer; a manual override rides the separate `level_override`

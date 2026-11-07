@@ -77,6 +77,8 @@ from application.artifact_attribute_gateway import (
     transport_field_names,
 )
 from application.base import (
+    AllocationConflictError,
+    WorkflowFrozenError,
     AnchorsPresentError,
     DocumentGateFailedError,
     FieldFrozenError,
@@ -206,9 +208,18 @@ from rest_api.query_params import (
     require_non_empty_param,
 )
 from rest_api.platform_schema_serializers import (
+    AllocationListResponseSerializer,
     AttributeSchemaEntrySerializer,
     BundleCompressionStatusSerializer,
     ConsistencyStatusSerializer,
+    GroupCreateRequestSerializer,
+    GroupListResponseSerializer,
+    GroupMemberAddRequestSerializer,
+    GroupMemberMoveRequestSerializer,
+    GroupMemberRemoveRequestSerializer,
+    GroupMembersResponseSerializer,
+    GroupMoveMemberResponseSerializer,
+    GroupSerializer,
     RequirementHistoryResponseSerializer,
 )
 from rest_api.schema import ReqLoAutoSchema
@@ -427,6 +438,9 @@ _EXC_TO_HTTP: dict[type, int] = {
     # gate is a rejected precondition on a well-formed request, and a frozen
     # field is a state conflict, not a malformed payload.
     FieldFrozenError: status.HTTP_409_CONFLICT,
+    # P2: N:1 allocation conflict on the generic TraceLink create path.
+    AllocationConflictError: status.HTTP_409_CONFLICT,
+    WorkflowFrozenError: status.HTTP_409_CONFLICT,
     DocumentGateFailedError: status.HTTP_409_CONFLICT,
     # Plan F F3-T7 / I-3: deleting a link that still carries inline anchors is
     # a rejected precondition (confirm the count and retry), hence 409.
@@ -492,6 +506,8 @@ _EXC_TO_CODE: dict[type, str] = {
     # Plan F F2-T5: dedicated codes + structured ``details`` (one entry per
     # frozen field / one per violated gate), per ADR-026 F-3 and §4.2.
     FieldFrozenError: "FIELD_FROZEN",
+    AllocationConflictError: "CONFLICT",
+    WorkflowFrozenError: "WORKFLOW_FROZEN",
     DocumentGateFailedError: "DOCUMENT_GATE_FAILED",
     # Plan F F3-T7 / I-3: distinct code so a client can read the count and
     # retry with ?confirm_anchor_count=n instead of retrying blindly.
@@ -1750,6 +1766,57 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     def _svc(self) -> RequirementService:
         return RequirementService()
 
+    @staticmethod
+    def _tier_names(workspace_id: UUID | None) -> dict[str, str]:
+        """Return ``{tier_key: display_name}`` for one requirement response.
+
+        P2 (V5 naming layer): the ladder is read **once per request** and the
+        resulting map is handed to ``RequirementSerializer`` through its
+        context, so ``tier_name`` costs no query per row. The naming rule is
+        the one ``AllocationViewService`` uses (``en`` → ``de`` → the key), so
+        the two read surfaces cannot disagree.
+
+        Read-only enrichment: an unknown/absent workspace or a ladder failure
+        yields an empty map and the serializer renders ``tier_name: null``
+        instead of turning a requirement read into a 500.
+        """
+        if workspace_id is None:
+            return {}
+        from application.tier_ladder_service import TierLadderService
+
+        try:
+            return TierLadderService().get(workspace_id).name_map()
+        except Exception:  # noqa: BLE001 — enrichment must not fail the read
+            logger.debug(
+                "tier_name: ladder lookup failed for workspace=%s",
+                workspace_id,
+                exc_info=True,
+            )
+            return {}
+
+    def _requirement_context(self, workspace_id: UUID | None) -> dict[str, Any]:
+        """Serializer context for a Requirement payload (P2 ``tier_name``).
+
+        An empty map is omitted entirely: the serializer then behaves exactly
+        like one built without a context (``tier_name`` is ``None``).
+        """
+        names = self._tier_names(workspace_id)
+        return {"tier_names": names} if names else {}
+
+    def _requirement_serializer(
+        self, data: Any, workspace_id: UUID | None, *, many: bool = False
+    ) -> Any:
+        """Build the Requirement serializer with the ladder map in context.
+
+        The ``context`` keyword is only passed when a ladder map exists, so a
+        serialisation for an unresolvable workspace is byte-for-byte the
+        context-less one (``tier_name: null``).
+        """
+        context = self._requirement_context(workspace_id)
+        if context:
+            return RequirementSerializer(data, many=many, context=context)
+        return RequirementSerializer(data, many=many)
+
     # ADR-005: the V-model cascade level is DERIVED, so it is not a request
     # field. The serializer alone cannot express this honestly: a
     # ``read_only=True`` field makes DRF drop the value without a word, which
@@ -1862,8 +1929,10 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return self._paginate(
             request,
             items,
-            serialize_page=lambda page: RequirementSerializer(
-                [_dto_from_orm(i) for i in page], many=True
+            serialize_page=lambda page: self._requirement_serializer(
+                [_dto_from_orm(i) for i in page],
+                workspace_id,
+                many=True,
             ).data,
         )
 
@@ -1888,7 +1957,10 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        payload = RequirementSerializer(_dto_from_orm(item)).data
+        payload = self._requirement_serializer(
+            _dto_from_orm(item),
+            item.artifact.workspace_id,
+        ).data
         # #399: additive drift summary for the editor header (no extra request).
         payload["baseline_drift"] = _baseline_drift_summary(item.artifact_id, ctx)
         return self.with_etag(Response(payload), item)
@@ -1956,6 +2028,19 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             self._apply_artifact_system_fields(request, "Requirement", item, ctx)
+            # P2: 'not_allocatable' is a valid create-time intent; 'allocated'
+            # without an edge is not (the allocation service owns that).
+            requested_intent = data.get("allocation_intent")
+            if requested_intent == "allocated":
+                raise ValidationError(
+                    "Use the allocation endpoint to mark a requirement allocated."
+                )
+            if requested_intent == "not_allocatable":
+                item = self._svc().update_requirement(
+                    requirement_id=item.id,
+                    ctx=ctx,
+                    allocation_intent="not_allocatable",
+                )
             # #1289: an explicit manual level override, applied after create so
             # the derivation has already run and the override wins.
             if data.get("level_override") is not None:
@@ -1980,7 +2065,10 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
-        payload = RequirementSerializer(_dto_from_orm(item)).data
+        payload = self._requirement_serializer(
+            _dto_from_orm(item),
+            item.artifact.workspace_id,
+        ).data
         # Issue #1178: the duplicate-title warning is additive, so it is added
         # after serialisation (the serializer stays Contract-shaped, exactly
         # like ``baseline_drift`` on the detail GET).
@@ -2092,6 +2180,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 category=data.get("category"),
                 change_reason=data.get("change_reason"),
                 type=data.get("type"),
+                allocation_intent=data.get("allocation_intent"),
                 # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
                 # stale expected_version → OptimisticLockError → 409 CONFLICT.
                 #
@@ -2151,7 +2240,13 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return self.with_etag(
-            Response(RequirementSerializer(_dto_from_orm(item)).data), item
+            Response(
+                self._requirement_serializer(
+                    _dto_from_orm(item),
+                    item.artifact.workspace_id,
+                ).data
+            ),
+            item,
         )
 
     def _current_requirement_level(self, request: Request, pk: str) -> Any | None:
@@ -3111,6 +3206,62 @@ class ArtifactViewSet(BaseEntityViewSet):
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="move")
+    def move(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/artifacts/{pk}/move/ — reparent and/or reorder (P1).
+
+        Body: ``{"parent_id": <uuid|null>, "after_id": <uuid|null>}``.
+        ``after_id`` omitted appends at the end, ``null`` inserts first.
+        """
+        lang = detect_lang(request)
+        raw_parent = request.data.get("parent_id", None)
+        try:
+            parent_id = UUID(str(raw_parent)) if raw_parent else None
+        except (TypeError, ValueError):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="'parent_id' must be a well-formed UUID or null.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if "after_id" in request.data:
+            raw_after = request.data.get("after_id")
+            if raw_after is None:
+                after_id: Any = None
+            else:
+                try:
+                    after_id = UUID(str(raw_after))
+                except (TypeError, ValueError):
+                    return Response(
+                        build_error_response(
+                            "VALIDATION_ERROR",
+                            lang,
+                            message="'after_id' must be a well-formed UUID or null.",
+                        ),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+        else:
+            from application.artifact_service import UNSET
+
+            after_id = UNSET
+
+        try:
+            ctx = get_auth_context(request)
+            item = self._svc().move(
+                artifact_id=UUID(pk),
+                new_parent_id=parent_id,
+                after_id=after_id,
+                ctx=ctx,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return Response(ArtifactSerializer(_artifact_to_dict(item)).data)
 
     @action(detail=True, methods=["get"], url_path="baseline-membership")
     def baseline_membership(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -4573,6 +4724,53 @@ class TraceLinkViewSet(BaseEntityViewSet):
 
     def _svc(self) -> TraceLinkService:
         return TraceLinkService()
+
+    @action(detail=False, methods=["post"], url_path="bulk")
+    def bulk(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/trace-links/bulk/ — all-or-nothing allocation (P3.5).
+
+        Body: ``{"items": [{"requirement_id": uuid, "element_id": uuid}]}``.
+        One failure rolls the whole batch back; nothing is written.
+        """
+        from django.db import transaction
+
+        lang = detect_lang(request)
+        items = request.data.get("items") if isinstance(request.data, dict) else None
+        if not isinstance(items, list) or not items:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="Body must be {\"items\": [{requirement_id, element_id}]}.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            service = self._svc()
+            with transaction.atomic():
+                results = []
+                for item in items:
+                    link = service.allocate(
+                        requirement_id=UUID(str(item["requirement_id"])),
+                        architecture_element_id=UUID(str(item["element_id"])),
+                        ctx=ctx,
+                    )
+                    results.append(
+                        {
+                            "requirement_id": str(item["requirement_id"]),
+                            "element_id": str(item["element_id"]),
+                            "trace_link_id": str(link.id),
+                        }
+                    )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except (KeyError, TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"allocated": results}, status=status.HTTP_201_CREATED)
 
     def _list_workspace_links(
         self,
@@ -7095,6 +7293,17 @@ def _dto_from_orm(req: Any) -> dict[str, Any]:
         "complexity_fibonacci": getattr(req, "complexity_fibonacci", None),
         "verification_method": getattr(req, "verification_method", None) or None,
         "level": getattr(req, "level", None),
+        # P2 (V4/V5): the stable ladder key. It was declared on the serializer
+        # but never sourced here, so DRF skipped it on every response and
+        # ``tier_name`` had nothing to resolve. Additive read field only.
+        "tier_key": getattr(req, "tier_key", None),
+        # P2: the allocation intent is declared on the serializer but was never
+        # sourced here, so DRF skipped it on every response (required=False).
+        # The attribute is visible in the bootstrapped definition — a read-back
+        # that omits it is the REST half of the parity gap the attribute
+        # contract matrix ratchets (#935). Additive read field only: writes
+        # still go through the allocation service / the create payload.
+        "allocation_intent": getattr(req, "allocation_intent", "unassigned"),
         "level_source": getattr(req, "level_source", "derived"),
         "suspect": getattr(req, "suspect", False),
         "custom_fields": _artifact_custom_fields(req),
@@ -7173,18 +7382,6 @@ def _artifact_custom_fields(entity: Any) -> dict:
     return getattr(artifact, "custom_fields", None) or {}
 
 
-def _tree_node_to_dict(node: Any) -> dict[str, Any]:
-    """Convert TreeNodeDTO to dict."""
-    if hasattr(node, "as_dict"):
-        return node.as_dict()
-    return {
-        "id": str(getattr(node, "id", "")),
-        "artifact_type": getattr(node, "artifact_type", ""),
-        "workspace_id": str(getattr(node, "workspace_id", "")),
-        "parent_id": str(getattr(node, "parent_id", "")) if getattr(node, "parent_id", None) else None,
-    }
-
-
 def _artifact_to_dict(art: Any) -> dict[str, Any]:
     """Convert Artifact ORM object to dict."""
     return {
@@ -7196,6 +7393,7 @@ def _artifact_to_dict(art: Any) -> dict[str, Any]:
         # NULL and express hierarchy via 'derives-from' TraceLinks instead
         # (see persistence/models.py Artifact.parent docstring).
         "parent_id": str(art.parent_id) if getattr(art, "parent_id", None) else None,
+        "sort_key": getattr(art, "sort_key", None),
         "custom_fields": getattr(art, "custom_fields", None) or {},
         "version": art.version,
         "created_at": art.created_at,
@@ -7917,6 +8115,19 @@ def _cr_to_dict(cr: Any) -> dict[str, Any]:
 # WorkspaceViewSet (read-only — list + retrieve, REQ-L1-017)
 # ---------------------------------------------------------------------------
 
+# P4.4: response shape of ``GET /workspaces/{id}/locks/``. Declared explicitly
+# so the generated schema does not fall back to the ViewSet's
+# ``WorkspaceSerializer`` (which would describe a Workspace body for a map).
+_WORKSPACE_LOCKS_RESPONSE = inline_serializer(
+    name="WorkspaceLocksResponse",
+    fields={
+        "locks": serializers.DictField(
+            child=serializers.CharField(),
+            help_text="Frozen artifacts only: {tree node id: state name}.",
+        )
+    },
+)
+
 
 class WorkspaceViewSet(BaseEntityViewSet):
     """ViewSet for Workspace lookup (REQ-L1-017).
@@ -7972,6 +8183,231 @@ class WorkspaceViewSet(BaseEntityViewSet):
         return self.with_etag(
             Response(WorkspaceSerializer(_workspace_to_dict(item)).data), item
         )
+
+    @action(detail=True, methods=["get"], url_path="tree")
+    def tree(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/workspaces/{pk}/tree/?type=requirement|architecture.
+
+        P1: the ordered sibling forest of one tree, soft-deleted nodes hidden.
+        Roots and every sibling list are sorted by ``sort_key``.
+        """
+        lang = detect_lang(request)
+        raw_type = (request.query_params.get("type") or "requirement").lower()
+        artifact_type = {
+            "requirement": "Requirement",
+            "architecture": "ArchitectureElement",
+            "architectureelement": "ArchitectureElement",
+        }.get(raw_type)
+        if artifact_type is None:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="'type' must be 'requirement' or 'architecture'.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            ctx = get_auth_context(request)
+            roots = ArtifactService().get_workspace_tree(
+                workspace_id=UUID(pk), artifact_type=artifact_type, ctx=ctx
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except Exception as exc:  # noqa: BLE001 — map any service error uniformly
+            return _service_error_response(exc, lang)
+        return Response(
+            {
+                "workspace_id": str(pk),
+                "type": raw_type,
+                "tree": [node.as_dict() for node in roots],
+            }
+        )
+
+    @action(detail=True, methods=["get", "put"], url_path="tiers")
+    def tiers(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET/PUT /api/v1/workspaces/{pk}/tiers/ — the tier ladder (P2)."""
+        from application.tier_ladder_service import TierLadderService
+
+        lang = detect_lang(request)
+        service = TierLadderService()
+        try:
+            ctx = get_auth_context(request)
+            workspace_id = UUID(pk)
+            if request.method == "PUT":
+                payload = request.data.get("tiers") if isinstance(request.data, dict) else None
+                if not isinstance(payload, list):
+                    return Response(
+                        build_error_response(
+                            "VALIDATION_ERROR",
+                            lang,
+                            message="Body must be {\"tiers\": [...]}.",
+                        ),
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                entries = service.replace(workspace_id, payload, ctx)
+            else:
+                entries = service.get(workspace_id).entries
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(
+            {
+                "workspace_id": str(pk),
+                "tiers": [
+                    {
+                        "tier_key": entry.tier_key,
+                        "name": entry.name,
+                        "position": entry.position,
+                        "rule": entry.rule,
+                        "from_end": entry.from_end,
+                        "level": entry.position + 1,
+                    }
+                    for entry in entries
+                ],
+            }
+        )
+
+    @action(detail=True, methods=["get"], url_path="allocation-view")
+    def allocation_view(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/workspaces/{pk}/allocation-view/ — flat view (P3)."""
+        from application.allocation_view_service import AllocationViewService
+
+        lang = detect_lang(request)
+        params = request.query_params
+
+        def _bool(name: str) -> bool | None:
+            raw = params.get(name)
+            if raw is None:
+                return None
+            return raw.lower() in {"1", "true", "yes"}
+
+        try:
+            ctx = get_auth_context(request)
+            payload = AllocationViewService().list(
+                UUID(pk),
+                ctx,
+                allocated=_bool("allocated"),
+                intent=params.get("intent"),
+                tier=params.get("tier"),
+                type=params.get("type"),
+                category=params.get("category"),
+                state=params.get("state"),
+                element_subtree=(
+                    UUID(params["element_subtree"])
+                    if params.get("element_subtree")
+                    else None
+                ),
+                q=params.get("q"),
+                open=_bool("open"),
+                page_size=int(params.get("page_size") or 200),
+                offset=int(params.get("offset") or 0),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except (TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(payload)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="type",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                enum=["requirement", "architecture"],
+                description="Which classic tree the returned ids belong to.",
+            )
+        ],
+        responses={200: _WORKSPACE_LOCKS_RESPONSE},
+    )
+    @action(detail=True, methods=["get"], url_path="locks")
+    def locks(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/workspaces/{pk}/locks/?type=requirement|architecture.
+
+        P4 (§4.5): the batch read the classic trees use to grey out frozen
+        nodes. Returns ``{"locks": {"<id>": "<state name>"}}`` containing only
+        the artifacts whose **current workflow state** carries
+        ``state_meta.freeze_on_enter`` — an empty dict when none are frozen.
+
+        Semantics are the ones ``AllocationViewService`` already uses for its
+        ``locked`` column: the freeze-triggering states of the workspace's
+        workflow definition are read once per item type, and
+        ``workflow.state_reader.current_states`` resolves every item's state in
+        one query. The query count is therefore constant in the number of
+        items (10 vs 200 costs the same), which is the point of the endpoint.
+
+        ID SPACE — the keys are exactly the ids the two trees put on their
+        ``WorkspaceTreeNode``, and **the two trees differ**:
+
+        * ``type=requirement`` → ``Requirement.id`` (the entity row id). The
+          requirement tree renders ``id: req.id``
+          (``RequirementList.tsx``), not the backing Artifact id.
+        * ``type=architecture`` → ``ArchitectureElement.id`` (the entity row
+          id). The architecture tree renders ``id: el.id``
+          (``ArchitectureEditors.tsx``); it translates to the backing Artifact
+          id only for the move endpoint.
+
+        Neither id space is ``Artifact.id``. ``type`` is required; any other
+        value is a 400 naming the field. Unknown or foreign workspaces answer
+        the same 404/permission as the neighbouring workspace routes, and a
+        caller without READ is refused with 403.
+        """
+        from application.workspace_lock_service import ITEM_TYPES
+
+        lang = detect_lang(request)
+        raw_type = (request.query_params.get("type") or "").strip().lower()
+        if raw_type not in ITEM_TYPES:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="'type' must be 'requirement' or 'architecture'.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            ctx = get_auth_context(request)
+            workspace_id = UUID(pk)
+            # Tenant-scoped existence check: an unknown or foreign workspace is
+            # a 404, like ``tiers``/``allocation-view``. Also installs the
+            # tenant context the batched reads below rely on.
+            WorkspaceService().get_workspace(workspace_id, ctx)
+        except (NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not _caller_may_read_workspace(workspace_id, ctx):
+            return _service_error_response(
+                PermissionDeniedError(
+                    f"Read access to workspace {workspace_id} is required."
+                ),
+                lang,
+            )
+
+        # The batched read (and the shared freeze definition) lives in the
+        # application layer: this adapter performs no ORM access of its own.
+        from application.workspace_lock_service import get_workspace_locks
+
+        return Response({"locks": get_workspace_locks(workspace_id, raw_type)})
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/workspaces/ — create a new workspace + preset config.
@@ -14227,7 +14663,340 @@ class AttributeSchemaView(APIView):
         return Response(schema)
 
 
+class GroupViewSet(viewsets.ViewSet):
+    """Visual requirement groups (P6): CRUD + ordered membership."""
+
+    def _svc(self):
+        from application.group_service import GroupService
+
+        return GroupService()
+
+    def _group_dict(self, artifact) -> dict:
+        fields = getattr(artifact, "custom_fields", None) or {}
+        return {
+            "id": str(artifact.id),
+            "workspace_id": str(artifact.workspace_id),
+            "title": fields.get("title", ""),
+            "description": fields.get("description", ""),
+        }
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workspace whose visual groups are listed.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=GroupListResponseSerializer,
+                description="Every visual group of the workspace.",
+            ),
+            400: OpenApiResponse(description="workspace_id missing or not a UUID."),
+            404: OpenApiResponse(description="Workspace not found in this tenant."),
+        },
+    )
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            workspace_id = UUID(str(request.query_params.get("workspace_id")))
+            groups = self._svc().list_groups(workspace_id, ctx)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except (TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"results": [self._group_dict(group) for group in groups]})
+
+    @extend_schema(
+        request=GroupCreateRequestSerializer,
+        responses={
+            201: OpenApiResponse(
+                response=GroupSerializer, description="The created group."
+            ),
+            400: OpenApiResponse(description="Missing/invalid workspace_id or title."),
+            403: OpenApiResponse(description="Write role required in the workspace."),
+            404: OpenApiResponse(description="Workspace not found in this tenant."),
+        },
+    )
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            group = self._svc().create(
+                UUID(str(request.data["workspace_id"])),
+                str(request.data.get("title") or ""),
+                ctx,
+                description=str(request.data.get("description") or ""),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except (KeyError, TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(self._group_dict(group), status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=GroupMemberAddRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=GroupMembersResponseSerializer,
+                description="The group's ordered members after the call.",
+            ),
+            400: OpenApiResponse(
+                description="Invalid requirement_id/after_id or duplicate member."
+            ),
+            403: OpenApiResponse(description="Write role required to add a member."),
+            404: OpenApiResponse(description="Group or requirement not found."),
+        },
+    )
+    @action(detail=True, methods=["get", "post"], url_path="members")
+    def members(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        service = self._svc()
+        try:
+            ctx = get_auth_context(request)
+            if request.method == "POST":
+                service.add_member(
+                    UUID(pk),
+                    UUID(str(request.data["requirement_id"])),
+                    ctx,
+                    after_id=(
+                        UUID(str(request.data["after_id"]))
+                        if request.data.get("after_id")
+                        else None
+                    ),
+                )
+            members = service.members(UUID(pk), ctx)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except (KeyError, TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"members": members})
+
+    @extend_schema(
+        request=GroupMemberRemoveRequestSerializer,
+        responses={
+            204: OpenApiResponse(description="Membership removed (no body)."),
+            400: OpenApiResponse(description="Invalid requirement_id."),
+            403: OpenApiResponse(description="Write role required in the workspace."),
+            404: OpenApiResponse(description="Group or requirement not found."),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="members/remove")
+    def remove_member(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            self._svc().remove_member(
+                UUID(pk), UUID(str(request.data["requirement_id"])), ctx
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except (KeyError, TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        request=GroupMemberMoveRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=GroupMoveMemberResponseSerializer,
+                description="The moved membership with its new sort_key.",
+            ),
+            400: OpenApiResponse(
+                description="Invalid requirement_id/after_id or unknown member."
+            ),
+            403: OpenApiResponse(description="Write role required in the workspace."),
+            404: OpenApiResponse(description="Group or requirement not found."),
+        },
+    )
+    @action(detail=True, methods=["post"], url_path="members/move")
+    def move_member(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            link = self._svc().move_member(
+                UUID(pk),
+                UUID(str(request.data["requirement_id"])),
+                ctx,
+                after_id=(
+                    UUID(str(request.data["after_id"]))
+                    if request.data.get("after_id")
+                    else None
+                ),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except (KeyError, TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"trace_link_id": str(link.id), "sort_key": link.sort_key})
+
+
+class AllocationListView(APIView):
+    """GET /api/v1/allocations/ — flat requirement/allocation rows (P2)."""
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workspace whose allocations are listed.",
+            ),
+            OpenApiParameter(
+                "requirement",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict to one Requirement id.",
+            ),
+            OpenApiParameter(
+                "element",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict to one allocation target element id.",
+            ),
+            OpenApiParameter(
+                "allocated",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="true = only allocated, false = only unallocated.",
+            ),
+            OpenApiParameter(
+                "tier",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict to one tier key.",
+            ),
+            OpenApiParameter(
+                "level",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict to one V-model level.",
+            ),
+            OpenApiParameter(
+                "intent",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict to one allocation intent.",
+            ),
+            OpenApiParameter(
+                "page_size",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=200,
+                description="Page size (1..500).",
+            ),
+            OpenApiParameter(
+                "offset",
+                type=int,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=0,
+                description="Rows to skip.",
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(
+                response=AllocationListResponseSerializer,
+                description="One page of allocation rows plus filtered counters.",
+            ),
+            400: OpenApiResponse(description="Missing/invalid parameter."),
+        },
+    )
+    def get(self, request: Request) -> Response:
+        from application.allocation_query_service import AllocationQueryService
+
+        lang = detect_lang(request)
+        raw_workspace = request.query_params.get("workspace_id")
+        if not raw_workspace:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="'workspace_id' is required.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            workspace_id = UUID(raw_workspace)
+        except (TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        def _uuid_param(name: str) -> UUID | None:
+            raw = request.query_params.get(name)
+            return UUID(raw) if raw else None
+
+        def _bool_param(name: str) -> bool | None:
+            raw = request.query_params.get(name)
+            if raw is None:
+                return None
+            return raw.lower() in {"1", "true", "yes"}
+
+        try:
+            allocated_raw = request.query_params.get("allocated")
+            ctx = get_auth_context(request)
+            payload = AllocationQueryService().list(
+                workspace_id,
+                ctx,
+                requirement=_uuid_param("requirement"),
+                element=_uuid_param("element"),
+                allocated=(
+                    None
+                    if allocated_raw is None
+                    else allocated_raw.lower() in {"1", "true", "yes"}
+                ),
+                tier=request.query_params.get("tier"),
+                level=(
+                    int(request.query_params["level"])
+                    if request.query_params.get("level")
+                    else None
+                ),
+                intent=request.query_params.get("intent"),
+                limit=int(request.query_params.get("page_size") or 200),
+                offset=int(request.query_params.get("offset") or 0),
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except (TypeError, ValueError):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(payload)
+
+
 __all__ = [
+    "GroupViewSet",
+    "AllocationListView",
     "AdrViewSet",
     "ArchitectureElementViewSet",
     "ArtifactDiffService",

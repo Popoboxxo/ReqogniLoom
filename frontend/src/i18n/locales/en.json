@@ -78,6 +78,7 @@
     "baselines": "Baselines",
     "reviews": "Reviews",
     "traceability": "Traceability",
+    "connectionView": "Connections",
     "impact": "Impact Analysis",
     "metrics": "SE Metrics",
     "memory": "Memory",
@@ -377,6 +378,10 @@
     "treeDropRoot": "Drop here to move to the top level",
     "treeContainsSelection": "Contains the current selection",
     "moveNode": "Move…",
+    "lockedHint": "Locked: {{state}} — position, parent and allocation are read-only.",
+    "showGroups": "Show groups",
+    "groupMemberCount": "{{count}} requirements",
+    "groupMembership": "In {{count}} groups",
     "moveNodeTitle": "Move element",
     "moveNodeDescription": "Choose the parent element to move this element under.",
     "moveNodeTarget": "New parent element",
@@ -384,6 +389,11 @@
     "moveNodeConfirm": "Move",
     "moveNodeCancel": "Cancel",
     "moveNodeDone": "Element moved.",
+    "moveNodeSearch": "Search parent element",
+    "moveNodeSearchPlaceholder": "Filter by name or identifier …",
+    "moveNodeNoMatches": "No matching parent element.",
+    "reorderDone": "{{name}} moved (position {{position}}).",
+    "reorderFailed": "Move failed. The previous order was restored.",
     "title": "Title",
     "name": "Name",
     "description": "Description",
@@ -1324,6 +1334,22 @@
       "hardOffHint": "never uses memory",
       "hardOffSummary": "AI activities that never use memory: {{total}}"
     },
+    "cardFields": {
+      "title": "Card fields (graph)",
+      "hint": "Which fields the requirement and element cards show in the allocation graph, in which order and over how many rows. Lock, finding and unallocated markers cannot be hidden.",
+      "kindRequirement": "Requirement cards",
+      "kindElement": "Element cards",
+      "rows": "Rows",
+      "addField": "Add field",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "remove": "Remove field",
+      "mandatory": "Mandatory marker – cannot be hidden",
+      "save": "Save",
+      "reset": "Reset to default",
+      "saved": "Saved.",
+      "loading": "Loading card fields …"
+    },
     "customFields": {
       "title": "Custom Fields",
       "description": "Define additional fields for this workspace. Defined fields appear on every requirement's edit form, where they can be filled in.",
@@ -1508,6 +1534,10 @@
     "L3": "L3 Component",
     "L4": "L4 Presentation",
     "derived": "derived",
+    "derivedAllocation": "derived (allocation)",
+    "derivedHierarchy": "derived (hierarchy)",
+    "derivedType": "derived (type)",
+    "unresolved": "unresolved",
     "manual": "manual"
   },
   "verificationMethod": {
@@ -1802,6 +1832,7 @@
       "toggleGrid": "Toggle grid"
     },
     "inspector": {
+      "freezeState": "Locks editing (position, parent, allocation)",
       "ariaLabel": "Properties panel",
       "title": "Properties",
       "emptyPrompt": "Select a node or edge to see its properties.",
@@ -2472,6 +2503,7 @@
       "initialStateHint": "Initial state — no incoming transitions.",
       "editState": "Edit State",
       "deleteState": "Delete",
+      "freezeState": "Locks editing",
       "editTransition": "Edit Transition",
       "deleteTransition": "Delete",
       "requiresChangeReason": "requires change reason",
@@ -3371,6 +3403,153 @@
       "hint": "Tenant-wide default for the create dialog. Workspace and personal settings override it."
     }
   },
+  "tiers": {
+    "title": "Tier ladder",
+    "hint": "The named positions a requirement's tier can take, in order. Exactly one tier is \"first\" (the tree root), at most one is \"middle\", and exactly one sits at \"from the end = 0\" (the leaf). Renaming a position never changes existing requirements.",
+    "loading": "Loading tier ladder …",
+    "saveFailed": "The tier ladder could not be saved.",
+    "saved": "Tier ladder saved.",
+    "readOnly": "Only workspace admins can change the tier ladder.",
+    "addTier": "Add tier",
+    "save": "Save ladder",
+    "nameDe": "Name (DE)",
+    "nameEn": "Name (EN)",
+    "ruleLabel": "Rule",
+    "fromEnd": "From end",
+    "moveUp": "Move up",
+    "moveDown": "Move down",
+    "remove": "Remove tier",
+    "defaultNameDe": "Level {{n}}",
+    "defaultNameEn": "Tier {{n}}",
+    "rule": {
+      "first": "First (tree root)",
+      "middle": "Middle",
+      "from_end": "From the end"
+    },
+    "threeNames": {
+      "title": "Three names",
+      "hint": "Replaces the ladder with exactly three tiers: first, middle and last.",
+      "erste": "First",
+      "dazwischen": "Middle",
+      "letzte": "Last",
+      "apply": "Apply three names"
+    }
+  },
+  "connectionView": {
+    "title": "Connections",
+    "viewSwitcher": "Switch view",
+    "views": {
+      "tree": "Tree",
+      "twoColumn": "Two columns",
+      "matrix": "Matrix",
+      "graph": "Graph"
+    },
+    "quick": {
+      "open": "Open",
+      "unallocated": "Unallocated",
+      "locked": "Locked",
+      "findings": "Findings"
+    },
+    "filters": {
+      "tier": "Tier",
+      "type": "Type",
+      "category": "Category",
+      "state": "State",
+      "elementSubtree": "Element subtree",
+      "group": "Group",
+      "search": "Search",
+      "searchPlaceholder": "Search titles"
+    },
+    "all": "All",
+    "reset": "Reset filters",
+    "counters": {
+      "total": "Total",
+      "unallocated": "Unallocated",
+      "locked": "Locked",
+      "findings": "Findings"
+    },
+    "savedViews": {
+      "name": "View name",
+      "save": "Save view",
+      "delete": "Delete view {{name}}",
+      "saveFailed": "Could not save the view: {{message}}"
+    },
+    "type": {
+      "SyReq": "System requirement",
+      "UseCase": "Use case",
+      "FeatureReq": "Feature requirement"
+    },
+    "requirements": "Requirements",
+    "elements": "Architecture elements",
+    "unallocated": "Unallocated",
+    "unallocatedEmpty": "All requirements are allocated.",
+    "allocateTo": "Allocate to …",
+    "pickerTitle": "Allocate “{{title}}” to …",
+    "pickerSearch": "Search element",
+    "pickerEmpty": "No matching element found.",
+    "allocated": "Allocated",
+    "sum": "Sum",
+    "total": "Total",
+    "pageOf": "Page {{page}} of {{total}}",
+    "previous": "Previous",
+    "next": "Next",
+    "locked": "Locked",
+    "empty": "No requirements or architecture elements.",
+    "lockedTooltip": "Locked by workflow state: {{state}}",
+    "loading": "Loading connections …",
+    "assistant": {
+      "title": "Allocation assistant",
+      "hint": "Select requirements and allocate them together. The write is atomic: either every selection is written or none is.",
+      "selected": "{{count}} selected",
+      "selectAll": "Select all",
+      "suggest": "Suggestions",
+      "suggestLoading": "Fetching suggestions …",
+      "suggestEmpty": "No suggestion available for the selected requirements.",
+      "suggestionsTitle": "Suggested targets",
+      "suggestionReason": "AI suggestion (rank {{rank}})",
+      "suggestionApplied": "{{count}} suggestion(s) applied.",
+      "allocatedNotice": "{{count}} requirement(s) allocated to “{{element}}”.",
+      "pickerTitle": "Allocate {{count}} requirement(s) to …",
+      "nothingWritten": "Nothing was written — the batch is all-or-nothing.",
+      "lockedTooltip": "Locked by workflow state: {{state}}",
+      "accept": "Apply",
+      "acceptAll": "Apply all",
+      "confirmTitle": "Confirm allocation",
+      "confirmHint": "The following writes will be sent as one atomic batch:",
+      "confirm": "Confirm and write",
+      "cancel": "Cancel"
+    }
+  },
+  "allocationGraph": {
+    "mode": "Mode",
+    "viewMode": "View",
+    "editMode": "Edit",
+    "modeHint": "View mode shows no write handles. Edit mode allows dragging a requirement onto an architecture element.",
+    "readOnly": "Read-only access: editing requires a write role.",
+    "empty": "No cards in the current filter.",
+    "locked": "Locked",
+    "lockedTooltip": "Locked by workflow state: {{state}}",
+    "unallocated": "Unallocated",
+    "findingCount": "{{count}} findings",
+    "collapse": "Collapse {{title}}",
+    "expand": "Expand {{title}}",
+    "errorTitle": "Allocation rejected",
+    "pickerTitle": "Allocate “{{title}}” to …",
+    "pickerSearch": "Search element",
+    "pickerEmpty": "No matching element found.",
+    "fields": {
+      "id": "ID",
+      "title": "Title",
+      "state": "State",
+      "tier": "Tier",
+      "type": "Type",
+      "category": "Category",
+      "group": "Group",
+      "allocationCount": "Allocations",
+      "lock": "Locked",
+      "owner": "Owner"
+    }
+  },
   "preferences": {
     "title": "Display",
     "inherited": "Inherited from {{source}}",
@@ -3393,5 +3572,21 @@
         "off": "Never"
       }
     }
+  },
+  "groups": {
+    "title": "Groups",
+    "name": "Name",
+    "namePlaceholder": "e.g. Brake system",
+    "description": "Description",
+    "create": "Create group",
+    "loading": "Loading groups …",
+    "empty": "No groups yet.",
+    "noMembers": "No members.",
+    "addMember": "Add requirement",
+    "searchPlaceholder": "Search requirements",
+    "searchEmpty": "No matching requirement found.",
+    "add": "Add",
+    "removeMember": "Remove {{name}} from the group",
+    "actionFailed": "The group action failed."
   }
 }

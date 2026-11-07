@@ -233,14 +233,21 @@ class TestCycleDetection:
                 manager.create(art_c.id, art_a.id, "derives-from")
 
     def test_fan_out_no_cycle(self, manager, tenant_a, workspace_a):
-        """A -> B, A -> C is not a cycle and must succeed."""
+        """A -> B, A -> C is not a cycle and must succeed.
+
+        Uses ``references`` rather than ``allocated-to``: since P2 a partial
+        unique index makes ALLOCATED_TO N:1 on the source artifact, so the
+        second edge from A is structurally impossible and the test would trip
+        the index instead of reaching cycle detection. The property under
+        test — fan-out is not a cycle — is link-type agnostic.
+        """
         with active_tenant(tenant_a):
             art_a = make_artifact(tenant_a, workspace_a, "requirement")
             art_b = make_artifact(tenant_a, workspace_a, "requirement")
             art_c = make_artifact(tenant_a, workspace_a, "requirement")
 
-            link1 = manager.create(art_a.id, art_b.id, "allocated-to")
-            link2 = manager.create(art_a.id, art_c.id, "allocated-to")
+            link1 = manager.create(art_a.id, art_b.id, "references")
+            link2 = manager.create(art_a.id, art_c.id, "references")
 
         assert link1 is not None
         assert link2 is not None

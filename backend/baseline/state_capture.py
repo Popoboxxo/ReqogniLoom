@@ -157,14 +157,31 @@ def _capture_items(
     # no separate query needed to resolve it.
     artifact_header_by_id: dict[str, dict[str, Any]] = {}
     artifact_lifecycle: dict[str, str] = {}
-    for art_id, art_type, custom_fields, parent_id, lifecycle_status in (
+    for (
+        art_id,
+        art_type,
+        custom_fields,
+        parent_id,
+        lifecycle_status,
+        sort_key,
+    ) in (
         Artifact.unscoped.filter(id__in=uuids, tenant_id=tenant_id)
-        .values_list("id", "artifact_type", "custom_fields", "parent_id", "lifecycle_status")
+        .values_list(
+            "id",
+            "artifact_type",
+            "custom_fields",
+            "parent_id",
+            "lifecycle_status",
+            "sort_key",
+        )
     ):
         artifact_header_by_id[str(art_id)] = {
             "artifact_type_raw": art_type,
             "custom_fields": custom_fields or {},
             "artifact_parent_id": str(parent_id) if parent_id else None,
+            # P1 (V8): the persistent sibling position is part of the captured
+            # state so a move shows up as a diff instead of being invisible.
+            "sort_key": sort_key,
         }
         artifact_lifecycle[str(art_id)] = lifecycle_status
 
@@ -213,6 +230,16 @@ def _capture_items(
             "type": req.type,
             "level": req.level,
             "level_source": req.level_source,
+            # P2 (V2): "not allocatable" is a decision no trace link can carry,
+            # so it lives on the Requirement and is editable through
+            # ``RequirementService.update_requirement`` -- captured here so a
+            # rollback can write it back (see baseline.restorable_fields).
+            "allocation_intent": req.allocation_intent,
+            # P2 (V4): the leaf-relative ladder key behind the integer ``level``
+            # alias. Captured so the snapshot/diff is complete; it is derived by
+            # ``application.tier_compute`` (single writer), so a rollback must
+            # not write it (NON_RESTORABLE).
+            "tier_key": req.tier_key,
             "complexity_fibonacci": req.complexity_fibonacci,
             "verification_method": req.verification_method,
             "suspect": req.suspect,
@@ -377,6 +404,7 @@ def _capture_items(
         state.setdefault("stakeholder", system.get("stakeholder", []))
         state["custom_fields"] = header["custom_fields"]
         state["artifact_parent_id"] = header["artifact_parent_id"]
+        state["sort_key"] = header["sort_key"]
 
     return states
 

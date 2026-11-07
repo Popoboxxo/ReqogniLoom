@@ -211,6 +211,7 @@ def _serialize_global_graph(
             "initial_state": None,
             "states": [],
             "transitions": [],
+            "state_meta": {},
             "updated_at": None,
         }
     else:
@@ -224,6 +225,7 @@ def _serialize_global_graph(
             "initialized": True,
             "initial_state": states[0] if states else None,
             "states": states,
+            "state_meta": wf.get("state_meta", {}),
             "transitions": [
                 {
                     "from_state": t.get("from_state"),
@@ -378,7 +380,8 @@ class WorkflowStateCreateRequestSerializer(serializers.Serializer):
 class WorkflowStateRenameRequestSerializer(serializers.Serializer):
     """Body of ``PATCH …/states/{state_id}/``."""
 
-    name = serializers.CharField()
+    name = serializers.CharField(required=False)
+    freeze_on_enter = serializers.BooleanField(required=False, allow_null=True)
 
 
 class WorkflowTransitionCreateRequestSerializer(serializers.Serializer):
@@ -624,17 +627,32 @@ class GlobalWorkflowStateDetailView(APIView):
         unknown = _unknown_item_type(item_type, lang)
         if unknown is not None:
             return unknown
+        state_name = unquote(state_id)
         new_name = (request.data.get("name") or "").strip()
-        if not new_name:
-            return _validation(lang, "name is required")
+        freeze_given = "freeze_on_enter" in request.data
+        freeze_value = request.data.get("freeze_on_enter")
+        if not new_name and not freeze_given:
+            return _validation(lang, "name or freeze_on_enter is required")
         try:
-            obj, count = WorkflowFacade().rename_global_state(
-                ctx,
-                item_type=item_type,
-                preset=preset,
-                old_name=unquote(state_id),
-                new_name=new_name,
-            )
+            if new_name:
+                obj, count = WorkflowFacade().rename_global_state(
+                    ctx,
+                    item_type=item_type,
+                    preset=preset,
+                    old_name=state_name,
+                    new_name=new_name,
+                )
+                state_name = new_name
+            if freeze_given:
+                obj, count = WorkflowFacade().set_global_state_freeze(
+                    ctx,
+                    item_type=item_type,
+                    preset=preset,
+                    state=state_name,
+                    freeze=bool(freeze_value),
+                )
+            if not new_name and not freeze_given:  # pragma: no cover - guarded above
+                return _validation(lang, "nothing to change")
         except Exception as exc:  # noqa: BLE001
             return _map_workflow_error(exc, lang)
         return Response(

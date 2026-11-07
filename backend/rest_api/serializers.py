@@ -1249,6 +1249,9 @@ class ArtifactSerializer(
     workspace_id = serializers.UUIDField(required=True)
     artifact_type = serializers.CharField(max_length=64)
     parent_id = serializers.UUIDField(required=False, allow_null=True)
+    # P1: fractional sibling order, exposed so a reorder client can compare
+    # positions without a second lookup.
+    sort_key = serializers.CharField(read_only=True, allow_null=True)
     version = serializers.IntegerField(
         read_only=True, help_text=LOCK_VERSION_HELP_TEXT
     )
@@ -1361,12 +1364,36 @@ class RequirementSerializer(
         read_only=True,
         allow_null=True,
         min_value=1,
-        max_value=4,
         help_text=(
-            "V-model hierarchy level (1=System, 2=Subsystem, 3=Component, "
-            "4=Presentation). DERIVED and read-only (ADR-005): recomputed from "
-            "the Requirement hierarchy on every hierarchy change, NULL when the "
-            "hierarchy does not determine a level."
+            "P2: permanent integer alias of the requirement's position in the "
+            "workspace tier ladder (position + 1). DERIVED and read-only; NULL "
+            "when the ladder does not determine a tier. The old 1..4 V-model "
+            "assumption is gone: a ladder may have any number of entries."
+        ),
+    )
+    tier_key = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="P2: stable tier key (the workspace ladder entry).",
+    )
+    # P2 (V5 naming layer): the display name of `tier_key`. Resolved from the
+    # workspace ladder map the view puts into the serializer context — one
+    # ladder read per request, never a query per requirement. A serialisation
+    # whose context carries no map (nested/secondary serializers) answers
+    # `null` instead of reading the ladder itself.
+    tier_name = serializers.SerializerMethodField(
+        help_text=(
+            "P2: display name of `tier_key` from the workspace tier ladder "
+            "(`en` → `de` → the key itself). Null when the requirement has no "
+            "tier or the payload was built without a ladder map."
+        )
+    )
+    allocation_intent = serializers.ChoiceField(
+        choices=["allocated", "not_allocatable", "unassigned"],
+        required=False,
+        help_text=(
+            "P2: why the requirement is (not) allocated. 'not_allocatable' "
+            "requires no existing allocation."
         ),
     )
     # #1289: provenance of `level`. Read-only, additive to the wire contract.
@@ -1445,6 +1472,28 @@ class RequirementSerializer(
         # return "".
         title = obj.get("title", "") if isinstance(obj, dict) else getattr(obj, "title", "")
         return detect_non_atomic_terms(title or "") or None
+
+    def get_tier_name(self, obj: Any) -> str | None:
+        """Resolve ``tier_name`` from the view-supplied ladder map (P2, V5).
+
+        The view puts ``{tier_key: display_name}`` into ``context['tier_names']``
+        after exactly one ``TierLadderService.get()`` per request, so this
+        method never queries — that is what keeps the list endpoint's query
+        count independent of the number of requirements. Without the map
+        (nested serializers, direct serializer unit tests) the answer is
+        ``None`` rather than a per-row ladder read.
+        """
+        tier_key = (
+            obj.get("tier_key")
+            if isinstance(obj, dict)
+            else getattr(obj, "tier_key", None)
+        )
+        if not tier_key:
+            return None
+        names = (getattr(self, "context", None) or {}).get("tier_names")
+        if not isinstance(names, dict):
+            return None
+        return names.get(tier_key)
 
     def to_representation(self, instance: Any) -> dict[str, Any]:
         """Render conditional fields based on requirement type."""

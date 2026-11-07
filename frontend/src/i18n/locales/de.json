@@ -78,6 +78,7 @@
     "baselines": "Baselines",
     "reviews": "Freigaben",
     "traceability": "Traceability",
+    "connectionView": "Verbindungen",
     "impact": "Auswirkungsanalyse",
     "metrics": "SE-Metriken",
     "memory": "Gedächtnis",
@@ -377,6 +378,10 @@
     "treeDropRoot": "Hier ablegen, um auf oberste Ebene zu verschieben",
     "treeContainsSelection": "Enthält die aktuelle Auswahl",
     "moveNode": "Verschieben…",
+    "lockedHint": "Gesperrt: {{state}} — Position, Elternknoten und Allokation sind schreibgeschützt.",
+    "showGroups": "Gruppen anzeigen",
+    "groupMemberCount": "{{count}} Anforderungen",
+    "groupMembership": "In {{count}} Gruppen",
     "moveNodeTitle": "Element verschieben",
     "moveNodeDescription": "Ziel-Elternelement auswählen, unter das das Element verschoben wird.",
     "moveNodeTarget": "Neues Elternelement",
@@ -384,6 +389,11 @@
     "moveNodeConfirm": "Verschieben",
     "moveNodeCancel": "Abbrechen",
     "moveNodeDone": "Element verschoben.",
+    "moveNodeSearch": "Elternelement suchen",
+    "moveNodeSearchPlaceholder": "Name oder Kennung filtern …",
+    "moveNodeNoMatches": "Kein passendes Elternelement.",
+    "reorderDone": "{{name}} verschoben (Position {{position}}).",
+    "reorderFailed": "Verschieben fehlgeschlagen. Die Reihenfolge wurde zurückgesetzt.",
     "title": "Titel",
     "name": "Name",
     "description": "Beschreibung",
@@ -1324,6 +1334,22 @@
       "hardOffHint": "immer ohne Memory",
       "hardOffSummary": "KI-Aktivitäten, die nie Memory nutzen: {{total}}"
     },
+    "cardFields": {
+      "title": "Kartenfelder (Graph)",
+      "hint": "Welche Felder die Anforderungs- und Elementkarten im Allokationsgraphen zeigen, in welcher Reihenfolge und auf wie viele Zeilen verteilt. Sperr-, Befund- und Nicht-allokiert-Markierungen sind nicht ausblendbar.",
+      "kindRequirement": "Anforderungskarten",
+      "kindElement": "Elementkarten",
+      "rows": "Zeilen",
+      "addField": "Feld hinzufügen",
+      "moveUp": "Nach oben",
+      "moveDown": "Nach unten",
+      "remove": "Feld entfernen",
+      "mandatory": "Pflichtmarkierung – nicht ausblendbar",
+      "save": "Speichern",
+      "reset": "Auf Standard zurücksetzen",
+      "saved": "Gespeichert.",
+      "loading": "Kartenfelder werden geladen …"
+    },
     "customFields": {
       "title": "Benutzerdefinierte Felder",
       "description": "Definiere zusätzliche Felder für dieses Workspace. Definierte Felder erscheinen im Bearbeitungsformular jeder Anforderung (Requirement) und können dort ausgefüllt werden.",
@@ -1508,6 +1534,10 @@
     "L3": "L3 Komponente",
     "L4": "L4 Präsentation",
     "derived": "abgeleitet",
+    "derivedAllocation": "abgeleitet (Allokation)",
+    "derivedHierarchy": "abgeleitet (Hierarchie)",
+    "derivedType": "abgeleitet (Typ)",
+    "unresolved": "nicht auflösbar",
     "manual": "manuell"
   },
   "verificationMethod": {
@@ -1802,6 +1832,7 @@
       "toggleGrid": "Raster umschalten"
     },
     "inspector": {
+      "freezeState": "Sperrt Bearbeitung (Position, Eltern, Allokation)",
       "ariaLabel": "Eigenschaften-Panel",
       "title": "Eigenschaften",
       "emptyPrompt": "Knoten oder Kante auswählen, um Eigenschaften anzuzeigen.",
@@ -2472,6 +2503,7 @@
       "initialStateHint": "Startzustand — keine eingehenden Übergänge.",
       "editState": "Zustand bearbeiten",
       "deleteState": "Löschen",
+      "freezeState": "Sperrt Bearbeitung",
       "editTransition": "Übergang bearbeiten",
       "deleteTransition": "Löschen",
       "requiresChangeReason": "Begründung erforderlich",
@@ -3371,6 +3403,153 @@
       "hint": "Systemweite Vorgabe für den Anlage-Dialog. Workspace- und persönliche Einstellungen überschreiben sie."
     }
   },
+  "tiers": {
+    "title": "Stufen-Leiter",
+    "hint": "Die benannten Positionen, die die Stufe einer Anforderung annehmen kann, in Reihenfolge. Genau eine Stufe ist \"erste\" (Wurzel des Baums), höchstens eine ist \"dazwischen\", und genau eine liegt bei \"von hinten = 0\" (Blatt). Umbenennen ändert keine bestehenden Anforderungen.",
+    "loading": "Stufen-Leiter wird geladen …",
+    "saveFailed": "Die Stufen-Leiter konnte nicht gespeichert werden.",
+    "saved": "Stufen-Leiter gespeichert.",
+    "readOnly": "Nur Workspace-Administratoren können die Stufen-Leiter ändern.",
+    "addTier": "Stufe hinzufügen",
+    "save": "Leiter speichern",
+    "nameDe": "Name (DE)",
+    "nameEn": "Name (EN)",
+    "ruleLabel": "Regel",
+    "fromEnd": "Von hinten",
+    "moveUp": "Nach oben",
+    "moveDown": "Nach unten",
+    "remove": "Stufe entfernen",
+    "defaultNameDe": "Ebene {{n}}",
+    "defaultNameEn": "Tier {{n}}",
+    "rule": {
+      "first": "Erste (Wurzel des Baums)",
+      "middle": "Dazwischen",
+      "from_end": "Von hinten"
+    },
+    "threeNames": {
+      "title": "Drei Namen",
+      "hint": "Ersetzt die Leiter durch genau drei Stufen: erste, dazwischen und letzte.",
+      "erste": "Erste",
+      "dazwischen": "Dazwischen",
+      "letzte": "Letzte",
+      "apply": "Drei Namen übernehmen"
+    }
+  },
+  "connectionView": {
+    "title": "Verbindungen",
+    "viewSwitcher": "Ansicht wechseln",
+    "views": {
+      "tree": "Baum",
+      "twoColumn": "Zwei Spalten",
+      "matrix": "Matrix",
+      "graph": "Graph"
+    },
+    "quick": {
+      "open": "Offen",
+      "unallocated": "Nicht allokiert",
+      "locked": "Gesperrt",
+      "findings": "Befunde"
+    },
+    "filters": {
+      "tier": "Stufe",
+      "type": "Typ",
+      "category": "Kategorie",
+      "state": "Status",
+      "elementSubtree": "Element-Teilbaum",
+      "group": "Gruppe",
+      "search": "Suche",
+      "searchPlaceholder": "Titel durchsuchen"
+    },
+    "all": "Alle",
+    "reset": "Filter zurücksetzen",
+    "counters": {
+      "total": "Gesamt",
+      "unallocated": "Nicht allokiert",
+      "locked": "Gesperrt",
+      "findings": "Befunde"
+    },
+    "savedViews": {
+      "name": "Ansichtsname",
+      "save": "Ansicht speichern",
+      "delete": "Ansicht {{name}} löschen",
+      "saveFailed": "Ansicht konnte nicht gespeichert werden: {{message}}"
+    },
+    "type": {
+      "SyReq": "Systemanforderung",
+      "UseCase": "Anwendungsfall",
+      "FeatureReq": "Funktionsanforderung"
+    },
+    "requirements": "Anforderungen",
+    "elements": "Architekturelemente",
+    "unallocated": "Nicht allokiert",
+    "unallocatedEmpty": "Alle Anforderungen sind allokiert.",
+    "allocateTo": "Allokieren auf …",
+    "pickerTitle": "„{{title}}“ allokieren auf …",
+    "pickerSearch": "Element suchen",
+    "pickerEmpty": "Kein passendes Element gefunden.",
+    "allocated": "Allokiert",
+    "sum": "Summe",
+    "total": "Gesamt",
+    "pageOf": "Seite {{page}} von {{total}}",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "locked": "Gesperrt",
+    "empty": "Keine Anforderungen oder Architekturelemente vorhanden.",
+    "lockedTooltip": "Durch Workflow-Status gesperrt: {{state}}",
+    "loading": "Verbindungen werden geladen …",
+    "assistant": {
+      "title": "Allokations-Assistent",
+      "hint": "Anforderungen auswählen und gemeinsam allokieren. Der Schreibvorgang ist atomar: entweder wird die ganze Auswahl geschrieben oder nichts.",
+      "selected": "{{count}} ausgewählt",
+      "selectAll": "Alle auswählen",
+      "suggest": "Vorschläge",
+      "suggestLoading": "Vorschläge werden geladen …",
+      "suggestEmpty": "Für die ausgewählten Anforderungen gibt es keinen Vorschlag.",
+      "suggestionsTitle": "Vorgeschlagene Ziele",
+      "suggestionReason": "KI-Vorschlag (Rang {{rank}})",
+      "suggestionApplied": "{{count}} Vorschlag/Vorschläge übernommen.",
+      "allocatedNotice": "{{count}} Anforderung(en) auf „{{element}}“ allokiert.",
+      "pickerTitle": "{{count}} Anforderung(en) allokieren auf …",
+      "nothingWritten": "Es wurde nichts geschrieben — der Batch ist alles-oder-nichts.",
+      "lockedTooltip": "Durch Workflow-Status gesperrt: {{state}}",
+      "accept": "Übernehmen",
+      "acceptAll": "Alle übernehmen",
+      "confirmTitle": "Allokation bestätigen",
+      "confirmHint": "Die folgenden Schreibvorgänge werden als ein atomarer Batch gesendet:",
+      "confirm": "Bestätigen und schreiben",
+      "cancel": "Abbrechen"
+    }
+  },
+  "allocationGraph": {
+    "mode": "Modus",
+    "viewMode": "Ansicht",
+    "editMode": "Bearbeiten",
+    "modeHint": "Ansicht zeigt keine Schreibgriffe. Bearbeiten erlaubt das Ziehen von der Anforderung auf ein Architekturelement.",
+    "readOnly": "Nur-Lese-Zugriff: Bearbeiten benötigt eine Schreibrolle.",
+    "empty": "Keine Karten im aktuellen Filter.",
+    "locked": "Gesperrt",
+    "lockedTooltip": "Durch Workflow-Status gesperrt: {{state}}",
+    "unallocated": "Nicht allokiert",
+    "findingCount": "{{count}} Befunde",
+    "collapse": "{{title}} einklappen",
+    "expand": "{{title}} ausklappen",
+    "errorTitle": "Allokation abgelehnt",
+    "pickerTitle": "„{{title}}“ allokieren auf …",
+    "pickerSearch": "Element suchen",
+    "pickerEmpty": "Kein passendes Element gefunden.",
+    "fields": {
+      "id": "ID",
+      "title": "Titel",
+      "state": "Status",
+      "tier": "Stufe",
+      "type": "Typ",
+      "category": "Kategorie",
+      "group": "Gruppe",
+      "allocationCount": "Allokationen",
+      "lock": "Gesperrt",
+      "owner": "Verantwortlich"
+    }
+  },
   "preferences": {
     "title": "Darstellung",
     "inherited": "Geerbt von {{source}}",
@@ -3393,5 +3572,21 @@
         "off": "Nie"
       }
     }
+  },
+  "groups": {
+    "title": "Gruppen",
+    "name": "Name",
+    "namePlaceholder": "z. B. Bremssystem",
+    "description": "Beschreibung",
+    "create": "Gruppe anlegen",
+    "loading": "Gruppen werden geladen …",
+    "empty": "Noch keine Gruppen vorhanden.",
+    "noMembers": "Keine Mitglieder.",
+    "addMember": "Anforderung hinzufügen",
+    "searchPlaceholder": "Anforderung suchen",
+    "searchEmpty": "Keine passende Anforderung gefunden.",
+    "add": "Hinzufügen",
+    "removeMember": "{{name}} aus der Gruppe entfernen",
+    "actionFailed": "Die Gruppenaktion ist fehlgeschlagen."
   }
 }

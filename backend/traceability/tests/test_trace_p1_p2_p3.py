@@ -3,8 +3,9 @@ SysEng 2.0 SE-Auditor — TRACE-P1, TRACE-P1b, TRACE-P2, TRACE-P3 tests.
 
 UMSETZUNGSPLAN_SYSENG_2.0.md §2.2. Each rule gets at least one positive case
 (no finding) and one negative case (finding correctly raised). Also covers
-the TRACE-P2 calibrated severity (WARNING at every tier, issue #581) and
-the L4 out-of-scope exemption.
+the TRACE-P2 calibrated severity (WARNING at every tier, issue #581) and the
+retired L4/last-tier exemption (P2.7): a Requirement on the ladder's final
+rung is now audited like any other active Requirement.
 
 These rules are NOT wired into ``rules/__init__.py`` yet (a later
 integration step does that centrally to avoid merge conflicts with a
@@ -171,19 +172,28 @@ class TestTraceP1b:
         ids_flagged = {a for f in findings for a in f.artifact_ids}
         assert str(child_art.id) in ids_flagged
 
-    def test_l4_requirement_is_out_of_scope(self, tenant_a, workspace_a):
-        """L4 (Presentation) is explicitly excluded from every rule (§2.2)."""
+    def test_last_tier_requirement_is_still_audited(self, tenant_a, workspace_a):
+        """P2.7: the former ``L4_PRESENTATION`` exclusion is retired.
+
+        Leaf-relative tiers put a Requirement allocated to a leaf element on
+        the ladder's final rung (commonly integer level 4 — the old
+        ``L4_PRESENTATION`` value). Excluding that value silently removed the
+        Requirement from all four rules in this module; an *active*
+        Requirement is audited regardless of its derived tier.
+        """
         with active_tenant(tenant_a):
-            _requirement(
+            req_art, _ = _requirement(
                 tenant_a,
                 workspace_a,
-                title="L4 leaf",
+                title="Last tier leaf",
                 level=RequirementLevel.L4_PRESENTATION,
             )
 
             result = _run("standard", workspace_a, tenant_a)
 
-        assert _findings(result, TRACE_P1B) == []
+        findings = _findings(result, TRACE_P1B)
+        assert len(findings) == 1
+        assert str(req_art.id) in findings[0].artifact_ids
 
     def test_deleted_requirement_is_excluded(self, tenant_a, workspace_a):
         """Task 12: the `status` column is dropped -- ``outdate()`` now only
@@ -241,6 +251,23 @@ class TestTraceP2:
         assert len(findings) == 1
         assert str(req_art.id) in findings[0].artifact_ids
 
+    def test_last_tier_requirement_is_still_audited(self, tenant_a, workspace_a):
+        """P2.7: a last-tier (formerly L4_PRESENTATION) Requirement is not
+        skipped by the allocation rule either."""
+        with active_tenant(tenant_a):
+            req_art, _ = _requirement(
+                tenant_a,
+                workspace_a,
+                title="Last tier unallocated",
+                level=RequirementLevel.L4_PRESENTATION,
+            )
+
+            result = _run("extended", workspace_a, tenant_a)
+
+        findings = _findings(result, TRACE_P2)
+        assert len(findings) == 1
+        assert str(req_art.id) in findings[0].artifact_ids
+
     def test_severity_is_warning_at_every_tier(self, tenant_a, workspace_a):
         """#581: allocation coverage is advisory — never a BLOCKER.
 
@@ -286,6 +313,30 @@ class TestTraceP3:
         with active_tenant(tenant_a):
             req_art, _ = _requirement(tenant_a, workspace_a)
             ae_art, _ = _arch_element(tenant_a, workspace_a)
+            make_trace_link(req_art, ae_art, tenant_a, "allocated-to")
+
+            result = _run("extended", workspace_a, tenant_a)
+
+        assert _findings(result, TRACE_P3) == []
+
+    def test_last_tier_requirement_satisfies_its_element(self, tenant_a, workspace_a):
+        """P2.7 / #272 seed case: a Requirement on the final ladder rung must
+        still count as coverage for its element.
+
+        With leaf-relative tiers a Requirement allocated to a leaf element
+        derives the last rung (often integer level 4, formerly
+        ``L4_PRESENTATION``). While that value was excluded, the element looked
+        untraced although a live Requirement pointed at it — 11 of 12
+        leaf-allocated seed Requirements vanished from TRACE-P3.
+        """
+        with active_tenant(tenant_a):
+            req_art, _ = _requirement(
+                tenant_a,
+                workspace_a,
+                title="Last tier allocated",
+                level=RequirementLevel.L4_PRESENTATION,
+            )
+            ae_art, _ = _arch_element(tenant_a, workspace_a, title="Leaf")
             make_trace_link(req_art, ae_art, tenant_a, "allocated-to")
 
             result = _run("extended", workspace_a, tenant_a)

@@ -9,5 +9,14 @@ export type {
   WorkspaceTreeNodeType,
   WorkspaceTreeProps,
 } from './workspace-tree';
+export {
+  artifactNodeId,
+  buildGroupNodes,
+  groupFolderNodeId,
+  groupMemberNodeId,
+  isGroupFolderNode,
+  isGroupMemberNode,
+} from './tree-groups';
+export type { WorkspaceTreeGroup } from './tree-groups';
 export { collectSelfAndDescendantIds } from './tree-hierarchy';
 export type { HierarchyRef } from './tree-hierarchy';

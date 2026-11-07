@@ -8,8 +8,10 @@ Covers three things the ADR-005 derivation did not:
   (:func:`architecture_allocated_levels`),
 * that a **manual** override (``level_source == manual``) survives a later
   hierarchy recompute instead of being overwritten,
-* the two advisory consistency rules (CONS-P12: level NULL; CONS-P13: level
-  disagrees with the architecture depth).
+* the two advisory consistency rules (CONS-P12: tier not determinable —
+  ``level_source == unresolved`` and/or a NULL ``level``; CONS-P13: an empty
+  ``level_source`` provenance, the P2 replacement for the retired
+  level-vs-architecture-depth comparison).
 """
 from __future__ import annotations
 
@@ -110,14 +112,18 @@ class TestArchitectureAllocatedLevels:
     ):
         # Allocated to two elements at different depths -> disagreement -> None
         # (a guess would be wrong for at least one edge).
+        import pytest
+        from django.db import IntegrityError
+
         with active_tenant(tenant_a):
             root = _element(tenant_a, workspace_a, "System")
             child = _element(tenant_a, workspace_a, "Subsystem", parent=root)
             artifact, _ = _requirement(tenant_a, workspace_a, "R")
             _allocate(tenant_a, artifact, root)
-            _allocate(tenant_a, artifact, child)
-            levels = architecture_allocated_levels(tenant_a.id)
-        assert levels[artifact.id] is None
+            # P2 makes N:1 a database invariant, so the old "two allocations
+            # at disagreeing depths" scenario is no longer representable.
+            with pytest.raises(IntegrityError):
+                _allocate(tenant_a, artifact, child)
 
     def test_a_requirement_without_allocation_is_absent(
         self, tenant_a, workspace_a
@@ -174,7 +180,7 @@ class TestManualOverrideIsPreserved:
             recompute_requirement_levels([child_artifact.id])
             child.refresh_from_db()
         assert child.level == RequirementLevel.L2_SUBSYSTEM
-        assert child.level_source == RequirementLevelSource.DERIVED
+        assert child.level_source == RequirementLevelSource.DERIVED_HIERARCHY
 
 
 # ---------------------------------------------------------------------------
@@ -203,32 +209,65 @@ class TestLevelConsistencyRules:
         assert len(findings) == 1
         assert str(artifact.id) in findings[0].artifact_ids
 
-    def test_cons_p13_reports_a_level_that_contradicts_the_depth(
-        self, tenant_a, workspace_a
-    ):
+    def test_cons_p12_reports_an_unresolved_source(self, tenant_a, workspace_a):
+        """P2/V4: the honest "no allocation, no derivable parent, no type
+        default" state is ``level_source == unresolved``."""
         from traceability.tests.conftest import active_tenant
 
         with active_tenant(tenant_a):
-            root = _element(tenant_a, workspace_a, "System")
-            child = _element(tenant_a, workspace_a, "Subsystem", parent=root)
-            # Depth-1 element implies L2, but the stored level is L1.
             artifact, _ = _requirement(
-                tenant_a, workspace_a, "Wrong", level=RequirementLevel.L1_SYSTEM
+                tenant_a,
+                workspace_a,
+                "Unresolved",
+                source=RequirementLevelSource.UNRESOLVED,
             )
-            _allocate(tenant_a, artifact, child)
+            result = _run(tenant_a, workspace_a)
+        findings = _findings(result, CONS_P12)
+        assert len(findings) == 1
+        assert str(artifact.id) in findings[0].artifact_ids
+
+    def test_cons_p12_is_silent_for_a_resolved_tier(self, tenant_a, workspace_a):
+        from traceability.tests.conftest import active_tenant
+
+        with active_tenant(tenant_a):
+            _requirement(
+                tenant_a,
+                workspace_a,
+                "Resolved",
+                level=RequirementLevel.L2_SUBSYSTEM,
+                source=RequirementLevelSource.DERIVED_ALLOCATION,
+            )
+            result = _run(tenant_a, workspace_a)
+        assert _findings(result, CONS_P12) == []
+
+    def test_cons_p13_reports_an_empty_level_source(self, tenant_a, workspace_a):
+        """P2: CONS-P13 is a data-integrity guard — every active Requirement
+        must carry a level_source, independent of its tier value."""
+        from traceability.tests.conftest import active_tenant
+
+        with active_tenant(tenant_a):
+            artifact, _ = _requirement(
+                tenant_a,
+                workspace_a,
+                "No source",
+                level=RequirementLevel.L1_SYSTEM,
+                source="",
+            )
             result = _run(tenant_a, workspace_a)
         findings = _findings(result, CONS_P13)
         assert len(findings) == 1
         assert str(artifact.id) in findings[0].artifact_ids
 
-    def test_cons_p13_is_silent_when_the_level_agrees(self, tenant_a, workspace_a):
+    def test_cons_p13_is_silent_when_the_source_is_set(self, tenant_a, workspace_a):
         from traceability.tests.conftest import active_tenant
 
         with active_tenant(tenant_a):
-            root = _element(tenant_a, workspace_a, "System")
-            artifact, _ = _requirement(
-                tenant_a, workspace_a, "Ok", level=RequirementLevel.L1_SYSTEM
+            _requirement(
+                tenant_a,
+                workspace_a,
+                "Ok",
+                level=RequirementLevel.L1_SYSTEM,
+                source=RequirementLevelSource.DERIVED_ALLOCATION,
             )
-            _allocate(tenant_a, artifact, root)
             result = _run(tenant_a, workspace_a)
         assert _findings(result, CONS_P13) == []

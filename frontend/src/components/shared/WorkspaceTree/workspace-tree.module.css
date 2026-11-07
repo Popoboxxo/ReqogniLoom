@@ -36,6 +36,18 @@
 }
 
 /*
+ * P4.4: workflow-lock marker. A state indicator (not a level/type), so it uses
+ * the warning token and never a hardcoded colour. Non-shrinking so it stays
+ * visible next to a long, ellipsized node name.
+ */
+.lockIcon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--color-warning);
+}
+
+/*
  * Row chrome — selection and the issue #668 collapsed-ancestor marker.
  *
  * These moved out of the row's inline `style={{...}}` on purpose: an inline
@@ -92,18 +104,40 @@
 }
 
 /*
- * Drag & drop reparenting (user decision 2026-08-15).
+ * Drag & drop reparenting (user decision 2026-08-15) and reordering
+ * (P1 Task 1.7).
  *
  * The drag affordances deliberately use properties the row chrome above does
- * not touch: outline for the drop target, opacity for the row in flight.
+ * not touch: outline for "drop into", a top/bottom rule for "insert before/
+ * after" and opacity for the row in flight. The insert rules are drawn as an
+ * inset box-shadow rather than a border so they neither shift the row's
+ * geometry nor fight the depth-indent padding.
  */
 .dropTarget {
   outline: 2px dashed var(--color-primary);
   outline-offset: -2px;
 }
 
+.dropBefore {
+  box-shadow: inset 0 2px 0 0 var(--color-primary);
+}
+
+.dropAfter {
+  box-shadow: inset 0 -2px 0 0 var(--color-primary);
+}
+
 .dragging {
   opacity: 0.5;
+}
+
+/*
+ * P1 Task 1.7: a rejected move explains itself below the tree. Colour is the
+ * readable danger-as-text token, not the border/icon accent.
+ */
+.reorderError {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger-text);
 }
 
 .rootDropzone {
@@ -307,4 +341,55 @@
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/*
+ * --- P6 Task 6.3: visual groups as pseudo-folders -------------------------
+ *
+ * The "Gruppen anzeigen" toggle sits above the tree. It is a real checkbox and
+ * a <label>, so the whole text is a hit target; colour and spacing come from
+ * the design tokens like the rest of the row chrome.
+ */
+.groupToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* WCAG 2.2 SC 2.5.8: the label row is the hit target, so it must render at
+     least 24px tall (`--space-6`). Text metrics alone gave 19px. */
+  min-height: var(--space-6);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.groupToggle input[type="checkbox"] {
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+/*
+ * A group folder is chrome, not an artifact: the name is bolder than a
+ * requirement row and carries the member count as muted metadata.
+ */
+.treeRowGroupFolder {
+  background: var(--color-surface-raised);
+}
+
+.groupFolderName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.groupFolderCount {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
 }

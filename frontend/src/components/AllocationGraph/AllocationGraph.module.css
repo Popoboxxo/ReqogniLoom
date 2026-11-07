@@ -1,0 +1,263 @@
+/**
+ * P5 Task 5.2/5.3 — allocation card graph styles.
+ *
+ * Everything is expressed through the design tokens in styles/tokens.css; no
+ * hard-coded colours or sizes. Card geometry mirrors `NODE_WIDTH`/`NODE_HEIGHT`
+ * from buildGraph so React Flow's layout matches what is rendered.
+ */
+
+.graph {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 32rem;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.modeSwitcher {
+  display: inline-flex;
+  gap: var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  padding: var(--space-1);
+  background: var(--color-surface-raised);
+}
+
+.modeButton {
+  border-radius: var(--radius-full);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.modeButtonActive {
+  background-color: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.modeHint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-left-width: 4px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-danger) 12%, var(--color-surface-raised));
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.errorTitle {
+  font-weight: 600;
+}
+
+.errorCode {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+  white-space: nowrap;
+}
+
+.empty,
+.status {
+  margin: 0;
+  padding: var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.canvas {
+  height: 34rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+/* --- cards -------------------------------------------------------------- */
+
+.card {
+  width: 220px;
+  height: 88px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  overflow: hidden;
+}
+
+.requirementCard {
+  border-left: 3px solid var(--color-primary);
+}
+
+.elementCard {
+  border-left: 3px solid var(--color-text-muted);
+}
+
+.cardSelected {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-glow);
+}
+
+.cardDimmed {
+  opacity: 0.45;
+}
+
+.cardFrozen {
+  border-style: dashed;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 1.1rem;
+}
+
+.cardPrimary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.markers {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.marker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-radius: var(--radius-full);
+  padding: 0 var(--space-1);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.markerLock {
+  border: 1px solid var(--color-warning);
+  color: var(--color-warning);
+}
+
+.markerFinding {
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger-text);
+}
+
+.markerUnallocated {
+  border: 1px dashed var(--color-border-hover);
+  color: var(--color-text-muted);
+}
+
+.fieldRows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.fieldRow {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.field {
+  display: inline-flex;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.fieldLabel {
+  color: var(--color-text-muted);
+}
+
+.fieldValue {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: auto;
+}
+
+.actionButton {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-btn);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  padding: 0 var(--space-1);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* --- handles ------------------------------------------------------------ */
+
+/* Invisible anchors keep hierarchy edges attachable without exposing writes. */
+.hierarchyHandle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.allocateHandle {
+  width: 10px;
+  height: 10px;
+  background-color: var(--color-primary);
+  border: 1px solid var(--color-on-primary);
+}
+
+/* --- keyboard picker ---------------------------------------------------- */
+
+.pickerSearch {
+  width: 100%;
+  margin-bottom: var(--space-2);
+}
+
+.pickerList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.pickerOption {
+  width: 100%;
+  text-align: left;
+}

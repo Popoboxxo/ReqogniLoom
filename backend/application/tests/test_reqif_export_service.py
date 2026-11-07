@@ -234,6 +234,25 @@ class TestReqifExportMapping:
         assert need_so.attribute_map["ATTR-MOSCOW-PRIORITY"].value == "Must"
         assert "ATTR-VERIFICATION-METHOD" not in need_so.attribute_map
 
+    def test_tier_key_and_name_are_exported(self, reqif_workspace):
+        """P2/V4/V5: a Requirement publishes its stable ladder key and the
+        ladder's display name; the integer alias ``level`` stays internal."""
+        req1 = reqif_workspace["req1"]
+        req1.tier_key = "dazwischen"
+        req1.level = 2
+        req1.save(update_fields=["tier_key", "level"])
+
+        result = _export(reqif_workspace["workspace"].id, reqif_workspace["tenant"].id)
+
+        bundle = ReqIFParser.parse_from_string(result.content)
+        content = bundle.core_content.req_if_content
+        spec_objects_by_id = {so.identifier: so for so in content.spec_objects}
+        so = spec_objects_by_id[_so_id(req1.artifact_id)]
+
+        assert so.attribute_map["ATTR-TIER-KEY"].value == "dazwischen"
+        assert so.attribute_map["ATTR-TIER-NAME"].value == "Middle"
+        assert "ATTR-LEVEL" not in so.attribute_map
+
     def test_status_is_resolved_from_the_engine_not_the_stale_column(self):
         """C2: Datenmodell-Konsolidierung Phase 1 — the workflow engine no
         longer writes ``status``, so a real transition must still be visible

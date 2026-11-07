@@ -51,7 +51,9 @@ import { GlossaryReferenceSection } from "./GlossaryReferenceSection";
 import { WorkspaceBannerSection } from "./WorkspaceBannerSection";
 import { MemorySettingsSection } from "./MemorySettingsSection";
 import { TreeDisplaySection } from "./TreeDisplaySection";
+import { CardFieldsSection } from "./CardFieldsSection";
 import { CreateFormSection } from "./CreateFormSection";
+import { TierLadderSection } from "./TierLadderSection";
 import { PreferenceLevelSection } from "../shared/PreferenceLevelSection/PreferenceLevelSection";
 import { useLinkTypes } from "../../context/LinkTypeContext";
 import { PageHeader } from "../shared/PageHeader";
@@ -429,6 +431,15 @@ export default function WorkspaceSettings(): JSX.Element {
               ))}
             </section>
 
+            {/* Requirement tier ladder (P2 Task 2.10): the named positions a
+                requirement's tier can take. Workspace configuration, so it sits
+                next to the preset and the terminology profile; the server
+                re-asserts workspace-admin on save. */}
+            <TierLadderSection
+              workspaceId={activeWorkspace.id}
+              readOnly={!isAdmin}
+            />
+
             {/* Ziele (Goal/MainGoal, REQ-L2-TE-020) — feature + AI-generation toggle */}
             <section className={styles.card}>
               <h3 className={styles.heading}>{t("settings.goals", "Ziele")}</h3>
@@ -561,6 +572,11 @@ export default function WorkspaceSettings(): JSX.Element {
                 fields. Personal (UserProfileSettings) and tenant-wide
                 (SystemSettings) levels are the other two. */}
             <TreeDisplaySection workspaceId={activeWorkspace.id} />
+
+            {/* P5 Task 5.2: which fields the allocation-graph cards show.
+                Persisted through the preference API with a localStorage
+                fallback (no backend card-field store yet). */}
+            <CardFieldsSection workspaceId={activeWorkspace.id} />
 
             {/* Issue #1263: the workspace default for the "new artifact"
                 dialog's fields. Tenant-wide (SystemSettings) is the other level;

@@ -614,18 +614,21 @@ def test_tools_list_and_the_committed_manifest_agree_on_the_count() -> None:
         f"{live['tool_count']}"
     )
     groups = {tool["prefix"] for tool in live["tools"]}
-    assert len(groups) == 44, (
-        f"tool-group prefix count changed to {len(groups)} (expected 44 as of "
-        f"Plan B B6-T2; ADR-019 WP3 added the 'suggestion' "
-        f"prefix, #1265 added the 'metrics' prefix, #1257 added the "
-        f"'tree_display_config' prefix, #1263 added the "
-        f"'create_form_definition' prefix, Plan C T-C2-4 added the "
-        f"'preference' prefix, Plan B B5-T3 added the 'quality' "
-        f"prefix, Plan F F2-T6 added the 'document' prefix, Plan F F3-T6 "
-        f"added the 'work_item' prefix, and Plan B B6-T2 added the "
-        f"'milestone' prefix). "
-        "If that is intended, update the number in docs/api/MCP-SURFACE.md "
-        "together with the version and commit it was measured at."
+    # The committed manifest is the single source for the count (#1085). A
+    # literal here would be a third copy of the same figure (manifest, test,
+    # docs) that drifts silently — exactly what happened when the ordering work
+    # added the 'allocation' and 'group' prefixes: only the manifest was
+    # regenerated and the hardcoded 44 went stale. Comparing the live set with
+    # the manifest keeps "one number, two sources" true without pinning a
+    # snapshot of the catalogue in the test.
+    committed_groups = {tool["prefix"] for tool in committed["tools"]}
+    assert groups == committed_groups, (
+        f"live tool-group prefixes diverge from the committed manifest: "
+        f"live-only {sorted(groups - committed_groups)}, "
+        f"manifest-only {sorted(committed_groups - groups)}. Regenerate "
+        "docs/agent-templates/tool-manifest.json with the export command and "
+        "update the figure quoted in docs/api/MCP-SURFACE.md together with the "
+        "version and commit it was measured at."
     )
 
 

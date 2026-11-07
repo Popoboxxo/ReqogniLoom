@@ -47,13 +47,15 @@ import { QualityPanel } from "../shared/QualityPanel";
  * carrying it with a 400. This client-side exclude is defense-in-depth on
  * top of the shared backend fix.
  *
- * `parent_id`/`suspect`: `RequirementSerializer` declares `parent_id` as
- * writable, but `RequirementService.update_requirement()` has no `parent_id`
- * parameter at all — the view never forwards it (verified live against
- * `RequirementViewSet.partial_update`), so sending it back is a no-op that
- * only risks a future accidental parent move if the view's field-forwarding
- * ever widens. `suspect` is read-only server-side, set only by
- * `TraceLinkService.propagate_suspect_status`.
+ * `parent_id`/`suspect`: the hierarchy is owned by the tree, not by this form.
+ * `RequirementService.update_requirement()` *does* accept and apply `parent_id`
+ * since P0/P1 (omitted = leave, `None` = detach), and re-derives `level` for the
+ * moved subtree — but a generic PATCH is not the way to move an artifact: the
+ * move endpoint (`POST /artifacts/{id}/move/`) is the single write path and it
+ * also carries the sibling position (`sort_key`). Sending `parent_id` from this
+ * form would therefore be a second, positionless write path for the same
+ * change, so the field stays excluded. `suspect` is read-only server-side, set
+ * only by `TraceLinkService.propagate_suspect_status`.
  *
  * `atomicity_warning`: a `SerializerMethodField` (IEEE 29148 §5.2.4
  * non-blocking hint) — inherently read-only to DRF, silently dropped from

@@ -26,22 +26,22 @@ stored ``Requirement.level`` column:
   :mod:`traceability.audit.hierarchy` for the direction table.
 - **L2+ ("child Requirement")** = any Requirement that *does* have such a
   hierarchy parent.
-- **L4 (Presentation)** is explicitly out of scope for every rule in this
-  module (§2.2, "L4 (Presentation)"). There is no dynamic-graph signal for
-  it (it has no architectural representation per §1.2), so the only
-  data-backed way to recognise it is
-  ``Requirement.level == RequirementLevel.L4_PRESENTATION``. Rows with
-  ``level IS NULL`` are never treated as L4 by this heuristic — they simply
-  are not skipped.
+- **The last ladder position ("last tier")** is a *display/ordering* value,
+  not an audit boundary. With leaf-relative tiers (P2/V4) a Requirement
+  allocated to a leaf ArchitectureElement legitimately derives the ladder's
+  final rung — commonly integer level 4, the slot the old ``L4_PRESENTATION``
+  label used to occupy. Every rule in this module therefore audits **every
+  active Requirement**, whatever its stored tier: neither a ``NULL`` nor an
+  explicit last-tier value excludes a row.
 
-ADR-005 made that column a **derived, read-only** field, recomputed from the
-hierarchy on every hierarchy change
-(``traceability.audit.hierarchy.recompute_requirement_levels``), and it is
-retained exactly because of the L4 bullet above: ``traceability.audit.hierarchy``
-has no L4 concept of its own, so removing the column would take the L4 filter
-out of TRACE-P3, ARCH-003 and VERIF-P8. The root/leaf classification in *this*
-module is unaffected — it was never read off the column, and a derived value
-now agrees with the graph by construction instead of by luck.
+ADR-005 made ``Requirement.level``/``tier_key`` a **derived, read-only** field,
+recomputed from the hierarchy and the allocation on every change
+(``traceability.audit.hierarchy.recompute_requirement_levels``). The former
+``level == L4_PRESENTATION`` scope skip was retired here (P2.7), matching the
+earlier retirements in TRACE-P5, ARCH-003 and VERIF-P8: a derived tier can no
+longer hide an active Requirement from the auditor. The root/leaf
+classification in *this* module is unaffected — it was never read off the
+column.
 
 Endpoint-type legality (may ``Requirement`` link to ``StakeholderNeed`` via
 ``derives-from``, may ``Requirement`` link to ``ArchitectureElement`` via
@@ -81,13 +81,10 @@ against ``workflow.services.outdated_item_ids`` (state lives only in
 """
 from __future__ import annotations
 
-from django.db.models import Q
-
 from persistence.models import (
     ArchitectureElement,
     ElementType,
     Requirement,
-    RequirementLevel,
     StakeholderNeed,
 )
 from traceability.audit.hierarchy import (
@@ -120,7 +117,7 @@ from workflow.services import outdated_item_ids
 
 
 def _active_requirements(context: AuditContext) -> dict[str, str]:
-    """Return ``{artifact_id: title}`` for active, non-L4 Requirements.
+    """Return ``{artifact_id: title}`` for the active Requirements.
 
     Memoised on the audit context (#1385): TRACE-P1, TRACE-P1b and TRACE-P2
     each need exactly this projection of the same workspace snapshot, so the
@@ -142,21 +139,20 @@ def _compute_active_requirements(context: AuditContext) -> dict[str, str]:
     never wired into one falls back to the "draft" preset initial state
     instead (documented, reviewed data-loss tradeoff, see Task 12 report
     Finding 2); "draft" is never "outdated", so it is still counted active.
+
+    P2/V4: the former ``level == L4_PRESENTATION`` scope skip is retired for
+    all four rules in this module. With leaf-relative tiers a Requirement
+    allocated to a leaf element legitimately lands on the last ladder rung
+    (commonly integer level 4), so excluding that value silently removed
+    exactly the requirements these rules exist to audit. Tier is now a
+    display/ordering concern, never a reason to stop auditing an *active*
+    Requirement — only the workflow state ("outdated") still excludes one.
     """
-    # NOTE: plain ``.exclude(level=L4_PRESENTATION)`` would also drop NULL-level
-    # rows under SQL three-valued-logic semantics (``NULL = 4`` is UNKNOWN,
-    # ``NOT UNKNOWN`` stays UNKNOWN, row excluded) — and NULL is the level for
-    # practically every Requirement created via decompose() (see module
-    # docstring). The explicit ``Q(level__isnull=True) | ~Q(...)`` keeps
-    # NULL-level rows unconditionally; only an *explicitly* assigned L4 is
-    # skipped.
     rows = list(
         Requirement.unscoped.filter(
             tenant_id=context.tenant_id,
             artifact__workspace_id=context.workspace_id,
-        )
-        .filter(Q(level__isnull=True) | ~Q(level=RequirementLevel.L4_PRESENTATION))
-        .values("id", "artifact_id", "title")
+        ).values("id", "artifact_id", "title")
     )
     states = state_reader.current_states(
         "Requirement", (row["id"] for row in rows), tenant_id=context.tenant_id
@@ -443,7 +439,8 @@ class RequirementOrphanCheckRule(Rule):
     """TRACE-P1b: every Requirement has an upstream 'derives-from' link.
 
     No Requirement is ever "L0" (that is :class:`StakeholderNeed`'s role), so
-    this applies to every active, non-L4 Requirement — root and child alike.
+    this applies to every active Requirement — root and child alike, whatever
+    ladder position its derived tier names.
     Unlike TRACE-P1 the upstream target may be *either* a StakeholderNeed or
     another Requirement (Ln-1); this rule is the general orphan detector.
     """

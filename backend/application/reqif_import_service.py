@@ -1625,6 +1625,11 @@ class ReqifImportService(ServiceBase):
         canonical roundtrip representation too.
         """
 
+        # P1: collect the imported artifacts in SPEC-HIERARCHY document order,
+        # so each sibling block can be keyed in that order rather than in
+        # creation order.
+        ordered: list[Any] = []
+
         def walk(nodes: list[Any] | None, parent_artifact: Any | None) -> None:
             for node in nodes or []:
                 child_artifact = identifier_to_artifact.get(node.spec_object)
@@ -1640,11 +1645,16 @@ class ReqifImportService(ServiceBase):
                                 "ReqifImportService: failed to set parent for %s",
                                 node.spec_object,
                             )
+                    ordered.append(child_artifact)
                     next_parent = child_artifact
                 walk(getattr(node, "children", None), next_parent)
 
         for specification in specifications or []:
             walk(getattr(specification, "children", None), None)
+
+        from application.artifact_service import assign_sort_keys_in_order
+
+        assign_sort_keys_in_order(ordered)
 
     # ---------- SPEC-RELATION -> TraceLink ----------
 

@@ -387,8 +387,11 @@ class TestStateCaptureTestRuns:
             # Issue #398: the Artifact header now also carries custom_fields
             # and parent_id, which are captured for every artifact-backed item.
             # Task 24: lifecycle_status rides along in the same query too.
+            # P1: ``sort_key`` is the sixth column of the same values_list —
+            # keep this tuple in the real row shape so the unpack in
+            # ``_capture_items`` is exercised, not bypassed.
             MockArt.unscoped.filter.return_value.values_list.return_value = [
-                (art_id, "generic", {"rationale": "kept"}, None, "active")
+                (art_id, "generic", {"rationale": "kept"}, None, "active", "a0")
             ]
             MockReq.unscoped.filter.return_value = []
             MockAE.unscoped.filter.return_value = []
@@ -409,6 +412,8 @@ class TestStateCaptureTestRuns:
         assert states[art_id]["artifact_type"] == "generic"
         assert states[art_id]["custom_fields"] == {"rationale": "kept"}
         assert states[art_id]["artifact_parent_id"] is None
+        # P1: the sibling order is part of the captured envelope.
+        assert states[art_id]["sort_key"] == "a0"
 
 
 # ---------------------------------------------------------------------------

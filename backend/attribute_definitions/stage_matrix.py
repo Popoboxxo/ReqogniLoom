@@ -163,6 +163,18 @@ CORE_ATTRIBUTE_LABELS_DE: Mapping[str, str] = {
     # the composition of the ``level`` term above ("Ebene") and the existing
     # ``origin`` term ("Herkunft").
     "level_source": "Ebenen-Herkunft",
+    # P2: the stable key of the workspace tier ladder entry a requirement
+    # resolves to (the name-independent carrier behind ``level``). Derived by
+    # ``tier_compute`` and read-only, so it is a displayed classification, not
+    # an editor: "Stufen-Schlüssel" composes the ladder vocabulary the
+    # WorkspaceSettings surface uses ("Stufe") with the key carrier.
+    "tier_key": "Stufen-Schlüssel",
+    # P2: why a requirement is (not) allocated — allocated | not_allocatable |
+    # unassigned. Only the allocation service writes "allocated"; the generic
+    # create/PATCH rejects it by design. "Zuordnungsabsicht" is the intent
+    # behind an allocation, deliberately distinct from the allocation state
+    # itself (``allocated`` is not a Requirement column).
+    "allocation_intent": "Zuordnungsabsicht",
     "complexity_fibonacci": "Komplexität (Fibonacci)",
     "criticality": "Kritikalität",
     "difficulty": "Schwierigkeit",

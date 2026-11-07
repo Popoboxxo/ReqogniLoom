@@ -148,6 +148,49 @@ def test_fixture_requirements_pass_the_approval_field_gate(seeded):
         TenantContext.clear_tenant()
 
 
+def test_fixture_every_architecture_element_is_justified(seeded):
+    """Regression: the fixture must survive TRACE-P3, not just carry the edges.
+
+    Every ArchitectureElement needs at least one *active* Requirement allocated
+    to it. Counting edges alone is not enough: the leaf-relative tier ladder
+    derives the last rung (integer level 4, the former ``L4_PRESENTATION``
+    slot) for a Requirement allocated to a leaf element, and P2.7 retired the
+    auditor's last-tier exclusion — so the edge and the gate's verdict must
+    agree without a manual level override (the #272 seed regression).
+    """
+    from persistence.models import TraceLink
+    from traceability.audit import RuleEngine
+    from traceability.audit.registry import TRACE_P3
+
+    TenantContext.set_tenant(seeded.tenant_id)
+    try:
+        allocated_targets = set(
+            TraceLink.unscoped.filter(
+                tenant_id=seeded.tenant_id, link_type="allocated-to"
+            ).values_list("target_id", flat=True)
+        )
+        elements = list(
+            ArchitectureElement.unscoped.filter(artifact__workspace_id=seeded.id)
+        )
+        assert elements
+        for element in elements:
+            assert element.artifact_id in allocated_targets, (
+                f"{element.title} has no allocated Requirement"
+            )
+
+        # The edge is necessary but not sufficient — assert the gate's own
+        # verdict so a future tier derivation change cannot silently re-break
+        # the fixture.
+        result = RuleEngine().run(
+            tier="extended",
+            workspace_id=str(seeded.id),
+            tenant_id=str(seeded.tenant_id),
+        )
+        assert [f for f in result.findings if f.rule_id == TRACE_P3] == []
+    finally:
+        TenantContext.clear_tenant()
+
+
 def test_fixture_chain_is_connected(seeded):
     """The links that make the report and the auditor meaningful."""
     from persistence.models import TestCase as _TestCase

@@ -632,9 +632,12 @@ class TestGetArchitectureElement:
         # "outdated" (id__in=<outdated ids>), instead of a lifecycle_status field.
         mock_qs.exclude.assert_called_once()
         assert "id__in" in mock_qs.exclude.call_args.kwargs
-        # #1390: deterministic (created_at, id) order — a paginated list backed
-        # by an in-memory sequence gets no UnorderedObjectListWarning.
-        mock_qs.order_by.assert_called_once_with("created_at", "id")
+        # #1390 + P1: persistent sort_key first, then the deterministic
+        # (created_at, id) fallback — a paginated list backed by an in-memory
+        # sequence gets no UnorderedObjectListWarning.
+        order_args = mock_qs.order_by.call_args.args
+        assert order_args[1:] == ("created_at", "id")
+        assert "artifact__sort_key" in str(order_args[0])
         assert result == mock_elements
 
     def test_list_include_deleted_skips_exclude(self):
@@ -658,8 +661,10 @@ class TestGetArchitectureElement:
 
         # .exclude() must NOT be called when include_deleted=True
         mock_qs.exclude.assert_not_called()
-        # ... but the (#1390) ordering still applies on this branch.
-        mock_qs.order_by.assert_called_once_with("created_at", "id")
+        # ... but the (#1390 + P1) ordering still applies on this branch.
+        order_args = mock_qs.order_by.call_args.args
+        assert order_args[1:] == ("created_at", "id")
+        assert "artifact__sort_key" in str(order_args[0])
         assert result == mock_elements
 
 

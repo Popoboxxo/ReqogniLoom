@@ -105,6 +105,12 @@ REQUIREMENT_ALL_FIELDS = (
     "status",
     "type",
     "level",
+    # P2/V4/V5: the stable ladder key and its display label next to the
+    # permanent integer alias ``level``. ``tier_key`` is a real Requirement
+    # column; ``tier_name`` is derived from the workspace ladder at export
+    # time and never reaches ``.values()``.
+    "tier_key",
+    "tier_name",
     "complexity_fibonacci",
     "verification_method",
     "uid",
@@ -139,6 +145,12 @@ _SYSTEM_EXPORT_FIELDS: frozenset = frozenset(
         "modified_at",
         "suspect",
         "lifecycle_status",
+        # P2/V4/V5: published next to ``level`` in every bundle export. They
+        # are unioned in like the names above so a workspace whose definition
+        # was bootstrapped before the tier ladder existed still exports them.
+        # ``tier_name`` is derived at export time (never a query column).
+        "tier_key",
+        "tier_name",
     }
 )
 
@@ -419,10 +431,15 @@ class RequirementBundleQueryService(ServiceBase):
         # resolved from `Artifact.lifecycle_status` (Decision D-3) instead.
         wants_status = "status" in selected_fields
         wants_lifecycle_status = "lifecycle_status" in selected_fields
+        wants_tier_name = "tier_name" in selected_fields
         query_fields = tuple(
-            (set(selected_fields) - {"status", "lifecycle_status"})
+            (set(selected_fields) - {"status", "lifecycle_status", "tier_name"})
             | {"id", "artifact_id"}
         )
+        if wants_tier_name:
+            # The label is derived from the key; read the key even when the
+            # caller asked only for the name.
+            query_fields = tuple(set(query_fields) | {"tier_key"})
         req_rows = list(
             Requirement.unscoped.filter(
                 artifact_id__in=req_artifact_ids, tenant_id=ctx.tenant_id
@@ -453,6 +470,17 @@ class RequirementBundleQueryService(ServiceBase):
                 ).values_list("id", "lifecycle_status")
             }
 
+        tier_names: dict[str, str] = {}
+        if wants_tier_name and req_rows:
+            # P2/V4/V5: one ladder lookup per bundle export (never per row).
+            from application.export_service import tier_display_name
+            from application.tier_ladder_service import TierLadderService
+
+            tier_names = {
+                entry.tier_key: tier_display_name(entry)
+                for entry in TierLadderService().get(workspace_id).entries
+            }
+
         items: list[BundleItem] = []
         for row in req_rows:
             artifact_id = row.pop("artifact_id")
@@ -464,6 +492,8 @@ class RequirementBundleQueryService(ServiceBase):
                 item_fields["lifecycle_status"] = lifecycle_status_by_artifact_id.get(
                     str(artifact_id), "active"
                 )
+            if wants_tier_name:
+                item_fields["tier_name"] = tier_names.get(row.get("tier_key"))
             items.append(
                 BundleItem(
                     requirement_id=row["id"],

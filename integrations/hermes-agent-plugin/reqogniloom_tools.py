@@ -58,6 +58,10 @@ MUTATE_VERBS = frozenset(
         "replay", "deprecate", "reorder", "forget", "commit", "restore", "generate", "derive",
         "decompose", "seed", "publish", "finalize", "assign", "grant", "rename", "merge",
         "split", "archive", "reply", "clear", "answer", "chat", "consolidate",
+        # `artifact.move` / `group.move_member` reparent, reorder and re-key
+        # persisted rows; the verb names the mutation, so it belongs here
+        # rather than in MUTATE_EXACT (every current *.move.* tool is a write).
+        "move",
         # destructive verbs that were missing: an unrecognised verb falls back to
         # "read", which would have run a wipe without a dialog or a gate.
         "purge", "wipe", "destroy", "erase",

@@ -21,14 +21,23 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { X } from 'lucide-react';
 import { usePersistedListState } from '../../hooks/usePersistedListState';
 import { useHasRole } from '../../hooks/useHasRole';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useArtifactList, artifactId } from '../../hooks/useArtifactList';
 import { ListToolbar } from '../shared/ListToolbar';
-import { WorkspaceTree, getTypeBadgeAbbreviation } from '../shared/WorkspaceTree';
-import type { WorkspaceTreeNode } from '../shared/WorkspaceTree';
+import {
+  WorkspaceTree,
+  artifactNodeId,
+  getTypeBadgeAbbreviation,
+} from '../shared/WorkspaceTree';
+import { useWorkspaceLocks } from '../shared/WorkspaceTree/useWorkspaceLocks';
+import type {
+  WorkspaceTreeGroup,
+  WorkspaceTreeNode,
+} from '../shared/WorkspaceTree';
 import { ArtifactRow } from '../shared/ArtifactRow';
 import type { ArtifactRowAttribute } from '../shared/ArtifactRow';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
@@ -76,15 +85,55 @@ function getTypeTextColor(type?: RequirementType): string {
 }
 
 /**
- * Issue #394: V-model level badge prefix (`L0`-`L4`), rendered in front of
- * the type abbreviation — analogous to the `L{n}` badge ArchitectureElement
- * already shows (issue root cause: "L1/L2 requirements are visually
- * identical, flat list without hierarchy indicator"). Empty string when the
- * level has not been assigned (NULL until set explicitly, see
- * `persistence.models.Requirement.level`).
+ * P2.7 — the requirement's tier display name.
+ *
+ * `tier_name` is the resolved label of the workspace ladder and is preferred
+ * whenever present; `L${level}` stays the permanent fallback alias for rows
+ * whose ladder lookup was unavailable (`tier_name: null`).
  */
-function reqLevelPrefix(level?: number | null): string {
-  return level != null ? `L${level} ` : '';
+function reqTierFull(
+  req: Requirement,
+  t: TFunction,
+): string | undefined {
+  if (req.tier_name) return req.tier_name;
+  return req.level != null ? t(`reqLevel.L${req.level}`) : undefined;
+}
+
+/**
+ * Short form used inside the type badge ("<tier> <type>"): the ladder name when
+ * available, otherwise the compact `L{n}` alias. No `t()` call is needed for
+ * the fallback — the alias is language-independent.
+ */
+function reqTierPrefix(req: Requirement): string {
+  const short = req.tier_name ?? (req.level != null ? `L${req.level}` : '');
+  return short ? `${short} ` : '';
+}
+
+/**
+ * Provenance label for the tier (P2.7 / V6). The backend's `level_source`
+ * distinguishes manual overrides from the three derivation rules; a legacy
+ * `derived` keeps the pre-P2 wording and an unknown/absent value falls back to
+ * "derived" exactly as before.
+ */
+function reqLevelSourceLabel(
+  source: Requirement['level_source'],
+  t: TFunction,
+): string {
+  switch (source) {
+    case 'manual':
+      return t('reqLevel.manual');
+    case 'derived_allocation':
+      return t('reqLevel.derivedAllocation');
+    case 'derived_hierarchy':
+      return t('reqLevel.derivedHierarchy');
+    case 'derived_type':
+      return t('reqLevel.derivedType');
+    case 'unresolved':
+      return t('reqLevel.unresolved');
+    case 'derived':
+    default:
+      return t('reqLevel.derived');
+  }
 }
 
 /**
@@ -94,8 +143,9 @@ function reqLevelPrefix(level?: number | null): string {
  * @param typeLabel - Spelled-out label for `req.type` (e.g. from
  *   `t('reqType.SyReq')`), used as the badge tooltip/aria-label
  *   (issue #169 — "SR" abbreviation without legend).
- * @param levelLabel - Spelled-out label for `req.level` (e.g. from
- *   `t('reqLevel.L1')`), appended to the tooltip (issue #394).
+ * @param levelLabel - Display name of the requirement's tier (P2.7: the
+ *   workspace ladder's `tier_name`, falling back to `t('reqLevel.L1')`),
+ *   appended to the tooltip (issue #394).
  * @param typeShort - Concise, *evident* badge text for `req.type` (issue
  *   #807, e.g. "System" instead of the cryptic "SR"). Falls back to the
  *   legacy abbreviation when not supplied.
@@ -108,7 +158,7 @@ function reqToNode(
 ): WorkspaceTreeNode {
   const badge = req.type
     ? {
-        text: reqLevelPrefix(req.level) + (typeShort ?? getTypeBadgeAbbreviation(req.type)),
+        text: reqTierPrefix(req) + (typeShort ?? getTypeBadgeAbbreviation(req.type)),
         bg: getTypeColor(req.type),
         color: getTypeTextColor(req.type),
         title: levelLabel ? `${levelLabel} · ${typeLabel ?? ''}` : typeLabel,
@@ -189,6 +239,38 @@ interface RequirementListProps {
   onDelete: (id: UUID, changeReason?: string) => Promise<boolean>;
   /** Task 3.1: wired to the "empty" EmptyState's create action (ch. 12.7/13.3). */
   onCreateNew: () => void;
+  /**
+   * P1 Task 1.7: positional move from the tree (drag drop, Alt+↑/↓ or the
+   * "Move…" dialog). The tree forwards node ids — the caller maps them to the
+   * backing Artifact ids the move endpoint keys on.
+   */
+  onReorder?: (
+    id: UUID,
+    newParentId: UUID | null,
+    afterId: UUID | null | undefined,
+  ) => Promise<void>;
+  /**
+   * P6 Task 6.3: the workspace's visual groups, resolved to tree node ids.
+   * Supplying them turns on WorkspaceTree's "Gruppen anzeigen" toggle; omitting
+   * them keeps the plain requirement tree (and every pre-P6 test) unchanged.
+   */
+  groups?: WorkspaceTreeGroup[];
+  /**
+   * P6 Task 6.3: reorder one group member. `afterId` is a requirement node id
+   * (the tree's id space); the caller owns the mapping to the membership link
+   * ids the REST surface expects.
+   */
+  onReorderGroupMember?: (
+    groupId: string,
+    id: string,
+    afterId: string | null | undefined,
+  ) => Promise<void>;
+  /**
+   * P6 Task 6.3: the group administration panel (create group, add/remove
+   * members). Rendered above the tree as an optional slot so this list stays
+   * free of group API state; omitted by every pre-P6 caller.
+   */
+  groupPanel?: React.ReactNode;
 }
 
 /**
@@ -203,9 +285,17 @@ export const RequirementList: React.FC<RequirementListProps> = ({
   onSelect,
   onDelete,
   onCreateNew,
+  onReorder,
+  groups,
+  onReorderGroupMember,
+  groupPanel,
 }) => {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
+  // P4.4: one batch read for the whole tree. Keys are Requirement.id — exactly
+  // the node id space this list uses. A failed read yields `{}` (no markers);
+  // the backend still rejects a move of a frozen requirement with 409.
+  const locks = useWorkspaceLocks(activeWorkspace?.id ?? null, 'requirement');
   // R2/T1 (systemaudit 2026-09-02): a viewer must not see the per-row Delete
   // trigger at all — only the server rejected the delete before. Shared with
   // SidebarNavigation/RequirementForm/RequirementEditors via useHasRole.
@@ -273,7 +363,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
       reqToNode(
         req,
         req.type ? t(`reqType.${req.type}`) : undefined,
-        req.level != null ? t(`reqLevel.L${req.level}`) : undefined,
+        reqTierFull(req, t),
         req.type ? t(`reqTypeShort.${req.type}`) : undefined,
       ),
     [t],
@@ -291,6 +381,17 @@ export const RequirementList: React.FC<RequirementListProps> = ({
     toNode,
     getKey: artifactId,
   });
+
+  // P4.4: overlay the batch lock map onto the tree nodes. Kept separate from
+  // `toNode` so the pure requirement→node mapping stays independent of a
+  // workspace-level read.
+  const lockedTreeNodes = useMemo(
+    () =>
+      treeNodes.map((node) =>
+        locks[node.id] ? { ...node, locked: { state: locks[node.id] } } : node,
+      ),
+    [treeNodes, locks],
+  );
 
   // GH-453: options are derived from the loaded items, so their values are
   // exactly what `req.status !== statusFilter` compares against. Requirement
@@ -343,6 +444,8 @@ export const RequirementList: React.FC<RequirementListProps> = ({
 
   return (
     <div>
+      {groupPanel}
+
       <ListToolbar
         testIdPrefix="req-list"
         searchValue={listSearch}
@@ -491,9 +594,14 @@ export const RequirementList: React.FC<RequirementListProps> = ({
         // REQ-091: enable virtualization for this hot-path list (threshold 100).
         <WorkspaceTree
           data-testid="req-list-tree"
-          nodes={treeNodes}
+          nodes={lockedTreeNodes}
           selectedId={selectedId}
           onSelect={onSelect}
+          // P1 Task 1.7: the requirement tree gains re-parenting + reordering,
+          // which it never had (only the architecture tree did).
+          onReorder={onReorder}
+          groups={groups}
+          onReorderGroupMember={onReorderGroupMember}
           showSearch={false}
           // Issue #1257: resolve the configured field selection for this
           // artifact type in this workspace (user > workspace > global).
@@ -511,12 +619,16 @@ export const RequirementList: React.FC<RequirementListProps> = ({
           emptyLabel={t('editor.empty')}
           noMatchesLabel={t('editor.noMatches')}
           renderRow={(node, { isSelected }) => {
-            const req = reqById?.get(node.id);
+            // P6: a grouped requirement is rendered as a clone with its own
+            // synthetic row id; the artifact's own id is `sourceNodeId`.
+            const req = reqById?.get(artifactNodeId(node));
             if (!req) return null;
             // Issue #807: a concise, self-explaining type label ("System")
             // instead of the cryptic abbreviation ("SR"); the spelled-out
             // `reqType.*` text stays the tooltip/aria-label.
             const typeShort = req.type ? t(`reqTypeShort.${req.type}`) : undefined;
+            // P2.7: ladder display name with the `L${level}` alias as fallback.
+            const tier = reqTierFull(req, t);
             // Issue #804: the SE classification a reviewer compares at a
             // glance. Built from fields the list payload already carries —
             // trace-link counts are not part of it, so they are not shown
@@ -530,16 +642,13 @@ export const RequirementList: React.FC<RequirementListProps> = ({
               },
               {
                 label: t('editor.level'),
-                // #1289: `level` is derived (ADR-005); mark its provenance so
-                // a manual override is distinguishable from the derived value.
-                value:
-                  req.level != null
-                    ? `${t(`reqLevel.L${req.level}`)} · ${
-                        req.level_source === 'manual'
-                          ? t('reqLevel.manual')
-                          : t('reqLevel.derived')
-                      }`
-                    : null,
+                // P2.7: prefer the workspace ladder's display name
+                // (`tier_name`); the old `L${level}` alias stays the fallback.
+                // #1289: provenance is spelled out so a manual override is
+                // distinguishable from every derived rule.
+                value: tier
+                  ? `${tier} · ${reqLevelSourceLabel(req.level_source, t)}`
+                  : null,
               },
               {
                 label: t('editor.verificationMethod'),
@@ -566,13 +675,13 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                     idFallback={req.id.slice(0, 8)}
                     levelLabel={
                       req.type
-                        ? reqLevelPrefix(req.level) + (typeShort ?? getTypeBadgeAbbreviation(req.type))
+                        ? reqTierPrefix(req) + (typeShort ?? getTypeBadgeAbbreviation(req.type))
                         : undefined
                     }
                     levelTitle={
                       req.type
-                        ? req.level != null
-                          ? `${t(`reqLevel.L${req.level}`)} · ${t(`reqType.${req.type}`)}`
+                        ? tier
+                          ? `${tier} · ${t(`reqType.${req.type}`)}`
                           : t(`reqType.${req.type}`)
                         : undefined
                     }

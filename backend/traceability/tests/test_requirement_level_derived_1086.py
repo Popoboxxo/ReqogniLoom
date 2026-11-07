@@ -710,17 +710,20 @@ def _run(tenant, workspace, tier="extended"):
     )
 
 
-class TestL4ExceptionsStillApply:
-    """``level == L4`` is the only L4 filter TRACE-P5, ARCH-003 and VERIF-P8
-    have — ``traceability.audit.hierarchy`` has no L4 concept of its own. That
-    is precisely why ADR-005 rejected removing the column: only the *rule* goes.
+class TestRetiredL4Skip:
+    """P2/V4 retires the ``level == L4`` scope skip for TRACE-P5, ARCH-003 and
+    VERIF-P8.
 
-    Each case is a pair: the same shape at L4 (skipped) and at L2 (reported).
-    Without the second half, "no finding" would also pass if the rule had
-    stopped looking at ``level`` altogether.
+    ``level`` is now the permanent integer alias of a position in a
+    per-workspace ladder of arbitrary length; every decomposed leaf legitimately
+    sits on the last position. The three rules therefore audit the last tier
+    exactly like any other, and the pair shape (last tier vs. an inner tier) is
+    kept so both positions are proven to be reported.
     """
 
-    def test_trace_p5_still_skips_an_l4_decomposition(self, tenant_a, workspace_a):
+    def test_trace_p5_reports_a_last_tier_decomposition(self, tenant_a, workspace_a):
+        """P2: leaf-relative tiers put every leaf on the last position, so the
+        old L4 skip would exempt every decomposed leaf from TRACE-P5."""
         with active_tenant(tenant_a):
             parent, _ = make_requirement(tenant_a, workspace_a, title="Parent Req")
             child_artifact, child = make_requirement(
@@ -729,10 +732,9 @@ class TestL4ExceptionsStillApply:
             child.level = RequirementLevel.L4_PRESENTATION
             child.save(update_fields=["level"])
             _link(tenant_a, parent, child_artifact, LinkType.DECOMPOSES.value)
-            # No derives-from back-link: exactly what TRACE-P5 reports — unless
-            # the child is L4.
+            # No derives-from back-link: TRACE-P5 must report it.
             result = _run(tenant_a, workspace_a)
-        assert _findings(result, TRACE_P5) == []
+        assert len(_findings(result, TRACE_P5)) == 1
 
     def test_trace_p5_still_reports_the_same_shape_at_l2(
         self, tenant_a, workspace_a
@@ -748,7 +750,11 @@ class TestL4ExceptionsStillApply:
             result = _run(tenant_a, workspace_a)
         assert len(_findings(result, TRACE_P5)) == 1
 
-    def test_verif_p8_still_skips_an_l4_leaf(self, tenant_a, workspace_a):
+    def test_verif_p8_no_longer_skips_a_last_tier_leaf(
+        self, tenant_a, workspace_a
+    ):
+        """The old L4 skip exempted every decomposed leaf; the last ladder
+        position is now audited like any other."""
         with active_tenant(tenant_a):
             artifact = Artifact.objects.create(
                 tenant=tenant_a,
@@ -758,11 +764,12 @@ class TestL4ExceptionsStillApply:
             Requirement.objects.create(
                 tenant=tenant_a,
                 artifact=artifact,
-                title="Presentation Req",
+                title="Last-tier Req",
                 level=RequirementLevel.L4_PRESENTATION,
+                tier_key="letzte",
             )
             result = _run(tenant_a, workspace_a)
-        assert _findings(result, VERIF_P8) == []
+        assert len(_findings(result, VERIF_P8)) == 1
 
     def test_verif_p8_still_reports_the_same_shape_at_l1(
         self, tenant_a, workspace_a
@@ -782,10 +789,13 @@ class TestL4ExceptionsStillApply:
             result = _run(tenant_a, workspace_a)
         assert len(_findings(result, VERIF_P8)) == 1
 
-    def test_arch_003_still_skips_an_l4_allocation(self, tenant_a, workspace_a):
+    def test_arch_003_no_longer_skips_a_last_tier_allocation(
+        self, tenant_a, workspace_a
+    ):
         """ARCH-003 wants a requirement allocated to a child element to derive
-        from one allocated to the parent element. An L4 requirement is out of
-        scope, so the same shape at L2 is the only reported one."""
+        from one allocated to the parent element. The last ladder position is
+        no longer out of scope, so the same shape at an inner tier is not the
+        only reported one."""
         from persistence.models import ArchitectureElement
 
         def _element(title, parent=None):
@@ -821,9 +831,9 @@ class TestL4ExceptionsStillApply:
                     LinkType.ALLOCATED_TO.value,
                 )
             # Deliberately no derives-from between the two requirements — that is
-            # what ARCH-003 reports, unless the child requirement is L4.
+            # what ARCH-003 reports, regardless of the child's ladder position.
             result = _run(tenant_a, workspace_a)
-        assert _findings(result, ARCH_003) == []
+        assert len(_findings(result, ARCH_003)) == 1
 
     def test_arch_003_still_reports_the_same_shape_at_l2(
         self, tenant_a, workspace_a

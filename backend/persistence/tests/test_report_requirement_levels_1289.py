@@ -45,11 +45,13 @@ def _requirement(env, title="R", level=None, source=None):
     return artifact, Requirement.objects.create(**kwargs)
 
 
-def test_report_flags_a_null_level(env):
+def test_report_is_a_dry_run_and_counts_sources(env):
     _requirement(env, "No level")
     out = StringIO()
     call_command("report_requirement_levels", stdout=out)
-    assert "level NULL" in out.getvalue()
+    text = out.getvalue()
+    assert "DRY RUN" in text
+    assert "derived_type" in text
 
 
 def test_apply_fills_a_null_level_from_the_architecture_allocation(env):
@@ -73,7 +75,7 @@ def test_apply_fills_a_null_level_from_the_architecture_allocation(env):
 
     requirement.refresh_from_db()
     assert requirement.level == RequirementLevel.L1_SYSTEM
-    assert requirement.level_source == RequirementLevelSource.DERIVED
+    assert requirement.level_source == RequirementLevelSource.DERIVED_ALLOCATION
 
 
 def test_apply_never_overwrites_a_manual_level(env):

@@ -104,12 +104,13 @@ ARCH_003 = "ARCH-003"
 VERIF_P8 = "VERIF-P8"
 CONS_P9 = "CONS-P9"
 CONS_P10 = "CONS-P10"
-#: #1289 — V-model level of a Requirement is NULL (not derivable from the
-#: requirement hierarchy nor from an ``allocated-to`` architecture allocation).
-#: Advisory at every tier it runs in; see rules/level_consistency.py.
+#: #1289 / P2 — a Requirement's tier is not determinable (``level_source ==
+#: unresolved`` and/or a NULL ``level`` alias): no allocation, no derivable
+#: parent, no type default. Advisory at every tier it runs in; see
+#: rules/level_consistency.py.
 CONS_P12 = "CONS-P12"
-#: #1289 — the stored ``Requirement.level`` disagrees with the V-model level
-#: implied by the architecture allocation depth. Advisory; see
+#: #1289 / P2 — an active Requirement has no ``level_source`` provenance.
+#: Replaces the retired architecture-depth comparison; advisory; see
 #: rules/level_consistency.py.
 CONS_P13 = "CONS-P13"
 #: ADR-005 removed CONS-P11 (V-model level progression). It asserted that
