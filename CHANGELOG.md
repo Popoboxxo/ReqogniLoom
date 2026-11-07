@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0-beta.28] — 2026-11-07
+
+### Fixed
+- fix(plugin): the Hermes plugin catalogue classifies `artifact.move` and `group.move_member` as writes — the `move` verb names the mutation, so reparenting/reordering no longer bypasses the confirmation dialog and the closed write gate.
+- fix(ui): the allocation card graph imports React Flow's stylesheet. Without it `.react-flow__background` kept its default hit-testing, so the full-canvas background `<svg>` swallowed card clicks and the MiniMap/Controls lost their placement on `/connections?view=graph`.
+- fix(a11y): the "show groups" toggle row renders a 24 px hit target (WCAG 2.2 SC 2.5.8), replacing the measured 464 x 19 px label row.
+
 ## [1.8.0-beta.27] — 2026-11-06
 
 ### Added
