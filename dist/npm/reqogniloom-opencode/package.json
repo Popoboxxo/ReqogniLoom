@@ -1,6 +1,6 @@
 {
   "name": "@popoboxxo/reqogniloom-opencode",
-  "version": "1.8.0-beta.27",
+  "version": "1.8.0-beta.28",
   "description": "ReqogniLoom MCP server (Streamable HTTP) and SE process skills for OpenCode.",
   "license": "MIT",
   "type": "module",
