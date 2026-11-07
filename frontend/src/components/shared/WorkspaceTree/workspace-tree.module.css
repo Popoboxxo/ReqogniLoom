@@ -354,6 +354,9 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  /* WCAG 2.2 SC 2.5.8: the label row is the hit target, so it must render at
+     least 24px tall (`--space-6`). Text metrics alone gave 19px. */
+  min-height: var(--space-6);
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   cursor: pointer;
