@@ -35,11 +35,13 @@ graphify-out/
 .meta-config/env.sh
 .meta-config/env.unset.ps1
 .meta-config/env.unset.sh
+.meta-config/platform-defaults.resolved.yaml
 .meta-config/secrets.local.yaml
 .opencode/
 .opencode/mcp.local.json
 .tmp/
 AGENTS.personal.md
+CLAUDE.local.md
 CLAUDE.personal.md
 opencode.json
 opencode.jsonc
