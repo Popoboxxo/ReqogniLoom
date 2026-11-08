@@ -13,6 +13,9 @@ marked UNVERIFIED. GitHub issues named below were NOT closed by this archiving s
 
 ## Top level — open work
 
+## [2026-11-08-navigationsbaum-und-verbindungsansicht.md](2026-11-08-navigationsbaum-und-verbindungsansicht.md)
+**Open — plan written, nothing implemented; every task checkbox unchecked.** Implementation plan for the spec of the same date: **(G)** move the requirement group administration out of the navigation column into a modal dialog, plus a per-row "add to group" action and a drag-to-group drop; **(V2)** split the `allocation-view` read object by row kind (`kind=requirement|element`, fixing the shared 500-row cap and the ineffective `element_subtree` filter) and expose the artifact `sort_key` on element rows; **(V)** add the `trees` connection view as the default — requirement tree and architecture tree in one scroll container, allocation edges in the gutter, selection in the rows, collapsed filter bar, two new user preferences. Three PRs (G, V2, V); V ships as one PR because V1's assistant-list removal and V3's row checkboxes only work together. Spec: [`../superpowers/specs/2026-11-08-navigationsbaum-und-verbindungsansicht-design.md`](../superpowers/specs/2026-11-08-navigationsbaum-und-verbindungsansicht-design.md).
+
 ## [2026-09-18-ui-dialog-und-button-konsolidierung.md](2026-09-18-ui-dialog-und-button-konsolidierung.md)
 **Open — mostly superseded in practice.** UI consolidation plan from the 2026-09 audit (dialog footers, one button standard, attribute labels and order). The button block was effectively delivered through the design-system ratchet (violations ceiling 0), but the duplicate ConfirmDialog, the label-resolver/section-order tasks and the final acceptance were never closed out; the issue-driven parts (#985, #986, #929 family) are closed. Checkboxes in the file are not maintained (136 open vs 8 checked). Re-scope against the 2026-10-19 UI audit plan before executing further.
 
