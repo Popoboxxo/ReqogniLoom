@@ -343,6 +343,12 @@ class TestService(ServiceBase):
         ).first()
         if test_case is None:
             raise NotFoundError(f"TestCase {test_case_id} not found")
+
+        # #1716: item-level rule check (read → 403, none → 404).
+        self._assert_item_write_permission(
+            ctx, test_case.artifact_id, workspace_id=test_case.artifact.workspace_id
+        )
+
         assert_expected_version(test_case, expected_version, entity_type="TestCase")
 
         # #269 finding 5: snapshot BEFORE any assignment so the version bump
@@ -534,6 +540,14 @@ class TestService(ServiceBase):
         if test_case is None:
             raise NotFoundError(f"TestCase {test_case_id} not found")
 
+        # #1716: `update_test_status` deliberately does not match the
+        # `update_*`-by-name convention (it takes a status, not a field set),
+        # so the guard list names it explicitly — otherwise a status write
+        # would be the one remaining way around a read-only/none rule.
+        self._assert_item_write_permission(
+            ctx, test_case.artifact_id, workspace_id=test_case.artifact.workspace_id
+        )
+
         # Store execution_status in description as tagged metadata
         # (schema v1 has no dedicated execution_status field — extend if needed)
         # Remove any existing tag via regex (lstrip removes chars, not substrings)
@@ -569,6 +583,11 @@ class TestService(ServiceBase):
             raise NotFoundError(f"TestCase {test_case_id} not found")
 
         workspace_id = test_case.artifact.workspace_id
+
+        # #1716: same item-level gate as update — delete must not bypass it.
+        self._assert_item_write_permission(
+            ctx, test_case.artifact_id, workspace_id=workspace_id
+        )
 
         # REQ-006/Phase 0: route soft-delete through the workflow engine's
         # outdate() escape hatch instead of hard-deleting the row.

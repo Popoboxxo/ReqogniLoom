@@ -44,6 +44,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from auth_tenancy.context import AuthMethod
 from auth_tenancy.errors import AuthError, build_error_body
 from auth_tenancy.rest import (
     ACCESS_COOKIE_NAME,
@@ -63,6 +64,11 @@ from auth_tenancy.services.mfa import (
     MfaLockedError,
     MfaService,
     MfaUnavailableError,
+)
+from auth_tenancy.services.password_change import (
+    PASSWORD_POLICY_VIOLATION,
+    PasswordChangeRejected,
+    change_password,
 )
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.tenancy import TenantContext
@@ -172,6 +178,30 @@ class LoginMfaRequestSerializer(serializers.Serializer):
         help_text=(
             "One of the single-use recovery codes in `XXXX-XXXX-XXXX-XXXX` form. "
             "Mutually exclusive with `code`."
+        ),
+    )
+
+
+class PasswordChangeRequestSerializer(serializers.Serializer):
+    """Body of ``POST /api/v1/auth/password/change/`` (GitHub #1739).
+
+    The view reads the validated values and delegates to
+    :func:`auth_tenancy.services.password_change.change_password`. No
+    ``confirm`` field: confirmation is a UI concern, and a server-side copy
+    would add a second source of truth for the same secret.
+    """
+
+    current_password = serializers.CharField(
+        write_only=True,
+        style={"input_type": "password"},
+        help_text="The caller's current password.",
+    )
+    new_password = serializers.CharField(
+        write_only=True,
+        style={"input_type": "password"},
+        help_text=(
+            "The desired new password. Must satisfy Django's configured "
+            "password validators."
         ),
     )
 
@@ -824,6 +854,164 @@ class LogoutView(APIView):
         response = Response(status=status.HTTP_204_NO_CONTENT)
         _clear_auth_cookies(response)
         return response
+
+
+class PasswordChangeView(APIView):
+    """``POST /api/v1/auth/password/change/`` — self-service password change (#1739).
+
+    Requires an interactive, password-authenticated session: an API-key caller
+    (``auth_method == "api_key"``) and any session whose ``amr`` lacks ``"pwd"``
+    is refused with 403 ``PASSWORD_CHANGE_REQUIRES_INTERACTIVE_SESSION``. The
+    route is authenticated but **not** RBAC-gated on ``WRITE`` — changing one's
+    own password must be possible for every role, including a viewer.
+
+    Session invalidation (the point of the ticket):
+      * The ``sid`` of the *current* refresh family is read from the
+        ``reqogniloom_refresh`` cookie and passed as ``except_session_id`` — so
+        the caller stays logged in.
+      * Every **other** refresh family of the account is revoked server-side:
+        a refresh token captured before the change can no longer mint an access
+        token.
+      * The ``sid`` is never taken from the request body: a caller could
+        otherwise exempt a foreign session.
+
+    Bearer-only callers (no refresh cookie) have no ``sid`` to exempt, so all
+    families are revoked. Their currently presented access token stays valid
+    until its own ``exp`` (≤ ``AUTH_JWT_TTL_SECONDS``, 3600 s) and then simply
+    cannot be refreshed.
+
+    Answers:
+      204 — password changed; other sessions revoked.
+      400 ``INVALID_CURRENT_PASSWORD`` — the current password is wrong (never
+            reveals whether the account, the password or anything else failed).
+      400 ``PASSWORD_POLICY_VIOLATION`` — the new password fails Django's
+            validators; ``details[0].field == "new_password"`` carries the
+            reasons.
+      401 — not authenticated.
+      403 — API-key caller / session without a password factor (and CSRF on the
+            cookie path, enforced by the auth layer).
+    """
+
+    permission_classes = [HasOperationPermission]
+
+    @extend_schema(
+        summary="Change the caller's password and revoke the other sessions",
+        description=(
+            "Verifies the current password, applies Django's password "
+            "validators to the new one, and revokes every other refresh family "
+            "of the account. The calling session stays valid. A bearer-only "
+            "caller (no `reqogniloom_refresh` cookie) has no session to exempt, "
+            "so all families are revoked; the presented access token remains "
+            "valid until its own expiry."
+        ),
+        request=PasswordChangeRequestSerializer,
+        responses={
+            204: OpenApiResponse(
+                description="Password changed; every other session revoked."
+            ),
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "`INVALID_CURRENT_PASSWORD` (wrong current password) or "
+                    "`PASSWORD_POLICY_VIOLATION` (new password rejected by the "
+                    "configured validators; reasons in `details`)."
+                ),
+            ),
+            401: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="No valid credential.",
+            ),
+            403: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "`PASSWORD_CHANGE_REQUIRES_INTERACTIVE_SESSION` (API key or "
+                    "no password factor), or CSRF token missing/invalid on the "
+                    "cookie path."
+                ),
+            ),
+        },
+    )
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Change the password of the authenticated caller."""
+        accept_language = request.META.get("HTTP_ACCEPT_LANGUAGE")
+        ctx = getattr(request, "auth_context", None)
+        if ctx is None:
+            return _auth_error_response(
+                "authentication_required",
+                accept_language=accept_language,
+                http_status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        if ctx.auth_method == AuthMethod.API_KEY or "pwd" not in tuple(ctx.amr or ()):
+            return _auth_error_response(
+                "PASSWORD_CHANGE_REQUIRES_INTERACTIVE_SESSION",
+                accept_language=accept_language,
+                http_status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = PasswordChangeRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang=detect_lang(request),
+                    details=[
+                        {"field": field, "errors": [str(msg)]}
+                        for field, messages in serializer.errors.items()
+                        for msg in messages
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = serializer.validated_data
+
+        # The refresh cookie is the only place a *validated* session id exists
+        # (the access token carries no ``sid``). A malformed/expired cookie is
+        # treated like "no cookie": no family is exempt.
+        current_session_id = None
+        refresh_token = request.COOKIES.get(REFRESH_COOKIE_NAME)
+        if refresh_token:
+            try:
+                current_session_id = AuthenticationService().read_refresh_session_id(
+                    refresh_token
+                )
+            except AuthError:
+                current_session_id = None
+
+        try:
+            change_password(
+                user_id=ctx.user_id,
+                current_password=data["current_password"],
+                new_password=data["new_password"],
+                current_session_id=current_session_id,
+            )
+        except PasswordChangeRejected as exc:
+            if exc.code == PASSWORD_POLICY_VIOLATION:
+                # The top-level message carries the reasons too: the UI renders
+                # `error.message` as the dialog-level alert, and the field-level
+                # details point at the offending input.
+                body = build_error_body(
+                    exc.code,
+                    accept_language=accept_language,
+                    message=" ".join(exc.messages) or None,
+                )
+                body["error"]["details"] = [
+                    {"field": "new_password", "errors": list(exc.messages)}
+                ] + body["error"].get("details", [])
+                return Response(body, status=status.HTTP_400_BAD_REQUEST)
+            return _auth_error_response(
+                exc.code,
+                accept_language=accept_language,
+                http_status=status.HTTP_400_BAD_REQUEST,
+            )
+        except AuthError as exc:
+            return _auth_error_response(
+                exc.code,
+                accept_language=accept_language,
+                http_status=exc.status_code,
+            )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class RefreshView(APIView):

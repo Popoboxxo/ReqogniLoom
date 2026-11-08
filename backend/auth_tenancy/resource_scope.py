@@ -572,6 +572,10 @@ _EXCEPTIONS = {
     "MfaDisableView": "self-scoped second-factor management",
     "RefreshView": "public refresh-cookie exchange",
     "LogoutView": "self-scoped session teardown",
+    # GitHub #1739: the target is always the caller's own account
+    # (``ctx.user_id``); there is no workspace- or tenant-owned object behind
+    # the route, and the view itself refuses API-key callers.
+    "PasswordChangeView": "self-scoped credential change (caller's own account)",
     "McpHttpTransportView": "MCP transport; own API-key authentication",
     "McpMessagesView": "MCP transport; own API-key authentication",
     "McpSseTransportView": "MCP transport; own API-key authentication",

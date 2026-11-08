@@ -157,6 +157,7 @@ from auth_tenancy.models import (
 )
 from auth_tenancy.services import AuthorizationService
 from auth_tenancy.services.authorization import LastAdminError
+from auth_tenancy.services.password_policy import PasswordPolicyError
 from auth_tenancy.services.user_account import UserAccountService
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
@@ -594,6 +595,16 @@ class UsersToolGroup(BaseToolGroup):
             return ToolResult.error(
                 "PERMISSION_DENIED",
                 "Permission denied: tenant-admin role required.",
+            )
+        except PasswordPolicyError as exc:
+            # N21 (beta.29 C2-T4): the service now applies Django's configured
+            # password validators. Report the rejection as a *field* error on
+            # `password` so an MCP client can route it to the right input
+            # instead of parsing a free-text sentence.
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                " ".join(exc.messages),
+                details={"field": "password", "errors": list(exc.messages)},
             )
         except ValueError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))

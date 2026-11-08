@@ -111,3 +111,58 @@ def test_bootstrap_noop_without_password_when_admin_exists(monkeypatch):
 
     admin = User.objects.get(username="admin")
     assert admin.check_password("initial-pw") is True
+
+
+# ---------------------------------------------------------------------------
+# --reset-password (GitHub #1739)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_reset_password_requires_the_environment_password(monkeypatch):
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "initial-pw")
+    call_command("bootstrap_admin")
+    monkeypatch.delenv("SYSTEM_ADMIN_PASSWORD", raising=False)
+
+    with pytest.raises(CommandError):
+        call_command("bootstrap_admin", reset_password=True)
+
+    admin = User.objects.get(username="admin")
+    assert admin.check_password("initial-pw") is True
+
+
+@pytest.mark.django_db
+def test_reset_password_rewrites_the_password_and_revokes_sessions(monkeypatch):
+    """The break-glass path is the one exception to create-only."""
+    from datetime import timedelta
+    from uuid import uuid4
+
+    from django.utils import timezone
+
+    from auth_tenancy.models import RefreshToken
+    from auth_tenancy.services.refresh_token_store import insert_refresh_token
+
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "initial-pw")
+    call_command("bootstrap_admin")
+
+    admin = User.objects.get(username="admin")
+    tenant = Tenant.objects.get(slug="demo")
+    session_id = uuid4()
+    insert_refresh_token(
+        user_id=admin.id,
+        tenant_id=tenant.id,
+        jti=uuid4(),
+        session_id=session_id,
+        expires_at=timezone.now() + timedelta(hours=1),
+    )
+
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "fresh-reset-pw")
+    call_command("bootstrap_admin", reset_password=True)
+
+    admin.refresh_from_db()
+    assert admin.check_password("fresh-reset-pw") is True
+    assert admin.check_password("initial-pw") is False
+
+    row = RefreshToken.unscoped.get(session_id=session_id)
+    assert row.revoked_at is not None
+    assert row.revoked_reason == "admin_password_reset"

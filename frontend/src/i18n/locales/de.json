@@ -271,6 +271,22 @@
     "remaining": "{{count}} Recovery-Codes übrig",
     "error": "Die Zwei-Faktor-Aktion ist fehlgeschlagen."
   },
+  "security": {
+    "password": {
+      "title": "Passwort ändern",
+      "hint": "Nach der Änderung werden alle anderen Sitzungen abgemeldet. Diese Sitzung bleibt aktiv.",
+      "current": "Aktuelles Passwort",
+      "new": "Neues Passwort",
+      "repeat": "Neues Passwort wiederholen",
+      "submit": "Passwort ändern",
+      "saving": "Wird geändert…",
+      "success": "Passwort geändert. Andere Sitzungen wurden abgemeldet.",
+      "mismatch": "Die neuen Passwörter stimmen nicht überein.",
+      "required": "Bitte alle drei Felder ausfüllen.",
+      "failed": "Das Passwort konnte nicht geändert werden.",
+      "incorrectCurrent": "Das aktuelle Passwort ist falsch."
+    }
+  },
   "loading": "Laden...",
   "common": {
     "close": "Schließen",

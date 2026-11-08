@@ -39,6 +39,7 @@ from auth_tenancy.services.refresh_token_store import (
     CLAIM_SQL,
     INSERT_SQL,
     PURGE_SQL,
+    REVOKE_FAMILIES_FOR_USER_SQL,
     REVOKE_FAMILY_SQL,
     SPEND_SQL,
     claim_refresh_token,
@@ -65,6 +66,7 @@ _FUNCTION_SIGNATURES = (
     "public.auth_refresh_token_claim(uuid)",
     "public.auth_refresh_token_spend(uuid)",
     "public.auth_revoke_refresh_family(uuid, text)",
+    "public.auth_revoke_refresh_families_for_user(uuid, text, uuid)",
     "public.auth_refresh_token_insert(uuid, uuid, uuid, uuid, timestamptz)",
     "public.auth_purge_expired_refresh_tokens(timestamptz, boolean)",
 )
@@ -423,11 +425,19 @@ def test_refresh_path_sql_is_centralised():
     ``services/refresh_token_store.py`` and name the owner-privileged functions,
     so a stray inline call cannot drift back into the services.
     """
-    for constant in (CLAIM_SQL, SPEND_SQL, REVOKE_FAMILY_SQL, INSERT_SQL, PURGE_SQL):
+    for constant in (
+        CLAIM_SQL,
+        SPEND_SQL,
+        REVOKE_FAMILY_SQL,
+        REVOKE_FAMILIES_FOR_USER_SQL,
+        INSERT_SQL,
+        PURGE_SQL,
+    ):
         assert "public.auth_" in constant
     assert "auth_refresh_token_claim" in CLAIM_SQL
     assert "auth_refresh_token_spend" in SPEND_SQL
     assert "auth_revoke_refresh_family" in REVOKE_FAMILY_SQL
+    assert "auth_revoke_refresh_families_for_user" in REVOKE_FAMILIES_FOR_USER_SQL
     assert "auth_refresh_token_insert" in INSERT_SQL
     assert "auth_purge_expired_refresh_tokens" in PURGE_SQL
 

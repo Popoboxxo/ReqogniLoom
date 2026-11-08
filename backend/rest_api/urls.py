@@ -134,6 +134,7 @@ from rest_api.auth_views import (
     LoginView,
     LogoutView,
     MeView,
+    PasswordChangeView,
     RefreshView,
 )
 from rest_api.collaboration_views import (
@@ -346,6 +347,14 @@ urlpatterns = [
     ),
     # Logout (REQ-052) — clears the httpOnly access cookie; requires auth + CSRF.
     path("auth/logout/", LogoutView.as_view(), name="api-v1-auth-logout"),
+    # Self-service password change (#1739) — verifies the current password,
+    # applies the configured validators to the new one, and revokes every other
+    # refresh family. The calling session stays valid.
+    path(
+        "auth/password/change/",
+        PasswordChangeView.as_view(),
+        name="api-v1-auth-password-change",
+    ),
     # Second-factor management (#1308, Plan E / WP E3.6) — self-scoped to the
     # calling account. Writes are interactive-session only (an API key gets 403
     # MFA_REQUIRES_INTERACTIVE_SESSION); enroll/confirm also accept the signed

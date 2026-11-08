@@ -17,6 +17,7 @@ from persistence.models import Tenant, User
 from ..errors import PermissionDenied
 from ..models import ROLE_ADMIN, TenantRole, UserRole
 from .authorization import AuthorizationService
+from .password_policy import validate_new_password
 
 # Minimum password length. Mirrors ``mcp_server/tools/users.py``'s
 # ``_PASSWORD_MIN_LENGTH`` — the user-creation path is privileged and must
@@ -60,7 +61,9 @@ class UserAccountService:
         rewires that MCP handler to call this instead):
 
         - ``username``/``email`` are stripped and rejected if empty.
-        - ``password`` must be at least :data:`_PASSWORD_MIN_LENGTH` chars.
+        - ``password`` must be at least :data:`_PASSWORD_MIN_LENGTH` chars
+          **and** pass Django's configured ``AUTH_PASSWORD_VALIDATORS``
+          (N21 / beta.29 C2-T4, see :mod:`.password_policy`).
         - uniqueness is pre-checked case-insensitively (clear error instead
           of a raw ``IntegrityError``), and the actual
           ``User.objects.create`` is still wrapped to catch the TOCTOU race
@@ -97,6 +100,12 @@ class UserAccountService:
                 f"Parameter 'password' must be at least {_PASSWORD_MIN_LENGTH} "
                 "characters."
             )
+        # N21 (beta.29 C2-T4): the length above stays the floor the service
+        # always enforced; Django's configured AUTH_PASSWORD_VALIDATORS
+        # (similarity/common/numeric/minimum) were never applied on any
+        # user-driven path. Raises PasswordPolicyError (a ValueError), so the
+        # REST/MCP mapping to 400/VALIDATION_ERROR is unchanged.
+        validate_new_password(password, username=username, email=email)
 
         with transaction.atomic():
             tenant = Tenant.objects.get(id=tenant_id)

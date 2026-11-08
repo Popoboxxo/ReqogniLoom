@@ -271,6 +271,22 @@
     "remaining": "{{count}} recovery codes left",
     "error": "The two-factor action failed."
   },
+  "security": {
+    "password": {
+      "title": "Change password",
+      "hint": "All other sessions are signed out after the change. This session stays active.",
+      "current": "Current password",
+      "new": "New password",
+      "repeat": "Repeat new password",
+      "submit": "Change password",
+      "saving": "Changing...",
+      "success": "Password changed. Other sessions were signed out.",
+      "mismatch": "The new passwords do not match.",
+      "required": "Fill in all three fields.",
+      "failed": "The password could not be changed.",
+      "incorrectCurrent": "The current password is incorrect."
+    }
+  },
   "loading": "Loading...",
   "common": {
     "close": "Close",

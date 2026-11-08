@@ -6,11 +6,16 @@ in: the base tenant, base workspace, admin user and admin role. This command is
 meant to run automatically at container start, after ``migrate`` and before the
 backend serves traffic (see the ``bootstrap`` service in docker-compose.yml).
 
-Idempotent and CREATE-ONLY with respect to the password: the admin password is
-set exactly once, when the user is first created, and is never rewritten on
-subsequent runs. This mirrors Django's ``createsuperuser --noinput`` semantics
-and prevents an admin who changed their password via the UI/API from being
-silently reset back to the env-var value on every restart or deploy.
+Idempotent and CREATE-ONLY with respect to the password by default: the admin
+password is set exactly once, when the user is first created, and is never
+rewritten on subsequent runs. This mirrors Django's ``createsuperuser --noinput``
+semantics and prevents an admin who changed their password via the UI/API from
+being silently reset back to the env-var value on every restart or deploy.
+
+``--reset-password`` (GitHub #1739) is the deliberate exception: it rewrites the
+password from ``SYSTEM_ADMIN_PASSWORD`` and revokes **every** refresh session of
+that account, so a lost admin password can be recovered without leaving old
+session cookies alive.
 
 Configuration (env vars, mirroring the DJANGO_SUPERUSER_* pattern):
 
@@ -31,6 +36,7 @@ Fail-fast vs. skip decision (deliberate):
 
 Usage:
     python manage.py bootstrap_admin
+    python manage.py bootstrap_admin --reset-password
 """
 from __future__ import annotations
 
@@ -46,6 +52,7 @@ from auth_tenancy.provisioning import (
     ProvisioningError,
     provision_admin,
 )
+from auth_tenancy.services.refresh_token_store import revoke_refresh_families_for_user
 from persistence.models import User
 
 # provision_admin()'s base workspace is always created with active_tier
@@ -61,8 +68,27 @@ class Command(BaseCommand):
     help = (
         "Provision the base tenant, workspace, admin user and admin role so a "
         "fresh instance is immediately usable. Create-only on the password "
-        "(REQ-L1-010)."
+        "unless --reset-password is given (REQ-L1-010)."
     )
+
+    def add_arguments(self, parser: Any) -> None:
+        """Register the operator-triggered password reset (GitHub #1739).
+
+        The default stays create-only: an admin who changed the password via
+        the UI must not be reset back to the env value on every restart. The
+        explicit flag is the documented break-glass path and requires
+        ``SYSTEM_ADMIN_PASSWORD`` to be set (out-of-band, never on the command
+        line — it would end up in the process list and shell history).
+        """
+        parser.add_argument(
+            "--reset-password",
+            action="store_true",
+            default=False,
+            help=(
+                "Rewrite the admin password from SYSTEM_ADMIN_PASSWORD and "
+                "revoke every refresh session of that account."
+            ),
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         """Bootstrap the base data, failing fast only when it must create an
@@ -71,8 +97,15 @@ class Command(BaseCommand):
         email = os.environ.get("SYSTEM_ADMIN_EMAIL", DEFAULT_ADMIN_EMAIL)
         # No default: an unset password is only tolerated once the admin exists.
         password = os.environ.get("SYSTEM_ADMIN_PASSWORD")
+        reset_password = bool(options.get("reset_password"))
 
         admin_exists = User.objects.filter(username=username).exists()
+        if reset_password and not password:
+            # A reset without a source password would have to invent one.
+            raise CommandError(
+                "--reset-password requires SYSTEM_ADMIN_PASSWORD to hold the "
+                "new password. Set it in the environment and re-run."
+            )
         if not admin_exists and not password:
             raise CommandError(
                 f"SYSTEM_ADMIN_PASSWORD is not set and no admin user "
@@ -86,7 +119,7 @@ class Command(BaseCommand):
                 username=username,
                 email=email,
                 password=password,
-                reset_password=False,
+                reset_password=reset_password,
             )
         except ProvisioningError as exc:  # defensive: race between check + write
             raise CommandError(str(exc)) from exc
@@ -108,6 +141,16 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.SUCCESS(
                     f"Bootstrapped admin user '{username}' and base workspace."
+                )
+            )
+        elif reset_password:
+            revoked = revoke_refresh_families_for_user(
+                result.user.id, "admin_password_reset", None
+            )
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Reset the password of admin user '{username}' and revoked "
+                    f"{revoked} refresh session(s)."
                 )
             )
         else:

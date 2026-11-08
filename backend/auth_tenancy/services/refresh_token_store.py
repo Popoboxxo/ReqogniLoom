@@ -11,7 +11,7 @@ owner-privileged functions created by
 
 Replaced path
 -------------
-The five functions below replace the previous ``RefreshToken.unscoped`` accesses
+The functions below replace the previous ``RefreshToken.unscoped`` accesses
 one-for-one:
 
 * :func:`claim_refresh_token` ← ``unscoped.select_for_update().filter(jti=...).first()``
@@ -19,6 +19,13 @@ one-for-one:
 * :func:`revoke_refresh_family` ← ``unscoped.filter(session_id=..., revoked_at__isnull=True).update(...)``
 * :func:`insert_refresh_token` ← ``unscoped.create(...)``
 * :func:`purge_expired_refresh_tokens` ← the maintenance command's count/delete
+
+GitHub #1739 (beta.29 C2-T1) added a sixth:
+
+* :func:`revoke_refresh_families_for_user` — revoke every live family of one
+  user except an optional session id (password change). No previous ORM
+  equivalent existed; the closest was :func:`revoke_refresh_family`, which is
+  keyed on ``session_id`` and cannot iterate a user's families.
 
 Semantics are deliberately unchanged: the row lock of
 ``auth_refresh_token_claim`` is held by the caller's Django
@@ -42,12 +49,14 @@ __all__ = [
     "CLAIM_SQL",
     "INSERT_SQL",
     "PURGE_SQL",
+    "REVOKE_FAMILIES_FOR_USER_SQL",
     "REVOKE_FAMILY_SQL",
     "SPEND_SQL",
     "RefreshTokenState",
     "claim_refresh_token",
     "insert_refresh_token",
     "purge_expired_refresh_tokens",
+    "revoke_refresh_families_for_user",
     "revoke_refresh_family",
     "spend_refresh_token",
 ]
@@ -61,6 +70,11 @@ CLAIM_SQL = (
 )
 SPEND_SQL = "SELECT public.auth_refresh_token_spend(%s)"
 REVOKE_FAMILY_SQL = "SELECT public.auth_revoke_refresh_family(%s, %s)"
+#: GitHub #1739: revoke every still-live family of ONE user, optionally sparing
+#: the family that performed the password change.
+REVOKE_FAMILIES_FOR_USER_SQL = (
+    "SELECT public.auth_revoke_refresh_families_for_user(%s, %s, %s)"
+)
 INSERT_SQL = "SELECT public.auth_refresh_token_insert(%s, %s, %s, %s, %s)"
 PURGE_SQL = "SELECT public.auth_purge_expired_refresh_tokens(%s, %s)"
 
@@ -126,6 +140,35 @@ def revoke_refresh_family(session_id: UUID, reason: str) -> int:
     """
     with connection.cursor() as cursor:
         cursor.execute(REVOKE_FAMILY_SQL, [session_id, reason])
+        row = cursor.fetchone()
+    return int(row[0])
+
+
+def revoke_refresh_families_for_user(
+    user_id: UUID, reason: str, except_session_id: UUID | None
+) -> int:
+    """Revoke every still-live refresh family of *user_id*, sparing one family.
+
+    Used by the password change path (GitHub #1739): all sessions of the
+    account must die so a stolen refresh token cannot outlive the credential
+    change — except the session that performed the change, which keeps its
+    ``sid``.
+
+    Args:
+        user_id: Owner whose refresh families are burned.
+        reason: Audit string persisted in ``at_refresh_token.revoked_reason``
+            (e.g. ``"password_change"``).
+        except_session_id: Family to leave untouched, or ``None`` to revoke
+            every family (a bearer-only caller has no refresh cookie, so no
+            session is exempt).
+
+    Returns:
+        The number of rows that were still live and are now revoked.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            REVOKE_FAMILIES_FOR_USER_SQL, [user_id, reason, except_session_id]
+        )
         row = cursor.fetchone()
     return int(row[0])
 

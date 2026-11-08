@@ -367,6 +367,12 @@ class ChangeRequestService(ServiceBase):
         ).first()
         if cr is None:
             raise NotFoundError(f"ChangeRequest {cr_id} not found")
+
+        # #1716: item-level rule check (read → 403, none → 404).
+        self._assert_item_write_permission(
+            ctx, cr.artifact_id, workspace_id=cr.workspace_id
+        )
+
         assert_expected_version(cr, expected_version, entity_type="ChangeRequest")
 
         if title is not None:
@@ -461,6 +467,11 @@ class ChangeRequestService(ServiceBase):
             raise NotFoundError(f"ChangeRequest {cr_id} not found")
 
         workspace_id = cr.workspace_id
+
+        # #1716: same item-level gate as update — delete must not bypass it.
+        self._assert_item_write_permission(
+            ctx, cr.artifact_id, workspace_id=workspace_id
+        )
 
         # REQ-006/Phase 0: route soft-delete through the workflow engine's
         # outdate() escape hatch instead of a queryset-level hard delete.

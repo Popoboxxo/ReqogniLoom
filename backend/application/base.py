@@ -345,6 +345,93 @@ class ServiceBase:
                 f"role, user has {ctx.active_roles}"
             )
 
+    @staticmethod
+    def _assert_item_write_permission(
+        ctx: AuthContext,
+        artifact_id: UUID | None,
+        *,
+        workspace_id: UUID,
+    ) -> None:
+        """Enforce the item-level rule set on a write/delete path (issue #1716).
+
+        The coarse RBAC matrix only says "this role may write somewhere".
+        :class:`~auth_tenancy.models.ItemPermission` can restrict that further
+        *per workspace and per artifact* — and before this helper existed the
+        CRUD services never consulted it, so an editor could edit or delete an
+        artifact an admin had explicitly locked down (and an explicit ``none``
+        rule was indistinguishable from "no rule" on any write path).
+
+        Resolution is delegated to
+        :meth:`~auth_tenancy.services.item_permission.ItemPermissionService.check_permission`
+        **directly**, not through
+        :class:`~application.effective_permission_service.EffectivePermissionService`:
+        the merged decision collapses ``read`` and ``deny`` into "not allowed",
+        but the two must answer differently here (a ``read`` grant on a
+        write path is a permission problem → 403; an explicit ``none`` must not
+        confirm the artifact exists → 404). ``PermissionDecision.has_explicit_rule``
+        is the structured discriminator for "no rule at all", so a reason string
+        never drives the decision.
+
+        Semantics:
+          * no item-level rule → return (RBAC alone decides; unchanged path),
+          * ``write`` → return,
+          * ``read`` → :class:`PermissionDeniedError` (mapped to 403),
+          * ``none``/``deny`` → :class:`NotFoundError` (mapped to 404, so the
+            rule cannot be used as an existence oracle).
+
+        The helper arms the tenant context from *ctx* when it is not already
+        set (a live UUID tenant always is), so it cannot silently fail open;
+        ``check_permission`` is tenant-scoped. It deliberately does not repeat
+        the RBAC check that :meth:`_assert_write_permission` already performed.
+
+        Args:
+            ctx: Authenticated caller.
+            artifact_id: Backing ``persistence.Artifact`` id of the target, or
+                ``None`` when the row has no artifact (legacy rows) — the
+                workspace-wide rule still applies then.
+            workspace_id: Workspace the target belongs to.
+        """
+        from auth_tenancy.models import ITEM_PERMISSION_READ, ITEM_PERMISSION_WRITE
+        from auth_tenancy.services.item_permission import ItemPermissionService
+
+        # Defensive normalisation: only real ORM values can address a rule.
+        # A non-UUID here means the caller (or a test double) never had a
+        # persisted row to restrict, and querying with it would raise inside
+        # Django's UUID coercion instead of answering "no rule".
+        if not TenantContext.is_set():
+            # Arm the tenant-scoped lookup ourselves instead of failing open:
+            # every live caller has a real UUID tenant_id, so an unarmed context
+            # must not silently disable the item rule. Only a test double with a
+            # non-UUID tenant (no persisted row to restrict) is skipped.
+            if not isinstance(ctx.tenant_id, UUID):
+                return
+            TenantContext.set_tenant(ctx.tenant_id)
+        if not isinstance(ctx.user_id, UUID) or not isinstance(workspace_id, UUID):
+            return
+        if artifact_id is not None and not isinstance(artifact_id, UUID):
+            return
+
+        decision = ItemPermissionService().check_permission(
+            user_id=ctx.user_id,
+            workspace_id=workspace_id,
+            artifact_id=artifact_id,
+        )
+
+        if not decision.has_explicit_rule:
+            return
+        if decision.level == ITEM_PERMISSION_WRITE:
+            return
+        if decision.level == ITEM_PERMISSION_READ:
+            raise PermissionDeniedError(
+                "Permission denied: an item-level rule grants read-only access "
+                "to this artifact."
+            )
+        raise NotFoundError(
+            f"Artifact {artifact_id} not found"
+            if artifact_id is not None
+            else "No writable artifact for this item-level rule"
+        )
+
     # ---------- Tenant Context ----------
 
     @staticmethod

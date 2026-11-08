@@ -118,6 +118,15 @@ def provision_admin(
                     "A password is required to create or reset the admin user "
                     f"'{username}', but none was provided."
                 )
+            # Deliberately NOT validated against ``AUTH_PASSWORD_VALIDATORS``
+            # (beta.29 C2-T4 / N21): this is the operator/DR password supplied
+            # out of band via SYSTEM_ADMIN_PASSWORD. Enforcing the interactive
+            # policy here would block bootstrap and disaster recovery on an
+            # instance whose only credential source is a short env value — the
+            # operator is the trust boundary, and the value never travels
+            # through a user-facing form. Every user-driven path (REST/MCP
+            # ``UserAccountService.create`` and the self-service password
+            # change) does validate.
             user.set_password(password)
             user.save(update_fields=["password", "modified_at"])
             password_set = True

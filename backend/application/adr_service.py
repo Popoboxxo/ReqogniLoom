@@ -300,6 +300,12 @@ class AdrService(ServiceBase):
         ).first()
         if adr is None:
             raise NotFoundError(f"ADR {adr_id} not found")
+
+        # #1716: item-level rule check (read → 403, none → 404).
+        self._assert_item_write_permission(
+            ctx, adr.artifact_id, workspace_id=adr.workspace_id
+        )
+
         assert_expected_version(adr, expected_version, entity_type="Adr")
 
         # #269 finding 5: snapshot BEFORE any assignment so the version bump
@@ -401,6 +407,11 @@ class AdrService(ServiceBase):
             raise NotFoundError(f"ADR {adr_id} not found")
 
         workspace_id = adr.workspace_id
+
+        # #1716: same item-level gate as update — delete must not bypass it.
+        self._assert_item_write_permission(
+            ctx, adr.artifact_id, workspace_id=workspace_id
+        )
 
         # REQ-006/Phase 0: route soft-delete through the workflow engine's
         # outdate() escape hatch instead of writing status directly.

@@ -386,6 +386,10 @@
    "post"
   ],
   [
+   "/api/v1/auth/password/change/",
+   "post"
+  ],
+  [
    "/api/v1/auth/refresh/",
    "post"
   ],

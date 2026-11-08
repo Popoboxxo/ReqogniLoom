@@ -457,6 +457,52 @@ class AuthenticationService:
         )
         return self._amr_from_claims(claims)
 
+    def read_refresh_session_id(self, token: str) -> UUID:
+        """Return the ``sid`` (rotation-family) claim of a valid refresh token.
+
+        GitHub #1739: ``POST /auth/password/change/`` must keep the *current*
+        session alive while revoking every other one. The access token carries
+        no ``sid`` (only ``user_id``/``tenant_id``/``roles``/``amr``), so the
+        endpoint reads the ``reqogniloom_refresh`` cookie and resolves its
+        family id here — never from the request body, which a caller could use
+        to exempt someone else's session.
+
+        Validation is done here rather than by the caller, unlike
+        :meth:`read_refresh_amr`: the ``sid`` is used to *exempt* a family from
+        revocation, so an unvalidated value would be a privilege decision on an
+        unverified claim. The token must decode with the configured secret and
+        carry ``typ == "refresh"`` (the same check
+        :meth:`validate_refresh_token` performs).
+
+        Args:
+            token: The raw refresh JWT (without the ``Bearer `` prefix).
+
+        Returns:
+            The ``sid`` claim as a UUID.
+
+        Raises:
+            AuthenticationFailed: ``invalid_token`` if the secret is not
+                configured, the token does not decode, ``typ`` is not
+                ``"refresh"``, or the ``sid`` claim is missing/malformed.
+        """
+        if not self._jwt_secret:
+            raise AuthenticationFailed("invalid_token")
+
+        claims = decode_jwt(
+            token,
+            secret=self._jwt_secret,
+            issuer=self._jwt_issuer,
+            audience=self._jwt_audience,
+        )
+
+        if claims.get("typ") != "refresh":
+            raise AuthenticationFailed("invalid_token")
+
+        try:
+            return UUID(str(claims["sid"]))
+        except (KeyError, ValueError) as exc:
+            raise AuthenticationFailed("invalid_token") from exc
+
     def resolve_active_user(self, user_id: UUID, tenant_id: UUID) -> User | None:
         """Return the active user identified by ``(user_id, tenant_id)``.
 

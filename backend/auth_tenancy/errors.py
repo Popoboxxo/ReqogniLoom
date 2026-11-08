@@ -251,6 +251,42 @@ _ERROR_CATALOG: dict[str, tuple[int, dict[str, str]]] = {
             ),
         },
     ),
+    # ------------------------------------------------------------------
+    # Self-service password change (GitHub #1739, beta.29 C2-T1).
+    #
+    # Both are 400, not 401: the caller *is* authenticated, the submitted
+    # proof/new value is what failed. The messages never echo the password.
+    # ------------------------------------------------------------------
+    "INVALID_CURRENT_PASSWORD": (
+        400,
+        {
+            "en": "The current password is incorrect.",
+            "de": "Das aktuelle Passwort ist falsch.",
+        },
+    ),
+    "PASSWORD_POLICY_VIOLATION": (
+        400,
+        {
+            "en": "The new password does not meet the password policy.",
+            "de": "Das neue Passwort erfüllt die Passwort-Richtlinie nicht.",
+        },
+    ),
+    "PASSWORD_CHANGE_REQUIRES_INTERACTIVE_SESSION": (
+        403,
+        {
+            "en": (
+                "The password can only be changed from an interactive "
+                "password-authenticated session, not with an API key or a "
+                "session without a password factor."
+            ),
+            "de": (
+                "Das Passwort kann nur aus einer interaktiven, "
+                "passwortauthentifizierten Sitzung geändert werden — nicht mit "
+                "einem API-Schlüssel und nicht aus einer Sitzung ohne "
+                "Passwort-Faktor."
+            ),
+        },
+    ),
 }
 
 _DEFAULT_LANGUAGE = "en"

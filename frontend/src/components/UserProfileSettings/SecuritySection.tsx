@@ -26,6 +26,8 @@ import {
   type MfaStatus,
   type TotpEnrollment,
 } from "../../api/mfa";
+import { extractApiErrorMessage } from "../../api/client";
+import { useAuth } from "../../context/AuthContext";
 import styles from "./SecuritySection.module.css";
 
 type Phase = "loading" | "ready" | "error";
@@ -41,6 +43,7 @@ function formatConfirmedAt(iso: string | null): string {
 
 export function SecuritySection(): JSX.Element {
   const { t } = useTranslation();
+  const { changePassword } = useAuth();
 
   const [phase, setPhase] = useState<Phase>("loading");
   const [status, setStatus] = useState<MfaStatus | null>(null);
@@ -56,6 +59,14 @@ export function SecuritySection(): JSX.Element {
   const [showDisable, setShowDisable] = useState(false);
   const [disablePassword, setDisablePassword] = useState("");
   const [disableCode, setDisableCode] = useState("");
+
+  // Password change (GitHub #1739) — independent of the MFA state machine.
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [repeatPassword, setRepeatPassword] = useState("");
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordChanged, setPasswordChanged] = useState(false);
 
   /**
    * One-time plaintext recovery codes are never kept beyond the reveal they
@@ -194,6 +205,44 @@ export function SecuritySection(): JSX.Element {
     [disablePassword, disableCode, runAction, clearRecoveryCodes, refreshStatus]
   );
 
+  const handlePasswordChange = useCallback(
+    (event: FormEvent): void => {
+      event.preventDefault();
+      setPasswordError(null);
+      setPasswordChanged(false);
+
+      if (!currentPassword || !newPassword || !repeatPassword) {
+        setPasswordError(t("security.password.required"));
+        return;
+      }
+      if (newPassword !== repeatPassword) {
+        setPasswordError(t("security.password.mismatch"));
+        return;
+      }
+
+      setPasswordBusy(true);
+      void (async () => {
+        try {
+          await changePassword(currentPassword, newPassword);
+          setCurrentPassword("");
+          setNewPassword("");
+          setRepeatPassword("");
+          setPasswordChanged(true);
+        } catch (err) {
+          const code = (err as { error?: { code?: string } })?.error?.code;
+          setPasswordError(
+            code === "INVALID_CURRENT_PASSWORD"
+              ? t("security.password.incorrectCurrent")
+              : (extractApiErrorMessage(err) ?? t("security.password.failed"))
+          );
+        } finally {
+          setPasswordBusy(false);
+        }
+      })();
+    },
+    [changePassword, currentPassword, newPassword, repeatPassword, t]
+  );
+
   const handleCopy = useCallback((): void => {
     if (!recoveryCodes) return;
     void navigator.clipboard?.writeText(recoveryCodes.join("\n"));
@@ -215,6 +264,90 @@ export function SecuritySection(): JSX.Element {
   return (
     <section className={styles.section} data-testid="mfa-section">
       <h2 className={styles.heading}>{t("mfa.title")}</h2>
+
+      {/* --- Password change (GitHub #1739) ----------------------------- */}
+      <form
+        className={styles.card}
+        data-testid="password-change-form"
+        onSubmit={handlePasswordChange}
+      >
+        <h3 className={styles.statusText}>{t("security.password.title")}</h3>
+        <p className={styles.hint}>{t("security.password.hint")}</p>
+
+        <label className={styles.fieldLabel} htmlFor="password-current">
+          {t("security.password.current")}
+        </label>
+        <input
+          id="password-current"
+          className={styles.input}
+          data-testid="password-current-input"
+          type="password"
+          autoComplete="current-password"
+          value={currentPassword}
+          onChange={(event) => setCurrentPassword(event.target.value)}
+          disabled={passwordBusy}
+        />
+
+        <label className={styles.fieldLabel} htmlFor="password-new">
+          {t("security.password.new")}
+        </label>
+        <input
+          id="password-new"
+          className={styles.input}
+          data-testid="password-new-input"
+          type="password"
+          autoComplete="new-password"
+          value={newPassword}
+          onChange={(event) => setNewPassword(event.target.value)}
+          disabled={passwordBusy}
+        />
+
+        <label className={styles.fieldLabel} htmlFor="password-repeat">
+          {t("security.password.repeat")}
+        </label>
+        <input
+          id="password-repeat"
+          className={styles.input}
+          data-testid="password-repeat-input"
+          type="password"
+          autoComplete="new-password"
+          value={repeatPassword}
+          onChange={(event) => setRepeatPassword(event.target.value)}
+          disabled={passwordBusy}
+        />
+
+        <div className={styles.actions}>
+          <button
+            type="submit"
+            className="btn-primary"
+            data-testid="password-change-submit"
+            disabled={passwordBusy}
+          >
+            {passwordBusy
+              ? t("security.password.saving")
+              : t("security.password.submit")}
+          </button>
+        </div>
+
+        {passwordError && (
+          <p
+            role="alert"
+            className={styles.error}
+            data-testid="password-change-error"
+          >
+            {passwordError}
+          </p>
+        )}
+        {passwordChanged && (
+          <p
+            role="status"
+            className={styles.statusText}
+            data-testid="password-change-success"
+          >
+            {t("security.password.success")}
+          </p>
+        )}
+      </form>
 
       {phase === "loading" && (
         <p role="status" className={styles.loadingText}>
