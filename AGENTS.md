@@ -4,8 +4,8 @@
 
 **Name:** ReqogniLoom
 **Präfix:** ReqLo
-**Plattform:** Django 6.1+ (Backend) + React 19 + TypeScript 5.5+ (Frontend) + PostgreSQL 16 via pgvector/pgvector:pg16 (Django ORM + pgvector) + Redis 7 (Cache/Celery-Broker) + Celery 5.6+ (Async) + Docker Compose (8 Default-Services: postgres, postgres-backup, redis, backend, migrate, celery, celery-beat, frontend; optionale Profile: honcho (+4 Services))
-**Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (46 Tool-Gruppen-Präfixe, 290 Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/Azure/mock), Multi-Tenancy mit Row-Level-Isolation, 11 core/built-in Trace-Link-Typen (tenant-extensible catalog), Baselines (3 Scopes), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
+**Plattform:** Django 6.1+ (Backend) + React 19 + TypeScript 5.5+ (Frontend) + PostgreSQL 16 via pgvector/pgvector:pg16 (Django ORM + pgvector) + Redis 8 (Cache/Celery-Broker) + Celery 5.6+ (Async) + Docker Compose (9 Default-Services: postgres, postgres-backup, redis, backend, llm-preflight, migrate, celery, celery-beat, frontend; optionale Profile: honcho (+5 Services), qdrant (+1 Service))
+**Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (46 Tool-Gruppen-Präfixe, 290 Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/Azure/opencode_go/mock), Multi-Tenancy mit Row-Level-Isolation, 20 built-in Trace-Link-Typen (tenant-extensibler Katalog), Baselines (3 Scopes) mit Feld-Diff, AI-Long-Term-Memory (pgvector; optional Honcho/Qdrant), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
 
 > Struktur: siehe Verzeichnisstruktur im Repo (`ls`/`find`); deklarativ: `.meta-config/project.yaml` → `variables.PROJECT_STRUCTURE`.
 
@@ -14,18 +14,18 @@
 backend/             # Django REST API (20 Apps in REQFLOW_APPS)
                      #   Layer 0: persistence, auth_tenancy, presets, audit
                      #   Layer 1: llm_adapter, traceability, workflow, link_types, attribute_definitions, baseline
-                     #   Layer 2: application (47 *_service.py)
+                     #   Layer 2: application (68 *_service.py)
                      #   Layer 3: rest_api, mcp_server
                      #   Ext: diagram, icd, context_graph, memory, se_metrics, resilience, admin_ops
 backend/reqogniloom/ # Django-Projekt (settings.py, urls.py, wsgi.py, asgi.py, version.py, health.py)
-frontend/            # React 19 + TS 5.5+ SPA (Vite 8, Vitest 4, ESLint 10)
+frontend/            # React 19 + TS 5.5+ SPA (Vite 8, Vitest 5, ESLint 10)
                      #   src/api/  src/components/  src/config/  src/constants/  src/context/
                      #   src/hooks/  src/i18n/  src/queries/  src/styles/  src/types/  src/utils/
-e2e/                 # Playwright/Chromium E2E-Tests (54 Spec-Dateien, 4 CI-Shards)
-docs/                # Anforderungen, Architektur, SE-Kaskade (docs/se/), Release-Reports
+e2e/                 # Playwright/Chromium E2E-Tests (67 Spec-Dateien, 4 CI-Shards)
+docs/                # Anforderungen, Architektur, SE-Kaskade (docs/se/), Pläne (docs/plans/, docs/superpowers/), Konzepte, Release-Reports
 deploy/              # Deployment: docker-compose.yml (Basis), .override.yml (Dev), .minimal.yml, .env, README.md
 testing/             # docker-compose.test.yml (Standalone-Test-Stack, kein Overlay, kein Deployment-File)
-scripts/             # build.sh, check-version-drift.sh, enable_pgvector.sh (backup/restore removed per ADR-012)
+scripts/             # build.sh, bump_version.py, setup.sh, check-version-drift.sh, check_plugin_packages.py, enable_pgvector.sh, extract_theme_tokens.py, generate_traceability_matrix.py, clients/ (Client-Installer) + pytest-Dateien
 .meta-config/        # agent-meta Konfiguration (project.yaml)
 .agent-meta/         # agent-meta Submodul (Templates, Scripts, Schemas)
 
@@ -33,14 +33,42 @@ scripts/             # build.sh, check-version-drift.sh, enable_pgvector.sh (bac
 
 > Runtime & Abhängigkeiten: siehe Projekt-Manifest (`pyproject.toml` / `requirements.txt` / `package.json` / `manifest.json`).
 
-**Entry-Point:** `backend/manage.py            — Django Management (migrate, seed_demo, runserver, shell, check, self_init, export_tool_manifest) backend/reqogniloom/settings.py     — Settings-Entry (DRF, JWT, Celery, Apps) backend/reqogniloom/urls.py         — URL-Routing (/health/, /api/v1/, /mcp/, /api/v1/mcp/, /api/schema/, /admin/) backend/reqogniloom/version.py     — Build-/Version-Metadaten (GET /api/v1/version/) frontend/src/index.tsx          — React Entry-Point (ReactDOM) frontend/src/App.tsx            — Root-Component (Provider, Router) frontend/src/api/client.ts      — Axios-Client (auto-Bearer-Token-Injection) e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium, 4 Shards) scripts/build.sh              — Release-Build mit APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME `
+**Entry-Point:** `backend/manage.py                  — Django Management (migrate, seed_demo, runserver, shell, check, export_tool_manifest, …)
+backend/application/self_init.py   — post_migrate-Bootstrap (Admin/Tenant/Workspace auf leerer DB)
+backend/reqogniloom/settings.py    — Settings-Entry (DRF, JWT/Cookie-Auth, Celery, Apps)
+backend/reqogniloom/urls.py        — URL-Routing (/health/, /api/v1/, /mcp/, /api/v1/mcp/ [deprecated Alias], /api/schema/, /admin/)
+backend/reqogniloom/version.py     — Build-/Version-Metadaten (GET /api/v1/version/)
+frontend/src/index.tsx             — React Entry-Point (ReactDOM)
+frontend/src/App.tsx               — Root-Component (Provider, Router)
+frontend/src/api/client.ts         — API-Client (Cookie-Auth, CSRF, Silent-Refresh)
+e2e/playwright.config.ts           — Playwright-Konfiguration (Chromium, 4 Shards)
+scripts/build.sh                   — Release-Build mit APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME`
 
 **Besondere Patterns:**
-- Django REST Framework (DRF) für REST-API-Endpoints (28 ViewSets) - MCP-Server (JSON-RPC 2.0) mit 46 Tool-Gruppen-Präfixen und 290 Tools für AI-Integration (kanonisches Manifest: docs/agent-templates/tool-manifest.json, Drift-Gate: backend/mcp_server/tests/test_tool_manifest_drift.py) - drf-spectacular für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03) - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation (anthropic, openai, ollama, azure, mock) - 11 core/built-in Trace-Link-Typen (derives-from, decomposes, refines, allocated-to, verifies, mitigates, satisfies, realizes, decides, references, diagram-ref; tenant-extensible catalog, siehe backend/link_types/builtin.py) - 3 Baseline-Scopes (Document, Project, Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines pro Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems → Components → Presentation) 
+- Django REST Framework (DRF): 30 ViewSets über 35 Router-Registrierungen plus explizite APIView-Routen
+- MCP-Server (JSON-RPC 2.0) mit 46 Tool-Gruppen-Präfixen und 290 Tools (kanonisches Manifest:
+  docs/agent-templates/tool-manifest.json, Drift-Gate: backend/mcp_server/tests/test_tool_manifest_drift.py);
+  kanonischer Pfad /mcp/, /api/v1/mcp/ nur noch deprecated Alias
+- drf-spectacular für OpenAPI 3.0 (Schema, Swagger-UI, ReDoc)
+- Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade (68 *_service.py)
+- TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03)
+- Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell
+- LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation
+  (anthropic, openai, ollama, azure, opencode_go, mock)
+- 20 built-in Trace-Link-Typen mit Richtungs-/allowed_pairs-Konvention und Suspect-Propagation;
+  tenant-extensibler Katalog (backend/link_types/builtin.py, Workspace-Link-Typ-Definitionen)
+- Baselines mit 3 Scopes (Document, Project, Global) in einer Entität (ADR-07), Feld-Diff + Rollback
+- Konfigurierbare State-Machines pro Workspace (ADR-06)
+- Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf Service-Ebene
+- Context-Graph als abgeleiteter Soft-Edge-Layer (Issue #377)
+- AI-Long-Term-Memory: MemoryEntry pro Workspace/Tenant, Embeddings via pgvector
+  (optional Honcho/Qdrant), Digest/Search/Ask-Endpoints
+- Audit-Log auf Operationsebene inkl. Finding-Waivern
+- V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems → Components → Presentation)
 
 ## Code-Konventionen
 
-- Python (PEP 8, Typings, Docstrings für public API) - TypeScript (ESLint 10, Prettier, strict mode, functional Components + Hooks) - Django-Layer: Models (persistence/) ↔ Services (application/) ↔ Views/Serializers (rest_api/) - React-Layer: api/ (Wrapper) ↔ context/ (State) ↔ components/ (UI) ↔ i18n/ (Labels) - Imports-Reihenfolge: Standard Library → Third-Party → Local (PEP 8) - Keine wildcard imports (from x import *) - Keine direkten Model-Queries in DRF-Views (immer via Serializer + Service) - data-testid auf allen interaktiven UI-Elementen (E2E-Pflicht für Playwright) - CSS Custom Properties aus styles/tokens.css (keine hardcodierten Farben/Größen) - Commits: Conventional Commits Format (feat(REQ-xxx): ..., fix: ..., chore: ...) - Branch-Policy: feat/*, fix/*, refactor/* (NIE direkt auf main) - Requirements-IDs: REQ-L0-*, REQ-L1-*, REQ-L2-*, REQ-L3-* (siehe docs/se/traceability-matrix.md) 
+- Python (PEP 8, Typings, Docstrings für public API) - TypeScript (ESLint 10, Prettier, strict mode, functional Components + Hooks) - Django-Layer: Models (persistence/) ↔ Services (application/) ↔ Views/Serializers (rest_api/) - React-Layer: api/ (Wrapper) ↔ context/ (State) ↔ components/ (UI) ↔ i18n/ (Labels) - Imports-Reihenfolge: Standard Library → Third-Party → Local (PEP 8) - Keine wildcard imports (from x import *) - Keine direkten Model-Queries in DRF-Views (immer via Serializer + Service) - data-testid auf allen interaktiven UI-Elementen (E2E-Pflicht für Playwright) - CSS Custom Properties aus styles/tokens.css (keine hardcodierten Farben/Größen) - Commits: Conventional Commits Format (feat(REQ-xxx): ..., fix: ..., chore: ...) - Branch-Policy: feat/, fix/, chore/ (NIE direkt auf main) - Requirements-IDs: REQ-L0-*, REQ-L1-*, REQ-L2-*, REQ-L3-* (siehe docs/se/traceability-matrix.md) 
 
 ## Build & Development
 
@@ -65,25 +93,22 @@ Kategorien für `docs/REQUIREMENTS.md`:
 - **Functional** — Features, User Stories, CRUD auf Requirements/Architecture/TestCases/ADRs/Risks/Issues
 - **Non-Functional** — Performance, Sicherheit, Skalierbarkeit, Audit-Compliance, Multi-Tenancy
 - **API** — REST API (/api/v1/, JWT-Auth, OpenAPI) und MCP Server (/mcp/ und /api/v1/mcp/, JSON-RPC 2.0, 46 Tool-Gruppen-Präfixe)
-- **UI/UX** — Frontend (React 19 SPA), 42 Component-Bereiche, i18n (DE/EN), Barrierefreiheit
+- **UI/UX** — Frontend (React 19 SPA), 46 Component-Bereiche, i18n (DE/EN), Barrierefreiheit
 - **Data** — Generic Artifact Model, Multi-Tenancy via Row-Level-Security, Configurable Rigor
 - **Integration** — Externe Systeme, CSV-Bulk-Import, PDF-Report-Export, ReqIF 1.2-Import/Export, LLM-Provider (Anthropic/OpenAI/Ollama/Azure/mock)
 - **Test** — Test-Management, Test-Run-Protokollierung (4-Phasen-Lifecycle), Coverage-Tracking
 - **Workflow** — Konfigurierbare State-Machines pro Workspace, Approval-Gates, Transition-Validierung
 - **Baseline** — Snapshot, Feld-Level-Diff, 3 Scopes (Document/Project/Global)
-- **Traceability** — 11 core/built-in Link-Typen (tenant-extensible), Coverage-Aggregation, V-Modell L0-L4-Traceability
-- **AI** — LLM-Provider-Abstraktion, Decomposition, Validation, Consistency-Check
+- **Traceability** — 20 built-in Link-Typen (tenant-extensibler Katalog), Coverage-Aggregation, V-Modell L0-L4-Traceability
+- **AI** — LLM-Provider-Abstraktion (6 Provider), Ableitung/Zerlegung, Validation, Consistency-Check, Long-Term-Memory (pgvector/Honcho/Qdrant)
 - **Resilience** — Retry, Circuit-Breaker, Timeout-Decorators, async via Celery
 
 
 
 <!-- agent-meta:managed-begin -->
-> **ROUTING:**
-
- Opencode->AGENTS.md |
- Gemini->AGENTS.md
+> **AI ROUTING:** Claude -> CLAUDE.md | Opencode, Gemini -> AGENTS.md
 > **ENTRY:** `orchestrator`-Agent (für alle Dev-Tasks).
-`agent-meta v2.0.0-beta.1` | DoD: `rapid-prototyping` | REQ-Trace: `false`
+`agent-meta v2.0.0-beta.8` | DoD: `rapid-prototyping` | REQ-Trace: `false`
 
 
 
@@ -95,34 +120,21 @@ Verwende Feature-Branches (`feat/`, `fix/`, `chore/`). Keine Code-Änderungen di
 
 ## Guard-Terminologie: Convention Boundary vs. Security Boundary
 
-Guards im System (Orchestrator-Guard, DoD-Push-Check, etc.) werden inkonsistent als
-"Konventions-Tool" und als "security boundary" bezeichnet — beide Aussagen sind korrekt,
-aber gegen unterschiedliche Bedrohungsmodelle:
-
-- **Convention boundary**: fail-closed gegen AKZIDENTIELLEN Missbrauch (Tippfehler,
-  vergessene Bestätigungen, naive Automatisierung). Nicht darauf ausgelegt, einen
-  gezielten Bypass-Versuch zu widerstehen (siehe Lücken unten, z.B. #592).
+- **Convention boundary**: fail-closed gegen AKZIDENTIELLEN Missbrauch (Tippfehler, vergessene Bestätigungen, naive Automatisierung); kein Schutz gegen gezielten Bypass.
 - **Security boundary**: fail-closed gegen einen DELIBERATEN Umgehungsversuch.
 
-Diese Definition ist die zentrale Referenz — Hook-Header und andere Doku sollen sie
-verlinken (`.claude/rules/branch-guard.md#guard-terminologie-convention-boundary-vs-security-boundary`)
-statt sie ad hoc zu wiederholen.
+## Submodule-Pushes (`--recurse-submodules=on-demand|only`)
 
-`orchestrator-guard.sh` ist primär eine **convention boundary** (siehe Lücken unten),
-mit einzelnen **security-boundary**-Eigenschaften für spezifische Fälle (z.B. das
-Destructive-Gate aus #516, das auch bei gültigem `git`-Sentinel blockt). `dod-push-check.sh`
-ist als **security boundary** gegen fehlendes/kaputtes `python3` fail-closed (#595).
+Bei `=on-demand`/`=only` prüft der DoD-Push-Check jedes Submodul gegen sein
+eigenes Push-Ziel (#1051). Ein geschütztes **oder** unbestimmbares Ziel
+blockiert (fail closed); die Meldung nennt Submodul, Ziel und Ausweg (ohne
+`--recurse-submodules` pushen, dann auf einen Feature-Branch). Ohne
+`.gitmodules` unverändert.
 
 ## Bekannte Grenzen
 
-Die technische Durchsetzung (`orchestrator-guard.sh`) erkennt Git-Mutationen über eine tokenisierte Analyse des Bash-Befehls (gemeinsamer Tokenizer für Destructive- und Mutation-Gate, Issue #551), kein vollständiger Shell-Parser. Bekannte Lücken:
-
-1. `eval "git commit ..."` wird nicht erkannt.
-2. Direkte Schreibzugriffe auf `.git/` werden nicht geprüft.
-3. Andere Git-Tools (`hub`, `gh repo ...`) sind nicht erfasst.
-4. Command-Substitution und Indirektion (`$(...)`, Backticks, `xargs`, `eval`) können eine Git-Mutation am Tokenizer vorbeischleusen, weil der Hook den Befehl weder ausführt noch die Shell vollständig parst (Issue #592). Ein echter Shell-Interpreter wäre unverhältnismäßig für ein Konventions-Tool.
-
-Bewusster Trade-off, kein Bug (siehe Kommentar-Header in `.claude/hooks/orchestrator-guard.sh`) — nur relevant für Nutzer, die sich vollständig auf den Schutz statt auf die Konvention verlassen.
+Erkennung per Tokenizer, kein Shell-Parser — Indirektion (`eval`, `$(...)`, `xargs`) bleibt unerkannt.
+Lücken-Liste (#551/#592/#809), Guard-Einstufung: `docs/concepts/branch-guard-known-limits.md`.
 
 
 
@@ -150,7 +162,7 @@ Format: `<type>: <beschreibung>` (Bsp: `feat: ...`)
 # MCP Hard Prohibitions
 
 > Kurzfassung der harten Tool-Verbote aktiver MCP-Server. Vollständige Tool-Listen und
-> Hinweise: pro Provider in `.gemini/skills bzw. .opencode/skills bzw. .mammouth/skills bzw. .agents/skills bzw. .zcode/skills bzw. .kimi-code/skills` — jeweils `mcp-<server>/SKILL.md` (`use-lazy-rules.md`).
+> Hinweise: pro Provider in `.gemini/skills bzw. .opencode/skills` — jeweils `mcp-<server>/SKILL.md` (`use-lazy-rules.md`).
 
 - **playwright:** `browser_run_code_unsafe`, `browser_evaluate`, `browser_file_upload`, `browser_handle_dialog` — absolut verboten.
 
@@ -495,24 +507,15 @@ CISO Lovable):
 
 # Lazy-Loaded Rules
 
-> Nicht immer geladen — bei Bedarf per `Read` öffnen: `.gemini/skills bzw. .opencode/skills bzw. .mammouth/skills bzw. .agents/skills bzw. .zcode/skills bzw. .kimi-code/skills/<skill>/SKILL.md` (jeweils).
+> Nicht immer geladen — bei Bedarf per `Read` öffnen: `.gemini/skills bzw. .opencode/skills/<skill>/SKILL.md` (jeweils).
 
 | Skill | Wann |
 |---|---|
-| sync-interface | sync.py, Templates/Rules ändern |
-| admin-ui | Admin-Server/UI betreiben (Lifecycle, Token, Ports) |
-| architecture | Templates/Overrides/Placeholder ändern |
-| conventions | Vor Commits in agents/, config/, scripts/lib |
 | submodule-protection | .agent-meta/, external/, .gitmodules |
 | a2a-delegation-gates | A2A-Delegation an Subagenten |
 | issue-lifecycle | GitHub-Issue |
 | lifecycle-tasks | Session-Start, pending-tasks.md vorhanden |
 | session-conclusion | Feature-Abschluss |
-| provider-agnostic | agents/1-generic editieren |
-| mcp-reqogniloom | ReqogniLoom-MCP-Tools |
-| mcp-honcho | Honcho-MCP-Memory-Tools |
-| mcp-playwright | Playwright-MCP-Browser-Tools |
-| mcp-viz-logger | viz-logger Event-Logging |
 | tool-graphify | Architektur-/Datei-Fragen mit graphify |
 
 Harte MCP-Tool-Verbote: siehe `mcp-guardrails.md` (always-on).
@@ -534,6 +537,7 @@ Jeder Dev-Task -> `orchestrator`. Ausnahme: User Override oder 1-Step (falls erl
 
 ## Git Delegation
 Commit ist für die per `auto_commit`-Tier freigeschaltete Rolle erlaubt (Details im Commit-Authority-Block der jeweiligen Rolle). Push, Tag und Branch-Management bleiben ausschließlich Aufgabe des `git` Agenten. Read-only (status, log) im Main Chat ok.
+Worker-Subagenten ohne `git`-Sentinel können auch `git init`, schreibendes `git config` und `git stash` nicht ausführen (Orchestrator-Guard-Mutationsliste).
 
 Native Extensions (Skills/Hooks) erlaubt, ignorieren nicht Branch-Guard/DoD.
 Skill-getriebene Sub-Agent-Loops (z.B. generische Harness-Skills wie `subagent-driven-development`) sind KEINE dritte Ausnahme von der Orchestrator-Pflicht: ein Skill darf einen bereits vom `orchestrator` gestarteten Loop ausführen, aber niemals selbst zum Einstiegspunkt für einen neuen Dev-Task werden. Einzige Ausnahmen bleiben User-Override.
@@ -601,128 +605,69 @@ Arbiträre Code-Ausführung (browser_run_code_unsafe, browser_evaluate) ist gesp
 ## Übrige Regeln (Lazy-Load)
 
 Nicht-Kern-Regeln werden NICHT in diesen Block eingebettet (Progressive Disclosure, #192):
-sie liegen pro Provider als separate Dateien in .gemini/skills bzw. .opencode/skills bzw. .mammouth/skills bzw. .agents/skills bzw. .zcode/skills bzw. .kimi-code/skills — jeweils `<rule-name>/SKILL.md`.
+sie liegen pro Provider als separate Dateien in .gemini/skills bzw. .opencode/skills — jeweils `<rule-name>/SKILL.md`.
 Bei Bedarf mit `Read` laden; verfügbare Regeln via `ls` im jeweiligen Verzeichnis.
 
 
 ## Agent Directory
-> ⚠️ **ACHTUNG:** Agenten (Prompts) liegen in `.gemini/agents bzw. .opencode/agents bzw. .mammouth/agents bzw. .codex/agents bzw. .zcode/agents bzw. .kimi-code/agents`.
+> ⚠️ **ACHTUNG:** Agenten (Prompts) liegen in `.gemini/agents bzw. .opencode/agents`.
 
 | Agent | Core Capabilities |
 |-------|-------------------|
-
 | `accessibility-specialist` | WCAG 2.1/2.2 Compliance-Audit, ARIA-Checks, Keyboard-Navigation |
-
 | `agent-meta-manager` | agent-meta verwalten: Upgrade, Sync, Feedback |
-
 | `agent-meta-scout` | Claude-Ökosystem scouten: neue Skills, Rollen, Rules |
-
 | `ai-security-guardian` | KI-spezifische Sicherheitsrisiken: halluzinierte Deps, fabrizierte IAM, unsichere Defaults |
-
 | `api-specialist` | OpenAPI/Contract-First API Design, Schnittstellen-Spezifikationen |
-
 | `backend-reviewer` | Backend-Domain-Review: API-Contracts, Silent Failures, Concurrency |
-
 | `bug-feature-analyzer` | Issue-Triage: Eingehende Bug-Meldungen, Feature-Requests analysieren, k |
-
 | `code-reviewer` | Clean Code Gatekeeper: Blast-Radius-Analyse, SOLID/DRY Prüfung, Code-Qualität |
-
 | `concept-reviewer` | Konzept-Critic: reviewt Design-Docs, Konzepte auf Vollständigkeit, Logik |
-
 | `concept-specifier` | Technische Spezifikationen aus Anforderungen, Codebase-Kontext — implementiert nicht |
-
 | `data-engineer` | ETL/ELT-Pipelines, Schema-Migration (Datenebene), Data-Quality-Checks |
-
 | `database-engineer` | Relationales Schema-Design, Datenbank-Migrationen, Query-Optimierung |
-
 | `dependency-auditor` | Supply-Chain-Hygiene: SBOM-Analyse, Lizenz-Kompatibilität, Version-Drift und |
-
 | `design-system-architect` | Design-System-Schema → echte Token-Artefakte, Farbharmonie, Variant-Contracts |
-
 | `developer` | Feature-Implementierung, Bugfixes |
-
 | `devops-engineer` | CI/CD, Infrastructure as Code, Kubernetes |
-
 | `docker` | Dev-Stack verwalten, Test-Stack starten, Binary-Management |
-
 | `documenter` | CODEBASE_OVERVIEW, ARCHITECTURE, README |
-
 | `e2e-tester` | E2E-Tests, visuelle Regression, Accessibility-Audits via Playwright |
-
 | `effort-estimator` | Schätzt Aufwände für Entwicklungsaufgaben basierend auf Task-Typ, LLM-Kali |
-
 | `explorer` | Read-only Codebase-Recherche, Dependency, Impact-Mapping |
-
 | `export-manager` | Target-agnostischer Output-Router: Markdown, Confluence, Jira-Xray |
-
 | `feedback` | Projekt-Feedback standardisieren: Bugs, Features, Verbesserungen als GitHub I |
-
 | `frontend-component-engineer` | Screen-Spec + Token-Contract → produktionsreife UI-Komponenten |
-
 | `frontend-reviewer` | Frontend-Domain-Review: Komponenten, State, SSR/Hydration |
-
 | `git` | Commits, Branches, Tags |
-
 | `ideation` | Neue Ideen explorieren, Vision schärfen, Übergabe an requirements |
-
 | `incident-responder` | Live-Incident-Koordination: korreliert Logs, Metriken, führt Runbook-Schri |
-
-| `intern-developer` | Der übereifrige Praktikant |
-
 | `junior-developer` | Triviale Code-Änderungen (≤2 Dateien, kein Architektur-Impact) |
-
 | `knowledge-curator` | Strategische Knowledge-Engine-Steuerung: Schema-Evolution, Wiki-Strukturierun |
-
 | `knowledge-gardener` | Kleinteilige Wiki-Pflege: Links reparieren, Tags harmonisieren, Frontmatter e |
-
 | `knowledge-indexer` | Pflegt index.md (Content-Katalog, OKF §6), log.md (Chronologisches Event-L |
-
 | `knowledge-ingestor` | Sources einlesen, Key Information extrahieren, Wiki-Seiten erstellen/ aktuali |
-
 | `knowledge-linter` | Wiki-Gesundheitscheck: Widersprüche, Orphans, veraltete Claims |
-
 | `knowledge-migrator` | Vorhandene Projektinhalte aufräumen, OKF-konform ins Knowledge Wiki migrieren |
-
 | `knowledge-querier` | Fragen gegen das Knowledge Wiki beantworten |
-
 | `log-analyzer` | System, Applikations-Logs analysieren: Frequency-Clustering, Severity-Kla |
-
 | `meta-feedback` | Verbesserungsvorschläge für agent-meta als GitHub Issues einreichen |
-
 | `orchestrator` | Einstiegspunkt für alle Entwicklungsaufgaben |
-
 | `performance-optimizer` | Big-O Bottleneck-Identifikation, datengetriebene Performance-Optimierung |
-
 | `planner` | Umsetzungsplanung |
-
-| `principal-developer` | Last-Resort-Eskalationsstufe |
-
 | `prompt-engineer` | Der ultimative Experte für Prompt-Engineering |
-
 | `prompt-governor` | Prompt-Governance: PromptBOM, Audit-Trail, Provenance |
-
 | `refactoring-specialist` | Systematische großflächige Code-Transformation mit Sicherheitsnetz: Strangler |
-
 | `release` | Versioning, Changelog, Build-Artifact |
-
 | `requirements` | Anforderungen aufnehmen, REQ-IDs vergeben, REQUIREMENTS.md pflegen |
-
 | `security-auditor` | Sicherheits-Audit: OWASP, Secrets, Dependencies |
-
 | `senior-developer` | Komplexe Features, Architektur-Entscheidungen, schwierige Bugs |
-
 | `sre-engineer` | Proaktive Reliability-Disziplin: SLI/SLO-Definition, Error-Budgets, Capacity |
-
 | `technical-writer` | Externe entwickler, nutzergerichtete Doku: API-Referenzen, Getting-Starte |
-
 | `test-executor` | Bestehende Test-Suiten ausführen — kein Test-Design, kein Code-Schreiben |
-
 | `tester` | TDD, Test-Suite ausführen, Testabdeckung sichern |
-
 | `ui-reviewer` | UI-Review: Design-Token-Conformance, Layout-Konsistenz, Interaction-States |
-
 | `ui-ux-designer` | UI-Spezifikationen, Mockups, Design-Systeme erstellen |
-
 | `validator` | Code gegen REQs prüfen, DoD-Checkliste, Traceability-Audit |
 
 
