@@ -36,6 +36,8 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
+from django.core.exceptions import ImproperlyConfigured
+
 from auth_tenancy.errors import AuthenticationFailed
 from auth_tenancy.services.authentication import AuthenticationService
 from mcp_server.protocol_handler import ERROR_CODE_MAP, ERROR_CODES, ProtocolHandler
@@ -45,6 +47,7 @@ from mcp_server.throttling import (
     check_mcp_key_rate_limit,
     rate_limited_jsonrpc_response,
     rate_limited_plain_response,
+    service_unavailable_jsonrpc_response,
 )
 from mcp_server.tool_registry import ToolRegistry
 from reqogniloom.health import sunset_header_value
@@ -207,6 +210,35 @@ def _get_auth_service() -> AuthenticationService:
     return _auth_service
 
 
+
+def _ip_rate_limit_response(request, *, request_id=None):
+    """Return a 429/503 rejection for the IP backstop, or ``None`` (#1738).
+
+    A malformed ``MCP_RATE_LIMIT_IP`` is an operator error: answer 503 with a
+    clear message instead of letting ``ValueError`` become a 500.
+    """
+    try:
+        retry_after = check_mcp_ip_rate_limit(request)
+    except ImproperlyConfigured:
+        logger.exception("MCP IP throttle is misconfigured")
+        return service_unavailable_jsonrpc_response(request_id=request_id)
+    if retry_after is not None:
+        return rate_limited_jsonrpc_response(retry_after, request_id=request_id)
+    return None
+
+
+def _key_rate_limit_response(request, credential, *, request_id=None):
+    """Return a 429/503 rejection for the credential budget, or ``None``."""
+    try:
+        retry_after = check_mcp_key_rate_limit(request, credential)
+    except ImproperlyConfigured:
+        logger.exception("MCP key throttle is misconfigured")
+        return service_unavailable_jsonrpc_response(request_id=request_id)
+    if retry_after is not None:
+        return rate_limited_jsonrpc_response(retry_after, request_id=request_id)
+    return None
+
+
 def _credential_is_valid(api_key: str) -> bool:
     """Return whether *api_key* authenticates, without dispatching anything.
 
@@ -350,11 +382,11 @@ class McpHttpTransportView(CorsMixin, View):
         # budget is charged *after* authentication, below (finding 221/N6):
         # charging an unverified key would let a spray of random keys grow the
         # cache without bound.
-        retry_after = check_mcp_ip_rate_limit(request)
-        if retry_after is not None:
-            return rate_limited_jsonrpc_response(
-                retry_after, request_id=_jsonrpc_request_id(request.body)
-            )
+        rejection = _ip_rate_limit_response(
+            request, request_id=_jsonrpc_request_id(request.body)
+        )
+        if rejection is not None:
+            return rejection
 
         handler = _get_handler()
         headers = _extract_django_headers(request)
@@ -392,11 +424,11 @@ class McpHttpTransportView(CorsMixin, View):
         # unchanged.
         api_key = api_key_from_request(request)
         if api_key and _credential_is_valid(api_key):
-            retry_after = check_mcp_key_rate_limit(request, api_key)
-            if retry_after is not None:
-                return rate_limited_jsonrpc_response(
-                    retry_after, request_id=_jsonrpc_request_id(request.body)
-                )
+            rejection = _key_rate_limit_response(
+                request, api_key, request_id=_jsonrpc_request_id(request.body)
+            )
+            if rejection is not None:
+                return rejection
 
         try:
             response_frame = handler.handle_http_request(
@@ -506,9 +538,9 @@ class McpHttpTransportView(CorsMixin, View):
         # reason to serve it at an unbounded rate either. Only the per-IP
         # backstop applies: a discovery GET carries no key, so there is no
         # credential to charge (RES-02).
-        retry_after = check_mcp_ip_rate_limit(request)
-        if retry_after is not None:
-            return rate_limited_jsonrpc_response(retry_after)
+        rejection = _ip_rate_limit_response(request)
+        if rejection is not None:
+            return rejection
 
         return HttpResponse(
             json.dumps({
@@ -612,9 +644,9 @@ class McpMessagesView(CorsMixin, View):
         # is safe to run before the session is authenticated and cannot create a
         # bucket for a presented credential (RES-02). The per-credential budget
         # is charged after the session lookup, below.
-        retry_after = check_mcp_ip_rate_limit(request)
-        if retry_after is not None:
-            return rate_limited_jsonrpc_response(retry_after, request_id=request_id)
+        rejection = _ip_rate_limit_response(request, request_id=request_id)
+        if rejection is not None:
+            return rejection
 
         if not session_id:
             return self._error_response(
@@ -679,9 +711,11 @@ class McpMessagesView(CorsMixin, View):
         # against its server-side binding (RES-02). An unknown/expired session
         # was rejected above, so no bucket is ever created for an unverified
         # session id.
-        retry_after = check_mcp_key_rate_limit(request, session_id)
-        if retry_after is not None:
-            return rate_limited_jsonrpc_response(retry_after, request_id=request_id)
+        rejection = _key_rate_limit_response(
+            request, session_id, request_id=request_id
+        )
+        if rejection is not None:
+            return rejection
 
         handler = _get_handler()
         headers = _extract_django_headers(request)

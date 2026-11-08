@@ -169,15 +169,15 @@ ist 968 MiB / 744 MiB (Faktor 1,9). Der Kernel killt sie unter Last (`Exited (13
 | `deploy/docker-compose.yml:163-197` | Transport/Base-URL ebenfalls variabel: `${HONCHO_LLM_TRANSPORT:-openai}`, `${HONCHO_LLM_BASE_URL:-https://opencode.ai/zen/go/v1}` |
 | Kommentarblock | „mimo-v2.5 ist verifiziert" → „Default, überschreibbar; abgekündigte Modelle werden sichtbar über `derivation_status`" |
 | `.env.example` | `HONCHO_LLM_MODEL`, `HONCHO_LLM_TRANSPORT`, `HONCHO_LLM_BASE_URL` dokumentieren |
-| `backend/memory/honcho_backend.py` (+ `health.py`) | Health-Advisory: `derivation_status ∈ {"failed","unknown"}` → `degraded` statt grün. Der Provider-Fehlertext („Model has been deprecated") ist im Client **nicht** sichtbar — `derivation_status` ist nur `ok/unknown/failed/none` (`honcho_backend.py:1492-1531`); deshalb kein Text-Matching |
+| `backend/memory/honcho_backend.py` | **Kein Health-Change (R-17):** `derivation_status` ist auf der Health-Fläche nur die *Capability*-Frage (`pgvector → unsupported`, `honcho → unknown`); ein Provider-Fehlertext ist dort nicht sichtbar. Die per-Scope-Wahrheit steht im Digest (`MemoryDigest.derivation_status`). Der Plan dokumentiert das statt eine Warnung zu erfinden, die bei jedem Honcho-Deployment dauerhaft `unknown` melden würde |
 
 **Nicht Teil dieses Tasks:** eine generische „Modell existiert"-Vorabprüfung. Der
 `llm-preflight`-Service ist laut eigenem Kommentar eine reine Config-Assertion ohne Netzwerk;
 ein Modell-Live-Check gehört in einen separaten Smoke-Test.
 
 **Tests:** `backend/memory/tests/test_honcho_deploy_contract.py` erweitern: kein literaler
-Modellname mehr im `x-honcho-env`-Anker; die neun Pins lösen auf denselben Env-Ausdruck auf;
-Health-Mapping `derivation_status ∈ {"failed","unknown"}` → `degraded`.
+Modellname mehr im `x-honcho-env`-Anker; die neun Pins lösen auf denselben Env-Ausdruck auf.
+Kein Health-Mapping-Test — die Health-Fläche kann den Provider-Fehler nicht sehen (R-17).
 
 **DoD:** `docker compose --profile honcho config` zeigt für alle neun Module den Wert aus
 `HONCHO_LLM_MODEL`; ein Wechsel von `LLM_MODEL` ändert alle neun mit.

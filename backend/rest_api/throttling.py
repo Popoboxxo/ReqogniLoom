@@ -126,6 +126,23 @@ class DynamicRateThrottle(SimpleRateThrottle):
     request.
     """
 
+    def __init__(self) -> None:
+        """Parse the configured rate, translating a malformed one into a config error.
+
+        ``SimpleRateThrottle.__init__`` calls ``get_rate()`` (the raw settings
+        string) and then ``parse_rate()``; a value without ``/`` raises a bare
+        ``ValueError``. Callers on the request path turn
+        ``ImproperlyConfigured`` into a defined 503 (#1738) instead of a 500.
+        """
+        try:
+            super().__init__()
+        except ValueError as exc:
+            scope = getattr(self, "scope", None)
+            raise ImproperlyConfigured(
+                f"Invalid throttle rate for scope {scope!r}: {exc}. "
+                "Expected '<count>/<period>' with period s, m, h or d."
+            ) from exc
+
     def get_rate(self) -> str | None:
         """Current *settings* rate for ``self.scope``, honouring live overrides.
 
@@ -163,8 +180,21 @@ class DynamicRateThrottle(SimpleRateThrottle):
 
         rate = resolve_rate(scope, tenant_id=_tenant_id(request), default=self.rate)
         if rate != self.rate:
+            try:
+                num_requests, duration = self.parse_rate(rate)
+            except (ValueError, TypeError):
+                # A bad runtime override must not turn every request into a
+                # 500; keep the last known-good settings rate (#1738).
+                logger.warning(
+                    "invalid runtime throttle override for scope %r: %r; "
+                    "keeping the configured rate %r",
+                    scope,
+                    rate,
+                    self.rate,
+                )
+                return
             self.rate = rate
-            self.num_requests, self.duration = self.parse_rate(rate)
+            self.num_requests, self.duration = num_requests, duration
 
     def allow_request(self, request: Any, view: Any) -> bool:
         """Resolve the effective rate, then count — fail-open if the cache is down."""

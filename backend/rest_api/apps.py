@@ -20,3 +20,9 @@ class RestApiConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "rest_api"
     verbose_name = "ARCH-L1-002 RestApiAdapter"
+
+    def ready(self) -> None:
+        """Register the throttle-rate system check (#1738)."""
+        from rest_api.checks import register_checks
+
+        register_checks()
