@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -157,3 +158,26 @@ def test_refuses_to_bump_on_main(tmp_path: Path) -> None:
         assert "refusing" in str(exc)
     else:
         raise AssertionError("bump was allowed on main")
+
+
+def test_every_compose_file_with_a_version_tag_is_a_bump_carrier() -> None:
+    """A new standalone compose file must not silently keep the old image tag.
+
+    Overlays (TLS/offhost/override) carry no ``REQOGNILOOM_VERSION`` and are
+    therefore allowed to stay out of ``TEXT_CARRIERS``.
+    """
+    carriers = set(bump.TEXT_CARRIERS)
+    offenders = []
+    for path in sorted((REPO_ROOT / "deploy").glob("docker-compose*.yml")):
+        text = path.read_text(encoding="utf-8")
+        # Only an actual image tag counts; a comment mentioning the variable
+        # (the TLS overlay explains why it has none) must not trip the guard.
+        if not re.search(r"image:\s*\S*REQOGNILOOM_VERSION", text):
+            continue
+        relative = str(path.relative_to(REPO_ROOT))
+        if relative not in carriers:
+            offenders.append(relative)
+    assert not offenders, (
+        "compose files interpolate REQOGNILOOM_VERSION but are missing from "
+        f"TEXT_CARRIERS: {offenders}"
+    )

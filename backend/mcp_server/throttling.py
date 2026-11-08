@@ -63,6 +63,7 @@ import json
 import math
 from typing import Any
 
+from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpRequest, HttpResponse, JsonResponse
 
 from mcp_server.protocol_handler import ERROR_CODES
@@ -76,6 +77,7 @@ __all__ = [
     "check_mcp_key_rate_limit",
     "rate_limited_jsonrpc_response",
     "rate_limited_plain_response",
+    "service_unavailable_jsonrpc_response",
 ]
 
 #: Error code surfaced to the client on refusal. Defined in
@@ -128,7 +130,13 @@ class McpApiKeyRateThrottle(DynamicRateThrottle):
     scope = "mcp_key"
 
     def __init__(self, credential: str = "") -> None:
-        super().__init__()
+        try:
+            super().__init__()
+        except ValueError as exc:
+            raise ImproperlyConfigured(
+                "Invalid MCP_RATE_LIMIT_KEY: expected '<count>/<period>' "
+                f"(e.g. '240/min'), got {exc}."
+            ) from exc
         self._credential = credential
 
     def get_cache_key(self, request: HttpRequest, view: Any = None) -> str | None:
@@ -240,6 +248,34 @@ def rate_limited_jsonrpc_response(
         status=429,
     )
     response["Retry-After"] = str(seconds)
+    return response
+
+
+def service_unavailable_jsonrpc_response(
+    *, request_id: Any = None, retry_after: int = 60
+) -> HttpResponse:
+    """503 in the transport-level JSON-RPC envelope for a misconfigured server.
+
+    A malformed ``MCP_RATE_LIMIT_KEY`` is an operator error, not a client
+    error: the client can only retry later, and the operator gets the real
+    cause from ``rest_api.E001`` at startup. The ``Retry-After`` header keeps
+    the answer actionable for a client that respects it (#1738).
+    """
+    body = {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "error": {
+            "error_code": "SERVICE_UNAVAILABLE",
+            "message": "The MCP endpoint is misconfigured and cannot serve requests.",
+            "data": {"retry_after_seconds": retry_after, "retryable": True},
+        },
+    }
+    response = HttpResponse(
+        json.dumps(body),
+        content_type="application/json",
+        status=503,
+    )
+    response["Retry-After"] = str(retry_after)
     return response
 
 

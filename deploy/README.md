@@ -1512,3 +1512,55 @@ Facts:
   `BACKEND_PORT`/`FRONTEND_PORT` per instance in each `.env`. Do not reuse the defaults
   (`8001`/`5173`) across instances — port collision between instances is a real incident
   this repo has already had.
+
+## Resource requirements
+
+The base Compose limits are measured against a full stack under load. They are
+deliberately env-overridable so a small VM can run lower instead of being
+killed silently:
+
+| Service | Default | Measured |
+|---|---|---|
+| `backend` | `${BACKEND_MEM_LIMIT:-1536M}` | ~968 MiB |
+| `celery` | `${CELERY_MEM_LIMIT:-1024M}` | ~744 MiB |
+| `migrate` | `${MIGRATE_MEM_LIMIT:-1024M}` | index builds (FTS-GIN/HNSW) |
+| `postgres` | 384M + `${POSTGRES_SHM_SIZE:-256mb}` shared memory | ~86 MiB idle |
+
+The migrate container intentionally gets more than its idle footprint: it runs
+the one-shot index builds (`CREATE INDEX ... USING GIN/HNSW`), which are the
+real OOM candidate on a 6-GB host. Raise `POSTGRES_SHM_SIZE` to `1gb` for large
+restores (`pg_restore --jobs`).
+
+`TZ` (default `Europe/Berlin`) only changes log/process rendering. The database
+stays UTC (`USE_TZ=True`, `TIME_ZONE=UTC`); do not change Django's `TIME_ZONE`
+to "fix" log timestamps.
+
+## Production TLS
+
+The base stack publishes plain HTTP. For a real deployment put a
+TLS-terminating proxy in front — this repo ships a ready Caddy overlay:
+
+```bash
+cp deploy/Caddyfile.example deploy/Caddyfile   # edit the domain
+# .env:
+#   REQOGNILOOM_DOMAIN=reqogniloom.example.com
+#   SECURE_SSL_REDIRECT=true
+#   AUTH_COOKIE_SECURE=true
+#   SESSION_COOKIE_SECURE=true
+#   CSRF_COOKIE_SECURE=true
+#   CSRF_TRUSTED_ORIGINS=https://reqogniloom.example.com
+docker compose -f deploy/docker-compose.yml \
+               -f deploy/docker-compose.tls.example.yml \
+               --project-directory . up -d
+```
+
+Caddy sets `X-Forwarded-Proto: https`; the backend trusts it only when
+`SECURE_SSL_REDIRECT=true` (`settings.py` gates `SECURE_PROXY_SSL_HEADER` on
+that flag, so a forged header is ignored otherwise). An nginx/Traefik setup
+works the same way: terminate TLS, forward `X-Forwarded-Proto`, and set the
+same four `.env` flags.
+
+**HTTP is a test mode, not a production mode.** Over plain HTTP the admin
+password, JWTs, API keys (`X-API-Key`) and session cookies travel in clear text.
+The `bool("False")` trap in `.env` is real: write the flags as `True`/`False`
+and verify them via `GET /health/` (`csrf_cookie_secure_matches_auth`).

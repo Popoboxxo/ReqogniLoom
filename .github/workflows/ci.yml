@@ -354,6 +354,23 @@ jobs:
           scripts/test_setup_script.py
           scripts/test_check_plugin_packages.py
           scripts/test_offhost_backup_check.py
+          scripts/test_check_env_example_keys.py
+          scripts/test_bump_version.py
+
+      - name: Check .env.example covers every compose/settings key
+        # #1737: a key used by Compose or read by settings.py must be documented
+        # in .env.example, exactly once and never as a duplicate active value.
+        run: python scripts/check_env_example_keys.py
+
+      - name: Validate the shipped Compose files
+        # Catches YAML anchor/merge mistakes (e.g. the TZ anchor) before a
+        # deployment does. A throwaway .env satisfies the required secrets.
+        run: |
+          printf 'SECRET_KEY=ci\nDB_PASSWORD=ci\nREQOGNILOOM_VERSION=0.0.0\n' > .env
+          docker compose -f deploy/docker-compose.yml --project-directory . config -q
+          docker compose -f deploy/docker-compose.minimal.yml --project-directory . config -q
+          docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.tls.example.yml --project-directory . config -q
+          rm -f .env
 
       - name: Check version carriers
         # C8/#1662: VERSION, the frontend app package and every plugin/store

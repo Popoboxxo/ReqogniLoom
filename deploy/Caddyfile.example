@@ -1,0 +1,26 @@
+# Caddyfile for deploy/docker-compose.tls.example.yml (copy + edit the domain).
+#
+# Caddy obtains and renews the certificate automatically. The domain comes from
+# REQOGNILOOM_DOMAIN in .env (default: reqogniloom.example.com).
+{$REQOGNILOOM_DOMAIN:reqogniloom.example.com} {
+	encode zstd gzip
+
+	# API, MCP, admin and health all live on the backend.
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+	handle /mcp/* {
+		reverse_proxy backend:8000
+	}
+	handle /admin/* {
+		reverse_proxy backend:8000
+	}
+	handle /health/* {
+		reverse_proxy backend:8000
+	}
+
+	# Everything else is the SPA served by the frontend container.
+	handle {
+		reverse_proxy frontend:80
+	}
+}
