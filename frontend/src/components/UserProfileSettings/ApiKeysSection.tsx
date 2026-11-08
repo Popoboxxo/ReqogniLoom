@@ -21,6 +21,7 @@ import {
 } from "../../api/api-keys";
 import { getMfaStatus } from "../../api/mfa";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { useRequiredValidation } from "../shared/useRequiredValidation";
 import styles from "./ApiKeysSection.module.css";
 
 function extractErrorMessage(err: unknown): string {
@@ -88,9 +89,33 @@ export function ApiKeysSection(): JSX.Element {
     };
   }, []);
 
+  // #1732: an empty label (or the expiry the policy requires) is explained on
+  // click at the field instead of being hidden behind a disabled button.
+  const {
+    errors: requiredErrors,
+    validate,
+    focusFirstInvalid,
+    clearError,
+    fieldProps,
+    errorId,
+  } = useRequiredValidation();
+
   const handleCreate = useCallback(async (): Promise<void> => {
-    if (!newKeyName.trim()) return;
-    if (expiryRequired && !expiresAt) return;
+    const fields = [
+      { name: "newKeyName", value: newKeyName, inputId: "api-key-name-input" },
+      {
+        name: "expiresAt",
+        value: expiresAt,
+        inputId: "api-key-expires-input",
+        isValid: !expiryRequired || Boolean(expiresAt),
+        message: t("apiKeys.expiresRequired", "This workspace requires an expiry date."),
+      },
+    ];
+    const invalid = validate(fields);
+    if (invalid.length > 0) {
+      focusFirstInvalid(fields, invalid);
+      return;
+    }
     setIsCreating(true);
     setError(null);
     try {
@@ -107,7 +132,7 @@ export function ApiKeysSection(): JSX.Element {
     } finally {
       setIsCreating(false);
     }
-  }, [newKeyName, expiresAt, expiryRequired, load]);
+  }, [newKeyName, expiresAt, expiryRequired, load, t, validate, focusFirstInvalid]);
 
   const handleRevoke = useCallback(
     async (id: string): Promise<void> => {
@@ -152,38 +177,66 @@ export function ApiKeysSection(): JSX.Element {
         </h3>
         <div className={styles.createRow}>
           <input
+            id="api-key-name-input"
             data-testid="api-key-name-input"
             type="text"
             value={newKeyName}
-            onChange={(e) => setNewKeyName(e.target.value)}
+            onChange={(e) => {
+              setNewKeyName(e.target.value);
+              clearError("newKeyName");
+            }}
             placeholder={t("apiKeys.namePlaceholder", "Key label (e.g. ci-pipeline)")}
             disabled={isCreating}
             className={styles.nameInput}
+            {...fieldProps("newKeyName")}
           />
           <input
+            id="api-key-expires-input"
             data-testid="api-key-expires-input"
             type="datetime-local"
             value={expiresAt}
-            onChange={(e) => setExpiresAt(e.target.value)}
+            onChange={(e) => {
+              setExpiresAt(e.target.value);
+              clearError("expiresAt");
+            }}
             aria-label={t("apiKeys.expiresLabel")}
             required={expiryRequired}
             disabled={isCreating}
             className={styles.expiresInput}
+            {...fieldProps("expiresAt")}
           />
           <button
             type="button"
             data-testid="api-key-create-btn"
             onClick={() => void handleCreate()}
-            disabled={isCreating || !newKeyName.trim() || (expiryRequired && !expiresAt)}
+            disabled={isCreating}
             className={`btn-primary ${styles.primaryButton} ${
-              isCreating || !newKeyName.trim() || (expiryRequired && !expiresAt)
-                ? styles.primaryButtonDisabled
-                : styles.primaryButtonEnabled
+              isCreating ? styles.primaryButtonDisabled : styles.primaryButtonEnabled
             }`}
           >
             {isCreating ? "…" : `+ ${t("actions.new")} ${t("apiKeys.newKeyLabel")}`}
           </button>
         </div>
+        {requiredErrors.newKeyName ? (
+          <p
+            id={errorId("newKeyName")}
+            role="alert"
+            data-testid="api-key-name-error"
+            className={styles.errorText}
+          >
+            {requiredErrors.newKeyName}
+          </p>
+        ) : null}
+        {requiredErrors.expiresAt ? (
+          <p
+            id={errorId("expiresAt")}
+            role="alert"
+            data-testid="api-key-expires-error"
+            className={styles.errorText}
+          >
+            {requiredErrors.expiresAt}
+          </p>
+        ) : null}
       </div>
 
       {/* One-time plaintext display */}

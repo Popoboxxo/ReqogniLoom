@@ -77,12 +77,12 @@ export function TriLabelOverviewDialog({
         >
           <thead>
             <tr>
-              <th className={styles.th}>{t("triLabelOverview.columns.type", "Type")}</th>
-              <th className={styles.th}>{t("triLabelOverview.columns.deDownstream", "DE Downstream")}</th>
-              <th className={styles.th}>{t("triLabelOverview.columns.deUpstream", "DE Upstream")}</th>
-              <th className={styles.th}>{t("triLabelOverview.columns.enDownstream", "EN Downstream")}</th>
-              <th className={styles.th}>{t("triLabelOverview.columns.enUpstream", "EN Upstream")}</th>
-              <th className={styles.th}>{t("triLabelOverview.columns.neutral", "Neutral (DE / EN)")}</th>
+              <th scope="col" className={styles.th}>{t("triLabelOverview.columns.type", "Type")}</th>
+              <th scope="col" className={styles.th}>{t("triLabelOverview.columns.deDownstream", "DE Downstream")}</th>
+              <th scope="col" className={styles.th}>{t("triLabelOverview.columns.deUpstream", "DE Upstream")}</th>
+              <th scope="col" className={styles.th}>{t("triLabelOverview.columns.enDownstream", "EN Downstream")}</th>
+              <th scope="col" className={styles.th}>{t("triLabelOverview.columns.enUpstream", "EN Upstream")}</th>
+              <th scope="col" className={styles.th}>{t("triLabelOverview.columns.neutral", "Neutral (DE / EN)")}</th>
             </tr>
           </thead>
           <tbody>

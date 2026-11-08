@@ -2711,8 +2711,13 @@ class RiskSerializer(
     # REQ-L1-029 (FMEA): Risk Priority Number = probability * impact * detection.
     # Computed property on the model, never persisted.
     rpn = serializers.IntegerField(read_only=True)
+    # #1707: writable enum, but deliberately **no** ``default``. A default
+    # would make DRF treat the field as ``required=True`` on create (no way to
+    # express "not supplied → derive from the score") and would let a PATCH
+    # that never mentions ``severity`` reset it to the default. ``required=False``
+    # without a default is what makes "omitted means untouched" expressible.
     severity = serializers.ChoiceField(
-        choices=["low", "medium", "high"], default="medium"
+        choices=["low", "medium", "high"], required=False
     )
     category = serializers.ChoiceField(
         choices=["technical", "operational", "organizational", "business"],

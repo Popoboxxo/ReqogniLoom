@@ -342,18 +342,30 @@ describe("WorkspaceSettings tabs (REQ-015)", () => {
     expect(screen.getByTestId("memory-settings-section")).toBeInTheDocument();
   });
 
-  it("disables the save button when the name is emptied", () => {
+  // #1732: the rename action is no longer disabled by an empty/whitespace
+  // name — it stays reachable and explains the refusal at the input.
+  it("explains an emptied name on click instead of disabling Save", () => {
     render(<WorkspaceSettings />);
     const input = screen.getByTestId("workspace-name-input");
     fireEvent.change(input, { target: { value: "" } });
-    expect(screen.getByTestId("workspace-name-save")).toBeDisabled();
+    const save = screen.getByTestId("workspace-name-save");
+    expect(save).toBeEnabled();
+
+    fireEvent.click(save);
+    expect(screen.getByTestId("workspace-name-error")).toHaveAttribute("role", "alert");
+    expect(input).toHaveAttribute("aria-invalid", "true");
   });
 
-  it("disables the save button when the name is only whitespace", () => {
+  it("explains a whitespace-only name on click instead of disabling Save", () => {
     render(<WorkspaceSettings />);
     const input = screen.getByTestId("workspace-name-input");
     fireEvent.change(input, { target: { value: "   " } });
-    expect(screen.getByTestId("workspace-name-save")).toBeDisabled();
+    const save = screen.getByTestId("workspace-name-save");
+    expect(save).toBeEnabled();
+
+    fireEvent.click(save);
+    expect(screen.getByTestId("workspace-name-error")).toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-invalid", "true");
   });
 
   it("renders preset features with a consistent icon-prefixed format", () => {

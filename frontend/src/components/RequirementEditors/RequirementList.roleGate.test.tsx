@@ -61,6 +61,8 @@ function renderList(requirements: Requirement[] = REQUIREMENTS) {
       onSelect={vi.fn()}
       onDelete={vi.fn()}
       onCreateNew={vi.fn()}
+      allocation="all"
+      onAllocationChange={vi.fn()}
     />
   );
 }

@@ -42,6 +42,7 @@ import { WorkflowPermissionsSection } from "./WorkflowPermissionsSection";
 import { AttributeEditorPage } from "../AttributeEditor";
 import { PermissionsSection } from "./PermissionsSection";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { useRequiredValidation } from "../shared/useRequiredValidation";
 import { LlmSettingsSection } from "./LlmSettingsSection";
 import { AiPromptsSection } from "./AiPromptsSection";
 import { PromptVariablesSection } from "./PromptVariablesSection";
@@ -225,8 +226,30 @@ export default function WorkspaceSettings(): JSX.Element {
   // persisted by ThemeContext — no longer a workspace-owned `theme` field.
   const { paletteKey, mode, palettes, setPreference } = useTheme();
 
+  // #1732: the rename action validates on click and explains an empty name at
+  // the field instead of greying the button out.
+  const {
+    errors: requiredErrors,
+    validate,
+    focusFirstInvalid,
+    clearError,
+    fieldProps,
+    errorId,
+  } = useRequiredValidation();
+
   const handleSaveName = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace || !name.trim() || name === activeWorkspace.name) return;
+    if (!activeWorkspace) return;
+    const fields = [
+      { name: "name", value: name, inputId: "workspace-name-input" },
+    ];
+    const invalid = validate(fields);
+    if (invalid.length > 0) {
+      focusFirstInvalid(fields, invalid);
+      return;
+    }
+    // A no-op rename (identical value) is accepted: a silent disabled button
+    // was the #1732 defect, and the PATCH is idempotent.
+    if (name.trim() === activeWorkspace.name) return;
     setSaveError(null);
     setSavedOk(false);
     setIsSaving(true);
@@ -239,7 +262,7 @@ export default function WorkspaceSettings(): JSX.Element {
     } finally {
       setIsSaving(false);
     }
-  }, [activeWorkspace, name, reloadWorkspaces]);
+  }, [activeWorkspace, name, reloadWorkspaces, validate, focusFirstInvalid]);
 
   // Early returns AFTER hooks to keep hook order stable across renders.
   if (!activeWorkspace) {
@@ -321,22 +344,38 @@ export default function WorkspaceSettings(): JSX.Element {
               <h3 id="workspace-name-heading" className={styles.heading}>{t("settings.workspaceName", "Workspace Name")}</h3>
               <div className={styles.row}>
                 <input
+                  id="workspace-name-input"
                   data-testid="workspace-name-input"
                   aria-labelledby="workspace-name-heading"
                   value={name}
-                  onChange={(e) => { setName(e.target.value); setSavedOk(false); }}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    setSavedOk(false);
+                    clearError("name");
+                  }}
                   className="field-input"
+                  {...fieldProps("name")}
                 />
                 <button
                   type="button"
                   className="btn-primary"
                   data-testid="workspace-name-save"
                   onClick={() => void handleSaveName()}
-                  disabled={isSaving || !name.trim() || name === activeWorkspace.name}
+                  disabled={isSaving}
                 >
                   {isSaving ? "…" : t("actions.save")}
                 </button>
               </div>
+              {requiredErrors.name ? (
+                <p
+                  id={errorId("name")}
+                  role="alert"
+                  data-testid="workspace-name-error"
+                  className={styles.errorBanner}
+                >
+                  {requiredErrors.name}
+                </p>
+              ) : null}
             </section>
 
             {/* Preset */}

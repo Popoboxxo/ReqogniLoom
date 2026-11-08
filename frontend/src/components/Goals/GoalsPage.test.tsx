@@ -207,18 +207,27 @@ describe("GoalsPage", () => {
     expect(document.activeElement).toBe(createButton);
   });
 
-  it("cannot submit the create dialog without a title", async () => {
+  it("explains an empty title on click instead of disabling Create (#1732)", async () => {
     vi.mocked(goalsModule.goalsApi.list).mockResolvedValue([]);
 
     render(<MemoryRouter><GoalsPage /></MemoryRouter>);
 
     fireEvent.click(await screen.findByTestId("create-goal-btn"));
 
-    expect(await screen.findByTestId("goal-create-button")).toBeDisabled();
+    const save = await screen.findByTestId("goal-create-button");
+    expect(save).toBeEnabled();
+
+    fireEvent.click(save);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/required|erforderlich/i);
+    expect(screen.getByTestId("goal-title-input")).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+
     fireEvent.change(screen.getByTestId("goal-title-input"), {
       target: { value: "Something" },
     });
-    expect(screen.getByTestId("goal-create-button")).toBeEnabled();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("displays the workflow status of the selected goal", async () => {

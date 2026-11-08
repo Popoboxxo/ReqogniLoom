@@ -241,6 +241,8 @@ _EXPECTED_CREATE_FIELDS = {
     "risk": {
         "title", "probability", "impact", "description", "category", "owner",
         "mitigation_strategy", "uid", "detection", "owner_user_id",
+        # #1707: `severity` is a writable enum (create + update).
+        "severity",
     },
     "issue": {
         "title", "severity", "description", "category", "assignee_id",
@@ -254,6 +256,8 @@ _EXPECTED_UPDATE_FIELDS = {
     "risk": {
         "title", "description", "probability", "impact", "category", "owner",
         "mitigation_strategy", "change_reason", "detection", "owner_user_id",
+        # #1707: `severity` is a writable enum (create + update).
+        "severity",
     },
     "issue": {
         "title", "description", "severity", "category", "due_date", "tags",

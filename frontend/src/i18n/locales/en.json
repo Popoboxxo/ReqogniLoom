@@ -222,6 +222,11 @@
     "errorRequired": "Please enter a name.",
     "errorGeneric": "Failed to create workspace."
   },
+  "validation": {
+    "required": "This field is required.",
+    "numberInteger": "Enter a whole number of 0 or more.",
+    "percentRange": "Enter a whole number between 0 and 100."
+  },
   "errors": {
     "generic": "An unexpected error occurred.",
     "not_found": "Resource not found.",
@@ -435,6 +440,10 @@
     "searchPlaceholder": "Search by title or ID...",
     "allCategories": "All categories",
     "allStatuses": "All statuses",
+    "allAllocations": "All allocations",
+    "allocated": "Allocated",
+    "unallocated": "Not allocated",
+    "unallocatedCount": "{{count}} not allocated",
     "showDeleted": "Show deleted",
     "showOutdated": "Show outdated",
     "outdatedBadge": "Outdated",
@@ -2023,7 +2032,8 @@
     "revokeConfirm": "Revoke this token? Clients using it will lose access immediately.",
     "empty": "No tokens yet.",
     "newKeyLabel": "API Key",
-    "expiresLabel": "Expiry date"
+    "expiresLabel": "Expiry date",
+    "expiresRequired": "This workspace requires an expiry date."
   },
   "memorySelfService": {
     "title": "My Memory",

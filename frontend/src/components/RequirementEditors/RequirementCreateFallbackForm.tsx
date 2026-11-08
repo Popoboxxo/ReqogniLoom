@@ -16,12 +16,13 @@
  * only when the fallback actually renders.
  */
 
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import { SAVE_SHORTCUT_ARIA, useSaveShortcut } from "../../hooks/useSaveShortcut";
 import { REQ_CATEGORIES } from "../../types";
 import { FormField } from "../shared/FormField";
+import { useRequiredValidation } from "../shared/useRequiredValidation";
 import fieldHints from "../shared/FieldHints.module.css";
 import styles from "./RequirementEditors.module.css";
 
@@ -70,15 +71,33 @@ export function RequirementCreateFallbackForm({
   // #1100 follow-up: the form owns the shortcut, so the hook can tell a covered
   // surface from the interaction context (see useSaveShortcut).
   const formRef = useRef<HTMLFormElement>(null);
+  // #1732: the click and the chord share one validation path. An empty title
+  // is explained at the field and focused, not hidden behind a disabled button.
+  const {
+    errors: requiredErrors,
+    validate,
+    focusFirstInvalid,
+    clearError,
+  } = useRequiredValidation();
+  const submit = useCallback((): void => {
+    const fields = [{ name: "title", value: title, inputId: "new-req-title" }];
+    const invalid = validate(fields);
+    if (invalid.length > 0) {
+      focusFirstInvalid(fields, invalid);
+      return;
+    }
+    onSubmit();
+  }, [title, validate, focusFirstInvalid, onSubmit]);
   // This component only exists while the modal is open, so the shortcut is
   // unconditionally enabled; `isSaving` still swallows a held-down chord.
   useSaveShortcut({
-    onSave: onSubmit,
+    onSave: submit,
     enabled: true,
     isSaving: isCreating,
     containerRef: formRef,
-    // Mirrors the Save button's `disabled={!title.trim()}` (#1100).
-    canSave: title.trim().length > 0,
+    // #1732: the chord validates like the click, so it must not be gated on
+    // the title (that would swallow the explanation).
+    canSave: true,
   });
 
   return (
@@ -91,7 +110,7 @@ export function RequirementCreateFallbackForm({
       noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        onSubmit();
+        submit();
       }}
       className={styles.createForm}
     >
@@ -102,14 +121,7 @@ export function RequirementCreateFallbackForm({
         htmlFor="new-req-title"
         label={t('editor.title')}
         required={FALLBACK_TITLE_CONTRACT.required}
-        // #1595: while the title is empty the Create button is disabled; this
-        // hint states why and is wired to the control via `aria-describedby` +
-        // `aria-invalid` (FormField).
-        hint={
-          title.trim().length === 0
-            ? t('editor.titleRequired', 'Titel ist erforderlich.')
-            : null
-        }
+        error={requiredErrors.title}
         labelClassName={styles.createLabel}
       >
         <input
@@ -118,7 +130,10 @@ export function RequirementCreateFallbackForm({
           ref={focusTitle}
           type="text"
           value={title}
-          onChange={(e) => onTitleChange(e.target.value)}
+          onChange={(e) => {
+            onTitleChange(e.target.value);
+            clearError('title');
+          }}
           disabled={isCreating}
           placeholder={t('editor.newRequirementTitle')}
           className={styles.createInput}
@@ -188,14 +203,10 @@ export function RequirementCreateFallbackForm({
           data-testid="req-new-save-btn"
           type="submit"
           className="btn-primary"
-          // BUG-02: title is required — disable rather than silently
-          // substitute a placeholder title on submit.
-          disabled={isCreating || !title.trim()}
-          // #1595: the disabled state stays, but it points at the title hint
-          // so the blocked action is explainable.
-          aria-describedby={
-            title.trim().length === 0 ? 'new-req-title-hint' : undefined
-          }
+          // BUG-02 / #1732: the title stays required, but the refusal is
+          // explained on click (field-level role="alert" + focus) instead of a
+          // silent disabled state.
+          disabled={isCreating}
           aria-keyshortcuts={SAVE_SHORTCUT_ARIA}
           title={t('artifactForm.saveShortcutHint', 'Speichern (Strg/Cmd+S)')}
         >

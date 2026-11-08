@@ -15,6 +15,7 @@ import { ListToolbar } from '../shared/ListToolbar';
 import { EmptyState } from '../shared/EmptyState';
 import { Dialog } from '../shared/Dialog';
 import { FormField } from '../shared/FormField';
+import { useRequiredValidation } from '../shared/useRequiredValidation';
 import { useFieldContract } from '../../hooks/useFieldContract';
 import { SAVE_SHORTCUT_ARIA } from '../../hooks/useSaveShortcut';
 import { getStatusBadgeStyle } from '../../utils/statusBadge';
@@ -164,6 +165,14 @@ export function NeedList({
   // be the close button) — so the title field is targeted explicitly instead
   // of relying on `autoFocus`.
   const newTitleInputRef = useRef<HTMLInputElement | null>(null);
+  // #1732: the create submit validates on click and explains at the field; the
+  // button is only disabled while a create is in flight.
+  const {
+    errors: requiredErrors,
+    validate,
+    focusFirstInvalid,
+    clearError,
+  } = useRequiredValidation();
 
   // Phase 3a (F-13): same derivation chain as every other editor list —
   // see useArtifactList. No `getKey`: this list renders through the tree's
@@ -266,6 +275,14 @@ export function NeedList({
             noValidate
             onSubmit={(e) => {
               e.preventDefault();
+              const fields = [
+                { name: 'title', value: newTitle, inputId: 'need-new-title' },
+              ];
+              const invalid = validate(fields);
+              if (invalid.length > 0) {
+                focusFirstInvalid(fields, invalid);
+                return;
+              }
               onSubmitCreate();
             }}
           >
@@ -273,15 +290,10 @@ export function NeedList({
               htmlFor="need-new-title"
               label={t('editor.title', 'Title')}
               required={field('title').required}
-              // #1595: while the title is empty the Create button is disabled;
-              // this hint states why and is wired to the control via
-              // `aria-describedby` + `aria-invalid` (FormField).
-              hint={
-                (newTitle || '').trim().length === 0
-                  ? t('editor.titleRequired', 'Titel ist erforderlich.')
-                  : null
-              }
-              error={creationErrors.title?.join(', ')}
+              // #1732: the empty-title refusal is a click-time message at the
+              // field (role="alert" + aria wiring via FormField), replacing
+              // the #1595 disabled button + standing hint.
+              error={requiredErrors.title ?? creationErrors.title?.join(', ')}
               labelClassName={fieldHints.createLabel}
             >
               <input
@@ -290,7 +302,10 @@ export function NeedList({
                 data-testid="need-new-title-input"
                 ref={newTitleInputRef}
                 value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
+                onChange={(e) => {
+                  setNewTitle(e.target.value);
+                  clearError('title');
+                }}
                 placeholder={t('editor.newNeedTitle')}
                 className={fieldHints.createInput}
                 {...field('title').controlProps}
@@ -388,12 +403,7 @@ export function NeedList({
                 // generic enough to be worth disambiguating explicitly rather
                 // than relying on translation strings staying different.
                 aria-label={t('needs.submitCreateLabel', 'Bedarf jetzt erstellen')}
-                disabled={isCreating || !(newTitle || '').trim()}
-                // #1595: the disabled state stays, but it points at the title
-                // hint so the blocked action is explainable.
-                aria-describedby={
-                  (newTitle || '').trim().length === 0 ? 'need-new-title-hint' : undefined
-                }
+                disabled={isCreating}
                 className="btn-primary"
                 // #1100: the submit button is reachable via `Ctrl`/`Cmd`+`S`
                 // (wired in NeedsEditors) — advertise the binding here, the

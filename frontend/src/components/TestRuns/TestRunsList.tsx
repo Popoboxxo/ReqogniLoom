@@ -24,6 +24,7 @@ import { Dialog } from "../shared/Dialog";
 import { FormField } from "../shared/FormField";
 import { StatusBadge } from "../shared/StatusBadge";
 import { useFieldContract } from "../../hooks/useFieldContract";
+import { useRequiredValidation } from "../shared/useRequiredValidation";
 import { TestRunDetailEditor } from "./TestRunDetailEditor";
 import { getTestRunStatusLabel } from "./testRunStatusLabel";
 import { useTestRunsData } from "./useTestRunsData";
@@ -58,7 +59,14 @@ export function TestRunsList(): JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newName, setNewName] = useState("");
-  const [validationError, setValidationError] = useState<string | null>(null);
+  // #1732: the empty-name case is explained at the field on click instead of
+  // greying out the submit button and printing a banner above the form.
+  const {
+    errors: requiredErrors,
+    validate,
+    focusFirstInvalid,
+    clearError,
+  } = useRequiredValidation();
   const [selectedTestCaseIds, setSelectedTestCaseIds] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [listSearch, setListSearch] = useState<string>("");
@@ -112,7 +120,7 @@ export function TestRunsList(): JSX.Element {
 
   const resetCreateForm = (): void => {
     setNewName("");
-    setValidationError(null);
+    clearError();
     setSelectedTestCaseIds([]);
     setTestCaseSearch("");
     resetCreateError();
@@ -167,11 +175,12 @@ export function TestRunsList(): JSX.Element {
   ): Promise<void> => {
     e.preventDefault();
     if (!activeWorkspace) return;
-    if (!newName.trim()) {
-      setValidationError("Name is required");
+    const fields = [{ name: "name", value: newName, inputId: "testrun-name" }];
+    const invalid = validate(fields);
+    if (invalid.length > 0) {
+      focusFirstInvalid(fields, invalid);
       return;
     }
-    setValidationError(null);
     try {
       await createTestRun({
         workspace_id: activeWorkspace.id,
@@ -187,7 +196,7 @@ export function TestRunsList(): JSX.Element {
     }
   };
 
-  const formError = validationError ?? createError;
+  const formError = createError;
 
   if (!activeWorkspace) {
     return <p>{t("workspace.selectPrompt")}</p>;
@@ -281,6 +290,7 @@ export function TestRunsList(): JSX.Element {
               htmlFor="testrun-name"
               label={t("editor.name")}
               required={nameField.required}
+              error={requiredErrors.name}
               labelClassName={styles.formLabel}
             >
               <input
@@ -289,7 +299,10 @@ export function TestRunsList(): JSX.Element {
                 ref={nameInputRef}
                 type="text"
                 value={newName}
-                onChange={(e) => setNewName(e.target.value)}
+                onChange={(e) => {
+                  setNewName(e.target.value);
+                  clearError("name");
+                }}
                 placeholder="Test run name"
                 disabled={isCreating}
                 className={styles.nameInput}
@@ -419,8 +432,8 @@ export function TestRunsList(): JSX.Element {
               <button
                 type="submit"
                 data-testid="testrun-create-submit-btn"
-                disabled={!newName.trim() || isCreating}
-                className={`${styles.submitBtn} ${!newName.trim() || isCreating ? styles.submitBtnDisabled : styles.submitBtnEnabled}`}
+                disabled={isCreating}
+                className={`${styles.submitBtn} ${isCreating ? styles.submitBtnDisabled : styles.submitBtnEnabled}`}
               >
                 {isCreating
                   ? t("actions.creating", "Creating...")

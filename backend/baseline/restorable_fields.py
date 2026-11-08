@@ -130,6 +130,12 @@ RESTORABLE_FIELDS: dict[str, tuple[str, ...]] = {
         "impact",
         "detection",
         "mitigation_strategy",
+        # #1707: ``severity`` is a writable enum now, so a rollback must
+        # restore it — leaving it out would keep the post-baseline value while
+        # everything else is rewound, i.e. a half-restored snapshot. It is no
+        # longer listed in NON_RESTORABLE ("derived (risk_score)"): the
+        # score-derived value is only the *initial* value of a manual workspace.
+        "severity",
         # Legacy published keys: ``owner`` is ``Risk.owner_name`` (WS7 #940),
         # ``owner_user_id`` is the User FK.
         "owner",
@@ -231,7 +237,6 @@ NON_RESTORABLE: dict[str, dict[str, str]] = {
         "uid": "identity",
         "version": "optimistic lock",
         "risk_score": "derived (probability x impact)",
-        "severity": "derived (risk_score)",
         "lifecycle_status": "via reactivate",
         # Documented capture gap, not a captured key: the shared Artifact hull's
         # Actor ``owner`` is suppressed for Risk by the ``setdefault`` merge

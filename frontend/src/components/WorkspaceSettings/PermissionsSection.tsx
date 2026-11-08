@@ -59,6 +59,7 @@ import {
 } from "../../api/workspace-members";
 import { artifactsApi } from "../../api/artifacts";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { useRequiredValidation } from "../shared/useRequiredValidation";
 import type { Artifact, UUID } from "../../types";
 import {
   extractErrorMessage,
@@ -173,9 +174,24 @@ export function PermissionsSection({
     [workspaceId]
   );
 
+  // #1732: the grant button validates on click and marks the member select,
+  // instead of greying out with no stated reason.
+  const {
+    errors: requiredErrors,
+    validate,
+    focusFirstInvalid,
+    clearError,
+    fieldProps,
+    errorId,
+  } = useRequiredValidation();
+
   const handleGrant = useCallback(async (): Promise<void> => {
-    if (!grantUserId.trim()) {
-      setError(t("permissions.userRequired", "User ID is required."));
+    const fields = [
+      { name: "grantUserId", value: grantUserId, inputId: "permission-user-input" },
+    ];
+    const invalid = validate(fields);
+    if (invalid.length > 0) {
+      focusFirstInvalid(fields, invalid);
       return;
     }
     setIsGranting(true);
@@ -194,7 +210,15 @@ export function PermissionsSection({
     } finally {
       setIsGranting(false);
     }
-  }, [workspaceId, grantUserId, grantArtifactId, grantLevel, loadPermissions, t]);
+  }, [
+    workspaceId,
+    grantUserId,
+    grantArtifactId,
+    grantLevel,
+    loadPermissions,
+    validate,
+    focusFirstInvalid,
+  ]);
 
   const handleRevoke = useCallback(
     async (permissionId: string): Promise<void> => {
@@ -454,11 +478,16 @@ export function PermissionsSection({
       {/* Grant form */}
       <div data-testid="permission-grant-form" className={styles.grantForm}>
         <select
+          id="permission-user-input"
           data-testid="permission-user-input"
           value={grantUserId}
-          onChange={(e) => setGrantUserId(e.target.value)}
+          onChange={(e) => {
+            setGrantUserId(e.target.value);
+            clearError("grantUserId");
+          }}
           disabled={isGranting || members.length === 0}
           className={`${styles.input} ${styles.inputFlexWide}`}
+          {...fieldProps("grantUserId")}
         >
           <option value="">
             {members.length === 0
@@ -504,12 +533,22 @@ export function PermissionsSection({
           type="button"
           data-testid="permission-grant-btn"
           onClick={() => void handleGrant()}
-          disabled={isGranting || !grantUserId.trim()}
+          disabled={isGranting}
           className="btn-primary"
         >
           {isGranting ? "…" : `+ ${t("permissions.grant", "Grant")}`}
         </button>
       </div>
+      {requiredErrors.grantUserId ? (
+        <p
+          id={errorId("grantUserId")}
+          role="alert"
+          data-testid="permission-grant-user-error"
+          className={styles.errorText}
+        >
+          {requiredErrors.grantUserId}
+        </p>
+      ) : null}
 
       {/* Filter / list */}
       <div className={styles.filterRow}>

@@ -8,6 +8,7 @@
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useRequiredValidation } from "../shared/useRequiredValidation";
 
 import { MarkdownField } from "../shared/MarkdownField/MarkdownField";
 import type { WorkItemKind } from "../../types";
@@ -42,11 +43,36 @@ export function WorkItemCreateForm({
 
   const ordinalNumber = Number(ordinal);
   const ordinalValid = Number.isInteger(ordinalNumber) && ordinalNumber >= 0;
-  const canSave = title.trim().length > 0 && ordinalValid && !isSaving;
+  // #1732: the submit stays active and explains itself on click. The old
+  // `canSave` predicate combined "title empty" with "ordinal malformed" and
+  // hid both behind a disabled button.
+  const {
+    errors: requiredErrors,
+    validate,
+    focusFirstInvalid,
+    clearError,
+    fieldProps,
+    errorId,
+  } = useRequiredValidation();
 
   const submit = (event: React.FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (!canSave) return;
+    if (isSaving) return;
+    const fields = [
+      { name: "title", value: title, inputId: "work-item-create-title" },
+      {
+        name: "ordinal",
+        value: String(ordinal),
+        inputId: "work-item-create-ordinal",
+        isValid: ordinalValid,
+        message: t("validation.numberInteger"),
+      },
+    ];
+    const invalid = validate(fields);
+    if (invalid.length > 0) {
+      focusFirstInvalid(fields, invalid);
+      return;
+    }
     onCreate({
       workspace_id: workspaceId,
       document_id: documentId,
@@ -59,7 +85,15 @@ export function WorkItemCreateForm({
   };
 
   return (
-    <form className={styles.form} data-testid="work-item-create" onSubmit={submit}>
+    // `noValidate`: the app's own click-time validation is the contract
+    // (#1732); the browser bubble would pre-empt it and break the
+    // `aria-invalid`/`role="alert"` pairing.
+    <form
+      className={styles.form}
+      data-testid="work-item-create"
+      noValidate
+      onSubmit={submit}
+    >
       <div className={styles.field}>
         <label className={styles.label} htmlFor="work-item-create-title">
           {t("work_items.fieldTitle")}
@@ -73,8 +107,22 @@ export function WorkItemCreateForm({
           maxLength={255}
           required
           disabled={isSaving}
-          onChange={(event) => setTitle(event.target.value)}
+          onChange={(event) => {
+            setTitle(event.target.value);
+            clearError("title");
+          }}
+          {...fieldProps("title")}
         />
+        {requiredErrors.title ? (
+          <p
+            id={errorId("title")}
+            role="alert"
+            className={styles.error}
+            data-testid="work-item-create-title-error"
+          >
+            {requiredErrors.title}
+          </p>
+        ) : null}
       </div>
 
       <div className={styles.field}>
@@ -110,8 +158,22 @@ export function WorkItemCreateForm({
           step={1}
           value={ordinal}
           disabled={isSaving}
-          onChange={(event) => setOrdinal(event.target.value)}
+          onChange={(event) => {
+            setOrdinal(event.target.value);
+            clearError("ordinal");
+          }}
+          {...fieldProps("ordinal")}
         />
+        {requiredErrors.ordinal ? (
+          <p
+            id={errorId("ordinal")}
+            role="alert"
+            className={styles.error}
+            data-testid="work-item-create-ordinal-error"
+          >
+            {requiredErrors.ordinal}
+          </p>
+        ) : null}
       </div>
 
       <div className={styles.field}>
@@ -153,7 +215,7 @@ export function WorkItemCreateForm({
           type="submit"
           className="btn-primary"
           data-testid="work-item-create-save"
-          disabled={!canSave}
+          disabled={isSaving}
         >
           {isSaving ? t("work_items.saving") : t("work_items.create")}
         </button>

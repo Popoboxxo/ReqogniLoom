@@ -98,6 +98,7 @@ import { Badge } from "../shared/Badge";
 import { PageHeader } from "../shared/PageHeader";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { Dialog } from "../shared/Dialog";
+import { useRequiredValidation } from "../shared/useRequiredValidation";
 import { primaryTarget, useFindingTargets } from "./use-finding-targets";
 import type { FindingTarget, FindingTargetMap } from "./use-finding-targets";
 import styles from "./audit-dashboard.module.css";
@@ -386,6 +387,16 @@ export function AuditDashboard(): JSX.Element {
   const [waiveReason, setWaiveReason] = useState<string>("");
   const [waiveExpiresAt, setWaiveExpiresAt] = useState<string>("");
   const [waiveError, setWaiveError] = useState<string | null>(null);
+  // #1732: the mandatory justification is validated on click and marked at the
+  // textarea; the Waive button is only disabled while a request is in flight.
+  const {
+    errors: requiredErrors,
+    validate,
+    focusFirstInvalid,
+    clearError,
+    fieldProps,
+    errorId,
+  } = useRequiredValidation();
   const [isWaiving, setIsWaiving] = useState<boolean>(false);
   // UI-569-03: a successful waive unmounts the row's Waive trigger, so the
   // dialog's focus trap cannot restore focus to it. This carries the index of
@@ -763,7 +774,17 @@ export function AuditDashboard(): JSX.Element {
     const finding = pendingWaive;
     const reason = waiveReason.trim();
     // "No silent suppression": a justification is mandatory in the UI too.
-    if (!reason) {
+    const fields = [
+      {
+        name: "waiveReason",
+        value: waiveReason,
+        inputId: "audit-waive-reason-input",
+        message: t("audit.waiveReasonRequired", "Please provide a justification."),
+      },
+    ];
+    const invalid = validate(fields);
+    if (invalid.length > 0) {
+      focusFirstInvalid(fields, invalid);
       setWaiveError(t("audit.waiveReasonRequired", "Please provide a justification."));
       return;
     }
@@ -831,6 +852,8 @@ export function AuditDashboard(): JSX.Element {
     t,
     waiveErrorMessage,
     loadWaivers,
+    validate,
+    focusFirstInvalid,
   ]);
 
   // ---- Derived state ----
@@ -1312,7 +1335,7 @@ export function AuditDashboard(): JSX.Element {
                 className="btn-primary"
                 data-testid="audit-waive-confirm"
                 onClick={() => void confirmWaive()}
-                disabled={isWaiving || waiveReason.trim() === ""}
+                disabled={isWaiving}
               >
                 {isWaiving
                   ? t("audit.waiving", "Waiving...")
@@ -1329,7 +1352,10 @@ export function AuditDashboard(): JSX.Element {
               id="audit-waive-reason-input"
               data-testid="audit-waive-reason"
               value={waiveReason}
-              onChange={(e) => setWaiveReason(e.target.value)}
+              onChange={(e) => {
+                setWaiveReason(e.target.value);
+                clearError("waiveReason");
+              }}
               placeholder={t(
                 "audit.waiveReasonPlaceholder",
                 "Why is this blocker finding an accepted deviation?",
@@ -1337,7 +1363,18 @@ export function AuditDashboard(): JSX.Element {
               rows={4}
               className={styles.waiveTextarea}
               disabled={isWaiving}
+              {...fieldProps("waiveReason")}
             />
+            {requiredErrors.waiveReason ? (
+              <p
+                id={errorId("waiveReason")}
+                role="alert"
+                data-testid="audit-waive-reason-error"
+                className={styles.waiveError}
+              >
+                {requiredErrors.waiveReason}
+              </p>
+            ) : null}
           </div>
           <div className={styles.waiveField}>
             <label className={styles.waiveLabel} htmlFor="audit-waive-expires-input">

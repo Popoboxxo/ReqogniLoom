@@ -35,6 +35,7 @@ import { useTranslation } from "react-i18next";
 import { Plus, Trash2 } from "lucide-react";
 
 import { extractErrorMessage } from "../../api/client";
+import { useRequiredValidation } from "../shared/useRequiredValidation";
 import { requirementsApi } from "../../api/requirements";
 import { testcasesApi } from "../../api/testcases";
 import type { TestCase, TestCaseStep } from "../../api/testcases";
@@ -88,8 +89,27 @@ export function DeriveTestCasePanel({
     }
   }, [requirement.id]);
 
+  // #1732: the draft's title is required. The Create button stays active; a
+  // click validates, marks the input and moves focus there.
+  const {
+    errors: requiredErrors,
+    validate,
+    focusFirstInvalid,
+    clearError,
+    fieldProps,
+    errorId,
+  } = useRequiredValidation();
+
   const handleCreate = useCallback(async () => {
     if (!draft) return;
+    const fields = [
+      { name: "title", value: draft.title, inputId: "derive-testcase-title" },
+    ];
+    const invalid = validate(fields);
+    if (invalid.length > 0) {
+      focusFirstInvalid(fields, invalid);
+      return;
+    }
     setError(null);
     setPhase("creating");
     try {
@@ -113,7 +133,7 @@ export function DeriveTestCasePanel({
       setError(extractErrorMessage(err));
       setPhase("review");
     }
-  }, [draft, workspaceId, requirement.id, onCreated]);
+  }, [draft, workspaceId, requirement.id, onCreated, validate, focusFirstInvalid]);
 
   const handleDiscard = useCallback(() => {
     setDraft(null);
@@ -195,14 +215,29 @@ export function DeriveTestCasePanel({
           <label className={styles.field}>
             <span className={styles.muted}>{t("deriveTestcase.fieldTitle")}</span>
             <input
+              id="derive-testcase-title"
               type="text"
               value={draft.title}
               disabled={busy}
-              onChange={(e) => updateDraft({ title: e.target.value })}
+              onChange={(e) => {
+                updateDraft({ title: e.target.value });
+                clearError("title");
+              }}
               className={styles.input}
               data-testid="derive-testcase-title-input"
+              {...fieldProps("title")}
             />
           </label>
+          {requiredErrors.title ? (
+            <p
+              id={errorId("title")}
+              role="alert"
+              className={styles.error}
+              data-testid="derive-testcase-title-error"
+            >
+              {requiredErrors.title}
+            </p>
+          ) : null}
           <label className={styles.field}>
             <span className={styles.muted}>{t("deriveTestcase.fieldDescription")}</span>
             <textarea
@@ -271,7 +306,7 @@ export function DeriveTestCasePanel({
               type="button"
               className="btn-primary"
               onClick={handleCreate}
-              disabled={busy || !draft.title.trim()}
+              disabled={busy}
               data-testid="derive-testcase-create"
             >
               {phase === "creating"

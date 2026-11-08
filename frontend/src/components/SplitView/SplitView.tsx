@@ -257,6 +257,24 @@ const dividerStyle = (dragging: boolean): React.CSSProperties => ({
   transition: dragging ? 'none' : 'background 0.2s ease',
 });
 
+/** Upper bound of the left panel in px, from the container width and the
+ *  configured percentage. One definition for the drag handler, the keyboard
+ *  handler and the separator's `aria-valuemax` (#1406) — three copies of the
+ *  same arithmetic are how the announced bound drifts from the enforced one. */
+const maxPanelWidth = (
+  containerWidth: number,
+  leftMaxWidthPercent: number,
+): number => (containerWidth * leftMaxWidthPercent) / 100;
+
+/** Width of the flex container the divider lives in.
+ *
+ *  Falls back to the viewport when the container has no measurable width —
+ *  `null` before the first measurement *and* `0` in a non-layout environment
+ *  (jsdom, a hidden pane). `0` must not be treated as a real container: it
+ *  would make the computed upper bound 0 and announce an impossible maximum. */
+const measureContainerWidth = (divider: HTMLElement | null): number =>
+  divider?.parentElement?.clientWidth || window.innerWidth;
+
 /** Desktop right pane: the shared scroll surface, full flex, padded. */
 const RIGHT_PANEL_STYLE: React.CSSProperties = {
   ...SCROLL_SURFACE_STYLE,
@@ -457,8 +475,10 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
     const DIVIDER_STEP_PX = 20;
     const handleDividerKeyDown = useCallback(
       (e: React.KeyboardEvent<HTMLDivElement>): void => {
-        const containerWidth = dividerRef.current?.parentElement?.clientWidth ?? window.innerWidth;
-        const maxWidth = (containerWidth * leftMaxWidthPercent) / 100;
+        const maxWidth = maxPanelWidth(
+          measureContainerWidth(dividerRef.current),
+          leftMaxWidthPercent,
+        );
         let next: number | null = null;
         if (e.key === 'ArrowLeft') next = leftPanelWidth - DIVIDER_STEP_PX;
         else if (e.key === 'ArrowRight') next = leftPanelWidth + DIVIDER_STEP_PX;
@@ -485,8 +505,10 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
         const newWidth = Math.max(leftMinWidth, dragStartWidthRef.current + delta);
 
         // Respect max-width constraint (percentage-based)
-        const containerWidth = dividerRef.current?.parentElement?.clientWidth ?? window.innerWidth;
-        const maxWidth = (containerWidth * leftMaxWidthPercent) / 100;
+        const maxWidth = maxPanelWidth(
+          measureContainerWidth(dividerRef.current),
+          leftMaxWidthPercent,
+        );
         const constrainedWidth = Math.min(newWidth, maxWidth);
 
         setLeftPanelWidth(constrainedWidth);
@@ -596,6 +618,13 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
       padding: 'var(--space-4)',
     };
 
+    // #1406: the separator's announced upper bound. Measured against the
+    // container the drag/keyboard handlers already use, falling back to the
+    // viewport on the first render (the ref is not attached yet).
+    const dividerMaxPosition = Math.round(
+      maxPanelWidth(measureContainerWidth(dividerRef.current), leftMaxWidthPercent),
+    );
+
     return (
       <div
         ref={ref}
@@ -607,7 +636,9 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
           {leftPanel}
         </div>
 
-        {/* Divider — REQ-007: 12px hitbox, 2px visual center line via gradient */}
+        {/* Divider — REQ-007 / #1406: the box is a 24px hit area
+            (`flex-basis`), the visible line stays 2px because the gradient
+            only paints 11–13px. 24px is the WCAG 2.2 SC 2.5.8 minimum. */}
         <div
           ref={dividerRef}
           data-testid="splitview-divider"
@@ -617,6 +648,7 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
           aria-label={t('splitView.resizeDivider', 'Resize panels')}
           aria-valuenow={Math.round(leftPanelWidth)}
           aria-valuemin={leftMinWidth}
+          aria-valuemax={dividerMaxPosition}
           tabIndex={0}
           onMouseDown={handleDividerMouseDown}
           onKeyDown={handleDividerKeyDown}

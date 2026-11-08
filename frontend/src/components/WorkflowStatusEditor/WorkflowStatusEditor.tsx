@@ -42,6 +42,7 @@ import {
   type WorkflowTransitionsResponse,
 } from "../../api/workflow-transitions";
 import { extractErrorMessage } from "../../api/client";
+import { useRequiredValidation } from "../shared/useRequiredValidation";
 import { getStatusBadgeStyle } from "../../utils/statusBadge";
 import styles from "./WorkflowStatusEditor.module.css";
 
@@ -87,6 +88,16 @@ export function WorkflowStatusEditor({
   const [pendingReason, setPendingReason] =
     useState<WorkflowAllowedTransition | null>(null);
   const [reason, setReason] = useState("");
+  // #1732: the mandatory change reason is validated on click; the Confirm
+  // button is only disabled while a transition is in flight.
+  const {
+    errors: requiredErrors,
+    validate,
+    focusFirstInvalid,
+    clearError,
+    fieldProps,
+    errorId,
+  } = useRequiredValidation();
 
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -391,17 +402,41 @@ export function WorkflowStatusEditor({
             ref={reasonInputRef}
             data-testid="workflow-reason-input"
             value={reason}
-            onChange={(e) => setReason(e.target.value)}
+            onChange={(e) => {
+              setReason(e.target.value);
+              clearError("reason");
+            }}
             rows={2}
             className={styles.reasonInput}
+            {...fieldProps("reason")}
           />
+          {requiredErrors.reason ? (
+            <p
+              id={errorId("reason")}
+              role="alert"
+              data-testid="workflow-reason-error"
+              className={styles.errorText}
+            >
+              {requiredErrors.reason}
+            </p>
+          ) : null}
           <div className={styles.reasonActions}>
             <button
               type="button"
               data-testid="workflow-reason-confirm"
               className="btn-primary"
-              disabled={busy || !reason.trim()}
-              onClick={() => void runTransition(pendingReason, reason.trim())}
+              disabled={busy}
+              onClick={() => {
+                const fields = [
+                  { name: "reason", value: reason, inputId: "workflow-reason-input" },
+                ];
+                const invalid = validate(fields);
+                if (invalid.length > 0) {
+                  focusFirstInvalid(fields, invalid);
+                  return;
+                }
+                void runTransition(pendingReason, reason.trim());
+              }}
             >
               {t("workflowEditor.confirm", "Confirm")}
             </button>

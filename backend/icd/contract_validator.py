@@ -55,6 +55,21 @@ class ValidationResult:
 # COMP-ICD-002: ContractValidator
 # ---------------------------------------------------------------------------
 
+def _text_entries(values: Any) -> set[str]:
+    """Set of the string entries of a contract list.
+
+    #1709: rows written before the element-type check can carry objects in
+    ``preconditions``/``postconditions``/``invariants``. ``set()`` over those
+    raises ``TypeError: unhashable type: 'dict'`` — a 500 on a legacy row, on a
+    path that is supposed to compare contracts. Non-string entries are not
+    contract clauses a caller can satisfy or violate, so they are ignored here;
+    ``repair_icd_contract_lists`` is the data repair, this is the crash guard.
+    """
+    if not isinstance(values, (list, tuple, set)):
+        return set()
+    return {value for value in values if isinstance(value, str)}
+
+
 class ContractValidator:
     """Stateless Design-by-Contract validator for ICD versions.
 
@@ -104,9 +119,29 @@ class ContractValidator:
         list_fields = ("preconditions", "postconditions", "invariants")
         for field_name in list_fields:
             value = payload.get(field_name)
-            if value is not None and not isinstance(value, list):
+            if value is None:
+                continue
+            if not isinstance(value, list):
                 errors.append(
                     f"Field '{field_name}' must be a list, got {type(value).__name__}"
+                )
+                continue
+            # #1709: the wire contract is ``string[]`` and the detail page
+            # renders every entry as a React child. A historical write path put
+            # parameter objects (``{name, unit, ordering, data_type}``) into
+            # these fields, which crashed the UI with "Objects are not valid as
+            # a React child". A list of the right *container* type is not
+            # enough: every element must be a string.
+            offenders = [
+                index
+                for index, entry in enumerate(value)
+                if not isinstance(entry, str)
+            ]
+            if offenders:
+                errors.append(
+                    f"Field '{field_name}' must be a list of strings; "
+                    f"non-string element(s) at index {offenders[:5]}"
+                    f"{' (first 5 shown)' if len(offenders) > 5 else ''}"
                 )
 
         semantic_description = payload.get("semantic_description")
@@ -164,12 +199,12 @@ class ContractValidator:
         """
         breaking: list[str] = []
 
-        old_pre_set = set(old_preconditions)
-        new_pre_set = set(new_preconditions)
-        old_post_set = set(old_postconditions)
-        new_post_set = set(new_postconditions)
-        old_inv_set = set(old_invariants)
-        new_inv_set = set(new_invariants)
+        old_pre_set = _text_entries(old_preconditions)
+        new_pre_set = _text_entries(new_preconditions)
+        old_post_set = _text_entries(old_postconditions)
+        new_post_set = _text_entries(new_postconditions)
+        old_inv_set = _text_entries(old_invariants)
+        new_inv_set = _text_entries(new_invariants)
 
         # Rule 1: Preconditions added (strengthened) → breaking
         added_preconditions = new_pre_set - old_pre_set

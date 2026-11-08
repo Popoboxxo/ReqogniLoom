@@ -193,23 +193,15 @@ export function renderAttribute({
   }
 
   const value = readValue(values, attribute);
-  // #1595: in create mode an empty required field is the reason the create
-  // action is blocked. Mark the control itself (`aria-invalid`) so the reason
-  // is machine-readable at the field, next to the form-level hint.
-  const createMissing =
-    artifactId === null &&
-    attribute.required === true &&
-    attribute.editable === true &&
-    attribute.default == null &&
-    (value == null ||
-      (typeof value === "string" && !value.trim()) ||
-      (Array.isArray(value) && value.length === 0));
+  // #1732: `aria-invalid` comes from `errors` only — i.e. after a refused
+  // click or a server rejection. The #1595 pre-marking of every still-empty
+  // required field is gone with the disabled-button it explained: a pristine
+  // create form no longer announces fields as invalid before the user tried.
   const shared = {
     attribute,
     disabled,
     errors,
     testId,
-    invalid: createMissing,
   } as const;
   const onChange = (next: unknown): void => update(attribute, next);
 

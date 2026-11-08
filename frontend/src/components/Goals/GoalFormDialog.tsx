@@ -20,6 +20,7 @@ import { useTranslation } from "react-i18next";
 import { Dialog } from "../shared/Dialog";
 import { FormField } from "../shared/FormField";
 import { useFieldContract } from "../../hooks/useFieldContract";
+import { useRequiredValidation } from "../shared/useRequiredValidation";
 import type { Goal } from "../../types";
 import styles from "./Goals.module.css";
 
@@ -70,6 +71,16 @@ export function GoalFormDialog({
   // only mounted while open, so the definition is fetched on demand.
   const { field } = useFieldContract("Goal", { enabled: true });
   const errors = fieldErrors ?? {};
+  // #1732: the submit stays active and explains itself on click. The message
+  // for an empty required field is rendered by <FormField> (role="alert" +
+  // aria-invalid/aria-describedby on the control), so only the check, the
+  // focus move and the clearing live here.
+  const {
+    errors: requiredErrors,
+    validate,
+    focusFirstInvalid,
+    clearError,
+  } = useRequiredValidation();
   const [title, setTitle] = useState(editing?.title ?? "");
   const [description, setDescription] = useState(editing?.description ?? "");
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -109,7 +120,9 @@ export function GoalFormDialog({
             form={FORM_ID}
             className="btn-primary"
             data-testid="goal-create-button"
-            disabled={isSubmitting || !title.trim()}
+            // #1732: only the in-flight state disables the button — an empty
+            // title is explained on click instead of silently greyed out.
+            disabled={isSubmitting}
           >
             {isSubmitting
               ? t("actions.saving", "Speichern...")
@@ -130,7 +143,12 @@ export function GoalFormDialog({
         noValidate
         onSubmit={(e) => {
           e.preventDefault();
-          if (!title.trim()) return;
+          const fields = [{ name: "title", value: title, inputId: "goal-title" }];
+          const invalid = validate(fields);
+          if (invalid.length > 0) {
+            focusFirstInvalid(fields, invalid);
+            return;
+          }
           onSubmit({ title, description });
         }}
       >
@@ -147,7 +165,7 @@ export function GoalFormDialog({
           htmlFor="goal-title"
           label={t("goals.goalTitle", "Titel")}
           required={field("title").required}
-          error={errors.title?.join(", ")}
+          error={requiredErrors.title ?? errors.title?.join(", ")}
           labelClassName={styles.label}
         >
           <input
@@ -157,7 +175,10 @@ export function GoalFormDialog({
             data-testid="goal-title-input"
             className={styles.input}
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              clearError("title");
+            }}
             {...field("title").controlProps}
           />
         </FormField>

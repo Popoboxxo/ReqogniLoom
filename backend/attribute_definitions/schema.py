@@ -174,9 +174,14 @@ def all_entity_carrier_fields() -> tuple[str, ...]:
 
 #: ``"workflow"`` means: changeable only through a workflow transition.
 #: ``"system"`` means: server-owned (the Artifact id/status), never a client
-#: payload field. ``"automation"`` is reserved for AWMS-derived values (spec
-#: section 6) — accepted here so a stored definition never fails to normalize,
-#: but it is not yet a distinct enforcement branch.
+#: payload field. ``"automation"`` means: server-**derived** (spec section 6) —
+#: the value is a payload field, but a client-supplied value is rejected by
+#: ``field_validation.validate_values`` (enforced since #1707, first consumer:
+#: ``Risk.severity``) and the server recomputes it. It is the deliberately
+#: narrow precursor of generic computed fields: the semantic is enforced, the
+#: generic calculation engine does not exist yet. An unchanged echo of an
+#: automation value is tolerated by the transport that can read the stored
+#: value (``RiskViewSet.partial_update``), never by the DB-free validator.
 EDITABLE_VALUES: frozenset[Any] = frozenset(
     {True, False, "workflow", "system", "automation"}
 )

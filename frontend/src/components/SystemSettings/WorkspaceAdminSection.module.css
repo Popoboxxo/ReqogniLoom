@@ -111,3 +111,11 @@
   color: var(--color-success);
   padding: var(--space-3);
 }
+
+/* #1732: click-time validation message for the sandbox name, rendered under
+   the clone row instead of greying out the button with no stated reason. */
+.fieldError {
+  margin: var(--space-1) 0 0;
+  color: var(--color-danger-text);
+  font-size: var(--font-size-sm);
+}

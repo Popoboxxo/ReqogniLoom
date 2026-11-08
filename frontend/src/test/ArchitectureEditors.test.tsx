@@ -841,27 +841,29 @@ describe("ArchitectureEditors — create dialog a11y (issue #955)", () => {
     expect(screen.getByLabelText(i18n.t("editor.title"))).toBe(input);
   });
 
-  // #1595: the Create button was disabled on an empty title with no stated
-  // reason. The hint now says what is missing, the field is marked invalid, and
-  // the disabled button points at the hint.
-  it("explains the disabled Create button while the title is empty (#1595)", async () => {
+  // #1732 (supersedes the #1595 decision): the Create button is no longer
+  // disabled on an empty title. A click validates, the field is marked
+  // invalid with a role="alert" message and receives focus.
+  it("explains an empty title on click instead of disabling Create (#1732)", async () => {
     const user = userEvent.setup();
     await openCreateDialog();
 
     const input = screen.getByTestId("arch-new-title-input");
     const save = screen.getByTestId("arch-new-save-btn");
+    expect(save).toBeEnabled();
 
-    expect(save).toBeDisabled();
-    const hint = screen.getByTestId("arch-new-title-hint");
-    expect(hint).toHaveTextContent(i18n.t("editor.titleRequired"));
-    expect(hint).toHaveAttribute("role", "status");
+    await user.click(save);
+
+    const alert = await screen.findByTestId("arch-new-title-error");
+    expect(alert).toHaveAttribute("role", "alert");
+    expect(alert).toHaveTextContent(i18n.t("validation.required"));
     expect(input).toHaveAttribute("aria-invalid", "true");
-    expect(input).toHaveAttribute("aria-describedby", "arch-new-title-hint");
-    expect(save).toHaveAttribute("aria-describedby", "arch-new-title-hint");
+    expect(input).toHaveAttribute("aria-describedby", "arch-new-title-error");
+    expect(input).toHaveFocus();
 
     await user.type(input, "Neues Element");
 
-    expect(screen.queryByTestId("arch-new-title-hint")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("arch-new-title-error")).not.toBeInTheDocument();
     expect(input).not.toHaveAttribute("aria-invalid");
     expect(save).toBeEnabled();
   });

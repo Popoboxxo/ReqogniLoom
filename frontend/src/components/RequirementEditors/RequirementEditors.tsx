@@ -29,8 +29,9 @@
 import { useState, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useRequirementData } from './useRequirementData';
+import { useRequirementData, type RequirementAllocationFilter, isRequirementAllocationFilter, requirementAllocationStorageKey } from './useRequirementData';
 import { useHasRole } from '../../hooks/useHasRole';
+import { usePersistedListState } from '../../hooks/usePersistedListState';
 import { useCreateRequirement, useDeleteRequirement } from '../../queries/requirements';
 import { workspacesApi } from '../../api/workspaces';
 import { requirementsApi } from '../../api/requirements';
@@ -88,6 +89,17 @@ export default function RequirementEditors(): JSX.Element {
   const interviewCta = useInterviewStartCta('Requirement');
   // GH-443: opt-in to soft-deleted requirements (status="outdated").
   const [includeDeleted, setIncludeDeleted] = useState(false);
+  // #1668: allocation filter. It is a **server-side** filter (`?allocated=`),
+  // so its state has to live here — next to the data hook — rather than inside
+  // RequirementList, which only owns the client-side search/filter controls.
+  // Persistence follows the same BUG-19 rule as the other list filters: keyed
+  // per workspace, sessionStorage, so a round-trip through a detail view (or a
+  // workspace switch) keeps each workspace's own selection.
+  const [allocation, setAllocation] = usePersistedListState<RequirementAllocationFilter>(
+    requirementAllocationStorageKey(activeWorkspace?.id),
+    'all',
+    { validate: isRequirementAllocationFilter },
+  );
   // Issue #672: does the currently-open RequirementArtifactForm have unsaved
   // local edits? Reported by the form itself via onDirtyChange. `pendingId`
   // holds a tree-node click that arrived while dirty, so it can be confirmed
@@ -100,7 +112,7 @@ export default function RequirementEditors(): JSX.Element {
     isLoading,
     error,
     refresh,
-  } = useRequirementData(selectedId, { includeDeleted });
+  } = useRequirementData(selectedId, { includeDeleted, allocation });
 
   // P6 Task 6.3: visual groups. Loaded here (not in RequirementList) so the
   // list itself stays free of group API state and its focused unit tests keep
@@ -735,6 +747,9 @@ export default function RequirementEditors(): JSX.Element {
         onSelect={selectRequirement}
         onDelete={handleDelete}
         onReorder={handleReorder}
+        // #1668: server-side allocation filter (drives the list query).
+        allocation={allocation}
+        onAllocationChange={setAllocation}
         // P6 Task 6.3: groups as pseudo-folders in the requirement tree, plus
         // the admin panel for editors. Viewers only get the read-only view.
         groups={requirementGroups.treeGroups}

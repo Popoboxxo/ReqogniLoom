@@ -1528,13 +1528,20 @@ describe("AuditDashboard — waivers (#569)", () => {
     fireEvent.click(await screen.findByTestId("audit-waive-0"));
     const confirm = await screen.findByTestId("audit-waive-confirm");
 
-    // "No silent suppression": a justification is mandatory in the UI — the
-    // confirm button stays disabled until one is typed.
-    expect(confirm).toBeDisabled();
+    // "No silent suppression" (#1732): a justification is mandatory, but the
+    // button stays reachable — a click without one reports the reason at the
+    // textarea (role="alert") instead of leaving a disabled control.
+    expect(confirm).not.toBeDisabled();
+    fireEvent.click(confirm);
+    expect(screen.getByTestId("audit-waive-reason-error")).toHaveAttribute(
+      "role",
+      "alert",
+    );
+    expect(auditApi.waive).not.toHaveBeenCalled();
+
     fireEvent.change(screen.getByTestId("audit-waive-reason"), {
       target: { value: WAIVE_REASON },
     });
-    expect(confirm).not.toBeDisabled();
     fireEvent.click(confirm);
 
     // The finding is marked in-place (never removed) with its justification.

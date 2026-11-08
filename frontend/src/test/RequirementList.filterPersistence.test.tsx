@@ -78,6 +78,8 @@ describe("RequirementList filter persistence (BUG-19)", () => {
         onSelect={vi.fn()}
         onDelete={vi.fn()}
         onCreateNew={vi.fn()}
+        allocation="all"
+        onAllocationChange={vi.fn()}
       />
     );
   }
@@ -163,6 +165,8 @@ describe("RequirementList filter persistence (BUG-19)", () => {
         onSelect={vi.fn()}
         onDelete={vi.fn()}
         onCreateNew={vi.fn()}
+        allocation="all"
+        onAllocationChange={vi.fn()}
       />
     );
 
@@ -182,6 +186,8 @@ describe("RequirementList filter persistence (BUG-19)", () => {
         onSelect={vi.fn()}
         onDelete={vi.fn()}
         onCreateNew={vi.fn()}
+        allocation="all"
+        onAllocationChange={vi.fn()}
       />
     );
     const categorySelectBackOnA = screen.getByTestId(

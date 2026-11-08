@@ -72,7 +72,10 @@ const MOCK_REQUIREMENT = {
 } as never;
 
 const refreshMock = vi.fn();
-vi.mock("../components/RequirementEditors/useRequirementData", () => ({
+vi.mock("../components/RequirementEditors/useRequirementData", async (importActual) => ({
+  // #1668: the container also uses the allocation filter helpers from this
+  // module; only the data hook is stubbed.
+  ...(await importActual<typeof import("../components/RequirementEditors/useRequirementData")>()),
   useRequirementData: () => ({
     requirements: [MOCK_REQUIREMENT],
     requirement: MOCK_REQUIREMENT,
