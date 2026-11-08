@@ -76,10 +76,16 @@ systems-engineering:
   test_strategy: docs/se/strategy/test-strategy.md
   integration_strategy: docs/se/strategy/integration-strategy.md
   reports_dir: docs/se/reports
-  current_phase: SE-Artefakte materialisiert unter docs/se (L0 SN_Stakeholder_Needs.md,
-    L1/<System>/, VV/, ADR/, strategy/, reports/deep_audit/); Projektstand VERSION
-    1.8.0-beta.28, konsolidierter Audit-Stand docs/REAUDIT_2026-09-03.md (13 Audit-Dokumente
-    konsolidiert), seither CI-Release-Gates (ci.yml, playwright.yml, version-drift-check.yml)
+  current_phase: 'SE-Kaskade aktiv unter docs/se: ADR/ (28 ADRs inkl. ADR-DS-02),
+    L0/ (Stakeholder Needs), L1/Gesamtsystem/ (L1_Gesamtsystem_{Requirements,Architecture}.md
+    plus L2/<System>System/-Zellen), VV/VV_Strategy_new_needs_v6.md, strategy/ (PRODUCT_STRATEGY,
+    test-strategy, integration-strategy), requirements/, reviews/, traceability-matrix.md,
+    interface-registry.md, reports/ inkl. reports/deep_audit/ und KNOWN_TEST_GATE_REDS.md.
+    Projektstand VERSION 1.8.0-beta.28; jüngster Release-Report RELEASE_v1.8.0-beta.18.md
+    (für beta.19–beta.28 fehlt der Report). Konsolidierter Audit-Stand
+    docs/REAUDIT_2026-09-03.md; 11 CI-Workflows unter .github/workflows/ (ci, playwright
+    mit 4 Shards, docker-publish, version-drift-check, client-artifacts-check, client-smoke,
+    pages, publish-marketplace, publish-mcp-registry, publish-npm, release-client-artifacts)'
 project:
   name: ReqogniLoom
   prefix: ReqLo
@@ -101,25 +107,28 @@ variables:
   PROJECT_NAME: ReqogniLoom
   PROJECT_DESCRIPTION: AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler
     Artefakt-Zerlegung, REST API + nativem MCP Server (46 Tool-Gruppen-Präfixe, 290
-    Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/Azure/mock), Multi-Tenancy mit Row-Level-Isolation,
-    11 core/built-in Trace-Link-Typen (tenant-extensible catalog), Baselines (3 Scopes),
-    3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
+    Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/Azure/opencode_go/mock), Multi-Tenancy mit Row-Level-Isolation,
+    20 built-in Trace-Link-Typen (tenant-extensibler Katalog), Baselines (3 Scopes)
+    mit Feld-Diff, AI-Long-Term-Memory (pgvector; optional Honcho/Qdrant), 3 Rigor-Presets
+    (minimal/standard/extended) und i18n (DE/EN).
   PROJECT_GOAL: Anforderungen und Tests in Artefakten verwalten — von leichtgewichtigen
     Backlogs (Minimal-Rigor) bis zu formalen Systems-Engineering-Workflows (Extended-Rigor)
     mit V-Modell-Traceability (L0 Stakeholder Needs → L1 System Requirements → L2
     Subsystems → L3 Components → L4 Presentation). Eine Codebasis, drei Rigor-Presets.
   PLATFORM: 'Django 6.1+ (Backend) + React 19 + TypeScript 5.5+ (Frontend) + PostgreSQL
-    16 via pgvector/pgvector:pg16 (Django ORM + pgvector) + Redis 7 (Cache/Celery-Broker)
+    16 via pgvector/pgvector:pg16 (Django ORM + pgvector) + Redis 8 (Cache/Celery-Broker)
     + Celery 5.6+ (Async) + Docker Compose (9 Default-Services: postgres, postgres-backup,
     redis, backend, llm-preflight, migrate, celery, celery-beat, frontend; optionale Profile:
     honcho (+5 Services), qdrant (+1 Service))'
-  RUNTIME: Python 3.12 (Container python:3.12-slim; Django 6.1+, DRF 3.18+, drf-spectacular,
-    psycopg2-binary, pgvector, celery, redis, reportlab, gunicorn+uvicorn) + Node.js
-    26 (Container node:26.13.0-slim; Vite 8 Dev-Server bzw. nginx:1.31-alpine Prod-Image)
-    + TypeScript 5.5+ (strict) + Vitest 5 / Playwright 1.44
-  PROJECT_LANGUAGES: Python 3.12 (Backend, Tests mit pytest 9) + TypeScript 5.5+ (Frontend,
-    strict mode) + YAML (Config, Docker-Compose, OpenAPI) + Bash (Dev-Commands, Docker-Entrypoints)
-  LANGUAGE: Python 3.12 + TypeScript 5.5+ (strict) + YAML + Bash
+  RUNTIME: Python 3.15 (Container python:3.15-slim; CI nutzt setup-python 3.12) + Django
+    6.1+ (DRF 3.18+, drf-spectacular, psycopg2-binary, pgvector, celery 5.6+, redis-py
+    8.1+, reportlab 5+, gunicorn 26.2+ mit uvicorn 0.54+) + Node.js 26 (Container node:26.13.0-slim;
+    Vite 8 Dev-Server bzw. nginx:1.31-alpine Prod-Image) + TypeScript 5.5+ (strict) + Vitest
+    5 / Playwright 1.44
+  PROJECT_LANGUAGES: Python 3.15 (Backend, Container; Tests mit pytest 9) + TypeScript
+    5.5+ (Frontend, strict mode) + YAML (Config, Docker-Compose, OpenAPI) + Bash (Dev-Commands,
+    Docker-Entrypoints)
+  LANGUAGE: Python 3.15 + TypeScript 5.5+ (strict) + YAML + Bash
   COMMUNICATION_LANGUAGE: Deutsch
   USER_INPUT_LANGUAGE: Deutsch
   DOCS_LANGUAGE: Englisch
@@ -155,23 +164,37 @@ variables:
   DEV_STACK_RELOAD: make up (recreated Container bei geänderter Config/Env; reines
     `docker compose restart` liest .env NICHT neu) oder Hot-Reload automatisch je
     nach Service
-  PROJECT_CONTEXT: 'ReqogniLoom ist ein AI-natives Requirements- und Test-Management-Tool
-    mit MBSE-Unterstützung. Tech-Stack: Django 6.1+ (Backend) + React 19 + TypeScript
-    5.5+ (Frontend) + PostgreSQL 16 (pgvector/pgvector:pg16) + Redis 7 + Celery 5.6+
-    + Docker Compose (9 Default-Services, Host-Port Backend 8001). Schnittstellen:
-    REST API unter /api/v1/ (DRF, 31 ViewSets (35 Router-Registrierungen), JWT-Auth mit vierstufiger
-    RBAC-Matrix + Item-Level-Permissions, OpenAPI via drf-spectacular) und nativer
-    MCP Server unter /mcp/ (JSON-RPC 2.0, auch /api/v1/mcp/; Transports: HTTP, SSE,
-    stdio; 46 Tool-Gruppen-Präfixe mit 290 Tools laut docs/agent-templates/tool-manifest.json;
-    API-Key `reqlo_*`). Fähigkeiten: Requirements Management, Architecture Elements
-    (MBSE-kompatibel), Test-Management, 11 core/built-in Trace-Link-Typen (tenant-extensible
-    catalog), Baselines (3 Scopes) mit Diff-Engine, Artifact-Diff (feld-level), History-Endpoint,
-    PDF-Report-Export, ReqIF 1.2-Import/Export, Test-Run-Protokollierung, CSV-Bulk-Import,
-    AI-Long-Term-Memory (pgvector oder Honcho), API-Key-Management, Visual Artifact
-    Diff, 3 Rigor-Presets (Minimal/Standard/Extended), Terminology-Profile (dev_mode/se_mode),
-    Audit-Log inkl. Finding-Waivern, Multi-Tenancy via Row-Level-Security. LLM-Adapter:
-    Anthropic, OpenAI, Ollama, Azure, mock (Default: mock). Embeddings: sentence-transformers
-    6+ (Default), optional Ollama/OpenAI. Stand VERSION 1.8.0-beta.28.'
+  PROJECT_CONTEXT: |
+    ReqogniLoom ist ein AI-natives Requirements- und Test-Management-Tool mit MBSE-Unterstützung.
+    Tech-Stack: Django 6.1+ (Backend) + React 19 + TypeScript 5.5+ (Frontend) + PostgreSQL 16
+    (pgvector/pgvector:pg16) + Redis 8 + Celery 5.6+ + Docker Compose (9 Default-Services,
+    Host-Port Backend 8001). Schnittstellen: REST API unter /api/v1/ (DRF; 30 ViewSets über
+    35 Router-Registrierungen plus explizite APIView-Routen; JWT-Auth (HS256) im httpOnly-Cookie
+    `reqogniloom_access` mit CSRF-Schutz und MFA/TOTP; vierstufige RBAC-Matrix
+    (admin/editor/viewer/approver) plus Item-Level-Permissions (read/write/none); OpenAPI via
+    drf-spectacular) und nativer MCP Server unter /mcp/ (JSON-RPC 2.0; Transports: Streamable
+    HTTP, SSE und stdio-Bridge; /api/v1/mcp/ ist ein deprecated Alias mit
+    Deprecation-/Sunset-Headern; 46 Tool-Gruppen-Präfixe mit 290 Tools laut
+    docs/agent-templates/tool-manifest.json; API-Key `reqlo_*`).
+    Domänen-Artefakte: StakeholderNeed, Requirement, ArchitectureElement, TestCase, TestRun,
+    Adr, Risk, Issue, Document, WorkItem, Goal, MainGoal, ChangeRequest, Milestone,
+    GlossaryTerm, InterviewSession, Diagram, Icd, Baseline, TraceLink, Comment/Notification,
+    QualityAssessment, Suggestion.
+    Fähigkeiten: Requirements Management, MBSE-kompatible Architecture Elements,
+    Test-Management, 20 built-in Trace-Link-Typen (tenant-extensibler Katalog), Baselines mit
+    3 Scopes (Document/Project/Global) inkl. Feld-Diff und Rollback, Artifact-History,
+    Artifact-Diff (feld-level, auch visuell), ReqIF 1.2 Import/Export, CSV-Bulk-Import/Export,
+    PDF-Report-Export, Diagramme (SVG/PNG/Mermaid/PlantUML, Canvas-Editor, Node-Graph),
+    ICD-Verwaltung (Revisionen, Parameter), SE-Metriken, Impact-Analyse, Traceability-View,
+    Verbindungs-Ansicht (Baum, Zwei-Spalten, Matrix, Graph) inkl. Allocation-Graph,
+    Context-Graph (abgeleitete Soft-Edge-Ebene), AI-Ableitung und -Zerlegung inkl.
+    Review-Queue und Suggestions, AI-Long-Term-Memory (pgvector; optional Honcho oder Qdrant),
+    Kommentare/Notifications, konfigurierbare Workflows pro Workspace, Attribute-Definitions v2
+    (Katalog, Defaults, Migration mit Rollback), konfigurierbare Link-Typ-Definitionen,
+    User-/Preference-Verwaltung, System-Health und Admin-Ops. 3 Rigor-Presets
+    (Minimal/Standard/Extended) und Terminology-Profile (dev_mode/se_mode). LLM-Adapter:
+    Anthropic, OpenAI, Ollama, Azure, opencode_go, mock (Default: mock). Embeddings:
+    sentence-transformers 6+ (Default), optional Ollama/OpenAI. Stand VERSION 1.8.0-beta.28.
   ARCHITECTURE: |
     backend/
       manage.py                              # Django Entry-Point
@@ -184,7 +207,7 @@ variables:
       llm_adapter/                           # Layer 1 (LLM-Provider: Anthropic, OpenAI, Ollama, Azure, mock; Embeddings)
       traceability/                          # Layer 1 (Trace-Query, Link-Management, PDF-Report)
       workflow/                              # Layer 1 (konfigurierbare State-Machines)
-      link_types/                            # LinkTypeCatalog (11 built-ins, tenant-extensible)
+      link_types/                            # LinkTypeCatalog (20 built-ins, tenant-extensibel)
       attribute_definitions/                 # Layer 1 (AttributeDefinition-Systemobjekt)
       baseline/                              # Layer 1 (Snapshot-Baselines, Diff-Engine)
       context_graph/                         # abgeleiteter Soft-Edge-Layer (Issue #377)
@@ -200,12 +223,16 @@ variables:
     frontend/
       src/index.tsx                          # React Entry-Point
       src/App.tsx                            # Root-Component
-      src/api/                               # API-Wrapper (Axios-Client, auto-Bearer-Token-Injection)
-      src/components/                        # 46 Component-Bereiche (Dashboard, Editors, Diff)
+      src/api/                               # API-Wrapper (Axios-Client, Cookie-Auth + CSRF)
+      src/components/                        # 46 Component-Bereiche (Dashboard, Editors, Diff, ConnectionView)
+      src/config/                            # App-Konfiguration (app-name.ts)
+      src/constants/                         # Labels/Farben (artifactTypeColors, traceLinkLabels)
       src/context/                           # React Context (Auth, Workspace)
+      src/hooks/                             # eigene Hooks (Transitions, Dirty-State, Workspace)
       src/queries/                           # TanStack Query Hooks
       src/i18n/locales/{de,en}.json          # i18next Uebersetzungen
       src/styles/{tokens,global}.css         # Design-System (CSS Custom Properties)
+      src/types/  src/utils/                 # TS-Typen und Utilities (safeStorage, Datum)
       src/{__tests__,__mocks__}/             # Vitest 5 Unit-Tests
       package.json                           # React 19, Vite 8, react-i18next, Vitest 5, ESLint 10
     e2e/
@@ -234,34 +261,41 @@ variables:
     docs/                # Anforderungen, Architektur, SE-Kaskade (docs/se/), Pläne (docs/plans/, docs/superpowers/), Konzepte, Release-Reports
     deploy/              # Deployment: docker-compose.yml (Basis), .override.yml (Dev), .minimal.yml, .env, README.md
     testing/             # docker-compose.test.yml (Standalone-Test-Stack, kein Overlay, kein Deployment-File)
-    scripts/             # build.sh, bump_version.py, setup.sh, check-version-drift.sh, check_plugin_packages.py, enable_pgvector.sh, clients/ (backup/restore removed per ADR-012)
+    scripts/             # build.sh, bump_version.py, setup.sh, check-version-drift.sh, check_plugin_packages.py, enable_pgvector.sh, extract_theme_tokens.py, generate_traceability_matrix.py, clients/ (Client-Installer) + pytest-Dateien
     .meta-config/        # agent-meta Konfiguration (project.yaml)
     .agent-meta/         # agent-meta Submodul (Templates, Scripts, Schemas)
-  ENTRY_POINT_PATTERN: 'backend/manage.py            — Django Management (migrate,
-    seed_demo, runserver, shell, check, self_init, export_tool_manifest) backend/reqogniloom/settings.py     —
-    Settings-Entry (DRF, JWT, Celery, Apps) backend/reqogniloom/urls.py         —
-    URL-Routing (/health/, /api/v1/, /mcp/, /api/v1/mcp/, /api/schema/, /admin/) backend/reqogniloom/version.py     —
-    Build-/Version-Metadaten (GET /api/v1/version/) frontend/src/index.tsx          —
-    React Entry-Point (ReactDOM) frontend/src/App.tsx            — Root-Component
-    (Provider, Router) frontend/src/api/client.ts      — Axios-Client (auto-Bearer-Token-Injection)
-    e2e/playwright.config.ts        — Playwright-Konfiguration (Chromium, 4 Shards)
-    scripts/build.sh              — Release-Build mit APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME '
-  KEY_PATTERNS: '- Django REST Framework (DRF) für REST-API-Endpoints (31 ViewSets (35 Router-Registrierungen))
-    - MCP-Server (JSON-RPC 2.0) mit 46 Tool-Gruppen-Präfixen und 290
-    Tools für AI-Integration (kanonisches Manifest: docs/agent-templates/tool-manifest.json,
-    Drift-Gate: backend/mcp_server/tests/test_tool_manifest_drift.py) - drf-spectacular
-    für OpenAPI 3.0 Schema-Generierung (Swagger-UI, ReDoc) - Single-Entry-Point Pattern
-    (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade - TenantContext
-    als Thread-Local Singleton + Row-Level-Security (ADR-03) - Configurable Rigor
-    (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell - LLM-Provider-Abstraktion
-    (ADR-02): Capability-Interface mit graceful degradation (anthropic, openai, ollama,
-    azure, mock) - 11 core/built-in Trace-Link-Typen (derives-from, decomposes, refines,
-    allocated-to, verifies, mitigates, satisfies, realizes, decides, references, diagram-ref;
-    tenant-extensible catalog, siehe backend/link_types/builtin.py) - 3 Baseline-Scopes
-    (Document, Project, Global) in einer Entität (ADR-07) - Konfigurierbare State-Machines
-    pro Workspace (ADR-06) - Resilience-Decorators (Retry, Circuit-Breaker, Timeout)
-    auf Service-Ebene - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req
-    → Subsystems → Components → Presentation) '
+  ENTRY_POINT_PATTERN: |-
+    backend/manage.py                  — Django Management (migrate, seed_demo, runserver, shell, check, export_tool_manifest, …)
+    backend/application/self_init.py   — post_migrate-Bootstrap (Admin/Tenant/Workspace auf leerer DB)
+    backend/reqogniloom/settings.py    — Settings-Entry (DRF, JWT/Cookie-Auth, Celery, Apps)
+    backend/reqogniloom/urls.py        — URL-Routing (/health/, /api/v1/, /mcp/, /api/v1/mcp/ [deprecated Alias], /api/schema/, /admin/)
+    backend/reqogniloom/version.py     — Build-/Version-Metadaten (GET /api/v1/version/)
+    frontend/src/index.tsx             — React Entry-Point (ReactDOM)
+    frontend/src/App.tsx               — Root-Component (Provider, Router)
+    frontend/src/api/client.ts         — API-Client (Cookie-Auth, CSRF, Silent-Refresh)
+    e2e/playwright.config.ts           — Playwright-Konfiguration (Chromium, 4 Shards)
+    scripts/build.sh                   — Release-Build mit APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME
+  KEY_PATTERNS: |-
+    - Django REST Framework (DRF): 30 ViewSets über 35 Router-Registrierungen plus explizite APIView-Routen
+    - MCP-Server (JSON-RPC 2.0) mit 46 Tool-Gruppen-Präfixen und 290 Tools (kanonisches Manifest:
+      docs/agent-templates/tool-manifest.json, Drift-Gate: backend/mcp_server/tests/test_tool_manifest_drift.py);
+      kanonischer Pfad /mcp/, /api/v1/mcp/ nur noch deprecated Alias
+    - drf-spectacular für OpenAPI 3.0 (Schema, Swagger-UI, ReDoc)
+    - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade (68 *_service.py)
+    - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03)
+    - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell
+    - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation
+      (anthropic, openai, ollama, azure, opencode_go, mock)
+    - 20 built-in Trace-Link-Typen mit Richtungs-/allowed_pairs-Konvention und Suspect-Propagation;
+      tenant-extensibler Katalog (backend/link_types/builtin.py, Workspace-Link-Typ-Definitionen)
+    - Baselines mit 3 Scopes (Document, Project, Global) in einer Entität (ADR-07), Feld-Diff + Rollback
+    - Konfigurierbare State-Machines pro Workspace (ADR-06)
+    - Resilience-Decorators (Retry, Circuit-Breaker, Timeout) auf Service-Ebene
+    - Context-Graph als abgeleiteter Soft-Edge-Layer (Issue #377)
+    - AI-Long-Term-Memory: MemoryEntry pro Workspace/Tenant, Embeddings via pgvector
+      (optional Honcho/Qdrant), Digest/Search/Ask-Endpoints
+    - Audit-Log auf Operationsebene inkl. Finding-Waivern
+    - V-Modell-Traceability L0-L4 (Stakeholder Needs → System Req → Subsystems → Components → Presentation)
   CODE_CONVENTIONS: '- Python (PEP 8, Typings, Docstrings für public API) - TypeScript
     (ESLint 10, Prettier, strict mode, functional Components + Hooks) - Django-Layer:
     Models (persistence/) ↔ Services (application/) ↔ Views/Serializers (rest_api/)
@@ -271,7 +305,7 @@ variables:
     (immer via Serializer + Service) - data-testid auf allen interaktiven UI-Elementen
     (E2E-Pflicht für Playwright) - CSS Custom Properties aus styles/tokens.css (keine
     hardcodierten Farben/Größen) - Commits: Conventional Commits Format (feat(REQ-xxx):
-    ..., fix: ..., chore: ...) - Branch-Policy: feat/*, fix/*, refactor/* (NIE direkt
+    ..., fix: ..., chore: ...) - Branch-Policy: feat/, fix/, chore/ (NIE direkt
     auf main) - Requirements-IDs: REQ-L0-*, REQ-L1-*, REQ-L2-*, REQ-L3-* (siehe docs/se/traceability-matrix.md) '
   EXTRA_DONTS: |
     - NICHT direkt in .claude/agents/ oder .opencode/agents/ schreiben (generierter Output, wird überschrieben)
@@ -286,20 +320,23 @@ variables:
     - NICHT DRF-View direkt auf persistence.models zugreifen (immer via application/services)
     - Playwright E2E: gezielte, kurze Checks während der Entwicklung sind erlaubt (einzelne Spec-Datei oder `--grep`-gefiltert, z.B. um einen konkreten Fix zu verifizieren) — dafür KEINE Rückfrage nötig. Der VOLLE E2E-Lauf (alle Specs, alle Shards, `npx playwright test` ohne Filter) NUR nach expliziter Empfehlung durch den Agenten UND expliziter Freigabe durch den User — niemals automatisch, kein DoD-Gate. Grund: der volle Lauf ist teuer (mehrere Minuten, mehrere Shards) und die CI deckt ihn ohnehin bei jedem PR ab
     - NICHT bei jeder lokalen Fix-Iteration die komplette Backend-Testsuite (alle pytest-Module sequenziell, 20-35 Min) laufen lassen — während der Entwicklung NUR die Module der geänderten Datei(en) + direkt abhängige Tests gezielt ausführen (z.B. `pytest application/tests/test_x.py traceability/`). Die CI deckt die vollständige Matrix ab (4 parallele backend-test-Sets + frontend-test + e2e, siehe .github/workflows/) — das ist der Ort für den Gesamtlauf, nicht der lokale Fix-Loop. Ein gezielter Lauf unmittelbar vor dem finalen Commit (nur betroffene Verzeichnisse, nicht der komplette Baum) bleibt sinnvoll; der volle sequenzielle Lauf über alle Module ist Verschwendung, wenn CI ihn ohnehin parallel wiederholt.
+    - NICHT neue Clients/Configs auf /api/v1/mcp/ zeigen lassen — kanonischer Pfad ist /mcp/; die REST-Prefix-Mount ist ein deprecated Alias mit Deprecation-/Sunset-Headern
+    - NICHT Auth-Token in localStorage ablegen — der Access-JWT läuft als httpOnly-Cookie `reqogniloom_access`, CSRF-Schutz über `csrftoken`-Cookie
+    - NICHT Dateien in .agent-meta/ direkt editieren (Framework-Submodul; Änderungen nur über agent-meta-Feature-Branch + Re-Sync)
   CODE_QUALITY_RULES: |
-    - TypeScript strict mode (tsconfig.json: strict: true, noImplicitAny)
+    - TypeScript strict mode (tsconfig.json: strict: true)
     - PEP 8 + Type Hints + Docstrings (alle public functions/classes)
     - DRF Serializer-First-Approach (niemals direkte Model-Queries in Views; immer via Service-Layer)
     - React: Functional Components + Hooks, kein class-based
     - data-testid auf allen interaktiven UI-Elementen (E2E-Pflicht)
     - CSS Custom Properties aus tokens.css (keine hardcodierten Farben/Größen)
     - i18n via react-i18next (alle UI-Strings in src/i18n/locales/{de,en}.json)
-    - Keine hardcodierten URLs/Ports (via VITE_API_BASE_URL / SYSTEM_URLS)
-    - JWT-Token in localStorage; auto-inject via api/client.ts Axios-Interceptor
+    - Keine hardcodierten Backend-URLs im Client: relatives `/api/v1` + Vite-Proxy (`VITE_API_BASE_URL`, Default http://backend:8000)
+    - Auth über httpOnly-Cookie `reqogniloom_access` + CSRF-Token bei unsicheren Methoden (api/client.ts, Silent-Refresh)
     - TenantContext muss in DRF-Views explizit via set_tenant() gesetzt werden
     - LLM-Provider mock-default (kein API-Key für Entwicklung erforderlich)
     - Secrets NIE committen (reqlo_-Präfix für MCP-API-Keys; grep-bar)
-    - ESLint max-warnings 0 (frontend/package.json)
+    - ESLint 10 als CI-Gate (`npm run lint` in frontend/, .github/workflows/ci.yml)
     - AI-Optimized Test Runner: Keine rohen Playwright-Logs in den Chat leiten (niemals `tail -100`). Nutze gefilterten Runner (z.B. `npm run test:e2e:ai (in e2e/)`), der nur Testnamen, Fehlerzeilen und relevante Network-Events ausgibt.
     - Persistent Debug Sandbox: Iteratives Test-Debugging darf nur in einer permanenten Sandbox-Datei (z.B. `e2e/tests/sandbox.debug.ts`) stattfinden, um Schreib-Overhead im Chat zu vermeiden.
     - Screenshot Pull-Policy: Screenshots und Traces dürfen nur bei absoluter Notwendigkeit per Datei-Lesevorgang (Pull) geladen werden. Kein routinemäßiges Analysieren von Bildern bei E2E-Fehlern.
@@ -309,11 +346,13 @@ variables:
     - API: REST API (/api/v1/) und MCP Server (/mcp/) Schnittstellen
     - UI/UX: Frontend, React-Components, Barrierefreiheit, i18n (DE/EN)
     - Data: Datenmodelle, Artefakte, Zerlegungsstrukturen, Multi-Tenancy
-    - Integration: Externe Systeme, CSV-Import, PDF-Export, LLM-Provider
+    - Integration: Externe Systeme, CSV- und ReqIF-Import/Export, PDF-Report, LLM-Provider
     - Test: Test-Management, Test-Run-Protokollierung, Coverage-Tracking
     - Workflow: State-Machine, Approval-Gates, Transition-Validierung
-    - Baseline: Snapshot, Diff, 3 Scopes (Document/Project/Global)
-    - Traceability: 11 core/built-in Link-Typen (tenant-extensible), Coverage-Aggregation, V-Modell L0-L4
+    - Baseline: Snapshot, Feld-Diff, 3 Scopes (Document/Project/Global)
+    - Traceability: 20 built-in Link-Typen (tenant-extensibler Katalog), Coverage-Aggregation, V-Modell L0-L4
+    - AI: LLM-Provider-Abstraktion, Ableitung/Zerlegung, Validation, Consistency-Check, Long-Term-Memory
+    - Resilience: Retry, Circuit-Breaker, Timeout, async via Celery
   REQ_CATEGORIES_LIST: |
     - **Functional** — Features, User Stories, CRUD auf Requirements/Architecture/TestCases/ADRs/Risks/Issues
     - **Non-Functional** — Performance, Sicherheit, Skalierbarkeit, Audit-Compliance, Multi-Tenancy
@@ -324,8 +363,8 @@ variables:
     - **Test** — Test-Management, Test-Run-Protokollierung (4-Phasen-Lifecycle), Coverage-Tracking
     - **Workflow** — Konfigurierbare State-Machines pro Workspace, Approval-Gates, Transition-Validierung
     - **Baseline** — Snapshot, Feld-Level-Diff, 3 Scopes (Document/Project/Global)
-    - **Traceability** — 11 core/built-in Link-Typen (tenant-extensible), Coverage-Aggregation, V-Modell L0-L4-Traceability
-    - **AI** — LLM-Provider-Abstraktion, Decomposition, Validation, Consistency-Check
+    - **Traceability** — 20 built-in Link-Typen (tenant-extensibler Katalog), Coverage-Aggregation, V-Modell L0-L4-Traceability
+    - **AI** — LLM-Provider-Abstraktion (6 Provider), Ableitung/Zerlegung, Validation, Consistency-Check, Long-Term-Memory (pgvector/Honcho/Qdrant)
     - **Resilience** — Retry, Circuit-Breaker, Timeout-Decorators, async via Celery
   TESTER_SNIPPETS_PATH: ''
   DEVELOPER_SNIPPETS_PATH: ''
@@ -334,7 +373,7 @@ variables:
     - Docker >= 24
     - Docker Compose >= 2.24.4 (Pflicht: `ports: !override` im Dev-Overlay, siehe deploy/README.md INFRA-01)
     - Node.js >= 22 (CI: actions/setup-node 22; Frontend-Container: node:26.13.0-slim)
-    - Python 3.12 (im Container; Django 6.1+ verlangt >= 3.12)
+    - Python 3.15 im Container (python:3.15-slim; Django 6.1+ verlangt >= 3.12), CI nutzt setup-python 3.12
   SYSTEM_URLS: |
     - Frontend: http://localhost:5173 (Vite Dev-Server; Prod-Image serviert nginx auf 8080 im Container)
     - Backend Health: GET http://localhost:8001/health/ (kein Auth, Container-Readiness-Probe)
@@ -360,9 +399,9 @@ variables:
   GH_ASSETS: ghcr.io/popoboxxo/reqogniloom-backend, ghcr.io/popoboxxo/reqogniloom-frontend
   BUILD_SYSTEM_NOTES: |
     Basis-Compose (deploy/docker-compose.yml) pinnt FERTIGE GHCR-Images (`ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.28}` bzw. `...-frontend:...`) und enthält KEINE `build:`-Sektionen — die Build-Definitionen liegen im Dev-Overlay deploy/docker-compose.override.yml (backend: ./backend, frontend: ./frontend target: development, jeweils `pull_policy: build`, damit ein veraltetes Image nie still genutzt wird).
-    Backend + Migrate + Celery + Celery-Beat: Multi-Stage-Dockerfile in backend/ (python:3.12-slim, Django 6.1+, requirements.txt; Runtime-Stufe mit libpq5/curl/procps, Non-Root-User `app`, CMD gunicorn + uvicorn.workers.UvicornWorker auf 0.0.0.0:8000). Builder-Stufe braucht zusätzlich `git` (VCS-Pin für django-celery-beat).
+    Backend + Migrate + Celery + Celery-Beat: Multi-Stage-Dockerfile in backend/ (python:3.15-slim, Django 6.1+, requirements.txt; Runtime-Stufe mit libpq5/curl/procps, Non-Root-User `app`, CMD gunicorn + uvicorn.workers.UvicornWorker auf 0.0.0.0:8000). Builder-Stufe braucht zusätzlich `git` (VCS-Pin für django-celery-beat).
     Frontend: Dockerfile in frontend/ (node:26.13.0-slim; Stage `development` = Vite 8 auf 5173, Stage `production` = nginx:1.31-alpine auf 8080, Non-Root-User `app`).
-    Postgres: pgvector/pgvector:pg16 (pgvector für VectorField/HnswIndex, REQ-L2-VS-004); Postgres-Backup: pgvector/pgvector:pg16; Redis: redis:7-alpine.
+    Postgres: pgvector/pgvector:pg16 (pgvector für VectorField/HnswIndex, REQ-L2-VS-004); Postgres-Backup: pgvector/pgvector:pg16; Redis: redis:8-alpine.
     Volumes (Dev-Overlay): ./backend:/app + ./docs:/app/docs:ro, ./frontend:/app + /app/node_modules — Hot-Reload-fähig.
     Healthchecks: pg_isready (postgres), redis-cli ping (redis), curl /health/ (backend), node-fetch (frontend) — services_healthy als DependsOn-Bedingung.
     Kein separates Build-Artifact — Deployment via Docker Compose (9 Default-Services, optionale Profile honcho und qdrant).
@@ -386,9 +425,9 @@ variables:
     ReqogniLoom hat drei Referenz-Compose-Dateien unter deploy/ (nicht im Projekt-Root — jeder direkte `docker compose`-Aufruf braucht deshalb `--project-directory .`, siehe deploy/README.md): `docker-compose.yml` (Basis/Full, 9 Default-Services unten), `docker-compose.override.yml` (Dev-Overlay: Hot-Reload, `pull_policy: build`, uvicorn `--reload`, Vite auf 5173) und `docker-compose.minimal.yml` (schlank, 5 Services: postgres, redis, backend, migrate, frontend). Full-Stack-Services:
     - postgres (pgvector/pgvector:pg16, persistent via Volume `postgres_data`; nicht auf dem Host publiziert)
     - postgres-backup (pgvector/pgvector:pg16, periodisches DB-Backup)
-    - redis (redis:7-alpine, Cache + Celery-Broker; nicht auf dem Host publiziert)
-    - backend (Django 6.1+ / Python 3.12, Container-Port 8000, Host-Port 8001 via ${BACKEND_PORT:-8001})
-    - llm-preflight (gleiches Image wie backend, wartet auf den LLM-Provider, bevor migrate startet)
+    - redis (redis:8-alpine, Cache + Celery-Broker; nicht auf dem Host publiziert)
+    - backend (Django 6.1+ / Python 3.15, Container-Port 8000, Host-Port 8001 via ${BACKEND_PORT:-8001})
+    - llm-preflight (gleiches Image wie backend; one-shot Config-Gate, prüft LLM-Provider/Env, bevor migrate startet)
     - migrate (gleiches Image wie backend, führt Django-Migrationen + Self-Init vor dem Start aus)
     - celery (gleiches Image wie backend, Worker-Prozess, Memory-Limit 768M im Dev-Overlay)
     - celery-beat (gleiches Image wie backend, Scheduler für periodische Tasks, DatabaseScheduler)
@@ -396,7 +435,7 @@ variables:
     Optionale Compose-Profile (kein Pull/Start, solange das Profil nicht aktiviert wird):
     - Profil `honcho`: honcho-postgres, honcho-redis, honcho-migrate, honcho, honcho-deriver (Host-Port 127.0.0.1:8010) — optionaler Memory-Backend (`MEMORY_BACKEND=honcho`)
     - Profil qdrant: qdrant (qdrant/qdrant:v1.20.0, nicht auf dem Host publiziert; Vektorindex, regenerierbar aus Postgres)
-    Test-Overlay unter testing/docker-compose.test.yml (dedizierte backend-test/frontend-test Services, source-gemountet, gegen das laufende Compose-Postgres/Redis; kein Deployment-File, siehe `make test`).
+    Test-Stack: testing/docker-compose.test.yml ist ein EIGENSTÄNDIGES Compose-Projekt (eigener Projektname, eigenes Netzwerk/Volume-Namespace) mit 4 Services: postgres-test (pgvector/pgvector:pg16, fsync off), redis-test (redis:8-alpine), backend-test (Build aus backend/Dockerfile) und frontend-test. Er lädt deploy/docker-compose.yml bewusst NICHT (siehe Datei-Header, #1387); kein Deployment-File, Aufruf über `make test-*` bzw. mit explizitem `-p <project>-test`.
     E2E-Tests (Playwright/Chromium) laufen lokal auf dem Host gegen den laufenden Stack; CI (.github/workflows/playwright.yml) nutzt einen GitHub-hosted ubuntu-latest-Runner mit Postgres-/Redis-Service-Containern und 4 Shards.
     Binary-Strategie: B (Apt im Dockerfile) — keine init-container / externen Binaries.
   APP_URL: http://localhost:5173
@@ -417,7 +456,7 @@ variables:
     Health-Check (kein Auth): `GET http://localhost:8001/health/`
   BINARY_NAME: ''
   BINARY_URL: ''
-  BASE_IMAGE: python:3.12-slim
+  BASE_IMAGE: python:3.15-slim
   APT_PACKAGES: libpq-dev gcc git (Builder) / libpq5 curl procps (Runtime)
   APP_USER: app
   TEST_BASE_IMAGE: ubuntu-latest (GitHub-hosted Runner; die E2E-CI nutzt KEIN Container-Image,
