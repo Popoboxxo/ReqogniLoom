@@ -217,14 +217,15 @@ EXCLUDED_MODEL_FIELDS: frozenset[str] = frozenset(
 #: name but an ordinary user-editable field on another.
 #:
 #: Task 20 review finding F-1: ``severity`` used to sit in the global
-#: exclusion set above. That is correct for ``Risk.severity`` — a persisted
-#: value derived from ``risk_score`` (see the field's own comment in
-#: persistence/models.py) — but wrong for ``Issue.severity``: an ordinary
-#: 4-choice ``ChoiceField``, writable on ``IssueSerializer`` and documented as
-#: user-settable (L3_COMP-AS-015_IssueService_Requirements.md). The global
-#: exclusion hid it on both models; it belongs on Risk only.
+#: exclusion set above. ``Risk.severity`` is now introspected **on purpose**
+#: (#1707, beta.29): it became a writable enum (``low|medium|high``) with a
+#: configurable write policy (``editable: true|automation``), so the resolved
+#: attribute definition has to carry it as a real attribute. Excluding the
+#: column was exactly why the attribute gateway never knew the field and the
+#: DRF serializer plus the old ``number`` ext twin disagreed about its type.
+#: ``Issue.severity`` was never excluded after F-1 and still is not.
 #:
-#: ``Risk.owner`` (Attribut v3 WS2, #936) joins ``severity`` here: it is the
+#: ``Risk.owner`` (Attribut v3 WS2, #936) stays here: it is the
 #: legacy free-text owner column the spec retires in favour of the
 #: Artifact-level ``owner`` Actor FK (spec sections 3/10). WS7 (#940) renamed
 #: the column to ``Risk.owner_name`` (same DB column) and folds it onto the
@@ -241,7 +242,7 @@ EXCLUDED_MODEL_FIELDS: frozenset[str] = frozenset(
 #: rather than marked read-only because the field is genuinely writable — the
 #: adapter is its one intended editor, not the definition-driven renderer.
 PER_ITEM_TYPE_EXCLUDED_FIELDS: dict[str, frozenset[str]] = {
-    "Risk": frozenset({"severity", "owner_name"}),
+    "Risk": frozenset({"owner_name"}),
     "TestCase": frozenset({"scenario_kind"}),
 }
 
@@ -306,6 +307,9 @@ CLASSIFICATION_FIELDS: frozenset[str] = frozenset(
         "category", "type", "kind", "level", "test_type", "element_type",
         "severity_level", "moscow_priority", "complexity_fibonacci",
         "probability", "impact", "detection",
+        # #1707: ``Risk.severity``/``Issue.severity`` sit in the matrix's
+        # "Klassifikation" group, not in the ``general`` catch-all.
+        "severity",
     }
 )
 

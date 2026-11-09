@@ -730,6 +730,7 @@ class WorkflowTransitionsMixin:
         serializer_cls: type | None = None,
         pk: str | None = None,
         ctx: Any = None,
+        omit_fields: frozenset[str] = frozenset(),
     ) -> Response | None:
         """Validate PATCH field names; return a 400 Response or ``None`` if OK.
 
@@ -763,6 +764,12 @@ class WorkflowTransitionsMixin:
         violations are reported. It runs last so a structural problem is still
         reported as one, and so the definition lookup is skipped for a request
         that was going to be rejected anyway.
+
+        ``omit_fields`` hides names from that fourth rule only. A caller that
+        has already established "this value is an unchanged echo" (Risk
+        ``severity``, #1707) uses it so an ``editable="automation"`` attribute
+        does not reject a resent form that carries no change. Structural rules
+        above still see the field.
         """
         from rest_api.serializers import build_error_response  # see transitions()
 
@@ -838,8 +845,13 @@ class WorkflowTransitionsMixin:
         # ``existing`` is a presence marker, not the row's values: it selects
         # UPDATE semantics in ``validate_values`` (only the fields the request
         # actually carries are checked), which is all that distinction needs.
+        attribute_payload = (
+            {k: v for k, v in data.items() if k not in omit_fields}
+            if omit_fields
+            else dict(data)
+        )
         return self._validate_attribute_definition(
-            ctx, self._resolve_workspace_id(pk, ctx), dict(data), {"__exists__": True}
+            ctx, self._resolve_workspace_id(pk, ctx), attribute_payload, {"__exists__": True}
         )
 
     @staticmethod

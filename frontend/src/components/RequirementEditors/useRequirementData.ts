@@ -39,6 +39,52 @@ export interface UseRequirementDataOptions {
    * list would keep showing records the user just deleted.
    */
   includeDeleted?: boolean;
+  /**
+   * #1668: allocation filter, applied **server-side** (`?allocated=`).
+   * ``all`` sends nothing; ``allocated``/``unallocated`` map onto
+   * ``allocated=true|false``.
+   */
+  allocation?: RequirementAllocationFilter;
+}
+
+/**
+ * #1668: UI filter over the `allocated-to` TraceLink. `allocated` requires at
+ * least one allocation link, `unallocated` requires none. The value is a
+ * persisted list filter, so it is a string union rather than a boolean.
+ */
+export type RequirementAllocationFilter = "all" | "allocated" | "unallocated";
+
+/** Shape guard for {@link RequirementAllocationFilter} (persisted state). */
+export function isRequirementAllocationFilter(
+  value: unknown,
+): value is RequirementAllocationFilter {
+  return value === "all" || value === "allocated" || value === "unallocated";
+}
+
+/**
+ * Translate the UI filter onto the API's tri-state `allocated` parameter.
+ * `all` becomes `undefined` (the parameter is omitted, not sent as an empty
+ * string — the backend parses it as a boolean).
+ */
+export function allocationToQueryParam(
+  allocation: RequirementAllocationFilter | undefined,
+): boolean | undefined {
+  if (allocation === "allocated") return true;
+  if (allocation === "unallocated") return false;
+  return undefined;
+}
+
+/**
+ * sessionStorage key of the persisted allocation filter.
+ *
+ * Per-workspace on purpose (review finding F-02 on the sibling list filters):
+ * a shared key would carry one workspace's selection onto the next, making a
+ * freshly opened workspace look filtered/empty for no visible reason.
+ */
+export function requirementAllocationStorageKey(
+  workspaceId: string | undefined,
+): string {
+  return `reqlo:list-state:requirements:${workspaceId ?? "no-workspace"}:allocation`;
 }
 
 export function useRequirementData(
@@ -49,7 +95,11 @@ export function useRequirementData(
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
-  const listQuery = useRequirementsList(workspaceId, options?.includeDeleted ?? false);
+  const listQuery = useRequirementsList(
+    workspaceId,
+    options?.includeDeleted ?? false,
+    allocationToQueryParam(options?.allocation),
+  );
   const detailQuery = useRequirementDetail(workspaceId, selectedId);
 
   const refresh = (): void => {

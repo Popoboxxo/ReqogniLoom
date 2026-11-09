@@ -264,11 +264,11 @@ export function UserManagement(): JSX.Element {
           <table data-testid="user-management-table" className={styles.table}>
             <thead>
               <tr className={styles.tableHeadRow}>
-                <th className={styles.th}>{t("settings.userManagement.username")}</th>
-                <th className={styles.th}>{t("settings.userManagement.email")}</th>
-                <th className={styles.th}>{t("settings.userManagement.status")}</th>
-                <th className={styles.th}>{t("settings.userManagement.tenantAdmin")}</th>
-                <th className={styles.th} />
+                <th scope="col" className={styles.th}>{t("settings.userManagement.username")}</th>
+                <th scope="col" className={styles.th}>{t("settings.userManagement.email")}</th>
+                <th scope="col" className={styles.th}>{t("settings.userManagement.status")}</th>
+                <th scope="col" className={styles.th}>{t("settings.userManagement.tenantAdmin")}</th>
+                <th scope="col" className={styles.th} />
               </tr>
             </thead>
             <tbody>

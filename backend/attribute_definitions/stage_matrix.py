@@ -670,17 +670,13 @@ MATRIX_ATTRIBUTES: Mapping[str, tuple[dict[str, Any], ...]] = {
         _new("review_cycle", "date", section=SEC_ATTRIBUTION, order=121,
              label_de="Review-Zyklus", label_en="Review cycle",
              visible_stages={2, 3}, mandatory_stages={3}),
-        # Matrix carrier is `ext` with an `automation` edit policy (RPN-derived).
-        # ``Risk.severity`` is a persisted derived column and stays excluded from
-        # introspection (PER_ITEM_TYPE_EXCLUDED_FIELDS); this extended twin is
-        # the future AWMS-owned carrier and is writable today only so the
-        # contract matrix can exercise it.
-        _new("severity", "number", section=SEC_CLASSIFICATION, order=122,
-             label_de="Schweregrad (RPN)", label_en="Severity (RPN)",
-             visible_stages={2, 3}, mandatory_stages={3},
-             editable="automation",
-             help_de="Automatisch aus der Risikomatrix abgeleitet (RPN).",
-             help_en="Derived from the risk matrix (RPN)."),
+        # #1707: ``Risk.severity`` is a real, column-backed enum
+        # (``low|medium|high``) and is introspected by the bootstrap like every
+        # other model column — there is no second, extended carrier any more.
+        # The old ext twin here declared ``number``, so the attribute gateway
+        # rejected the wire value ``"high"`` with "must be a number" while the
+        # serializer rejected ``7``; exactly one carrier, one type. The staged
+        # visibility/mandatory flags moved to ``PER_ITEM_TYPE_STAGE_METADATA``.
     ),
     "Issue": (
         # ADR-006: `assignee` is now a **multi-value Actor reference** (column
@@ -835,6 +831,10 @@ MATRIX_OVERRIDES: Mapping[str, Mapping[str, Mapping[str, Any]]] = {
         "detection": {"visible": {2, 3}, "mandatory": {}},
         "risk_matrix": {"visible": {2, 3}, "mandatory": {3}},
         "mitigation_strategy": {"visible": {1, 2, 3}, "mandatory": {2, 3}},
+        # #1707: `severity` is now the introspected core column (enum
+        # `low|medium|high`, no extended twin). Its staged visibility/mandatory
+        # flags are carried here exactly as the matrix document specifies.
+        "severity": {"visible": {2, 3}, "mandatory": {3}},
     },
     "Issue": {
         "description": {"visible": {1, 2, 3}, "mandatory": {2, 3}},

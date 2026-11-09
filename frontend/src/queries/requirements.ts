@@ -30,15 +30,23 @@ export const requirementKeys = {
  * `requirementKeys.list(workspaceId)`, so the existing
  * `invalidateQueries({ queryKey: requirementKeys.list(ws) })` calls still match
  * both by prefix.
+ *
+ * #1668: `allocated` is the server-side allocation filter (`true` = has an
+ * `allocated-to` link, `false` = has none, `undefined` = off). It is part of
+ * the query key for the same reason as `includeDeleted`.
  */
 export function useRequirementsList(
   workspaceId: UUID | undefined,
   includeDeleted = false,
+  allocated?: boolean,
 ) {
   return useQuery({
-    queryKey: [...requirementKeys.list(workspaceId ?? ""), { includeDeleted }],
+    queryKey: [
+      ...requirementKeys.list(workspaceId ?? ""),
+      { includeDeleted, allocated },
+    ],
     queryFn: () =>
-      requirementsApi.listAll(workspaceId as UUID, { includeDeleted }),
+      requirementsApi.listAll(workspaceId as UUID, { includeDeleted, allocated }),
     enabled: !!workspaceId,
   });
 }

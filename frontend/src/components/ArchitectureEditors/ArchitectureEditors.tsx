@@ -34,6 +34,7 @@ import { ArchitectureLegend } from "./ArchitectureLegend";
 import { Dialog } from "../shared/Dialog";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { SAVE_SHORTCUT_ARIA, useSaveShortcut } from "../../hooks/useSaveShortcut";
+import { useRequiredValidation } from "../shared/useRequiredValidation";
 import { TraceLinkPanel } from "../shared/TraceLinkPanel";
 import { DeriveRequirementForm } from "../shared/DeriveRequirementForm";
 import { ArchitectureDecomposePanel } from "../ArchitectureDecompose/ArchitectureDecomposePanel";
@@ -156,6 +157,14 @@ export default function ArchitectureEditors(): JSX.Element {
   const { field } = useFieldContract('ArchitectureElement', {
     enabled: showCreateForm,
   });
+  // #1732: replaces the #1595 "disabled + hint" decision. The Create button
+  // stays active, a click validates, the field is marked and focused.
+  const {
+    errors: requiredErrors,
+    validate,
+    focusFirstInvalid,
+    clearError,
+  } = useRequiredValidation();
 
   // "Ableiten": create a Requirement allocated to the selected element
   // (SE: Req --allocated-to--> ArchitectureElement).
@@ -352,14 +361,21 @@ export default function ArchitectureEditors(): JSX.Element {
     // two entry points both route here, so one guard covers the dialog; the
     // tree's own "+ child" path (`handleCreate`) is a separate, single gesture.
     if (submittingRef.current) return;
-    if (!newTitle.trim()) return;
+    const fields = [
+      { name: 'title', value: newTitle, inputId: 'arch-new-title' },
+    ];
+    const invalid = validate(fields);
+    if (invalid.length > 0) {
+      focusFirstInvalid(fields, invalid);
+      return;
+    }
     submittingRef.current = true;
     try {
       await handleCreate(undefined, newTitle.trim(), newDescription);
     } finally {
       submittingRef.current = false;
     }
-  }, [newTitle, newDescription, handleCreate]);
+  }, [newTitle, newDescription, handleCreate, validate, focusFirstInvalid]);
 
   // #1100: the inline create form is hand-written, so it opts into the shared
   // shortcut (see AdrEditors for the same wiring and the topmost-form
@@ -689,22 +705,20 @@ export default function ArchitectureEditors(): JSX.Element {
             htmlFor="arch-new-title"
             label={t('editor.title', 'Title')}
             required={field('title').required}
-            // #1595: while the title is empty the Create button is disabled;
-            // this hint states why and is wired to the control via
-            // `aria-describedby` + `aria-invalid` (FormField).
-            hint={
-              newTitle.trim().length === 0
-                ? t('editor.titleRequired', 'Titel ist erforderlich.')
-                : null
-            }
-            error={createFieldErrors.title?.join(', ')}
+            // #1732: the empty-title refusal is a click-time message at the
+            // field (role="alert" via FormField), not a disabled button with
+            // a standing hint.
+            error={requiredErrors.title ?? createFieldErrors.title?.join(', ')}
             labelClassName={styles.createTitleLabel}
           >
             <input
               id="arch-new-title"
               data-testid="arch-new-title-input"
               ref={newTitleInputRef}
-              type="text" value={newTitle} onChange={(e) => setNewTitle(e.target.value)}
+              type="text" value={newTitle} onChange={(e) => {
+                setNewTitle(e.target.value);
+                clearError('title');
+              }}
               placeholder={t('arch.newElementTitle')}
               className={styles.createTitleInput}
               {...field('title').controlProps}
@@ -748,12 +762,7 @@ export default function ArchitectureEditors(): JSX.Element {
               data-testid="arch-new-save-btn"
               type="submit"
               className="btn-primary"
-              disabled={isCreating || !newTitle.trim()}
-              // #1595: the disabled state stays, but it points at the title
-              // hint so the blocked action is explainable.
-              aria-describedby={
-                newTitle.trim().length === 0 ? 'arch-new-title-hint' : undefined
-              }
+              disabled={isCreating}
               aria-keyshortcuts={SAVE_SHORTCUT_ARIA}
               title={t('artifactForm.saveShortcutHint', 'Speichern (Strg/Cmd+S)')}
             >

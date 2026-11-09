@@ -329,16 +329,15 @@ export default function NeedsEditors(): JSX.Element {
   // to the button on close regardless of that timing.
   const createTriggerRef = React.useRef<HTMLButtonElement | null>(null);
   useSaveShortcut({
-    onSave: handleCreateNew,
+    // #1732: the chord goes through the form's own submit path, exactly like a
+    // click — that is what runs the required-field validation and the focus
+    // move. Calling `handleCreateNew` directly would bypass both and swallow
+    // an empty title without explaining it.
+    onSave: () => createFormRef.current?.requestSubmit(),
     enabled: showCreate,
     isSaving: isCreating,
     containerRef: createFormRef,
-    // FR-U5-02 / a11y-U5-02: mirror the create submit button's own gate. An
-    // empty title must not reach a submit path that only early-returns
-    // silently; the chord is still swallowed, but `onSave` is not called
-    // (WCAG 3.3.1). Siblings (Adr/Risk/Issue/TestCase/Architecture) already
-    // pass this predicate.
-    canSave: (newTitle || '').trim().length > 0,
+    canSave: true,
   });
 
   // Shared by the PageHeader primary action and (formerly) the NeedList

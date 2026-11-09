@@ -78,6 +78,8 @@ function renderList(requirements: Requirement[]): ReturnType<typeof render> {
       onSelect={vi.fn()}
       onDelete={vi.fn()}
       onCreateNew={vi.fn()}
+      allocation="all"
+      onAllocationChange={vi.fn()}
     />,
   );
 }

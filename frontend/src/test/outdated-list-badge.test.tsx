@@ -87,6 +87,8 @@ describe("artifact lists — outdated badge (D6)", () => {
         onSelect={vi.fn()}
         onDelete={vi.fn()}
         onCreateNew={vi.fn()}
+        allocation="all"
+        onAllocationChange={vi.fn()}
       />,
     );
     expect(screen.getByTestId("req-row-req-1-outdated")).toBeInTheDocument();

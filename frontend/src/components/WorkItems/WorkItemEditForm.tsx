@@ -9,6 +9,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useRequiredValidation } from "../shared/useRequiredValidation";
 
 import { MarkdownField } from "../shared/MarkdownField/MarkdownField";
 import type { WorkItem, WorkItemKind } from "../../types";
@@ -79,12 +80,42 @@ export function WorkItemEditForm({
       progressNumber <= 100);
   const ordinalNumber = Number(ordinal);
   const ordinalValid = Number.isInteger(ordinalNumber) && ordinalNumber >= 0;
-  const canSave =
-    title.trim().length > 0 && progressValid && ordinalValid && !isSaving;
+  // #1732: the submit stays active and explains itself on click; the old
+  // `canSave` predicate hid the reason behind a disabled button.
+  const {
+    errors: requiredErrors,
+    validate,
+    focusFirstInvalid,
+    clearError,
+    fieldProps,
+    errorId,
+  } = useRequiredValidation();
 
   const submit = (event: React.FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (!canSave) return;
+    if (isSaving) return;
+    const fields = [
+      { name: "title", value: title, inputId: "work-item-edit-title" },
+      {
+        name: "ordinal",
+        value: String(ordinal),
+        inputId: "work-item-edit-ordinal",
+        isValid: ordinalValid,
+        message: t("validation.numberInteger"),
+      },
+      {
+        name: "progress",
+        value: progress,
+        inputId: "work-item-edit-progress",
+        isValid: progressValid,
+        message: t("validation.percentRange"),
+      },
+    ];
+    const invalid = validate(fields);
+    if (invalid.length > 0) {
+      focusFirstInvalid(fields, invalid);
+      return;
+    }
     const payload: WorkItemUpdatePayload = {};
     if (title !== item.title) payload.title = title;
     if (kind !== item.kind) payload.kind = kind;
@@ -104,7 +135,13 @@ export function WorkItemEditForm({
   };
 
   return (
-    <form className={styles.form} data-testid="work-item-edit" onSubmit={submit}>
+    // `noValidate`: the app's click-time validation is the contract (#1732).
+    <form
+      className={styles.form}
+      data-testid="work-item-edit"
+      noValidate
+      onSubmit={submit}
+    >
       <div className={styles.field}>
         <label className={styles.label} htmlFor="work-item-edit-title">
           {t("work_items.fieldTitle")}
@@ -118,8 +155,22 @@ export function WorkItemEditForm({
           maxLength={255}
           required
           disabled={isSaving}
-          onChange={(event) => setTitle(event.target.value)}
+          onChange={(event) => {
+            setTitle(event.target.value);
+            clearError("title");
+          }}
+          {...fieldProps("title")}
         />
+        {requiredErrors.title ? (
+          <p
+            id={errorId("title")}
+            role="alert"
+            className={styles.error}
+            data-testid="work-item-edit-title-error"
+          >
+            {requiredErrors.title}
+          </p>
+        ) : null}
       </div>
 
       <div className={styles.field}>
@@ -155,8 +206,22 @@ export function WorkItemEditForm({
           step={1}
           value={ordinal}
           disabled={isSaving}
-          onChange={(event) => setOrdinal(event.target.value)}
+          onChange={(event) => {
+            setOrdinal(event.target.value);
+            clearError("ordinal");
+          }}
+          {...fieldProps("ordinal")}
         />
+        {requiredErrors.ordinal ? (
+          <p
+            id={errorId("ordinal")}
+            role="alert"
+            className={styles.error}
+            data-testid="work-item-edit-ordinal-error"
+          >
+            {requiredErrors.ordinal}
+          </p>
+        ) : null}
       </div>
 
       <div className={styles.field}>
@@ -173,8 +238,22 @@ export function WorkItemEditForm({
           step={1}
           value={progress}
           disabled={isSaving}
-          onChange={(event) => setProgress(event.target.value)}
+          onChange={(event) => {
+            setProgress(event.target.value);
+            clearError("progress");
+          }}
+          {...fieldProps("progress")}
         />
+        {requiredErrors.progress ? (
+          <p
+            id={errorId("progress")}
+            role="alert"
+            className={styles.error}
+            data-testid="work-item-edit-progress-error"
+          >
+            {requiredErrors.progress}
+          </p>
+        ) : null}
       </div>
 
       <div className={styles.field}>
@@ -307,7 +386,7 @@ export function WorkItemEditForm({
           type="submit"
           className="btn-primary"
           data-testid="work-item-edit-save"
-          disabled={!canSave}
+          disabled={isSaving}
         >
           {isSaving ? t("work_items.saving") : t("work_items.save")}
         </button>

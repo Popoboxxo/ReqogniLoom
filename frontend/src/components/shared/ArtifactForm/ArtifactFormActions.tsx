@@ -18,9 +18,11 @@ import { RequiredMark } from "../FormField";
 import styles from "./ArtifactForm.module.css";
 
 /**
- * #1595: stable id of the visible "required fields are still empty" hint. The
- * disabled Create button points at it via `aria-describedby`, so the blocked
- * action is explained instead of being a silent disabled control.
+ * #1595/#1732: stable id of the visible "required fields are still empty"
+ * hint. Since #1732 the Create button is no longer disabled by an empty field
+ * (a click validates and explains at the field itself), so the hint is a
+ * proactive `role="status"` summary rather than the only explanation of a
+ * greyed-out control.
  */
 const CREATE_HINT_ID = "artifact-form-create-hint";
 
@@ -124,10 +126,10 @@ export function ArtifactFormActions({
         </label>
       ) : null}
 
-      {/* #1595: the create action is disabled while required fields are empty.
-          This hint names them, and the disabled Save/Create button below points
-          at it — a disabled control with no stated reason is the bug. */}
-      {!isReadOnly && artifactId === null && missingCreateLabels.length > 0 ? (
+      {/* #1595, updated by #1732: an empty required field no longer disables
+          the create action — the click explains itself at each field. This
+          hint stays as a proactive summary of what is still missing. */}
+      {!isReadOnly && artifactId === null && missingCreateValue && missingCreateLabels.length > 0 ? (
         <p
           id={CREATE_HINT_ID}
           data-testid={CREATE_HINT_ID}
@@ -163,14 +165,10 @@ export function ArtifactFormActions({
             type="submit"
             className="btn-primary"
             data-testid={saveTestId}
-            disabled={saving || missingCreateValue}
-            // #1595: while disabled by empty required fields, point the button
-            // at the hint that names them.
-            aria-describedby={
-              artifactId === null && missingCreateLabels.length > 0
-                ? CREATE_HINT_ID
-                : undefined
-            }
+            // #1732: only an in-flight save disables the action. An empty
+            // required field is reported on click (field-level role="alert" +
+            // focus), never by a silent disabled state.
+            disabled={saving}
             // Issue #1087: the shortcut has to be discoverable on the control
             // that also performs it. `aria-keyshortcuts` is the machine-
             // readable form (WAI-ARIA 1.2) and the only one assistive tech can

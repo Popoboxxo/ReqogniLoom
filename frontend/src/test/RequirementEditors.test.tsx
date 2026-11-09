@@ -810,7 +810,7 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
   // must refuse to submit instead of quietly inventing content.
   // -----------------------------------------------------------------------
 
-  it("disables the save button while the title is empty (BUG-02)", async () => {
+  it("explains an empty title on click instead of disabling Create (#1732)", async () => {
     const user = userEvent.setup();
     renderEditor();
 
@@ -821,11 +821,22 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
 
     // #583 create path: the dialog exposes the legacy automation selectors
     // (req-new-title-input / req-new-save-btn) on the definition-driven form.
-    expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
+    const save = screen.getByTestId("req-new-save-btn");
+    // #1732 supersedes the BUG-02 "disabled" decision: the button is reachable
+    // and the refusal is explained where it happens.
+    expect(save).toBeEnabled();
+
+    await user.click(save);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/required|erforderlich/i);
+    expect(screen.getByTestId("req-new-title-input")).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
     expect(requirementsApi.create).not.toHaveBeenCalled();
   });
 
-  it("keeps the save button disabled for a whitespace-only title and never calls the API (BUG-02)", async () => {
+  it("never creates from a whitespace-only title and explains it (BUG-02/#1732)", async () => {
     const user = userEvent.setup();
     renderEditor();
 
@@ -836,14 +847,12 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
     await screen.findByTestId("artifact-form");
     await user.type(screen.getByTestId("req-new-title-input"), "   ");
 
-    expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
-
-    // Guard against a future regression that removes `disabled` but still
-    // wires the click handler permissively: submitting the form directly
-    // must still be a no-op.
+    // Submitting the form directly (the chord path) must be refused too, with
+    // the same field-level explanation — not a silent no-op.
     const form = screen.getByTestId("artifact-form");
     fireEvent.submit(form);
     expect(requirementsApi.create).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/required|erforderlich/i);
   });
 
   it("enables the save button once a non-blank title is typed and creates with the typed title verbatim (BUG-02)", async () => {
@@ -860,10 +869,11 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
     );
     await user.click(screen.getByTestId("create-req-btn"));
     await screen.findByTestId("artifact-form");
-    expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
+    // #1732: the action is always reachable; only the in-flight state
+    // disables it.
+    expect(screen.getByTestId("req-new-save-btn")).toBeEnabled();
 
     await user.type(screen.getByTestId("req-new-title-input"), "Real title");
-    expect(screen.getByTestId("req-new-save-btn")).toBeEnabled();
 
     await user.click(screen.getByTestId("req-new-save-btn"));
 
@@ -874,11 +884,11 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
     });
   });
 
-  // #1595: Requirement creates through the definition-driven ArtifactForm, so
-  // the explanation lives there: the form names the still-empty required fields
-  // and the disabled Create button points at that hint; the blocking control
-  // itself carries `aria-invalid`.
-  it("explains the disabled create button while the required title is empty (#1595)", async () => {
+  // #1732 (supersedes #1595): Requirement creates through the
+  // definition-driven ArtifactForm. The submit stays active; a click reports
+  // the still-empty required title at the control (role="alert" + aria wiring)
+  // and moves focus there. The proactive summary hint keeps naming the fields.
+  it("reports the empty required title at the field on click (#1732)", async () => {
     const user = userEvent.setup();
     renderEditor();
 
@@ -891,15 +901,26 @@ describe("RequirementEditors — server validation errors are visible (#339/#340
     const input = screen.getByTestId("req-new-title-input");
     const save = screen.getByTestId("req-new-save-btn");
 
-    expect(save).toBeDisabled();
+    expect(save).toBeEnabled();
     const hint = screen.getByTestId("artifact-form-create-hint");
     expect(hint).toHaveAttribute("role", "status");
     expect(hint.textContent?.trim().length).toBeGreaterThan(0);
+    expect(input).toHaveAttribute("aria-invalid", "false");
+
+    await user.click(save);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/required|erforderlich/i);
     expect(input).toHaveAttribute("aria-invalid", "true");
-    expect(save).toHaveAttribute("aria-describedby", "artifact-form-create-hint");
+    expect(input).toHaveAttribute(
+      "aria-describedby",
+      expect.stringContaining("req-new-title-input-error"),
+    );
+    expect(input).toHaveFocus();
 
     await user.type(input, "Ein Titel");
 
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByTestId("artifact-form-create-hint")).not.toBeInTheDocument();
     expect(input).toHaveAttribute("aria-invalid", "false");
     expect(save).toBeEnabled();
@@ -1225,7 +1246,7 @@ describe("RequirementEditors — create form has description/category fields (BU
       expect(screen.queryByTestId("artifact-field-uid")).not.toBeInTheDocument();
     });
 
-    it("keeps the save button disabled until every required field has a value", async () => {
+    it("names every missing required field on click and clears them as they are filled (#1732)", async () => {
       extendedDefinition();
       const user = userEvent.setup();
       renderEditor();
@@ -1236,9 +1257,20 @@ describe("RequirementEditors — create form has description/category fields (BU
       await user.click(screen.getByTestId("create-req-btn"));
       await screen.findByTestId("artifact-form");
 
-      expect(screen.getByTestId("req-new-save-btn")).toBeDisabled();
+      const save = screen.getByTestId("req-new-save-btn");
+      // The action is reachable in every state; the click is what reports.
+      expect(save).toBeEnabled();
+
+      await user.click(save);
+      const alerts = await screen.findAllByRole("alert");
+      expect(alerts.length).toBeGreaterThan(0);
+
       await user.type(screen.getByTestId("req-new-title-input"), "Only title");
-      expect(screen.getByTestId("req-new-save-btn")).toBeEnabled();
+
+      // Typing the value clears that field's message; others stay until filled.
+      expect(
+        screen.queryByTestId("req-new-title-input-error"),
+      ).not.toBeInTheDocument();
     });
 
     it("falls back to the minimal dialog when the definition fails to load", async () => {

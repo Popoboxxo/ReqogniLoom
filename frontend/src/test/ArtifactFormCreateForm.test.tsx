@@ -9,7 +9,7 @@
  * attribute definition in charge — the pre-#1263 behaviour.
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveLocaleKey } from "./i18n-test-helpers";
@@ -145,13 +145,29 @@ describe("ArtifactForm create-form overlay (#1263)", () => {
     expect(screen.queryByTestId("artifact-field-secret")).not.toBeInTheDocument();
   });
 
-  it("blocks Create for a field the form definition marks required", async () => {
+  it("explains a required field on click instead of disabling Create (#1732)", async () => {
     mockDefinition([spec({ name: "title" })]);
     createFormEntries = [entry("title", { required: true })];
     renderCreate();
 
     const save = await screen.findByTestId("artifact-form-save");
-    await waitFor(() => expect(save).toBeDisabled());
+    const control = await screen.findByTestId("artifact-field-title");
+    // The submit stays reachable: a disabled control with no stated reason was
+    // the #1732 defect.
+    expect(save).toBeEnabled();
+    expect(control).toHaveAttribute("aria-invalid", "false");
+
+    fireEvent.click(save);
+
+    const alerts = await screen.findAllByRole("alert");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toHaveTextContent(/erforderlich|required/i);
+    expect(control).toHaveAttribute("aria-invalid", "true");
+    expect(control).toHaveAttribute(
+      "aria-describedby",
+      expect.stringContaining("artifact-field-title-error"),
+    );
+    expect(control).toHaveFocus();
   });
 
   it("reorders the controls according to the form definition's order", async () => {

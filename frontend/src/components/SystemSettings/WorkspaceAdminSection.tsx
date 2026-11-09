@@ -12,6 +12,7 @@
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { useRequiredValidation } from "../shared/useRequiredValidation";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { workspacesApi } from "../../api/workspaces";
 import { BackupRestoreSection } from "../WorkspaceSettings/BackupRestoreSection";
@@ -88,8 +89,27 @@ export function WorkspaceAdminSection(): JSX.Element {
     }
   }, [activeWorkspace, deleteConfirmation, navigate, t]);
 
+  // #1732: an empty sandbox name is explained on click at the field instead of
+  // disabling the button silently.
+  const {
+    errors: requiredErrors,
+    validate,
+    focusFirstInvalid,
+    clearError,
+    fieldProps,
+    errorId,
+  } = useRequiredValidation();
+
   const handleCloneWorkspace = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace || !cloneName.trim()) return;
+    if (!activeWorkspace) return;
+    const fields = [
+      { name: "cloneName", value: cloneName, inputId: "clone-workspace-name" },
+    ];
+    const invalid = validate(fields);
+    if (invalid.length > 0) {
+      focusFirstInvalid(fields, invalid);
+      return;
+    }
     setSaveError(null);
     setIsCloning(true);
     try {
@@ -103,7 +123,14 @@ export function WorkspaceAdminSection(): JSX.Element {
     } finally {
       setIsCloning(false);
     }
-  }, [activeWorkspace, cloneName, navigate, reloadWorkspaces]);
+  }, [
+    activeWorkspace,
+    cloneName,
+    navigate,
+    reloadWorkspaces,
+    validate,
+    focusFirstInvalid,
+  ]);
 
   if (!activeWorkspace) {
     return <p className={styles.emptyMessage}>{t("errors.generic")}</p>;
@@ -192,18 +219,23 @@ export function WorkspaceAdminSection(): JSX.Element {
         {activeWorkspace.is_active !== false && (
           <div className={styles.cloneRow}>
             <input
+              id="clone-workspace-name"
               type="text"
               placeholder={t("settings.cloneNamePlaceholder")}
               value={cloneName}
-              onChange={(e) => setCloneName(e.target.value)}
+              onChange={(e) => {
+                setCloneName(e.target.value);
+                clearError("cloneName");
+              }}
               className={styles.cloneInput}
+              {...fieldProps("cloneName")}
             />
             <button
               type="button"
               className="btn-primary"
               data-testid="clone-workspace-btn"
               onClick={() => void handleCloneWorkspace()}
-              disabled={isCloning || !cloneName.trim()}
+              disabled={isCloning}
             >
               {isCloning
                 ? t("settings.cloningSandbox")
@@ -211,6 +243,16 @@ export function WorkspaceAdminSection(): JSX.Element {
             </button>
           </div>
         )}
+        {activeWorkspace.is_active !== false && requiredErrors.cloneName ? (
+          <p
+            id={errorId("cloneName")}
+            role="alert"
+            data-testid="clone-workspace-name-error"
+            className={styles.fieldError}
+          >
+            {requiredErrors.cloneName}
+          </p>
+        ) : null}
 
         {activeWorkspace.is_active === false && (
           <button

@@ -222,6 +222,11 @@
     "errorRequired": "Bitte geben Sie einen Namen an.",
     "errorGeneric": "Workspace konnte nicht erstellt werden."
   },
+  "validation": {
+    "required": "Dieses Feld ist erforderlich.",
+    "numberInteger": "Bitte eine ganze Zahl ab 0 eingeben.",
+    "percentRange": "Bitte eine ganze Zahl zwischen 0 und 100 eingeben."
+  },
   "errors": {
     "generic": "Ein unerwarteter Fehler ist aufgetreten.",
     "not_found": "Ressource nicht gefunden.",
@@ -435,6 +440,10 @@
     "searchPlaceholder": "Nach Titel oder ID suchen...",
     "allCategories": "Alle Kategorien",
     "allStatuses": "Alle Status",
+    "allAllocations": "Alle (Allokation)",
+    "allocated": "Allokiert",
+    "unallocated": "Nicht allokiert",
+    "unallocatedCount": "{{count}} nicht allokiert",
     "showDeleted": "Gelöschte anzeigen",
     "showOutdated": "Veraltete anzeigen",
     "outdatedBadge": "Veraltet",
@@ -2023,7 +2032,8 @@
     "revokeConfirm": "Diesen Token widerrufen? Clients, die ihn verwenden, verlieren sofort den Zugriff.",
     "empty": "Noch keine Token vorhanden.",
     "newKeyLabel": "API-Key",
-    "expiresLabel": "Ablaufdatum"
+    "expiresLabel": "Ablaufdatum",
+    "expiresRequired": "Für diesen Workspace ist ein Ablaufdatum erforderlich."
   },
   "memorySelfService": {
     "title": "Mein Memory",

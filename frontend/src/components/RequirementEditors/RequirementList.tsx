@@ -38,6 +38,7 @@ import type {
   WorkspaceTreeGroup,
   WorkspaceTreeNode,
 } from '../shared/WorkspaceTree';
+import type { RequirementAllocationFilter } from './useRequirementData';
 import { ArtifactRow } from '../shared/ArtifactRow';
 import type { ArtifactRowAttribute } from '../shared/ArtifactRow';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
@@ -271,6 +272,13 @@ interface RequirementListProps {
    * free of group API state; omitted by every pre-P6 caller.
    */
   groupPanel?: React.ReactNode;
+  /**
+   * #1668: server-side allocation filter, owned by the container because it
+   * drives the list query (`?allocated=`). Rendered here so it sits next to
+   * the other list filters; ``all`` is the unfiltered state.
+   */
+  allocation: RequirementAllocationFilter;
+  onAllocationChange: (value: RequirementAllocationFilter) => void;
 }
 
 /**
@@ -289,6 +297,8 @@ export const RequirementList: React.FC<RequirementListProps> = ({
   groups,
   onReorderGroupMember,
   groupPanel,
+  allocation,
+  onAllocationChange,
 }) => {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
@@ -402,12 +412,15 @@ export const RequirementList: React.FC<RequirementListProps> = ({
     [requirements, statusFilter],
   );
 
-  const hasActiveListControls = Boolean(listSearch || categoryFilter || statusFilter);
+  const hasActiveListControls = Boolean(
+    listSearch || categoryFilter || statusFilter || allocation !== 'all',
+  );
 
   const resetFilters = (): void => {
     setListSearch('');
     setCategoryFilter('');
     setStatusFilter('');
+    onAllocationChange('all');
   };
 
   const closeDeleteDialog = (): void => {
@@ -466,6 +479,19 @@ export const RequirementList: React.FC<RequirementListProps> = ({
             options: statusOptions,
             onChange: setStatusFilter,
           },
+          {
+            // #1668: server-side allocation filter, not a client-side one —
+            // "has an allocated-to link" is only known to the backend.
+            id: 'allocation',
+            allLabel: t('editor.allAllocations'),
+            value: allocation === 'all' ? '' : allocation,
+            options: [
+              { value: 'allocated', label: t('editor.allocated') },
+              { value: 'unallocated', label: t('editor.unallocated') },
+            ],
+            onChange: (value) =>
+              onAllocationChange((value || 'all') as RequirementAllocationFilter),
+          },
         ]}
         sortValue={sortKey}
         sortOptions={[
@@ -476,6 +502,20 @@ export const RequirementList: React.FC<RequirementListProps> = ({
         ]}
         onSortChange={(value) => setSortKey(value as ReqSortKey)}
         sortLabel={t('editor.sortLabel')}
+        actions={
+          allocation === 'unallocated' ? (
+            // #1668: the list is already server-filtered to the unallocated
+            // rows, so its length *is* the gap count. Visible only while that
+            // filter is active — a permanent "N unallocated" badge on an
+            // unfiltered list would be a number without a scope.
+            <span
+              data-testid="req-list-unallocated-count"
+              className={styles.unallocatedCount}
+            >
+              {t('editor.unallocatedCount', { count: requirements.length })}
+            </span>
+          ) : undefined
+        }
         countLabel={
           hasActiveListControls
             ? t('editor.filteredCount', {

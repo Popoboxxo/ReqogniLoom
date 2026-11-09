@@ -352,6 +352,21 @@ def validate_values(
         change it. This is what makes the bootstrapped Artifact ``id`` attribute
         (``editable="system"``, ``locked``, ``visible=false``) harmless on every
         create, and the same rule will back any future AWMS-owned field.
+
+    ``editable == "automation"``
+        Server-derived (spec section 6, precursor of generic computed fields;
+        #1707). Unlike ``"system"`` the name **is** a payload field — but a
+        client-supplied value is rejected with an explanation instead of being
+        dropped silently, because "200 and nothing happened" is exactly the
+        failure class this module exists to close. The value is therefore never
+        ``required`` from the client either: the server computes it.
+
+        An **unchanged echo** is not tolerated *here*: ``existing`` is a
+        presence marker only on the REST path, so "did it actually change?" is
+        not answerable in this DB-free seam. The caller that does know the
+        stored value (``RiskViewSet.partial_update`` for ``severity``) omits an
+        unchanged echo from the payload it submits
+        (``WorkflowTransitionsMixin._validate_patch_payload(omit_fields=…)``).
     """
     # Spec section 4.4's AND-condition: a section with ``visible=false`` hides
     # itself AND every attribute in it, whatever each attribute's own
@@ -371,6 +386,10 @@ def validate_values(
             attribute["required"]
             and attribute["visible"]
             and attribute["section"] not in hidden_sections
+            # #1707: an ``automation`` value is computed by the server, so it
+            # can never be demanded from the client — demanding it would make
+            # every create unsatisfiable (the value is rejected when sent).
+            and attribute["editable"] != "automation"
         )
 
     by_name = {a["name"]: a for a in attributes}
@@ -429,6 +448,16 @@ def validate_values(
         if not is_create and attribute["editable"] is False:
             errors.setdefault(name, []).append(
                 "is not editable and must not be sent in an update payload"
+            )
+            continue
+
+        if attribute["editable"] == "automation":
+            # #1707: server-derived value — a client value is refused with an
+            # actionable message on create *and* update (the echo tolerance for
+            # the REST detail panels lives in the view, see the module docstring).
+            errors.setdefault(name, []).append(
+                "is derived automatically and cannot be set by a client; "
+                "leave it out of the payload and read the computed value back"
             )
             continue
 

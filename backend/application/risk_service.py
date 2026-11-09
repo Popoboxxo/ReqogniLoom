@@ -117,6 +117,10 @@ class RiskValidator:
     VALID_PROBABILITIES = frozenset(Risk.Probability.values)
     VALID_IMPACTS = frozenset(Risk.Impact.values)
     VALID_CATEGORIES = frozenset(Risk.Category.values)
+    # #1707: ``severity`` is a writable enum since beta.29. The service keeps
+    # its own guard so the MCP/bulk paths (which do not go through the DRF
+    # serializer) report one clear message instead of a DB integrity error.
+    VALID_SEVERITIES = frozenset(Risk.Severity.values)
     # Datenmodell-Konsolidierung Phase 1: still used by transition_status()'s
     # target-state validation — unrelated to create-time status, which is
     # retired below (no longer a validate_create input).
@@ -170,6 +174,37 @@ class RiskService(ServiceBase):
 
         self._trace_link_service = trace_link_service or TraceLinkService()
 
+    # ---------- attribute policy ----------
+
+    def _severity_is_automated(self, ctx: AuthContext, workspace_id: UUID) -> bool:
+        """Whether the workspace definition marks ``severity`` as automated.
+
+        #1707: the write policy of ``severity`` lives in the resolved attribute
+        definition (``editable``: ``True`` = manual, ``"automation"`` = the
+        server derives the value from the risk score). This is the first —
+        deliberately narrow — consumer of the ``automation`` semantic that the
+        generically computed fields will share later.
+
+        Degrades to ``False`` (manual) on every "cannot decide" outcome: an
+        un-bootstrapped deployment must keep its historical behaviour instead
+        of silently starting to override user values.
+        """
+        from application.attribute_definition_service import (
+            AttributeDefinitionNotFound,
+            AttributeDefinitionService,
+        )
+
+        try:
+            definition = AttributeDefinitionService().resolve(
+                ctx, "Risk", workspace_id
+            )
+        except AttributeDefinitionNotFound:
+            return False
+        for attribute in definition.get("attributes", ()):
+            if attribute.get("name") == "severity":
+                return attribute.get("editable") == "automation"
+        return False
+
     # ---------- CRUD ----------
 
     @atomic_transaction
@@ -188,6 +223,7 @@ class RiskService(ServiceBase):
         detection: int = 5,
         owner_user_id: UUID | None = None,
         custom_fields: dict | None = None,
+        severity: str | None = None,
     ) -> Risk:
         """Create a Risk with automatic score calculation (REQ-L3-RISK-001/002/007).
 
@@ -208,6 +244,11 @@ class RiskService(ServiceBase):
                 (REQ-L1-029).
             owner_user_id: Optional User FK for structured risk assignment
                 (REQ-L1-029), kept alongside the legacy free-text `owner` field.
+            severity: Optional ``low|medium|high`` (#1707). When omitted the
+                score-derived value is used as the initial value. In a
+                workspace whose definition marks ``severity`` as
+                ``editable="automation"`` a client-supplied value never
+                reaches this far — the attribute gate rejects it.
 
         Returns:
             Persisted Risk ORM instance.
@@ -221,6 +262,11 @@ class RiskService(ServiceBase):
         if not 1 <= detection <= 10:
             raise ValidationError(
                 f"Risk detection '{detection}' invalid; must be between 1 and 10"
+            )
+        if severity is not None and severity not in RiskValidator.VALID_SEVERITIES:
+            raise ValidationError(
+                f"Risk severity '{severity}' invalid; "
+                f"must be one of {sorted(RiskValidator.VALID_SEVERITIES)}"
             )
 
         # REQ-L2-TE-020: create the backing Artifact first so the Risk can
@@ -265,10 +311,15 @@ class RiskService(ServiceBase):
             owner_user_id=owner_user_id,
             created_by_name=str(ctx.user_id),
         )
-        # Calculate score before save (ADR-L3-RISK-01)
+        # Calculate score before save (ADR-L3-RISK-01). #1707: a client-supplied
+        # severity wins; without one the score-derived value is the initial
+        # value, so a Risk is never saved with a severity that contradicts its
+        # score by accident.
         score = risk.compute_score()
         risk.risk_score = score
-        risk.severity = Risk.score_to_severity(score)
+        risk.severity = (
+            severity if severity is not None else Risk.score_to_severity(score)
+        )
         risk.save()
 
         # Datenmodell-Konsolidierung Phase 5 (spec §6.1): every content write
@@ -318,6 +369,7 @@ class RiskService(ServiceBase):
         owner_user_id: UUID | None = None,
         custom_fields: object = _UNSET,
         expected_version: int | None = None,
+        severity: str | None = None,
     ) -> Risk:
         """Update a Risk, recomputing score when probability/impact change (REQ-L3-RISK-003).
 
@@ -339,6 +391,10 @@ class RiskService(ServiceBase):
                 stale, the update is refused with ``OptimisticLockError`` (409)
                 instead of overwriting a concurrent edit. Omitting it keeps the
                 previous last-writer-wins behaviour.
+            severity: New ``low|medium|high`` (#1707). ``None`` keeps the stored
+                value — except in a workspace whose definition marks
+                ``severity`` as ``editable="automation"``, where it is
+                re-derived from the (possibly recomputed) score.
 
         Returns:
             Updated Risk ORM instance.
@@ -397,6 +453,13 @@ class RiskService(ServiceBase):
             risk.detection = detection
         if owner_user_id is not None:
             risk.owner_user_id = owner_user_id
+        if severity is not None:
+            if severity not in RiskValidator.VALID_SEVERITIES:
+                raise ValidationError(
+                    f"Risk severity '{severity}' invalid; "
+                    f"must be one of {sorted(RiskValidator.VALID_SEVERITIES)}"
+                )
+            risk.severity = severity
 
         # REQ-L2-AS-037: custom_fields lives on the backing Artifact, so it is
         # outside the Risk snapshot and has to be compared separately. Legacy
@@ -415,10 +478,15 @@ class RiskService(ServiceBase):
             risk.artifact.custom_fields = cleaned_custom_fields
             risk.artifact.save(update_fields=["custom_fields", "modified_at"])
 
-        # Recompute score whenever probability or impact changed (ADR-L3-RISK-01)
+        # Recompute score whenever probability or impact changed (ADR-L3-RISK-01).
+        # #1707: the severity is re-derived only when the client did not set it
+        # AND the workspace definition says ``editable="automation"``. A manual
+        # severity survives a probability/impact edit — previously every update
+        # overwrote it, which silently discarded the user's classification.
         score = risk.compute_score()
         risk.risk_score = score
-        risk.severity = Risk.score_to_severity(score)
+        if severity is None and self._severity_is_automated(ctx, risk.workspace_id):
+            risk.severity = Risk.score_to_severity(score)
         # Atomic version increment (REQ-L3-PL001-002): save payload fields first,
         # then issue a single SQL UPDATE that increments version at the database
         # level — avoids the read-modify-write race condition of `version += 1`.

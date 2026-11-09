@@ -71,6 +71,10 @@ _ENUM_FIELDS_BY_PREFIX: dict[str, dict[str, str]] = {
         "probability": "Probability",
         "impact": "Impact",
         "category": "Category",
+        # #1707: ``severity`` is a writable enum now, so the generated
+        # ``risk.create``/``risk.update`` schemas must advertise the values
+        # instead of leaving clients to guess.
+        "severity": "Severity",
     },
     "issue": {"severity": "Severity", "category": "Category"},
 }

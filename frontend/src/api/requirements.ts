@@ -77,6 +77,13 @@ export interface RequirementListOptions {
    * either entry point.
    */
   status?: string;
+  /**
+   * #1668: allocation filter. `true` keeps only requirements with an
+   * `allocated-to` TraceLink, `false` only those without one. Backend contract:
+   * `GET /requirements/?allocated=true|false` (`RequirementViewSet.list`,
+   * `parse_bool_param`); omitted = no allocation filter.
+   */
+  allocated?: boolean;
 }
 
 /**
@@ -209,6 +216,9 @@ export const requirementsApi = {
     const params: Record<string, string> = { workspace_id: workspaceId };
     if (effectiveStatus) params.status = effectiveStatus;
     if (options?.includeDeleted) params.include_deleted = "true";
+    if (options?.allocated !== undefined) {
+      params.allocated = options.allocated ? "true" : "false";
+    }
     const { count, results } = await fetchAllRequirementPages(params);
     // The caller (the review queue) consumes `results` only, but the envelope
     // is kept intact so existing callers/tests see the same shape. `next` is
@@ -227,6 +237,9 @@ export const requirementsApi = {
     const params: Record<string, string> = { workspace_id: workspaceId };
     if (options?.status) params.status = options.status;
     if (options?.includeDeleted) params.include_deleted = "true";
+    if (options?.allocated !== undefined) {
+      params.allocated = options.allocated ? "true" : "false";
+    }
     const { results } = await fetchAllRequirementPages(params);
     return results;
   },

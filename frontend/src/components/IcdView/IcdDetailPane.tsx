@@ -286,7 +286,15 @@ const ReadOnlyField = memo(function ReadOnlyField({
 
 interface ReadOnlyListProps {
   label: string;
-  values: string[];
+  /**
+   * Backend contract is ``string[]`` (#1709), but a historical write path put
+   * parameter objects into these fields. Typed ``unknown[]`` on purpose: the
+   * renderer must survive whatever the API returns instead of crashing the
+   * whole detail page with React #31 ("Objects are not valid as a React
+   * child"). Non-string entries are skipped; the data repair is
+   * ``repair_icd_contract_lists``.
+   */
+  values: readonly unknown[];
 }
 
 // REQ-092: memoized for performance — pure list. ``values`` is a stable array
@@ -296,18 +304,31 @@ const ReadOnlyList = memo(function ReadOnlyList({
   label,
   values,
 }: ReadOnlyListProps): JSX.Element {
+  const textValues = values.filter((v): v is string => typeof v === "string");
+  if (import.meta.env.DEV && textValues.length !== values.length) {
+    // Developer-facing signal only: the payload violates the documented
+    // ``string[]`` contract. The UI stays usable, the console says why.
+    // The issue number stays in this comment: a `#<digits>` inside a runtime
+    // string is indistinguishable from a hex colour literal to the UI
+    // ratchet's scanner (src/test/ui-ratchet.test.ts).
+    console.warn(
+      `[IcdDetailPane] "${label}" contains ${values.length - textValues.length} ` +
+        "non-string entr(ies) and rendered only the string ones " +
+        "(issue 1709, repair: manage.py repair_icd_contract_lists)."
+    );
+  }
   return (
     <div className={styles.readOnlyFieldWrap}>
       <label className={styles.fieldLabel}>
         {label}
       </label>
-      {values.length === 0 ? (
+      {textValues.length === 0 ? (
         <div className={styles.readOnlyListEmpty}>
           —
         </div>
       ) : (
         <ul className={styles.readOnlyList}>
-          {values.map((v, i) => (
+          {textValues.map((v, i) => (
             <li key={i}>{v}</li>
           ))}
         </ul>

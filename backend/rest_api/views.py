@@ -9485,6 +9485,26 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         item = self._svc().get_risk(UUID(pk), ctx)
         return item.id, item.workspace_id
 
+    def _severity_is_echoed(
+        self, request: Request, pk: str, ctx: Any
+    ) -> bool:
+        """Whether the PATCH body carries the stored ``severity`` unchanged.
+
+        #1707: only an unchanged echo may bypass the attribute gate (and the
+        write), so an ``editable="automation"`` workspace keeps accepting a
+        resent form while still refusing a real override. Any read failure
+        answers ``False``: the normal path then raises the real error (404,
+        403) or the gate explains the violation — never a silent success.
+        """
+        data = request.data
+        if not isinstance(data, dict) or "severity" not in data:
+            return False
+        try:
+            current = self._svc().get_risk(UUID(pk), ctx).severity
+        except (NotFoundError, PermissionDeniedError, ValueError, TypeError):
+            return False
+        return data.get("severity") == current
+
     # #915: Risk has no denormalized ``status`` column (Task 12); the shared
     # ``_current_status`` resolves the state from the workflow engine.
 
@@ -9586,6 +9606,9 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 detection=data.get("detection", 5),
                 owner_user_id=data.get("owner_user_id"),
                 custom_fields=data.get("custom_fields"),
+                # #1707: ``severity`` is a writable enum. Omitting it keeps the
+                # score-derived initial value (see ``create_risk``).
+                severity=data.get("severity"),
             )
             # Attribut v3 WS7 (#940): Risk is now inside the system-field
             # rollout gate, so owner/reporter/priority route through the shared
@@ -9598,14 +9621,27 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return Response(RiskSerializer(_risk_to_dict(item)).data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """PATCH /api/v1/risks/{pk}/ — update a Risk. Returns 200."""
+        """PATCH /api/v1/risks/{pk}/ — update a Risk. Returns 200.
+
+        #1707 echo contract: ``severity`` may be ``editable="automation"`` in
+        the workspace definition, in which case the attribute gate rejects any
+        client-supplied value. Detail panels resend the whole form, though, so
+        an *unchanged* echo must stay accepted (same rule as ``status`` #263
+        and ``level``/ADR-005). The attribute gate only knows "the row exists",
+        not its values (``field_validation``'s ``existing`` contract), so the
+        comparison happens here: read the stored value, and only hand
+        ``severity`` to the gate when it actually differs.
+        """
         lang = detect_lang(request)
+        ctx = get_auth_context(request)
+        severity_echoed = self._severity_is_echoed(request, pk, ctx)
         invalid = self._validate_patch_payload(
             request,
             lang,
             serializer_cls=RiskSerializer,
             pk=pk,
-            ctx=get_auth_context(request),
+            ctx=ctx,
+            omit_fields=frozenset({"severity"}) if severity_echoed else frozenset(),
         )
         if invalid is not None:
             return invalid
@@ -9627,7 +9663,6 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         if "custom_fields" in data:
             extra_kwargs["custom_fields"] = data["custom_fields"]
         try:
-            ctx = get_auth_context(request)
             item = self._svc().update_risk(
                 risk_id=UUID(pk),
                 ctx=ctx,
@@ -9635,6 +9670,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 description=data.get("description"),
                 probability=data.get("probability"),
                 impact=data.get("impact"),
+                severity=None if severity_echoed else data.get("severity"),
                 category=data.get("category"),
                 # WS6/WS7 review (#939/#940) Blocker 1: ``RiskService`` writes
                 # this argument into the free-text ``Risk.owner_name`` column

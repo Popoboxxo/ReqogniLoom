@@ -56,6 +56,14 @@ export interface IcdDetail extends Icd {
   direction: "unidirectional" | "bidirectional" | null;
   interface_type: string | null;
   semantic_description: string | null;
+  /**
+   * Design-by-Contract lists. The wire contract is ``string[]`` (#1709) and
+   * the backend rejects non-string elements with 400 since beta.29 — but rows
+   * written before that guard can still carry parameter objects, so the
+   * renderer (``IcdDetailPane``'s ``ReadOnlyList``) skips non-string entries
+   * defensively instead of crashing. Repair:
+   * ``manage.py repair_icd_contract_lists``.
+   */
   preconditions: string[];
   postconditions: string[];
   invariants: string[];

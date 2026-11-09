@@ -207,6 +207,12 @@ export function useArtifactFormState({
 
   const [values, setValues] = useState<ArtifactFormValues>(initialValues);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
+  // #1732: names whose current message came from the click-time required-field
+  // check (as opposed to a server rejection). Editing the control clears those
+  // again — a "this is required" message that stays after the user typed the
+  // value is worse than none. Server messages keep their existing lifetime.
+  // A ref, not state: it is bookkeeping for `update`, never rendered.
+  const clientRequiredFields = useRef<Record<string, true>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [confirmDeprecate, setConfirmDeprecate] = useState(false);
@@ -499,6 +505,16 @@ export function useArtifactFormState({
 
   const update = useCallback((attribute: AttributeSpec, next: unknown): void => {
     setValues((current) => writeValue(current, attribute, next));
+    // #1732: typing into a field clears its click-time "required" message.
+    if (clientRequiredFields.current[attribute.name]) {
+      delete clientRequiredFields.current[attribute.name];
+      setFieldErrors((errors) => {
+        if (!errors[attribute.name]) return errors;
+        const nextErrors = { ...errors };
+        delete nextErrors[attribute.name];
+        return nextErrors;
+      });
+    }
   }, []);
 
   const onChangeChangeReason = useCallback((value: string): void => {
@@ -539,7 +555,28 @@ export function useArtifactFormState({
     // Issue #1087: `savingRef` rather than the `saving` state — see its
     // declaration. Same-tick double submit is exactly what a `Ctrl+S` shortcut
     // invites (hold the chord), and the state check cannot see it.
-    if (savingRef.current || missingCreateValue) return;
+    if (savingRef.current) return;
+    // #1732: an empty required field no longer blocks the submit button. The
+    // click (and Ctrl/Cmd+S) validates, marks every missing field with its own
+    // `role="alert"` message and moves focus to the first one. `fieldErrors`
+    // is the same channel the server's `details[].field` rejections use, so
+    // `FieldShell` renders and announces it identically.
+    if (missingCreateValue) {
+      const requiredErrors: Record<string, string[]> = {};
+      for (const attribute of missingCreateAttributes) {
+        requiredErrors[attribute.name] = [t("validation.required")];
+      }
+      setFieldErrors(requiredErrors);
+      for (const attribute of missingCreateAttributes) {
+        clientRequiredFields.current[attribute.name] = true;
+      }
+      focusRequestRef.current += 1;
+      setFocusRequest({
+        nonce: focusRequestRef.current,
+        field: missingCreateAttributes[0]?.name ?? null,
+      });
+      return;
+    }
     if (changeReasonMissing) {
       setFormError(t("artifactForm.changeReasonRequired"));
       setChangeReasonInvalid(true);
@@ -601,6 +638,8 @@ export function useArtifactFormState({
     markClean,
     onSave,
     missingCreateValue,
+    // #1732: the click-time validation reports the missing attributes by name.
+    missingCreateAttributes,
     formValues,
     t,
     values,
@@ -652,7 +691,10 @@ export function useArtifactFormState({
     // required field cannot reach a submit that only early-returns silently.
     // Always `true` in edit mode (`missingCreateValue` is create-mode only),
     // so the detail editor is unaffected.
-    canSave: !missingCreateValue,
+    // #1732: the chord runs the same validation as the click, so it must not
+    // be gated on `missingCreateValue` any more — that would swallow the
+    // explanation the click now gives.
+    canSave: true,
   });
 
   /**

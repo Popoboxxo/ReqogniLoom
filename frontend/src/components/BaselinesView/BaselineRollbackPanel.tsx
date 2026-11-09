@@ -56,6 +56,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ClipboardCopy } from 'lucide-react';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
+import { useRequiredValidation } from '../shared/useRequiredValidation';
 import { StatusBadge } from '../shared/StatusBadge';
 import {
   ROLLBACK_CODES,
@@ -265,9 +266,28 @@ export function BaselineRollbackPanel({
     [describeError]
   );
 
+  // #1732: the reason is a required field — explained on click at the field
+  // instead of disabling the request button.
+  const {
+    errors: requiredErrors,
+    validate,
+    focusFirstInvalid,
+    clearError,
+    fieldProps,
+    errorId,
+  } = useRequiredValidation();
+
   const createRequest = useCallback(async (): Promise<void> => {
+    const fields = [
+      { name: "reason", value: reason, inputId: reasonId },
+    ];
+    const invalid = validate(fields);
+    if (invalid.length > 0) {
+      focusFirstInvalid(fields, invalid);
+      return;
+    }
     const trimmed = reason.trim();
-    if (!preview || trimmed === '' || requestInFlight.current) return;
+    if (!preview || requestInFlight.current) return;
     requestInFlight.current = true;
     setRequesting(true);
     setError(null);
@@ -287,7 +307,16 @@ export function BaselineRollbackPanel({
       requestInFlight.current = false;
       setRequesting(false);
     }
-  }, [baselineId, describeError, preview, reason, refreshStatus]);
+  }, [
+    baselineId,
+    describeError,
+    preview,
+    reason,
+    refreshStatus,
+    reasonId,
+    validate,
+    focusFirstInvalid,
+  ]);
 
   /**
    * F-06: put the CR id on the clipboard. This SPA has no ChangeRequest view,
@@ -475,18 +504,30 @@ export function BaselineRollbackPanel({
                 onChange={(event) => {
                   setReason(event.target.value);
                   setError(null);
+                  clearError("reason");
                 }}
+                {...fieldProps("reason")}
               />
               <button
                 type="button"
                 data-testid="baseline-rollback-request-btn"
                 className="btn-primary"
-                disabled={requesting || reason.trim() === ''}
+                disabled={requesting}
                 aria-busy={requesting || undefined}
                 onClick={() => void createRequest()}
               >
                 {requesting ? t('actions.saving') : t('baselines.rollback.request')}
               </button>
+              {requiredErrors.reason ? (
+                <p
+                  id={errorId("reason")}
+                  role="alert"
+                  data-testid="baseline-rollback-reason-error"
+                  className={styles.error}
+                >
+                  {requiredErrors.reason}
+                </p>
+              ) : null}
             </div>
           )}
 

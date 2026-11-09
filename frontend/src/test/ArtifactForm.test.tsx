@@ -790,7 +790,7 @@ describe("ArtifactForm create required gate (issue #583)", () => {
     expect(screen.getByTestId("artifact-form-save")).toBeEnabled();
   });
 
-  it("still blocks Create for a visible required field without a value (gate stays strict for rendered fields)", async () => {
+  it("still refuses the click for a visible required field without a value (gate stays strict for rendered fields)", async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     mockDefinition([
       spec({ name: "title", required: true }),
@@ -805,9 +805,20 @@ describe("ArtifactForm create required gate (issue #583)", () => {
       />
     );
     const save = await screen.findByTestId("artifact-form-save");
-    expect(save).toBeDisabled();
-    await userEvent.type(screen.getByTestId("artifact-field-note"), "filled");
+    // #1732: the action is reachable; the refusal happens on click and names
+    // the field.
     expect(save).toBeEnabled();
+    await userEvent.click(save);
+    expect(onSave).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("artifact-field-note-error")).toHaveAttribute(
+      "role",
+      "alert",
+    );
+
+    await userEvent.type(screen.getByTestId("artifact-field-note"), "filled");
+    // Typing clears the click-time message again.
+    expect(screen.queryByTestId("artifact-field-note-error")).toBeNull();
+
     await userEvent.click(save);
     await waitFor(() =>
       expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ note: "filled" }))

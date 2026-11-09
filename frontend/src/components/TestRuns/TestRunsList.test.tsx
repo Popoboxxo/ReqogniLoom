@@ -141,7 +141,7 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
     });
   });
 
-  it("validates that name is required before create", async () => {
+  it("explains a whitespace-only name on click instead of disabling Create (#1732)", async () => {
     const user = userEvent.setup();
     renderList();
 
@@ -151,7 +151,16 @@ describe("TestRunsList (REQ-L1-040 Phase 3, REQ-L2-AS-030)", () => {
     await user.click(screen.getByTestId("testrun-create-btn"));
     // Try submitting with only whitespace
     await user.type(screen.getByTestId("testrun-name-input"), "   ");
-    expect(screen.getByTestId("testrun-create-submit-btn")).toBeDisabled();
+    const submit = screen.getByTestId("testrun-create-submit-btn");
+    expect(submit).toBeEnabled();
+
+    await user.click(submit);
+
+    expect(screen.getByTestId("testrun-name-error")).toHaveAttribute("role", "alert");
+    expect(screen.getByTestId("testrun-name-input")).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
     expect(testRunsModule.testRunsApi.create).not.toHaveBeenCalled();
   });
 

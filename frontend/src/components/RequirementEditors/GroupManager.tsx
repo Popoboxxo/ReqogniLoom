@@ -13,6 +13,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { extractApiErrorMessage } from "../../api/client";
+import { useRequiredValidation } from "../shared/useRequiredValidation";
 import type { Requirement } from "../../types";
 import type {
   GroupManagerGroup,
@@ -60,7 +61,16 @@ export function GroupManager({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const canCreate = title.trim().length > 0 && busyKey === null;
+  // #1732: the Create button is only blocked by an in-flight action. An empty
+  // name is explained on click (field-level role="alert" + focus).
+  const {
+    errors: requiredErrors,
+    validate,
+    focusFirstInvalid,
+    clearError,
+    fieldProps,
+    errorId,
+  } = useRequiredValidation();
 
   const run = async (key: string, action: () => Promise<void>): Promise<void> => {
     setBusyKey(key);
@@ -78,7 +88,13 @@ export function GroupManager({
 
   const handleCreate = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (!canCreate) return;
+    if (busyKey !== null) return;
+    const fields = [{ name: "title", value: title, inputId: "group-title-input" }];
+    const invalid = validate(fields);
+    if (invalid.length > 0) {
+      focusFirstInvalid(fields, invalid);
+      return;
+    }
     void run("create", async () => {
       await onCreate(title.trim(), description.trim());
       setTitle("");
@@ -119,15 +135,30 @@ export function GroupManager({
         <label className={styles.field}>
           {t("groups.name")}
           <input
+            id="group-title-input"
             type="text"
             className={styles.input}
             data-testid="group-title-input"
             value={title}
-            onChange={(event) => setTitle(event.target.value)}
+            onChange={(event) => {
+              setTitle(event.target.value);
+              clearError("title");
+            }}
             placeholder={t("groups.namePlaceholder")}
             disabled={busyKey !== null}
+            {...fieldProps("title")}
           />
         </label>
+        {requiredErrors.title ? (
+          <p
+            id={errorId("title")}
+            role="alert"
+            className={styles.error}
+            data-testid="group-title-error"
+          >
+            {requiredErrors.title}
+          </p>
+        ) : null}
         <label className={styles.field}>
           {t("groups.description")}
           <input
@@ -143,7 +174,7 @@ export function GroupManager({
           type="submit"
           className={`btn-ghost ${styles.createButton}`}
           data-testid="group-create-btn"
-          disabled={!canCreate}
+          disabled={busyKey !== null}
         >
           {t("groups.create")}
         </button>
