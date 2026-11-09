@@ -273,7 +273,7 @@ class TestCreateTraceLink:
 
 
 # ---------------------------------------------------------------------------
-# _generate_and_store_embedding — dimension-mismatch guard (Task 12)
+# embedding write (after-commit dispatch) — dimension-mismatch guard (Task 12)
 # ---------------------------------------------------------------------------
 
 
@@ -293,9 +293,15 @@ class TestEmbeddingDimensionGuard:
     #794: widths are derived from the column now. They used to be literals
     that encoded the broken default (384-dim provider vs ``vector(1536)``
     column), so this class asserted the default configuration wrote nothing.
+
+    #1401: the write moved off the request path — ``create_trace_link`` now
+    dispatches ``embed_rows_task`` after the commit, and the guard lives in the
+    shared sink ``application.embedding_backfill.embed_rows``. These tests run
+    the registered dispatch, so they stay end-to-end (same provider, same
+    column, same skip-or-write decision).
     """
 
-    def _create_link(self, monkeypatch, dimensions: int):
+    def _create_link(self, monkeypatch, dimensions: int, captured):
         from persistence.tests.factories import (
             active_tenant,
             editor_ctx,
@@ -303,9 +309,8 @@ class TestEmbeddingDimensionGuard:
             make_workspace,
         )
 
-        # Patched at the source module because
-        # ``_generate_and_store_embedding`` imports ``generate_embedding``
-        # lazily, inside the method body.
+        # Patched at the source module because the embedding writer imports
+        # ``generate_embedding`` lazily, inside the method body.
         monkeypatch.setattr(
             "llm_adapter.embedding_service.generate_embedding",
             lambda text: [0.1] * dimensions,
@@ -316,22 +321,30 @@ class TestEmbeddingDimensionGuard:
             source = make_requirement(ws, title="Source requirement")
             target = make_requirement(ws, title="Target requirement")
             ctx = editor_ctx(tenant, ws)
-            link = TraceLinkService().create_trace_link(
-                source_id=source.id,
-                target_id=target.id,
-                # Requirement -> Requirement, a pair the built-in catalog
-                # allows; the retired traces type no longer exists.
-                link_type="derives-from",
-                ctx=ctx,
-            )
+            # #1401: the write path enqueues ``embed_rows_task`` after the
+            # commit; the patch executes that dispatch, so the guard under test
+            # still runs end-to-end (same provider, same column).
+            with captured(execute=True):
+                link = TraceLinkService().create_trace_link(
+                    source_id=source.id,
+                    target_id=target.id,
+                    # Requirement -> Requirement, a pair the built-in catalog
+                    # allows; the retired traces type no longer exists.
+                    link_type="derives-from",
+                    ctx=ctx,
+                )
             link.refresh_from_db()
         return link
 
-    def test_dimension_mismatch_is_skipped_not_written(self, monkeypatch):
+    def test_dimension_mismatch_is_skipped_not_written(
+        self, monkeypatch, django_capture_on_commit_callbacks
+    ):
         from persistence.models import TraceLink
 
         column_dimensions = TraceLink._meta.get_field("embedding").dimensions
-        link = self._create_link(monkeypatch, column_dimensions + 8)
+        link = self._create_link(
+            monkeypatch, column_dimensions + 8, django_capture_on_commit_callbacks
+        )
 
         # (1) No exception propagated. (2) Mismatched vector never written.
         assert link.embedding is None
@@ -340,12 +353,16 @@ class TestEmbeddingDimensionGuard:
         #     real data intact.
         assert link.link_type == "derives-from"
 
-    def test_matching_dimension_is_written(self, monkeypatch):
+    def test_matching_dimension_is_written(
+        self, monkeypatch, django_capture_on_commit_callbacks
+    ):
         """#794: a provider-shaped vector must actually land in the column."""
         from persistence.models import TraceLink
 
         column_dimensions = TraceLink._meta.get_field("embedding").dimensions
-        link = self._create_link(monkeypatch, column_dimensions)
+        link = self._create_link(
+            monkeypatch, column_dimensions, django_capture_on_commit_callbacks
+        )
 
         assert link.embedding is not None
         assert len(link.embedding) == column_dimensions

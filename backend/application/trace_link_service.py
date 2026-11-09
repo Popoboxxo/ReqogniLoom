@@ -51,6 +51,7 @@ from application.base import (
     ServiceBase,
     ValidationError,
 )
+from application.embedding_dispatch import enqueue_rows_after_commit
 from auth_tenancy.context import AuthContext
 from persistence.transactions import atomic_transaction
 from traceability.audit.hierarchy import (
@@ -659,7 +660,18 @@ class TraceLinkService(ServiceBase):
         self._stamp_proposed_trace_link(result, ctx)
 
         # REQ-L2-VS-004: best-effort semantic embedding for similarity search.
-        self._generate_and_store_embedding(result)
+        # #1401: dispatched after the commit instead of generated in this
+        # request — this call site had no budget at all, so a cold provider
+        # blocked a link creation for its full timeout. The row is briefly
+        # un-embedded; ``find_similar_trace_links`` reports that window as a
+        # ValidationError and ``manage.py backfill_embeddings --model tracelink``
+        # is the repair path for a missed dispatch.
+        enqueue_rows_after_commit(
+            "tracelink",
+            [result.id],
+            result.tenant_id,
+            source="TraceLinkService.create_trace_link",
+        )
 
         self._record_trace_link_created(
             ctx=ctx,
@@ -1048,78 +1060,6 @@ class TraceLinkService(ServiceBase):
 
     # ---------- Semantic similarity (REQ-L2-VS-004) ----------
 
-    @staticmethod
-    def _generate_and_store_embedding(trace_link) -> None:
-        """Best-effort: generate and persist the trace link's embedding.
-
-        REQ-L2-VS-004. Uses a bare ``.update()`` so it neither bumps the
-        version nor emits a domain event. Never raises: the embedding is
-        supplementary, so a provider/network failure must not fail the
-        surrounding create transaction. Mirrors
-        RequirementService._generate_and_store_embedding.
-
-        The embedding text is built from the two endpoint *titles*, which live
-        on the reverse OneToOne ``artifact.requirement`` /
-        ``artifact.architecture_element`` relations. On a freshly created link
-        none of those are cached, so ``get_tracelink_embedding_text`` used to
-        trigger up to four extra single-row SELECTs per link (#625). One
-        ``select_related`` re-read collapses them into a single joined query.
-        """
-        try:
-            from llm_adapter.embedding_service import (
-                generate_embedding_with_model,
-                get_tracelink_embedding_text,
-                warn_dimension_mismatch,
-            )
-            from persistence.models import TraceLink
-
-            if not getattr(trace_link, "id", None):
-                return
-            joined = (
-                TraceLink.objects.filter(id=trace_link.id)
-                .select_related(
-                    "source__requirement",
-                    "source__architecture_element",
-                    "target__requirement",
-                    "target__architecture_element",
-                )
-                # Neither the link's own vector nor the endpoints' are read
-                # here — only their titles. Leaving them in would drag three
-                # embedding vectors per link through the ORM, the #571 shape.
-                .defer(
-                    "embedding",
-                    "source__requirement__embedding",
-                    "target__requirement__embedding",
-                )
-                .first()
-            )
-            embedding, model_id = generate_embedding_with_model(
-                get_tracelink_embedding_text(joined or trace_link)
-            )
-            field_dimensions = TraceLink._meta.get_field("embedding").dimensions
-            if embedding is not None and len(embedding) == field_dimensions:
-                # T-A0-6: the provenance id is written in the same UPDATE as the
-                # vector, so a row can never carry a model id for a vector it
-                # does not hold.
-                TraceLink.objects.filter(id=trace_link.id).update(
-                    embedding=embedding, embedding_model=model_id
-                )
-            elif embedding is not None:
-                # Dimension mismatch (a non-default EMBEDDING_PROVIDER whose
-                # native width differs from EMBEDDING_VECTOR_DIMENSIONS — see
-                # RequirementService._generate_and_store_embedding and #794
-                # for the full rationale): skip the write rather than let a
-                # Postgres-level DataError poison the ambient transaction.
-                warn_dimension_mismatch(
-                    "TraceLinkService", len(embedding), field_dimensions
-                )
-        except Exception as exc:  # noqa: BLE001 — best-effort
-            logger.debug(
-                "TraceLinkService: embedding generation skipped for link=%s: %s",
-                getattr(trace_link, "id", None),
-                exc,
-            )
-
     def find_similar_trace_links(
         self,
         trace_link_id: UUID,
@@ -1147,7 +1087,11 @@ class TraceLinkService(ServiceBase):
 
         Raises:
             NotFoundError: Query trace link does not exist.
-            ValidationError: Query trace link has no embedding.
+            ValidationError: Query trace link has no embedding. Since #1401 the
+                write path embeds *after* the commit, so a link created in the
+                last few seconds legitimately reports this until
+                ``embed_rows_task`` has run; ``manage.py backfill_embeddings
+                --model tracelink`` is the repair path for a missed dispatch.
             PgVectorUnavailableError: pgvector package/extension unavailable.
             QdrantUnavailableError: Qdrant outage (explicit opt-in only).
         """

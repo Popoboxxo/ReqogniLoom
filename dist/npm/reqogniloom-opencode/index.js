@@ -10,10 +10,10 @@ import { fileURLToPath } from "node:url";
 
 const SERVER_NAME = "reqogniloom";
 const MCP_URL = "{env:REQOGNILOOM_MCP_URL}/mcp/";
-// OpenCode 1.x reads mcp.<name> and speaks SSE; V1's config hook is the only
-// registration path it offers, so the package stays usable on the tested
-// 1.18.31 client without changing the V2 contract above.
-const MCP_URL_V1 = "{env:REQOGNILOOM_MCP_URL}/mcp/sse/";
+// OpenCode 1.x reads mcp.<name> and OpenCode 2 normalizes that V1 form to
+// mcp.servers. Both speak Streamable HTTP on the same /mcp/ endpoint; V1 only
+// falls back to the SSE endpoint when the server does not answer the
+// Streamable HTTP POST, so a single config serves both tested generations.
 const API_KEY = "{env:REQOGNILOOM_API_KEY}";
 
 //: Directory holding this package's skills/<name>/SKILL.md files.
@@ -36,7 +36,7 @@ const mergeV1Server = (config) => {
   if (!config.mcp || typeof config.mcp !== "object") config.mcp = {};
   config.mcp[SERVER_NAME] = {
     type: "remote",
-    url: MCP_URL_V1,
+    url: MCP_URL,
     headers: { "X-API-Key": API_KEY },
   };
   return config;

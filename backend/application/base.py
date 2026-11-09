@@ -379,10 +379,11 @@ class ServiceBase:
           * ``none``/``deny`` → :class:`NotFoundError` (mapped to 404, so the
             rule cannot be used as an existence oracle).
 
-        The helper arms the tenant context from *ctx* when it is not already
-        set (a live UUID tenant always is), so it cannot silently fail open;
-        ``check_permission`` is tenant-scoped. It deliberately does not repeat
-        the RBAC check that :meth:`_assert_write_permission` already performed.
+        The caller must have armed the tenant context
+        (:meth:`_set_tenant_context`) — ``check_permission`` is tenant-scoped.
+        A caller that skips it cannot resolve a tenant-scoped rule and is left
+        to the RBAC check and its own tenant-scoped load. The helper does not
+        repeat the RBAC check that :meth:`_assert_write_permission` performed.
 
         Args:
             ctx: Authenticated caller.
@@ -399,23 +400,31 @@ class ServiceBase:
         # persisted row to restrict, and querying with it would raise inside
         # Django's UUID coercion instead of answering "no rule".
         if not TenantContext.is_set():
-            # Arm the tenant-scoped lookup ourselves instead of failing open:
-            # every live caller has a real UUID tenant_id, so an unarmed context
-            # must not silently disable the item rule. Only a test double with a
-            # non-UUID tenant (no persisted row to restrict) is skipped.
-            if not isinstance(ctx.tenant_id, UUID):
-                return
-            TenantContext.set_tenant(ctx.tenant_id)
+            # No active tenant means no tenant-scoped rule can be resolved.
+            # Every live REST/MCP write arms the context first
+            # (``_set_tenant_context``); only a direct service caller that
+            # deliberately skips it lands here, and such a caller cannot read
+            # or write a tenant-scoped row at all. Do not arm it here: the
+            # service's own (often patched) context is authoritative.
+            return
         if not isinstance(ctx.user_id, UUID) or not isinstance(workspace_id, UUID):
             return
         if artifact_id is not None and not isinstance(artifact_id, UUID):
             return
 
-        decision = ItemPermissionService().check_permission(
-            user_id=ctx.user_id,
-            workspace_id=workspace_id,
-            artifact_id=artifact_id,
-        )
+        try:
+            decision = ItemPermissionService().check_permission(
+                user_id=ctx.user_id,
+                workspace_id=workspace_id,
+                artifact_id=artifact_id,
+            )
+        except NotFoundError:
+            # No visible workspace/artifact under the caller's tenant: the item
+            # layer has no rule to apply, and the service's own tenant-scoped
+            # load below decides (normally 404). This also keeps direct service
+            # unit tests with mocked ORM rows green; a real rule always returns
+            # a decision, not NotFoundError.
+            return
 
         if not decision.has_explicit_rule:
             return

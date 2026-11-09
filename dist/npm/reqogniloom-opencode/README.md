@@ -1,8 +1,9 @@
 # ReqogniLoom for OpenCode
 
 Registers a ReqogniLoom MCP server with OpenCode and ships the ReqogniLoom
-process skills. OpenCode 2 gets a `remote` entry on `/mcp/` (Streamable HTTP,
-`X-API-Key`); OpenCode 1 gets the equivalent `/mcp/sse/` entry.
+process skills. OpenCode 1 and 2 both get a `remote` entry on `/mcp/`
+(Streamable HTTP, `X-API-Key`); OpenCode 1 falls back to the SSE endpoint only
+if the server does not answer the Streamable HTTP POST.
 
 ## Install
 

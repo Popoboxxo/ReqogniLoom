@@ -313,30 +313,30 @@ clients:
 
   - id: opencode
     name: OpenCode
-    tested_version: "1.19.5"
+    tested_version: "1.18.x, 2.2.x"
     target_level: L3
     status: supported
-    transport: sse
-    url_path: /mcp/sse/
+    transport: streamable_http
+    url_path: /mcp/
     auth_header: X-API-Key
     config_artifact: dist/opencode/opencode.json.snippet
     skills_dir: "~/.config/opencode/skills"
     install_de:
       - lang: bash
         text: |
-          # Ein Befehl: MCP-Server (remote/SSE) + Skills (-> ~/.config/opencode/skills, DOMAIN_MODEL.md):
+          # Ein Befehl: MCP-Server (remote/Streamable HTTP) + Skills (-> ~/.config/opencode/skills, DOMAIN_MODEL.md):
           bash scripts/clients/install.sh --client opencode \
             --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
-          # (intern: opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/sse/" \
+          # (intern: opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/" \
           #   --header "X-API-Key={env:REQOGNILOOM_API_KEY}")
           opencode mcp list                 # -> ✓ reqogniloom connected
     install_en:
       - lang: bash
         text: |
-          # One command: MCP server (remote/SSE) + skills (-> ~/.config/opencode/skills, DOMAIN_MODEL.md):
+          # One command: MCP server (remote/Streamable HTTP) + skills (-> ~/.config/opencode/skills, DOMAIN_MODEL.md):
           bash scripts/clients/install.sh --client opencode \
             --url "$REQOGNILOOM_MCP_URL" --key-env REQOGNILOOM_API_KEY
-          # (internally: opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/sse/" \
+          # (internally: opencode mcp add reqogniloom --url "$REQOGNILOOM_MCP_URL/mcp/" \
           #   --header "X-API-Key={env:REQOGNILOOM_API_KEY}")
           opencode mcp list                 # -> ✓ reqogniloom connected
     fallback_de:
@@ -346,7 +346,7 @@ clients:
             "mcp": {
               "reqogniloom": {
                 "type": "remote",
-                "url": "{env:REQOGNILOOM_MCP_URL}/mcp/sse/",
+                "url": "{env:REQOGNILOOM_MCP_URL}/mcp/",
                 "headers": { "X-API-Key": "{env:REQOGNILOOM_API_KEY}" }
               }
             }
@@ -358,7 +358,7 @@ clients:
             "mcp": {
               "reqogniloom": {
                 "type": "remote",
-                "url": "{env:REQOGNILOOM_MCP_URL}/mcp/sse/",
+                "url": "{env:REQOGNILOOM_MCP_URL}/mcp/",
                 "headers": { "X-API-Key": "{env:REQOGNILOOM_API_KEY}" }
               }
             }
@@ -381,12 +381,14 @@ clients:
       - "`opencode-go/…` models work (verified)."
       - "Free-tier models (`opencode/*-free`) were server-side broken at test time (`UnknownError`) — environment state, not a product bug."
     pitfalls_de:
+      - "**Transport:** Streamable HTTP auf `/mcp/` für beide Generationen. V1 nutzt SSE nur als Fallback, wenn der Server den Streamable-HTTP-POST nicht beantwortet; V2 kennt keinen SSE-Fallback (POST auf `/mcp/sse/` → 404). Beleg: `docs/clients/opencode-transport.md`."
       - "**Historischer Widerspruch (aufgelöst):** `docs/agent-templates/INSTALL.md` nannte `type:\"http\"` + `options.headers`; das ausgelieferte Snippet und diese Seite verwenden `type:\"remote\"` + Top-Level-`headers` — das ist die kanonische Form."
       - "`{env:NAME}` wird expandiert, ein blankes `{...}` nicht (wird literal gesendet → stille Fehlfunktion)."
       - "Der Installer setzt den Key-Header als `X-API-Key={env:REQOGNILOOM_API_KEY}` (Platzhalter, nie ein literaler Key in der Config)."
       - "`DOMAIN_MODEL.md` muss **zwei Ebenen über** `skills/<name>/SKILL.md` liegen."
       - "Keine client-seitige Tool-Beschränkung je Skill → Rechte über den Key-Scope steuern."
     pitfalls_en:
+      - "**Transport:** Streamable HTTP on `/mcp/` for both generations. V1 uses SSE only as a fallback when the server does not answer the Streamable HTTP POST; V2 has no SSE fallback (POST to `/mcp/sse/` → 404). Evidence: `docs/clients/opencode-transport.md`."
       - "**Historical contradiction (resolved):** `docs/agent-templates/INSTALL.md` said `type:\"http\"` + `options.headers`; the shipped snippet and this page use `type:\"remote\"` + top-level `headers` — that is the canonical form."
       - "`{env:NAME}` is expanded, a bare `{...}` is not (sent literally → silent failure)."
       - "The installer passes the key header as `X-API-Key={env:REQOGNILOOM_API_KEY}` (placeholder, never a literal key in the config)."
@@ -399,11 +401,11 @@ clients:
     update_de:
       - "`bash scripts/clients/install.sh --client opencode --url \"$REQOGNILOOM_MCP_URL\" --refresh` aktualisiert vorhandene Skills + `DOMAIN_MODEL.md` (vorheriges Ziel als `.bak-<ts>`)."
       - "MCP-Transport geändert: Eintrag gemäß Snippet in `opencode.jsonc` ersetzen; Stufe 2: `opencode plugin <modul>` installiert MCP + Skills in einem Schritt."
-      - "Eigene Agenten: `opencode agent create --description \"...\" --mode subagent --path .opencode/agents` (CLI 1.19.5; Optionen per `--help`)."
+      - "Eigene Agenten: `opencode agent create --description \"...\" --mode subagent --path .opencode/agents` (auf der 1.x-CLI verifiziert; Optionen per `--help`)."
     update_en:
       - "`bash scripts/clients/install.sh --client opencode --url \"$REQOGNILOOM_MCP_URL\" --refresh` updates existing skills + `DOMAIN_MODEL.md` (previous target kept as `.bak-<ts>`)."
       - "Changed MCP transport: replace the entry per the snippet in `opencode.jsonc`; Stage 2: `opencode plugin <module>` installs MCP + skills in one step."
-      - "Own agents: `opencode agent create --description \"...\" --mode subagent --path .opencode/agents` (CLI 1.19.5; options via `--help`)."
+      - "Own agents: `opencode agent create --description \"...\" --mode subagent --path .opencode/agents` (verified on the 1.x CLI; options via `--help`)."
 
   - id: opencode-v2
     name: OpenCode V2 (Beta)
@@ -475,13 +477,15 @@ clients:
       expected_en: "`reqogniloom` is listed as connected (`✓ reqogniloom connected`) — run it from the project directory; then a real tool call (`requirement_query` → 49)."
       tool_result: "49 Requirements"
     prereq_de:
-      - "OpenCode-V2-Beta-Binary `opencode` (2.x) im `PATH` — oder `OPENCODE_BIN` auf den Binary-Pfad setzen."
+      - "OpenCode-V2-Beta-Binary `opencode` (2.x) im `PATH` — oder `OPENCODE_BIN` auf den Binary-Pfad setzen. Das npm-Paket `@opencode/cli` liefert **zwei** Bins (`opencode`, `opencode2`), beide zeigen auf dasselbe Binary."
       - "Skills-Ablage `~/.config/opencode/skills` beschreibbar."
       - "`reqlo_…`-Key."
+      - "Node.js ≥ 22.14 ist die Laufzeit des npm-Pakets; Windows-Paketmanager werden von V2 nicht unterstützt."
     prereq_en:
-      - "OpenCode V2 beta binary `opencode` (2.x) on `PATH` — or point `OPENCODE_BIN` at the binary."
+      - "OpenCode V2 beta binary `opencode` (2.x) on `PATH` — or point `OPENCODE_BIN` at the binary. The npm package `@opencode/cli` ships **two** bins (`opencode`, `opencode2`), both pointing at the same binary."
       - "Skills directory `~/.config/opencode/skills` writable."
       - "A `reqlo_…` key."
+      - "Node.js ≥ 22.14 is the npm package's runtime; V2 does not support Windows package managers."
     provider_de:
       - "`opencode-go/…`-Modelle funktionieren (verifiziert)."
       - "Free-Tier-Modelle (`opencode/*-free`) waren zum Testzeitpunkt serverseitig defekt (`UnknownError`) — Umgebungszustand, kein Produktfehler."
@@ -492,18 +496,22 @@ clients:
       - "**Beta:** OpenCode V2 ist eine Beta — Datenformate und APIs können sich zwischen Minor-Versionen ändern; nach einem Update `opencode mcp list` und einen Tool-Call wiederholen."
       - "`\"oauth\": false` ist **Pflicht**: ohne diesen Schalter startet V2 einen OAuth-Flow statt den `X-API-Key`-Header zu senden — der Server sieht dann gar keinen Key."
       - "`\"codemode\": false` ist **Pflicht**: sonst werden die Tools nicht unter ihren Klarnamen (`requirement_query`, …) exponiert, sondern nur über den Code-Mode-Wrapper."
-      - "In V2 liegen Server unter `mcp.servers.<name>` — die V1-Form `mcp.<name>` wird nicht gelesen, der Server erscheint dann einfach nicht."
+      - "In V2 liegen Server unter `mcp.servers.<name>`. Die V1-Form `mcp.<name>` wird von 2.2.x normalisiert (verifiziert mit `opencode debug config`), aber der Installer schreibt bewusst die native V2-Form, damit `oauth: false` gesetzt werden kann."
       - "JSONC-Configs (Kommentare in `opencode.json`) werden vom Installer **nicht** gemergt: er bricht ab, damit die Datei unangetastet bleibt — Snippet dann manuell einfügen."
       - "Transport ist Streamable HTTP auf `/mcp/`, nicht SSE auf `/mcp/sse/`."
       - "`opencode mcp list` braucht Projekt-/CWD-Kontext — im Projektverzeichnis ausführen, sonst ist die Liste leer."
+      - "V2 läuft als **Hintergrunddienst**: nach einer Config-Änderung muss er neu starten, sonst zeigt `mcp list` u. U. „No MCP servers configured“. In CI/headless mit `--standalone` bzw. einem Service-Restart arbeiten."
+      - "Das npm-Bundle enthält nur Config + Skills, **keinen Plugin-Code**; V1-Plugins laufen nicht auf V2. Das separate npm-Paket `@popoboxxo/reqogniloom-opencode` wird in V2 nicht benötigt, um den Server zu registrieren."
     pitfalls_en:
       - "**Beta:** OpenCode V2 is a beta — data formats and APIs may change between minor versions; after an update re-run `opencode mcp list` and a tool call."
       - "`\"oauth\": false` is **mandatory**: without it V2 starts an OAuth flow instead of sending the `X-API-Key` header — the server then sees no key at all."
       - "`\"codemode\": false` is **mandatory**: otherwise tools are not exposed under their plain names (`requirement_query`, …) but only through the code-mode wrapper."
-      - "In V2 servers live under `mcp.servers.<name>` — the V1 form `mcp.<name>` is not read, the server simply does not show up."
+      - "In V2 servers live under `mcp.servers.<name>`. The V1 form `mcp.<name>` is normalized by 2.2.x (verified with `opencode debug config`), but the installer deliberately writes the native V2 form so it can set `oauth: false`."
       - "JSONC configs (comments in `opencode.json`) are **not** merged by the installer: it aborts so the file stays untouched — paste the snippet manually instead."
       - "The transport is Streamable HTTP on `/mcp/`, not SSE on `/mcp/sse/`."
       - "`opencode mcp list` needs project/CWD context — run it inside the project directory, otherwise the list is empty."
+      - "V2 runs as a **background service**: after a config change it must restart, otherwise `mcp list` may show \"No MCP servers configured\". Use `--standalone` or a service restart in CI/headless runs."
+      - "The npm bundle contains config + skills only, **no plugin code**; V1 plugins do not run on V2. The separate npm package `@popoboxxo/reqogniloom-opencode` is not required on V2 to register the server."
     roles_de:
       - "Read-only-Rolle für Fremd-/Preview-Nutzung; der Key-Scope ist die einzige wirksame Grenze."
     roles_en:

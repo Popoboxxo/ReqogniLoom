@@ -215,7 +215,11 @@ install_opencode_v1() {
   # `--header` keeps the value literal, so no secret ever lands in argv. Without
   # `--header` opencode registers the server with no credential and reports
   # "needs authentication" on connect.
-  run "$OPENCODE_BIN" mcp add reqogniloom --url "$URL/mcp/sse/" \
+  #
+  # OpenCode 1 and 2 both connect to the Streamable HTTP endpoint /mcp/; V1 only
+  # falls back to SSE if the server does not answer the POST (see
+  # docs/clients/opencode-transport.md). The old /mcp/sse/ URL 404s on V2.
+  run "$OPENCODE_BIN" mcp add reqogniloom --url "$URL/mcp/" \
     --header "X-API-Key={env:${KEY_ENV}}"
   # Default to OpenCode's USER-level skills dir (never the CWD): a default of
   # `.opencode/skills` writes into whatever directory the installer happens to
@@ -241,7 +245,7 @@ install_opencode_v1() {
 detect_opencode_major() {
   local out major
   out="$("$OPENCODE_BIN" --version 2>/dev/null || true)"
-  # V2 prints "opencode v2.2.5", V1 prints "1.19.5": skip any non-digit prefix
+  # V2 prints "opencode v2.2.5", V1 prints "1.18.35": skip any non-digit prefix
   # (program name, honourific "v"), then take the first major before a dot.
   major="$(printf '%s\n' "$out" | tr -d '\r' \
     | sed -nE 's/^[^0-9]*([0-9]+)\.[0-9]+.*/\1/p' | head -1 || true)"

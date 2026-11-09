@@ -151,7 +151,17 @@ class TestDefaultConfigProducesSearchableEmbeddings:
     registry, not a monkeypatched stub — so a future width drift in either the
     provider or the column breaks it."""
 
-    def test_created_requirement_gets_a_stored_embedding(self, monkeypatch):
+    def test_created_requirement_gets_a_stored_embedding(
+        self, monkeypatch, django_capture_on_commit_callbacks
+    ):
+        """#1401: the vector is written by the after-commit task, not in the 201.
+
+        The assertions are unchanged — the *chain* is what matters, and it now
+        runs through ``embed_rows_task`` (executed eagerly by
+        ``CELERY_TASK_ALWAYS_EAGER``). ``django_capture_on_commit_callbacks``
+        runs the registered dispatch inside the test's rolled-back transaction,
+        the same way the commit does in production.
+        """
         from application.requirement_service import RequirementService
         from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
 
@@ -160,12 +170,13 @@ class TestDefaultConfigProducesSearchableEmbeddings:
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
             ctx = editor_ctx(tenant, ws)
-            requirement = RequirementService().create_requirement(
-                workspace_id=ws.id,
-                title="Recover the audit trail after a failed import",
-                description="The system shall retain partial import telemetry.",
-                ctx=ctx,
-            )
+            with django_capture_on_commit_callbacks(execute=True):
+                requirement = RequirementService().create_requirement(
+                    workspace_id=ws.id,
+                    title="Recover the audit trail after a failed import",
+                    description="The system shall retain partial import telemetry.",
+                    ctx=ctx,
+                )
             requirement.refresh_from_db()
 
         assert requirement.embedding is not None, (
@@ -174,7 +185,9 @@ class TestDefaultConfigProducesSearchableEmbeddings:
         )
         assert len(requirement.embedding) == EMBEDDING_VECTOR_DIMENSIONS
 
-    def test_semantic_pass_returns_a_hit_with_no_keyword_overlap(self, monkeypatch):
+    def test_semantic_pass_returns_a_hit_with_no_keyword_overlap(
+        self, monkeypatch, django_capture_on_commit_callbacks
+    ):
         """The end of the chain: a stored embedding written by the real
         provider is findable through ``SearchService`` by a query that shares
         no keyword with it, i.e. only the semantic pass can produce it."""
@@ -192,9 +205,10 @@ class TestDefaultConfigProducesSearchableEmbeddings:
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
             ctx = editor_ctx(tenant, ws)
-            requirement = RequirementService().create_requirement(
-                workspace_id=ws.id, title=semantic_text, ctx=ctx
-            )
+            with django_capture_on_commit_callbacks(execute=True):
+                requirement = RequirementService().create_requirement(
+                    workspace_id=ws.id, title=semantic_text, ctx=ctx
+                )
             requirement.refresh_from_db()
             assert requirement.embedding is not None
 
