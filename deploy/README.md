@@ -405,7 +405,7 @@ Ab `1.8.0-beta.29` gibt es drei Wege, ein Passwort zu ändern — alle widerrufe
 
    ```bash
    # 1. neues Passwort out-of-band setzen (nicht auf der Kommandozeile übergeben!)
-   SYSTEM_ADMIN_PASSWORD='<neues-passwort>' \
+   SYSTEM_ADMIN_PASSWORD='<strong-password>' \
      docker compose -f deploy/docker-compose.yml --project-directory . \
        run --rm backend manage.py bootstrap_admin --reset-password
    # 2. Stack neu hochziehen, damit die Container die geänderte .env lesen
