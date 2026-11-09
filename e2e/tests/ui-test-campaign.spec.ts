@@ -355,6 +355,14 @@ test.describe('[REQ-134] API-Key Management — UI Journey', () => {
     const keyName = `UI-Campaign-REQ134-${Date.now()}`;
     await nameInput.fill(keyName);
 
+    // The workspace may require an expiry for staff-owned keys; fill one so
+    // the create flow is not blocked by the policy (the field is optional
+    // where the policy does not require it).
+    const expiresInput = page.locator('[data-testid="api-key-expires-input"]');
+    if (await expiresInput.isVisible()) {
+      await expiresInput.fill('2030-01-01T00:00');
+    }
+
     await page.locator('[data-testid="api-key-create-btn"]').click();
 
     // Plaintext shown exactly once after creation

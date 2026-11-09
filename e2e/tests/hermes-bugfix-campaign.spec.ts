@@ -305,6 +305,12 @@ test.describe('[REQ-134] API-Key Management — retrieve endpoint', () => {
     await expect(nameInput).toBeVisible({ timeout: 10000 });
     await nameInput.fill(`UI-REQ134-Test-${Date.now()}`);
 
+    // See ui-test-campaign.spec.ts: the workspace may require an expiry.
+    const expiresInput = page.locator('[data-testid="api-key-expires-input"]');
+    if (await expiresInput.isVisible()) {
+      await expiresInput.fill('2030-01-01T00:00');
+    }
+
     await page.locator('[data-testid="api-key-create-btn"]').click();
 
     // Plaintext box must appear after creation
