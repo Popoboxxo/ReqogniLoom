@@ -49,6 +49,10 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
+      - name: TypeScript typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
   backend-test:
     runs-on: ubuntu-latest
     # 10 min used to be enough on a warm pip cache, but set-3-mcp installs the
@@ -192,6 +196,20 @@ jobs:
           # docs/SYSTEMAUDIT_2026-08-27_RESTPLAN.md AP-4/H1.
           ruff check . --select=F821,F822
         continue-on-error: false
+
+      - name: Django system and migration checks
+        if: matrix.test-set.id == 'set-1-core'
+        working-directory: backend
+        env:
+          DJANGO_SETTINGS_MODULE: reqogniloom.settings_test
+          SECRET_KEY: ci-test-secret-key
+          AUTH_JWT_SECRET: ci-test-auth-jwt-secret
+          DEBUG: 'True'
+          ALLOWED_HOSTS: localhost,127.0.0.1
+          FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
+        run: |
+          python manage.py check
+          python manage.py makemigrations --check --dry-run
 
       - name: Run pytest for ${{ matrix.test-set.id }}
         working-directory: backend
