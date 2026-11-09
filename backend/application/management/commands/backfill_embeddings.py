@@ -1,8 +1,9 @@
 """Backfill missing pgvector embeddings for Requirement, TraceLink and Icd (#794).
 
 Embeddings are written opportunistically, on create/update only
-(``RequirementService._generate_and_store_embedding``,
-``TraceLinkService._generate_and_store_embedding``). There has never been a
+(``RequirementService._generate_and_store_embedding`` for the lazy read path,
+``application.embedding_dispatch`` + ``application.tasks.embed_rows_task`` for
+the write paths — #1401). There has never been a
 path that fills them for rows that already exist — which is why fixing the
 dimension mismatch in #794 is necessary but not sufficient: without a
 backfill, a deployment's entire existing corpus stays permanently

@@ -165,6 +165,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.embedding_dispatch import enqueue_rows_after_commit
 from application.reqif_export_service import (
     _ATTR_CATEGORY,
     _ATTR_CUSTOM_FIELDS,
@@ -903,26 +904,14 @@ class ReqifImportService(ServiceBase):
                 # the request thread. A broker outage must not fail an
                 # otherwise-persisted import (fallback: the operator re-runs
                 # ``manage.py backfill_embeddings --model requirement``).
-                def _enqueue_embeddings(
-                    ids: tuple[Any, ...] = tuple(requirement_ids),
-                    tid: Any = tenant.id,
-                ) -> None:
-                    from application.tasks import embed_rows_task
-
-                    try:
-                        embed_rows_task.delay(
-                            "requirement", [str(row_id) for row_id in ids], str(tid)
-                        )
-                    except Exception:  # noqa: BLE001 — import is already durable
-                        logger.warning(
-                            "ReqifImportService: could not enqueue embedding for "
-                            "%d imported requirement(s); run backfill_embeddings "
-                            "--model requirement to catch up.",
-                            len(ids),
-                            exc_info=True,
-                        )
-
-                transaction.on_commit(_enqueue_embeddings)
+                # #1401: one shared implementation with the single-row writers —
+                # see ``application.embedding_dispatch``.
+                enqueue_rows_after_commit(
+                    "requirement",
+                    requirement_ids,
+                    tenant.id,
+                    source="ReqifImportService",
+                )
 
         # AUD-2026-09-071 / ADR-014 §1: success is derived from the actual
         # per-object outcome, never hard-coded. Any object that failed to

@@ -85,10 +85,7 @@ class LlmAdapterConfig(AppConfig):
         Gesamttest 2026-08-29 Bug 2:
         ``SentenceTransformersEmbeddingProvider`` (the default
         ``EMBEDDING_PROVIDER``) lazily loads its model on the *first* call to
-        ``.embed()`` — which happens synchronously inside
-        ``RequirementService.create()``'s request/response cycle
-        (``_generate_and_store_embedding``, best-effort but still
-        in-line). On a cold local HF cache that first load also performs
+        ``.embed()``. On a cold local HF cache that first load also performs
         ~15 unguarded HTTP HEAD/GET round-trips to huggingface.co to
         validate cached files, which measured ~3.5s here and is not bounded
         beyond each individual request's own default timeout — enough to
@@ -98,16 +95,17 @@ class LlmAdapterConfig(AppConfig):
         Preloading here moves that one-time cost to worker boot
         (gunicorn/celery — both recycle workers periodically via
         ``--max-requests``, so this can recur), where it is invisible to
-        users, instead of onto whichever user's request happens to hit a
-        cold worker first. Chosen over an async/Celery redesign of
-        ``_generate_and_store_embedding`` (REQ-L2-VS-004's embedding write
-        is fire-and-forget already; moving it off the request path entirely
-        would change the create-response contract and touch
-        ``find_similar_requirements`` / search-service read paths for a
-        best-effort side effect — larger blast radius than this session's
-        scope) and over a bare timeout-only fix (which would still block
-        every cold-worker's first request, just for a bounded time instead
-        of an unbounded one).
+        users, instead of onto whichever request happens to hit a cold
+        worker first.
+
+        #1401 update: the *write* path no longer calls the provider at all —
+        create/update dispatch ``embed_rows_task`` after the commit
+        (``application.embedding_dispatch``), so the preload now protects the
+        first *Celery* embedding plus the lazy read paths
+        (``find_similar_requirements``, ``search_service``'s semantic pass),
+        which still embed on demand and would otherwise pay the cold load
+        inside a GET. The preload stays exactly because those paths remain
+        inline by design.
 
         Best-effort by design, matching every other embedding code path in
         this module (see ``embedding_service``'s module docstring): a
