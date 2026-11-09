@@ -9,8 +9,9 @@ Why a system check rather than a log line: both failure modes guarded here are
 **Embedding dimensions (#794, #1149).** Embedding generation is best-effort
 everywhere (``embedding_service``'s module docstring), so a vector whose width
 does not match the ``vector(N)`` column it is destined for is skipped, not
-raised — on the write side
-(``RequirementService._generate_and_store_embedding`` et al.) and on the read
+raised — on the write side (``application.embedding_backfill.embed_rows``, the
+body of ``embed_rows_task`` since #1401, plus the lazy
+``RequirementService._generate_and_store_embedding``) and on the read
 side (``search_service._run_semantic_query``). Before #794 that was the
 *shipped default* configuration, and it produced exactly one observable
 symptom: ``artifact.search`` returned nothing, forever, with no error anywhere.

@@ -97,10 +97,21 @@ def embed_rows(
     if not ids:
         return 0
 
-    from llm_adapter.embedding_service import generate_embedding_with_model
+    from llm_adapter.embedding_service import (
+        generate_embedding_with_model,
+        warn_dimension_mismatch,
+    )
 
     model = resolve_embedding_model(model_name)
     rows, build_text = _rows_and_builder(model, model_name, ids)
+
+    # #794: a vector whose width differs from the ``vector(N)`` column must
+    # never reach the DB — Postgres rejects it with a ``DataError``, which in a
+    # Celery worker fails the whole task and in the backfill command aborts the
+    # run. #1401 made this the single write path for the create/update writers
+    # too, so the guard those services used to hold lives here now; the
+    # rationale (skip, warn once, keep going) is ``warn_dimension_mismatch``'s.
+    field_dimensions = model._meta.get_field("embedding").dimensions
 
     embedded = 0
     for row in rows:
@@ -117,6 +128,11 @@ def embed_rows(
                 totals["failed"] = totals.get("failed", 0) + 1
             continue
         if vector is None:
+            if totals is not None:
+                totals["failed"] = totals.get("failed", 0) + 1
+            continue
+        if len(vector) != field_dimensions:
+            warn_dimension_mismatch("embed_rows", len(vector), field_dimensions)
             if totals is not None:
                 totals["failed"] = totals.get("failed", 0) + 1
             continue

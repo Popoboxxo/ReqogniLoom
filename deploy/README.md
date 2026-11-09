@@ -1466,6 +1466,91 @@ while the stack runs: `checks.embedding_dimensions` becomes `"mismatch"` and a w
 unhealthy, so container probes must not restart-loop over it). pgvector cannot cast between
 widths, so resizing discards existing vectors and the backfill regenerates them.
 
+## Data hygiene and embeddings (maintenance)
+
+Long-lived deployments accumulate four kinds of drift: orphaned artifacts,
+structurally broken hierarchies, missing embeddings and stale planner
+statistics. Every one of them has a command; none runs automatically — a soft
+delete and a hierarchy rewrite are operator decisions, not housekeeping.
+
+### Orphaned artifacts (#1410)
+
+`audit_orphan_artifacts` reports every active, linkable artifact with **zero**
+trace links in either direction. It is read-only unless you pass `--apply`, and
+`--apply` sets the backing artifact's lifecycle flag to `outdated` (soft
+delete: recoverable, audit trail intact) — it never hard-deletes.
+
+```bash
+D="docker compose -f deploy/docker-compose.yml --project-directory ."
+# 1. Report (default). Review the list before you touch anything.
+$D exec backend python manage.py audit_orphan_artifacts
+# 2. Narrow it down while you review (both filters are repeatable/scoped):
+$D exec backend python manage.py audit_orphan_artifacts --workspace <uuid> --type Requirement
+# 3. Apply, once the list is agreed on.
+$D exec backend python manage.py audit_orphan_artifacts --apply --workspace <uuid>
+```
+
+Non-linkable types (`MainGoal`, `ChangeRequest`, `Diagram`, `GlossaryTerm`) are
+excluded by design, so a healthy workspace does not report them as defects.
+
+### Broken hierarchies and ICD contract lists
+
+- `repair_architecture_cycles` — self-parent / cyclic `ArchitectureElement`
+  rows. A cycle makes the recursive level/tree CTEs non-terminating, i.e. a 500
+  on every tree read of that workspace. Dry-run by default; `--apply` detaches
+  exactly one element per cycle (smallest UUID, deterministic and repeatable);
+  `--workspace <uuid>` scopes the scan.
+- `repair_icd_contract_lists` — ICD rows whose parameter objects were persisted
+  as plain list entries instead of the `parameters` structure. It ships with the
+  ICD cluster of this release; `python manage.py help` lists the commands your
+  image actually contains.
+
+Both follow the same pattern: report → review → `--apply`.
+
+### Missing or pending embeddings (#1401)
+
+Create/update no longer generate embeddings on the request thread. The row is
+committed first, then `embed_rows_task` runs in the `celery` service, so a
+freshly created Requirement or TraceLink has **no vector for a few seconds**:
+
+- Requirement similarity search self-heals: it generates and stores the vector
+  on the first read (`find_similar_requirements`, #847).
+- TraceLink similarity search answers "no embedding" until the worker has run.
+- The **`celery` service must be running.** Without it nothing is ever embedded
+  and the backfill below is the only way to fill the columns.
+
+A broker outage never fails the write — it logs `could not enqueue embedding` at
+WARNING and leaves the row persisted. That warning, a provider/schema change
+(see the embedding-provider section above) and any suspicion of a gap all have
+the same repair path:
+
+```bash
+$D exec backend python manage.py backfill_embeddings                      # all models, all tenants
+$D exec backend python manage.py backfill_embeddings --model requirement   # or tracelink / icd
+$D exec backend python manage.py backfill_embeddings --dry-run             # count only, no writes
+# ANALYZE needs table ownership, so go through the superuser service:
+$D run --rm migrate python manage.py analyze_embedding_indexes
+```
+
+### Index and query changes need a measurement, not a hunch (#1399/#1411)
+
+`idx_scan = 0` in `pg_stat_user_indexes` is **not** evidence that an index is
+useless. PostgreSQL ignores an index on a small table because a sequential scan
+is cheaper, and the counter only reflects queries that ran since the last
+statistics reset. On a table with a few thousand rows, an unused FTS or HNSW
+index is the expected and correct plan.
+
+Do not drop an index or rewrite a query on that signal. Decide with a plan on
+production-like data:
+
+```sql
+EXPLAIN (ANALYZE, BUFFERS) <the exact query>;
+```
+
+Only a sequential scan **and** a latency that actually matters justifies a
+change — and then as its own reviewed task with before/after plans. Anything
+else is recorded as "no defect at the current data size".
+
 ## For AI agents
 
 If you are an AI agent deploying this system unattended, the canonical, verified command

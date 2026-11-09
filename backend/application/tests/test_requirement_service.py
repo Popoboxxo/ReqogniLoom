@@ -277,7 +277,7 @@ class TestCreateRequirement:
 
 
 # ---------------------------------------------------------------------------
-# _generate_and_store_embedding — dimension-mismatch guard (Task 12)
+# embedding write (after-commit dispatch) — dimension-mismatch guard (Task 12)
 # ---------------------------------------------------------------------------
 
 
@@ -291,9 +291,9 @@ class TestEmbeddingDimensionGuard:
     original failure mode, documented in the Task 12 report).
 
     Real, integration-level tests (real DB, real ``create_requirement`` call,
-    real column) rather than a mock of ``_generate_and_store_embedding``
-    itself, specifically so they catch a regression to the crash/poisoning
-    behaviour, not just a change in how the guard is implemented.
+    real column) rather than a mock of the embedding writer itself,
+    specifically so they catch a regression to the crash/poisoning behaviour,
+    not just a change in how the guard is implemented.
 
     #794: the mismatched width used to be spelled ``384`` here, because that
     was what the *shipped default* provider produced against a hardcoded
@@ -301,6 +301,12 @@ class TestEmbeddingDimensionGuard:
     configuration wrote no embeddings, and passed. The widths are now derived
     from the column, and ``test_matching_dimension_is_written`` pins the
     behaviour that actually matters.
+
+    #1401: the write moved off the request path, so the guard now lives in the
+    shared sink ``application.embedding_backfill.embed_rows`` (the task body).
+    The tests run the registered ``transaction.on_commit`` dispatch instead of
+    relying on an inline call, which keeps them end-to-end: same provider, same
+    column, same skip-or-write decision, just after the commit.
     """
 
     def _patch_provider(self, monkeypatch, dimensions: int) -> None:
@@ -313,7 +319,9 @@ class TestEmbeddingDimensionGuard:
             lambda text: [0.1] * dimensions,
         )
 
-    def test_dimension_mismatch_is_skipped_not_written(self, monkeypatch):
+    def test_dimension_mismatch_is_skipped_not_written(
+        self, monkeypatch, django_capture_on_commit_callbacks
+    ):
         from persistence.models import Requirement
         from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
 
@@ -323,9 +331,10 @@ class TestEmbeddingDimensionGuard:
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
             ctx = editor_ctx(tenant, ws)
-            requirement = RequirementService().create_requirement(
-                workspace_id=ws.id, title="Dimension guard test", ctx=ctx
-            )
+            with django_capture_on_commit_callbacks(execute=True):
+                requirement = RequirementService().create_requirement(
+                    workspace_id=ws.id, title="Dimension guard test", ctx=ctx
+                )
             requirement.refresh_from_db()
 
         # (1) No exception propagated (create_requirement returned normally,
@@ -338,7 +347,9 @@ class TestEmbeddingDimensionGuard:
         #     Requirement.DoesNotExist otherwise), with its real data intact.
         assert requirement.title == "Dimension guard test"
 
-    def test_matching_dimension_is_written(self, monkeypatch):
+    def test_matching_dimension_is_written(
+        self, monkeypatch, django_capture_on_commit_callbacks
+    ):
         """#794: the point of the whole issue — a provider-shaped vector must
         actually land in the column. This is what never happened under the
         shipped default before #794, and it is why ``artifact.search``'s
@@ -352,9 +363,10 @@ class TestEmbeddingDimensionGuard:
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
             ctx = editor_ctx(tenant, ws)
-            requirement = RequirementService().create_requirement(
-                workspace_id=ws.id, title="Embedding write test", ctx=ctx
-            )
+            with django_capture_on_commit_callbacks(execute=True):
+                requirement = RequirementService().create_requirement(
+                    workspace_id=ws.id, title="Embedding write test", ctx=ctx
+                )
             requirement.refresh_from_db()
 
         assert requirement.embedding is not None
@@ -365,19 +377,22 @@ class TestEmbeddingModelProvenance:
     """T-A0-6: the model that produced a vector is persisted with it.
 
     ``Requirement.embedding_model`` carries ``"<provider>:<model_name>:<dims>"``
-    (ADR-024 O3). Pinned here on the real create path — a vector without its
-    provenance is exactly the mixed-corpus blindness #1317 point 3 is about.
+    (ADR-024 O3). Pinned here on the real create path — including the
+    after-commit dispatch since #1401 — because a vector without its provenance
+    is exactly the mixed-corpus blindness #1317 point 3 is about.
     """
 
-    def test_create_persists_embedding_model(self, monkeypatch):
+    def test_create_persists_embedding_model(
+        self, monkeypatch, django_capture_on_commit_callbacks
+    ):
         from llm_adapter.embedding_service import current_embedding_model_id
         from persistence.models import Requirement
         from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
 
         column_dimensions = Requirement._meta.get_field("embedding").dimensions
-        # Patched at the source module: the service resolves the name lazily
-        # inside ``_generate_and_store_embedding``. The wrapper delegates to
-        # this function, so the patch still drives the generated width.
+        # Patched at the source module: the writer resolves the name lazily
+        # inside the provider facade. The wrapper delegates to this function,
+        # so the patch still drives the generated width.
         monkeypatch.setattr(
             "llm_adapter.embedding_service.generate_embedding",
             lambda text: [0.1] * column_dimensions,
@@ -387,9 +402,11 @@ class TestEmbeddingModelProvenance:
         with active_tenant() as tenant:
             ws = make_workspace(tenant)
             ctx = editor_ctx(tenant, ws)
-            requirement = RequirementService().create_requirement(
-                workspace_id=ws.id, title="Embedding provenance test", ctx=ctx
-            )
+            # #1401: the vector is written by the after-commit task.
+            with django_capture_on_commit_callbacks(execute=True):
+                requirement = RequirementService().create_requirement(
+                    workspace_id=ws.id, title="Embedding provenance test", ctx=ctx
+                )
             requirement.refresh_from_db()
 
         assert requirement.embedding is not None

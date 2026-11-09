@@ -48,6 +48,7 @@ from application.base import (
     ServiceBase,
     ValidationError,
 )
+from application.embedding_dispatch import enqueue_rows_after_commit
 from application.local_uid import generate_local_uid
 from application.models import DomainEventOutbox
 from application.optimistic_lock import (
@@ -80,11 +81,6 @@ logger = logging.getLogger(__name__)
 
 # Sentinel to distinguish "not provided" from "set to None" in update calls.
 _UNSET = object()
-
-#: C6/#1401: the write path must not inherit the provider's full 30 s timeout.
-#: A cold/slow embedding call is capped here; the row simply stays without an
-#: embedding and ``backfill_embeddings`` (or the next text change) catches up.
-_EMBEDDING_WRITE_TIMEOUT_SECONDS = 3.0
 
 # #45 (IEEE 29148 §5.2.4): "and"/"or" conjunctions in a requirement title
 # usually indicate it bundles more than one testable statement. Word-boundary
@@ -478,7 +474,16 @@ class RequirementService(ServiceBase):
             )
 
         # REQ-L2-VS-004: best-effort semantic embedding for similarity search.
-        self._generate_and_store_embedding(requirement)
+        # #1401: the vector is a derived search index, so it is dispatched after
+        # the commit instead of being generated inside this request — a cold
+        # provider used to add seconds to the 201 (see
+        # ``application.embedding_dispatch``).
+        enqueue_rows_after_commit(
+            "requirement",
+            [requirement.id],
+            requirement.tenant_id,
+            source="RequirementService.create_requirement",
+        )
 
         self._audit(ctx=ctx, operation="create", entity_type="Requirement", entity_id=requirement.id)
         self._emit_event(
@@ -497,7 +502,7 @@ class RequirementService(ServiceBase):
         # read it back and mirror it into an additive ``warnings`` list (REST:
         # ``_service_warnings`` in rest_api/views.py). Every other caller
         # ignores it, so no call site changes. Set last so the audit event, the
-        # embedding and the level refresh above cannot drop it.
+        # embedding dispatch and the level refresh above cannot drop it.
         if duplicate_title_warning:
             requirement.duplicate_title_warning = duplicate_title_warning
         return requirement
@@ -883,9 +888,15 @@ class RequirementService(ServiceBase):
 
         # REQ-L2-VS-004: refresh the embedding only when embedding-relevant text
         # (title/description) changed, to avoid needless LLM calls on metadata-
-        # only updates. Best-effort — never fails the update.
+        # only updates. #1401: dispatched after the commit, never generated in
+        # this request — see ``application.embedding_dispatch``.
         if title is not None or description is not None:
-            self._generate_and_store_embedding(requirement)
+            enqueue_rows_after_commit(
+                "requirement",
+                [requirement.id],
+                requirement.tenant_id,
+                source="RequirementService.update_requirement",
+            )
 
         self._audit(
             ctx=ctx,
@@ -1310,7 +1321,17 @@ class RequirementService(ServiceBase):
         REQ-L2-VS-004. Uses a bare ``.update()`` so it neither bumps the
         version nor emits a domain event. Never raises: the embedding is
         supplementary to full-text search, so a provider/network failure must
-        not fail the surrounding create/update transaction.
+        not fail the surrounding request.
+
+        Callers (#1401): only the *lazy read path*
+        (:meth:`find_similar_requirements`) still generates here. The create and
+        update paths dispatch ``embed_rows_task`` after the commit through
+        ``application.embedding_dispatch`` instead, so a cold provider never
+        sits inside a 201/200. The former 3 s watchdog thread existed solely to
+        bound that write path; on the read path it was actively harmful — a cold
+        local model took longer than the budget and the search silently degraded
+        to an empty result instead of waiting for the vector it had just asked
+        for. The provider's own ``EMBEDDING_TIMEOUT`` is the bound now.
 
         Returns:
             The generated vector when it was persisted, else ``None`` (no
@@ -1339,11 +1360,6 @@ class RequirementService(ServiceBase):
         ``warn_dimension_mismatch``.
         """
         try:
-            from concurrent.futures import (
-                ThreadPoolExecutor,
-                TimeoutError as FuturesTimeout,
-            )
-
             from llm_adapter.embedding_service import (
                 generate_embedding_with_model,
                 get_embedding_text,
@@ -1353,31 +1369,9 @@ class RequirementService(ServiceBase):
             # T-A0-6: one call yields the vector AND the id of the model that
             # produced it, so the two columns cannot drift apart. The id is only
             # persisted together with the vector (never on a skipped write).
-            #
-            # #1401: run it behind a short wall-clock budget. The provider
-            # itself has a 30 s timeout, which is far longer than the UI's save
-            # budget; a cold provider used to block the first POST for ~9 s.
-            pool = ThreadPoolExecutor(max_workers=1)
-            try:
-                future = pool.submit(
-                    generate_embedding_with_model,
-                    get_embedding_text(requirement),
-                )
-                try:
-                    embedding, model_id = future.result(
-                        timeout=_EMBEDDING_WRITE_TIMEOUT_SECONDS
-                    )
-                except FuturesTimeout:
-                    logger.warning(
-                        "RequirementService: embedding generation for req=%s "
-                        "exceeded %.1fs; leaving it pending for backfill.",
-                        requirement.id,
-                        _EMBEDDING_WRITE_TIMEOUT_SECONDS,
-                    )
-                    return None
-            finally:
-                # Never wait for a slow provider thread on the request path.
-                pool.shutdown(wait=False)
+            embedding, model_id = generate_embedding_with_model(
+                get_embedding_text(requirement)
+            )
             field_dimensions = Requirement._meta.get_field("embedding").dimensions
             if embedding is not None and len(embedding) == field_dimensions:
                 Requirement.objects.filter(id=requirement.id).update(
