@@ -206,6 +206,18 @@ jobs:
           AUTH_JWT_SECRET: ci-test-auth-jwt-secret
           DEBUG: 'True'
           ALLOWED_HOSTS: localhost,127.0.0.1
+          # Same required settings as the pytest step below: settings.py has
+          # no defaults for the DB secrets, and the check command imports the
+          # full settings module before it can report anything.
+          DB_NAME: reqflow_test
+          DB_USER: reqflow
+          DB_PASSWORD: reqflow
+          DB_APP_PASSWORD: ci-test-app-role-password
+          DB_HOST: localhost
+          DB_PORT: '5432'
+          REDIS_URL: redis://localhost:6379
+          LLM_PROVIDER: mock
+          DEFAULT_TENANT_ID: '1'
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
         run: |
           python manage.py check
