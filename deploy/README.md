@@ -387,6 +387,38 @@ die Änderung käme also nie im Container an.
   enrolled sind — Details und Reihenfolge im Abschnitt
   [„2FA: Gerät verloren / neues Staff-Konto"](#2fa-gerät-verloren--neues-staff-konto).
 
+## Admin-Passwort zurücksetzen (Passwort verloren)
+
+Ab `1.8.0-beta.29` gibt es drei Wege, ein Passwort zu ändern — alle widerrufen die
+**anderen** Sitzungen, die aktuelle bleibt gültig:
+
+1. **Self-Service (UI):** Profil → Sicherheit → „Passwort ändern". Aktuelles Passwort
+   plus neues Passwort (Djangos `AUTH_PASSWORD_VALIDATORS` greifen). Alle anderen
+   Refresh-Sitzungen des Kontos werden serverseitig beendet.
+2. **REST:** `POST /api/v1/auth/password/change/` mit
+   `{"current_password": "...", "new_password": "..."}` → `204`.
+   Nur aus einer interaktiven, passwortauthentifizierten Sitzung; ein API-Key erhält
+   `403 PASSWORD_CHANGE_REQUIRES_INTERACTIVE_SESSION`. Ein reiner Bearer-Aufrufer ohne
+   Refresh-Cookie invalidiert **alle** Sitzungen (der vorgelegte Access-Token läuft
+   noch bis `AUTH_JWT_TTL_SECONDS` aus, danach gibt es kein Refresh mehr).
+3. **Betreiber-Reset (Passwort komplett verloren):**
+
+   ```bash
+   # 1. neues Passwort out-of-band setzen (nicht auf der Kommandozeile übergeben!)
+   SYSTEM_ADMIN_PASSWORD='<strong-password>' \
+     docker compose -f deploy/docker-compose.yml --project-directory . \
+       run --rm backend manage.py bootstrap_admin --reset-password
+   # 2. Stack neu hochziehen, damit die Container die geänderte .env lesen
+   docker compose -f deploy/docker-compose.yml --project-directory . up -d
+   ```
+
+   Der Reset schreibt das Passwort aus `SYSTEM_ADMIN_PASSWORD` und widerruft **alle**
+   Refresh-Sitzungen des Kontos. Ohne `--reset-password` bleibt `bootstrap_admin`
+   create-only — ein via UI geändertes Passwort wird bei jedem Neustart NICHT
+   zurückgesetzt. Das Betreiber-Passwort ist bewusst von den Password-Validatoren
+   ausgenommen (Disaster Recovery); nutzergetriebene Anlage und Self-Service-Änderung
+   validieren.
+
 ## Required flag: `--project-directory .`
 
 These compose files do **not** live in the repository root. Every direct `docker compose`

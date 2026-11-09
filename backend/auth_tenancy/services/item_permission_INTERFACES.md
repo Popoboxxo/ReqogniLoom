@@ -209,3 +209,77 @@ This contract is implemented at the call site (RestApiAdapter / McpServer / doma
 - **Migration**: one new table (`at_item_permission`), two indexes, one unique constraint. RLS registration deferred to Wave C.
 - **Boundary check**: no level crossing (ItemPermission lives entirely within AuthAndTenancySystem, leaf node has no child L3 components). The interaction with `AuthorizationService` is **deliberately** non-extending — both layers call into the same `AuthContext` shape but stay separate.
 - **No interface changes**: the existing `AuthContext`, `TenantContext`, `AuthorizationService`, `ServiceBase`, `audit.services.log_write` interfaces are consumed as-is. No unilateral changes.
+
+---
+
+## 5. Write-path enforcement (issue #1716, beta.29 C2-T2)
+
+Before #1716 the item-level rule set was only consulted by the *read* side
+(search, baseline rollback, `permissions.check`). Every CRUD **write** went
+through `ServiceBase._assert_write_permission`, which checks the coarse RBAC
+matrix only — so an editor could update or soft-delete an artifact that an
+admin had restricted with `read`/`none`, and `none` was indistinguishable from
+"no rule" on those paths.
+
+### 5.1 `ServiceBase._assert_item_write_permission(ctx, artifact_id, *, workspace_id)`
+
+New helper in `application/base.py`, called by the services after their own
+`_set_tenant_context` / `_assert_write_permission` and **after** loading the
+entity (it needs the backing `Artifact` id):
+
+| Rule outcome (`PermissionDecision`) | Action |
+|---|---|
+| `has_explicit_rule == False` (no rule) | return — RBAC alone decides (unchanged behaviour) |
+| `level == "write"` | return |
+| `level == "read"` | `PermissionDeniedError` → REST 403 |
+| `level == "deny"` (explicit `none`) | `NotFoundError` → REST 404 (no existence oracle) |
+
+It calls `ItemPermissionService.check_permission` **directly**, not
+`EffectivePermissionService.resolve_effective_permission`: the merged decision
+collapses `read` and `deny` into "not allowed", losing exactly the distinction
+the write path needs. It also does **not** repeat the RBAC check — that stays
+in `_assert_write_permission`.
+
+Resolution order is unchanged (§1.4): artifact-scoped rule beats the
+workspace-wide rule. A row without a backing Artifact (legacy data) passes
+`artifact_id=None`, so the workspace-wide rule still applies.
+
+The helper is a no-op while **no** tenant context is armed: item rules are
+tenant-scoped, and every live REST/MCP write arms it via
+`_set_tenant_context(ctx)` before the entity is loaded. Only a direct service
+caller that deliberately skips that step lands there — and such a caller cannot
+read or write a tenant-scoped row at all, while the RBAC gate has already run.
+
+### 5.2 Guarded methods (explicit list — no prefix matching)
+
+| Service | Methods |
+|---|---|
+| `RequirementService` | `update_requirement`, `delete_requirement` |
+| `ArchitectureService` | `update_architecture_element`, `delete_architecture_element` |
+| `RiskService` | `update_risk`, `delete_risk` |
+| `IssueService` | `update_issue`, `delete_issue` |
+| `AdrService` | `update_adr`, `delete_adr` |
+| `TestService` | `update_test_case`, `update_test_status`, `delete_test_case` |
+| `GlossaryService` | `update`, `delete` |
+| `ChangeRequestService` | `update_change_request`, `delete_change_request` |
+
+The list is explicit because two methods break the naming convention
+(`GlossaryService.update`, `TestService.update_test_status`) and a
+`update_*`/`delete_*` heuristic would have missed them — leaving a one-request
+way around a `read`/`none` lock. Tests:
+`application/tests/test_item_permission_write_guard.py` (matrix over all eight
+types, REST `PATCH`/`DELETE`, MCP `requirement.update`).
+
+### 5.3 Open follow-up: retrieve/list (read path)
+
+`get_*` / `list_*` still ignore item-level rules. A `none`/`read` rule is today
+enforced on writes by this module and on the search surface by
+`EffectivePermissionService`, but a direct `GET /api/v1/requirements/{id}/`
+still returns a `none`-denied artifact (the RBAC READ gate and the item layer
+are not combined there).
+
+Deliberately **not** implemented in #1716: the read-side semantics need their
+own decision (does a `none` rule answer 404 or an empty list? does it also hide
+the artifact from traceability/impact aggregates?), and changing every
+retrieve/list at once would widen the blast radius of a P1 security fix. Track
+it as the follow-up issue "ItemPermission auf Retrieve/List (Lesepfad)".

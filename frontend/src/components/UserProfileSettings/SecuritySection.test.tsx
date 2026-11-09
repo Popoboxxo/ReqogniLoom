@@ -3,7 +3,7 @@
  * Plan E / WP E3.8 (#1308).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, act } from "@testing-library/react";
 import { SecuritySection } from "./SecuritySection";
 import type { MfaStatus } from "../../api/mfa";
 import {
@@ -20,6 +20,14 @@ vi.mock("../../api/mfa", () => ({
   confirmTotp: vi.fn(),
   regenerateRecoveryCodes: vi.fn(),
   disableMfa: vi.fn(),
+}));
+
+const { changePasswordMock } = vi.hoisted(() => ({
+  changePasswordMock: vi.fn(),
+}));
+
+vi.mock("../../context/AuthContext", () => ({
+  useAuth: () => ({ changePassword: changePasswordMock }),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -228,5 +236,96 @@ describe("SecuritySection — one-time code handling", () => {
       ENROLLMENT.secret
     );
     expect(screen.queryByTestId("mfa-otpauth-link")).toBeNull();
+  });
+
+  // -------------------------------------------------------------------
+  // Password change (GitHub #1739)
+  // -------------------------------------------------------------------
+
+  async function submitPasswordChange(
+    current = "Old-Passphrase-42",
+    next = "New-Passphrase-77",
+    repeat = next
+  ): Promise<void> {
+    render(<SecuritySection />);
+
+    fireEvent.change(await screen.findByTestId("password-current-input"), {
+      target: { value: current },
+    });
+    fireEvent.change(screen.getByTestId("password-new-input"), {
+      target: { value: next },
+    });
+    fireEvent.change(screen.getByTestId("password-repeat-input"), {
+      target: { value: repeat },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("password-change-submit"));
+    });
+  }
+
+  it("renders the password change form", async () => {
+    render(<SecuritySection />);
+
+    expect(await screen.findByTestId("password-change-form")).toBeInTheDocument();
+    expect(screen.getByTestId("password-current-input")).toBeInTheDocument();
+    expect(screen.getByTestId("password-new-input")).toBeInTheDocument();
+    expect(screen.getByTestId("password-repeat-input")).toBeInTheDocument();
+  });
+
+  it("rejects a mismatching repetition before calling the API", async () => {
+    await submitPasswordChange("Old-Passphrase-42", "New-Passphrase-77", "other");
+
+    expect(await screen.findByTestId("password-change-error")).toHaveTextContent(
+      "security.password.mismatch"
+    );
+    expect(changePasswordMock).not.toHaveBeenCalled();
+  });
+
+  it("calls changePassword and confirms the success", async () => {
+    changePasswordMock.mockResolvedValue(undefined);
+
+    await submitPasswordChange();
+
+    await waitFor(() =>
+      expect(changePasswordMock).toHaveBeenCalledWith(
+        "Old-Passphrase-42",
+        "New-Passphrase-77"
+      )
+    );
+    expect(
+      await screen.findByTestId("password-change-success")
+    ).toHaveTextContent("security.password.success");
+    // The fields are cleared so the secret does not linger on screen.
+    expect(screen.getByTestId("password-current-input")).toHaveValue("");
+  });
+
+  it("maps a wrong current password to its own message", async () => {
+    changePasswordMock.mockRejectedValue({
+      error: { code: "INVALID_CURRENT_PASSWORD", message: "nope" },
+    });
+
+    await submitPasswordChange();
+
+    expect(await screen.findByTestId("password-change-error")).toHaveTextContent(
+      "security.password.incorrectCurrent"
+    );
+  });
+
+  it("shows the server's policy reason for a rejected new password", async () => {
+    changePasswordMock.mockRejectedValue({
+      error: {
+        code: "PASSWORD_POLICY_VIOLATION",
+        message: "This password is too common.",
+        details: [
+          { field: "new_password", errors: ["This password is too common."] },
+        ],
+      },
+    });
+
+    await submitPasswordChange();
+
+    expect(await screen.findByTestId("password-change-error")).toHaveTextContent(
+      "new_password: This password is too common."
+    );
   });
 });

@@ -133,6 +133,13 @@ export interface AuthState {
   completeMfaLogin: (challenge: string, factor: MfaFactor) => Promise<void>;
   /** PATCH /api/v1/auth/me/ — update editable profile fields (REQ-006) */
   updateProfile: (update: ProfileUpdate) => Promise<void>;
+  /**
+   * POST /api/v1/auth/password/change/ — self-service password change
+   * (GitHub #1739). Rejects with an ``ApiError`` whose ``error.code`` is
+   * ``INVALID_CURRENT_PASSWORD`` or ``PASSWORD_POLICY_VIOLATION``; the calling
+   * session stays valid while every other session is revoked server-side.
+   */
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -372,6 +379,24 @@ export function AuthProvider({
     []
   );
 
+  /**
+   * Changes the current user's password via POST /auth/password/change/.
+   *
+   * Deliberately does not touch the auth state: the server keeps this
+   * session's refresh family and revokes only the others, so the caller stays
+   * signed in. Errors propagate unchanged so the form can map
+   * `INVALID_CURRENT_PASSWORD` / `PASSWORD_POLICY_VIOLATION` to its own copy.
+   */
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string): Promise<void> => {
+      await apiClient.post("/auth/password/change/", {
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
+    },
+    []
+  );
+
   const logout = useCallback(() => {
     advanceAuthSessionGeneration();
     loginAbortController.current?.abort();
@@ -397,9 +422,10 @@ export function AuthProvider({
       login,
       completeMfaLogin,
       updateProfile,
+      changePassword,
       logout,
     }),
-    [status, user, tenantId, roles, isTenantAdmin, login, completeMfaLogin, updateProfile, logout]
+    [status, user, tenantId, roles, isTenantAdmin, login, completeMfaLogin, updateProfile, changePassword, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

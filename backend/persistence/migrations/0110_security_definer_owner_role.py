@@ -90,6 +90,7 @@ DEFINER_SIGNATURES: tuple[str, ...] = (
     "public.auth_refresh_token_claim(uuid)",
     "public.auth_refresh_token_spend(uuid)",
     "public.auth_revoke_refresh_family(uuid, text)",
+    "public.auth_revoke_refresh_families_for_user(uuid, text, uuid)",
     "public.auth_refresh_token_insert(uuid, uuid, uuid, uuid, timestamptz)",
     "public.auth_purge_expired_refresh_tokens(timestamptz, boolean)",
     "public.as_outbox_candidates(integer, timestamptz)",
@@ -167,10 +168,24 @@ def _revoke_sql() -> str:
 
 
 def _ownership_sql() -> str:
-    """Transfer every definer function to the dedicated role."""
+    """Transfer every definer function to the dedicated role.
+
+    Existence-guarded (``to_regprocedure``): since #1739 this list also names a
+    function created by a *later* migration (``auth_tenancy/0034``), which
+    depends on this one. A bare ``ALTER FUNCTION`` would therefore abort a fresh
+    ``migrate`` with "function does not exist"; the block is a no-op for
+    not-yet-created functions and still transfers every existing one. The
+    later migration transfers its own function on creation, so the end state is
+    identical for fresh and already-migrated databases.
+    """
     role = _quote_ident(DEFINER_DB_ROLE)
     return "\n".join(
-        f"ALTER FUNCTION {signature} OWNER TO {role};" for signature in DEFINER_SIGNATURES
+        "DO $do$\nBEGIN\n"
+        f"    IF to_regprocedure({_quote_literal(signature)}) IS NOT NULL THEN\n"
+        f"        ALTER FUNCTION {signature} OWNER TO {role};\n"
+        "    END IF;\n"
+        "END $do$;"
+        for signature in DEFINER_SIGNATURES
     )
 
 
@@ -180,9 +195,17 @@ def _restore_ownership_sql() -> str:
     ``CURRENT_USER`` is the migration/bootstrap role in every supported
     deployment — the role that created these functions — so it restores the
     exact pre-#1180 owner without hard-coding ``DB_USER``.
+
+    Existence-guarded for the same #1739 reason as :func:`_ownership_sql`: the
+    reverse of *this* migration runs after the reverse of ``auth_tenancy/0034``,
+    i.e. after that function was dropped.
     """
     return "\n".join(
-        f"ALTER FUNCTION {signature} OWNER TO CURRENT_USER;"
+        "DO $do$\nBEGIN\n"
+        f"    IF to_regprocedure({_quote_literal(signature)}) IS NOT NULL THEN\n"
+        f"        ALTER FUNCTION {signature} OWNER TO CURRENT_USER;\n"
+        "    END IF;\n"
+        "END $do$;"
         for signature in DEFINER_SIGNATURES
     )
 

@@ -293,12 +293,22 @@ class GlossaryService(ServiceBase):
         Raises:
             OptimisticLockError: *expected_version* does not match the stored one.
         """
+        # #1716: `GlossaryService.update` is the method that breaks the
+        # `update_*` naming convention, so the guard list names it explicitly.
+        # Tenant context is armed first because this service never did — its
+        # load below and the item-level lookup are both tenant-scoped.
+        self._set_tenant_context(ctx)
+
         gt = lock_for_version_check(
             GlossaryTerm.objects.filter(id=term_id), expected_version
         ).first()
         if not gt:
             raise NotFoundError(f"GlossaryTerm {term_id} not found.")
         assert_expected_version(gt, expected_version, entity_type="GlossaryTerm")
+
+        self._assert_item_write_permission(
+            ctx, gt.artifact_id, workspace_id=gt.workspace_id
+        )
 
         changed = False
         if term is not None and term != gt.term:
@@ -370,9 +380,18 @@ class GlossaryService(ServiceBase):
         The term remains in the database for audit purposes.
         Hard-delete is available only via the Django admin panel.
         """
+        # #1716: same item-level gate as update — delete must not bypass it.
+        # Tenant context first: the load below and the item lookup are
+        # tenant-scoped.
+        self._set_tenant_context(ctx)
+
         gt = GlossaryTerm.objects.filter(id=term_id).first()
         if not gt:
             raise NotFoundError(f"GlossaryTerm {term_id} not found.")
+        self._assert_item_write_permission(
+            ctx, gt.artifact_id, workspace_id=gt.workspace_id
+        )
+
         # REQ-006/Phase 0: route soft-delete through the workflow engine's
         # outdate() escape hatch instead of writing lifecycle_status directly.
         from workflow.services import outdate

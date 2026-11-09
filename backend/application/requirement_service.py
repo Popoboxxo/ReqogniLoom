@@ -818,6 +818,13 @@ class RequirementService(ServiceBase):
 
         workspace_id = requirement.artifact.workspace_id
 
+        # #1716: the coarse RBAC gate in ``_assert_write_permission`` (inside
+        # ``_load_requirement_for_update``) is not the whole story — an item-level
+        # rule may narrow this caller to read-only or deny the artifact.
+        self._assert_item_write_permission(
+            ctx, requirement.artifact_id, workspace_id=workspace_id
+        )
+
         # Enforce change_reason policy (ADR-L3-AS002-02)
         if self._preset_policy.is_change_reason_required(str(workspace_id)):
             if not change_reason:
@@ -1132,6 +1139,12 @@ class RequirementService(ServiceBase):
             raise NotFoundError(f"Requirement {requirement_id} not found")
 
         workspace_id = requirement.artifact.workspace_id
+
+        # #1716: delete is the obvious way around a read-only/none rule, so the
+        # same item-level gate applies here (soft-delete included).
+        self._assert_item_write_permission(
+            ctx, requirement.artifact_id, workspace_id=workspace_id
+        )
 
         # #604: delete used to skip the workspace's change_reason preset
         # policy entirely -- a silent audit-trail gap next to

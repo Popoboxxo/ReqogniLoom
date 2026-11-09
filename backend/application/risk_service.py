@@ -354,6 +354,12 @@ class RiskService(ServiceBase):
         ).first()
         if risk is None:
             raise NotFoundError(f"Risk {risk_id} not found")
+
+        # #1716: item-level rule check (read → 403, none → 404).
+        self._assert_item_write_permission(
+            ctx, risk.artifact_id, workspace_id=risk.workspace_id
+        )
+
         assert_expected_version(risk, expected_version, entity_type="Risk")
 
         # #269 finding 5: snapshot BEFORE any assignment so the version bump
@@ -475,6 +481,11 @@ class RiskService(ServiceBase):
             raise NotFoundError(f"Risk {risk_id} not found")
 
         workspace_id = risk.workspace_id
+
+        # #1716: same item-level gate as update — delete must not bypass it.
+        self._assert_item_write_permission(
+            ctx, risk.artifact_id, workspace_id=workspace_id
+        )
 
         # REQ-006/Phase 0: route soft-delete through the workflow engine's
         # outdate() escape hatch instead of hard-deleting the row.

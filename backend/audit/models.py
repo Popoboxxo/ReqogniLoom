@@ -191,6 +191,11 @@ class AuditEntry(TenantScopedModel):
     #: Enforcement cutover (WP E3.9): flipping ``MFA_STAFF_ENFORCEMENT`` to
     #: ``required`` is a governed security act, not a config tweak.
     OP_USER_MFA_CUTOVER = "user.mfa_cutover"
+    # GitHub #1739 (beta.29 C2-T1): a self-service password change is its own
+    # governed act — "who changed their password, when, and how many other
+    # sessions did that kill" must be answerable from the audit trail without
+    # reconstructing it from a generic ``update`` on the User row.
+    OP_USER_PASSWORD_CHANGE = "user.password_change"
     # NOTE (#265): ``op`` is validated against this list by
     # ``AuditLogWriter.write`` via ``full_clean``, and ``ServiceBase._audit``
     # re-raises the resulting ValidationError — so a service that audits an
@@ -271,6 +276,7 @@ class AuditEntry(TenantScopedModel):
         (OP_USER_MFA_RESET, "User MFA Reset"),
         (OP_USER_MFA_ENROLL_GRANT, "User MFA Enrollment Grant"),
         (OP_USER_MFA_CUTOVER, "User MFA Cutover"),
+        (OP_USER_PASSWORD_CHANGE, "User Password Change"),
     ]
 
     SOURCE_REST = "rest"

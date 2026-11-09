@@ -102,6 +102,7 @@ keywords = ["SECRET", "TOKEN", "API_KEY", "PASSWORD", "FIELD_ENCRYPTION_KEY"]
     "CHANGE-ME",
     "change-me",
     "<strong-password>",
+    "<neues-passwort>",
     "my_secure_password",
     "<generate-with-python-secrets>",
     "<generate-with-python-cryptography-fernet>",

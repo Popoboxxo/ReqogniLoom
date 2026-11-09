@@ -460,6 +460,29 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
             "wurde abgelehnt."
         ),
     },
+    # GitHub #1739 (beta.29 C2-T1): self-service password change. Mirrored in
+    # ``auth_tenancy.errors._ERROR_CATALOG``, which owns the 400 status.
+    "INVALID_CURRENT_PASSWORD": {
+        "en": "The current password is incorrect.",
+        "de": "Das aktuelle Passwort ist falsch.",
+    },
+    "PASSWORD_POLICY_VIOLATION": {
+        "en": "The new password does not meet the password policy.",
+        "de": "Das neue Passwort erfüllt die Passwort-Richtlinie nicht.",
+    },
+    "PASSWORD_CHANGE_REQUIRES_INTERACTIVE_SESSION": {
+        "en": (
+            "The password can only be changed from an interactive "
+            "password-authenticated session, not with an API key or a session "
+            "without a password factor."
+        ),
+        "de": (
+            "Das Passwort kann nur aus einer interaktiven, "
+            "passwortauthentifizierten Sitzung geändert werden — nicht mit "
+            "einem API-Schlüssel und nicht aus einer Sitzung ohne "
+            "Passwort-Faktor."
+        ),
+    },
 }
 
 
@@ -3593,10 +3616,18 @@ class UserProfileSerializer(serializers.Serializer):
                     "administrative user management instead."
                 ]
             elif key in self.PROTECTED_FIELDS:
-                errors[key] = [
-                    "This field is read-only and cannot be changed via "
-                    "/auth/me/."
-                ]
+                if key == "password":
+                    # GitHub #1739: give the caller the route that *does* work.
+                    errors[key] = [
+                        "This field is read-only here. Use "
+                        "POST /api/v1/auth/password/change/ to change your "
+                        "password."
+                    ]
+                else:
+                    errors[key] = [
+                        "This field is read-only and cannot be changed via "
+                        "/auth/me/."
+                    ]
             else:
                 errors[key] = ["Unknown field."]
 

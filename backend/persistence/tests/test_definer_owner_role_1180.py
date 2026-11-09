@@ -62,6 +62,7 @@ DEFINER_SIGNATURES: tuple[str, ...] = (
     "public.auth_refresh_token_claim(uuid)",
     "public.auth_refresh_token_spend(uuid)",
     "public.auth_revoke_refresh_family(uuid, text)",
+    "public.auth_revoke_refresh_families_for_user(uuid, text, uuid)",
     "public.auth_refresh_token_insert(uuid, uuid, uuid, uuid, timestamptz)",
     "public.auth_purge_expired_refresh_tokens(timestamptz, boolean)",
     "public.as_outbox_candidates(integer, timestamptz)",

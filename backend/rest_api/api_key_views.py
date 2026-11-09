@@ -157,7 +157,17 @@ class ApiKeyViewSet(ViewSet):
 
     # -- list (GET /api/v1/api-keys/) --------------------------------------
 
-    @extend_schema(responses=ApiKeyMetadataSerializer(many=True))
+    @extend_schema(
+        summary="List the caller's own API keys (self-scoped by design)",
+        description=(
+            "Returns only the caller's own keys — never another user's, even "
+            "within the same tenant (#1716 / #1731). This is the deliberate "
+            "self-service rule from #716: a Viewer may manage their own "
+            "credentials, but the tenant's credential landscape is not "
+            "readable through this route."
+        ),
+        responses=ApiKeyMetadataSerializer(many=True),
+    )
     def list(self, request: Request, **kwargs: Any) -> Response:
         """Return metadata-only listing of the authenticated user's API keys.
 
@@ -189,7 +199,15 @@ class ApiKeyViewSet(ViewSet):
 
     # -- retrieve (GET /api/v1/api-keys/<pk>/) -----------------------------
 
-    @extend_schema(responses=ApiKeyMetadataSerializer)
+    @extend_schema(
+        summary="Read one of the caller's own API keys",
+        description=(
+            "Returns metadata for a key owned by the caller. A key belonging "
+            "to another user (in this or another tenant) answers 404 — the "
+            "lookup is scoped to the caller's own keys (#1731)."
+        ),
+        responses=ApiKeyMetadataSerializer,
+    )
     def retrieve(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
         """Return metadata for a single API key owned by the caller.
 

@@ -262,6 +262,11 @@ class ArchitectureService(ServiceBase):
         if arch_el is None:
             raise NotFoundError(f"ArchitectureElement {arch_el_id} not found")
 
+        # #1716: item-level rule check (read → 403, none → 404).
+        self._assert_item_write_permission(
+            ctx, arch_el.artifact_id, workspace_id=arch_el.artifact.workspace_id
+        )
+
         # Optimistic lock check (REQ-L2-AS-004). No ``lock_for_version_check``
         # here, unlike the other versioned services: this method persists via a
         # compare-and-swap ``UPDATE ... WHERE version = <current>`` below whose
@@ -407,6 +412,11 @@ class ArchitectureService(ServiceBase):
             raise NotFoundError(f"ArchitectureElement {arch_el_id} not found")
 
         workspace_id = arch_el.artifact.workspace_id
+
+        # #1716: same item-level gate as update — delete must not bypass it.
+        self._assert_item_write_permission(
+            ctx, arch_el.artifact_id, workspace_id=workspace_id
+        )
 
         # REQ-006/Phase 0: route soft-delete through the workflow engine's
         # outdate() escape hatch instead of writing lifecycle_status directly.
