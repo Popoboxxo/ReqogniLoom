@@ -7211,6 +7211,15 @@
             "type": "object",
             "description": "Optional. 'custom_fields' as accepted by the risk service."
           },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "description": "Optional. 'severity' as accepted by the risk service."
+          },
           "reporter": {
             "type": [
               "object",
@@ -7427,6 +7436,15 @@
           "expected_version": {
             "type": "integer",
             "description": "Optional. 'expected_version' as accepted by the risk service."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "description": "Optional. 'severity' as accepted by the risk service."
           },
           "reporter": {
             "type": [
