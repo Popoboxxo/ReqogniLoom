@@ -122,7 +122,7 @@ services:
       start_period: 30s
 
   backend:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.28}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.29}
     deploy:
       resources:
         limits:
@@ -183,7 +183,7 @@ services:
         condition: service_completed_successfully
 
   migrate:
-    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.28}
+    image: ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION:-1.8.0-beta.29}
     deploy:
       resources:
         limits:
@@ -232,7 +232,7 @@ services:
         exec python manage.py migrate --no-input
 
   frontend:
-    image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.28}
+    image: ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION:-1.8.0-beta.29}
     environment: *tz-env
     # TZ comes from the shared anchor; the frontend image has no other env.
     deploy:

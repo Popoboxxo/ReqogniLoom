@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0-beta.29] — 2026-11-09
+
+### Added
+- feat(auth): `POST /api/v1/auth/password/change/` with current-password check, Django password validators and revocation of every other refresh family; profile UI block and `bootstrap_admin --reset-password` for the operator path (#1739)
+- feat(permissions): item-level `ItemPermission` rules now gate update **and** delete on all eight artifact types through one shared service guard (#1716)
+- feat(risk): `Risk.severity` is a writable `low|medium|high` enum with a configurable `automation` policy (computed-fields precursor); the former numeric ext twin is gone (#1707)
+- feat(requirements): allocation filter (allocated/unallocated) in the list UI on top of the existing `?allocated=` contract (#1668)
+- feat(deploy): TLS Caddy overlay (`deploy/docker-compose.tls.example.yml` + `Caddyfile.example`) and a documented production-TLS section (#1744)
+- feat(perf): requirement/trace-link embeddings are enqueued via `transaction.on_commit` instead of running on the request thread (#1401)
+
+### Changed
+- **Breaking:** a password change revokes every other refresh session; the current cookie session stays valid, a bearer-only caller keeps its access token until TTL (#1739)
+- **Breaking:** an item rule with level `read` or `none` blocks updates and deletes (403/404) even for editors (#1716)
+- **Breaking:** `Risk.severity` is now user-writable by default; workspaces can opt into derived severity via `editable="automation"` (#1707)
+- Compose: memory limits, Postgres shared memory, `TZ` and log rotation are env-driven and documented (`BACKEND_MEM_LIMIT`, `CELERY_MEM_LIMIT`, `MIGRATE_MEM_LIMIT`, `POSTGRES_SHM_SIZE`, `TZ`); Honcho model pins follow `HONCHO_LLM_MODEL`/`LLM_MODEL` (#1735/#1736/#1740/#1742/#1743)
+- OpenCode 1 and 2 both use the Streamable HTTP `/mcp/` endpoint; SSE remains the documented V1 fallback (#1702)
+- A malformed throttle rate is a startup `rest_api.E001` and a request-path 503 instead of a 500 (#1738)
+- `.env.example` documents every Compose/settings key; a CI drift gate enforces it (#1737)
+
+### Fixed
+- fix(icd): the detail page no longer crashes on object-shaped contract lists; new non-string entries are rejected with 400 and a repair command exists (#1709)
+- fix(ui): create/edit dialogs validate on submit and explain the missing field instead of showing a permanently disabled button (#1732)
+- fix(a11y): the remaining `<th>` scope gaps and the SplitView `aria-valuemax` are fixed (#1406)
+- fix(api-keys): the self-scoped list contract is pinned by a cross-user/tenant regression test (#1731)
+- Issue housekeeping: #1660, #1661, #1663, #1381, #1386, #1662, #1741, #1378, #1410, #1408, #1418, #1400, #1402, #1403, #1404, #1409, #1412 closed with evidence (they were already fixed on `main`)
+
 ## [1.8.0-beta.28] — 2026-11-07
 
 ### Fixed
