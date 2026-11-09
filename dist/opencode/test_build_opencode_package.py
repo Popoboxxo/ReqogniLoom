@@ -25,7 +25,7 @@ def test_build_opencode_package(tmp_path):
     snippet = json.loads((tmp_path / "opencode.json.snippet").read_text())
     server = snippet["mcp"]["reqogniloom"]
     assert server["type"] == "remote"
-    assert server["url"] == "{env:REQOGNILOOM_MCP_URL}/mcp/sse/"
+    assert server["url"] == "{env:REQOGNILOOM_MCP_URL}/mcp/"
     assert server["headers"]["X-API-Key"] == "{env:REQOGNILOOM_API_KEY}"
     # Regression guard for the exact misconfiguration the 2026-08-05
     # research found the team hit: key placed INSIDE the {env:...} template
@@ -123,13 +123,15 @@ def test_npm_package_is_generated_and_versioned(tmp_path):
     module = (package_dir / "index.js").read_text(encoding="utf-8")
     assert 'type: "remote"' in module
     # V2 (the package's target): Streamable HTTP on /mcp/ through ctx.mcp.
+    # Both generations connect to Streamable HTTP on /mcp/ — V1 only falls back
+    # to SSE at runtime, so no /mcp/sse/ path is baked into the module.
     assert '"{env:REQOGNILOOM_MCP_URL}/mcp/"' in module
+    assert "/mcp/sse/" not in module
     assert "ctx.mcp" in module and "transform(" in module and "editor.set" in module
     assert 'headers: { "X-API-Key": API_KEY }' in module
     assert '"{env:REQOGNILOOM_API_KEY}"' in module
     assert "export default" in module
-    # V1 compatibility (SSE + mcp.<name>) and the named v1 plugin export.
-    assert "/mcp/sse/" in module
+    # V1 compatibility (mcp.<name> config hook) and the named v1 plugin export.
     assert "config:" in module and "server: ReqogniLoomPlugin" in module
     # No literal key anywhere in the package (module, manifest, skills, docs).
     for name, content in _package_files(package_dir).items():

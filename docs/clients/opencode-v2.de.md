@@ -13,9 +13,10 @@
 
 ## 1. Voraussetzungen
 
-- OpenCode-V2-Beta-Binary `opencode` (2.x) im `PATH` — oder `OPENCODE_BIN` auf den Binary-Pfad setzen.
+- OpenCode-V2-Beta-Binary `opencode` (2.x) im `PATH` — oder `OPENCODE_BIN` auf den Binary-Pfad setzen. Das npm-Paket `@opencode/cli` liefert **zwei** Bins (`opencode`, `opencode2`), beide zeigen auf dasselbe Binary.
 - Skills-Ablage `~/.config/opencode/skills` beschreibbar.
 - `reqlo_…`-Key.
+- Node.js ≥ 22.14 ist die Laufzeit des npm-Pakets; Windows-Paketmanager werden von V2 nicht unterstützt.
 
 ## 2. Installation (ein Befehl)
 
@@ -66,10 +67,12 @@ Vollständige, generierte Konfiguration (Env-Var-Referenzen, nie ein literaler K
 - **Beta:** OpenCode V2 ist eine Beta — Datenformate und APIs können sich zwischen Minor-Versionen ändern; nach einem Update `opencode mcp list` und einen Tool-Call wiederholen.
 - `"oauth": false` ist **Pflicht**: ohne diesen Schalter startet V2 einen OAuth-Flow statt den `X-API-Key`-Header zu senden — der Server sieht dann gar keinen Key.
 - `"codemode": false` ist **Pflicht**: sonst werden die Tools nicht unter ihren Klarnamen (`requirement_query`, …) exponiert, sondern nur über den Code-Mode-Wrapper.
-- In V2 liegen Server unter `mcp.servers.<name>` — die V1-Form `mcp.<name>` wird nicht gelesen, der Server erscheint dann einfach nicht.
+- In V2 liegen Server unter `mcp.servers.<name>`. Die V1-Form `mcp.<name>` wird von 2.2.x normalisiert (verifiziert mit `opencode debug config`), aber der Installer schreibt bewusst die native V2-Form, damit `oauth: false` gesetzt werden kann.
 - JSONC-Configs (Kommentare in `opencode.json`) werden vom Installer **nicht** gemergt: er bricht ab, damit die Datei unangetastet bleibt — Snippet dann manuell einfügen.
 - Transport ist Streamable HTTP auf `/mcp/`, nicht SSE auf `/mcp/sse/`.
 - `opencode mcp list` braucht Projekt-/CWD-Kontext — im Projektverzeichnis ausführen, sonst ist die Liste leer.
+- V2 läuft als **Hintergrunddienst**: nach einer Config-Änderung muss er neu starten, sonst zeigt `mcp list` u. U. „No MCP servers configured“. In CI/headless mit `--standalone` bzw. einem Service-Restart arbeiten.
+- Das npm-Bundle enthält nur Config + Skills, **keinen Plugin-Code**; V1-Plugins laufen nicht auf V2. Das separate npm-Paket `@popoboxxo/reqogniloom-opencode` wird in V2 nicht benötigt, um den Server zu registrieren.
 
 ## 7. Rechte & Key-Scope
 

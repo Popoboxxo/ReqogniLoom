@@ -13,9 +13,10 @@
 
 ## 1. Prerequisites
 
-- OpenCode V2 beta binary `opencode` (2.x) on `PATH` — or point `OPENCODE_BIN` at the binary.
+- OpenCode V2 beta binary `opencode` (2.x) on `PATH` — or point `OPENCODE_BIN` at the binary. The npm package `@opencode/cli` ships **two** bins (`opencode`, `opencode2`), both pointing at the same binary.
 - Skills directory `~/.config/opencode/skills` writable.
 - A `reqlo_…` key.
+- Node.js ≥ 22.14 is the npm package's runtime; V2 does not support Windows package managers.
 
 ## 2. Installation (one command)
 
@@ -66,10 +67,12 @@ Complete, generated configuration (env-var references, never a literal key):
 - **Beta:** OpenCode V2 is a beta — data formats and APIs may change between minor versions; after an update re-run `opencode mcp list` and a tool call.
 - `"oauth": false` is **mandatory**: without it V2 starts an OAuth flow instead of sending the `X-API-Key` header — the server then sees no key at all.
 - `"codemode": false` is **mandatory**: otherwise tools are not exposed under their plain names (`requirement_query`, …) but only through the code-mode wrapper.
-- In V2 servers live under `mcp.servers.<name>` — the V1 form `mcp.<name>` is not read, the server simply does not show up.
+- In V2 servers live under `mcp.servers.<name>`. The V1 form `mcp.<name>` is normalized by 2.2.x (verified with `opencode debug config`), but the installer deliberately writes the native V2 form so it can set `oauth: false`.
 - JSONC configs (comments in `opencode.json`) are **not** merged by the installer: it aborts so the file stays untouched — paste the snippet manually instead.
 - The transport is Streamable HTTP on `/mcp/`, not SSE on `/mcp/sse/`.
 - `opencode mcp list` needs project/CWD context — run it inside the project directory, otherwise the list is empty.
+- V2 runs as a **background service**: after a config change it must restart, otherwise `mcp list` may show "No MCP servers configured". Use `--standalone` or a service restart in CI/headless runs.
+- The npm bundle contains config + skills only, **no plugin code**; V1 plugins do not run on V2. The separate npm package `@popoboxxo/reqogniloom-opencode` is not required on V2 to register the server.
 
 ## 7. Roles & key scope
 

@@ -102,6 +102,23 @@ jobs:
           tar -czf "release-assets/reqogniloom-antigravity-${VERSION_VALUE}.tar.gz" "${EXCLUDES[@]}" -C dist/plugins/antigravity reqogniloom
           ls -l release-assets
 
+      # Issue #1705: the OpenCode tarball must stay a config + skills payload.
+      # OpenCode 2 needs the V1-form snippet (it normalizes it to mcp.servers),
+      # the V2-native snippet and the skills; V1 plugins do not run on V2, so
+      # any plugin code in this payload would be dead weight or misleading.
+      - name: Validate OpenCode tarball payload (#1705)
+        run: |
+          set -euo pipefail
+          tarball="$(ls release-assets/reqogniloom-opencode-*.tar.gz)"
+          contents="$(tar -tzf "$tarball")"
+          grep -qx 'opencode.json.snippet' <<<"$contents"
+          grep -qx 'opencode.v2.json.snippet' <<<"$contents"
+          grep -q '^skills/[^/]*/SKILL.md$' <<<"$contents"
+          if grep -Eq '^(index\.js|package\.json)$' <<<"$contents"; then
+            echo "ERROR: plugin code leaked into the OpenCode tarball" >&2
+            exit 1
+          fi
+
       # DRAFT: the write step is inert unless a human sets enable_publish=true.
       # Under the active workflow_dispatch-only trigger GitHub never sets it, so
       # a plain dispatch validates and builds but publishes nothing.

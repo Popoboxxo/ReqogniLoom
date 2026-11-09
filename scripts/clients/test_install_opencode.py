@@ -193,7 +193,8 @@ def test_auto_detect_picks_v1_for_major_1(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "/mcp/sse/" in log.read_text(encoding="utf-8")
+    assert "/mcp/" in log.read_text(encoding="utf-8")
+    assert "/mcp/sse/" not in log.read_text(encoding="utf-8")
     assert not config_path(tmp_path).exists()
 
 
@@ -206,7 +207,8 @@ def test_missing_or_garbled_version_falls_back_to_v1(tmp_path: Path) -> None:
         tmp_path,
     )
     assert garbled.returncode == 0, garbled.stderr
-    assert "/mcp/sse/" in garbled_log.read_text(encoding="utf-8")
+    assert "/mcp/" in garbled_log.read_text(encoding="utf-8")
+    assert "/mcp/sse/" not in garbled_log.read_text(encoding="utf-8")
     assert not config_path(tmp_path).exists()
 
     # No binary at all: --dry-run keeps require_bin from exiting 3, so the V1
@@ -220,7 +222,8 @@ def test_missing_or_garbled_version_falls_back_to_v1(tmp_path: Path) -> None:
     )
     assert missing.returncode == 0, missing.stderr
     assert "[dry-run] " in missing.stdout
-    assert "/mcp/sse/" in missing.stdout
+    assert "/mcp/" in missing.stdout
+    assert "/mcp/sse/" not in missing.stdout
     assert not config_path(tmp_path).exists()
 
 
