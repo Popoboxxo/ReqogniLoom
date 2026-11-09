@@ -84,9 +84,14 @@ PROHIBITION_DOC_GLOB = "docs/clients/*.md"
 #: ``docs/clients/**`` pages that may legitimately name OpenCode V2's plain-JSON
 #: config file. V2's merge step refuses JSONC (``dist/opencode/merge_config.py``)
 #: and therefore writes ``opencode.json``; the ``opencode.jsonc`` rule covers the
-#: V1 documentation only (see #1638).
+#: V1 documentation only (see #1638). The known-issues page documents that same
+#: file's normalization, so it is a V2 page as well.
 OPENCODE_JSON_V2_PAGES = frozenset(
-    {"docs/clients/opencode-v2.md", "docs/clients/opencode-v2.de.md"}
+    {
+        "docs/clients/opencode-v2.md",
+        "docs/clients/opencode-v2.de.md",
+        "docs/clients/opencode-v2-known-issues.md",
+    }
 )
 
 #: ``(label, pattern)`` — every entry is a *silent* documentation defect: the

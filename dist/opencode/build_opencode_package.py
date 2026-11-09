@@ -6,10 +6,13 @@ The snippets stay config-only: OpenCode's local plugin API is
 experimental-flagged and churning fast. The npm package is the exception the
 plan (D5.3, S5) asks for — it ships a small plugin module that registers the
 MCP server as ``remote`` (Streamable HTTP on ``/mcp/``) through OpenCode's V2
-``ctx.mcp.transform`` (and the V1 config hook on ``/mcp/sse/``), and bundles
-the same SKILL.md set. The module never carries a
-credential: the config holds OpenCode's ``{env:REQOGNILOOM_API_KEY}``
-placeholder, not a literal key.
+``ctx.mcp.transform`` (and the V1 config hook on the same ``/mcp/`` path), and
+bundles the same SKILL.md set. Both generations connect to the Streamable HTTP
+endpoint ``/mcp/``; OpenCode 1 only falls back to the SSE endpoint when the
+server does not answer the Streamable HTTP POST (see
+docs/clients/opencode-transport.md). The module never carries a credential: the
+config holds OpenCode's ``{env:REQOGNILOOM_API_KEY}`` placeholder, not a
+literal key.
 
 Note on DOMAIN_MODEL.md: the copied SKILL.md files contain a
 "../../DOMAIN_MODEL.md" relative link. The snippet package is not
@@ -65,12 +68,14 @@ def discover_skill_names(skills_src: Path) -> list[str]:
 def v2_server_entry(url: str, key_env: str) -> dict[str, Any]:
     """One OpenCode V2 server entry for ``mcp.servers.<name>``.
 
-    V2 differs from V1 in three ways this function pins: the entry lives under
-    ``mcp.servers``, it speaks Streamable HTTP on ``/mcp/`` (V1 uses the SSE
-    endpoint), and it disables both the OAuth flow (the key travels in a
-    header, so a browser flow would dead-end) and codemode. ``url`` is the
-    base URL without a path; ``key_env`` is the *name* of the env var holding
-    the key, never the key itself.
+    V2 differs from V1 in the config shape it reads: the entry lives under
+    ``mcp.servers`` while V1 reads ``mcp.<name>``. Both connect to the
+    Streamable HTTP endpoint ``/mcp/`` (V1 falls back to SSE only when the
+    server does not answer a Streamable HTTP POST — see
+    docs/clients/opencode-transport.md). The entry also disables both the OAuth
+    flow (the key travels in a header, so a browser flow would dead-end) and
+    codemode. ``url`` is the base URL without a path; ``key_env`` is the *name*
+    of the env var holding the key, never the key itself.
     """
     return {
         "type": "remote",
@@ -98,10 +103,10 @@ import { fileURLToPath } from "node:url";
 
 const SERVER_NAME = "reqogniloom";
 const MCP_URL = "{env:REQOGNILOOM_MCP_URL}/mcp/";
-// OpenCode 1.x reads mcp.<name> and speaks SSE; V1's config hook is the only
-// registration path it offers, so the package stays usable on the tested
-// 1.18.31 client without changing the V2 contract above.
-const MCP_URL_V1 = "{env:REQOGNILOOM_MCP_URL}/mcp/sse/";
+// OpenCode 1.x reads mcp.<name> and OpenCode 2 normalizes that V1 form to
+// mcp.servers. Both speak Streamable HTTP on the same /mcp/ endpoint; V1 only
+// falls back to the SSE endpoint when the server does not answer the
+// Streamable HTTP POST, so a single config serves both tested generations.
 const API_KEY = "{env:REQOGNILOOM_API_KEY}";
 
 //: Directory holding this package's skills/<name>/SKILL.md files.
@@ -124,7 +129,7 @@ const mergeV1Server = (config) => {
   if (!config.mcp || typeof config.mcp !== "object") config.mcp = {};
   config.mcp[SERVER_NAME] = {
     type: "remote",
-    url: MCP_URL_V1,
+    url: MCP_URL,
     headers: { "X-API-Key": API_KEY },
   };
   return config;
@@ -159,8 +164,9 @@ README_SOURCE = """\
 # ReqogniLoom for OpenCode
 
 Registers a ReqogniLoom MCP server with OpenCode and ships the ReqogniLoom
-process skills. OpenCode 2 gets a `remote` entry on `/mcp/` (Streamable HTTP,
-`X-API-Key`); OpenCode 1 gets the equivalent `/mcp/sse/` entry.
+process skills. OpenCode 1 and 2 both get a `remote` entry on `/mcp/`
+(Streamable HTTP, `X-API-Key`); OpenCode 1 falls back to the SSE endpoint only
+if the server does not answer the Streamable HTTP POST.
 
 ## Install
 
@@ -284,7 +290,7 @@ def build(
                 "mcp": {
                     SERVER_NAME: {
                         "type": "remote",
-                        "url": "{env:REQOGNILOOM_MCP_URL}/mcp/sse/",
+                        "url": "{env:REQOGNILOOM_MCP_URL}/mcp/",
                         "headers": {"X-API-Key": "{env:REQOGNILOOM_API_KEY}"},
                     }
                 }
