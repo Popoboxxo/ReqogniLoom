@@ -6,7 +6,7 @@ Stand: 2026-11-10, nach beta.29. Entscheidungen von Daniel am 2026-11-10 eingear
 
 - 31 offene Issues (vorher 56). Backlog-Sweep (PR #1727) umgesetzt, beta.29 draußen.
 - Kritische Bugs und Security-Lücken sind weg.
-- Ziel: alle 31 einplanen. Am Ende bleiben zwei bewusst offen: #1230 (externe Accounts, nur Daniel) und #1247 (Honcho-Upstream-Tracker).
+- Ziel: alle 31 einplanen. Am Ende bleiben drei bewusst offen: #1230 (externe Accounts, nur Daniel), #1247 (Honcho-Upstream-Tracker) und das neue Inspector-Konzept-Issue bis zur Umsetzung der freigegebenen Spec.
 - Nur Issue-Texte gelesen. Jede Phase startet mit einem Triage-Gate gegen `origin/main`: reproduzieren, bei "schon gefixt" schließen.
 
 ## Label-Befund: Tags sind unzuverlässig
@@ -15,7 +15,7 @@ Nur **1 von 31** Issues trägt `bug`. Der Inhalt zählt, nicht der Tag:
 
 | Issue | Label heute | Wirklich | Folge |
 |---|---|---|---|
-| #598 | keins | 11 konkrete Befunde (5 Warnings, 6 Suggestions) | Nicht schließen, Phase B |
+| #598 | keins | 11 Befunde, davon 9 auf beta.29 schon erledigt, offen S2 und S3 | Phase B1, danach schließen |
 | #1247 | keins | Regression, Ursache im Honcho-Vendor | `bug` + `upstream`, bleibt als Tracker offen |
 | #1287 | keins | kleines UX-Feature | `enhancement`, `low` |
 | #1578 | keins | Feature | `enhancement` |
@@ -30,14 +30,16 @@ Nur **1 von 31** Issues trägt `bug`. Der Inhalt zählt, nicht der Tag:
 | Phase | Thema | Issues | Offen danach |
 |---|---|---|---|
 | A | Hygiene und Re-Labeling | #85, #1153, #1399, #1411, #1407, #946 (6, schließen) | 25 |
-| B | Frontend, Inspector-Neukonzept | #598, #801, #1094, #1287, #186 (5) | 20 |
-| C | Clients und MCP | #1703, #1704 (2) | 18 |
-| D | Memory und Suche | #1317, #1336, #1337, #1334, #1316, #1314, #18, #1339 (8) | 10 |
-| E | Requirements ↔ Architektur | #1669, #1670 (2) | 8 |
-| F | Test und Qualität | #1564, #1578, #587 (3) | 5 |
-| G | Dokumente, Milestones | #1374, #879 (2) | 3 |
-| H | Hermes-Plugin | #1701 (1) | 2 |
-| Rest | Bewusst offen | #1230, #1247 | 2 |
+| B | Frontend (B1 Hygiene, B2 Inspector-Konzept) | #598, #801, #1094, #1287, #186 schließen, +1 neues Inspector-Konzept-Issue | 21 |
+| C | Clients und MCP | #1703, #1704 (2) | 19 |
+| D | Memory und Suche | #1317, #1336, #1337, #1334, #1316, #1314, #18, #1339 (8) | 11 |
+| E | Requirements ↔ Architektur | #1669, #1670 (2) | 9 |
+| F | Test und Qualität | #1564, #1578, #587 (3) | 6 |
+| G | Dokumente, Milestones | #1374, #879 (2) | 4 |
+| H | Hermes-Plugin | #1701 (1) | 3 |
+| Rest | Bewusst offen | #1230, #1247, Inspector-Konzept bis zur Umsetzung | 3 |
+
+Neue Issues aus Phase A (z. B. DELETE-`change_reason` als Query) sind in den Zählern nicht enthalten.
 
 Dazu kommen **Vorschläge V1–V9** (Ende des Dokuments). Noch keine Issues.
 
@@ -47,9 +49,9 @@ Dazu kommen **Vorschläge V1–V9** (Ende des Dokuments). Noch keine Issues.
 |---|---|---|
 | 1 | #1153/#1247 | #1153 schließen, #1247 bleibt als Upstream-Tracker offen (Trigger T1 aus ADR-023) |
 | 2 | Phase-A-Aktionen | Feedback-Agent bereitet Schließungen und Labels vor, Liste wird vor der Ausführung gezeigt |
-| 3 | #598 Umfang | Alles inkl. S2/S3 (Gott-Komponenten zerlegen, Fetching auf react-query vereinheitlichen) |
-| 4 | #801 Umfang | **Inspector komplett neu denken**: Usability und Design deutlich verbessern, tiefe Analyse mit Best Practices, neues Gesamtkonzept. Kein Anbindungs-PR |
-| 5 | #1094 Rest | Profil-API bauen, Schalter am Konto speichern |
+| 3 | #598 Umfang | S2/S3 umsetzen. **Präzisiert 2026-11-10:** S2 nach technischer Zuständigkeit (Hotspot-Analyse, Kohäsions-Clustering, Literatur), keine harte Zeilengrenze. W1–W5, S4, S5 sind auf beta.29 schon erledigt |
+| 4 | #801 Umfang | **Inspector komplett neu denken**, am 2026-11-10 bestätigt: Der Inspector ist auf beta.29 schon in 10 Typen eingebunden, #801 wird geschlossen, neues Konzept-Issue mit Ist-Analyse, Best Practice, Spec, Freigabe-Gate |
+| 5 | #1094 Rest | **Gegenstandslos:** Der Endpunkt existiert seit #1096. #1094 wird geschlossen |
 | 6 | #1703 | Bericht in `docs/clients/`, CI-Smoke prüfen, sonst manuell dokumentieren |
 | 7 | #18 | Nur `ai_search.query`-MCP-Tool plus optionale KI-Zusammenfassung auf `search_service` (nach #1316). Keine neue App |
 | 8 | #1669/#1670 | Drei Stufen, MVP zuerst |
@@ -70,24 +72,25 @@ Dazu kommen **Vorschläge V1–V9** (Ende des Dokuments). Noch keine Issues.
 - Ausführung: `feedback`-Agent. Liste wird Daniel vor der Ausführung gezeigt.
 - Falls #946 echte Bluepencil-Lücken hat (zentrales Löschen nach Filter/Session): kleines neues Issue.
 
-### Phase B — Frontend, Inspector-Neukonzept (5 Issues)
-Vier Stränge:
-1. **Konsistenz-Bugs und Refactoring aus #598 (alles):**
-   - W1/S6: Typ-Probe-Fetch `GET /artifacts/{id}/` ersetzen durch `source_type`/`target_type`/`*_title` des TraceLinks.
-   - W2: MetricsDashboard auf Tokens. W3: `METRIC_HELP` nach i18n. W4: ErrorBoundary ohne rohe `error.message`. W5: Workflow-Header-Overflow (erst im Browser reproduzieren).
-   - S4: Redirect-Aliase `/trace-links`, `/test-cases`. S5: einheitliche CTAs.
-   - S2: Gott-Komponenten zerlegen: CanvasEditor, workspace-tree, TraceabilityView, ReqTraceLinkPanel, BaselinesView, ArchitectureEditors, SplitView. Eigene Refactoring-PRs, je Komponente, mit Test vorher.
-   - S3: MetricsDashboard und AuditDashboard auf react-query.
-   - Vor Start prüfen, welche Zeilenzahlen und Befunde auf main noch stimmen (Review bezog sich auf v1.6.0).
-2. **Inspector-Neukonzept (#801):**
-   - Schritt 1: Analyse. Best Practices (Detail-Panels, Verlauf/Diff, Beziehungen) in Requirements-Tools und vergleichbaren Werkbenches, Ist-Zustand aller 7 Entity-Typen, Nutzungsaufgaben.
-   - Schritt 2: Konzept und Design mit `ui-ux-designer` (Spec, Mockups, Token/Variantenvertrag mit `design-system-architect`). Inhalte mindestens: Verlauf/Diff, Trace-Links ("Was realisiert/testet das?"), Status und Workflow, IDs (verbindet #1094).
-   - Schritt 3: Daniel reviewt das Konzept, erst danach Umsetzung als eigene PRs.
-   - Einstieg über brainstorming-Skill.
-3. **#1094 Rest und #1287:**
-   - Neue Profil-Ressource für Anzeige-Präferenzen, Frontend nutzt sie statt `localStorage`. Triage-Gate: Es gibt `DisplayPreferenceService`, prüfen ob die Ressource schon existiert.
-   - #1287 Format-Zeile der Markdown-Felder ein-/ausblendbar. Preference liegt in derselben Ressource.
-4. **#186 UI-Konzept-Epic:** prüfen, was die Navigationsumstrukturierung (#1733) erledigt hat, Rest in Schritte teilen. Sinnvoll erst nach dem Inspector-Konzept, weil beides das Gesamtkonzept betrifft. Danach #598/#186 schließen.
+### Phase B — Frontend (5 Issues, zwei Pläne)
+Das Triage-Gate (2026-11-10, origin/main 4f8aa29f) hat den Umfang stark verändert. Ausführbare Pläne: `2026-11-10-phase-b1-frontend-hygiene.md` und `2026-11-10-phase-b2-inspector-concept.md`.
+
+**Schon erledigt auf beta.29 (nur schließen, mit Beleg):**
+- #598 W1–W5, S4, S5 (Batch-Auflösung, Tokens, i18n, ErrorBoundary, `flex-wrap`, Redirects, CTA-Labels).
+- #1094: Endpunkt `users/me/display-preferences/` seit #1096.
+- #186: alle 19 Sub-Issues geschlossen, `ui-ratchet.test.ts` friert Kennzahlen ein.
+- #1287: `shared/MarkdownField` mit Preference `ui.markdown.toolbar`. Einsatz wird per Test belegt.
+
+**B1 Frontend-Hygiene:**
+- S3: MetricsDashboard (`queries/metrics.ts`) und audit-dashboard auf react-query.
+- S2: Hotspot-Analyse nach Zuständigkeit (Churn × Komplexität, Kohäsionsgraph der Deklarationen). Zerlegt wird nur, was mehrere unabhängige Zuständigkeiten hat. `audit-dashboard.tsx` (1726 Zeilen) ist der erste, verstandene Fall.
+- Schließen: #1094, #186, #1287, #598.
+
+**B2 Inspector-Neukonzept (#801):**
+- #801 schließen (Anbindung erledigt), neues Konzept-Issue anlegen (+1 Issue).
+- Ist-Analyse, Usability-Prüfung an fünf Aufgaben, Best-Practice-Recherche mit Quellen, Spec inklusive Trace-Spine und Token-Vertrag, Freigabe-Gate. Erst danach Umsetzungsplan.
+
+**Zähler Phase B:** −5 Issues (#598, #801, #1094, #1287, #186) +1 (Inspector-Konzept) = −4.
 
 ### Phase C — Clients und MCP (2 Issues)
 - #1703: OpenCode 1.18.x und 2.2.x gegen echten `/mcp/`: Handshake, `notifications/initialized`, GET-SSE, `tools/list` = Soll aus `docs/agent-templates/tool-manifest.json` (beta.29: 290 Tools, key-abhängig, siehe #1730), `requirement_query` mit Read-only-Key. Bericht in `docs/clients/`. V2-Service-Restart-Quirk dokumentieren. Prüfen, ob `client-smoke` den Test tragen kann, sonst manuell.
