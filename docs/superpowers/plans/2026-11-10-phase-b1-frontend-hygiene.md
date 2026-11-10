@@ -170,6 +170,7 @@ Expected: alle PASS, die bestehenden ohne Änderung. Zusätzlich ein Test: Typfi
 
 **Files:**
 - Create: `frontend/scripts/analyze-component-hotspots.mjs`
+- Modify: `frontend/vite.config.ts` (Zeile 36): `test.include` um `"scripts/**/*.test.mjs"` erweitern. Der heutige Wert `src/**/*.{test,spec}.{ts,tsx}` würde einen Test unter `frontend/scripts/` nicht finden (im Review festgestellt). Die Skripte liegen außerhalb des `tsc`-Programms, die Änderung beeinflusst `tsc` nicht.
 - Test: `frontend/scripts/analyze-component-hotspots.test.mjs` plus Fixtures `frontend/scripts/fixtures/{cohesive,three-concerns}.tsx`
 - Create (Ergebnis, wird committet): `docs/analysis/2026-11-frontend-hotspots.md`
 
@@ -191,7 +192,7 @@ test("component with three unrelated state groups yields three clusters", () => 
 });
 ```
 Fixture `three-concerns.tsx`: drei Gruppen (Daten laden mit `useState`+`useEffect`, Dialog-Zustand, Timer-Toast), die untereinander keine Bezeichner teilen.
-Run: `cd frontend && npx vitest run --root . scripts` — Expected: FAIL.
+Run: `cd frontend && npx vitest run scripts` — Expected: FAIL (nach der Include-Erweiterung wird die Datei gefunden, die Funktion fehlt noch).
 
 - [ ] **Step 2: Skript implementieren**
 
@@ -199,7 +200,7 @@ TypeScript-Compiler-API (`typescript` ist installiert): je Komponentenfunktion D
 
 - [ ] **Step 3: Tests grün**
 
-Run: `cd frontend && npx vitest run --root . scripts` — Expected: PASS.
+Run: `cd frontend && npx vitest run scripts` — Expected: PASS.
 
 - [ ] **Step 4: Gesamtlauf und Auswertung**
 
