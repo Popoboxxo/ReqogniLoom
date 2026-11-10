@@ -57,8 +57,8 @@ Dazu kommen **Vorschläge V1–V9** (Ende des Dokuments). Noch keine Issues.
 | 8 | #1669/#1670 | Drei Stufen, MVP zuerst. **Präzisiert 2026-11-10:** Stufe 1 ist auf beta.29 schon gebaut (ADR-027). D9 Mehrfachallokation = Konflikt anzeigen, nicht auflösen. D10 Freigabeeinheit = **beides** (Element-Release und optionaler Einzel-Release, mit Vorrangregel). D12 Inhalt einfrieren = **abhängig vom Rigor** (nur Extended friert den Inhalt ein) |
 | 9 | #1564 | `step_type` + `text` mit stabiler Schritt-ID |
 | 10 | #1578 | Vertagung aufheben: Feature-Flag, Deckel, Rate-Parity, Item-Permission |
-| 11 | #879 | Erst prüfen, was von #393/#877 gebaut wurde, dann entscheiden |
-| 12 | #1374 | Stufe 1: Document + Kanten + Import (Repo-first) |
+| 11 | #879 | Erst prüfen, was gebaut wurde. **Ergebnis 2026-11-10: vollständig gebaut, schließen** |
+| 12 | #1374 | Stufe 1: Document + Kanten + Import (Repo-first). **Stand 2026-11-10:** S1, S2, S4 gebaut, offen nur S3. **12b: Generator und Adoption im Server, Zustellung durch CI und Agenten, Agentendefinition als Teil der Harness-Plugin-Skills** |
 | 13 | #946 | Schließen, Bluepencil deckt es ab |
 
 **Korrektur:** Die Memory-Richtung ist schon entschieden: ADR-022 Qdrant-Vollbetrieb (Option B), ADR-023 Honcho-Vollausbau (Option A, nur dialektik-abhängige Teile warten auf T1), ADR-024 Memory-Injektion. Alle `accepted` am 2026-10-26. Die frühere Annahme "Phase D beginnt mit A/B-Entscheidung" entfällt.
@@ -131,12 +131,24 @@ Triage-Gate (2026-11-10): **#587 ist gebaut** (`export_promptfoo_configs`, 27 Sz
 - **#1564:** Schritt `{id, step_type, text}`, `normalize_steps` (Legacy `{step, expected_result}` → `when` + `then`), Datenmigration mit Trockenlauf, REST/MCP-Schema (Delta 0 Tools), Frontend-Widget, `steps_to_gherkin`. Gherkin-Parser und Schritt-Ergebnisse im TestRun bleiben V8.
 - **#1578:** `WORKFLOW_TRANSITIONED` emittieren (heute nie), Konsument am Event-Bus, Feature-Flag (Default aus), nur Extended, nur WARNING, **ein Service-Agent-Key je Mandant** (Entscheidung 10b), Drosselung und Inhalts-Hash-Dedupe, periodischer Sweep mit Batch-Deckel, QUAL-P1-Deckel, MCP-Rate-Parität, Item-Level-Permission bei Assessment-Reads.
 
-### Phase G — Dokumente und Milestones (2 Issues)
-- **#879:** zuerst Triage, was von #393 (MOE/MOP/TPM) und #877 (LogicalFunction) gebaut wurde (beide geschlossen). Dann entscheiden: Milestone dort einhängen, schlanker Milestone (Name, Zieldatum, Status, Review-Typ, Baseline-Bindung) oder schließen. Achtung: #1374 führt `WorkItem:Milestone` ein. Überschneidung zuerst klären, damit es nur eine Milestone-Entität gibt.
-- **#1374:** Stufe 1: `Document` mit Subtypen, Lifecycle, Kanten zu Requirements/ADR/Risk/Issue, einmaliger Import des Altbestands (Betriebsart B, Repo-first). Stufe 2: `WorkItem` mit Zustand. Stufe 3: Loom-first mit Projektion nach `.md`. Konzept: `docs/concepts/2026-10-16-dokument-artefakte-workitem.md`. Erst nach Phase E, weil Kanten und Allokation zusammenhängen.
+### Phase G — Dokumente und Milestones (2 Issues, Plan: `2026-11-10-phase-g-dokumente-milestones.md`)
+Triage-Gate (2026-11-10, origin/main 3563515f): **#879 ist vollständig gebaut** (Plan B B6: Entität `Milestone` mit Review-Typ, Baseline-Bindung, Audit-Snapshot, REST, MCP `milestone.*`, UI `MilestoneList`). **#1374 S1, S2, S4 sind gebaut** (`Document`, `WorkItem`, Lifecycle, Freeze, REST/MCP, Events, resume/Checkpoints/Heartbeat). Offen ist nur **S3 (Projektion und Adoption)**. Die Überschneidung `Milestone` ↔ `WorkItem.Kind.MILESTONE` ist geklärt: verschiedene Konzepte, nur Doku-Bedarf.
 
-### Phase H — Hermes-Plugin (1 Issue)
-- **#1701:** Requirements-Liste, Detail, Anlegen, Bearbeiten im Plugin `integrations/hermes-plugin/reqogniloom`, auf aktuellem main. `ConnectedView` bleibt Hub, neue `View`-Zustände `requirements`, `requirement-detail`, `requirement-form`. `api.ts` behält die Härtung von main (Fehlerumschläge, Seitenfolge in `listWorkspaces`, 15-s-Timeout, Nicht-JSON-Bodies). Alter Branch `e0219a76` nur als Referenz.
+- **Task 1:** #879 belegen, Abgrenzung in `DOMAIN_MODEL.md`, schließen.
+- **Task 2:** Server: `Document`-Felder (`owner_mode`, `source_path`, `source_sha256`, `projection_mode`, `projected_sha256`, `projected_version`), deterministischer Renderer, `DocumentProjectionService` (project, status mit Hash-Abgleich nach Konzept §7.2, adopt).
+- **Task 3:** REST und MCP: `document.project`, `document.projection_status`, `document.adopt` (Tool-Zahl 290 → 293, Zähler-Gates).
+- **Task 4:** CI-Weg: `scripts/clients/project_documents.py` und Workflow-Vorlage, Branch plus PR, nie `main`.
+- **Task 5:** Agent `document-steward` mit Skill `document-projection` in den Harness-Plugins (Entscheidung 12b).
+- **Task 6:** #1374 schließen. Vertagt bleiben T1 (Typ `Task`) und T2 (Text-Spans).
+**Entscheidung 12b (2026-11-10):** Der Server rendert und prüft nur. Zustellung durch CI und Agenten. Keine Repo-Zugangsdaten im Server.
+
+### Phase H — Hermes-Plugin (1 Issue, Plan: `2026-11-10-phase-h-hermes-plugin.md`)
+Triage-Gate (2026-11-10): Die Requirements-Ansichten fehlen auf `main` (Plugin: Connect, Connected, Interviews). **Wichtig:** Das Backend hat sich seit dem alten Branch `e0219a76` geändert. `Requirement.level` ist abgeleitet und schreibgeschützt (ADR-005/027), Updates brauchen `version` (Optimistic Lock) und je Preset einen `change_reason`. Der Plan baut deshalb neu und übernimmt vom alten Branch nur die Struktur.
+
+- **Task 1:** REST-Vertrag prüfen und festschreiben.
+- **Task 2:** `api.ts` (list, get, create, update mit erhaltener Härtung) und `state.ts` (neue `View`-Zustände, Aktionen).
+- **Task 3:** Ansichten `RequirementsList`, `RequirementDetail`, `RequirementForm`, Einstieg in `ConnectedView`.
+- **Task 4:** README und Clientdoku, Gates, #1701 schließen. Alten Remote-Branch löschen nur auf Anweisung.
 
 ### Rest (bewusst offen)
 - **#1230** externe Accounts (W1–W5). Kein Code. Danach Publish-Workflows scharf schalten.
