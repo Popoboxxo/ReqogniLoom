@@ -124,10 +124,12 @@ Das Triage-Gate (2026-11-10, origin/main f20f913e) zeigt: **Stufe 1 ist gebaut**
 - **Task 7:** #1670 schließen.
 Tasks 4 bis 6 starten erst nach Freigabe von ADR-028 und Spec.
 
-### Phase F — Test und Qualität (3 Issues)
-- **#1564:** Schritt `{id, step_type: given|when|then|and|but, text}`. Normalisierung alter Schritte beim Lesen. Serializer und MCP-Schema deckungsgleich. Migration nur wenn nötig.
-- **#1578:** `WORKFLOW_TRANSITIONED` emittieren. Auto-Assessment hinter Feature-Flag (Default aus). Celery-Beat mit Dedupe und Throttling. `QUAL-P1`-Deckel. MCP-Rate-Parity. Item-Level-Permission bei Assessment-Reads. Nur Extended-Tier, nur WARNING, nie Baseline-blockierend. Aufwand laut Issue 4–6 Tage.
-- **#587:** Promptfoo. Blocker ist weg (`prompt_resolver.py` existiert). `export_promptfoo_configs`, `backend/application/prompt_testing/cases/*.yaml`, CI-Job mit Mock-Provider. Die promptfoo-Treffer im Repo gehören sonst nur zu `.agent-meta`, nicht verwechseln.
+### Phase F — Test und Qualität (3 Issues, Plan: `2026-11-10-phase-f-test-qualitaet.md`)
+Triage-Gate (2026-11-10): **#587 ist gebaut** (`export_promptfoo_configs`, 27 Szenarien, CI-Job "Prompt Regression (promptfoo, echo)"). Die Spec-Index-Aussage "entirely missing" ist veraltet und wird korrigiert. #1564 und #1578 sind offen.
+
+- **#587:** belegen, Abdeckung Slots ↔ Szenarien testen, Doku korrigieren, schließen.
+- **#1564:** Schritt `{id, step_type, text}`, `normalize_steps` (Legacy `{step, expected_result}` → `when` + `then`), Datenmigration mit Trockenlauf, REST/MCP-Schema (Delta 0 Tools), Frontend-Widget, `steps_to_gherkin`. Gherkin-Parser und Schritt-Ergebnisse im TestRun bleiben V8.
+- **#1578:** `WORKFLOW_TRANSITIONED` emittieren (heute nie), Konsument am Event-Bus, Feature-Flag (Default aus), nur Extended, nur WARNING, **ein Service-Agent-Key je Mandant** (Entscheidung 10b), Drosselung und Inhalts-Hash-Dedupe, periodischer Sweep mit Batch-Deckel, QUAL-P1-Deckel, MCP-Rate-Parität, Item-Level-Permission bei Assessment-Reads.
 
 ### Phase G — Dokumente und Milestones (2 Issues)
 - **#879:** zuerst Triage, was von #393 (MOE/MOP/TPM) und #877 (LogicalFunction) gebaut wurde (beide geschlossen). Dann entscheiden: Milestone dort einhängen, schlanker Milestone (Name, Zieldatum, Status, Review-Typ, Baseline-Bindung) oder schließen. Achtung: #1374 führt `WorkItem:Milestone` ein. Überschneidung zuerst klären, damit es nur eine Milestone-Entität gibt.
