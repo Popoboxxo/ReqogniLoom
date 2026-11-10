@@ -14,7 +14,7 @@
 
 | # | Entscheidung |
 |---|---|
-| D9 | Mehrfachallokation: **Konflikt anzeigen, nicht auflösen.** Keine min/max-Rechenregel. Ebene bleibt `unresolved`, Auflösung durch Nutzer (führende Kante wählen oder Ebene manuell setzen) |
+| D9 | Mehrfachallokation: **Konflikt anzeigen, nicht auflösen.** Keine min/max-Rechenregel. Ebene bleibt `unresolved`, Auflösung durch Nutzer (führende Kante wählen oder Ebene manuell setzen). **Review 2026-11-10:** Die Allokation ist heute N:1 erzwungen (`AllocationConflictError`, `application/base.py:162`, 409): jeder andere Schreibpfad als `TraceLinkService.allocate` darf keine zweite `allocated-to`-Kante anlegen. D9 gilt damit nur als Schutz für Altbestand, Import und Baseline-Restore, nicht für den Normalbetrieb |
 | D10 | Freigabeeinheit: **beides.** Element-Release (kaskadiert) und optionaler Einzel-Release je Requirement. Vorrang: Element-Release umfasst seine Requirements; ein Einzel-Release ist der Spezialfall, der ohne Element-Release möglich bleibt. Eine Sperre kann nie durch den anderen Pfad umgangen werden |
 | D12 | Inhalt der allozierten Requirements einfrieren: **abhängig vom Rigor-Grad.** Extended (hoch): Inhaltsversion eingefroren. Standard (mittel) und Minimal (niedrig): nur Struktur und Kanten |
 | übrige | D1–D8, D11, D13–D17 wie im Konzept vorbelegt. D14 gilt durch ADR-027 als erledigt |
@@ -51,7 +51,7 @@
 
 - Drift Kante ↔ Objekt: `TraceLink(allocated-to)` und `Allocation` laufen auseinander, etwa durch einen Pfad, der nur die Kante schreibt (`create_trace_link` direkt, Import, Baseline-Restore). Test: Task 4 prüft die Invariante "jede Kante hat genau ein Objekt und umgekehrt" über alle Schreibpfade und als Konsistenzprüfung.
 - Backfill nicht idempotent: Zweiter Lauf erzeugt Dubletten. Test: Task 4, Migration zweimal ausführen, gleiche Zeilenzahl.
-- Mehrfachallokation (D9): erzeugt still eine Ebene. Test: Task 3, Requirement mit zwei Kanten bleibt `unresolved`, Audit meldet Konflikt, Schweregrad folgt dem Rigor.
+- Mehrfachallokation (D9): erzeugt still eine Ebene. Test: Task 3, Requirement mit zwei per Direktschreibzugriff eingefügten Kanten (Altbestand-Simulation) bleibt `unresolved`, Audit meldet Konflikt, Schweregrad folgt dem Rigor. Zusätzlich ein Test, dass die normalen Schreibpfade eine zweite Kante mit 409 ablehnen (`AllocationConflictError`).
 - Release ohne Rechte oder mit Rechtsumgehung: Einzel-Release umgeht die Element-Sperre. Test: Task 5, ein Requirement unter einem freigegebenen Element lässt sich nicht einzeln umhängen oder editieren (409).
 - Sperre mit falschem Fehlerbild: 200 oder 500 statt 409 mit CR-Verweis. Test: Task 5.
 - Release-Kaskade sehr groß: ein Element mit tausenden Requirements. Test: Task 5 prüft eine Obergrenze der Datenbankabfragen (Stapelverarbeitung statt je Requirement).
@@ -169,7 +169,7 @@ Expected: PASS, keine ungewollte Migration.
 **Interfaces:**
 - Consumes: `TraceLink(link_type=ALLOCATED_TO)`, `Requirement`, `ArchitectureElement`, `ArtifactVersion` (`revision`).
 - Produces:
-  - `Allocation(TenantScopedModel)`: `workspace`, `requirement` (FK), `element` (FK), `trace_link` (OneToOne, nullable bis Backfill), `status` (`draft|released|revoked`), `released_at`, `released_by`, `released_revision` (PositiveInteger, Revision aus `ArtifactVersion`), `released_tier_key` (SlugField, null). Constraint: höchstens eine aktive (`status != revoked`) Zeile je (`requirement`, `element`).
+  - `Allocation(TenantScopedModel)`: `workspace`, `requirement` (FK), `element` (FK), `trace_link` (OneToOne, nullable bis Backfill), `status` (`draft|released|revoked`), `released_at`, `released_by`, `released_revision` (PositiveInteger, Revision aus `ArtifactVersion`), `released_tier_key` (SlugField, null). Constraint: höchstens eine aktive (`status != revoked`) Zeile je `requirement` (N:1, passend zu `AllocationConflictError`). Die Coverage-Kennzahl `multiple` bleibt für Altbestand bestehen und ist im Normalfall 0.
   - `AllocationService.set_status(allocation_id: UUID, status: str, ctx: AuthContext) -> Allocation`, `AllocationService.coverage(workspace_id: UUID, ctx: AuthContext) -> dict` mit Schlüsseln `allocated`, `partial`, `multiple`, `orphaned`, `not_allocatable`.
   - REST: `GET /api/v1/allocations/?requirement=&element=&status=`, `GET /api/v1/allocations/coverage/`. MCP: `allocation.query` um `status` und `coverage` erweitern.
 
@@ -229,7 +229,7 @@ Anzeige der Coverage (`allokiert / teilweise / mehrfach / verwaist`) in der Requ
   - `AllocationReleaseService.release_element(element_id: UUID, ctx: AuthContext) -> ReleaseResult` (`ReleaseResult`: `allocations_released: int`, `requirements_frozen: int`, `tier_pinned: int`)
   - `AllocationReleaseService.release_requirement(requirement_id: UUID, ctx: AuthContext) -> ReleaseResult` (Einzel-Release, D10)
   - `AllocationReleaseService.impact(element_id: UUID, ctx: AuthContext) -> dict` mit `requirements`, `elements`, `baselines`, `level_changes`
-  - Fehler `ReleaseLockedError(code="RELEASE_LOCKED", change_request_hint: str)`, abgebildet auf HTTP 409 mit Feld `change_request` (Verweis, wie ein CR zu eröffnen ist).
+  - Fehler `ReleaseLockedError(WorkflowFrozenError)` (Basis `application/base.py:145`) mit `error_code = "RELEASE_LOCKED"`, `http_status = 409` nach dem Muster von `AllocationConflictError` (`base.py:162`) und dem Feld `change_request_hint: str`. REST gibt es als Feld `change_request` zurück (Verweis, wie ein CR zu eröffnen ist).
 
 - [ ] **Step 1: Failing Tests**
 
@@ -322,5 +322,5 @@ Expected: `CLOSED`.
 - **Abdeckung:** Naming-Layer (D2/D7/D8) und D9 in Task 3, Stufe 2 in Task 4, Stufe 3 mit D10/D12 in Task 5, Stufe 4 in Task 6. #1669 Task 1, #1670 Task 7. Stufe 1 ist abgenommen, nicht neu gebaut.
 - **Bewusste Grenze:** Tasks 4 bis 6 starten erst nach der Freigabe von ADR-028 und Spec (Task 2). D10 "beides" ist vom Konzept abweichend und verlangt eine ausdrückliche Vorrangregel. Sie steht in der Entscheidungstabelle und wird in der Spec festgeschrieben.
 - **Risiko aus D10 "beides":** Zwei Freigabepfade bedeuten zwei Sperrlogiken. Die Review-Focus-Zeile "Einzel-Release umgeht die Element-Sperre" und der Test in Task 5 decken das. Die Spec muss prüfen, ob ein gemeinsamer Sperr-Check genügt.
-- **Typkonsistenz:** `Allocation.released_tier_key` (Task 4) wird in Task 6 gelesen. `ReleaseLockedError` (Task 5) und der 409-Fehlerbau hängen an `WorkflowFrozenError` in `application/base.py`, Fundstelle zu bestätigen.
+- **Typkonsistenz:** `Allocation.released_tier_key` (Task 4) wird in Task 6 gelesen. `ReleaseLockedError` (Task 5) erweitert `WorkflowFrozenError` (`application/base.py:145`, im Review bestätigt) und trägt `http_status = 409` wie `AllocationConflictError`.
 - **Nicht ausgeführt:** Kein Befehl dieses Plans lief. Fundstellen für Audit-Regelkatalog und REST-Ressourcen (`elements`, `allocations`) sind aus der Lektüre abgeleitet und in den Steps zu bestätigen. Die Datenzahlen (890/999) stammen aus der QS-Messung des Issues vom 2026-11-02.

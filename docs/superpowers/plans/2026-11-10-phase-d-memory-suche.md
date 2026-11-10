@@ -81,7 +81,7 @@ Je Issue ein Kommentar im Format: "Erledigt in beta.29. Beleg: <Datei:Zeile>, Co
 - Modify: `backend/application/prompt_slots.py` (`MEMORY_HARD_OFF_SLOTS`, `_DATA_VARIABLES_BY_SLOT`)
 - Modify: `backend/application/search_service.py` (Rückgabe um Summary-Felder erweitern, nur Datenklasse)
 - Modify: `backend/mcp_server/tools/cross_cutting.py:1402` (`_handle_artifact_search`) und das Schema `artifact.search` in `_TOOL_SCHEMAS`
-- Modify: REST-`SearchViewSet` (Fundstelle: `rest_api/views.py`, `router.register(r"search", SearchViewSet, …)` in `rest_api/urls.py:316`)
+- Modify: REST-`SearchViewSet` (`rest_api/views.py:12943`, registriert in `rest_api/urls.py:316`)
 - Modify: `docs/agent-templates/tool-manifest.json` (per Export), OpenAPI-Schema-Snapshot falls vorhanden
 - Test: `backend/application/tests/test_search_summary_service.py`, `backend/mcp_server/tests/test_artifact_search_summary.py`, `backend/rest_api/tests/test_search_summary_rest.py`
 
@@ -149,7 +149,7 @@ def test_include_summary_must_be_boolean(...): assert error.code == "VALIDATION_
 
 - [ ] **Step 6: MCP, REST und Schema umsetzen**
 
-`_handle_artifact_search`: `include_summary = optional_bool(params, "include_summary", default=False)` (Muster der Parameterhelfer in `mcp_server/tools/base.py`), nach `search(...)` bei `True` und `result.results` den Service aufrufen und `ai_summary`/`summary_degraded` an die Antwort hängen. Schema: Eigenschaft `include_summary: {"type": "boolean", "description": "...Default false. Triggers one LLM call per request."}`. REST: Query-Parameter über `parse_bool_param` (`rest_api/query_params.py`), gleiche Felder, OpenAPI-Annotation ergänzen. Rate-Limit: die vorhandene Rate-Konfiguration für LLM-gestützte Pfade verwenden (Vorbild `context.change_impact`/Quality-Assess, "MCP rate-parity"), den Schlüssel nicht neu erfinden.
+`_handle_artifact_search`: `include_summary` wird streng als Boolean gelesen (`isinstance(value, bool)`, sonst `ParameterError`), nach dem Muster der `min_score`-Prüfung im selben Handler. Einen Helfer `optional_bool` gibt es in `mcp_server/tools/base.py` nicht, er wird nicht angelegt, nach `search(...)` bei `True` und `result.results` den Service aufrufen und `ai_summary`/`summary_degraded` an die Antwort hängen. Schema: Eigenschaft `include_summary: {"type": "boolean", "description": "...Default false. Triggers one LLM call per request."}`. REST: Query-Parameter über `parse_bool_param` (`rest_api/query_params.py`), gleiche Felder, OpenAPI-Annotation ergänzen. Rate-Limit: die vorhandene Rate-Konfiguration für LLM-gestützte Pfade verwenden (Vorbild `context.change_impact`/Quality-Assess, "MCP rate-parity"), den Schlüssel nicht neu erfinden.
 
 - [ ] **Step 7: Manifest und Drift-Gate**
 
@@ -228,8 +228,8 @@ Expected: `[]`.
 ## Self-Review
 
 - **Abdeckung:** Alle acht Issues sind einer Task zugeordnet (#1334, #1314, #1316, #1317, #1336, #1337, #1339 in Tasks 1 und 4, #18 in Tasks 2 und 3). Die Entscheidung "A in den Plan, B und C als neue Issues" ist in Tasks 2 und 3 umgesetzt.
-- **Roadmap-Korrektur:** Die Roadmap sah für Phase D Neubau von Indexer, Hybrid-Suche, Qdrant-Ausbau und Injektion vor. Das war falsch, es ist alles gebaut. Die Roadmap wird nachgezogen (Phase D: 8 schließen, +2 neue Issues, offen danach 13).
+- **Roadmap-Korrektur:** Die Roadmap sah für Phase D Neubau von Indexer, Hybrid-Suche, Qdrant-Ausbau und Injektion vor. Das war falsch, es ist alles gebaut. Die Roadmap wird nachgezogen (Phase D: 8 schließen, +2 neue Issues, offen danach 14 nach dem Review mit dem `page_size`-Issue aus Phase A).
 - **Zähler:** Phase D: −8 (alle schließen) +2 (B, C) = −6.
 - **Grenzen:** #1336 hat keinen Live-Beleg, solange kein Honcho-Stack läuft. Der Plan sagt das ausdrücklich. Die Namen der Tests in Task 1 Step 1 (`-k`-Filter) sind aus Dateinamen abgeleitet und beim ersten Lauf zu prüfen.
 - **Typkonsistenz:** `SearchSummary` und `summarize(...)` aus Task 2 Step 1 und 3 sind in den Schritten 5 und 6 gleich benannt. Antwortfelder `ai_summary`, `summary_degraded` sind in MCP und REST identisch.
-- **Nicht ausgeführt:** Kein Befehl dieses Plans lief. Die Fundstellen in `rest_api/views.py` (`SearchViewSet`) und die Parameterhelfer (`optional_bool`) sind in Task 2 Step 6 an der Realität zu bestätigen.
+- **Nicht ausgeführt:** Kein Befehl dieses Plans lief. `SearchViewSet` (`rest_api/views.py:12943`) und die Parameterhelfer sind im Review bestätigt: REST nutzt `parse_bool_param` (`rest_api/query_params.py`), MCP liest den Boolean selbst.

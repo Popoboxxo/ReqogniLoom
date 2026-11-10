@@ -6,7 +6,7 @@ Stand: 2026-11-10, nach beta.29. Entscheidungen von Daniel am 2026-11-10 eingear
 
 - 31 offene Issues (vorher 56). Backlog-Sweep (PR #1727) umgesetzt, beta.29 draußen.
 - Kritische Bugs und Security-Lücken sind weg.
-- Ziel: alle 31 einplanen. Am Ende bleiben fünf bewusst offen: #1230 (externe Accounts, nur Daniel), #1247 (Honcho-Upstream-Tracker), das neue Inspector-Konzept-Issue bis zur Umsetzung der freigegebenen Spec sowie die zwei neuen Feature-Issues aus #18 (B: Artefakt-Zusammenfassung, C: zyklische Zusammenfassungen).
+- Ziel: alle 31 einplanen. Am Ende bleiben sechs bewusst offen: #1230 (externe Accounts, nur Daniel), #1247 (Honcho-Upstream-Tracker), das neue Inspector-Konzept-Issue bis zur Umsetzung der freigegebenen Spec, die zwei neuen Feature-Issues aus #18 (B: Artefakt-Zusammenfassung, C: zyklische Zusammenfassungen) und das neue Issue zu `page_size` (Backlog, Bündel REST-Kleinkram).
 - Nur Issue-Texte gelesen. Jede Phase startet mit einem Triage-Gate gegen `origin/main`: reproduzieren, bei "schon gefixt" schließen.
 
 ## Label-Befund: Tags sind unzuverlässig
@@ -29,17 +29,17 @@ Nur **1 von 31** Issues trägt `bug`. Der Inhalt zählt, nicht der Tag:
 
 | Phase | Thema | Issues | Offen danach |
 |---|---|---|---|
-| A | Hygiene und Re-Labeling | #85, #1153, #1399, #1411, #1407, #946 (6, schließen) | 25 |
-| B | Frontend (B1 Hygiene, B2 Inspector-Konzept) | #598, #801, #1094, #1287, #186 schließen, +1 neues Inspector-Konzept-Issue | 21 |
-| C | Clients und MCP | #1703, #1704 (2) | 19 |
-| D | Memory und Suche (fast alles gebaut, Beweisführung) | #1317, #1336, #1337, #1334, #1316, #1314, #18, #1339 schließen, +2 neue Feature-Issues (B, C) | 13 |
-| E | Requirements ↔ Architektur | #1669, #1670 (2) | 11 |
-| F | Test und Qualität | #1564, #1578, #587 (3) | 8 |
-| G | Dokumente, Milestones | #1374, #879 (2) | 6 |
-| H | Hermes-Plugin | #1701 (1) | 5 |
-| Rest | Bewusst offen | #1230, #1247, Inspector-Konzept bis zur Umsetzung, B, C | 5 |
+| A | Hygiene und Re-Labeling | #85, #1153, #1399, #1411, #1407, #946 (6, schließen), +1 neues `page_size`-Issue | 26 |
+| B | Frontend (B1 Hygiene, B2 Inspector-Konzept) | #598, #801, #1094, #1287, #186 schließen, +1 neues Inspector-Konzept-Issue | 22 |
+| C | Clients und MCP | #1703, #1704 (2) | 20 |
+| D | Memory und Suche (fast alles gebaut, Beweisführung) | #1317, #1336, #1337, #1334, #1316, #1314, #18, #1339 schließen, +2 neue Feature-Issues (B, C) | 14 |
+| E | Requirements ↔ Architektur | #1669, #1670 (2) | 12 |
+| F | Test und Qualität | #1564, #1578, #587 (3) | 9 |
+| G | Dokumente, Milestones | #1374, #879 (2) | 7 |
+| H | Hermes-Plugin | #1701 (1) | 6 |
+| Rest | Bewusst offen | #1230, #1247, Inspector-Konzept, D-B, D-C, `page_size` | 6 |
 
-Neue Issues aus Phase A (z. B. DELETE-`change_reason` als Query) sind in den Zählern nicht enthalten.
+Alle Zähler enthalten die neuen Issues der jeweiligen Phase. Ein optionales Issue zu Punkt 4 aus #1407 (Bearer mit API-Key, nur falls Doku-Lücke) ist nicht eingerechnet.
 
 Dazu kommen **Vorschläge V1–V9** (Ende des Dokuments). Noch keine Issues.
 
@@ -59,18 +59,18 @@ Dazu kommen **Vorschläge V1–V9** (Ende des Dokuments). Noch keine Issues.
 | 10 | #1578 | Vertagung aufheben: Feature-Flag, Deckel, Rate-Parity, Item-Permission |
 | 11 | #879 | Erst prüfen, was gebaut wurde. **Ergebnis 2026-11-10: vollständig gebaut, schließen** |
 | 12 | #1374 | Stufe 1: Document + Kanten + Import (Repo-first). **Stand 2026-11-10:** S1, S2, S4 gebaut, offen nur S3. **12b: Generator und Adoption im Server, Zustellung durch CI und Agenten, Agentendefinition als Teil der Harness-Plugin-Skills** |
-| 13 | #946 | Schließen, Bluepencil deckt es ab |
+| 13 | #946 | **Geändert nach Review 2026-11-10: als nicht geplant schließen.** Ursprünglich "Bluepencil deckt es ab", das stimmt nicht mehr: Der Layer wurde am 2026-11-02 bewusst entfernt (Commit `1ad7ef17`, #1643) |
 
 **Korrektur:** Die Memory-Richtung ist schon entschieden: ADR-022 Qdrant-Vollbetrieb (Option B), ADR-023 Honcho-Vollausbau (Option A, nur dialektik-abhängige Teile warten auf T1), ADR-024 Memory-Injektion. Alle `accepted` am 2026-10-26. Die frühere Annahme "Phase D beginnt mit A/B-Entscheidung" entfällt.
 
 ## Phasen
 
-### Phase A — Hygiene und Re-Labeling (6 schließen, kein Code)
-- Schließen mit Kommentar: #85, #1153 (Verweis auf #1247), #1399 + #1411 (Messung dokumentieren), #946 (Verweis auf `frontend/src/bluepencil/`).
-- #1407: Einzelpunkte prüfen. Echte Fehler in die passende Phase, Rest schließen.
+### Phase A — Hygiene und Re-Labeling (6 schließen, +1 neues Issue, kein Code, Plan: `2026-11-10-phase-a-hygiene.md`)
+- Schließen mit Kommentar: #85, #1153 (Verweis auf #1247), #1399 + #1411 (Messung dokumentieren).
+- **#946: als nicht geplant schließen** (Entscheidung nach Review). Der Bluepencil-Layer wurde am 2026-11-02 bewusst entfernt (`1ad7ef17`), die frühere Begründung "Bluepencil deckt es ab" ist hinfällig.
+- **#1407** (am Code verifiziert): `offset` gewollt, DELETE-`change_reason` per Query bereits behoben (`parse_change_reason`), `/traceability/` gewollt, `page_size <= 0` fällt still auf den Standard zurück (**neues kleines Issue**), Bearer mit API-Key bleibt zu prüfen. Dann schließen.
 - Labels: #1247, #1287, #1578, #1230.
 - Ausführung: `feedback`-Agent. Liste wird Daniel vor der Ausführung gezeigt.
-- Falls #946 echte Bluepencil-Lücken hat (zentrales Löschen nach Filter/Session): kleines neues Issue.
 
 ### Phase B — Frontend (5 Issues, zwei Pläne)
 Das Triage-Gate (2026-11-10, origin/main 4f8aa29f) hat den Umfang stark verändert. Ausführbare Pläne: `2026-11-10-phase-b1-frontend-hygiene.md` und `2026-11-10-phase-b2-inspector-concept.md`.
@@ -153,20 +153,60 @@ Triage-Gate (2026-11-10): Die Requirements-Ansichten fehlen auf `main` (Plugin: 
 ### Rest (bewusst offen)
 - **#1230** externe Accounts (W1–W5). Kein Code. Danach Publish-Workflows scharf schalten.
 - **#1247** Honcho-Dialektik-Upstream-Tracker. Schließt, wenn Trigger T1 erfüllt ist (`memory.ask` mit `degraded:false`).
+- **Inspector-Konzept** (neu, Phase B2). Schließt nach der Umsetzung der freigegebenen Spec.
+- **D-B** und **D-C** (neu, Phase D): Zusammenfassung eines Artefakts, zyklische Zusammenfassungen. Beide brauchen ein eigenes Konzept.
+- **`page_size`** (neu, Phase A): stilles Zurückfallen bei Werten ≤ 0. Backlog, Bündel REST-Kleinkram (kein Task in einem der Phasenpläne).
 
-## Reihenfolge und Abhängigkeiten
+## Ausführungsreihenfolge
 
-- A zuerst (kostet wenig). Dann C, B-Strang 1 und 3 sowie D parallel möglich, weil getrennte Dateien.
-- B-Strang 2 (Inspector) beginnt mit Analyse und Konzept sofort, Umsetzung erst nach Review durch Daniel.
-- D ist fast reine Beweisführung und kann sofort laufen. F-#587 und die Promptfoo-Szenarien für `search_summary` hängen lose zusammen.
-- E vor G. #879 und #1374 hängen an der Milestone-Frage.
-- H zuletzt.
+Aufwand grob relativ (S klein, M mittel, L groß), kein Zeitversprechen. Abhängigkeiten stehen im Plan der jeweiligen Phase.
+
+| Welle | Phasen | Aufwand | Parallel möglich | Voraussetzung |
+|---|---|---|---|---|
+| 1 | **A** Tracker (S), **D** Beweisführung + `include_summary` (M), **C** Verifikation (M) | klein bis mittel | ja, getrennte Dateien. C startet einen Docker-Stack (Speicher beachten) | Freigabe der Schließliste (A) |
+| 2 | **B1** Frontend-Hygiene (M), **B2** Inspector-Analyse und Spec (M), **F-#587** belegen (S) | mittel | B1 ∥ B2 | keine |
+| 3 | **F** #1564 und #1578 (L), **E** Tasks 1–3 und ADR-028 mit Freigabe-Gate (M), **H** Hermes-Plugin (M) | groß | F ∥ H; E nach Spec-Freigabe | Freigabe ADR-028 für E Stufe 2 bis 4 |
+| 4 | **E** Stufen 2–4 (L), **G** S3 Projektion und Adoption (L), **B2** Umsetzung (L) | groß | G ∥ B2; E eigene Migrationen | Spec-Freigabe (E, B2), Welle 3 für die Zähler-Gates von G |
+
+Abhängigkeiten im Einzelnen:
+- **G hängt nicht mehr an E.** Das Triage-Gate hat gezeigt, dass `Document` und `WorkItem` (#1374 S1, S2, S4) gebaut sind. S3 braucht keine Allokation.
+- **F-#587 und D (`search_summary`)** hängen lose zusammen: Das Szenario für den neuen Slot kommt nach D in den Katalog.
+- **C** ist unabhängig. G verwendet keinen Code aus C (eigener JSON-RPC-Helfer).
+- **B2-Umsetzung** hängt an der Freigabe der Spec durch Daniel. Danach entsteht ein eigener Umsetzungsplan (Phase B3).
+
+## Querschnittsregeln
+
+1. **Frische-Check vor jeder Phase.** `main` bewegt sich, Pläne veralten (Beispiel: Bluepencil wurde entfernt). Vor dem Start einer Phase:
+   - `git fetch origin +refs/heads/main:refs/remotes/origin/main` (über den `git`-Agenten; `remote.origin.fetch` ist auf einen Tag verengt, ein einfaches `git fetch origin` aktualisiert `origin/main` nicht).
+   - `python scripts/check_plan_refs.py docs/superpowers/plans/<plan>.md` (gegen einen Checkout von `origin/main`). Gemeldete Pfade prüfen: Neuanlagen sind erwartet, entfernte Dateien nicht.
+   - Das Triage-Gate des Plans erneut lesen: Ist das Issue inzwischen erledigt?
+2. **Migrationen.** Jede Phase sagt "nächste freie Nummer". Phasen E, F und G legen Migrationen an. PRs mit Migrationen werden nacheinander gemergt, ein später gemergter PR rebased und renummeriert. Prüfung: `python manage.py makemigrations --check --dry-run`. Neue tenant-scoped Tabellen brauchen eine RLS-Policy-Migration (`test_rls_coverage.py`).
+3. **MCP-Tool-Zähler.** Heute 290. Nur Phase G ändert ihn (+3 auf 293). Alle anderen Phasen sind Delta 0 und erweitern bestehende Tools. Jede Änderung: `python manage.py export_tool_manifest`, Drift-Gate und Zähler-Gates (`docs/agent-templates/test_meta_tool_count_drift.py`, `test_doc_surface_consistency.py`) grün.
+4. **Git- und PR-Ablauf.** Branch von `origin/main`, Git nur über den `git`-Agenten. Commit-Nachricht und PR-Text als Dateien vorgeben (`git commit -F`, `--body-file`), damit der Trailer `Co-Authored-By: Claude Sonnet 5.5` nicht umgeschrieben wird. Merge als Squash nach grüner CI, kein Admin-Bypass. Ein Merge dauert wegen `set-1-core` und der E2E-Shards etwa 10 bis 15 Minuten.
+5. **Ressourcen.** Host hat etwa 5,8 GiB RAM: volle Backend-, Frontend- und E2E-Läufe nur nacheinander. Phase C startet zusätzlich einen Compose-Stack.
+6. **Schließen von Issues** nur nach Freigabe durch Daniel, mit Kommentar und Beleg (Datei:Zeile, Commit, Test). Kein `Fixes`-Keyword in Plan-PRs.
+7. **Neue Issues** aus den Phasen: in die Tabelle oben eintragen und die Zähler nachziehen.
+
+## Risiken
+
+| Risiko | Wirkung | Gegenmaßnahme |
+|---|---|---|
+| Pläne veralten, bevor sie laufen | falsche Arbeit (Beispiel #946) | Frische-Check (Regel 1), Triage-Gate je Phase |
+| Migrationsnummern kollidieren (E, F, G) | PR bricht nach dem Merge eines anderen | Regel 2, nacheinander mergen |
+| Phase E Stufen 2 bis 4 und G sind groß | lange Laufzeit, Regressionsrisiko | je Stufe ein PR, ADR/Spec-Gate vor dem Code, Ausführung in Welle 4 |
+| LLM-Kosten durch Auto-Assessment (F) und `include_summary` (D) | unerwartete Kosten | Feature-Flag Default aus, Drosselung, Deckel, Service-Agent-Key |
+| Dual-Source-Dokumente (G): Repo und Loom laufen auseinander | stille Überschreibung | Statusmatrix fail-loud, nie Push auf `main`, Adoption mit Hash-Prüfung |
+| Zwei Freigabepfade (E, D10 "beides") | Sperre wird umgangen | Vorrangregel in der Spec, Test "Einzel-Release umgeht die Element-Sperre nicht" |
+
+## Release-Vorschlag
+
+Nur ein Vorschlag, Daniel entscheidet: **beta.30** nach Welle 1 (A, C, D), **beta.31** nach Welle 2 und 3 (B1, F, H, E Task 1 bis 3), **beta.32** nach Welle 4 (E Stufen 2 bis 4, G, B2). Release-Hygiene nach `docs/` und dem Release-Agenten.
 
 ## Offene Entscheidungen
 
-1. Phase A: Freigabe der vorbereiteten Schließ- und Label-Liste, bevor ausgeführt wird.
+1. Phase A: Freigabe der vorbereiteten Schließ- und Label-Liste, bevor ausgeführt wird (enthält jetzt #946 als "nicht geplant", Begründung Bluepencil entfernt).
 2. Phase B: Review des Inspector-Konzepts, bevor Umsetzung startet.
-3. Phase G: #879 nach der Triage.
+3. Phase E: Freigabe von ADR-028 und Spec vor Stufe 2 bis 4. Phase B2: Freigabe der Inspector-Spec.
 4. Vorschläge V1–V9: welche als Issues anlegen.
 
 ## Regeln pro Phase
@@ -178,14 +218,18 @@ Triage-Gate (2026-11-10): Die Requirements-Ansichten fehlen auf `main` (Plugin: 
 - PR-Body mit `Fixes #N` nur für wirklich erledigte Issues.
 - Neue Issues während der Phasen: in die passende Phase einsortieren, Zähler nachziehen.
 
-## Vorschläge (noch keine Issues)
+## Vorschläge (noch keine Issues, Stand nach Review 2026-11-10)
 
-- **V1:** Einheitliche Fehler- und Leer-Zustände je Entity-Liste (B).
-- **V2:** Lint gegen hartcodierte Farben und Strings (B).
-- **V3:** OpenCode-2-Ergebnisse in Client-Doku und `client-smoke` (C).
-- **V4:** Admin-Statusseite "Memory": aktive Ablage, Indexer-Rückstand, letzter Dream (D).
-- **V5:** Management-Command `reindex_artifacts`, resumable (D, zu #1334).
-- **V6:** Allokations-Filter und Spezifikationsebene in Liste und Trace-Matrix (E). Wird von Stufe 1 teils abgedeckt.
-- **V7:** Coverage-Ansicht "Requirements ohne Allokation je Spezifikationsebene" (E).
-- **V8:** Testfall-Ableitung aus Given/When/Then, Schritt-Ergebnisse im TestRun (F, nach #1564).
-- **V9:** Promptfoo als CI-Gate für geänderte Templates (F, nach #587).
+| # | Vorschlag | Phase | Stand |
+|---|---|---|---|
+| V1 | Einheitliche Fehler- und Leer-Zustände je Entity-Liste | B | offen, noch kein Task |
+| V2 | Lint gegen hartcodierte Farben und Strings | B | offen, noch kein Task. Der `ui-ratchet.test.ts` deckt Hex-Farben schon teilweise ab, vor dem Anlegen prüfen |
+| V3 | OpenCode-2-Ergebnisse in Client-Doku und `client-smoke` | C | **abgedeckt** durch Phase C Task 5 |
+| V4 | Admin-Statusseite "Memory" | D | **vermutlich vorhanden** (`components/Memory/MemoryPage.tsx`, Memory-Admin). Vor dem Anlegen prüfen |
+| V5 | Command `reindex_artifacts` | D | **vorhanden** als `index_artifact_vectors` und `backfill_embeddings`. Entfällt |
+| V6 | Allokations-Filter und Ebene in Liste und Trace-Matrix (UI) | E | Filter im Backend vorhanden (`?allocated=`, `?level=`). UI-Teil prüfen, Coverage-Anzeige steht in Phase E Task 4 Step 6 |
+| V7 | Coverage-Ansicht "Requirements ohne Allokation je Ebene" | E | **abgedeckt** durch Phase E Task 4 Step 6 |
+| V8 | Testfall-Ableitung aus Given/When/Then, Schritt-Ergebnisse im TestRun | F | offen, baut auf #1564, bleibt Vorschlag |
+| V9 | Promptfoo als CI-Gate für geänderte Templates | F | **vorhanden** (CI-Job "Prompt Regression" läuft auf PRs). Entfällt |
+
+Offen für die Anlage als Issue bleiben V1, V2, V8 und, nach Prüfung, V4 und V6.

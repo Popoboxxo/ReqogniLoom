@@ -117,10 +117,10 @@ Expected: `/health/` antwortet 200.
 - [ ] **Step 3: Admin-Token und Read-only-Key**
 
 ```bash
-TOKEN=$(curl -s -X POST http://localhost:8001/api/v1/auth/login/ -H 'Content-Type: application/json' -d '{"username":"admin","password":"<Scratch-Passwort>"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["access"])')
-curl -s -X POST http://localhost:8001/api/v1/api-keys/ -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"name":"phase-c-probe","scope":"read"}'
+TOKEN=$(curl -s -X POST http://localhost:8001/api/v1/auth/login/ -H 'Content-Type: application/json' -d '{"username":"admin","password":"<Scratch-Passwort>"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])')
+curl -s -X POST http://localhost:8001/api/v1/api-keys/ -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"name":"phase-c-probe","scope":"read_only"}'
 ```
-Expected: 201 mit einem Klartext-Key, der nur einmal erscheint. Feldnamen von Login-Antwort und Key-Antwort an der Realität prüfen (`/api/schema/`), falls sie abweichen.
+Expected: 201, der Klartext-Key steht im Feld `plaintext` und erscheint nur einmal (`ApiKeyCreateResponseSerializer`). Der Login setzt Cookies (`reqogniloom_access`, `reqogniloom_refresh`); das Feld `token` im Body ist deprecated (#696), für diese Scratch-Bootstrap-Aufgabe aber vorhanden. Fehlt es in einer künftigen Version, Cookie plus CSRF-Header nutzen. Scope-Name: `read_only` (kanonisch), `read` ist nur ein Legacy-Alias.
 
 - [ ] **Step 4: Daten seeden**
 
@@ -287,4 +287,4 @@ Expected: zweimal `CLOSED`.
 - **Abweichung von den Issues:** Beide nennen 248 Tools und 49 Requirements. Auf beta.29 sind es 290 Tools, key-abhängig. Der Plan verwendet relative Prüfungen und nennt die Zahlen im Bericht.
 - **Bekannte Grenze:** Ein Tool-Aufruf über den Client selbst braucht einen LLM-Provider. Ohne ihn belegt die Probe den Aufruf auf Protokollebene. Task 3 Step 3 hält das im Bericht fest.
 - **Typkonsistenz:** `ProbeResult`-Felder aus Task 1 werden in Tasks 2 bis 4 gelesen (`tool_count`, `latency_ms`, `call_result_count`).
-- **Nicht ausgeführt:** Kein Befehl dieses Plans lief. Login- und Key-Feldnamen sind Hypothesen und in Task 2 Step 3 gegen `/api/schema/` zu prüfen. Der Docker-Stack wurde nicht gestartet.
+- **Nicht ausgeführt:** Kein Befehl dieses Plans lief. Login-Token und Key-Felder sind im Review am Code bestätigt (`token` im Login-Body, deprecated #696; `plaintext`, `scope=read_only`). Der Docker-Stack wurde nicht gestartet.

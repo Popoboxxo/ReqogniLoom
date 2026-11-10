@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 6 Issues schließen (#85, #1153, #1399, #1411, #1407, #946), 4 Labels korrigieren (#1247, #1287, #1578, #1230), Backlog von 31 auf 25 offene Issues bringen.
+**Goal:** 6 Issues schließen (#85, #1153, #1399, #1411, #1407, #946), 4 Labels korrigieren (#1247, #1287, #1578, #1230), Backlog von 31 auf 26 offene Issues bringen (6 schließen, 1 neues Issue für `page_size`).
 
 **Architecture:** Kein Code. Reine Tracker-Arbeit mit `gh`, ausgeführt vom `feedback`-Agenten. Jede Schließung hat einen Beleg im Kommentar. #1407 wird zuerst Punkt für Punkt gegen `origin/main` (4f8aa29f, beta.29) verifiziert.
 
@@ -25,7 +25,7 @@
 - #1411 enthält zwei Befunde. Der zweite (Latenz bei 10 parallelen Anfragen, p50 0,875 s gegen 0,341 s einzeln) ist kein Planner-Verhalten. Test: Task 3 benennt ihn im Schließ-Kommentar ausdrücklich.
 - #1247 wird beim Re-Labeln versehentlich mitgeschlossen. Test: Task 8 prüft `state == OPEN` für #1247 und #1230.
 - Label `upstream` existiert nicht. `gh issue edit --add-label` scheitert. Test: Task 2 legt es vorher an.
-- #946 hat echte Bluepencil-Lücken (zentrales Löschen), die mit dem Schließen untergehen. Test: Task 6 prüft das und legt bei Bedarf ein Issue an.
+- #946 wird mit falscher Begründung geschlossen ("Bluepencil deckt es ab"), obwohl der Layer entfernt ist. Test: Task 6 Step 1 belegt die Entfernung (`1ad7ef17`), der Kommentar nennt sie.
 
 ---
 
@@ -120,50 +120,49 @@ Expected: zweimal `CLOSED`
 ### Task 4: #1407 Punkt für Punkt gegen `origin/main` prüfen
 
 **Files:**
-- Read: `backend/rest_api/serializers.py:638` (`StandardPagination`)
-- Read: `backend/rest_api/query_params.py` (`parse_change_reason`, `parse_int_param`)
-- Read: `backend/rest_api/views.py:5439` (`TraceabilityViewSet`), `backend/rest_api/urls.py:292`
-- Read: `backend/auth_tenancy/` (API-Key über `Authorization: Bearer`)
+- Read: `backend/rest_api/serializers.py` (`StandardPagination`), `backend/rest_api/query_params.py:225` (`parse_change_reason`), `backend/rest_api/views.py:5439` (`TraceabilityViewSet`), `backend/rest_api/urls.py:292`, `backend/auth_tenancy/rest.py` (Authentifizierungsklassen)
 - Create: `.tmp/phase-a-1407-verdicts.md` (Scratch, nicht committen)
 
 **Interfaces:** Produces: Urteilstabelle mit fünf Zeilen. Task 5 liest sie.
 
-Die fünf Befunde aus #1407 und die Hypothese aus dem Quellcode (beta.29):
+Die fünf Befunde aus #1407. Die Urteile 1, 2, 3 und 5 sind im Review am Code verifiziert, Punkt 4 ist noch offen:
 
-| # | Befund | Hypothese |
+| # | Befund | Urteil (Code-Beleg) |
 |---|---|---|
-| 1 | `offset` wird ignoriert | `StandardPagination` ist seitenbasiert (`page`, `page_size`), kennt kein `offset`. Kein Fehler, wenn nicht dokumentiert. |
-| 2 | `page_size=0`, `-1`, `1000000` antworten 200 mit 10 Ergebnissen | Klemmen ist dokumentiert (#571, `page_size` und `max_page_size` stehen in der Antwort). Für 0 und negativ prüfen, ob 400 gewollt ist. |
-| 3 | `DELETE …?change_reason=x` antwortet 400, `DELETE` mit Body 204 | Echter Konsistenzfehler: Clients und Proxies verlieren DELETE-Bodies. Prüfen, ob `parse_change_reason` die Query liest. |
-| 4 | `Authorization: Bearer <API-Key>` antwortet 200 | Vermutlich gewollt (API-Key-Authentifizierung über Bearer). Gegen Auth-Doku prüfen. |
-| 5 | `GET /api/v1/traceability/` antwortet 404 | `TraceabilityViewSet` ist `GenericViewSet` ohne `list`. Nur Unter-Aktionen (impact, path, cycles). 404 ist by design. |
+| 1 | `offset` wird ignoriert | **gewollt.** Listen sind seitenbasiert (`page`, `page_size`). `offset` kennt nur die Allokationsliste (`rest_api/views.py:8313`, `:15021`) |
+| 2 | `page_size=0`, `-1` antworten 200 mit der Standardgröße | **kleiner echter Fehler.** Zu große Werte werden geklemmt und im Envelope gespiegelt (`page_size`, `max_page_size`, #571). Werte ≤ 0 und nicht numerische fallen still auf 25 zurück (DRF-Basisverhalten, `get_page_size` erzwingt nichts). Gleiche Klasse wie #1613 (stilles Akzeptieren) |
+| 3 | `DELETE …?change_reason=x` antwortet 400 | **bereits behoben.** `parse_change_reason` liest den Body zuerst und die Query als Rückfall (`rest_api/query_params.py:225`, Docstring nennt #1407). Aufrufer: `views.py:1481`, `:2428`, `:3749` |
+| 4 | `Authorization: Bearer <API-Key>` antwortet 200 | **offen.** Prüfen, ob ein API-Key über den Bearer-Header gewollt ist (`auth_tenancy/rest.py`) |
+| 5 | `GET /api/v1/traceability/` antwortet 404 | **gewollt.** `TraceabilityViewSet` ist `GenericViewSet` ohne `list`, nur Unteraktionen (impact, path, cycles) |
 
-- [ ] **Step 1: Punkte 1, 2 und 5 durch bestehende Tests belegen**
-
-Run: `cd backend && grep -rn "page_size" rest_api/tests/*pagination* | head; grep -rn "traceability/" rest_api/tests/ | head`
-Expected: Tests für `page_size` und `max_page_size` existieren. Für Punkt 2 den Fall `page_size=0` und `-1` im Test prüfen oder per Django-Testclient ausführen (lokales Test-Setup: `DB_USER` auf den Superuser setzen, siehe Projekt-Memory).
-
-- [ ] **Step 2: Punkt 3 reproduzieren (Test schreiben, nicht fixen)**
+- [ ] **Step 1: Punkt 3 mit einem Test belegen**
 
 ```python
-# backend/rest_api/tests/test_delete_change_reason_query.py
-def test_delete_requirement_accepts_change_reason_in_query(api_client, requirement, workspace):
-    resp = api_client.delete(
-        f"/api/v1/requirements/{requirement.id}/?change_reason=probe&workspace_id={workspace.id}"
-    )
-    assert resp.status_code == 204
+# Scratch, nicht committen: backend/rest_api/tests/test_scratch_delete_reason.py
+def test_delete_accepts_change_reason_in_query(api_client, requirement, workspace):
+    r = api_client.delete(f"/api/v1/requirements/{requirement.id}/?change_reason=probe&workspace_id={workspace.id}")
+    assert r.status_code in (200, 204)
 ```
-Run: `cd backend && DB_USER=<superuser> pytest rest_api/tests/test_delete_change_reason_query.py -v`
-Expected bei bestätigtem Fehler: FAIL mit 400. Bei Erfolg: Punkt 3 ist bereits behoben, Test löschen. Der Test wird nicht committet, er belegt nur das Urteil.
+Run: `cd backend && DB_USER=<Superuser> python -m pytest rest_api/tests/test_scratch_delete_reason.py -v`
+Expected: PASS (bestätigt "bereits behoben"). Bei FAIL ist das ein echter Fehler: ein Einzel-Issue statt Schließen. Scratch-Datei danach löschen.
 
-- [ ] **Step 3: Punkt 4 gegen die Auth-Doku prüfen**
+- [ ] **Step 2: Punkt 2 reproduzieren**
 
-Run: `cd backend && grep -rn "Bearer" auth_tenancy/api_key_auth*.py auth_tenancy/authentication*.py | head`
-Expected: Entweder dokumentierter Pfad "API-Key über Bearer" (gewollt) oder keiner. Bei "gewollt, aber undokumentiert": Doku-Hinweis als Folge notieren.
+```python
+def test_scratch_page_size_zero_falls_back_silently(api_client, workspace):
+    r = api_client.get(f"/api/v1/requirements/?workspace_id={workspace.id}&page_size=0")
+    assert r.status_code == 200 and r.json()["page_size"] == 25
+```
+Expected: PASS bestätigt das stille Zurückfallen. Dann Task 5 Step 1.
+
+- [ ] **Step 3: Punkt 4 klären**
+
+Run: `cd backend && grep -n "class .*Authentication" -A30 auth_tenancy/rest.py | grep -n "Bearer\|HTTP_AUTHORIZATION\|X-API-Key" | head`
+Expected: Entweder Bearer-Verarbeitung für API-Keys (gewollt, dann Doku-Lücke prüfen in `docs/api/`) oder nicht. Urteil festhalten.
 
 - [ ] **Step 4: Urteile in `.tmp/phase-a-1407-verdicts.md` festhalten**
 
-Format je Zeile: `Punkt | Urteil (gewollt / Fehler / Doku-Lücke) | Beleg (Datei:Zeile oder Testlauf)`.
+Format je Zeile: `Punkt | Urteil (gewollt / Fehler / bereits behoben / Doku-Lücke) | Beleg (Datei:Zeile oder Testlauf)`.
 
 ---
 
@@ -171,20 +170,19 @@ Format je Zeile: `Punkt | Urteil (gewollt / Fehler / Doku-Lücke) | Beleg (Datei
 
 **Files:** keine.
 
-**Interfaces:** Consumes: Urteilstabelle aus Task 4. Produces: #1407 geschlossen, null oder mehr neue Issues.
+**Interfaces:** Consumes: Urteilstabelle aus Task 4. Produces: #1407 geschlossen, ein neues Issue für Punkt 2 (und ggf. eines für Punkt 4).
 
-- [ ] **Step 1: Für jeden Punkt mit Urteil "Fehler" oder "Doku-Lücke" ein Einzel-Issue anlegen**
+- [ ] **Step 1: Neues Issue für Punkt 2 (nach Freigabe)**
 
-Erwartet nach Hypothese: Punkt 3 (DELETE `change_reason` als Query).
 ```bash
-gh issue create --title "[BUG][LOW][rest] DELETE akzeptiert change_reason nur im Body, nicht als Query-Parameter" --label bug --label low --label rest --body "Aus #1407 (R3-08). DELETE ...?change_reason=x antwortet 400 'change_reason is required by preset policy', derselbe Aufruf mit Body 204. Clients und Proxies verlieren DELETE-Bodies. Erwartet: Query-Parameter wird wie Body gelesen. Beleg: Test in Task 4 der Phase-A-Pläne. Bündel: Phase B (REST-Kleinkram)."
+gh issue create --title "[BUG][LOW][rest] page_size <= 0 oder nicht numerisch wird still auf den Standard gesetzt" --label bug --label low --label rest --body "Aus #1407. Zu große page_size-Werte werden geklemmt und im Envelope gespiegelt (#571). Werte <= 0 und nicht numerische Werte fallen dagegen still auf 25 zurück (DRF-Basisverhalten, StandardPagination.get_page_size). Erwartet: 400 mit Hinweis wie bei ungültigen Filterwerten (#1613). Betrifft alle Listen, Änderung also mit Test über mehrere Endpunkte. Bündel: Phase B (REST-Kleinkram)."
 ```
-Neue Issues in die Roadmap-Tabelle eintragen, Zähler nachziehen (31 − 6 + N).
+Der Zähler in der Roadmap zieht um +1 nach (siehe Task 8).
 
 - [ ] **Step 2: #1407 schließen**
 
 ```bash
-gh issue close 1407 --reason "not planned" --comment "Sammel-Issue, Punkte einzeln geprüft gegen main (beta.29): 1 offset: Pagination ist seitenbasiert (page, page_size), kein offset vorgesehen. 2 page_size: Klemmen mit Echo von page_size und max_page_size ist dokumentiert (#571). 3 DELETE change_reason: <neues Issue #N | bereits behoben>. 4 Bearer mit API-Key: <gewollt | Doku-Lücke #N>. 5 GET /traceability/ 404: TraceabilityViewSet ist GenericViewSet ohne list, nur Unteraktionen, by design. Geschlossen, echte Punkte laufen in Einzel-Issues."
+gh issue close 1407 --reason "not planned" --comment "Sammel-Issue, Punkte einzeln gegen main (beta.29) geprüft: 1 offset: Listen sind seitenbasiert (page, page_size), offset ist nur bei der Allokationsliste vorgesehen. 2 page_size <= 0: stilles Zurückfallen auf den Standard, eigenes Issue #<N>. 3 DELETE change_reason als Query: bereits behoben, parse_change_reason (rest_api/query_params.py) liest Body und Query. 4 Bearer mit API-Key: <gewollt | Doku-Lücke #N>. 5 GET /traceability/ 404: TraceabilityViewSet ist ein GenericViewSet ohne list, nur Unteraktionen, gewollt. Geschlossen, der echte Punkt läuft in #<N>."
 ```
 Die Platzhalter in `<...>` mit den Urteilen aus Task 4 füllen, bevor der Befehl läuft.
 
@@ -195,34 +193,29 @@ Expected: `CLOSED`
 
 ---
 
-### Task 6: #946 schließen, Bluepencil-Lücken prüfen
+### Task 6: #946 schließen (nicht geplant)
 
-**Files:**
-- Read: `frontend/src/bluepencil/index.tsx`, `host.ts`, `loader.ts`
+**Files:** keine.
 
-**Interfaces:** Produces: #946 geschlossen. Optional ein Bluepencil-Lücken-Issue.
+**Interfaces:** Produces: #946 geschlossen mit korrekter Begründung. Zähler −1.
 
-- [ ] **Step 1: Prüfen, was Bluepencil bietet**
+Hintergrund (Review-Fund 2026-11-10): Die frühere Annahme "Bluepencil deckt es ab" stimmt nicht mehr. Der Bluepencil-Review-Layer wurde am 2026-11-02 bewusst entfernt (Commit `1ad7ef17`, `CHANGELOG.md`: "Breaking: the Bluepencil review layer is removed", #1643). `frontend/src/bluepencil/` existiert nicht mehr. Daniel entschied am 2026-11-10: **als nicht geplant schließen.**
 
-Run: `cd frontend/src/bluepencil && grep -n "export\|delete\|filter\|session\|export" index.tsx host.ts | head -40`
-Expected: Overlay, Notizen, Export (Markdown/JSON) vorhanden. Zentrales Löschen nach Filter oder Sitzung: bestätigen oder als Lücke notieren.
+- [ ] **Step 1: Beleg sichern**
 
-- [ ] **Step 2: Bei Lücke ein kleines Issue anlegen, sonst überspringen**
+Run: `git log --oneline -1 --diff-filter=D -- frontend/src/bluepencil | cat && grep -n "Bluepencil review layer is removed" CHANGELOG.md`
+Expected: Commit `1ad7ef17` und die Changelog-Zeile.
 
-```bash
-gh issue create --title "[FEATURE][LOW][frontend] Bluepencil: Notizen zentral nach Filter oder Debug-Sitzung löschen" --label enhancement --label frontend --body "Aus #946. Bluepencil deckt Overlay, Notizen und Export ab. Es fehlt (zu bestätigen): zentrales Löschen nach Filter, nach Debug-Sitzung oder komplett, nur für Admins. Umsetzung im vendorten Layer frontend/src/bluepencil/ bzw. im Host."
-```
-
-- [ ] **Step 3: #946 schließen**
+- [ ] **Step 2: Schließen (nach Freigabe)**
 
 ```bash
-gh issue close 946 --reason "not planned" --comment "Die Fähigkeit (Overlay, Notizen, Markdown/JSON-Export) existiert über den vendorten Bluepencil-Review-Layer (frontend/src/bluepencil/). Die spezifizierte Architektur (DebugNote-Modell, REST, MCP, Build-Flag VITE_DEBUG_NOTES) wurde nie gebaut und wird nicht gebaut. Entscheidung Daniel 2026-11-10. Echte Lücken: <Issue #N | keine>."
+gh issue close 946 --reason "not planned" --comment "Entschieden: nicht geplant. Der Bluepencil-Review-Layer, über den sich die Fähigkeit (Overlay, Notizen, Export) bis dahin abbilden ließ, wurde am 2026-11-02 bewusst entfernt (Commit 1ad7ef17, Changelog 'Breaking: the Bluepencil review layer is removed', #1643). Ein eigener Annotationslayer für den Admin-Debug-Modus (DebugNote, REST, Export, zentrales Löschen) ist nicht gewollt. Die Spezifikation in diesem Issue bleibt als Referenz lesbar. Bei neuem Bedarf als neues Feature-Issue aufnehmen."
 ```
 
-- [ ] **Step 4: Verifizieren**
+- [ ] **Step 3: Verifizieren**
 
-Run: `gh issue view 946 --json state --jq .state`
-Expected: `CLOSED`
+Run: `gh issue view 946 --json state,stateReason --jq '.state+" "+.stateReason'`
+Expected: `CLOSED NOT_PLANNED`
 
 ---
 
@@ -262,14 +255,14 @@ gh issue edit 1230 --add-label infra
 - [ ] **Step 2: Endstand prüfen**
 
 Run: `gh issue list --state open --limit 200 --json number --jq length`
-Expected: `25` plus Anzahl neu angelegter Issues aus Task 5 und 6.
+Expected: `26` (31 − 6 + 1 neues Issue aus Task 5 Step 1) plus ein optionales Issue für Punkt 4.
 
 Run: `for n in 1247 1230 1287 1578; do gh issue view $n --json state,labels --jq '"\(.state) \([.labels[].name]|join(","))"'; done`
 Expected: alle `OPEN`, Labels wie in Tasks 2 und 8.
 
 - [ ] **Step 3: Roadmap-Zähler nachziehen**
 
-Falls Task 5 oder 6 neue Issues angelegt haben: in der Phasen-Tabelle der Roadmap eintragen (z. B. DELETE-Query-Issue in Phase B) und "Offen danach" anpassen.
+Das neue `page_size`-Issue (Task 5) und ein ggf. angelegtes Issue für Punkt 4 in der Roadmap (Abschnitt "Rest", Bündel REST-Kleinkram, kein Task in den Phasenplänen) eintragen. Die Zähler der Roadmap enthalten das `page_size`-Issue bereits.
 
 - [ ] **Step 4: Commit (nur Plan-Dokumente, über den `git`-Agenten)**
 
@@ -284,6 +277,6 @@ Der Commit läuft über den `git`-Agenten im Worktree `.tmp/phase-plans`.
 ## Self-Review
 
 - **Abdeckung:** Roadmap Phase A nennt #85, #1153, #1399, #1411, #1407, #946 schließen und #1247, #1287, #1578, #1230 labeln. Tasks 1 bis 3, 5, 6, 8 decken das ab. #1247 liegt in Task 2.
-- **Zähler:** 31 − 6 = 25. Neue Issues aus Tasks 5 und 6 erhöhen ihn, deshalb "plus Anzahl neu angelegter".
+- **Zähler:** 31 − 6 + 1 = 26. Das neue Issue stammt aus Task 5 (`page_size`).
 - **Lücke gefunden und geschlossen:** #1411 hat zwei Befunde, nur einer war Planner-Verhalten. Task 3 benennt beide.
-- **Offen:** Urteile zu den fünf Punkten in #1407 sind Hypothesen aus dem Quellcode, nicht ausgeführte Messungen. Task 4 belegt sie. Das Triage-Gate bleibt Pflicht.
+- **Review 2026-11-10:** Die Urteile zu #1407 sind am Code verifiziert (Punkte 1, 2, 3, 5). Punkt 4 (Bearer mit API-Key) bleibt eine Prüfung in Task 4 Step 3. #946 wird nicht mehr mit Bluepencil begründet (Layer entfernt).
