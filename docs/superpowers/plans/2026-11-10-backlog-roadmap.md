@@ -6,7 +6,7 @@ Stand: 2026-11-10, nach beta.29. Entscheidungen von Daniel am 2026-11-10 eingear
 
 - 31 offene Issues (vorher 56). Backlog-Sweep (PR #1727) umgesetzt, beta.29 draußen.
 - Kritische Bugs und Security-Lücken sind weg.
-- Ziel: alle 31 einplanen. Am Ende bleiben drei bewusst offen: #1230 (externe Accounts, nur Daniel), #1247 (Honcho-Upstream-Tracker) und das neue Inspector-Konzept-Issue bis zur Umsetzung der freigegebenen Spec.
+- Ziel: alle 31 einplanen. Am Ende bleiben fünf bewusst offen: #1230 (externe Accounts, nur Daniel), #1247 (Honcho-Upstream-Tracker), das neue Inspector-Konzept-Issue bis zur Umsetzung der freigegebenen Spec sowie die zwei neuen Feature-Issues aus #18 (B: Artefakt-Zusammenfassung, C: zyklische Zusammenfassungen).
 - Nur Issue-Texte gelesen. Jede Phase startet mit einem Triage-Gate gegen `origin/main`: reproduzieren, bei "schon gefixt" schließen.
 
 ## Label-Befund: Tags sind unzuverlässig
@@ -32,12 +32,12 @@ Nur **1 von 31** Issues trägt `bug`. Der Inhalt zählt, nicht der Tag:
 | A | Hygiene und Re-Labeling | #85, #1153, #1399, #1411, #1407, #946 (6, schließen) | 25 |
 | B | Frontend (B1 Hygiene, B2 Inspector-Konzept) | #598, #801, #1094, #1287, #186 schließen, +1 neues Inspector-Konzept-Issue | 21 |
 | C | Clients und MCP | #1703, #1704 (2) | 19 |
-| D | Memory und Suche | #1317, #1336, #1337, #1334, #1316, #1314, #18, #1339 (8) | 11 |
-| E | Requirements ↔ Architektur | #1669, #1670 (2) | 9 |
-| F | Test und Qualität | #1564, #1578, #587 (3) | 6 |
-| G | Dokumente, Milestones | #1374, #879 (2) | 4 |
-| H | Hermes-Plugin | #1701 (1) | 3 |
-| Rest | Bewusst offen | #1230, #1247, Inspector-Konzept bis zur Umsetzung | 3 |
+| D | Memory und Suche (fast alles gebaut, Beweisführung) | #1317, #1336, #1337, #1334, #1316, #1314, #18, #1339 schließen, +2 neue Feature-Issues (B, C) | 13 |
+| E | Requirements ↔ Architektur | #1669, #1670 (2) | 11 |
+| F | Test und Qualität | #1564, #1578, #587 (3) | 8 |
+| G | Dokumente, Milestones | #1374, #879 (2) | 6 |
+| H | Hermes-Plugin | #1701 (1) | 5 |
+| Rest | Bewusst offen | #1230, #1247, Inspector-Konzept bis zur Umsetzung, B, C | 5 |
 
 Neue Issues aus Phase A (z. B. DELETE-`change_reason` als Query) sind in den Zählern nicht enthalten.
 
@@ -53,7 +53,7 @@ Dazu kommen **Vorschläge V1–V9** (Ende des Dokuments). Noch keine Issues.
 | 4 | #801 Umfang | **Inspector komplett neu denken**, am 2026-11-10 bestätigt: Der Inspector ist auf beta.29 schon in 10 Typen eingebunden, #801 wird geschlossen, neues Konzept-Issue mit Ist-Analyse, Best Practice, Spec, Freigabe-Gate |
 | 5 | #1094 Rest | **Gegenstandslos:** Der Endpunkt existiert seit #1096. #1094 wird geschlossen |
 | 6 | #1703 | Bericht in `docs/clients/`, CI-Smoke prüfen, sonst manuell dokumentieren |
-| 7 | #18 | Nur `ai_search.query`-MCP-Tool plus optionale KI-Zusammenfassung auf `search_service` (nach #1316). Keine neue App |
+| 7 | #18 | **Präzisiert 2026-11-10:** Scope A (Zusammenfassung je Suchanfrage) als optionaler Parameter `include_summary` an `artifact.search` (Delta 0 Tools, kein neues Tool). B (Zusammenfassung eines Artefakts) und C (zyklische Zusammenfassungen) werden neue Feature-Issues. #18 danach schließen mit Verweis |
 | 8 | #1669/#1670 | Drei Stufen, MVP zuerst |
 | 9 | #1564 | `step_type` + `text` mit stabiler Schritt-ID |
 | 10 | #1578 | Vertagung aufheben: Feature-Flag, Deckel, Rate-Parity, Item-Permission |
@@ -96,15 +96,21 @@ Das Triage-Gate (2026-11-10, origin/main 4f8aa29f) hat den Umfang stark verände
 - #1703: OpenCode 1.18.x und 2.2.x gegen echten `/mcp/`: Handshake, `notifications/initialized`, GET-SSE, `tools/list` = Soll aus `docs/agent-templates/tool-manifest.json` (beta.29: 290 Tools, key-abhängig, siehe #1730), `requirement_query` mit Read-only-Key. Bericht in `docs/clients/`. V2-Service-Restart-Quirk dokumentieren. Prüfen, ob `client-smoke` den Test tragen kann, sonst manuell.
 - #1704: messen, nicht raten. Code Mode (Default V2) gegen `codemode:false` (290 statt 248 Tools seit beta.29), V1-Verhalten, Auflösung der 6 Skills, Token-Kosten, Katalog-Latenz. Ergebnis: Empfehlung, Folge-Änderung nur wenn nötig. Hängt von #1703 ab.
 
-### Phase D — Memory und Suche (8 Issues, per ADR entschieden)
-Reihenfolge nach Abhängigkeit:
-1. **#1317 + #1339** nach ADR-024: Drei-Ebenen-Schalter über Q1-Schlüssel, HARD_OFF, `bundle_compression` verliert den Memory-Block, Ablagen-Inventar als Doku. Defaults = heutiges Verhalten.
-2. **#1334** Artefakt-Indexer (11 von 14 Typen, Hooks, Backfill, Workspace-Scope) nach ADR-022 Option B. Mit V5 `reindex_artifacts`.
-3. **#1316** Hybrid-Suche in `search_service.py`: ANN-Top-k + FTS-Top-k, RRF, `mode`-Parameter `vector|keyword|hybrid` (Default `hybrid`), Recall-Messung gegen ein manuelles Set von 20 Anfragen.
-4. **#1314** Qdrant-Ausbau: Payload-Index, Sparse Vectors, Quantization. Hängt an #1334.
-5. **#18-Rest** `ai_search.query` als MCP-Tool plus optionale KI-Zusammenfassung, aufgesetzt auf `search_service`. Nach #1316.
-6. **#1336 Dream, #1337 Honcho-Fähigkeiten** nach ADR-023 Option A. Nur die Teile, die nicht von der Dialektik abhängen, jetzt (Peer-/Workspace-Suche, Peer-Context, Session-Summaries, Scopes prüfen). Dialektik-abhängige Teile warten auf T1 (#1247). Je Fähigkeit ein Eintrag im Plan, nicht ein Block.
-- Ob die Plan-Annahmen (ADR-022 "Umsetzungsschnitt") noch auf main passen, klärt das Triage-Gate.
+### Phase D — Memory und Suche (8 Issues, Plan: `2026-11-10-phase-d-memory-suche.md`)
+Das Triage-Gate (2026-11-10, origin/main 8d2ea4f6) hat die frühere Planung widerlegt: Plan A (`docs/plans/2026-10-21-plan-a-memory-und-suche.md`) ist auf beta.29 weitgehend umgesetzt. Die Phase besteht aus Beweisführung plus einer kleinen Neuentwicklung.
+
+**Erledigt, mit Beleg schließen:**
+- #1334 Artefakt-Indexer (`application/artifact_indexer.py`, Commands `index_artifact_vectors`, `backfill_embeddings`).
+- #1314 Qdrant (Sparse `bm25`, Payload-Index, Quantisierung, `artifact_vector_store.py`).
+- #1316 Hybrid-Suche (`_rrf_fuse`, `mode`-Parameter, `test_search_recall.py`).
+- #1317 Ablagen und Kopplung (`memory.W001`/`W002`, Embedding-Modell je Zeile, `deploy/README.md`).
+- #1336 Dream (`consolidate`, periodische Aufgabe). Live-Beleg fehlt, kein Honcho-Stack erreichbar.
+- #1337 Honcho-Fähigkeiten (Peer-Suche, Peer-Context, Session-Summaries, Webhooks, native Scopes).
+- #1339 Injektion je Aktivität (`MEMORY_HARD_OFF_SLOTS`, `injection_policy.py`, REST, `memory_injected`).
+
+**Neu gebaut:** #18 als `include_summary` an `artifact.search` (MCP und REST, Default aus, kein neues Tool). Ein `SearchSummaryService` nach dem Muster von `BundleCompressionService`, Slot `search_summary` auf `MEMORY_HARD_OFF_SLOTS`.
+
+**Neue Feature-Issues:** B (Zusammenfassung eines einzelnen Artefakts, Bezug Inspector) und C (zyklische Zusammenfassungen je Artefakttyp/Workspace, braucht ein Konzept).
 
 ### Phase E — Requirements ↔ Architektur (2 Issues, drei Stufen)
 Zuerst Spec/ADR-Check (ADR-005 ist betroffen, `ARCHITECTURE_DEPTH_TO_LEVEL`), dann:
@@ -133,7 +139,7 @@ Zuerst Spec/ADR-Check (ADR-005 ist betroffen, `ARCHITECTURE_DEPTH_TO_LEVEL`), da
 
 - A zuerst (kostet wenig). Dann C, B-Strang 1 und 3 sowie D parallel möglich, weil getrennte Dateien.
 - B-Strang 2 (Inspector) beginnt mit Analyse und Konzept sofort, Umsetzung erst nach Review durch Daniel.
-- D vor F-#587 sinnvoll, nicht zwingend.
+- D ist fast reine Beweisführung und kann sofort laufen. F-#587 und die Promptfoo-Szenarien für `search_summary` hängen lose zusammen.
 - E vor G. #879 und #1374 hängen an der Milestone-Frage.
 - H zuletzt.
 
