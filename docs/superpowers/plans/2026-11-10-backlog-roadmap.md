@@ -54,7 +54,7 @@ Dazu kommen **Vorschläge V1–V9** (Ende des Dokuments). Noch keine Issues.
 | 5 | #1094 Rest | **Gegenstandslos:** Der Endpunkt existiert seit #1096. #1094 wird geschlossen |
 | 6 | #1703 | Bericht in `docs/clients/`, CI-Smoke prüfen, sonst manuell dokumentieren |
 | 7 | #18 | **Präzisiert 2026-11-10:** Scope A (Zusammenfassung je Suchanfrage) als optionaler Parameter `include_summary` an `artifact.search` (Delta 0 Tools, kein neues Tool). B (Zusammenfassung eines Artefakts) und C (zyklische Zusammenfassungen) werden neue Feature-Issues. #18 danach schließen mit Verweis |
-| 8 | #1669/#1670 | Drei Stufen, MVP zuerst |
+| 8 | #1669/#1670 | Drei Stufen, MVP zuerst. **Präzisiert 2026-11-10:** Stufe 1 ist auf beta.29 schon gebaut (ADR-027). D9 Mehrfachallokation = Konflikt anzeigen, nicht auflösen. D10 Freigabeeinheit = **beides** (Element-Release und optionaler Einzel-Release, mit Vorrangregel). D12 Inhalt einfrieren = **abhängig vom Rigor** (nur Extended friert den Inhalt ein) |
 | 9 | #1564 | `step_type` + `text` mit stabiler Schritt-ID |
 | 10 | #1578 | Vertagung aufheben: Feature-Flag, Deckel, Rate-Parity, Item-Permission |
 | 11 | #879 | Erst prüfen, was von #393/#877 gebaut wurde, dann entscheiden |
@@ -112,12 +112,17 @@ Das Triage-Gate (2026-11-10, origin/main 8d2ea4f6) hat die frühere Planung wide
 
 **Neue Feature-Issues:** B (Zusammenfassung eines einzelnen Artefakts, Bezug Inspector) und C (zyklische Zusammenfassungen je Artefakttyp/Workspace, braucht ein Konzept).
 
-### Phase E — Requirements ↔ Architektur (2 Issues, drei Stufen)
-Zuerst Spec/ADR-Check (ADR-005 ist betroffen, `ARCHITECTURE_DEPTH_TO_LEVEL`), dann:
-- **Stufe 1 (MVP):** deklarierte Spezifikationsebene als zweite Quelle plus abgeleitete Ebene aus Allokation. Filter `?allocated=` und `?level=` in REST, MCP, UI. Begriff "V-Modell-Ebene" ersetzen. Migration der 717 Requirements mit undefinierter Ebene, mit Dry-Run-Bericht.
-- **Stufe 2:** Allokation als eigenes Objekt mit Lebenszyklus.
-- **Stufe 3:** Beständigkeit ab Release (Sperre, Change Request, Impact-Vorschau) und Rigor-Regler.
-- Jede Stufe eigener PR. #1669 schließt mit Stufe 1, #1670 mit Stufe 3.
+### Phase E — Requirements ↔ Architektur (2 Issues, Plan: `2026-11-10-phase-e-requirements-architektur.md`)
+Das Triage-Gate (2026-11-10, origin/main f20f913e) zeigt: **Stufe 1 ist gebaut** (ADR-027: leaf-relative Stufen aus der Allokation, `WorkspaceTier`-Leiter, `level_source`, `allocation_intent`, Filter `?allocated=`/`?level=`, MCP `allocation.query`, `tier_key` im Baseline-Snapshot). Ebenfalls vorhanden: Workflow-Freeze für Position (`artifact_freeze.py`) und `ArtifactVersion`.
+
+- **Task 1:** Stufe 1 abnehmen, #1669 schließen.
+- **Task 2:** ADR-028 und Spec für Stufen 2 bis 4 mit D9, D10 (beides), D12 (rigor-abhängig). Freigabe-Gate durch Daniel.
+- **Task 3:** Mehrfachallokation als Konflikt (D9), Naming-Layer (D2/D7/D8, Tier `module`).
+- **Task 4:** Stufe 2: Objekt `Allocation` (`draft|released|revoked`), Dual-Write mit `TraceLink(allocated-to)`, Backfill der Bestandskanten, Coverage in REST, MCP (Delta 0 Tools) und UI.
+- **Task 5:** Stufe 3: Element-Release-Kaskade, Einzel-Release, Sperren mit 409 und CR-Verweis, Impact-Vorschau, Rigor-Kopplung.
+- **Task 6:** Stufe 4: gepinnte Ebene je Release in Baselines, Audit Live ↔ Baseline.
+- **Task 7:** #1670 schließen.
+Tasks 4 bis 6 starten erst nach Freigabe von ADR-028 und Spec.
 
 ### Phase F — Test und Qualität (3 Issues)
 - **#1564:** Schritt `{id, step_type: given|when|then|and|but, text}`. Normalisierung alter Schritte beim Lesen. Serializer und MCP-Schema deckungsgleich. Migration nur wenn nötig.
