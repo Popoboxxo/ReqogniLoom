@@ -54,7 +54,7 @@ Dazu kommen **Vorschläge V1–V9** (Ende des Dokuments). Noch keine Issues.
 | 5 | #1094 Rest | **Gegenstandslos:** Der Endpunkt existiert seit #1096. #1094 wird geschlossen |
 | 6 | #1703 | Bericht in `docs/clients/`, CI-Smoke prüfen, sonst manuell dokumentieren |
 | 7 | #18 | **Präzisiert 2026-11-10:** Scope A (Zusammenfassung je Suchanfrage) als optionaler Parameter `include_summary` an `artifact.search` (Delta 0 Tools, kein neues Tool). B (Zusammenfassung eines Artefakts) und C (zyklische Zusammenfassungen) werden neue Feature-Issues. #18 danach schließen mit Verweis |
-| 8 | #1669/#1670 | Drei Stufen, MVP zuerst. **Präzisiert 2026-11-10:** Stufe 1 ist auf beta.29 schon gebaut (ADR-027). D9 Mehrfachallokation = Konflikt anzeigen, nicht auflösen. D10 Freigabeeinheit = **beides** (Element-Release und optionaler Einzel-Release, mit Vorrangregel). D12 Inhalt einfrieren = **abhängig vom Rigor** (nur Extended friert den Inhalt ein) |
+| 8 | #1669/#1670 | Drei Stufen, MVP zuerst. **Präzisiert 2026-11-10:** Stufe 1 ist auf beta.29 schon gebaut (ADR-027). D9 Mehrfachallokation = Konflikt anzeigen, nicht auflösen, **seit 2026-11-10 per Konfiguration schaltbar** (Kardinalität `single|multiple`, Warnstufe `info|warning|blocker`, führende Kante `is_primary`). D10 Freigabeeinheit = **beides** (Element-Release und optionaler Einzel-Release, mit Vorrangregel). D12 Inhalt einfrieren = **abhängig vom Rigor** (nur Extended friert den Inhalt ein) |
 | 9 | #1564 | `step_type` + `text` mit stabiler Schritt-ID |
 | 10 | #1578 | Vertagung aufheben: Feature-Flag, Deckel, Rate-Parity, Item-Permission |
 | 11 | #879 | Erst prüfen, was gebaut wurde. **Ergebnis 2026-11-10: vollständig gebaut, schließen** |
@@ -117,8 +117,8 @@ Das Triage-Gate (2026-11-10, origin/main f20f913e) zeigt: **Stufe 1 ist gebaut**
 
 - **Task 1:** Stufe 1 abnehmen, #1669 schließen.
 - **Task 2:** ADR-028 und Spec für Stufen 2 bis 4 mit D9, D10 (beides), D12 (rigor-abhängig). Freigabe-Gate durch Daniel.
-- **Task 3:** Mehrfachallokation als Konflikt (D9), Naming-Layer (D2/D7/D8, Tier `module`).
-- **Task 4:** Stufe 2: Objekt `Allocation` (`draft|released|revoked`), Dual-Write mit `TraceLink(allocated-to)`, Backfill der Bestandskanten, Coverage in REST, MCP (Delta 0 Tools) und UI.
+- **Task 3:** Mehrfachallokation konfigurierbar (D9: Q1-Schlüssel `allocation.cardinality`, `allocation.conflict_severity`, `allocate(mode=...)`, Audit-Regel `allocation.multiple`), Naming-Layer (D2/D7/D8, Tier `module`).
+- **Task 4:** Stufe 2: Objekt `Allocation` (`draft|released|revoked`, `is_primary`), Dual-Write mit `TraceLink(allocated-to)`, Backfill der Bestandskanten, Coverage in REST, MCP (Delta 0 Tools) und UI.
 - **Task 5:** Stufe 3: Element-Release-Kaskade, Einzel-Release, Sperren mit 409 und CR-Verweis, Impact-Vorschau, Rigor-Kopplung.
 - **Task 6:** Stufe 4: gepinnte Ebene je Release in Baselines, Audit Live ↔ Baseline.
 - **Task 7:** #1670 schließen.

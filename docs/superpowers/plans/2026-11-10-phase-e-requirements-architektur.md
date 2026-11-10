@@ -14,7 +14,7 @@
 
 | # | Entscheidung |
 |---|---|
-| D9 | Mehrfachallokation: **Konflikt anzeigen, nicht auflösen.** Keine min/max-Rechenregel. Ebene bleibt `unresolved`, Auflösung durch Nutzer (führende Kante wählen oder Ebene manuell setzen). **Review 2026-11-10:** Die Allokation ist heute N:1 erzwungen (`AllocationConflictError`, `application/base.py:162`, 409): jeder andere Schreibpfad als `TraceLinkService.allocate` darf keine zweite `allocated-to`-Kante anlegen. D9 gilt damit nur als Schutz für Altbestand, Import und Baseline-Restore, nicht für den Normalbetrieb |
+| D9 | Mehrfachallokation, **erweitert am 2026-11-10 (nach Review): per Konfiguration schaltbar.** Zwei Einstellungen je Workspace (Q1-Preferences, Änderungen auditiert): `allocation.cardinality` = `single` (Default, heutiges Verhalten, N:1 mit 409 bei zweiter Allokation, `AllocationConflictError`, `application/base.py:162`) oder `multiple`; `allocation.conflict_severity` = `info` \| `warning` (Default) \| `blocker`. Bei `multiple` gilt: keine Rechenregel (kein min/max), die Ebene bleibt `unresolved` (`multiple_allocations`), **es sei denn genau eine Kante ist als führend markiert** (`Allocation.is_primary`). Eine Mehrfachallokation ohne führende Kante meldet der Audit immer (Regel `allocation.multiple`, Schweregrad aus der Einstellung). Der Wechsel `multiple → single` ist gesperrt, solange Mehrfachallokationen existieren (409 mit Anzahl) |
 | D10 | Freigabeeinheit: **beides.** Element-Release (kaskadiert) und optionaler Einzel-Release je Requirement. Vorrang: Element-Release umfasst seine Requirements; ein Einzel-Release ist der Spezialfall, der ohne Element-Release möglich bleibt. Eine Sperre kann nie durch den anderen Pfad umgangen werden |
 | D12 | Inhalt der allozierten Requirements einfrieren: **abhängig vom Rigor-Grad.** Extended (hoch): Inhaltsversion eingefroren. Standard (mittel) und Minimal (niedrig): nur Struktur und Kanten |
 | übrige | D1–D8, D11, D13–D17 wie im Konzept vorbelegt. D14 gilt durch ADR-027 als erledigt |
@@ -51,7 +51,7 @@
 
 - Drift Kante ↔ Objekt: `TraceLink(allocated-to)` und `Allocation` laufen auseinander, etwa durch einen Pfad, der nur die Kante schreibt (`create_trace_link` direkt, Import, Baseline-Restore). Test: Task 4 prüft die Invariante "jede Kante hat genau ein Objekt und umgekehrt" über alle Schreibpfade und als Konsistenzprüfung.
 - Backfill nicht idempotent: Zweiter Lauf erzeugt Dubletten. Test: Task 4, Migration zweimal ausführen, gleiche Zeilenzahl.
-- Mehrfachallokation (D9): erzeugt still eine Ebene. Test: Task 3, Requirement mit zwei per Direktschreibzugriff eingefügten Kanten (Altbestand-Simulation) bleibt `unresolved`, Audit meldet Konflikt, Schweregrad folgt dem Rigor. Zusätzlich ein Test, dass die normalen Schreibpfade eine zweite Kante mit 409 ablehnen (`AllocationConflictError`).
+- Mehrfachallokation (D9): erzeugt still eine Ebene oder verletzt die Einstellung. Tests: Task 3, `single`: zweite Allokation über jeden Schreibpfad (`allocate(mode="add")`, generischer TraceLink, Import, Restore) ergibt 409 `AllocationConflictError`; `multiple`: zwei Kanten ohne führende Kante lassen die Ebene `unresolved`, der Audit meldet `allocation.multiple` mit dem eingestellten Schweregrad; mit genau einer führenden Kante wird die Ebene aus ihr abgeleitet; zwei führende Kanten werden abgelehnt; Wechsel `multiple → single` mit bestehenden Mehrfachallokationen ergibt 409.
 - Release ohne Rechte oder mit Rechtsumgehung: Einzel-Release umgeht die Element-Sperre. Test: Task 5, ein Requirement unter einem freigegebenen Element lässt sich nicht einzeln umhängen oder editieren (409).
 - Sperre mit falschem Fehlerbild: 200 oder 500 statt 409 mit CR-Verweis. Test: Task 5.
 - Release-Kaskade sehr groß: ein Element mit tausenden Requirements. Test: Task 5 prüft eine Obergrenze der Datenbankabfragen (Stapelverarbeitung statt je Requirement).
@@ -107,10 +107,13 @@ Fünf-Zeilen-Zusammenfassung plus Link. Erst nach Freigabe: `status: accepted`, 
 
 ---
 
-### Task 3: Mehrfachallokation als Konflikt (D9) und Naming-Layer (D2/D7/D8)
+### Task 3: Mehrfachallokation konfigurierbar (D9) und Naming-Layer (D2/D7/D8)
 
 **Files:**
-- Modify: `backend/traceability/audit/hierarchy.py` (Mehrfachallokation als `unresolved` mit Grund), `backend/application/tier_compute.py`
+- Modify: `backend/traceability/audit/hierarchy.py` (Mehrfachallokation: `unresolved` mit Grund `multiple_allocations`, außer bei genau einer führenden Kante), `backend/application/tier_compute.py`
+- Modify: `backend/application/preference_registry.py` (neue Q1-Schlüssel `allocation.cardinality` und `allocation.conflict_severity`, Muster `ui.ids.show_readable` in `application/display_preference_service.py:59`)
+- Modify: `backend/application/trace_link_service.py:1440-1500` (`allocate`: neuer Parameter `mode: Literal["replace", "add"] = "replace"`)
+- Create: `backend/application/allocation_settings.py`
 - Create: `backend/application/tier_naming.py`
 - Modify: `backend/application/tier_ladder_service.py` (Tier `module`)
 - Modify: Audit-Regel für Konflikt (Fundstelle: Regelkatalog in `backend/traceability/audit/`, Muster der bestehenden Regeln übernehmen)
@@ -120,18 +123,24 @@ Fünf-Zeilen-Zusammenfassung plus Link. Erst nach Freigabe: `status: accepted`, 
 - Consumes: `WorkspaceTier` (`tier_key`, `position`, `name {de,en}`), `recompute_workspace_tiers`.
 - Produces:
   - `tier_label(tier_key: str, *, depth: int, workspace_id: UUID, locale: str = "de") -> str` mit Regel `"System"` wenn Position 1, `"Component"` wenn letzte Position, sonst `"Subsystem"` (optional nummeriert). `module` ist eine eigene Position unterhalb `Component`. Auflösung `Workspace-Override > Tenant-Default > Regel`.
-  - Audit-Befund `allocation.multiple` mit Schweregrad nach Rigor: Info (Minimal), Warnung (Standard), Blocker bei Freigabe (Extended).
+  - `allocation_cardinality(workspace_id: UUID) -> Literal["single", "multiple"]` (Default `single`) und `allocation_conflict_severity(workspace_id: UUID) -> Literal["info", "warning", "blocker"]` (Default `warning`) in `application/allocation_settings.py`, gelesen über Q1 (`resolve_for`, Ebenen workspace > system > Registry-Default).
+  - `TraceLinkService.allocate(requirement_id, architecture_element_id, ctx, *, mode: Literal["replace", "add"] = "replace")`. `replace` verhält sich wie heute. `add` ist nur bei `cardinality=multiple` erlaubt, sonst `AllocationConflictError` (409).
+  - Audit-Befund `allocation.multiple` (Requirement mit mehreren aktiven Allokationen und ohne führende Kante). Schweregrad `allocation_conflict_severity`. `blocker` blockiert nur die Freigabe, nie den Normalbetrieb.
+  - Schutz beim Zurückschalten: Schreiben von `allocation.cardinality = single` ist mit 409 abzulehnen, solange Requirements mit mehr als einer aktiven Allokation existieren (Antwort nennt die Anzahl).
 
 - [ ] **Step 1: Failing Tests**
 
 ```python
-def test_two_allocations_leave_level_unresolved(requirement, el_a, el_b):
-    link(requirement, el_a); link(requirement, el_b)
+def test_single_mode_rejects_a_second_allocation_on_every_write_path(...): ...   # allocate(mode="add"), generischer TraceLink, Import, Restore -> 409
+def test_multiple_mode_without_primary_leaves_level_unresolved(requirement, el_a, el_b, ws_multiple):
+    allocate(requirement, el_a, mode="add"); allocate(requirement, el_b, mode="add")
     recompute_workspace_tiers(requirement.workspace_id)
     requirement.refresh_from_db()
     assert requirement.level_source == "unresolved" and requirement.tier_key is None
-
-def test_multi_allocation_audit_severity_follows_rigor(...):  # minimal=INFO, standard=WARNING, extended=BLOCKER
+def test_multiple_mode_with_one_primary_derives_level_from_it(...): ...
+def test_two_primary_allocations_are_rejected(...): ...
+def test_conflict_severity_setting_drives_audit_severity(...): ...   # info / warning (Default) / blocker
+def test_switching_to_single_is_blocked_while_multiples_exist(...): assert response.status_code == 409 and "2" in response.json()["error"]["message"]
 
 def test_label_rule_is_relative_to_depth():
     assert tier_label("erste", depth=4, workspace_id=WS) == "System"
@@ -145,7 +154,7 @@ Run: `cd backend && python -m pytest application/tests/test_tier_naming.py appli
 
 - [ ] **Step 2: Implementieren**
 
-Mehrfachallokation: in der Ebenenableitung bei mehr als einer `allocated-to`-Kante `unresolved` mit Grund `multiple_allocations` setzen, nie rechnen. `tier_label` als reine Funktion über die Leiter. Tenant-Default und Workspace-Override über den bestehenden Preference-Mechanismus (Q1, `application/preference_*`); Schlüssel `ui.tier.naming`. `module` als zusätzlicher Leiterschlüssel unterhalb der Blattposition, mit Migration nur der Daten, die heute `module` heißen (7 von 72 Elementen laut #1670). Trockenlauf-Bericht der Zuordnung vor dem Schreiben.
+Mehrfachallokation: in der Ebenenableitung bei mehr als einer aktiven Allokation und ohne führende Kante `unresolved` mit Grund `multiple_allocations` setzen, nie rechnen. `tier_label` als reine Funktion über die Leiter. Tenant-Default und Workspace-Override über den bestehenden Preference-Mechanismus (Q1, `application/preference_*`); Schlüssel `ui.tier.naming`. `module` als zusätzlicher Leiterschlüssel unterhalb der Blattposition, mit Migration nur der Daten, die heute `module` heißen (7 von 72 Elementen laut #1670). Trockenlauf-Bericht der Zuordnung vor dem Schreiben.
 
 - [ ] **Step 3: Tests grün, Lint, Migration prüfen**
 
@@ -169,9 +178,10 @@ Expected: PASS, keine ungewollte Migration.
 **Interfaces:**
 - Consumes: `TraceLink(link_type=ALLOCATED_TO)`, `Requirement`, `ArchitectureElement`, `ArtifactVersion` (`revision`).
 - Produces:
-  - `Allocation(TenantScopedModel)`: `workspace`, `requirement` (FK), `element` (FK), `trace_link` (OneToOne, nullable bis Backfill), `status` (`draft|released|revoked`), `released_at`, `released_by`, `released_revision` (PositiveInteger, Revision aus `ArtifactVersion`), `released_tier_key` (SlugField, null). Constraint: höchstens eine aktive (`status != revoked`) Zeile je `requirement` (N:1, passend zu `AllocationConflictError`). Die Coverage-Kennzahl `multiple` bleibt für Altbestand bestehen und ist im Normalfall 0.
+  - `Allocation(TenantScopedModel)`: `workspace`, `requirement` (FK), `element` (FK), `trace_link` (OneToOne, nullable bis Backfill), `status` (`draft|released|revoked`), `released_at`, `released_by`, `released_revision` (PositiveInteger, Revision aus `ArtifactVersion`), `released_tier_key` (SlugField, null). `is_primary` (`BooleanField`, Default `False`). Constraints: höchstens eine **führende** aktive Zeile je `requirement` (partieller Unique-Index: `UniqueConstraint(fields=["requirement"], condition=Q(is_primary=True) & ~Q(status="revoked"))`); höchstens eine aktive Zeile je `requirement` im Modus `single` wird **im Service** erzwungen (`AllocationService`, `AllocationConflictError`), weil die Einstellung je Workspace gilt und kein Datenbank-Constraint sie kennt. Bei Backfill: im Modus `single` ist die einzige Zeile je Requirement automatisch `is_primary=True`. Die Coverage-Kennzahl `multiple` ist im Modus `single` nur für Altbestand ungleich 0.
+  - `AllocationService.set_primary(allocation_id: UUID, ctx: AuthContext) -> Allocation` (setzt die Kante als führend, entfernt das Flag von der bisherigen; nur im Modus `multiple`),
   - `AllocationService.set_status(allocation_id: UUID, status: str, ctx: AuthContext) -> Allocation`, `AllocationService.coverage(workspace_id: UUID, ctx: AuthContext) -> dict` mit Schlüsseln `allocated`, `partial`, `multiple`, `orphaned`, `not_allocatable`.
-  - REST: `GET /api/v1/allocations/?requirement=&element=&status=`, `GET /api/v1/allocations/coverage/`. MCP: `allocation.query` um `status` und `coverage` erweitern.
+  - REST: `GET /api/v1/allocations/?requirement=&element=&status=`, `GET /api/v1/allocations/coverage/`, `POST /api/v1/allocations/{id}/set-primary/`; `POST` zum Anlegen akzeptiert `mode` (`replace|add`). MCP: `allocation.query` um `status` und `coverage` erweitern; die vorhandene MCP-Allokation (Schreibweg über `TraceLinkService.allocate`) bekommt `mode` und `primary` als Parameter, kein neues Tool.
 
 - [ ] **Step 1: Failing Tests**
 
@@ -186,6 +196,7 @@ def test_deallocate_revokes_object_and_removes_edge(...): ...
 def test_invariant_every_edge_has_exactly_one_object(db_with_legacy_edges): assert allocation_invariant_violations() == []
 def test_backfill_is_idempotent(db_with_890_edges): run(); n = Allocation.objects.count(); run(); assert Allocation.objects.count() == n
 def test_coverage_counts_allocated_partial_multiple_orphaned(...): ...
+def test_set_primary_moves_the_flag_and_requires_multiple_mode(...): ...
 def test_rls_tenant_isolation(...): ...
 ```
 Run: `cd backend && python -m pytest application/tests/test_allocation_object.py persistence/tests/test_allocation_backfill.py -q` — Expected: FAIL.
@@ -320,6 +331,7 @@ Expected: `CLOSED`.
 ## Self-Review
 
 - **Abdeckung:** Naming-Layer (D2/D7/D8) und D9 in Task 3, Stufe 2 in Task 4, Stufe 3 mit D10/D12 in Task 5, Stufe 4 in Task 6. #1669 Task 1, #1670 Task 7. Stufe 1 ist abgenommen, nicht neu gebaut.
+- **Erweiterung 2026-11-10:** D9 ist jetzt per Konfiguration schaltbar (Kardinalität und Warnstufe, Default `single` und `warning`), mit führender Kante `is_primary`. Das berührt Task 3 (Einstellungen, `allocate(mode=...)`, Audit), Task 4 (Modell, Service, REST/MCP) und gehört in ADR-028.
 - **Bewusste Grenze:** Tasks 4 bis 6 starten erst nach der Freigabe von ADR-028 und Spec (Task 2). D10 "beides" ist vom Konzept abweichend und verlangt eine ausdrückliche Vorrangregel. Sie steht in der Entscheidungstabelle und wird in der Spec festgeschrieben.
 - **Risiko aus D10 "beides":** Zwei Freigabepfade bedeuten zwei Sperrlogiken. Die Review-Focus-Zeile "Einzel-Release umgeht die Element-Sperre" und der Test in Task 5 decken das. Die Spec muss prüfen, ob ein gemeinsamer Sperr-Check genügt.
 - **Typkonsistenz:** `Allocation.released_tier_key` (Task 4) wird in Task 6 gelesen. `ReleaseLockedError` (Task 5) erweitert `WorkflowFrozenError` (`application/base.py:145`, im Review bestätigt) und trägt `http_status = 409` wie `AllocationConflictError`.
