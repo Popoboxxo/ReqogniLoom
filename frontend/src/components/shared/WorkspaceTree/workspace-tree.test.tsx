@@ -952,15 +952,19 @@ describe('WorkspaceTree — keyboard navigation', () => {
 // Two jsdom limitations have to be worked around, both noted in the task
 // brief as the "hard part":
 //
-//  1. jsdom does not run layout, so `offsetWidth`/`offsetHeight` are always
-//     0. @tanstack/react-virtual reads the scroll container's rect
+//  1. jsdom does not run layout, so every intrinsic box size is 0.
+//     @tanstack/react-virtual reads the scroll container's rect
 //     synchronously via `observeElementRect` (virtual-core/src/index.ts) —
 //     with a 0x0 rect its visible range is empty and it mounts NO rows at
 //     all, which would make "scroll a not-yet-rendered node into view" a
 //     vacuous test (there'd be nothing rendered before OR after). We patch
-//     `offsetWidth`/`offsetHeight` on HTMLElement.prototype for this describe
-//     block to a realistic container size so the virtualizer computes a real
-//     window of rows, matching what happens in a real browser.
+//     the box-size getters on HTMLElement.prototype for this describe block
+//     to a realistic container size so the virtualizer computes a real
+//     window of rows, matching what happens in a real browser. Both
+//     `client*` and `offset*` are stubbed because virtual-core changed its
+//     measurement source from `offsetWidth`/`offsetHeight` to
+//     `clientWidth`/`clientHeight` (3.17.11 -> 3.19.x); stubbing both keeps
+//     the tests independent of which pair the installed version reads.
 //  2. jsdom's `scrollTo()` does not update `scrollTop` or dispatch a
 //     `scroll` event. @tanstack/react-virtual's offset tracking
 //     (`observeElementOffset`) is driven entirely by a native 'scroll'
@@ -984,6 +988,8 @@ describe('WorkspaceTree — keyboard navigation in the virtualized path', () => 
 
   let offsetHeightSpy: ReturnType<typeof vi.spyOn>;
   let offsetWidthSpy: ReturnType<typeof vi.spyOn>;
+  let clientHeightSpy: ReturnType<typeof vi.spyOn>;
+  let clientWidthSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     offsetHeightSpy = vi
@@ -992,11 +998,19 @@ describe('WorkspaceTree — keyboard navigation in the virtualized path', () => 
     offsetWidthSpy = vi
       .spyOn(HTMLElement.prototype, 'offsetWidth', 'get')
       .mockReturnValue(800);
+    clientHeightSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockReturnValue(CONTAINER_HEIGHT);
+    clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(800);
   });
 
   afterEach(() => {
     offsetHeightSpy.mockRestore();
     offsetWidthSpy.mockRestore();
+    clientHeightSpy.mockRestore();
+    clientWidthSpy.mockRestore();
   });
 
   function pressKey(key: string): void {
@@ -1524,13 +1538,20 @@ describe('WorkspaceTree — drag & drop reparenting', () => {
 
   it('virtualized rows are draggable too', () => {
     // Same container-size stubs the virtualized keyboard tests use — jsdom
-    // reports zero layout height, so without them the virtualizer may mount
-    // no rows at all.
+    // reports zero layout size, so without them the virtualizer may mount
+    // no rows at all. Both `offset*` and `client*` are stubbed: virtual-core
+    // switched its measurement source to `clientWidth`/`clientHeight`.
     const offsetHeightSpy = vi
       .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
       .mockReturnValue(340);
     const offsetWidthSpy = vi
       .spyOn(HTMLElement.prototype, 'offsetWidth', 'get')
+      .mockReturnValue(800);
+    const clientHeightSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientHeight', 'get')
+      .mockReturnValue(340);
+    const clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
       .mockReturnValue(800);
     try {
       const many: WorkspaceTreeNode[] = Array.from({ length: 150 }, (_, i) => ({
@@ -1545,6 +1566,8 @@ describe('WorkspaceTree — drag & drop reparenting', () => {
     } finally {
       offsetHeightSpy.mockRestore();
       offsetWidthSpy.mockRestore();
+      clientHeightSpy.mockRestore();
+      clientWidthSpy.mockRestore();
     }
   });
 });

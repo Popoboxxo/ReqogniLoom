@@ -7,12 +7,14 @@
  * page-level wiring: `virtualize` is actually passed through, so a large
  * goal list does not mount one DOM row per goal.
  *
- * jsdom does not run layout, so the scroll container's `offsetHeight` is
- * always 0 and @tanstack/react-virtual would compute an empty visible
- * range. We patch `offsetHeight`/`offsetWidth` to a realistic size here —
- * the same technique `workspace-tree.test.tsx` uses for its "real container
- * size" virtualization tests — so the assertions exercise an actual
- * windowed render instead of a vacuous all-zero one.
+ * jsdom does not run layout, so the scroll container's intrinsic box size
+ * is always 0 and @tanstack/react-virtual would compute an empty visible
+ * range. We patch the box-size getters to a realistic size here — the same
+ * technique `workspace-tree.test.tsx` uses for its "real container size"
+ * virtualization tests — so the assertions exercise an actual windowed
+ * render instead of a vacuous all-zero one. Both `offset*` and `client*`
+ * are stubbed because virtual-core changed its measurement source from
+ * `offsetWidth`/`offsetHeight` to `clientWidth`/`clientHeight`.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -38,6 +40,8 @@ function makeGoal(i: number): Goal {
 describe("GoalsTree — virtualization (Task 4.4)", () => {
   let offsetHeightSpy: ReturnType<typeof vi.spyOn>;
   let offsetWidthSpy: ReturnType<typeof vi.spyOn>;
+  let clientHeightSpy: ReturnType<typeof vi.spyOn>;
+  let clientWidthSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     offsetHeightSpy = vi
@@ -46,11 +50,20 @@ describe("GoalsTree — virtualization (Task 4.4)", () => {
     offsetWidthSpy = vi
       .spyOn(HTMLElement.prototype, "offsetWidth", "get")
       .mockReturnValue(800);
+    // virtual-core >= 3.19 measures clientWidth/clientHeight, not offset*.
+    clientHeightSpy = vi
+      .spyOn(HTMLElement.prototype, "clientHeight", "get")
+      .mockReturnValue(340);
+    clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, "clientWidth", "get")
+      .mockReturnValue(800);
   });
 
   afterEach(() => {
     offsetHeightSpy.mockRestore();
     offsetWidthSpy.mockRestore();
+    clientHeightSpy.mockRestore();
+    clientWidthSpy.mockRestore();
   });
 
   it("mounts far fewer DOM rows than goals when the list is large", () => {
