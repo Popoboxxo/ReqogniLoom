@@ -23,7 +23,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   isSeAuditorBlocked,
-  type BaselineDiff,
   type BaselineScope,
 } from "../../api/baselines";
 import { useAuth } from "../../context/AuthContext";
@@ -46,6 +45,7 @@ import { MAX_TAGS, isValidTagLabel } from "./baselineTags";
 import { TagInput } from "../shared/tag-input";
 import styles from "./BaselinesView.module.css";
 import { useBaselinesData } from "./useBaselinesData";
+import { useBaselineCompare } from "./use-baseline-compare";
 
 // GH-513 / F5 (PR #554 review): mirrors the backend
 // `MIN_OVERRIDE_REASON_LENGTH` in `backend/application/baseline_facade.py`
@@ -141,12 +141,19 @@ export default function BaselinesView(): JSX.Element {
   // REQ-L2-BL-003: baseline compare (field-level diff). ``showCompare`` swaps
   // the right panel to the compare form + result. The diff state stays local
   // to the container since it is imperative (button-triggered, not a query).
-  const [showCompare, setShowCompare] = useState(false);
-  const [compareAId, setCompareAId] = useState<string>("");
-  const [compareBId, setCompareBId] = useState<string>("");
-  const [diff, setDiff] = useState<BaselineDiff | null>(null);
-  const [diffLoading, setDiffLoading] = useState(false);
-  const [diffError, setDiffError] = useState<string | null>(null);
+  const {
+    showCompare,
+    compareAId,
+    compareBId,
+    diff,
+    diffLoading,
+    diffError,
+    setCompareAId,
+    setCompareBId,
+    openCompare,
+    closeCompare,
+    handleCompare,
+  } = useBaselineCompare(t);
 
   // All data-fetching (lists, scope preview, detail, create/delete/compare)
   // lives in useBaselinesData (TanStack Query — REQ-049/REQ-050).
@@ -166,7 +173,6 @@ export default function BaselinesView(): JSX.Element {
     createBaseline,
     deleteBaseline,
     setTags,
-    compareBaselines,
   } = useBaselinesData({ showForm, formScope, formArtifactId, selectedId, tagFilter });
 
   // The render still reads a `state`-shaped object (kept for parity with the
@@ -286,49 +292,19 @@ export default function BaselinesView(): JSX.Element {
     void handleDelete(id);
   }, [pendingDeleteId, handleDelete]);
 
-  const handleCompare = useCallback(async (): Promise<void> => {
-    if (!compareAId || !compareBId) {
-      setDiffError(t("baselines.compareSelectBoth"));
-      return;
-    }
-    if (compareAId === compareBId) {
-      setDiffError(
-        t("baselines.compareSameBaseline")
-      );
-      return;
-    }
-    setDiffLoading(true);
-    setDiffError(null);
-    try {
-      const result = await compareBaselines(compareAId, compareBId);
-      setDiff(result);
-    } catch (err: unknown) {
-      setDiffError(baselineErrorMessage(err));
-      setDiff(null);
-    } finally {
-      setDiffLoading(false);
-    }
-  }, [compareAId, compareBId, t, compareBaselines]);
-
-  const openCompare = useCallback((): void => {
+  // Leaving the create form and clearing the selection is page navigation,
+  // not compare state — it stays here and wraps the hook's opener.
+  const openCompareView = useCallback((): void => {
     setShowForm(false);
-    setShowCompare(true);
     setSelectedId(null);
-    setDiff(null);
-    setDiffError(null);
-  }, []);
-
-  const closeCompare = useCallback((): void => {
-    setShowCompare(false);
-    setDiff(null);
-    setDiffError(null);
-  }, []);
+    openCompare();
+  }, [openCompare]);
 
   // #1282: creation runs in the shared modal <Dialog>, like every other
   // entity route — open and close are now distinct actions, and closing
   // discards the draft (mirrors the old Cancel button verbatim).
   const openCreateForm = useCallback((): void => {
-    setShowCompare(false);
+    closeCompare();
     setSelectedId(null);
     setFormName("");
     setFormTags([]);
@@ -417,7 +393,7 @@ export default function BaselinesView(): JSX.Element {
             label: showCompare
               ? t("actions.cancel")
               : t("baselines.compare", "Compare"),
-            onClick: () => (showCompare ? closeCompare() : openCompare()),
+            onClick: () => (showCompare ? closeCompare() : openCompareView()),
             disabled: state.baselines.length < 2,
             testId: "compare-baseline-btn",
           },
