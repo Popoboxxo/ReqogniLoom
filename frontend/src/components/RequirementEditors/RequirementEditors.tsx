@@ -30,11 +30,11 @@ import { useState, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useRequirementData, type RequirementAllocationFilter, isRequirementAllocationFilter, requirementAllocationStorageKey } from './useRequirementData';
+import { useRequirementAiDerivation } from './use-requirement-ai-derivation';
 import { useHasRole } from '../../hooks/useHasRole';
 import { usePersistedListState } from '../../hooks/usePersistedListState';
 import { useCreateRequirement, useDeleteRequirement } from '../../queries/requirements';
 import { workspacesApi } from '../../api/workspaces';
-import { requirementsApi } from '../../api/requirements';
 import { artifactsApi } from '../../api/artifacts';
 import { extractApiErrorMessage } from '../../api/client';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -49,10 +49,7 @@ import { RequirementArtifactForm, REQUIREMENT_ATTRIBUTE_OVERRIDES } from './Requ
 import { ArtifactForm, type ArtifactFormValues } from '../shared/ArtifactForm';
 import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
 import { AiActionSection, type AiActionDescriptor } from '../shared/AiActions';
-import {
-  AiDerivationDialog,
-  type AiDerivationDraft,
-} from '../shared/AiDerivationDialog';
+import { AiDerivationDialog } from '../shared/AiDerivationDialog';
 import { SimilarRequirementsPanel } from './SimilarRequirementsPanel';
 import { ArtifactMemoryPanel } from '../Memory/ArtifactMemoryPanel';
 import { DeriveTestCasePanel } from '../TestCaseEditors/DeriveTestCasePanel';
@@ -208,18 +205,20 @@ export default function RequirementEditors(): JSX.Element {
   // PDF export state
   const [isExportingPdf, setIsExportingPdf] = useState(false);
 
-  // REQ-008: AI-derive state for Anforderungen view
-  const [isAiDeriving, setIsAiDeriving] = useState(false);
-  const [aiDeriveStatus, setAiDeriveStatus] = useState<string | null>(null);
-  const [aiDeriveIsError, setAiDeriveIsError] = useState(false);
-  // Issue #1368 (W12b): the preview's drafts are no longer discarded. They
-  // live here until the user confirms, parks or discards them in the shared
-  // `<AiDerivationDialog>`. `null` = no preview result on screen.
-  const [showAiDeriveDialog, setShowAiDeriveDialog] = useState(false);
-  const [aiDrafts, setAiDrafts] = useState<AiDerivationDraft[] | null>(null);
-  const [aiDraftLoadError, setAiDraftLoadError] = useState<string | null>(null);
-  const [isAiSaving, setIsAiSaving] = useState(false);
-  const [aiDraftSubmitError, setAiDraftSubmitError] = useState<string | null>(null);
+  // REQ-008: AI-derive state for Anforderungen view (#598 S2 — own module).
+  const {
+    showAiDeriveDialog,
+    aiDrafts,
+    aiDraftLoadError,
+    aiDraftSubmitError,
+    isAiDeriving,
+    isAiSaving,
+    aiDeriveStatus,
+    aiDeriveIsError,
+    handleAiDerive,
+    handleAiDraftDecision,
+    closeAiDeriveDialog,
+  } = useRequirementAiDerivation(requirement, t, refresh);
 
   // SysEng 2.0 N5 (test.derive_from_requirement): AI TestCase-draft copilot
   const [showDeriveTestcasePanel, setShowDeriveTestcasePanel] = useState(false);
@@ -412,109 +411,6 @@ export default function RequirementEditors(): JSX.Element {
       setIsExportingPdf(false);
     }
   }, [activeWorkspace, t]);
-
-  /**
-   * REQ-008 / #1368: AI-assisted decomposition of the selected requirement to
-   * next-level drafts via POST /requirements/{id}/decompose-next-level/.
-   *
-   * The endpoint is a pure preview (#1358, `ephemeral: true`): this handler
-   * therefore no longer reports a saved review item. It opens the shared
-   * `<AiDerivationDialog>` on the returned drafts; only Confirm / "Review
-   * later" reach the accept seam (`acceptAiDecomposition`), Discard writes
-   * nothing. Before #1368 the drafts were counted and dropped while the
-   * status text promised "Vorschläge warten unter Reviews → Nur KI-Vorschläge"
-   * — a queue entry that never existed.
-   */
-  const handleAiDerive = useCallback(async (): Promise<void> => {
-    if (!requirement) return;
-    setIsAiDeriving(true);
-    setAiDeriveIsError(false);
-    setAiDeriveStatus(t('needs.deriveStarting'));
-    setAiDraftLoadError(null);
-    setAiDraftSubmitError(null);
-    setAiDrafts(null);
-    setShowAiDeriveDialog(true);
-    try {
-      const result = await requirementsApi.aiDecomposeNextLevel(requirement.id);
-      const drafts = result.drafts ?? [];
-      // Issue #311: an empty answer is a state of its own, not a success — the
-      // dialog renders it as its explicit empty state, and the status region
-      // stays silent (it never claims a save that did not happen).
-      setAiDrafts(
-        drafts.map((draft) => ({
-          title: draft.title,
-          description: draft.description,
-          rationale: draft.rationale,
-        }))
-      );
-      setAiDeriveStatus(null);
-    } catch (err: unknown) {
-      const apiErr = err as { error?: { message?: string } };
-      // The failure is shown twice on purpose: in the dialog (where the user
-      // is) and in the route's status region (which survives closing it).
-      setAiDraftLoadError(apiErr?.error?.message ?? t('needs.deriveFailed'));
-      setAiDeriveIsError(true);
-      setAiDeriveStatus(apiErr?.error?.message ?? t('needs.deriveFailed'));
-    } finally {
-      setIsAiDeriving(false);
-    }
-  }, [requirement, t]);
-
-  // The dialog's two save actions. Mechanically they share the accept seam —
-  // every canonical write path lands the children in the workflow's
-  // `proposed` state (#1089), where `_auto_approve` deliberately stops — so
-  // the difference is the message: "created, approve them under Reviews" vs
-  // "parked for later review" (issue #1360's third outcome).
-  const handleAiDraftDecision = useCallback(
-    async (drafts: AiDerivationDraft[], parked: boolean): Promise<void> => {
-      if (!requirement || drafts.length === 0) return;
-      setIsAiSaving(true);
-      setAiDraftSubmitError(null);
-      try {
-        const result = await requirementsApi.acceptAiDecomposition(
-          requirement.id,
-          drafts.map((draft) => ({
-            title: draft.title,
-            description: draft.description,
-            rationale: draft.rationale,
-          }))
-        );
-        if (!result.proposal?.is_proposal) {
-          // The server read the created state back and it is not a proposal —
-          // e.g. a workspace whose graph has no "proposed" state. Surface its
-          // own reason instead of claiming a queue entry that does not exist.
-          setAiDraftSubmitError(
-            t('deriveRequirements.reviewRequired', {
-              reason: result.proposal?.reason || t('needs.deriveFailed'),
-            })
-          );
-          return;
-        }
-        setAiDeriveIsError(false);
-        setAiDeriveStatus(
-          t(parked ? 'aiDerivation.statusParked' : 'aiDerivation.statusCreated', {
-            count: result.count,
-          })
-        );
-        setShowAiDeriveDialog(false);
-        setAiDrafts(null);
-        refresh();
-      } catch (err: unknown) {
-        const apiErr = err as { error?: { message?: string } };
-        setAiDraftSubmitError(apiErr?.error?.message ?? t('needs.deriveFailed'));
-      } finally {
-        setIsAiSaving(false);
-      }
-    },
-    [requirement, t, refresh]
-  );
-
-  const closeAiDeriveDialog = useCallback((): void => {
-    setShowAiDeriveDialog(false);
-    setAiDrafts(null);
-    setAiDraftLoadError(null);
-    setAiDraftSubmitError(null);
-  }, []);
 
   /**
    * Issue #1092: the route's complete AI-action set, in one list. Each entry
