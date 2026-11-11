@@ -14,14 +14,19 @@
  * refreshes).
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import {
+  QueryClient,
+  QueryClientContext,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import {
-  metricsApi,
   type MetricCatalogEntry,
   type MetricsResult,
 } from "../../api/metrics";
+import { useMetricsQuery } from "../../queries/metrics";
 import { PageHeader } from "../shared/PageHeader";
 import { MetricsWidgetConfig } from "./MetricsWidgetConfig";
 import { useMetricWidgets } from "./useMetricWidgets";
@@ -434,18 +439,13 @@ function MetricTile({
 // Dashboard root
 // ---------------------------------------------------------------------------
 
-export default function MetricsDashboard(): JSX.Element {
+function MetricsDashboardContent(): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
 
-  const [metrics, setMetrics] = useState<MetricsResult | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<string>("");
   // Per-tile value history. Keys match MetricTileSpec.name.
   const [history, setHistory] = useState<Record<string, number[]>>({});
-  // Last successful fetch timestamp — drives the "isStale" flag after a refresh error.
-  const [, setLastSuccessAt] = useState<number | null>(null);
   // Help mode toggle
   const [helpMode, setHelpMode] = useState<boolean>(false);
 
@@ -473,48 +473,49 @@ export default function MetricsDashboard(): JSX.Element {
     );
   }, [visibleKeys]);
 
-  const load = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const result = await metricsApi.list(activeWorkspace.id, {
-        type: typeFilter || undefined,
-      });
-      setMetrics(result);
-      setLastSuccessAt(Date.now());
-      // Append a new sample to each tile's history.
-      setHistory((prev) => {
-        const next: Record<string, number[]> = { ...prev };
-        for (const spec of TILES) {
-          const series = next[spec.name] ?? [];
-          const updated = [...series, spec.value(result)];
-          if (updated.length > MAX_HISTORY) updated.splice(0, updated.length - MAX_HISTORY);
-          next[spec.name] = updated;
-        }
-        return next;
-      });
-    } catch (err) {
-      const msg =
-        (err as { error?: { message?: string } })?.error?.message ?? String(err);
-      setError(msg);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [activeWorkspace, typeFilter]);
+  // #598 S3: the read is a cache entry (queries/metrics.ts), not component
+  // state. No `placeholderData`: a workspace or filter change must never paint
+  // the previous context's numbers.
+  const metricsQuery = useMetricsQuery(activeWorkspace?.id, {
+    type: typeFilter || undefined,
+  });
 
+  const metrics: MetricsResult | null = metricsQuery.data ?? null;
+  const isLoading: boolean = metricsQuery.isFetching;
+  const error = useMemo(() => {
+    const err = metricsQuery.error;
+    if (!err) return null;
+    const apiMessage = (err as unknown as { error?: { message?: string } })
+      .error?.message;
+    return apiMessage ?? String(err);
+  }, [metricsQuery.error]);
+
+  // Reset the sparkline history when the context changes. Declared before the
+  // append effect on purpose: when react-query already has a cached payload for
+  // the new key, the reset must run first and the sample is appended after it.
   useEffect(() => {
-    void load();
-    // Reset history when workspace or filter changes.
     setHistory({});
-    // load intentionally omitted: we want a fresh load + history reset on filter change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspace?.id, typeFilter]);
 
-  const isStale = useMemo(
-    () => isLoading === false && error !== null && metrics !== null,
-    [isLoading, error, metrics],
-  );
+  // Append one sample per tile whenever a fetch produced a new payload.
+  useEffect(() => {
+    const result = metricsQuery.data;
+    if (!result || metricsQuery.dataUpdatedAt === 0) return;
+    setHistory((prev) => {
+      const next: Record<string, number[]> = { ...prev };
+      for (const spec of TILES) {
+        const series = next[spec.name] ?? [];
+        const updated = [...series, spec.value(result)];
+        if (updated.length > MAX_HISTORY) updated.splice(0, updated.length - MAX_HISTORY);
+        next[spec.name] = updated;
+      }
+      return next;
+    });
+  }, [metricsQuery.data, metricsQuery.dataUpdatedAt]);
+
+  // A failed refresh keeps the last payload visible; the banner says it is
+  // older than the current server state (mirrors the pre-#598-S3 `isStale`).
+  const isStale = metricsQuery.isError && metricsQuery.data !== undefined;
 
   const computedAt = metrics?.computed_at ?? null;
   const warningCount = metrics?.warnings.length ?? 0;
@@ -585,7 +586,7 @@ export default function MetricsDashboard(): JSX.Element {
         <button
           type="button"
           data-testid="metrics-refresh-btn"
-          onClick={() => void load()}
+          onClick={() => void metricsQuery.refetch()}
           disabled={isLoading}
           className={
             'btn-primary ' +
@@ -679,4 +680,29 @@ export default function MetricsDashboard(): JSX.Element {
       )}
     </div>
   );
+}
+
+/**
+ * The app mounts one `QueryClientProvider` (App.tsx). Isolated renders — the
+ * dashboard's own unit tests, the same degradation pattern `MarkdownField`
+ * uses — come without one, so fall back to a module-local client instead of
+ * throwing. It never takes app traffic: this branch is only reached when no
+ * app client is in scope.
+ */
+const STANDALONE_QUERY_CLIENT = new QueryClient({
+  defaultOptions: { queries: { retry: false } },
+});
+
+export default function MetricsDashboard(): JSX.Element {
+  const queryClient = useContext(QueryClientContext);
+
+  if (!queryClient) {
+    return (
+      <QueryClientProvider client={STANDALONE_QUERY_CLIENT}>
+        <MetricsDashboardContent />
+      </QueryClientProvider>
+    );
+  }
+
+  return <MetricsDashboardContent />;
 }
