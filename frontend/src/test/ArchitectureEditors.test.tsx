@@ -396,12 +396,16 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
   // ---------------------------------------------------------------------
   describe("virtualization (Task 4.4)", () => {
     // jsdom does not run layout, so the WorkspaceTree scroll container's
-    // offsetHeight is always 0 and @tanstack/react-virtual would compute an
-    // empty visible range. Patch a realistic container size (same technique
-    // as workspace-tree.test.tsx's "real container size" block) so the
-    // assertions exercise an actual windowed render.
+    // intrinsic box size is always 0 and @tanstack/react-virtual would
+    // compute an empty visible range. Patch a realistic container size (same
+    // technique as workspace-tree.test.tsx's "real container size" block) so
+    // the assertions exercise an actual windowed render. Both `offset*` and
+    // `client*` are stubbed: virtual-core changed its measurement source to
+    // `clientWidth`/`clientHeight` in 3.19.
     let offsetHeightSpy: ReturnType<typeof vi.spyOn>;
     let offsetWidthSpy: ReturnType<typeof vi.spyOn>;
+    let clientHeightSpy: ReturnType<typeof vi.spyOn>;
+    let clientWidthSpy: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
       offsetHeightSpy = vi
@@ -410,11 +414,19 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
       offsetWidthSpy = vi
         .spyOn(HTMLElement.prototype, "offsetWidth", "get")
         .mockReturnValue(800);
+      clientHeightSpy = vi
+        .spyOn(HTMLElement.prototype, "clientHeight", "get")
+        .mockReturnValue(340);
+      clientWidthSpy = vi
+        .spyOn(HTMLElement.prototype, "clientWidth", "get")
+        .mockReturnValue(800);
     });
 
     afterEach(() => {
       offsetHeightSpy.mockRestore();
       offsetWidthSpy.mockRestore();
+      clientHeightSpy.mockRestore();
+      clientWidthSpy.mockRestore();
     });
 
     it("mounts far fewer DOM tree rows than elements when the list is large (500 elements)", async () => {
