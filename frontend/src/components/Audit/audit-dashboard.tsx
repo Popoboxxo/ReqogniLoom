@@ -84,14 +84,10 @@ import { auditApi } from "../../api/audit";
 import type {
   AuditCounts,
   AuditFinding,
-  AuditReport,
   AuditRuleInfo,
   AuditScopeKind,
-  SuppressionView,
   WaiveRequest,
 } from "../../api/audit";
-import { artifactsApi } from "../../api/artifacts";
-import { extractErrorMessage } from "../../api/client";
 import { ForbiddenError, UnprocessableEntityError } from "../../api/errors";
 import type { ApiError, Artifact } from "../../types";
 import { Badge } from "../shared/Badge";
@@ -100,6 +96,17 @@ import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { Dialog } from "../shared/Dialog";
 import { useRequiredValidation } from "../shared/useRequiredValidation";
 import { primaryTarget, useFindingTargets } from "./use-finding-targets";
+import {
+  findingIdentity,
+  resolveErrorMessage,
+  useAuditRun,
+} from "./use-audit-run";
+import type { ActionState, ActionStateMap } from "./use-audit-run";
+import {
+  useAuditRules,
+  useAuditWaivers,
+  useScopeArtifacts,
+} from "./use-audit-context";
 import type { FindingTarget, FindingTargetMap } from "./use-finding-targets";
 import styles from "./audit-dashboard.module.css";
 
@@ -108,14 +115,6 @@ import styles from "./audit-dashboard.module.css";
 // ---------------------------------------------------------------------------
 
 const SCOPES: AuditScopeKind[] = ["project", "document", "global"];
-
-/**
- * #596: findings per request. The DOM measurement in the issue (~480 KB of
- * text at 500 findings) put the per-finding cost near 1 KB, so a page of 100
- * keeps the mounted subtree around 100 KB regardless of how many findings the
- * run produced. The backend caps the value at AuditService.MAX_REPORT_FINDINGS.
- */
-const FINDINGS_PAGE_SIZE = 100;
 
 /**
  * #1262: artifact types offered by the server-side `artifact_type` filter. The
@@ -130,39 +129,6 @@ const ARTIFACT_TYPE_OPTIONS = [
   "StakeholderNeed",
   "Goal",
 ] as const;
-
-type ActionStatus = "idle" | "pending" | "error";
-
-interface ActionState {
-  status: ActionStatus;
-  message?: string;
-}
-
-/**
- * Per-finding action state, keyed by `findingIdentity` — never by `index`.
- *
- * NFA-2: `index` is a position in the run that produced a window, so a shifted
- * window can hand a *different* finding the same index as a row that is
- * already mounted. Keying this map on the index would then drive the new row's
- * button state (pending/error) from another row's action.
- */
-type ActionStateMap = Record<string, ActionState>;
-
-/**
- * Extract a human-readable message from any error a fetch call can throw.
- *
- * GitHub #952: the result must NEVER be an empty/whitespace-only string. A
- * failed audit run that carries no message (e.g. a network failure surfaced
- * with `new Error("")`) used to leave `loadError` falsy, so the page fell
- * straight through to the green "No findings — the trace graph is consistent"
- * empty state — the UI reported a *successful* run for a run that failed. The
- * `fallback` is the user-facing message used whenever the thrown error itself
- * carries nothing.
- */
-function resolveErrorMessage(err: unknown, fallback: string): string {
-  const message = err instanceof Error ? err.message : extractErrorMessage(err);
-  return message.trim() ? message : fallback;
-}
 
 /** Defensive label for an /artifacts/ row — the payload exposes no title/name
  * field today (same caveat as BaselinesView's document-scope picker), so we
@@ -216,104 +182,6 @@ function decrement(value: number, by: number): number {
   return Math.max(0, value - by);
 }
 
-/**
- * Run-independent identity of a finding (#569/#1383).
- *
- * `finding_key` (rule id + artifact ids) plus the scope is stable across runs;
- * `index` is not — it is the finding's position *within the run that produced
- * the response*, and every "Load more" is a fresh run. After an Adopt the run
- * shrinks, so the next window's indices shift: deduping on `index` then drops a
- * legitimate row (the index was already seen) and lets an already-mounted
- * finding reappear under a new index. React keys and the append dedupe use
- * this identity; the `data-testid`s stay index-based because that is the
- * contract E2E relies on.
- */
-function findingIdentity(finding: AuditFinding): string {
-  return `${finding.finding_key}\u001f${finding.scope ?? ""}`;
-}
-
-/**
- * #1383: the counts of the window a report just returned.
- *
- * `page_counts` is additive on the contract — a backend that predates the
- * field (rolling deploy, older image) sends none. Falling back to `counts`
- * keeps the window size readable instead of rendering "undefined"; the
- * ground-truth badges read `counts` either way.
- */
-function windowCounts(report: AuditReport): AuditCounts {
-  return report.page_counts ?? report.counts;
-}
-
-/**
- * #1383: the ground truth over the full run.
- *
- * `counts` carries it on the current contract, and the contract's invariant is
- * `counts.total === total_findings_available`. A backend that predates #1383
- * exposes the run total only through the additive `total_*_available` fields
- * and uses `counts` for the returned window — normalising that shape here keeps
- * the badges correct during a rolling deploy instead of showing window numbers
- * as the run total (the #1382 symptom).
- *
- * #1382 (both blocks present): `page_counts` is additive, so a *future*
- * backend could send it while `counts` still describes the window. When the
- * two disagree the invariant is broken, so `counts` cannot be trusted as the
- * full-run total — the additive fields win. Pinned by a fixture test.
- */
-function groundTruthCounts(report: AuditReport): AuditCounts {
-  if (
-    report.page_counts &&
-    report.counts.total === report.total_findings_available
-  ) {
-    return report.counts;
-  }
-  return {
-    total: report.total_findings_available,
-    blockers: report.total_blockers_available,
-    warnings: report.total_warnings_available,
-    suppressed: report.total_suppressed_available,
-    suppressed_blockers: report.total_suppressed_blockers_available,
-  };
-}
-
-/**
- * #1383: the server cursor for the next window, or `null` for "none".
- *
- * The legacy discriminator is the same one `groundTruthCounts` uses: a backend
- * without `page_counts` predates #1383 entirely and sends no cursor, so only
- * there is the `offset + findings.length` approximation allowed. A modern
- * backend's `next_offset` is honoured verbatim — recomputing it would mask a
- * server that skips findings, and it would fabricate a cursor for a backend
- * that says `truncated: true` without advancing (`null`, `0`, or a value at or
- * behind the current offset).
- */
-function nextWindowOffset(report: AuditReport): number | null {
-  if (!report.page_counts) return report.offset + report.findings.length;
-  return report.next_offset ?? null;
-}
-
-interface WindowCursor {
-  /** True when another window can be requested. */
-  hasMore: boolean;
-  /** The offset to send next; `null` when `hasMore` is false. */
-  nextOffset: number | null;
-  /**
-   * The backend claimed `truncated` but supplied no advancing cursor. Paging
-   * must stop — following such a cursor either repeats the same window forever
-   * or silently hides the rest of the run.
-   */
-  stalled: boolean;
-}
-
-/** Resolve one window's paging state against the offset that produced it. */
-function resolveWindowCursor(report: AuditReport, currentOffset: number): WindowCursor {
-  const cursor = nextWindowOffset(report);
-  if (!report.truncated) return { hasMore: false, nextOffset: null, stalled: false };
-  if (cursor === null || cursor <= currentOffset) {
-    return { hasMore: false, nextOffset: null, stalled: true };
-  }
-  return { hasMore: true, nextOffset: cursor, stalled: false };
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -325,57 +193,34 @@ export function AuditDashboard(): JSX.Element {
 
   const [scope, setScope] = useState<AuditScopeKind>("project");
   const [scopeArtifactId, setScopeArtifactId] = useState<string>("");
-  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
 
-  const [tier, setTier] = useState<string | null>(null);
-  const [findings, setFindings] = useState<AuditFinding[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  // #596: the findings list is mounted in bounded windows instead of all at
-  // once. `hasMore` is the backend's per-window `truncated` flag ("more
-  // findings exist past this one"), `nextOffset` the server's cursor for the
-  // following window (#1383 `report.next_offset`; `null` when none — the
-  // cursor is never fabricated for a modern backend).
-  const [hasMore, setHasMore] = useState<boolean>(false);
-  const [nextOffset, setNextOffset] = useState<number | null>(null);
-  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
-  // #1382/#1383: two different count sets. `reportCounts` is the ground truth
-  // over the FULL run and backs every badge; `pageCounts` describes only the
-  // last returned window and backs the "{{shown}} of {{total}}" display.
-  const [reportCounts, setReportCounts] = useState<AuditCounts | null>(null);
-  const [pageCounts, setPageCounts] = useState<AuditCounts | null>(null);
-  // How many windows are mounted. > 1 means `findings.length` (rows on screen)
-  // and `pageCounts.total` (size of the last window) diverge — the banner then
-  // names both so neither is mistaken for the run total.
-  const [loadedWindows, setLoadedWindows] = useState<number>(1);
-  // Findings adopted/waived *after* the last run. The server counts are a
-  // snapshot of that run, so these local actions are applied on top of it:
-  // shrink-on-resolve stays visible without ever deriving a badge from the
-  // mounted rows (which is the #1382 bug).
-  const [adoptedSinceRun, setAdoptedSinceRun] = useState<AuditFinding[]>([]);
-  const [waivedSinceRun, setWaivedSinceRun] = useState<AuditFinding[]>([]);
+  // ---- Data context (#598 S2) ----
+  // Artifacts back the document-scope picker; the rule catalogue backs the
+  // rule-id popover (#1262); the suppression list is its own request (#569).
+  const artifacts = useScopeArtifacts(activeWorkspace?.id);
+  const ruleInfo = useAuditRules();
+  const { waivers, waiversLoading, waiversError, loadWaivers } = useAuditWaivers(
+    activeWorkspace?.id,
+    t
+  );
+
+  // Auto-pick the first artifact when the user switches to document scope
+  // without one selected yet (mirrors BaselinesView's create-form behaviour).
+  useEffect(() => {
+    if (scope === "document" && !scopeArtifactId && artifacts.length > 0) {
+      setScopeArtifactId(artifacts[0].id);
+    }
+  }, [scope, scopeArtifactId, artifacts]);
 
   const [severityFilter, setSeverityFilter] = useState<"all" | "blocker" | "warning">("all");
   // #1262: rule filter (client-side, with per-rule counters) and the
-  // server-side artifact-type filter, plus the rule catalogue backing the
-  // rule-id popover.
+  // server-side artifact-type filter.
   const [ruleFilter, setRuleFilter] = useState<string>("all");
   const [artifactTypeFilter, setArtifactTypeFilter] = useState<string>("all");
-  const [ruleInfo, setRuleInfo] = useState<Record<string, AuditRuleInfo>>({});
   // #569: "show suppressed" is on by default — nothing is hidden by default
   // (O3). Unchecking filters `suppressed === true` client-side; the report
   // itself always keeps suppressed findings (include_suppressed default true).
   const [showSuppressed, setShowSuppressed] = useState<boolean>(true);
-  // #569: every persisted suppression, both lifecycles — so an *expired*
-  // suppression is visible and visually distinct from an active one (the
-  // report only marks active ones).
-  const [waivers, setWaivers] = useState<SuppressionView[]>([]);
-  // UI-569-02: the suppression list is an independent request, so it needs its
-  // own lifecycle. Without it a failed/forbidden `GET …/audit/waivers/` looked
-  // exactly like "no suppressions on file" (the empty key never rendered).
-  const [waiversLoading, setWaiversLoading] = useState<boolean>(false);
-  const [waiversError, setWaiversError] = useState<string | null>(null);
-  const [actionState, setActionState] = useState<ActionStateMap>({});
   const [toast, setToast] = useState<string | null>(null);
   // UI-57: Adopt applies an automatic correction with no undo — interpose a
   // confirmation instead of firing the remediation call straight from the
@@ -403,207 +248,37 @@ export function AuditDashboard(): JSX.Element {
   // the row that should take focus instead.
   const [focusFindingIndex, setFocusFindingIndex] = useState<number | null>(null);
 
-  // ---- Load artifacts once per workspace (needed for the document-scope picker) ----
-  useEffect(() => {
-    if (!activeWorkspace) {
-      setArtifacts([]);
-      return;
-    }
-    let cancelled = false;
-    void artifactsApi
-      .list(activeWorkspace.id)
-      .then((resp) => {
-        if (!cancelled) setArtifacts(resp.results);
-      })
-      .catch(() => {
-        // Non-critical for project/global scope — document scope will simply
-        // show an empty picker and the user can switch scope back.
-      });
-    return () => {
-      cancelled = true;
-    };
-    // Re-run only when the workspace identity changes, not on every
-    // activeWorkspace object re-render (mirrors MetricsDashboard's pattern).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspace?.id]);
-
-  // Auto-pick the first artifact when the user switches to document scope
-  // without one selected yet (mirrors BaselinesView's create-form behaviour).
-  useEffect(() => {
-    if (scope === "document" && !scopeArtifactId && artifacts.length > 0) {
-      setScopeArtifactId(artifacts[0].id);
-    }
-  }, [scope, scopeArtifactId, artifacts]);
-
-  // ---- Run the SE-Auditor ----
-  // Always requests the first bounded window (#596) rather than the whole
-  // (BLOCKER-first capped) result set — a fresh run, a scope change or a
-  // refresh resets the list to page 1.
-  const load = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace) return;
-    if (scope === "document" && !scopeArtifactId) return;
-
-    setIsLoading(true);
-    setLoadError(null);
-    try {
-      const report = await auditApi.run(activeWorkspace.id, {
-        scope,
-        scopeArtifactId: scope === "document" ? scopeArtifactId : undefined,
-        artifactType: artifactTypeFilter !== "all" ? artifactTypeFilter : undefined,
-        limit: FINDINGS_PAGE_SIZE,
-        offset: 0,
-      });
-      setTier(report.tier);
-      setFindings(report.findings);
-      // #1383: the server owns the cursor; recomputing `offset + len(findings)`
-      // client-side silently desynchronises as soon as the server skips a row,
-      // and it hides a backend that claims `truncated` without advancing.
-      const cursor = resolveWindowCursor(report, 0);
-      setHasMore(cursor.hasMore);
-      setNextOffset(cursor.nextOffset);
-      // #1382/#1383: `counts` is the FULL-run ground truth, `page_counts` the
-      // window just returned. Keeping them apart is what stops a partial
-      // window from being rendered as the run total.
-      setReportCounts(groundTruthCounts(report));
-      setPageCounts(windowCounts(report));
-      setLoadedWindows(1);
-      // A new run re-snapshots the server counts, so local corrections from
-      // the previous snapshot no longer apply.
-      setAdoptedSinceRun([]);
-      setWaivedSinceRun([]);
-      setActionState({});
-      if (cursor.stalled) setLoadError(t("audit.pagingStalled"));
-    } catch (err) {
-      setLoadError(
-        resolveErrorMessage(err, t("audit.loadError", "Could not load audit findings."))
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [activeWorkspace, scope, scopeArtifactId, artifactTypeFilter, t]);
-
-  /**
-   * #569: load every suppression (both lifecycles). Non-critical to the audit
-   * run — a failure must not blank the findings list. It must not be
-   * indistinguishable from "no suppressions on file" either (UI-569-02): the
-   * suppression panel gets its own loading/error/empty states driven by these
-   * flags instead of silently degrading to an empty panel.
-   */
-  const loadWaivers = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace) return;
-    setWaiversLoading(true);
-    setWaiversError(null);
-    try {
-      const resp = await auditApi.waivers(activeWorkspace.id, "all");
-      setWaivers(resp?.waivers ?? []);
-    } catch (err) {
-      setWaiversError(
-        resolveErrorMessage(
-          err,
-          t("audit.waivers.loadError", "Could not load suppressions.")
-        )
-      );
-    } finally {
-      setWaiversLoading(false);
-    }
-  }, [activeWorkspace, t]);
-
-  useEffect(() => {
-    void load();
-    void loadWaivers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspace?.id, scope, scopeArtifactId, artifactTypeFilter]);
-
-  /**
-   * #1262: load the rule catalogue once. Non-critical — a failure only means
-   * the rule-id popover degrades to the bare rule id.
-   */
-  useEffect(() => {
-    let cancelled = false;
-    void Promise.resolve(auditApi.rules?.())
-      .then((resp) => {
-        if (cancelled) return;
-        const map: Record<string, AuditRuleInfo> = {};
-        for (const rule of resp?.rules ?? []) map[rule.rule_id] = rule;
-        setRuleInfo(map);
-      })
-      .catch(() => {
-        // Non-critical: popover falls back to the rule id.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  /**
-   * #596: append the next window of findings.
-   *
-   * The append dedupe uses `findingIdentity` (`finding_key` + scope), not the
-   * backend's `index`: a window boundary is a fresh run server-side, so indices
-   * shift as soon as one finding was resolved in between. See the helper's
-   * comment for the failure modes of the old positional identity.
-   */
-  const loadMore = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace || isLoadingMore || !hasMore || nextOffset === null) return;
-    setIsLoadingMore(true);
-    setLoadError(null);
-    try {
-      const report = await auditApi.run(activeWorkspace.id, {
-        scope,
-        scopeArtifactId: scope === "document" ? scopeArtifactId : undefined,
-        artifactType: artifactTypeFilter !== "all" ? artifactTypeFilter : undefined,
-        limit: FINDINGS_PAGE_SIZE,
-        offset: nextOffset,
-      });
-      setFindings((prev) => {
-        const seen = new Set(prev.map(findingIdentity));
-        const appended = [...prev];
-        for (const finding of report.findings) {
-          const identity = findingIdentity(finding);
-          if (seen.has(identity)) continue;
-          seen.add(identity);
-          appended.push(finding);
-        }
-        return appended;
-      });
-      // #1383: the next cursor comes from the server; `hasMore` stays the
-      // per-window `truncated` flag.
-      const cursor = resolveWindowCursor(report, nextOffset);
-      setHasMore(cursor.hasMore);
-      setNextOffset(cursor.nextOffset);
-      // Every window reports the same full-run `counts`, but a later window is
-      // the freshest snapshot — and `page_counts` becomes the size of *this*
-      // window, which is what the "{{shown}} of {{total}}" display names.
-      setReportCounts(groundTruthCounts(report));
-      setPageCounts(windowCounts(report));
-      setLoadedWindows((prev) => prev + 1);
-      // #1382: the local deltas mean "resolved/waived since the snapshot".
-      // This response *is* a new snapshot and already excludes the adopted
-      // findings and reflects the waivers granted so far — keeping the deltas
-      // would subtract them a second time (249 -> 248 after "Load more").
-      setAdoptedSinceRun([]);
-      setWaivedSinceRun([]);
-      if (cursor.stalled) setLoadError(t("audit.pagingStalled"));
-    } catch (err) {
-      // The already-loaded findings stay readable (the error banner renders
-      // above them) — a failed "Load more" must not discard the page the
-      // user is working through.
-      setLoadError(
-        resolveErrorMessage(err, t("audit.loadError", "Could not load audit findings."))
-      );
-    } finally {
-      setIsLoadingMore(false);
-    }
-  }, [
-    activeWorkspace,
+  // ---- Run state (#598 S2) ----
+  // The hook owns one run: the bounded first window and "Load more" cursor
+  // (#596/#1383), the two count sets (#1382/#1383) and the local corrections
+  // after the snapshot. Adopt/Waive below mutate it through the setters.
+  const {
+    tier,
+    findings,
+    setFindings,
+    isLoading,
+    loadError,
+    hasMore,
+    setNextOffset,
+    isLoadingMore,
+    reportCounts,
+    pageCounts,
+    loadedWindows,
+    adoptedSinceRun,
+    setAdoptedSinceRun,
+    waivedSinceRun,
+    setWaivedSinceRun,
+    actionState,
+    setActionState,
+    load,
+    loadMore,
+  } = useAuditRun({
+    workspaceId: activeWorkspace?.id,
     scope,
     scopeArtifactId,
     artifactTypeFilter,
-    isLoadingMore,
-    hasMore,
-    nextOffset,
     t,
-  ]);
+  });
 
   // Auto-dismiss the success toast.
   useEffect(() => {
@@ -693,7 +368,16 @@ export function AuditDashboard(): JSX.Element {
         }
       }
     },
-    [activeWorkspace, scope, scopeArtifactId, t]
+    [
+      activeWorkspace,
+      scope,
+      scopeArtifactId,
+      t,
+      setActionState,
+      setAdoptedSinceRun,
+      setFindings,
+      setNextOffset,
+    ]
   );
 
   // UI-57: Adopt has no undo (it PATCHes/creates trace links straight away) —
@@ -854,6 +538,8 @@ export function AuditDashboard(): JSX.Element {
     loadWaivers,
     validate,
     focusFirstInvalid,
+    setFindings,
+    setWaivedSinceRun,
   ]);
 
   // ---- Derived state ----
