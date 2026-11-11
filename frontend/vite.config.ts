@@ -32,8 +32,10 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
-    // Include test files (see TESTING_CONVENTIONS.md for layout rules)
-    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    // Include test files (see TESTING_CONVENTIONS.md for layout rules).
+    // `scripts/**/*.test.mjs` covers the Node-side analysis scripts that live
+    // outside the `src` program (e.g. component-hotspot analysis, #598 S2).
+    include: ["src/**/*.{test,spec}.{ts,tsx}", "scripts/**/*.test.mjs"],
     // #1117: writes a per-failure JSON artifact so a flaky failure can be named
     // and compared next run instead of just counted. Passed as a string path on
     // purpose: a TypeScript import here would pull this node-only module into

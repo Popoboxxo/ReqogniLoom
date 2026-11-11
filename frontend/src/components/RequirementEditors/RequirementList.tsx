@@ -19,7 +19,7 @@
  * making delete unreachable from the UI (Systemaudit 2026-08-27 UI-05).
  */
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { X } from 'lucide-react';
@@ -53,6 +53,7 @@ import {
   getWorkflowStatusLabel,
 } from '../../utils/workflowStatus';
 import { isOutdatedState } from '../../utils/outdatedStates';
+import { useRequirementDelete } from './use-requirement-delete';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -310,14 +311,23 @@ export const RequirementList: React.FC<RequirementListProps> = ({
   // trigger at all — only the server rejected the delete before. Shared with
   // SidebarNavigation/RequirementForm/RequirementEditors via useHasRole.
   const hasRole = useHasRole();
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   // Issue #811: the extended preset requires a `change_reason` on delete too
   // (RequirementService.delete_requirement) — mirrors RequirementForm's own
   // `isChangeReasonRequired` gate for saves (#339).
   const isChangeReasonRequired = activeWorkspace?.preset === 'extended';
-  const [deleteChangeReason, setDeleteChangeReason] = useState('');
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [deleteAttempted, setDeleteAttempted] = useState(false);
+  const {
+    confirmDeleteId,
+    deleteChangeReason,
+    isDeleting,
+    deleteAttempted,
+    requestDelete,
+    closeDeleteDialog,
+    handleConfirmDelete,
+    onReasonChange,
+  } = useRequirementDelete({
+    onDelete,
+    requiresChangeReason: isChangeReasonRequired,
+  });
   // BUG-19: persisted per tab session (sessionStorage) so navigating away to
   // a detail view and back — or to another route entirely — does not
   // silently discard the user's search/filter/sort selection.
@@ -421,38 +431,6 @@ export const RequirementList: React.FC<RequirementListProps> = ({
     setCategoryFilter('');
     setStatusFilter('');
     onAllocationChange('all');
-  };
-
-  const closeDeleteDialog = (): void => {
-    setConfirmDeleteId(null);
-    setDeleteChangeReason('');
-    setDeleteAttempted(false);
-  };
-
-  /**
-   * Issue #811: the dialog used to close as soon as this handler ran,
-   * regardless of whether `onDelete` actually succeeded — a rejected delete
-   * (e.g. missing `change_reason` under the extended preset) looked
-   * identical to a successful one. It now awaits the result and only closes
-   * on confirmed success; on failure the dialog stays open (the caller
-   * already surfaces the server message via the `req-action-error` banner
-   * above this list) so the user can supply the missing reason and retry.
-   */
-  const handleConfirmDelete = async (): Promise<void> => {
-    if (!confirmDeleteId) return;
-    if (isChangeReasonRequired && !deleteChangeReason.trim()) {
-      setDeleteAttempted(true);
-      return;
-    }
-    setIsDeleting(true);
-    try {
-      const succeeded = await onDelete(confirmDeleteId, deleteChangeReason.trim() || undefined);
-      if (succeeded) {
-        closeDeleteDialog();
-      }
-    } finally {
-      setIsDeleting(false);
-    }
   };
 
   return (
@@ -580,8 +558,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                   data-testid="req-delete-change-reason"
                   value={deleteChangeReason}
                   onChange={(e) => {
-                    setDeleteChangeReason(e.target.value);
-                    if (deleteAttempted) setDeleteAttempted(false);
+                    onReasonChange(e.target.value);
                   }}
                   placeholder={t('req.changeReasonPlaceholder')}
                   disabled={isDeleting}
@@ -738,7 +715,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                 </div>
                 {/* Issue-#-tracked gap (RequirementEditors.test.tsx): the
                     confirm overlay above already exists, but nothing ever
-                    called setConfirmDeleteId with a real id — this button is
+                    called the delete request with a real id — this button is
                     that missing trigger. stopPropagation keeps the click from
                     also selecting the row (the <li> above owns onSelect).
                     R2/T1: rendered conditionally, not just disabled — a
@@ -751,7 +728,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                     title={t('actions.delete')}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setConfirmDeleteId(req.id);
+                      requestDelete(req.id);
                     }}
                     className={styles.deleteButton}
                   >

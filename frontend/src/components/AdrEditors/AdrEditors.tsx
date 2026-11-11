@@ -5,10 +5,7 @@ import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
-import {
-  AiDerivationDialog,
-  type AiDerivationDraft,
-} from '../shared/AiDerivationDialog';
+import { AiDerivationDialog } from '../shared/AiDerivationDialog';
 import { EditorPageShell } from '../shared/EditorPageShell';
 import { FormField } from '../shared/FormField';
 import { fieldErrorsFromException } from '../shared/ArtifactForm/field-errors';
@@ -25,6 +22,7 @@ import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
 import type { ChainArtifact } from '../shared/TraceSpine';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useAdrData } from './useAdrData';
+import { useAdrDerive } from './use-adr-derive';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { adrsApi } from '../../api/adrs';
 import type { Adr } from '../../types';
@@ -72,87 +70,21 @@ export default function AdrEditors(): JSX.Element {
   // #1358/#1360 (W12c): AI ADR derivation state. The decision text is part of
   // the dialog's setup step (`drafts === null`), because the preview prompt
   // needs it; `mode="write"` only becomes reachable after a preview.
-  const [deriveOpen, setDeriveOpen] = useState(false);
-  const [deriveDecision, setDeriveDecision] = useState('');
-  const [deriveDrafts, setDeriveDrafts] = useState<AiDerivationDraft[] | null>(null);
-  const [deriveLoading, setDeriveLoading] = useState(false);
-  const [deriveLoadError, setDeriveLoadError] = useState<string | null>(null);
-  const [deriveSaving, setDeriveSaving] = useState(false);
-  const [deriveSubmitError, setDeriveSubmitError] = useState<string | null>(null);
-  const [deriveStatus, setDeriveStatus] = useState<string | null>(null);
-
-  const openDeriveDialog = useCallback((): void => {
-    setDeriveDecision('');
-    setDeriveDrafts(null);
-    setDeriveLoadError(null);
-    setDeriveSubmitError(null);
-    setDeriveOpen(true);
-  }, []);
-
-  const closeDeriveDialog = useCallback((): void => {
-    setDeriveOpen(false);
-    setDeriveDrafts(null);
-    setDeriveLoadError(null);
-    setDeriveSubmitError(null);
-  }, []);
-
-  const handleDerivePreview = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace || !deriveDecision.trim()) return;
-    setDeriveLoading(true);
-    setDeriveLoadError(null);
-    try {
-      const preview = await adrsApi.derivePreview(activeWorkspace.id, deriveDecision.trim());
-      const draft = preview.draft;
-      setDeriveDrafts([
-        {
-          title: draft.title,
-          // The reviewer sees every part of the draft the write will persist;
-          // the dialog's three-part row (title/description/rationale) is the
-          // shared shape, so context/consequences are folded into the body.
-          description: [
-            draft.description,
-            draft.context ? `${t('aiDerivation.adrContext')}: ${draft.context}` : null,
-            draft.consequences
-              ? `${t('aiDerivation.adrConsequences')}: ${draft.consequences}`
-              : null,
-          ]
-            .filter(Boolean)
-            .join('\n\n'),
-        },
-      ]);
-    } catch (e) {
-      const msg =
-        (e as { error?: { message?: string } })?.error?.message ?? t('needs.deriveFailed');
-      setDeriveLoadError(msg);
-    } finally {
-      setDeriveLoading(false);
-    }
-  }, [activeWorkspace, deriveDecision, t]);
-
-  const handleDeriveDecision = useCallback(
-    async (parked: boolean): Promise<void> => {
-      if (!activeWorkspace || !deriveDecision.trim()) return;
-      setDeriveSaving(true);
-      setDeriveSubmitError(null);
-      try {
-        await adrsApi.deriveWrite(activeWorkspace.id, deriveDecision.trim());
-        setDeriveStatus(
-          t(parked ? 'aiDerivation.statusParked' : 'aiDerivation.statusCreated', {
-            count: 1,
-          })
-        );
-        closeDeriveDialog();
-        refresh();
-      } catch (e) {
-        const msg =
-          (e as { error?: { message?: string } })?.error?.message ?? t('needs.deriveFailed');
-        setDeriveSubmitError(msg);
-      } finally {
-        setDeriveSaving(false);
-      }
-    },
-    [activeWorkspace, deriveDecision, t, closeDeriveDialog, refresh]
-  );
+  const {
+    deriveOpen,
+    deriveDecision,
+    setDeriveDecision,
+    deriveDrafts,
+    deriveLoading,
+    deriveLoadError,
+    deriveSaving,
+    deriveSubmitError,
+    deriveStatus,
+    openDeriveDialog,
+    closeDeriveDialog,
+    handleDerivePreview,
+    handleDeriveDecision,
+  } = useAdrDerive({ workspaceId: activeWorkspace?.id, t, refresh });
 
   const openCreateDialog = useCallback((): void => {
     setCreateError(null);

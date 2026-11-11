@@ -37,15 +37,13 @@ import { ListToolbar } from "../shared/ListToolbar";
 import { EmptyState } from "../shared/EmptyState";
 import { CreateTraceLinkDialog } from "../shared/CreateTraceLinkDialog/create-trace-link-dialog";
 import { Dialog } from "../shared/Dialog";
-import {
-  AiDerivationDialog,
-  type AiDerivationDraft,
-} from "../shared/AiDerivationDialog";
+import { AiDerivationDialog } from "../shared/AiDerivationDialog";
 import { useHasRole } from "../../hooks/useHasRole";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
 import { extractErrorMessage } from "../../api/client";
 import { fieldErrorsFromException } from "../shared/ArtifactForm/field-errors";
 import styles from "./GlossaryView.module.css";
+import { useGlossaryDerive } from "./use-glossary-derive";
 import {
   GLOSSARY_LIFECYCLE_STATUSES,
   buildSynonymLinkIndex,
@@ -101,14 +99,6 @@ export default function GlossaryView(): JSX.Element {
 
   // #1360 (W12c): the shared AI review dialog's state for the glossary
   // derivation (preview drafts, write bookkeeping, result message).
-  const [deriveOpen, setDeriveOpen] = useState(false);
-  const [deriveDrafts, setDeriveDrafts] = useState<AiDerivationDraft[] | null>(null);
-  const [deriveLoading, setDeriveLoading] = useState(false);
-  const [deriveLoadError, setDeriveLoadError] = useState<string | null>(null);
-  const [deriveSaving, setDeriveSaving] = useState(false);
-  const [deriveSubmitError, setDeriveSubmitError] = useState<string | null>(null);
-  const [deriveStatus, setDeriveStatus] = useState<string | null>(null);
-
   // C10 (REQ-006): synonym-linking — the (termId, synonym index) currently
   // showing its "link to existing entry" picker, plus the picker's search query.
   const [linkingSynonym, setLinkingSynonym] = useState<{ termId: string; index: number } | null>(null);
@@ -134,6 +124,24 @@ export default function GlossaryView(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspace?.id]);
 
+  const {
+    deriveOpen,
+    deriveDrafts,
+    deriveLoading,
+    deriveLoadError,
+    deriveSaving,
+    deriveSubmitError,
+    deriveStatus,
+    openDeriveDialog,
+    closeDeriveDialog,
+    handleDeriveDecision,
+  } = useGlossaryDerive({
+    workspaceId: activeWorkspace?.id,
+    t,
+    reloadTerms: loadTerms,
+  });
+
+
   // C10 (REQ-006): case-insensitive term-text index backing
   // resolveSynonymLink — see glossary-view-shared.ts.
   const termsByName = useMemo(() => buildSynonymLinkIndex(terms), [terms]);
@@ -155,68 +163,6 @@ export default function GlossaryView(): JSX.Element {
     } catch (err) {
       console.error("Failed to link synonym", err);
       setRowError(extractErrorMessage(err) || t("glossary.linkSynonymFailed"));
-    }
-  };
-
-  /**
-   * #1358 (W12a) / #1360 (W12c): the glossary derivation had no UI entry at
-   * all. This opens the shared AI review dialog on a `mode="preview"` run
-   * (`ephemeral: true` — nothing persisted); Confirm / "Review later" call
-   * the `mode="write"` seam, Discard writes nothing.
-   */
-  const openDeriveDialog = async () => {
-    if (!activeWorkspace) return;
-    setDeriveOpen(true);
-    setDeriveDrafts(null);
-    setDeriveLoadError(null);
-    setDeriveSubmitError(null);
-    setDeriveLoading(true);
-    try {
-      const preview = await glossaryApi.derivePreview(activeWorkspace.id);
-      setDeriveDrafts(
-        preview.drafts.map((draft) => ({
-          title: draft.term,
-          description: draft.definition,
-        }))
-      );
-    } catch (err) {
-      setDeriveLoadError(
-        extractErrorMessage(err) || t("glossary.deriveFailed")
-      );
-    } finally {
-      setDeriveLoading(false);
-    }
-  };
-
-  const closeDeriveDialog = () => {
-    setDeriveOpen(false);
-    setDeriveDrafts(null);
-    setDeriveLoadError(null);
-    setDeriveSubmitError(null);
-  };
-
-  // Confirm and "Review later" both persist through the same write seam (every
-  // canonical path lands the terms in `proposed`, #1089); only the success
-  // message differs — created now vs parked for the review queue.
-  const handleDeriveDecision = async (parked: boolean) => {
-    if (!activeWorkspace) return;
-    setDeriveSaving(true);
-    setDeriveSubmitError(null);
-    try {
-      const receipt = await glossaryApi.deriveWrite(activeWorkspace.id);
-      setDeriveStatus(
-        t(parked ? "aiDerivation.statusParked" : "aiDerivation.statusCreated", {
-          count: receipt.written.length,
-        })
-      );
-      closeDeriveDialog();
-      loadTerms();
-    } catch (err) {
-      setDeriveSubmitError(
-        extractErrorMessage(err) || t("glossary.deriveFailed")
-      );
-    } finally {
-      setDeriveSaving(false);
     }
   };
 

@@ -36,6 +36,7 @@ import type {
 } from "../../types";
 import styles from "../../styles/components/CanvasEditor.module.css";
 import { ICONS } from "./canvas-icons";
+import { useCanvasToolSettings, type LineStyle } from "./use-canvas-tool-settings";
 import {
   boundingRect,
   extractStrokeData,
@@ -153,7 +154,6 @@ type FabricCanvas = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyObj = Record<string, any>;
 
-type LineStyle = "solid" | "dashed";
 
 
 // ---------------------------------------------------------------------------
@@ -177,12 +177,20 @@ export function CanvasEditor({
   // FE-04: the 2s "saved -> idle" reset must be tracked so unmount clears it.
   const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [activeTool, setActiveTool] = useState<CanvasTool>("select");
-  const [color, setColor] = useState("#1f2937");
-  const [fillColor, setFillColor] = useState("#ffffff");
-  const [lineStyle, setLineStyle] = useState<LineStyle>("solid");
-  const [strokeWidth, setStrokeWidth] = useState(2);
-  const [snapEnabled, setSnapEnabled] = useState(true);
+  const {
+    activeTool,
+    setActiveTool,
+    color,
+    setColor,
+    fillColor,
+    setFillColor,
+    lineStyle,
+    setLineStyle,
+    strokeWidth,
+    setStrokeWidth,
+    snapEnabled,
+    setSnapEnabled,
+  } = useCanvasToolSettings();
   const [zoom, setZoom] = useState(1);
   const [isDirty, setIsDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");

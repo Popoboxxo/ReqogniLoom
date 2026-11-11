@@ -20,7 +20,7 @@
  * `NeedForm` was its only consumer, and field visibility now comes from the
  * resolved attribute definition like every other migrated type.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
@@ -44,15 +44,12 @@ import { useEntityReset } from '../../hooks/use-entity-reset';
 import { useFormDirty } from '../../hooks/use-form-dirty';
 import { useSaveShortcut } from '../../hooks/useSaveShortcut';
 import { useNeedData } from './useNeedData';
+import { useManualDerive } from './use-manual-derive';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { extractApiErrorMessage } from '../../api/client';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
 import { fieldErrorsFromException } from '../shared/ArtifactForm/field-errors';
 import type { DerivedRequirementDraft } from '../../api/stakeholder-need';
-import { requirementsApi } from '../../api/requirements';
-import { architectureApi } from '../../api/architecture';
-import { tracelinksApi } from '../../api/tracelinks';
-import type { ArchitectureElement, Requirement } from '../../types';
 import styles from './NeedsEditors.module.css';
 
 export default function NeedsEditors(): JSX.Element {
@@ -118,12 +115,19 @@ export default function NeedsEditors(): JSX.Element {
   // optional architecture allocation (SE: Req --derives-from--> Need,
   // Req --allocated-to--> ArchitectureElement). Moved up from the deleted
   // NeedForm.tsx (Task 23) — not an attribute, stays a sibling of the form.
-  const [showDeriveForm, setShowDeriveForm] = useState(false);
-  const [deriveTitle, setDeriveTitle] = useState('');
-  const [deriveArchId, setDeriveArchId] = useState('');
-  const [isManualDeriving, setIsManualDeriving] = useState(false);
-  const [deriveError, setDeriveError] = useState<string | null>(null);
-  const [archElements, setArchElements] = useState<ArchitectureElement[]>([]);
+  const {
+    showDeriveForm,
+    deriveTitle,
+    deriveArchId,
+    isManualDeriving,
+    deriveError,
+    archElements,
+    openDeriveForm,
+    closeDeriveForm,
+    setDeriveTitle,
+    setDeriveArchId,
+    handleManualDerive,
+  } = useManualDerive({ need, t, refresh, navigate });
 
   // AI-assisted derive (REQ-L2-AI-001/002) — draft/accept flow, also moved
   // up from NeedForm.tsx.
@@ -131,89 +135,6 @@ export default function NeedsEditors(): JSX.Element {
   const [derivationStatus, setDerivationStatus] = useState<string | null>(null);
   const [derivationIsError, setDerivationIsError] = useState(false);
   const [derivedDrafts, setDerivedDrafts] = useState<DerivedRequirementDraft[] | null>(null);
-
-  useEffect(() => {
-    if (!showDeriveForm || !need) return;
-    let cancelled = false;
-    architectureApi
-      .listAll(need.workspace_id)
-      .then((els) => { if (!cancelled) setArchElements(els); })
-      .catch(() => { if (!cancelled) setArchElements([]); });
-    return () => { cancelled = true; };
-  }, [showDeriveForm, need]);
-
-  const handleManualDerive = async () => {
-    if (!need) return;
-    if (!deriveTitle.trim()) {
-      setDeriveError(t('traceability.deriveTitleRequired'));
-      return;
-    }
-    setIsManualDeriving(true);
-    setDeriveError(null);
-    // UI-33 (Systemaudit 2026-08-27 AP-5): this is three independent REST
-    // calls (create Requirement, create 'derives-from' link, optionally
-    // create 'allocated-to' link), not one DB transaction — a failure on
-    // either link call used to leave `created` as an orphaned Requirement
-    // (persisted, but never linked back to the Need) while the user only
-    // saw a generic "derive failed" message with no indication anything had
-    // been written at all.
-    let created: Requirement | null = null;
-    try {
-      created = await requirementsApi.create({
-        workspace_id: need.workspace_id,
-        title: deriveTitle.trim(),
-      });
-      await tracelinksApi.create({
-        source_id: created.id,
-        target_id: need.artifact_id,
-        link_type: 'derives-from',
-      });
-      if (deriveArchId) {
-        await tracelinksApi.create({
-          source_id: created.id,
-          target_id: deriveArchId,
-          link_type: 'allocated-to',
-        });
-      }
-      setShowDeriveForm(false);
-      setDeriveTitle('');
-      setDeriveArchId('');
-      refresh();
-      navigate(`/requirements/${created.id}`);
-    } catch (err) {
-      console.error(err);
-      const apiErr = err as { error?: { message?: string } };
-      const baseMessage = apiErr?.error?.message ?? t('needs.deriveFailed');
-      if (created) {
-        // Best-effort compensating action: soft-delete the orphan instead
-        // of leaving it silently in the working set, and tell the user
-        // explicitly whether that cleanup succeeded — never just "derive
-        // failed" once something was actually persisted.
-        try {
-          await requirementsApi.delete(created.id);
-          setDeriveError(
-            t('needs.deriveRolledBack', {
-              message: baseMessage,
-              defaultValue: `${baseMessage} The already-created requirement was rolled back (archived).`,
-            }),
-          );
-        } catch (rollbackErr) {
-          console.error(rollbackErr);
-          setDeriveError(
-            t('needs.derivePartialFailure', {
-              message: baseMessage,
-              id: created.id,
-              defaultValue: `${baseMessage} Warning: a requirement was already created, but linking it to the need failed and the automatic rollback failed too. Please check manually (requirement id: ${created.id}).`,
-            }),
-          );
-        }
-      } else {
-        setDeriveError(baseMessage);
-      }
-    } finally {
-      setIsManualDeriving(false);
-    }
-  };
 
   // Issue #1092: stabilised with `useCallback` because the route's
   // `<AiActionSection>` action list below depends on it — the memo would
@@ -615,8 +536,8 @@ export default function NeedsEditors(): JSX.Element {
               <div className="detail-action-zone">
                 <DeriveRequirementForm
                   isOpen={showDeriveForm}
-                  onOpen={() => setShowDeriveForm(true)}
-                  onCancel={() => { setShowDeriveForm(false); setDeriveError(null); }}
+                  onOpen={openDeriveForm}
+                  onCancel={closeDeriveForm}
                   onSubmit={(e) => { e.preventDefault(); void handleManualDerive(); }}
                   title={deriveTitle}
                   onTitleChange={setDeriveTitle}

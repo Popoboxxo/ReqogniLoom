@@ -34,7 +34,8 @@ import {
   type ImportResult,
   type ReqifImportResult,
 } from "../../api/import";
-import { exportApi, type ExportEntityType } from "../../api/export";
+import type { ExportEntityType } from "../../api/export";
+import { useCsvExports } from "./use-csv-exports";
 import { PageHeader } from "../shared/PageHeader";
 import { Spinner } from "../shared/Spinner/Spinner";
 import { ENTITY_TYPE_I18N_KEYS } from "../../constants/entityTypeLabels";
@@ -806,13 +807,18 @@ export function CsvImport(): JSX.Element {
   const [preview, setPreview] = useState<CsvPreview | null>(null);
   const [showAllErrors, setShowAllErrors] = useState(false);
 
-  const [exportEntityType, setExportEntityType] = useState<ExportEntityType>("Requirement");
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
+  const {
+    exportEntityType,
+    setExportEntityType,
+    isExporting,
+    exportError,
+    handleExport,
+    isExportingReqif,
+    reqifExportError,
+    handleExportReqif,
+  } = useCsvExports({ workspaceId: activeWorkspace?.id, t });
 
   // REQ-146: ReqIF 1.2 export (StakeholderNeeds, Requirements, TraceLinks).
-  const [isExportingReqif, setIsExportingReqif] = useState(false);
-  const [reqifExportError, setReqifExportError] = useState<string | null>(null);
 
   // REQ-147: ReqIF 1.2 import (StakeholderNeeds, Requirements, TraceLinks).
   const [selectedReqifFile, setSelectedReqifFile] = useState<File | null>(null);
@@ -940,41 +946,6 @@ export function CsvImport(): JSX.Element {
       setIsUploading(false);
     }
   }, [selectedFile, activeWorkspace, entityType, t]);
-
-  const handleExport = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace) return;
-
-    setIsExporting(true);
-    setExportError(null);
-
-    try {
-      await exportApi.downloadCsv(activeWorkspace.id, exportEntityType);
-    } catch (err) {
-      setExportError(
-        err instanceof Error ? err.message : t("export.errorGeneric", "Export failed")
-      );
-    } finally {
-      setIsExporting(false);
-    }
-  }, [activeWorkspace, exportEntityType, t]);
-
-  // REQ-146: ReqIF 1.2 export (StakeholderNeeds, Requirements, TraceLinks).
-  const handleExportReqif = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace) return;
-
-    setIsExportingReqif(true);
-    setReqifExportError(null);
-
-    try {
-      await exportApi.downloadReqif(activeWorkspace.id);
-    } catch (err) {
-      setReqifExportError(
-        err instanceof Error ? err.message : t("export.errorGeneric", "Export failed")
-      );
-    } finally {
-      setIsExportingReqif(false);
-    }
-  }, [activeWorkspace, t]);
 
   const handleReset = useCallback((): void => {
     setSelectedFile(null);

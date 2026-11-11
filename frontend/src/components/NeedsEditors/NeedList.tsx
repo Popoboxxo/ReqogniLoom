@@ -7,10 +7,11 @@
  * Search + status filter + sort remain in ListToolbar; WorkspaceTree
  * receives the already-filtered list and renders it as compact tree rows.
  */
-import { useState, useMemo, useCallback, useRef, type RefObject } from 'react';
+import { useMemo, useCallback, useRef, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useArtifactList } from '../../hooks/useArtifactList';
+import { useNeedListFilters, type NeedSortKey } from './use-need-list-filters';
 import { ListToolbar } from '../shared/ListToolbar';
 import { EmptyState } from '../shared/EmptyState';
 import { Dialog } from '../shared/Dialog';
@@ -81,7 +82,6 @@ interface NeedListProps {
   workspaceId?: string | null;
 }
 
-type NeedSortKey = 'default' | 'title' | 'status' | 'updated';
 
 function sortNeeds(
   list: StakeholderNeed[],
@@ -157,9 +157,15 @@ export function NeedList({
   });
   const creationErrors = createFieldErrors ?? {};
   const navigate = useNavigate();
-  const [listSearch, setListSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [sortKey, setSortKey] = useState<NeedSortKey>('default');
+  const {
+    listSearch,
+    setListSearch,
+    statusFilter,
+    setStatusFilter,
+    sortKey,
+    setSortKey,
+    resetFilters,
+  } = useNeedListFilters();
   // #802: the create form lives in the shared <Dialog> now, which moves the
   // initial focus itself (the dialog's first tabbable element would otherwise
   // be the close button) — so the title field is targeted explicitly instead
@@ -453,10 +459,7 @@ export function NeedList({
         <EmptyState
           variant="no-match"
           testId="need-list-no-match"
-          onResetFilters={() => {
-            setListSearch('');
-            setStatusFilter('');
-          }}
+          onResetFilters={resetFilters}
         />
       ) : (
         // Unified tree navigation — REQ-003

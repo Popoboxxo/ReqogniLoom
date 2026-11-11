@@ -23,7 +23,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getAllPages } from "../../api/client";
-import { memoryApi, type MemoryDigest, type MemoryEntry, type MemoryScope } from "../../api/memory";
+import { memoryApi, type MemoryEntry, type MemoryScope } from "../../api/memory";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useHasRole } from "../../hooks/useHasRole";
 import type { Artifact } from "../../types";
@@ -36,6 +36,8 @@ import {
   formatMemoryDate,
   formatMemoryErrorMessage,
 } from "./memory-format";
+import { useMemoryDigest } from "./use-memory-digest";
+import { useMemorySearch } from "./use-memory-search";
 import styles from "./MemoryPage.module.css";
 
 type MemoryTab = Extract<MemoryScope, "workspace" | "user" | "artifact">;
@@ -84,10 +86,28 @@ export function MemoryPage(): JSX.Element {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
 
   // --- semantic search --------------------------------------------------
-  const [searchInput, setSearchInput] = useState("");
-  const [searchResults, setSearchResults] = useState<MemoryEntry[] | null>(null);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
+  const {
+    searchInput,
+    searchResults,
+    isSearching,
+    searchError,
+    setSearchInput,
+    handleSearch,
+    clearSearch,
+  } = useMemorySearch({
+    workspaceId,
+    scope: activeTab,
+    artifactId,
+    t,
+    onDegraded: setIsDegraded,
+    resetKey: [activeTab, workspaceId, artifactId, contributorId, filterQuery].join("|"),
+  });
+
+  // --- digest (#1296) ---------------------------------------------------
+  const { digest, isDigestLoading, digestError, loadDigest } = useMemoryDigest(
+    workspaceId,
+    t
+  );
 
   // --- actions ----------------------------------------------------------
   const [showAddFact, setShowAddFact] = useState(false);
@@ -100,9 +120,6 @@ export function MemoryPage(): JSX.Element {
   >(null);
 
   // --- digest (RFC #1002 F6 / Phase 3) ----------------------------------
-  const [digest, setDigest] = useState<MemoryDigest | null>(null);
-  const [isDigestLoading, setIsDigestLoading] = useState(false);
-  const [digestError, setDigestError] = useState<string | null>(null);
 
   // Monotonic request id so a stale response can never overwrite fresh state.
   const requestIdRef = useRef(0);
@@ -212,8 +229,6 @@ export function MemoryPage(): JSX.Element {
 
   // Reload from page 1 whenever the tab or a filter changes.
   useEffect(() => {
-    setSearchResults(null);
-    setSearchError(null);
     loadEntries(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, workspaceId, artifactId, contributorId, filterQuery]);
@@ -229,43 +244,6 @@ export function MemoryPage(): JSX.Element {
 
   const handleContributorApply = (): void => {
     setContributorId(contributorInput.trim());
-  };
-
-  const handleSearch = (): void => {
-    const query = searchInput.trim();
-    if (!query || !workspaceId) return;
-    if (activeTab === "artifact" && !artifactId) {
-      setSearchError(
-        t("memory.artifactRequired", "Bitte zuerst ein Artefakt auswählen.")
-      );
-      return;
-    }
-    setIsSearching(true);
-    setSearchError(null);
-    memoryApi
-      .searchWorkspaceMemory(workspaceId, {
-        q: query,
-        scope: activeTab,
-        artifact_id: activeTab === "artifact" ? artifactId : undefined,
-        top_k: 20,
-      })
-      .then((result) => {
-        setSearchResults(result.items);
-        setIsDegraded(result.degraded);
-      })
-      .catch((err: unknown) => {
-        setSearchResults([]);
-        setSearchError(
-          formatMemoryErrorMessage(err, t("memory.searchError", "Suche fehlgeschlagen."))
-        );
-      })
-      .finally(() => setIsSearching(false));
-  };
-
-  const clearSearch = (): void => {
-    setSearchInput("");
-    setSearchResults(null);
-    setSearchError(null);
   };
 
   const handlePromote = async (entry: MemoryEntry): Promise<void> => {
@@ -326,34 +304,6 @@ export function MemoryPage(): JSX.Element {
     setShowAddFact(false);
     loadEntries(1);
   };
-
-  // Drop a stale digest when the workspace changes: the digest is
-  // workspace-bound and must never leak across tenants.
-  useEffect(() => {
-    setDigest(null);
-    setDigestError(null);
-  }, [workspaceId]);
-
-  // RFC #1002 F6: the digest is loaded on demand ("load/refresh"), never on
-  // mount, so visiting the page stays a single list request.
-  const loadDigest = useCallback((): void => {
-    if (!workspaceId) return;
-    setIsDigestLoading(true);
-    setDigestError(null);
-    memoryApi
-      .getWorkspaceDigest(workspaceId)
-      .then((result) => setDigest(result))
-      .catch((err: unknown) => {
-        setDigest(null);
-        setDigestError(
-          formatMemoryErrorMessage(
-            err,
-            t("memory.digest.error", "Digest konnte nicht geladen werden.")
-          )
-        );
-      })
-      .finally(() => setIsDigestLoading(false));
-  }, [workspaceId, t]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const isShowingSearch = searchResults !== null;
