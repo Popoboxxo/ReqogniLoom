@@ -39,10 +39,7 @@ import { TraceLinkPanel } from "../shared/TraceLinkPanel";
 import { DeriveRequirementForm } from "../shared/DeriveRequirementForm";
 import { ArchitectureDecomposePanel } from "../ArchitectureDecompose/ArchitectureDecomposePanel";
 import { AiActionSection, type AiActionDescriptor } from "../shared/AiActions";
-import {
-  AiDerivationDialog,
-  type AiDerivationDraft,
-} from "../shared/AiDerivationDialog";
+import { AiDerivationDialog } from "../shared/AiDerivationDialog";
 import { RequirementBundleExportPanel } from "../RequirementBundleExport/RequirementBundleExportPanel";
 import { requirementsApi } from "../../api/requirements";
 import { tracelinksApi } from "../../api/tracelinks";
@@ -50,6 +47,7 @@ import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { EntityTypeProvider } from "../../context/EntityTypeContext";
 import { architectureApi } from "../../api/architecture";
+import { useRiskDerivation } from "./use-risk-derivation";
 import { artifactsApi } from "../../api/artifacts";
 import { extractApiErrorMessage } from "../../api/client";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -181,70 +179,18 @@ export default function ArchitectureEditors(): JSX.Element {
   const [showDecomposeCloseConfirm, setShowDecomposeCloseConfirm] = useState(false);
 
   // #1360 (W12c): AI risk derivation state (the shared review dialog).
-  const [riskOpen, setRiskOpen] = useState(false);
-  const [riskDrafts, setRiskDrafts] = useState<AiDerivationDraft[] | null>(null);
-  const [riskLoading, setRiskLoading] = useState(false);
-  const [riskLoadError, setRiskLoadError] = useState<string | null>(null);
-  const [riskSaving, setRiskSaving] = useState(false);
-  const [riskSubmitError, setRiskSubmitError] = useState<string | null>(null);
-  const [riskStatus, setRiskStatus] = useState<string | null>(null);
-
-  /**
-   * #1358/#1360: `derive-risks` preview (`ephemeral: true`) feeds the shared
-   * review dialog; Confirm / "Review later" call the `mode="write"` seam.
-   */
-  const openRiskDialog = useCallback(async (): Promise<void> => {
-    if (!element) return;
-    setRiskOpen(true);
-    setRiskDrafts(null);
-    setRiskLoadError(null);
-    setRiskSubmitError(null);
-    setRiskLoading(true);
-    try {
-      const preview = await architectureApi.deriveRisksPreview(element.id);
-      setRiskDrafts(
-        preview.drafts.map((draft) => ({
-          title: draft.title,
-          description: draft.description,
-        }))
-      );
-    } catch (err: unknown) {
-      const apiErr = err as { error?: { message?: string } };
-      setRiskLoadError(apiErr?.error?.message ?? t("needs.deriveFailed"));
-    } finally {
-      setRiskLoading(false);
-    }
-  }, [element, t]);
-
-  const closeRiskDialog = useCallback((): void => {
-    setRiskOpen(false);
-    setRiskDrafts(null);
-    setRiskLoadError(null);
-    setRiskSubmitError(null);
-  }, []);
-
-  const handleRiskDecision = useCallback(
-    async (parked: boolean): Promise<void> => {
-      if (!element) return;
-      setRiskSaving(true);
-      setRiskSubmitError(null);
-      try {
-        const receipt = await architectureApi.deriveRisksWrite(element.id);
-        setRiskStatus(
-          t(parked ? "aiDerivation.statusParked" : "aiDerivation.statusCreated", {
-            count: receipt.written.length,
-          })
-        );
-        closeRiskDialog();
-      } catch (err: unknown) {
-        const apiErr = err as { error?: { message?: string } };
-        setRiskSubmitError(apiErr?.error?.message ?? t("needs.deriveFailed"));
-      } finally {
-        setRiskSaving(false);
-      }
-    },
-    [element, t, closeRiskDialog]
-  );
+  const {
+    riskOpen,
+    riskDrafts,
+    riskLoading,
+    riskLoadError,
+    riskSaving,
+    riskSubmitError,
+    riskStatus,
+    openRiskDialog,
+    closeRiskDialog,
+    decide: handleRiskDecision,
+  } = useRiskDerivation(element ?? null, t);
 
   const requestCloseDecomposePanel = useCallback((): void => {
     if (decomposeHasPendingWork) {
