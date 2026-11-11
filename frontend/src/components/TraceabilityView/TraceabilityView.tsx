@@ -71,6 +71,7 @@ import {
   type TraceEndpoint,
 } from "../../utils/traceEndpoints";
 import styles from "./TraceabilityView.module.css";
+import { useTraceabilityFilters } from "./use-traceability-filters";
 import type {
   ArchitectureElement,
   Artifact,
@@ -814,11 +815,17 @@ export default function TraceabilityView(): JSX.Element {
   // impact-preset.ts), instead of running its own second impact query.
   const [impactArtifact, setImpactArtifact] = useState<string>("");
   // REQ-005/#181: list-panel search + link-type filter (ListToolbar).
-  const [listSearch, setListSearch] = useState<string>("");
-  const [linkTypeFilter, setLinkTypeFilter] = useState<string>("");
+  const {
+    listSearch,
+    setListSearch,
+    linkTypeFilter,
+    setLinkTypeFilter,
+    showUncoveredOnly,
+    setShowUncoveredOnly,
+    resetFilters,
+  } = useTraceabilityFilters();
   // #413: "nicht abgedeckt" filter — swaps the link list for the list of
   // requirements without a verifying test.
-  const [showUncoveredOnly, setShowUncoveredOnly] = useState<boolean>(false);
 
   const { filteredLinks, grouped, groupKeys } = useTraceLinkGroups(
     state.links,
@@ -927,11 +934,7 @@ export default function TraceabilityView(): JSX.Element {
   // analysis panel, so the legacy leftPanel/rightPanel contract (resizable,
   // no null-detail collapse) fits better than the concept list/detail/spine
   // contract, which assumes a nullable per-row detail.
-  const resetListFilters = (): void => {
-    setListSearch("");
-    setLinkTypeFilter("");
-    setShowUncoveredOnly(false);
-  };
+  const resetListFilters = resetFilters;
 
   const coveragePanel = state.requirements.length > 0 && (
     <CoveragePanel
