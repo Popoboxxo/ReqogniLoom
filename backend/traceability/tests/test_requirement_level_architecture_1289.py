@@ -111,19 +111,18 @@ class TestArchitectureAllocatedLevels:
         self, tenant_a, workspace_a
     ):
         # Allocated to two elements at different depths -> disagreement -> None
-        # (a guess would be wrong for at least one edge).
-        import pytest
-        from django.db import IntegrityError
-
+        # (a guess would be wrong for at least one edge). ADR-028 D9 keeps this
+        # state representable, so the derivation itself has to stay honest.
         with active_tenant(tenant_a):
             root = _element(tenant_a, workspace_a, "System")
             child = _element(tenant_a, workspace_a, "Subsystem", parent=root)
             artifact, _ = _requirement(tenant_a, workspace_a, "R")
             _allocate(tenant_a, artifact, root)
-            # P2 makes N:1 a database invariant, so the old "two allocations
-            # at disagreeing depths" scenario is no longer representable.
-            with pytest.raises(IntegrityError):
-                _allocate(tenant_a, artifact, child)
+            _allocate(tenant_a, artifact, child)
+
+            levels = architecture_allocated_levels(tenant_a.id)
+
+        assert levels.get(artifact.id) is None
 
     def test_a_requirement_without_allocation_is_absent(
         self, tenant_a, workspace_a
