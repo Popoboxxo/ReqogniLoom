@@ -46,11 +46,11 @@ import { extractErrorMessage } from "../../api/client";
 import type { WorkspacePreset } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import { safeLocalStorage } from "../../utils/safeStorage";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PageHeader } from "../shared/PageHeader";
 import { useToast } from "../shared/Toast/useToast";
 import { useAttributeConfirmations } from "./use-attribute-confirmations";
+import { useAttributeViewMode } from "./use-attribute-view-mode";
 import { PresetSegmentedControl } from "../WorkflowEditor/PresetSegmentedControl";
 import { WORKFLOW_PRESETS } from "../WorkflowEditor/constants";
 import {
@@ -109,15 +109,6 @@ interface ReorderTarget {
 }
 
 const DEFAULT_ITEM_TYPE: AttributeItemType = "Requirement";
-
-type ViewMode = "list" | "table";
-const VIEW_MODE_STORAGE_KEY = "attributeEditor.viewMode";
-
-function loadViewMode(): ViewMode {
-  // Private browsing / storage disabled is absorbed by the defensive wrapper
-  // (utils/safeStorage) — this is a per-viewer convenience, never load-bearing.
-  return safeLocalStorage.getItem(VIEW_MODE_STORAGE_KEY) === "table" ? "table" : "list";
-}
 
 function itemTypeFromSlug(slug: string | undefined): AttributeItemType | null {
   if (!slug) return null;
@@ -185,19 +176,13 @@ export function AttributeEditorPage({
   const [confirmReset, setConfirmReset] = useState(false);
   const [createSection, setCreateSection] = useState<string | null>(null);
   const [origins, setOrigins] = useState<Record<string, AttributeOrigin>>({});
-  const [viewMode, setViewMode] = useState<ViewMode>(loadViewMode);
+  const { viewMode, setViewMode } = useAttributeViewMode();
   const [pendingImport, setPendingImport] = useState<{
     document: AttributeDefinitionDocument;
     fileName: string;
   } | null>(null);
   const [showCatalog, setShowCatalog] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleSetViewMode = useCallback((mode: ViewMode): void => {
-    setViewMode(mode);
-    // Same non-load-bearing contract as loadViewMode above.
-    safeLocalStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
-  }, []);
 
   /**
    * Store a definition fetched from the server (or just written back), after
@@ -829,7 +814,7 @@ export function AttributeEditorPage({
             data-testid="attribute-editor-view-list"
             aria-pressed={viewMode === "list"}
             disabled={viewMode === "list"}
-            onClick={() => handleSetViewMode("list")}
+            onClick={() => setViewMode("list")}
           >
             {t("attributes.viewMode.list")}
           </button>
@@ -839,7 +824,7 @@ export function AttributeEditorPage({
             data-testid="attribute-editor-view-table"
             aria-pressed={viewMode === "table"}
             disabled={viewMode === "table"}
-            onClick={() => handleSetViewMode("table")}
+            onClick={() => setViewMode("table")}
           >
             {t("attributes.viewMode.table")}
           </button>
