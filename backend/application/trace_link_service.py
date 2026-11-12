@@ -691,6 +691,20 @@ class TraceLinkService(ServiceBase):
         # ``artifact_type == "Requirement"``) and idempotent, which is why
         # ``allocate()`` may call it a second time after its intent write.
         if link_type == LinkType.ALLOCATED_TO:
+            # ADR-028: the edge stays the graph truth; the object next to it
+            # carries status/release/primary. One choke point covers
+            # ``allocate()`` and a generic ``traceability.create_link``.
+            from application.allocation_sync import sync_allocation_for_edge
+
+            # ``result`` is a real row in production; unit tests replace the
+            # persistence call with a double. Only a real UUID is a usable
+            # tenant filter.
+            edge_tenant_id = getattr(result, "tenant_id", None)
+            sync_allocation_for_edge(
+                requirement_artifact_id=resolved_source,
+                element_artifact_id=resolved_target,
+                tenant_id=edge_tenant_id if isinstance(edge_tenant_id, UUID) else None,
+            )
             recompute_requirement_levels([resolved_source])
         return result
 
@@ -1368,6 +1382,17 @@ class TraceLinkService(ServiceBase):
         except TraceLink.DoesNotExist as exc:
             raise NotFoundError(f"TraceLink {link_id} not found") from exc
 
+        # ADR-028: deleting the edge archives its allocation object. The
+        # snapshot above is used because the row is gone at this point.
+        if row is not None and row["link_type"] == LinkType.ALLOCATED_TO:
+            from application.allocation_sync import revoke_allocation_for_edge
+
+            revoke_allocation_for_edge(
+                requirement_artifact_id=row["source_id"],
+                element_artifact_id=row["target_id"],
+                reason="Trace link deleted.",
+            )
+
         if row is not None:
             # P2.6: dropping an allocation removes the requirement's strongest
             # tier source, so the derived tier must fall back to the hierarchy
@@ -1478,6 +1503,13 @@ class TraceLinkService(ServiceBase):
             link_type=LinkType.ALLOCATED_TO,
         )
         if existing.exists():
+            # ADR-028: the replaced allocation is archived, not forgotten.
+            from application.allocation_sync import revoke_allocations_for_requirement
+
+            revoke_allocations_for_requirement(
+                requirement_artifact_id=req_artifact_id,
+                reason="Replaced by a new allocation.",
+            )
             existing.delete()
 
         # Create new allocated-to link
@@ -1528,9 +1560,15 @@ class TraceLinkService(ServiceBase):
             raise NotFoundError(f"Requirement {requirement_id} not found")
         self._assert_not_frozen(req)
 
+        from application.allocation_sync import revoke_allocations_for_requirement
+
         TraceLink.objects.filter(
             source_id=req.artifact_id, link_type=LinkType.ALLOCATED_TO
         ).delete()
+        revoke_allocations_for_requirement(
+            requirement_artifact_id=UUID(str(req.artifact_id)),
+            reason="Requirement deallocated.",
+        )
         Requirement.objects.filter(id=requirement_id).update(
             allocation_intent="unassigned"
         )

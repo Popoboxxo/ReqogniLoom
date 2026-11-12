@@ -5287,6 +5287,100 @@ class WorkspaceTier(TenantScopedModel):
         return f"WorkspaceTier({self.workspace_id}, {self.tier_key}, {self.position})"
 
 
+class AllocationStatus(models.TextChoices):
+    """Lifecycle of one requirement-to-element allocation (ADR-028)."""
+
+    DRAFT = "draft", "Draft"
+    RELEASED = "released", "Released"
+    REVOKED = "revoked", "Revoked"
+
+
+class Allocation(TenantScopedModel):
+    """The object behind one ``TraceLink(allocated-to)`` edge (ADR-028).
+
+    ADR-027 derives a requirement's tier from its allocation. This row adds
+    what a plain edge cannot carry: a lifecycle status, a release stamp and the
+    "leading" marker for the configurable multi-allocation mode (D9).
+
+    Invariant (see ``application/allocation_invariant.py``): every **active**
+    allocation (``draft``/``released``) has exactly one matching
+    ``TraceLink(allocated-to)`` edge and vice versa. ``revoked`` is an archive
+    state without an edge, so revoking keeps the audit trail without keeping a
+    live allocation.
+    """
+
+    workspace = models.ForeignKey(
+        "persistence.Workspace",
+        on_delete=models.CASCADE,
+        related_name="allocations",
+        db_index=True,
+    )
+    requirement_artifact = models.ForeignKey(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="allocations_as_requirement",
+        db_index=True,
+    )
+    element_artifact = models.ForeignKey(
+        "persistence.Artifact",
+        on_delete=models.CASCADE,
+        related_name="allocations_as_element",
+        db_index=True,
+    )
+    status = models.CharField(
+        max_length=16,
+        choices=AllocationStatus.choices,
+        default=AllocationStatus.DRAFT,
+        db_index=True,
+    )
+    #: D9: only meaningful when the workspace switches the cardinality to
+    #: ``multiple``. Exactly one leading edge resolves the tier; two leading
+    #: edges are rejected, none leaves the tier ``unresolved``.
+    is_primary = models.BooleanField(default=True)
+    released_at = models.DateTimeField(null=True, blank=True)
+    released_by = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="allocations_released",
+    )
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revocation_reason = models.TextField(blank=True, default="")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["requirement_artifact", "element_artifact"],
+                condition=models.Q(status__in=["draft", "released"]),
+                name="uq_allocation_active_pair",
+            ),
+            models.UniqueConstraint(
+                fields=["requirement_artifact"],
+                condition=models.Q(is_primary=True, status__in=["draft", "released"]),
+                name="uq_allocation_one_primary_per_requirement",
+            ),
+        ]
+        db_table = "pl_allocation"
+        indexes = [
+            models.Index(
+                fields=["tenant", "workspace"], name="idx_allocation_ws"
+            ),
+            models.Index(
+                fields=["workspace", "element_artifact"], name="idx_allocation_element"
+            ),
+            models.Index(
+                fields=["workspace", "status"], name="idx_allocation_status"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"Allocation({self.requirement_artifact_id} -> "
+            f"{self.element_artifact_id}, {self.status})"
+        )
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -5357,4 +5451,6 @@ __all__ = [
     "Milestone",
     # P2: per-workspace tier ladder.
     "WorkspaceTier",
+    "Allocation",
+    "AllocationStatus",
 ]
