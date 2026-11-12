@@ -124,6 +124,22 @@ def _standard_transitions() -> list[dict[str, Any]]:
             "signature_gate": False,
         },
         {
+            # ADR-028 A1: the release edge. Entering "released" freezes the
+            # content position (state_meta.freeze_on_enter).
+            "from_state": "approved",
+            "to_state": "released",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "released",
+            "to_state": "deprecated",
+            "allowed_roles": ["admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
             "from_state": "approved",
             "to_state": "deprecated",
             "allowed_roles": ["approver", "admin"],
@@ -196,6 +212,29 @@ def _extended_transitions() -> list[dict[str, Any]]:
         # existing approved->deprecated gate (same allowed_roles/
         # requires_change_reason shape) since deprecating a verified artifact
         # is an equivalent-weight governance action.
+        {
+            # ADR-028 A1: release after verification.
+            "from_state": "verified",
+            "to_state": "released",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            # An approved requirement may be released without the V-model tail.
+            "from_state": "approved",
+            "to_state": "released",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "released",
+            "to_state": "deprecated",
+            "allowed_roles": ["admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
         {
             "from_state": "verified",
             "to_state": "deprecated",
@@ -293,6 +332,21 @@ def _architecture_transitions() -> list[dict[str, Any]]:
             "to_state": "deprecated",
             "allowed_roles": ["approver", "admin"],
             "requires_change_reason": False,
+            "signature_gate": False,
+        },
+        {
+            # ADR-028 A1: element release freezes position and allocation.
+            "from_state": "approved",
+            "to_state": "released",
+            "allowed_roles": ["approver", "admin"],
+            "requires_change_reason": True,
+            "signature_gate": False,
+        },
+        {
+            "from_state": "released",
+            "to_state": "deprecated",
+            "allowed_roles": ["admin"],
+            "requires_change_reason": True,
             "signature_gate": False,
         },
     ]
@@ -928,9 +982,16 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
         "transitions": _minimal_transitions(),
     },
     "standard": {
-        "states": ["draft", "approved", "deprecated"],
+        # ADR-028 A1: "released" is the explicit release state; entering it
+        # freezes the content position (freeze_on_enter). Existing rows are
+        # never moved there automatically — the data migration only changes the
+        # definition.
+        "states": ["draft", "approved", "released", "deprecated"],
         "transitions": _standard_transitions(),
-        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
+        "state_meta": {
+            "deprecated": {"is_outdated_equivalent": True},
+            "released": {"freeze_on_enter": True},
+        },
     },
     "extended": {
         # REQ-L2-WE-011: "implemented"/"verified" added after "approved" to
@@ -938,9 +999,21 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
         # WorkflowDefinitionDTO.initial_state) and "deprecated" stays last;
         # existing items already in approved/deprecated are unaffected since
         # both states remain valid members of this preset (backward-compatible).
-        "states": ["draft", "in_review", "approved", "implemented", "verified", "deprecated"],
+        "states": [
+            "draft",
+            "in_review",
+            "approved",
+            "implemented",
+            "verified",
+            "released",
+            "deprecated",
+        ],
         "transitions": _extended_transitions(),
-        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
+        "state_meta": {
+            "deprecated": {"is_outdated_equivalent": True},
+            # ADR-028 A1: explicit release state; see the standard schema.
+            "released": {"freeze_on_enter": True},
+        },
     },
     "ccb_approval": {
         # REQ-157: CCB (Configuration Control Board) approval workflow for
@@ -1102,9 +1175,13 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
     # REQ-171: ArchitectureElement default workflow (no status mirror; state
     # lives in WorkflowItemState only). "draft" is the initial_state.
     "architecture_default": {
-        "states": ["draft", "in_review", "approved", "deprecated"],
+        # ADR-028 A1: explicit release state for the element lifecycle too.
+        "states": ["draft", "in_review", "approved", "released", "deprecated"],
         "transitions": _architecture_transitions(),
-        "state_meta": {"deprecated": {"is_outdated_equivalent": True}},
+        "state_meta": {
+            "deprecated": {"is_outdated_equivalent": True},
+            "released": {"freeze_on_enter": True},
+        },
     },
     # REQ-173: Icd, Diagram, GlossaryTerm share one design/review/approve/retire
     # lifecycle (see _design_lifecycle_transitions). None has a denormalized
