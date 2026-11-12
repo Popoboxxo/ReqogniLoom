@@ -33,7 +33,7 @@ import { ArchitectureArtifactForm } from "./ArchitectureArtifactForm";
 import { ArchitectureLegend } from "./ArchitectureLegend";
 import { Dialog } from "../shared/Dialog";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
-import { SAVE_SHORTCUT_ARIA, useSaveShortcut } from "../../hooks/useSaveShortcut";
+import { SAVE_SHORTCUT_ARIA } from "../../hooks/useSaveShortcut";
 import { useRequiredValidation } from "../shared/useRequiredValidation";
 import { TraceLinkPanel } from "../shared/TraceLinkPanel";
 import { DeriveRequirementForm } from "../shared/DeriveRequirementForm";
@@ -49,6 +49,7 @@ import { EntityTypeProvider } from "../../context/EntityTypeContext";
 import { architectureApi } from "../../api/architecture";
 import { useRiskDerivation } from "./use-risk-derivation";
 import { useArchitectureListFilters } from "./use-architecture-list-filters";
+import { useArchitectureCreate } from "./use-architecture-create";
 import { artifactsApi } from "../../api/artifacts";
 import { extractApiErrorMessage } from "../../api/client";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -59,7 +60,6 @@ import styles from "./ArchitectureEditors.module.css";
 // F-04 (code review, 2026-08-19): shared create-form field styles.
 import fieldHints from "../shared/FieldHints.module.css";
 import { FormField } from "../shared/FormField";
-import { fieldErrorsFromException } from "../shared/ArtifactForm/field-errors";
 import { useFieldContract } from "../../hooks/useFieldContract";
 
 // (Style helpers and dialog moved to ArchitectureForm component)
@@ -123,21 +123,9 @@ export default function ArchitectureEditors(): JSX.Element {
   }, [element]);
 
   // Inline create + search state
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
   // BUG-11 (Systemaudit 2026-08-18, §4): `description` is an ordinary
   // architectureApi.create() field the backend already accepts — it had no
   // editor in this quick-create form.
-  const [newDescription, setNewDescription] = useState('');
-  // #1100: in-flight guard for the create form, so `Ctrl`/`Cmd`+`S` held down
-  // (or button-then-shortcut in one tick) cannot create twice. Matches the
-  // `isCreating` state every other hand-written create dialog already has.
-  const [isCreating, setIsCreating] = useState(false);
-  // FR-U5-01: the state above cannot see a same-tick double submit — React has
-  // not re-rendered between the click and the keydown — so the inline create
-  // handler also holds a synchronous ref (mirror of `savingRef` in
-  // `shared/ArtifactForm/ArtifactForm.tsx`).
-  const submittingRef = useRef(false);
   // REQ-175: lifecycle-status filter. ArchitectureElement has no denormalized
   // workflow status, so we filter on the available lifecycle_status field —
   // sourced from the backing Artifact since the Datenmodell-Konsolidierung.
@@ -157,12 +145,6 @@ export default function ArchitectureEditors(): JSX.Element {
   // the list panel serves both — they are the only two list-level writes.
   const [listActionError, setListActionError] = useState<string | null>(null);
   // GitHub #1392: per-field half of a rejected create (`details[].field`).
-  const [createFieldErrors, setCreateFieldErrors] = useState<Record<string, string[]>>({});
-  // GitHub #1393/#1392: required + `maxLength` from the workspace's own
-  // configuration (`ArchitectureElement.title` is required, 500 characters).
-  const { field } = useFieldContract('ArchitectureElement', {
-    enabled: showCreateForm,
-  });
   // #1732: replaces the #1595 "disabled + hint" decision. The Create button
   // stays active, a click validates, the field is marked and focused.
   const {
@@ -171,6 +153,34 @@ export default function ArchitectureEditors(): JSX.Element {
     focusFirstInvalid,
     clearError,
   } = useRequiredValidation();
+
+  const {
+    showCreateForm,
+    newTitle,
+    newDescription,
+    isCreating,
+    createFieldErrors,
+    setNewTitle,
+    setNewDescription,
+    createFormRef,
+    handleCreate,
+    handleInlineCreate,
+    handleCancelCreate,
+    openCreateForm,
+  } = useArchitectureCreate({
+    workspaceId: activeWorkspace?.id,
+    t,
+    refresh,
+    navigate,
+    validation: { validate, focusFirstInvalid },
+    onError: setListActionError,
+  });
+
+  // GitHub #1393/#1392: required + `maxLength` from the workspace's own
+  // configuration (`ArchitectureElement.title` is required, 500 characters).
+  const { field } = useFieldContract('ArchitectureElement', {
+    enabled: showCreateForm,
+  });
 
   // "Ableiten": create a Requirement allocated to the selected element
   // (SE: Req --allocated-to--> ArchitectureElement).
@@ -273,84 +283,6 @@ export default function ArchitectureEditors(): JSX.Element {
       setIsDeriving(false);
     }
   }, [element, activeWorkspace, deriveTitle, t, navigate]);
-
-  const handleCreate = useCallback(
-    async (parentId?: string, customTitle?: string, customDescription?: string): Promise<void> => {
-      if (!activeWorkspace) return;
-      setListActionError(null);
-      setCreateFieldErrors({});
-      setIsCreating(true);
-      try {
-        const created = await architectureApi.create({
-          workspace_id: activeWorkspace.id,
-          title: customTitle || t("arch.newElementTitle"),
-          element_type: "component",
-          parent_id: parentId ?? undefined,
-          // BUG-11: only send what was actually typed.
-          ...(customDescription?.trim() ? { description: customDescription.trim() } : {}),
-        });
-        setShowCreateForm(false);
-        setNewTitle('');
-        setNewDescription('');
-        refresh();
-        navigate(`/architecture/${created.id}`);
-      } catch (err: unknown) {
-        // #340 (same defect class as RequirementEditors): the server rejects
-        // markup in a title with a 400 naming the field. Logging that to the
-        // console only made a rejected create look like a silent no-op.
-        // GitHub #1392: when the 400 names a field, the reason also lands
-        // under that control inside the dialog.
-        const message = extractApiErrorMessage(err) ?? t("arch.createFailed");
-        setListActionError(message);
-        setCreateFieldErrors(fieldErrorsFromException(err, message));
-      } finally {
-        setIsCreating(false);
-      }
-    },
-    [activeWorkspace, t, refresh, navigate]
-  );
-
-  const handleInlineCreate = useCallback(async () => {
-    // FR-U5-01: same-tick guard for both the Create button and the chord. The
-    // two entry points both route here, so one guard covers the dialog; the
-    // tree's own "+ child" path (`handleCreate`) is a separate, single gesture.
-    if (submittingRef.current) return;
-    const fields = [
-      { name: 'title', value: newTitle, inputId: 'arch-new-title' },
-    ];
-    const invalid = validate(fields);
-    if (invalid.length > 0) {
-      focusFirstInvalid(fields, invalid);
-      return;
-    }
-    submittingRef.current = true;
-    try {
-      await handleCreate(undefined, newTitle.trim(), newDescription);
-    } finally {
-      submittingRef.current = false;
-    }
-  }, [newTitle, newDescription, handleCreate, validate, focusFirstInvalid]);
-
-  // #1100: the inline create form is hand-written, so it opts into the shared
-  // shortcut (see AdrEditors for the same wiring and the topmost-form
-  // rationale). Enabled only while the dialog is open; the hook's topmost-form
-  // rule makes it win over the detail form still mounted behind it.
-  const createFormRef = useRef<HTMLFormElement | null>(null);
-  useSaveShortcut({
-    onSave: handleInlineCreate,
-    enabled: showCreateForm,
-    isSaving: isCreating,
-    containerRef: createFormRef,
-    canSave: newTitle.trim().length > 0,
-  });
-
-  // F-08 (Dialog migration): Escape / backdrop click / × must discard the
-  // draft exactly like the existing Cancel button.
-  const handleCancelCreate = useCallback((): void => {
-    setShowCreateForm(false);
-    setNewTitle('');
-    setNewDescription('');
-  }, []);
 
   // F-08: preserve the previous `autoFocus` UX — Dialog's focus trap
   // defaults to the first focusable element (its own × close button).
@@ -761,7 +693,7 @@ export default function ArchitectureEditors(): JSX.Element {
               'Architecture elements map system, subsystems and components onto the V-model hierarchy.',
             )}
             actions={[
-              { label: t('arch.newElement', 'New Architecture Element'), prefixWithPlus: true, onClick: () => setShowCreateForm(true), testId: 'arch-tree-empty-create' },
+              { label: t('arch.newElement', 'New Architecture Element'), prefixWithPlus: true, onClick: openCreateForm, testId: 'arch-tree-empty-create' },
             ]}
           />
         ) : archTreeNodes.length === 0 ? (
@@ -1034,7 +966,7 @@ export default function ArchitectureEditors(): JSX.Element {
         primaryAction={{
           label: t("arch.newElement"),
           prefixWithPlus: true,
-          onClick: () => setShowCreateForm(true),
+          onClick: openCreateForm,
           disabled: showCreateForm,
           testId: "create-arch-btn",
           triggerRef: createTriggerRef,
