@@ -202,6 +202,8 @@ def test_get_template_content_covers_all_eight_names():
         "decision_to_adr",
         "goal_aggregate",
         "bundle_compression",
+        # Issue #18: optional AI summary of one search result page.
+        "search_summary",
         "interview.grounding_rank",
         "interview.chat_turn",
         "interview.transcript_summary",
