@@ -91,15 +91,46 @@ jobs:
       - name: Materialise compose env file
         # deploy/docker-compose.yml declares `env_file: .env`; CI has no .env
         # (gitignored), so materialise it from the tracked example first.
-        run: cp .env.example .env
+        # The compose file resolves `env_file` relative to its own directory,
+        # hence the copy into deploy/ as well.
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          ADMIN_PW="$(openssl rand -hex 16)"
+          FERNET="$(python3 -c 'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"
+          echo "::add-mask::$ADMIN_PW"
+          echo "::add-mask::$FERNET"
+          sed -i "s|^SYSTEM_ADMIN_PASSWORD=.*|SYSTEM_ADMIN_PASSWORD=$ADMIN_PW|" .env
+          sed -i "s|^FIELD_ENCRYPTION_KEY=.*|FIELD_ENCRYPTION_KEY=$FERNET|" .env
+          cp .env deploy/.env
+          echo "SYSTEM_ADMIN_PASSWORD=$ADMIN_PW" >> "$GITHUB_ENV"
 
-      - name: Start postgres/redis/backend from the real compose files
+
+      - name: Start postgres and redis from the real compose files
         run: |
           set -euo pipefail
           docker compose \
             -f deploy/docker-compose.yml \
             -f testing/docker-compose.test.yml \
-            up -d postgres redis backend
+            up -d postgres redis
+
+      - name: Apply migrations and run self-init
+        # `migrate` also runs the post-migrate self-init, which provisions the
+        # admin account, the base workspace and the default definitions.
+        run: |
+          set -euo pipefail
+          docker compose \
+            -f deploy/docker-compose.yml \
+            -f testing/docker-compose.test.yml \
+            run --rm migrate
+
+      - name: Start the backend
+        run: |
+          set -euo pipefail
+          docker compose \
+            -f deploy/docker-compose.yml \
+            -f testing/docker-compose.test.yml \
+            up -d backend
 
       - name: Wait for the backend health endpoint (host port 8001)
         run: |
@@ -115,12 +146,37 @@ jobs:
           docker compose -f deploy/docker-compose.yml logs --tail=100 backend >&2 || true
           exit 1
 
+      - name: Bootstrap admin and read-only key
+        run: |
+          set -euo pipefail
+          login="$(curl -fsS -X POST http://localhost:8001/api/v1/auth/login/ \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"admin\",\"password\":\"$SYSTEM_ADMIN_PASSWORD\"}")"
+          token="$(printf '%s' "$login" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("token",""))')"
+          if [ -z "$token" ]; then
+            echo "ERROR: login returned no body token (AUTH_LOGIN_INCLUDE_BODY_TOKEN off?)" >&2
+            exit 1
+          fi
+          key="$(curl -fsS -X POST http://localhost:8001/api/v1/api-keys/ \
+            -H "Authorization: Bearer $token" \
+            -H 'Content-Type: application/json' \
+            -d '{"name":"client-smoke","scope":"read_only"}' \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin)["plaintext"])')"
+          echo "::add-mask::$key"
+          echo "REQOGNILOOM_API_KEY=$key" >> "$GITHUB_ENV"
+
+      - name: Probe the MCP endpoint
+        # Server-side proof, independent of any client binary.
+        run: |
+          set -euo pipefail
+          python3 scripts/clients/mcp_probe.py \
+            --url http://localhost:8001 \
+            --key-env REQOGNILOOM_API_KEY \
+            --json | tee probe.json
+
       - name: Install client against the local instance
         env:
           CLIENT: ${{ matrix.client }}
-          # Test key (QA workspace only) — referenced, never a literal. May not
-          # exist yet in the draft state; that is intentional.
-          REQOGNILOOM_API_KEY: ${{ secrets.QA_CLIENT_KEY }}
         run: |
           set -euo pipefail
           # `bash` prefix keeps this working even if the checkout lost the
@@ -135,7 +191,6 @@ jobs:
       - name: Verify client connection
         env:
           CLIENT: ${{ matrix.client }}
-          REQOGNILOOM_API_KEY: ${{ secrets.QA_CLIENT_KEY }}
         run: |
           set -euo pipefail
           bash scripts/clients/verify.sh --client "$CLIENT"

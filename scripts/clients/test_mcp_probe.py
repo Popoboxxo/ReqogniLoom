@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 import pytest
 
-from mcp_probe import ProbeResult, _Response, probe
+from mcp_probe import ProbeResult, _Response, endpoint_url, probe
 
 Responder = Callable[[dict[str, Any]], tuple[int, Any, str]]
 
@@ -45,7 +45,7 @@ def _default_responder(frame: dict[str, Any]) -> tuple[int, Any, str]:
                 "id": frame.get("id"),
                 "result": {
                     "tools": [
-                        {"name": "requirement_query"},
+                        {"name": "requirement.query"},
                         {"name": "artifact_search"},
                         {"name": "memory_search"},
                     ]
@@ -88,6 +88,12 @@ def _probe(transport: FakeTransport, **kwargs: Any) -> ProbeResult:
     return probe("http://stub/mcp/", "k", transport=transport, **kwargs)
 
 
+def test_endpoint_url_accepts_a_base_or_the_full_endpoint() -> None:
+    assert endpoint_url("http://host:8001") == "http://host:8001/mcp/"
+    assert endpoint_url("http://host:8001/") == "http://host:8001/mcp/"
+    assert endpoint_url("http://host:8001/mcp/") == "http://host:8001/mcp/"
+
+
 def test_probe_ok_against_fake_transport() -> None:
     result = _probe(FakeTransport())
 
@@ -115,7 +121,7 @@ def test_probe_follows_tools_list_pagination() -> None:
                         "jsonrpc": "2.0",
                         "id": frame.get("id"),
                         "result": {
-                            "tools": [{"name": "requirement_query"}],
+                            "tools": [{"name": "requirement.query"}],
                             "nextCursor": "page-2",
                         },
                     }
@@ -218,7 +224,7 @@ def test_probe_reads_sse_framed_bodies() -> None:
                 {
                     "jsonrpc": "2.0",
                     "id": frame.get("id"),
-                    "result": {"tools": [{"name": "requirement_query"}]},
+                    "result": {"tools": [{"name": "requirement.query"}]},
                 }
             )
             return 200, f"data: {frame_json}\n\n", "text/event-stream"
