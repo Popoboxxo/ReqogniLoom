@@ -36,6 +36,7 @@ import {
 } from "../../api/import";
 import type { ExportEntityType } from "../../api/export";
 import { useCsvExports } from "./use-csv-exports";
+import { useReqifImport } from "./use-reqif-import";
 import { PageHeader } from "../shared/PageHeader";
 import { Spinner } from "../shared/Spinner/Spinner";
 import { ENTITY_TYPE_I18N_KEYS } from "../../constants/entityTypeLabels";
@@ -97,28 +98,6 @@ function outcomeOf(result: ImportResult): ImportOutcome {
  * when available, and finally to the `Date.now()`/`Math.random()` id style
  * used by canvas-geometry.ts when `crypto` itself is missing.
  */
-function generateIdempotencyUuid(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
-    const bytes = crypto.getRandomValues(new Uint8Array(16));
-    // RFC4122 v4: version 4 in byte 6, variant 10xx in byte 8.
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    const hex = Array.from(bytes, (b): string => b.toString(16).padStart(2, "0"));
-    return (
-      `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-` +
-      `${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`
-    );
-  }
-  // `Math.random()` may return exactly 0, whose base-36 form is "0" — `.slice(2)`
-  // then yields an empty suffix and the id degrades to `reqif-<ts>-`, breaking the
-  // `^reqif-\d+-[0-9a-z]+$` contract. Retry once, then pin a non-empty token.
-  const rand = Math.random().toString(36).slice(2) || Math.random().toString(36).slice(2) || "0";
-  return `${Date.now()}-${rand}`;
-}
-
 interface EntityTypeRadioGroupProps<T extends string> {
   name: string;
   options: readonly T[];
@@ -820,15 +799,22 @@ export function CsvImport(): JSX.Element {
 
   // REQ-146: ReqIF 1.2 export (StakeholderNeeds, Requirements, TraceLinks).
 
-  // REQ-147: ReqIF 1.2 import (StakeholderNeeds, Requirements, TraceLinks).
-  const [selectedReqifFile, setSelectedReqifFile] = useState<File | null>(null);
-  const [reqifDryRun, setReqifDryRun] = useState(false);
-  const [isImportingReqif, setIsImportingReqif] = useState(false);
-  const [reqifImportResult, setReqifImportResult] = useState<ReqifImportResult | null>(null);
-  const [reqifImportError, setReqifImportError] = useState<string | null>(null);
-  // ADR-014 §3: one Idempotency-Key per selected file/attempt so a retry after
-  // a partial failure replays without a second write effect.
-  const reqifIdempotencyKeyRef = useRef<string | null>(null);
+  // REQ-147: ReqIF 1.2 import (own module, #598 S2).
+  const {
+    selectedReqifFile,
+    reqifDryRun,
+    isImportingReqif,
+    reqifImportResult,
+    reqifImportError,
+    setReqifDryRun,
+    handleReqifFileSelect,
+    handleReqifImport,
+    handleReqifReset,
+  } = useReqifImport({
+    workspaceId: activeWorkspace?.id,
+    t,
+    fileInputRef: reqifFileInputRef,
+  });
 
   /**
    * Accepts a picked/dropped file and builds the pre-flight preview.
@@ -960,55 +946,6 @@ export function CsvImport(): JSX.Element {
 
   const handleToggleShowAllErrors = useCallback((): void => {
     setShowAllErrors((shown) => !shown);
-  }, []);
-
-  // REQ-147: ReqIF 1.2 import (StakeholderNeeds, Requirements, TraceLinks).
-  const handleReqifFileSelect = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>): void => {
-      const file = event.target.files?.[0] ?? null;
-      setSelectedReqifFile(file);
-      setReqifImportResult(null);
-      setReqifImportError(null);
-      // A new file selection starts a new idempotency scope.
-      reqifIdempotencyKeyRef.current = file
-        ? `reqif-${generateIdempotencyUuid()}`
-        : null;
-    },
-    []
-  );
-
-  const handleReqifImport = useCallback(async (): Promise<void> => {
-    if (!selectedReqifFile || !activeWorkspace) return;
-
-    setIsImportingReqif(true);
-    setReqifImportError(null);
-    setReqifImportResult(null);
-
-    try {
-      const importResult = await importApi.importReqif(
-        activeWorkspace.id,
-        selectedReqifFile,
-        reqifDryRun,
-        reqifIdempotencyKeyRef.current ?? undefined
-      );
-      setReqifImportResult(importResult);
-    } catch (err) {
-      setReqifImportError(
-        err instanceof Error ? err.message : t("import.errorGeneric", "Import failed")
-      );
-    } finally {
-      setIsImportingReqif(false);
-    }
-  }, [selectedReqifFile, activeWorkspace, reqifDryRun, t]);
-
-  const handleReqifReset = useCallback((): void => {
-    setSelectedReqifFile(null);
-    setReqifImportResult(null);
-    setReqifImportError(null);
-    reqifIdempotencyKeyRef.current = null;
-    if (reqifFileInputRef.current) {
-      reqifFileInputRef.current.value = "";
-    }
   }, []);
 
   if (!activeWorkspace) {
