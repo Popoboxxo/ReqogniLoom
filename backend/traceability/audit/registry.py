@@ -124,6 +124,12 @@ CONS_P13 = "CONS-P13"
 #: missing. Advisory (WARNING) at every tier it runs in; see
 #: rules/validation_goals.py.
 VAL_P1 = "VAL-P1"
+#: ADR-028 D9 — a Requirement carries more than one active allocation while
+#: its workspace does not allow that, or while none of them is marked as
+#: leading. Advisory by default; the workspace's
+#: ``allocation.conflict_severity`` raises it to BLOCKER. See
+#: rules/allocation_multiplicity.py.
+ALLOC_P1 = "ALLOC-P1"
 #: #1268 — Interface coverage. Every Icd (Interface Control Document) must carry
 #: a ``references`` link to at least one ArchitectureElement, which is what the
 #: ICD/anchor connector writes on creation (icd/traceability_connector.py). Not
@@ -163,6 +169,7 @@ _STANDARD_RULES: frozenset[str] = frozenset(
         TRACE_P2,  # active at standard too, but as WARNING (see severity_for_tier)
         TRACE_P4,
         TRACE_P6,
+        ALLOC_P1,
         CONS_P9,
         CONS_P10,
         # #1289: level-NULL visibility is advisory at standard too — a corpus
