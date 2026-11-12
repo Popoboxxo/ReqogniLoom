@@ -25,7 +25,7 @@ from uuid import UUID
 
 from django.db import transaction
 
-from application.base import ServiceBase, ValidationError
+from application.base import ReleaseStateError, ServiceBase, ValidationError
 from auth_tenancy.context import AuthContext
 from persistence.models import (
     Allocation,
@@ -177,7 +177,7 @@ class ReleaseService(ServiceBase):
             if state == release_state:
                 continue
             if state not in element_sources:
-                raise ValidationError(
+                raise ReleaseStateError(
                     f"ArchitectureElement {row.id} is in state {state!r}; release "
                     f"is only allowed from {sorted(element_sources)}."
                 )
@@ -196,7 +196,7 @@ class ReleaseService(ServiceBase):
                 if state in (None, requirement_state):
                     continue
                 if state not in requirement_sources:
-                    raise ValidationError(
+                    raise ReleaseStateError(
                         f"Requirement {requirement_id} is in state {state!r}; release "
                         f"is only allowed from {sorted(requirement_sources)}."
                     )
@@ -272,7 +272,7 @@ class ReleaseService(ServiceBase):
                 "reason": "already released",
             }
         if state not in allowed:
-            raise ValidationError(
+            raise ReleaseStateError(
                 f"Requirement {requirement.id} is in state {state!r}; release is "
                 f"only allowed from {sorted(allowed)}."
             )

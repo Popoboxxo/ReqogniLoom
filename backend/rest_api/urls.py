@@ -89,6 +89,11 @@ from memory.memory_rest import (
     WorkspaceMemorySettingsView,
 )
 from rest_api.api_key_views import ApiKeyViewSet
+from rest_api.release_views import (
+    ElementReleaseImpactView,
+    ElementReleaseView,
+    RequirementReleaseView,
+)
 from rest_api.architecture_decompose_views import (
     WorkspaceArchitectureDecomposeCommitView,
     WorkspaceArchitectureDecomposeView,
@@ -1278,6 +1283,25 @@ urlpatterns = [
         "artifacts/<uuid:artifact_id>/comments/",
         ArtifactCommentsView.as_view(),
         name="api-v1-artifact-comments",
+    ),
+    # Release cascade (ADR-028 A1) — the workflow transition into the
+    # ``freeze_on_enter`` state is the only lock. These routes must precede
+    # router.urls so the ``architecture/<pk>/`` and ``requirements/<pk>/``
+    # detail patterns cannot shadow them.
+    path(
+        "architecture/<uuid:element_id>/release-impact/",
+        ElementReleaseImpactView.as_view(),
+        name="api-v1-element-release-impact",
+    ),
+    path(
+        "architecture/<uuid:element_id>/release/",
+        ElementReleaseView.as_view(),
+        name="api-v1-element-release",
+    ),
+    path(
+        "requirements/<uuid:requirement_id>/release/",
+        RequirementReleaseView.as_view(),
+        name="api-v1-requirement-release",
     ),
     # CRUD endpoints — all 7 domain entities
     path("", include(router.urls)),

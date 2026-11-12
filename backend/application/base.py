@@ -159,6 +159,15 @@ class WorkflowFrozenError(ValidationError):
         self.details = {"state": state_name}
 
 
+class ReleaseStateError(ValidationError):
+    """A release was requested from a state that has no release transition.
+
+    The request is well-formed but conflicts with the item's current workflow
+    state, so REST answers **409** (with the allowed source states) instead of
+    a generic 400.
+    """
+
+
 class AllocationConflictError(ValidationError):
     """A generic write tried to create a second ``allocated-to`` edge.
 
