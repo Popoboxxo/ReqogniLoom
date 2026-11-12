@@ -49,6 +49,7 @@ import { useRiskDerivation } from "./use-risk-derivation";
 import { useArchitectureListFilters } from "./use-architecture-list-filters";
 import { useArchitectureCreate } from "./use-architecture-create";
 import { useArchitectureDerive } from "./use-architecture-derive";
+import { useArchitectureDecompose } from "./use-architecture-decompose";
 import { artifactsApi } from "../../api/artifacts";
 import { extractApiErrorMessage } from "../../api/client";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -199,12 +200,17 @@ export default function ArchitectureEditors(): JSX.Element {
     navigate,
   });
 
-  // AI Decompose panel state
-  const [showDecomposePanel, setShowDecomposePanel] = useState(false);
-  // UI-24: an Escape/backdrop close while a generated draft is awaiting
-  // review (or a commit is in flight) must not discard it silently.
-  const [decomposeHasPendingWork, setDecomposeHasPendingWork] = useState(false);
-  const [showDecomposeCloseConfirm, setShowDecomposeCloseConfirm] = useState(false);
+  // AI Decompose panel state (own module, #598 S2).
+  const {
+    showDecomposePanel,
+    showDecomposeCloseConfirm,
+    openDecomposePanel,
+    setDecomposeHasPendingWork,
+    requestCloseDecomposePanel,
+    confirmCloseDecomposePanel,
+    cancelCloseDecomposePanel,
+    handleCommitted: handleDecomposeCommitted,
+  } = useArchitectureDecompose();
 
   // #1360 (W12c): AI risk derivation state (the shared review dialog).
   const {
@@ -219,14 +225,6 @@ export default function ArchitectureEditors(): JSX.Element {
     closeRiskDialog,
     decide: handleRiskDecision,
   } = useRiskDerivation(element ?? null, t);
-
-  const requestCloseDecomposePanel = useCallback((): void => {
-    if (decomposeHasPendingWork) {
-      setShowDecomposeCloseConfirm(true);
-      return;
-    }
-    setShowDecomposePanel(false);
-  }, [decomposeHasPendingWork]);
 
   /**
    * Issue #1092: the route's AI-action set, in one list — the AI Decompose
@@ -244,7 +242,7 @@ export default function ArchitectureEditors(): JSX.Element {
       {
         label: t("archDecompose.trigger"),
         hint: t("archDecompose.triggerHint"),
-        onClick: () => setShowDecomposePanel(true),
+        onClick: openDecomposePanel,
         testId: "arch-decompose-btn",
       },
       {
@@ -870,8 +868,7 @@ export default function ArchitectureEditors(): JSX.Element {
             element={{ id: element.id, title: element.title }}
             onPendingWorkChange={setDecomposeHasPendingWork}
             onCommitted={() => {
-              setDecomposeHasPendingWork(false);
-              setShowDecomposePanel(false);
+              handleDecomposeCommitted();
               refresh();
             }}
           />
@@ -886,12 +883,8 @@ export default function ArchitectureEditors(): JSX.Element {
           title={t("archDecompose.discardDraftTitle")}
           message={t("archDecompose.discardDraftMessage")}
           confirmLabel={t("archDecompose.discardDraftConfirm")}
-          onConfirm={() => {
-            setShowDecomposeCloseConfirm(false);
-            setDecomposeHasPendingWork(false);
-            setShowDecomposePanel(false);
-          }}
-          onCancel={() => setShowDecomposeCloseConfirm(false)}
+          onConfirm={confirmCloseDecomposePanel}
+          onCancel={cancelCloseDecomposePanel}
           testId="arch-decompose-discard-confirm"
         />
       )}
@@ -961,7 +954,7 @@ export default function ArchitectureEditors(): JSX.Element {
           interviewCta,
           {
             label: t("archDecompose.trigger", "KI-Zerlegung"),
-            onClick: () => setShowDecomposePanel(true),
+            onClick: openDecomposePanel,
             disabled: !element || !activeWorkspace,
             testId: "arch-decompose-overflow-btn",
           },
