@@ -2304,6 +2304,8 @@ class TestWorkspaceMemorySettingsPolicyFacade:
                 "interview.transcript_summary",
                 "bundle_compression",
                 "memory.extract",
+                # Issue #18: summarising hits must not feed memory back in.
+                "search_summary",
             }
             declared = {
                 name

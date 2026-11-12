@@ -1010,6 +1010,10 @@
             "minimum": 0,
             "maximum": 1,
             "description": "Optional relevance floor in [0, 1]; default 0 applies no filtering. When > 0, hits whose relevance_score is below this value are dropped before pagination, and total_count counts only the surviving hits."
+          },
+          "include_summary": {
+            "type": "boolean",
+            "description": "Default false. When true, the response gains ai_summary (string or null) and summary_degraded (bool). Triggers one LLM call per request; a provider failure degrades instead of failing."
           }
         },
         "required": [

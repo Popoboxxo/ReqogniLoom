@@ -41,7 +41,14 @@ class PromptSlotSpec:
 #: digests an already-complete transcript; ``memory.extract`` would feed memory
 #: back into the writer that produces it (a feedback loop).
 MEMORY_HARD_OFF_SLOTS: frozenset[str] = frozenset(
-    {"interview.transcript_summary", "bundle_compression", "memory.extract"}
+    {
+        "interview.transcript_summary",
+        "bundle_compression",
+        "memory.extract",
+        # Issue #18: summarising search hits must not feed memory back into
+        # the writer that produces it (ADR-024 AC-1).
+        "search_summary",
+    }
 )
 
 #: Slot families that are memory-free as a family (Plan B/B5 quality slots),
@@ -149,6 +156,7 @@ _DATA_VARIABLES_BY_SLOT: dict[str, tuple[str, ...]] = {
     "workspace_to_glossary": ("workspace_text", *MEMORY_DATA_VARIABLES),
     "decision_to_adr": ("decision_description", *MEMORY_DATA_VARIABLES),
     "bundle_compression": ("bundle_markdown",),
+    "search_summary": ("query", "hits_json"),
     "interview.grounding_rank": (
         "answers_text",
         "candidates_json",

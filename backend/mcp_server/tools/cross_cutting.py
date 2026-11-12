@@ -496,6 +496,15 @@ class CrossCuttingToolGroup(BaseToolGroup):
                             "the surviving hits."
                         ),
                     },
+                    "include_summary": {
+                        "type": "boolean",
+                        "description": (
+                            "Default false. When true, the response gains "
+                            "ai_summary (string or null) and summary_degraded "
+                            "(bool). Triggers one LLM call per request; a "
+                            "provider failure degrades instead of failing."
+                        ),
+                    },
                 },
                 "required": ["query"],
             },
@@ -1454,6 +1463,14 @@ class CrossCuttingToolGroup(BaseToolGroup):
         if min_score < 0.0 or min_score > 1.0:
             raise ParameterError("Parameter 'min_score' must be in [0, 1].")
 
+        # Issue #18 (scope A): an optional AI summary of the returned hits.
+        # Strict boolean, same rule as ``min_score`` above -- a truthy string
+        # must not silently switch on an LLM call.
+        include_summary_raw = params.get("include_summary", False)
+        if not isinstance(include_summary_raw, bool):
+            raise ParameterError("Parameter 'include_summary' must be a boolean.")
+        include_summary = include_summary_raw
+
         try:
             result = self._search_service.search(
                 query=str(query_str),
@@ -1475,7 +1492,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
             # #697 (CWE-209): mask the unmapped cause toward the caller.
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
-        return ToolResult.ok({
+        payload: dict[str, Any] = {
             "results": [
                 {
                     "id": hit.id,
@@ -1500,7 +1517,19 @@ class CrossCuttingToolGroup(BaseToolGroup):
             "vector_backend": result.vector_backend,
             "degraded": result.degraded,
             "degraded_reason": result.degraded_reason,
-        })
+        }
+        if include_summary:
+            # Issue #18: additive, opt-in only. A provider failure degrades to
+            # ``ai_summary=None`` with ``summary_degraded=True`` -- the search
+            # itself still succeeds.
+            from application.search_summary_service import SearchSummaryService
+
+            summary = SearchSummaryService().summarize(
+                query=str(query_str), hits=result.results, ctx=auth_context
+            )
+            payload["ai_summary"] = summary.text
+            payload["summary_degraded"] = summary.degraded
+        return ToolResult.ok(payload)
 
     # ------------------------------------------------------------------
     # artifact.get_tree
