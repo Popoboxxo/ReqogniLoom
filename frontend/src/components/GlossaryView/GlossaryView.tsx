@@ -44,6 +44,7 @@ import { extractErrorMessage } from "../../api/client";
 import { fieldErrorsFromException } from "../shared/ArtifactForm/field-errors";
 import styles from "./GlossaryView.module.css";
 import { useGlossaryDerive } from "./use-glossary-derive";
+import { useGlossaryFilters } from "./use-glossary-filters";
 import {
   GLOSSARY_LIFECYCLE_STATUSES,
   buildSynonymLinkIndex,
@@ -70,10 +71,17 @@ export default function GlossaryView(): JSX.Element {
   // GitHub #1392: per-field half of a rejected save (`details[].field`).
   const [formFieldErrors, setFormFieldErrors] = useState<Record<string, string[]>>({});
   const [rowError, setRowError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterMode, setFilterMode] = useState<FilterMode>("workspace");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("default");
+  const {
+    searchTerm,
+    setSearchTerm,
+    filterMode,
+    setFilterMode,
+    statusFilter,
+    setStatusFilter,
+    sortKey,
+    setSortKey,
+    resetFilters,
+  } = useGlossaryFilters();
 
   // Detail-pane selection (view mode) — independent from `editingId` (the
   // edit-form target), so selecting a row for viewing never surfaces the
@@ -258,12 +266,6 @@ export default function GlossaryView(): JSX.Element {
 
   const updateFormField = (field: keyof GlossaryFormData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const resetFilters = (): void => {
-    setSearchTerm("");
-    setFilterMode("workspace");
-    setStatusFilter("");
   };
 
   // C10: open the picker for (termId, index); clicking the open picker's
