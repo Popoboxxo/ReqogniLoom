@@ -95,7 +95,7 @@ pytest-xdist>=3.8.0,<4.0
 pypdf>=6.21.4,<7.0
 
 # PDF generation (REQ-L2-AS-016, REQ-L1-023)
-reportlab>=5.0.1,<6.0
+reportlab>=5.1.0,<6.0
 
 # WSGI/ASGI HTTP Server (production deployment)
 # gunicorn runs the ASGI app via uvicorn workers so the async MCP SSE
