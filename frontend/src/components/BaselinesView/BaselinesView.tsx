@@ -46,6 +46,7 @@ import styles from "./BaselinesView.module.css";
 import { useBaselinesData } from "./useBaselinesData";
 import { useBaselineCompare } from "./use-baseline-compare";
 import { useBaselineCreateForm } from "./use-baseline-create";
+import { useBaselineDelete } from "./use-baseline-delete";
 
 // GH-513 / F5 (PR #554 review): mirrors the backend
 // `MIN_OVERRIDE_REASON_LENGTH` in `backend/application/baseline_facade.py`
@@ -254,28 +255,14 @@ export default function BaselinesView(): JSX.Element {
     ]
   );
 
-  // UI-20: unified on the shared ConfirmDialog instead of window.confirm —
-  // consistent styling/i18n/focus-trap with the rest of the app.
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-
-  const handleDelete = useCallback(
-    async (id: string): Promise<void> => {
-      try {
-        await deleteBaseline(id);
+  // UI-20: shared ConfirmDialog lifecycle (own module, #598 S2).
+  const { pendingDeleteId, requestDelete, cancelDelete, confirmDelete } =
+    useBaselineDelete({
+      deleteBaseline,
+      onDeleted: (id) => {
         if (selectedId === id) setSelectedId(null);
-      } catch {
-        // Failure surfaces via the hook's `error` (delete mutation error).
-      }
-    },
-    [deleteBaseline, selectedId]
-  );
-
-  const confirmDelete = useCallback((): void => {
-    if (!pendingDeleteId) return;
-    const id = pendingDeleteId;
-    setPendingDeleteId(null);
-    void handleDelete(id);
-  }, [pendingDeleteId, handleDelete]);
+      },
+    });
 
   // Leaving the create form and clearing the selection is page navigation,
   // not compare state — it stays here and wraps the hook's opener.
@@ -535,7 +522,7 @@ export default function BaselinesView(): JSX.Element {
             <button
               type="button"
               data-testid="baseline-delete-btn"
-              onClick={() => setPendingDeleteId(selectedBaseline.id)}
+              onClick={() => requestDelete(selectedBaseline.id)}
               className={styles.deleteBtn}
             >
               {t("actions.delete")}
@@ -779,7 +766,7 @@ export default function BaselinesView(): JSX.Element {
           message={t("baselines.deleteConfirm", "Really delete this baseline?")}
           confirmLabel={t("actions.delete")}
           onConfirm={confirmDelete}
-          onCancel={() => setPendingDeleteId(null)}
+          onCancel={cancelDelete}
           testId="baseline-delete-confirm"
         />
       )}
