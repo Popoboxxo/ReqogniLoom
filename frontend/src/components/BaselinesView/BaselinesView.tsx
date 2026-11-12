@@ -41,22 +41,16 @@ import {
 import { BaselineTagsEditor } from "./BaselineTagsEditor";
 import { BaselineRollbackPanel } from "./BaselineRollbackPanel";
 import { MilestoneList } from "./MilestoneList";
-import { MAX_TAGS, isValidTagLabel } from "./baselineTags";
 import { TagInput } from "../shared/tag-input";
 import styles from "./BaselinesView.module.css";
 import { useBaselinesData } from "./useBaselinesData";
 import { useBaselineCompare } from "./use-baseline-compare";
+import { useBaselineCreateForm } from "./use-baseline-create";
 
 // GH-513 / F5 (PR #554 review): mirrors the backend
 // `MIN_OVERRIDE_REASON_LENGTH` in `backend/application/baseline_facade.py`
 // so the two are not two independently-drifting magic numbers.
 //
-// GH-821 hardens the backend bar beyond length (>= 4 words, >= 3 distinct
-// words, not a copy of the rule ids). The textarea can only mirror the length
-// part; `baselines.overrideHint` states the content requirement, and the
-// backend remains the authority (its 400 is rendered verbatim).
-const MIN_OVERRIDE_REASON_LENGTH = 15;
-
 // Issue #48: mirrors `BaselineSerializer.name` (max_length=500) so the field
 // stops the user at the boundary instead of letting the request come back as
 // a 400 they can only fix by guessing how much to delete.
@@ -112,32 +106,9 @@ export default function BaselinesView(): JSX.Element {
   const [scopeFilter, setScopeFilter] = useState<BaselineScope | "">("");
   // F4.3: server-side tag filter (`GET /api/v1/baselines/?tag=…`).
   const [tagFilter, setTagFilter] = useState<string>("");
-  const [showForm, setShowForm] = useState(false);
   // #1282: the create flow is a modal <Dialog> now — the name field is its
   // initial focus target (matching the other create dialogs).
   const createNameInputRef = useRef<HTMLInputElement | null>(null);
-  // Issue #48: the create form had no name field at all, so every baseline
-  // landed on the backend's `Baseline <ISO timestamp>` fallback and the list
-  // became a wall of indistinguishable timestamps — with no way to say what a
-  // baseline was actually taken for. Optional on purpose: leaving it blank
-  // keeps the old generated-name behaviour rather than blocking the action.
-  const [formName, setFormName] = useState<string>("");
-  // F4.3: optional labels for the new baseline.
-  const [formTags, setFormTags] = useState<string[]>([]);
-  const [formArtifactId, setFormArtifactId] = useState<string>("");
-  // REQ-L1-049: scope is now one of {document, project, global}; default
-  // is "project" to match the backend model default.
-  const [formScope, setFormScope] = useState<BaselineScope>("project");
-  const [isSaving, setIsSaving] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-  // GH-513: the SE-Auditor gate (GH-490) blocks creation while the workspace
-  // has BLOCKER findings, and most findings have no in-UI fix (GH-451) — so a
-  // blocked create must offer the documented waiver instead of a dead end.
-  // The panel appears only after the backend actually answered
-  // SE_AUDITOR_BLOCKED; an unevaluable auditor is not waivable and keeps the
-  // plain error.
-  const [gateBlocked, setGateBlocked] = useState(false);
-  const [overrideReason, setOverrideReason] = useState("");
   // REQ-L2-BL-003: baseline compare (field-level diff). ``showCompare`` swaps
   // the right panel to the compare form + result. The diff state stays local
   // to the container since it is imperative (button-triggered, not a query).
@@ -154,6 +125,38 @@ export default function BaselinesView(): JSX.Element {
     closeCompare,
     handleCompare,
   } = useBaselineCompare(t);
+
+  const {
+    showForm,
+    formName,
+    formTags,
+    formArtifactId,
+    formScope,
+    isSaving,
+    createError,
+    gateBlocked,
+    overrideReason,
+    createSubmitDisabled,
+    overrideSubmitDisabled,
+    setShowForm,
+    setFormName,
+    setFormArtifactId,
+    setFormScope,
+    setIsSaving,
+    setCreateError,
+    setGateBlocked,
+    setOverrideReason,
+    handleFormTagsChange,
+    openCreateForm,
+    closeCreateForm,
+    resetAfterCreate,
+  } = useBaselineCreateForm({
+    t,
+    onBeforeOpen: () => {
+      closeCompare();
+      setSelectedId(null);
+    },
+  });
 
   // All data-fetching (lists, scope preview, detail, create/delete/compare)
   // lives in useBaselinesData (TanStack Query — REQ-049/REQ-050).
@@ -174,6 +177,8 @@ export default function BaselinesView(): JSX.Element {
     deleteBaseline,
     setTags,
   } = useBaselinesData({ showForm, formScope, formArtifactId, selectedId, tagFilter });
+
+
 
   // The render still reads a `state`-shaped object (kept for parity with the
   // pre-decomposition markup).
@@ -199,7 +204,7 @@ export default function BaselinesView(): JSX.Element {
     if (!available) setTagFilter("");
   }, [tagFilter, allTags]);
 
-  // When form opens, default to the first available artifact.
+  // When the form opens, default to the first available artifact.
   useEffect(() => {
     if (showForm && !formArtifactId && artifacts.length > 0) {
       setFormArtifactId(artifacts[0].id);
@@ -208,7 +213,7 @@ export default function BaselinesView(): JSX.Element {
 
   const handleCreate = useCallback(
     async (withOverride = false): Promise<void> => {
-      // REQ-L1-049: ``document`` scope requires an artifact.
+      // REQ-L1-049: document scope requires an artifact.
       if (formScope === "document" && !formArtifactId) {
         setCreateError(t("baselines.artifactRequired"));
         return;
@@ -223,50 +228,30 @@ export default function BaselinesView(): JSX.Element {
           tags: formTags,
           ...(withOverride ? { overrideReason } : {}),
         });
-        setShowForm(false);
-        setFormName("");
-        setFormTags([]);
-        setFormArtifactId("");
-        setFormScope("project");
-        setGateBlocked(false);
-        setOverrideReason("");
+        resetAfterCreate();
         setSelectedId(created.id);
       } catch (err: unknown) {
         setCreateError(baselineErrorMessage(err));
-        // Sticky on purpose: a rejected override (403 / too short) must not
-        // hide the panel the user is in the middle of using.
+        // Sticky on purpose: a rejected override must not hide the panel the
+        // user is in the middle of using.
         if (isSeAuditorBlocked(err)) setGateBlocked(true);
       } finally {
         setIsSaving(false);
       }
     },
-    [formArtifactId, formScope, formName, formTags, overrideReason, t, createBaseline],
-  );
-
-  // F5 (ui-review): the create dialog uses the shared `TagInput`, which knows
-  // nothing about the baseline tag contract (20-label cap, label charset).
-  // A 21st label or an illegal character used to reach the backend and come
-  // back as a raw English VALIDATION_ERROR in `createError`. Validating here
-  // emits the same local keys the detail editor uses.
-  const handleFormTagsChange = useCallback(
-    (next: string[]): void => {
-      setCreateError(null);
-      // `TagInput` only ever appends (or removes), so a longer list means the
-      // last entry is the one just committed.
-      if (next.length > formTags.length) {
-        const added = next[next.length - 1] ?? "";
-        if (!isValidTagLabel(added)) {
-          setCreateError(t("baselines.tagInvalid", { label: added }));
-          return;
-        }
-        if (next.length > MAX_TAGS) {
-          setCreateError(t("baselines.tagLimit", { max: MAX_TAGS }));
-          return;
-        }
-      }
-      setFormTags(next);
-    },
-    [formTags, t],
+    [
+      formArtifactId,
+      formScope,
+      formName,
+      formTags,
+      overrideReason,
+      t,
+      createBaseline,
+      resetAfterCreate,
+      setCreateError,
+      setIsSaving,
+      setGateBlocked,
+    ]
   );
 
   // UI-20: unified on the shared ConfirmDialog instead of window.confirm —
@@ -299,28 +284,6 @@ export default function BaselinesView(): JSX.Element {
     setSelectedId(null);
     openCompare();
   }, [openCompare]);
-
-  // #1282: creation runs in the shared modal <Dialog>, like every other
-  // entity route — open and close are now distinct actions, and closing
-  // discards the draft (mirrors the old Cancel button verbatim).
-  const openCreateForm = useCallback((): void => {
-    closeCompare();
-    setSelectedId(null);
-    setFormName("");
-    setFormTags([]);
-    setCreateError(null);
-    setGateBlocked(false);
-    setOverrideReason("");
-    setShowForm(true);
-  }, []);
-
-  const closeCreateForm = useCallback((): void => {
-    setShowForm(false);
-    setFormTags([]);
-    setCreateError(null);
-    setGateBlocked(false);
-    setOverrideReason("");
-  }, []);
 
   // #181: search (by name) + scope filter. Computed unconditionally (rules
   // of hooks) — must run before the loading/error early returns below.
@@ -367,14 +330,6 @@ export default function BaselinesView(): JSX.Element {
     setScopeFilter("");
     setTagFilter("");
   };
-
-  const overrideSubmitDisabled =
-    isSaving || overrideReason.trim().length < MIN_OVERRIDE_REASON_LENGTH;
-
-  // REQ-L1-049: ``document`` scope needs an artifact — the same boolean drives
-  // the submit button's `disabled` attribute and its enabled/disabled class.
-  const createSubmitDisabled =
-    isSaving || (formScope === "document" && !formArtifactId);
 
   return (
     <div data-testid="baselines-view" className={styles.page}>
