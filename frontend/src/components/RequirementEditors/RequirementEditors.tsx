@@ -31,6 +31,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useRequirementData, type RequirementAllocationFilter, isRequirementAllocationFilter, requirementAllocationStorageKey } from './useRequirementData';
 import { useRequirementAiDerivation } from './use-requirement-ai-derivation';
+import { useRequirementCreateForm } from './use-requirement-create-form';
 import { useHasRole } from '../../hooks/useHasRole';
 import { usePersistedListState } from '../../hooks/usePersistedListState';
 import { useCreateRequirement, useDeleteRequirement } from '../../queries/requirements';
@@ -185,19 +186,24 @@ export default function RequirementEditors(): JSX.Element {
   const deleteRequirement = useDeleteRequirement();
 
   // Create form state
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
-  // BUG-11 (Systemaudit 2026-08-18, §4): `description`/`category` are
-  // ordinary requirementsApi.create() fields the backend already accepts —
-  // they simply had no editor here, so every new requirement started empty
-  // and required an immediate follow-up edit to fill them in.
-  const [newDescription, setNewDescription] = useState('');
-  const [newCategory, setNewCategory] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
-  // #340: a rejected create (e.g. the free-text guard refusing markup in the
-  // title) must be visible in the create form itself — this used to be a bare
-  // console.error, which reads as "Save did nothing" to the user.
-  const [createError, setCreateError] = useState<string | null>(null);
+  // BUG-11: `description`/`category` are ordinary create() fields the backend
+  // accepts, so the inline form has editors for them (#598 S2 — own module).
+  const {
+    showCreateForm,
+    newTitle,
+    newDescription,
+    newCategory,
+    isCreating,
+    createError,
+    setNewTitle,
+    setNewDescription,
+    setNewCategory,
+    setCreating,
+    setCreateError,
+    openCreateForm,
+    toggleCreateForm,
+    closeCreateForm,
+  } = useRequirementCreateForm();
   // #340: same for the list-level actions that have no form of their own
   // (delete, PDF export) — rendered as a banner under the page header.
   const [actionError, setActionError] = useState<string | null>(null);
@@ -237,7 +243,7 @@ export default function RequirementEditors(): JSX.Element {
     // direct form submit (e.g. pressing Enter) bypassing that.
     const title = newTitle.trim();
     if (!title) return;
-    setIsCreating(true);
+    setCreating(true);
     setCreateError(null);
     try {
       const created = await createRequirement.mutateAsync({
@@ -249,10 +255,7 @@ export default function RequirementEditors(): JSX.Element {
         ...(newDescription.trim() ? { description: newDescription.trim() } : {}),
         ...(newCategory ? { category: newCategory } : {}),
       });
-      setShowCreateForm(false);
-      setNewTitle('');
-      setNewDescription('');
-      setNewCategory('');
+      closeCreateForm();
       navigate(`/requirements/${created.id}`);
     } catch (err: unknown) {
       // #340: the server rejects e.g. `<script>alert(1)</script>` as a title
@@ -262,9 +265,9 @@ export default function RequirementEditors(): JSX.Element {
       // stays open so the typed title is preserved and can be corrected.
       setCreateError(extractApiErrorMessage(err) ?? t('req.createFailed'));
     } finally {
-      setIsCreating(false);
+      setCreating(false);
     }
-  }, [activeWorkspace, createRequirement, navigate, newTitle, newDescription, newCategory, t]);
+  }, [activeWorkspace, createRequirement, navigate, newTitle, newDescription, newCategory, t, closeCreateForm, setCreating, setCreateError]);
 
   /** ArtifactForm owns definition validation, nested values and save errors. */
   const handleDefinitionCreate = useCallback(async (values: ArtifactFormValues): Promise<void> => {
@@ -276,27 +279,9 @@ export default function RequirementEditors(): JSX.Element {
       workspace_id: activeWorkspace.id,
       title,
     });
-    setShowCreateForm(false);
+    closeCreateForm();
     navigate(`/requirements/${created.id}`);
-  }, [activeWorkspace, createRequirement, navigate, t]);
-
-  /** Open/close the inline create form, discarding any stale error. */
-  const toggleCreateForm = useCallback((): void => {
-    setCreateError(null);
-    setShowCreateForm((open) => !open);
-  }, []);
-
-  // F-08 (Dialog migration): the create dialog's own close affordances
-  // (Escape, backdrop click, × button) must discard the draft exactly like
-  // the existing Cancel button already does — extracted so both share one
-  // implementation instead of duplicating the reset logic.
-  const handleCancelCreate = useCallback((): void => {
-    setShowCreateForm(false);
-    setCreateError(null);
-    setNewTitle('');
-    setNewDescription('');
-    setNewCategory('');
-  }, []);
+  }, [activeWorkspace, createRequirement, navigate, t, closeCreateForm]);
 
   // F-08: Dialog's focus trap moves focus to the first focusable element in
   // the panel by default — that would be its own × close button, ahead of
@@ -585,7 +570,7 @@ export default function RequirementEditors(): JSX.Element {
       {showCreateForm && (
         <Dialog
           title={t('requirements.newRequirement')}
-          onClose={handleCancelCreate}
+          onClose={closeCreateForm}
           initialFocusRef={newTitleInputRef}
           testId="req-new-dialog"
           size="lg"
@@ -596,7 +581,7 @@ export default function RequirementEditors(): JSX.Element {
           initialValues={{ title: '' }}
           attributeOverrides={REQUIREMENT_ATTRIBUTE_OVERRIDES}
           onSave={handleDefinitionCreate}
-          onCancel={handleCancelCreate}
+          onCancel={closeCreateForm}
           fieldTestIds={{ title: 'req-new-title-input' }}
           saveTestId="req-new-save-btn"
           definitionFallback={
@@ -606,16 +591,11 @@ export default function RequirementEditors(): JSX.Element {
               category={newCategory}
               createError={createError}
               isCreating={isCreating}
-              onTitleChange={(value) => {
-                setNewTitle(value);
-                // The message described the *previous* attempt; keep it until
-                // the user actually starts correcting the input.
-                if (createError) setCreateError(null);
-              }}
+              onTitleChange={setNewTitle}
               onDescriptionChange={setNewDescription}
               onCategoryChange={setNewCategory}
               onSubmit={() => void handleCreate()}
-              onCancel={handleCancelCreate}
+              onCancel={closeCreateForm}
               focusTitle={focusFallbackTitle}
             />
           }
@@ -663,10 +643,7 @@ export default function RequirementEditors(): JSX.Element {
             />
           ) : undefined
         }
-        onCreateNew={() => {
-          setCreateError(null);
-          setShowCreateForm(true);
-        }}
+        onCreateNew={openCreateForm}
       />
     </div>
   );
