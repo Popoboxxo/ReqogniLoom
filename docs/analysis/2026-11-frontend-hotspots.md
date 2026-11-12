@@ -40,14 +40,14 @@ files are not a defect.
 |---:|---|---:|---:|---:|---:|---:|---:|
 | 1 | `src/components/shared/WorkspaceTree/workspace-tree.tsx` | 1933 | 16 | 242 | 3872 | 6 | 2 |
 | 2 | `src/components/ArchitectureEditors/ArchitectureEditors.tsx` | 1003 | 19 | 69 | 1311 | 10 | 5 |
-| 3 | `src/components/canvas/CanvasEditor.tsx` | 1456 | 6 | 197 | 1182 | 9 | 1 |
-| 4 | `src/components/Audit/audit-dashboard.tsx` | 1416 | 11 | 99 | 1089 | 5 | 2 |
+| 3 | `src/components/Audit/audit-dashboard.tsx` | 1416 | 12 | 99 | 1188 | 5 | 2 |
+| 4 | `src/components/canvas/CanvasEditor.tsx` | 1456 | 6 | 197 | 1182 | 9 | 1 |
 | 5 | `src/components/RequirementEditors/RequirementList.tsx` | 747 | 14 | 77 | 1078 | 4 | 0 |
 | 6 | `src/components/Reviews/ReviewsView.tsx` | 1246 | 10 | 104 | 1040 | 2 | 1 |
-| 7 | `src/components/NavigationShell/SidebarNavigation.tsx` | 964 | 11 | 80 | 880 | 1 | 0 |
-| 8 | `src/components/AttributeEditor/AttributeEditorPage.tsx` | 1091 | 9 | 89 | 801 | 4 | 3 |
-| 9 | `src/components/WorkspaceSettings/WorkspaceSettings.tsx` | 777 | 11 | 62 | 682 | 2 | 2 |
-| 10 | `src/components/BaselinesView/BaselinesView.tsx` | 775 | 11 | 61 | 671 | 4 | 3 |
+| 7 | `src/components/AttributeEditor/AttributeEditorPage.tsx` | 1091 | 10 | 89 | 890 | 4 | 3 |
+| 8 | `src/components/NavigationShell/SidebarNavigation.tsx` | 964 | 11 | 80 | 880 | 1 | 0 |
+| 9 | `src/components/BaselinesView/BaselinesView.tsx` | 775 | 12 | 61 | 732 | 4 | 3 |
+| 10 | `src/components/WorkspaceSettings/WorkspaceSettings.tsx` | 777 | 11 | 62 | 682 | 2 | 2 |
 | 11 | `src/components/RequirementEditors/RequirementEditors.tsx` | 829 | 11 | 54 | 594 | 10 | 3 |
 | 12 | `src/components/TraceabilityView/TraceabilityView.tsx` | 1073 | 7 | 76 | 532 | 2 | 1 |
 | 13 | `src/components/CsvImport/CsvImport.tsx` | 1071 | 6 | 80 | 480 | 3 | 2 |
@@ -56,13 +56,13 @@ files are not a defect.
 | 16 | `src/components/RequirementEditors/MarkdownPreview.tsx` | 572 | 5 | 81 | 405 | 5 | 2 |
 | 17 | `src/components/ArtifactDiff/ArtifactDiff.tsx` | 596 | 6 | 62 | 372 | 1 | 1 |
 | 18 | `src/components/NeedsEditors/NeedsEditors.tsx` | 487 | 12 | 29 | 348 | 4 | 2 |
-| 19 | `src/components/GlossaryView/GlossaryView.tsx` | 521 | 9 | 38 | 342 | 9 | 8 |
-| 20 | `src/components/NeedsEditors/NeedList.tsx` | 483 | 10 | 34 | 340 | 2 | 0 |
-| 21 | `src/components/SystemSettings/MemoryVisualizationSection.tsx` | 520 | 5 | 65 | 325 | 3 | 2 |
+| 19 | `src/components/NeedsEditors/NeedList.tsx` | 483 | 10 | 34 | 340 | 2 | 0 |
+| 20 | `src/components/SystemSettings/MemoryVisualizationSection.tsx` | 520 | 5 | 65 | 325 | 3 | 2 |
+| 21 | `src/components/GlossaryView/GlossaryView.tsx` | 503 | 9 | 33 | 297 | 7 | 6 |
 | 22 | `src/components/BaselinesView/BaselineRollbackPanel.tsx` | 645 | 4 | 74 | 296 | 2 | 1 |
 | 23 | `src/components/SystemSettings/MemorySystemSettingsSection.tsx` | 605 | 4 | 70 | 280 | 2 | 2 |
-| 24 | `src/components/shared/ArtifactForm/fields/ActorPicker.tsx` | 413 | 4 | 68 | 272 | 3 | 3 |
-| 25 | `src/components/TestCaseEditors/TestCaseEditors.tsx` | 507 | 8 | 33 | 264 | 5 | 4 |
+| 24 | `src/components/TestCaseEditors/TestCaseEditors.tsx` | 507 | 8 | 33 | 264 | 5 | 4 |
+| 25 | `src/components/shared/ArtifactForm/fields/ActorPicker.tsx` | 383 | 4 | 65 | 260 | 3 | 2 |
 | 26 | `src/components/MetricsDashboard/MetricsDashboard.tsx` | 708 | 4 | 62 | 248 | 4 | 2 |
 | 27 | `src/components/AdrEditors/AdrEditors.tsx` | 430 | 9 | 26 | 234 | 4 | 3 |
 | 28 | `src/components/TestRuns/TestRunsList.tsx` | 557 | 6 | 38 | 228 | 7 | 7 |
@@ -159,6 +159,14 @@ files are not a defect.
 9. names: `setShowBundleExportPanel`, `showBundleExportPanel` · kinds: state · API: —
 10. names: `setShowLegend`, `showLegend` · kinds: state · API: —
 
+### `src/components/Audit/audit-dashboard.tsx`
+
+1. names: `cancelWaive`, `confirmAdopt`, `confirmWaive`, `effect#1`, `effect#2`, `effect#3`, `focusFindingIndex`, `handleAdopt`, `isWaiving`, `pendingAdopt`, `pendingWaive`, `requestAdopt`, `requestWaive`, `scope`, `scopeArtifactId`, `setFocusFindingIndex`, `setIsWaiving`, `setPendingAdopt`, `setPendingWaive`, `setScope`, `setScopeArtifactId`, `setToast`, `setWaiveError`, `setWaiveExpiresAt`, `setWaiveReason`, `toast`, `waiveError`, `waiveErrorMessage`, `waiveExpiresAt`, `waiveReason` · kinds: state, effect, callback · API: `auditApi.remediate`, `auditApi.waive`
+2. names: `counts`, `ruleOptions` · kinds: memo · API: —
+3. names: `filteredFindings`, `grouped` · kinds: memo · API: —
+4. names: `handleModify` · kinds: callback · API: —
+5. names: `open`, `setOpen` · kinds: state · API: —
+
 ### `src/components/canvas/CanvasEditor.tsx`
 
 1. names: `applyZoom`, `canRedo`, `canUndo`, `deleteActiveObjects`, `effect#10`, `effect#11`, `effect#8`, `handleRedo`, `handleUndo`, `handleZoomFit`, `handleZoomIn`, `handleZoomOut`, `isDirty`, `isInitialized`, `performAutoSave`, `pushUndoState`, `saveStatus`, `setCanRedo`, `setCanUndo`, `setIsDirty`, `setIsInitialized`, `setSaveStatus`, `setZoom`, `updateGridBackground`, `zoom` · kinds: state, effect, callback · API: `diagramsApi.saveCanvasStrokes`
@@ -170,14 +178,6 @@ files are not a defect.
 7. names: `effect#6` · kinds: effect · API: —
 8. names: `effect#7` · kinds: effect · API: —
 9. names: `effect#9` · kinds: effect · API: —
-
-### `src/components/Audit/audit-dashboard.tsx`
-
-1. names: `cancelWaive`, `confirmAdopt`, `confirmWaive`, `effect#1`, `effect#2`, `effect#3`, `focusFindingIndex`, `handleAdopt`, `isWaiving`, `pendingAdopt`, `pendingWaive`, `requestAdopt`, `requestWaive`, `scope`, `scopeArtifactId`, `setFocusFindingIndex`, `setIsWaiving`, `setPendingAdopt`, `setPendingWaive`, `setScope`, `setScopeArtifactId`, `setToast`, `setWaiveError`, `setWaiveExpiresAt`, `setWaiveReason`, `toast`, `waiveError`, `waiveErrorMessage`, `waiveExpiresAt`, `waiveReason` · kinds: state, effect, callback · API: `auditApi.remediate`, `auditApi.waive`
-2. names: `counts`, `ruleOptions` · kinds: memo · API: —
-3. names: `filteredFindings`, `grouped` · kinds: memo · API: —
-4. names: `handleModify` · kinds: callback · API: —
-5. names: `open`, `setOpen` · kinds: state · API: —
 
 ### `src/components/RequirementEditors/RequirementList.tsx`
 
@@ -191,10 +191,6 @@ files are not a defect.
 1. names: `APPROVE_TARGET`, `REJECT_TARGET`, `actionError`, `buildDisabledReason`, `bulkError`, `bulkReason`, `bulkResult`, `changeReason`, `confirmProposal`, `confirmReviewItem`, `effect#1`, `filtered`, `handleAction`, `handleSelect`, `handleTypeChange`, `isActing`, `listMode`, `page`, `paged`, `pendingTransition`, `runReviewBulk`, `runTransition`, `search`, `selected`, `selectedArtifactType`, `selectedId`, `selectedIds`, `setActionError`, `setBulkError`, `setBulkReason`, `setBulkResult`, `setChangeReason`, `setIsActing`, `setListMode`, `setPage`, `setPendingTransition`, `setSearch`, `setSelectedArtifactType`, `setSelectedId`, `setSelectedIds`, `setShowDiff`, `setTab`, `showDiff`, `submitSignatureDialog`, `tab`, `toggleSelectedId` · kinds: state, effect, callback, memo · API: `workflowTransitionsApi.getTransitions`, `workflowTransitionsApi.transition`
 2. names: `proposalOrigin` · kinds: memo · API: —
 
-### `src/components/NavigationShell/SidebarNavigation.tsx`
-
-1. names: `isMobileViewport` · kinds: query · API: —
-
 ### `src/components/AttributeEditor/AttributeEditorPage.tsx`
 
 1. names: `applyDefinition`, `attributes`, `confirmReset`, `effect#1`, `effect#2`, `emptySections`, `error`, `handleAddFromCatalog`, `handleAttributeFlowChange`, `handleConfirmImport`, `handleCreateAttribute`, `handleDeleteSection`, `handleExport`, `handleFileSelected`, `handleInspectorSectionChange`, `handleMoveAttribute`, `handleMoveSection`, `handleRenameSection`, `handleReset`, `handleSave`, `handleSectionFlowChange`, `handleSetSectionLayout`, `handleToggleSectionVisible`, `handleUndoMove`, `isCustomized`, `isDirty`, `load`, `loaded`, `loadedSectionFlow`, `loadedSections`, `newSection`, `origins`, `pendingImport`, `pendingUndo`, `persistReorder`, `saving`, `sectionFlow`, `sections`, `selected`, `setAttributes`, `setConfirmReset`, `setEmptySections`, `setError`, `setIsCustomized`, `setLoaded`, `setLoadedSectionFlow`, `setLoadedSections`, `setNewSection`, `setOrigins`, `setPendingImport`, `setPendingUndo`, `setSaving`, `setSectionFlow`, `setSections`, `setSelected`, `setShowCatalog`, `setVersion`, `showCatalog`, `version` · kinds: state, effect, callback, memo · API: `attributeCatalogApi.addToDefinition`, `attributeDefinitionsApi.createGlobalAttribute`, `attributeDefinitionsApi.createWorkspaceAttribute`, `attributeDefinitionsApi.exportGlobal`, `attributeDefinitionsApi.exportWorkspace`, `attributeDefinitionsApi.getGlobal`, `attributeDefinitionsApi.getWorkspace`, `attributeDefinitionsApi.importGlobal`, `attributeDefinitionsApi.importWorkspace`, `attributeDefinitionsApi.putGlobal`, `attributeDefinitionsApi.putWorkspace`, `attributeDefinitionsApi.reorderGlobal`, `attributeDefinitionsApi.reorderWorkspace`, `attributeDefinitionsApi.resetWorkspace`
@@ -202,10 +198,9 @@ files are not a defect.
 3. names: `handleSelectItemType` · kinds: callback · API: —
 4. names: `setShowLayout`, `showLayout` · kinds: state · API: —
 
-### `src/components/WorkspaceSettings/WorkspaceSettings.tsx`
+### `src/components/NavigationShell/SidebarNavigation.tsx`
 
-1. names: `activeTab`, `setActiveTab` · kinds: state · API: —
-2. names: `confirmPresetDowngrade`, `effect#1`, `handleLanguageChange`, `handlePresetChange`, `handleProfileChange`, `handleSaveName`, `isSaving`, `name`, `pendingPresetDowngrade`, `requestPresetChange`, `saveError`, `savedOk`, `setIsSaving`, `setName`, `setPendingPresetDowngrade`, `setSaveError`, `setSavedOk` · kinds: state, effect, callback · API: `workspacesApi.setPreset`, `workspacesApi.update`
+1. names: `isMobileViewport` · kinds: query · API: —
 
 ### `src/components/BaselinesView/BaselinesView.tsx`
 
@@ -213,6 +208,11 @@ files are not a defect.
 2. names: `effect#3` · kinds: effect · API: —
 3. names: `filteredBaselines`, `listSearch`, `scopeFilter`, `setListSearch`, `setScopeFilter` · kinds: state, memo · API: —
 4. names: `handleCreate`, `openCompareView`, `selectedId`, `setSelectedId` · kinds: state, callback · API: —
+
+### `src/components/WorkspaceSettings/WorkspaceSettings.tsx`
+
+1. names: `activeTab`, `setActiveTab` · kinds: state · API: —
+2. names: `confirmPresetDowngrade`, `effect#1`, `handleLanguageChange`, `handlePresetChange`, `handleProfileChange`, `handleSaveName`, `isSaving`, `name`, `pendingPresetDowngrade`, `requestPresetChange`, `saveError`, `savedOk`, `setIsSaving`, `setName`, `setPendingPresetDowngrade`, `setSaveError`, `setSavedOk` · kinds: state, effect, callback · API: `workspacesApi.setPreset`, `workspacesApi.update`
 
 ### `src/components/RequirementEditors/RequirementEditors.tsx`
 
@@ -265,18 +265,6 @@ _No hook declarations detected._
 3. names: `handleOpenChainArtifact` · kinds: callback · API: —
 4. names: `includeDeleted`, `setIncludeDeleted` · kinds: state · API: —
 
-### `src/components/GlossaryView/GlossaryView.tsx`
-
-1. names: `effect#1` · kinds: effect · API: —
-2. names: `filteredTerms`, `setTerms`, `terms`, `termsByName` · kinds: state, memo · API: —
-3. names: `linkingSynonym`, `setLinkingSynonym` · kinds: state · API: —
-4. names: `loadError`, `setLoadError` · kinds: state · API: —
-5. names: `loading`, `setLoading` · kinds: state · API: —
-6. names: `rowError`, `setRowError` · kinds: state · API: —
-7. names: `selectedId`, `setSelectedId` · kinds: state · API: —
-8. names: `setShowLinkDialog`, `showLinkDialog` · kinds: state · API: —
-9. names: `setSynonymLinkQuery`, `synonymLinkQuery` · kinds: state · API: —
-
 ### `src/components/NeedsEditors/NeedList.tsx`
 
 1. names: `filter` · kinds: callback · API: —
@@ -288,6 +276,16 @@ _No hook declarations detected._
 2. names: `effect#1` · kinds: effect · API: —
 3. names: `filterInput`, `setFilterInput` · kinds: state · API: —
 
+### `src/components/GlossaryView/GlossaryView.tsx`
+
+1. names: `effect#1` · kinds: effect · API: —
+2. names: `filteredTerms`, `setTerms`, `terms`, `termsByName` · kinds: state, memo · API: —
+3. names: `loadError`, `setLoadError` · kinds: state · API: —
+4. names: `loading`, `setLoading` · kinds: state · API: —
+5. names: `rowError`, `setRowError` · kinds: state · API: —
+6. names: `selectedId`, `setSelectedId` · kinds: state · API: —
+7. names: `setShowLinkDialog`, `showLinkDialog` · kinds: state · API: —
+
 ### `src/components/BaselinesView/BaselineRollbackPanel.tsx`
 
 1. names: `allowNewRequest`, `applying`, `changeRequest`, `confirmApply`, `confirming`, `copyChangeRequestId`, `copyState`, `createRequest`, `describeError`, `error`, `loadPreview`, `preview`, `previewLoading`, `reason`, `refreshStatus`, `requestApply`, `requesting`, `result`, `setAllowNewRequest`, `setApplying`, `setChangeRequest`, `setConfirming`, `setCopyState`, `setError`, `setPreview`, `setPreviewLoading`, `setReason`, `setRequesting`, `setResult`, `setStatusRefreshing`, `statusRefreshing` · kinds: state, callback · API: `baselinesApi.rollbackApply`, `baselinesApi.rollbackPreview`, `baselinesApi.rollbackRequest`, `changeRequestsApi.get`
@@ -298,12 +296,6 @@ _No hook declarations detected._
 1. names: `doSave`, `effect#1`, `form`, `handleReset`, `handleSaveClick`, `isRiskyChange`, `isSaving`, `loadError`, `pendingWarningConfirm`, `reload`, `saveError`, `setFlatOption`, `setFlatSecret`, `setForm`, `setIsSaving`, `setLoadError`, `setNestedOption`, `setNestedSecret`, `setPendingWarningConfirm`, `setSaveError`, `setSettings`, `settings` · kinds: state, effect, callback · API: `systemMemorySettingsApi.get`, `systemMemorySettingsApi.reset`, `systemMemorySettingsApi.update`
 2. names: `pendingResetConfirm`, `setPendingResetConfirm` · kinds: state · API: —
 
-### `src/components/shared/ArtifactForm/fields/ActorPicker.tsx`
-
-1. names: `activeIndex`, `effect#2`, `open`, `setActiveIndex`, `setOpen` · kinds: state, effect · API: —
-2. names: `candidates`, `effect#1`, `loadError`, `loading`, `matches`, `selected`, `selectedKeys`, `setCandidates`, `setLoadError`, `setLoading` · kinds: state, effect, memo · API: `actorsApi.list`
-3. names: `query`, `setQuery` · kinds: state · API: —
-
 ### `src/components/TestCaseEditors/TestCaseEditors.tsx`
 
 1. names: `closeCreateDialog`, `createError`, `createFieldErrors`, `newDescription`, `newTestType`, `newTitle`, `openCreateDialog`, `setCreateError`, `setCreateFieldErrors`, `setNewDescription`, `setNewTestType`, `setNewTitle`, `setShowCreateDialog`, `showCreateDialog` · kinds: state, callback · API: —
@@ -311,6 +303,12 @@ _No hook declarations detected._
 3. names: `handleOpenChainArtifact` · kinds: callback · API: —
 4. names: `includeDeleted`, `setIncludeDeleted` · kinds: state · API: —
 5. names: `isCreating`, `setIsCreating` · kinds: state · API: —
+
+### `src/components/shared/ArtifactForm/fields/ActorPicker.tsx`
+
+1. names: `activeIndex`, `effect#1`, `open`, `setActiveIndex`, `setOpen` · kinds: state, effect · API: —
+2. names: `matches`, `selected`, `selectedKeys` · kinds: memo · API: —
+3. names: `query`, `setQuery` · kinds: state · API: —
 
 ### `src/components/MetricsDashboard/MetricsDashboard.tsx`
 
@@ -793,9 +791,9 @@ _No hook declarations detected._
 ## Files to decompose
 
 - `src/components/ArchitectureEditors/ArchitectureEditors.tsx` — 5 independent clusters with own state, hotspot 1311 (rank 2).
-- `src/components/AttributeEditor/AttributeEditorPage.tsx` — 3 independent clusters with own state, hotspot 801 (rank 8).
-- `src/components/BaselinesView/BaselinesView.tsx` — 3 independent clusters with own state, hotspot 671 (rank 10).
+- `src/components/AttributeEditor/AttributeEditorPage.tsx` — 3 independent clusters with own state, hotspot 890 (rank 7).
+- `src/components/BaselinesView/BaselinesView.tsx` — 3 independent clusters with own state, hotspot 732 (rank 9).
 - `src/components/RequirementEditors/RequirementEditors.tsx` — 3 independent clusters with own state, hotspot 594 (rank 11).
-- `src/components/GlossaryView/GlossaryView.tsx` — 8 independent clusters with own state, hotspot 342 (rank 19).
-- `src/components/shared/ArtifactForm/fields/ActorPicker.tsx` — 3 independent clusters with own state, hotspot 272 (rank 24).
+- `src/components/GlossaryView/GlossaryView.tsx` — 6 independent clusters with own state, hotspot 297 (rank 21).
+- `src/components/TestCaseEditors/TestCaseEditors.tsx` — 4 independent clusters with own state, hotspot 264 (rank 24).
 

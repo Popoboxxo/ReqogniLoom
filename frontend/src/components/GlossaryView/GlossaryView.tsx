@@ -45,6 +45,7 @@ import styles from "./GlossaryView.module.css";
 import { useGlossaryDerive } from "./use-glossary-derive";
 import { useGlossaryFilters } from "./use-glossary-filters";
 import { useGlossaryTermForm } from "./use-glossary-term-form";
+import { useGlossarySynonymLink } from "./use-glossary-synonym-link";
 import {
   GLOSSARY_LIFECYCLE_STATUSES,
   buildSynonymLinkIndex,
@@ -95,11 +96,6 @@ export default function GlossaryView(): JSX.Element {
 
   // #1360 (W12c): the shared AI review dialog's state for the glossary
   // derivation (preview drafts, write bookkeeping, result message).
-  // C10 (REQ-006): synonym-linking — the (termId, synonym index) currently
-  // showing its "link to existing entry" picker, plus the picker's search query.
-  const [linkingSynonym, setLinkingSynonym] = useState<{ termId: string; index: number } | null>(null);
-  const [synonymLinkQuery, setSynonymLinkQuery] = useState("");
-
   const loadTerms = async () => {
     if (!activeWorkspace) return;
     try {
@@ -157,29 +153,23 @@ export default function GlossaryView(): JSX.Element {
   });
 
 
+  // C10 (REQ-006): synonym linking (own module, #598 S2).
+  const {
+    linkingSynonym,
+    synonymLinkQuery,
+    setSynonymLinkQuery,
+    toggleSynonymLinking,
+    closeSynonymLinking,
+    handleLinkSynonym,
+  } = useGlossarySynonymLink({
+    t,
+    reloadTerms: loadTerms,
+    onError: setRowError,
+  });
+
   // C10 (REQ-006): case-insensitive term-text index backing
   // resolveSynonymLink — see glossary-view-shared.ts.
   const termsByName = useMemo(() => buildSynonymLinkIndex(terms), [terms]);
-
-  // C10 (REQ-006): "link" a synonym to an existing glossary entry. The backend
-  // has no ID-based synonym-link field (GlossaryTerm.synonyms is a plain string[]
-  // with no /tracelinks/ support — GlossaryTerm is not an Artifact subtype), so
-  // linking is implemented by normalizing the synonym text to the target entry's
-  // exact term string via the existing PATCH /glossary/{id}/ endpoint. Once the
-  // strings match, resolveSynonymLink renders the synonym as a clickable link.
-  const handleLinkSynonym = async (term: GlossaryTerm, index: number, target: GlossaryTerm) => {
-    const newSynonyms = term.synonyms.map((s, i) => (i === index ? target.term : s));
-    try {
-      setRowError(null);
-      await glossaryApi.update(term.id, { synonyms: newSynonyms });
-      setLinkingSynonym(null);
-      setSynonymLinkQuery("");
-      loadTerms();
-    } catch (err) {
-      console.error("Failed to link synonym", err);
-      setRowError(extractErrorMessage(err) || t("glossary.linkSynonymFailed"));
-    }
-  };
 
   const handleDelete = async (id: string) => {
     if (confirm(t("glossary.deleteConfirm"))) {
@@ -201,14 +191,6 @@ export default function GlossaryView(): JSX.Element {
 
   const handleSelect = (term: GlossaryTerm) => {
     setSelectedId(term.id);
-  };
-
-  // C10: open the picker for (termId, index); clicking the open picker's
-  // trigger again closes it and resets the picker query.
-  const toggleSynonymLinking = (termId: string, index: number) => {
-    const isLinking = linkingSynonym?.termId === termId && linkingSynonym?.index === index;
-    setLinkingSynonym(isLinking ? null : { termId, index });
-    setSynonymLinkQuery("");
   };
 
   const filteredTerms = useMemo(
@@ -432,7 +414,7 @@ export default function GlossaryView(): JSX.Element {
           synonymLinkQuery={synonymLinkQuery}
           onToggleLinking={toggleSynonymLinking}
           onSynonymLinkQueryChange={setSynonymLinkQuery}
-          onCancelLinking={() => setLinkingSynonym(null)}
+          onCancelLinking={closeSynonymLinking}
           onLinkSynonym={handleLinkSynonym}
           onEditLinked={handleEdit}
         />
