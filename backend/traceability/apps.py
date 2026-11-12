@@ -21,3 +21,50 @@ class TraceabilityConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "traceability"
     verbose_name = "ARCH-L1-007 TraceabilityEngine"
+
+    def ready(self) -> None:  # noqa: D401 - Django hook
+        """Register the allocation preferences (ADR-028 D9).
+
+        Q1 keys live in the owning app's ``ready()`` (see ``memory/apps.py``);
+        allocation is a traceability concern, so the keys register here.
+        """
+        from application.allocation_settings import (
+            CARDINALITY_CHOICES,
+            CARDINALITY_KEY,
+            CARDINALITY_SINGLE,
+            CONFLICT_SEVERITY_KEY,
+            SEVERITY_CHOICES,
+        )
+        from application.preference_registry import (
+            PreferenceKey,
+            get_preference_key,
+            register_preference_key,
+        )
+        from auth_tenancy.models import PREFERENCE_SCOPE_GLOBAL, PREFERENCE_SCOPE_WORKSPACE
+        from persistence.errors import ValidationError
+
+        specs = (
+            PreferenceKey(
+                key=CARDINALITY_KEY,
+                value_type="enum",
+                default=CARDINALITY_SINGLE,
+                levels=frozenset({PREFERENCE_SCOPE_GLOBAL, PREFERENCE_SCOPE_WORKSPACE}),
+                choices=CARDINALITY_CHOICES,
+                ui_editor="select",
+                owner="E",
+            ),
+            PreferenceKey(
+                key=CONFLICT_SEVERITY_KEY,
+                value_type="enum",
+                default="warning",
+                levels=frozenset({PREFERENCE_SCOPE_GLOBAL, PREFERENCE_SCOPE_WORKSPACE}),
+                choices=SEVERITY_CHOICES,
+                ui_editor="select",
+                owner="E",
+            ),
+        )
+        for spec in specs:
+            try:
+                get_preference_key(spec.key)
+            except ValidationError:
+                register_preference_key(spec)

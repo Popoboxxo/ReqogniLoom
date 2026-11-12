@@ -2383,15 +2383,12 @@ class TraceLink(TenantScopedModel):
                 condition=~models.Q(link_type=""),
                 name="ck_tracelink_link_type_nonempty",
             ),
-            # P2 (N:1 allocation): one Requirement -> at most one
-            # ArchitectureElement. The allocation is a TraceLink, so the
-            # cardinality must be enforced on the edge's source artifact, not
-            # on a second requirement column (which would be a second truth).
-            models.UniqueConstraint(
-                fields=["source"],
-                condition=models.Q(link_type="allocated-to"),
-                name="uniq_tracelink_allocated_to_source",
-            ),
+            # P2 (N:1 allocation) used to be enforced here as a DB constraint
+            # on the source artifact. ADR-028 D9 makes the cardinality a
+            # per-workspace setting (single | multiple), which a database
+            # constraint cannot express — the rule lives in
+            # ``TraceLinkService`` (``AllocationConflictError`` for ``single``)
+            # and the ``Allocation`` table keeps the one-primary constraint.
         ]
 
     def __str__(self) -> str:

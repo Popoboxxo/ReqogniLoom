@@ -74,8 +74,16 @@ def _element(tenant, workspace, title="El", parent=None, uid=None):
     )
 
 
-def test_second_allocated_to_edge_is_rejected_by_db():
-    tenant, workspace, _ctx = _env("alloc-unique")
+def test_second_allocated_to_edge_is_rejected_by_the_service_not_the_db():
+    """ADR-028 D9: the cardinality is a per-workspace setting, not a DB rule.
+
+    The edge table therefore accepts a second allocation; the service rejects
+    it under the default ``single``. (Migration 0142 removed the old unique
+    constraint for exactly this reason.)
+    """
+    from application.base import AllocationConflictError
+
+    tenant, workspace, ctx = _env("alloc-unique")
     req = _requirement(tenant, workspace)
     first = _element(tenant, workspace, "First")
     second = _element(tenant, workspace, "Second")
@@ -86,13 +94,16 @@ def test_second_allocated_to_edge_is_rejected_by_db():
         target_id=first.artifact_id,
         link_type="allocated-to",
     )
-    with pytest.raises(IntegrityError):
-        TraceLink.unscoped.create(
-            tenant=tenant,
-            source_id=req.artifact_id,
-            target_id=second.artifact_id,
-            link_type="allocated-to",
-        )
+    # The DB accepts it now; the application layer is the authority.
+    TraceLink.unscoped.create(
+        tenant=tenant,
+        source_id=req.artifact_id,
+        target_id=second.artifact_id,
+        link_type="allocated-to",
+    )
+
+    with pytest.raises(AllocationConflictError):
+        TraceLinkService().allocate(req.id, second.id, ctx, mode="add")
 
 
 def test_allocate_replaces_and_sets_intent():

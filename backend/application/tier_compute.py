@@ -132,14 +132,38 @@ def _requirement_parents(
     return parents
 
 
-def _allocations(workspace_id: UUID, requirement_artifact_ids: set[UUID]) -> dict[UUID, UUID]:
-    """``{requirement_artifact_id: target_element_artifact_id}``."""
-    result: dict[UUID, UUID] = {}
+def _allocations(
+    workspace_id: UUID, requirement_artifact_ids: set[UUID]
+) -> dict[UUID, list[UUID]]:
+    """``{requirement_artifact_id: [target_element_artifact_id, ...]}``.
+
+    ADR-028 D9: a workspace may allow more than one allocation. The list keeps
+    every target; the resolver below decides which one leads.
+    """
+    result: dict[UUID, list[UUID]] = {}
     for source_id, target_id in TraceLink.unscoped.filter(
         link_type=_ALLOCATED_TO, source_id__in=requirement_artifact_ids
     ).values_list("source_id", "target_id"):
-        result[source_id] = target_id
+        result.setdefault(source_id, []).append(target_id)
     return result
+
+
+def _primary_allocations(
+    requirement_artifact_ids: set[UUID],
+) -> dict[UUID, UUID]:
+    """``{requirement_artifact_id: primary_element_artifact_id}`` (ADR-028 D9).
+
+    Reads the allocation objects, not the edges: the "leading" flag exists only
+    there. At most one row per requirement carries it (DB constraint).
+    """
+    from persistence.models import Allocation, AllocationStatus
+
+    rows = Allocation.unscoped.filter(
+        requirement_artifact_id__in=requirement_artifact_ids,
+        is_primary=True,
+        status__in=[AllocationStatus.DRAFT, AllocationStatus.RELEASED],
+    ).values_list("requirement_artifact_id", "element_artifact_id")
+    return {req_id: element_id for req_id, element_id in rows}
 
 
 def _cycle_nodes(parents: dict[UUID, set[UUID]], node_ids: set[UUID]) -> set[UUID]:
@@ -171,9 +195,10 @@ def _derive_tiers(
     workspace_id: UUID,
     requirements: dict[UUID, dict],
     ladder: TierLadder,
-    allocations: dict[UUID, UUID],
+    allocations: dict[UUID, list[UUID]],
     element_tier_by_artifact: dict[UUID, str | None],
     parents: dict[UUID, set[UUID]],
+    primary_allocations: dict[UUID, UUID] | None = None,
 ) -> dict[UUID, tuple[str | None, int | None, str]]:
     """Return ``{artifact_id: (tier_key, level, level_source)}`` for every req."""
     resolved: dict[UUID, tuple[str | None, int | None, str]] = {}
@@ -201,7 +226,18 @@ def _derive_tiers(
             return resolved[artifact_id]
         visiting.add(artifact_id)
 
-        allocation_target = allocations.get(artifact_id)
+        allocation_targets = allocations.get(artifact_id) or []
+        allocation_target: UUID | None = None
+        if allocation_targets:
+            if len(allocation_targets) == 1:
+                allocation_target = allocation_targets[0]
+            else:
+                # D9: several allocations without a leading edge leave the
+                # tier unresolved; with exactly one leading edge, it decides.
+                primary = (primary_allocations or {}).get(artifact_id)
+                allocation_target = (
+                    primary if primary in allocation_targets else None
+                )
         if allocation_target is not None:
             tier_key = element_tier_by_artifact.get(allocation_target)
             if tier_key is None:
@@ -312,6 +348,7 @@ def recompute_workspace_tiers(
         parents = _requirement_parents(workspace_id, set(requirements))
 
     allocations = _allocations(workspace_id, set(requirements))
+    primary_allocations = _primary_allocations(set(requirements))
     derived = _derive_tiers(
         workspace_id,
         requirements,
@@ -319,6 +356,7 @@ def recompute_workspace_tiers(
         allocations,
         element_tier_by_artifact,
         parents,
+        primary_allocations,
     )
 
     changes: list[LevelChange] = []

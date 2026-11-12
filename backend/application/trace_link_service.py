@@ -784,10 +784,30 @@ class TraceLinkService(ServiceBase):
                 source_id=resolved_source,
                 link_type=LinkType.ALLOCATED_TO,
             ).exists():
-                raise AllocationConflictError(
-                    "This requirement is already allocated; use the "
-                    "allocation endpoint to re-allocate it."
+                # ADR-028 D9: the cardinality is a workspace setting. Under
+                # ``multiple`` a second edge is legal; under ``single`` (the
+                # default) it stays a conflict.
+                from application.allocation_settings import (
+                    CARDINALITY_MULTIPLE,
+                    cardinality_for,
                 )
+                from persistence.models import Artifact
+
+                workspace_id = (
+                    Artifact.unscoped.filter(
+                        id=resolved_source, tenant_id=ctx.tenant_id
+                    )
+                    .values_list("workspace_id", flat=True)
+                    .first()
+                )
+                cardinality = cardinality_for(
+                    tenant_id=ctx.tenant_id, workspace_id=workspace_id
+                )
+                if cardinality != CARDINALITY_MULTIPLE:
+                    raise AllocationConflictError(
+                        "This requirement is already allocated; use the "
+                        "allocation endpoint to re-allocate it."
+                    )
 
     def _persist_trace_link(
         self,
@@ -1451,6 +1471,8 @@ class TraceLinkService(ServiceBase):
         requirement_id: UUID,
         architecture_element_id: UUID,
         ctx: AuthContext,
+        *,
+        mode: str = "replace",
     ):
         """Allocate a Requirement to an ArchitectureElement via allocated-to TraceLink.
 
@@ -1503,14 +1525,36 @@ class TraceLinkService(ServiceBase):
             link_type=LinkType.ALLOCATED_TO,
         )
         if existing.exists():
-            # ADR-028: the replaced allocation is archived, not forgotten.
-            from application.allocation_sync import revoke_allocations_for_requirement
-
-            revoke_allocations_for_requirement(
-                requirement_artifact_id=req_artifact_id,
-                reason="Replaced by a new allocation.",
+            from application.allocation_settings import (
+                CARDINALITY_MULTIPLE,
+                cardinality_for,
             )
-            existing.delete()
+
+            cardinality = cardinality_for(
+                tenant_id=ctx.tenant_id, workspace_id=req.workspace_id
+            )
+            if mode == "add":
+                if cardinality != CARDINALITY_MULTIPLE:
+                    from application.base import AllocationConflictError
+
+                    raise AllocationConflictError(
+                        "This workspace allows exactly one allocation per "
+                        "requirement; switch allocation.cardinality to "
+                        "'multiple' to add another."
+                    )
+                # D9: keep the existing edge; the new allocation becomes a
+                # secondary one (is_primary=False via the sync helper).
+            else:
+                # ADR-028: the replaced allocation is archived, not forgotten.
+                from application.allocation_sync import (
+                    revoke_allocations_for_requirement,
+                )
+
+                revoke_allocations_for_requirement(
+                    requirement_artifact_id=req_artifact_id,
+                    reason="Replaced by a new allocation.",
+                )
+                existing.delete()
 
         # Create new allocated-to link
         result = self.create_trace_link(
