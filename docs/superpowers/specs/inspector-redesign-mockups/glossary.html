@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Mockup — Inspector, Glossary (1440 px, ohne Spine)</title>
+<!--
+  Statisches Mockup zum Neukonzept des Artefakt-Inspectors — Typ OHNE Trace-Spine.
+  Spec: ../2026-11-10-inspector-redesign-design.md, Typ-Matrix §3 und §2.4.
+  Zeigt: der Reiter „Links" ist hier der EINZIGE Trace-Ort und listet alle Typen
+  als Zeilen (keine Zusammenfassungszeile, weil es keine Spine gibt). Die frühere
+  Überschrift „Verwendungen" im Detail entfällt.
+  Kein Framework, kein JavaScript, keine externen Assets.
+  Token-Namen 1:1 aus frontend/src/styles/tokens.css (Theme light, Primitives aufgelöst).
+-->
+<style>
+:root{
+  --color-primary:#4f46e5; --color-primary-text:#4f46e5; --color-on-primary:#ffffff;
+  --color-surface:#f8fafc; --color-surface-raised:#ffffff;
+  --color-border:#cbd5e1; --color-border-hover:#94a3b8; --color-border-subtle:rgba(15,23,42,.08);
+  --color-text:#0f172a; --color-text-muted:#475569; --color-focus:#4f46e5;
+  --color-badge-info-bg:#bee3f8; --color-badge-info-text:#2c5282;
+  --color-badge-success-bg:#c6f6d5; --color-badge-success-text:#276749;
+  --color-badge-neutral-bg:#e2e8f0; --color-badge-neutral-text:#4a5568;
+  --color-badge-warning-bg:#fefcbf; --color-badge-warning-text:#744210;
+  --color-badge-danger-bg:#fed7d7; --color-badge-danger-text:#9b2c2c;
+  --color-card-active-bg:rgba(79,70,229,.10);
+  --color-diff-removed-bg:#fed7d7; --color-diff-removed-text:#9b2c2c;
+  --color-diff-added-bg:#c6f6d5; --color-diff-added-text:#276749;
+  --shadow-sm:0 1px 2px rgba(15,23,42,.08);
+  --shadow-card:0 10px 15px -3px rgba(15,23,42,.10),0 4px 6px -2px rgba(15,23,42,.05);
+  --color-nav-bg:#0f172a; --color-nav-text:#ffffff; --color-nav-text-muted:rgba(255,255,255,.65);
+  --color-nav-border:rgba(255,255,255,.08); --color-nav-active-bg:rgba(79,70,229,.22);
+  --space-1:.25rem; --space-2:.5rem; --space-3:.75rem; --space-4:1rem; --space-5:1.25rem; --space-6:1.5rem; --space-8:2rem;
+  --font-sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  --font-cond:system-ui,-apple-system,sans-serif;
+  --font-size-xs:.75rem; --font-size-sm:.875rem; --font-size-base:1rem; --font-size-lg:1.125rem; --font-size-xl:1.25rem;
+  --leading-tight:1.15; --leading-normal:1.5; --tracking-wide:.06em;
+  --weight-regular:400; --weight-medium:500; --weight-semibold:600;
+  --radius-sm:6px; --radius-md:12px; --radius-lg:16px; --radius-full:9999px;
+  --btn-h-xs:24px; --btn-h-sm:32px; --btn-h-md:36px; --btn-h-lg:44px;
+  --radius-btn:var(--radius-sm);
+  --control-focus-ring:2px solid var(--color-focus);
+  --control-border-width:1px;
+  --transition-fast:150ms cubic-bezier(.4,0,.2,1);
+  --nav-width:240px; --list-min:380px; --detail-min:520px;
+  --bp-md:768px; --bp-lg:1024px; --bp-xl:1600px;
+  --inspector-w-min:280px;
+  --inspector-w-default:320px;
+  --inspector-w-wide:360px;
+  --inspector-w-max:520px;
+  --inspector-rail-w:calc(var(--btn-h-sm) + var(--space-1) * 2);
+  --inspector-tab-h:var(--btn-h-sm);
+  --inspector-row-h:var(--btn-h-md);
+  --inspector-spine-w:calc(var(--btn-h-lg) + var(--space-2));
+  --inspector-resize-hit:var(--btn-h-xs);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:var(--font-sans);background:var(--color-border);color:var(--color-text);
+  font-size:var(--font-size-sm);line-height:var(--leading-normal);padding:var(--space-6)}
+.doc-head{max-width:1440px;margin:0 auto var(--space-5)}
+.doc-head h1{font-size:var(--font-size-xl);line-height:var(--leading-tight);margin:0 0 var(--space-2)}
+.doc-head p{margin:0 0 var(--space-1);color:var(--color-text-muted);max-width:72ch}
+.doc-head code{font-family:var(--font-mono);font-size:var(--font-size-xs)}
+
+.viewport{width:1440px;height:900px;margin:0 auto;display:flex;background:var(--color-surface);
+  border:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-md);overflow:hidden;
+  box-shadow:var(--shadow-card);position:relative}
+
+.nav{flex:0 0 var(--nav-width);width:var(--nav-width);background:var(--color-nav-bg);color:var(--color-nav-text);
+  padding:var(--space-4) var(--space-3);display:flex;flex-direction:column;gap:var(--space-1)}
+.nav-brand{font-weight:var(--weight-semibold);font-size:var(--font-size-sm);padding:0 var(--space-2) var(--space-3);
+  border-bottom:var(--control-border-width) solid var(--color-nav-border);margin-bottom:var(--space-2)}
+.nav-brand small{display:block;color:var(--color-nav-text-muted);font-weight:var(--weight-regular);font-size:var(--font-size-xs)}
+.nav a{display:flex;justify-content:space-between;align-items:center;min-height:var(--btn-h-sm);
+  padding:0 var(--space-2);border-radius:var(--radius-btn);color:var(--color-nav-text-muted);
+  text-decoration:none;font-size:var(--font-size-sm)}
+.nav a[aria-current="page"]{background:var(--color-nav-active-bg);color:var(--color-nav-text);font-weight:var(--weight-medium)}
+.nav .n{font-family:var(--font-cond);font-size:var(--font-size-xs)}
+
+.list{flex:0 0 320px;width:320px;border-right:var(--control-border-width) solid var(--color-border);display:flex;flex-direction:column;
+  min-height:0;background:var(--color-surface)}
+.list-head{position:sticky;top:0;background:var(--color-surface);border-bottom:var(--control-border-width) solid var(--color-border);
+  padding:var(--space-3) var(--space-4);display:flex;align-items:center;justify-content:space-between;gap:var(--space-2)}
+.list-head h2{margin:0;font-size:var(--font-size-base);font-weight:var(--weight-semibold)}
+.list-head .count{font-family:var(--font-cond);font-size:var(--font-size-xs);color:var(--color-text-muted)}
+.filters{display:flex;flex-wrap:wrap;gap:var(--space-1);padding:var(--space-2) var(--space-4);border-bottom:var(--control-border-width) solid var(--color-border)}
+.chip{display:inline-flex;align-items:center;gap:var(--space-1);min-height:var(--btn-h-sm);padding:0 var(--space-3);
+  border:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-full);background:var(--color-surface-raised);
+  color:var(--color-text-muted);font-size:var(--font-size-xs);white-space:nowrap}
+.chip[aria-pressed="true"]{border-color:var(--color-primary);color:var(--color-primary-text);font-weight:var(--weight-medium)}
+.rows{list-style:none;margin:0;padding:var(--space-2);overflow-y:auto;flex:1 1 auto;scrollbar-gutter:stable}
+.row{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;
+  border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);min-height:var(--btn-h-md);
+  color:var(--color-text);cursor:pointer;font-family:inherit}
+.row:hover{background:var(--color-surface-raised);border-color:var(--color-border)}
+.row[aria-selected="true"]{background:var(--color-surface-raised);border-color:var(--color-primary);box-shadow:var(--shadow-sm)}
+.row .id{font-family:var(--font-mono);font-size:var(--font-size-xs);color:var(--color-text-muted)}
+.row .title{display:block;font-size:var(--font-size-sm);font-weight:var(--weight-medium);margin:var(--space-1) 0}
+.row .meta{display:flex;gap:var(--space-1);align-items:center;flex-wrap:wrap}
+
+/* Detailbereich: OHNE Spine */
+.detail{flex:1 1 auto;display:flex;min-width:0;min-height:0;background:var(--color-surface)}
+.content{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;min-height:0}
+.art-head{position:sticky;top:0;background:var(--color-surface);border-bottom:var(--control-border-width) solid var(--color-border);
+  padding:var(--space-3) var(--space-4);display:flex;align-items:flex-start;gap:var(--space-3);flex-wrap:wrap}
+.art-head .idchip{font-family:var(--font-mono);font-size:var(--font-size-xs);background:var(--color-surface-raised);
+  border:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-sm);padding:2px var(--space-2);white-space:nowrap}
+.art-head h2{margin:0;font-size:var(--font-size-lg);line-height:var(--leading-tight);flex:1 1 220px;min-width:0}
+.badges{display:flex;gap:var(--space-1);flex-wrap:wrap}
+.badge{display:inline-flex;align-items:center;min-height:22px;padding:0 var(--space-2);border-radius:var(--radius-sm);
+  font-family:var(--font-cond);font-size:var(--font-size-xs);font-weight:var(--weight-semibold);letter-spacing:.02em}
+.badge.neutral{background:var(--color-badge-neutral-bg);color:var(--color-badge-neutral-text)}
+.badge.success{background:var(--color-badge-success-bg);color:var(--color-badge-success-text)}
+.badge.info{background:var(--color-badge-info-bg);color:var(--color-badge-info-text)}
+.badge.warning{background:var(--color-badge-warning-bg);color:var(--color-badge-warning-text)}
+.art-body{padding:var(--space-4);overflow-y:auto;flex:1 1 auto;scrollbar-gutter:stable}
+.field{margin-bottom:var(--space-4)}
+.field dt{font-family:var(--font-cond);font-size:var(--font-size-xs);letter-spacing:var(--tracking-wide);
+  text-transform:uppercase;color:var(--color-text-muted);margin-bottom:var(--space-1)}
+.field dd{margin:0}
+.field .value{background:var(--color-surface-raised);border:var(--control-border-width) solid var(--color-border);
+  border-radius:var(--radius-md);padding:var(--space-2) var(--space-3);min-height:var(--btn-h-md)}
+.field .value.multiline{min-height:calc(var(--btn-h-md) * 2);line-height:1.6}
+.hint{color:var(--color-text-muted);font-size:var(--font-size-xs);margin-top:var(--space-1)}
+.note-strip{display:flex;align-items:flex-start;gap:var(--space-2);padding:var(--space-2) var(--space-3);
+  border:var(--control-border-width) dashed var(--color-border);border-radius:var(--radius-md);color:var(--color-text-muted);
+  font-size:var(--font-size-xs);margin-bottom:var(--space-4)}
+mark{background:var(--color-card-active-bg);color:var(--color-text);padding:0 2px;border-radius:2px}
+
+/* Inspector */
+.inspector{flex:0 0 var(--inspector-w-default);width:var(--inspector-w-default);
+  /* Die linke Kante IST die Splitter-Ruheline (--color-text-muted, 7.24:1/7.58:1) - keine zweite Linie. */
+  border-left:0;
+  background:var(--color-surface-raised);display:flex;flex-direction:column;min-height:0;position:relative}
+.inspector-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);
+  min-height:var(--btn-h-md);padding:var(--space-2) var(--space-3);border-bottom:var(--control-border-width) solid var(--color-border)}
+.inspector-head h2{margin:0;font-size:var(--font-size-base);font-weight:var(--weight-semibold)}
+.iconbtn{display:inline-flex;align-items:center;justify-content:center;width:var(--btn-h-sm);height:var(--btn-h-sm);
+  border:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-btn);background:transparent;color:var(--color-text);
+  cursor:pointer;font-family:inherit;font-size:var(--font-size-base);line-height:1}
+.iconbtn:hover{background:var(--color-surface);border-color:var(--color-border-hover)}
+.btn{display:inline-flex;align-items:center;gap:var(--space-1);justify-content:center;min-height:var(--btn-h-sm);
+  padding:0 var(--space-3);border:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-btn);
+  background:var(--color-surface-raised);color:var(--color-text);font-family:inherit;font-size:var(--font-size-sm);
+  font-weight:var(--weight-medium);cursor:pointer}
+.btn:hover{border-color:var(--color-border-hover)}
+.btn.primary{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary)}
+.btn.small{min-height:var(--btn-h-xs);padding:0 var(--space-2);font-size:var(--font-size-xs)}
+.inspector-body{display:flex;flex-direction:column;min-height:0;flex:1 1 auto}
+.inspector-body > input[type="radio"]{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.tabstrip{display:flex;border-bottom:var(--control-border-width) solid var(--color-border);padding:var(--space-2) var(--space-2) 0;overflow-x:auto}
+.tab{display:inline-flex;align-items:center;gap:var(--space-1);min-height:var(--inspector-tab-h);padding:0 var(--space-2);
+  border:var(--control-border-width) solid var(--color-border);border-left:none;background:transparent;color:var(--color-text-muted);
+  font-family:inherit;font-size:var(--font-size-xs);font-weight:var(--weight-semibold);cursor:pointer;white-space:nowrap}
+.tab:first-of-type{border-left:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-btn) 0 0 var(--radius-btn)}
+.tab:last-of-type{border-radius:0 var(--radius-btn) var(--radius-btn) 0}
+.tab .n{font-family:var(--font-cond);font-size:var(--font-size-xs);background:var(--color-badge-neutral-bg);
+  color:var(--color-badge-neutral-text);border:var(--control-border-width) solid transparent;border-radius:var(--radius-full);padding:0 4px;min-width:14px;text-align:center}
+.tab .n.alert{background:var(--color-badge-danger-bg);color:var(--color-badge-danger-text)}
+.panels{flex:1 1 auto;min-height:0;overflow-y:auto;padding:var(--space-3);scrollbar-gutter:stable}
+.panel{display:none}
+#t-version:checked ~ .tabstrip label[for="t-version"],
+#t-diff:checked ~ .tabstrip label[for="t-diff"],
+#t-links:checked ~ .tabstrip label[for="t-links"],
+#t-comments:checked ~ .tabstrip label[for="t-comments"]{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary)}
+#t-version:checked ~ .tabstrip label[for="t-version"] .n,
+#t-diff:checked ~ .tabstrip label[for="t-diff"] .n,
+#t-links:checked ~ .tabstrip label[for="t-links"] .n,
+#t-comments:checked ~ .tabstrip label[for="t-comments"] .n{
+  /* Spec §6.2: on-primary auf primary — keine Invertierung. */
+  background:var(--color-primary);color:var(--color-on-primary);
+  border:var(--control-border-width) solid var(--color-on-primary)}
+#t-version:checked ~ .panels #p-version,
+#t-diff:checked ~ .panels #p-diff,
+#t-links:checked ~ .panels #p-links,
+#t-comments:checked ~ .panels #p-comments{display:block}
+
+.sec-title{font-family:var(--font-cond);font-size:var(--font-size-xs);letter-spacing:var(--tracking-wide);
+  text-transform:uppercase;color:var(--color-text-muted);margin:0 0 var(--space-2)}
+.card{background:var(--color-surface);border:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-md)}
+.list-row{display:flex;align-items:flex-start;gap:var(--space-2);padding:var(--space-2);
+  border-bottom:var(--control-border-width) solid var(--color-border-subtle);min-height:var(--inspector-row-h)}
+.list-row:last-child{border-bottom:0}
+.list-row:hover{background:var(--color-surface-raised)}
+.list-row .main{flex:1 1 auto;min-width:0}
+.list-row .top{display:flex;align-items:center;gap:var(--space-1);flex-wrap:wrap}
+.list-row .id{font-family:var(--font-mono);font-size:var(--font-size-xs)}
+.list-row .t{font-size:var(--font-size-xs);font-weight:var(--weight-medium);display:block;margin-top:2px}
+.list-row .sub{font-size:var(--font-size-xs);color:var(--color-text-muted)}
+.mono{font-family:var(--font-mono)}
+.linktype{display:inline-flex;align-items:center;min-height:18px;padding:0 var(--space-1);border-radius:var(--radius-sm);
+  background:var(--color-badge-neutral-bg);color:var(--color-badge-neutral-text);font-family:var(--font-cond);
+  font-size:var(--font-size-xs);font-weight:var(--weight-semibold);letter-spacing:.03em}
+.dir{font-size:var(--font-size-xs);color:var(--color-text-muted)}
+.howused{font-size:var(--font-size-xs);color:var(--color-text-muted);border-left:2px solid var(--color-border);padding-left:var(--space-1);margin-top:var(--space-1)}
+.inspector-actions{display:flex;gap:var(--space-1);flex-wrap:wrap;margin-top:var(--space-2)}
+.empty{border:var(--control-border-width) dashed var(--color-border);border-radius:var(--radius-md);padding:var(--space-3) var(--space-2);
+  text-align:center;color:var(--color-text-muted);font-size:var(--font-size-xs)}
+.resize{position:absolute;left:0;top:0;bottom:0;width:var(--inspector-resize-hit);cursor:col-resize;background:transparent}
+.resize::after{content:"";position:absolute;left:0;top:0;bottom:0;width:var(--control-border-width);
+  background:var(--color-text-muted);transition:background var(--transition-fast),width var(--transition-fast)}
+.resize:hover::after,.resize:focus-visible::after{background:var(--color-primary);width:2px}
+textarea{width:100%;min-height:calc(var(--btn-h-lg) + var(--space-3));resize:vertical;border:var(--control-border-width) solid var(--color-border);
+  border-radius:var(--radius-md);background:var(--color-surface);color:var(--color-text);font-family:inherit;
+  font-size:var(--font-size-xs);padding:var(--space-2)}
+textarea:focus,select:focus,.btn:focus-visible,.iconbtn:focus-visible,.row:focus-visible,.tab:focus-visible{
+  outline:var(--control-focus-ring);outline-offset:1px}
+.mark{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;border-radius:var(--radius-full);
+  background:var(--color-primary);color:var(--color-on-primary);font-family:var(--font-cond);font-size:var(--font-size-xs);
+  font-weight:var(--weight-semibold);vertical-align:middle}
+.legend-list{max-width:1440px;margin:var(--space-5) auto 0;background:var(--color-surface-raised);
+  border:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-4)}
+.legend-list h2{font-size:var(--font-size-base);margin:0 0 var(--space-2)}
+.legend-list ol{margin:0;padding-left:var(--space-5)}
+.legend-list li{margin-bottom:var(--space-1);font-size:var(--font-size-sm)}
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);margin-top:var(--space-3)}
+.compare .box{border:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-2);background:var(--color-surface)}
+.compare b{display:block;font-family:var(--font-cond);font-size:var(--font-size-xs);letter-spacing:var(--tracking-wide);
+  text-transform:uppercase;color:var(--color-text-muted);margin-bottom:var(--space-1)}
+.strike{text-decoration:line-through;color:var(--color-text-muted)}
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <h1>Mockup — Artefakt-Inspector, Glossary (1440 px, ohne Spine)</h1>
+  <p>Typ ohne Trace-Spine: der Reiter <strong>Links</strong> ist der einzige Trace-Ort und zeigt
+     <strong>alle</strong> Link-Typen als Zeilen — keine Zusammenfassungszeile, kein Sprung in eine Spine.
+     Die frühere Überschrift „Verwendungen" im Detail entfällt (Spec §2.4).</p>
+  <p>Spec: <code>../2026-11-10-inspector-redesign-design.md</code>, Typ-Matrix §3 · Breiten:
+     Navigation 240 · Liste 320 · Inhalt 560 · Inspector 320 (R2-Default, ohne Spine, Spec §4.2).</p>
+</header>
+
+<div class="viewport">
+
+  <nav class="nav" aria-label="Hauptnavigation">
+    <div class="nav-brand">Kfz-Zulassung<small>SE-Modus · Workspace</small></div>
+    <a href="#"><span>Dashboard</span></a>
+    <a href="#"><span>Anforderungen</span><span class="n">214</span></a>
+    <a href="#"><span>Architektur</span><span class="n">87</span></a>
+    <a href="#"><span>Tests</span><span class="n">143</span></a>
+    <a href="#"><span>Ziele</span><span class="n">12</span></a>
+    <a href="#"><span>Risiken</span><span class="n">23</span></a>
+    <a href="#"><span>ADRs</span><span class="n">18</span></a>
+    <a href="#"><span>Probleme</span><span class="n">31</span></a>
+    <a href="#" aria-current="page"><span>Glossar</span><span class="n">64</span></a>
+    <a href="#"><span>ICDs</span><span class="n">9</span></a>
+    <a href="#"><span>Diagramme</span><span class="n">6</span></a>
+    <a href="#"><span>Baselines</span><span class="n">4</span></a>
+  </nav>
+
+  <section class="list" aria-label="Glossarliste">
+    <div class="list-head"><h2>Glossar</h2><span class="count">64 Begriffe</span></div>
+    <div class="filters">
+      <button class="chip" aria-pressed="true">Alle</button>
+      <button class="chip" aria-pressed="false">Fachlich</button>
+      <button class="chip" aria-pressed="false">Technisch</button>
+    </div>
+    <ul class="rows">
+      <li><button class="row" aria-selected="true">
+        <span class="id">GLS-012</span>
+        <span class="title">Zulassungsbescheid</span>
+        <span class="meta"><span class="badge neutral">Fachlich</span><span class="badge success">Freigegeben</span></span>
+      </button></li>
+      <li><button class="row">
+        <span class="id">GLS-011</span>
+        <span class="title">Halter</span>
+        <span class="meta"><span class="badge neutral">Fachlich</span><span class="badge success">Freigegeben</span></span>
+      </button></li>
+      <li><button class="row">
+        <span class="id">GLS-010</span>
+        <span class="title">Fahrzeugidentifizierungsnummer (FIN)</span>
+        <span class="meta"><span class="badge neutral">Fachlich</span><span class="badge success">Freigegeben</span></span>
+      </button></li>
+      <li><button class="row">
+        <span class="id">GLS-009</span>
+        <span class="title">Rate-Limit</span>
+        <span class="meta"><span class="badge neutral">Technisch</span><span class="badge warning">In Prüfung</span></span>
+      </button></li>
+      <li><button class="row">
+        <span class="id">GLS-008</span>
+        <span class="title">Audit-Log</span>
+        <span class="meta"><span class="badge neutral">Technisch</span><span class="badge success">Freigegeben</span></span>
+      </button></li>
+    </ul>
+  </section>
+
+  <div class="detail">
+    <main class="content" aria-label="Glossarbegriff GLS-012">
+      <div class="art-head">
+        <span class="idchip">GLS-012</span>
+        <h2>Zulassungsbescheid</h2>
+        <div class="badges">
+          <span class="badge neutral" title="Typ: Glossarbegriff">GLS</span>
+          <span class="badge success">Freigegeben</span>
+          <span class="badge neutral" title="Aktuelle Version">v4</span>
+        </div>
+      </div>
+
+      <div class="art-body">
+        <div class="note-strip">
+          <span aria-hidden="true">ⓘ</span>
+          <span>Dieser Typ hat <strong>keine Trace-Spine</strong> (kein Ableitungsgraph). Alle Verknüpfungen
+            stehen deshalb im Reiter „Links".</span>
+        </div>
+
+        <dl class="field">
+          <dt>Definition</dt>
+          <dd><div class="value multiline">Amtliche Urkunde, mit der die Zulassung eines Fahrzeugs zum
+            Straßenverkehr bescheinigt wird. Der Bescheid enthält Halter, Fahrzeugidentifizierungsnummer,
+            Tag der Erstzulassung und die Betriebserlaubnis-Referenz.</div></dd>
+        </dl>
+
+        <dl class="field">
+          <dt>Synonyme</dt>
+          <dd><div class="value">Zulassungsdokument · Fahrzeugschein (umgangssprachlich, ungenau)</div></dd>
+        </dl>
+
+        <dl class="field">
+          <dt>Verwendet in <span class="mark" aria-hidden="true">1</span></dt>
+          <dd>
+            <div class="value">
+              <div class="list-row" style="padding:0;border:0;min-height:auto">
+                <div class="main">
+                  <div class="top"><span class="linktype">references</span><span class="id">REQ-L1-018</span></div>
+                  <span class="t">Bescheid als PDF erzeugen und archivieren</span>
+                </div>
+                <button class="iconbtn" aria-label="Verknüpfung mit REQ-L1-018 öffnen">›</button>
+              </div>
+            </div>
+            <div class="hint">Bewusst nur ein Verweis, keine Kopie der Liste: die vollständige Liste steht im
+              Reiter „Links" (Spec §2.2/§2.4).</div>
+          </dd>
+        </dl>
+      </div>
+    </main>
+
+    <aside class="inspector" id="inspector-region" aria-labelledby="insp-title" data-testid="artifact-inspector">
+      <div class="resize" role="separator" aria-orientation="vertical" aria-label="Inspectorbreite ändern"
+           aria-valuenow="320" aria-valuemin="280" aria-valuemax="520" aria-valuetext="320 Pixel" tabindex="0"></div>
+      <div class="inspector-head">
+        <h2 id="insp-title">Inspector <span class="mark" aria-hidden="true">2</span></h2>
+        <button class="iconbtn" aria-label="Inspector schließen" title="Inspector schließen">»</button>
+      </div>
+
+      <div class="inspector-body">
+        <input type="radio" name="tab" id="t-version">
+        <input type="radio" name="tab" id="t-diff">
+        <input type="radio" name="tab" id="t-links" checked>
+        <input type="radio" name="tab" id="t-comments">
+
+        <div class="tabstrip" role="tablist" aria-label="Inspector-Bereiche">
+          <label class="tab" for="t-version" role="tab" id="inspector-tab-version" aria-controls="inspector-panel-version">Version <span class="n">4</span></label>
+          <label class="tab" for="t-diff" role="tab" id="inspector-tab-diff" aria-controls="inspector-panel-diff">Diff</label>
+          <label class="tab" for="t-links" role="tab" id="inspector-tab-links" aria-controls="inspector-panel-links">Links <span class="n">4</span></label>
+          <label class="tab" for="t-comments" role="tab" id="inspector-tab-comments" aria-controls="inspector-panel-comments">Kommentare <span class="n">0</span></label>
+        </div>
+
+        <div class="panels">
+
+          <section class="panel" id="inspector-panel-version" role="tabpanel" tabindex="0"
+            aria-labelledby="inspector-tab-version">
+            <h3 class="sec-title">Verlauf</h3>
+            <div class="card">
+              <div class="list-row">
+                <div class="main">
+                  <div class="top"><span class="id">v4</span><span class="badge info">Aktuell</span></div>
+                  <span class="t">Definition geschärft (Betriebserlaubnis-Referenz)</span>
+                  <span class="sub">08.11.2026, 10:22 · A. Weber</span>
+                </div>
+                <button class="iconbtn" aria-label="Aktionen für Version v4">⋯</button>
+              </div>
+              <div class="list-row">
+                <div class="main">
+                  <div class="top"><span class="id">v3</span><span class="badge neutral">Baseline: Release 1.4</span></div>
+                  <span class="t">Synonym „Fahrzeugschein" aufgenommen</span>
+                  <span class="sub">04.11.2026, 17:02 · System</span>
+                </div>
+                <button class="iconbtn" aria-label="Aktionen für Version v3">⋯</button>
+              </div>
+              <div class="list-row" style="border:0">
+                <div class="main"><span class="sub">1 weitere Version (v2) — aus Platzgründen im Mockup ausgeblendet</span></div>
+              </div>
+              <div class="list-row">
+                <div class="main">
+                  <div class="top"><span class="id">v1</span></div>
+                  <span class="t">Erste Fassung aus Glossar-Workshop</span>
+                  <span class="sub">21.09.2026, 13:10 · K. Hoffmann</span>
+                </div>
+                <button class="iconbtn" aria-label="Aktionen für Version v1">⋯</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" id="inspector-panel-diff" role="tabpanel" tabindex="0"
+            aria-labelledby="inspector-tab-diff">
+            <h3 class="sec-title">Vergleich</h3>
+            <div class="control" style="display:flex;gap:var(--space-1);align-items:center;margin-bottom:var(--space-2)">
+              <label for="base" style="font-size:var(--font-size-xs);color:var(--color-text-muted)">Basis</label>
+              <select id="base" style="min-height:var(--btn-h-sm);border:var(--control-border-width) solid var(--color-border);
+                border-radius:var(--radius-btn);background:var(--color-surface-raised);color:var(--color-text);
+                font-family:inherit;font-size:var(--font-size-xs);padding:0 var(--space-2)">
+                <option>Release 1.4 · v3 · 04.11.2026</option>
+                <option>Nur Versionen</option>
+              </select>
+            </div>
+            <div class="pair" style="display:flex;gap:var(--space-1);flex-wrap:wrap;font-size:var(--font-size-xs);
+              background:var(--color-surface);border:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-md);
+              padding:var(--space-2);margin-bottom:var(--space-2)">
+              <strong>Release 1.4</strong><span style="color:var(--color-text-muted)">·</span><span class="mono">v3</span>
+              <span style="color:var(--color-text-muted)">→</span>
+              <strong>Arbeitsstand</strong><span style="color:var(--color-text-muted)">·</span><span class="mono">v4</span>
+            </div>
+            <div class="card" style="padding:var(--space-2)">
+              <div class="top" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-1)">
+                <strong style="font-size:var(--font-size-xs)">Definition</strong>
+                <span class="badge warning">~ geändert</span>
+              </div>
+              <div style="font-size:var(--font-size-xs);background:var(--color-diff-removed-bg);
+                color:var(--color-diff-removed-text);padding:var(--space-1);border-radius:var(--radius-sm)">
+                … Tag der Erstzulassung und die Betriebserlaubnis.
+              </div>
+              <div style="font-size:var(--font-size-xs);background:var(--color-diff-added-bg);
+                color:var(--color-diff-added-text);padding:var(--space-1);border-radius:var(--radius-sm);margin-top:2px">
+                … Tag der Erstzulassung und die Betriebserlaubnis-Referenz.
+              </div>
+            </div>
+          </section>
+
+          <section class="panel" id="inspector-panel-links" role="tabpanel" tabindex="0"
+            aria-labelledby="inspector-tab-links">
+            <h3 class="sec-title">Verwendungen — alle Verknüpfungen <span class="mark" aria-hidden="true">3</span></h3>
+
+            <div class="filters" style="padding:0 0 var(--space-2);border:0">
+              <button class="chip" aria-pressed="true">Alle (4)</button>
+              <button class="chip" aria-pressed="false">Referenz (3)</button>
+              <button class="chip" aria-pressed="false">Diagramm (1)</button>
+            </div>
+
+            <div class="card">
+              <div class="list-row">
+                <div class="main">
+                  <div class="top"><span class="linktype">references</span><span class="id">REQ-L1-018</span>
+                    <span class="dir">← eingehend</span></div>
+                  <span class="t">Bescheid als PDF erzeugen und archivieren</span>
+                  <span class="howused">Verwendet im Feld „Dokumenttyp"</span>
+                </div>
+                <button class="iconbtn" aria-label="Verknüpfung mit REQ-L1-018 öffnen">›</button>
+              </div>
+              <div class="list-row">
+                <div class="main">
+                  <div class="top"><span class="linktype">references</span><span class="id">REQ-L2-104</span>
+                    <span class="dir">← eingehend</span></div>
+                  <span class="t">PDF-Vorlage des Zulassungsbescheids versionieren</span>
+                  <span class="howused">Verwendet im Feld „Fachbegriff"</span>
+                </div>
+                <button class="iconbtn" aria-label="Verknüpfung mit REQ-L2-104 öffnen">›</button>
+              </div>
+              <div class="list-row">
+                <div class="main">
+                  <div class="top"><span class="linktype">references</span><span class="id">TC-212</span>
+                    <span class="dir">← eingehend</span></div>
+                  <span class="t">Prüfung: Bescheid enthält alle Pflichtangaben</span>
+                  <span class="howused">Verwendet in der Testbeschreibung</span>
+                </div>
+                <button class="iconbtn" aria-label="Verknüpfung mit TC-212 öffnen">›</button>
+              </div>
+              <div class="list-row">
+                <div class="main">
+                  <div class="top"><span class="linktype">diagram-ref</span><span class="id">DIA-003</span>
+                    <span class="dir">→ ausgehend</span></div>
+                  <span class="t">Dokumentenfluss Zulassung (Kontextdiagramm)</span>
+                  <span class="howused">Begriff im Diagramm beschriftet</span>
+                </div>
+                <button class="iconbtn" aria-label="Verknüpfung mit DIA-003 öffnen">›</button>
+              </div>
+            </div>
+
+            <div class="inspector-actions">
+              <button class="btn primary">Neuen Link erstellen</button>
+            </div>
+          </section>
+
+          <section class="panel" id="inspector-panel-comments" role="tabpanel" tabindex="0"
+            aria-labelledby="inspector-tab-comments">
+            <h3 class="sec-title">Kommentare</h3>
+            <div class="empty">Noch keine Kommentare. Schreiben Sie den ersten.</div>
+            <div style="margin-top:var(--space-3);display:flex;flex-direction:column;gap:var(--space-1)">
+              <label for="c" style="font-size:var(--font-size-xs);color:var(--color-text-muted)">Neuer Kommentar</label>
+              <textarea id="c" placeholder="Kommentar schreiben…"></textarea>
+              <div style="display:flex;justify-content:flex-end"><button class="btn primary">Kommentar</button></div>
+            </div>
+          </section>
+
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<section class="legend-list">
+  <h2>Was dieses Mockup zeigt</h2>
+  <ol>
+    <li><strong>Keine Spine, kein Ersatz nötig</strong>: der Detailbereich nutzt die volle Breite; es gibt keinen leeren Spine-Rail (Typ-Matrix §3: `glossary` → Spine „nein").</li>
+    <li><strong>Ein Inspector je Seite</strong>, ein <code>&lt;aside&gt;</code> mit <code>aria-labelledby</code> auf die Kopfzeile (Rolle <code>complementary</code> implizit); Breite/Verhalten wie bei allen Typen (H4).</li>
+    <li><strong>Der Reiter „Links" ist hier der einzige Trace-Ort</strong> und zeigt alle vier Verknüpfungen als Zeilen — inklusive der Typen, die bei Spine-Typen in der Spine liegen. Grund: es gibt keine Spine, die sie lesen könnte (Spec §2.4).</li>
+    <li><strong>Das Label bleibt „Verwendungen"</strong> (Glossar-Sprache), obwohl der Reiter technisch „Links" heißt — Terminologie-Profil, Spec §8 M5.</li>
+    <li><strong>Zwei Orte, zwei Aufgaben</strong>: der Detailkörper zeigt <em>einen</em> Verweis mit Erklärung („wird verwendet"), die vollständige Liste steht im Reiter. Kein zweiter vollständiger Block unter einer Überschrift „Verwendungen" (das war I-01/U-15).</li>
+  </ol>
+
+  <div class="compare">
+    <div class="box">
+      <b>Vorher (Ist)</b>
+      <p style="font-size:var(--font-size-sm);margin:0">
+        Detailspalte endet mit <span class="strike">„Verwendungen"</span>, darunter der komplette
+        Inspector als Block: Version, Diff, Trace, Kommentare in einer Scrollbox. Zusätzlich listet
+        das Trace-Panel dieselben Verknüpfungen, die schon als „Verwendungen" darüber stehen.
+      </p>
+      <p class="sub" style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin:var(--space-2) 0 0">
+        Belege: <span class="mono">GlossaryDetailPanel.tsx:79-100</span> · <span class="mono">RightSidebar.module.css:76-86</span>
+      </p>
+    </div>
+    <div class="box">
+      <b>Nachher (dieses Mockup)</b>
+      <p style="font-size:var(--font-size-sm);margin:0">
+        Der Begriff endet mit einem einzelnen Verweis und dem Hinweis auf den Reiter. Der Inspector ist
+        eine echte rechte Spalte mit vier Reitern; „Verwendungen" existiert genau einmal, im Reiter „Links".
+      </p>
+      <p class="sub" style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin:var(--space-2) 0 0">
+        Spec §2.2 (ein Ort je Information) · §2.4 (Doppelung entfällt) · M5 (Migration)
+      </p>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>
