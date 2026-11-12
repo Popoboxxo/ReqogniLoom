@@ -32,10 +32,10 @@ import { useTranslation } from 'react-i18next';
 import { useRequirementData, type RequirementAllocationFilter, isRequirementAllocationFilter, requirementAllocationStorageKey } from './useRequirementData';
 import { useRequirementAiDerivation } from './use-requirement-ai-derivation';
 import { useRequirementCreateForm } from './use-requirement-create-form';
+import { useRequirementRouteActions } from './use-requirement-route-actions';
 import { useHasRole } from '../../hooks/useHasRole';
 import { usePersistedListState } from '../../hooks/usePersistedListState';
 import { useCreateRequirement, useDeleteRequirement } from '../../queries/requirements';
-import { workspacesApi } from '../../api/workspaces';
 import { artifactsApi } from '../../api/artifacts';
 import { extractApiErrorMessage } from '../../api/client';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -208,8 +208,19 @@ export default function RequirementEditors(): JSX.Element {
   // (delete, PDF export) — rendered as a banner under the page header.
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const {
+    isExportingPdf,
+    showDeriveTestcasePanel,
+    exportPdf,
+    openDeriveTestcasePanel,
+    closeDeriveTestcasePanel,
+  } = useRequirementRouteActions({
+    workspaceId: activeWorkspace?.id,
+    t,
+    onError: setActionError,
+  });
+
   // PDF export state
-  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   // REQ-008: AI-derive state for Anforderungen view (#598 S2 — own module).
   const {
@@ -227,7 +238,6 @@ export default function RequirementEditors(): JSX.Element {
   } = useRequirementAiDerivation(requirement, t, refresh);
 
   // SysEng 2.0 N5 (test.derive_from_requirement): AI TestCase-draft copilot
-  const [showDeriveTestcasePanel, setShowDeriveTestcasePanel] = useState(false);
 
   // Split-view state for localStorage persistence
   
@@ -373,31 +383,6 @@ export default function RequirementEditors(): JSX.Element {
   );
 
   /**
-   * Handle PDF export of requirements.
-   */
-  const handleExportPdf = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace) return;
-    setIsExportingPdf(true);
-    setActionError(null);
-    try {
-      const blob = await workspacesApi.downloadPdfReport(activeWorkspace.id);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `requirement_document_${activeWorkspace.id.slice(0, 8)}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err: unknown) {
-      // #340: a failed export produced no download and no message at all.
-      setActionError(extractApiErrorMessage(err) ?? t('req.pdfExportFailed'));
-    } finally {
-      setIsExportingPdf(false);
-    }
-  }, [activeWorkspace, t]);
-
-  /**
    * Issue #1092: the route's complete AI-action set, in one list. Each entry
    * keeps its own label, hint and test id from before the move; the shared
    * `<AiActionSection>` adds the common AI icon and the button variant, so
@@ -431,7 +416,7 @@ export default function RequirementEditors(): JSX.Element {
           'actions.deriveAiTestcaseHint',
           'Die KI erzeugt einen Testfall-Entwurf zur Prüfung – gespeichert wird erst nach deiner Bestätigung'
         ),
-        onClick: () => setShowDeriveTestcasePanel(true),
+        onClick: openDeriveTestcasePanel,
         testId: 'req-derive-testcase-btn',
       },
     ];
@@ -536,7 +521,7 @@ export default function RequirementEditors(): JSX.Element {
         interviewCta,
         {
           label: t('requirements.exportPdf', 'PDF-Export'),
-          onClick: () => void handleExportPdf(),
+          onClick: () => void exportPdf(),
           disabled: isExportingPdf || requirements.length === 0,
           testId: 'export-pdf-btn',
         },
@@ -789,14 +774,14 @@ export default function RequirementEditors(): JSX.Element {
         <Dialog
           title={t('deriveTestcase.title')}
           description={requirement.title}
-          onClose={() => setShowDeriveTestcasePanel(false)}
+          onClose={closeDeriveTestcasePanel}
           size="lg"
           testId="derive-testcase-dialog"
         >
           <DeriveTestCasePanel
             workspaceId={activeWorkspace.id}
             requirement={{ id: requirement.id, title: requirement.title }}
-            onCreated={() => setShowDeriveTestcasePanel(false)}
+            onCreated={closeDeriveTestcasePanel}
           />
         </Dialog>
       )}
