@@ -1048,6 +1048,12 @@ Polaris. Die Spec stützt sich deshalb für Panel-Muster auf PatternFly, Pajamas
 
 ## 11. Offene Entscheidungen für Daniel
 
+> **Status: entschieden am 2026-11-12.** Daniel hat alle acht Fragen mit **Option A** angenommen, jeweils
+> inklusive der im Text genannten Auflagen — insbesondere der B1-Konsequenz zu D3 (Sheet non-modal **plus**
+> `inert` auf dem verdeckten Detailbereich) und der visuellen Prüfung von 508 px aus D1. D5 (`glossary`,
+> `icd`, `diagram`, `goal`, `mainGoal`) und D6 bleiben als eigene Prüf-/Backend-Tasks im Umsetzungsplan
+> (`docs/superpowers/plans/2026-11-12-inspector-redesign-implementation.md`).
+
 Der Plan verlangt, offene Gestaltungsfragen **einzeln** zu stellen, nicht gesammelt zu entscheiden. Diese
 Liste ist das Gate für Task 6. Jede Zeile: Frage, Optionen, Empfehlung, Blockadewirkung.
 
