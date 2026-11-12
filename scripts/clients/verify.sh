@@ -54,7 +54,28 @@ case "$CLIENT" in
     ;;
   opencode|opencode-v2)
     require_bin "$OPENCODE_BIN"
-    out="$("$OPENCODE_BIN" mcp list 2>&1 || true)"
+    # Isolation: run the client outside the checkout. OpenCode also loads a
+    # project-root config, so inside the repository it would mix the
+    # maintainer's own servers into the answer (observed: a foreign
+    # `playwright` server appeared next to reqogniloom).
+    verify_cwd="$(mktemp -d)"
+    trap 'rm -rf "$verify_cwd"' EXIT
+    # OpenCode V2 runs a background service that re-reads the config written by
+    # install.sh with a delay (docs/clients/opencode-v2-known-issues.md); a
+    # single immediate `mcp list` produced a false negative. V1 needs no retry.
+    attempts="${VERIFY_RETRY_ATTEMPTS:-}"
+    if [ -z "$attempts" ]; then
+      if [ "$CLIENT" = "opencode-v2" ]; then attempts=10; else attempts=3; fi
+    fi
+    delay="${VERIFY_RETRY_DELAY:-2}"
+    out=""
+    i=0
+    while [ "$i" -lt "$attempts" ]; do
+      out="$(cd "$verify_cwd" && "$OPENCODE_BIN" mcp list 2>&1 || true)"
+      if printf '%s' "$out" | grep -q "reqogniloom"; then break; fi
+      i=$((i + 1))
+      [ "$i" -lt "$attempts" ] && sleep "$delay"
+    done
     expect_marker "$out" "reqogniloom"
     echo "info: skills expected at ${HOME}/.config/opencode/skills (DOMAIN_MODEL.md at ${HOME}/.config/opencode/; pass --skills-dir for a per-project install)"
     if [ "$CLIENT" = "opencode-v2" ]; then

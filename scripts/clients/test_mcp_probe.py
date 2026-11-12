@@ -238,7 +238,6 @@ def test_probe_reads_sse_framed_bodies() -> None:
 
 @pytest.mark.parametrize("body", [b"", b"   "])
 def test_probe_handles_an_empty_body(body: bytes) -> None:
-    transport = FakeTransport()
     response = _Response(200, "application/json", body)
 
     assert response.json() is None

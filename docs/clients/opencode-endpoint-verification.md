@@ -40,7 +40,7 @@ Beide Clients wurden in einem isolierten `HOME` installiert (`install.sh`) und �
 | V1 | 1.18.35 | Config in `$HOME/.config/opencode/opencode.jsonc` | `✓ reqogniloom connected` | nicht über CLI introspizierbar |
 | V2 | 2.2.6 | Config unter `$HOME/.config/opencode/`, Block `mcp.servers.reqogniloom` (V2 schreibt die reine JSON-Form; seine Merge-Stufe akzeptiert kein JSONC) | `✓ reqogniloom connected` | nicht über CLI introspizierbar |
 
-**V2-Restart-Quirk bestätigt.** Direkt nach `install.sh` meldete `verify.sh --client opencode-v2` „expected marker 'reqogniloom' not found". Ein zweiter `opencode mcp list` wenige Sekunden später zeigte `✓ reqogniloom connected`. Die Config ist also geschrieben, der laufende Dienst übernimmt sie aber nicht im selben Moment.
+**V2-Restart-Quirk bestätigt und im Verifier abgefangen.** Direkt nach `install.sh` meldete `verify.sh --client opencode-v2` „expected marker 'reqogniloom' not found". Ein zweiter `opencode mcp list` wenige Sekunden später zeigte `✓ reqogniloom connected`. Die Config ist also geschrieben, der laufende Dienst übernimmt sie aber nicht im selben Moment. `verify.sh` wiederholt die Abfrage deshalb (bis zu 10 Versuche à 2 s, per `VERIFY_RETRY_ATTEMPTS`/`VERIFY_RETRY_DELAY` übersteuerbar) und pinnt das mit `scripts/clients/test_verify_opencode.py`.
 
 **Kein clientseitiger Tool-Katalog messbar.** `opencode debug` bietet (in 2.2.6) nur `agents`, `config`, `heap-dump`, `paths` — kein Unterkommando, das MCP-Tools auflistet. Die Tool-Sichtbarkeit ist deshalb nur serverseitig belegt (Abschnitt 1). Das ist die im Plan vorgesehene Grenze, nicht ein Fehler der Messung.
 
@@ -67,12 +67,7 @@ Beide Clients wurden in einem isolierten `HOME` installiert (`install.sh`) und �
 
 Wird `verify.sh` **innerhalb** des Checkouts ausgeführt, lädt OpenCode zusätzlich die Client-Config im Wurzelverzeichnis des Haupt-Checkouts (`/home/hermes/repos/ReqogniLoom/`). `opencode debug config` listet es als zweite Quelle; in `mcp list` erscheint dadurch ein fremder Server (`playwright`), der nicht aus dem isolierten `HOME` stammt.
 
-Konsequenz für CI und lokale Läufe:
-
-- Client-Prüfungen aus einem Verzeichnis **außerhalb** des Repos starten (`/var/tmp/...`), oder
-- `PATH` explizit auf die gewünschte Client-Version setzen (beide Binaries heißen `opencode`; die Reihenfolge entscheidet, welche Version läuft).
-
-Ohne diese Vorkehrung misst man eine Mischkonfiguration — genau der Fall, der in dieser Messung zuerst auftrat und korrigiert wurde.
+**Abgestellt in `verify.sh`:** Der OpenCode-Zweig führt den Client jetzt aus einem temporären Verzeichnis aus (`mktemp -d`), damit die Projekt-Config des Checkouts nicht mehr in die Antwort leckt. Ein Test (`test_verify_opencode.py`) pinnt Arbeitsverzeichnis und Retry-Verhalten. Für manuelle Läufe bleibt wichtig: `PATH` explizit auf die gewünschte Client-Version setzen — beide Binaries heißen `opencode`, die Reihenfolge entscheidet, welche Version läuft. Ohne diese Vorkehrung misst man eine Mischkonfiguration — genau der Fall, der in dieser Messung zuerst auftrat und korrigiert wurde.
 
 ---
 
