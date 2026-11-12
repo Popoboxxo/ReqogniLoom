@@ -41,10 +41,10 @@ import { AiDerivationDialog } from "../shared/AiDerivationDialog";
 import { useHasRole } from "../../hooks/useHasRole";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
 import { extractErrorMessage } from "../../api/client";
-import { fieldErrorsFromException } from "../shared/ArtifactForm/field-errors";
 import styles from "./GlossaryView.module.css";
 import { useGlossaryDerive } from "./use-glossary-derive";
 import { useGlossaryFilters } from "./use-glossary-filters";
+import { useGlossaryTermForm } from "./use-glossary-term-form";
 import {
   GLOSSARY_LIFECYCLE_STATUSES,
   buildSynonymLinkIndex,
@@ -55,7 +55,6 @@ import type { FilterMode, SortKey } from "./glossary-view-shared";
 import { GlossaryTermList } from "./GlossaryTermList";
 import { GlossaryDetailPanel } from "./GlossaryDetailPanel";
 import { GlossaryTermForm } from "./GlossaryTermForm";
-import type { GlossaryFormData } from "./GlossaryTermForm";
 import { GlossarySynonyms } from "./GlossarySynonyms";
 
 export default function GlossaryView(): JSX.Element {
@@ -67,9 +66,6 @@ export default function GlossaryView(): JSX.Element {
   const [terms, setTerms] = useState<GlossaryTerm[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
-  // GitHub #1392: per-field half of a rejected save (`details[].field`).
-  const [formFieldErrors, setFormFieldErrors] = useState<Record<string, string[]>>({});
   const [rowError, setRowError] = useState<string | null>(null);
   const {
     searchTerm,
@@ -88,19 +84,11 @@ export default function GlossaryView(): JSX.Element {
   // C9 create-link button (that only ever appears while actively editing).
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Form state
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  // Form state (#598 S2 — own module); the term input keeps its focus ref.
   // #802: the create form now lives inside the shared <Dialog>, which moves the
   // initial focus itself — target the term field explicitly (the dialog's
   // first tabbable element is its close button otherwise).
   const termInputRef = useRef<HTMLInputElement | null>(null);
-  const [formData, setFormData] = useState<GlossaryFormData>({
-    term: "",
-    definition: "",
-    synonyms: "",
-    abbreviation: "",
-  });
 
   // C9 (REQ-006): trace-link creation dialog for the selected glossary entry.
   const [showLinkDialog, setShowLinkDialog] = useState(false);
@@ -131,6 +119,25 @@ export default function GlossaryView(): JSX.Element {
     loadTerms();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspace?.id]);
+
+  const {
+    isFormOpen,
+    editingId,
+    formData,
+    formError,
+    formFieldErrors,
+    handleSubmit,
+    handleEdit,
+    openCreateForm,
+    closeForm,
+    resetForm,
+    updateFormField,
+  } = useGlossaryTermForm({
+    workspaceId: activeWorkspace?.id,
+    t,
+    reloadTerms: loadTerms,
+    onSelect: setSelectedId,
+  });
 
   const {
     deriveOpen,
@@ -174,42 +181,6 @@ export default function GlossaryView(): JSX.Element {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeWorkspace) return;
-
-    setFormError(null);
-    setFormFieldErrors({});
-    try {
-      const payload = {
-        workspace_id: activeWorkspace.id,
-        term: formData.term,
-        definition: formData.definition,
-        synonyms: formData.synonyms ? formData.synonyms.split(",").map((s) => s.trim()).filter(Boolean) : [],
-        abbreviation: formData.abbreviation,
-      };
-
-      let saved: GlossaryTerm;
-      if (editingId) {
-        saved = await glossaryApi.update(editingId, payload);
-      } else {
-        saved = await glossaryApi.create(payload);
-      }
-
-      setIsFormOpen(false);
-      resetForm();
-      setSelectedId(saved.id);
-      loadTerms();
-    } catch (err) {
-      console.error("Failed to save term", err);
-      // Keep the form open on failure (UI standards §12.11) — the user's
-      // input must not be lost and the form must not silently close.
-      const message = extractErrorMessage(err) || t("glossary.saveFailed");
-      setFormError(message);
-      setFormFieldErrors(fieldErrorsFromException(err, message));
-    }
-  };
-
   const handleDelete = async (id: string) => {
     if (confirm(t("glossary.deleteConfirm"))) {
       try {
@@ -217,7 +188,7 @@ export default function GlossaryView(): JSX.Element {
         await glossaryApi.delete(id);
         if (selectedId === id) setSelectedId(null);
         if (editingId === id) {
-          setIsFormOpen(false);
+          closeForm();
           resetForm();
         }
         loadTerms();
@@ -228,44 +199,8 @@ export default function GlossaryView(): JSX.Element {
     }
   };
 
-  const handleEdit = (term: GlossaryTerm) => {
-    setFormData({
-      term: term.term,
-      definition: term.definition,
-      synonyms: term.synonyms ? term.synonyms.join(", ") : "",
-      abbreviation: term.abbreviation || "",
-    });
-    setEditingId(term.id);
-    setSelectedId(term.id);
-    setIsFormOpen(true);
-  };
-
   const handleSelect = (term: GlossaryTerm) => {
     setSelectedId(term.id);
-  };
-
-  const openCreateForm = () => {
-    resetForm();
-    setIsFormOpen(true);
-  };
-
-  /**
-   * Single close path for both the create dialog and the in-pane edit form
-   * (#802) — a failed save keeps the form open with the message visible (UI
-   * standards §12.11), so the error has to be cleared here, not on open only.
-   */
-  const closeForm = () => {
-    setIsFormOpen(false);
-    setFormError(null);
-  };
-
-  const resetForm = () => {
-    setFormData({ term: "", definition: "", synonyms: "", abbreviation: "" });
-    setEditingId(null);
-  };
-
-  const updateFormField = (field: keyof GlossaryFormData, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   // C10: open the picker for (termId, index); clicking the open picker's

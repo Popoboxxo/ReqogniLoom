@@ -46,19 +46,19 @@ files are not a defect.
 | 6 | `src/components/Reviews/ReviewsView.tsx` | 1246 | 10 | 104 | 1040 | 2 | 1 |
 | 7 | `src/components/NavigationShell/SidebarNavigation.tsx` | 964 | 11 | 80 | 880 | 1 | 0 |
 | 8 | `src/components/AttributeEditor/AttributeEditorPage.tsx` | 1106 | 9 | 90 | 810 | 5 | 4 |
-| 9 | `src/components/WorkspaceSettings/WorkspaceSettings.tsx` | 777 | 11 | 62 | 682 | 2 | 2 |
-| 10 | `src/components/BaselinesView/BaselinesView.tsx` | 788 | 10 | 63 | 630 | 4 | 3 |
+| 9 | `src/components/BaselinesView/BaselinesView.tsx` | 788 | 11 | 63 | 693 | 4 | 3 |
+| 10 | `src/components/WorkspaceSettings/WorkspaceSettings.tsx` | 777 | 11 | 62 | 682 | 2 | 2 |
 | 11 | `src/components/RequirementEditors/RequirementEditors.tsx` | 844 | 10 | 57 | 570 | 10 | 4 |
 | 12 | `src/components/Memory/MemoryPage.tsx` | 737 | 7 | 75 | 525 | 5 | 4 |
-| 13 | `src/components/CsvImport/CsvImport.tsx` | 1134 | 5 | 94 | 470 | 4 | 3 |
-| 14 | `src/components/TraceabilityView/TraceabilityView.tsx` | 1089 | 6 | 78 | 468 | 5 | 4 |
-| 15 | `src/components/SplitView/SplitView.tsx` | 874 | 8 | 55 | 440 | 0 | 0 |
-| 16 | `src/components/RequirementEditors/MarkdownPreview.tsx` | 572 | 5 | 81 | 405 | 5 | 2 |
-| 17 | `src/components/ArtifactDiff/ArtifactDiff.tsx` | 596 | 6 | 62 | 372 | 1 | 1 |
-| 18 | `src/components/GlossaryView/GlossaryView.tsx` | 586 | 8 | 45 | 360 | 14 | 13 |
+| 13 | `src/components/TraceabilityView/TraceabilityView.tsx` | 1089 | 6 | 78 | 468 | 5 | 4 |
+| 14 | `src/components/SplitView/SplitView.tsx` | 874 | 8 | 55 | 440 | 0 | 0 |
+| 15 | `src/components/RequirementEditors/MarkdownPreview.tsx` | 572 | 5 | 81 | 405 | 5 | 2 |
+| 16 | `src/components/CsvImport/CsvImport.tsx` | 1071 | 5 | 80 | 400 | 3 | 2 |
+| 17 | `src/components/NeedsEditors/NeedsEditors.tsx` | 520 | 11 | 34 | 374 | 4 | 3 |
+| 18 | `src/components/ArtifactDiff/ArtifactDiff.tsx` | 596 | 6 | 62 | 372 | 1 | 1 |
 | 19 | `src/components/NeedsEditors/NeedList.tsx` | 483 | 10 | 34 | 340 | 2 | 0 |
-| 20 | `src/components/NeedsEditors/NeedsEditors.tsx` | 520 | 10 | 34 | 340 | 4 | 3 |
-| 21 | `src/components/SystemSettings/MemoryVisualizationSection.tsx` | 520 | 5 | 65 | 325 | 3 | 2 |
+| 20 | `src/components/SystemSettings/MemoryVisualizationSection.tsx` | 520 | 5 | 65 | 325 | 3 | 2 |
+| 21 | `src/components/GlossaryView/GlossaryView.tsx` | 521 | 8 | 38 | 304 | 9 | 8 |
 | 22 | `src/components/BaselinesView/BaselineRollbackPanel.tsx` | 645 | 4 | 74 | 296 | 2 | 1 |
 | 23 | `src/components/SystemSettings/MemorySystemSettingsSection.tsx` | 605 | 4 | 70 | 280 | 2 | 2 |
 | 24 | `src/components/shared/ArtifactForm/fields/ActorPicker.tsx` | 413 | 4 | 68 | 272 | 3 | 3 |
@@ -205,17 +205,17 @@ files are not a defect.
 4. names: `handleSetViewMode`, `setViewMode`, `viewMode` · kinds: state, callback · API: —
 5. names: `setShowLayout`, `showLayout` · kinds: state · API: —
 
-### `src/components/WorkspaceSettings/WorkspaceSettings.tsx`
-
-1. names: `activeTab`, `setActiveTab` · kinds: state · API: —
-2. names: `confirmPresetDowngrade`, `effect#1`, `handleLanguageChange`, `handlePresetChange`, `handleProfileChange`, `handleSaveName`, `isSaving`, `name`, `pendingPresetDowngrade`, `requestPresetChange`, `saveError`, `savedOk`, `setIsSaving`, `setName`, `setPendingPresetDowngrade`, `setSaveError`, `setSavedOk` · kinds: state, effect, callback · API: `workspacesApi.setPreset`, `workspacesApi.update`
-
 ### `src/components/BaselinesView/BaselinesView.tsx`
 
 1. names: `confirmDelete`, `handleCreate`, `handleDelete`, `openCompareView`, `pendingDeleteId`, `selectedId`, `setPendingDeleteId`, `setSelectedId` · kinds: state, callback · API: —
 2. names: `effect#1`, `effect#2`, `setTagFilter`, `tagFilter` · kinds: state, effect · API: —
 3. names: `effect#3` · kinds: effect · API: —
 4. names: `filteredBaselines`, `listSearch`, `scopeFilter`, `setListSearch`, `setScopeFilter` · kinds: state, memo · API: —
+
+### `src/components/WorkspaceSettings/WorkspaceSettings.tsx`
+
+1. names: `activeTab`, `setActiveTab` · kinds: state · API: —
+2. names: `confirmPresetDowngrade`, `effect#1`, `handleLanguageChange`, `handlePresetChange`, `handleProfileChange`, `handleSaveName`, `isSaving`, `name`, `pendingPresetDowngrade`, `requestPresetChange`, `saveError`, `savedOk`, `setIsSaving`, `setName`, `setPendingPresetDowngrade`, `setSaveError`, `setSavedOk` · kinds: state, effect, callback · API: `workspacesApi.setPreset`, `workspacesApi.update`
 
 ### `src/components/RequirementEditors/RequirementEditors.tsx`
 
@@ -238,13 +238,6 @@ files are not a defect.
 4. names: `effect#1` · kinds: effect · API: —
 5. names: `filterInput`, `setFilterInput` · kinds: state · API: —
 
-### `src/components/CsvImport/CsvImport.tsx`
-
-1. names: `setShowAllSkipped`, `showAllSkipped` · kinds: state · API: —
-2. names: `acceptFile`, `entityType`, `error`, `handleDragLeave`, `handleDragOver`, `handleDrop`, `handleEntityTypeChange`, `handleFileSelect`, `handleReset`, `handleToggleShowAllErrors`, `handleUpload`, `isDragOver`, `isUploading`, `preview`, `result`, `selectedFile`, `setEntityType`, `setError`, `setIsDragOver`, `setIsUploading`, `setPreview`, `setResult`, `setSelectedFile`, `setShowAllErrors`, `showAllErrors` · kinds: state, callback · API: `importApi.importCsv`
-3. names: `handleDropZoneKeyDown` · kinds: callback · API: —
-4. names: `handleReqifFileSelect`, `handleReqifImport`, `handleReqifReset`, `isImportingReqif`, `reqifDryRun`, `reqifImportError`, `reqifImportResult`, `selectedReqifFile`, `setIsImportingReqif`, `setReqifDryRun`, `setReqifImportError`, `setReqifImportResult`, `setSelectedReqifFile` · kinds: state, callback · API: `importApi.importReqif`
-
 ### `src/components/TraceabilityView/TraceabilityView.tsx`
 
 1. names: `impactArtifact`, `setImpactArtifact` · kinds: state · API: —
@@ -265,31 +258,11 @@ _No hook declarations detected._
 4. names: `handleUpgradeToHead` · kinds: callback · API: `glossaryApi.upgradeReferencesToHead`
 5. names: `setSuggestionIndex`, `suggestionIndex` · kinds: state · API: —
 
-### `src/components/ArtifactDiff/ArtifactDiff.tsx`
+### `src/components/CsvImport/CsvImport.tsx`
 
-1. names: `diffResult`, `effect#1`, `effect#2`, `effect#3`, `error`, `fetchDiff`, `fromVersion`, `loading`, `setDiffResult`, `setError`, `setFromVersion`, `setLoading`, `setToVersion`, `setVersions`, `toVersion`, `versions` · kinds: state, effect, callback · API: —
-
-### `src/components/GlossaryView/GlossaryView.tsx`
-
-1. names: `editingId`, `setEditingId` · kinds: state · API: —
-2. names: `effect#1` · kinds: effect · API: —
-3. names: `filteredTerms`, `setTerms`, `terms`, `termsByName` · kinds: state, memo · API: —
-4. names: `formData`, `setFormData` · kinds: state · API: —
-5. names: `formError`, `setFormError` · kinds: state · API: —
-6. names: `formFieldErrors`, `setFormFieldErrors` · kinds: state · API: —
-7. names: `isFormOpen`, `setIsFormOpen` · kinds: state · API: —
-8. names: `linkingSynonym`, `setLinkingSynonym` · kinds: state · API: —
-9. names: `loadError`, `setLoadError` · kinds: state · API: —
-10. names: `loading`, `setLoading` · kinds: state · API: —
-11. names: `rowError`, `setRowError` · kinds: state · API: —
-12. names: `selectedId`, `setSelectedId` · kinds: state · API: —
-13. names: `setShowLinkDialog`, `showLinkDialog` · kinds: state · API: —
-14. names: `setSynonymLinkQuery`, `synonymLinkQuery` · kinds: state · API: —
-
-### `src/components/NeedsEditors/NeedList.tsx`
-
-1. names: `filter` · kinds: callback · API: —
-2. names: `statusOptions` · kinds: memo · API: —
+1. names: `setShowAllSkipped`, `showAllSkipped` · kinds: state · API: —
+2. names: `acceptFile`, `entityType`, `error`, `handleDragLeave`, `handleDragOver`, `handleDrop`, `handleEntityTypeChange`, `handleFileSelect`, `handleReset`, `handleToggleShowAllErrors`, `handleUpload`, `isDragOver`, `isUploading`, `preview`, `result`, `selectedFile`, `setEntityType`, `setError`, `setIsDragOver`, `setIsUploading`, `setPreview`, `setResult`, `setSelectedFile`, `setShowAllErrors`, `showAllErrors` · kinds: state, callback · API: `importApi.importCsv`
+3. names: `handleDropZoneKeyDown` · kinds: callback · API: —
 
 ### `src/components/NeedsEditors/NeedsEditors.tsx`
 
@@ -298,11 +271,32 @@ _No hook declarations detected._
 3. names: `handleOpenChainArtifact` · kinds: callback · API: —
 4. names: `includeDeleted`, `setIncludeDeleted` · kinds: state · API: —
 
+### `src/components/ArtifactDiff/ArtifactDiff.tsx`
+
+1. names: `diffResult`, `effect#1`, `effect#2`, `effect#3`, `error`, `fetchDiff`, `fromVersion`, `loading`, `setDiffResult`, `setError`, `setFromVersion`, `setLoading`, `setToVersion`, `setVersions`, `toVersion`, `versions` · kinds: state, effect, callback · API: —
+
+### `src/components/NeedsEditors/NeedList.tsx`
+
+1. names: `filter` · kinds: callback · API: —
+2. names: `statusOptions` · kinds: memo · API: —
+
 ### `src/components/SystemSettings/MemoryVisualizationSection.tsx`
 
 1. names: `clusterGroups`, `effect#2`, `effect#3`, `effect#4`, `entries`, `entriesCount`, `entriesError`, `entriesLoaded`, `entriesLoading`, `entriesPage`, `filterQuery`, `isDegraded`, `loadEntries`, `loadProjection`, `projection`, `projectionError`, `projectionLoading`, `scatterPoints`, `scope`, `setEntries`, `setEntriesCount`, `setEntriesError`, `setEntriesLoaded`, `setEntriesLoading`, `setEntriesPage`, `setFilterQuery`, `setIsDegraded`, `setProjection`, `setProjectionError`, `setProjectionLoading`, `setScope`, `setView`, `view` · kinds: state, effect, callback, memo · API: `memoryApi.getSystemProjection`, `memoryApi.listSystemEntries`
 2. names: `effect#1` · kinds: effect · API: —
 3. names: `filterInput`, `setFilterInput` · kinds: state · API: —
+
+### `src/components/GlossaryView/GlossaryView.tsx`
+
+1. names: `effect#1` · kinds: effect · API: —
+2. names: `filteredTerms`, `setTerms`, `terms`, `termsByName` · kinds: state, memo · API: —
+3. names: `linkingSynonym`, `setLinkingSynonym` · kinds: state · API: —
+4. names: `loadError`, `setLoadError` · kinds: state · API: —
+5. names: `loading`, `setLoading` · kinds: state · API: —
+6. names: `rowError`, `setRowError` · kinds: state · API: —
+7. names: `selectedId`, `setSelectedId` · kinds: state · API: —
+8. names: `setShowLinkDialog`, `showLinkDialog` · kinds: state · API: —
+9. names: `setSynonymLinkQuery`, `synonymLinkQuery` · kinds: state · API: —
 
 ### `src/components/BaselinesView/BaselineRollbackPanel.tsx`
 
@@ -811,12 +805,11 @@ _No hook declarations detected._
 - `src/components/ArchitectureEditors/ArchitectureEditors.tsx` — 7 independent clusters with own state, hotspot 1258 (rank 2).
 - `src/components/Audit/audit-dashboard.tsx` — 4 independent clusters with own state, hotspot 1089 (rank 4).
 - `src/components/AttributeEditor/AttributeEditorPage.tsx` — 4 independent clusters with own state, hotspot 810 (rank 8).
-- `src/components/BaselinesView/BaselinesView.tsx` — 3 independent clusters with own state, hotspot 630 (rank 10).
+- `src/components/BaselinesView/BaselinesView.tsx` — 3 independent clusters with own state, hotspot 693 (rank 9).
 - `src/components/RequirementEditors/RequirementEditors.tsx` — 4 independent clusters with own state, hotspot 570 (rank 11).
 - `src/components/Memory/MemoryPage.tsx` — 4 independent clusters with own state, hotspot 525 (rank 12).
-- `src/components/CsvImport/CsvImport.tsx` — 3 independent clusters with own state, hotspot 470 (rank 13).
-- `src/components/TraceabilityView/TraceabilityView.tsx` — 4 independent clusters with own state, hotspot 468 (rank 14).
-- `src/components/GlossaryView/GlossaryView.tsx` — 13 independent clusters with own state, hotspot 360 (rank 18).
-- `src/components/NeedsEditors/NeedsEditors.tsx` — 3 independent clusters with own state, hotspot 340 (rank 20).
+- `src/components/TraceabilityView/TraceabilityView.tsx` — 4 independent clusters with own state, hotspot 468 (rank 13).
+- `src/components/NeedsEditors/NeedsEditors.tsx` — 3 independent clusters with own state, hotspot 374 (rank 17).
+- `src/components/GlossaryView/GlossaryView.tsx` — 8 independent clusters with own state, hotspot 304 (rank 21).
 - `src/components/shared/ArtifactForm/fields/ActorPicker.tsx` — 3 independent clusters with own state, hotspot 272 (rank 24).
 
