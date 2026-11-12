@@ -46,6 +46,7 @@ auditor's.
 from __future__ import annotations
 
 from . import (
+    allocation_multiplicity,  # noqa: F401  (registration side effect)
     coverage_consistency,  # noqa: F401  (registration side effect)
     decomposition_consistency,  # noqa: F401  (registration side effect)
     document_references,  # noqa: F401  (registration side effect)
@@ -59,6 +60,7 @@ from . import (
 )
 
 __all__ = [
+    "allocation_multiplicity",
     "coverage_consistency",
     "decomposition_consistency",
     "document_references",
