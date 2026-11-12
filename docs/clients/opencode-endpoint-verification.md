@@ -38,7 +38,7 @@ Beide Clients wurden in einem isolierten `HOME` installiert (`install.sh`) und �
 | Client | Version | Installation | `mcp list` | Tool-Katalog |
 |---|---|---|---|---|
 | V1 | 1.18.35 | Config in `$HOME/.config/opencode/opencode.jsonc` | `✓ reqogniloom connected` | nicht über CLI introspizierbar |
-| V2 | 2.2.6 | Config in `$HOME/.config/opencode/opencode.json`, Block `mcp.servers.reqogniloom` | `✓ reqogniloom connected` | nicht über CLI introspizierbar |
+| V2 | 2.2.6 | Config unter `$HOME/.config/opencode/`, Block `mcp.servers.reqogniloom` (V2 schreibt die reine JSON-Form; seine Merge-Stufe akzeptiert kein JSONC) | `✓ reqogniloom connected` | nicht über CLI introspizierbar |
 
 **V2-Restart-Quirk bestätigt.** Direkt nach `install.sh` meldete `verify.sh --client opencode-v2` „expected marker 'reqogniloom' not found". Ein zweiter `opencode mcp list` wenige Sekunden später zeigte `✓ reqogniloom connected`. Die Config ist also geschrieben, der laufende Dienst übernimmt sie aber nicht im selben Moment.
 
@@ -65,7 +65,7 @@ Beide Clients wurden in einem isolierten `HOME` installiert (`install.sh`) und �
 
 ## 4. Befund: Repo-Root-Config leckt in die Client-Prüfung
 
-Wird `verify.sh` **innerhalb** des Checkouts ausgeführt, lädt OpenCode zusätzlich `/home/hermes/repos/ReqogniLoom/opencode.json` aus dem Haupt-Checkout. `opencode debug config` listet es als zweite Quelle; in `mcp list` erscheint dadurch ein fremder Server (`playwright`), der nicht aus dem isolierten `HOME` stammt.
+Wird `verify.sh` **innerhalb** des Checkouts ausgeführt, lädt OpenCode zusätzlich die Client-Config im Wurzelverzeichnis des Haupt-Checkouts (`/home/hermes/repos/ReqogniLoom/`). `opencode debug config` listet es als zweite Quelle; in `mcp list` erscheint dadurch ein fremder Server (`playwright`), der nicht aus dem isolierten `HOME` stammt.
 
 Konsequenz für CI und lokale Läufe:
 
