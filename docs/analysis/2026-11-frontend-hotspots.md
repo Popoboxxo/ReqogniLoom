@@ -39,7 +39,7 @@ files are not a defect.
 | Rank | File | Lines | Churn (commits, 6 mo) | Cyclomatic | Hotspot | Clusters | with own state |
 |---:|---|---:|---:|---:|---:|---:|---:|
 | 1 | `src/components/shared/WorkspaceTree/workspace-tree.tsx` | 1933 | 16 | 242 | 3872 | 6 | 2 |
-| 2 | `src/components/ArchitectureEditors/ArchitectureEditors.tsx` | 1010 | 18 | 70 | 1260 | 10 | 6 |
+| 2 | `src/components/ArchitectureEditors/ArchitectureEditors.tsx` | 1003 | 18 | 69 | 1242 | 10 | 5 |
 | 3 | `src/components/canvas/CanvasEditor.tsx` | 1456 | 6 | 197 | 1182 | 9 | 1 |
 | 4 | `src/components/Audit/audit-dashboard.tsx` | 1412 | 11 | 99 | 1089 | 6 | 4 |
 | 5 | `src/components/RequirementEditors/RequirementList.tsx` | 747 | 14 | 77 | 1078 | 4 | 0 |
@@ -48,17 +48,17 @@ files are not a defect.
 | 8 | `src/components/AttributeEditor/AttributeEditorPage.tsx` | 1106 | 9 | 90 | 810 | 5 | 4 |
 | 9 | `src/components/BaselinesView/BaselinesView.tsx` | 788 | 11 | 63 | 693 | 4 | 3 |
 | 10 | `src/components/WorkspaceSettings/WorkspaceSettings.tsx` | 777 | 11 | 62 | 682 | 2 | 2 |
-| 11 | `src/components/RequirementEditors/RequirementEditors.tsx` | 844 | 10 | 57 | 570 | 10 | 4 |
+| 11 | `src/components/RequirementEditors/RequirementEditors.tsx` | 829 | 10 | 54 | 540 | 10 | 3 |
 | 12 | `src/components/TraceabilityView/TraceabilityView.tsx` | 1073 | 7 | 76 | 532 | 2 | 1 |
 | 13 | `src/components/CsvImport/CsvImport.tsx` | 1071 | 6 | 80 | 480 | 3 | 2 |
-| 14 | `src/components/SplitView/SplitView.tsx` | 874 | 8 | 55 | 440 | 0 | 0 |
-| 15 | `src/components/RequirementEditors/MarkdownPreview.tsx` | 572 | 5 | 81 | 405 | 5 | 2 |
-| 16 | `src/components/Memory/MemoryPage.tsx` | 606 | 7 | 55 | 385 | 1 | 0 |
+| 14 | `src/components/Memory/MemoryPage.tsx` | 606 | 8 | 55 | 440 | 1 | 0 |
+| 15 | `src/components/SplitView/SplitView.tsx` | 874 | 8 | 55 | 440 | 0 | 0 |
+| 16 | `src/components/RequirementEditors/MarkdownPreview.tsx` | 572 | 5 | 81 | 405 | 5 | 2 |
 | 17 | `src/components/ArtifactDiff/ArtifactDiff.tsx` | 596 | 6 | 62 | 372 | 1 | 1 |
-| 18 | `src/components/GlossaryView/GlossaryView.tsx` | 521 | 9 | 38 | 342 | 9 | 8 |
-| 19 | `src/components/NeedsEditors/NeedList.tsx` | 483 | 10 | 34 | 340 | 2 | 0 |
-| 20 | `src/components/SystemSettings/MemoryVisualizationSection.tsx` | 520 | 5 | 65 | 325 | 3 | 2 |
-| 21 | `src/components/NeedsEditors/NeedsEditors.tsx` | 487 | 11 | 29 | 319 | 4 | 2 |
+| 18 | `src/components/NeedsEditors/NeedsEditors.tsx` | 487 | 12 | 29 | 348 | 4 | 2 |
+| 19 | `src/components/GlossaryView/GlossaryView.tsx` | 521 | 9 | 38 | 342 | 9 | 8 |
+| 20 | `src/components/NeedsEditors/NeedList.tsx` | 483 | 10 | 34 | 340 | 2 | 0 |
+| 21 | `src/components/SystemSettings/MemoryVisualizationSection.tsx` | 520 | 5 | 65 | 325 | 3 | 2 |
 | 22 | `src/components/BaselinesView/BaselineRollbackPanel.tsx` | 645 | 4 | 74 | 296 | 2 | 1 |
 | 23 | `src/components/SystemSettings/MemorySystemSettingsSection.tsx` | 605 | 4 | 70 | 280 | 2 | 2 |
 | 24 | `src/components/shared/ArtifactForm/fields/ActorPicker.tsx` | 413 | 4 | 68 | 272 | 3 | 3 |
@@ -148,7 +148,7 @@ files are not a defect.
 
 ### `src/components/ArchitectureEditors/ArchitectureEditors.tsx`
 
-1. names: `aiActions`, `decomposeHasPendingWork`, `requestCloseDecomposePanel`, `setDecomposeHasPendingWork`, `setShowDecomposeCloseConfirm`, `setShowDecomposePanel`, `showDecomposeCloseConfirm`, `showDecomposePanel` · kinds: state, callback, memo · API: —
+1. names: `aiActions` · kinds: memo · API: —
 2. names: `archElementByArtifactId`, `handleOpenChainArtifact`, `isChainArtifactOpenable` · kinds: callback, memo · API: —
 3. names: `archSummary` · kinds: memo · API: —
 4. names: `archTreeNodes`, `filteredElements` · kinds: memo · API: —
@@ -218,8 +218,8 @@ files are not a defect.
 
 ### `src/components/RequirementEditors/RequirementEditors.tsx`
 
-1. names: `actionError`, `handleDelete`, `handleExportPdf`, `isExportingPdf`, `setActionError`, `setIsExportingPdf` · kinds: state, callback · API: `workspacesApi.downloadPdfReport`
-2. names: `aiActions`, `setShowDeriveTestcasePanel`, `showDeriveTestcasePanel` · kinds: state, memo · API: —
+1. names: `actionError`, `handleDelete`, `setActionError` · kinds: state, callback · API: —
+2. names: `aiActions` · kinds: memo · API: —
 3. names: `artifactIdByRequirementId`, `handleReorder` · kinds: callback, memo · API: `artifactsApi.move`
 4. names: `confirmPendingSelect`, `customFieldsDraft`, `formDirty`, `handleSaved`, `pendingSelectId`, `selectRequirement`, `setCustomFieldsDraft`, `setFormDirty`, `setPendingSelectId` · kinds: state, callback · API: —
 5. names: `currentVersion` · kinds: memo · API: —
@@ -240,6 +240,10 @@ files are not a defect.
 2. names: `acceptFile`, `entityType`, `error`, `handleDragLeave`, `handleDragOver`, `handleDrop`, `handleEntityTypeChange`, `handleFileSelect`, `handleReset`, `handleToggleShowAllErrors`, `handleUpload`, `isDragOver`, `isUploading`, `preview`, `result`, `selectedFile`, `setEntityType`, `setError`, `setIsDragOver`, `setIsUploading`, `setPreview`, `setResult`, `setSelectedFile`, `setShowAllErrors`, `showAllErrors` · kinds: state, callback · API: `importApi.importCsv`
 3. names: `handleDropZoneKeyDown` · kinds: callback · API: —
 
+### `src/components/Memory/MemoryPage.tsx`
+
+1. names: `summary` · kinds: memo · API: —
+
 ### `src/components/SplitView/SplitView.tsx`
 
 _No hook declarations detected._
@@ -252,13 +256,16 @@ _No hook declarations detected._
 4. names: `handleUpgradeToHead` · kinds: callback · API: `glossaryApi.upgradeReferencesToHead`
 5. names: `setSuggestionIndex`, `suggestionIndex` · kinds: state · API: —
 
-### `src/components/Memory/MemoryPage.tsx`
-
-1. names: `summary` · kinds: memo · API: —
-
 ### `src/components/ArtifactDiff/ArtifactDiff.tsx`
 
 1. names: `diffResult`, `effect#1`, `effect#2`, `effect#3`, `error`, `fetchDiff`, `fromVersion`, `loading`, `setDiffResult`, `setError`, `setFromVersion`, `setLoading`, `setToVersion`, `setVersions`, `toVersion`, `versions` · kinds: state, effect, callback · API: —
+
+### `src/components/NeedsEditors/NeedsEditors.tsx`
+
+1. names: `aiActions` · kinds: memo · API: —
+2. names: `confirmPendingSelect`, `customFieldsDraft`, `formDirty`, `pendingSelectId`, `selectNeed`, `setCustomFieldsDraft`, `setFormDirty`, `setPendingSelectId` · kinds: state, callback · API: —
+3. names: `handleOpenChainArtifact` · kinds: callback · API: —
+4. names: `includeDeleted`, `setIncludeDeleted` · kinds: state · API: —
 
 ### `src/components/GlossaryView/GlossaryView.tsx`
 
@@ -282,13 +289,6 @@ _No hook declarations detected._
 1. names: `clusterGroups`, `effect#2`, `effect#3`, `effect#4`, `entries`, `entriesCount`, `entriesError`, `entriesLoaded`, `entriesLoading`, `entriesPage`, `filterQuery`, `isDegraded`, `loadEntries`, `loadProjection`, `projection`, `projectionError`, `projectionLoading`, `scatterPoints`, `scope`, `setEntries`, `setEntriesCount`, `setEntriesError`, `setEntriesLoaded`, `setEntriesLoading`, `setEntriesPage`, `setFilterQuery`, `setIsDegraded`, `setProjection`, `setProjectionError`, `setProjectionLoading`, `setScope`, `setView`, `view` · kinds: state, effect, callback, memo · API: `memoryApi.getSystemProjection`, `memoryApi.listSystemEntries`
 2. names: `effect#1` · kinds: effect · API: —
 3. names: `filterInput`, `setFilterInput` · kinds: state · API: —
-
-### `src/components/NeedsEditors/NeedsEditors.tsx`
-
-1. names: `aiActions` · kinds: memo · API: —
-2. names: `confirmPendingSelect`, `customFieldsDraft`, `formDirty`, `pendingSelectId`, `selectNeed`, `setCustomFieldsDraft`, `setFormDirty`, `setPendingSelectId` · kinds: state, callback · API: —
-3. names: `handleOpenChainArtifact` · kinds: callback · API: —
-4. names: `includeDeleted`, `setIncludeDeleted` · kinds: state · API: —
 
 ### `src/components/BaselinesView/BaselineRollbackPanel.tsx`
 
@@ -794,11 +794,11 @@ _No hook declarations detected._
 
 ## Files to decompose
 
-- `src/components/ArchitectureEditors/ArchitectureEditors.tsx` — 6 independent clusters with own state, hotspot 1260 (rank 2).
+- `src/components/ArchitectureEditors/ArchitectureEditors.tsx` — 5 independent clusters with own state, hotspot 1242 (rank 2).
 - `src/components/Audit/audit-dashboard.tsx` — 4 independent clusters with own state, hotspot 1089 (rank 4).
 - `src/components/AttributeEditor/AttributeEditorPage.tsx` — 4 independent clusters with own state, hotspot 810 (rank 8).
 - `src/components/BaselinesView/BaselinesView.tsx` — 3 independent clusters with own state, hotspot 693 (rank 9).
-- `src/components/RequirementEditors/RequirementEditors.tsx` — 4 independent clusters with own state, hotspot 570 (rank 11).
-- `src/components/GlossaryView/GlossaryView.tsx` — 8 independent clusters with own state, hotspot 342 (rank 18).
+- `src/components/RequirementEditors/RequirementEditors.tsx` — 3 independent clusters with own state, hotspot 540 (rank 11).
+- `src/components/GlossaryView/GlossaryView.tsx` — 8 independent clusters with own state, hotspot 342 (rank 19).
 - `src/components/shared/ArtifactForm/fields/ActorPicker.tsx` — 3 independent clusters with own state, hotspot 272 (rank 24).
 
