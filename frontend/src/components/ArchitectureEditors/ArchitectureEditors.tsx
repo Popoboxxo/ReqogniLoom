@@ -48,6 +48,7 @@ import type { VersionRef } from "../shared/ArtifactInspector";
 import { EntityTypeProvider } from "../../context/EntityTypeContext";
 import { architectureApi } from "../../api/architecture";
 import { useRiskDerivation } from "./use-risk-derivation";
+import { useArchitectureListFilters } from "./use-architecture-list-filters";
 import { artifactsApi } from "../../api/artifacts";
 import { extractApiErrorMessage } from "../../api/client";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -90,7 +91,16 @@ export default function ArchitectureEditors(): JSX.Element {
   const { activeWorkspace } = useWorkspace();
   // Shared with the other artifact routes so the CTA cannot drift.
   const interviewCta = useInterviewStartCta("ArchitectureElement");
-  const [includeDeleted, setIncludeDeleted] = useState(false);
+  const {
+    includeDeleted,
+    setIncludeDeleted,
+    listSearch,
+    setListSearch,
+    statusFilter,
+    setStatusFilter,
+    resetFilters: resetListFilters,
+  } = useArchitectureListFilters();
+
   const { elements, element, isLoading, error, refresh } =
     useArchitectureData(selectedId, includeDeleted);
   // P4.4: one batch read for the whole tree. Keys are ArchitectureElement.id —
@@ -119,7 +129,6 @@ export default function ArchitectureEditors(): JSX.Element {
   // architectureApi.create() field the backend already accepts — it had no
   // editor in this quick-create form.
   const [newDescription, setNewDescription] = useState('');
-  const [listSearch, setListSearch] = useState('');
   // #1100: in-flight guard for the create form, so `Ctrl`/`Cmd`+`S` held down
   // (or button-then-shortcut in one tick) cannot create twice. Matches the
   // `isCreating` state every other hand-written create dialog already has.
@@ -132,7 +141,6 @@ export default function ArchitectureEditors(): JSX.Element {
   // REQ-175: lifecycle-status filter. ArchitectureElement has no denormalized
   // workflow status, so we filter on the available lifecycle_status field —
   // sourced from the backing Artifact since the Datenmodell-Konsolidierung.
-  const [statusFilter, setStatusFilter] = useState('');
 
   // Delete-confirmation target from list context menu
   const [deleteTarget, setDeleteTarget] = useState<ArchitectureElement | null>(null);
@@ -760,10 +768,7 @@ export default function ArchitectureEditors(): JSX.Element {
           <EmptyState
             variant="no-match"
             testId="arch-tree-no-match"
-            onResetFilters={() => {
-              setListSearch('');
-              setStatusFilter('');
-            }}
+            onResetFilters={resetListFilters}
           />
         ) : (
           <WorkspaceTree

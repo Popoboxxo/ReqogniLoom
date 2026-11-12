@@ -37,6 +37,7 @@ import {
   formatMemoryErrorMessage,
 } from "./memory-format";
 import { useMemoryDigest } from "./use-memory-digest";
+import { useMemoryEntryActions } from "./use-memory-entry-actions";
 import { useMemorySearch } from "./use-memory-search";
 import styles from "./MemoryPage.module.css";
 
@@ -110,14 +111,6 @@ export function MemoryPage(): JSX.Element {
   );
 
   // --- actions ----------------------------------------------------------
-  const [showAddFact, setShowAddFact] = useState(false);
-  const [pendingForget, setPendingForget] = useState<MemoryEntry | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  /** Last failed row action, so its retry control can re-run exactly that action. */
-  const [retryableAction, setRetryableAction] = useState<
-    { kind: "promote" | "forget"; entry: MemoryEntry } | null
-  >(null);
 
   // --- digest (RFC #1002 F6 / Phase 3) ----------------------------------
 
@@ -227,6 +220,26 @@ export function MemoryPage(): JSX.Element {
     [activeTab, workspaceId, artifactId, contributorId, filterQuery, t]
   );
 
+  const {
+    showAddFact,
+    openAddFact,
+    closeAddFact,
+    pendingForget,
+    requestForget,
+    cancelForget,
+    busyId,
+    actionError,
+    handlePromote,
+    handleForget,
+    retryFailedAction,
+    handleCreated,
+  } = useMemoryEntryActions({
+    workspaceId,
+    page,
+    reloadEntries: loadEntries,
+    t,
+  });
+
   // Reload from page 1 whenever the tab or a filter changes.
   useEffect(() => {
     loadEntries(1);
@@ -244,65 +257,6 @@ export function MemoryPage(): JSX.Element {
 
   const handleContributorApply = (): void => {
     setContributorId(contributorInput.trim());
-  };
-
-  const handlePromote = async (entry: MemoryEntry): Promise<void> => {
-    if (!workspaceId) return;
-    setBusyId(entry.entry_id);
-    setActionError(null);
-    setRetryableAction(null);
-    try {
-      await memoryApi.promoteEntry(entry.entry_id, { workspace_id: workspaceId });
-      loadEntries(page);
-    } catch (err: unknown) {
-      setActionError(
-        formatMemoryErrorMessage(
-          err,
-          t("memory.action.promoteError", "Befördern fehlgeschlagen.")
-        )
-      );
-      setRetryableAction({ kind: "promote", entry });
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const handleForget = async (entry: MemoryEntry): Promise<void> => {
-    setBusyId(entry.entry_id);
-    setActionError(null);
-    setRetryableAction(null);
-    try {
-      await memoryApi.forgetEntry(entry.entry_id);
-      loadEntries(page);
-    } catch (err: unknown) {
-      setActionError(
-        formatMemoryErrorMessage(
-          err,
-          t("memory.action.forgetError", "Vergessen fehlgeschlagen.")
-        )
-      );
-      setRetryableAction({ kind: "forget", entry });
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  /** Re-run the operation whose row action failed (#1296). */
-  const retryFailedAction = (): void => {
-    const action = retryableAction;
-    setActionError(null);
-    setRetryableAction(null);
-    if (!action) {
-      loadEntries(page);
-      return;
-    }
-    if (action.kind === "promote") void handlePromote(action.entry);
-    else void handleForget(action.entry);
-  };
-
-  const handleCreated = (): void => {
-    setShowAddFact(false);
-    loadEntries(1);
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -356,11 +310,7 @@ export function MemoryPage(): JSX.Element {
               className={`btn-danger ${styles.forgetBtn}`}
               data-testid={`memory-forget-${entry.entry_id}`}
               disabled={isBusy}
-              onClick={() => {
-                setActionError(null);
-                setRetryableAction(null);
-                setPendingForget(entry);
-              }}
+              onClick={() => requestForget(entry)}
             >
               {t("memory.action.forget", "Vergessen")}
             </button>
@@ -435,7 +385,7 @@ export function MemoryPage(): JSX.Element {
             type="button"
             className="btn-primary"
             data-testid="memory-add-fact-btn"
-            onClick={() => setShowAddFact(true)}
+            onClick={openAddFact}
           >
             {t("memory.add.title", "Fakt hinzufügen")}
           </button>
@@ -762,7 +712,7 @@ export function MemoryPage(): JSX.Element {
           workspaceId={workspaceId}
           artifacts={artifacts}
           defaultScope={activeTab === "artifact" ? "artifact" : "workspace"}
-          onClose={() => setShowAddFact(false)}
+          onClose={closeAddFact}
           onCreated={handleCreated}
         />
       )}
@@ -778,7 +728,7 @@ export function MemoryPage(): JSX.Element {
           onConfirm={() => {
             if (pendingForget) void handleForget(pendingForget);
           }}
-          onCancel={() => setPendingForget(null)}
+          onCancel={cancelForget}
           testId="memory-forget-confirm"
         />
       )}
