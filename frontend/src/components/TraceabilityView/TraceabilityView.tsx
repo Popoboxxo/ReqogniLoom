@@ -49,7 +49,7 @@ import { issuesApi } from "../../api/issues";
 import { adrsApi } from "../../api/adrs";
 import { stakeholderNeedApi } from "../../api/stakeholder-need";
 import { icdsApi } from "../../api/icds";
-import { workspacesApi } from "../../api/workspaces";
+
 import { useWorkspace } from "../../context/WorkspaceContext";
 import {
   LINK_TYPE_LABELS,
@@ -72,6 +72,7 @@ import {
 } from "../../utils/traceEndpoints";
 import styles from "./TraceabilityView.module.css";
 import { useTraceabilityFilters } from "./use-traceability-filters";
+import { useTraceabilityPageActions } from "./use-traceability-page-actions";
 import type {
   ArchitectureElement,
   Artifact,
@@ -804,10 +805,16 @@ export default function TraceabilityView(): JSX.Element {
   };
   const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   // REQ-005: unified CreateTraceLinkDialog replaces the old inline form
-  const [showCreateDialog, setShowCreateDialog] = useState<boolean>(false);
-  const [reloadKey, setReloadKey] = useState<number>(0);
+  const {
+    showCreateDialog,
+    reloadKey,
+    isExportingPdf,
+    openCreateDialog,
+    closeCreateDialog,
+    handleCreated,
+    exportPdf,
+  } = useTraceabilityPageActions({ workspaceId: activeWorkspace?.id });
   const state = useTraceabilityData(activeWorkspace, isLoadingWorkspace, t, reloadKey);
-  const [isExportingPdf, setIsExportingPdf] = useState<boolean>(false);
   // Impact-analysis artifact picker (REQ-L2-TE-019). Issue #184: the actual
   // reachability computation/rendering used to be duplicated here and on
   // the canonical `/impact` route — this panel now only pre-selects a
@@ -849,29 +856,6 @@ export default function TraceabilityView(): JSX.Element {
 
   const coveredLabel = t("traceability.verified", "verifiziert");
   const uncoveredLabel = t("traceability.notVerified", "kein Test");
-
-  async function handleExportPdf(): Promise<void> {
-    if (!activeWorkspace) return;
-    setIsExportingPdf(true);
-    try {
-      const blob = await workspacesApi.downloadPdfReport(
-        activeWorkspace.id,
-        "traceability_matrix"
-      );
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `traceability_matrix_${activeWorkspace.id.slice(0, 8)}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("PDF export failed:", err);
-    } finally {
-      setIsExportingPdf(false);
-    }
-  }
 
   // #184: hand off to the canonical `/impact` route instead of duplicating
   // the reachability computation/rendering inline. Pre-resolves the preset
@@ -998,7 +982,7 @@ export default function TraceabilityView(): JSX.Element {
             {
               label: t("traceability.create"),
           prefixWithPlus: true,
-              onClick: () => setShowCreateDialog(true),
+              onClick: openCreateDialog,
               testId: "traceability-empty-create",
             },
           ]}
@@ -1052,14 +1036,14 @@ export default function TraceabilityView(): JSX.Element {
           // primary action was the only one rendering without the gesture
           // marker its own empty-state CTA already used.
           prefixWithPlus: true,
-          onClick: () => setShowCreateDialog(true),
+          onClick: openCreateDialog,
           disabled: !activeWorkspace,
           testId: "tracelink-create-btn",
         }}
         overflowActions={[
           {
             label: isExportingPdf ? "Exporting…" : "Export PDF",
-            onClick: () => void handleExportPdf(),
+            onClick: () => void exportPdf(),
             disabled: !activeWorkspace || isExportingPdf,
             testId: "export-pdf-btn",
           },
@@ -1079,8 +1063,8 @@ export default function TraceabilityView(): JSX.Element {
         <CreateTraceLinkDialog
           workspaceId={activeWorkspace.id}
           isOpen={showCreateDialog}
-          onClose={() => setShowCreateDialog(false)}
-          onCreated={() => { setShowCreateDialog(false); setReloadKey((k) => k + 1); }}
+          onClose={closeCreateDialog}
+          onCreated={handleCreated}
           defaultLinkType={(activeWorkspace.default_link_type as LinkType) || 'derives-from'}
         />
       )}
