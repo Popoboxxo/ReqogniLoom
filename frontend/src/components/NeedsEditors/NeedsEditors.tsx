@@ -45,9 +45,8 @@ import { useFormDirty } from '../../hooks/use-form-dirty';
 import { useNeedData } from './useNeedData';
 import { useManualDerive } from './use-manual-derive';
 import { useNeedCreate } from './use-need-create';
+import { useNeedDerive } from './use-need-derive';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import { stakeholderNeedApi } from '../../api/stakeholder-need';
-import type { DerivedRequirementDraft } from '../../api/stakeholder-need';
 import styles from './NeedsEditors.module.css';
 
 export default function NeedsEditors(): JSX.Element {
@@ -137,41 +136,16 @@ export default function NeedsEditors(): JSX.Element {
     handleManualDerive,
   } = useManualDerive({ need, t, refresh, navigate });
 
-  // AI-assisted derive (REQ-L2-AI-001/002) — draft/accept flow, also moved
-  // up from NeedForm.tsx.
-  const [isDeriving, setIsDeriving] = useState(false);
-  const [derivationStatus, setDerivationStatus] = useState<string | null>(null);
-  const [derivationIsError, setDerivationIsError] = useState(false);
-  const [derivedDrafts, setDerivedDrafts] = useState<DerivedRequirementDraft[] | null>(null);
-
-  // Issue #1092: stabilised with `useCallback` because the route's
-  // `<AiActionSection>` action list below depends on it — the memo would
-  // otherwise be invalidated on every render. Same reason RequirementEditors
-  // wraps its `handleAiDerive`.
-  const handleDerive = useCallback(async () => {
-    if (!need) return;
-    setIsDeriving(true);
-    setDerivationIsError(false);
-    setDerivationStatus(t('needs.deriveStarting'));
-    setDerivedDrafts(null);
-    try {
-      const res = await stakeholderNeedApi.deriveRequirements(need.id);
-      const drafts = res.drafts ?? [];
-      if (drafts.length === 0) {
-        setDerivationStatus(t('needs.deriveEmpty'));
-        return;
-      }
-      setDerivedDrafts(drafts);
-      setDerivationStatus(null);
-    } catch (err) {
-      console.error(err);
-      const apiErr = err as { error?: { message?: string } };
-      setDerivationIsError(true);
-      setDerivationStatus(apiErr?.error?.message ?? t('needs.deriveFailed'));
-    } finally {
-      setIsDeriving(false);
-    }
-  }, [need, t]);
+  // AI-assisted derive (REQ-L2-AI-001/002) — own module (#598 S2).
+  const {
+    isDeriving,
+    derivationStatus,
+    derivationIsError,
+    derivedDrafts,
+    handleDerive,
+    discardDrafts,
+    markAccepted,
+  } = useNeedDerive({ need, t });
 
   /**
    * Issue #1092: the route's AI-action set, in one list. The trigger itself
@@ -200,16 +174,9 @@ export default function NeedsEditors(): JSX.Element {
   }, [need, t, handleDerive, isDeriving]);
 
   const handleDraftsAccepted = (count: number) => {
-    setDerivedDrafts(null);
-    setDerivationIsError(false);
-    // #1089: the message has to name WHERE the new artefacts are reviewable.
-    // "created and linked" left the user with nothing to do next, so the
-    // accepted drafts were practically invisible.
-    setDerivationStatus(t('needs.deriveCreated', { count }));
-    // Task 23: NeedForm previously wired this to an `onNeedsChanged` prop
-    // that no call site ever passed a value for (dead — `refresh()` never
-    // actually ran after an accepted derive). Now that this handler lives
-    // directly in NeedsEditors, it can call the real local `refresh`.
+    markAccepted(count);
+    // Task 23: the old `onNeedsChanged` prop was never passed (dead) — a
+    // refresh after an accepted derive never ran. The real `refresh()` does.
     refresh();
   };
 
@@ -465,7 +432,7 @@ export default function NeedsEditors(): JSX.Element {
                   needId={need.id}
                   drafts={derivedDrafts}
                   onAccepted={handleDraftsAccepted}
-                  onDiscard={() => setDerivedDrafts(null)}
+                  onDiscard={discardDrafts}
                 />
               </div>
             )}
