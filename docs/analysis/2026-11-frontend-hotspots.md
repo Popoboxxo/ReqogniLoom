@@ -39,7 +39,7 @@ files are not a defect.
 | Rank | File | Lines | Churn (commits, 6 mo) | Cyclomatic | Hotspot | Clusters | with own state |
 |---:|---|---:|---:|---:|---:|---:|---:|
 | 1 | `src/components/shared/WorkspaceTree/workspace-tree.tsx` | 1933 | 16 | 242 | 3872 | 6 | 2 |
-| 2 | `src/components/ArchitectureEditors/ArchitectureEditors.tsx` | 1093 | 15 | 82 | 1230 | 12 | 9 |
+| 2 | `src/components/ArchitectureEditors/ArchitectureEditors.tsx` | 1030 | 16 | 74 | 1184 | 11 | 7 |
 | 3 | `src/components/canvas/CanvasEditor.tsx` | 1456 | 6 | 197 | 1182 | 9 | 1 |
 | 4 | `src/components/Audit/audit-dashboard.tsx` | 1412 | 11 | 99 | 1089 | 6 | 4 |
 | 5 | `src/components/RequirementEditors/RequirementList.tsx` | 747 | 14 | 77 | 1078 | 4 | 0 |
@@ -48,17 +48,17 @@ files are not a defect.
 | 8 | `src/components/AttributeEditor/AttributeEditorPage.tsx` | 1106 | 9 | 90 | 810 | 5 | 4 |
 | 9 | `src/components/BaselinesView/BaselinesView.tsx` | 833 | 10 | 70 | 700 | 3 | 3 |
 | 10 | `src/components/WorkspaceSettings/WorkspaceSettings.tsx` | 777 | 11 | 62 | 682 | 2 | 2 |
-| 11 | `src/components/RequirementEditors/RequirementEditors.tsx` | 867 | 9 | 58 | 522 | 9 | 5 |
-| 12 | `src/components/Memory/MemoryPage.tsx` | 787 | 6 | 80 | 480 | 10 | 9 |
+| 11 | `src/components/Memory/MemoryPage.tsx` | 737 | 7 | 75 | 525 | 5 | 4 |
+| 12 | `src/components/RequirementEditors/RequirementEditors.tsx` | 844 | 9 | 57 | 513 | 10 | 4 |
 | 13 | `src/components/CsvImport/CsvImport.tsx` | 1134 | 5 | 94 | 470 | 4 | 3 |
 | 14 | `src/components/TraceabilityView/TraceabilityView.tsx` | 1089 | 6 | 78 | 468 | 5 | 4 |
 | 15 | `src/components/SplitView/SplitView.tsx` | 874 | 8 | 55 | 440 | 0 | 0 |
 | 16 | `src/components/NeedsEditors/NeedsEditors.tsx` | 579 | 10 | 43 | 430 | 11 | 10 |
 | 17 | `src/components/RequirementEditors/MarkdownPreview.tsx` | 572 | 5 | 81 | 405 | 5 | 2 |
 | 18 | `src/components/ArtifactDiff/ArtifactDiff.tsx` | 596 | 6 | 62 | 372 | 1 | 1 |
-| 19 | `src/components/NeedsEditors/NeedList.tsx` | 483 | 10 | 34 | 340 | 2 | 0 |
-| 20 | `src/components/SystemSettings/MemoryVisualizationSection.tsx` | 520 | 5 | 65 | 325 | 3 | 2 |
-| 21 | `src/components/GlossaryView/GlossaryView.tsx` | 584 | 7 | 45 | 315 | 14 | 13 |
+| 19 | `src/components/GlossaryView/GlossaryView.tsx` | 586 | 8 | 45 | 360 | 14 | 13 |
+| 20 | `src/components/NeedsEditors/NeedList.tsx` | 483 | 10 | 34 | 340 | 2 | 0 |
+| 21 | `src/components/SystemSettings/MemoryVisualizationSection.tsx` | 520 | 5 | 65 | 325 | 3 | 2 |
 | 22 | `src/components/BaselinesView/BaselineRollbackPanel.tsx` | 645 | 4 | 74 | 296 | 2 | 1 |
 | 23 | `src/components/SystemSettings/MemorySystemSettingsSection.tsx` | 605 | 4 | 70 | 280 | 2 | 2 |
 | 24 | `src/components/shared/ArtifactForm/fields/ActorPicker.tsx` | 413 | 4 | 68 | 272 | 3 | 3 |
@@ -151,15 +151,14 @@ files are not a defect.
 1. names: `aiActions`, `decomposeHasPendingWork`, `requestCloseDecomposePanel`, `setDecomposeHasPendingWork`, `setShowDecomposeCloseConfirm`, `setShowDecomposePanel`, `showDecomposeCloseConfirm`, `showDecomposePanel` · kinds: state, callback, memo · API: —
 2. names: `archElementByArtifactId`, `handleOpenChainArtifact`, `isChainArtifactOpenable` · kinds: callback, memo · API: —
 3. names: `archSummary` · kinds: memo · API: —
-4. names: `archTreeNodes`, `filteredElements`, `listSearch`, `setListSearch`, `setStatusFilter`, `statusFilter` · kinds: state, memo · API: —
-5. names: `artifactIdByElementId`, `createFieldErrors`, `handleCancelCreate`, `handleCreate`, `handleDelete`, `handleInlineCreate`, `handleReorder`, `isCreating`, `listActionError`, `newDescription`, `newTitle`, `setCreateFieldErrors`, `setIsCreating`, `setListActionError`, `setNewDescription`, `setNewTitle`, `setShowCreateForm`, `showCreateForm` · kinds: state, callback, memo · API: `architectureApi.create`, `architectureApi.delete`, `artifactsApi.move`
+4. names: `archTreeNodes`, `filteredElements` · kinds: memo · API: —
+5. names: `artifactIdByElementId`, `handleDelete`, `handleReorder`, `listActionError`, `setListActionError` · kinds: state, callback, memo · API: `architectureApi.delete`, `artifactsApi.move`
 6. names: `confirmPendingSelect`, `isFormDirty`, `pendingSelectId`, `selectElement`, `setIsFormDirty`, `setPendingSelectId` · kinds: state, callback · API: —
 7. names: `currentVersion` · kinds: memo · API: —
 8. names: `deleteTarget`, `setDeleteTarget` · kinds: state · API: —
 9. names: `deriveError`, `deriveTitle`, `handleDeriveRequirement`, `isDeriving`, `setDeriveError`, `setDeriveTitle`, `setIsDeriving`, `setShowDeriveForm`, `showDeriveForm` · kinds: state, callback · API: `requirementsApi.create`, `tracelinksApi.create`
-10. names: `includeDeleted`, `setIncludeDeleted` · kinds: state · API: —
-11. names: `setShowBundleExportPanel`, `showBundleExportPanel` · kinds: state · API: —
-12. names: `setShowLegend`, `showLegend` · kinds: state · API: —
+10. names: `setShowBundleExportPanel`, `showBundleExportPanel` · kinds: state · API: —
+11. names: `setShowLegend`, `showLegend` · kinds: state · API: —
 
 ### `src/components/canvas/CanvasEditor.tsx`
 
@@ -217,30 +216,26 @@ files are not a defect.
 1. names: `activeTab`, `setActiveTab` · kinds: state · API: —
 2. names: `confirmPresetDowngrade`, `effect#1`, `handleLanguageChange`, `handlePresetChange`, `handleProfileChange`, `handleSaveName`, `isSaving`, `name`, `pendingPresetDowngrade`, `requestPresetChange`, `saveError`, `savedOk`, `setIsSaving`, `setName`, `setPendingPresetDowngrade`, `setSaveError`, `setSavedOk` · kinds: state, effect, callback · API: `workspacesApi.setPreset`, `workspacesApi.update`
 
+### `src/components/Memory/MemoryPage.tsx`
+
+1. names: `activeTab`, `artifactId`, `contributorId`, `effect#3`, `entries`, `filterQuery`, `hasLoaded`, `isDegraded`, `isLoading`, `loadEntries`, `loadError`, `page`, `setActiveTab`, `setArtifactId`, `setContributorId`, `setEntries`, `setFilterQuery`, `setHasLoaded`, `setIsDegraded`, `setIsLoading`, `setLoadError`, `setPage`, `setTotal`, `summary`, `total` · kinds: state, effect, callback, memo · API: `memoryApi.getSelfOverview`, `memoryApi.listWorkspaceEntries`
+2. names: `artifacts`, `effect#2`, `setArtifacts` · kinds: state, effect · API: —
+3. names: `contributorInput`, `setContributorInput` · kinds: state · API: —
+4. names: `effect#1` · kinds: effect · API: —
+5. names: `filterInput`, `setFilterInput` · kinds: state · API: —
+
 ### `src/components/RequirementEditors/RequirementEditors.tsx`
 
 1. names: `actionError`, `handleDelete`, `handleExportPdf`, `isExportingPdf`, `setActionError`, `setIsExportingPdf` · kinds: state, callback · API: `workspacesApi.downloadPdfReport`
 2. names: `aiActions`, `setShowDeriveTestcasePanel`, `showDeriveTestcasePanel` · kinds: state, memo · API: —
 3. names: `artifactIdByRequirementId`, `handleReorder` · kinds: callback, memo · API: `artifactsApi.move`
 4. names: `confirmPendingSelect`, `customFieldsDraft`, `formDirty`, `handleSaved`, `pendingSelectId`, `selectRequirement`, `setCustomFieldsDraft`, `setFormDirty`, `setPendingSelectId` · kinds: state, callback · API: —
-5. names: `createError`, `handleCancelCreate`, `handleCreate`, `handleDefinitionCreate`, `isCreating`, `newCategory`, `newDescription`, `newTitle`, `setCreateError`, `setIsCreating`, `setNewCategory`, `setNewDescription`, `setNewTitle`, `setShowCreateForm`, `showCreateForm`, `toggleCreateForm` · kinds: state, callback · API: —
-6. names: `currentVersion` · kinds: memo · API: —
-7. names: `focusFallbackTitle` · kinds: callback · API: —
-8. names: `handleOpenChainArtifact` · kinds: callback · API: —
-9. names: `includeDeleted`, `setIncludeDeleted` · kinds: state · API: —
-
-### `src/components/Memory/MemoryPage.tsx`
-
-1. names: `actionError`, `setActionError` · kinds: state · API: —
-2. names: `activeTab`, `artifactId`, `contributorId`, `effect#3`, `entries`, `filterQuery`, `hasLoaded`, `isDegraded`, `isLoading`, `loadEntries`, `loadError`, `page`, `setActiveTab`, `setArtifactId`, `setContributorId`, `setEntries`, `setFilterQuery`, `setHasLoaded`, `setIsDegraded`, `setIsLoading`, `setLoadError`, `setPage`, `setTotal`, `summary`, `total` · kinds: state, effect, callback, memo · API: `memoryApi.getSelfOverview`, `memoryApi.listWorkspaceEntries`
-3. names: `artifacts`, `effect#2`, `setArtifacts` · kinds: state, effect · API: —
-4. names: `busyId`, `setBusyId` · kinds: state · API: —
-5. names: `contributorInput`, `setContributorInput` · kinds: state · API: —
-6. names: `effect#1` · kinds: effect · API: —
-7. names: `filterInput`, `setFilterInput` · kinds: state · API: —
-8. names: `pendingForget`, `setPendingForget` · kinds: state · API: —
-9. names: `retryableAction`, `setRetryableAction` · kinds: state · API: —
-10. names: `setShowAddFact`, `showAddFact` · kinds: state · API: —
+5. names: `currentVersion` · kinds: memo · API: —
+6. names: `focusFallbackTitle` · kinds: callback · API: —
+7. names: `handleCreate` · kinds: callback · API: —
+8. names: `handleDefinitionCreate` · kinds: callback · API: —
+9. names: `handleOpenChainArtifact` · kinds: callback · API: —
+10. names: `includeDeleted`, `setIncludeDeleted` · kinds: state · API: —
 
 ### `src/components/CsvImport/CsvImport.tsx`
 
@@ -287,22 +282,11 @@ _No hook declarations detected._
 
 1. names: `diffResult`, `effect#1`, `effect#2`, `effect#3`, `error`, `fetchDiff`, `fromVersion`, `loading`, `setDiffResult`, `setError`, `setFromVersion`, `setLoading`, `setToVersion`, `setVersions`, `toVersion`, `versions` · kinds: state, effect, callback · API: —
 
-### `src/components/NeedsEditors/NeedList.tsx`
-
-1. names: `filter` · kinds: callback · API: —
-2. names: `statusOptions` · kinds: memo · API: —
-
-### `src/components/SystemSettings/MemoryVisualizationSection.tsx`
-
-1. names: `clusterGroups`, `effect#2`, `effect#3`, `effect#4`, `entries`, `entriesCount`, `entriesError`, `entriesLoaded`, `entriesLoading`, `entriesPage`, `filterQuery`, `isDegraded`, `loadEntries`, `loadProjection`, `projection`, `projectionError`, `projectionLoading`, `scatterPoints`, `scope`, `setEntries`, `setEntriesCount`, `setEntriesError`, `setEntriesLoaded`, `setEntriesLoading`, `setEntriesPage`, `setFilterQuery`, `setIsDegraded`, `setProjection`, `setProjectionError`, `setProjectionLoading`, `setScope`, `setView`, `view` · kinds: state, effect, callback, memo · API: `memoryApi.getSystemProjection`, `memoryApi.listSystemEntries`
-2. names: `effect#1` · kinds: effect · API: —
-3. names: `filterInput`, `setFilterInput` · kinds: state · API: —
-
 ### `src/components/GlossaryView/GlossaryView.tsx`
 
 1. names: `editingId`, `setEditingId` · kinds: state · API: —
 2. names: `effect#1` · kinds: effect · API: —
-3. names: `filterMode`, `filteredTerms`, `searchTerm`, `setFilterMode`, `setSearchTerm`, `setSortKey`, `setStatusFilter`, `setTerms`, `sortKey`, `statusFilter`, `terms`, `termsByName` · kinds: state, memo · API: —
+3. names: `filteredTerms`, `setTerms`, `terms`, `termsByName` · kinds: state, memo · API: —
 4. names: `formData`, `setFormData` · kinds: state · API: —
 5. names: `formError`, `setFormError` · kinds: state · API: —
 6. names: `formFieldErrors`, `setFormFieldErrors` · kinds: state · API: —
@@ -314,6 +298,17 @@ _No hook declarations detected._
 12. names: `selectedId`, `setSelectedId` · kinds: state · API: —
 13. names: `setShowLinkDialog`, `showLinkDialog` · kinds: state · API: —
 14. names: `setSynonymLinkQuery`, `synonymLinkQuery` · kinds: state · API: —
+
+### `src/components/NeedsEditors/NeedList.tsx`
+
+1. names: `filter` · kinds: callback · API: —
+2. names: `statusOptions` · kinds: memo · API: —
+
+### `src/components/SystemSettings/MemoryVisualizationSection.tsx`
+
+1. names: `clusterGroups`, `effect#2`, `effect#3`, `effect#4`, `entries`, `entriesCount`, `entriesError`, `entriesLoaded`, `entriesLoading`, `entriesPage`, `filterQuery`, `isDegraded`, `loadEntries`, `loadProjection`, `projection`, `projectionError`, `projectionLoading`, `scatterPoints`, `scope`, `setEntries`, `setEntriesCount`, `setEntriesError`, `setEntriesLoaded`, `setEntriesLoading`, `setEntriesPage`, `setFilterQuery`, `setIsDegraded`, `setProjection`, `setProjectionError`, `setProjectionLoading`, `setScope`, `setView`, `view` · kinds: state, effect, callback, memo · API: `memoryApi.getSystemProjection`, `memoryApi.listSystemEntries`
+2. names: `effect#1` · kinds: effect · API: —
+3. names: `filterInput`, `setFilterInput` · kinds: state · API: —
 
 ### `src/components/BaselinesView/BaselineRollbackPanel.tsx`
 
@@ -819,15 +814,15 @@ _No hook declarations detected._
 
 ## Files to decompose
 
-- `src/components/ArchitectureEditors/ArchitectureEditors.tsx` — 9 independent clusters with own state, hotspot 1230 (rank 2).
+- `src/components/ArchitectureEditors/ArchitectureEditors.tsx` — 7 independent clusters with own state, hotspot 1184 (rank 2).
 - `src/components/Audit/audit-dashboard.tsx` — 4 independent clusters with own state, hotspot 1089 (rank 4).
 - `src/components/AttributeEditor/AttributeEditorPage.tsx` — 4 independent clusters with own state, hotspot 810 (rank 8).
 - `src/components/BaselinesView/BaselinesView.tsx` — 3 independent clusters with own state, hotspot 700 (rank 9).
-- `src/components/RequirementEditors/RequirementEditors.tsx` — 5 independent clusters with own state, hotspot 522 (rank 11).
-- `src/components/Memory/MemoryPage.tsx` — 9 independent clusters with own state, hotspot 480 (rank 12).
+- `src/components/Memory/MemoryPage.tsx` — 4 independent clusters with own state, hotspot 525 (rank 11).
+- `src/components/RequirementEditors/RequirementEditors.tsx` — 4 independent clusters with own state, hotspot 513 (rank 12).
 - `src/components/CsvImport/CsvImport.tsx` — 3 independent clusters with own state, hotspot 470 (rank 13).
 - `src/components/TraceabilityView/TraceabilityView.tsx` — 4 independent clusters with own state, hotspot 468 (rank 14).
 - `src/components/NeedsEditors/NeedsEditors.tsx` — 10 independent clusters with own state, hotspot 430 (rank 16).
-- `src/components/GlossaryView/GlossaryView.tsx` — 13 independent clusters with own state, hotspot 315 (rank 21).
+- `src/components/GlossaryView/GlossaryView.tsx` — 13 independent clusters with own state, hotspot 360 (rank 19).
 - `src/components/shared/ArtifactForm/fields/ActorPicker.tsx` — 3 independent clusters with own state, hotspot 272 (rank 24).
 
