@@ -102,7 +102,8 @@ class TestPresetDefaultWorkflows:
         """New workspace Extended → states [draft, in_review, approved,
         implemented, verified, deprecated] (REQ-L2-WE-011: V-model right side)
         plus "proposed"/"rejected" (KI-Vorschlag-als-Zustand spec §4.1 — every
-        non-minimal preset gains the AI-proposal state, Decision 3)."""
+        non-minimal preset gains the AI-proposal state, Decision 3) and
+        "released" (ADR-028 A1, the only state with freeze_on_enter)."""
         dto = self._create_with_tenant("extended")
         assert set(dto.states) == {
             "draft",
@@ -112,6 +113,7 @@ class TestPresetDefaultWorkflows:
             "approved",
             "implemented",
             "verified",
+            "released",
             "deprecated",
         }
 

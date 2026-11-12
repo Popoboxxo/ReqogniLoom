@@ -73,6 +73,33 @@ steuert aber weder Ordnung noch Freigabe noch Inhaltsfreeze.
 - **Freigabe:** Das Element-Release pinnt die Ebene (`tier_key`) im
   Release-Stand; Baselines erben den gepinnten Wert (Stufe 4).
 
+## Nachtrag 2026-11-12 — Release-Mechanik (Entscheidung Daniel)
+
+**Entscheidung: Workflow-Transition ist die einzige Sperrquelle (Option A), mit
+A1 (Defaults erweitern + Bestand migrieren).**
+
+- „Release" ist eine Workflow-Transition in einen Zustand mit
+  ``state_meta.freeze_on_enter``. ``Allocation.status`` ist **keine** Sperre; er
+  bleibt ein reiner Abfrage-/Anzeigezustand.
+- Befund, der A1 erzwungen hat: von den eingebauten Definitionen setzt nur
+  ``document_default`` das Flag. ``PRESET_SCHEMAS["standard"|"extended"]``
+  (Requirement) und ``architecture_default`` kennen keinen Freigabezustand —
+  ohne A1 wäre „Release" ein No-op.
+- **A1:** ein neuer, terminaler Zustand ``released`` mit
+  ``freeze_on_enter`` wird den Standard-/Extended-Schemata und
+  ``architecture_default`` hinzugefügt (Transitionen aus ``approved`` bzw.
+  ``verified``, weiter nach ``deprecated``). Bestehende Workspace-Definitionen
+  werden idempotent migriert (nur ergänzen, wenn noch kein Zustand das Flag
+  trägt). Bestehende Elemente/Requirements werden **nicht** automatisch
+  released — die Migration ändert nur die Definition, nicht den Zustand von
+  Datenzeilen.
+- Minimal bleibt ohne Freigabezustand (kein Release-Pfad, wie D3).
+
+Offene Unterentscheidungen, die mit dieser Wahl gesetzt sind: State-Erkennung
+über das Flag (nicht über den Namen), Elemente ohne Workflow-Definition
+verweigern den Release (fail closed), Inhaltsfreeze weiterhin nur auf
+`extended`, Batch 500 / asynchron ab 5.000.
+
 ## Statuswechsel
 
 - 2026-11-12: `proposed` → `accepted` (Freigabe durch Daniel, Gate aus Phase E Task 2; Spec `docs/superpowers/specs/2026-11-10-allokation-objekt-release-design.md` mit freigegeben).
