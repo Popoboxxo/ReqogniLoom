@@ -6,7 +6,6 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
-from django.db import IntegrityError, transaction
 
 from application.base import NotFoundError
 from application.requirement_bundle_service import (
@@ -268,10 +267,7 @@ class TestGetBundleTruncationAndDedup:
 
         The observable property this test still pins is the one the guard
         existed to produce: every Requirement surfaces exactly once, at the
-        depth of the element it is actually allocated to. The former second
-        allocation is now rejected by the database instead of multiplying the
-        result — asserted here so the reason this rewrite was necessary stays
-        covered.
+        depth of the element it is actually allocated to.
         """
         root = make_architecture_element(workspace, title="Root")
         child = make_architecture_element(workspace, title="Child")
@@ -284,11 +280,11 @@ class TestGetBundleTruncationAndDedup:
         req_deep = make_requirement(workspace, title="Allocated to grandchild")
         make_allocated_to_link(source=req_deep, target=grandchild)
 
-        # The former diamond edge — the same element allocated to a second
-        # parent — is an N:1 violation now, not a duplicate result row.
-        with pytest.raises(IntegrityError):
-            with transaction.atomic():
-                make_allocated_to_link(source=grandchild, target=root)
+        # ADR-028 D9 moved the N:1 rule out of the database (the cardinality is
+        # a per-workspace setting now, see application/tests/
+        # test_multi_allocation_config.py). The bundle assertion below is not
+        # about that rule: it pins that every requirement surfaces once at the
+        # depth of the element it is allocated to.
 
         svc = RequirementBundleQueryService()
         result = svc.get_bundle(auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=None)

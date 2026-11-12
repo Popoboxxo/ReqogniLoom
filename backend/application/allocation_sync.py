@@ -23,6 +23,7 @@ def sync_allocation_for_edge(
     requirement_artifact_id: UUID,
     element_artifact_id: UUID,
     tenant_id: UUID | None = None,
+    is_primary: bool | None = None,
 ) -> "Allocation | None":
     """Create (or return) the active allocation behind a new edge.
 
@@ -51,6 +52,14 @@ def sync_allocation_for_edge(
     if existing is not None:
         return existing
 
+    if is_primary is None:
+        # D9: the first active allocation of a requirement leads; further ones
+        # are secondary until the user marks one explicitly.
+        is_primary = not Allocation.objects.filter(
+            requirement_artifact_id=requirement_artifact_id,
+            status__in=active,
+        ).exists()
+
     from django.db import IntegrityError, transaction
 
     try:
@@ -61,7 +70,7 @@ def sync_allocation_for_edge(
                 requirement_artifact_id=requirement_artifact_id,
                 element_artifact_id=element_artifact_id,
                 status=AllocationStatus.DRAFT,
-                is_primary=True,
+                is_primary=is_primary,
             )
     except IntegrityError:
         # A concurrent writer won the unique constraint: return its row.
