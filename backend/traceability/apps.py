@@ -43,7 +43,26 @@ class TraceabilityConfig(AppConfig):
         from auth_tenancy.models import PREFERENCE_SCOPE_GLOBAL, PREFERENCE_SCOPE_WORKSPACE
         from persistence.errors import ValidationError
 
+        from application.tier_naming import (
+            NAMING_COMPONENT_KEY,
+            NAMING_SUBSYSTEM_KEY,
+            NAMING_SYSTEM_KEY,
+            naming_defaults,
+        )
+
+        naming_specs = tuple(
+            PreferenceKey(
+                key=key,
+                value_type="str",
+                default=naming_defaults()[key],
+                levels=frozenset({PREFERENCE_SCOPE_GLOBAL, PREFERENCE_SCOPE_WORKSPACE}),
+                owner="E",
+            )
+            for key in (NAMING_SYSTEM_KEY, NAMING_SUBSYSTEM_KEY, NAMING_COMPONENT_KEY)
+        )
+
         specs = (
+            *naming_specs,
             PreferenceKey(
                 key=CARDINALITY_KEY,
                 value_type="enum",

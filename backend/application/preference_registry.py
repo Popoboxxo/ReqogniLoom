@@ -43,7 +43,7 @@ from persistence.errors import ValidationError
 
 #: The value shapes a preference can carry. ``str_list`` is ordered: its order
 #: is part of what the consumer stores, even when ``union`` merges levels.
-ValueType = Literal["bool", "enum", "str_list"]
+ValueType = Literal["bool", "enum", "str_list", "str"]
 
 #: How levels combine into the effective value.
 #:
@@ -196,6 +196,12 @@ def validate_preference_value(spec: PreferenceKey, value: Any) -> None:
             raise ValidationError(
                 f"Preference {spec.key!r} must be one of "
                 f"{list(spec.choices or ())}, got {value!r}"
+            )
+    elif spec.value_type == "str":
+        if not isinstance(value, str) or not value.strip():
+            raise ValidationError(
+                f"Preference {spec.key!r} must be a non-empty string, "
+                f"got {value!r}"
             )
     elif spec.value_type == "str_list":
         if not isinstance(value, list) or not all(
