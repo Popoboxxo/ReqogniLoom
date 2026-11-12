@@ -42,13 +42,11 @@ import type { ChainArtifact } from '../shared/TraceSpine';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useEntityReset } from '../../hooks/use-entity-reset';
 import { useFormDirty } from '../../hooks/use-form-dirty';
-import { useSaveShortcut } from '../../hooks/useSaveShortcut';
 import { useNeedData } from './useNeedData';
 import { useManualDerive } from './use-manual-derive';
+import { useNeedCreate } from './use-need-create';
 import { useWorkspace } from '../../context/WorkspaceContext';
-import { extractApiErrorMessage } from '../../api/client';
 import { stakeholderNeedApi } from '../../api/stakeholder-need';
-import { fieldErrorsFromException } from '../shared/ArtifactForm/field-errors';
 import type { DerivedRequirementDraft } from '../../api/stakeholder-need';
 import styles from './NeedsEditors.module.css';
 
@@ -61,21 +59,31 @@ export default function NeedsEditors(): JSX.Element {
   const interviewCta = useInterviewStartCta('StakeholderNeed');
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const { needs, need, isLoading, error, refresh } = useNeedData(selectedId, includeDeleted);
-  const [showCreate, setShowCreate] = useState(false);
-  const [newTitle, setNewTitle] = useState('');
-  // BUG-11 (Systemaudit 2026-08-18, §4): description/category are ordinary
-  // stakeholderNeedApi.create() fields the backend already accepts — they
-  // had no editor in this create form.
-  const [newDescription, setNewDescription] = useState('');
-  const [newCategory, setNewCategory] = useState('');
-  const [createError, setCreateError] = useState<string | null>(null);
-  // GitHub #1392 (second half): a 400 names the offending field
-  // (`details[].field`); the message renders under that control in
-  // `NeedList`'s create dialog, not only in its banner.
-  const [createFieldErrors, setCreateFieldErrors] = useState<Record<string, string[]>>({});
-  // #1100: in-flight guard for the create form, so `Ctrl`/`Cmd`+`S` held down
-  // cannot create the same need twice. The button is also disabled on it.
-  const [isCreating, setIsCreating] = useState(false);
+  // BUG-11: description/category are ordinary create() fields (#598 S2 — own
+  // module; the dialog markup still lives in NeedList).
+  const {
+    showCreate,
+    newTitle,
+    newDescription,
+    newCategory,
+    createError,
+    createFieldErrors,
+    isCreating,
+    setShowCreate,
+    setNewTitle,
+    setNewDescription,
+    setNewCategory,
+    handleCreateNew,
+    openCreate,
+    createFormRef,
+    createTriggerRef,
+  } = useNeedCreate({
+    workspaceId: activeWorkspace?.id,
+    hasWorkspaces: workspaces.length > 0,
+    refresh,
+    navigate,
+    t,
+  });
 
   // Systemaudit 2026-08-27 UI-06: does the currently-open form have unsaved
   // local edits? Reported by NeedArtifactForm via onDirtyChange.
@@ -203,73 +211,6 @@ export default function NeedsEditors(): JSX.Element {
     // actually ran after an accepted derive). Now that this handler lives
     // directly in NeedsEditors, it can call the real local `refresh`.
     refresh();
-  };
-
-  const handleCreateNew = async () => {
-    // Guard against firing a create with the placeholder DEFAULT_WORKSPACE id
-    // (null-UUID) before reloadWorkspaces() has populated the real workspaces.
-    if (!activeWorkspace || workspaces.length === 0) return;
-    if (!newTitle.trim()) return;
-    setCreateError(null);
-    setCreateFieldErrors({});
-    setIsCreating(true);
-    try {
-      const resp = await stakeholderNeedApi.create(activeWorkspace.id, {
-        title: newTitle.trim(),
-        // BUG-11: only send what was actually typed.
-        ...(newDescription.trim() ? { description: newDescription.trim() } : {}),
-        ...(newCategory.trim() ? { category: newCategory.trim() } : {}),
-      });
-      setNewTitle('');
-      setNewDescription('');
-      setNewCategory('');
-      setShowCreate(false);
-      refresh();
-      navigate(`/needs/${resp.id}`);
-    } catch (e) {
-      console.error(e);
-      const msg = extractApiErrorMessage(e) ?? t('needs.createFailed');
-      setCreateError(msg);
-      setCreateFieldErrors(fieldErrorsFromException(e, msg));
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  // #1100: the hand-written create dialog lives in NeedList, but the create
-  // state and handler live here — so this container opts the open dialog into
-  // the shared shortcut (see AdrEditors for the topmost-form rationale). While
-  // the dialog is open this handler wins over the detail form behind it.
-  // #1100 follow-up: the create form (in NeedList) is the shortcut's container,
-  // so a covering modal suspends it rather than saving behind the overlay.
-  const createFormRef = React.useRef<HTMLFormElement | null>(null);
-  // #1278: `create-need-btn` is disabled while the create dialog is open, so
-  // the dialog cannot snapshot it via `document.activeElement` — the browser
-  // blurs the now-unfocusable trigger in the same commit that mounts the
-  // dialog. Threading this ref into the dialog's `triggerRef` restores focus
-  // to the button on close regardless of that timing.
-  const createTriggerRef = React.useRef<HTMLButtonElement | null>(null);
-  useSaveShortcut({
-    // #1732: the chord goes through the form's own submit path, exactly like a
-    // click — that is what runs the required-field validation and the focus
-    // move. Calling `handleCreateNew` directly would bypass both and swallow
-    // an empty title without explaining it.
-    onSave: () => createFormRef.current?.requestSubmit(),
-    enabled: showCreate,
-    isSaving: isCreating,
-    containerRef: createFormRef,
-    canSave: true,
-  });
-
-  // Shared by the PageHeader primary action and (formerly) the NeedList
-  // "+ New" button — do not open the create form until real workspaces are
-  // loaded, preventing a POST against the null-UUID placeholder workspace.
-  const handleCreateNewClick = () => {
-    if (workspaces.length === 0) return;
-    setCreateError(null);
-    setNewDescription('');
-    setNewCategory('');
-    setShowCreate(true);
   };
 
   // ch. 12.1 — always-visible summary: total plus the number already
@@ -407,7 +348,7 @@ export default function NeedsEditors(): JSX.Element {
           // sharing the visible "Neuer Bedarf"/"New Need" wording made them
           // ambiguous to a11y trees and getByRole queries.
           ariaLabel: t('needs.openCreateFormLabel', 'Bedarf-Formular öffnen'),
-          onClick: handleCreateNewClick,
+          onClick: openCreate,
           disabled: showCreate,
           testId: 'create-need-btn',
           triggerRef: createTriggerRef,
@@ -432,7 +373,7 @@ export default function NeedsEditors(): JSX.Element {
             needs={needs}
             selectedId={selectedId}
             showCreateForm={showCreate}
-            setShowCreateForm={(show: boolean) => { if (!show) setCreateError(null); setShowCreate(show); }}
+            setShowCreateForm={setShowCreate}
             newTitle={newTitle}
             setNewTitle={setNewTitle}
             workspaceId={activeWorkspace?.id ?? null}
@@ -444,7 +385,7 @@ export default function NeedsEditors(): JSX.Element {
             createError={createError}
             createFieldErrors={createFieldErrors}
             isCreating={isCreating}
-            onCreateClick={handleCreateNewClick}
+            onCreateClick={openCreate}
             createFormRef={createFormRef}
             createTriggerRef={createTriggerRef}
             onSelect={selectNeed}
