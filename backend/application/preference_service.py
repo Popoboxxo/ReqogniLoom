@@ -49,7 +49,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Count, Q, QuerySet
 
 from application.base import ServiceBase
 from application.permissions import assert_workspace_config_permission
@@ -427,11 +427,73 @@ class PreferenceService(ServiceBase):
         self._assert_level_write_permission(ctx, scope)
         writes = self._validated_writes(values, scope)
 
+        # ADR-028 D9: switching a workspace back to ``single`` is refused while
+        # requirements still carry several active allocations. Checked before
+        # the first write, inside the same atomic block, so the guard and the
+        # write share one fate.
+        self._assert_allocation_cardinality_switch(ctx, scope, workspace_id, writes)
+
         with transaction.atomic():
             for spec, value in writes:
                 self._write_one(ctx, scope, workspace_id, spec, value)
 
         return self.get_level(ctx, scope=scope, workspace_id=workspace_id)
+
+    @staticmethod
+    def _assert_allocation_cardinality_switch(
+        ctx: AuthContext,
+        scope: str,
+        workspace_id: UUID | None,
+        writes: list[tuple[Any, Any]],
+    ) -> None:
+        """Refuse ``multiple -> single`` while multi-allocations exist (D9).
+
+        Only the workspace level is guarded: that is the level the allocation
+        setting is meant to be changed on, and a global default does not
+        override an explicit workspace value.
+        """
+        from application.allocation_settings import (
+            CARDINALITY_KEY,
+            CARDINALITY_MULTIPLE,
+            CARDINALITY_SINGLE,
+        )
+        from application.base import AllocationConflictError
+        from persistence.models import Allocation, AllocationStatus
+
+        if scope != "workspace" or workspace_id is None:
+            return
+
+        changing_to_single = any(
+            spec.key == CARDINALITY_KEY and value == CARDINALITY_SINGLE
+            for spec, value in writes
+        )
+        if not changing_to_single:
+            return
+
+        # A workspace that already resolves to ``single`` has nothing to change.
+        from application.allocation_settings import cardinality_for
+
+        if cardinality_for(tenant_id=ctx.tenant_id, workspace_id=workspace_id) != CARDINALITY_MULTIPLE:
+            return
+
+        active = [AllocationStatus.DRAFT, AllocationStatus.RELEASED]
+        rows = (
+            Allocation.unscoped.filter(
+                tenant_id=ctx.tenant_id,
+                workspace_id=workspace_id,
+                status__in=active,
+            )
+            .values("requirement_artifact_id")
+            .annotate(active=Count("id"))
+            .filter(active__gt=1)
+        )
+        count = rows.count()
+        if count:
+            raise AllocationConflictError(
+                f"Cannot switch allocation.cardinality to 'single': {count} "
+                "requirement(s) in this workspace have more than one active "
+                "allocation. Withdraw the extra allocations first."
+            )
 
     # ------------------------------------------------------------------
     # Validation helpers
