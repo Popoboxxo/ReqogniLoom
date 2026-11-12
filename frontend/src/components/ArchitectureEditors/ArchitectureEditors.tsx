@@ -41,8 +41,6 @@ import { ArchitectureDecomposePanel } from "../ArchitectureDecompose/Architectur
 import { AiActionSection, type AiActionDescriptor } from "../shared/AiActions";
 import { AiDerivationDialog } from "../shared/AiDerivationDialog";
 import { RequirementBundleExportPanel } from "../RequirementBundleExport/RequirementBundleExportPanel";
-import { requirementsApi } from "../../api/requirements";
-import { tracelinksApi } from "../../api/tracelinks";
 import { RightSidebar } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { EntityTypeProvider } from "../../context/EntityTypeContext";
@@ -50,6 +48,7 @@ import { architectureApi } from "../../api/architecture";
 import { useRiskDerivation } from "./use-risk-derivation";
 import { useArchitectureListFilters } from "./use-architecture-list-filters";
 import { useArchitectureCreate } from "./use-architecture-create";
+import { useArchitectureDerive } from "./use-architecture-derive";
 import { artifactsApi } from "../../api/artifacts";
 import { extractApiErrorMessage } from "../../api/client";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -183,11 +182,22 @@ export default function ArchitectureEditors(): JSX.Element {
   });
 
   // "Ableiten": create a Requirement allocated to the selected element
-  // (SE: Req --allocated-to--> ArchitectureElement).
-  const [showDeriveForm, setShowDeriveForm] = useState(false);
-  const [deriveTitle, setDeriveTitle] = useState("");
-  const [isDeriving, setIsDeriving] = useState(false);
-  const [deriveError, setDeriveError] = useState<string | null>(null);
+  // (SE: Req --allocated-to--> ArchitectureElement). Own module (#598 S2).
+  const {
+    showDeriveForm,
+    deriveTitle,
+    isDeriving,
+    deriveError,
+    openDeriveForm,
+    closeDeriveForm,
+    setDeriveTitle,
+    handleDeriveRequirement,
+  } = useArchitectureDerive({
+    element: element ?? null,
+    workspaceId: activeWorkspace?.id,
+    t,
+    navigate,
+  });
 
   // AI Decompose panel state
   const [showDecomposePanel, setShowDecomposePanel] = useState(false);
@@ -253,36 +263,6 @@ export default function ArchitectureEditors(): JSX.Element {
   // Legend (help) dialog. Requested after a live test: the page shows five
   // badge families and nothing said which of them carries the colour.
   const [showLegend, setShowLegend] = useState(false);
-
-  const handleDeriveRequirement = useCallback(async (): Promise<void> => {
-    if (!element || !activeWorkspace) return;
-    if (!deriveTitle.trim()) {
-      setDeriveError(t("traceability.deriveTitleRequired"));
-      return;
-    }
-    setIsDeriving(true);
-    setDeriveError(null);
-    try {
-      const created = await requirementsApi.create({
-        workspace_id: activeWorkspace.id,
-        title: deriveTitle.trim(),
-      });
-      await tracelinksApi.create({
-        source_id: created.id,
-        target_id: element.id,
-        link_type: "allocated-to",
-      });
-      setShowDeriveForm(false);
-      setDeriveTitle("");
-      navigate(`/requirements/${created.id}`);
-    } catch (err: unknown) {
-      console.error(err);
-      const apiErr = err as { error?: { message?: string } };
-      setDeriveError(apiErr?.error?.message ?? t("needs.deriveFailed"));
-    } finally {
-      setIsDeriving(false);
-    }
-  }, [element, activeWorkspace, deriveTitle, t, navigate]);
 
   // F-08: preserve the previous `autoFocus` UX — Dialog's focus trap
   // defaults to the first focusable element (its own × close button).
@@ -813,8 +793,8 @@ export default function ArchitectureEditors(): JSX.Element {
             <div className="detail-action-zone">
               <DeriveRequirementForm
                 isOpen={showDeriveForm}
-                onOpen={() => setShowDeriveForm(true)}
-                onCancel={() => { setShowDeriveForm(false); setDeriveError(null); }}
+                onOpen={openDeriveForm}
+                onCancel={closeDeriveForm}
                 onSubmit={(e) => { e.preventDefault(); void handleDeriveRequirement(); }}
                 title={deriveTitle}
                 onTitleChange={setDeriveTitle}
