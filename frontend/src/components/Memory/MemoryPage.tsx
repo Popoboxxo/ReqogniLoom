@@ -20,31 +20,21 @@
  * code and offers a retry control.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { getAllPages } from "../../api/client";
-import { memoryApi, type MemoryEntry, type MemoryScope } from "../../api/memory";
+import type { MemoryEntry, MemoryScope } from "../../api/memory";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { useHasRole } from "../../hooks/useHasRole";
-import type { Artifact } from "../../types";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { PageHeader } from "../shared/PageHeader";
 import { AddMemoryFactDialog } from "./AddMemoryFactDialog";
 import { MemoryAskPanel } from "./MemoryAskPanel";
-import {
-  contributorLabel,
-  formatMemoryDate,
-  formatMemoryErrorMessage,
-} from "./memory-format";
+import { contributorLabel, formatMemoryDate } from "./memory-format";
 import { useMemoryDigest } from "./use-memory-digest";
 import { useMemoryEntryActions } from "./use-memory-entry-actions";
+import { PAGE_SIZE, useMemoryBrowse, type MemoryTab } from "./use-memory-browse";
 import { useMemorySearch } from "./use-memory-search";
 import styles from "./MemoryPage.module.css";
-
-type MemoryTab = Extract<MemoryScope, "workspace" | "user" | "artifact">;
-
-const PAGE_SIZE = 25;
-const FILTER_DEBOUNCE_MS = 300;
 
 const TABS: MemoryTab[] = ["workspace", "user", "artifact"];
 
@@ -66,25 +56,30 @@ export function MemoryPage(): JSX.Element {
   const hasRole = useHasRole();
   const workspaceId = activeWorkspace?.id;
 
-  const [activeTab, setActiveTab] = useState<MemoryTab>("workspace");
-
-  // --- entry list state -------------------------------------------------
-  const [entries, setEntries] = useState<MemoryEntry[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasLoaded, setHasLoaded] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [isDegraded, setIsDegraded] = useState(false);
-
-  // --- filters ----------------------------------------------------------
-  const [filterInput, setFilterInput] = useState("");
-  const [filterQuery, setFilterQuery] = useState("");
-  const filterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [contributorInput, setContributorInput] = useState("");
-  const [contributorId, setContributorId] = useState("");
-  const [artifactId, setArtifactId] = useState("");
-  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
+  const {
+    activeTab,
+    setActiveTab,
+    entries,
+    total,
+    page,
+    isLoading,
+    hasLoaded,
+    loadError,
+    isDegraded,
+    setIsDegraded,
+    filterInput,
+    filterQuery,
+    handleFilterChange,
+    contributorInput,
+    setContributorInput,
+    contributorId,
+    handleContributorApply,
+    artifactId,
+    setArtifactId,
+    artifacts,
+    loadEntries,
+    totalPages,
+  } = useMemoryBrowse({ workspaceId, t });
 
   // --- semantic search --------------------------------------------------
   const {
@@ -114,112 +109,6 @@ export function MemoryPage(): JSX.Element {
 
   // --- digest (RFC #1002 F6 / Phase 3) ----------------------------------
 
-  // Monotonic request id so a stale response can never overwrite fresh state.
-  const requestIdRef = useRef(0);
-
-  // FE-04: drop a pending filter-debounce timer when the page unmounts.
-  useEffect(() => {
-    return () => {
-      if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
-    };
-  }, []);
-
-  // Artifact selector source (all pages of the workspace's artifacts).
-  useEffect(() => {
-    if (!workspaceId) return;
-    let cancelled = false;
-    getAllPages<Artifact>("/artifacts/", { workspace_id: workspaceId })
-      .then((items) => {
-        if (!cancelled) setArtifacts(items);
-      })
-      .catch(() => {
-        // A failed artifact load only disables the artifact tab selector;
-        // it must not fail the whole page.
-        if (!cancelled) setArtifacts([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceId]);
-
-  const loadEntries = useCallback(
-    (targetPage: number): void => {
-      if (!workspaceId) return;
-      if (activeTab === "artifact" && !artifactId) {
-        setEntries([]);
-        setTotal(0);
-        setIsDegraded(false);
-        setHasLoaded(true);
-        setIsLoading(false);
-        return;
-      }
-      const requestId = ++requestIdRef.current;
-      setIsLoading(true);
-      setLoadError(null);
-      const query = filterQuery || undefined;
-
-      const request =
-        activeTab === "user"
-          ? memoryApi
-              .getSelfOverview({
-                includeEntries: true,
-                page: targetPage,
-                pageSize: PAGE_SIZE,
-              })
-              .then((overview) => ({
-                items: overview.entries ?? [],
-                total: overview.total ?? 0,
-                page: overview.page ?? targetPage,
-                pageSize: overview.page_size ?? PAGE_SIZE,
-                degraded: overview.degraded,
-              }))
-          : memoryApi
-              .listWorkspaceEntries(workspaceId, {
-                scope: activeTab,
-                artifact_id:
-                  activeTab === "artifact" ? artifactId : undefined,
-                contributor_user_id:
-                  activeTab === "workspace" ? contributorId || undefined : undefined,
-                q: query,
-                page: targetPage,
-                page_size: PAGE_SIZE,
-              })
-              .then((result) => ({
-                items: result.items,
-                total: result.total,
-                page: result.page,
-                pageSize: result.page_size,
-                degraded: result.degraded,
-              }));
-
-      request
-        .then((result) => {
-          if (requestId !== requestIdRef.current) return;
-          setEntries(result.items);
-          setTotal(result.total);
-          setPage(result.page);
-          setIsDegraded(result.degraded);
-          setHasLoaded(true);
-        })
-        .catch((err: unknown) => {
-          if (requestId !== requestIdRef.current) return;
-          setLoadError(
-            formatMemoryErrorMessage(
-              err,
-              t("memory.loadError", "Gedächtnis konnte nicht geladen werden.")
-            )
-          );
-          setEntries([]);
-          setIsDegraded(false);
-          setHasLoaded(true);
-        })
-        .finally(() => {
-          if (requestId === requestIdRef.current) setIsLoading(false);
-        });
-    },
-    [activeTab, workspaceId, artifactId, contributorId, filterQuery, t]
-  );
-
   const {
     showAddFact,
     openAddFact,
@@ -240,26 +129,6 @@ export function MemoryPage(): JSX.Element {
     t,
   });
 
-  // Reload from page 1 whenever the tab or a filter changes.
-  useEffect(() => {
-    loadEntries(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, workspaceId, artifactId, contributorId, filterQuery]);
-
-  const handleFilterChange = (value: string): void => {
-    setFilterInput(value);
-    if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
-    filterDebounceRef.current = setTimeout(
-      () => setFilterQuery(value),
-      FILTER_DEBOUNCE_MS
-    );
-  };
-
-  const handleContributorApply = (): void => {
-    setContributorId(contributorInput.trim());
-  };
-
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const isShowingSearch = searchResults !== null;
 
   const renderEntry = (entry: MemoryEntry): JSX.Element => {
