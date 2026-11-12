@@ -27,6 +27,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
@@ -156,11 +157,24 @@ def _result_count(result: Any) -> int | None:
     return None
 
 
+def endpoint_url(url: str) -> str:
+    """Accept a bare base URL (``http://host:8001``) or the full endpoint.
+
+    The CLI contract in the phase plan passes the base URL; the transport needs
+    ``/mcp/``. An explicit path is kept verbatim, so ``…/mcp/`` and a future
+    ``…/api/v1/mcp/`` both work.
+    """
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.path in ("", "/"):
+        return url.rstrip("/") + "/mcp/"
+    return url
+
+
 def probe(
     url: str,
     api_key: str,
     *,
-    tool: str = "requirement_query",
+    tool: str = "requirement.query",
     sse_timeout: float = 5.0,
     workspace_id: str | None = None,
     timeout: float = 15.0,
@@ -172,7 +186,7 @@ def probe(
     timeout)`` and ``get(timeout, sse=...)`` returning an object with
     ``status``, ``content_type`` and ``json()``.
     """
-    client = transport or HttpTransport(url, api_key, timeout)
+    client = transport or HttpTransport(endpoint_url(url), api_key, timeout)
     result = ProbeResult()
 
     started = time.perf_counter()
@@ -282,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--url", default=os.environ.get("REQOGNILOOM_MCP_URL", ""))
     parser.add_argument("--key-env", default="REQOGNILOOM_API_KEY")
-    parser.add_argument("--tool", default="requirement_query")
+    parser.add_argument("--tool", default="requirement.query")
     parser.add_argument("--workspace-id", default=None)
     parser.add_argument("--sse-timeout", type=float, default=5.0)
     parser.add_argument("--json", action="store_true", help="machine-readable output")
