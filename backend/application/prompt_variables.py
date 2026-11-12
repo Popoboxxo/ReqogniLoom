@@ -111,6 +111,13 @@ PROMPT_VARIABLE_DEFAULTS: dict[str, PromptVariableSpec] = {
     "bundle_markdown": _data(
         "bundle_markdown", "The raw Markdown requirement bundle to compress."
     ),
+    # Issue #18 (scope A): one search result page, summarised on request.
+    "query": _data("query", "The search query the caller submitted."),
+    "hits_json": _data(
+        "hits_json",
+        "JSON array of the search hits returned to the caller (max 10).",
+        "json",
+    ),
     "answers_text": _data(
         "answers_text", "The interview answers collected so far, as text."
     ),

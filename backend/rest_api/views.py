@@ -12938,6 +12938,9 @@ class _SearchResponseSerializer(serializers.Serializer):
     vector_backend = serializers.CharField()
     degraded = serializers.BooleanField()
     degraded_reason = serializers.CharField(allow_blank=True)
+    # Issue #18: present only when the caller asked for include_summary=true.
+    ai_summary = serializers.CharField(allow_null=True, required=False)
+    summary_degraded = serializers.BooleanField(required=False)
 
 
 class SearchViewSet(viewsets.ViewSet):
@@ -13012,6 +13015,19 @@ class SearchViewSet(viewsets.ViewSet):
                     "An unknown value answers 400."
                 ),
             ),
+            OpenApiParameter(
+                name="include_summary",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=False,
+                description=(
+                    "Default false. When true the response gains ai_summary "
+                    "(string or null) and summary_degraded (bool). Triggers "
+                    "one LLM call per request; a provider failure degrades "
+                    "instead of failing the search."
+                ),
+            ),
         ],
         responses={200: _SearchResponseSerializer},
     )
@@ -13064,6 +13080,17 @@ class SearchViewSet(viewsets.ViewSet):
         type_filter = request.query_params.getlist("type") or None
         mode = (request.query_params.get("mode") or "hybrid").strip().lower()
 
+        # Issue #18 (scope A): optional AI summary of the returned hits.
+        try:
+            include_summary = bool(
+                parse_bool_param(request.query_params, "include_summary", default=False)
+            )
+        except ValueError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # Parse pagination
         try:
             page = int(request.query_params.get("page", "1"))
@@ -13104,20 +13131,29 @@ class SearchViewSet(viewsets.ViewSet):
             }
             for hit in result.results
         ]
-        return Response(
-            {
-                "results": serialized_hits,
-                "total_count": result.total_count,
-                "page": result.page,
-                "limit": result.limit,
-                "query": result.query,
-                "mode": mode,
-                # T-A2-7: additive contract; a Qdrant outage still answers 200.
-                "vector_backend": result.vector_backend,
-                "degraded": result.degraded,
-                "degraded_reason": result.degraded_reason,
-            }
-        )
+        payload: dict[str, Any] = {
+            "results": serialized_hits,
+            "total_count": result.total_count,
+            "page": result.page,
+            "limit": result.limit,
+            "query": result.query,
+            "mode": mode,
+            # T-A2-7: additive contract; a Qdrant outage still answers 200.
+            "vector_backend": result.vector_backend,
+            "degraded": result.degraded,
+            "degraded_reason": result.degraded_reason,
+        }
+        if include_summary:
+            # Issue #18: opt-in only; a provider failure degrades instead of
+            # failing the search (ai_summary=None, summary_degraded=True).
+            from application.search_summary_service import SearchSummaryService
+
+            summary = SearchSummaryService().summarize(
+                query=query, hits=result.results, ctx=ctx
+            )
+            payload["ai_summary"] = summary.text
+            payload["summary_degraded"] = summary.degraded
+        return Response(payload)
 
 
 # ---------------------------------------------------------------------------
