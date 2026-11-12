@@ -3,8 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Plus, X } from "lucide-react";
 
 import type { ActorCandidate, ActorValue } from "../../../../api/actors";
-import { actorsApi } from "../../../../api/actors";
-import { extractErrorMessage } from "../../../../api/client";
+import { useActorCandidates } from "./use-actor-candidates";
 import { useWorkspace } from "../../../../context/WorkspaceContext";
 import formStyles from "../ArtifactForm.module.css";
 import styles from "./ActorPicker.module.css";
@@ -74,42 +73,13 @@ export function ActorPicker({
   const multiple = Boolean(attribute.multiple);
   const allowExternal = Boolean(attribute.allow_external);
 
-  const [candidates, setCandidates] = useState<ActorCandidate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const listboxId = `${testId}-listbox`;
 
   const workspaceId = activeWorkspace?.id;
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!workspaceId) {
-      setCandidates([]);
-      setLoading(false);
-      return undefined;
-    }
-    setLoading(true);
-    setLoadError(null);
-    actorsApi
-      .list(workspaceId)
-      .then((resolved) => {
-        if (cancelled) return;
-        setCandidates(resolved);
-        setLoading(false);
-      })
-      .catch((exc: unknown) => {
-        if (cancelled) return;
-        setCandidates([]);
-        setLoadError(extractErrorMessage(exc));
-        setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceId]);
+  const { candidates, loading, loadError } = useActorCandidates(workspaceId);
 
   const selected: ActorValue[] = useMemo(() => {
     if (isMultipleValue(value)) return value.items;
