@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Mockup — Inspector, Schmalansicht 768 px</title>
+<!--
+  Statisches Mockup zum Neukonzept des Artefakt-Inspectors — Schmalansicht.
+  Spec: ../2026-11-10-inspector-redesign-design.md, §4.2 (R4) und §5.1.
+  Zwei Rahmen à 768 px:
+    A) Inspector eingeklappt als Rail (40 px) mit Zählern; Spine waagerecht.
+    B) Inspector als Sheet über dem Detailbereich (nicht über der Liste), 100 % Detailbreite.
+  Kein Framework, kein JavaScript, keine externen Assets.
+  Token-Namen 1:1 aus frontend/src/styles/tokens.css (Theme light, Primitives aufgelöst).
+-->
+<style>
+:root{
+  --color-primary:#4f46e5; --color-primary-text:#4f46e5; --color-on-primary:#ffffff;
+  --color-surface:#f8fafc; --color-surface-raised:#ffffff;
+  --color-border:#cbd5e1; --color-border-hover:#94a3b8; --color-border-subtle:rgba(15,23,42,.08);
+  --color-text:#0f172a; --color-text-muted:#475569; --color-focus:#4f46e5; --color-warning:#b45309;
+  --color-badge-info-bg:#bee3f8; --color-badge-info-text:#2c5282;
+  --color-badge-success-bg:#c6f6d5; --color-badge-success-text:#276749;
+  --color-badge-neutral-bg:#e2e8f0; --color-badge-neutral-text:#4a5568;
+  --color-badge-warning-bg:#fefcbf; --color-badge-warning-text:#744210;
+  --color-badge-danger-bg:#fed7d7; --color-badge-danger-text:#9b2c2c;
+  --color-card-active-bg:rgba(79,70,229,.10);
+  --color-diff-added-bg:#c6f6d5; --color-diff-added-text:#276749;
+  --color-diff-removed-bg:#fed7d7; --color-diff-removed-text:#9b2c2c;
+  --color-diff-modified-bg:#fefcbf; --color-diff-modified-text:#744210;
+  --shadow-sm:0 1px 2px rgba(15,23,42,.08);
+  --shadow-card:0 10px 15px -3px rgba(15,23,42,.10),0 4px 6px -2px rgba(15,23,42,.05);
+  --color-nav-bg:#0f172a; --color-nav-text:#ffffff; --color-nav-text-muted:rgba(255,255,255,.65);
+  --color-nav-border:rgba(255,255,255,.08); --color-nav-active-bg:rgba(79,70,229,.22);
+  --space-1:.25rem; --space-2:.5rem; --space-3:.75rem; --space-4:1rem; --space-5:1.25rem; --space-6:1.5rem; --space-8:2rem;
+  --font-sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  --font-cond:system-ui,-apple-system,sans-serif;
+  --font-size-xs:.75rem; --font-size-sm:.875rem; --font-size-base:1rem; --font-size-lg:1.125rem; --font-size-xl:1.25rem;
+  --leading-tight:1.15; --leading-normal:1.5; --tracking-wide:.06em;
+  --weight-regular:400; --weight-medium:500; --weight-semibold:600;
+  --radius-sm:6px; --radius-md:12px; --radius-lg:16px; --radius-full:9999px;
+  --btn-h-xs:24px; --btn-h-sm:32px; --btn-h-md:36px; --btn-h-lg:44px;
+  --radius-btn:var(--radius-sm);
+  --control-focus-ring:2px solid var(--color-focus);
+  --control-border-width:1px;
+  --transition-fast:150ms cubic-bezier(.4,0,.2,1);
+  --nav-width:240px; --list-min:380px; --detail-min:520px;
+  --bp-md:768px; --bp-lg:1024px; --bp-xl:1600px;
+  --inspector-w-min:280px;
+  --inspector-w-default:320px;
+  --inspector-w-wide:360px;
+  --inspector-w-max:520px;
+  --inspector-rail-w:calc(var(--btn-h-sm) + var(--space-1) * 2);   /* 40 */
+  --inspector-tab-h:var(--btn-h-sm);
+  --inspector-row-h:var(--btn-h-md);
+  --inspector-spine-w:calc(var(--btn-h-lg) + var(--space-2));      /* 52 (hier waagerecht) */
+  --inspector-resize-hit:var(--btn-h-xs);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:var(--font-sans);background:var(--color-border);color:var(--color-text);
+  font-size:var(--font-size-sm);line-height:var(--leading-normal);padding:var(--space-6)}
+.doc-head{max-width:768px;margin:0 auto var(--space-5)}
+.doc-head h1{font-size:var(--font-size-xl);line-height:var(--leading-tight);margin:0 0 var(--space-2)}
+.doc-head p{margin:0 0 var(--space-1);color:var(--color-text-muted)}
+.doc-head code{font-family:var(--font-mono);font-size:var(--font-size-xs)}
+
+/* ---------- Rahmen 768 ---------- */
+.viewport{width:var(--bp-md);height:820px;margin:0 auto var(--space-6);display:flex;flex-direction:column;
+  background:var(--color-surface);border:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-md);
+  overflow:hidden;box-shadow:var(--shadow-card);position:relative}
+.viewport-label{position:absolute;top:calc(-1 * var(--space-5));left:0;font-family:var(--font-cond);
+  font-size:var(--font-size-xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;color:var(--color-text-muted)}
+.topbar{display:flex;align-items:center;gap:var(--space-2);min-height:var(--btn-h-lg);
+  padding:0 var(--space-3);border-bottom:var(--control-border-width) solid var(--color-border);background:var(--color-surface)}
+.topbar .ws{font-weight:var(--weight-semibold);font-size:var(--font-size-sm);flex:1 1 auto}
+.topbar .crumb{font-size:var(--font-size-xs);color:var(--color-text-muted)}
+.iconbtn{display:inline-flex;align-items:center;justify-content:center;width:var(--btn-h-sm);height:var(--btn-h-sm);
+  border:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-btn);background:transparent;color:var(--color-text);
+  cursor:pointer;font-family:inherit;font-size:var(--font-size-base);line-height:1;flex:0 0 auto}
+.iconbtn:hover{background:var(--color-surface-raised);border-color:var(--color-border-hover)}
+.btn{display:inline-flex;align-items:center;gap:var(--space-1);justify-content:center;min-height:var(--btn-h-sm);
+  padding:0 var(--space-3);border:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-btn);
+  background:var(--color-surface-raised);color:var(--color-text);font-family:inherit;font-size:var(--font-size-sm);
+  font-weight:var(--weight-medium);cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:var(--color-border-hover)}
+.btn.primary{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary)}
+.btn.small{min-height:var(--btn-h-xs);padding:0 var(--space-2);font-size:var(--font-size-xs)}
+
+.split{display:flex;flex:1 1 auto;min-height:0}
+
+/* Liste 45 % von 768 = 346 */
+.list{flex:0 0 346px;width:346px;border-right:var(--control-border-width) solid var(--color-border);display:flex;flex-direction:column;
+  min-height:0;background:var(--color-surface)}
+.list-head{position:sticky;top:0;background:var(--color-surface);border-bottom:var(--control-border-width) solid var(--color-border);
+  padding:var(--space-2) var(--space-3);display:flex;align-items:center;justify-content:space-between;gap:var(--space-2)}
+.list-head h2{margin:0;font-size:var(--font-size-sm);font-weight:var(--weight-semibold)}
+.list-head .count{font-family:var(--font-cond);font-size:var(--font-size-xs);color:var(--color-text-muted)}
+.filters{display:flex;flex-wrap:wrap;gap:var(--space-1);padding:var(--space-2) var(--space-3);border-bottom:var(--control-border-width) solid var(--color-border)}
+.chip{display:inline-flex;align-items:center;min-height:var(--btn-h-sm);padding:0 var(--space-2);
+  border:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-full);background:var(--color-surface-raised);
+  color:var(--color-text-muted);font-size:var(--font-size-xs);white-space:nowrap}
+.chip[aria-pressed="true"]{border-color:var(--color-primary);color:var(--color-primary-text);font-weight:var(--weight-medium)}
+.rows{list-style:none;margin:0;padding:var(--space-1);overflow-y:auto;flex:1 1 auto;scrollbar-gutter:stable}
+.row{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;
+  border-radius:var(--radius-md);padding:var(--space-1) var(--space-2);min-height:var(--btn-h-md);
+  color:var(--color-text);cursor:pointer;font-family:inherit}
+.row:hover{background:var(--color-surface-raised);border-color:var(--color-border)}
+.row[aria-selected="true"]{background:var(--color-surface-raised);border-color:var(--color-primary);box-shadow:var(--shadow-sm)}
+.row .id{font-family:var(--font-mono);font-size:var(--font-size-xs);color:var(--color-text-muted)}
+.row .title{display:block;font-size:var(--font-size-xs);font-weight:var(--weight-medium);margin:2px 0;line-height:1.35}
+.row .meta{display:flex;gap:var(--space-1);align-items:center;flex-wrap:wrap}
+
+/* Detail 55 % = 422 */
+.detail{flex:1 1 auto;display:flex;min-width:0;min-height:0;background:var(--color-surface);position:relative}
+.content{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;min-height:0}
+.art-head{background:var(--color-surface);border-bottom:var(--control-border-width) solid var(--color-border);
+  padding:var(--space-2) var(--space-3);display:flex;align-items:flex-start;gap:var(--space-2);flex-wrap:wrap}
+.art-head .idchip{font-family:var(--font-mono);font-size:var(--font-size-xs);background:var(--color-surface-raised);
+  border:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-sm);padding:1px var(--space-1);white-space:nowrap}
+.art-head h2{margin:0;font-size:var(--font-size-sm);line-height:1.25;flex:1 1 160px;min-width:0}
+.badges{display:flex;gap:var(--space-1);flex-wrap:wrap}
+.badge{display:inline-flex;align-items:center;min-height:22px;padding:0 var(--space-1);border-radius:var(--radius-sm);
+  font-family:var(--font-cond);font-size:var(--font-size-xs);font-weight:var(--weight-semibold)}
+.badge.neutral{background:var(--color-badge-neutral-bg);color:var(--color-badge-neutral-text)}
+.badge.success{background:var(--color-badge-success-bg);color:var(--color-badge-success-text)}
+.badge.info{background:var(--color-badge-info-bg);color:var(--color-badge-info-text)}
+.badge.warning{background:var(--color-badge-warning-bg);color:var(--color-badge-warning-text)}
+
+/* Spine waagerecht unter dem Artefaktkopf */
+.spine-h{display:flex;align-items:stretch;gap:var(--space-1);padding:var(--space-2) var(--space-3);
+  border-bottom:var(--control-border-width) solid var(--color-border);background:var(--color-surface-raised);overflow-x:auto;
+  scrollbar-gutter:stable}
+.station{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;background:transparent;
+  border:1px solid transparent;border-radius:var(--radius-btn);padding:var(--space-1) var(--space-2);
+  min-height:var(--btn-h-md);cursor:pointer;font-family:inherit;color:var(--color-text-muted);
+  font-size:var(--font-size-xs);white-space:nowrap;flex:0 0 auto;position:relative}
+.station + .station::before{content:"→";position:absolute;left:calc(-1 * var(--space-2) + 1px);top:50%;
+  transform:translateY(-50%);color:var(--color-border-hover);font-size:var(--font-size-xs)}
+.station[data-current="true"]{color:var(--color-text);border-color:var(--color-primary);background:var(--color-card-active-bg);font-weight:var(--weight-semibold)}
+.station .glyph{font-size:var(--font-size-xs);line-height:1}
+.station .vbadge{display:inline-flex;align-items:center;font-family:var(--font-cond);font-size:var(--font-size-xs);
+  background:var(--color-badge-info-bg);color:var(--color-badge-info-text);border-radius:var(--radius-full);padding:0 3px}
+.station .warn{color:var(--color-warning);font-size:var(--font-size-xs)}
+.station .here{font-size:var(--font-size-xs);color:var(--color-primary-text);font-weight:var(--weight-semibold)}
+
+.art-body{padding:var(--space-3);overflow-y:auto;flex:1 1 auto;scrollbar-gutter:stable}
+.field{margin-bottom:var(--space-3)}
+.field dt{font-family:var(--font-cond);font-size:var(--font-size-xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;
+  color:var(--color-text-muted);margin-bottom:var(--space-1)}
+.field dd{margin:0}
+.field .value{background:var(--color-surface-raised);border:var(--control-border-width) solid var(--color-border);
+  border-radius:var(--radius-md);padding:var(--space-2);min-height:var(--btn-h-md);font-size:var(--font-size-xs);line-height:1.55}
+.hint{color:var(--color-text-muted);font-size:var(--font-size-xs);margin-top:var(--space-1)}
+
+/* Rail */
+.rail{flex:0 0 var(--inspector-rail-w);width:var(--inspector-rail-w);border-left:var(--control-border-width) solid var(--color-border);
+  background:var(--color-surface-raised);display:flex;flex-direction:column;align-items:center;
+  gap:var(--space-2);padding:var(--space-2) 0}
+.rail .iconbtn{width:var(--btn-h-sm)}
+.rail .rail-item{display:flex;flex-direction:column;align-items:center;gap:1px;width:var(--btn-h-sm);
+  min-height:var(--btn-h-sm);padding:0;border:0;background:transparent;color:var(--color-text-muted);
+  font-family:var(--font-cond);font-size:var(--font-size-xs);cursor:pointer}
+.rail .rail-item:hover{color:var(--color-text)}
+.rail .rail-item:focus-visible{outline:var(--control-focus-ring);outline-offset:1px}
+.rail .cnt{font-size:var(--font-size-xs);background:var(--color-badge-neutral-bg);color:var(--color-badge-neutral-text);
+  border-radius:var(--radius-full);padding:0 3px;min-width:14px;text-align:center}
+.rail .cnt.alert{background:var(--color-badge-danger-bg);color:var(--color-badge-danger-text)}
+
+/* Sheet (Rahmen B) */
+.scrim-note{position:absolute;inset:0;background:transparent}
+.sheet{position:absolute;top:0;right:0;bottom:0;width:422px;background:var(--color-surface-raised);
+  /* Sheet-Kante: --color-text-muted (7.24:1/7.58:1), Spec §6.1/§7 SC 1.4.11. */
+  border-left:var(--control-border-width) solid var(--color-text-muted);box-shadow:var(--shadow-card);display:flex;flex-direction:column;z-index:1}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);
+  min-height:var(--btn-h-lg);padding:0 var(--space-3);border-bottom:var(--control-border-width) solid var(--color-border)}
+.sheet-head h2{margin:0;font-size:var(--font-size-base);font-weight:var(--weight-semibold)}
+.sheet-body{display:flex;flex-direction:column;min-height:0;flex:1 1 auto}
+.tabstrip{display:flex;border-bottom:var(--control-border-width) solid var(--color-border);padding:var(--space-2) var(--space-2) 0;
+  overflow-x:auto;scrollbar-gutter:stable}
+.tab{display:inline-flex;align-items:center;gap:var(--space-1);min-height:var(--inspector-tab-h);padding:0 var(--space-2);
+  border:var(--control-border-width) solid var(--color-border);border-left:none;background:transparent;color:var(--color-text-muted);
+  font-family:inherit;font-size:var(--font-size-xs);font-weight:var(--weight-semibold);cursor:pointer;white-space:nowrap;flex:0 0 auto}
+.tab:first-of-type{border-left:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-btn) 0 0 var(--radius-btn)}
+.tab:last-of-type{border-radius:0 var(--radius-btn) var(--radius-btn) 0}
+.tab[aria-selected="true"]{background:var(--color-primary);border-color:var(--color-primary);color:var(--color-on-primary)}
+.tab .n{font-family:var(--font-cond);font-size:var(--font-size-xs);border:var(--control-border-width) solid transparent;
+  background:var(--color-badge-neutral-bg);color:var(--color-badge-neutral-text);border-radius:var(--radius-full);padding:0 4px}
+/* Spec §6.2: on-primary auf primary — KEINE Invertierung (light/dark 6.29:1, bauhaus 7.52:1).
+   Der 1-px-Rahmen haelt den Zaehler auf der Primaerflaeche sichtbar. */
+.tab[aria-selected="true"] .n{background:var(--color-primary);color:var(--color-on-primary);
+  border:var(--control-border-width) solid var(--color-on-primary)}
+.sheet-panels{padding:var(--space-3);overflow-y:auto;flex:1 1 auto;scrollbar-gutter:stable}
+.sec-title{font-family:var(--font-cond);font-size:var(--font-size-xs);letter-spacing:var(--tracking-wide);text-transform:uppercase;
+  color:var(--color-text-muted);margin:0 0 var(--space-2)}
+.card{background:var(--color-surface);border:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-md)}
+.list-row{display:flex;align-items:flex-start;gap:var(--space-2);padding:var(--space-2);
+  border-bottom:var(--control-border-width) solid var(--color-border-subtle);min-height:var(--inspector-row-h)}
+.list-row:last-child{border-bottom:0}
+.list-row .main{flex:1 1 auto;min-width:0}
+.list-row .top{display:flex;align-items:center;gap:var(--space-1);flex-wrap:wrap}
+.list-row .id{font-family:var(--font-mono);font-size:var(--font-size-xs)}
+.list-row .t{font-size:var(--font-size-xs);font-weight:var(--weight-medium);display:block;margin-top:2px}
+.list-row .sub{font-size:var(--font-size-xs);color:var(--color-text-muted)}
+.prov{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2);border:var(--control-border-width) dashed var(--color-border);
+  border-radius:var(--radius-md);margin-bottom:var(--space-3);font-size:var(--font-size-xs);color:var(--color-text-muted)}
+.mono{font-family:var(--font-mono)}
+.btn:focus-visible,.iconbtn:focus-visible,.row:focus-visible,.tab:focus-visible{outline:var(--control-focus-ring);outline-offset:1px}
+
+/* Legende */
+.legend-list{max-width:768px;margin:0 auto;background:var(--color-surface-raised);border:var(--control-border-width) solid var(--color-border);
+  border-radius:var(--radius-md);padding:var(--space-4)}
+.legend-list h2{font-size:var(--font-size-base);margin:0 0 var(--space-2)}
+.legend-list ol{margin:0;padding-left:var(--space-5)}
+.legend-list li{margin-bottom:var(--space-1);font-size:var(--font-size-sm)}
+.measure{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-2);margin-top:var(--space-3)}
+.measure div{border:var(--control-border-width) solid var(--color-border);border-radius:var(--radius-md);padding:var(--space-2);background:var(--color-surface)}
+.measure b{display:block;font-family:var(--font-cond);font-size:var(--font-size-xs);letter-spacing:var(--tracking-wide);
+  text-transform:uppercase;color:var(--color-text-muted);margin-bottom:var(--space-1)}
+.measure span{font-family:var(--font-mono);font-size:var(--font-size-xs)}
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <h1>Mockup — Inspector, Schmalansicht 768 px</h1>
+  <p>Zwei Zustände: <strong>A</strong> eingeklappt als Rail mit Zählern (Standard bei 768 px),
+     <strong>B</strong> geöffnet als Sheet über dem Detailbereich. Die Liste bleibt in beiden Fällen sichtbar;
+     die Spine liegt waagerecht unter dem Artefaktkopf. Unter 768 px wird daraus eine Vollbild-Fläche (R5).</p>
+  <p>Spec: <code>../2026-11-10-inspector-redesign-design.md</code> §4.2 (R4) · §5.1 (Fokus) ·
+     Breiten: 768 = Liste 346 + Detail 422 (45 : 55, UI_KONZEPT §6.3).</p>
+</header>
+
+<!-- ================= Rahmen A: Rail ================= -->
+<div class="viewport">
+  <span class="viewport-label">A · 768 px · Inspector als Rail (Standard)</span>
+
+  <div class="topbar">
+    <button class="iconbtn" aria-label="Navigation öffnen" title="Navigation öffnen">☰</button>
+    <span class="ws">Kfz-Zulassung</span>
+    <span class="crumb">Anforderungen</span>
+    <button class="iconbtn" aria-label="Inspector öffnen" aria-expanded="false"
+            aria-controls="inspector-sheet" title="Inspector öffnen">«</button>
+  </div>
+
+  <div class="split">
+    <section class="list" aria-label="Anforderungsliste">
+      <div class="list-head"><h2>Anforderungen</h2><span class="count">214</span></div>
+      <div class="filters">
+        <button class="chip" aria-pressed="true">Alle</button>
+        <button class="chip" aria-pressed="false">L1</button>
+        <button class="chip" aria-pressed="false">Suspect</button>
+      </div>
+      <ul class="rows">
+        <li><button class="row" aria-selected="true">
+          <span class="id">REQ-L1-042</span>
+          <span class="title">Automatische Kontosperre nach fünf Fehlversuchen</span>
+          <span class="meta"><span class="badge neutral">SR</span><span class="badge success">Freigegeben</span></span>
+        </button></li>
+        <li><button class="row">
+          <span class="id">REQ-L1-041</span>
+          <span class="title">Passwortrichtlinie für Bedienkonten</span>
+          <span class="meta"><span class="badge neutral">SR</span><span class="badge warning">In Prüfung</span></span>
+        </button></li>
+        <li><button class="row">
+          <span class="id">REQ-L1-040</span>
+          <span class="title">Sitzungsdauer und automatische Abmeldung</span>
+          <span class="meta"><span class="badge neutral">SR</span><span class="badge info">Entwurf</span></span>
+        </button></li>
+        <li><button class="row">
+          <span class="id">REQ-L1-039</span>
+          <span class="title">Protokollierung sicherheitsrelevanter Ereignisse</span>
+          <span class="meta"><span class="badge neutral">SR</span><span class="badge success">Freigegeben</span></span>
+        </button></li>
+        <li><button class="row">
+          <span class="id">REQ-L1-038</span>
+          <span class="title">Mandantentrennung in der Sachbearbeitung</span>
+          <span class="meta"><span class="badge neutral">SR</span><span class="badge success">Freigegeben</span></span>
+        </button></li>
+      </ul>
+    </section>
+
+    <div class="detail">
+      <main class="content" aria-label="Anforderung REQ-L1-042">
+        <div class="art-head">
+          <span class="idchip">REQ-L1-042</span>
+          <h2>Automatische Kontosperre nach fünf Fehlversuchen</h2>
+          <div class="badges">
+            <span class="badge neutral">SR</span><span class="badge success">Freigegeben</span><span class="badge neutral">v9</span>
+          </div>
+        </div>
+
+        <!-- Spine waagerecht -->
+        <nav class="spine-h" aria-label="Ableitungskette (waagerecht, scrollbar)">
+          <button class="station"><span class="glyph" aria-hidden="true">○</span><span>Bedarf ↑2</span></button>
+          <button class="station" data-current="true">
+            <span class="glyph" aria-hidden="true">●</span><span>Req · hier</span>
+            <span class="vbadge" title="3 Testfälle">V·3</span>
+          </button>
+          <button class="station"><span class="glyph" aria-hidden="true">○</span><span>Subsystem ↓4</span>
+            <span class="vbadge" title="5 Testfälle">V·5</span></button>
+          <button class="station"><span class="glyph" aria-hidden="true">◍</span><span>Komponente</span>
+            <span class="warn" role="img" aria-label="Keine Abdeckung">▲</span></button>
+        </nav>
+
+        <div class="art-body">
+          <dl class="field">
+            <dt>Titel</dt>
+            <dd><div class="value">Automatische Kontosperre nach fünf fehlgeschlagenen Anmeldeversuchen</div></dd>
+          </dl>
+          <dl class="field">
+            <dt>Beschreibung</dt>
+            <dd><div class="value">Nach fünf aufeinanderfolgenden fehlgeschlagenen Anmeldeversuchen wird das
+              Bedienkonto für 15 Minuten gesperrt. Die Sperre wird serverseitig gezählt und im Audit-Log
+              protokolliert.</div></dd>
+          </dl>
+          <dl class="field">
+            <dt>Priorität</dt>
+            <dd><div class="value">Hoch</div></dd>
+          </dl>
+          <div class="hint">Verifikation steht als <span class="mono">V·n</span> an der Spine-Station, nicht im Formular.</div>
+        </div>
+      </main>
+
+      <!-- Rail -->
+      <!-- Rail-Zaehler: jeder ist ein button mit eigenem aria-label; aria-controls zeigt auf die
+           Sheet-Flaeche, data-inspector-tab nennt den Reiter, den der Klick oeffnet (Spec §3/§7). -->
+      <aside class="rail" aria-label="Inspector eingeklappt" data-testid="inspector-rail">
+        <button class="iconbtn" aria-label="Inspector ausklappen" aria-expanded="false"
+                aria-controls="inspector-sheet" data-testid="inspector-rail-open">«</button>
+        <button class="rail-item" aria-label="Versionen, 9 Einträge"
+                aria-controls="inspector-sheet" data-inspector-tab="version" data-testid="inspector-rail-count-version">
+          <span aria-hidden="true">V</span><span class="cnt" aria-hidden="true">9</span></button>
+        <button class="rail-item" aria-label="Diff, vorhanden"
+                aria-controls="inspector-sheet" data-inspector-tab="diff" data-testid="inspector-rail-count-diff">
+          <span aria-hidden="true">D</span></button>
+        <button class="rail-item" aria-label="Links, 9 Verknüpfungen"
+                aria-controls="inspector-sheet" data-inspector-tab="links" data-testid="inspector-rail-count-links">
+          <span aria-hidden="true">L</span><span class="cnt" aria-hidden="true">9</span></button>
+        <button class="rail-item" aria-label="Kommentare, 3 offen"
+                aria-controls="inspector-sheet" data-inspector-tab="comments" data-testid="inspector-rail-count-comments">
+          <span aria-hidden="true">K</span><span class="cnt alert" aria-hidden="true">3</span></button>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<!-- ================= Rahmen B: Sheet ================= -->
+<div class="viewport">
+  <span class="viewport-label">B · 768 px · Inspector als Sheet über dem Detailbereich</span>
+
+  <div class="topbar">
+    <button class="iconbtn" aria-label="Navigation öffnen" title="Navigation öffnen">☰</button>
+    <span class="ws">Kfz-Zulassung</span>
+    <span class="crumb">Anforderungen</span>
+    <button class="iconbtn" aria-label="Inspector schließen" aria-expanded="true"
+            aria-controls="inspector-sheet" title="Inspector schließen">»</button>
+  </div>
+
+  <div class="split">
+    <section class="list" aria-label="Anforderungsliste">
+      <div class="list-head"><h2>Anforderungen</h2><span class="count">214</span></div>
+      <div class="filters">
+        <button class="chip" aria-pressed="true">Alle</button>
+        <button class="chip" aria-pressed="false">L1</button>
+        <button class="chip" aria-pressed="false">Suspect</button>
+      </div>
+      <ul class="rows">
+        <li><button class="row" aria-selected="true">
+          <span class="id">REQ-L1-042</span>
+          <span class="title">Automatische Kontosperre nach fünf Fehlversuchen</span>
+          <span class="meta"><span class="badge neutral">SR</span><span class="badge success">Freigegeben</span></span>
+        </button></li>
+        <li><button class="row">
+          <span class="id">REQ-L1-041</span>
+          <span class="title">Passwortrichtlinie für Bedienkonten</span>
+          <span class="meta"><span class="badge neutral">SR</span><span class="badge warning">In Prüfung</span></span>
+        </button></li>
+        <li><button class="row">
+          <span class="id">REQ-L1-040</span>
+          <span class="title">Sitzungsdauer und automatische Abmeldung</span>
+          <span class="meta"><span class="badge neutral">SR</span><span class="badge info">Entwurf</span></span>
+        </button></li>
+        <li><button class="row">
+          <span class="id">REQ-L1-039</span>
+          <span class="title">Protokollierung sicherheitsrelevanter Ereignisse</span>
+          <span class="meta"><span class="badge neutral">SR</span><span class="badge success">Freigegeben</span></span>
+        </button></li>
+      </ul>
+    </section>
+
+    <div class="detail">
+      <!-- Der Inhalt bleibt stehen; das Sheet liegt darüber (kein Scrim).
+           Spec §4.2: solange das Sheet offen ist, ist der ueberdeckte Detailbereich
+           inert (hier als Attribut gesetzt) - die Liste daneben bleibt bedienbar. -->
+      <main class="content" aria-label="Anforderung REQ-L1-042 (verdeckt)" inert>
+        <div class="art-head">
+          <span class="idchip">REQ-L1-042</span>
+          <h2>Automatische Kontosperre nach fünf Fehlversuchen</h2>
+          <div class="badges"><span class="badge success">Freigegeben</span><span class="badge neutral">v9</span></div>
+        </div>
+        <nav class="spine-h" aria-label="Ableitungskette (waagerecht)">
+          <button class="station"><span class="glyph" aria-hidden="true">○</span><span>Bedarf ↑2</span></button>
+          <button class="station" data-current="true"><span class="glyph" aria-hidden="true">●</span><span>Req · hier</span>
+            <span class="vbadge">V·3</span></button>
+          <button class="station"><span class="glyph" aria-hidden="true">○</span><span>Subsystem ↓4</span></button>
+        </nav>
+        <div class="art-body">
+          <dl class="field"><dt>Titel</dt><dd><div class="value">Automatische Kontosperre nach fünf
+            fehlgeschlagenen Anmeldeversuchen</div></dd></dl>
+        </div>
+      </main>
+
+      <aside class="sheet" id="inspector-sheet" aria-labelledby="sheet-title" data-testid="inspector-sheet">
+        <div class="sheet-head">
+          <h2 id="sheet-title">Inspector</h2>
+          <button class="iconbtn" aria-label="Inspector schließen" title="Inspector schließen">»</button>
+        </div>
+        <div class="sheet-body">
+          <!-- Im Mockup ist nur der Version-Bereich gerendert; die uebrigen Panels
+               (inspector-panel-diff/-links/-comments) entstehen in der Umsetzung beim
+               Aktivieren des Reiters. aria-controls der Reiter zeigt auf diese IDs. -->
+          <div class="tabstrip" role="tablist" aria-label="Inspector-Bereiche">
+            <button class="tab" role="tab" id="inspector-tab-version" aria-controls="inspector-panel-version"
+                    aria-selected="true" tabindex="0">Version <span class="n">9</span></button>
+            <button class="tab" role="tab" id="inspector-tab-diff" aria-controls="inspector-panel-diff"
+                    aria-selected="false" tabindex="-1">Diff</button>
+            <button class="tab" role="tab" id="inspector-tab-links" aria-controls="inspector-panel-links"
+                    aria-selected="false" tabindex="-1">Links <span class="n">9</span></button>
+            <button class="tab" role="tab" id="inspector-tab-comments" aria-controls="inspector-panel-comments"
+                    aria-selected="false" tabindex="-1">Kommentare <span class="n">3</span></button>
+          </div>
+          <div class="sheet-panels" id="inspector-panel-version" role="tabpanel" tabindex="0"
+               aria-labelledby="inspector-tab-version">
+            <div class="prov">
+              <span class="badge info">Interview</span>
+              <span>Aus <span class="mono">INT-204</span> · 18.09.2026</span>
+            </div>
+            <h3 class="sec-title">Verlauf</h3>
+            <div class="card">
+              <div class="list-row">
+                <div class="main">
+                  <div class="top"><span class="id">v9</span><span class="badge info">Aktuell</span></div>
+                  <span class="t">Freigabe nach Review</span>
+                  <span class="sub">11.11.2026, 14:32 · A. Weber</span>
+                </div>
+                <button class="iconbtn" aria-label="Aktionen für Version v9">⋯</button>
+              </div>
+              <div class="list-row">
+                <div class="main">
+                  <div class="top"><span class="id">v8</span></div>
+                  <span class="t">Präzisierung der Fehlersperre</span>
+                  <span class="sub">10.11.2026, 09:15 · M. Yilmaz</span>
+                </div>
+                <button class="iconbtn" aria-label="Aktionen für Version v8">⋯</button>
+              </div>
+              <div class="list-row">
+                <div class="main">
+                  <div class="top"><span class="id">v7</span><span class="badge neutral">Baseline: Release 1.4</span></div>
+                  <span class="t">Aufnahme in Release-Baseline</span>
+                  <span class="sub">04.11.2026, 17:02 · System</span>
+                </div>
+                <button class="iconbtn" aria-label="Aktionen für Version v7">⋯</button>
+              </div>
+            </div>
+            <p class="sub" style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin-top:var(--space-2)">
+              Reiterleiste ist in R4 (422 px) horizontal scrollbar (vier Reiter + Zähler). Kein Umbruch,
+              Reihenfolge bleibt. Unter 360 px (R5) brechen die Reiter in zwei Reihen um — dort kein
+              horizontaler Seiten-Scroll bei 320 px (Spec §4.2, WCAG 1.4.10).</p>
+            <p class="sub" style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin-top:var(--space-2)">
+              Rail und Sheet sind ein DOM-Knoten: im Sheet-Zustand ist der Rail-Inhalt nicht gerendert
+              (Spec §2.1/§4.2). Der verdeckte Detailbereich traegt <span class="mono">inert</span>.</p>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</div>
+
+<section class="legend-list">
+  <h2>Was dieses Mockup festlegt</h2>
+  <ol>
+    <li><strong>Der Inspector verdrängt bei 768 px keinen Inhalt.</strong> Eingeklappt ist er ein 40-px-Rail im Fluss (Inhalt 382 px), geöffnet ein Sheet über dem Detailbereich (422 px). Die Liste bleibt in beiden Fällen sichtbar.</li>
+    <li><strong>Die Spine kostet Höhe, nicht Breite.</strong> Sie liegt waagerecht unter dem Artefaktkopf, ist bei mehr als vier Stationen horizontal scrollbar und behält die Reihenfolge der Kette (UI_KONZEPT §5).</li>
+    <li><strong>Der Rail zeigt Zähler, nicht nur Glyphen.</strong> Damit ist die Funktion auch eingeklappt sichtbar (U-05); die offene Kommentarzahl ist der einzige rote Zähler.</li>
+    <li><strong>Fokus:</strong> Öffnen setzt den Fokus auf den aktiven Reiter, <code>Esc</code> schließt und gibt ihn an den Auslöser zurück. Kein Fokus-Trap <em>im</em> Sheet (non-modal, Q5) — aber der überdeckte Detailbereich ist <code>inert</code>, damit der Fokus nicht hinter das Sheet wandert (WCAG 2.4.11, Spec §4.2). Rückgabe-Kette: Auslöser → Rail-Aufklappen-Button → Kopfzeile.</li>
+    <li><strong>Unter 768 px</strong> (nicht gezeigt): eine Spalte, der Inspector ersetzt den Inhalt als Vollbild-Fläche, „Zurück" im Artefaktkopf, Zähler am Auslöser (R5). Unter 360 px brechen die Reiter in zwei Reihen um; bei 320 px entsteht kein horizontaler Seiten-Scroll (WCAG 1.4.10).</li>
+  </ol>
+
+  <div class="measure">
+    <div><b>Liste</b><span>346 px = 45 %</span></div>
+    <div><b>Detail</b><span>422 px = 55 %</span></div>
+    <div><b>Rail</b><span>40 px = --btn-h-sm + 2 × --space-1</span></div>
+  </div>
+
+  <p style="font-size:var(--font-size-xs);color:var(--color-text-muted);margin:var(--space-3) 0 0">
+    Achtung: Diese Breiten sind aus CSS und UI_KONZEPT §6.3 <strong>abgeleitet</strong>, nicht gerendert.
+    Es lief kein Stack (Ist-Analyse §0); die 422-px-Spalte ist vor der Umsetzung visuell zu prüfen.
+  </p>
+</section>
+
+</body>
+</html>
