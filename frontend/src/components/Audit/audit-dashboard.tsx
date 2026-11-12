@@ -102,6 +102,7 @@ import {
   useAuditRun,
 } from "./use-audit-run";
 import type { ActionState, ActionStateMap } from "./use-audit-run";
+import { useAuditFilters } from "./use-audit-filters";
 import {
   useAuditRules,
   useAuditWaivers,
@@ -212,15 +213,18 @@ export function AuditDashboard(): JSX.Element {
     }
   }, [scope, scopeArtifactId, artifacts]);
 
-  const [severityFilter, setSeverityFilter] = useState<"all" | "blocker" | "warning">("all");
-  // #1262: rule filter (client-side, with per-rule counters) and the
-  // server-side artifact-type filter.
-  const [ruleFilter, setRuleFilter] = useState<string>("all");
-  const [artifactTypeFilter, setArtifactTypeFilter] = useState<string>("all");
-  // #569: "show suppressed" is on by default — nothing is hidden by default
-  // (O3). Unchecking filters `suppressed === true` client-side; the report
-  // itself always keeps suppressed findings (include_suppressed default true).
-  const [showSuppressed, setShowSuppressed] = useState<boolean>(true);
+  // #1262/#569: severity, rule, artifact-type and suppressed filters
+  // (own module, #598 S2).
+  const {
+    severityFilter,
+    setSeverityFilter,
+    ruleFilter,
+    setRuleFilter,
+    artifactTypeFilter,
+    setArtifactTypeFilter,
+    showSuppressed,
+    setShowSuppressed,
+  } = useAuditFilters();
   const [toast, setToast] = useState<string | null>(null);
   // UI-57: Adopt applies an automatic correction with no undo — interpose a
   // confirmation instead of firing the remediation call straight from the
