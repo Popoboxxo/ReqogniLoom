@@ -58,3 +58,20 @@ a field-level diff against that baseline rather than silently overwriting histor
 A workspace may add fields beyond the core schema for a given artifact type. `custom_field.get`/
 `custom_field.query` discover which apply, in addition to whatever the active rigor preset's
 `mandatory_fields` already requires.
+
+## Documents, work items and review milestones
+
+Three related but distinct concepts — none is an alias of another:
+
+- **`Document`** is a long-form artifact with its own lifecycle (draft → released), body, kind
+  (Spec/Plan/AuditReport/Review/Concept/Conclusion/Guide) and freeze fields. It is what a
+  projection renders to Markdown when document projection is enabled.
+- **`WorkItem`** is a node in a plan's working state (Phase/Step/Milestone/OpenPoint/Checkpoint),
+  with resume, checkpoints, heartbeat and `blocked_reason`. It tracks *work*, not a formal review.
+- **`Milestone`** is review planning: a target date, status, review type (SRR/PDR/CDR/TRR/ORR/
+  OTHER), an audit snapshot and an optional bound `Baseline`. `milestone.bind_baseline` and
+  `milestone.record_audit` are the two operations that connect it to governance.
+
+`WorkItem` with kind `Milestone` and the `Milestone` entity have **no automatic coupling**: a work
+item node never creates a review milestone, and a milestone never advances a work item. Create and
+link them explicitly when a plan needs both.
