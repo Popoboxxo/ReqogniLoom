@@ -13,7 +13,8 @@ TRACE-P6/VERIF-P8/CONS-P9/CONS-P10 (coverage_consistency), and TRACE-P7
 advisory quality rules QUAL-P1/P2/P3 (quality_score, #378 — Extended only,
 WARNING at every tier), and DOC-P7 (document_references, Plan F F3-T7 —
 Standard WARNING / Extended BLOCKER) and DOC-P5 (work_item_staleness, Plan F
-F3-T8 — WARNING at Standard and Extended).
+F3-T8 — WARNING at Standard and Extended), and REL-P1 (release_tier_pin, #1805 —
+WARNING at Standard / BLOCKER at Extended).
 
 ADR-005 removed CONS-P11 (level_progression). It asserted that
 ``Requirement.level`` agrees with the decomposition graph, and the same ADR made
@@ -53,6 +54,7 @@ from . import (
     interface_coverage,  # noqa: F401  (registration side effect)
     level_consistency,  # noqa: F401  (registration side effect)
     quality_score,  # noqa: F401  (registration side effect)
+    release_tier_pin,  # noqa: F401  (registration side effect)
     trace_derivation_allocation,  # noqa: F401  (registration side effect)
     trace_p7,  # noqa: F401  (registration side effect)
     validation_goals,  # noqa: F401  (registration side effect)
@@ -67,6 +69,7 @@ __all__ = [
     "interface_coverage",
     "level_consistency",
     "quality_score",
+    "release_tier_pin",
     "trace_derivation_allocation",
     "trace_p7",
     "validation_goals",
