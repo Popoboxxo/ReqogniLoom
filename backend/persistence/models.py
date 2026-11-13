@@ -4786,6 +4786,46 @@ class Document(ArtifactWorkspaceMirrorMixin, TenantScopedModel):
         blank=True,
         help_text="Names of the fields frozen by the approval (freeze F-2).",
     )
+    # Phase G / #1374 S3 (ENT-F5): dual-source documents. ``loom`` documents
+    # are authored here; ``repo_external`` documents originate in a repository
+    # file and can be adopted (turned into loom-owned content) once the hashes
+    # match. The server never writes to a repository — the fields only describe
+    # the contract a client/CI job uses.
+    owner_mode = models.CharField(
+        max_length=16,
+        choices=[("loom", "Loom"), ("repo_external", "Repository (external)")],
+        default="loom",
+        help_text="Who owns the content: this server or an external repository file.",
+    )
+    source_path = models.CharField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text="Repository path a repo_external document was imported from.",
+    )
+    source_sha256 = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="SHA-256 of the repository file at adoption time.",
+    )
+    projection_mode = models.CharField(
+        max_length=16,
+        choices=[("none", "None"), ("generated", "Generated")],
+        default="none",
+        help_text="Whether this document is rendered to Markdown for a repository.",
+    )
+    projected_sha256 = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="SHA-256 a client last confirmed it wrote for this projection.",
+    )
+    projected_version = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Document.version the last confirmed projection was rendered from.",
+    )
 
     class Meta:
         db_table = "pl_document"

@@ -2862,6 +2862,14 @@ class DocumentSerializer(
         read_only=True,
         help_text="Content fields locked by the release (F-1/F-2).",
     )
+    # Phase G / #1374 S3: dual-source and projection bookkeeping, written only
+    # by import/adopt/confirm. Read-only here so no generic PATCH can forge them.
+    owner_mode = serializers.CharField(read_only=True)
+    source_path = serializers.CharField(read_only=True)
+    source_sha256 = serializers.CharField(read_only=True)
+    projection_mode = serializers.CharField(read_only=True)
+    projected_sha256 = serializers.CharField(read_only=True)
+    projected_version = serializers.IntegerField(read_only=True, allow_null=True)
     change_reason = SanitizedCharField(
         required=False, allow_blank=True, max_length=2000
     )

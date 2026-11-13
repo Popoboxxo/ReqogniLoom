@@ -500,6 +500,14 @@ READ_ONLY_MODEL_FIELDS: frozenset[str] = frozenset(
         # it and the baseline reads it; a definition-driven form control would
         # render a value the PATCH drops.
         "released_tier_key",
+        # Phase G / #1374 S3: written by import/adopt/confirm only; a
+        # definition-driven form control would render values PATCH drops.
+        "owner_mode",
+        "source_path",
+        "source_sha256",
+        "projection_mode",
+        "projected_sha256",
+        "projected_version",
         # P2: why a requirement is (not) allocated. The allocation service is
         # the only writer of "allocated" — a generic create/PATCH carrying it
         # answers a deliberate 400 ("Use the allocation endpoint to mark a

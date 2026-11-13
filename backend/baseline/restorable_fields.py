@@ -278,6 +278,15 @@ NON_RESTORABLE: dict[str, dict[str, str]] = {
         # transition (DocumentService.transition_status), never by a rollback.
         "frozen_at": "release bookkeeping (freeze F-1), set by the transition",
         "frozen_fields": "release bookkeeping (freeze F-1), set by the transition",
+        # Phase G / #1374 S3: ownership, source binding and projection hashes
+        # are written by import/adopt/confirm only. A rollback that wrote them
+        # back would forge provenance or make a client believe a file matches.
+        "owner_mode": "dual-source governance, set by adoption",
+        "source_path": "source binding, set by import/adoption",
+        "source_sha256": "source binding, set by import/adoption",
+        "projection_mode": "projection governance, set by adoption",
+        "projected_sha256": "projection bookkeeping, set by confirm",
+        "projected_version": "projection bookkeeping, set by confirm",
         **_ARTIFACT_HULL_NON_RESTORABLE,
     },
 }

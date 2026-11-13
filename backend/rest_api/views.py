@@ -77,6 +77,7 @@ from application.artifact_attribute_gateway import (
     transport_field_names,
 )
 from application.base import (
+    AdoptionHashMismatchError,
     AllocationConflictError,
     ReleaseStateError,
     WorkflowFrozenError,
@@ -470,6 +471,8 @@ _EXC_TO_HTTP: dict[type, int] = {
     # ADR-028 A1: a release from a state with no release edge is a rejected
     # precondition on a well-formed request, not a malformed payload.
     ReleaseStateError: status.HTTP_409_CONFLICT,
+    # Phase G / #1374 S3: adopting a file whose hash moved is a state conflict.
+    AdoptionHashMismatchError: status.HTTP_409_CONFLICT,
 }
 
 _EXC_TO_CODE: dict[type, str] = {
@@ -528,6 +531,7 @@ _EXC_TO_CODE: dict[type, str] = {
     LlmTokenLimitExceededError: "LLM_TOKEN_LIMIT_EXCEEDED",
     # ADR-028 A1: the client may retry once the item reaches a releasable state.
     ReleaseStateError: "RELEASE_NOT_ALLOWED",
+    AdoptionHashMismatchError: "CONFLICT",
 }
 
 
@@ -7903,6 +7907,13 @@ def _document_to_dict(document: Any) -> dict[str, Any]:
         "doc_date": getattr(document, "doc_date", None),
         "frozen_at": getattr(document, "frozen_at", None),
         "frozen_fields": list(getattr(document, "frozen_fields", None) or []),
+        # Phase G / #1374 S3: dual-source and projection bookkeeping (read-only).
+        "owner_mode": getattr(document, "owner_mode", "loom"),
+        "source_path": getattr(document, "source_path", ""),
+        "source_sha256": getattr(document, "source_sha256", ""),
+        "projection_mode": getattr(document, "projection_mode", "none"),
+        "projected_sha256": getattr(document, "projected_sha256", ""),
+        "projected_version": getattr(document, "projected_version", None),
         "custom_fields": _artifact_custom_fields(document),
         "version": document.version,
         "created_at": document.created_at,

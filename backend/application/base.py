@@ -168,6 +168,15 @@ class ReleaseStateError(ValidationError):
     """
 
 
+class AdoptionHashMismatchError(ValidationError):
+    """A document adoption was requested with a stale repository hash.
+
+    The request is well-formed, but the file no longer matches the imported
+    source — a state conflict, not a malformed payload. Answered with **409**
+    (REST) / ``CONFLICT`` (MCP).
+    """
+
+
 class AllocationConflictError(ValidationError):
     """A generic write tried to create a second ``allocated-to`` edge.
 
