@@ -1,6 +1,6 @@
 import * as React from "react";
 import type { AppState } from "./state";
-import { disconnect, openInBrowser, openInterviews } from "./state";
+import { disconnect, openInBrowser, openInterviews, openRequirements } from "./state";
 import { buttonStyle, ErrorBanner } from "./uiKit";
 
 export function ConnectedView({ state }: { state: AppState }) {
@@ -16,6 +16,15 @@ export function ConnectedView({ state }: { state: AppState }) {
       <ErrorBanner message={state.interviewError} />
       <button data-testid="open-in-browser-button" style={buttonStyle} onClick={() => void openInBrowser()}>
         Open ReqogniLoom
+      </button>
+      {/* Open Requirements sits before Interviews: requirement CRUD is the
+          section's primary entry, interview recording is the secondary one. */}
+      <button
+        data-testid="open-requirements-button"
+        style={buttonStyle}
+        onClick={() => void openRequirements()}
+      >
+        Requirements
       </button>
       <button data-testid="open-interviews-button" style={buttonStyle} onClick={() => void openInterviews()}>
         Interviews
