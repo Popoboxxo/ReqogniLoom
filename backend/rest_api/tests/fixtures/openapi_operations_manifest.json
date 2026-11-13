@@ -638,6 +638,10 @@
    "post"
   ],
   [
+   "/api/v1/documents/projection-status/",
+   "post"
+  ],
+  [
    "/api/v1/documents/{id}/",
    "delete"
   ],
@@ -650,7 +654,19 @@
    "patch"
   ],
   [
+   "/api/v1/documents/{id}/adopt/",
+   "post"
+  ],
+  [
+   "/api/v1/documents/{id}/confirm-projection/",
+   "post"
+  ],
+  [
    "/api/v1/documents/{id}/diff/",
+   "get"
+  ],
+  [
+   "/api/v1/documents/{id}/projection/",
    "get"
   ],
   [

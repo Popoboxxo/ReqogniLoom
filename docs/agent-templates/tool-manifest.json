@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 290,
+  "tool_count": 293,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -3027,6 +3027,36 @@
       }
     },
     {
+      "name": "document.adopt",
+      "prefix": "document",
+      "is_write": true,
+      "description": "Turn a repo_external document into a loom-owned, projected one (write). Requires file_sha256 to equal the imported source hash; otherwise CONFLICT (409).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Document UUID."
+          },
+          "file_sha256": {
+            "type": "string",
+            "description": "SHA-256 of the repository file."
+          },
+          "source_path": {
+            "type": "string"
+          },
+          "freeze": {
+            "type": "boolean",
+            "description": "Release (freeze) the document after adoption."
+          }
+        },
+        "required": [
+          "id",
+          "file_sha256"
+        ]
+      }
+    },
+    {
       "name": "document.create",
       "prefix": "document",
       "is_write": true,
@@ -3129,6 +3159,65 @@
         },
         "required": [
           "id"
+        ]
+      }
+    },
+    {
+      "name": "document.project",
+      "prefix": "document",
+      "is_write": false,
+      "description": "Render one document as deterministic Markdown (read-only). The server never writes to a repository; write the content on a branch and report the hash back via document.projection_status.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Document UUID."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "document.projection_status",
+      "prefix": "document",
+      "is_write": false,
+      "description": "Compare client-computed repository file hashes with Loom's projection state (READ). Returns in_sync | loom_changed | file_changed | conflict | missing_in_repo | untracked_in_loom per document. An optional confirm object records a written hash.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Workspace UUID."
+          },
+          "files": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Repository path -> SHA-256, computed locally."
+          },
+          "confirm": {
+            "type": "object",
+            "properties": {
+              "document_id": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "document_id",
+              "sha256"
+            ],
+            "description": "Optional: record the hash that was actually written."
+          }
+        },
+        "required": [
+          "workspace_id"
         ]
       }
     },

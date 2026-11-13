@@ -5,7 +5,7 @@
 **Name:** ReqogniLoom
 **Präfix:** ReqLo
 **Plattform:** Django 6.1+ (Backend) + React 19 + TypeScript 5.5+ (Frontend) + PostgreSQL 16 via pgvector/pgvector:pg16 (Django ORM + pgvector) + Redis 8 (Cache/Celery-Broker) + Celery 5.6+ (Async) + Docker Compose (9 Default-Services: postgres, postgres-backup, redis, backend, llm-preflight, migrate, celery, celery-beat, frontend; optionale Profile: honcho (+5 Services), qdrant (+1 Service))
-**Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (46 Tool-Gruppen-Präfixe, 290 Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/Azure/opencode_go/mock), Multi-Tenancy mit Row-Level-Isolation, 20 built-in Trace-Link-Typen (tenant-extensibler Katalog), Baselines (3 Scopes) mit Feld-Diff, AI-Long-Term-Memory (pgvector; optional Honcho/Qdrant), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
+**Beschreibung:** AI-natives Requirements- und Test-Management-Tool mit MBSE-kompatibler Artefakt-Zerlegung, REST API + nativem MCP Server (46 Tool-Gruppen-Präfixe, 293 Tools), LLM-Adapter (Anthropic/OpenAI/Ollama/Azure/opencode_go/mock), Multi-Tenancy mit Row-Level-Isolation, 20 built-in Trace-Link-Typen (tenant-extensibler Katalog), Baselines (3 Scopes) mit Feld-Diff, AI-Long-Term-Memory (pgvector; optional Honcho/Qdrant), 3 Rigor-Presets (minimal/standard/extended) und i18n (DE/EN).
 
 > Struktur: siehe Verzeichnisstruktur im Repo (`ls`/`find`); deklarativ: `.meta-config/project.yaml` → `variables.PROJECT_STRUCTURE`.
 
@@ -46,7 +46,7 @@ scripts/build.sh                   — Release-Build mit APP_VERSION/GIT_COMMIT_
 
 **Besondere Patterns:**
 - Django REST Framework (DRF): 30 ViewSets über 35 Router-Registrierungen plus explizite APIView-Routen
-- MCP-Server (JSON-RPC 2.0) mit 46 Tool-Gruppen-Präfixen und 290 Tools (kanonisches Manifest:
+- MCP-Server (JSON-RPC 2.0) mit 46 Tool-Gruppen-Präfixen und 293 Tools (kanonisches Manifest:
   docs/agent-templates/tool-manifest.json, Drift-Gate: backend/mcp_server/tests/test_tool_manifest_drift.py);
   kanonischer Pfad /mcp/, /api/v1/mcp/ nur noch deprecated Alias
 - drf-spectacular für OpenAPI 3.0 (Schema, Swagger-UI, ReDoc)

@@ -320,6 +320,8 @@ _WRITE_TOOL_PREFIXES: tuple[str, ...] = (
     "document.transition",
     "document.outdate",
     "document.reactivate",
+    # Phase G / #1374 S3: adoption changes ownership and the projection mode.
+    "document.adopt",
     # Plan F F3-T6 (#1374): the WorkItem artifact's mutating tools.
     # work_item.read/query/resume are read-only (see _READ_ONLY_TOOL_NAMES);
     # the rest stay fail-closed write-gated.
@@ -526,6 +528,9 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # and diff do not end on either, so they are listed explicitly.
         "document.versions",
         "document.diff",
+        # Phase G / #1374 S3: rendering and hash comparison persist nothing.
+        "document.project",
+        "document.projection_status",
         # Plan F F3-T6 (#1374): work_item.read/work_item.query are already
         # exempt via the shared ".read"/".query" suffix convention; resume does
         # not end on either, so it is listed explicitly.

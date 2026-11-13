@@ -10084,6 +10084,116 @@ class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             }
         )
 
+    # ---------- Projection and adoption (Phase G / #1374 S3) ----------
+
+    @action(detail=True, methods=["get"], url_path="projection")
+    def projection(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/documents/{pk}/projection/ — deterministic Markdown.
+
+        Read-only: rendering the projection changes no row. The server never
+        writes to a repository; a client fetches this payload and reports the
+        written hash back via ``confirm-projection`` (or MCP
+        ``document.projection_status`` with ``confirm``).
+        """
+        from application.document_projection_service import (
+            DocumentProjectionService,
+        )
+
+        lang = detect_lang(request)
+        try:
+            projected = DocumentProjectionService().project(
+                UUID(pk), get_auth_context(request)
+            )
+        except Exception as exc:  # noqa: BLE001 — uniform service mapping
+            return _service_error_response(exc, lang)
+        return Response(projected.to_dict())
+
+    @action(detail=False, methods=["post"], url_path="projection-status")
+    def projection_status(self, request: Request, **kwargs: Any) -> Response:
+        """POST /api/v1/documents/projection-status/ — compare repo hashes.
+
+        Body: ``{"workspace_id": "<uuid>", "files": {"<path>": "<sha256>"},
+        "confirm": {"document_id": "<uuid>", "sha256": "<sha256>"}}``.
+        ``files`` carries hashes the client computed locally.
+        """
+        from application.document_projection_service import (
+            DocumentProjectionService,
+        )
+
+        lang = detect_lang(request)
+        files = request.data.get("files") or {}
+        if not isinstance(files, dict):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[{"field": "files", "errors": ["Must be an object."]}],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            workspace_id = UUID(str(request.data.get("workspace_id") or ""))
+            ctx = get_auth_context(request)
+            service = DocumentProjectionService()
+            rows = service.status(workspace_id, files, ctx)
+            confirm = request.data.get("confirm") or None
+            if confirm:
+                service.confirm(
+                    UUID(str(confirm.get("document_id") or "")),
+                    str(confirm.get("sha256") or ""),
+                    ctx,
+                )
+        except Exception as exc:  # noqa: BLE001 — uniform service mapping
+            return _service_error_response(exc, lang)
+        return Response(
+            {
+                "projections": [row.to_dict() for row in rows],
+                "confirmed": bool(confirm),
+            }
+        )
+
+    @action(detail=True, methods=["post"], url_path="confirm-projection")
+    def confirm_projection(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/documents/{pk}/confirm-projection/ — record a write."""
+        from application.document_projection_service import (
+            DocumentProjectionService,
+        )
+
+        lang = detect_lang(request)
+        try:
+            DocumentProjectionService().confirm(
+                UUID(pk), str(request.data.get("sha256") or ""), get_auth_context(request)
+            )
+        except Exception as exc:  # noqa: BLE001 — uniform service mapping
+            return _service_error_response(exc, lang)
+        return Response({"id": str(pk), "confirmed": True})
+
+    @action(detail=True, methods=["post"], url_path="adopt")
+    def adopt(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """POST /api/v1/documents/{pk}/adopt/ — take over a repository file.
+
+        A mismatching hash is **409**; the document keeps its
+        ``repo_external`` ownership until the conflict is resolved.
+        """
+        from application.document_projection_service import (
+            DocumentProjectionService,
+        )
+
+        lang = detect_lang(request)
+        try:
+            document = DocumentProjectionService().adopt(
+                UUID(pk),
+                file_sha256=str(request.data.get("file_sha256") or ""),
+                source_path=str(request.data.get("source_path") or ""),
+                freeze=bool(request.data.get("freeze", False)),
+                ctx=get_auth_context(request),
+            )
+        except Exception as exc:  # noqa: BLE001 — uniform service mapping
+            return _service_error_response(exc, lang)
+        return Response(
+            {"document": DocumentSerializer(_document_to_dict(document)).data}
+        )
+
     # ---------- Workflow transitions (F-1/F-5 and gates) ----------
 
     @action(detail=True, methods=["get", "post"], url_path="transitions")

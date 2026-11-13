@@ -58,6 +58,8 @@ MUTATE_VERBS = frozenset(
         "replay", "deprecate", "reorder", "forget", "commit", "restore", "generate", "derive",
         "decompose", "seed", "publish", "finalize", "assign", "grant", "rename", "merge",
         "split", "archive", "reply", "clear", "answer", "chat", "consolidate",
+        # Phase G / #1374 S3: adopting a repository document mutates ownership.
+        "adopt",
         # `artifact.move` / `group.move_member` reparent, reorder and re-key
         # persisted rows; the verb names the mutation, so it belongs here
         # rather than in MUTATE_EXACT (every current *.move.* tool is a write).
