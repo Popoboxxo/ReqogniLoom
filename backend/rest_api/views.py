@@ -77,6 +77,7 @@ from application.artifact_attribute_gateway import (
     transport_field_names,
 )
 from application.base import (
+    AdoptionHashMismatchError,
     AllocationConflictError,
     ReleaseStateError,
     WorkflowFrozenError,
@@ -470,6 +471,8 @@ _EXC_TO_HTTP: dict[type, int] = {
     # ADR-028 A1: a release from a state with no release edge is a rejected
     # precondition on a well-formed request, not a malformed payload.
     ReleaseStateError: status.HTTP_409_CONFLICT,
+    # Phase G / #1374 S3: adopting a file whose hash moved is a state conflict.
+    AdoptionHashMismatchError: status.HTTP_409_CONFLICT,
 }
 
 _EXC_TO_CODE: dict[type, str] = {
@@ -528,6 +531,7 @@ _EXC_TO_CODE: dict[type, str] = {
     LlmTokenLimitExceededError: "LLM_TOKEN_LIMIT_EXCEEDED",
     # ADR-028 A1: the client may retry once the item reaches a releasable state.
     ReleaseStateError: "RELEASE_NOT_ALLOWED",
+    AdoptionHashMismatchError: "CONFLICT",
 }
 
 

@@ -148,6 +148,8 @@ class DomainEventOutbox(models.Model):
         DOCUMENT_DELETED = "DocumentDeleted"
         DOCUMENT_STATE_CHANGED = "DocumentStateChanged"
         DOCUMENT_PUBLISHED = "DocumentPublished"
+        # Phase G / #1374 S3: a repo-external document became loom-owned.
+        DOCUMENT_ADOPTED = "DocumentAdopted"
         # Plan F F3-T8 (#1374): the work item's lifecycle. Purely additive --
         # declares the emission sites ``WorkItemService`` now writes
         # (application/0038). ``ItemStateChanged`` is the item's observable

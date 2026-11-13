@@ -466,6 +466,7 @@ def map_tool_exception(exc: Exception) -> tuple[str, str] | None:
     while ``application.base`` pulls in the event bus and Django settings.
     """
     from application.base import (
+        AdoptionHashMismatchError,
         AllocationConflictError,
         OptimisticLockError,
         WorkflowFrozenError,
@@ -476,7 +477,9 @@ def map_tool_exception(exc: Exception) -> tuple[str, str] | None:
         ValidationError,
     )
 
-    if isinstance(exc, AllocationConflictError | WorkflowFrozenError):
+    if isinstance(
+        exc, AdoptionHashMismatchError | AllocationConflictError | WorkflowFrozenError
+    ):
         return "CONFLICT", str(exc)
     if isinstance(exc, ValidationError):
         return "VALIDATION_ERROR", str(exc)
