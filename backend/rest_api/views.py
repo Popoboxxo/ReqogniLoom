@@ -10145,7 +10145,12 @@ class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 )
         except Exception as exc:  # noqa: BLE001 — uniform service mapping
             return _service_error_response(exc, lang)
-        return Response({"documents": [row.to_dict() for row in rows]})
+        return Response(
+            {
+                "projections": [row.to_dict() for row in rows],
+                "confirmed": bool(confirm),
+            }
+        )
 
     @action(detail=True, methods=["post"], url_path="confirm-projection")
     def confirm_projection(self, request: Request, pk: str, **kwargs: Any) -> Response:

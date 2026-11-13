@@ -128,6 +128,10 @@ _TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
     # resolves the gate from the document's own workspace. document.create and
     # document.query declare a required ``workspace_id`` and need no entry here.
     "document.read": (("id", "document"),),
+    # Phase G / #1374 S3: project and adopt name the document by ``id``;
+    # projection_status declares a required ``workspace_id``.
+    "document.project": (("id", "document"),),
+    "document.adopt": (("id", "document"),),
     "document.versions": (("id", "document"),),
     "document.diff": (("id", "document"),),
     # Plan F F3-T6 (#1374): work_item.read/write name their target by ``id``.
