@@ -55,6 +55,12 @@ class ReleaseResultSerializer(serializers.Serializer):
     release_state = serializers.CharField()
     elements_released = serializers.IntegerField()
     requirements_released = serializers.IntegerField()
+    content_snapshots = serializers.IntegerField(
+        help_text="ArtifactVersion snapshots written (extended preset only)."
+    )
+    pinned_tiers = serializers.IntegerField(
+        help_text="Requirements whose tier_key was pinned at release time."
+    )
     content_freeze = serializers.BooleanField()
 
 
@@ -67,6 +73,8 @@ class RequirementReleaseResultSerializer(serializers.Serializer):
         help_text="False when the requirement was already released (no-op success)."
     )
     reason = serializers.CharField(required=False)
+    content_snapshots = serializers.IntegerField(required=False)
+    pinned_tiers = serializers.IntegerField(required=False)
 
 
 class ReleaseConflictDetailSerializer(serializers.Serializer):

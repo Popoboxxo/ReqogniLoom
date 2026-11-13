@@ -24,7 +24,9 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
+from django.utils import timezone
 
+from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import ReleaseStateError, ServiceBase, ValidationError
 from auth_tenancy.context import AuthContext
 from persistence.models import (
@@ -159,6 +161,13 @@ class ReleaseService(ServiceBase):
         requirement_artifacts = self._allocated_requirement_artifacts(
             [row.artifact_id for row in scope]
         )
+        if requirement_artifacts and requirement_state is None:
+            raise ValidationError(
+                "The workspace defines no release state "
+                "(state_meta.freeze_on_enter) for Requirement, but the element "
+                "has allocated requirements."
+            )
+
         total_items = len(scope) + len(requirement_artifacts)
         if total_items > MAX_SYNC_RELEASE_ITEMS:
             raise ValidationError(
@@ -203,6 +212,7 @@ class ReleaseService(ServiceBase):
 
         released_elements = 0
         released_requirements = 0
+        newly_released_requirement_ids: list[UUID] = []
         with transaction.atomic():
             for row in scope:
                 if element_states.get(str(row.id)) == release_state:
@@ -217,25 +227,56 @@ class ReleaseService(ServiceBase):
                 )
                 released_elements += 1
 
-            if requirement_state is not None:
-                for requirement_id in requirement_ids.values():
-                    if requirement_states.get(str(requirement_id)) == requirement_state:
-                        continue
-                    self._transition(
-                        item_id=requirement_id,
-                        item_type=_REQUIREMENT_TYPE,
-                        target=requirement_state,
-                        workspace_id=workspace.id,
-                        ctx=ctx,
-                        change_reason=change_reason,
-                    )
-                    released_requirements += 1
+            for requirement_id in requirement_ids.values():
+                if requirement_states.get(str(requirement_id)) == requirement_state:
+                    continue
+                self._transition(
+                    item_id=requirement_id,
+                    item_type=_REQUIREMENT_TYPE,
+                    target=requirement_state,
+                    workspace_id=workspace.id,
+                    ctx=ctx,
+                    change_reason=change_reason,
+                )
+                released_requirements += 1
+                newly_released_requirement_ids.append(requirement_id)
+
+            content_snapshots, pinned_tiers = self._stamp_release(
+                workspace=workspace,
+                requirement_ids=list(requirement_ids.values()),
+                # Only the requirements this call actually released get a new
+                # content snapshot; a second (no-op) cascade must not append
+                # a duplicate revision.
+                snapshot_requirement_ids=newly_released_requirement_ids,
+                # Every active allocation on the released subtree becomes the
+                # released mirror; ``revoked`` rows stay archived.
+                element_artifacts=[row.artifact_id for row in scope],
+                release_state=requirement_state,
+                ctx=ctx,
+                change_reason=change_reason,
+            )
+            self._audit(
+                ctx=ctx,
+                operation="update",
+                entity_type=_ELEMENT_TYPE,
+                entity_id=element.id,
+                change_reason=change_reason,
+                details={
+                    "release_state": release_state,
+                    "elements_released": released_elements,
+                    "requirements_released": released_requirements,
+                    "content_snapshots": content_snapshots,
+                    "pinned_tiers": pinned_tiers,
+                },
+            )
 
         return {
             "element_id": str(element.id),
             "release_state": release_state,
             "elements_released": released_elements,
             "requirements_released": released_requirements,
+            "content_snapshots": content_snapshots,
+            "pinned_tiers": pinned_tiers,
             "content_freeze": self._is_extended(workspace),
         }
 
@@ -277,18 +318,41 @@ class ReleaseService(ServiceBase):
                 f"only allowed from {sorted(allowed)}."
             )
 
-        self._transition(
-            item_id=requirement.id,
-            item_type=_REQUIREMENT_TYPE,
-            target=release_state,
-            workspace_id=workspace.id,
-            ctx=ctx,
-            change_reason=change_reason,
-        )
+        with transaction.atomic():
+            self._transition(
+                item_id=requirement.id,
+                item_type=_REQUIREMENT_TYPE,
+                target=release_state,
+                workspace_id=workspace.id,
+                ctx=ctx,
+                change_reason=change_reason,
+            )
+            content_snapshots, pinned_tiers = self._stamp_release(
+                workspace=workspace,
+                requirement_ids=[requirement.id],
+                requirement_artifact_id=requirement.artifact_id,
+                release_state=release_state,
+                ctx=ctx,
+                change_reason=change_reason,
+            )
+            self._audit(
+                ctx=ctx,
+                operation="update",
+                entity_type=_REQUIREMENT_TYPE,
+                entity_id=requirement.id,
+                change_reason=change_reason,
+                details={
+                    "release_state": release_state,
+                    "content_snapshots": content_snapshots,
+                    "pinned_tiers": pinned_tiers,
+                },
+            )
         return {
             "requirement_id": str(requirement.id),
             "release_state": release_state,
             "released": True,
+            "content_snapshots": content_snapshots,
+            "pinned_tiers": pinned_tiers,
         }
 
     # ------------------------------------------------------------------
@@ -315,6 +379,102 @@ class ReleaseService(ServiceBase):
             item_type=item_type,
             workspace_id=workspace_id,
         )
+
+    def _stamp_release(
+        self,
+        *,
+        workspace: Workspace,
+        requirement_ids: list[UUID],
+        release_state: str,
+        ctx: AuthContext,
+        change_reason: str,
+        element_artifacts: list[UUID] | None = None,
+        requirement_artifact_id: UUID | None = None,
+        snapshot_requirement_ids: list[UUID] | None = None,
+    ) -> tuple[int, int]:
+        """Mirror the release into the allocations, the tier pin and the content.
+
+        Three writes, all inside the caller's transaction:
+
+        1. ``Allocation.status = released`` for every active allocation in the
+           released scope (ADR-028 §2 step 2). Status is a query mirror only —
+           the workflow transition above is the lock.
+        2. Pin ``released_tier_key`` once per requirement (D11 / Stufe 4). An
+           existing pin is never overwritten.
+        3. On ``extended`` only: one ``ArtifactVersion`` content snapshot per
+           released requirement, carrying the pinned tier (D12).
+
+        Returns:
+            ``(content_snapshots, pinned_tiers)``.
+        """
+        now = timezone.now()
+        snapshot_ids = (
+            set(requirement_ids)
+            if snapshot_requirement_ids is None
+            else set(snapshot_requirement_ids)
+        )
+
+        allocations = Allocation.objects.filter(
+            workspace_id=workspace.id, status=AllocationStatus.DRAFT
+        )
+        if element_artifacts:
+            allocations = allocations.filter(element_artifact_id__in=element_artifacts)
+        elif requirement_artifact_id is not None:
+            allocations = allocations.filter(
+                requirement_artifact_id=requirement_artifact_id
+            )
+        else:
+            allocations = allocations.none()
+        allocations.update(
+            status=AllocationStatus.RELEASED,
+            released_at=now,
+            released_by_id=ctx.user_id,
+        )
+
+        if not requirement_ids:
+            return 0, 0
+
+        requirements = list(
+            Requirement.objects.select_related("artifact").filter(
+                id__in=requirement_ids
+            )
+        )
+        freeze_content = self._is_extended(workspace)
+        content_snapshots = 0
+        pinned_tiers = 0
+
+        for requirement in requirements:
+            pinned_key = requirement.released_tier_key or requirement.tier_key
+            if requirement.released_tier_key is None and requirement.tier_key is not None:
+                Requirement.objects.filter(id=requirement.id).update(
+                    released_tier_key=requirement.tier_key
+                )
+                requirement.released_tier_key = requirement.tier_key
+                pinned_tiers += 1
+
+            if not freeze_content or requirement.id not in snapshot_ids:
+                continue
+
+            payload = {
+                **snapshot_fields(requirement, "Requirement"),
+                # D11: what the baseline reads instead of the live tier. The
+                # diff engine ignores keys outside its field list, so this is
+                # additive to the content snapshot.
+                "tier_key": pinned_key,
+                "level": requirement.level,
+                "released_state": release_state,
+                "released_at": now.isoformat(),
+            }
+            ArtifactVersionService().record(
+                artifact_id=requirement.artifact_id,
+                payload=payload,
+                ctx=ctx,
+                change_reason=change_reason
+                or f"Content freeze on release into {release_state}",
+            )
+            content_snapshots += 1
+
+        return content_snapshots, pinned_tiers
 
     @staticmethod
     def _workflow_json(workspace_id: UUID, item_type: str) -> dict[str, Any]:
