@@ -372,3 +372,31 @@ def quality_auto_assess_entity(
                 logger.exception(
                     "quality_auto_assess_entity could not reset the tenant context"
                 )
+
+
+@shared_task(name="application.quality_auto_assess_sweep")
+def quality_auto_assess_sweep() -> dict[str, int | bool]:
+    """Periodic sweep across tenants (Issue #1578).
+
+    Registered in the beat schedule only while the feature flag is on, but the
+    task reads the flag again: a beat row synced by an older deployment keeps
+    firing, and a disabled feature must never enqueue paid runs.
+    """
+    from application.quality_auto_assess import auto_assess_enabled, run_sweep
+    from persistence.models import Tenant
+
+    if not auto_assess_enabled():
+        return {"assessed": 0, "skipped": 0, "failed": 0, "disabled": True}
+
+    totals: dict[str, int | bool] = {
+        "assessed": 0,
+        "skipped": 0,
+        "failed": 0,
+        "disabled": False,
+    }
+    for tenant_id in Tenant.objects.values_list("id", flat=True).iterator():
+        counts = run_sweep(tenant_id)
+        totals["assessed"] += int(counts.get("assessed", 0))
+        totals["skipped"] += int(counts.get("skipped", 0))
+        totals["failed"] += int(counts.get("failed", 0))
+    return totals

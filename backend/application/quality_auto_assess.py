@@ -27,6 +27,7 @@ from django.core.cache import cache
 from application.quality_service import ASSESSABLE_TYPES, QualityService
 from auth_tenancy.context import AuthContext, AuthMethod
 from application.models import DomainEventOutbox
+from persistence.models import QualityAssessment
 from persistence.tenancy import TenantContext
 
 logger = logging.getLogger(__name__)
@@ -224,6 +225,75 @@ class QualityAutoAssessor:
         )
 
 
+def run_sweep(tenant_id: UUID | str) -> dict[str, int | bool]:
+    """Assess the oldest unassessed/oldest-assessed artefacts of one tenant.
+
+    Bounded by ``QUALITY_AUTO_ASSESS_SWEEP_BATCH`` (default 50) and ordered by
+    the age of the newest assessment: never-assessed first, then the oldest.
+    Every candidate still passes every gate in :meth:`run_for`, so a
+    non-extended workspace costs one no-op per candidate, never a provider call.
+    """
+    counts: dict[str, int | bool] = {
+        "assessed": 0,
+        "skipped": 0,
+        "failed": 0,
+        "disabled": False,
+    }
+    if not auto_assess_enabled():
+        counts["disabled"] = True
+        return counts
+
+    from application.quality_service import _ENTITY_TYPES
+
+    batch = int(_setting("QUALITY_AUTO_ASSESS_SWEEP_BATCH", 50))
+    tenant_uuid = UUID(str(tenant_id))
+    previous = TenantContext.get_tenant() if TenantContext.is_set() else None
+    TenantContext.set_tenant(tenant_uuid)
+    try:
+        latest = dict(
+            QualityAssessment.objects.filter(tenant_id=tenant_uuid).values_list(
+                "entity_id", "created_at"
+            )
+        )
+        candidates: list[tuple[Any, str, UUID, UUID]] = []
+        for entity_type, (model, workspace_field) in _ENTITY_TYPES.items():
+            rows = model.unscoped.filter(tenant_id=tenant_uuid).values_list(
+                "id", workspace_field
+            )
+            for entity_id, workspace_id in rows:
+                candidates.append(
+                    (latest.get(entity_id), entity_type, entity_id, workspace_id)
+                )
+
+        # Never-assessed first, then the oldest assessment.
+        from django.utils import timezone
+
+        now = timezone.now()
+        candidates.sort(key=lambda row: (row[0] is not None, row[0] or now))
+
+        assessor = QualityAutoAssessor()
+        for _assessed_at, entity_type, entity_id, workspace_id in candidates[:batch]:
+            outcome = assessor.run_for(
+                tenant_id=tenant_uuid,
+                workspace_id=workspace_id,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                trigger=TRIGGER_PERIODIC,
+            )
+            if outcome == "assessed":
+                counts["assessed"] += 1
+            elif outcome == "failed":
+                counts["failed"] += 1
+            else:
+                counts["skipped"] += 1
+        return counts
+    finally:
+        if previous is None:
+            TenantContext.clear_tenant()
+        else:
+            TenantContext.set_tenant(previous)
+
+
 def _entity_type_for_created_event(event_type: str) -> str:
     for entity_type in ASSESSABLE_TYPES:
         if event_type == _CREATED_EVENT.format(entity_type=entity_type):
@@ -258,6 +328,7 @@ def register_auto_assessor_on_event_bus() -> int:
 __all__ = [
     "QualityAutoAssessor",
     "TRIGGER_CREATE",
+    "run_sweep",
     "TRIGGER_PERIODIC",
     "TRIGGER_TRANSITION",
     "auto_assess_enabled",

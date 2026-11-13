@@ -21,6 +21,7 @@ from application.quality_auto_assess import (
     register_auto_assessor_on_event_bus,
     subscribed_event_types,
 )
+from auth_tenancy.context import AuthContext
 from auth_tenancy.models import ApiKey, UserRole
 from persistence.models import Tenant, User, Workspace
 from persistence.tenancy import TenantContext
@@ -321,3 +322,59 @@ def test_registration_covers_every_declared_event() -> None:
 
     assert registered == len(subscribed_event_types())
     assert bus.return_value.register_subscriber.call_count == registered
+
+
+def test_the_sweep_is_bounded_and_orders_never_assessed_first(
+    settings, tenant, monkeypatch
+) -> None:
+    """Issue #1578: batch ceiling, oldest-first, flag-gated."""
+    from application.requirement_service import RequirementService
+    from application.quality_auto_assess import run_sweep
+
+    settings.QUALITY_AUTO_ASSESS_ENABLED = True
+    settings.QUALITY_AUTO_ASSESS_SWEEP_BATCH = 2
+    workspace = _workspace(tenant)
+    key = _agent_key(tenant, workspace)
+    settings.QUALITY_AUTO_ASSESS_AGENT_KEY_ID = str(key.id)
+
+    TenantContext.set_tenant(tenant.id)
+    try:
+        owner = User.objects.get(id=key.user_id)
+        ctx = AuthContext(
+            user_id=owner.id,
+            tenant_id=tenant.id,
+            active_roles=("editor",),
+            auth_method="test",
+            workspace_id=workspace.id,
+        )
+        for index in range(3):
+            RequirementService().create_requirement(
+                workspace_id=workspace.id,
+                title=f"Sweep requirement {index}",
+                ctx=ctx,
+            )
+    finally:
+        TenantContext.clear_tenant()
+
+    with patch(
+        "application.quality_auto_assess.QualityAutoAssessor.run_for",
+        return_value="assessed",
+    ) as run_for:
+        counts = run_sweep(tenant.id)
+
+    assert counts["assessed"] == 2
+    assert run_for.call_count == 2
+    assert all(
+        call.kwargs["trigger"] == TRIGGER_PERIODIC for call in run_for.call_args_list
+    )
+
+
+def test_the_sweep_is_disabled_with_the_flag(settings, tenant) -> None:
+    from application.quality_auto_assess import run_sweep
+
+    settings.QUALITY_AUTO_ASSESS_ENABLED = False
+
+    counts = run_sweep(tenant.id)
+
+    assert counts["disabled"] is True
+    assert counts["assessed"] == 0

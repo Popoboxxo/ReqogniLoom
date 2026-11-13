@@ -52,6 +52,42 @@ _ENTITY_PARAM = {
 }
 
 
+def _assess_rate_limited(auth_context: AuthContext, api_key: str) -> bool:
+    """Per-caller cap for the paid ``quality.assess`` (Issue #1578).
+
+    REST applies ``QualityAssessRateThrottle`` (scope ``quality_assess``,
+    default 60/hour, never unlimited). MCP has no DRF throttles inside a tool
+    handler, so this mirrors the same scope and cache budget through
+    :func:`admin_ops.rate_limits.resolve_rate` — one config for both
+    transports, not a second number.
+    """
+    import time
+
+    from django.core.cache import cache
+    from rest_framework.throttling import SimpleRateThrottle
+
+    from admin_ops.rate_limits import resolve_rate
+
+    rate = (
+        resolve_rate("quality_assess", tenant_id=auth_context.tenant_id)
+        or "60/hour"
+    )
+    # ``parse_rate`` reads no instance state; instantiating the throttle would
+    # resolve the setting a second time and could diverge from the override.
+    num_requests, duration = SimpleRateThrottle.parse_rate(None, rate)
+    if not num_requests:
+        return False
+    ident = auth_context.api_key_id or auth_context.user_id
+    key = f"throttle:quality_assess:mcp:{ident}"
+    now = time.time()
+    history = [stamp for stamp in cache.get(key, []) if stamp > now - duration]
+    if len(history) >= num_requests:
+        return True
+    history.append(now)
+    cache.set(key, history, duration)
+    return False
+
+
 class QualityToolGroup(BaseToolGroup):
     """``quality.*`` tool group (see the module docstring)."""
 
@@ -130,6 +166,13 @@ class QualityToolGroup(BaseToolGroup):
         entity_id = require_uuid(params, "entity_id")
         entity_type = str(require_param(params, "entity_type"))
         force = bool(params.get("force", False))
+
+        if _assess_rate_limited(auth_context, api_key):
+            return ToolResult.error(
+                "RATE_LIMITED",
+                "quality.assess is rate limited; the same quality_assess scope "
+                "applies to REST and MCP.",
+            )
 
         try:
             with mcp_audit_handoff():

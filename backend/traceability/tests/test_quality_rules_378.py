@@ -394,6 +394,22 @@ class TestQualP1:
         assert _by_rule(result, QUAL_P1) == []
         assert [f for f in result.findings if f.rule_id in QUAL_IDS] == []
 
+    def test_p1_is_capped_with_a_summary_finding(
+        self, tenant: Tenant, workspace: Workspace, settings
+    ):
+        """Issue #1578: a large gap reports a bounded list plus the remainder."""
+        _assessed_artifact, assessed = _requirement(tenant, workspace, "Assessed")
+        _assessment_row(tenant, workspace, assessed)
+        for index in range(4):
+            _requirement(tenant, workspace, f"Missing {index}")
+        settings.QUAL_P1_MAX_FINDINGS = 2
+
+        findings = _by_rule(_run(tenant, workspace), QUAL_P1)
+
+        assert len(findings) == 3
+        assert "weitere 2 Artefakte" in findings[-1].message
+        assert findings[-1].artifact_ids == ()
+
     def test_fires_for_the_unassessed_artifact_once_the_feature_is_used(
         self, tenant: Tenant, workspace: Workspace
     ):
