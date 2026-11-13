@@ -91,6 +91,7 @@ from memory.memory_rest import (
 from rest_api.api_key_views import ApiKeyViewSet
 from rest_api.release_views import (
     ElementReleaseImpactView,
+    ElementReleaseStatusView,
     ElementReleaseView,
     RequirementReleaseView,
 )
@@ -1297,6 +1298,13 @@ urlpatterns = [
         "architecture/<uuid:element_id>/release/",
         ElementReleaseView.as_view(),
         name="api-v1-element-release",
+    ),
+    # Poll for a release queued by the 202 answer above (GH-1804). Must precede
+    # router.urls for the same reason as the release route itself.
+    path(
+        "architecture/<uuid:element_id>/release-status/<str:task_id>/",
+        ElementReleaseStatusView.as_view(),
+        name="api-v1-element-release-status",
     ),
     path(
         "requirements/<uuid:requirement_id>/release/",

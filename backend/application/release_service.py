@@ -27,7 +27,12 @@ from django.db import transaction
 from django.utils import timezone
 
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
-from application.base import ReleaseStateError, ServiceBase, ValidationError
+from application.base import (
+    ReleaseStateError,
+    ReleaseTooLargeError,
+    ServiceBase,
+    ValidationError,
+)
 from auth_tenancy.context import AuthContext
 from persistence.models import (
     Allocation,
@@ -41,8 +46,10 @@ from workflow.state_reader import current_states
 
 FREEZE_META_KEY = "freeze_on_enter"
 
-#: Above this many items a synchronous release refuses and asks for the async
-#: job (not built yet). Kept as a constant so REST/MCP/UI share one number.
+#: Above this many items a synchronous release refuses with
+#: :class:`ReleaseTooLargeError`; the release route answers **202** and hands the
+#: cascade to ``application.tasks.release_element_async`` (GH-1804). Kept as a
+#: constant so REST/MCP/UI share one number.
 MAX_SYNC_RELEASE_ITEMS = 5000
 
 _ELEMENT_TYPE = "ArchitectureElement"
@@ -170,10 +177,13 @@ class ReleaseService(ServiceBase):
 
         total_items = len(scope) + len(requirement_artifacts)
         if total_items > MAX_SYNC_RELEASE_ITEMS:
-            raise ValidationError(
-                f"Releasing {total_items} items exceeds the synchronous limit of "
-                f"{MAX_SYNC_RELEASE_ITEMS}; the async release job is not available "
-                "in this build."
+            # Not a malformed request: the cascade is legitimate but too large
+            # for a request thread. A distinct type so the release route can
+            # answer 202 and queue the same cascade instead (GH-1804).
+            raise ReleaseTooLargeError(
+                total_items,
+                MAX_SYNC_RELEASE_ITEMS,
+                workspace_id=workspace.id,
             )
 
         # Validate everything BEFORE the first transition: a half-released tree

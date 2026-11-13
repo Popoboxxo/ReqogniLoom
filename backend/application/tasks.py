@@ -8,12 +8,15 @@ safe to run concurrently and on a fixed schedule (idempotent).
 Also hosts the async ``suggest-links`` long-runner (#1197): the N3 SE-Auditor +
 LLM rank runs ~94.5 s on a large workspace, so it is dispatched to a worker and
 polled instead of blocking the request thread.
+
+And the async release cascade (#1804): a release over
+``MAX_SYNC_RELEASE_ITEMS`` transitions is queued and polled the same way.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from celery import shared_task
 from django.db import OperationalError
@@ -21,10 +24,11 @@ from django.db import OperationalError
 from application.event_bus import poll_and_dispatch
 
 if TYPE_CHECKING:
-    # ``AuthContext`` is only referenced in annotations; importing it under
-    # TYPE_CHECKING keeps the quoted annotation resolvable for linters without
-    # a runtime import (the function-local import below remains for runtime).
-    from auth_tenancy.context import AuthContext
+    # ``AuthContext``/``AuthMethod`` are only referenced in annotations;
+    # importing them under TYPE_CHECKING keeps the quoted annotation resolvable
+    # for linters without a runtime import (the function-local imports below
+    # remain for runtime).
+    from auth_tenancy.context import AuthContext, AuthMethod
 
 logger = logging.getLogger(__name__)
 
@@ -400,3 +404,117 @@ def quality_auto_assess_sweep() -> dict[str, int | bool]:
         totals["skipped"] += int(counts.get("skipped", 0))
         totals["failed"] += int(counts.get("failed", 0))
     return totals
+
+
+def _coerce_auth_method(raw: str | None) -> AuthMethod:
+    """Map the request's auth-method value back onto :class:`AuthMethod`.
+
+    Only the *mechanism* crosses the queue boundary (ADR-03: never a
+    credential), so ``API_KEY`` is deliberately not representable: an
+    ``AuthContext`` claiming ``API_KEY`` with ``api_key_id=None`` is a context
+    that never existed (see ``_resolve_agent_context`` for the path that does
+    rebuild a key context — it needs the key id). Such a caller degrades to
+    ``BEARER_TOKEN``, and every unknown value does too instead of guessing a
+    privileged mechanism.
+    """
+    from auth_tenancy.context import AuthMethod
+
+    try:
+        method = raw if isinstance(raw, AuthMethod) else AuthMethod(raw)
+    except ValueError:
+        return AuthMethod.BEARER_TOKEN
+    if method is AuthMethod.API_KEY:
+        return AuthMethod.BEARER_TOKEN
+    return method
+
+
+@shared_task(name="application.release_element_async")
+def release_element_async(
+    tenant_id: str,
+    workspace_id: str,
+    element_id: str,
+    user_id: str,
+    change_reason: str,
+    *,
+    auth_method: str | None = None,
+) -> dict[str, Any]:
+    """Run a release cascade too large for a request thread (GH-1804).
+
+    ``ReleaseService.release_element`` refuses more than
+    ``MAX_SYNC_RELEASE_ITEMS`` transitions synchronously and raises
+    :class:`~application.base.ReleaseTooLargeError`; the REST route answers
+    **202** and enqueues this task with the same cascade.
+
+    Only ids cross the queue boundary (ADR-03) — never the credential. The
+    worker therefore re-arms the tenant context itself (``set_request_tenant``:
+    the ORM thread-local **and** ``SET app.current_tenant`` for RLS) and
+    re-resolves the caller's roles in the workspace, because
+    ``AuthContext.active_roles`` is a per-workspace snapshot that cannot be
+    trusted from the payload. The rebuilt context is the caller's, not a
+    system one: the release writes an audit entry and pins the tier under
+    their identity.
+
+    Idempotency comes from the service, not from this task: a re-run finds the
+    items already in the release state and appends no duplicate content
+    snapshot (``snapshot_requirement_ids`` only carries what *this* run
+    released). Deliberately **no** ``autoretry_for``: a business refusal
+    (wrong workflow state, missing role) is not transient, and a retry loop
+    would hammer the workflow engine for a permanent conflict.
+
+    Returns:
+        The ``release_element`` result dict (JSON-serialisable; it is stored as
+        the Celery result and read back by the status route).
+
+    Raises:
+        Exception: any failure is logged and re-raised so Celery records
+            ``FAILURE`` and the status route can report it.
+    """
+    from uuid import UUID
+
+    from application.release_service import ReleaseService
+    from auth_tenancy.context import AuthContext
+    from auth_tenancy.services.authorization import AuthorizationService
+    from persistence.middleware import clear_request_tenant, set_request_tenant
+    from persistence.tenancy import TenantContext
+
+    # #522: under CELERY_TASK_ALWAYS_EAGER (settings_test) this body runs inline
+    # on the caller's thread, where a tenant context may already be armed.
+    # Snapshot it so the task does not clear the *caller's* isolation on exit.
+    tenant_was_set = TenantContext.is_set()
+    try:
+        set_request_tenant(tenant_id)
+        tenant_uuid = UUID(str(tenant_id))
+        workspace_uuid = UUID(str(workspace_id))
+        user_uuid = UUID(str(user_id))
+        roles = AuthorizationService().active_roles_for(
+            user_id=user_uuid, workspace_id=workspace_uuid
+        )
+        ctx = AuthContext(
+            user_id=user_uuid,
+            tenant_id=tenant_uuid,
+            active_roles=roles,
+            auth_method=_coerce_auth_method(auth_method),
+            api_key_id=None,
+            workspace_id=workspace_uuid,
+        )
+        return ReleaseService().release_element(
+            element_id=UUID(str(element_id)),
+            ctx=ctx,
+            change_reason=change_reason,
+        )
+    except Exception:  # noqa: BLE001 — re-raised so Celery records FAILURE
+        logger.exception(
+            "release_element_async failed for element=%s (tenant=%s, workspace=%s)",
+            element_id,
+            tenant_id,
+            workspace_id,
+        )
+        raise
+    finally:
+        if not tenant_was_set and TenantContext.is_set():
+            try:
+                clear_request_tenant()
+            except Exception:  # noqa: BLE001 — teardown must not mask the cause
+                logger.exception(
+                    "release_element_async could not reset the tenant context"
+                )

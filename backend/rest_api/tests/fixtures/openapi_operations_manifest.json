@@ -150,6 +150,10 @@
    "get"
   ],
   [
+   "/api/v1/architecture/{element_id}/release-status/{task_id}/",
+   "get"
+  ],
+  [
    "/api/v1/architecture/{element_id}/release/",
    "post"
   ],

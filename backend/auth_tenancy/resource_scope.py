@@ -304,6 +304,15 @@ _declare(
         ResourceScope.WORKSPACE, entity_key="architecture", id_kwargs=("element_id",)
     ),
 )
+# GH-1804: the poll route names the same element, so authority follows the
+# artefact. The task id itself is *not* an authorization input — it is checked
+# against the dispatch-time ownership record in the view (tenant + element).
+_declare(
+    "ElementReleaseStatusView",
+    ResourceClassification(
+        ResourceScope.WORKSPACE, entity_key="architecture", id_kwargs=("element_id",)
+    ),
+)
 _declare(
     "RequirementReleaseView",
     ResourceClassification(
