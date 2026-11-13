@@ -45,6 +45,35 @@ describe("CommentPanel", () => {
     expect(commentsApi.list).toHaveBeenCalledWith("a1");
   });
 
+  // #1763: the comments route is addressed by the backing Artifact UUID only.
+  // This panel must forward the id it is given verbatim — never derive one.
+  it("hands exactly the Artifact UUID it receives to every comments call", async () => {
+    const ARTIFACT_UUID = "8f14e45f-ceea-467a-9e4b-3a1c1f0d9b77";
+    const user = userEvent.setup();
+    render(<CommentPanel kind="requirement" artifactId={ARTIFACT_UUID} />);
+    await screen.findByText("needs a rationale");
+
+    expect(commentsApi.list).toHaveBeenCalledWith(ARTIFACT_UUID);
+
+    await user.type(screen.getByTestId("comment-panel-input"), "ping");
+    await user.click(screen.getByTestId("comment-panel-submit"));
+
+    await waitFor(() => expect(commentsApi.create).toHaveBeenCalledWith(ARTIFACT_UUID, "ping"));
+  });
+
+  // #1763: kinds whose REST DTO does not publish the backing Artifact id must
+  // not fire a request that is guaranteed to 404 with the entity id.
+  it("makes no request and says so when no Artifact UUID is known", () => {
+    render(<CommentPanel kind="adr" artifactId={undefined} />);
+
+    expect(commentsApi.list).not.toHaveBeenCalled();
+    // `queryBy*` + null keeps this file on the matchers the rest of it uses
+    // (`getBy*` already throws when the node is missing).
+    expect(screen.queryByTestId("comment-panel-unavailable")).not.toBeNull();
+    expect(screen.queryByTestId("comment-panel-input")).toBeNull();
+    expect(screen.queryByTestId("comment-panel-error")).toBeNull();
+  });
+
   it("shows an empty state when there are no comments", async () => {
     vi.mocked(commentsApi.list).mockResolvedValue([]);
 

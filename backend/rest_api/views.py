@@ -7832,6 +7832,11 @@ def _adr_to_dict(adr: Any) -> dict[str, Any]:
     return {
         "id": str(adr.id),
         "workspace_id": str(adr.workspace_id),
+        # #1763: the Inspector's comment panel is Artifact-addressed, so every
+        # artifact-backed entity response carries the backing Artifact id.
+        "artifact_id": (
+            str(adr.artifact_id) if getattr(adr, "artifact_id", None) else None
+        ),
         "title": adr.title,
         "description": getattr(adr, "description", ""),
         "context": getattr(adr, "context", ""),
@@ -7853,6 +7858,10 @@ def _risk_to_dict(risk: Any) -> dict[str, Any]:
     return {
         "id": str(risk.id),
         "workspace_id": str(risk.workspace_id),
+        # #1763: see _adr_to_dict — comment-panel parity for the ARTIFACT id.
+        "artifact_id": (
+            str(risk.artifact_id) if getattr(risk, "artifact_id", None) else None
+        ),
         "title": risk.title,
         "description": getattr(risk, "description", ""),
         "probability": getattr(risk, "probability", "low"),
@@ -8044,6 +8053,12 @@ def _main_goal_to_dict(main_goal: Any) -> dict[str, Any]:
     return {
         "id": str(main_goal.id),
         "workspace_id": str(main_goal.workspace_id),
+        # #1763: see _adr_to_dict — comment-panel parity for the ARTIFACT id.
+        "artifact_id": (
+            str(main_goal.artifact_id)
+            if getattr(main_goal, "artifact_id", None)
+            else None
+        ),
         "sequence_number": main_goal.sequence_number,
         "content": main_goal.content,
         "source": getattr(main_goal, "source", "manual"),
@@ -8078,6 +8093,10 @@ def _issue_to_dict(issue: Any) -> dict[str, Any]:
     return {
         "id": str(issue.id),
         "workspace_id": str(issue.workspace_id),
+        # #1763: see _adr_to_dict — comment-panel parity for the ARTIFACT id.
+        "artifact_id": (
+            str(issue.artifact_id) if getattr(issue, "artifact_id", None) else None
+        ),
         "title": issue.title,
         "description": getattr(issue, "description", ""),
         "severity": getattr(issue, "severity", "medium"),

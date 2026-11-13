@@ -154,20 +154,29 @@ vi.mock("../api/attribute-definitions", () => ({
 // RFC #1002 PR D: RequirementEditors now mounts <ArtifactMemoryPanel>, which
 // fetches artifact-scoped memory on mount. Stub the client so the panel
 // renders its empty state instead of hitting the shared apiClient mock.
-vi.mock("../api/memory", () => ({
-  memoryApi: {
-    listArtifactMemory: vi.fn().mockResolvedValue({
-      items: [],
-      total: 0,
-      page: 1,
-      page_size: 25,
-      backend: "pgvector",
-      degraded: false,
-    }),
-    createArtifactMemory: vi.fn(),
-    forgetEntry: vi.fn(),
-  },
-}));
+//
+// #1763: partial mock — `MemoryAskPanel` (rendered by ArtifactMemoryPanel)
+// imports the real `MEMORY_REASONING_LEVELS` constant, so replacing the whole
+// module with only `memoryApi` crashed the editor tree as soon as a fixture
+// carried an `artifact_id`.
+vi.mock("../api/memory", async (importActual) => {
+  const actual = await importActual<typeof import("../api/memory")>();
+  return {
+    ...actual,
+    memoryApi: {
+      listArtifactMemory: vi.fn().mockResolvedValue({
+        items: [],
+        total: 0,
+        page: 1,
+        page_size: 25,
+        backend: "pgvector",
+        degraded: false,
+      }),
+      createArtifactMemory: vi.fn(),
+      forgetEntry: vi.fn(),
+    },
+  };
+});
 
 // Issue #926: ReqTraceLinkPanel now mounts the shared CreateTraceLinkDialog
 // (REQ-005) instead of the legacy inline form; that dialog reads the link-type
@@ -191,18 +200,55 @@ vi.mock("../context/LinkTypeContext", () => ({
 // and only replaces RightSidebar with a marker. This lets the test assert that
 // the Inspector is rendered exactly ONCE at container level (REQ-TBD:
 // remove duplicate ArtifactInspector rendering in editor components).
+//
+// #1763: the stub also records the two id spaces the editor passes in, and —
+// when `inspectorProbe.renderRealComments` is set — renders the REAL
+// CommentPanel with exactly those props. That is what makes the regression
+// assertion literal: the id that reaches `commentsApi.list` is the one this
+// editor handed to the shell.
+const inspectorProbe = vi.hoisted(() => ({
+  renderRealComments: false,
+  last: undefined as
+    | { kind?: string; entityId?: string | number; artifactId?: string | undefined }
+    | undefined,
+}));
+
+vi.mock("../api/comments", () => ({
+  commentsApi: {
+    list: vi.fn().mockResolvedValue([]),
+    create: vi.fn(),
+    resolve: vi.fn(),
+    remove: vi.fn(),
+  },
+}));
+
 vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
   const actual =
     await importActual<typeof import("../components/shared/ArtifactInspector")>();
+  const { CommentPanel } = await import(
+    "../components/shared/ArtifactInspector/CommentPanel"
+  );
   return {
     ...actual,
-    RightSidebar: () => <div data-testid="artifact-inspector" />,
+    RightSidebar: (props: {
+      kind: import("../components/shared/ArtifactInspector").ArtifactKind;
+      entityId: string | number;
+      artifactId: string | undefined;
+    }) => {
+      inspectorProbe.last = props;
+      return inspectorProbe.renderRealComments ? (
+        <CommentPanel kind={props.kind} artifactId={props.artifactId} />
+      ) : (
+        <div data-testid="artifact-inspector" />
+      );
+    },
   };
 });
 
 // Must import AFTER vi.mock
 import RequirementEditors from "../components/RequirementEditors/RequirementEditors";
 import { requirementsApi } from "../api/requirements";
+import { commentsApi } from "../api/comments";
 import { tracelinksApi } from "../api/tracelinks";
 import { testcasesApi } from "../api/testcases";
 import { workspacesApi } from "../api/workspaces";
@@ -503,6 +549,36 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
 
     // Exactly one Inspector instance — not zero (missing), not two (duplicate).
     expect(screen.getAllByTestId("artifact-inspector")).toHaveLength(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // #1763 — inspector comments are keyed on the backing Artifact UUID
+  // -------------------------------------------------------------------------
+
+  it("hands the backing Artifact UUID to the comments API, not the Requirement id (#1763)", async () => {
+    const REQ = {
+      ...MOCK_REQUIREMENT,
+      id: "req-entity-77",
+      artifact_id: "art-req-77",
+    };
+    vi.mocked(requirementsApi.list).mockResolvedValue({ results: [REQ], count: 1 } as any);
+    vi.mocked(requirementsApi.listAll).mockResolvedValue([REQ] as any);
+    vi.mocked(requirementsApi.get).mockResolvedValue(REQ as any);
+    // Render the real CommentPanel inside the stub → the assertion below sees
+    // the actual API call, not just the prop.
+    inspectorProbe.renderRealComments = true;
+
+    try {
+      renderEditor(REQ.id);
+
+      await waitFor(() => expect(commentsApi.list).toHaveBeenCalledWith("art-req-77"));
+      // The entity id must never reach the comments route — that swap was the
+      // 404 this test pins.
+      expect(commentsApi.list).not.toHaveBeenCalledWith("req-entity-77");
+      expect(inspectorProbe.last?.entityId).toBe("req-entity-77");
+    } finally {
+      inspectorProbe.renderRealComments = false;
+    }
   });
 
   // -------------------------------------------------------------------------

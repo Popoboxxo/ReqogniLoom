@@ -232,7 +232,12 @@ export default function RiskEditors(): JSX.Element {
               </div>
               {item && (() => {
                 const ver: VersionRef = { version: item.version, label: `v${item.version}`, createdAt: null, baselineIds: [] };
-                return <RightSidebar kind="risk" artifactId={item.id} currentVersion={ver} hideTraceLinks />;
+                // #1763: `item.id` is the Risk entity id (versions/diff), the
+                // backing Artifact UUID comes from `item.artifact_id` and is
+                // what the comments route needs. RiskSerializer does not
+                // publish it yet, so the panel degrades to "unavailable"
+                // instead of 404ing on the entity id.
+                return <RightSidebar kind="risk" entityId={item.id} artifactId={item.artifact_id} currentVersion={ver} hideTraceLinks />;
               })()}
             </div>
           }

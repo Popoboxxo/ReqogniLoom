@@ -82,7 +82,11 @@ export function GlossaryDetailPanel({
         </h3>
         <RightSidebar
           kind="glossary"
-          artifactId={term.id}
+          entityId={term.id}
+          // #1763: `global_uuid` *is* the backing Artifact id (#1266) — the
+          // only id `GET /artifacts/<id>/comments/` accepts. `term.id` is the
+          // entity id and is what the versions/diff routes need.
+          artifactId={term.global_uuid}
           currentVersion={
             typeof term.version === "number"
               ? ({

@@ -323,13 +323,19 @@ export default function GoalsPage(): JSX.Element {
    */
   const inspector: {
     kind: "goal" | "mainGoal";
-    artifactId: string;
+    entityId: string;
+    /** Backing Artifact UUID — `undefined` for MainGoal, which does not
+     *  publish it yet (#1763); the comments panel then says so. */
+    artifactId: string | undefined;
     version: VersionRef;
   } | null = isMainGoalSelected
     ? activeMainGoal
       ? {
           kind: "mainGoal",
-          artifactId: activeMainGoal.id,
+          entityId: activeMainGoal.id,
+          // MainGoalSerializer has no `artifact_id` field yet — never fall
+          // back to the entity id here, that is exactly the #1763 404.
+          artifactId: activeMainGoal.artifact_id,
           version: {
             version: activeMainGoal.sequence_number,
             label: `v${activeMainGoal.sequence_number}`,
@@ -341,7 +347,8 @@ export default function GoalsPage(): JSX.Element {
     : selectedGoal
       ? {
           kind: "goal",
-          artifactId: selectedGoal.id,
+          entityId: selectedGoal.id,
+          artifactId: selectedGoal.artifact_id,
           version: {
             version: selectedGoal.sequence_number,
             label: `v${selectedGoal.sequence_number}`,
@@ -378,6 +385,7 @@ export default function GoalsPage(): JSX.Element {
       {inspector && (
         <RightSidebar
           kind={inspector.kind}
+          entityId={inspector.entityId}
           artifactId={inspector.artifactId}
           currentVersion={inspector.version}
           hideTraceLinks

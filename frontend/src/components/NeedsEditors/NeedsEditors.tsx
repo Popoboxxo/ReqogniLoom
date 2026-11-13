@@ -472,7 +472,8 @@ export default function NeedsEditors(): JSX.Element {
             return (
               <RightSidebar
                 kind="stakeholderNeed"
-                artifactId={need.id}
+                entityId={need.id}
+                artifactId={need.artifact_id}
                 currentVersion={needCurrentVersion}
                 hideTraceLinks
               />

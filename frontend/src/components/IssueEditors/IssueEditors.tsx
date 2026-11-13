@@ -234,7 +234,10 @@ export default function IssueEditors(): JSX.Element {
               </div>
               {item && (() => {
                 const ver: VersionRef = { version: item.version, label: `v${item.version}`, createdAt: null, baselineIds: [] };
-                return <RightSidebar kind="issue" artifactId={item.id} currentVersion={ver} hideTraceLinks />;
+                // #1763: deeply same split as AdrEditors — `item.id` for
+                // versions/diff, `item.artifact_id` for the comments route
+                // (IssueSerializer does not publish it yet).
+                return <RightSidebar kind="issue" entityId={item.id} artifactId={item.artifact_id} currentVersion={ver} hideTraceLinks />;
               })()}
             </div>
           }

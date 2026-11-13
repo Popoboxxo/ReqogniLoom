@@ -48,7 +48,14 @@ const SKELETON_CHIP_COUNT = 8;
 
 export interface TracePanelProps {
   kind: ArtifactKind;
-  artifactId: string | number;
+  /**
+   * The **domain-entity** id (`Requirement.id`, `ArchitectureElement.id`, …).
+   * `GET /tracelinks/?artifact_id=` accepts either id space and resolves the
+   * entity-side id server-side (`TraceLinkService.list_links_for_entity`), so
+   * this panel deliberately stays on the entity side — the backing Artifact
+   * UUID is not published for every kind (#1763).
+   */
+  entityId: string | number;
 }
 
 // ---------------------------------------------------------------------------
@@ -130,7 +137,7 @@ function mapTraceLink(
 
 type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
 
-export function TracePanel({ artifactId }: TracePanelProps): JSX.Element {
+export function TracePanel({ entityId }: TracePanelProps): JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
@@ -163,10 +170,10 @@ export function TracePanel({ artifactId }: TracePanelProps): JSX.Element {
     try {
       const paginated = await tracelinksApi.listForArtifact(
         activeWorkspace.id,
-        String(artifactId)
+        String(entityId)
       );
       const mapped = paginated.results
-        .map((link) => mapTraceLink(link, String(artifactId)))
+        .map((link) => mapTraceLink(link, String(entityId)))
         .filter((row): row is TraceLinkRow => row !== null);
       if (mapped.length === 0) {
         setLinks([]);
@@ -180,9 +187,9 @@ export function TracePanel({ artifactId }: TracePanelProps): JSX.Element {
       setState("error");
     }
     // `kind` is deliberately NOT a dependency: the fetch is keyed by
-    // `activeWorkspace` + `artifactId` only, and a `kind`-only change cannot
+    // `activeWorkspace` + `entityId` only, and a `kind`-only change cannot
     // alter the result set (it previously just triggered a redundant refetch).
-  }, [artifactId, activeWorkspace]);
+  }, [entityId, activeWorkspace]);
 
   useEffect(() => {
     void load();

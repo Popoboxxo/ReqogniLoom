@@ -78,6 +78,9 @@ vi.mock("../components/shared/CreateTraceLinkDialog/create-trace-link-dialog", (
 
 const TERM_A: GlossaryTerm = {
   id: "term-a",
+  // #1763: `global_uuid` is the backing Artifact id the comments panel needs,
+  // while `id` stays the entity id the versions/diff routes are keyed on.
+  global_uuid: "artifact-term-a",
   workspace_id: "ws-001",
   term: "Requirement",
   definition: "A documented need.",
@@ -387,10 +390,16 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
 
       await waitFor(() => {
         const lastCall = rightSidebarPropsSpy.mock.calls[rightSidebarPropsSpy.mock.calls.length - 1]?.[0] as
-          | { kind: string; artifactId: string; currentVersion?: { version: number; label: string } }
+          | {
+              kind: string;
+              entityId: string;
+              artifactId: string | undefined;
+              currentVersion?: { version: number; label: string };
+            }
           | undefined;
         expect(lastCall?.kind).toBe("glossary");
-        expect(lastCall?.artifactId).toBe("term-a");
+        expect(lastCall?.entityId).toBe("term-a");
+        expect(lastCall?.artifactId).toBe("artifact-term-a");
         expect(lastCall?.currentVersion).toEqual(
           expect.objectContaining({ version: 3, label: "v3" }),
         );
@@ -406,9 +415,11 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
 
       await waitFor(() => {
         const lastCall = rightSidebarPropsSpy.mock.calls[rightSidebarPropsSpy.mock.calls.length - 1]?.[0] as
-          | { artifactId: string; currentVersion?: unknown }
+          | { entityId: string; artifactId: string | undefined; currentVersion?: unknown }
           | undefined;
-        expect(lastCall?.artifactId).toBe("term-b");
+        expect(lastCall?.entityId).toBe("term-b");
+        // No `global_uuid` on legacy data → undefined, never the entity id.
+        expect(lastCall?.artifactId).toBeUndefined();
         expect(lastCall?.currentVersion).toBeUndefined();
       });
     });

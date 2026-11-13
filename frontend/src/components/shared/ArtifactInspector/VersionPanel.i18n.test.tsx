@@ -53,7 +53,7 @@ function renderPanel(): ReturnType<typeof render> {
     <I18nextProvider i18n={i18n}>
       <VersionPanel
         kind="diagram"
-        artifactId={ARTIFACT_ID}
+        entityId={ARTIFACT_ID}
         currentVersion={{ version: 7, label: "Current", createdAt: null, baselineIds: [] }}
         onSwitch={vi.fn()}
         onCompare={vi.fn()}
