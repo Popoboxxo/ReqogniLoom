@@ -13,6 +13,9 @@ import { ConnectScreen } from "./ConnectScreen";
 import { ConnectedView } from "./ConnectedView";
 import { InterviewFormView } from "./InterviewFormView";
 import { InterviewListView } from "./InterviewListView";
+import { RequirementDetail } from "./RequirementDetail";
+import { RequirementForm } from "./RequirementForm";
+import { RequirementsList } from "./RequirementsList";
 
 export function ReqogniLoomPanel(_props: PluginPanelProps) {
   const [, forceRender] = useState(0);
@@ -57,6 +60,9 @@ export function ReqogniLoomPanel(_props: PluginPanelProps) {
       {state.view === "connected" && <ConnectedView state={state} />}
       {state.view === "interviews" && state.activeInterview && <InterviewFormView state={state} />}
       {state.view === "interviews" && !state.activeInterview && <InterviewListView state={state} />}
+      {state.view === "requirements" && <RequirementsList state={state} />}
+      {state.view === "requirement-detail" && <RequirementDetail state={state} />}
+      {state.view === "requirement-form" && <RequirementForm state={state} />}
     </div>
   );
 }

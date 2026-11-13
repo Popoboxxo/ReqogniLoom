@@ -10,10 +10,19 @@ export const buttonStyle: React.CSSProperties = {
   fontSize: "var(--text-xs)",
 };
 
-export function ErrorBanner({ message }: { message: string | null }): JSX.Element | null {
+// `testId` is optional and additive so every caller keeps the plain banner,
+// while the requirement views can address theirs (requirement-error) without
+// wrapping it in a second element.
+export function ErrorBanner({
+  message,
+  testId,
+}: {
+  message: string | null;
+  testId?: string;
+}): JSX.Element | null {
   if (!message) return null;
   return (
-    <span style={{ color: "var(--danger, red)", fontSize: "var(--text-xs)" }}>
+    <span data-testid={testId} style={{ color: "var(--danger, red)", fontSize: "var(--text-xs)" }}>
       {message}
     </span>
   );
