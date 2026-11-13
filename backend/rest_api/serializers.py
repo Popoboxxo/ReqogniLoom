@@ -2681,6 +2681,12 @@ class AdrSerializer(
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # #1763: id of the backing Artifact. The Inspector's comment panel addresses
+    # comments by Artifact, not by per-type entity id, so without this field the
+    # ADR comment tab degrades to "not available". Read-only — the Artifact is
+    # created by AdrService, never supplied by the client; nullable because the
+    # OneToOne is nullable for pre-REQ-L2-TE-020 rows.
+    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
     title = SanitizedCharField(max_length=200)
     # #890: 10000 mirrors the Adr.description TextField(max_length=10000) and
     # AdrService._validate_description (create + update); the previous 20000
@@ -2744,6 +2750,9 @@ class RiskSerializer(
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # #1763: see AdrSerializer.artifact_id — the Inspector comment panel needs
+    # the backing Artifact id, which the DTO supplies, not the client.
+    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
     title = SanitizedCharField(max_length=200)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     probability = serializers.ChoiceField(
@@ -3148,6 +3157,8 @@ class MainGoalSerializer(
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # #1763: see AdrSerializer.artifact_id — Inspector comment panel parity.
+    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
     sequence_number = serializers.IntegerField(read_only=True)
     content = SanitizedCharField(max_length=20000)
     source = serializers.ChoiceField(choices=["ai", "manual"], read_only=True)
@@ -3304,6 +3315,8 @@ class IssueSerializer(
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # #1763: see AdrSerializer.artifact_id — Inspector comment panel parity.
+    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
     title = SanitizedCharField(max_length=200)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     severity = serializers.ChoiceField(

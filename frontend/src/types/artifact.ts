@@ -89,6 +89,14 @@ export interface Goal extends SystemFieldValues {
 export interface MainGoal {
   id: UUID;
   workspace_id: UUID;
+  /**
+   * #1763: declared for parity with Goal/Requirement, but **not** exposed by
+   * `MainGoalSerializer` yet (the model has the OneToOne `artifact`, the DTO
+   * does not project it). Always `undefined` today — the `MainGoal` inspector
+   * therefore degrades the comments panel to "unavailable" instead of calling
+   * the comments route with the entity id.
+   */
+  artifact_id?: UUID;
   sequence_number: number;
   content: string;
   source: "ai" | "manual";

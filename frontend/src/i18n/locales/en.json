@@ -2190,6 +2190,7 @@
   "comments": {
     "ariaLabel": "Comments",
     "heading": "Comments",
+    "unavailable": "Comments are not available for this artifact yet.",
     "empty": "No comments yet.",
     "placeholder": "Write a comment…",
     "inputLabel": "New comment",

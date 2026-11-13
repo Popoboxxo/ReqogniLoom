@@ -305,7 +305,11 @@ export default function AdrEditors(): JSX.Element {
               </div>
               {item && (() => {
                 const ver: VersionRef = { version: item.version, label: `v${item.version}`, createdAt: null, baselineIds: [] };
-                return <RightSidebar kind="adr" artifactId={item.id} currentVersion={ver} hideTraceLinks />;
+                // #1763: `item.id` feeds the versions/diff routes; the
+                // comments route needs the backing Artifact UUID. AdrSerializer
+                // does not publish `artifact_id` yet, so the panel degrades to
+                // "unavailable" instead of 404ing on the entity id.
+                return <RightSidebar kind="adr" entityId={item.id} artifactId={item.artifact_id} currentVersion={ver} hideTraceLinks />;
               })()}
             </div>
           }

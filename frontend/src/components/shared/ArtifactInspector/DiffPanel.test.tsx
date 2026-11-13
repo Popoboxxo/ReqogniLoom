@@ -74,7 +74,7 @@ describe("DiffPanel — diagram/glossary (REQ-142)", () => {
     vi.mocked(diagramsModule.diagramsApi.diff).mockResolvedValue(MOCK_DIAGRAM_DIFF);
 
     render(
-      <DiffPanel kind="diagram" artifactId={ARTIFACT_ID} leftVersion={1} rightVersion={2} />
+      <DiffPanel kind="diagram" entityId={ARTIFACT_ID} leftVersion={1} rightVersion={2} />
     );
 
     // No longer the unsupported empty state.
@@ -91,7 +91,7 @@ describe("DiffPanel — diagram/glossary (REQ-142)", () => {
     vi.mocked(glossaryModule.glossaryApi.diff).mockResolvedValue(MOCK_GLOSSARY_DIFF);
 
     render(
-      <DiffPanel kind="glossary" artifactId={ARTIFACT_ID} leftVersion={1} rightVersion={2} />
+      <DiffPanel kind="glossary" entityId={ARTIFACT_ID} leftVersion={1} rightVersion={2} />
     );
 
     expect(screen.queryByTestId("diff-unsupported")).not.toBeInTheDocument();
@@ -108,7 +108,7 @@ describe("DiffPanel — diagram/glossary (REQ-142)", () => {
     );
 
     render(
-      <DiffPanel kind="diagram" artifactId={ARTIFACT_ID} leftVersion={1} rightVersion={2} />
+      <DiffPanel kind="diagram" entityId={ARTIFACT_ID} leftVersion={1} rightVersion={2} />
     );
 
     await waitFor(() => {
@@ -124,7 +124,7 @@ describe("DiffPanel — diagram/glossary (REQ-142)", () => {
     );
 
     render(
-      <DiffPanel kind="glossary" artifactId={ARTIFACT_ID} leftVersion={1} rightVersion={2} />
+      <DiffPanel kind="glossary" entityId={ARTIFACT_ID} leftVersion={1} rightVersion={2} />
     );
 
     await waitFor(() => {

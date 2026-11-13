@@ -809,10 +809,14 @@ export default function ArchitectureEditors(): JSX.Element {
 
           {/* New unified right sidebar (REQ-L2-RF-034). Trace-link display is
               now owned by the <TraceSpine> above (Task 3.3) — hideTraceLinks
-              keeps the sidebar to versions/baselines only. */}
+              keeps the sidebar to versions/baselines only.
+              #1763: two id spaces — `element.id` drives the versions/diff
+              routes, `element.artifact_id` (the backing Artifact) is the only
+              id the comments route accepts. */}
           <RightSidebar
             kind="architecture"
-            artifactId={element.id}
+            entityId={element.id}
+            artifactId={element.artifact_id}
             currentVersion={currentVersion}
             hideTraceLinks
           />

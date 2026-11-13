@@ -101,6 +101,18 @@ vi.mock("../api/requirements", () => ({
   },
 }));
 
+// #1763: this file mounts the REAL RightSidebar (it is never stubbed here), so
+// the comments panel fetches on mount. Stubbing the module keeps that request
+// observable instead of letting it fall through to the shared apiClient mock.
+vi.mock("../api/comments", () => ({
+  commentsApi: {
+    list: vi.fn().mockResolvedValue([]),
+    create: vi.fn(),
+    resolve: vi.fn(),
+    remove: vi.fn(),
+  },
+}));
+
 // Task 23 (traceability-semantik): CreateTraceLinkDialog (mounted inside
 // TraceLinkPanel, which this tree pulls in transitively) now reads the
 // link-type catalog via useLinkTypes() — needs a provider-free mock here,
@@ -141,11 +153,13 @@ import { architectureApi } from "../api/architecture";
 import { artifactsApi } from "../api/artifacts";
 import { tracelinksApi } from "../api/tracelinks";
 import { requirementsApi } from "../api/requirements";
+import { commentsApi } from "../api/comments";
 import { attributeDefinitionsApi } from "../api/attribute-definitions";
 import { workflowTransitionsApi } from "../api/workflow-transitions";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider } from "../context/WorkspaceContext";
 import { ThemeProvider } from "../context/ThemeContext";
+import { safeLocalStorage } from "../utils/safeStorage";
 
 // jsdom in this test runtime does not provide window.localStorage (Node's
 // --localstorage-file experimental flag is not set), which ThemeProvider
@@ -396,6 +410,42 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
       expect(divider).toBeInTheDocument();
       expect(divider).toHaveStyle("cursor: col-resize");
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // #1763 — inspector comments are keyed on the backing Artifact UUID
+  // -------------------------------------------------------------------------
+
+  it("hands the backing Artifact UUID to the comments API, not the element id (#1763)", async () => {
+    const ELEMENT = {
+      ...MOCK_ELEMENT,
+      id: "arch-entity-77",
+      artifact_id: "art-arch-77",
+    };
+    vi.mocked(architectureApi.listAll).mockResolvedValue([ELEMENT] as any);
+    vi.mocked(architectureApi.get).mockResolvedValue(ELEMENT as any);
+    // The inspector defaults to collapsed below 1600px (#419) and jsdom is
+    // 1024px wide — force the expanded default (a stored preference from an
+    // earlier test in this file would otherwise win) so the panels, and the
+    // comment panel inside them, actually mount.
+    const previousWidth = window.innerWidth;
+    safeLocalStorage.removeItem("reqflow_inspector_collapsed_architecture");
+    Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 1920 });
+
+    try {
+      renderEditor(ELEMENT.id);
+
+      await waitFor(() => expect(commentsApi.list).toHaveBeenCalledWith("art-arch-77"));
+      // The entity id must never reach the comments route — that swap was the
+      // 404 this test pins.
+      expect(commentsApi.list).not.toHaveBeenCalledWith("arch-entity-77");
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        writable: true,
+        value: previousWidth,
+      });
+    }
   });
 
   // ---------------------------------------------------------------------

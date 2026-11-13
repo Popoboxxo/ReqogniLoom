@@ -18,6 +18,14 @@
  *
  * Per panel loading/empty/error states are owned by the individual
  * panels; the shell just lays them out.
+ *
+ * #1763 — two id spaces, never interchangeable:
+ *   - `entityId`   → the domain row (`Requirement.id`, `Risk.id`, …). Feeds
+ *     VersionPanel / DiffPanel / TracePanel (`/<kind>/<id>/…`).
+ *   - `artifactId` → the backing generic `Artifact` UUID. Feeds CommentPanel
+ *     (`/artifacts/<artifact_id>/comments/` only).
+ * The shell used to take a single `artifactId` that every caller filled with
+ * the entity id, which made the comments panel 404 on every artifact kind.
  */
 import {
   useCallback,
@@ -44,7 +52,26 @@ import styles from "./RightSidebar.module.css";
 
 export interface RightSidebarProps {
   kind: ArtifactKind;
-  artifactId: string | number;
+  /**
+   * The **domain-entity** id of the inspected artifact (`Requirement.id`,
+   * `ArchitectureElement.id`, `Risk.id`, …). VersionPanel, DiffPanel and
+   * TracePanel all key their `/<kind>/<id>/…` routes on it.
+   */
+  entityId: string | number;
+  /**
+   * The **backing generic Artifact UUID** (`Requirement.artifact_id`, …) —
+   * a different UUID from `entityId` in the same way
+   * `Requirement.artifact` is a separate OneToOne row (#1763). Only
+   * `GET|POST /artifacts/<artifact_id>/comments/` takes it; feeding the
+   * entity id there 404s for every kind.
+   *
+   * Required-with-`undefined` on purpose: every call site has to spell out
+   * which id it passes, so the two id spaces cannot be swapped silently
+   * again. `undefined` means "this kind's REST response does not publish the
+   * backing Artifact id yet" (Adr/Risk/Issue/MainGoal) — the CommentPanel then
+   * renders an explicit unavailable state instead of 404ing.
+   */
+  artifactId: string | undefined;
   currentVersion?: VersionRef;
   /**
    * Hides the TracePanel section (REQ-L2-RF-037 / Task 3.3). Trace-link
@@ -139,6 +166,7 @@ function writeNumber(key: string, value: number): void {
 
 export function RightSidebar({
   kind,
+  entityId,
   artifactId,
   currentVersion,
   hideTraceLinks = false,
@@ -441,22 +469,25 @@ export function RightSidebar({
         <>
           {renderHeader()}
           <div className={styles.panels}>
-            <InterviewProvenanceBadge artifactId={String(artifactId)} />
+            {/* The badge accepts either id space (the backend resolves both),
+                so it stays on the entity side when the Artifact UUID is not
+                published for this kind (#1763). */}
+            <InterviewProvenanceBadge artifactId={String(entityId)} />
             <VersionPanel
               kind={kind}
-              artifactId={artifactId}
+              entityId={entityId}
               currentVersion={currentVersion}
               onSwitch={handleSwitchVersion}
               onCompare={handleCompareVersions}
             />
             <DiffPanel
               kind={kind}
-              artifactId={artifactId}
+              entityId={entityId}
               leftVersion={diffLeft}
               rightVersion={diffRight}
             />
-            {!hideTraceLinks && <TracePanel kind={kind} artifactId={artifactId} />}
-            <CommentPanel kind={kind} artifactId={String(artifactId)} />
+            {!hideTraceLinks && <TracePanel kind={kind} entityId={entityId} />}
+            <CommentPanel kind={kind} artifactId={artifactId} />
           </div>
           {renderResizeHandle()}
         </>

@@ -92,7 +92,12 @@ function versionsFetcherFor(kind: ArtifactKind): VersionsFetcher {
 
 export interface DiffPanelProps {
   kind: ArtifactKind;
-  artifactId: string | number;
+  /**
+   * The **domain-entity** id (`Requirement.id`, `ArchitectureElement.id`, …)
+   * — `ArtifactDiff` fetches `/<kind>/<id>/diff/`, which is keyed on it, not
+   * on the backing Artifact UUID (see RightSidebar's prop docs, #1763).
+   */
+  entityId: string | number;
   /**
    * Requested "from" version of the diff (lower in the timeline). A request,
    * not a guarantee: `ArtifactDiff` owns the version list and falls back to
@@ -126,7 +131,7 @@ function mapKindToDiffEntityType(kind: ArtifactKind): DiffEntityType | null {
 
 export function DiffPanel({
   kind,
-  artifactId,
+  entityId,
   leftVersion,
   rightVersion,
 }: DiffPanelProps): JSX.Element {
@@ -201,7 +206,7 @@ export function DiffPanel({
       </div>
       <div className={styles.diffFrame}>
         <ArtifactDiff
-          entityId={String(artifactId)}
+          entityId={String(entityId)}
           entityType={entityType}
           currentVersion={rightVersion}
           initialFromVersion={leftVersion}

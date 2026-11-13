@@ -533,10 +533,14 @@ export function DiagramDetailView({
         )}
       </div>
 
-      {/* Unified <RightSidebar kind="diagram" /> — Version / Diff / Trace (REQ-L1-095). */}
+      {/* Unified <RightSidebar kind="diagram" /> — Version / Diff / Trace (REQ-L1-095).
+          #1763: `diagramId` stays the entity id for versions/diff; the
+          backing Artifact UUID (`detail.artifact_id`, #1374) is what the
+          comments route accepts. */}
       <RightSidebar
         kind="diagram"
-        artifactId={diagramId}
+        entityId={diagramId}
+        artifactId={detail.artifact_id ?? undefined}
         currentVersion={currentVersion}
       />
 

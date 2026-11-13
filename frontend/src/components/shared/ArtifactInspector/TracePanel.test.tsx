@@ -96,7 +96,7 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
       () => new Promise(() => {}) // Never resolves
     );
 
-    render(<TracePanel kind="requirement" artifactId={mockArtifactId} />);
+    render(<TracePanel kind="requirement" entityId={mockArtifactId} />);
 
     // Should show loading indicator with aria-busy
     await waitFor(() => {
@@ -106,7 +106,7 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
   });
 
   it("should fetch trace links from API using listForArtifact", async () => {
-    render(<TracePanel kind="requirement" artifactId={mockArtifactId} />);
+    render(<TracePanel kind="requirement" entityId={mockArtifactId} />);
 
     await waitFor(() => {
       expect(
@@ -116,7 +116,7 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
   });
 
   it("should display fetched trace links with artifact titles", async () => {
-    render(<TracePanel kind="requirement" artifactId={mockArtifactId} />);
+    render(<TracePanel kind="requirement" entityId={mockArtifactId} />);
 
     await waitFor(() => {
       // Check that artifact titles are displayed
@@ -130,7 +130,7 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
       results: [],
     } as any);
 
-    render(<TracePanel kind="requirement" artifactId={mockArtifactId} />);
+    render(<TracePanel kind="requirement" entityId={mockArtifactId} />);
 
     await waitFor(() => {
       // Should show empty state message
@@ -144,7 +144,7 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
       new Error(errorMessage)
     );
 
-    render(<TracePanel kind="requirement" artifactId={mockArtifactId} />);
+    render(<TracePanel kind="requirement" entityId={mockArtifactId} />);
 
     await waitFor(() => {
       // Should show error message
@@ -154,7 +154,7 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
   });
 
   it("should distinguish outbound links (artifact is source)", async () => {
-    render(<TracePanel kind="requirement" artifactId={mockArtifactId} />);
+    render(<TracePanel kind="requirement" entityId={mockArtifactId} />);
 
     await waitFor(() => {
       // The first mock link has artifact-001 as source, so it's outbound
@@ -164,7 +164,7 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
   });
 
   it("should distinguish inbound links (artifact is target)", async () => {
-    render(<TracePanel kind="requirement" artifactId={mockArtifactId} />);
+    render(<TracePanel kind="requirement" entityId={mockArtifactId} />);
 
     await waitFor(() => {
       // The second mock link has artifact-001 as target, so it's inbound
@@ -174,7 +174,7 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
   });
 
   it("should display multiple sections for inbound and outbound links", async () => {
-    render(<TracePanel kind="requirement" artifactId={mockArtifactId} />);
+    render(<TracePanel kind="requirement" entityId={mockArtifactId} />);
 
     await waitFor(() => {
       // Should have sections for both directions
@@ -188,7 +188,7 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
       activeWorkspace: null,
     } as any);
 
-    render(<TracePanel kind="requirement" artifactId={mockArtifactId} />);
+    render(<TracePanel kind="requirement" entityId={mockArtifactId} />);
 
     // Component should render empty state
     await waitFor(() => {
@@ -199,7 +199,7 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
   it("renders a chip per catalog link type, not a hardcoded list", async () => {
     mockCatalog(["allocated-to", "verifies", "decides", "mitigates"]);
 
-    render(<TracePanel kind="requirement" artifactId={mockArtifactId} />);
+    render(<TracePanel kind="requirement" entityId={mockArtifactId} />);
 
     await waitFor(() => {
       expect(screen.getByTestId("trace-filter-chip-decides")).toBeInTheDocument();
@@ -231,7 +231,7 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
       ],
     } as any);
 
-    render(<TracePanel kind="requirement" artifactId={mockArtifactId} />);
+    render(<TracePanel kind="requirement" entityId={mockArtifactId} />);
 
     await waitFor(() => {
       expect(screen.getByText("Tenant Invented Target")).toBeInTheDocument();
@@ -243,7 +243,7 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
 
   it("should reload links when artifact ID changes", async () => {
     const { rerender } = render(
-      <TracePanel kind="requirement" artifactId={mockArtifactId} />
+      <TracePanel kind="requirement" entityId={mockArtifactId} />
     );
 
     await waitFor(() => {
@@ -258,7 +258,7 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
 
     // Rerender with new artifact ID
     const newArtifactId = "artifact-002";
-    rerender(<TracePanel kind="requirement" artifactId={newArtifactId} />);
+    rerender(<TracePanel kind="requirement" entityId={newArtifactId} />);
 
     await waitFor(() => {
       const callCountAfter = vi.mocked(

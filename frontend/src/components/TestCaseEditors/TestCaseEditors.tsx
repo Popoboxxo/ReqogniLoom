@@ -397,7 +397,9 @@ export default function TestCaseEditors(): JSX.Element {
               </div>
               {item && (() => {
                 const ver: VersionRef = { version: item.version, label: `v${item.version}`, createdAt: null, baselineIds: [] };
-                return <RightSidebar kind="testCase" artifactId={item.id} currentVersion={ver} hideTraceLinks />;
+                // #1763: `item.id` = TestCase entity id (versions/diff),
+                // `item.artifact_id` = backing Artifact (comments).
+                return <RightSidebar kind="testCase" entityId={item.id} artifactId={item.artifact_id} currentVersion={ver} hideTraceLinks />;
               })()}
             </div>
           }

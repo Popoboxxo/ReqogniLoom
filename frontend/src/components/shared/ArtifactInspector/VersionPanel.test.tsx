@@ -51,7 +51,7 @@ describe("VersionPanel — diagram/glossary (REQ-142)", () => {
     render(
       <VersionPanel
         kind="diagram"
-        artifactId={ARTIFACT_ID}
+        entityId={ARTIFACT_ID}
         currentVersion={{ version: 2, label: "v2", createdAt: null, baselineIds: [] }}
         onSwitch={vi.fn()}
         onCompare={vi.fn()}
@@ -71,7 +71,7 @@ describe("VersionPanel — diagram/glossary (REQ-142)", () => {
     render(
       <VersionPanel
         kind="glossary"
-        artifactId={ARTIFACT_ID}
+        entityId={ARTIFACT_ID}
         currentVersion={{ version: 2, label: "v2", createdAt: null, baselineIds: [] }}
         onSwitch={vi.fn()}
         onCompare={vi.fn()}
@@ -93,7 +93,7 @@ describe("VersionPanel — diagram/glossary (REQ-142)", () => {
     render(
       <VersionPanel
         kind="diagram"
-        artifactId={ARTIFACT_ID}
+        entityId={ARTIFACT_ID}
         currentVersion={undefined}
         onSwitch={vi.fn()}
         onCompare={vi.fn()}
@@ -114,7 +114,7 @@ describe("VersionPanel — diagram/glossary (REQ-142)", () => {
     render(
       <VersionPanel
         kind="glossary"
-        artifactId={ARTIFACT_ID}
+        entityId={ARTIFACT_ID}
         currentVersion={undefined}
         onSwitch={vi.fn()}
         onCompare={vi.fn()}
@@ -150,7 +150,7 @@ describe("VersionPanel — snapshot availability (#213)", () => {
     render(
       <VersionPanel
         kind="diagram"
-        artifactId={ARTIFACT_ID}
+        entityId={ARTIFACT_ID}
         currentVersion={{ version: 7, label: "Current", createdAt: null, baselineIds: [] }}
         onSwitch={vi.fn()}
         onCompare={vi.fn()}
@@ -173,7 +173,7 @@ describe("VersionPanel — snapshot availability (#213)", () => {
     render(
       <VersionPanel
         kind="diagram"
-        artifactId={ARTIFACT_ID}
+        entityId={ARTIFACT_ID}
         currentVersion={{ version: 2, label: "v2", createdAt: null, baselineIds: [] }}
         onSwitch={vi.fn()}
         onCompare={vi.fn()}

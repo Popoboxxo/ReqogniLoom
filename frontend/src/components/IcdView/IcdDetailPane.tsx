@@ -248,7 +248,10 @@ export function IcdDetailPane({
             DiffPanel and TracePanel (UI standards §3 / §4 / §11). */}
         <RightSidebar
           kind="icd"
-          artifactId={detail.id}
+          entityId={detail.id}
+          // #1075: the backing Artifact id, published on both list and detail.
+          // #1763: comments key on it, versions/diff on `detail.id`.
+          artifactId={detail.artifact_id ?? undefined}
           currentVersion={currentVersion}
         />
       </div>

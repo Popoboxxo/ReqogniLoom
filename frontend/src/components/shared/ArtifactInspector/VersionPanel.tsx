@@ -78,7 +78,7 @@ const VERSIONS_FETCHERS: Partial<
   mainGoal: (id) => mainGoalApi.versions(id),
 };
 
-function fetchVersions(kind: ArtifactKind, artifactId: string | number): Promise<VersionRef[]> {
+function fetchVersions(kind: ArtifactKind, entityId: string | number): Promise<VersionRef[]> {
   const map = (v: ArtifactVersion): VersionRef => ({
     version: v.version,
     label: v.label,
@@ -93,7 +93,7 @@ function fetchVersions(kind: ArtifactKind, artifactId: string | number): Promise
 
   const fetcher = VERSIONS_FETCHERS[kind];
   if (!fetcher) return Promise.resolve([]);
-  return fetcher(String(artifactId)).then((list) => list.map(map));
+  return fetcher(String(entityId)).then((list) => list.map(map));
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +102,12 @@ function fetchVersions(kind: ArtifactKind, artifactId: string | number): Promise
 
 export interface VersionPanelProps {
   kind: ArtifactKind;
-  artifactId: string | number;
+  /**
+   * The **domain-entity** id (`Requirement.id`, `ArchitectureElement.id`, …)
+   * — `GET /<kind>/<id>/versions/` is keyed on it, not on the backing
+   * Artifact UUID (see RightSidebar's prop docs, #1763).
+   */
+  entityId: string | number;
   /** The currently-active version (clicking another row emits onSwitch). */
   currentVersion: VersionRef | undefined;
   /** Emit when the user picks "Switch to v{n}" in the overflow menu. */
@@ -130,7 +135,7 @@ type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
 
 export function VersionPanel({
   kind,
-  artifactId,
+  entityId,
   currentVersion,
   onSwitch,
   onCompare,
@@ -156,7 +161,7 @@ export function VersionPanel({
       return;
     }
     try {
-      const list = await fetchVersions(kind, artifactId);
+      const list = await fetchVersions(kind, entityId);
       if (list.length === 0) {
         // Both "no history" and "endpoint not implemented for this kind"
         // collapse to the same empty state today (UI standards §5.1 / §11).
@@ -170,7 +175,7 @@ export function VersionPanel({
       setErrorMessage(err instanceof Error ? err.message : String(err));
       setState("error");
     }
-  }, [kind, artifactId]);
+  }, [kind, entityId]);
 
   const currentVersionNumber = currentVersion?.version ?? null;
 

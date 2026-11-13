@@ -59,6 +59,10 @@ const WORKSPACE = { id: "ws-a11y", name: "A11y", preset: "standard" };
 
 const TERM: GlossaryTerm = {
   id: ARTIFACT_ID,
+  // #1763: the backing Artifact id of the term. In production this is the
+  // term's own `global_uuid`; the fixture keeps the panel's comment section
+  // mounted so its controls are part of this a11y sweep.
+  global_uuid: "artifact-global-001",
   workspace_id: "ws-a11y",
   term: "Anforderung",
   definition: "A documented need.",
@@ -96,7 +100,7 @@ function renderInspector(kind: "glossary" | "requirement" | "risk"): void {
     kind === "glossary" ? (
       <GlossaryDetailPanel term={TERM} onEdit={vi.fn()} onDelete={vi.fn()} />
     ) : (
-      <RightSidebar kind={kind} artifactId={ARTIFACT_ID} />
+      <RightSidebar kind={kind} entityId={ARTIFACT_ID} artifactId={ARTIFACT_ID} />
     );
 
   render(

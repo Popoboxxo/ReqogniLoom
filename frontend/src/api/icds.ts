@@ -42,6 +42,13 @@ import type {
 /** Logical identity of an ICD. */
 export interface Icd {
   id: UUID;
+  /**
+   * #1075: the backing Artifact id — the id a TraceLink / comment endpoint is
+   * addressed by. `id` above is the ICD entity id (`/<kind>/<id>/versions/`).
+   * `null`/absent for ICDs that own no Artifact. #1763: the inspector needs
+   * this one for the comments panel.
+   */
+  artifact_id?: UUID | null;
   name: string;
   workspace_id: UUID;
   source_element_id: UUID;

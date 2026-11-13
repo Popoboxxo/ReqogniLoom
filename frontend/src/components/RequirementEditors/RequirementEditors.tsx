@@ -746,7 +746,8 @@ export default function RequirementEditors(): JSX.Element {
       {currentVersion && (
         <RightSidebar
           kind="requirement"
-          artifactId={requirement.id}
+          entityId={requirement.id}
+          artifactId={requirement.artifact_id}
           currentVersion={currentVersion}
           hideTraceLinks
         />
