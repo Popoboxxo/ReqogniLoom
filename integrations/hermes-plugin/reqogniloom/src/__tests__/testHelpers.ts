@@ -18,6 +18,16 @@ export function makeAppState(overrides: Partial<AppState> = {}): AppState {
     interviewList: [],
     interviewError: null,
     interviewBusy: false,
+    requirements: [],
+    requirementsPage: 1,
+    requirementsNext: null,
+    requirementsPrevious: null,
+    requirementsCount: 0,
+    requirementsSearch: "",
+    activeRequirement: null,
+    requirementForm: null,
+    requirementError: null,
+    requirementBusy: false,
     ...overrides,
   };
 }

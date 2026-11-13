@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { HermesPluginAPI } from "../hermes-api-types";
-import { ReqogniLoomApiError, type Workspace } from "../api";
+import {
+  createRequirement,
+  getRequirement,
+  listRequirements,
+  listWorkspaces,
+  updateRequirement,
+  type Requirement,
+  type Workspace,
+  ReqogniLoomApiError,
+} from "../api";
 import type { InterviewState } from "../mcpClient";
 
 // Mock the api module so state.ts's calls to listWorkspaces are fully
@@ -10,6 +19,10 @@ vi.mock("../api", async () => {
   return {
     ...actual,
     listWorkspaces: vi.fn(),
+    listRequirements: vi.fn(),
+    getRequirement: vi.fn(),
+    createRequirement: vi.fn(),
+    updateRequirement: vi.fn(),
   };
 });
 
@@ -29,11 +42,12 @@ vi.mock("../mcpClient", async () => {
   };
 });
 
-import { listWorkspaces } from "../api";
 import * as mcpClient from "../mcpClient";
 import {
   __resetStateForTesting,
   answerInterviewField,
+  backToConnected,
+  backToList,
   cancelInterview,
   chooseWorkspace,
   closeInterview,
@@ -42,15 +56,31 @@ import {
   formalizeInterview,
   getState,
   initState,
+  openCreateForm,
+  openEditForm,
   openInBrowser,
   openInterviews,
+  openRequirements,
+  REQUIREMENT_CHANGE_REASON_REQUIRED_MESSAGE,
+  REQUIREMENT_CONFLICT_MESSAGE,
+  REQUIREMENT_FORBIDDEN_MESSAGE,
+  requirementsPageNext,
+  requirementsPagePrevious,
   resumeInterview,
+  searchRequirements,
+  selectRequirement,
   setInterviewTarget,
   startNewInterview,
+  submitForm,
   subscribe,
+  updateFormField,
 } from "../state";
 
 const listWorkspacesMock = vi.mocked(listWorkspaces);
+const listRequirementsMock = vi.mocked(listRequirements);
+const getRequirementMock = vi.mocked(getRequirement);
+const createRequirementMock = vi.mocked(createRequirement);
+const updateRequirementMock = vi.mocked(updateRequirement);
 
 function createMockApi(storedValue: string | null = null): HermesPluginAPI {
   const storage = new Map<string, string>();
@@ -86,6 +116,10 @@ const workspaceB: Workspace = { id: "ws-2", name: "Beta" };
 beforeEach(() => {
   __resetStateForTesting();
   listWorkspacesMock.mockReset();
+  listRequirementsMock.mockReset();
+  getRequirementMock.mockReset();
+  createRequirementMock.mockReset();
+  updateRequirementMock.mockReset();
 });
 
 describe("initState", () => {
@@ -668,5 +702,470 @@ describe("subscribe", () => {
 
     await disconnect();
     expect(listener).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Requirements (Phase H / #1701, Task 2)
+// ---------------------------------------------------------------------------
+
+const requirementFixture: Requirement = {
+  id: "req-1",
+  artifact_id: "art-1",
+  global_uuid: "art-1",
+  workspace_id: "ws-1",
+  parent_id: null,
+  uid: "REQ-1",
+  title: "Login must work",
+  description: "Users sign in with SSO.",
+  acceptance_criteria: "A valid token grants access.",
+  category: "security",
+  type: "SyReq",
+  complexity_fibonacci: 3,
+  verification_method: "Test",
+  level: 2,
+  tier_key: "system",
+  tier_name: "System",
+  released_tier_key: null,
+  level_source: "derived",
+  allocation_intent: "unassigned",
+  status: "draft",
+  suspect: false,
+  atomicity_warning: null,
+  version: 7,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-02T00:00:00Z",
+};
+
+function emptyRequirementPage() {
+  return { count: 0, next: null, previous: null, results: [] };
+}
+
+// Selects the fixture as the active requirement, so openEditForm() has a
+// version to send — the same path a user takes (list → row → form).
+async function openEditFormForFixture(): Promise<void> {
+  getRequirementMock.mockResolvedValue(requirementFixture);
+  await selectRequirement("req-1");
+  openEditForm();
+}
+
+describe("requirement list state", () => {
+  it("openRequirements loads page 1 and switches the view", async () => {
+    await connectedState();
+    listRequirementsMock.mockResolvedValue({
+      count: 1,
+      next: null,
+      previous: null,
+      results: [requirementFixture],
+    });
+
+    await openRequirements();
+
+    expect(listRequirementsMock).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      page: 1,
+      pageSize: 25,
+      search: undefined,
+    });
+    const state = getState();
+    expect(state.view).toBe("requirements");
+    expect(state.requirements).toEqual([requirementFixture]);
+    expect(state.requirementsCount).toBe(1);
+    expect(state.requirementsPage).toBe(1);
+    expect(state.requirementBusy).toBe(false);
+    expect(state.requirementError).toBeNull();
+  });
+
+  it("openRequirements stays on the list view and shows the error when the request fails", async () => {
+    await connectedState();
+    listRequirementsMock.mockRejectedValue(new ReqogniLoomApiError(500, null, "Server error"));
+
+    await openRequirements();
+
+    const state = getState();
+    expect(state.view).toBe("requirements");
+    expect(state.requirementError).toBe("Server error");
+    expect(state.requirementBusy).toBe(false);
+    expect(state.requirements).toEqual([]);
+  });
+
+  it("searchRequirements restarts at page 1 with the term", async () => {
+    await connectedState();
+    listRequirementsMock.mockResolvedValue(emptyRequirementPage());
+
+    await searchRequirements("login");
+
+    expect(listRequirementsMock).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), {
+      page: 1,
+      pageSize: 25,
+      search: "login",
+    });
+    expect(getState().requirementsSearch).toBe("login");
+    expect(getState().view).toBe("requirements");
+  });
+
+  it("pagination follows next and previous and stops on a repeated next link", async () => {
+    await connectedState();
+    const page1 = "https://example.com/api/v1/requirements/?workspace_id=ws-1&page=1&page_size=25";
+    const page2 = "https://example.com/api/v1/requirements/?workspace_id=ws-1&page=2&page_size=25";
+    listRequirementsMock
+      .mockResolvedValueOnce({ count: 30, next: page2, previous: null, results: [requirementFixture] })
+      .mockResolvedValueOnce({
+        count: 30,
+        next: page2,
+        previous: page1,
+        results: [{ ...requirementFixture, id: "req-2" }],
+      })
+      .mockResolvedValueOnce({ count: 30, next: page2, previous: null, results: [requirementFixture] });
+
+    await openRequirements();
+    await requirementsPageNext();
+
+    expect(listRequirementsMock).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), { url: page2 });
+    expect(getState().requirementsPage).toBe(2);
+    expect(getState().requirements[0].id).toBe("req-2");
+    expect(getState().requirementsPrevious).toBe(page1);
+    // A `next` that repeats the link just requested would loop forever; the
+    // chain ends instead of storing it.
+    expect(getState().requirementsNext).toBeNull();
+
+    await requirementsPageNext();
+    expect(listRequirementsMock).toHaveBeenCalledTimes(2);
+
+    await requirementsPagePrevious();
+    expect(listRequirementsMock).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), { url: page1 });
+    expect(getState().requirementsPage).toBe(1);
+    expect(getState().requirementsNext).toBe(page2);
+  });
+
+  it("requirementsPageNext does nothing without a next link", async () => {
+    await connectedState();
+    listRequirementsMock.mockResolvedValue(emptyRequirementPage());
+    await openRequirements();
+
+    await requirementsPageNext();
+
+    expect(listRequirementsMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("requirement detail state", () => {
+  it("selectRequirement loads the detail and switches the view", async () => {
+    await connectedState();
+    getRequirementMock.mockResolvedValue(requirementFixture);
+
+    await selectRequirement("req-1");
+
+    expect(getRequirementMock).toHaveBeenCalledWith(expect.anything(), expect.anything(), "req-1");
+    const state = getState();
+    expect(state.view).toBe("requirement-detail");
+    expect(state.activeRequirement).toEqual(requirementFixture);
+    expect(state.requirementBusy).toBe(false);
+  });
+
+  it("selectRequirement reports a failed detail load without keeping a stale row", async () => {
+    await connectedState();
+    getRequirementMock.mockRejectedValue(new ReqogniLoomApiError(404, null, "Requirement not found"));
+
+    await selectRequirement("req-1");
+
+    const state = getState();
+    expect(state.view).toBe("requirement-detail");
+    expect(state.activeRequirement).toBeNull();
+    expect(state.requirementError).toBe("Requirement not found");
+    expect(state.requirementBusy).toBe(false);
+  });
+});
+
+describe("requirement form state", () => {
+  it("openCreateForm starts an empty create form that holds no level field", () => {
+    openCreateForm();
+
+    const form = getState().requirementForm;
+    expect(getState().view).toBe("requirement-form");
+    expect(form?.mode).toBe("create");
+    expect(form?.values).toEqual({
+      title: "",
+      description: "",
+      acceptance_criteria: "",
+      category: "",
+      type: "SyReq",
+    });
+    expect(form?.values).not.toHaveProperty("level");
+    expect(form?.values).not.toHaveProperty("tier_key");
+    expect(form?.values).not.toHaveProperty("level_source");
+  });
+
+  it("openEditForm prefills the writable fields of the active requirement", async () => {
+    await connectedState();
+    await openEditFormForFixture();
+
+    const form = getState().requirementForm;
+    expect(getState().view).toBe("requirement-form");
+    expect(form?.mode).toBe("edit");
+    expect(form?.values).toEqual({
+      title: "Login must work",
+      description: "Users sign in with SSO.",
+      acceptance_criteria: "A valid token grants access.",
+      category: "security",
+      type: "SyReq",
+    });
+    expect(form?.values).not.toHaveProperty("level");
+    expect(form?.values).not.toHaveProperty("tier_key");
+    expect(form?.values).not.toHaveProperty("level_source");
+  });
+
+  it("openEditForm is a no-op without a loaded requirement", async () => {
+    await connectedState();
+
+    openEditForm();
+
+    expect(getState().requirementForm).toBeNull();
+    expect(getState().view).toBe("connected");
+  });
+
+  it("updateFormField writes a value and ignores a field the form does not own", () => {
+    openCreateForm();
+
+    updateFormField("title", "Login");
+    updateFormField("level", "3");
+    updateFormField("tier_key", "system");
+
+    const form = getState().requirementForm;
+    expect(form?.values.title).toBe("Login");
+    expect(form?.values).not.toHaveProperty("level");
+    expect(form?.values).not.toHaveProperty("tier_key");
+  });
+
+  it("updateFormField stores the change reason separately from the values", () => {
+    openCreateForm();
+
+    updateFormField("change_reason", "because the requirement changed");
+
+    expect(getState().requirementForm?.changeReason).toBe("because the requirement changed");
+    expect(getState().requirementForm?.values).not.toHaveProperty("change_reason");
+  });
+});
+
+describe("submitForm", () => {
+  it("in create mode posts only writable fields and opens the new requirement", async () => {
+    await connectedState();
+    createRequirementMock.mockResolvedValue(requirementFixture);
+    listRequirementsMock.mockResolvedValue({
+      count: 1,
+      next: null,
+      previous: null,
+      results: [requirementFixture],
+    });
+
+    openCreateForm();
+    updateFormField("title", "  Login must work  ");
+    updateFormField("description", "Users sign in with SSO.");
+    await submitForm();
+
+    expect(createRequirementMock).toHaveBeenCalledTimes(1);
+    const payload = createRequirementMock.mock.calls[0][2];
+    expect(payload).toEqual({
+      title: "Login must work",
+      description: "Users sign in with SSO.",
+      acceptance_criteria: "",
+      category: "",
+      type: "SyReq",
+    });
+    expect(payload).not.toHaveProperty("level");
+    expect(payload).not.toHaveProperty("tier_key");
+    expect(payload).not.toHaveProperty("level_source");
+    expect(payload).not.toHaveProperty("version");
+    const state = getState();
+    expect(state.view).toBe("requirement-detail");
+    expect(state.activeRequirement).toEqual(requirementFixture);
+    expect(state.requirementForm).toBeNull();
+    expect(state.requirementBusy).toBe(false);
+  });
+
+  it("refreshes the cached list page after a successful create", async () => {
+    await connectedState();
+    createRequirementMock.mockResolvedValue(requirementFixture);
+    listRequirementsMock.mockResolvedValue({
+      count: 1,
+      next: null,
+      previous: null,
+      results: [requirementFixture],
+    });
+
+    openCreateForm();
+    updateFormField("title", "Login must work");
+    await submitForm();
+
+    expect(listRequirementsMock).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      page: 1,
+      pageSize: 25,
+      search: undefined,
+    });
+    expect(getState().requirements).toEqual([requirementFixture]);
+  });
+
+  it("sends nothing and sets a title error when the title is empty", async () => {
+    await connectedState();
+    openCreateForm();
+
+    await submitForm();
+
+    expect(createRequirementMock).not.toHaveBeenCalled();
+    const state = getState();
+    expect(state.view).toBe("requirement-form");
+    expect(state.requirementForm?.fieldErrors.title).toBe("A title is required.");
+  });
+
+  it("in edit mode PATCHes with the loaded version and no level field", async () => {
+    await connectedState();
+    await openEditFormForFixture();
+    updateRequirementMock.mockResolvedValue({ ...requirementFixture, title: "Login must work twice", version: 8 });
+    listRequirementsMock.mockResolvedValue(emptyRequirementPage());
+
+    updateFormField("title", "Login must work twice");
+    await submitForm();
+
+    expect(updateRequirementMock).toHaveBeenCalledTimes(1);
+    const [, , id, payload] = updateRequirementMock.mock.calls[0];
+    expect(id).toBe("req-1");
+    expect(payload.version).toBe(7);
+    expect(payload.title).toBe("Login must work twice");
+    expect(payload).not.toHaveProperty("level");
+    expect(payload).not.toHaveProperty("tier_key");
+    expect(payload).not.toHaveProperty("level_source");
+    expect(payload).not.toHaveProperty("change_reason");
+    expect(getState().view).toBe("requirement-detail");
+    expect(getState().activeRequirement?.version).toBe(8);
+  });
+
+  it("sends the change reason when one was typed", async () => {
+    await connectedState();
+    await openEditFormForFixture();
+    updateRequirementMock.mockResolvedValue(requirementFixture);
+    listRequirementsMock.mockResolvedValue(emptyRequirementPage());
+
+    updateFormField("change_reason", "clarified wording");
+    await submitForm();
+
+    expect(updateRequirementMock.mock.calls[0][3].change_reason).toBe("clarified wording");
+  });
+
+  it("shows field errors from a 400 details array and keeps the input", async () => {
+    await connectedState();
+    await openEditFormForFixture();
+    updateRequirementMock.mockRejectedValue(
+      new ReqogniLoomApiError(
+        400,
+        {
+          error: {
+            code: "VALIDATION_ERROR",
+            message: "Invalid request.",
+            details: [{ field: "title", errors: ["Ensure this field has no more than 500 characters."] }],
+          },
+        },
+        "Invalid request."
+      )
+    );
+
+    updateFormField("title", "x".repeat(501));
+    await submitForm();
+
+    const state = getState();
+    expect(state.view).toBe("requirement-form");
+    expect(state.requirementError).toBeNull();
+    expect(state.requirementForm?.fieldErrors.title).toBe("Ensure this field has no more than 500 characters.");
+    expect(state.requirementForm?.values.title).toHaveLength(501);
+  });
+
+  it("marks change_reason as required when the server demands a reason", async () => {
+    await connectedState();
+    await openEditFormForFixture();
+    const message = "change_reason required by workspace preset policy";
+    updateRequirementMock.mockRejectedValue(
+      new ReqogniLoomApiError(400, { error: { code: "VALIDATION_ERROR", message, details: [] } }, message)
+    );
+
+    await submitForm();
+
+    const state = getState();
+    expect(state.requirementForm?.fieldErrors.change_reason).toBe(REQUIREMENT_CHANGE_REASON_REQUIRED_MESSAGE);
+    expect(state.requirementError).toBeNull();
+
+    // Typing a reason clears the field error, as every other field does.
+    updateFormField("change_reason", "because the preset says so");
+    expect(getState().requirementForm?.fieldErrors).not.toHaveProperty("change_reason");
+  });
+
+  it("on 409 keeps the form values and shows the reload hint", async () => {
+    await connectedState();
+    await openEditFormForFixture();
+    updateRequirementMock.mockRejectedValue(new ReqogniLoomApiError(409, null, "Version mismatch."));
+
+    updateFormField("title", "Login must work twice");
+    await submitForm();
+
+    const state = getState();
+    expect(state.view).toBe("requirement-form");
+    expect(state.requirementError).toBe(REQUIREMENT_CONFLICT_MESSAGE);
+    expect(state.requirementError).toMatch(/changed elsewhere/);
+    expect(state.requirementForm?.mode).toBe("edit");
+    expect(state.requirementForm?.values.title).toBe("Login must work twice");
+    expect(state.requirementBusy).toBe(false);
+  });
+
+  it("on 403 shows the permission message and stays in the form", async () => {
+    await connectedState();
+    openCreateForm();
+    createRequirementMock.mockRejectedValue(new ReqogniLoomApiError(403, null, "Forbidden"));
+
+    updateFormField("title", "Login must work");
+    await submitForm();
+
+    const state = getState();
+    expect(state.requirementError).toBe(REQUIREMENT_FORBIDDEN_MESSAGE);
+    expect(state.view).toBe("requirement-form");
+    expect(state.requirementForm?.values.title).toBe("Login must work");
+    expect(state.requirementBusy).toBe(false);
+  });
+
+  it("clears requirementBusy and surfaces the message for an unexpected failure", async () => {
+    await connectedState();
+    openCreateForm();
+    createRequirementMock.mockRejectedValue(new DOMException("The operation was aborted", "TimeoutError"));
+
+    updateFormField("title", "Login must work");
+    await submitForm();
+
+    expect(getState().requirementBusy).toBe(false);
+    expect(getState().requirementError).not.toBeNull();
+    expect(getState().view).toBe("requirement-form");
+  });
+});
+
+describe("requirement navigation", () => {
+  it("backToList returns to the list and keeps the draft", async () => {
+    await connectedState();
+    openCreateForm();
+    updateFormField("title", "unsaved draft");
+
+    backToList();
+
+    const state = getState();
+    expect(state.view).toBe("requirements");
+    expect(state.requirementError).toBeNull();
+    expect(state.requirementForm?.values.title).toBe("unsaved draft");
+  });
+
+  it("backToConnected clears the selected requirement and the draft", async () => {
+    await connectedState();
+    await openEditFormForFixture();
+
+    backToConnected();
+
+    const state = getState();
+    expect(state.view).toBe("connected");
+    expect(state.activeRequirement).toBeNull();
+    expect(state.requirementForm).toBeNull();
+    expect(state.requirementError).toBeNull();
   });
 });
