@@ -760,7 +760,19 @@ def _service_error_response(exc: Exception, lang: str = "en") -> Response:
     types use it to name *which* items invalidated a plan (R3: a list) or which
     CR state was hit (R5: a dict); the value is service-built and contains no
     internals.
+
+    #1761: a DRF ``APIException`` is a transport-level signal (invalid
+    ``page``/``page_size``, malformed UUID in a path, link-type guard — see
+    ``rest_api.serializers.InvalidPageSize``), not a service failure. Several
+    views wrap their service call *and* the pagination call in one broad
+    ``except Exception``; without this re-raise such an exception would be
+    rewritten into a generic 500 — the exact mechanism AUD-2026-09-073 found
+    for an invalid ``page``. Re-raising hands it back to DRF's exception
+    handling, which is where its status code and envelope are defined.
     """
+    if isinstance(exc, APIException):
+        raise exc
+
     exc_type = type(exc)
     http_status = _EXC_TO_HTTP.get(exc_type, status.HTTP_500_INTERNAL_SERVER_ERROR)
     code = _EXC_TO_CODE.get(exc_type, "INTERNAL_SERVER_ERROR")
