@@ -162,6 +162,9 @@ class DocumentToolGroup(BaseToolGroup):
     _TOOL_MAP = {
         "document.create": "_handle_create",
         "document.read": "_handle_read",
+        "document.project": "_handle_project",
+        "document.projection_status": "_handle_projection_status",
+        "document.adopt": "_handle_adopt",
         "document.query": "_handle_query",
         "document.update": "_handle_update",
         "document.transition": "_handle_transition",
@@ -394,6 +397,75 @@ class DocumentToolGroup(BaseToolGroup):
             },
         },
         {
+            "name": "document.project",
+            "description": (
+                "Render one document as deterministic Markdown (read-only). The "
+                "server never writes to a repository; write the content on a "
+                "branch and report the hash back via document.projection_status."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Document UUID."},
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "document.projection_status",
+            "description": (
+                "Compare client-computed repository file hashes with Loom's "
+                "projection state (READ). Returns in_sync | loom_changed | "
+                "file_changed | conflict | missing_in_repo | untracked_in_loom "
+                "per document. An optional confirm object records a written hash."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {"type": "string", "description": "Workspace UUID."},
+                    "files": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                        "description": "Repository path -> SHA-256, computed locally.",
+                    },
+                    "confirm": {
+                        "type": "object",
+                        "properties": {
+                            "document_id": {"type": "string"},
+                            "sha256": {"type": "string"},
+                        },
+                        "required": ["document_id", "sha256"],
+                        "description": "Optional: record the hash that was actually written.",
+                    },
+                },
+                "required": ["workspace_id"],
+            },
+        },
+        {
+            "name": "document.adopt",
+            "description": (
+                "Turn a repo_external document into a loom-owned, projected one "
+                "(write). Requires file_sha256 to equal the imported source hash; "
+                "otherwise CONFLICT (409)."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Document UUID."},
+                    "file_sha256": {
+                        "type": "string",
+                        "description": "SHA-256 of the repository file.",
+                    },
+                    "source_path": {"type": "string"},
+                    "freeze": {
+                        "type": "boolean",
+                        "description": "Release (freeze) the document after adoption.",
+                    },
+                },
+                "required": ["id", "file_sha256"],
+            },
+        },
+        {
             "name": "document.outdate",
             "description": (
                 "Soft-delete a Document via the workflow engine's outdate "
@@ -470,6 +542,84 @@ class DocumentToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
+        return ToolResult.ok({"document": _document_to_dict(document)})
+
+    # ---------- Projection and adoption (Phase G / #1374 S3) ----------
+
+    def _handle_project(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """Render one document deterministically; nothing is persisted."""
+        from application.document_projection_service import (
+            DocumentProjectionService,
+        )
+
+        document_id = require_uuid(params, "id")
+        try:
+            projected = DocumentProjectionService().project(document_id, auth_context)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _validation_error(exc)
+        except Exception:  # noqa: BLE001 — masked, logged server-side
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+        return ToolResult.ok(projected.to_dict())
+
+    def _handle_projection_status(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """Compare repository hashes and optionally confirm one written file."""
+        from application.document_projection_service import (
+            DocumentProjectionService,
+        )
+
+        reject_unknown_params(
+            params, ["workspace_id", "files", "confirm"], "document.projection_status"
+        )
+        workspace_id = require_uuid(params, "workspace_id")
+        files = params.get("files") or {}
+        if not isinstance(files, dict):
+            return ToolResult.error("VALIDATION_ERROR", "files must be an object.")
+        confirm = params.get("confirm") or None
+        try:
+            service = DocumentProjectionService()
+            rows = service.status(workspace_id, files, auth_context)
+            if confirm:
+                service.confirm(
+                    require_uuid(confirm, "document_id"),
+                    str(confirm.get("sha256") or ""),
+                    auth_context,
+                )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _validation_error(exc)
+        except Exception:  # noqa: BLE001 — masked, logged server-side
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+        return ToolResult.ok({"documents": [row.to_dict() for row in rows]})
+
+    def _handle_adopt(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """Adopt a repo-external document once its hash matches."""
+        from application.document_projection_service import (
+            DocumentProjectionService,
+        )
+
+        reject_unknown_params(
+            params,
+            ["id", "file_sha256", "source_path", "freeze"],
+            "document.adopt",
+        )
+        document_id = require_uuid(params, "id")
+        try:
+            document = DocumentProjectionService().adopt(
+                document_id,
+                file_sha256=str(require_param(params, "file_sha256")),
+                source_path=str(params.get("source_path") or ""),
+                freeze=bool(params.get("freeze", False)),
+                ctx=auth_context,
+            )
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _validation_error(exc)
+        except Exception:  # noqa: BLE001 — masked, logged server-side
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({"document": _document_to_dict(document)})
 
     def _handle_query(

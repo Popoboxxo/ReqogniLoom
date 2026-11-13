@@ -49,8 +49,8 @@ Vollständige, generierte Konfiguration (Env-Var-Referenzen, nie ein literaler K
 ## 5. Verifikation
 
 - **Befehl:** `curl -sN --max-time 5 -H "X-API-Key: $REQOGNILOOM_API_KEY" "$REQOGNILOOM_MCP_URL/mcp/sse/"`
-- **Erwartet:** Die ersten zwei Zeilen sind `event: endpoint` und `data: /mcp/messages/?session_id=…`; danach beendet `--max-time` den Stream (Exit 28 ist hier erwartet). Ein `initialize` auf den gemeldeten Endpoint antwortet 202, `tools/list` liefert **290 Tools**; das Antigravity-Panel zeigt `reqogniloom` verbunden.
-- **Tool-Call-Ergebnis:** 290 tools
+- **Erwartet:** Die ersten zwei Zeilen sind `event: endpoint` und `data: /mcp/messages/?session_id=…`; danach beendet `--max-time` den Stream (Exit 28 ist hier erwartet). Ein `initialize` auf den gemeldeten Endpoint antwortet 202, `tools/list` liefert **293 Tools**; das Antigravity-Panel zeigt `reqogniloom` verbunden.
+- **Tool-Call-Ergebnis:** 293 tools
 
 ## 6. Fallstricke
 
