@@ -38,7 +38,8 @@ import { extractErrorMessage } from "../../api/client";
 import { useRequiredValidation } from "../shared/useRequiredValidation";
 import { requirementsApi } from "../../api/requirements";
 import { testcasesApi } from "../../api/testcases";
-import type { TestCase, TestCaseStep } from "../../api/testcases";
+import type { LegacyTestCaseStep, TestCase } from "../../api/testcases";
+import { pairsToSteps, stepsToPairs } from "../../utils/testSteps";
 import { AiActionIcon } from "../shared/AiActions";
 import styles from "./DeriveTestCasePanel.module.css";
 
@@ -54,7 +55,12 @@ type Phase = "idle" | "generating" | "review" | "creating" | "done";
 interface DraftState {
   title: string;
   description: string;
-  steps: TestCaseStep[];
+  /**
+   * Issue #1564: the panel keeps its two-column "action / expected result"
+   * layout. The backend draft is typed, so it is folded into pairs on load and
+   * expanded back to typed `when`/`then` steps on create.
+   */
+  steps: LegacyTestCaseStep[];
 }
 
 export function DeriveTestCasePanel({
@@ -80,7 +86,7 @@ export function DeriveTestCasePanel({
       setDraft({
         title: result.draft.title,
         description: result.draft.description,
-        steps: result.draft.steps ?? [],
+        steps: stepsToPairs(result.draft.steps ?? []),
       });
       setPhase("review");
     } catch (err) {
@@ -117,7 +123,7 @@ export function DeriveTestCasePanel({
         workspace_id: workspaceId,
         title: draft.title,
         description: draft.description,
-        steps: draft.steps,
+        steps: pairsToSteps(draft.steps),
         linked_requirement_id: requirement.id,
         // #424 (spec section 4.6): this path persists LLM output, so it must
         // declare its provenance explicitly. `reviewed` is read-only on the
@@ -146,7 +152,7 @@ export function DeriveTestCasePanel({
   }, []);
 
   const updateStep = useCallback(
-    (index: number, patch: Partial<TestCaseStep>) => {
+    (index: number, patch: Partial<LegacyTestCaseStep>) => {
       setDraft((prev) => {
         if (!prev) return prev;
         const steps = prev.steps.map((s, i) =>

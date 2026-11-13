@@ -130,12 +130,10 @@ describe("TestCaseArtifactForm", () => {
   });
 
   it("saves the edited steps through testcasesApi.update", async () => {
-    // StepsEditor's bound value shape is `{ step, expected_result }[]`
-    // (rest_api/serializers.py: `steps = ListField(child=DictField())`,
-    // StepsEditor.tsx docstring) — NOT bare strings. The widget normalizes
-    // any raw entry (including this fixture's legacy `["open", "click"]`)
-    // to that shape on the very first write (e.g. the Add-step click below),
-    // so the saved PATCH carries dicts, not strings.
+    // Issue #1564: StepsEditor's bound value shape is the typed step
+    // `{ step_type, text }[]`. The fixture still carries the oldest bare
+    // `string[]` shape; the widget normalises it to `when` rows on read, so
+    // the saved PATCH carries typed steps.
     vi.mocked(testcasesApi.update).mockResolvedValue(TEST_CASE);
     render(
       <TestCaseArtifactForm
@@ -151,9 +149,9 @@ describe("TestCaseArtifactForm", () => {
         "t-1",
         expect.objectContaining({
           steps: [
-            { step: "open", expected_result: "" },
-            { step: "click", expected_result: "" },
-            { step: "", expected_result: "" },
+            { step_type: "when", text: "open" },
+            { step_type: "when", text: "click" },
+            { step_type: "when", text: "" },
           ],
         })
       )
@@ -268,3 +266,29 @@ describe("TestCaseArtifactForm", () => {
   });
 });
 
+
+  it("lets the editor change a step's type and saves the typed steps", async () => {
+    vi.mocked(testcasesApi.update).mockResolvedValue(TEST_CASE);
+    render(
+      <TestCaseArtifactForm
+        testCase={TEST_CASE}
+        onSaved={vi.fn()}
+        onDeleted={vi.fn()}
+      />
+    );
+    const typeSelect = await screen.findByTestId("artifact-widget-steps-type-0");
+    await userEvent.selectOptions(typeSelect, "then");
+    await userEvent.click(screen.getByTestId("artifact-form-save"));
+
+    await waitFor(() =>
+      expect(testcasesApi.update).toHaveBeenCalledWith(
+        "t-1",
+        expect.objectContaining({
+          steps: [
+            { step_type: "then", text: "open" },
+            { step_type: "when", text: "click" },
+          ],
+        })
+      )
+    );
+  });
