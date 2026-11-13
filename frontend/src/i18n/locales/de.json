@@ -1263,6 +1263,14 @@
       "inspection": "Inspektion",
       "analysis": "Analyse",
       "demonstration": "Demonstration"
+    },
+    "stepType": {
+      "label": "Schritttyp {{index}}",
+      "given": "Angenommen",
+      "when": "Wenn",
+      "then": "Dann",
+      "and": "Und",
+      "but": "Aber"
     }
   },
   "settings": {

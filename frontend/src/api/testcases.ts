@@ -21,11 +21,25 @@ import type {
 } from "../types";
 
 /**
- * SysEng 2.0 N5 (test.derive_from_requirement): a single TestCase step, as
- * persisted in the backend TestCase.steps JSONField and produced by the AI
- * derivation draft.
+ * Issue #1564: the five Gherkin step kinds the backend distinguishes.
+ */
+export type StepType = "given" | "when" | "then" | "and" | "but";
+
+/**
+ * Issue #1564: a single typed TestCase step, as persisted in the backend
+ * ``TestCase.steps`` JSONField. The pre-#1564 shape
+ * ``{ step, expected_result }`` is still accepted by every write path and is
+ * normalised on read (see ``utils/testSteps.ts``).
  */
 export interface TestCaseStep {
+  /** Stable backend-assigned id; absent on a not-yet-saved step. */
+  id?: string;
+  step_type: StepType;
+  text: string;
+}
+
+/** The pre-#1564 pair, kept for read adapters and the derive-panel layout. */
+export interface LegacyTestCaseStep {
   step: string;
   expected_result: string;
 }

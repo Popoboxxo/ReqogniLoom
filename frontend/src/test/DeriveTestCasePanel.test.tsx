@@ -88,7 +88,7 @@ const CREATED_TEST_CASE: TestCase = {
   version: 1,
   created_at: "2026-07-20T00:00:00Z",
   updated_at: "2026-07-20T00:00:00Z",
-} as TestCase;
+} as unknown as TestCase;
 
 function renderPanel(onCreated = vi.fn()) {
   return render(
@@ -152,7 +152,14 @@ describe("DeriveTestCasePanel", () => {
       workspace_id: "ws-1",
       title: "Edited title",
       description: DRAFT_RESULT.draft.description,
-      steps: DRAFT_RESULT.draft.steps,
+      // Issue #1564: the draft's legacy pairs are expanded to typed steps on
+      // create, so the wire shape is `when` + `then` per pair.
+      steps: [
+        { step_type: "when", text: "Set up preconditions." },
+        { step_type: "then", text: "System is ready." },
+        { step_type: "when", text: "Exercise the login behaviour." },
+        { step_type: "then", text: "User is logged in." },
+      ],
       linked_requirement_id: "req-1",
       // #424 (spec section 4.6): this LLM-driven path declares its provenance
       // explicitly. `reviewed` is read-only and derived server-side from
