@@ -168,6 +168,61 @@ class ReleaseStateError(ValidationError):
     """
 
 
+class ReleaseTooLargeError(ValidationError):
+    """A release cascade is well-formed but exceeds the synchronous ceiling.
+
+    ``ReleaseService.release_element`` refuses to run more than
+    ``MAX_SYNC_RELEASE_ITEMS`` transitions on a request thread (GH-1804). The
+    request is not defective — the same cascade is a legitimate operation, it
+    just has to run as a background job. The *dedicated* release route
+    therefore answers **202 Accepted** with a ``task_id`` instead of failing:
+    it catches this type before the generic ``ValidationError`` branch and
+    dispatches ``application.tasks.release_element_async``.
+
+    A ``ValidationError`` subclass (same precedent as
+    :class:`BaselineGateBlockedError`) so every existing
+    ``except ValidationError`` caller keeps working — and so a transport with
+    no async substitute (MCP, a script) still gets a truthful business error
+    instead of a 500. ``http_status`` documents that fallback: **400**
+    ``RELEASE_TOO_LARGE``, registered in
+    ``rest_api.views._EXC_TO_HTTP``/``_EXC_TO_CODE``.
+
+    Attributes:
+        total_items: Cascade size that was measured.
+        limit: The synchronous ceiling that was exceeded.
+        workspace_id: Workspace the cascade belongs to, or ``None`` when the
+            caller did not supply it. The REST layer needs it to resolve the
+            caller's roles inside the worker; without it, it must not queue a
+            job that would fail authorisation.
+    """
+
+    error_code = "RELEASE_TOO_LARGE"
+    http_status = 400
+
+    def __init__(
+        self,
+        total_items: int,
+        limit: int,
+        *,
+        workspace_id: UUID | None = None,
+    ) -> None:
+        super().__init__(
+            f"Releasing {total_items} items exceeds the synchronous limit of "
+            f"{limit}; the cascade has to run as an asynchronous job."
+        )
+        self.total_items = total_items
+        self.limit = limit
+        self.workspace_id = workspace_id
+        self.details = [
+            {
+                "field": "total_items",
+                "errors": [
+                    f"{total_items} items exceed the synchronous limit of {limit}."
+                ],
+            }
+        ]
+
+
 class AdoptionHashMismatchError(ValidationError):
     """A document adoption was requested with a stale repository hash.
 
@@ -644,6 +699,7 @@ __all__ = [
     "OptimisticLockError",
     "PermissionDeniedError",
     "ProducerContextRequiredError",
+    "ReleaseTooLargeError",
     "ServiceBase",
     "SuppressionExpiredError",
     "ValidationError",

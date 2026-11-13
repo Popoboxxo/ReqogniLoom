@@ -80,6 +80,7 @@ from application.base import (
     AdoptionHashMismatchError,
     AllocationConflictError,
     ReleaseStateError,
+    ReleaseTooLargeError,
     WorkflowFrozenError,
     AnchorsPresentError,
     DocumentGateFailedError,
@@ -471,6 +472,12 @@ _EXC_TO_HTTP: dict[type, int] = {
     # ADR-028 A1: a release from a state with no release edge is a rejected
     # precondition on a well-formed request, not a malformed payload.
     ReleaseStateError: status.HTTP_409_CONFLICT,
+    # GH-1804: a declared fallback only. The release route catches this type
+    # first and queues the cascade (202); this entry covers a cascade that
+    # escapes a transport with no async substitute (MCP, a direct service
+    # caller) — a well-formed request the synchronous ceiling refuses, hence
+    # 400 rather than the generic 500 an unregistered subclass would produce.
+    ReleaseTooLargeError: status.HTTP_400_BAD_REQUEST,
     # Phase G / #1374 S3: adopting a file whose hash moved is a state conflict.
     AdoptionHashMismatchError: status.HTTP_409_CONFLICT,
 }
@@ -531,6 +538,9 @@ _EXC_TO_CODE: dict[type, str] = {
     LlmTokenLimitExceededError: "LLM_TOKEN_LIMIT_EXCEEDED",
     # ADR-028 A1: the client may retry once the item reaches a releasable state.
     ReleaseStateError: "RELEASE_NOT_ALLOWED",
+    # GH-1804: distinct code so a client can tell "queue it instead" from a
+    # genuinely malformed release request.
+    ReleaseTooLargeError: "RELEASE_TOO_LARGE",
     AdoptionHashMismatchError: "CONFLICT",
 }
 

@@ -86,6 +86,42 @@ class ReleaseConflictDetailSerializer(serializers.Serializer):
     reason = serializers.CharField()
 
 
+class ReleaseQueuedSerializer(serializers.Serializer):
+    """Body of the ``202 Accepted`` answer to an oversized release (GH-1804)."""
+
+    task_id = serializers.CharField(
+        help_text="Celery task id of the queued cascade; poll ``status_url``."
+    )
+    status = serializers.CharField(
+        help_text="Always 'queued' — the cascade has not started yet."
+    )
+    status_url = serializers.CharField(
+        help_text="Relative URL of the polling route for this task id."
+    )
+
+
+class ReleaseStatusSerializer(serializers.Serializer):
+    """Body of ``GET .../release-status/<task_id>/`` (GH-1804)."""
+
+    task_id = serializers.CharField()
+    state = serializers.ChoiceField(
+        choices=["PENDING", "STARTED", "SUCCESS", "FAILURE"],
+        help_text=(
+            "Celery state of the queued cascade. PENDING covers 'not started "
+            "yet' and 'unknown to the worker' (Celery's result backend cannot "
+            "tell them apart)."
+        ),
+    )
+    result = serializers.DictField(
+        required=False,
+        help_text="The release result, present once state='SUCCESS'.",
+    )
+    error = serializers.CharField(
+        required=False,
+        help_text="Failure message, present once state='FAILURE'.",
+    )
+
+
 class ReleaseErrorBodySerializer(serializers.Serializer):
     """Inner error object; unique name so drf-spectacular cannot confuse it
     with the generic ``ErrorBodySerializer`` from ``rest_api.openapi``."""

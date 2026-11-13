@@ -321,6 +321,44 @@ def test_an_element_with_allocations_requires_a_requirement_release_state(
     assert "for Requirement" in str(excinfo.value)
 
 
+def test_a_cascade_above_the_synchronous_ceiling_asks_for_the_async_job(
+    tenant: Tenant,
+    workspace: Workspace,
+    ctx: AuthContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GH-1804: too large is a distinct, well-formed refusal, not a bad request.
+
+    The cascade is not run at all — a half-release would be worse than a
+    queued one — and the exception carries what the REST layer needs to queue
+    the same work (measured size, ceiling, owning workspace).
+    """
+    from application.base import ReleaseTooLargeError
+
+    root, _child, _requirement = _build_tree(tenant, workspace)
+    monkeypatch.setattr("application.release_service.MAX_SYNC_RELEASE_ITEMS", 1)
+
+    with pytest.raises(ReleaseTooLargeError) as excinfo:
+        ReleaseService().release_element(
+            element_id=root.id, ctx=ctx, change_reason="Release"
+        )
+
+    exc = excinfo.value
+    # Two elements + one requirement, all still in their pre-release state.
+    assert exc.total_items == 3
+    assert exc.limit == 1
+    assert exc.workspace_id == workspace.id
+    # Existing ``except ValidationError`` callers (MCP, scripts) keep working.
+    assert isinstance(exc, ValidationError)
+
+    states = set(
+        WorkflowItemState.objects.filter(workspace_id=workspace.id).values_list(
+            "current_state", flat=True
+        )
+    )
+    assert "released" not in states
+
+
 def test_the_baseline_capture_prefers_the_pinned_tier(
     tenant: Tenant, workspace: Workspace, ctx: AuthContext
 ) -> None:
