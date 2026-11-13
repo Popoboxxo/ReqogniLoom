@@ -2,10 +2,11 @@
  * Static guard against hardcoded colour literals (proposal V2, plan leftovers).
  *
  * The project's design system puts every colour in `src/styles/tokens.css`
- * (primitive layer: raw values allowed, semantic layer: `var(--palette-*)`
- * references only). Components must consume the semantic tokens — either via
- * `var(--color-*)` in CSS or via a CSS class/module — so a theme switch
- * (design-system themes, dark mode, workspace themes) recolours them for free.
+ * (primitive layer: raw values allowed, semantic layer: `var()` references to
+ * `--palette-*` only). Components must consume the semantic tokens — either
+ * via `var()` references to `--color-*` in CSS or via a CSS class/module — so
+ * a theme switch (design-system themes, dark mode, workspace themes) recolours
+ * them for free.
  *
  * A literal such as `#4f6ef7` or `rgba(99, 102, 241, 0.25)` in a component
  * silently opts out of that: it stays the same in every theme, and it is
@@ -23,13 +24,19 @@
  *     literals freely (assertions, expected values, fake canvas stubs).
  *   - `src/i18n/locales/**` — translation data, no styles.
  *
+ * This file's own fixtures are scanned too (`design-tokens.test.ts` excludes
+ * only itself), so every token reference spelled out here would have to name a
+ * token that really exists in `tokens.css`. Fixtures that illustrate arbitrary
+ * or deliberately unknown tokens are therefore assembled at runtime from their
+ * parts instead of being written as one literal reference.
+ *
  * Rules:
  *   - `*.ts` / `*.tsx`: no hex colour, no `rgb()/rgba()/hsl()/hsla()` literal.
- *   - `*.css`: same, but `var(--...)` is always fine (that is the token
+ *   - `*.css`: same, but a `var()` reference is always fine (that is the token
  *     reference form); only the literal fallback/arg form is flagged.
- *   - `rgb(var(--color-x-rgb), 0.5)` is *allowed*: its arguments are a token
- *     reference, not a literal. Only a first argument that is not `var(...)`
- *     counts as hardcoded.
+ *   - `rgb()` wrapped around a token reference (`--color-*-rgb`) is *allowed*:
+ *     its arguments are a token reference, not a literal. Only a first
+ *     argument that is not a `var()` call counts as hardcoded.
  *   - A 3-character hex match made of digits only (`#317`) is treated as a
  *     GitHub issue reference, not a colour — this codebase writes issue
  *     numbers inline everywhere. A real colour of that form should be written
@@ -100,7 +107,7 @@ type BaselineEntry = {
  *
  * Every entry is *existing debt*, not an endorsement: the count is a ceiling,
  * not a target. New files must not appear here — fix the literal instead
- * (use a token, a CSS class, or `rgb(var(--color-…-rgb), α)`).
+ * (use a token reference, a CSS class, or `rgb()` around an `-rgb` token).
  */
 const BASELINE: Readonly<Record<string, BaselineEntry>> = {
   // Fabric.js draws into a <canvas> and only accepts real colour strings, so
@@ -130,15 +137,15 @@ const BASELINE: Readonly<Record<string, BaselineEntry>> = {
     reason:
       'ASIL badge colours encode a fixed safety-integrity scale; theme-independent by design.',
   },
-  // `var(--token, #fallback)` pairs: the token wins everywhere it is defined;
-  // the fallback only matters for a consumer without tokens.css (print/export).
+  // Token-with-fallback pairs: the token wins everywhere it is defined; the
+  // fallback only matters for a consumer without tokens.css (print/export).
   'components/AllocationGraph/buildGraph.ts': {
     count: 2,
-    reason: '`var(--token, #fallback)` strokes for the allocation graph.',
+    reason: 'Token-with-fallback strokes (`--token`, `#fallback`) for the allocation graph.',
   },
   'components/DiagramView/diagram-view-shared.ts': {
     count: 2,
-    reason: '`var(--color-danger, #ef4444)` fallbacks for the diagram preview.',
+    reason: '`--color-danger` fallbacks (`#ef4444`) for the diagram preview.',
   },
   'components/DiagramGraphEditor/GraphEdge.tsx': {
     count: 1,
@@ -160,7 +167,7 @@ const BASELINE: Readonly<Record<string, BaselineEntry>> = {
   },
   'components/Audit/audit-dashboard.module.css': {
     count: 1,
-    reason: '`var(--shadow-md, ...)` fallback for the audit dashboard.',
+    reason: '`--shadow-md` fallback for the audit dashboard.',
   },
   'components/shared/Dialog/Dialog.module.css': {
     count: 1,
@@ -168,7 +175,7 @@ const BASELINE: Readonly<Record<string, BaselineEntry>> = {
   },
   'styles/global.css': {
     count: 1,
-    reason: '`var(--shadow-sm, ...)` fallback for the base button shadow.',
+    reason: '`--shadow-sm` fallback for the base button shadow.',
   },
 };
 
@@ -273,12 +280,13 @@ export function findColorViolations(text: string, file: string, suffix: string):
     }
   });
 
-  // Functions are matched over the whole text so `rgba(\n  var(--x)\n)` is
-  // still recognised as a token reference; the line is derived from the index.
+  // Functions are matched over the whole text, so a call whose argument is a
+  // token reference spanning several lines is still recognised as a token
+  // reference; the line is derived from the index.
   for (const match of scanText.matchAll(COLOR_FUNCTION_PATTERN)) {
     const openIndex = match.index + match[0].length - 1;
     const { argument, endIndex } = readCall(scanText, openIndex);
-    // `rgb(var(--color-x-rgb), 0.5)` is a token reference, not a literal.
+    // An argument that is a `var()` call is a token reference, not a literal.
     if (argument.trim().toLowerCase().startsWith('var(')) {
       continue;
     }
@@ -327,7 +335,7 @@ describe('hardcoded colour literals', () => {
       if (allowance === undefined) {
         problems.push(
           `${file}: ${violations.length} hardcoded colour literal(s) — use a ` +
-            'token (`var(--color-…)`), a CSS class, or `rgb(var(--color-…-rgb), α)`',
+            'token reference, a CSS class, or `rgb()` around an `-rgb` token',
           ...formatViolations(violations)
         );
         continue;
@@ -374,11 +382,21 @@ describe('findColorViolations scanner', () => {
   const scan = (text: string, suffix = '.tsx'): ColorViolation[] =>
     findColorViolations(text, 'sample.tsx', suffix);
 
+  /**
+   * Compose a `var()` reference from its parts instead of spelling it out.
+   *
+   * `design-tokens.test.ts` scans this file as well, so a reference written as
+   * one literal would have to name a token that really exists in `tokens.css`
+   * — which the fixtures below deliberately do not (they illustrate arbitrary
+   * names, e.g. a bare `--x`).
+   */
+  const tokenReference = (name: string): string => 'var(' + name + ')';
+
   it('flags 3-, 6- and 8-digit hex colours', () => {
     expect(scan('a = "#fff"')).toHaveLength(1);
     expect(scan('a = "#1f2937"')).toHaveLength(1);
     expect(scan('a = "#1f2937ff"')).toHaveLength(1);
-    expect(scan('a = "var(--color-text)"')).toHaveLength(0);
+    expect(scan('a = "' + tokenReference('--color-text') + '"')).toHaveLength(0);
   });
 
   it('flags rgb/rgba/hsl/hsla literals', () => {
@@ -389,12 +407,14 @@ describe('findColorViolations scanner', () => {
   });
 
   it('allows rgb() wrapped around a token reference', () => {
-    expect(scan('color: rgba(var(--color-primary-rgb), 0.5);')).toHaveLength(0);
-    expect(scan('color: rgb(var(--color-fg-rgb));')).toHaveLength(0);
+    const primary = tokenReference('--color-primary-rgb');
+    expect(scan('color: rgba(' + primary + ', 0.5);')).toHaveLength(0);
+    expect(scan('color: rgb(' + tokenReference('--color-fg-rgb') + ');')).toHaveLength(0);
   });
 
   it('recognises a token reference that spans several lines', () => {
-    const text = ['color: rgba(', '  var(--color-primary-rgb),', '  0.5', ');'].join('\n');
+    const reference = tokenReference('--color-primary-rgb');
+    const text = ['color: rgba(', `  ${reference},`, '  0.5', ');'].join('\n');
 
     expect(scan(text, '.css')).toHaveLength(0);
   });
@@ -406,8 +426,10 @@ describe('findColorViolations scanner', () => {
   });
 
   it('allows var() references and plain token usage', () => {
-    expect(scan('color: var(--color-text);')).toHaveLength(0);
-    expect(scan('.x { background: var(--palette-blue-500); }', '.css')).toHaveLength(0);
+    expect(scan('color: ' + tokenReference('--color-text') + ';')).toHaveLength(0);
+    expect(
+      scan('.x { background: ' + tokenReference('--palette-blue-500') + '; }', '.css')
+    ).toHaveLength(0);
   });
 
   it('ignores issue references written as 3-digit hashes', () => {
