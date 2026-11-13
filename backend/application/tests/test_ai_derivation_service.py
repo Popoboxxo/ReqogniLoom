@@ -819,8 +819,10 @@ def test_derive_testcase_returns_draft(auth_context, workspace):
     assert draft["title"]
     assert draft["description"]
     assert len(draft["steps"]) >= 1
+    # Issue #1564: the draft is typed, whatever shape the provider answered.
     for step in draft["steps"]:
-        assert set(step.keys()) == {"step", "expected_result"}
+        assert set(step.keys()) == {"id", "step_type", "text"}
+        assert step["step_type"] in {"given", "when", "then", "and", "but"}
 
 
 def test_derive_testcase_no_preset_gate(auth_context, workspace):

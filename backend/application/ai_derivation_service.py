@@ -100,6 +100,7 @@ from application.ai_proposal_service import (
     verify_proposal_state,
 )
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.test_steps import normalize_steps
 from application.glossary_service import GlossaryService
 from application.models import Risk
 from auth_tenancy.context import AuthContext
@@ -1277,14 +1278,17 @@ class AiDerivationService(ServiceBase):
         )
 
         raw_steps = parsed.get("steps")
-        steps = [
-            {
-                "step": str(step.get("step", "")),
-                "expected_result": str(step.get("expected_result", "")),
-            }
-            for step in raw_steps
-            if isinstance(step, dict)
-        ] if isinstance(raw_steps, list) else []
+        # Issue #1564: the draft is typed. The prompt still asks for the legacy
+        # pair (the LLM contract is unchanged); normalization is the single
+        # translation point, so a provider that already answers typed steps is
+        # passed through unchanged. Non-dict entries are dropped here (an LLM
+        # shape defect must not fail the whole draft); the API write path
+        # validates strictly.
+        steps = normalize_steps(
+            [step for step in raw_steps if isinstance(step, dict)]
+            if isinstance(raw_steps, list)
+            else []
+        )
 
         draft = {
             "title": str(parsed.get("title", "")),

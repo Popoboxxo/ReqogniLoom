@@ -7546,6 +7546,35 @@
             "type": "string",
             "description": "Test case description."
           },
+          "steps": {
+            "type": "array",
+            "description": "Typed Given/When/Then steps ({id?, step_type, text}). The legacy {step, expected_result} form is still accepted and normalised.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "step_type": {
+                  "type": "string",
+                  "enum": [
+                    "given",
+                    "when",
+                    "then",
+                    "and",
+                    "but"
+                  ]
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "step_type",
+                "text"
+              ]
+            }
+          },
           "test_type": {
             "type": "string",
             "enum": [
@@ -7961,8 +7990,31 @@
               },
               "steps": {
                 "type": "array",
+                "description": "Typed Given/When/Then steps ({id?, step_type, text}). The legacy {step, expected_result} form is still accepted and normalised.",
                 "items": {
-                  "type": "object"
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "step_type": {
+                      "type": "string",
+                      "enum": [
+                        "given",
+                        "when",
+                        "then",
+                        "and",
+                        "but"
+                      ]
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "step_type",
+                    "text"
+                  ]
                 }
               },
               "test_type": {
