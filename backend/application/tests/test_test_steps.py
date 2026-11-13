@@ -76,6 +76,14 @@ def test_normalize_is_idempotent() -> None:
     assert normalize_steps(once, testcase_id=TESTCASE_ID) == once
 
 
+def test_a_bare_string_becomes_a_when_step() -> None:
+    """The oldest hand-authored shape (``string[]``) stays readable."""
+    out = normalize_steps(["open", "click"], testcase_id=TESTCASE_ID)
+
+    assert [step["step_type"] for step in out] == ["when", "when"]
+    assert [step["text"] for step in out] == ["open", "click"]
+
+
 def test_unknown_shape_raises_with_path() -> None:
     with pytest.raises(ValidationError, match=r"steps\[1\]"):
         normalize_steps([{"step": "ok", "expected_result": ""}, {"x": 1}])

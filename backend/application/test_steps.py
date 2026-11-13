@@ -113,6 +113,21 @@ def normalize_steps(
     normalized: list[TestStep] = []
     for index, item in enumerate(raw):
         path = f"steps[{index}]"
+        if isinstance(item, str):
+            # Pre-#1564 hand-authored data: a bare string is an action.
+            text = item.strip()
+            if not text:
+                continue
+            normalized.append(
+                {
+                    "id": _step_id(
+                        testcase_id, len(normalized), StepType.WHEN.value, text
+                    ),
+                    "step_type": StepType.WHEN.value,
+                    "text": text,
+                }
+            )
+            continue
         if not isinstance(item, dict):
             raise ValidationError(f"{path} must be an object, got {type(item).__name__}.")
 

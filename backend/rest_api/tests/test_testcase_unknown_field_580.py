@@ -105,7 +105,7 @@ def test_create_still_succeeds_without_unknown_fields(auth_context, workspace) -
             "workspace_id": str(workspace.id),
             "title": "Issue 580 TC control",
             "description": "no unknown keys here",
-            "steps": [{"action": "do it", "expected": "works"}],
+            "steps": [{"step": "do it", "expected_result": "works"}],
         },
     )
     response = TestCaseViewSet.as_view({"post": "create"})(http_req)
