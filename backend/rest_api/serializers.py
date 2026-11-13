@@ -1404,6 +1404,13 @@ class RequirementSerializer(
         allow_null=True,
         help_text="P2: stable tier key (the workspace ladder entry).",
     )
+    # ADR-028 D11: the tier pinned when the requirement was released. Read-only;
+    # the release path is the only writer.
+    released_tier_key = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="ADR-028 D11: tier_key pinned at release time.",
+    )
     # P2 (V5 naming layer): the display name of `tier_key`. Resolved from the
     # workspace ladder map the view puts into the serializer context — one
     # ladder read per request, never a query per requirement. A serialisation

@@ -496,6 +496,10 @@ READ_ONLY_MODEL_FIELDS: frozenset[str] = frozenset(
         # like ``level`` below; a definition-driven form control would render a
         # value the PATCH drops.
         "tier_key",
+        # ADR-028 D11: the tier pinned at release. Only the release path writes
+        # it and the baseline reads it; a definition-driven form control would
+        # render a value the PATCH drops.
+        "released_tier_key",
         # P2: why a requirement is (not) allocated. The allocation service is
         # the only writer of "allocated" — a generic create/PATCH carrying it
         # answers a deliberate 400 ("Use the allocation endpoint to mark a
