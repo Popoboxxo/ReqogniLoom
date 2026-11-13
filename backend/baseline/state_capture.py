@@ -366,6 +366,16 @@ def _capture_items(
             "doc_date": doc.doc_date.isoformat() if doc.doc_date else None,
             "frozen_at": doc.frozen_at.isoformat() if doc.frozen_at else None,
             "frozen_fields": list(doc.frozen_fields or []),
+            # Phase G / #1374 S3: dual-source and projection bookkeeping. A
+            # baseline diff shows when ownership or the confirmed projection
+            # hash moved; a rollback must not write them back (see
+            # ``restorable_fields``).
+            "owner_mode": doc.owner_mode,
+            "source_path": doc.source_path,
+            "source_sha256": doc.source_sha256,
+            "projection_mode": doc.projection_mode,
+            "projected_sha256": doc.projected_sha256,
+            "projected_version": doc.projected_version,
             "status": doc_states.get(str(doc.id)) or doc_initial_state,
             "lifecycle_status": artifact_lifecycle.get(str(doc.artifact_id), "active"),
             "version": doc.version,
