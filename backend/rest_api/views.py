@@ -7907,6 +7907,13 @@ def _document_to_dict(document: Any) -> dict[str, Any]:
         "doc_date": getattr(document, "doc_date", None),
         "frozen_at": getattr(document, "frozen_at", None),
         "frozen_fields": list(getattr(document, "frozen_fields", None) or []),
+        # Phase G / #1374 S3: dual-source and projection bookkeeping (read-only).
+        "owner_mode": getattr(document, "owner_mode", "loom"),
+        "source_path": getattr(document, "source_path", ""),
+        "source_sha256": getattr(document, "source_sha256", ""),
+        "projection_mode": getattr(document, "projection_mode", "none"),
+        "projected_sha256": getattr(document, "projected_sha256", ""),
+        "projected_version": getattr(document, "projected_version", None),
         "custom_fields": _artifact_custom_fields(document),
         "version": document.version,
         "created_at": document.created_at,

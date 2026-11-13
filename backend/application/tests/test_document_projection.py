@@ -63,7 +63,7 @@ def test_render_is_byte_identical_across_runs_and_input_order() -> None:
     doc = _doc()
     anchors = [_anchor("[[glossary:1]]"), _anchor("[[glossary:2]]")]
     edges = [
-        {"link_type": "documents", "target_label": "Requirement aa"},
+        {"link_type": "satisfies", "target_label": "Requirement aa"},
         {"link_type": "decides", "target_label": "Adr bb"},
     ]
 
@@ -111,18 +111,18 @@ def test_glossary_and_edges_are_appendix_sections_in_stable_order() -> None:
         doc,
         glossary={"Zebra": "Streifen", "Anker": "Halt"},
         edges=[
-            {"link_type": "documents", "target_label": "Req 2"},
-            {"link_type": "documents", "target_label": "Req 1"},
+            {"link_type": "satisfies", "target_label": "Req 2"},
+            {"link_type": "satisfies", "target_label": "Req 1"},
         ],
     )
 
     lines = projected.content.splitlines()
     assert "## Glossary" in lines
     assert lines.index("- **Anker** — Halt") < lines.index("- **Zebra** — Streifen")
-    references = [line for line in lines if line.startswith("- `documents`")]
+    references = [line for line in lines if line.startswith("- `satisfies`")]
     assert references == [
-        "- `documents` → Req 1",
-        "- `documents` → Req 2",
+        "- `satisfies` → Req 1",
+        "- `satisfies` → Req 2",
     ]
 
 
