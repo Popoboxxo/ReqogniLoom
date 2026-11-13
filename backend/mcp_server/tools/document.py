@@ -48,6 +48,7 @@ from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
     artifact_custom_fields,
+    reject_unknown_params,
     require_param,
     require_uuid,
     resolve_engine_status,
