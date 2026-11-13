@@ -325,7 +325,8 @@ class QualityService(ServiceBase):
             raise ValidationError(
                 f"limit must be an integer between 1 and {MAX_HISTORY_LIMIT}."
             )
-        self._load_entity(workspace_id, entity_type, entity_id)
+        entity = self._load_entity(workspace_id, entity_type, entity_id)
+        self._assert_item_read_permission(ctx, entity, workspace_id)
         return list(
             QualityAssessment.objects.filter(
                 workspace_id=workspace_id,
@@ -347,10 +348,15 @@ class QualityService(ServiceBase):
         self._slot_for(entity_type)
         if not entity_ids:
             return {}
+        readable = self._readable_entity_ids(
+            ctx, workspace_id, entity_type, list(entity_ids)
+        )
+        if not readable:
+            return {}
         rows = QualityAssessment.objects.filter(
             workspace_id=workspace_id,
             entity_type=entity_type,
-            entity_id__in=list(entity_ids),
+            entity_id__in=readable,
         ).order_by("entity_id", "-created_at", "-id")
         latest: dict[UUID, QualityAssessment] = {}
         for row in rows:
@@ -387,6 +393,64 @@ class QualityService(ServiceBase):
                 f"{sorted(ASSESSABLE_TYPES)}."
             )
         return slot
+
+    @staticmethod
+    def _assert_item_read_permission(
+        ctx: AuthContext, entity: Any, workspace_id: UUID
+    ) -> None:
+        """Issue #1578: an item-level rule may narrow a read to one artefact.
+
+        The coarse RBAC matrix only says "this role may read somewhere"; an
+        ``ItemPermission`` can restrict it per workspace/artifact. No rule (or
+        a ``read``/``write`` grant) leaves the RBAC verdict untouched.
+        """
+        artifact_id = getattr(entity, "artifact_id", None)
+        if artifact_id is None:
+            return
+        from application.effective_permission_service import EffectivePermissionService
+
+        decision = EffectivePermissionService().resolve_effective_permission(
+            active_roles=ctx.active_roles,
+            user_id=ctx.user_id,
+            workspace_id=workspace_id,
+            artifact_id=UUID(str(artifact_id)),
+            level="read",
+        )
+        if not decision.is_allowed:
+            raise PermissionDeniedError(
+                f"Permission denied: no read access to the assessed artefact."
+            )
+
+    @staticmethod
+    def _readable_entity_ids(
+        ctx: AuthContext,
+        workspace_id: UUID,
+        entity_type: str,
+        entity_ids: list[UUID],
+    ) -> set[UUID]:
+        """The subset of *entity_ids* whose artefact the caller may read."""
+        from application.effective_permission_service import EffectivePermissionService
+
+        model, workspace_filter = _ENTITY_TYPES[entity_type]
+        pairs = model.objects.filter(
+            id__in=entity_ids, **{workspace_filter: workspace_id}
+        ).values_list("id", "artifact_id")
+        service = EffectivePermissionService()
+        allowed: set[UUID] = set()
+        for entity_id, artifact_id in pairs:
+            if artifact_id is None:
+                allowed.add(entity_id)
+                continue
+            decision = service.resolve_effective_permission(
+                active_roles=ctx.active_roles,
+                user_id=ctx.user_id,
+                workspace_id=workspace_id,
+                artifact_id=UUID(str(artifact_id)),
+                level="read",
+            )
+            if decision.is_allowed:
+                allowed.add(entity_id)
+        return allowed
 
     @staticmethod
     def _load_entity(workspace_id: UUID, entity_type: str, entity_id: UUID) -> Any:

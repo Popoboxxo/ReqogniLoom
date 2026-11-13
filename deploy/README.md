@@ -64,6 +64,25 @@ check is conditional: mock/anthropic/openai/ollama/azure deployments are unaffec
 > A Honcho deployment can still answer incorrectly if the `honcho` image drifts off its verified
 > tag/digest — see `## Troubleshooting: Stale Honcho image (#1153)` below.
 
+## Automatic quality assessment is opt-in and needs an agent key (#1578)
+
+`QUALITY_AUTO_ASSESS_ENABLED` (default `false`) turns on event-driven and periodic quality
+assessments. Every run is a **paid** completion, so the feature has four independent brakes:
+
+- **Agent key per tenant:** `QUALITY_AUTO_ASSESS_AGENT_KEY_ID` must name an active API key with
+  `principal_type=agent`. Without it nothing runs (logged as `skipped:no_agent_key`) — an automatic
+  assessment never writes under a real user's identity.
+- **Rigor:** only the `extended` preset runs; `minimal`/`standard` skip without a provider call.
+- **Throttle:** at most one automatic assessment per artefact per
+  `QUALITY_AUTO_ASSESS_MIN_INTERVAL_SECONDS` (default 3600). The manual R/MCP path keeps its own
+  `QUALITY_ASSESS_RATE` ceiling (default `60/hour`, never unlimited).
+- **Sweep:** `QUALITY_AUTO_ASSESS_INTERVAL_MINUTES` (default 1440) with at most
+  `QUALITY_AUTO_ASSESS_SWEEP_BATCH` (default 50) artefacts per run, oldest assessment first.
+  `QUAL_P1_MAX_FINDINGS` (default 50) caps the audit finding list and adds one summary finding.
+
+Findings stay `WARNING` only; nothing here can block a baseline. Provider failures are recorded as
+a `failed` assessment row and are **not** retried automatically.
+
 ## Base images are pinned tag + digest (#1391)
 
 Every third-party base image used by the Dockerfiles and the Compose files documented in the table

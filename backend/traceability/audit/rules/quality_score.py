@@ -440,6 +440,27 @@ def _unassessed_findings(context: AuditContext, snapshot: _Snapshot) -> list[Fin
                     artifact_ids=artifact_ids,
                 )
             )
+
+    # Issue #1578: a workspace with hundreds of unassessed artefacts must not
+    # flood the report. Keep the first ``QUAL_P1_MAX_FINDINGS`` and name the
+    # remainder in one summary finding.
+    from django.conf import settings as django_settings
+
+    cap = int(getattr(django_settings, "QUAL_P1_MAX_FINDINGS", 50))
+    if cap > 0 and len(findings) > cap:
+        remainder = len(findings) - cap
+        findings = findings[:cap]
+        findings.append(
+            Finding(
+                rule_id=QUAL_P1,
+                severity=Severity.WARNING,
+                message=(
+                    f"[QUAL-P1] weitere {remainder} Artefakte ohne Bewertung — "
+                    "Qualitätsbewertung fehlt."
+                ),
+                artifact_ids=(),
+            )
+        )
     return findings
 
 

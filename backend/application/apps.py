@@ -98,6 +98,15 @@ class ApplicationConfig(AppConfig):
 
         register_projector_on_event_bus()
 
+        # Issue #1578: automatic quality assessment. Subscription is
+        # unconditional; every gate (flag, tier, agent key) is evaluated in the
+        # handler/task, so a disabled feature costs one no-op call per event.
+        from application.quality_auto_assess import (
+            register_auto_assessor_on_event_bus,
+        )
+
+        register_auto_assessor_on_event_bus()
+
         # REQ-188: self-initialise a fresh deployment (admin + base workspace +
         # default workflow/permission definitions) on first start, replacing the
         # dedicated ``bootstrap`` compose service and the manual

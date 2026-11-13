@@ -4497,10 +4497,18 @@ class QualityAssessment(TenantScopedModel):
         FACTORY = "factory", "Factory"
 
     class Trigger(models.TextChoices):
-        """How the assessment was started (v1: manual only)."""
+        """How the assessment was started.
+
+        ``manual``/``mcp`` are human-initiated. The ``auto_*`` values are the
+        Issue #1578 automatic runs: an event-driven transition, an event-driven
+        create, and the periodic sweep.
+        """
 
         MANUAL = "manual", "Manual"
         MCP = "mcp", "MCP"
+        AUTO_TRANSITION = "auto_transition", "Auto (transition)"
+        AUTO_CREATE = "auto_create", "Auto (create)"
+        AUTO_PERIODIC = "auto_periodic", "Auto (periodic)"
 
     class Status(models.TextChoices):
         """Whether the LLM run produced a usable verdict."""

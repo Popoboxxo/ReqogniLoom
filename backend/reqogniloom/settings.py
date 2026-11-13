@@ -593,6 +593,33 @@ QUALITY_ASSESS_RATE: str = config(
     "QUALITY_ASSESS_RATE", default="60/hour"
 ).strip()
 
+# Issue #1578: automatic quality assessment. Off by default because every run
+# is a paid completion. The feature needs an agent API key per tenant
+# (principal_type=agent); without it nothing runs, so an automatic assessment
+# can never be written under a real user's identity.
+QUALITY_AUTO_ASSESS_ENABLED: bool = config(
+    "QUALITY_AUTO_ASSESS_ENABLED", default=False, cast=bool
+)
+QUALITY_AUTO_ASSESS_AGENT_KEY_ID: str = config(
+    "QUALITY_AUTO_ASSESS_AGENT_KEY_ID", default=""
+).strip()
+#: Minimum gap between two automatic assessments of the same artefact.
+QUALITY_AUTO_ASSESS_MIN_INTERVAL_SECONDS: int = config(
+    "QUALITY_AUTO_ASSESS_MIN_INTERVAL_SECONDS", default=3600, cast=int
+)
+#: Sweep cadence and per-run ceiling (oldest assessment first).
+QUALITY_AUTO_ASSESS_INTERVAL_MINUTES: int = config(
+    "QUALITY_AUTO_ASSESS_INTERVAL_MINUTES", default=1440, cast=int
+)
+QUALITY_AUTO_ASSESS_SWEEP_BATCH: int = config(
+    "QUALITY_AUTO_ASSESS_SWEEP_BATCH", default=50, cast=int
+)
+#: Issue #1578: QUAL-P1 emits at most this many individual findings per audit
+#: run, plus one summary finding naming the remainder.
+QUAL_P1_MAX_FINDINGS: int = config(
+    "QUAL_P1_MAX_FINDINGS", default=50, cast=int
+)
+
 # Plan A T-A4-7: the inbound Honcho webhook receiver is unauthenticated by
 # design (the HMAC in ``X-Honcho-Signature`` is its credential), so it needs a
 # ceiling of its own rather than the shared ``anon`` budget — see
@@ -1197,6 +1224,15 @@ _MEMORY_CONSOLIDATION_BEAT_ENTRY = _memory_consolidation_beat_entry(
 )
 if _MEMORY_CONSOLIDATION_BEAT_ENTRY is not None:
     CELERY_BEAT_SCHEDULE["memory-consolidate"] = _MEMORY_CONSOLIDATION_BEAT_ENTRY
+
+# Issue #1578: the periodic quality-assessment sweep exists only while the
+# feature is on and the cadence is positive. The task reads the flag again, so
+# a beat row left over from an older deployment is inert.
+if QUALITY_AUTO_ASSESS_ENABLED and QUALITY_AUTO_ASSESS_INTERVAL_MINUTES > 0:
+    CELERY_BEAT_SCHEDULE["quality-auto-assess-sweep"] = {
+        "task": "application.quality_auto_assess_sweep",
+        "schedule": timedelta(minutes=QUALITY_AUTO_ASSESS_INTERVAL_MINUTES),
+    }
 
 # Use database scheduler for Celery Beat (REQ-030)
 # Requires django_celery_beat to be in INSTALLED_APPS and initialized with migrations

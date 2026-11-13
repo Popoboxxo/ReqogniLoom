@@ -336,6 +336,28 @@ def test_history_is_newest_first_and_workspace_bound(
         service.history(ctx, other_workspace.id, "Requirement", requirement.id)
 
 
+def test_an_item_rule_hides_the_assessment_history(
+    ctx: AuthContext, workspace, requirement, provider, user
+):
+    """Issue #1578: a read restriction narrows history and latest_for too."""
+    from auth_tenancy.models import ItemPermission
+    from application.base import PermissionDeniedError
+
+    service = QualityService()
+    service.assess(ctx, workspace.id, "Requirement", requirement.id)
+    ItemPermission.objects.create(
+        tenant=workspace.tenant,
+        user=user,
+        workspace=workspace,
+        artifact_id=requirement.artifact_id,
+        permission_level="none",
+    )
+
+    with pytest.raises(PermissionDeniedError):
+        service.history(ctx, workspace.id, "Requirement", requirement.id)
+    assert service.latest_for(ctx, workspace.id, "Requirement", [requirement.id]) == {}
+
+
 def test_history_limit_is_validated(ctx: AuthContext, workspace, requirement):
     with pytest.raises(ValidationError):
         QualityService().history(
