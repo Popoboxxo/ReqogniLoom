@@ -289,6 +289,29 @@ _declare(
         ResourceScope.WORKSPACE, entity_key="artifact", id_kwargs=("artifact_id",)
     ),
 )
+# ADR-028 A1: the release cascade names its object by id (``element_id`` /
+# ``requirement_id``), so the owning workspace — and with it the caller's
+# authority — follows the artefact, not a client-supplied workspace.
+_declare(
+    "ElementReleaseImpactView",
+    ResourceClassification(
+        ResourceScope.WORKSPACE, entity_key="architecture", id_kwargs=("element_id",)
+    ),
+)
+_declare(
+    "ElementReleaseView",
+    ResourceClassification(
+        ResourceScope.WORKSPACE, entity_key="architecture", id_kwargs=("element_id",)
+    ),
+)
+_declare(
+    "RequirementReleaseView",
+    ResourceClassification(
+        ResourceScope.WORKSPACE,
+        entity_key="requirement",
+        id_kwargs=("requirement_id",),
+    ),
+)
 # ADR-019 WP4: accept/reject name the suggestion by id and derive the target
 # workspace from the suggestion row itself, so authority follows the object —
 # a caller without a role in the suggestion's workspace is denied and a foreign

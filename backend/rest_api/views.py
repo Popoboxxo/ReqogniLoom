@@ -78,6 +78,7 @@ from application.artifact_attribute_gateway import (
 )
 from application.base import (
     AllocationConflictError,
+    ReleaseStateError,
     WorkflowFrozenError,
     AnchorsPresentError,
     DocumentGateFailedError,
@@ -466,6 +467,9 @@ _EXC_TO_HTTP: dict[type, int] = {
     # answer. 429 + LLM_TOKEN_LIMIT_EXCEEDED mirrors CapabilityRouter's
     # existing taxonomy for the very same condition.
     LlmTokenLimitExceededError: status.HTTP_429_TOO_MANY_REQUESTS,
+    # ADR-028 A1: a release from a state with no release edge is a rejected
+    # precondition on a well-formed request, not a malformed payload.
+    ReleaseStateError: status.HTTP_409_CONFLICT,
 }
 
 _EXC_TO_CODE: dict[type, str] = {
@@ -522,6 +526,8 @@ _EXC_TO_CODE: dict[type, str] = {
     LlmProviderTimeoutError: "LLM_TIMEOUT",
     LlmProviderUnavailableError: "LLM_UNAVAILABLE",
     LlmTokenLimitExceededError: "LLM_TOKEN_LIMIT_EXCEEDED",
+    # ADR-028 A1: the client may retry once the item reaches a releasable state.
+    ReleaseStateError: "RELEASE_NOT_ALLOWED",
 }
 
 

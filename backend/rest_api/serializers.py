@@ -121,6 +121,11 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
         "en": "You do not have permission to perform this action.",
         "de": "Sie haben keine Berechtigung, diese Aktion durchzuführen.",
     },
+    # ADR-028 A1: the release conflicts with the item's workflow state.
+    "RELEASE_NOT_ALLOWED": {
+        "en": "The item cannot be released from its current workflow state.",
+        "de": "Das Element kann aus seinem aktuellen Workflow-Zustand nicht freigegeben werden.",
+    },
     "AUTHENTICATION_REQUIRED": {
         "en": "Authentication credentials were not provided.",
         "de": "Es wurden keine Authentifizierungsdaten angegeben.",

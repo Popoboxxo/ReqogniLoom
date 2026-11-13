@@ -146,6 +146,14 @@
    "post"
   ],
   [
+   "/api/v1/architecture/{element_id}/release-impact/",
+   "get"
+  ],
+  [
+   "/api/v1/architecture/{element_id}/release/",
+   "post"
+  ],
+  [
    "/api/v1/architecture/{id}/",
    "delete"
   ],
@@ -1420,6 +1428,10 @@
   [
    "/api/v1/requirements/{id}/workflow-history/",
    "get"
+  ],
+  [
+   "/api/v1/requirements/{requirement_id}/release/",
+   "post"
   ],
   [
    "/api/v1/reviews/",
