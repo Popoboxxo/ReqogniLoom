@@ -79,7 +79,11 @@ export function stepsToPairs(steps: unknown): LegacyTestCaseStep[] {
   if (!Array.isArray(steps)) return [];
   const pairs: LegacyTestCaseStep[] = [];
   for (const raw of steps) {
-    const record = (raw ?? {}) as Record<string, unknown>;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      pairs.push({ step: String(raw ?? ""), expected_result: "" });
+      continue;
+    }
+    const record = raw as Record<string, unknown>;
     if (typeof record.step_type === "string" && "text" in record) {
       const text = typeof record.text === "string" ? record.text : "";
       if (record.step_type === "then") {

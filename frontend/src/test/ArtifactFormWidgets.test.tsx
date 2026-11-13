@@ -177,21 +177,28 @@ describe("ArtifactForm widget registry", () => {
         testId="artifact-widget-steps"
       />
     );
+    // Issue #1564: a stored legacy pair renders as typed when/then rows, so
+    // the first edit already writes the typed shape back.
     fireEvent.click(screen.getByTestId("artifact-widget-steps-add"));
     expect(onChange).toHaveBeenCalledWith("steps_data", [
-      { step: "first", expected_result: "ok" },
-      { step: "", expected_result: "" },
+      { step_type: "when", text: "first" },
+      { step_type: "then", text: "ok" },
+      { step_type: "when", text: "" },
     ]);
 
     fireEvent.click(screen.getByTestId("artifact-widget-steps-remove-0"));
-    expect(onChange).toHaveBeenCalledWith("steps_data", []);
+    // The controlled test supplies a legacy pair; removing row 0 leaves the
+    // `then` row of that pair.
+    expect(onChange).toHaveBeenCalledWith("steps_data", [
+      { step_type: "then", text: "ok" },
+    ]);
   });
 
-  it("round-trips both step and expected_result independently (C-1 regression)", () => {
-    // Guards against the fixed CRITICAL bug: the widget used to treat the
-    // bound value as `string[]`, rendering every dict entry as the literal
-    // text "[object Object]" and writing back a `string[]` the backend
-    // rejects with a 400 (DRF `ListField(child=DictField())`).
+  it("round-trips the typed step text and type independently (C-1 regression)", () => {
+    // Guards against the fixed CRITICAL bug class: the widget used to treat
+    // the bound value as `string[]`, rendering every dict entry as the literal
+    // text "[object Object]". Since #1564 the bound shape is the typed step,
+    // and a legacy pair still renders as a when/then pair of real inputs.
     const onChange = vi.fn();
     const Widget = WIDGET_REGISTRY.steps_editor!;
     render(
@@ -208,22 +215,25 @@ describe("ArtifactForm widget registry", () => {
       />
     );
 
-    // Renders as two real inputs, not "[object Object]".
+    // Renders as real inputs, not "[object Object]".
     expect(screen.getByTestId("artifact-widget-steps-step-0")).toHaveValue("open the app");
-    expect(screen.getByTestId("artifact-widget-steps-expected-0")).toHaveValue("app loads");
+    expect(screen.getByTestId("artifact-widget-steps-step-1")).toHaveValue("app loads");
+    expect(screen.getByTestId("artifact-widget-steps-type-1")).toHaveValue("then");
 
     fireEvent.change(screen.getByTestId("artifact-widget-steps-step-0"), {
       target: { value: "open the app v2" },
     });
     expect(onChange).toHaveBeenLastCalledWith("steps_data", [
-      { step: "open the app v2", expected_result: "app loads" },
+      { step_type: "when", text: "open the app v2" },
+      { step_type: "then", text: "app loads" },
     ]);
 
-    fireEvent.change(screen.getByTestId("artifact-widget-steps-expected-0"), {
-      target: { value: "app loads within 2s" },
+    fireEvent.change(screen.getByTestId("artifact-widget-steps-type-0"), {
+      target: { value: "given" },
     });
     expect(onChange).toHaveBeenLastCalledWith("steps_data", [
-      { step: "open the app", expected_result: "app loads within 2s" },
+      { step_type: "given", text: "open the app" },
+      { step_type: "then", text: "app loads" },
     ]);
   });
 
@@ -293,7 +303,7 @@ describe("ArtifactForm widget registry", () => {
     expect(screen.queryAllByTestId(/artifact-widget-steps-step-/)).toHaveLength(0);
   });
 
-  it("degrades a legacy string[]/malformed entry to {step, expected_result: ''} instead of crashing", () => {
+  it("degrades legacy strings and malformed entries to typed steps instead of crashing", () => {
     const Widget = WIDGET_REGISTRY.steps_editor!;
     render(
       <Widget
@@ -309,10 +319,10 @@ describe("ArtifactForm widget registry", () => {
       />
     );
     expect(screen.getByTestId("artifact-widget-steps-step-0")).toHaveValue("legacy plain string");
-    expect(screen.getByTestId("artifact-widget-steps-expected-0")).toHaveValue("");
+    expect(screen.getByTestId("artifact-widget-steps-type-0")).toHaveValue("when");
     expect(screen.getByTestId("artifact-widget-steps-step-1")).toHaveValue("42");
-    expect(screen.getByTestId("artifact-widget-steps-expected-1")).toHaveValue("");
     expect(screen.getByTestId("artifact-widget-steps-step-2")).toHaveValue("ok");
-    expect(screen.getByTestId("artifact-widget-steps-expected-2")).toHaveValue("fine");
+    expect(screen.getByTestId("artifact-widget-steps-step-3")).toHaveValue("fine");
+    expect(screen.getByTestId("artifact-widget-steps-type-3")).toHaveValue("then");
   });
 });
