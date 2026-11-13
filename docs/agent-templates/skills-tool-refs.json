@@ -54,5 +54,16 @@
   "interview-management": [
     "interview.start", "interview.get_state", "interview.answer",
     "interview.grounding_context", "interview.formalize"
+  ],
+  "document-projection": [
+    "workspace.get_context",
+    "document.read", "document.query", "document.versions", "document.diff",
+    "document.project", "document.projection_status", "document.adopt",
+    "document.update", "artifact.search", "traceability.query"
+  ],
+  "reqogniloom-support": [
+    "workspace.get_context", "workspace.list", "workspace.get_preferences",
+    "artifact.search", "artifact.get_tree", "document.read", "document.query",
+    "metrics.get", "metrics.catalog"
   ]
 }

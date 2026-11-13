@@ -10,6 +10,11 @@ role's `review_changes`/`review_high_risk` tool subset (a static table hardcoded
 derived from the `tools:` whitelist in each role's Markdown file at the time the hook was
 written), returns a `permissionDecision` of `ask` instead of `allow`.
 
+Current gated subsets: `requirements-architecture-manager`, `risk-analyst`, `change-manager` and
+`document-steward` (only `document.adopt` and `document.update` — projection and status
+reconciliation run freely). `test-engineer`, `quality-auditor` and `reqogniloom-support` have the
+`auto` profile and are never gated.
+
 ## Limitations
 
 - **Static, not live:** the tool-to-role table is hardcoded in the script. If the downstream

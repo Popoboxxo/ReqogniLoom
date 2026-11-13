@@ -1,6 +1,6 @@
 # ReqogniLoom Agent Templates
 
-Five provider-agnostic agent templates for a downstream project that wants to work against a
+Seven provider-agnostic agent templates for a downstream project that wants to work against a
 ReqogniLoom workspace through its native MCP server (`/mcp/sse/`, JSON-RPC 2.0).
 
 ## Roles
@@ -12,6 +12,8 @@ ReqogniLoom workspace through its native MCP server (`/mcp/sse/`, JSON-RPC 2.0).
 | `risk-analyst.md` | Identify risks, link to requirements/architecture | `review_high_risk` |
 | `change-manager.md` | Manage ADRs/issues, apply approved requirement/architecture changes | `review_high_risk` |
 | `quality-auditor.md` | Read-only traceability and coverage auditing | `auto` (no write tools) |
+| `document-steward.md` | Project Loom documents to Markdown, adopt repo documents via branch + PR | `review_high_risk` (`document.adopt`, `document.update`) |
+| `reqogniloom-support.md` | Capture, classify and file ReqogniLoom defects as GitHub issues | `auto` (read-only) |
 
 ## Installation
 
