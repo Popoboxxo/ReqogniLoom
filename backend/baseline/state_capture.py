@@ -66,9 +66,17 @@ import uuid
 from collections.abc import Iterable
 from typing import Any
 
+from application.base import ValidationError
 from application.test_steps import normalize_steps
 from baseline.types import DeltaIndexTuple
 from workflow import state_reader
+
+
+def _normalized_steps(raw: Any) -> Any:
+    try:
+        return normalize_steps(raw)
+    except ValidationError:
+        return raw
 
 
 def capture_states(
@@ -307,8 +315,10 @@ def _capture_items(
             "title": tc.title,
             "description": tc.description,
             # Issue #1564: typed on capture, so a legacy row and a typed row
-            # of the same scenario yield the same baseline diff.
-            "steps": normalize_steps(tc.steps),
+            # of the same scenario yield the same baseline diff. A shape the
+            # normaliser refuses is captured verbatim: a baseline must never
+            # fail on data a human can still inspect.
+            "steps": _normalized_steps(tc.steps),
             "test_type": tc.test_type,
             # #424 / #402: provenance and in-content review flag. Editable
             # content, so a rollback has to be able to read it back.
