@@ -33,7 +33,7 @@
    matching this repo's own `templates/configs/mcp-secrets.local-template.yaml`
    convention.
 4. Verify: `/plugin` inside Claude Code should list `reqogniloom` as
-   installed with 5 agents and 1 MCP server (`reqogniloom`, SSE).
+   installed with 7 agents and 1 MCP server (`reqogniloom`, SSE).
 5. Invoke a role: `@requirements-architecture-manager` and ask it to call
    `workspace.get_context` — a successful response confirms the MCP
    connection, auth, and RBAC all resolved correctly end to end. Then try

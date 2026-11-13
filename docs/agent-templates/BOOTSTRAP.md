@@ -10,7 +10,7 @@ This project talks to a ReqogniLoom workspace via its native MCP server:
 - Auth: API-key header (see your ReqogniLoom instance's API-key management; never hardcode the
   key in this file — inject it via your MCP client's secret/credential mechanism)
 
-Five agent roles are available under `docs/agent-templates/` (or wherever you copied them to in
+Seven agent roles are available under `docs/agent-templates/` (or wherever you copied them to in
 this project):
 
 - **requirements-architecture-manager** — capture stakeholder needs, derive and decompose requirements
@@ -19,6 +19,10 @@ this project):
 - **risk-analyst** — identify risks, link them to requirements/architecture.
 - **change-manager** — manage ADRs/issues, apply approved requirement/architecture changes.
 - **quality-auditor** — read-only traceability and coverage auditing.
+- **document-steward** — project Loom documents to Markdown and adopt repo documents, delivered as a
+  branch and pull request (never a push to `main`).
+- **reqogniloom-support** — capture, classify and file ReqogniLoom defects as structured GitHub
+  issues; read-only, with no code or repository changes.
 
 Each role's Markdown file's YAML frontmatter carries a `compatible_with` field (currently
 `reqogniloom>=1.0.0`) — check it against your ReqogniLoom instance's `VERSION` file before

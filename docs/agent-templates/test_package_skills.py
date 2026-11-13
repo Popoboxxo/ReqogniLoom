@@ -10,10 +10,11 @@ REPO_ROOT = TEMPLATES_DIR.parent.parent
 SKILL_NAMES = [
     "vmodell-decomposition", "test-lifecycle", "risk-derivation",
     "ccb-approval-and-baseline", "traceability-audit",
+    "interview-management", "document-projection", "reqogniloom-support",
 ]
 
 
-def test_package_skills_copies_all_five(tmp_path, monkeypatch):
+def test_package_skills_copies_all_skills(tmp_path, monkeypatch):
     monkeypatch.chdir(REPO_ROOT)
     result = subprocess.run(
         [sys.executable, str(TEMPLATES_DIR / "package_skills.py"), "--out", str(tmp_path)],

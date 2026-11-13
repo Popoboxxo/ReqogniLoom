@@ -32,6 +32,8 @@ ROLE_FILES = [
     "risk-analyst.md",
     "change-manager.md",
     "quality-auditor.md",
+    "document-steward.md",
+    "reqogniloom-support.md",
 ]
 
 

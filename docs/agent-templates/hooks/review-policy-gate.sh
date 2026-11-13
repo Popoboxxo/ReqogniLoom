@@ -29,8 +29,16 @@ if [[ -n "$role" ]]; then
           decision="ask" ;;
       esac
       ;;
-    test-engineer|quality-auditor)
-      # review profile is "auto" for both -- no gating.
+    document-steward)
+      # Projection and status reconciliation are read-only and run freely;
+      # adoption and text changes on a document stay human-approved.
+      case "$tool_name" in
+        document.adopt|document.update)
+          decision="ask" ;;
+      esac
+      ;;
+    test-engineer|quality-auditor|reqogniloom-support)
+      # review profile is "auto" for all three -- no gating.
       ;;
   esac
 fi

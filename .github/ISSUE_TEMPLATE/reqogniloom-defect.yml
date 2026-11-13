@@ -1,0 +1,130 @@
+name: ReqogniLoom Defect
+description: Melde einen Fehler in ReqogniLoom — REST API, MCP, UI, CLI oder Harness-Plugin.
+title: "[defect] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für die Meldung. Bitte fülle die Pflichtfelder aus, damit der Fall
+        ohne Rückfragen reproduzierbar ist.
+
+        **Wichtig:** Keine Tokens, API-Keys, Passwörter, Cookies oder
+        personenbezogenen Daten einfügen. Redigiere Logs vor dem Einfügen.
+        Sicherheitslücken bitte **nicht** öffentlich melden, sondern über einen
+        GitHub Security Advisory an die Maintainer.
+
+  - type: input
+    id: summary
+    attributes:
+      label: Zusammenfassung
+      description: Ein Satz, was nicht funktioniert.
+      placeholder: "z. B. document.adopt antwortet mit 500 statt 409"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Betroffene Oberfläche
+      description: Wo tritt der Fehler auf?
+      options:
+        - REST API
+        - MCP
+        - UI
+        - CLI
+        - Harness-Plugin
+        - Sonstiges
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: ReqogniLoom-Version
+      description: Ausgabe von `GET /api/v1/version/` (Feld `version`), nicht aus dem Gedächtnis.
+      placeholder: "z. B. 1.8.0-beta.29"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Schritte zur Reproduktion
+      description: Nummeriert, mit Ausgangszustand, Workspace und verwendetem Tool bzw. Endpoint.
+      placeholder: |
+        1. Workspace mit Rigor-Preset "standard" anlegen
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Erwartetes Verhalten
+      description: Was sollte passieren?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Tatsächliches Verhalten
+      description: Was passiert stattdessen? Fehlertext vollständig einfügen.
+    validations:
+      required: true
+
+  - type: input
+    id: error_code
+    attributes:
+      label: Fehlercode / Request-ID
+      description: Optional. Fehlercode aus der Antwort (z. B. FIELD_FROZEN, CONFLICT) und Request-ID, falls vorhanden.
+      placeholder: "CONFLICT / 3f6c1a2e-..."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Schweregrad
+      description: Auswirkung auf die Arbeit, nicht die gefühlte Dringlichkeit.
+      options:
+        - low — kosmetisch oder Workaround vorhanden
+        - medium — Arbeitsablauf gestört, Workaround umständlich
+        - high — Kernfunktion blockiert, kein Workaround
+        - critical — Datenverlust, Datenintegrität oder Sicherheit betroffen
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Bereich
+      description: Welcher Fachbereich ist betroffen?
+      options:
+        - requirements
+        - architecture
+        - traceability
+        - baseline
+        - mcp
+        - ui
+        - cli
+        - plugin
+        - auth
+        - sonstiges
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redigierte Logs
+      description: Optional. Nur nach Entfernen von Tokens, API-Keys, Passwörtern und personenbezogenen Daten einfügen.
+      placeholder: |
+        ```
+        <relevante Logzeilen ohne Secrets>
+        ```
+      render: shell
+    validations:
+      required: false

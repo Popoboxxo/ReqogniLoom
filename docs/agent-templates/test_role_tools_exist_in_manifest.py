@@ -64,6 +64,17 @@ EXPECTED_TOOLS_BY_ROLE = {
         "baseline.list", "baseline.get", "baseline.compare", "change_request.read",
         "change_request.query", "review.list_pending",
     },
+    "document-steward": {
+        "document.read", "document.query", "document.versions", "document.diff",
+        "document.project", "document.projection_status", "document.adopt",
+        "document.update", "artifact.search", "traceability.query",
+        "workspace.get_context",
+    },
+    "reqogniloom-support": {
+        "workspace.get_context", "workspace.list", "workspace.get_preferences",
+        "artifact.search", "artifact.get_tree", "document.read", "document.query",
+        "metrics.get", "metrics.catalog",
+    },
 }
 
 ROLE_TO_SKILL = {
@@ -72,6 +83,8 @@ ROLE_TO_SKILL = {
     "risk-analyst": "risk-derivation",
     "change-manager": "ccb-approval-and-baseline",
     "quality-auditor": "traceability-audit",
+    "document-steward": "document-projection",
+    "reqogniloom-support": "reqogniloom-support",
 }
 
 
@@ -102,6 +115,15 @@ def test_quality_auditor_stays_strictly_read_only():
     frontmatter = _parse_frontmatter(TEMPLATES_DIR / "quality-auditor.md")
     write_tools = [t for t in frontmatter["tools"] if is_write.get(t)]
     assert not write_tools, f"quality-auditor must stay read-only, found write tool(s): {write_tools}"
+
+
+def test_support_agent_stays_strictly_read_only():
+    """The support role files issues outside Loom; it must never mutate a workspace."""
+    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    is_write = {t["name"]: t["is_write"] for t in manifest["tools"]}
+    frontmatter = _parse_frontmatter(TEMPLATES_DIR / "reqogniloom-support.md")
+    write_tools = [t for t in frontmatter["tools"] if is_write.get(t)]
+    assert not write_tools, f"reqogniloom-support must stay read-only, found write tool(s): {write_tools}"
 
 
 def test_every_role_points_at_its_process_skill():

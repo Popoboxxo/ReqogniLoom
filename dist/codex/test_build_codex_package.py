@@ -41,7 +41,8 @@ def test_discover_skill_names_matches_the_canonical_skill_set():
     the other three silently ship without it. Pinning the derived set keeps
     that derivation honest."""
     assert discover_skill_names(REPO_ROOT / "dist" / "agent-skills") == [
-        "ccb-approval-and-baseline", "interview-management", "risk-derivation",
-        "test-lifecycle", "traceability-audit", "vmodell-decomposition",
+        "ccb-approval-and-baseline", "document-projection", "interview-management",
+        "reqogniloom-support", "risk-derivation", "test-lifecycle",
+        "traceability-audit", "vmodell-decomposition",
     ]
 
