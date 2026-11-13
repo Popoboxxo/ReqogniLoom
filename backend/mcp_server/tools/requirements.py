@@ -144,6 +144,8 @@ def _requirement_to_dict(
         # is derived by ``tier_compute`` and the allocation service owns the
         # intent, so the write tools do not accept them.
         "tier_key": getattr(req, "tier_key", None),
+        # ADR-028 D11: the release pin, read-only like the live ladder key.
+        "released_tier_key": getattr(req, "released_tier_key", None),
         "allocation_intent": getattr(req, "allocation_intent", "unassigned"),
         "suspect": getattr(req, "suspect", False),
         "version": req.version,

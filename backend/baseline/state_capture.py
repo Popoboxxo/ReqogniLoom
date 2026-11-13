@@ -239,7 +239,13 @@ def _capture_items(
             # alias. Captured so the snapshot/diff is complete; it is derived by
             # ``application.tier_compute`` (single writer), so a rollback must
             # not write it (NON_RESTORABLE).
-            "tier_key": req.tier_key,
+            # ADR-028 D11: once an item is released the *pinned* value wins, so
+            # a baseline taken after a later re-allocation still shows the tier
+            # the item had at release (spec §6).
+            "tier_key": req.released_tier_key or req.tier_key,
+            # The pin itself, captured for completeness; the release path is
+            # its only writer, so a rollback must not restore it.
+            "released_tier_key": req.released_tier_key,
             "complexity_fibonacci": req.complexity_fibonacci,
             "verification_method": req.verification_method,
             "suspect": req.suspect,

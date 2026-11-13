@@ -189,6 +189,10 @@ NON_RESTORABLE: dict[str, dict[str, str]] = {
             "derived leaf-relative tier ladder key (P2 V4); single writer "
             "application.tier_compute"
         ),
+        "released_tier_key": (
+            "ADR-028 D11 release pin; the release path is its only writer and "
+            "the baseline reads it in preference to tier_key"
+        ),
         "status": "workflow governance",
         "uid": "identity",
         "version": "optimistic lock",

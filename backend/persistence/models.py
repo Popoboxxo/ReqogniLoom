@@ -1802,6 +1802,20 @@ class Requirement(TenantScopedModel):
             "permanent integer alias (position + 1)."
         ),
     )
+    # ADR-028 D11: the tier the item had when it was released. The release
+    # path writes it once and never again; the baseline capture reads this
+    # value in preference to ``tier_key`` so a later re-allocation cannot
+    # rewrite the released baseline. NULL = never released.
+    released_tier_key = models.SlugField(
+        max_length=64,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "ADR-028 D11: tier_key pinned at release time. The baseline reads "
+            "this value in preference to the live tier_key."
+        ),
+    )
     complexity_fibonacci = models.IntegerField(
         null=True,
         blank=True,

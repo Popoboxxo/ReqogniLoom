@@ -169,6 +169,9 @@ CORE_ATTRIBUTE_LABELS_DE: Mapping[str, str] = {
     # an editor: "Stufen-Schlüssel" composes the ladder vocabulary the
     # WorkspaceSettings surface uses ("Stufe") with the key carrier.
     "tier_key": "Stufen-Schlüssel",
+    # ADR-028 D11: the tier the item had at release. Composed from the ladder
+    # vocabulary above and the release term; read-only like ``tier_key``.
+    "released_tier_key": "Stufen-Schlüssel bei Freigabe",
     # P2: why a requirement is (not) allocated — allocated | not_allocatable |
     # unassigned. Only the allocation service writes "allocated"; the generic
     # create/PATCH rejects it by design. "Zuordnungsabsicht" is the intent
