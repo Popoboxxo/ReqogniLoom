@@ -328,3 +328,47 @@ def cleanup_import_idempotency_records() -> int:
     except Exception:  # noqa: BLE001 — beat task must never crash the loop.
         logger.exception("cleanup_import_idempotency_records: purge failed")
         return 0
+
+
+@shared_task(name="application.quality_auto_assess_entity")
+def quality_auto_assess_entity(
+    tenant_id: str,
+    workspace_id: str,
+    entity_type: str,
+    entity_id: str,
+    trigger: str,
+) -> str:
+    """Run one automatic quality assessment (Issue #1578).
+
+    Only ids cross the queue boundary (ADR-03); the worker re-arms the tenant
+    context before the first query. Provider failures are swallowed by the
+    assessor (it writes the ``failed`` row) so Celery does not retry-storm a
+    paid endpoint.
+    """
+    from application.quality_auto_assess import QualityAutoAssessor
+    from persistence.middleware import clear_request_tenant, set_request_tenant
+    from persistence.tenancy import TenantContext
+
+    tenant_was_set = TenantContext.is_set()
+    try:
+        set_request_tenant(tenant_id)
+        return QualityAutoAssessor().run_for(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            trigger=trigger,
+        )
+    except Exception:  # noqa: BLE001 - logged, never a retry on a paid call
+        logger.exception(
+            "quality_auto_assess_entity failed for %s %s", entity_type, entity_id
+        )
+        return "failed"
+    finally:
+        if not tenant_was_set and TenantContext.is_set():
+            try:
+                clear_request_tenant()
+            except Exception:  # noqa: BLE001 - teardown must not mask the cause
+                logger.exception(
+                    "quality_auto_assess_entity could not reset the tenant context"
+                )

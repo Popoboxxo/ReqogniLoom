@@ -371,33 +371,48 @@ def transition(
         # The already-locked ``item_state`` is handed down (m1) so the row is
         # locked once per transition instead of twice. The version compare below
         # still runs on the very row this lock covers, so nothing is weakened.
-        outcome: TransitionOutcome = lifecycle.perform_transition(
-            item_id=item_id_uuid,
-            item_type=item_type,
-            workspace_id=workspace_uuid,
-            target_state=target_state,
-            transitioned_by=str(ctx.user_id),
-            validation_result=result,
-            change_reason=change_reason,
-            expected_version=expected_version,
-            item_state=item_state,
-        )
+        # Issue #1578: the transition, its outbox event and the pending-review
+        # notification share one transaction. ``perform_transition`` opens its
+        # own atomic block, so without this wrapper the event INSERT would run
+        # after that block committed (the bus refuses to publish outside a
+        # transaction).
+        with transaction.atomic():
+            outcome: TransitionOutcome = lifecycle.perform_transition(
+                item_id=item_id_uuid,
+                item_type=item_type,
+                workspace_id=workspace_uuid,
+                target_state=target_state,
+                transitioned_by=str(ctx.user_id),
+                validation_result=result,
+                change_reason=change_reason,
+                expected_version=expected_version,
+                item_state=item_state,
+            )
+            _publish_transitioned_event(
+                item_id=item_id_uuid,
+                item_type=item_type,
+                workspace_id=workspace_uuid,
+                previous_state=outcome.previous_state,
+                new_state=outcome.new_state,
+            )
 
-    # Menschen-im-System spec §5.1: the single seam for transition_pending.
-    # This is the only non-test caller of perform_transition, so hooking here
-    # covers every transition — including `proposed -> draft`/`-> rejected`
-    # from the KI-Vorschlag-als-Zustand spec, which need no special case.
-    # Local import: the workflow engine must not import Layer 2 at module load.
-    from application.notification_service import notify_transition_pending
+            # Menschen-im-System spec §5.1: the single seam for
+            # transition_pending. This is the only non-test caller of
+            # perform_transition, so hooking here covers every transition —
+            # including `proposed -> draft`/`-> rejected` from the
+            # KI-Vorschlag-als-Zustand spec, which need no special case.
+            # Local import: the workflow engine must not import Layer 2 at
+            # module load.
+            from application.notification_service import notify_transition_pending
 
-    notify_transition_pending(
-        item_id=item_id_uuid,
-        item_type=item_type,
-        workspace_id=workspace_uuid,
-        new_state=outcome.new_state,
-        tenant_id=ctx.tenant_id,
-        actor_user_id=ctx.user_id,
-    )
+            notify_transition_pending(
+                item_id=item_id_uuid,
+                item_type=item_type,
+                workspace_id=workspace_uuid,
+                new_state=outcome.new_state,
+                tenant_id=ctx.tenant_id,
+                actor_user_id=ctx.user_id,
+            )
 
     return TransitionResult(
         item_id=item_id_uuid,
@@ -405,6 +420,37 @@ def transition(
         new_state=outcome.new_state,
         history_entry_id=outcome.history_entry_id,
         signature_seal=outcome.signature_seal,
+    )
+
+
+def _publish_transitioned_event(
+    *,
+    item_id: UUID,
+    item_type: str,
+    workspace_id: UUID,
+    previous_state: str,
+    new_state: str,
+) -> None:
+    """Publish ``WorkflowTransitioned`` inside the transition's transaction.
+
+    Issue #1578: consumers (auto-assessment first) need one event per
+    transition. The entity id is the *entity* id (Requirement/TestCase/...),
+    not the Artifact id — the same key the workflow state uses.
+    """
+    from application.event_bus import publish_entity_event
+    from application.models import DomainEventOutbox
+
+    publish_entity_event(
+        DomainEventOutbox.EventType.WORKFLOW_TRANSITIONED.value,
+        entity_id=item_id,
+        workspace_id=workspace_id,
+        payload={
+            "item_type": item_type,
+            "item_id": str(item_id),
+            "workspace_id": str(workspace_id),
+            "from_state": previous_state,
+            "to_state": new_state,
+        },
     )
 
 
