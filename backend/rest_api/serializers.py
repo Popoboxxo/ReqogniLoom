@@ -33,6 +33,7 @@ from typing import Any
 
 from django.utils import translation
 from rest_framework import pagination, serializers, status
+from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -641,6 +642,25 @@ def extract_preset_tier(value: Any) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+class InvalidPageSize(APIException):
+    """400 for a ``page_size`` that cannot be used as a page size (issue #1761).
+
+    Before #1761 an unusable value (``0``, negative, non-numeric, empty string)
+    was silently replaced by the default, so a client asking for "no limit"
+    with ``page_size=0`` got a normal first page and no indication that its
+    request had been rewritten.
+
+    ``detail`` carries an already-built ``build_error_response`` body, which
+    ``rest_api.error_envelope.reqogniloom_exception_handler`` passes through
+    unchanged (it short-circuits on a dict that already has an ``error`` key).
+    Same mechanism as ``rest_api.views.MalformedUuidInPath``: the response
+    stays byte-identical in shape to every explicit error of the API
+    (REQ-071, REQ-L2-RA-009).
+    """
+
+    status_code = status.HTTP_400_BAD_REQUEST
+
+
 class StandardPagination(pagination.PageNumberPagination):
     """Offset-based pagination: default 25, max 100 (REQ-L3-RA002-003, REQ-076).
 
@@ -670,6 +690,13 @@ class StandardPagination(pagination.PageNumberPagination):
     effective slice size and the endpoint's ceiling are both machine-readable.
     The clamp itself is kept (returning 400 would break every existing caller
     that over-asks and today gets a valid, merely smaller, page).
+
+    Issue #1761: a value that is *unusable* as a page size (``0``, negative,
+    non-numeric, empty string) is no longer silently swapped for the default.
+    Those requests answer ``400 VALIDATION_ERROR`` with a ``page_size`` entry
+    in ``error.details`` — see :class:`InvalidPageSize`. Only an *absent*
+    parameter keeps the default, and an over-large one keeps the #571 clamp;
+    both paths behave exactly as before.
     """
 
     #: Default number of items returned per page when ``page_size`` is omitted.
@@ -688,10 +715,64 @@ class StandardPagination(pagination.PageNumberPagination):
         keeps no record of the result, so ``get_paginated_response`` cannot
         report what was actually applied. Caching it here is the whole
         mechanism behind the ``page_size`` field (see the class docstring).
+
+        Issue #1761: the DRF default silently falls back to :attr:`page_size`
+        for any value :func:`rest_framework.pagination._positive_int` rejects —
+        including ``0``, negatives and non-numeric strings. An explicit but
+        unusable value now raises :class:`InvalidPageSize` instead, so the
+        caller learns the request was rewritten. An *absent* parameter still
+        yields the default.
         """
-        page_size = super().get_page_size(request)
+        raw_page_size = (
+            request.query_params.get(self.page_size_query_param)
+            if self.page_size_query_param
+            else None
+        )
+        page_size = (
+            self.page_size
+            if raw_page_size is None
+            else self._parse_page_size(request, raw_page_size)
+        )
         self._effective_page_size = page_size
         return page_size
+
+    def _parse_page_size(self, request: Request, raw_page_size: Any) -> int:
+        """Validate one explicit ``page_size`` value (issue #1761).
+
+        Returns the applied page size — the requested value, clamped to
+        :attr:`max_page_size` when it is larger (the #571 behaviour, kept).
+        Raises :class:`InvalidPageSize` for a value below ``1`` or one that is
+        not an integer at all; those have no meaningful clamp target, so a
+        silent default would only hide the caller's mistake.
+        """
+        try:
+            value = int(raw_page_size)
+        except (TypeError, ValueError):
+            message = (
+                "Must be an integer of at least 1 "
+                f"(got {str(raw_page_size)!r})."
+            )
+        else:
+            if value >= 1:
+                return (
+                    value
+                    if self.max_page_size is None
+                    else min(value, self.max_page_size)
+                )
+            message = f"Must be an integer of at least 1 (got {value})."
+
+        raise InvalidPageSize(
+            build_error_response(
+                "VALIDATION_ERROR",
+                detect_lang(request),
+                details=[
+                    {
+                        "field": self.page_size_query_param,
+                        "errors": [message],
+                    }
+                ],
+            )
+        )
 
     def get_paginated_response(self, data: Any) -> Response:
         """Return the ``count/next/previous/page_size/max_page_size/results`` envelope.
@@ -731,8 +812,9 @@ class StandardPagination(pagination.PageNumberPagination):
             parameter["description"] = (
                 f"Number of results per page (default {self.page_size}, maximum "
                 f"{self.max_page_size}). Larger values are clamped to "
-                f"{self.max_page_size}; the applied value is echoed as "
-                "'page_size' in the response."
+                f"{self.max_page_size} (the applied value is echoed as "
+                "'page_size' in the response). Values below 1 or non-numeric "
+                "values are rejected with 400 VALIDATION_ERROR."
             )
         return parameters
 
@@ -3872,6 +3954,7 @@ __all__ = [
     "DocumentSerializer",
     "FieldChangeSerializer",
     "GlossaryTermSerializer",
+    "InvalidPageSize",
     "IssueSerializer",
     "NotificationSerializer",
     "PresetAwareSerializerMixin",
