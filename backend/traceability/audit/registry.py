@@ -156,6 +156,12 @@ DOC_P5 = "DOC-P5"
 #: target artifact was soft-deleted or archived. WARNING at Standard, BLOCKER
 #: at Extended; see rules/document_references.py.
 DOC_P7 = "DOC-P7"
+#: #1805 — release pin vs. live tier. A released Requirement whose pinned
+#: ``released_tier_key`` (ADR-028 D11) no longer matches the live ``tier_key``.
+#: WARNING at Standard, BLOCKER at Extended; Minimal never runs it (the preset
+#: is empty by construction and the audit vocabulary has no INFO level). See
+#: rules/release_tier_pin.py.
+REL_P1 = "REL-P1"
 
 # ---------------------------------------------------------------------------
 # Preset → active rule ids (single source of truth, §2.2)
@@ -183,6 +189,9 @@ _STANDARD_RULES: frozenset[str] = frozenset(
         # Plan F F3-T8: stale work state — WARNING at Standard and Extended
         # (severity_for_tier); Minimal never runs it.
         DOC_P5,
+        # #1805: release pin vs. live tier — WARNING at Standard, BLOCKER at
+        # Extended (severity_for_tier); Minimal never runs it.
+        REL_P1,
     }
 )
 
@@ -470,6 +479,7 @@ __all__ = [
     "QUAL_P1",
     "QUAL_P2",
     "QUAL_P3",
+    "REL_P1",
     "RULE_PRESET_MAP",
     "TRACE_P1",
     "TRACE_P1B",
