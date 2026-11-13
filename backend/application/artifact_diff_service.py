@@ -372,6 +372,12 @@ class ArtifactDiffService(ServiceBase):
         snapshot: dict[str, Any] = {}
         for field_name in fields:
             value = getattr(entity, field_name, None)
+            if field_name == "steps" and value is not None:
+                # Issue #1564: a legacy and a typed row that describe the same
+                # scenario must diff as equal.
+                from application.test_steps import normalize_steps
+
+                value = normalize_steps(value)
             # Serialise JSON fields to a stable string representation
             if field_name in _JSON_FIELDS and value is not None:
                 value = json.dumps(value, sort_keys=True, ensure_ascii=False)

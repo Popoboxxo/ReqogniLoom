@@ -21,6 +21,7 @@ import pytest
 from rest_framework.test import APIRequestFactory
 
 from application.requirement_service import RequirementService
+from application.test_steps import normalize_steps
 from auth_tenancy.context import AuthContext
 from link_types.workspace_store import provision_workspace_link_types
 from persistence.models import Tenant, TraceLink, User
@@ -129,9 +130,12 @@ def test_testcase_serializer_accepts_steps_and_linked_requirement_id(workspace):
         }
     )
     assert ser.is_valid(), ser.errors
-    assert ser.validated_data["steps"] == [
-        {"step": "Open login page", "expected_result": "Page loads"}
+    # Issue #1564: the legacy pair is accepted on write and normalised.
+    assert [step["step_type"] for step in ser.validated_data["steps"]] == [
+        "when",
+        "then",
     ]
+    assert ser.validated_data["steps"][0]["text"] == "Open login page"
     assert ser.validated_data["linked_requirement_id"] == linked_id
 
 
@@ -171,7 +175,11 @@ def test_testcase_create_forwards_steps(auth_context, workspace):
     response = view(http_req)
 
     assert response.status_code == 201
-    assert response.data["steps"] == steps
+    normalized = normalize_steps(steps)
+    assert response.data["steps"] == normalized
+    # The row was written in the typed shape, so nothing was "normalised on
+    # read"; the flag only fires for a stored legacy row.
+    assert response.data["steps_legacy_normalized"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -208,12 +216,12 @@ def test_testcase_partial_update_forwards_steps(auth_context, workspace):
     patched = patch_view(patch_req, pk=created.data["id"])
 
     assert patched.status_code == 200
-    assert patched.data["steps"] == steps
+    assert patched.data["steps"] == normalize_steps(steps)
 
     get_req = _request("get", f"/api/v1/testcases/{created.data['id']}/", auth_context)
     get_view = TestCaseViewSet.as_view({"get": "retrieve"})
     refetched = get_view(get_req, pk=created.data["id"])
-    assert refetched.data["steps"] == steps
+    assert refetched.data["steps"] == normalize_steps(steps)
 
 
 def test_testcase_partial_update_test_type_set_then_clear(auth_context, workspace):
@@ -373,3 +381,28 @@ def test_testcase_create_link_failure_does_not_block_creation(auth_context, work
     response = view(http_req)
 
     assert response.status_code == 201
+
+
+def test_reading_a_stored_legacy_row_reports_normalization(auth_context, workspace):
+    """Issue #1564: a legacy row is normalised on read and the flag says so."""
+    from persistence.models import TestCase
+
+    create_req = _request(
+        "post",
+        "/api/v1/testcases/",
+        auth_context,
+        data={"workspace_id": str(workspace.id), "title": "Legacy test"},
+    )
+    created = TestCaseViewSet.as_view({"post": "create"})(create_req)
+    TestCase.objects.filter(id=created.data["id"]).update(
+        steps=[{"step": "Open login page", "expected_result": "Page loads"}]
+    )
+
+    get_req = _request("get", f"/api/v1/testcases/{created.data['id']}/", auth_context)
+    response = TestCaseViewSet.as_view({"get": "retrieve"})(
+        get_req, pk=created.data["id"]
+    )
+
+    assert response.status_code == 200
+    assert response.data["steps_legacy_normalized"] is True
+    assert [step["step_type"] for step in response.data["steps"]] == ["when", "then"]

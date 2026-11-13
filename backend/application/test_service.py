@@ -43,6 +43,7 @@ from application.artifact_service import (
 )
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
 from application.base import NotFoundError, ServiceBase, ValidationError
+from application.test_steps import normalize_steps, validate_steps
 from application.local_uid import generate_local_uid
 from application.models import DomainEventOutbox
 from application.optimistic_lock import (
@@ -141,6 +142,17 @@ def canonical_test_type_or_none(value: object) -> str | None:
         return normalize_test_type(value)
     except ValidationError:
         return None
+
+
+def _typed_steps(steps: list | None) -> list[dict]:
+    """Normalise + validate an incoming step list (Issue #1564).
+
+    The test case id is not known before the row exists, so create-time ids are
+    content-derived only; ``update_test_case`` re-normalises with the real id.
+    """
+    normalized = normalize_steps(steps)
+    validate_steps(normalized)
+    return normalized
 
 
 class TestService(ServiceBase):
@@ -254,7 +266,7 @@ class TestService(ServiceBase):
             workspace=workspace,
             title=title,
             description=description,
-            steps=steps or [],
+            steps=_typed_steps(steps),
             # Issue #932: allocate the local readable uid when not supplied.
             uid=uid or generate_local_uid("TestCase", workspace_id),
             test_type=canonical_test_type,
@@ -361,7 +373,9 @@ class TestService(ServiceBase):
         if description is not None:
             test_case.description = description
         if steps is not None:
-            test_case.steps = steps
+            typed_steps = normalize_steps(steps, testcase_id=test_case.id)
+            validate_steps(typed_steps)
+            test_case.steps = typed_steps
         # C-1 fix round: real model column (migration 0041, B6a) — distinct
         # from create_test_case's `test_type` parameter above, which only
         # ever tagged `artifact.artifact_type` and never touched this field.

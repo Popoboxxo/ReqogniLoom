@@ -76,7 +76,32 @@ from application.services import (
     TraceLinkService,
     ValidationError,
 )
+from application.test_steps import normalize_steps
 from application.test_service import normalize_test_type
+#: Issue #1564: typed step schema shared by write surfaces. ``step_type`` and
+#: ``text`` are required; ``id`` is optional (the service assigns a stable one).
+#: The legacy ``{step, expected_result}`` form stays accepted at runtime — the
+#: description says so, the schema cannot express "either shape" cleanly.
+_STEP_LIST_SCHEMA: dict[str, Any] = {
+    "type": "array",
+    "description": (
+        "Typed Given/When/Then steps ({id?, step_type, text}). The legacy "
+        "{step, expected_result} form is still accepted and normalised."
+    ),
+    "items": {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string"},
+            "step_type": {
+                "type": "string",
+                "enum": ["given", "when", "then", "and", "but"],
+            },
+            "text": {"type": "string"},
+        },
+        "required": ["step_type", "text"],
+    },
+}
+
 from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.ai_derivation import (
@@ -188,7 +213,8 @@ def _test_case_to_dict(
         "description": tc.description,
         "status": resolve_engine_status("TestCase", tc.id, status_map=status_map),
         "version": tc.version,
-        "steps": tc.steps if hasattr(tc, "steps") else [],
+        # Issue #1564: always the typed shape, legacy rows normalised on read.
+        "steps": normalize_steps(tc.steps) if hasattr(tc, "steps") else [],
         # #424: provenance and in-content review flag. Additive; `reviewed` is
         # how a caller tells whether an ai_generated test case already counts
         # as verification evidence.
@@ -401,6 +427,7 @@ class McpTestToolGroup(BaseToolGroup):
                     "workspace_id": {"type": "string", "description": "UUID of the target workspace."},
                     "title": {"type": "string", "description": "Test case title."},
                     "description": {"type": "string", "description": "Test case description."},
+                    "steps": _STEP_LIST_SCHEMA,
                     "test_type": {
                         "type": "string",
                         "enum": sorted(_VALID_MODEL_TEST_TYPES),
@@ -492,7 +519,7 @@ class McpTestToolGroup(BaseToolGroup):
                         "properties": {
                             "title": {"type": "string"},
                             "description": {"type": "string"},
-                            "steps": {"type": "array", "items": {"type": "object"}},
+                            "steps": _STEP_LIST_SCHEMA,
                             "test_type": {
                                 "type": "string",
                                 "enum": sorted(_VALID_MODEL_TEST_TYPES),

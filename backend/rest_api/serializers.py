@@ -36,6 +36,7 @@ from rest_framework import pagination, serializers, status
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from application.test_steps import normalize_steps, validate_steps
 from persistence.models import (
     Document,
     ElementType,
@@ -1734,6 +1735,33 @@ class ArchitectureElementSerializer(
         return attrs
 
 
+class TestStepListField(serializers.ListField):
+    """Typed test steps with legacy read/write normalisation (Issue #1564).
+
+    Reads always return the typed shape. Writes accept the legacy
+    ``{step, expected_result}`` form (and the typed one) and validate the
+    result, so an old MCP/UI client keeps working while the stored data moves
+    to the typed form.
+    """
+
+    child = serializers.DictField()
+    _normalized_legacy = False
+
+    def _testcase_id(self):
+        context = getattr(self, "context", {}) or {}
+        return context.get("testcase_id")
+
+    def to_internal_value(self, data):
+        normalized = normalize_steps(data, testcase_id=self._testcase_id())
+        validate_steps(normalized)
+        return normalized
+
+    def to_representation(self, value):
+        normalized = normalize_steps(value, testcase_id=self._testcase_id())
+        self._normalized_legacy = normalized != (value or [])
+        return normalized
+
+
 class TestCaseSerializer(
     ClientUidRejectionMixin,
     WorkflowStateSerializerMixin,
@@ -1767,9 +1795,10 @@ class TestCaseSerializer(
     suspect = serializers.BooleanField(required=False, default=False)
     # SysEng 2.0 N5 (test.derive_from_requirement): test steps, previously
     # persisted on the model but not exposed through the API.
-    steps = serializers.ListField(
-        child=serializers.DictField(), required=False, default=list
-    )
+    steps = TestStepListField(required=False, default=list)
+    # Additive read hint: true when the stored row still carried the legacy
+    # shape and the response is the normalized form (#1564).
+    steps_legacy_normalized = serializers.SerializerMethodField()
     # C-1 (attribute-definitions Task 22 review round 1): `TestCase.test_type`
     # (persistence/migrations/0041_add_testcase_test_type.py, B6a) is a real,
     # writable model column with TestCaseType choices — the bootstrap
@@ -1788,6 +1817,10 @@ class TestCaseSerializer(
     test_type = serializers.ChoiceField(
         choices=TestCaseType.choices, required=False, allow_null=True
     )
+    def get_steps_legacy_normalized(self, obj: Any) -> bool:
+        """True when the stored row was still legacy and the response is typed."""
+        return bool(getattr(self.fields.get("steps"), "_normalized_legacy", False))
+
     # SysEng 2.0 N5: optional requirement to auto-link on create (write-only —
     # mirrors the MCP test.create `linked_req_id` convention, ADR-L3-MC005-01).
     linked_requirement_id = serializers.UUIDField(

@@ -66,6 +66,7 @@ import uuid
 from collections.abc import Iterable
 from typing import Any
 
+from application.test_steps import normalize_steps
 from baseline.types import DeltaIndexTuple
 from workflow import state_reader
 
@@ -305,7 +306,9 @@ def _capture_items(
             "uid": tc.uid,
             "title": tc.title,
             "description": tc.description,
-            "steps": tc.steps,
+            # Issue #1564: typed on capture, so a legacy row and a typed row
+            # of the same scenario yield the same baseline diff.
+            "steps": normalize_steps(tc.steps),
             "test_type": tc.test_type,
             # #424 / #402: provenance and in-content review flag. Editable
             # content, so a rollback has to be able to read it back.
