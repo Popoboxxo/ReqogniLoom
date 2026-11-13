@@ -757,6 +757,7 @@ clients:
         - "Panel `reqogniloom-panel` (`area: panes`, links) — öffnet die ReqogniLoom-Panel-UI."
         - "Statusbar-Eintrag `reqogniloom.status` (`area: statusBar.right`, Priorität 20)."
         - "Kommando `reqogniloom.open` (im Manifest `contributes.commands` deklariert) — öffnet das Panel."
+        - "Requirements-Ansichten: filterbare, paginierte Liste, schreibgeschütztes Detail (Ebene, Stufe und Suspect werden serverseitig abgeleitet) und Anlegen-/Bearbeiten-Formular. Ein Read-Key darf browsen; Speichern antwortet dann mit 403 im Panel."
       version_note: "Drift zwischen installiertem und ausgeliefertem Plugin erkennt `scripts/check_plugin_packages.py` beim Release; das Desktop-Plugin folgt dem Repo-`VERSION` (ADR-017 Option A)."
     desktop_plugin_en:
       intro: "Besides the MCP server (section 2), the Hermes desktop app can load the ReqogniLoom **desktop plugin** — a dedicated panel plus a status-bar entry. Source in the repo: `integrations/hermes-plugin/reqogniloom/`, manifest `hermes-plugin.json`."
@@ -771,6 +772,7 @@ clients:
         - "Panel `reqogniloom-panel` (`area: panes`, left) — opens the ReqogniLoom panel UI."
         - "Status-bar item `reqogniloom.status` (`area: statusBar.right`, priority 20)."
         - "Command `reqogniloom.open` (declared in the manifest's `contributes.commands`) — opens the panel."
+        - "Requirements views: a filterable, paginated list, a read-only detail (level, tier and suspect are derived server-side) and a create/edit form. A read-only API key can browse; saving then answers 403 in the panel."
       version_note: "Drift between the installed and shipped plugin is caught by `scripts/check_plugin_packages.py` at release time; the desktop plugin follows the repo `VERSION` (ADR-017 Option A)."
     agent_plugin_en:
       intro: "Besides the MCP server and the desktop plugin, the repo ships the **agent / dashboard plugin** for the Hermes agent host (`integrations/hermes-agent-plugin/`): the `/reqogniloom` slash command, a `ReqogniLoom` dashboard tab and an opt-in listen mode. The dashboard tab and the agent plugin share that directory; `dashboard/manifest.json` points at the shipped `dist/index.js`/`dist/style.css` assets (no build step). Source: `https://github.com/Popoboxxo/ReqogniLoom.git#integrations/hermes-agent-plugin`."

@@ -4,6 +4,16 @@ Desktop panel + status-bar entry for the Hermes desktop app. The generated
 client guide (`docs/clients/hermes.md` / `.de.md`, section "Desktop plugin")
 is the user-facing entry point; this file documents the source tree itself.
 
+## Features
+
+- Connect to a ReqogniLoom server with an API key; the workspace is resolved once.
+- Interviews via the MCP server (existing views).
+- Requirements: filterable, paginated list; read-only detail; create/edit form.
+  `level`, `tier_name`, `level_source` and `suspect` are derived server-side and
+  are shown, never edited. A read-only key can browse; saving answers 403 and is
+  surfaced as an error banner.
+- Known limits: no delete, no allocation editing, no level override in the form.
+
 ## Build and load
 
 ```bash

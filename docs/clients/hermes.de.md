@@ -59,6 +59,7 @@ npm run build     # -> dist/plugin.js; der postbuild-Schritt führt scripts/veri
 - Panel `reqogniloom-panel` (`area: panes`, links) — öffnet die ReqogniLoom-Panel-UI.
 - Statusbar-Eintrag `reqogniloom.status` (`area: statusBar.right`, Priorität 20).
 - Kommando `reqogniloom.open` (im Manifest `contributes.commands` deklariert) — öffnet das Panel.
+- Requirements-Ansichten: filterbare, paginierte Liste, schreibgeschütztes Detail (Ebene, Stufe und Suspect werden serverseitig abgeleitet) und Anlegen-/Bearbeiten-Formular. Ein Read-Key darf browsen; Speichern antwortet dann mit 403 im Panel.
 
 - **Version:** `1.8.0-beta.29` (aus dem Repo-`VERSION`) — Drift zwischen installiertem und ausgeliefertem Plugin erkennt `scripts/check_plugin_packages.py` beim Release; das Desktop-Plugin folgt dem Repo-`VERSION` (ADR-017 Option A).
 
