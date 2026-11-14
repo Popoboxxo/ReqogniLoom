@@ -853,7 +853,7 @@ export default function ArchitectureEditors(): JSX.Element {
         )}
       </div>
 
-      {/* #1762/M3: the tabbed inspector replaces the stacked RightSidebar.
+      {/* #1762/M3: the tabbed inspector replaces the stacked sidebar.
           #1763: two id spaces — `element.id` drives the versions/diff routes,
           `element.artifact_id` (the backing Artifact) is the only id the
           comments route accepts. */}

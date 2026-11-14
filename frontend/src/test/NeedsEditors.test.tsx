@@ -76,7 +76,7 @@ const inspectorProbe = vi.hoisted(() => ({
         artifactPk?: string | null;
         hasCoveredRef?: boolean;
         hasOnShowInSpine?: boolean;
-        hasHideTraceLinks?: boolean;
+        unknownProps?: string[];
       }
     | undefined,
 }));
@@ -98,7 +98,6 @@ vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
   );
   return {
     ...actual,
-    RightSidebar: () => null,
     InspectorShell: (props: {
       kind: import("../components/shared/ArtifactInspector").ArtifactKind;
       entityId: string | number;
@@ -112,7 +111,20 @@ vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
         artifactPk: props.artifactPk,
         hasCoveredRef: props.coveredRef !== undefined,
         hasOnShowInSpine: props.onShowInSpine !== undefined,
-        hasHideTraceLinks: "hideTraceLinks" in (props as Record<string, unknown>),
+        // #1762/M8: no prop outside the documented shell contract — a
+        // removed route-level switch would show up here as an unknown key.
+        unknownProps: Object.keys(props).filter(
+          (key) =>
+            ![
+              "kind",
+              "entityId",
+              "artifactPk",
+              "currentVersion",
+              "initialTab",
+              "coveredRef",
+              "onShowInSpine",
+            ].includes(key),
+        ),
       };
       return inspectorProbe.renderRealComments ? (
         <CommentPanel kind={props.kind} artifactId={props.artifactPk ?? undefined} />
@@ -251,7 +263,7 @@ describe("NeedsEditors — create form sends description/category to the API (BU
 });
 
 // ---------------------------------------------------------------------------
-// #1762 / M2 — reference mount: the tabbed inspector replaces RightSidebar
+// #1762 / M2 — reference mount: the tabbed inspector replaces the stacked sidebar
 // ---------------------------------------------------------------------------
 
 describe("NeedsEditors — inspector shell mount (#1762 M2)", () => {
@@ -261,7 +273,7 @@ describe("NeedsEditors — inspector shell mount (#1762 M2)", () => {
     vi.mocked(stakeholderNeedApi.get).mockResolvedValue(NEED as never);
   });
 
-  it("mounts InspectorShell with both id spaces and no hideTraceLinks switch", async () => {
+  it("mounts InspectorShell with both id spaces and only the documented props", async () => {
     renderEditor(`/needs/${NEED.id}`);
 
     await waitFor(() => {
@@ -276,9 +288,9 @@ describe("NeedsEditors — inspector shell mount (#1762 M2)", () => {
       hasCoveredRef: true,
       hasOnShowInSpine: true,
     });
-    // `hideTraceLinks` was the route-level switch of the stacked sidebar; the
-    // tabbed shell derives its tab matrix from `kind` instead.
-    expect(inspectorProbe.lastShell?.hasHideTraceLinks).toBe(false);
+    // The tabbed shell derives its tab matrix from `kind`, so the removed
+    // route-level trace switch must not reappear as a prop.
+    expect(inspectorProbe.lastShell?.unknownProps).toEqual([]);
   });
 
   it("requests comments for the backing Artifact UUID, never the entity id", async () => {

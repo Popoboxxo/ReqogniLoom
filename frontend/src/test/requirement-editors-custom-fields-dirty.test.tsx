@@ -140,7 +140,6 @@ vi.mock("../components/SplitView/SplitView", () => ({
 }));
 
 vi.mock("../components/shared/ArtifactInspector", () => ({
-  RightSidebar: () => null,
   // #1762 (M1): the requirements route mounts the tabbed shell.
   InspectorShell: () => null,
 }));

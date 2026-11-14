@@ -77,9 +77,6 @@ describe("DiffPanel — diagram/glossary (REQ-142)", () => {
       <DiffPanel kind="diagram" entityId={ARTIFACT_ID} leftVersion={1} rightVersion={2} />
     );
 
-    // No longer the unsupported empty state.
-    expect(screen.queryByTestId("diff-unsupported")).not.toBeInTheDocument();
-
     await waitFor(() => {
       expect(screen.getByTestId("diff-field-payload")).toBeInTheDocument();
     });
@@ -93,8 +90,6 @@ describe("DiffPanel — diagram/glossary (REQ-142)", () => {
     render(
       <DiffPanel kind="glossary" entityId={ARTIFACT_ID} leftVersion={1} rightVersion={2} />
     );
-
-    expect(screen.queryByTestId("diff-unsupported")).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByTestId("diff-field-definition")).toBeInTheDocument();

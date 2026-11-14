@@ -46,15 +46,15 @@ vi.mock("../hooks/useHasRole", () => ({
   useHasRole: () => () => true,
 }));
 
-// Isolate from the ArtifactInspector sidebar — its own data fetching is out
-// of scope for this test (TracePanel behavior for glossary is covered by the
-// pre-existing "backend gap" documentation, not re-tested here). Captures the
-// props GlossaryView passes in (UI-59: `currentVersion` wiring) without
-// rendering the real sidebar.
-const rightSidebarPropsSpy = vi.hoisted(() => vi.fn());
+// Isolate from the ArtifactInspector shell — its own data fetching is out of
+// scope for this test. Since #1762/M5 the route mounts the tabbed
+// `InspectorShell` (the stacked sidebar is gone since M8), so this
+// captures the props GlossaryView passes in (UI-59: `currentVersion` wiring,
+// D5: `artifactPk`) without rendering the real shell.
+const inspectorShellPropsSpy = vi.hoisted(() => vi.fn());
 vi.mock("../components/shared/ArtifactInspector", () => ({
-  RightSidebar: (props: unknown) => {
-    rightSidebarPropsSpy(props);
+  InspectorShell: (props: unknown) => {
+    inspectorShellPropsSpy(props);
     return null;
   },
 }));
@@ -379,8 +379,8 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
   // compare/is-current affordances for. These tests pin the actual prop
   // GlossaryView now builds from `selectedTerm.version`.
   // -------------------------------------------------------------------
-  describe("version history / diff wiring (UI-59)", () => {
-    it("passes a real currentVersion into RightSidebar once a versioned term is selected", async () => {
+  describe("version history / diff wiring (UI-59) + inspector mount (#1762 M5)", () => {
+    it("passes a real currentVersion into the InspectorShell once a versioned term is selected", async () => {
       const versionedTerm: GlossaryTerm = { ...TERM_A, version: 3, updated_at: "2026-02-01T00:00:00Z" };
       vi.mocked(glossaryApi.list).mockResolvedValue([versionedTerm, TERM_B]);
       const user = userEvent.setup();
@@ -389,17 +389,19 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
       await user.click(await screen.findByTestId("glossary-row-term-a"));
 
       await waitFor(() => {
-        const lastCall = rightSidebarPropsSpy.mock.calls[rightSidebarPropsSpy.mock.calls.length - 1]?.[0] as
+        const lastCall = inspectorShellPropsSpy.mock.calls[inspectorShellPropsSpy.mock.calls.length - 1]?.[0] as
           | {
               kind: string;
               entityId: string;
-              artifactId: string | undefined;
+              artifactPk: string | null;
               currentVersion?: { version: number; label: string };
             }
           | undefined;
         expect(lastCall?.kind).toBe("glossary");
         expect(lastCall?.entityId).toBe("term-a");
-        expect(lastCall?.artifactId).toBe("artifact-term-a");
+        // D5: the comments route takes the backing Artifact UUID — here that
+        // is `global_uuid` (#1266/#1763), never the entity id.
+        expect(lastCall?.artifactPk).toBe("artifact-term-a");
         expect(lastCall?.currentVersion).toEqual(
           expect.objectContaining({ version: 3, label: "v3" }),
         );
@@ -414,14 +416,22 @@ describe("GlossaryView — C9 trace links + C10 synonym linking (REQ-006)", () =
       await user.click(await screen.findByTestId("glossary-row-term-b"));
 
       await waitFor(() => {
-        const lastCall = rightSidebarPropsSpy.mock.calls[rightSidebarPropsSpy.mock.calls.length - 1]?.[0] as
-          | { entityId: string; artifactId: string | undefined; currentVersion?: unknown }
+        const lastCall = inspectorShellPropsSpy.mock.calls[inspectorShellPropsSpy.mock.calls.length - 1]?.[0] as
+          | { entityId: string; artifactPk: string | null; currentVersion?: unknown }
           | undefined;
         expect(lastCall?.entityId).toBe("term-b");
-        // No `global_uuid` on legacy data → undefined, never the entity id.
-        expect(lastCall?.artifactId).toBeUndefined();
+        // No `global_uuid` on legacy data → null, never the entity id: the
+        // shell then renders no comments tab at all (spec §4.3).
+        expect(lastCall?.artifactPk).toBeNull();
         expect(lastCall?.currentVersion).toBeUndefined();
       });
+    });
+
+    it("does not mount the inspector before a term is selected", async () => {
+      renderView();
+      await screen.findByTestId("glossary-row-term-a");
+      expect(screen.queryByTestId("inspector-skip-link")).not.toBeInTheDocument();
+      expect(inspectorShellPropsSpy).not.toHaveBeenCalled();
     });
   });
 });

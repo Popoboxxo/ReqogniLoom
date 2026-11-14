@@ -6,10 +6,10 @@
  * EmptyState conventions.
  *
  * Plan C T-C3-1 (ENT-C1 = B): the TestCase detail area renders the shared
- * TraceLinkPanel exactly like Risk/ADR/Issue/Need do. The inspector
- * (RightSidebar) keeps `hideTraceLinks` — only the detail area gains the
- * list, so the SUPERSEDED note above ("does not render a TraceLinkPanel")
- * no longer applies.
+ * TraceLinkPanel exactly like Risk/ADR/Issue/Need do — only the detail area
+ * gains the list, so the SUPERSEDED note above ("does not render a
+ * TraceLinkPanel") no longer applies. The inspector is the tabbed shell
+ * (#1762) and needs no route switch for its Links tab.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -139,7 +139,7 @@ const inspectorProbe = vi.hoisted(() => ({
         artifactPk?: string | null;
         hasCoveredRef?: boolean;
         hasOnShowInSpine?: boolean;
-        hasHideTraceLinks?: boolean;
+        unknownProps?: string[];
       }
     | undefined,
 }));
@@ -161,7 +161,6 @@ vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
   );
   return {
     ...actual,
-    RightSidebar: () => null,
     InspectorShell: (props: {
       kind: import("../components/shared/ArtifactInspector").ArtifactKind;
       entityId: string | number;
@@ -175,7 +174,20 @@ vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
         artifactPk: props.artifactPk,
         hasCoveredRef: props.coveredRef !== undefined,
         hasOnShowInSpine: props.onShowInSpine !== undefined,
-        hasHideTraceLinks: "hideTraceLinks" in (props as Record<string, unknown>),
+        // #1762/M8: no prop outside the documented shell contract — a
+        // removed route-level switch would show up here as an unknown key.
+        unknownProps: Object.keys(props).filter(
+          (key) =>
+            ![
+              "kind",
+              "entityId",
+              "artifactPk",
+              "currentVersion",
+              "initialTab",
+              "coveredRef",
+              "onShowInSpine",
+            ].includes(key),
+        ),
       };
       return inspectorProbe.renderRealComments ? (
         <CommentPanel kind={props.kind} artifactId={props.artifactPk ?? undefined} />
@@ -591,7 +603,7 @@ describe("TestCaseEditors Task 2.4 concept remodel (PageHeader / ArtifactRow / D
 });
 
 // ---------------------------------------------------------------------------
-// #1762 / M2 — the tabbed inspector replaces RightSidebar on this route
+// #1762 / M2 — the tabbed inspector replaces the stacked sidebar on this route
 // ---------------------------------------------------------------------------
 
 describe("TestCaseEditors — inspector shell mount (#1762 M2)", () => {
@@ -617,7 +629,7 @@ describe("TestCaseEditors — inspector shell mount (#1762 M2)", () => {
     } as any);
   });
 
-  it("mounts InspectorShell with both id spaces and no hideTraceLinks switch", async () => {
+  it("mounts InspectorShell with both id spaces and only the documented props", async () => {
     renderEditor(`/testcases/${TEST_CASE.id}`);
 
     await waitFor(() => {
@@ -632,7 +644,7 @@ describe("TestCaseEditors — inspector shell mount (#1762 M2)", () => {
       hasCoveredRef: true,
       hasOnShowInSpine: true,
     });
-    expect(inspectorProbe.lastShell?.hasHideTraceLinks).toBe(false);
+    expect(inspectorProbe.lastShell?.unknownProps).toEqual([]);
   });
 
   it("requests comments for the backing Artifact UUID, never the entity id", async () => {
@@ -703,8 +715,8 @@ describe("TestCaseEditors — include_deleted reveals outdated test cases (D6)",
  * Plan C T-C3-1 (PR-C10, ENT-C1 = B): the TestCase detail area gets the shared
  * TraceLinkPanel — same guard and prop shape as `RiskEditors.tsx`
  * (`{item && activeWorkspace && <TraceLinkPanel … />}`), placed before the form
- * as the task prescribes (Risk/ADR render it after theirs). The inspector keeps
- * `hideTraceLinks`; these tests pin the detail-area list.
+ * as the task prescribes (Risk/ADR render it after theirs). The inspector's
+ * Links tab is derived from `kind`; these tests pin the detail-area list.
  */
 describe("TestCaseEditors — trace-link list in the detail area (T-C3-1)", () => {
   const REQ_ARTIFACT_ID = "req-artifact-777";

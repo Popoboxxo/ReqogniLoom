@@ -2,7 +2,7 @@
  * ArtifactInspector (REQ-L2-RF-034..037) — shared types.
  *
  * leaf_id: COMP-RF-014 (ArtifactInspector)
- * req_id:  REQ-L2-RF-034 (RightSidebar shell),
+ * req_id:  REQ-L2-RF-034 (inspector shell),
  *          REQ-L2-RF-035 (VersionPanel),
  *          REQ-L2-RF-036 (DiffPanel),
  *          REQ-L2-RF-037 (TracePanel),

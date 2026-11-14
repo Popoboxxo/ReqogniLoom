@@ -1,10 +1,9 @@
 /**
  * CommentPanel — comments on the currently inspected artifact.
  *
- * Menschen-im-System spec §4. Mounted as the fourth stacked panel of the
- * RightSidebar rather than as a tab: the inspector has no tab/anchor concept
- * (see the comment in RightSidebar.tsx), and inventing one for a single panel
- * would be disproportionate.
+ * Menschen-im-System spec §4. Mounted as the Comments tab of the shared
+ * shell (#1762); `variant="panel"` is the legacy stacked form kept for the
+ * panel's own contract tests.
  *
  * Comments are never edited — create, resolve, delete only.
  */
@@ -29,13 +28,13 @@ export interface CommentPanelProps {
    * separately typed prop and not derived from the shell's `entityId`.
    *
    * Optional because not every kind's REST response publishes the backing
-   * Artifact id yet (Adr/Risk/Issue/MainGoal — see `RightSidebar` docs). When
+   * Artifact id yet (Adr/Risk/Issue/MainGoal — see the shell's docs). When
    * it is absent the panel renders an explicit "not available" state instead
    * of firing a request that is guaranteed to 404.
    */
   artifactId?: string;
   /**
-   * `"panel"` (default) is the stacked RightSidebar form with its own `h3`
+   * `"panel"` is the legacy stacked form with its own `h3`
    * heading and its own `role="alert"` banner. `"tab"` is the tabbed shell
    * (#1762): the tab label names the area and the shell owns the single alert
    * region, so the panel renders neither.

@@ -37,7 +37,7 @@ import type { TraceLink } from "../../../types";
 import { getLinkTypeLabel } from "../../../constants/traceLinkLabels";
 import { getArtifactRoute } from "../../../utils/artifactRoutes";
 import { CreateTraceLinkDialog } from "../CreateTraceLinkDialog";
-import { LINKS_ROWS_ONLY, isSpineLinkType } from "./inspectorContract";
+import { LINKS_ROWS_ONLY, inspectorTabLabelKey, isSpineLinkType } from "./inspectorContract";
 import { useInspectorAnnouncer, useInspectorCounts } from "./InspectorLiveRegions";
 import { type ArtifactKind, type LinkType, type TraceLinkRow } from "./types";
 import styles from "./TracePanel.module.css";
@@ -60,7 +60,8 @@ export interface TracePanelProps {
    */
   entityId: string | number;
   /**
-   * `"panel"` (default) is the stacked RightSidebar form: own `h3` heading,
+   * `"panel"` is the legacy stacked form (kept for the panel's own contract
+   * tests): own `h3` heading,
    * own `role="alert"` banner, every link type as a row.
    *
    * `"tab"` is the Links tab of the tabbed shell (#1762). It follows spec
@@ -608,7 +609,7 @@ export function TracePanel({
   }
 
   const sectionLabels = isTab
-    ? { "aria-label": t("sidebar.inspector.tab.links") }
+    ? { "aria-label": t(inspectorTabLabelKey(kind, "links")) }
     : { "aria-labelledby": "inspector-trace-label" };
 
   return (

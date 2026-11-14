@@ -9,10 +9,10 @@
  * — the backend resolves both (InterviewService.provenance_session_id) — so
  * callers can pass whichever id they already hold.
  *
- * Mounted once, in the shared ArtifactInspector RightSidebar, rather than in
- * each artifact editor: RightSidebar is the single detail-panel shell every
- * artifact route already renders, so one mount covers all of them and no new
- * artifact type can forget it.
+ * Mounted once, in the shared ArtifactInspector shell (#1762), rather than in
+ * each artifact editor: the shell is the single detail-panel every artifact
+ * route already renders, so one mount covers all of them and no new artifact
+ * type can forget it.
  */
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";

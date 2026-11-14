@@ -122,6 +122,15 @@
   font-weight: var(--weight-semibold);
 }
 
+/* The provenance badge sits between the heading and the close button and
+   renders nothing for artifacts without an interview (M8). */
+.headerBadge {
+  display: flex;
+  flex: 0 0 auto;
+  margin-left: auto;
+  min-width: 0;
+}
+
 /* ------------------------------------------------------------------------- */
 /* Tablist (`.btn-tab` supplies fill, border, type scale and the selected     */
 /* state — the inspector CSS must not declare a primary fill itself, §8.3)    */

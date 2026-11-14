@@ -63,7 +63,7 @@
 
 .chipActive {
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
   border-color: var(--color-primary);
 }
 
@@ -184,7 +184,7 @@
   gap: var(--space-2);
   padding: var(--space-3);
   background: var(--color-danger);
-  color: white;
+  color: var(--color-on-primary);
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
 }
@@ -193,7 +193,7 @@
   min-height: var(--btn-h-sm);
   align-self: flex-start;
   background: transparent;
-  color: white;
+  color: var(--color-on-primary);
   border: 1px solid white;
   border-radius: var(--radius-btn);
   padding: 0 var(--space-3);

@@ -36,7 +36,7 @@
 .overrideBadge {
   align-self: flex-start;
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
   border-radius: var(--radius-md);
   padding: 0 var(--space-2);
   font-size: var(--font-size-sm);

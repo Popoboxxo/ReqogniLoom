@@ -197,8 +197,8 @@ vi.mock("../context/LinkTypeContext", () => ({
 
 // Stub the shared ArtifactInspector so the shell is countable.
 // Preserves the rest of the barrel (VersionPanel, types, ...) via importActual
-// and replaces BOTH shells with a marker: `RightSidebar` (pre-#1762 routes)
-// and `InspectorShell` (the tabbed shell this route mounts since #1762/M1).
+// and replaces the shell with a marker: `InspectorShell` (the tabbed shell
+// this route mounts since #1762/M1 — the stacked sidebar is gone since M8).
 // This lets the test assert that the Inspector is rendered exactly ONCE at
 // container level (REQ-TBD: remove duplicate ArtifactInspector rendering).
 //
@@ -207,9 +207,6 @@ vi.mock("../context/LinkTypeContext", () => ({
 // CommentPanel with exactly those props.
 const inspectorProbe = vi.hoisted(() => ({
   renderRealComments: false,
-  last: undefined as
-    | { kind?: string; entityId?: string | number; artifactId?: string | undefined }
-    | undefined,
   lastShell: undefined as
     | {
         kind?: string;
@@ -237,18 +234,6 @@ vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
   );
   return {
     ...actual,
-    RightSidebar: (props: {
-      kind: import("../components/shared/ArtifactInspector").ArtifactKind;
-      entityId: string | number;
-      artifactId: string | undefined;
-    }) => {
-      inspectorProbe.last = props;
-      return inspectorProbe.renderRealComments ? (
-        <CommentPanel kind={props.kind} artifactId={props.artifactId} />
-      ) : (
-        <div data-testid="artifact-inspector" />
-      );
-    },
     InspectorShell: (props: {
       kind: import("../components/shared/ArtifactInspector").ArtifactKind;
       entityId: string | number;
@@ -463,8 +448,8 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
   // REQ-TBD — ArtifactInspector must render exactly ONCE
   //
   // Regression guard: RequirementEditors (container) AND RequirementForm
-  // (detail form) both used to render the shared RightSidebar, producing two
-  // Inspector bars side by side in the requirements mask. The Inspector must
+  // (detail form) both used to render the shared inspector, producing two
+  // inspector bars side by side in the requirements mask. The inspector must
   // live at the container level only.
   // -------------------------------------------------------------------------
 
@@ -584,7 +569,7 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
     expect(within(panel).queryByTestId("req-ai-derive-btn")).not.toBeInTheDocument();
   });
 
-  it("renders the ArtifactInspector exactly once — no duplicate RightSidebar (REQ-TBD)", async () => {
+  it("renders the ArtifactInspector exactly once — no duplicate inspector (REQ-TBD)", async () => {
     renderEditor(MOCK_REQUIREMENT.id);
 
     // Wait until the detail form has loaded the requirement (title field).

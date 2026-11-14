@@ -106,7 +106,7 @@ export interface VersionPanelProps {
   /**
    * The **domain-entity** id (`Requirement.id`, `ArchitectureElement.id`, …)
    * — `GET /<kind>/<id>/versions/` is keyed on it, not on the backing
-   * Artifact UUID (see RightSidebar's prop docs, #1763).
+   * Artifact UUID (see the shell's prop docs, #1763).
    */
   entityId: string | number;
   /** The currently-active version (clicking another row emits onSwitch). */
@@ -125,7 +125,8 @@ export interface VersionPanelProps {
    */
   baselines?: ReadonlyArray<BaselineSummary>;
   /**
-   * `"panel"` (default) is the stacked RightSidebar form: own `h3` heading,
+   * `"panel"` is the legacy stacked form (kept for the panel's own contract
+   * tests): own `h3` heading,
    * own live region. `"tab"` is the tabbed shell (#1762): the tab label is
    * the area heading and the shell owns the single live region, so the panel
    * renders neither (spec §2.1/§5.3).

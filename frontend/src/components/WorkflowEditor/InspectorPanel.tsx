@@ -2,7 +2,7 @@
  * REQ-176 — InspectorPanel: right-hand details panel (read-only, Phase 1).
  *
  * Collapsible + resizable (280–400px, persisted under
- * ``reqflow_workflow_inspector_width``) following the RightSidebar pattern.
+ * ``reqflow_workflow_inspector_width``) following the artifact inspector pattern.
  * Shows an empty prompt, a State inspector, or a Transition inspector depending
  * on the current selection (design brief §8). Edit actions are Phase 2 and are
  * intentionally absent here.
@@ -107,7 +107,7 @@ export function InspectorPanel({
   );
 
   // UI-27 (systemaudit 2026-08-27): the handle was mouse-only (WCAG 2.1.1
-  // Keyboard). ARIA APG "window splitter" pattern, mirroring RightSidebar's
+  // Keyboard). ARIA APG "window splitter" pattern, mirroring the inspector's
   // and SplitView's resize handles: Left/Right adjust in fixed steps
   // (dragging left widens here too, see the comment above), Home/End snap to
   // the configured bounds.

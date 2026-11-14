@@ -23,6 +23,7 @@ import {
   inspectorRegionFor,
   inspectorTabId,
   inspectorTabKeys,
+  inspectorTabLabelKey,
   inspectorDefaultsOpen,
   inspectorTabStorageKey,
   isSpineLinkType,
@@ -82,6 +83,26 @@ describe("inspectorContract — tabs per artifact", () => {
 
   it("keeps the links tab for the spine-less kinds", () => {
     expect(inspectorTabKeys("glossary", null)).toEqual(["version", "diff", "links"]);
+  });
+});
+
+describe("inspectorContract — tab labels (spec §11 D8)", () => {
+  it("names the glossary Links tab after its usage vocabulary", () => {
+    expect(inspectorTabLabelKey("glossary", "links")).toBe("glossary.usages");
+    // Every other kind keeps the generic Links label.
+    expect(inspectorTabLabelKey("requirement", "links")).toBe(
+      "sidebar.inspector.tab.links",
+    );
+    expect(inspectorTabLabelKey("icd", "links")).toBe("sidebar.inspector.tab.links");
+    expect(inspectorTabLabelKey("diagram", "links")).toBe("sidebar.inspector.tab.links");
+  });
+
+  it("keeps version, diff and comments on the shared keys for every kind", () => {
+    for (const kind of ["glossary", "requirement", "mainGoal"] as ArtifactKind[]) {
+      expect(inspectorTabLabelKey(kind, "version")).toBe("sidebar.version.title");
+      expect(inspectorTabLabelKey(kind, "diff")).toBe("sidebar.diff.title");
+      expect(inspectorTabLabelKey(kind, "comments")).toBe("comments.heading");
+    }
   });
 });
 

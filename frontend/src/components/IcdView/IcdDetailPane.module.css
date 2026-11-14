@@ -40,7 +40,7 @@
 
 .newVersionBtn {
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
   border: none;
   border-radius: var(--radius-btn);
   padding: 0 var(--space-4);
@@ -80,7 +80,7 @@
 
 .submitBtn {
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
   border: none;
   border-radius: var(--radius-btn);
   padding: 0 var(--space-6);
@@ -109,10 +109,49 @@
   cursor: pointer;
 }
 
-.mainGrid {
-  display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: var(--space-6);
+/*
+ * #1762/M6: the inspector is the right column of a two-zone detail pane
+ * (spec §2.1) — the `2fr 1fr` grid track is gone. The pane is the sheet's
+ * positioning context; the column is the scroll surface the sheet marks
+ * `inert` while it is open (spec §4.2).
+ */
+.detailPane {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  gap: var(--space-3);
+  position: relative;
+}
+
+.detailColumn {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  overflow: auto;
+}
+
+/*
+ * #1762/M6, spec §5.1 #1: the skip link into the inspector — first focusable
+ * element of the detail area, hidden until focused. Byte-identical to
+ * Goals.module.css (M4) and the M1–M5 routes.
+ */
+.inspectorSkipLink {
+  position: absolute;
+  width: var(--control-border-width);
+  height: var(--control-border-width);
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.inspectorSkipLink:focus-visible {
+  position: static;
+  width: auto;
+  height: auto;
+  clip-path: none;
+  margin-bottom: var(--space-2);
 }
 
 .contractSection {

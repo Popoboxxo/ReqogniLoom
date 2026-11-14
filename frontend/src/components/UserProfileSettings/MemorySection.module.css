@@ -70,7 +70,7 @@
 .deleteBtn {
   min-height: var(--btn-h-sm);
   background: var(--color-danger);
-  color: white;
+  color: var(--color-on-primary);
   border: none;
   border-radius: var(--radius-btn);
   padding: 0 var(--space-3);

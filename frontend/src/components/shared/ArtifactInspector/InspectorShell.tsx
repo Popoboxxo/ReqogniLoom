@@ -32,6 +32,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 
+import { InterviewProvenanceBadge } from "../InterviewProvenanceBadge";
+
 import {
   INSPECTOR_HEADING_ID,
   INSPECTOR_RESIZE_STEP_PX,
@@ -42,6 +44,7 @@ import {
   inspectorPanelId,
   inspectorTabId,
   inspectorTabKeys,
+  inspectorTabLabelKey,
   inspectorTabStorageKey,
   type InspectorTabKey,
 } from "./inspectorContract";
@@ -252,16 +255,11 @@ function InspectorShellBody({
   // Tab activation (manual activation, spec §5.2)
   // -------------------------------------------------------------------------
 
+  // Spec §11 D8: the glossary route names the Links tab "Verwendungen".
+  // Kind-only lookup, no prop — see `inspectorTabLabelKey`.
   const tabLabel = useCallback(
-    (key: InspectorTabKey): string =>
-      key === "version"
-        ? t("sidebar.version.title")
-        : key === "diff"
-          ? t("sidebar.diff.title")
-          : key === "links"
-            ? t("sidebar.inspector.tab.links")
-            : t("comments.heading"),
-    [t],
+    (key: InspectorTabKey): string => t(inspectorTabLabelKey(kind, key)),
+    [kind, t],
   );
 
   const activateTab = useCallback(
@@ -401,13 +399,20 @@ function InspectorShellBody({
       >
         {t("sidebar.inspector.title")}
       </h2>
+      {/* "this artifact came out of an interview" — the badge used to live in
+          the stacked sidebar only. It renders nothing unless the backend
+          confirms provenance, so it belongs on every kind here (M8 moved it
+          with the shell instead of dropping it with the old file). */}
+      <div className={styles.headerBadge}>
+        <InterviewProvenanceBadge artifactId={artifactPk ?? String(entityId)} />
+      </div>
       <button
         type="button"
         className="btn-icon"
         aria-label={t("sidebar.inspector.close")}
         title={t("sidebar.inspector.close")}
         onClick={close}
-        data-testid={INSPECTOR_TEST_IDS.close}
+        data-testid="inspector-close"
       >
         <X aria-hidden="true" size={16} />
       </button>
@@ -416,7 +421,7 @@ function InspectorShellBody({
 
   const panel = (
     <>
-      <InspectorTabs tabs={tabs} activeTab={activeTab} onActivate={activateTab} />
+      <InspectorTabs kind={kind} tabs={tabs} activeTab={activeTab} onActivate={activateTab} />
       {tabs.map((key) => (
         <div
           key={key}
@@ -463,6 +468,7 @@ function InspectorShellBody({
 
   const rail = (
     <InspectorRail
+      kind={kind}
       tabs={tabs}
       counts={counts}
       activeTab={activeTab}

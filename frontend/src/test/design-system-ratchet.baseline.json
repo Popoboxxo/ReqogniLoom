@@ -86,9 +86,6 @@
     "button-missing-design-system-class::components/WorkflowEditor/TransitionEdge.tsx::div[data-testid=workflow-transition-edge-${transition.id}]": {
       "reason": "React-Flow node/edge wrapper, not a button: selection and dragging are owned by the graph library's own node/edge chrome, so a btn-* class would be wrong (#1099)."
     },
-    "button-missing-design-system-class::components/shared/ArtifactInspector/RightSidebar.tsx::div[data-testid=artifact-inspector-resize]": {
-      "reason": "Pointer drag/resize handle, not a button: the interaction is a direct-manipulation gesture with separator semantics, so button chrome does not apply (#1099)."
-    },
     "button-missing-design-system-class::components/shared/ArtifactRow/ArtifactRow.tsx::div": {
       "reason": "Clickable layout row/region, not a button: the whole row is the hit area and owns its own row chrome, so btn-* button chrome would fight the list/table layout (#1099)."
     },

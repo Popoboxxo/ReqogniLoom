@@ -27,15 +27,47 @@
  * BaselinesView.module.css / ApiKeysSection.module.css.
  */
 
-.layout {
+/*
+ * #1762/M7: the detail pane is a two-zone flex row (spec §2.1) — the inspector
+ * takes its width from `useInspectorLayout`, the content column keeps the
+ * remaining space and never forces the graph container past the pane (I-02).
+ * The pane is also the sheet's positioning context (spec §4.2).
+ */
+.detailPane {
   display: flex;
-  gap: var(--space-6);
-  align-items: flex-start;
+  height: 100%;
+  min-height: 0;
+  gap: var(--space-3);
+  position: relative;
 }
 
 .main {
-  flex: 1;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
   min-width: 0;
+}
+
+/*
+ * #1762/M7, spec §5.1 #1: the skip link into the inspector — first focusable
+ * element of the detail area, hidden until focused. Byte-identical to
+ * Goals.module.css (M4) and the M1–M6 routes.
+ */
+.inspectorSkipLink {
+  position: absolute;
+  width: var(--control-border-width);
+  height: var(--control-border-width);
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.inspectorSkipLink:focus-visible {
+  position: static;
+  width: auto;
+  height: auto;
+  clip-path: none;
+  margin-bottom: var(--space-2);
 }
 
 .title {

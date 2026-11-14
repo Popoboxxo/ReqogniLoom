@@ -25,11 +25,13 @@ import { ChevronLeft } from "lucide-react";
 import {
   INSPECTOR_SURFACE_ID,
   INSPECTOR_TEST_IDS,
+  inspectorTabLabelKey,
   type InspectorTabKey,
 } from "./inspectorContract";
+import type { ArtifactKind } from "./types";
 import styles from "./InspectorShell.module.css";
 
-/** Abbreviation + fallback i18n label per tab (spec §3 "V/D/L/K"). */
+/** Abbreviation per tab (spec §3 "V/D/L/K"). */
 const RAIL_GLYPHS: Record<InspectorTabKey, string> = {
   version: "V",
   diff: "D",
@@ -37,14 +39,16 @@ const RAIL_GLYPHS: Record<InspectorTabKey, string> = {
   comments: "K",
 };
 
-const TAB_LABEL_KEYS: Record<InspectorTabKey, { key: string; fallback: string }> = {
-  version: { key: "sidebar.version.title", fallback: "Version" },
-  diff: { key: "sidebar.diff.title", fallback: "Diff" },
-  links: { key: "sidebar.inspector.tab.links", fallback: "Links" },
-  comments: { key: "comments.heading", fallback: "Comments" },
+const TAB_LABEL_FALLBACKS: Record<InspectorTabKey, string> = {
+  version: "Version",
+  diff: "Diff",
+  links: "Links",
+  comments: "Comments",
 };
 
 export interface InspectorRailProps {
+  /** The inspected kind — only the Links label depends on it (glossary). */
+  kind: ArtifactKind;
   /** Tab keys this artifact actually has (comments may be absent). */
   tabs: readonly InspectorTabKey[];
   /** Known counter per tab; `undefined` renders the spec's `0`, not a gap. */
@@ -56,6 +60,7 @@ export interface InspectorRailProps {
 }
 
 export function InspectorRail({
+  kind,
   tabs,
   counts,
   activeTab,
@@ -63,13 +68,11 @@ export function InspectorRail({
 }: InspectorRailProps): JSX.Element {
   const { t } = useTranslation();
 
-  const tabLabel = (key: InspectorTabKey): string => {
-    const entry = TAB_LABEL_KEYS[key];
-    return t(entry.key, entry.fallback);
-  };
+  const tabLabel = (key: InspectorTabKey): string =>
+    t(inspectorTabLabelKey(kind, key), TAB_LABEL_FALLBACKS[key]);
 
   return (
-    <div className={styles.rail} data-testid={INSPECTOR_TEST_IDS.rail}>
+    <div className={styles.rail} data-testid="inspector-rail">
       <button
         type="button"
         className={`btn-icon ${styles.railButton}`}
@@ -78,7 +81,7 @@ export function InspectorRail({
         aria-expanded={false}
         aria-controls={INSPECTOR_SURFACE_ID}
         onClick={(): void => onOpen(activeTab)}
-        data-testid={INSPECTOR_TEST_IDS.railOpen}
+        data-testid="inspector-rail-open"
       >
         <ChevronLeft aria-hidden="true" size={16} />
       </button>

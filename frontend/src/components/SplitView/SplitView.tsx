@@ -470,7 +470,7 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
 
     // UI-27 (systemaudit 2026-08-27): the divider was mouse-only (WCAG 2.1.1
     // Keyboard). Same ARIA APG "window splitter" step pattern as
-    // RightSidebar's resize handle: Left/Right adjust, Home/End snap to the
+    // inspector splitter: Left/Right adjust, Home/End snap to the
     // configured bounds.
     const DIVIDER_STEP_PX = 20;
     const handleDividerKeyDown = useCallback(

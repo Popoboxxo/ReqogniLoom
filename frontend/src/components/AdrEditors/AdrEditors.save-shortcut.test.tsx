@@ -59,7 +59,6 @@ vi.mock("./AdrList", () => ({ AdrList: () => null }));
 vi.mock("./AdrArtifactForm", () => ({ AdrArtifactForm: () => null }));
 vi.mock("./AdrSupersedePanel", () => ({ AdrSupersedePanel: () => null }));
 vi.mock("../shared/ArtifactInspector", () => ({
-  RightSidebar: () => null,
   InspectorShell: () => null,
 }));
 vi.mock("../shared/TraceLinkPanel", () => ({ TraceLinkPanel: () => null }));
