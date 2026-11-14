@@ -101,9 +101,9 @@ vi.mock("../api/requirements", () => ({
   },
 }));
 
-// #1763: this file mounts the REAL RightSidebar (it is never stubbed here), so
-// the comments panel fetches on mount. Stubbing the module keeps that request
-// observable instead of letting it fall through to the shared apiClient mock.
+// #1763: comments are keyed on the backing Artifact UUID. Stubbing the module
+// keeps that request observable instead of letting it fall through to the
+// shared apiClient mock.
 vi.mock("../api/comments", () => ({
   commentsApi: {
     list: vi.fn().mockResolvedValue([]),
@@ -112,6 +112,58 @@ vi.mock("../api/comments", () => ({
     remove: vi.fn(),
   },
 }));
+
+// #1762/M3: the route mounts the tabbed InspectorShell. The stub keeps the
+// mount contract observable (both id spaces, the `inert` bracket's
+// `coveredRef`, the spine jump, no `hideTraceLinks` switch) and renders the
+// REAL CommentPanel when `renderRealComments` is set, so the comments request
+// URL stays assertable.
+const inspectorProbe = vi.hoisted(() => ({
+  renderRealComments: false,
+  lastShell: undefined as
+    | {
+        kind?: string;
+        entityId?: string | number;
+        artifactPk?: string | null;
+        hasCoveredRef?: boolean;
+        hasOnShowInSpine?: boolean;
+        hasHideTraceLinks?: boolean;
+      }
+    | undefined,
+}));
+
+vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
+  const actual =
+    await importActual<typeof import("../components/shared/ArtifactInspector")>();
+  const { CommentPanel } = await import(
+    "../components/shared/ArtifactInspector/CommentPanel"
+  );
+  return {
+    ...actual,
+    RightSidebar: () => null,
+    InspectorShell: (props: {
+      kind: import("../components/shared/ArtifactInspector").ArtifactKind;
+      entityId: string | number;
+      artifactPk: string | null;
+      coveredRef?: unknown;
+      onShowInSpine?: unknown;
+    }) => {
+      inspectorProbe.lastShell = {
+        kind: props.kind,
+        entityId: props.entityId,
+        artifactPk: props.artifactPk,
+        hasCoveredRef: props.coveredRef !== undefined,
+        hasOnShowInSpine: props.onShowInSpine !== undefined,
+        hasHideTraceLinks: "hideTraceLinks" in (props as Record<string, unknown>),
+      };
+      return inspectorProbe.renderRealComments ? (
+        <CommentPanel kind={props.kind} artifactId={props.artifactPk ?? undefined} />
+      ) : (
+        <div data-testid="artifact-inspector" />
+      );
+    },
+  };
+});
 
 // Task 23 (traceability-semantik): CreateTraceLinkDialog (mounted inside
 // TraceLinkPanel, which this tree pulls in transitively) now reads the
@@ -159,7 +211,6 @@ import { workflowTransitionsApi } from "../api/workflow-transitions";
 import { AuthProvider } from "../context/AuthContext";
 import { WorkspaceProvider } from "../context/WorkspaceContext";
 import { ThemeProvider } from "../context/ThemeContext";
-import { safeLocalStorage } from "../utils/safeStorage";
 
 // jsdom in this test runtime does not provide window.localStorage (Node's
 // --localstorage-file experimental flag is not set), which ThemeProvider
@@ -200,6 +251,12 @@ const MOCK_ELEMENT = {
   title: "AuthService",
   description: "## Auth\nHandles authentication.",
   element_type: "component",
+  // DoD 2: the artifact head shows identity + workflow status. `uid` is the
+  // readable identity; `status` is the workflow state the serializer mixin
+  // projects (Epic #934 WS1).
+  uid: "ARCH-001",
+  status: "Entwurf",
+  level: 1,
   version: 1,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
@@ -402,14 +459,69 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     expect(screen.getByTestId("artifact-form-deprecate-confirm")).toBeInTheDocument();
   });
 
-  it("renders split-pane divider for resizing (REQ-L3-RF-***: enable split-pane resizing)", async () => {
+  // #1762/M3: the route moved from SplitView's legacy contract (left/right
+  // panels + drag divider) to the concept contract (`list`/`detail`/`spine`).
+  // The approved contract has no divider; the spine is its own flex zone.
+  it("uses the concept split layout with the spine in its own slot (M3, DoD 6)", async () => {
     renderEditor(MOCK_ELEMENT.id);
 
     await waitFor(() => {
-      const divider = screen.getByTestId("splitview-divider");
-      expect(divider).toBeInTheDocument();
-      expect(divider).toHaveStyle("cursor: col-resize");
+      expect(screen.getByTestId("splitview-list")).toBeInTheDocument();
+      expect(screen.getByTestId("splitview-detail")).toBeInTheDocument();
+      expect(screen.getByTestId("splitview-spine")).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("splitview-divider")).not.toBeInTheDocument();
+    // The 250 px list floor from M3-3 (the detail floor is 448 px and is
+    // applied by the same `minWidths` pair).
+    expect(screen.getByTestId("splitview-list")).toHaveStyle({ minWidth: "250px" });
+    expect(screen.getByTestId("splitview-detail")).toHaveStyle({ minWidth: "448px" });
+  });
+
+  // -------------------------------------------------------------------------
+  // #1762/M3 — the tabbed inspector replaces RightSidebar on this route
+  // -------------------------------------------------------------------------
+
+  it("mounts InspectorShell with both id spaces and no hideTraceLinks switch (M3-1)", async () => {
+    const ELEMENT = { ...MOCK_ELEMENT, artifact_id: "art-arch-001" };
+    vi.mocked(architectureApi.listAll).mockResolvedValue([ELEMENT] as any);
+    vi.mocked(architectureApi.get).mockResolvedValue(ELEMENT as any);
+
+    renderEditor(ELEMENT.id);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("artifact-inspector")).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByTestId("artifact-inspector")).toHaveLength(1);
+    expect(inspectorProbe.lastShell).toMatchObject({
+      kind: "architecture",
+      entityId: ELEMENT.id,
+      artifactPk: ELEMENT.artifact_id,
+      hasCoveredRef: true,
+      hasOnShowInSpine: true,
+    });
+    // `hideTraceLinks` was the route-level switch of the stacked sidebar; the
+    // tabbed shell derives its tab matrix from `kind` instead.
+    expect(inspectorProbe.lastShell?.hasHideTraceLinks).toBe(false);
+  });
+
+  it("passes artifactPk=null when the element publishes no backing Artifact UUID", async () => {
+    renderEditor(MOCK_ELEMENT.id);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("artifact-inspector")).toBeInTheDocument();
+    });
+    expect(inspectorProbe.lastShell?.artifactPk).toBeNull();
+  });
+
+  it("shows the artifact id and workflow status in the detail head (DoD 2)", async () => {
+    renderEditor(MOCK_ELEMENT.id);
+
+    const head = await screen.findByTestId("arch-artifact-head");
+    expect(head).toHaveTextContent(MOCK_ELEMENT.uid);
+    expect(screen.getByTestId("arch-detail-status")).toHaveTextContent(
+      MOCK_ELEMENT.status,
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -424,14 +536,11 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
     };
     vi.mocked(architectureApi.listAll).mockResolvedValue([ELEMENT] as any);
     vi.mocked(architectureApi.get).mockResolvedValue(ELEMENT as any);
-    // The inspector defaults to collapsed below 1600px (#419) and jsdom is
-    // 1024px wide — force the expanded default (a stored preference from an
-    // earlier test in this file would otherwise win) so the panels, and the
-    // comment panel inside them, actually mount.
-    const previousWidth = window.innerWidth;
-    safeLocalStorage.removeItem("reqflow_inspector_collapsed_architecture");
-    Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 1920 });
 
+    // The shell's comments tab fetches on activation; the probe renders the
+    // real CommentPanel for the duration of this test, so the request URL is
+    // observable without driving the tab strip.
+    inspectorProbe.renderRealComments = true;
     try {
       renderEditor(ELEMENT.id);
 
@@ -440,11 +549,7 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
       // 404 this test pins.
       expect(commentsApi.list).not.toHaveBeenCalledWith("arch-entity-77");
     } finally {
-      Object.defineProperty(window, "innerWidth", {
-        configurable: true,
-        writable: true,
-        value: previousWidth,
-      });
+      inspectorProbe.renderRealComments = false;
     }
   });
 

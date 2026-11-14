@@ -165,6 +165,21 @@ function InspectorShellBody({
   // null) must not leave the shell on a panel it no longer has.
   const activeTab = tabs.includes(tabState) ? tabState : (tabs[0] ?? INSPECTOR_DEFAULT_TAB);
 
+  // #1762/M4 (I-14): `goal` and `mainGoal` share ONE storage slot but have
+  // different tab sets. React reuses this component when only `kind` changes
+  // (same mount point in the route), so the state initializer above runs once
+  // and the remembered tab of the newly selected kind would never be applied —
+  // a Goal → MainGoal → Goal round trip landed on "Version" instead of the
+  // "Links" tab the user had picked. Re-seed on a kind change only: switching
+  // between two artifacts of the same kind keeps the in-memory tab on purpose.
+  const previousKindRef = useRef(kind);
+  useEffect(() => {
+    if (previousKindRef.current === kind) return;
+    previousKindRef.current = kind;
+    const remembered = readTabFromUrl(tabs) ?? readStoredTab(storageKey, tabs);
+    setTabState(remembered ?? tabs[0] ?? INSPECTOR_DEFAULT_TAB);
+  }, [kind, storageKey, tabs]);
+
   const headerRef = useRef<HTMLDivElement | null>(null);
   const noCoveredRef = useRef<HTMLElement | null>(null);
 

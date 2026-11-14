@@ -1,6 +1,7 @@
 // REQ-L2-RF-004, REQ-L3-RF004-001/002/003: Architecture editor (CRUD, markdown, linked reqs)
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsAdmin, getAuthToken, setWorkspaceId, createIsolatedWorkspace } from '../helpers/auth';
+import { collapseInspector } from '../helpers/inspector';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -8,11 +9,19 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 // Create disabled until a title is entered); the full editor
 // (artifact-field-title etc., ArchitectureArtifactForm since Task 24) only
 // renders after Create navigates to the created element's detail route.
+//
+// #1762 (M3): the architecture detail route mounts the tabbed `InspectorShell`.
+// At the 1280 px E2E viewport the inspector opens as a sheet over the detail
+// pane and brackets that pane with `inert` (spec §4.2) — `fill()` on an inert
+// input silently keeps the old value while `click()` is intercepted by the
+// sheet. Collapsing to the rail is the same click a user at this width makes;
+// `collapseInspector()` is idempotent (no-op on wide viewports).
 async function createArchElementViaQuickForm(page: Page, title = 'E2E Arch Element'): Promise<void> {
   await page.locator('[data-testid="create-arch-btn"]').click();
   await page.locator('[data-testid="arch-new-title-input"]').fill(title);
   await page.locator('[data-testid="arch-new-save-btn"]').click();
   await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+  await collapseInspector(page);
 }
 
 test.describe('[COMP-RF-004] ArchitectureEditors', () => {

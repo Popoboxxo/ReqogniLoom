@@ -86,11 +86,12 @@ export interface MainGoal {
   id: UUID;
   workspace_id: UUID;
   /**
-   * #1763: declared for parity with Goal/Requirement, but **not** exposed by
-   * `MainGoalSerializer` yet (the model has the OneToOne `artifact`, the DTO
-   * does not project it). Always `undefined` today — the `MainGoal` inspector
-   * therefore degrades the comments panel to "unavailable" instead of calling
-   * the comments route with the entity id.
+   * #1763 / B2.0-4: the backing generic Artifact UUID — the only id space
+   * `GET|POST /artifacts/<pk>/comments/` accepts. Projected by
+   * `MainGoalSerializer` (`artifact_id`, read-only) and `_main_goal_to_dict`
+   * since #1762/M4. Optional because hand-built fixtures and pre-B2.0-4
+   * responses omit it; the inspector then renders no comments tab
+   * (spec §4.3) instead of calling the route with the entity id.
    */
   artifact_id?: UUID;
   sequence_number: number;

@@ -48,6 +48,9 @@
   height: 100%;
   min-height: 0;
   gap: var(--space-3);
+  /* #1762/M4: the inspector's sheet is an overlay over this pane, so the pane
+     is its positioning context (the shell never positions itself). */
+  position: relative;
 }
 
 .detailColumn {
@@ -57,6 +60,28 @@
   gap: var(--space-3);
   min-width: 0;
   overflow: auto;
+}
+
+/*
+ * #1762/M4, spec §5.1 #1: the skip link into the inspector — first focusable
+ * element of the detail area, hidden until focused. Byte-identical to
+ * RequirementEditors.module.css (M1) and the M2/M3 routes.
+ */
+.inspectorSkipLink {
+  position: absolute;
+  width: var(--control-border-width);
+  height: var(--control-border-width);
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.inspectorSkipLink:focus-visible {
+  position: static;
+  width: auto;
+  height: auto;
+  clip-path: none;
+  margin-bottom: var(--space-2);
 }
 
 .pageRoot {

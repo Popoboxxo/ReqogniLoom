@@ -45,6 +45,17 @@ export interface ArchitectureElement extends SystemFieldValues {
   role?: ArchitectureRole;
   version: number;
   uid?: string | null;
+  /**
+   * Workflow state, projected by `WorkflowStateSerializerMixin` on
+   * `ArchitectureElementSerializer` (Epic #934 WS1). Distinct from
+   * `lifecycle_status`: this is the workflow state machine value (ADR-06),
+   * that is the backing Artifact's soft-delete/outdated flag.
+   *
+   * Optional because hand-built fixtures and pre-WS1 responses omit it; the
+   * artifact head then renders the id alone rather than an empty badge
+   * (#1762/M3, spec §2.2).
+   */
+  status?: string;
   asil_level?: ASILLevel;
   make_or_buy?: MakeOrBuyDecision;
   suspect?: boolean;

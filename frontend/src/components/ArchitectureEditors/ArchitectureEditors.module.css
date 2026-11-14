@@ -109,11 +109,66 @@
   overflow: auto;
 }
 
-.detailPanel {
+/*
+ * #1762/M3: the detail area is the scroll container, the inspector is its
+ * flex sibling. The SplitView concept contract already pads the detail zone,
+ * so the pane brings no padding of its own.
+ */
+.rightPane {
   display: flex;
-  gap: var(--space-6);
-  align-items: flex-start;
-  padding: var(--space-4);
+  height: 100%;
+  min-height: 0;
+  gap: var(--space-3);
+  /* The inspector's sheet is an overlay over this pane, so the pane is its
+     positioning context (the shell never positions itself). */
+  position: relative;
+}
+
+/*
+ * #1762/M3, spec §5.1 #1: the skip link into the inspector — first focusable
+ * element of the detail area, hidden until focused. Byte-identical to
+ * RequirementEditors.module.css (M1) and the five M2 routes.
+ */
+.inspectorSkipLink {
+  position: absolute;
+  width: var(--control-border-width);
+  height: var(--control-border-width);
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.inspectorSkipLink:focus-visible {
+  position: static;
+  width: auto;
+  height: auto;
+  clip-path: none;
+  margin-bottom: var(--space-2);
+}
+
+/*
+ * #1762/M3 DoD 2: the artifact head carries identity + workflow status —
+ * one home each, never the inspector (spec §2.2).
+ */
+.artifactHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.detailScroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+}
+
+/* SplitView sizes itself to 100% of its box; the shell's <main> has no
+   resolved height, so the pane needs a floor of its own. */
+.splitWrapper {
+  flex: 1 1 auto;
+  min-height: 60vh;
 }
 
 .detailFormCard {

@@ -27,6 +27,7 @@ import {
   setWorkspaceId,
   createIsolatedWorkspace,
 } from '../helpers/auth';
+import { collapseInspector } from '../helpers/inspector';
 import {
   createRequirementViaUI,
   createArchitectureElementViaUI,
@@ -500,6 +501,13 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
     // the requirement side now, not the architecture side.
     await createTraceLinkViaUI(page, reqId, archId, 'allocated-to');
     await page.goto(`${FRONTEND_URL}/architecture/${archId}`);
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+    // #1762 (M3): the architecture detail route mounts the tabbed inspector,
+    // which covers the detail pane (and `inert`s it) as a sheet at the 1280 px
+    // E2E viewport. Both panels below live in that pane, so without collapsing
+    // the sheet these visibility checks would pass while the user-visible
+    // surface is a closed-off overlay.
+    await collapseInspector(page);
     // Renamed to arch-linked-reqs-panel; link items carry a per-type badge
     // testid (trace-type-<linkType>), not a generic "-item" wrapper.
     await expect(page.locator('[data-testid="arch-linked-reqs-panel"]')).toBeVisible({ timeout: 8000 });

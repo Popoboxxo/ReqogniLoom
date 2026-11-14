@@ -27,9 +27,14 @@
  * `kind="mainGoal"` next to the main goal panel. Its VersionPanel is what
  * finally makes Goal/MainGoal version history reachable; the wiring
  * (VERSION_SUPPORTED_KINDS / VERSIONS_FETCHERS) had existed but no component
- * rendered the sidebar. Trace links stay hidden there: <GoalDetail> already
- * shows them through <TraceSpine>, and MainGoal has no artifact-level trace
- * links at all (no `artifact_id` on the type).
+ * rendered the sidebar.
+ *
+ * #1762/M4: the stacked sidebar became the tabbed `InspectorShell`, the split
+ * view moved to the concept contract (`list`/`detail`/`spine`, no divider) and
+ * the Goal's trace chain moved into the spine slot — scrolling the detail can
+ * no longer move it. Both kinds share one tab-persistence slot, so switching
+ * between them does not move the selected tab. `mainGoal` has no trace graph
+ * (spec §3), so it gets no spine and no Links tab.
  *
  * The page owns all Goal mutations so that a rejected create / edit /
  * transition surfaces in exactly one place (ch. 12.12) — inside the dialog
@@ -40,14 +45,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { extractErrorMessage } from "../../api/client";
 import { fieldErrorsFromException } from "../shared/ArtifactForm/field-errors";
 import { goalsApi } from "../../api/goals";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { PageHeader } from "../shared/PageHeader";
 import { useInterviewStartCta } from "../shared/useInterviewStartCta";
-import { RightSidebar } from "../shared/ArtifactInspector";
+import { InspectorShell } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
+import { TraceSpine, useDerivationChain } from "../shared/TraceSpine";
+import type { ChainArtifact } from "../shared/TraceSpine";
+import { getArtifactRoute } from "../../utils/artifactRoutes";
 import { SplitView } from "../SplitView/SplitView";
 import { resolveBadgeVariant } from "../../utils/statusBadge";
 import { ArchiveConfirmDialog } from "./ArchiveConfirmDialog";
@@ -74,6 +83,7 @@ interface PendingTransition {
 
 export default function GoalsPage(): JSX.Element {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   // Shared with the other artifact routes so the CTA cannot drift.
   const interviewCta = useInterviewStartCta("Goal");
@@ -150,6 +160,45 @@ export default function GoalsPage(): JSX.Element {
       setSelectedId(MAIN_GOAL_NODE_ID);
     }
   }, [goals, selectedId]);
+
+  // Trace spine (Task 3.3 — UI concept ch. 5, #1762/M4). Goal is one of the
+  // nine types the `/traceability/resolve/` endpoint covers (Task 3.2a); it
+  // has no special station/level handling of its own in useDerivationChain,
+  // which is fine — it falls back to a single generic "Goal" station. The
+  // MainGoal kind has no trace graph at all (spec §3), so the hook is only
+  // enabled while a Goal is selected.
+  const derivationChain = useDerivationChain(
+    selectedGoal?.artifact_id ?? selectedGoal?.id ?? null,
+    "Goal",
+    null,
+    { enabled: !!selectedGoal },
+  );
+
+  const handleOpenChainArtifact = useCallback(
+    (artifact: ChainArtifact): void => {
+      const entry = derivationChain.resolveEntry(artifact);
+      if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
+    },
+    [derivationChain, navigate],
+  );
+
+  // #1762 (M4, mirrors M1–M3): the inspector's programmatic focus targets live
+  // in the route, not in the shell — the shell must not know the detail area's
+  // DOM (it only receives `coveredRef` for the `inert` bracket).
+  const detailScrollRef = useRef<HTMLDivElement | null>(null);
+
+  const focusInspectorHeading = useCallback((): void => {
+    document.getElementById("inspector-heading")?.focus();
+  }, []);
+
+  // Spec §2.3 rule 1: the Links tab's summary line jumps into the spine. The
+  // spine is a separate flex zone now, so this is the one place that knows its
+  // first station.
+  const focusSpine = useCallback((): void => {
+    document
+      .querySelector<HTMLElement>('[data-testid="trace-spine-station-button"]')
+      ?.focus();
+  }, []);
 
   const summary = useMemo(() => {
     // Issue #220: no hardcoded state name here either. `resolveBadgeVariant`
@@ -316,26 +365,27 @@ export default function GoalsPage(): JSX.Element {
   const isMainGoalSelected = selectedId === MAIN_GOAL_NODE_ID;
 
   /**
-   * Subject of the inspector sidebar (issue #219). Both kinds resolve their
+   * Subject of the inspector (#219 / #1762 M4). Both kinds resolve their
    * version list from the *entity* id: `GET /goals/{id}/versions/` looks the
    * lineage up from the row, `GET /main-goals/{id}/versions/` the workspace
-   * chain — neither takes an `artifact_id`.
+   * chain — neither takes an `artifact_id`. The **comments** tab, by contrast,
+   * needs the backing generic Artifact UUID and nothing else (#1763).
    */
   const inspector: {
     kind: "goal" | "mainGoal";
     entityId: string;
-    /** Backing Artifact UUID — `undefined` for MainGoal, which does not
-     *  publish it yet (#1763); the comments panel then says so. */
-    artifactId: string | undefined;
+    /** Backing Artifact UUID — `null` when the payload does not publish it;
+     *  the shell then renders no comments tab (spec §4.3). */
+    artifactPk: string | null;
     version: VersionRef;
   } | null = isMainGoalSelected
     ? activeMainGoal
       ? {
           kind: "mainGoal",
           entityId: activeMainGoal.id,
-          // MainGoalSerializer has no `artifact_id` field yet — never fall
-          // back to the entity id here, that is exactly the #1763 404.
-          artifactId: activeMainGoal.artifact_id,
+          // B2.0-4 (#1763) projects `MainGoal.artifact_id`; never fall back to
+          // the entity id here, that is exactly the comments 404.
+          artifactPk: activeMainGoal.artifact_id ?? null,
           version: {
             version: activeMainGoal.sequence_number,
             label: `v${activeMainGoal.sequence_number}`,
@@ -348,7 +398,7 @@ export default function GoalsPage(): JSX.Element {
       ? {
           kind: "goal",
           entityId: selectedGoal.id,
-          artifactId: selectedGoal.artifact_id,
+          artifactPk: selectedGoal.artifact_id ?? null,
           version: {
             version: selectedGoal.sequence_number,
             label: `v${selectedGoal.sequence_number}`,
@@ -360,7 +410,24 @@ export default function GoalsPage(): JSX.Element {
 
   const detailPane = (
     <div className={styles.detailPane}>
-      <div className={styles.detailColumn}>
+      <div className={styles.detailColumn} ref={detailScrollRef}>
+        {/* Spec §5.1 #1: the skip link is the first focusable element of the
+            detail area and the only way into the inspector that does not
+            require walking the detail first (#1762 M4). */}
+        {inspector && (
+          <a
+            href="#inspector-heading"
+            className={`btn-ghost ${styles.inspectorSkipLink}`}
+            data-testid="inspector-skip-link"
+            onClick={(event) => {
+              event.preventDefault();
+              focusInspectorHeading();
+            }}
+          >
+            {t("sidebar.inspector.skipLink", "Direkt zum Inspektor")}
+          </a>
+        )}
+
         {error && !form && (
           <p data-testid="goals-error" role="alert" className={styles.error}>
             {error}
@@ -382,13 +449,18 @@ export default function GoalsPage(): JSX.Element {
         ) : null}
       </div>
 
+      {/* #1762/M4: the tabbed inspector replaces the stacked RightSidebar.
+          Both Goal kinds share ONE tab-persistence slot
+          (`reqflow_inspector_tab_goals`, inspectorContract.ts) so switching
+          between them does not move the selected tab (I-14). */}
       {inspector && (
-        <RightSidebar
+        <InspectorShell
           kind={inspector.kind}
           entityId={inspector.entityId}
-          artifactId={inspector.artifactId}
+          artifactPk={inspector.artifactPk}
           currentVersion={inspector.version}
-          hideTraceLinks
+          coveredRef={detailScrollRef}
+          onShowInSpine={focusSpine}
         />
       )}
     </div>
@@ -421,10 +493,12 @@ export default function GoalsPage(): JSX.Element {
         overflowActions={[interviewCta]}
       />
       <div className={styles.splitHost}>
+        {/* #1762/M4: concept contract (UI_KONZEPT ch. 12.6) — `list`/`detail`/
+            `spine`, no drag divider. The spine slot carries the Goal chain;
+            `mainGoal` has no trace graph at all (spec §3), so the slot stays
+            empty for it. */}
         <SplitView
-          moduleType="goals"
-          initialLeftWidth={350}
-          leftPanel={
+          list={
             <GoalsTree
               goals={goals}
               selectedId={selectedId}
@@ -433,7 +507,21 @@ export default function GoalsPage(): JSX.Element {
               onCreateNew={openCreateDialog}
             />
           }
-          rightPanel={detailPane}
+          detail={detailPane}
+          spine={
+            selectedGoal ? (
+              <TraceSpine
+                stations={derivationChain.stations}
+                isLoading={derivationChain.isLoading}
+                error={derivationChain.error}
+                onOpenArtifact={handleOpenChainArtifact}
+                isOpenable={derivationChain.isOpenable}
+              />
+            ) : null
+          }
+          ratio={[40, 60]}
+          minWidths={[350, 448]}
+          containerClassName={styles.splitHost}
         />
       </div>
 
