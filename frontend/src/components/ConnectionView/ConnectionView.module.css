@@ -524,6 +524,17 @@
   vertical-align: middle;
 }
 
+/**
+ * V6: the row's level badge sits before the title, in the same line box. An
+ * inline-block wrapper (not a margin on the badge itself) keeps the shared
+ * `<LevelBadge>` free of layout assumptions from this renderer.
+ */
+.matrixRowLevel {
+  display: inline-block;
+  margin-inline-end: var(--space-2);
+  vertical-align: middle;
+}
+
 .errorCode {
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);

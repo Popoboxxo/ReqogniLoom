@@ -45,6 +45,12 @@ export interface UseRequirementDataOptions {
    * ``allocated=true|false``.
    */
   allocation?: RequirementAllocationFilter;
+  /**
+   * V6: V-Modell level filter, applied **server-side** (`?level=`).
+   * ``all`` sends nothing; ``"1"``…``"4"`` map onto the backend's
+   * `level` parameter, which accepts exactly 1..4.
+   */
+  level?: RequirementLevelFilter;
 }
 
 /**
@@ -87,6 +93,61 @@ export function requirementAllocationStorageKey(
   return `reqlo:list-state:requirements:${workspaceId ?? "no-workspace"}:allocation`;
 }
 
+/**
+ * V6: UI filter over the derived V-Modell level (`Requirement.level`).
+ *
+ * The values are the *persisted* representation and therefore strings — the
+ * four levels the backend accepts (`parse_int_param(..., minimum=1,
+ * maximum=4)`) plus the unfiltered state. `level` is derived (ADR-005), so a
+ * filter is the only client-side handle on it; it can never be edited.
+ */
+export type RequirementLevelFilter = "all" | "1" | "2" | "3" | "4";
+
+/** The four selectable levels, in cascade order — one source for the toolbar. */
+export const REQUIREMENT_LEVEL_FILTER_VALUES: readonly RequirementLevelFilter[] = [
+  "1",
+  "2",
+  "3",
+  "4",
+];
+
+/** Shape guard for {@link RequirementLevelFilter} (persisted state). */
+export function isRequirementLevelFilter(
+  value: unknown,
+): value is RequirementLevelFilter {
+  return (
+    value === "all" ||
+    value === "1" ||
+    value === "2" ||
+    value === "3" ||
+    value === "4"
+  );
+}
+
+/**
+ * Translate the UI filter onto the API's numeric `level` parameter.
+ * `all` becomes `undefined` (the parameter is omitted — the backend parses an
+ * integer, so an empty string would be a 400, not "no filter").
+ */
+export function levelToQueryParam(
+  level: RequirementLevelFilter | undefined,
+): number | undefined {
+  if (level === undefined || level === "all") return undefined;
+  const parsed = Number.parseInt(level, 10);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
+/**
+ * sessionStorage key of the persisted level filter. Per-workspace for the same
+ * reason as {@link requirementAllocationStorageKey}: a shared key would carry
+ * one workspace's selection onto the next.
+ */
+export function requirementLevelStorageKey(
+  workspaceId: string | undefined,
+): string {
+  return `reqlo:list-state:requirements:${workspaceId ?? "no-workspace"}:level`;
+}
+
 export function useRequirementData(
   selectedId?: string,
   options?: UseRequirementDataOptions,
@@ -99,6 +160,7 @@ export function useRequirementData(
     workspaceId,
     options?.includeDeleted ?? false,
     allocationToQueryParam(options?.allocation),
+    levelToQueryParam(options?.level),
   );
   const detailQuery = useRequirementDetail(workspaceId, selectedId);
 

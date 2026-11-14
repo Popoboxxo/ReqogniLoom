@@ -39,6 +39,51 @@
   height: 100%;
   min-height: 0;
   gap: var(--space-3);
+  /* #1762 (M2): the inspector's sheet is an overlay over this pane, so the
+     pane is its positioning context (the shell never positions itself). */
+  position: relative;
+}
+
+/*
+ * #1762 (M2), spec §5.1 #1: the skip link into the inspector. It is the first
+ * focusable element of the detail area, hidden until focused — the global
+ * `.visually-hidden` utility cannot be revealed, so this local pair carries
+ * the reveal. Byte-identical to RequirementEditors.module.css (M1).
+ */
+.inspectorSkipLink {
+  position: absolute;
+  width: var(--control-border-width);
+  height: var(--control-border-width);
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.inspectorSkipLink:focus-visible {
+  position: static;
+  width: auto;
+  height: auto;
+  clip-path: none;
+  margin-bottom: var(--space-2);
+}
+
+/*
+ * #1762 (M2) DoD 2: the artifact head carries identity + workflow status.
+ * Both had no home on this route's detail pane; the inspector must not become
+ * their second home (spec §2.2). Same pair as RequirementEditors.module.css.
+ */
+.artifactHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+/* Split container for the concept contract (`list`/`detail`/`spine`). */
+.splitWrapper {
+  flex: 1 1 auto;
+  min-height: 60vh;
 }
 
 .detailScroll {

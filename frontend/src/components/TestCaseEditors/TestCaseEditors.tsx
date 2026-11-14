@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
+import { ArtifactId } from '../shared/ArtifactId';
+import { StatusBadge } from '../shared/StatusBadge';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
@@ -15,7 +17,7 @@ import { TestCaseList } from './TestCaseList';
 import { TestCaseArtifactForm } from './TestCaseArtifactForm';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { BaselineDriftBadge } from '../shared/BaselineDriftBadge/BaselineDriftBadge';
-import { RightSidebar } from '../shared/ArtifactInspector';
+import { InspectorShell } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
 import type { ChainArtifact } from '../shared/TraceSpine';
@@ -245,6 +247,24 @@ export default function TestCaseEditors(): JSX.Element {
     [derivationChain, navigate],
   );
 
+  // #1762 (M2, mirrors M1): the inspector's programmatic focus targets live in
+  // the route, not in the shell — the shell must not know the detail area's DOM
+  // (it only receives `coveredRef` for the `inert` bracket).
+  const detailScrollRef = useRef<HTMLDivElement | null>(null);
+
+  const focusInspectorHeading = useCallback((): void => {
+    document.getElementById('inspector-heading')?.focus();
+  }, []);
+
+  // Spec §2.3 rule 1: the Links tab's summary line jumps into the spine. The
+  // spine is a separate flex zone now, so this is the one place that knows its
+  // first station.
+  const focusSpine = useCallback((): void => {
+    document
+      .querySelector<HTMLElement>('[data-testid="trace-spine-station-button"]')
+      ?.focus();
+  }, []);
+
   // Page-level loading / error states — only gate the full view on the
   // initial load (no data yet), keeping the list visible on detail reloads.
   if (isLoading && items.length === 0) {
@@ -304,7 +324,7 @@ export default function TestCaseEditors(): JSX.Element {
 
       <div className={styles.splitWrapper}>
         <SplitView
-          leftPanel={
+          list={
             <div>
               <IncludeDeletedToggle
                 checked={includeDeleted}
@@ -320,17 +340,36 @@ export default function TestCaseEditors(): JSX.Element {
               />
             </div>
           }
-          rightPanel={
+          detail={
             <div className={styles.rightPane}>
-              <div className={styles.detailScroll}>
+              <div className={styles.detailScroll} ref={detailScrollRef}>
+                {/* Spec §5.1 #1: the skip link is the first focusable element
+                    of the detail area (#1762 M2). */}
                 {item && (
-                  <TraceSpine
-                    stations={derivationChain.stations}
-                    isLoading={derivationChain.isLoading}
-                    error={derivationChain.error}
-                    onOpenArtifact={handleOpenChainArtifact}
-                    isOpenable={derivationChain.isOpenable}
-                  />
+                  <a
+                    href="#inspector-heading"
+                    className={`btn-ghost ${styles.inspectorSkipLink}`}
+                    data-testid="inspector-skip-link"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      focusInspectorHeading();
+                    }}
+                  >
+                    {t('sidebar.inspector.skipLink', 'Jump to the inspector')}
+                  </a>
+                )}
+                {/* DoD 2 (#1762/M2): identity + workflow status live in the
+                    artifact head of the route, never in the inspector
+                    (spec §2.2). */}
+                {item && (
+                  <div className={styles.artifactHead} data-testid="tc-artifact-head">
+                    <ArtifactId
+                      value={item.uid}
+                      fallback={item.id.slice(0, 8)}
+                      testId="tc-detail-id"
+                    />
+                    <StatusBadge status={item.status} testId="tc-detail-status" />
+                  </div>
                 )}
                 {/* #399 (D7): drift badge + CR shortcut live in the editor
                     header only — never in the list rows (N+1). Bound to the
@@ -347,14 +386,15 @@ export default function TestCaseEditors(): JSX.Element {
                 )}
                 {/* Plan C T-C3-1 (PR-C10, ENT-C1 = B): the test case detail area
                     gets the same trace-link CRUD list as Risk/ADR/Issue/Need —
-                    the read-only <TraceSpine> above cannot delete a link, and
-                    the inspector stays on `hideTraceLinks` below (one CRUD
-                    surface per screen). Bound to the BACKING Artifact id
-                    (`artifact_id ?? id`): trace links live in the Artifact id
-                    space, exactly like the drift badge right above. Placed
-                    before the form as the task prescribes (Risk/ADR/Issue/Need
-                    render theirs after it), but after the drift badge so that
-                    artifact-level warning keeps its place under the spine. */}
+                    the read-only <TraceSpine> in the SplitView's spine slot
+                    cannot delete a link, and the inspector's Links tab is a
+                    read surface (one CRUD surface per screen). Bound to the
+                    BACKING Artifact id (`artifact_id ?? id`): trace links live
+                    in the Artifact id space, exactly like the drift badge right
+                    above. Placed before the form as the task prescribes
+                    (Risk/ADR/Issue/Need render theirs after it), but after the
+                    drift badge so that artifact-level warning keeps its place
+                    under the spine. */}
                 {item && activeWorkspace && (
                   <TraceLinkPanel workspaceId={activeWorkspace.id} artifactId={item.artifact_id ?? item.id} />
                 )}
@@ -397,14 +437,35 @@ export default function TestCaseEditors(): JSX.Element {
               </div>
               {item && (() => {
                 const ver: VersionRef = { version: item.version, label: `v${item.version}`, createdAt: null, baselineIds: [] };
-                // #1763: `item.id` = TestCase entity id (versions/diff),
+                // #1762 (M2): `item.id` = TestCase entity id (versions/diff),
                 // `item.artifact_id` = backing Artifact (comments).
-                return <RightSidebar kind="testCase" entityId={item.id} artifactId={item.artifact_id} currentVersion={ver} hideTraceLinks />;
+                return (
+                  <InspectorShell
+                    kind="testCase"
+                    entityId={item.id}
+                    artifactPk={item.artifact_id ?? null}
+                    currentVersion={ver}
+                    coveredRef={detailScrollRef}
+                    onShowInSpine={focusSpine}
+                  />
+                );
               })()}
             </div>
           }
-          initialLeftWidth={350}
-          moduleType="testcases"
+          spine={
+            item ? (
+              <TraceSpine
+                stations={derivationChain.stations}
+                isLoading={derivationChain.isLoading}
+                error={derivationChain.error}
+                onOpenArtifact={handleOpenChainArtifact}
+                isOpenable={derivationChain.isOpenable}
+              />
+            ) : null
+          }
+          ratio={[40, 60]}
+          minWidths={[320, 448]}
+          containerClassName={styles.splitWrapper}
         />
       </div>
 

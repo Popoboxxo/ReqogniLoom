@@ -24,6 +24,7 @@ const { NEED } = vi.hoisted(() => ({
     id: "need-001",
     workspace_id: "ws-001",
     artifact_id: "art-001",
+    uid: "SN-1",
     title: "As a user, I need SSO",
     description: "",
     category: "",
@@ -49,6 +50,10 @@ vi.mock("../api/stakeholder-need", () => ({
 vi.mock("../api/tracelinks", () => ({
   tracelinksApi: {
     impact: vi.fn().mockResolvedValue([]),
+    // #1762/M2: the detail's TraceLinkPanel reads this once a need is open.
+    listForArtifact: vi
+      .fn()
+      .mockResolvedValue({ count: 0, next: null, previous: null, results: [] }),
   },
 }));
 
@@ -58,9 +63,65 @@ vi.mock("../api/traceability", () => ({
   },
 }));
 
-vi.mock("../components/shared/ArtifactInspector", () => ({
-  RightSidebar: () => null,
+// #1762/M2 (reference mount): the route now mounts the tabbed shell. The stub
+// keeps the mount contract observable (both id spaces, the `inert` bracket's
+// `coveredRef`, the spine jump) and renders the REAL CommentPanel when
+// `renderRealComments` is set, so the comments request URL is assertable.
+const inspectorProbe = vi.hoisted(() => ({
+  renderRealComments: false,
+  lastShell: undefined as
+    | {
+        kind?: string;
+        entityId?: string | number;
+        artifactPk?: string | null;
+        hasCoveredRef?: boolean;
+        hasOnShowInSpine?: boolean;
+        hasHideTraceLinks?: boolean;
+      }
+    | undefined,
 }));
+
+vi.mock("../api/comments", () => ({
+  commentsApi: {
+    list: vi.fn().mockResolvedValue([]),
+    create: vi.fn(),
+    resolve: vi.fn(),
+    remove: vi.fn(),
+  },
+}));
+
+vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
+  const actual =
+    await importActual<typeof import("../components/shared/ArtifactInspector")>();
+  const { CommentPanel } = await import(
+    "../components/shared/ArtifactInspector/CommentPanel"
+  );
+  return {
+    ...actual,
+    RightSidebar: () => null,
+    InspectorShell: (props: {
+      kind: import("../components/shared/ArtifactInspector").ArtifactKind;
+      entityId: string | number;
+      artifactPk: string | null;
+      coveredRef?: unknown;
+      onShowInSpine?: unknown;
+    }) => {
+      inspectorProbe.lastShell = {
+        kind: props.kind,
+        entityId: props.entityId,
+        artifactPk: props.artifactPk,
+        hasCoveredRef: props.coveredRef !== undefined,
+        hasOnShowInSpine: props.onShowInSpine !== undefined,
+        hasHideTraceLinks: "hideTraceLinks" in (props as Record<string, unknown>),
+      };
+      return inspectorProbe.renderRealComments ? (
+        <CommentPanel kind={props.kind} artifactId={props.artifactPk ?? undefined} />
+      ) : (
+        <div data-testid="artifact-inspector" />
+      );
+    },
+  };
+});
 
 // Fixed active workspace + a non-empty `workspaces` list — NeedsEditors
 // guards create against the placeholder DEFAULT_WORKSPACE id via
@@ -99,6 +160,7 @@ vi.mock("../context/LinkTypeContext", () => ({
 // Must import AFTER vi.mock
 import NeedsEditors from "../components/NeedsEditors/NeedsEditors";
 import { stakeholderNeedApi } from "../api/stakeholder-need";
+import { commentsApi } from "../api/comments";
 
 function renderEditor(initialPath = "/needs"): ReturnType<typeof render> {
   const queryClient = new QueryClient({
@@ -185,6 +247,69 @@ describe("NeedsEditors — create form sends description/category to the API (BU
     );
     expect(trigger).not.toBeDisabled();
     expect(document.activeElement).toBe(trigger);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1762 / M2 — reference mount: the tabbed inspector replaces RightSidebar
+// ---------------------------------------------------------------------------
+
+describe("NeedsEditors — inspector shell mount (#1762 M2)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(stakeholderNeedApi.listAll).mockResolvedValue([NEED] as never);
+    vi.mocked(stakeholderNeedApi.get).mockResolvedValue(NEED as never);
+  });
+
+  it("mounts InspectorShell with both id spaces and no hideTraceLinks switch", async () => {
+    renderEditor(`/needs/${NEED.id}`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("artifact-inspector")).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByTestId("artifact-inspector")).toHaveLength(1);
+    expect(inspectorProbe.lastShell).toMatchObject({
+      kind: "stakeholderNeed",
+      entityId: NEED.id,
+      artifactPk: NEED.artifact_id,
+      hasCoveredRef: true,
+      hasOnShowInSpine: true,
+    });
+    // `hideTraceLinks` was the route-level switch of the stacked sidebar; the
+    // tabbed shell derives its tab matrix from `kind` instead.
+    expect(inspectorProbe.lastShell?.hasHideTraceLinks).toBe(false);
+  });
+
+  it("requests comments for the backing Artifact UUID, never the entity id", async () => {
+    inspectorProbe.renderRealComments = true;
+    try {
+      renderEditor(`/needs/${NEED.id}`);
+
+      await waitFor(() => expect(commentsApi.list).toHaveBeenCalledWith(NEED.artifact_id));
+      expect(commentsApi.list).not.toHaveBeenCalledWith(NEED.id);
+    } finally {
+      inspectorProbe.renderRealComments = false;
+    }
+  });
+
+  it("shows the artifact id and workflow status in the detail head (DoD 2)", async () => {
+    renderEditor(`/needs/${NEED.id}`);
+
+    const head = await screen.findByTestId("need-artifact-head");
+    expect(head).toHaveTextContent(NEED.uid);
+    expect(screen.getByTestId("need-detail-status")).toHaveTextContent(NEED.status);
+  });
+
+  it("uses the concept split layout with the spine in its own slot (DoD 6)", async () => {
+    renderEditor(`/needs/${NEED.id}`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("splitview-list")).toBeInTheDocument();
+      expect(screen.getByTestId("splitview-detail")).toBeInTheDocument();
+      expect(screen.getByTestId("splitview-spine")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("splitview-divider")).not.toBeInTheDocument();
   });
 });
 

@@ -227,4 +227,40 @@ describe("MatrixRenderer", () => {
     expect(screen.getByTestId("matrix-row-r3")).toBeInTheDocument();
     expect(screen.getByTestId("matrix-next")).toBeDisabled();
   });
+
+  // V6 (triage 2026-11-10 §V6): the level was readable in the requirement
+  // list only. The read object already carries `level`/`tier_name`, so the
+  // matrix row shows the same neutral badge.
+  it("[V6] renders the level badge in the row header", () => {
+    render(
+      <MatrixRenderer
+        requirements={[requirement({ id: "r5", title: "Level row", level: 3, tier_name: "Subsystem" })]}
+        elements={ELEMENTS}
+        page={1}
+        pageSize={10}
+        onPageChange={vi.fn()}
+      />
+    );
+
+    const row = screen.getByTestId("matrix-row-r5");
+    const badge = within(row).getByTestId("matrix-level-r5");
+    expect(badge).toHaveTextContent("L3");
+    expect(badge).toHaveAttribute("title", "Subsystem");
+  });
+
+  it("[V6] renders no level badge for a row without a level", () => {
+    render(
+      <MatrixRenderer
+        requirements={[requirement({ id: "r6", level: null, tier_name: null })]}
+        elements={ELEMENTS}
+        page={1}
+        pageSize={10}
+        onPageChange={vi.fn()}
+      />
+    );
+
+    expect(
+      within(screen.getByTestId("matrix-row-r6")).queryByTestId("matrix-level-r6")
+    ).not.toBeInTheDocument();
+  });
 });

@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
+import { ArtifactId } from '../shared/ArtifactId';
+import { StatusBadge } from '../shared/StatusBadge';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
 import { AiDerivationDialog } from '../shared/AiDerivationDialog';
@@ -15,7 +17,7 @@ import { extractApiErrorMessage } from '../../api/client';
 import { AdrList } from './AdrList';
 import { AdrArtifactForm } from './AdrArtifactForm';
 import { AdrSupersedePanel } from './AdrSupersedePanel';
-import { RightSidebar } from '../shared/ArtifactInspector';
+import { InspectorShell } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
 import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
@@ -161,6 +163,24 @@ export default function AdrEditors(): JSX.Element {
     [derivationChain, navigate],
   );
 
+  // #1762 (M2, mirrors M1): the inspector's programmatic focus targets live in
+  // the route, not in the shell — the shell must not know the detail area's DOM
+  // (it only receives `coveredRef` for the `inert` bracket).
+  const detailScrollRef = useRef<HTMLDivElement | null>(null);
+
+  const focusInspectorHeading = useCallback((): void => {
+    document.getElementById('inspector-heading')?.focus();
+  }, []);
+
+  // Spec §2.3 rule 1: the Links tab's summary line jumps into the spine. The
+  // spine is a separate flex zone now, so this is the one place that knows its
+  // first station.
+  const focusSpine = useCallback((): void => {
+    document
+      .querySelector<HTMLElement>('[data-testid="trace-spine-station-button"]')
+      ?.focus();
+  }, []);
+
   // Page-level loading / error states — only gate the full view on the
   // initial load (no data yet), keeping the list visible on detail reloads.
   if (isLoading && items.length === 0) {
@@ -241,7 +261,7 @@ export default function AdrEditors(): JSX.Element {
 
       <div className={styles.splitWrapper}>
         <SplitView
-          leftPanel={
+          list={
             <div>
               <IncludeDeletedToggle
                 checked={includeDeleted}
@@ -257,17 +277,36 @@ export default function AdrEditors(): JSX.Element {
               />
             </div>
           }
-          rightPanel={
+          detail={
             <div className={styles.rightPane}>
-              <div className={styles.detailScroll}>
+              <div className={styles.detailScroll} ref={detailScrollRef}>
+                {/* Spec §5.1 #1: the skip link is the first focusable element
+                    of the detail area (#1762 M2). */}
                 {item && (
-                  <TraceSpine
-                    stations={derivationChain.stations}
-                    isLoading={derivationChain.isLoading}
-                    error={derivationChain.error}
-                    onOpenArtifact={handleOpenChainArtifact}
-                    isOpenable={derivationChain.isOpenable}
-                  />
+                  <a
+                    href="#inspector-heading"
+                    className={`btn-ghost ${styles.inspectorSkipLink}`}
+                    data-testid="inspector-skip-link"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      focusInspectorHeading();
+                    }}
+                  >
+                    {t('sidebar.inspector.skipLink', 'Jump to the inspector')}
+                  </a>
+                )}
+                {/* DoD 2 (#1762/M2): identity + workflow status live in the
+                    artifact head of the route, never in the inspector
+                    (spec §2.2). */}
+                {item && (
+                  <div className={styles.artifactHead} data-testid="adr-artifact-head">
+                    <ArtifactId
+                      value={item.uid}
+                      fallback={item.id.slice(0, 8)}
+                      testId="adr-detail-id"
+                    />
+                    <StatusBadge status={item.status} testId="adr-detail-status" />
+                  </div>
                 )}
                 {/* DEVIATION from the plan brief: the brief's AdrArtifactForm
                     takes a non-nullable `adr: Adr` (unlike the deleted
@@ -305,16 +344,36 @@ export default function AdrEditors(): JSX.Element {
               </div>
               {item && (() => {
                 const ver: VersionRef = { version: item.version, label: `v${item.version}`, createdAt: null, baselineIds: [] };
-                // #1763: `item.id` feeds the versions/diff routes; the
-                // comments route needs the backing Artifact UUID. AdrSerializer
-                // does not publish `artifact_id` yet, so the panel degrades to
-                // "unavailable" instead of 404ing on the entity id.
-                return <RightSidebar kind="adr" entityId={item.id} artifactId={item.artifact_id} currentVersion={ver} hideTraceLinks />;
+                // #1762 (M2): `item.id` feeds the versions/diff routes; the
+                // comments route needs the backing Artifact UUID (#1763
+                // publishes it as `artifact_id`).
+                return (
+                  <InspectorShell
+                    kind="adr"
+                    entityId={item.id}
+                    artifactPk={item.artifact_id ?? null}
+                    currentVersion={ver}
+                    coveredRef={detailScrollRef}
+                    onShowInSpine={focusSpine}
+                  />
+                );
               })()}
             </div>
           }
-          initialLeftWidth={350}
-          moduleType="adrs"
+          spine={
+            item ? (
+              <TraceSpine
+                stations={derivationChain.stations}
+                isLoading={derivationChain.isLoading}
+                error={derivationChain.error}
+                onOpenArtifact={handleOpenChainArtifact}
+                isOpenable={derivationChain.isOpenable}
+              />
+            ) : null
+          }
+          ratio={[40, 60]}
+          minWidths={[320, 448]}
+          containerClassName={styles.splitWrapper}
         />
       </div>
 

@@ -36,6 +36,7 @@ import { useWorkspace } from "../../../context/WorkspaceContext";
 import type { TraceLink } from "../../../types";
 import { getLinkTypeLabel } from "../../../constants/traceLinkLabels";
 import { getArtifactRoute } from "../../../utils/artifactRoutes";
+import { CreateTraceLinkDialog } from "../CreateTraceLinkDialog";
 import { LINKS_ROWS_ONLY, isSpineLinkType } from "./inspectorContract";
 import { useInspectorAnnouncer, useInspectorCounts } from "./InspectorLiveRegions";
 import { type ArtifactKind, type LinkType, type TraceLinkRow } from "./types";
@@ -67,6 +68,10 @@ export interface TracePanelProps {
    * so this tab summarises them in **one** line with a jump and lists only the
    * remaining types. The shell owns the live regions, so the panel announces
    * through it instead of rendering its own.
+   *
+   * The tab also owns the create entry (`CreateTraceLinkDialog`, #1827): it
+   * replaced the stacked panel whose header carried it, and it has to stay
+   * reachable when the artifact has no links at all.
    */
   variant?: "panel" | "tab";
   /**
@@ -190,6 +195,10 @@ export function TracePanel({
   const [state, setState] = useState<LoadState>("idle");
   const [links, setLinks] = useState<TraceLinkRow[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // #1762 M2 follow-up: the tab replaced the stacked `TraceLinkPanel`, whose
+  // header carried the "new link" entry. Without it the empty state had no way
+  // out — read "no links yet", leave, find another surface (#1827).
+  const [createOpen, setCreateOpen] = useState(false);
   // Tracked as the *de*selected set, not the selected one: the chip list is
   // async (catalog) plus data-driven (types actually present on this
   // artifact), so a "selected" set would have to be re-seeded every time it
@@ -402,7 +411,28 @@ export function TracePanel({
   function renderHeader(): JSX.Element {
     // Tab form: the tab label names the area; a second heading inside the tab
     // panel would break the "one heading per area" rule (spec §2.1/§7).
-    if (isTab) return <></>;
+    //
+    // The create entry still has to live here. In the stacked form it is the
+    // `TraceLinkPanel` header that offers it; the tab has no such header, so
+    // without this row an artifact with zero links rendered a dead end — the
+    // `links-empty` message and nothing to act on (#1827).
+    if (isTab) {
+      // No workspace, no link to create: the dialog needs a `workspaceId` to
+      // resolve targets, so the action is withheld instead of failing later.
+      if (!activeWorkspace) return <></>;
+      return (
+        <div className={styles.actionsRow}>
+          <button
+            type="button"
+            className="btn-primary"
+            data-testid="trace-link-panel-open-dialog"
+            onClick={(): void => setCreateOpen(true)}
+          >
+            {t("actions.newLink")}
+          </button>
+        </div>
+      );
+    }
     return (
       <h3 className={styles.title} id="inspector-trace-label">
         {t("sidebar.trace.title")}
@@ -618,6 +648,25 @@ export function TracePanel({
             </>
           )}
         </>
+      )}
+      {/* Same modal the stacked `TraceLinkPanel` mounts (REQ-005). `entityId`
+          is the domain-entity id the dialog's element list is keyed on, so the
+          two surfaces create identical links. */}
+      {isTab && activeWorkspace && (
+        <CreateTraceLinkDialog
+          workspaceId={activeWorkspace.id}
+          sourceId={String(entityId)}
+          isOpen={createOpen}
+          onClose={(): void => setCreateOpen(false)}
+          onCreated={(): void => {
+            setCreateOpen(false);
+            // Exactly one refetch and one announcement: `load()` reports the
+            // new count through the shell's live region, the create action
+            // itself stays silent.
+            void load();
+          }}
+          defaultLinkType={activeWorkspace.default_link_type || "derives-from"}
+        />
       )}
     </section>
   );

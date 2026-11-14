@@ -84,6 +84,13 @@ export interface RequirementListOptions {
    * `parse_bool_param`); omitted = no allocation filter.
    */
   allocated?: boolean;
+  /**
+   * V6 (triage 2026-11-10 §V6): V-Modell level filter, `GET /requirements/?level=1..4`.
+   * Backend contract: `RequirementViewSet.list` → `parse_int_param(..., minimum=1,
+   * maximum=4)`; an omitted value means "all levels". The values are the
+   * derived cascade level (`Requirement.level`), not the workspace ladder key.
+   */
+  level?: number;
 }
 
 /**
@@ -219,6 +226,7 @@ export const requirementsApi = {
     if (options?.allocated !== undefined) {
       params.allocated = options.allocated ? "true" : "false";
     }
+    if (options?.level !== undefined) params.level = String(options.level);
     const { count, results } = await fetchAllRequirementPages(params);
     // The caller (the review queue) consumes `results` only, but the envelope
     // is kept intact so existing callers/tests see the same shape. `next` is
@@ -240,6 +248,7 @@ export const requirementsApi = {
     if (options?.allocated !== undefined) {
       params.allocated = options.allocated ? "true" : "false";
     }
+    if (options?.level !== undefined) params.level = String(options.level);
     const { results } = await fetchAllRequirementPages(params);
     return results;
   },

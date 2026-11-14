@@ -63,6 +63,8 @@ function renderList(requirements: Requirement[] = REQUIREMENTS) {
       onCreateNew={vi.fn()}
       allocation="all"
       onAllocationChange={vi.fn()}
+      level="all"
+      onLevelChange={vi.fn()}
     />
   );
 }

@@ -18,6 +18,18 @@
   margin: 0;
 }
 
+/*
+ * #1827: the Links tab's create entry. The stacked `TraceLinkPanel` carries it
+ * in its own header; the tab has no header, so it gets a row of its own above
+ * the filter chips — and therefore stays reachable in the empty state.
+ */
+.actionsRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
 .filterRow {
   display: flex;
   flex-wrap: nowrap;

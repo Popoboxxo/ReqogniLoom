@@ -48,12 +48,17 @@ vi.mock("../../api/stakeholder-need", () => ({
   stakeholderNeedApi: { create: vi.fn().mockResolvedValue({ id: "new-1" }) },
 }));
 
+// #1762/M2: the route moved to SplitView's concept contract (`list`/`detail`/
+// `spine`). The stub renders the list pane only — that is all this suite
+// needs (create-form state of `NeedList`).
 vi.mock("../SplitView/SplitView", () => ({
-  SplitView: ({ leftPanel }: { leftPanel: React.ReactNode }) => <div>{leftPanel}</div>,
+  SplitView: ({ list }: { list: React.ReactNode }) => <div>{list}</div>,
 }));
 
+// The tabbed shell replaced RightSidebar in M2; this suite renders no detail.
 vi.mock("../shared/ArtifactInspector", () => ({
   RightSidebar: () => null,
+  InspectorShell: () => null,
 }));
 
 vi.mock("./NeedArtifactForm", () => ({ NeedArtifactForm: () => null }));

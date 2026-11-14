@@ -93,6 +93,7 @@ vi.mock("../components/AdrEditors/AdrSupersedePanel", () => ({
 }));
 vi.mock("../components/shared/ArtifactInspector", () => ({
   RightSidebar: () => null,
+  InspectorShell: () => null,
 }));
 vi.mock("../components/shared/TraceLinkPanel", () => ({
   TraceLinkPanel: () => null,

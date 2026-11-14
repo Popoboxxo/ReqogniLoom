@@ -35,8 +35,17 @@ vi.mock("../../../context/WorkspaceContext", () => ({
 vi.mock("../../../context/LinkTypeContext", () => ({
   useLinkTypes: () => ({
     linkTypes: [{ key: "verifies", definition: { label: {}, allowed_pairs: [] } }],
+    // #1827: the Links tab mounts the shared `CreateTraceLinkDialog`, which
+    // reads the creatable subset of the catalog — the mock has to carry the
+    // whole context shape, not just what the read-only panel needs.
+    creatableLinkTypes: [
+      { key: "verifies", definition: { label: {}, allowed_pairs: [] } },
+    ],
     isLoading: false,
     error: null,
+    reload: vi.fn(),
+    definitionFor: () => undefined,
+    isAllowedPair: () => true,
     labelFor: (key: string) => key,
   }),
 }));

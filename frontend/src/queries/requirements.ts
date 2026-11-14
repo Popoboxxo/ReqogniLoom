@@ -34,19 +34,23 @@ export const requirementKeys = {
  * #1668: `allocated` is the server-side allocation filter (`true` = has an
  * `allocated-to` link, `false` = has none, `undefined` = off). It is part of
  * the query key for the same reason as `includeDeleted`.
+ *
+ * V6: `level` is the server-side V-Modell level filter (`1..4`, `undefined` =
+ * all levels) and is part of the query key for the same reason.
  */
 export function useRequirementsList(
   workspaceId: UUID | undefined,
   includeDeleted = false,
   allocated?: boolean,
+  level?: number,
 ) {
   return useQuery({
     queryKey: [
       ...requirementKeys.list(workspaceId ?? ""),
-      { includeDeleted, allocated },
+      { includeDeleted, allocated, level },
     ],
     queryFn: () =>
-      requirementsApi.listAll(workspaceId as UUID, { includeDeleted, allocated }),
+      requirementsApi.listAll(workspaceId as UUID, { includeDeleted, allocated, level }),
     enabled: !!workspaceId,
   });
 }

@@ -38,7 +38,11 @@ import type {
   WorkspaceTreeGroup,
   WorkspaceTreeNode,
 } from '../shared/WorkspaceTree';
-import type { RequirementAllocationFilter } from './useRequirementData';
+import type {
+  RequirementAllocationFilter,
+  RequirementLevelFilter,
+} from './useRequirementData';
+import { REQUIREMENT_LEVEL_FILTER_VALUES } from './useRequirementData';
 import { ArtifactRow } from '../shared/ArtifactRow';
 import type { ArtifactRowAttribute } from '../shared/ArtifactRow';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
@@ -280,6 +284,13 @@ interface RequirementListProps {
    */
   allocation: RequirementAllocationFilter;
   onAllocationChange: (value: RequirementAllocationFilter) => void;
+  /**
+   * V6: server-side level filter, owned by the container because it drives the
+   * list query (`?level=`). Rendered here next to the other list filters;
+   * ``all`` is the unfiltered state.
+   */
+  level: RequirementLevelFilter;
+  onLevelChange: (value: RequirementLevelFilter) => void;
 }
 
 /**
@@ -300,6 +311,8 @@ export const RequirementList: React.FC<RequirementListProps> = ({
   groupPanel,
   allocation,
   onAllocationChange,
+  level,
+  onLevelChange,
 }) => {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
@@ -422,8 +435,30 @@ export const RequirementList: React.FC<RequirementListProps> = ({
     [requirements, statusFilter],
   );
 
+  // V6: the four level options are fixed — the backend accepts exactly 1..4
+  // (`parse_int_param(..., minimum=1, maximum=4)`) and `level` is derived per
+  // ADR-005. Deriving the *set* from the loaded items (as the status filter
+  // does) would make a level unselectable exactly when it matters: to show
+  // that a level currently has no requirements. Only the *label* is taken
+  // from the loaded rows (`tier_name` honours the workspace's terminology
+  // profile); `reqLevel.L{n}` stays the permanent alias.
+  const levelOptions = useMemo(
+    () =>
+      REQUIREMENT_LEVEL_FILTER_VALUES.map((value) => {
+        const named = requirements.find(
+          (req) => String(req.level ?? '') === value && req.tier_name,
+        );
+        return { value, label: named?.tier_name ?? t(`reqLevel.L${value}`) };
+      }),
+    [requirements, t],
+  );
+
   const hasActiveListControls = Boolean(
-    listSearch || categoryFilter || statusFilter || allocation !== 'all',
+    listSearch ||
+      categoryFilter ||
+      statusFilter ||
+      allocation !== 'all' ||
+      level !== 'all',
   );
 
   const resetFilters = (): void => {
@@ -431,6 +466,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
     setCategoryFilter('');
     setStatusFilter('');
     onAllocationChange('all');
+    onLevelChange('all');
   };
 
   return (
@@ -456,6 +492,17 @@ export const RequirementList: React.FC<RequirementListProps> = ({
             value: statusFilter,
             options: statusOptions,
             onChange: setStatusFilter,
+          },
+          {
+            // V6: server-side V-Modell level filter (`?level=1..4`). Not part of
+            // the client-side `filter` chain below: `level` is derived per
+            // ADR-005 and the backend owns the predicate.
+            id: 'level',
+            allLabel: t('editor.allLevels'),
+            value: level === 'all' ? '' : level,
+            options: levelOptions,
+            onChange: (value) =>
+              onLevelChange((value || 'all') as RequirementLevelFilter),
           },
           {
             // #1668: server-side allocation filter, not a client-side one —

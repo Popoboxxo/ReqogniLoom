@@ -29,7 +29,15 @@
 import { useState, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useRequirementData, type RequirementAllocationFilter, isRequirementAllocationFilter, requirementAllocationStorageKey } from './useRequirementData';
+import {
+  useRequirementData,
+  type RequirementAllocationFilter,
+  isRequirementAllocationFilter,
+  requirementAllocationStorageKey,
+  type RequirementLevelFilter,
+  isRequirementLevelFilter,
+  requirementLevelStorageKey,
+} from './useRequirementData';
 import { useRequirementAiDerivation } from './use-requirement-ai-derivation';
 import { useRequirementCreateForm } from './use-requirement-create-form';
 import { useRequirementRouteActions } from './use-requirement-route-actions';
@@ -100,6 +108,14 @@ export default function RequirementEditors(): JSX.Element {
     'all',
     { validate: isRequirementAllocationFilter },
   );
+  // V6 (triage 2026-11-10): the level filter is server-side too (`?level=`), so
+  // it lives next to the allocation filter and follows the same persistence
+  // rule (per workspace, sessionStorage).
+  const [level, setLevel] = usePersistedListState<RequirementLevelFilter>(
+    requirementLevelStorageKey(activeWorkspace?.id),
+    'all',
+    { validate: isRequirementLevelFilter },
+  );
   // Issue #672: does the currently-open RequirementArtifactForm have unsaved
   // local edits? Reported by the form itself via onDirtyChange. `pendingId`
   // holds a tree-node click that arrived while dirty, so it can be confirmed
@@ -112,7 +128,7 @@ export default function RequirementEditors(): JSX.Element {
     isLoading,
     error,
     refresh,
-  } = useRequirementData(selectedId, { includeDeleted, allocation });
+  } = useRequirementData(selectedId, { includeDeleted, allocation, level });
 
   // P6 Task 6.3: visual groups. Loaded here (not in RequirementList) so the
   // list itself stays free of group API state and its focused unit tests keep
@@ -631,6 +647,9 @@ export default function RequirementEditors(): JSX.Element {
         // #1668: server-side allocation filter (drives the list query).
         allocation={allocation}
         onAllocationChange={setAllocation}
+        // V6: server-side level filter (drives the list query, `?level=`).
+        level={level}
+        onLevelChange={setLevel}
         // P6 Task 6.3: groups as pseudo-folders in the requirement tree, plus
         // the admin panel for editors. Viewers only get the read-only view.
         groups={requirementGroups.treeGroups}

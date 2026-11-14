@@ -80,6 +80,8 @@ function renderList(requirements: Requirement[]): ReturnType<typeof render> {
       onCreateNew={vi.fn()}
       allocation="all"
       onAllocationChange={vi.fn()}
+      level="all"
+      onLevelChange={vi.fn()}
     />,
   );
 }

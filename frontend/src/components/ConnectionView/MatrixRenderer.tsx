@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { Lock } from "lucide-react";
 
 import type { AllocationRow } from "../../api/allocation-view";
+import { LevelBadge } from "../shared/LevelBadge";
 import { isRowLocked, lockStateName } from "../../utils/allocation";
 import styles from "./ConnectionView.module.css";
 
@@ -95,6 +96,18 @@ export function MatrixRenderer({
                 data-locked={isRowLocked(row.locked) ? "true" : "false"}
               >
                 <th scope="row" className={styles.matrixRowHeader}>
+                  {/* V6 (triage 2026-11-10): the level was readable in the
+                      requirement list only. The matrix read object already
+                      carries `level` + `tier_name`, so the row shows the same
+                      neutral badge the list uses (shared <LevelBadge>, the
+                      single implementation the ui-ratchet freezes). */}
+                  <span className={styles.matrixRowLevel}>
+                    <LevelBadge
+                      level={row.level}
+                      title={row.tier_name ?? undefined}
+                      testId={`matrix-level-${row.id}`}
+                    />
+                  </span>
                   <span className={styles.matrixRowTitle}>{row.title}</span>
                   {isRowLocked(row.locked) && (
                     <span

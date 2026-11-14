@@ -148,6 +148,8 @@ describe("RequirementList allocation filter (#1668)", () => {
         onCreateNew={vi.fn()}
         allocation="allocated"
         onAllocationChange={onAllocationChange}
+        level="all"
+        onLevelChange={vi.fn()}
       />,
     );
 
@@ -172,6 +174,8 @@ describe("RequirementList allocation filter (#1668)", () => {
         onCreateNew={vi.fn()}
         allocation="unallocated"
         onAllocationChange={vi.fn()}
+        level="all"
+        onLevelChange={vi.fn()}
       />,
     );
 
@@ -187,6 +191,8 @@ describe("RequirementList allocation filter (#1668)", () => {
         onCreateNew={vi.fn()}
         allocation="all"
         onAllocationChange={vi.fn()}
+        level="all"
+        onLevelChange={vi.fn()}
       />,
     );
     expect(screen.queryByTestId("req-list-unallocated-count")).toBeNull();

@@ -104,23 +104,26 @@ vi.mock("../components/NeedsEditors/NeedList", () => ({
   NeedList: () => <div data-testid="need-list-stub" />,
 }));
 
+// #1762/M2: the route moved to SplitView's concept contract — render both
+// panes so the form-state assertions below still see the detail.
 vi.mock("../components/SplitView/SplitView", () => ({
   SplitView: ({
-    leftPanel,
-    rightPanel,
+    list,
+    detail,
   }: {
-    leftPanel: React.ReactNode;
-    rightPanel: React.ReactNode;
+    list: React.ReactNode;
+    detail: React.ReactNode;
   }) => (
     <div>
-      {leftPanel}
-      {rightPanel}
+      {list}
+      {detail}
     </div>
   ),
 }));
 
 vi.mock("../components/shared/ArtifactInspector", () => ({
   RightSidebar: () => null,
+  InspectorShell: () => null,
 }));
 
 vi.mock("../components/shared/TraceSpine", () => ({

@@ -5,6 +5,8 @@
 // The requirements route mounts the tabbed `InspectorShell` instead of the old
 // stacked `RightSidebar` (commit 85ceecad, spec
 // docs/superpowers/specs/2026-11-10-inspector-redesign-design.md §2.1/§4.2).
+// Since #1762/M2 the same shell is mounted by the need, risk, adr, issue and
+// testCase routes, so both consequences below apply to all six routes.
 // Two consequences matter for every spec that drives the requirement detail
 // form:
 //
@@ -85,8 +87,12 @@ export async function collapseInspector(page: Page): Promise<void> {
 
   await page.getByTestId(INSPECTOR_TEST_IDS.close).click();
   await expect(shell).toHaveAttribute('data-inspector-form', 'rail');
+  // Route-agnostic on purpose (#1762/M2): since the need/risk/adr/issue/
+  // testCase routes mount the same shell, the bracket must be checked on the
+  // shared detail region, not on one route's page wrapper — a selector that
+  // matches nothing would make this assertion pass without proving anything.
   await expect(
-    page.locator('[data-testid="requirements-page"] [inert]'),
+    page.locator('main [inert], [data-testid$="-page"] [inert]'),
     'the closed inspector must not leave the detail area inert — a fill() on an inert input silently does nothing'
   ).toHaveCount(0);
 }

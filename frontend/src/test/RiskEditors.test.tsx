@@ -68,6 +68,9 @@ const { RISK } = vi.hoisted(() => ({
     mitigation_strategy: "",
     status: "Identified" as const,
     version: 1,
+    // #1762/M2: identity (head) + the backing Artifact id (comments tab).
+    uid: "RISK-1",
+    artifact_id: "art-risk-001",
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
   },
@@ -103,11 +106,65 @@ vi.mock("../api/artifacts", () => ({
   },
 }));
 
-// Isolate from the ArtifactInspector sidebar (its own data fetching is out of
-// scope for this test).
-vi.mock("../components/shared/ArtifactInspector", () => ({
-  RightSidebar: () => null,
+// Isolate from the ArtifactInspector's own data fetching, but keep the mount
+// contract observable (#1762/M2): the stub records the two id spaces the shell
+// receives and — when `renderRealComments` is set — renders the REAL
+// CommentPanel so the comments request URL becomes assertable.
+const inspectorProbe = vi.hoisted(() => ({
+  renderRealComments: false,
+  lastShell: undefined as
+    | {
+        kind?: string;
+        entityId?: string | number;
+        artifactPk?: string | null;
+        hasCoveredRef?: boolean;
+        hasOnShowInSpine?: boolean;
+        hasHideTraceLinks?: boolean;
+      }
+    | undefined,
 }));
+
+vi.mock("../api/comments", () => ({
+  commentsApi: {
+    list: vi.fn().mockResolvedValue([]),
+    create: vi.fn(),
+    resolve: vi.fn(),
+    remove: vi.fn(),
+  },
+}));
+
+vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
+  const actual =
+    await importActual<typeof import("../components/shared/ArtifactInspector")>();
+  const { CommentPanel } = await import(
+    "../components/shared/ArtifactInspector/CommentPanel"
+  );
+  return {
+    ...actual,
+    RightSidebar: () => null,
+    InspectorShell: (props: {
+      kind: import("../components/shared/ArtifactInspector").ArtifactKind;
+      entityId: string | number;
+      artifactPk: string | null;
+      coveredRef?: unknown;
+      onShowInSpine?: unknown;
+    }) => {
+      inspectorProbe.lastShell = {
+        kind: props.kind,
+        entityId: props.entityId,
+        artifactPk: props.artifactPk,
+        hasCoveredRef: props.coveredRef !== undefined,
+        hasOnShowInSpine: props.onShowInSpine !== undefined,
+        hasHideTraceLinks: "hideTraceLinks" in (props as Record<string, unknown>),
+      };
+      return inspectorProbe.renderRealComments ? (
+        <CommentPanel kind={props.kind} artifactId={props.artifactPk ?? undefined} />
+      ) : (
+        <div data-testid="artifact-inspector" />
+      );
+    },
+  };
+});
 
 // Provide a fixed active workspace instead of the real fetch-driven provider.
 vi.mock("../context/WorkspaceContext", () => ({
@@ -137,6 +194,7 @@ vi.mock("../context/LinkTypeContext", () => ({
 import RiskEditors from "../components/RiskEditors/RiskEditors";
 import { tracelinksApi } from "../api/tracelinks";
 import { risksApi } from "../api/risks";
+import { commentsApi } from "../api/comments";
 import type { Risk } from "../types";
 
 function renderEditor(initialPath = `/risks/${RISK.id}`): ReturnType<typeof render> {
@@ -318,6 +376,77 @@ describe("RiskEditors Task 2.2 concept remodel (PageHeader / ArtifactRow / Dialo
     expect(screen.queryByText("Erstellen")).not.toBeInTheDocument();
 
     void i18n.changeLanguage(previousLanguage);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1762 / M2 — the tabbed inspector replaces RightSidebar on this route
+// ---------------------------------------------------------------------------
+
+describe("RiskEditors — inspector shell mount (#1762 M2)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(risksApi.list).mockResolvedValue({ results: [RISK], count: 1, next: null, previous: null } as any);
+    vi.mocked(risksApi.listAll).mockResolvedValue([RISK] as any);
+    vi.mocked(risksApi.get).mockResolvedValue(RISK as any);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    } as any);
+  });
+
+  it("mounts InspectorShell with both id spaces and no hideTraceLinks switch", async () => {
+    renderEditor(`/risks/${RISK.id}`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("artifact-inspector")).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByTestId("artifact-inspector")).toHaveLength(1);
+    expect(inspectorProbe.lastShell).toMatchObject({
+      kind: "risk",
+      entityId: RISK.id,
+      artifactPk: RISK.artifact_id,
+      hasCoveredRef: true,
+      hasOnShowInSpine: true,
+    });
+    // The old route switch existed only because the stacked sidebar showed the
+    // same links twice; the tabbed shell derives the matrix from `kind`.
+    expect(inspectorProbe.lastShell?.hasHideTraceLinks).toBe(false);
+  });
+
+  it("requests comments for the backing Artifact UUID, never the entity id", async () => {
+    inspectorProbe.renderRealComments = true;
+    try {
+      renderEditor(`/risks/${RISK.id}`);
+
+      await waitFor(() => expect(commentsApi.list).toHaveBeenCalledWith(RISK.artifact_id));
+      expect(commentsApi.list).not.toHaveBeenCalledWith(RISK.id);
+    } finally {
+      inspectorProbe.renderRealComments = false;
+    }
+  });
+
+  it("shows the artifact id and workflow status in the detail head (DoD 2)", async () => {
+    renderEditor(`/risks/${RISK.id}`);
+
+    const head = await screen.findByTestId("risk-artifact-head");
+    expect(head).toHaveTextContent(RISK.uid);
+    expect(screen.getByTestId("risk-detail-status")).toHaveTextContent(RISK.status);
+  });
+
+  it("uses the concept split layout with the spine in its own slot (DoD 6)", async () => {
+    renderEditor(`/risks/${RISK.id}`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("splitview-list")).toBeInTheDocument();
+      expect(screen.getByTestId("splitview-detail")).toBeInTheDocument();
+      expect(screen.getByTestId("splitview-spine")).toBeInTheDocument();
+    });
+    // The legacy drag divider is gone — fixed 40/60 ratio per ch. 12.6.
+    expect(screen.queryByTestId("splitview-divider")).not.toBeInTheDocument();
   });
 });
 

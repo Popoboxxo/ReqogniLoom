@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
@@ -269,6 +269,9 @@ const COVERAGE_REQUIREMENTS = [
     uid: "REQ-1",
     title: "Login must be possible",
     workspace_id: "ws-trace-001",
+    // V6: the trace row reads the level off the requirement response.
+    level: 2,
+    tier_name: "System Requirement",
   },
   {
     id: "req-002",
@@ -332,6 +335,29 @@ describe("TraceabilityView — readable endpoints and coverage (#413)", () => {
     // to Requirement.id "req-001" (#414's artifact-id vs entity-id gap) — the
     // route must use the entity id, not the artifact id.
     expect(mockNavigate).toHaveBeenCalledWith("/requirements/req-001");
+  });
+
+  // V6 (triage 2026-11-10 §V6): the V-Modell level was readable in the
+  // requirement list only. The trace row now carries the same neutral badge,
+  // fed by the requirement response the coverage surface already loads.
+  it("[V6] shows the level badge on a requirement endpoint", async () => {
+    render(<TraceabilityView />);
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("tracelink-item").length).toBe(2);
+    });
+
+    const targets = screen.getAllByTestId("tracelink-target");
+    const requirementTarget = targets.find((el) =>
+      el.textContent?.includes("Login must be possible")
+    );
+    expect(requirementTarget).toBeDefined();
+
+    const badge = within(requirementTarget!).getByTestId("tracelink-target-level");
+    // Compact alias in the badge, the workspace ladder name as its tooltip —
+    // the same pairing the requirement list uses (`reqTierPrefix` + title).
+    expect(badge).toHaveTextContent("L2");
+    expect(badge).toHaveAttribute("title", "System Requirement");
   });
 
   it("[#413] marks requirement endpoints as verified / not verified", async () => {
