@@ -126,11 +126,65 @@ vi.mock("../context/LinkTypeContext", () => ({
   }),
 }));
 
-// Isolate from the ArtifactInspector sidebar (its own data fetching is out of
-// scope for this test).
-vi.mock("../components/shared/ArtifactInspector", () => ({
-  RightSidebar: () => null,
+// Isolate from the ArtifactInspector's own data fetching, but keep the mount
+// contract observable (#1762/M2): the stub records the two id spaces the shell
+// receives and — when `renderRealComments` is set — renders the REAL
+// CommentPanel so the comments request URL becomes assertable.
+const inspectorProbe = vi.hoisted(() => ({
+  renderRealComments: false,
+  lastShell: undefined as
+    | {
+        kind?: string;
+        entityId?: string | number;
+        artifactPk?: string | null;
+        hasCoveredRef?: boolean;
+        hasOnShowInSpine?: boolean;
+        hasHideTraceLinks?: boolean;
+      }
+    | undefined,
 }));
+
+vi.mock("../api/comments", () => ({
+  commentsApi: {
+    list: vi.fn().mockResolvedValue([]),
+    create: vi.fn(),
+    resolve: vi.fn(),
+    remove: vi.fn(),
+  },
+}));
+
+vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
+  const actual =
+    await importActual<typeof import("../components/shared/ArtifactInspector")>();
+  const { CommentPanel } = await import(
+    "../components/shared/ArtifactInspector/CommentPanel"
+  );
+  return {
+    ...actual,
+    RightSidebar: () => null,
+    InspectorShell: (props: {
+      kind: import("../components/shared/ArtifactInspector").ArtifactKind;
+      entityId: string | number;
+      artifactPk: string | null;
+      coveredRef?: unknown;
+      onShowInSpine?: unknown;
+    }) => {
+      inspectorProbe.lastShell = {
+        kind: props.kind,
+        entityId: props.entityId,
+        artifactPk: props.artifactPk,
+        hasCoveredRef: props.coveredRef !== undefined,
+        hasOnShowInSpine: props.onShowInSpine !== undefined,
+        hasHideTraceLinks: "hideTraceLinks" in (props as Record<string, unknown>),
+      };
+      return inspectorProbe.renderRealComments ? (
+        <CommentPanel kind={props.kind} artifactId={props.artifactPk ?? undefined} />
+      ) : (
+        <div data-testid="artifact-inspector" />
+      );
+    },
+  };
+});
 
 // Provide a fixed active workspace instead of the real fetch-driven provider.
 // Referentially stable across renders (real WorkspaceContext holds this in
@@ -148,6 +202,7 @@ vi.mock("../context/WorkspaceContext", () => ({
 // Must import AFTER vi.mock
 import TestCaseEditors from "../components/TestCaseEditors/TestCaseEditors";
 import { testcasesApi } from "../api/testcases";
+import { commentsApi } from "../api/comments";
 import { tracelinksApi } from "../api/tracelinks";
 import { apiClient } from "../api/client";
 import { getWorkflowStatusLabel } from "../utils/workflowStatus";
@@ -532,6 +587,83 @@ describe("TestCaseEditors Task 2.4 concept remodel (PageHeader / ArtifactRow / D
       "/change-requests/",
       expect.objectContaining({ affected_item_ids: [ARTIFACT_ID] })
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1762 / M2 — the tabbed inspector replaces RightSidebar on this route
+// ---------------------------------------------------------------------------
+
+describe("TestCaseEditors — inspector shell mount (#1762 M2)", () => {
+  // The shared fixture deliberately has no `artifact_id` (the T-C3-1 suite
+  // pins the "no artifact id ⇒ entity id fallback" half of the same contract),
+  // so the M2 assertions use an explicit payload with both ids.
+  const TC_WITH_ARTIFACT = {
+    ...TEST_CASE,
+    uid: "TC-1",
+    artifact_id: "art-tc-001",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(testcasesApi.list).mockResolvedValue({ results: [TC_WITH_ARTIFACT], count: 1, next: null, previous: null } as any);
+    vi.mocked(testcasesApi.listAll).mockResolvedValue([TC_WITH_ARTIFACT] as any);
+    vi.mocked(testcasesApi.get).mockResolvedValue(TC_WITH_ARTIFACT as any);
+    vi.mocked(tracelinksApi.listForArtifact).mockResolvedValue({
+      count: 0,
+      next: null,
+      previous: null,
+      results: [],
+    } as any);
+  });
+
+  it("mounts InspectorShell with both id spaces and no hideTraceLinks switch", async () => {
+    renderEditor(`/testcases/${TEST_CASE.id}`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("artifact-inspector")).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByTestId("artifact-inspector")).toHaveLength(1);
+    expect(inspectorProbe.lastShell).toMatchObject({
+      kind: "testCase",
+      entityId: TEST_CASE.id,
+      artifactPk: TC_WITH_ARTIFACT.artifact_id,
+      hasCoveredRef: true,
+      hasOnShowInSpine: true,
+    });
+    expect(inspectorProbe.lastShell?.hasHideTraceLinks).toBe(false);
+  });
+
+  it("requests comments for the backing Artifact UUID, never the entity id", async () => {
+    inspectorProbe.renderRealComments = true;
+    try {
+      renderEditor(`/testcases/${TEST_CASE.id}`);
+
+      await waitFor(() => expect(commentsApi.list).toHaveBeenCalledWith(TC_WITH_ARTIFACT.artifact_id));
+      expect(commentsApi.list).not.toHaveBeenCalledWith(TEST_CASE.id);
+    } finally {
+      inspectorProbe.renderRealComments = false;
+    }
+  });
+
+  it("shows the artifact id and workflow status in the detail head (DoD 2)", async () => {
+    renderEditor(`/testcases/${TEST_CASE.id}`);
+
+    const head = await screen.findByTestId("tc-artifact-head");
+    expect(head).toHaveTextContent(TC_WITH_ARTIFACT.uid);
+    expect(screen.getByTestId("tc-detail-status")).toHaveTextContent(TEST_CASE.status);
+  });
+
+  it("uses the concept split layout with the spine in its own slot (DoD 6)", async () => {
+    renderEditor(`/testcases/${TEST_CASE.id}`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("splitview-list")).toBeInTheDocument();
+      expect(screen.getByTestId("splitview-detail")).toBeInTheDocument();
+      expect(screen.getByTestId("splitview-spine")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("splitview-divider")).not.toBeInTheDocument();
   });
 });
 

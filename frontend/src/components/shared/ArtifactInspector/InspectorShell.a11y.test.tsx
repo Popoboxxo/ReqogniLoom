@@ -124,8 +124,27 @@ describe("InspectorShell a11y (M1-3 / M1-10)", () => {
     expectEveryButtonNamed();
   });
 
-  it("rail form: every counter is named and the letter glyph is hidden", async () => {
-    setViewport(1440);
+  // #1762 / M2: the five kinds migrated in this step all have a spine, so all
+  // of them render the full four-tab set (Links is only omitted for
+  // `mainGoal`) — and the "every button has a name" baseline must hold for
+  // each of them, not just for Requirement.
+  it.each(["stakeholderNeed", "risk", "adr", "issue", "testCase"] as const)(
+    "panel form: every button is named (%s, four tabs)",
+    async (kind) => {
+      setViewport(1440);
+      renderShell({ kind, entityId: "entity-1" });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("inspector-tab-comments")).toBeInTheDocument();
+      });
+      for (const key of ["version", "diff", "links", "comments"] as const) {
+        expect(screen.getByTestId(`inspector-tab-${key}`)).toBeInTheDocument();
+      }
+      expectEveryButtonNamed();
+    },
+  );
+
+  it("rail form: every counter is named and the letter glyph is hidden", async () => {    setViewport(1440);
     renderShell({ kind: "requirement" });
 
     fireEvent.click(await screen.findByTestId("inspector-close"));

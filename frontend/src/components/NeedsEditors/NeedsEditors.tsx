@@ -3,12 +3,13 @@
  *
  * leaf_id: COMP-RF-003 (split-view editors)
  * req_id:  REQ-L1-095 (ArtifactInspector adoption — 10 artifact types),
- *          REQ-L2-RF-034 (ArtifactInspector RightSidebar shell)
+ *          REQ-L2-RF-034 (ArtifactInspector shell — tabbed since #1762)
  *
- * Layout: SplitView (left = NeedList, right = NeedArtifactForm). When a
- * detail is selected, the right pane becomes a flex container that hosts
- * both the editor and the ArtifactInspector (Version / Diff / Trace). The
- * inspector is hidden when the user is browsing the list (no detail).
+ * Layout: SplitView (left = NeedList, detail = NeedArtifactForm, spine slot =
+ * TraceSpine). When a detail is selected, the detail pane becomes a flex
+ * container that hosts both the editor and the tabbed `InspectorShell`
+ * (#1762/M2: Version / Diff / Links / Kommentare). The inspector is hidden
+ * when the user is browsing the list (no detail).
  *
  * Task 23 (rollout wave 2c): migrated the editor itself onto the
  * definition-driven `NeedArtifactForm` (`ArtifactForm`, spec section 6.2).
@@ -20,18 +21,20 @@
  * `NeedForm` was its only consumer, and field visibility now comes from the
  * resolved attribute definition like every other migrated type.
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
+import { ArtifactId } from '../shared/ArtifactId';
+import { StatusBadge } from '../shared/StatusBadge';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { NeedList } from './NeedList';
 import { NeedArtifactForm } from './NeedArtifactForm';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
-import { RightSidebar } from '../shared/ArtifactInspector';
+import { InspectorShell } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
 import { AiActionSection, type AiActionDescriptor } from '../shared/AiActions';
@@ -259,6 +262,24 @@ export default function NeedsEditors(): JSX.Element {
     [derivationChain, navigate],
   );
 
+  // #1762 (M2, mirrors M1): the inspector's programmatic focus targets live in
+  // the route, not in the shell — the shell must not know the detail area's DOM
+  // (it only receives `coveredRef` for the `inert` bracket).
+  const detailScrollRef = useRef<HTMLDivElement | null>(null);
+
+  const focusInspectorHeading = useCallback((): void => {
+    document.getElementById('inspector-heading')?.focus();
+  }, []);
+
+  // Spec §2.3 rule 1: the Links tab's summary line jumps into the spine. The
+  // spine is a separate flex zone now, so this is the one place that knows its
+  // first station.
+  const focusSpine = useCallback((): void => {
+    document
+      .querySelector<HTMLElement>('[data-testid="trace-spine-station-button"]')
+      ?.focus();
+  }, []);
+
   // Page-level loading / error states — only gate the full view on the
   // initial load (no data yet). Once the list is populated, keep it visible
   // while the detail pane reloads (UI standards §1.4).
@@ -329,7 +350,7 @@ export default function NeedsEditors(): JSX.Element {
         overflowActions={[interviewCta]}
       />
       <SplitView
-      leftPanel={
+      list={
         <div>
           <IncludeDeletedToggle
             checked={includeDeleted}
@@ -359,17 +380,37 @@ export default function NeedsEditors(): JSX.Element {
           />
         </div>
       }
-      rightPanel={
+      detail={
         <div className={styles.rightPane}>
-          <div className={styles.detailScroll}>
+          <div className={styles.detailScroll} ref={detailScrollRef}>
+            {/* Spec §5.1 #1: the skip link is the first focusable element of
+                the detail area and the only way into the inspector that does
+                not require walking the form first (#1762 M2). */}
             {need && (
-              <TraceSpine
-                stations={derivationChain.stations}
-                isLoading={derivationChain.isLoading}
-                error={derivationChain.error}
-                onOpenArtifact={handleOpenChainArtifact}
-                isOpenable={derivationChain.isOpenable}
-              />
+              <a
+                href="#inspector-heading"
+                className={`btn-ghost ${styles.inspectorSkipLink}`}
+                data-testid="inspector-skip-link"
+                onClick={(event) => {
+                  event.preventDefault();
+                  focusInspectorHeading();
+                }}
+              >
+                {t('sidebar.inspector.skipLink', 'Jump to the inspector')}
+              </a>
+            )}
+            {/* DoD 2 (#1762/M2): identity and workflow status have exactly one
+                place — the artifact head of the route, never the inspector
+                (spec §2.2). */}
+            {need && (
+              <div className={styles.artifactHead} data-testid="need-artifact-head">
+                <ArtifactId
+                  value={need.uid}
+                  fallback={need.id.slice(0, 8)}
+                  testId="need-detail-id"
+                />
+                <StatusBadge status={need.status} testId="need-detail-status" />
+              </div>
             )}
             {need ? (
               <>
@@ -459,9 +500,9 @@ export default function NeedsEditors(): JSX.Element {
               </div>
             )}
           </div>
-          {/* ArtifactInspector — REQ-L1-095, REQ-L2-RF-034 (detail only).
-              hideTraceLinks: <TraceLinkPanel> above owns trace-link CRUD
-              (Task 3.3). */}
+          {/* Inspector — REQ-L1-095, REQ-L2-RF-034 (detail only). The tabbed
+              shell owns the trace-link read surface; `TraceLinkPanel` above
+              stays the create/delete CRUD surface (#1762/M2). */}
           {need && (() => {
             const needCurrentVersion: VersionRef = {
               version: need.version,
@@ -470,18 +511,32 @@ export default function NeedsEditors(): JSX.Element {
               baselineIds: [],
             };
             return (
-              <RightSidebar
+              <InspectorShell
                 kind="stakeholderNeed"
                 entityId={need.id}
-                artifactId={need.artifact_id}
+                artifactPk={need.artifact_id ?? null}
                 currentVersion={needCurrentVersion}
-                hideTraceLinks
+                coveredRef={detailScrollRef}
+                onShowInSpine={focusSpine}
               />
             );
           })()}
         </div>
       }
-      initialLeftWidth={350}
+      spine={
+        need ? (
+          <TraceSpine
+            stations={derivationChain.stations}
+            isLoading={derivationChain.isLoading}
+            error={derivationChain.error}
+            onOpenArtifact={handleOpenChainArtifact}
+            isOpenable={derivationChain.isOpenable}
+          />
+        ) : null
+      }
+      ratio={[40, 60]}
+      minWidths={[320, 448]}
+      containerClassName={styles.splitWrapper}
       />
     </>
   );

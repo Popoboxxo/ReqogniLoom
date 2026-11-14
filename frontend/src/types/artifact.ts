@@ -38,14 +38,10 @@ export type AdrStatus =
 export interface Adr extends SystemFieldValues {
   id: UUID;
   workspace_id: UUID;
-  // Task 2.1: the backing Artifact id (Adr.artifact, backend/application/models.py)
-  // is not yet exposed by AdrSerializer — unlike Requirement/StakeholderNeed/
-  // ArchitectureElement, which all serialize a separate `artifact_id`. Declared
-  // here (optional, currently always undefined) for parity with the other
-  // artifact types. NOTE (Task 27): the workspace-defined custom-field
-  // renderer that used to consume this id is gone along with its backend
-  // (custom fields are attribute definitions now, tracked gap #7). The field
-  // stays declared for the next consumer of the backing Artifact id.
+  // The backing Artifact id (`Adr.artifact`) — published by `AdrSerializer`
+  // since #1763 (`artifact_id`, read-only) and the id space the comment route
+  // and the Inspector's comments tab key on. Never use it for versions/diff:
+  // those are keyed by the Adr entity id.
   artifact_id?: UUID;
   title: string;
   description: string;
@@ -126,9 +122,8 @@ export type RiskStatus = "Identified" | "Monitored" | "Mitigated" | "Accepted" |
 export interface Risk {
   id: UUID;
   workspace_id: UUID;
-  // Task 2.2: same as Adr.artifact_id above — the backing Artifact id is not
-  // yet exposed by RiskSerializer. Declared here (optional, currently always
-  // undefined) for parity with the other artifact types.
+  // The backing Artifact id — published by `RiskSerializer` since #1763.
+  // Comment route / Inspector comments tab only; versions/diff use `id`.
   artifact_id?: UUID;
   title: string;
   description: string;
@@ -178,10 +173,8 @@ export type IssueStatus = "Open" | "In Progress" | "Resolved" | "Closed" | "Wont
 export interface Issue extends SystemFieldValues {
   id: UUID;
   workspace_id: UUID;
-  // Task 2.3: same as Adr.artifact_id / Risk.artifact_id above — the backing
-  // Artifact id is not yet exposed by IssueSerializer. Declared here
-  // (optional, currently always undefined) for parity with the other
-  // artifact types.
+  // The backing Artifact id — published by `IssueSerializer` since #1763.
+  // Comment route / Inspector comments tab only; versions/diff use `id`.
   artifact_id?: UUID;
   title: string;
   description: string;

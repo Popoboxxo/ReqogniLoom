@@ -72,6 +72,9 @@ const { ADR, ARCH_ARTIFACT_ID, ARCH_ENTITY_ID } = vi.hoisted(() => ({
     consequences: "",
     status: "Draft" as const,
     version: 1,
+    // #1762/M2: identity (head) + the backing Artifact id (comments tab).
+    uid: "ADR-1",
+    artifact_id: "art-adr-001",
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
   },
@@ -180,11 +183,65 @@ vi.mock("../api/attribute-definitions", () => ({
   },
 }));
 
-// Isolate from the ArtifactInspector sidebar (its own data fetching is out of
-// scope for this test).
-vi.mock("../components/shared/ArtifactInspector", () => ({
-  RightSidebar: () => null,
+// Isolate from the ArtifactInspector's own data fetching, but keep the mount
+// contract observable (#1762/M2): the stub records the two id spaces the shell
+// receives and — when `renderRealComments` is set — renders the REAL
+// CommentPanel so the comments request URL becomes assertable.
+const inspectorProbe = vi.hoisted(() => ({
+  renderRealComments: false,
+  lastShell: undefined as
+    | {
+        kind?: string;
+        entityId?: string | number;
+        artifactPk?: string | null;
+        hasCoveredRef?: boolean;
+        hasOnShowInSpine?: boolean;
+        hasHideTraceLinks?: boolean;
+      }
+    | undefined,
 }));
+
+vi.mock("../api/comments", () => ({
+  commentsApi: {
+    list: vi.fn().mockResolvedValue([]),
+    create: vi.fn(),
+    resolve: vi.fn(),
+    remove: vi.fn(),
+  },
+}));
+
+vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
+  const actual =
+    await importActual<typeof import("../components/shared/ArtifactInspector")>();
+  const { CommentPanel } = await import(
+    "../components/shared/ArtifactInspector/CommentPanel"
+  );
+  return {
+    ...actual,
+    RightSidebar: () => null,
+    InspectorShell: (props: {
+      kind: import("../components/shared/ArtifactInspector").ArtifactKind;
+      entityId: string | number;
+      artifactPk: string | null;
+      coveredRef?: unknown;
+      onShowInSpine?: unknown;
+    }) => {
+      inspectorProbe.lastShell = {
+        kind: props.kind,
+        entityId: props.entityId,
+        artifactPk: props.artifactPk,
+        hasCoveredRef: props.coveredRef !== undefined,
+        hasOnShowInSpine: props.onShowInSpine !== undefined,
+        hasHideTraceLinks: "hideTraceLinks" in (props as Record<string, unknown>),
+      };
+      return inspectorProbe.renderRealComments ? (
+        <CommentPanel kind={props.kind} artifactId={props.artifactPk ?? undefined} />
+      ) : (
+        <div data-testid="artifact-inspector" />
+      );
+    },
+  };
+});
 
 // Provide a fixed active workspace instead of the real fetch-driven provider.
 vi.mock("../context/WorkspaceContext", () => ({
@@ -222,6 +279,7 @@ import { tracelinksApi } from "../api/tracelinks";
 import { architectureApi } from "../api/architecture";
 import { traceabilityApi } from "../api/traceability";
 import { adrsApi } from "../api/adrs";
+import { commentsApi } from "../api/comments";
 import type { Adr } from "../types";
 
 function renderEditor(initialPath = `/adrs/${ADR.id}`): ReturnType<typeof render> {
@@ -297,6 +355,61 @@ describe("AdrEditors TraceLinkPanel (REQ-L2-TE-020)", () => {
 
     // The panel queried links for the ADR's own id.
     expect(tracelinksApi.listForArtifact).toHaveBeenCalledWith("ws-001", ADR.id);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #1762 / M2 — the tabbed inspector replaces RightSidebar on this route
+// ---------------------------------------------------------------------------
+
+describe("AdrEditors — inspector shell mount (#1762 M2)", () => {
+  it("mounts InspectorShell with both id spaces and no hideTraceLinks switch", async () => {
+    renderEditor(`/adrs/${ADR.id}`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("artifact-inspector")).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByTestId("artifact-inspector")).toHaveLength(1);
+    expect(inspectorProbe.lastShell).toMatchObject({
+      kind: "adr",
+      entityId: ADR.id,
+      artifactPk: ADR.artifact_id,
+      hasCoveredRef: true,
+      hasOnShowInSpine: true,
+    });
+    expect(inspectorProbe.lastShell?.hasHideTraceLinks).toBe(false);
+  });
+
+  it("requests comments for the backing Artifact UUID, never the entity id", async () => {
+    inspectorProbe.renderRealComments = true;
+    try {
+      renderEditor(`/adrs/${ADR.id}`);
+
+      await waitFor(() => expect(commentsApi.list).toHaveBeenCalledWith(ADR.artifact_id));
+      expect(commentsApi.list).not.toHaveBeenCalledWith(ADR.id);
+    } finally {
+      inspectorProbe.renderRealComments = false;
+    }
+  });
+
+  it("shows the artifact id and workflow status in the detail head (DoD 2)", async () => {
+    renderEditor(`/adrs/${ADR.id}`);
+
+    const head = await screen.findByTestId("adr-artifact-head");
+    expect(head).toHaveTextContent(ADR.uid);
+    expect(screen.getByTestId("adr-detail-status")).toHaveTextContent(ADR.status);
+  });
+
+  it("uses the concept split layout with the spine in its own slot (DoD 6)", async () => {
+    renderEditor(`/adrs/${ADR.id}`);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("splitview-list")).toBeInTheDocument();
+      expect(screen.getByTestId("splitview-detail")).toBeInTheDocument();
+      expect(screen.getByTestId("splitview-spine")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("splitview-divider")).not.toBeInTheDocument();
   });
 });
 
