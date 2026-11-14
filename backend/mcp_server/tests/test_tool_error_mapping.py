@@ -17,6 +17,7 @@ from django.db import IntegrityError
 from application.base import OptimisticLockError
 from auth_tenancy.context import AuthContext, AuthMethod
 from mcp_server.tools.base import map_tool_exception
+from memory.backends import MemoryBackendUnavailableError
 from mcp_server.tools.generic import GenericCrudToolGroup
 from persistence.errors import NotFoundError, PermissionDeniedError, ValidationError
 from workflow.lifecycle_manager import WorkflowConflictError, WorkflowStateError
@@ -42,6 +43,9 @@ ENTITY_ID = UUID("00000000-0000-0000-0000-000000000020")
         (OptimisticLockError("stale"), "CONFLICT"),
         (IntegrityError("uq_tracelink_edge"), "CONFLICT"),
         (WorkflowConflictError("stale"), "CONFLICT"),
+        # Issue #1823: an unreachable memory engine is a retryable upstream
+        # state, answered with the same code REST uses.
+        (MemoryBackendUnavailableError("ServerError: 500"), "SERVICE_UNAVAILABLE"),
         (WorkflowItemNotFoundError("gone"), "NOT_FOUND"),
         (WorkflowStateError("wrong state"), "INVALID_STATE"),
     ],
@@ -62,6 +66,21 @@ def test_invalid_state_code_is_registered_on_both_dispatch_paths():
 
     assert "INVALID_STATE" in ERROR_CODES
     assert "INVALID_STATE" in ERROR_CODE_MAP
+
+
+def test_service_unavailable_is_registered_on_both_dispatch_paths():
+    """Issue #1823: the direct-dispatch path must not collapse it to -32603."""
+    from mcp_server.protocol_handler import (
+        _PROTOCOL_ERROR_CODES,
+        ERROR_CODE_MAP,
+        ERROR_CODES,
+    )
+
+    assert ERROR_CODES["SERVICE_UNAVAILABLE"].strip()
+    assert ERROR_CODE_MAP["SERVICE_UNAVAILABLE"] == -32020
+    # A tool-execution error, never a protocol error: tools/call answers
+    # ``result.isError == true`` with the string code.
+    assert "SERVICE_UNAVAILABLE" not in _PROTOCOL_ERROR_CODES
 
 
 class _UpdateRaisesService:

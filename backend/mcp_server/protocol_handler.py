@@ -180,6 +180,16 @@ ERROR_CODES = {
         "One or more release gates (G-1…G-4) are not satisfied; read the "
         "details and resolve them before releasing the document."
     ),
+    # Issue #1823: a backing service (currently the Honcho memory engine) could
+    # not be reached. A retryable upstream state, deliberately distinct from
+    # INTERNAL_ERROR so a client does not conclude the server is broken. It was
+    # already emitted as a bare string by the trace-suggest tool and is now the
+    # shared answer for every unreachable memory write; registering it here
+    # (and in ERROR_CODE_MAP) keeps the direct-method dispatch path from
+    # collapsing it into -32603, the same #1082 failure mode.
+    "SERVICE_UNAVAILABLE": (
+        "A required backing service is temporarily unavailable. Retry later."
+    ),
 }
 
 # Protocol-level error codes (REQ-086 / MCP spec).
@@ -242,6 +252,10 @@ ERROR_CODE_MAP = {
     # server-defined codes after the #1416 LLM codes.
     "FIELD_FROZEN": -32017,            # Server-defined: released document frozen
     "DOCUMENT_GATE_FAILED": -32018,    # Server-defined: release gate not satisfied
+    # Next free server-defined code (#1823): an unreachable backing service,
+    # e.g. the memory engine. Same reasoning as CONFLICT/#1082 -- without an
+    # entry the direct-dispatch path reports -32603 (Internal error).
+    "SERVICE_UNAVAILABLE": -32020,     # Server-defined: backing service down (#1823)
 }
 
 

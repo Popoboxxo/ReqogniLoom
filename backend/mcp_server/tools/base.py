@@ -477,6 +477,18 @@ def map_tool_exception(exc: Exception) -> tuple[str, str] | None:
         ValidationError,
     )
 
+    # Issue #1823: an unreachable memory engine is a retryable upstream state,
+    # not a server defect -- the same SERVICE_UNAVAILABLE code REST answers
+    # with (memory.memory_rest._memory_error_response). Imported lazily like
+    # everything in this helper: memory.backends pulls in the ORM models, and
+    # the import is guarded so an unrelated failure on a deployment without the
+    # memory app still degrades to the masked INTERNAL_ERROR.
+    try:
+        from memory.backends import MemoryBackendUnavailableError
+    except Exception:  # pragma: no cover - the memory app is always installed
+        MemoryBackendUnavailableError = ()  # type: ignore[assignment,misc]
+    if MemoryBackendUnavailableError and isinstance(exc, MemoryBackendUnavailableError):
+        return "SERVICE_UNAVAILABLE", str(exc)
     if isinstance(
         exc, AdoptionHashMismatchError | AllocationConflictError | WorkflowFrozenError
     ):

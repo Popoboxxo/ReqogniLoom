@@ -300,6 +300,7 @@ from memory.backends import (
     _DIGEST_MAX_FACTS,
     MemoryAnswer,
     MemoryBackend,
+    MemoryBackendUnavailableError,
     MemoryCapabilities,
     MemoryDigest,
     ConsolidationResult,
@@ -565,6 +566,114 @@ def _degraded_detail(exc: BaseException) -> str:
     return f"{_DEGRADED_ENGINE_PREFIX}{name}"
 
 
+#: Stable marker the READY path publishes when the Honcho API is reachable but
+#: its embedding endpoint is not (issue #1824). Reads keep working, writes
+#: cannot, so readiness stays green while the memory envelope still says
+#: ``degraded=True`` with this token in ``detail``.
+EMBEDDING_UNAVAILABLE_MARKER = "embedding_unavailable"
+
+#: Upper bound on the raw exception text folded into
+#: :class:`~memory.backends.MemoryBackendUnavailableError.detail` (issue
+#: #1823). The read path already publishes the probe's exception text, but a
+#: write must not hand a client an unbounded response body; 300 chars keeps
+#: the operationally useful prefix ("Server error '500 Internal Server Error'
+#: for url ...") and drops the rest.
+_ENGINE_UNAVAILABLE_DETAIL_MAX_CHARS = 300
+
+#: SDK / HTTP exception CLASS NAMES that mean "the engine could not be
+#: reached" (issue #1823). Matched by name IN ADDITION to the real
+#: ``isinstance`` checks below, because the test doubles in this repo declare
+#: local ``ServerError`` stand-ins (the optional ``honcho-ai`` package must
+#: stay unimportable for unit tests) and because a future SDK rename must not
+#: silently turn every write into a 500 again. The names are unambiguous in
+#: this code block's scope, which only performs SDK/HTTP calls.
+_UNAVAILABLE_EXCEPTION_NAMES = frozenset(
+    {
+        "ServerError",
+        "InternalServerError",
+        "ServiceUnavailableError",
+        "ConnectionError",
+        "ConnectError",
+        "TimeoutError",
+        "TimeoutException",
+        "ConnectTimeout",
+        "ReadTimeout",
+        "WriteTimeout",
+        "PoolTimeout",
+        "TransportError",
+        "RemoteProtocolError",
+    }
+)
+
+
+def _is_engine_unavailable_error(exc: BaseException) -> bool:
+    """Whether *exc* means "the Honcho engine could not be reached" (#1823).
+
+    True for the honcho SDK's ``ServerError`` / ``ConnectionError`` /
+    ``TimeoutError`` and for every ``httpx`` transport/timeout failure. Both
+    libraries are imported lazily inside the ``try`` because this module must
+    stay importable without ``honcho-ai`` installed (see the module docstring's
+    Global Constraint); a missing import simply skips that half of the check.
+
+    The name-based fallback is deliberate, see
+    :data:`_UNAVAILABLE_EXCEPTION_NAMES`.
+    """
+    try:
+        from honcho.http import exceptions as honcho_errors  # lazy, optional dependency
+
+        if isinstance(
+            exc,
+            honcho_errors.ServerError
+            | honcho_errors.ConnectionError
+            | honcho_errors.TimeoutError,
+        ):
+            return True
+    except Exception:  # noqa: BLE001 - Without the SDK the name fallback decides
+        pass
+
+    try:
+        import httpx  # honcho-ai dependency; importable exactly when the SDK is
+
+        if isinstance(exc, httpx.TransportError | httpx.TimeoutException):
+            return True
+    except Exception:  # noqa: BLE001 - Without httpx the name fallback decides
+        pass
+
+    return type(exc).__name__ in _UNAVAILABLE_EXCEPTION_NAMES
+
+
+def _engine_unavailable_detail(exc: BaseException) -> str:
+    """Build the bounded ``detail`` for a failed engine write (#1823).
+
+    Shape: ``"<ExceptionClassName>: <message>"`` -- the type name always, the
+    message truncated to :data:`_ENGINE_UNAVAILABLE_DETAIL_MAX_CHARS` with all
+    line breaks flattened, so a multi-line server traceback cannot reformat a
+    REST/MCP error body. The text comes from the transport (Honcho/httpx), not
+    from memory content, so it carries no user data.
+    """
+    message = " ".join(str(exc).split())
+    if len(message) > _ENGINE_UNAVAILABLE_DETAIL_MAX_CHARS:
+        message = message[:_ENGINE_UNAVAILABLE_DETAIL_MAX_CHARS] + "..."
+    name = type(exc).__name__
+    return f"{name}: {message}" if message else name
+
+
+def _invalidate_memory_health_cache() -> None:
+    """Drop the cached memory-health probe after an engine failure (#1823).
+
+    Without this the ``degraded`` envelope on the next read could still serve a
+    cached ``ok`` for up to ``memory.health.HEALTH_CACHE_TTL_SECONDS`` -- the
+    write would answer 503 while a read right after claimed the backend was
+    fine. Best-effort: a cache outage must never replace the real error.
+    """
+    try:
+        from memory.health import invalidate_health_cache
+
+        invalidate_health_cache()
+    except Exception:  # noqa: BLE001, S110 - see docstring: best-effort
+        pass
+
+
 def _engine_created_at(value: Any) -> Any:
     """Normalise an engine timestamp to a ``datetime`` (T-A4-5).
 
@@ -686,6 +795,32 @@ def _ask_timeout_s() -> float:
     except (TypeError, ValueError):
         return _DEFAULT_ASK_TIMEOUT_S
     return value if value > 0 else _DEFAULT_ASK_TIMEOUT_S
+
+
+#: Default retry budget of the Honcho SDK client (issue #1823). The SDK's own
+#: default is 2 retries on 429/5xx -- and a 5xx here means the Honcho *server*
+#: could not embed (its embedding endpoint is unreachable), so every retry pays
+#: the server-side timeout again: the live #1823 run took ~38 s for one write
+#: (3 attempts x ~12.6 s + backoff) before answering 500. A conclusion create
+#: is NOT idempotent either, so a blind retry of a 5xx that the server actually
+#: persisted can duplicate the fact. Default 0 (one attempt); raise it via
+#: ``HONCHO_MAX_RETRIES`` for a deployment whose Honcho answers transient 5xx.
+_DEFAULT_MAX_RETRIES = 0
+
+
+def _max_retries() -> int:
+    """Retry budget for the Honcho SDK client (``HONCHO_MAX_RETRIES``).
+
+    Falls back to :data:`_DEFAULT_MAX_RETRIES` for an unset, negative or
+    unparsable value, so a typo can never re-introduce an unbounded retry loop.
+    See :data:`_DEFAULT_MAX_RETRIES` for why zero is the default.
+    """
+    raw = os.environ.get("HONCHO_MAX_RETRIES", "").strip()
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return _DEFAULT_MAX_RETRIES
+    return value if value >= 0 else _DEFAULT_MAX_RETRIES
 
 
 def _safe_generate_embedding(text: str) -> list[float] | None:
@@ -935,6 +1070,12 @@ class HonchoMemoryBackend(MemoryBackend):
                 # ``ask`` (``client.peer()`` + ``peer.chat``) block unbounded.
                 # See :func:`_ask_timeout_s`.
                 timeout=_ask_timeout_s(),
+                # Issue #1823: the SDK retries 5xx/429 twice by default, which
+                # multiplied the server-side embedding timeout of every failed
+                # write (~38 s wall clock for one conclusion). ``0`` is the
+                # default -- a conclusion create is not idempotent -- and an
+                # operator can raise it via ``HONCHO_MAX_RETRIES``.
+                max_retries=_max_retries(),
             )
             self._clients[key] = client
         return client
@@ -1325,9 +1466,40 @@ class HonchoMemoryBackend(MemoryBackend):
         deliberately, only after the no-object guard, so a rejected conclusion
         never leaves an orphan observation in the engine. Both the guard and the
         nanoid-in-``backend_ref`` contract are unchanged by F6.
+
+        Raises:
+            MemoryBackendUnavailableError: issue #1823 -- the engine could not
+                be reached (``ServerError``/``ConnectError``/timeout). The
+                caller answers 503/``SERVICE_UNAVAILABLE`` instead of a 500;
+                ``detail`` carries the bounded transport error, never content.
+                An empty/unexpected engine answer still raises ``RuntimeError``
+                (a contract violation, not an outage).
         """
-        peer = self._peer(tenant_id, scope, scope_id)
-        created = peer.conclusions.create([{"content": content}])
+        # Issue #1823: this is the ONLY mandatory network step of a write, so
+        # it is the one place where an unreachable engine must become a
+        # domain answer instead of a raw 500. ``_peer`` is included because
+        # ``client.peer()`` is itself a get-or-create POST (see the module
+        # docstring), and a dead engine fails there first. Everything AFTER
+        # this block is local or fail-open, so it cannot widen the failure.
+        try:
+            peer = self._peer(tenant_id, scope, scope_id)
+            created = peer.conclusions.create([{"content": content}])
+        except Exception as exc:
+            if not _is_engine_unavailable_error(exc):
+                raise
+            detail = _engine_unavailable_detail(exc)
+            logger.warning(
+                "honcho memory: write degraded for tenant=%s scope=%s "
+                "scope_id=%s (content length %d, error type %s); answering "
+                "SERVICE_UNAVAILABLE",
+                tenant_id,
+                scope,
+                scope_id,
+                len(content),
+                type(exc).__name__,
+            )
+            _invalidate_memory_health_cache()
+            raise MemoryBackendUnavailableError(detail) from exc
         if not created:
             raise RuntimeError("Honcho accepted the conclusion but returned no object")
         conclusion = created[0]
@@ -1429,8 +1601,22 @@ class HonchoMemoryBackend(MemoryBackend):
         return deleted
 
     def health(self) -> MemoryHealth:
-        ok, detail = self.health_check()
-        return MemoryHealth(ok=ok, backend="honcho", detail=detail, degraded=not ok)
+        """Structured health (issue #1824): reachable-but-degraded is ``ok``.
+
+        ``ok`` answers "can this backend still serve reads?", ``degraded``
+        answers "is it fully functional?". A reachable Honcho API whose
+        embedding endpoint is missing is therefore ``ok=True, degraded=True``
+        with :data:`EMBEDDING_UNAVAILABLE_MARKER` in ``detail`` -- reads work,
+        writes cannot, and readiness must not go red for it. A genuinely
+        unreachable API stays ``ok=False`` (an outage).
+        """
+        state, detail = self.health_state()
+        return MemoryHealth(
+            ok=state != "down",
+            backend="honcho",
+            detail=detail,
+            degraded=state != "ok",
+        )
 
     def digest(self, tenant_id: UUID, scope: str, scope_id: UUID) -> MemoryDigest:
         """Digest this scope's memory, preferring the engine's own artefact.
@@ -2226,23 +2412,35 @@ class HonchoMemoryBackend(MemoryBackend):
         """Permanently delete an entry (local mirror + Honcho conclusion)."""
         self.delete_entry(tenant_id, entry_id)
 
-    def health_check(self) -> tuple[bool, str]:
-        """Probe Honcho reachability *and* the embedding endpoint's liveness.
+    def health_state(self) -> tuple[str, str]:
+        """Three-way health state: ``"ok"``, ``"degraded"`` or ``"down"``.
 
-        Returns ``(ok, detail)`` and never raises. The check is deterministic
-        and runs in this order:
+        Issue #1824: a boolean conflated two very different failures. A Honcho
+        API that answers while its embedding endpoint does not keeps every
+        READ working (the mirror rows are local, so listing/digesting degrade
+        gracefully) but every WRITE fails. That must not turn container
+        readiness red -- otherwise a healthy deployment is restart-looped over
+        a missing side-car. A Honcho API that does not answer at all IS an
+        outage and must fail readiness.
 
-        1. ``HONCHO_BASE_URL`` must be configured.
-        2. ``HONCHO_EMBEDDING_BASE_URL`` and ``HONCHO_EMBEDDING_MODEL`` must be
-           configured -- otherwise a deploy that cannot embed must not report
-           ``ok`` (GH #911).
-        3. A bounded HEAD on ``HONCHO_BASE_URL`` (redirects disabled, so a
-           redirect chain cannot re-arm the timeout budget); HTTP >= 500 is down.
-        4. Exactly one ``POST {embedding_base_url}/embeddings`` with
-           ``{"model": ..., "input": "ping"}``; a non-2xx status, an empty
-           ``data[0]["embedding"]`` vector, or any transport/JSON error is down.
+        Returns ``(state, detail)`` and never raises. The check is
+        deterministic and runs in this order:
 
-        Note that step 4 issues a real, bounded single embedding inference
+        1. ``HONCHO_BASE_URL`` must be configured -- else ``down``.
+        2. A bounded HEAD on ``HONCHO_BASE_URL`` (redirects disabled, so a
+           redirect chain cannot re-arm the timeout budget); a transport error
+           or HTTP >= 500 is ``down``. This step runs BEFORE the embedding
+           check on purpose (#1824): an unreachable API must be reported as
+           critical even when the embedding variables are missing too.
+        3. ``HONCHO_EMBEDDING_BASE_URL`` and ``HONCHO_EMBEDDING_MODEL`` must be
+           configured and one ``POST {embedding_base_url}/embeddings`` with
+           ``{"model": ..., "input": "ping"}`` must succeed; otherwise
+           ``degraded`` with :data:`EMBEDDING_UNAVAILABLE_MARKER` as the detail
+           prefix (GH #911 keeps its "cannot embed must not look fully healthy"
+           guarantee -- only the *readiness* consequence changed).
+        4. Otherwise ``ok``.
+
+        Note that step 3 issues a real, bounded single embedding inference
         request on every admin health poll, so OpenAI-backed configs incur a
         small token cost and self-hosted ones consume CPU/GPU.
 
@@ -2254,17 +2452,7 @@ class HonchoMemoryBackend(MemoryBackend):
         (see ``test_health_check_does_not_import_honcho_sdk``).
         """
         if not self._base_url:
-            return False, "HONCHO_BASE_URL is not configured"
-
-        embedding_base_url = os.environ.get("HONCHO_EMBEDDING_BASE_URL", "").strip()
-        embedding_model = os.environ.get("HONCHO_EMBEDDING_MODEL", "").strip()
-        if not embedding_base_url:
-            return False, (
-                "HONCHO_EMBEDDING_BASE_URL is not configured: the Honcho memory "
-                "backend cannot embed memory entries (see issue #911)"
-            )
-        if not embedding_model:
-            return False, "HONCHO_EMBEDDING_MODEL is not configured"
+            return "down", "HONCHO_BASE_URL is not configured"
 
         try:
             import requests  # noqa: PLC0415 - lazy import, matches this repo's health-check convention
@@ -2279,7 +2467,26 @@ class HonchoMemoryBackend(MemoryBackend):
                 allow_redirects=False,
             )
             if response.status_code >= 500:
-                return False, f"{self._base_url} returned HTTP {response.status_code}"
+                return "down", f"{self._base_url} returned HTTP {response.status_code}"
+        except Exception as exc:  # noqa: BLE001 - unreachable API is a "down" detail
+            return "down", str(exc)
+
+        embedding_base_url = os.environ.get("HONCHO_EMBEDDING_BASE_URL", "").strip()
+        embedding_model = os.environ.get("HONCHO_EMBEDDING_MODEL", "").strip()
+        if not embedding_base_url:
+            return "degraded", (
+                f"{EMBEDDING_UNAVAILABLE_MARKER}: HONCHO_EMBEDDING_BASE_URL is "
+                "not configured: the Honcho memory backend cannot embed memory "
+                "entries (see issue #911)"
+            )
+        if not embedding_model:
+            return "degraded", (
+                f"{EMBEDDING_UNAVAILABLE_MARKER}: HONCHO_EMBEDDING_MODEL is not "
+                "configured"
+            )
+
+        try:
+            import requests  # noqa: PLC0415 - lazy import, see the HEAD block above
 
             # A real embedding probe: the shortest possible OpenAI-compatible
             # request. This is what turns "the host answers" into "memory can
@@ -2290,22 +2497,36 @@ class HonchoMemoryBackend(MemoryBackend):
                 timeout=_health_probe_timeout_s(),
             )
             if probe.status_code < 200 or probe.status_code >= 300:
-                return False, (
-                    f"embedding probe for model {embedding_model!r} returned "
-                    f"HTTP {probe.status_code}"
+                return "degraded", (
+                    f"{EMBEDDING_UNAVAILABLE_MARKER}: embedding probe for model "
+                    f"{embedding_model!r} returned HTTP {probe.status_code}"
                 )
             embedding = probe.json()["data"][0]["embedding"]
             if not embedding:
-                return False, (
-                    f"embedding probe for model {embedding_model!r} returned an "
-                    "empty vector"
+                return "degraded", (
+                    f"{EMBEDDING_UNAVAILABLE_MARKER}: embedding probe for model "
+                    f"{embedding_model!r} returned an empty vector"
                 )
-            return True, (
-                f"{self._base_url} reachable; embedding probe for model "
-                f"{embedding_model!r} succeeded"
-            )
-        except Exception as exc:  # noqa: BLE001 - any probe failure is a "down" detail
-            return False, str(exc)
+        except Exception as exc:  # noqa: BLE001 - reachable API, broken embedding
+            return "degraded", f"{EMBEDDING_UNAVAILABLE_MARKER}: {exc}"
+
+        return "ok", (
+            f"{self._base_url} reachable; embedding probe for model "
+            f"{embedding_model!r} succeeded"
+        )
+
+    def health_check(self) -> tuple[bool, str]:
+        """Strict boolean view of :meth:`health_state` (GH #911 contract).
+
+        ``ok`` is ``True`` only for a fully functional backend: a missing or
+        unreachable embedding endpoint answers ``False`` here even though
+        readiness (issue #1824) treats that same state as servable. The
+        distinction is intentional -- ``health_check`` powers the admin
+        dashboard's "can this backend do its whole job?", readiness asks "can
+        the container keep serving?". Never raises.
+        """
+        state, detail = self.health_state()
+        return state == "ok", detail
 
 
-__all__ = ["HonchoMemoryBackend"]
+__all__ = ["EMBEDDING_UNAVAILABLE_MARKER", "HonchoMemoryBackend"]

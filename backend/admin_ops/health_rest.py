@@ -425,19 +425,39 @@ def _check_memory_embedding() -> dict[str, str]:
 
 
 def _check_memory_backend() -> dict[str, str]:
-    """Check the configured MemoryBackend via its own health_check().
+    """Check the configured MemoryBackend via its own health probe.
 
     Status mapping (ADR-020 §4): the optional ``qdrant`` backend is NEVER
     reported as ``down``. A configured-but-unreachable Qdrant is ``degraded``
     -- visible in the snapshot, but never fatal, because it is not a mandatory
-    dependency and pgvector remains the source of truth. Every other backend
-    keeps the historical ``ok``/``down`` mapping unchanged.
+    dependency and pgvector remains the source of truth.
+
+    Issue #1824: a backend that publishes the three-way ``health_state()``
+    (Honcho) maps ``ok -> ok``, ``degraded -> degraded`` (reachable API, but
+    e.g. no embedding endpoint: reads work, writes do not) and anything else
+    to ``down``. Before this, such a deployment reported ``down`` here while
+    its reads kept succeeding. The method is looked up on the CLASS so the
+    existing ``MagicMock(spec=...)`` doubles below keep using ``health_check()``.
+    Every other backend keeps the historical ``ok``/``down`` mapping unchanged.
     """
     try:
         from memory.backends import get_memory_backend  # noqa: PLC0415
         from memory.qdrant_backend import QdrantMemoryBackend  # noqa: PLC0415
 
         backend = get_memory_backend()
+        if not isinstance(backend, QdrantMemoryBackend):
+            state_probe = getattr(type(backend), "health_state", None)
+            if callable(state_probe):
+                memory_state, memory_detail = backend.health_state()
+                return {
+                    "name": "memory_backend",
+                    "status": {
+                        "ok": STATUS_OK,
+                        "degraded": STATUS_DEGRADED,
+                    }.get(memory_state, STATUS_DOWN),
+                    "detail": memory_detail,
+                }
+
         ok, detail = backend.health_check()
         if isinstance(backend, QdrantMemoryBackend):
             # ADR-020 §4: degraded, never down (see docstring). ``health()``

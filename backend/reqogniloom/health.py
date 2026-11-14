@@ -312,10 +312,25 @@ def _is_optional_memory_backend(backend: object) -> bool:
 def _probe_memory_backend() -> str:
     """Probe the active memory backend and classify it for readiness.
 
-    Returns ``"ok"`` when healthy, ``"degraded"`` when the configured backend is
-    the OPTIONAL Qdrant backend (ADR-020 §4: visible, never fatal), and
-    ``"down"`` for every required backend failure or an unresolvable backend
-    (fail-closed). The raw probe detail is logged but never returned (CWE-209).
+    Returns ``"ok"`` when the backend can serve, ``"degraded"`` when the
+    configured backend is the OPTIONAL Qdrant backend (ADR-020 §4: visible,
+    never fatal), and ``"down"`` for every required backend outage or an
+    unresolvable backend (fail-closed). The raw probe detail is logged but
+    never returned (CWE-209).
+
+    Issue #1824: a backend that exposes the three-way ``health_state()``
+    (Honcho) is classified by reachability, not by full functionality. A
+    reachable Honcho API whose embedding endpoint is unavailable keeps every
+    READ working, so it answers ``"ok"`` here (readiness stays green) while the
+    memory response envelope still reports ``degraded=True`` with the
+    ``embedding_unavailable`` detail. Only an unreachable API is ``"down"``.
+
+    ``health_state`` is looked up on the CLASS, not the instance: the readiness
+    tests (and any third-party backend) substitute doubles that only implement
+    ``health_check()``, and an instance ``getattr`` on a ``MagicMock`` would
+    invent a truthy method. Everything falls back to the historical
+    ``health_check()`` boolean, so behaviour for every backend without the
+    richer contract is byte-identical.
     """
     try:
         from memory.backends import get_memory_backend
@@ -323,6 +338,30 @@ def _probe_memory_backend() -> str:
         backend = get_memory_backend()
     except Exception as exc:  # noqa: BLE001 - unresolved backend is fail-closed
         logger.warning("Health check: memory backend probe failed - %s", exc)
+        return "down"
+
+    state_probe = getattr(type(backend), "health_state", None)
+    # The optional backends are classified by their own rule first (ADR-020
+    # §4): a future Qdrant ``health_state`` must not turn ``degraded`` into a
+    # mandatory ``down``.
+    if callable(state_probe) and not _is_optional_memory_backend(backend):
+        try:
+            memory_state, memory_detail = backend.health_state()
+        except Exception as exc:  # noqa: BLE001 - health check must never crash readiness
+            logger.warning("Health check: memory backend state probe failed - %s", exc)
+            return "down"
+        if memory_state == "ok":
+            return "ok"
+        if memory_state == "degraded":
+            # Reachable but incomplete (e.g. embedding provider unavailable):
+            # reads still work, so this must never turn readiness red. The
+            # detail goes to the log only (CWE-209).
+            logger.warning(
+                "Health check: memory backend reachable but degraded - %s",
+                memory_detail,
+            )
+            return "ok"
+        logger.warning("Health check: memory backend degraded - %s", memory_detail)
         return "down"
 
     try:
