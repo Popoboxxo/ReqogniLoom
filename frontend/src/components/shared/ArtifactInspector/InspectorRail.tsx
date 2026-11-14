@@ -72,7 +72,7 @@ export function InspectorRail({
     t(inspectorTabLabelKey(kind, key), TAB_LABEL_FALLBACKS[key]);
 
   return (
-    <div className={styles.rail} data-testid={INSPECTOR_TEST_IDS.rail}>
+    <div className={styles.rail} data-testid="inspector-rail">
       <button
         type="button"
         className={`btn-icon ${styles.railButton}`}
@@ -81,7 +81,7 @@ export function InspectorRail({
         aria-expanded={false}
         aria-controls={INSPECTOR_SURFACE_ID}
         onClick={(): void => onOpen(activeTab)}
-        data-testid={INSPECTOR_TEST_IDS.railOpen}
+        data-testid="inspector-rail-open"
       >
         <ChevronLeft aria-hidden="true" size={16} />
       </button>

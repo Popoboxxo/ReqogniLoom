@@ -412,7 +412,7 @@ function InspectorShellBody({
         aria-label={t("sidebar.inspector.close")}
         title={t("sidebar.inspector.close")}
         onClick={close}
-        data-testid={INSPECTOR_TEST_IDS.close}
+        data-testid="inspector-close"
       >
         <X aria-hidden="true" size={16} />
       </button>
