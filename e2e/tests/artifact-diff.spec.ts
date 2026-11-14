@@ -2,6 +2,7 @@
 // Create a requirement, modify it, open diff view, assert changed field visible
 import { test, expect, Page } from '@playwright/test';
 import { loginAsAdmin, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
+import { collapseInspector, openInspectorTab } from '../helpers/inspector';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -56,27 +57,19 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
   }
 
   /**
-   * Expand the ArtifactInspector sidebar if it renders collapsed.
+   * Open the inspector on its Diff tab.
    *
-   * GitHub #419 (predates this test) made the RightSidebar shell default to
-   * collapsed on viewports narrower than 1600px so the editor column stays
-   * usable — see RightSidebar.tsx's DEFAULT_COLLAPSE_BREAKPOINT_PX. The E2E
-   * suite runs at Playwright's 'Desktop Chrome' default viewport (1280x720),
-   * which is below that threshold, so a freshly created browser context
-   * (empty localStorage) always mounts the sidebar collapsed. Without this
-   * step every locator scoped to the panels inside the sidebar
-   * (inspector-diff-panel, artifact-diff-view, ...) times out because the
-   * panels never mount at all while collapsed — the collapsed strip renders
-   * icon-only buttons in their place. This mirrors what a real user on a
-   * narrow screen has to do (click the expand affordance) rather than
-   * assuming an always-expanded default that no longer matches the app.
+   * Replaces the old `ensureInspectorExpanded()` helper, which pressed the
+   * `artifact-inspector-expand` button of the stacked `RightSidebar`. Since
+   * #1762/M1 the requirements route mounts the tabbed `InspectorShell`: the
+   * collapsed state is a rail whose counter buttons open the inspector *on that
+   * tab*, and the areas are tabs now instead of stacked panels. Testids come
+   * from the shell's contract (`inspectorContract.ts`, spec §8.4), so this is
+   * the same selector inventory the frontend unit tests use. See
+   * `helpers/inspector.ts` for the sheet/`inert` background.
    */
-  async function ensureInspectorExpanded(page: Page): Promise<void> {
-    const expandBtn = page.locator('[data-testid="artifact-inspector-expand"]');
-    if (await expandBtn.isVisible().catch(() => false)) {
-      await expandBtn.click();
-    }
-    await expect(page.locator('[data-testid="artifact-inspector-collapsed"]')).toHaveCount(0);
+  async function openDiffTab(page: Page): Promise<void> {
+    await openInspectorTab(page, 'diff');
   }
 
   test('[REQ-L1-040] diff view opens and shows field-level diff for a requirement', async ({ page }) => {
@@ -97,6 +90,11 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     await page.locator('[data-testid="req-new-save-btn"]').click();
     await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
 
+    // #1762 (M1): the inspector mounts as a sheet at the 1280 px E2E viewport
+    // and makes the detail area it covers `inert`. Collapse it before driving
+    // the form — a fill() on an inert input silently does nothing.
+    await collapseInspector(page);
+
     // Fill in initial data
     const titleInput = page.locator('[data-testid="artifact-field-title"]');
     await titleInput.fill('Diff Test Requirement');
@@ -115,14 +113,14 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     await saveWithChangeReason(page, 'renamed for the diff assertion');
 
     // Diff is no longer behind a "View Diff" modal trigger — since
-    // REQ-L2-RF-034/036 (RightSidebar shell) it is rendered inline in the
-    // persistent ArtifactInspector sidebar, always visible once a version
-    // exists (RequirementEditors.tsx renders <RightSidebar> unconditionally
-    // next to the form; DiffPanel wraps ArtifactDiff with an inspector
-    // section around it, see DiffPanel.tsx).
-    const inspector = page.locator('[data-testid="artifact-inspector"]');
+    // REQ-L2-RF-034/036 it shares the persistent ArtifactInspector with the
+    // version list, and since #1762/M1 it is the inspector's "Diff" tab.
+    // `RequirementEditors.tsx` always passes <InspectorShell> next to the form
+    // (DiffPanel wraps ArtifactDiff with an inspector section around it, see
+    // tabs/DiffTab.tsx).
+    const inspector = page.locator('[data-testid="inspector-shell"]');
     await expect(inspector).toBeVisible({ timeout: 10000 });
-    await ensureInspectorExpanded(page);
+    await openDiffTab(page);
 
     const diffPanel = page.locator('[data-testid="inspector-diff-panel"]');
     await expect(diffPanel).toBeVisible({ timeout: 10000 });
@@ -175,15 +173,18 @@ test.describe('[COMP-RF-014] ArtifactDiff', () => {
     await page.locator('[data-testid="req-new-save-btn"]').click();
     await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
 
+    // #1762 (M1): collapse the inspector's sheet before filling the form — see
+    // the note in the previous test.
+    await collapseInspector(page);
+
     // Fill in data and save. See the previous test for why we wait for the
     // detail-refetch GET rather than a fixed delay.
     await page.locator('[data-testid="artifact-field-title"]').fill('Baseline Diff Test');
     await saveWithChangeReason(page, 'initial content');
 
-    // Diff view is rendered inline in the persistent ArtifactInspector
-    // sidebar (REQ-L2-RF-034/036) — no separate "View Diff" trigger exists
-    // anymore, see the note in the previous test.
-    await ensureInspectorExpanded(page);
+    // The diff is the inspector's "Diff" tab since #1762/M1 — no separate
+    // "View Diff" trigger exists anymore, see the note in the previous test.
+    await openDiffTab(page);
     const diffView = page.locator('[data-testid="artifact-diff-view"]');
     await expect(diffView).toBeVisible({ timeout: 10000 });
 

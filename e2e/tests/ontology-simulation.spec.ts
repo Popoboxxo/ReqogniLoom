@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAsAdmin, getAuthToken, setWorkspaceId } from '../helpers/auth';
+import { collapseInspector } from '../helpers/inspector';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -92,6 +93,15 @@ test.describe('Ontology Simulation & Trace Link Config', () => {
     // ---------------------------------------------------------
     // Go back to the Requirement
     await page.goto(`${FRONTEND_URL}/requirements/${l1ReqId}`);
+    await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue(
+      'SYS-REQ-001: Main System Function',
+      { timeout: 10000 },
+    );
+    // #1762 (M1): the inspector is a sheet at the 1280 px E2E viewport and the
+    // detail area it covers is `inert`. Every control this test drives next
+    // (trace-link dialog, derive form) lives in that area, so the sheet is
+    // closed first — the same click a user has to make at this width.
+    await collapseInspector(page);
 
     // ReqTraceLinkPanel always creates the link with the current requirement
     // as source_id. The link-types catalog (backend/link_types/builtin.py)

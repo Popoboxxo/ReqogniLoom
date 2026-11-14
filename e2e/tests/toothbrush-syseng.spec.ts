@@ -1,5 +1,6 @@
 import { test, expect, request, type APIRequestContext } from '@playwright/test';
 import { loginAsAdmin, getAuthToken, setWorkspaceId } from '../helpers/auth';
+import { collapseInspector } from '../helpers/inspector';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -210,6 +211,14 @@ test.describe('Zahnbürste SysEng Demo', () => {
       // Open the artifact and drive the transition via the
       // WorkflowStatusEditor's trigger + menu (REQ-161).
       await card.click();
+
+      // #1762 (M1): a selected requirement mounts the tabbed inspector as a
+      // sheet at the 1280 px E2E viewport, and the covered detail area is
+      // `inert` (spec §4.2). The workflow editor lives in that area, so the
+      // sheet is collapsed first — the editor's own controls would otherwise
+      // be invisible to pointer events.
+      await expect(page.getByTestId('artifact-field-title')).toBeVisible({ timeout: 30000 });
+      await collapseInspector(page);
 
       await page.getByTestId('workflow-transition-trigger').click();
       const firstOption = page

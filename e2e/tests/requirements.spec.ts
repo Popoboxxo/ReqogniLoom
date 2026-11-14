@@ -1,6 +1,7 @@
 // REQ-L1-002, REQ-L2-AS-003: Requirements CRUD
 import { test, expect } from '@playwright/test';
 import { loginAsAdmin, getAuthToken, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
+import { collapseInspector } from '../helpers/inspector';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -59,6 +60,10 @@ test.describe('Requirements Management', () => {
 
     // Wait for navigation to /requirements/:id and the title input to appear
     await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+    // #1762 (M1): the artifact inspector covers the detail area with a sheet
+    // (and makes it `inert`) at the 1280 px E2E viewport. Collapse it before
+    // typing — a fill() on an inert input silently keeps the old value.
+    await collapseInspector(page);
     await page.locator('[data-testid="artifact-field-title"]').fill('UI E2E Requirement');
 
     // Save

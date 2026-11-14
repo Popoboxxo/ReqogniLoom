@@ -8,6 +8,7 @@
 
 import type { Page, Locator } from '@playwright/test';
 import { expect } from '@playwright/test';
+import { collapseInspector } from '../helpers/inspector';
 
 export const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -80,9 +81,16 @@ export async function createRequirementViaUI(
   if (!match) throw new Error(`expected /requirements/:id URL, got: ${url}`);
   const id = match[1];
 
+  // #1762 (M1): the requirement detail route mounts the tabbed artifact
+  // inspector as a sheet at the 1280 px E2E viewport, and the detail area it
+  // covers is `inert` (spec §4.2). Everything below (description, category,
+  // change reason, save) lives in that area: without this the clicks are
+  // intercepted and `fill()` silently keeps the previous value.
+  await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 8000 });
+  await collapseInspector(page);
+
   // Optional: Description/Category im Detail-Editor ergänzen
   if (data.description) {
-    await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 8000 });
     const descArea = descriptionEditor(page);
     if (await descArea.count() > 0) {
       await descArea.fill(data.description);
@@ -196,6 +204,9 @@ export async function createTraceLinkViaUI(
 ): Promise<void> {
   await page.goto(`${FRONTEND_URL}/requirements/${sourceReqId}`);
   await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 12000 });
+  // #1762 (M1): the trace-link panel is inside the detail area the inspector's
+  // sheet makes `inert` at the 1280 px E2E viewport.
+  await collapseInspector(page);
   const panel = page.locator('[data-testid="req-tracelink-panel"]');
   await expect(panel).toBeVisible({ timeout: 8000 });
   // Issue #926: requirements now use the unified CreateTraceLinkDialog
