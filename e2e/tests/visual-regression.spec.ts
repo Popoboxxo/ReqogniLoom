@@ -5,6 +5,7 @@
 // then re-run WITHOUT --update-snapshots and confirm it is 100% green.
 import { test, expect, request as pwRequest, type Page, type Locator } from '@playwright/test';
 import { loginAsAdmin, getAuthToken, setWorkspaceId } from '../helpers/auth';
+import { openInspectorTab } from '../helpers/inspector';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -309,6 +310,8 @@ test.describe('[VISUAL] Dialog screenshots', () => {
     await page.locator('[data-testid="risk-new-title-input"]').fill('Visual Regression Fixture Risk');
     await page.locator('[data-testid="risk-new-save-btn"]').click();
 
+    // #1762 M2: the trace-link panel now lives in the inspector's Links tab.
+    await openInspectorTab(page, 'links');
     await expect(page.locator('[data-testid="trace-link-panel-open-dialog"]')).toBeVisible({ timeout: 10000 });
     await page.locator('[data-testid="trace-link-panel-open-dialog"]').click();
     await expect(page.locator('[data-testid="create-trace-link-dialog"]')).toBeVisible({ timeout: 5000 });
