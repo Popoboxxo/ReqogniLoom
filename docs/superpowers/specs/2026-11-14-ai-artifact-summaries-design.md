@@ -236,7 +236,7 @@ gar kein Artefakt ist.
 ### 5.6 Rigor-Gate
 
 **Beschlossen (§9/E2):** kein Rigor-Gate für #1792 (alle drei Presets), aber ein **globales Flag**
-`ARTIFACT_SUMMARY_ENABLED` (Default `false`) plus Rate-Limit. Begründung: #1792 ist *on-demand* und
+`ARTIFACT_SUMMARY_ENABLED` (on-demand) und `ARTIFACT_SUMMARY_SWEEP_ENABLED` (periodisch) (Default `false`) plus Rate-Limit. Begründung: #1792 ist *on-demand* und
 *nutzerinitiiert* — der Aufrufer sieht die Kosten als direkte Folge seiner Handlung. #1578 gated auf
 `extended`, weil dort **automatisch** Geld ausgegeben wird
 (`quality_auto_assess.py:10`, `:181-185`); diese Begründung trägt hier nicht.

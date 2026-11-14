@@ -1,7 +1,7 @@
 ---
 type: PLAN
 title: "KI-Zusammenfassungen für Artefakte (#1792) und Artefakttypen (#1793) — Umsetzung S1–S8"
-status: planned
+status: accepted
 date: 2026-11-15
 author_agent: planner
 language: de
@@ -377,13 +377,20 @@ Budget, Batch-Deckel, Agent-Key und Throttle. Takt und Typ-Scope sind je Workspa
   `Workspace.summary_sweep_interval_minutes` (+ Migration)
 - Modify: `backend/application/tasks.py` — `artifact_summary_sweep_tick`,
   `artifact_summary_refresh_scope`
-- Modify: `backend/reqogniloom/settings.py` — `ARTIFACT_SUMMARY_ENABLED`,
-  `ARTIFACT_SUMMARY_TICK_MINUTES`, `ARTIFACT_SUMMARY_INTERVAL_MINUTES`,
+- Modify: `backend/reqogniloom/settings.py` — `ARTIFACT_SUMMARY_ENABLED` (on-demand),
+  `ARTIFACT_SUMMARY_SWEEP_ENABLED` (periodic, independent), `ARTIFACT_SUMMARY_TICK_MINUTES`,
+  `ARTIFACT_SUMMARY_INTERVAL_MINUTES`,
   `ARTIFACT_SUMMARY_MIN_INTERVAL_MINUTES`, `ARTIFACT_SUMMARY_SWEEP_BATCH`,
   `ARTIFACT_SUMMARY_AGENT_KEY_ID`, `ARTIFACT_SUMMARY_MIN_INTERVAL_SECONDS`,
   `SUMMARY_DAILY_TOKEN_LIMIT`, Beat-Eintrag (nur bei Flag an)
 - Modify: `backend/application/prompt_slots.py`, `backend/application/ai_derivation_service.py` —
   Slot `artifact_type_summary`
+
+**Two independent switches (decided 2026-11-15):** the periodic sweep hangs on
+`ARTIFACT_SUMMARY_SWEEP_ENABLED` plus the per-workspace interval (`0` = off); the on-demand path
+(`artifact.summary`, `summary.refresh`) hangs on `ARTIFACT_SUMMARY_ENABLED`. Reading
+(`summary.get`, inspector) needs no switch: with the sweep off it returns the last stored state
+with `degraded_reason="stale"`; if nothing was ever generated it returns `disabled`.
 
 **Interfaces:** Produces `ArtifactSummarySweeper` mit
 `run_for_scope(tenant_id, workspace_id, artifact_type, trigger) -> "summarized|skipped:<reason>|failed"`
