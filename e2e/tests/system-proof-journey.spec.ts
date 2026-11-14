@@ -465,7 +465,20 @@ test.describe.serial('System proof: MCP <-> REST <-> UI artifact journey', () =>
     // A refused save leaves the form untouched, so prove a request actually
     // went out rather than only that the label settled.
     await expect(titleInput).toHaveValue(uiEditedRequirementTitle, { timeout: 15000 });
-    await expect(page.locator('[role="alert"]')).toHaveCount(0);
+    // Scope the "nothing was rejected" check to the FORM, not the page.
+    //
+    // #1762 (M1) mounted the tabbed inspector shell next to the detail pane, and
+    // that shell owns a persistent assertive live region
+    // (`InspectorLiveRegions`, `role="alert"`) so tab/panel changes can be
+    // announced. It is always in the DOM — a page-wide `[role="alert"]` count can
+    // therefore never be 0 again, and asserting 0 only reported "the shell exists",
+    // not "the save was accepted". What this step is about is the form: no error
+    // alert from `artifact-form` (its own surface is `artifact-form-error`).
+    const formScope = page.locator('[data-testid="artifact-form"]');
+    await expect(
+      formScope.locator('[role="alert"]'),
+      'the saved form must not report an error alert'
+    ).toHaveCount(0);
     await shot(page, '08-ui-edit-saved.png');
 
     // Now read the same requirement back through MCP — proof that the write

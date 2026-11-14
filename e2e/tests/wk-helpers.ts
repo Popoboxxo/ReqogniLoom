@@ -135,6 +135,14 @@ export async function createRequirementViaUI(
  * unrelated to and not fixed by this Requirement-form migration.
  */
 async function saveRequirementDetail(page: Page, reason: string): Promise<void> {
+  // #1762 (M1): at the 1280×720 E2E viewport the tabbed inspector opens as a
+  // *sheet* over the detail pane and makes that pane `inert` (WCAG 2.2
+  // SC 2.4.11). Inert is not a visual state, so `isVisible()` below stayed
+  // true — and `fill()` on the change-reason input then waited out the whole
+  // 120 s test timeout ("waiting for element to be visible, enabled and
+  // editable") instead of failing on the real cause. Collapse to the rail
+  // first; the helper is idempotent and a no-op on wide viewports.
+  await collapseInspector(page);
   const reasonInput = page.locator('[data-testid="artifact-form-change-reason"]');
   if (await reasonInput.isVisible({ timeout: 2000 }).catch(() => false)) {
     await reasonInput.fill(reason);
