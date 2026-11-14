@@ -12,8 +12,10 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { TracePanel } from "./TracePanel";
 import * as tracelinksModule from "../../../api/tracelinks";
+import * as requirementsModule from "../../../api/requirements";
 import * as workspaceModule from "../../../context/WorkspaceContext";
 import * as linkTypeModule from "../../../context/LinkTypeContext";
 
@@ -21,6 +23,27 @@ import * as linkTypeModule from "../../../context/LinkTypeContext";
 vi.mock("../../../api/tracelinks");
 vi.mock("../../../context/WorkspaceContext");
 vi.mock("../../../context/LinkTypeContext");
+// The Links tab mounts the shared `CreateTraceLinkDialog` (REQ-005), which
+// loads its target list from six list endpoints. Stub them so the panel stays
+// unit-testable without a network layer.
+vi.mock("../../../api/requirements", () => ({
+  requirementsApi: { listAll: vi.fn().mockResolvedValue([]) },
+}));
+vi.mock("../../../api/architecture", () => ({
+  architectureApi: { listAll: vi.fn().mockResolvedValue([]) },
+}));
+vi.mock("../../../api/testcases", () => ({
+  testcasesApi: { listAll: vi.fn().mockResolvedValue([]) },
+}));
+vi.mock("../../../api/adrs", () => ({
+  adrsApi: { listAll: vi.fn().mockResolvedValue([]) },
+}));
+vi.mock("../../../api/risks", () => ({
+  risksApi: { listAll: vi.fn().mockResolvedValue([]) },
+}));
+vi.mock("../../../api/issues", () => ({
+  issuesApi: { listAll: vi.fn().mockResolvedValue([]) },
+}));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string) => key,
@@ -66,10 +89,14 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
         key,
         definition: { label: {}, allowed_pairs: [] },
       })),
+      // Creatable types feed the create dialog's link-type listbuilder.
+      creatableLinkTypes: keys.map((key) => ({
+        key,
+        definition: { label: {}, allowed_pairs: [] },
+      })),
       isLoading: false,
       error: null,
       reload: vi.fn(),
-      creatableLinkTypes: [],
       definitionFor: () => undefined,
       isAllowedPair: () => true,
       labelFor: (key: string) => key,
@@ -268,3 +295,112 @@ describe("TracePanel (REQ-L2-RF-037)", () => {
     });
   });
 });
+
+/**
+ * #1827: the Links tab replaced the stacked `TraceLinkPanel`, which owned the
+ * "new link" entry in its header. The tab has no header of its own, so the
+ * entry has to be part of the panel — including (and especially) when the
+ * artifact has no links at all. Without it the empty state was a dead end.
+ */
+describe("TracePanel — Links-tab create entry (#1827)", () => {
+  const mockWorkspace = { id: "ws-123", name: "Test", preset: "standard" };
+  const mockArtifactId = "artifact-001";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(workspaceModule.useWorkspace).mockReturnValue({
+      activeWorkspace: mockWorkspace,
+    } as any);
+    vi.mocked(linkTypeModule.useLinkTypes).mockReturnValue({
+      linkTypes: [{ key: "allocated-to", definition: { label: {}, allowed_pairs: [] } }],
+      creatableLinkTypes: [
+        { key: "allocated-to", definition: { label: {}, allowed_pairs: [] } },
+      ],
+      isLoading: false,
+      error: null,
+      reload: vi.fn(),
+      definitionFor: () => undefined,
+      isAllowedPair: () => true,
+      labelFor: (key: string) => key,
+    } as any);
+    vi.mocked(tracelinksModule.tracelinksApi.listForArtifact).mockResolvedValue({
+      results: [],
+    } as any);
+    vi.mocked(requirementsModule.requirementsApi.listAll).mockResolvedValue([] as any);
+  });
+
+  it("renders the create entry in the empty state", async () => {
+    render(<TracePanel kind="requirement" entityId={mockArtifactId} variant="tab" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("links-empty")).toBeInTheDocument();
+    });
+    // Same testid as the stacked panel's header button: the E2E flow and the
+    // routes that never mounted `TraceLinkPanel` both rely on it.
+    expect(screen.getByTestId("trace-link-panel-open-dialog")).toBeInTheDocument();
+  });
+
+  it("opens the shared create dialog from the empty state", async () => {
+    const user = userEvent.setup();
+    render(<TracePanel kind="requirement" entityId={mockArtifactId} variant="tab" />);
+
+    const openButton = await screen.findByTestId("trace-link-panel-open-dialog");
+    await user.click(openButton);
+
+    expect(await screen.findByTestId("create-trace-link-dialog")).toBeInTheDocument();
+  });
+
+  it("refetches the list once after a link was created", async () => {
+    const user = userEvent.setup();
+    vi.mocked(requirementsModule.requirementsApi.listAll).mockResolvedValue([
+      { id: "req-1", title: "Requirement A" },
+    ] as any);
+
+    render(<TracePanel kind="requirement" entityId={mockArtifactId} variant="tab" />);
+
+    await user.click(await screen.findByTestId("trace-link-panel-open-dialog"));
+    await user.click(await screen.findByTestId("create-trace-link-target-element-req-1"));
+
+    const callsBeforeCreate = vi.mocked(tracelinksModule.tracelinksApi.listForArtifact)
+      .mock.calls.length;
+    await user.click(screen.getByTestId("create-trace-link-submit"));
+
+    await waitFor(() => {
+      expect(
+        vi.mocked(tracelinksModule.tracelinksApi.listForArtifact).mock.calls.length
+      ).toBe(callsBeforeCreate + 1);
+    });
+    // The dialog closes itself once the link exists.
+    await waitFor(() => {
+      expect(screen.queryByTestId("create-trace-link-dialog")).toBeNull();
+    });
+  });
+
+  it("does not add the entry to the stacked panel form", async () => {
+    vi.mocked(tracelinksModule.tracelinksApi.listForArtifact).mockResolvedValue({
+      results: [
+        {
+          id: "link-1",
+          source_id: mockArtifactId,
+          target_id: "req-1",
+          link_type: "allocated-to",
+          source_title: "Test Artifact",
+          source_type: "Requirement",
+          target_title: "Requirement A",
+          target_type: "Requirement",
+          created_at: "2026-01-15T08:00:00Z",
+        },
+      ],
+    } as any);
+
+    render(<TracePanel kind="requirement" entityId={mockArtifactId} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Requirement A")).toBeInTheDocument();
+    });
+    // The stacked form is hosted next to a `TraceLinkPanel`, which owns the
+    // one and only create button for that surface.
+    expect(screen.queryByTestId("trace-link-panel-open-dialog")).toBeNull();
+  });
+});
+

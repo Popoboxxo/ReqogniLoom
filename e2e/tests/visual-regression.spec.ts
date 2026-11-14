@@ -5,7 +5,7 @@
 // then re-run WITHOUT --update-snapshots and confirm it is 100% green.
 import { test, expect, request as pwRequest, type Page, type Locator } from '@playwright/test';
 import { loginAsAdmin, getAuthToken, setWorkspaceId } from '../helpers/auth';
-import { openInspectorTab } from '../helpers/inspector';
+import { openInspectorTab, INSPECTOR_TEST_IDS } from '../helpers/inspector';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -311,9 +311,16 @@ test.describe('[VISUAL] Dialog screenshots', () => {
     await page.locator('[data-testid="risk-new-save-btn"]').click();
 
     // #1762 M2: the trace-link panel now lives in the inspector's Links tab.
+    // #1827: the risk route still mounts the stacked `TraceLinkPanel` in the
+    // detail form (it owns delete), so this testid exists twice on the page.
+    // Target the tab's button explicitly — scoping keeps the locator strict
+    // and points at the surface this test is about.
     await openInspectorTab(page, 'links');
-    await expect(page.locator('[data-testid="trace-link-panel-open-dialog"]')).toBeVisible({ timeout: 10000 });
-    await page.locator('[data-testid="trace-link-panel-open-dialog"]').click();
+    const openTraceLinkDialog = page
+      .getByTestId(INSPECTOR_TEST_IDS.panel('links'))
+      .locator('[data-testid="trace-link-panel-open-dialog"]');
+    await expect(openTraceLinkDialog).toBeVisible({ timeout: 10000 });
+    await openTraceLinkDialog.click();
     await expect(page.locator('[data-testid="create-trace-link-dialog"]')).toBeVisible({ timeout: 5000 });
     await expect(page).toHaveScreenshot('dialog-trace-link-create.png', {
       fullPage: true,
