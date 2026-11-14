@@ -38,6 +38,7 @@ import {
   setWorkspaceId,
   createIsolatedWorkspace,
 } from '../helpers/auth';
+import { collapseInspector } from '../helpers/inspector';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -347,6 +348,12 @@ test.describe('[WK-SCENARIO] Wasserkocher SE-Durchstich', () => {
     await page.goto(`${FRONTEND_URL}/architecture/${fix.architectureIds['WK-CTRL']}`);
     await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="artifact-field-title"]')).toHaveValue(/Steuerungs-Platine/);
+
+    // #1762 (M3): the architecture detail route mounts the tabbed
+    // `InspectorShell`, which opens as a sheet over the detail pane at the
+    // 1280 px E2E viewport and brackets that pane with `inert` (spec §4.2).
+    // The `fill()` below would silently keep the old value otherwise.
+    await collapseInspector(page);
 
     // REQ-006/D5: element_type ist ein Freitext-Input mit Autocomplete-
     // Vorschlägen, kein festes <select> mit 5 Optionen mehr.

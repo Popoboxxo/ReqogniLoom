@@ -20,19 +20,21 @@ async function createRequirementViaQuickForm(page: Page, title = 'E2E Requiremen
   await page.locator('[data-testid="req-new-title-input"]').fill(title);
   await page.locator('[data-testid="req-new-save-btn"]').click();
   await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
-  // #1762 (M1): only the *requirements* route mounts the tabbed inspector; the
-  // architecture helper below deliberately does not collapse anything (that
-  // route still uses the stacked RightSidebar). At the 1280 px E2E viewport the
-  // inspector is a sheet and the detail area is `inert`, so it is collapsed
-  // before the form is driven.
+  // #1762 (M1): the requirements route mounts the tabbed inspector as a sheet
+  // at the 1280 px E2E viewport and the detail area it covers is `inert`, so
+  // it is collapsed before the form is driven.
   await collapseInspector(page);
 }
 
+// #1762 (M3): the architecture route mounts the same `InspectorShell` as the
+// requirements route (M1) and the need/risk/adr/issue/testCase routes (M2), so
+// the same sheet-over-`inert` bracket applies here — collapse it too.
 async function createArchElementViaQuickForm(page: Page, title = 'E2E Arch Element'): Promise<void> {
   await page.locator('[data-testid="create-arch-btn"]').click();
   await page.locator('[data-testid="arch-new-title-input"]').fill(title);
   await page.locator('[data-testid="arch-new-save-btn"]').click();
   await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+  await collapseInspector(page);
 }
 
 // [I5] A workspace tree may have exactly one root ArchitectureElement, and

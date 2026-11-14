@@ -8,17 +8,25 @@ import {
   createIsolatedWorkspace,
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
+import { collapseInspector } from '../helpers/inspector';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 // "+ New" only opens an inline quick-create form; the full editor only
 // renders after Save/Create navigates to the created artifact's detail route.
+//
+// #1762 (M3): the architecture detail route mounts the tabbed `InspectorShell`,
+// which opens as a sheet over the detail pane at the 1280 px E2E viewport and
+// brackets that pane with `inert` — the `fill()` on element_type below would
+// silently keep the previous value. Collapse the sheet first, exactly like a
+// user at this width does; the helper is idempotent.
 async function createArchElementViaQuickForm(page: Page, title = 'E2E Arch Element'): Promise<void> {
   await page.locator('[data-testid="create-arch-btn"]').click();
   await page.locator('[data-testid="arch-new-title-input"]').fill(title);
   await page.locator('[data-testid="arch-new-save-btn"]').click();
   await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+  await collapseInspector(page);
 }
 
 // [I5] A workspace tree may have exactly one root ArchitectureElement, and

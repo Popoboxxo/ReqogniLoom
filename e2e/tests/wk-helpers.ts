@@ -182,6 +182,14 @@ export async function createArchitectureElementViaUI(
   const id = match[1];
 
   await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 8000 });
+  // #1762 (M3): the architecture detail route mounts the same tabbed
+  // `InspectorShell` as the requirement route (M1). At the 1280 px E2E
+  // viewport it opens as a *sheet* over the detail pane and brackets that pane
+  // with `inert` (spec §4.2); everything below (title, element_type,
+  // description, save) lives in that pane, so without this the `fill()` calls
+  // silently keep their old values and the save click is intercepted.
+  // `collapseInspector()` is idempotent and a no-op on wide viewports.
+  await collapseInspector(page);
   if (parentId) {
     // "Add Child" creates the element with a default title — set the real one.
     await page.locator('[data-testid="artifact-field-title"]').fill(data.title);
@@ -241,6 +249,10 @@ export async function createArchTraceLinkViaUI(
 ): Promise<void> {
   await page.goto(`${FRONTEND_URL}/architecture/${sourceArchId}`);
   await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 12000 });
+  // #1762 (M3): the linked-requirements panel and the unified trace-link dialog
+  // trigger below live in the detail pane the inspector's sheet covers (and
+  // `inert`s) at the 1280 px E2E viewport — collapse to the rail first.
+  await collapseInspector(page);
   const panel = page.locator('[data-testid="arch-linked-reqs-panel"]');
   await expect(panel).toBeVisible({ timeout: 8000 });
   // The architecture side uses the unified CreateTraceLinkDialog (REQ-005),
