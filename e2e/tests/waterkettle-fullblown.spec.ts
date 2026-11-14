@@ -262,6 +262,47 @@ async function seedTestRunResult(
   await apiCtx.dispose();
 }
 
+/**
+ * Read what the backend actually persisted in a workspace (#1825).
+ *
+ * Phase 1b used to "count" the requirements it had created by measuring the
+ * in-memory `ids.requirementIds` map — a check that can only re-count what the
+ * loop itself just wrote, i.e. it is true by construction and can never detect
+ * a UI create that silently did not land. Counting the persisted rows is the
+ * assertion that has actual information content.
+ *
+ * `count` is the server-side total for the workspace-scoped, soft-delete
+ * filtered list (StandardPagination echoes it); `page_size=100` is the
+ * documented maximum and comfortably above the ≤18 requirements this spec
+ * creates per workspace, so one page holds all of them.
+ */
+async function listPersistedRequirements(
+  workspaceId: string,
+  token: string
+): Promise<{ total: number; items: Array<{ id: string; title: string }> }> {
+  const apiCtx = await pwRequest.newContext({
+    baseURL: BACKEND_URL,
+    extraHTTPHeaders: { Authorization: `Bearer ${token}` },
+  });
+  try {
+    const resp = await apiCtx.get(
+      `/api/v1/requirements/?workspace_id=${workspaceId}&page_size=100`
+    );
+    const raw = await resp.text();
+    if (!resp.ok()) {
+      throw new Error(`GET /api/v1/requirements/ failed (${resp.status()}): ${raw}`);
+    }
+    const parsed = JSON.parse(raw) as
+      | Array<{ id: string; title: string }>
+      | { count?: number; results?: Array<{ id: string; title: string }> };
+    const items = Array.isArray(parsed) ? parsed : parsed.results ?? [];
+    const total = Array.isArray(parsed) ? items.length : parsed.count ?? items.length;
+    return { total, items };
+  } finally {
+    await apiCtx.dispose();
+  }
+}
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -378,16 +419,91 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
   // (alle 17 REQs in einem Test, weil Browser-Context-Reset zu langsam ist)
   // ===========================================================================
   test('Phase 1b: 17 System-Requirements (L1+L2+L3) über UI anlegen', async ({ page }) => {
-    for (const r of [...SCENARIO.L1, ...SCENARIO.L2, ...SCENARIO.L3]) {
+    // #1825: 17 sequential UI creates, each costing a full list navigation +
+    // create round-trip + detail mount + change-reason PATCH (Phase 0 sets
+    // `extended`, whose policy makes the reason mandatory). Measured ~7 s per
+    // artifact on a 4-core host, so the loop alone needs ~2 min — the
+    // describe-level 120 s budget aborted it mid-loop on a live run. Budget
+    // this test on its own at ~2x the measured cost instead of raising the
+    // default for every test in the file.
+    test.setTimeout(240_000);
+
+    const created: Array<{ key: string; title: string; id: string }> = [];
+    // 5 L1 + 7 L2 + 5 L3 = 17 — single-sourced from the scenario so the
+    // assertion below cannot drift from the list it drives.
+    const scenarioReqs = [...SCENARIO.L1, ...SCENARIO.L2, ...SCENARIO.L3];
+    for (const r of scenarioReqs) {
+      // No sleep between iterations by design: `createRequirementViaUI`
+      // returns only after the POST completed *and* the detail route of the
+      // artifact it created is mounted (`waitForURL` + `artifact-field-title`),
+      // so the next create cannot overtake the previous one.
       const id = await createRequirementViaUI(page, {
         title: r.title,
         category: 'Functional',
       });
       ids.requirementIds[r.id] = id;
+      created.push({ key: r.id, title: r.title, id });
     }
-    // Total-Check: 1 SN + 5 L1 + 7 L2 + 5 L3 = 18
-    const total = Object.keys(ids.requirementIds).length;
-    expect(total).toBe(18);
+
+    // (a) What this test owns: one entry per scenario requirement, 17 distinct
+    // artifacts. A helper that resolved a stale detail URL would map two keys
+    // onto the same id and quietly drop a creation — assert that separately.
+    expect(created).toHaveLength(scenarioReqs.length);
+    expect(new Set(created.map((c) => c.id)).size).toBe(scenarioReqs.length);
+
+    // #1825: record the run mode instead of failing on it. In a whole-file run
+    // Phase 1a contributed the L0 stakeholder need (18 = 1 + 17); in a
+    // standalone run of this test it did not, and that is not a defect of
+    // Phase 1b.
+    if (!('L0_SN' in ids.requirementIds)) {
+      test.info().annotations.push({
+        type: 'note',
+        description:
+          'Phase 1b ran without Phase 1a in this worker (retry/--grep) — ' +
+          'the scenario total is 17, not 18.',
+      });
+    }
+
+    // (b) What the backend persisted — the assertion that can actually detect
+    // "one UI create did not land". The previous
+    // `Object.keys(ids.requirementIds).length === 18` could not: it re-counted
+    // the map this loop had just filled, and its 18th entry belonged to Phase
+    // 1a (the L0 stakeholder need). When Phase 1b runs on its own — a
+    // single-test retry after the old 120 s timeout restarts the worker and
+    // therefore re-runs `beforeAll`, or a developer running
+    // `--grep "Phase 1b"` — Phase 1a never ran, the map legitimately held 17
+    // entries, and the test reported the opaque "Expected: 18, Received: 17".
+    const persisted = await listPersistedRequirements(ids.workspaceId, token);
+    const byId = new Map(persisted.items.map((row) => [row.id, row]));
+    const missing = created.filter((c) => !byId.has(c.id));
+    expect(
+      missing,
+      `createRequirementViaUI reported an id that the backend does not list in ` +
+        `workspace ${ids.workspaceId} (a UI create that never landed):\n  ` +
+        missing.map((m) => `${m.key} -> ${m.id}`).join('\n  ')
+    ).toEqual([]);
+
+    // Same round-trip, second half: the artifact must carry the title that was
+    // typed, not a placeholder or a neighbouring scenario's title.
+    const titleMismatch = created
+      .filter((c) => byId.get(c.id)?.title !== c.title)
+      .map(
+        (c) =>
+          `${c.key}: sent "${c.title}", stored "${byId.get(c.id)?.title ?? '<absent>'}"`
+      );
+    expect(titleMismatch, 'stored title differs from the one typed in the UI').toEqual([]);
+
+    // (c) No ghosts either: the fresh workspace holds exactly the requirements
+    // this run recorded. Deliberately expressed against the recorded map
+    // instead of a hard-coded 18 — 1 (L0, Phase 1a) + 17 is the whole-file
+    // invariant, but whether Phase 1a ran in *this* worker is not this test's
+    // business. A silent extra/missing row still turns this red.
+    expect(
+      persisted.total,
+      `backend lists ${persisted.total} requirement(s) in workspace ` +
+        `${ids.workspaceId}, this run recorded ` +
+        `${Object.keys(ids.requirementIds).length}`
+    ).toBe(Object.keys(ids.requirementIds).length);
   });
 
   // ===========================================================================
