@@ -211,6 +211,9 @@
   top: 0;
   right: 0;
   bottom: 0;
+  /* #1762 M1: the sheet must paint above the split-view detail pane; without
+     its own stacking level the detail intercepts clicks on the sheet header. */
+  z-index: 20;
   display: flex;
   flex-direction: column;
   width: min(var(--inspector-width, var(--inspector-w-default)), 100%);

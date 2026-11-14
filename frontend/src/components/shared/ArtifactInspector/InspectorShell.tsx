@@ -113,7 +113,9 @@ export function InspectorShell(props: InspectorShellProps): JSX.Element {
       id={INSPECTOR_SURFACE_ID}
       className={`${styles.shell} ${styles[layout.form] ?? ""}`}
       aria-labelledby={INSPECTOR_HEADING_ID}
-      data-testid={INSPECTOR_TEST_IDS.root}
+      // Literal on purpose: the E2E testid-drift gate (issue #1113) only
+      // resolves literal ids, and this is the shell's public root marker.
+      data-testid="inspector-shell"
       data-artifact-kind={kind}
       data-inspector-form={layout.form}
       data-inspector-width={layout.widthPx}
