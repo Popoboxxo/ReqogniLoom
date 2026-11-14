@@ -46,25 +46,25 @@ async function main() {
 
   const report = [];
 
-  // ===== 1. RightSidebar (ArtifactInspector) — real toggle this time =====
+  // ===== 1. InspectorShell — sheet/rail toggle (#1762) =====
   for (const [slug, route] of [['requirements', '/requirements'], ['architecture', '/architecture'], ['adrs', '/adrs']]) {
     await attempt(report, `inspector-${slug}`, async () => {
       await goto(route);
       const firstItem = page.locator('main[role="main"] [data-testid][role="button"], main[role="main"] [role="treeitem"]').first();
       await firstItem.click({ timeout: 3000 });
       await page.waitForTimeout(700);
-      const inspector = page.locator('[data-testid="artifact-inspector"]');
+      const inspector = page.locator('[data-testid="inspector-shell"]');
       const hasInspector = await inspector.count();
-      if (!hasInspector) throw new Error('[data-testid="artifact-inspector"] nicht im DOM gefunden');
+      if (!hasInspector) throw new Error('[data-testid="inspector-shell"] nicht im DOM gefunden');
       const expandedShot = await shot(page, `inspector-${slug}-expanded`);
-      const collapseBtn = page.locator('[data-testid="artifact-inspector-collapse"]');
+      const collapseBtn = page.locator('[data-testid="inspector-close"]');
       const collapseCount = await collapseBtn.count();
       let collapsedShot = null, miniIcons = null, reExpandedAfterNav = null;
       if (collapseCount) {
         await collapseBtn.click({ timeout: 2000 });
         await page.waitForTimeout(400);
         collapsedShot = await shot(page, `inspector-${slug}-collapsed`);
-        miniIcons = await page.locator('[data-testid="artifact-inspector-collapsed"] [aria-label]').evaluateAll(
+        miniIcons = await page.locator('[data-testid="inspector-rail"] [aria-label]').evaluateAll(
           (els) => els.map((e) => e.getAttribute('aria-label'))
         );
         // persistence check: navigate to a different item, see if still collapsed
@@ -72,11 +72,11 @@ async function main() {
         if (await secondItem.count()) {
           await secondItem.click({ timeout: 2000 }).catch(() => {});
           await page.waitForTimeout(500);
-          const stillCollapsed = await page.locator('[data-testid="artifact-inspector-collapsed"]').count();
+          const stillCollapsed = await page.locator('[data-testid="inspector-rail"]').count();
           reExpandedAfterNav = stillCollapsed > 0 ? 'blieb eingeklappt (persistiert)' : 'wieder ausgeklappt';
         }
         // re-expand for cleanliness
-        const expandBtn = page.locator('[data-testid="artifact-inspector-expand"]');
+        const expandBtn = page.locator('[data-testid="inspector-rail-open"]');
         if (await expandBtn.count()) await expandBtn.click({ timeout: 2000 }).catch(() => {});
       }
       // panel inventory within the expanded inspector
@@ -85,7 +85,7 @@ async function main() {
         const found = {};
         document.querySelectorAll('[data-testid]').forEach((el) => {
           const t = el.getAttribute('data-testid');
-          if (t && /version|diff|trace|comment/i.test(t) && el.closest('[data-testid="artifact-inspector"]')) {
+          if (t && /version|diff|trace|comment/i.test(t) && el.closest('[data-testid="inspector-shell"]')) {
             found[t] = true;
           }
         });
