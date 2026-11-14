@@ -623,7 +623,38 @@ override, else deployment-wide EMBEDDING_*, else the literal default"). `honcho-
 | `HONCHO_EMBEDDING_VECTOR_DIMENSIONS` | *inherited from* `EMBEDDING_VECTOR_DIMENSIONS` (else `768`) | Must match the model's output width — see the pitfall below. |
 | `HONCHO_EMBEDDING_TRANSPORT` | `openai` | OpenAI-compatible transport. |
 
-Without a reachable endpoint, Honcho cannot embed and `/health`'s `memory_backend` row reports down.
+Without a reachable endpoint, Honcho cannot embed. Since #1823/#1824 that state is **degraded, not
+down** — see the next subsection for exactly what each surface reports.
+
+### Memory writes and readiness when the embedding provider is missing (#1823, #1824)
+
+A Honcho deployment can be *half* available: the API answers (reads work, because the mirror rows live
+in ReqogniLoom's own `mem_memory_entry` table) while its embedding endpoint is unreachable (writes
+cannot be stored). The two failure modes are now kept apart instead of collapsing into "down":
+
+| State | `POST …/memory/entries/` | `GET /health/` (`memory_backend`) | Memory response envelope |
+|---|---|---|---|
+| Honcho API unreachable | **503** `SERVICE_UNAVAILABLE` with `backend`/`ok:false`/`detail`/`degraded:true` | `error` → HTTP **503** (`dependency_down`) | `ok:false`, `degraded:true` |
+| API reachable, embedding missing/unreachable | **503** `SERVICE_UNAVAILABLE`, `detail: "embedding_unavailable: …"` | **`ok`** → HTTP **200** | `ok:true`, `degraded:true`, `detail:"embedding_unavailable: …"` |
+| Fully healthy | 201 | `ok` → HTTP 200 | `ok:true`, `degraded:false` |
+
+Why the write is 503 and not 500: the raw SDK error (`ServerError`, `ConnectError`, timeout) is
+translated at the backend boundary into `MemoryBackendUnavailableError`; REST answers 503 with the
+same `backend`/`ok`/`detail`/`degraded` keys a read returns, MCP answers the tool-execution error
+`SERVICE_UNAVAILABLE`. A client can therefore retry instead of treating it as a server defect.
+
+Why readiness stays green when only the embedding endpoint is missing: an unreachable *API* is an
+outage (503), but an API that answers and merely cannot embed never blocks a read, so failing the
+container probe over it would restart-loop a working deployment. The degradation is still visible in
+the memory envelope and in the admin health row (`detail: "embedding_unavailable: …"`,
+`status: degraded`). If you need the container to go red in that case, run Honcho with a reachable
+embedding endpoint — that is the actual misconfiguration.
+
+**Latency:** the Honcho SDK client is built with `max_retries=0` (was the SDK default of 2). A failed
+conclusion create used to cost ~38 s (3 × the server-side embedding timeout); one attempt keeps the
+503 below ~13 s. Set `HONCHO_MAX_RETRIES` (integer, e.g. `1`) if your Honcho legitimately answers
+transient 5xx — but note that a conclusion create is **not** idempotent, so a retry after a 5xx the
+server did persist can duplicate the memory entry.
 
 Switching `MEMORY_BACKEND` to `honcho` neither deletes nor migrates what is already stored: the
 existing memory rows stay in Postgres' `mem_memory_entry` table untouched and simply stop being

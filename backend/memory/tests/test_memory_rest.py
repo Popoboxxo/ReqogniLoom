@@ -1951,6 +1951,80 @@ class TestWorkspaceMemoryEntryWriteRest:
 
 
 @pytest.mark.django_db
+class TestMemoryBackendOutageRest:
+    """Issue #1823: an unreachable memory engine answers 503, never 500.
+
+    The live defect: ``POST /api/v1/workspaces/<ws>/memory/entries/`` with
+    ``MEMORY_BACKEND=honcho`` and an unreachable Honcho embedding endpoint
+    returned 500 after ~38 s, while ``GET`` degraded correctly to
+    ``200/ok=false``. The write path now shares the read path's vocabulary:
+    the canonical ``error`` envelope plus the ``backend``/``ok``/``detail``/
+    ``degraded`` keys a successful list returns.
+    """
+
+    def test_write_engine_outage_is_503_with_read_path_envelope(
+        self, monkeypatch, _clear_memory_cache
+    ):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        from memory.backends import MemoryBackendUnavailableError
+
+        def _engine_down(*_args, **_kwargs):
+            raise MemoryBackendUnavailableError(
+                "ServerError: 500 Internal Server Error (embedding unreachable)"
+            )
+
+        monkeypatch.setattr(
+            "application.memory_entry_service.MemoryEntryService.write", _engine_down
+        )
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            response = _client_for(token).post(
+                _WS_ENTRIES.format(ws=ws.id), {"content": "x"}, format="json"
+            )
+
+        assert response.status_code == 503
+        body = response.data
+        assert body["error"]["code"] == "SERVICE_UNAVAILABLE"
+        # Same keys a successful read carries, so a client can branch on the
+        # outage without parsing the message.
+        assert body["ok"] is False
+        assert body["degraded"] is True
+        assert body["backend"]
+        assert "ServerError" in body["detail"]
+
+    def test_read_still_answers_200_ok_false_while_the_engine_is_down(
+        self, monkeypatch, _clear_memory_cache
+    ):
+        """The read path is unchanged: 200 + ``ok=false`` + ``detail``."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        from memory.backends import MemoryHealth
+        from memory.health import invalidate_health_cache
+
+        monkeypatch.setattr(
+            "memory.health._probe",
+            lambda: MemoryHealth(
+                ok=False,
+                backend="honcho",
+                detail="ServerError: 500 Internal Server Error",
+                degraded=True,
+            ),
+        )
+        invalidate_health_cache()
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            _user, token = editor_user_and_token(tenant, ws)
+            response = _client_for(token).get(_WS_ENTRIES.format(ws=ws.id))
+
+        assert response.status_code == 200
+        assert response.data["ok"] is False
+        assert response.data["degraded"] is True
+        assert "ServerError" in response.data["detail"]
+
+
+@pytest.mark.django_db
 class TestArtifactMemoryScopeValidationRest:
     def test_conflicting_body_scope_is_400(self, monkeypatch, _clear_memory_cache):
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")

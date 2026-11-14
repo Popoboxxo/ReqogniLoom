@@ -142,7 +142,11 @@ from application.preference_registry import get_preference_key, validate_prefere
 from application.preference_service import PreferenceService, levels_for
 from auth_tenancy.rest import HasOperationPermission
 from auth_tenancy.services import AuthorizationService
-from memory.backends import VALID_QUERY_SOURCES
+from memory.backends import (
+    VALID_QUERY_SOURCES,
+    MemoryBackendUnavailableError,
+    active_memory_backend_name,
+)
 from memory.health import envelope
 from memory.injection_policy import (
     ALLOW_USER_OPT_OUT_KEY,
@@ -264,9 +268,28 @@ def _memory_error_response(exc: Exception, lang: str) -> Response:
     """Map a memory-service exception onto the standard REST error body.
 
     ``MemoryWriteRateLimitExceeded`` -> 429 with a ``Retry-After`` header;
-    permission -> 403; not found -> 404; validation -> 400. Anything else
-    re-raises (a genuine bug must not be masked as a 4xx).
+    ``MemoryBackendUnavailableError`` -> 503 (issue #1823); permission -> 403;
+    not found -> 404; validation -> 400. Anything else re-raises (a genuine bug
+    must not be masked as a 4xx).
+
+    The 503 mirrors the READ path's shape: on top of the canonical
+    ``{"error": {...}}`` envelope it carries ``backend``/``ok``/``detail``/
+    ``degraded`` -- the same keys a successful ``list`` returns -- so a client
+    can branch on the outage without parsing the message. It deliberately does
+    NOT call ``envelope()``: the write just failed, and building the envelope
+    would run the (up to 10 s) health probe synchronously inside the error path.
     """
+    if isinstance(exc, MemoryBackendUnavailableError):
+        return Response(
+            {
+                **build_error_response("SERVICE_UNAVAILABLE", lang, message=str(exc)),
+                "backend": active_memory_backend_name(),
+                "ok": False,
+                "detail": exc.detail,
+                "degraded": True,
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
     if isinstance(exc, MemoryWriteRateLimitExceeded):
         response = Response(
             build_error_response(
@@ -1244,6 +1267,9 @@ class SystemMemoryEntriesListView(_SystemMemoryVisualizationView):
             NotFoundError,
             ValidationError,
             MemoryWriteRateLimitExceeded,
+            # Issue #1823: an unreachable engine is 503/SERVICE_UNAVAILABLE,
+            # not a 500 (see _memory_error_response).
+            MemoryBackendUnavailableError,
         ) as exc:
             return _memory_error_response(exc, lang)
         return Response(view, status=status.HTTP_201_CREATED)
@@ -1463,7 +1489,14 @@ class WorkspaceMemoryEntriesView(APIView):
                 confidence=request.data.get("confidence", 1.0),
                 change_reason=request.data.get("change_reason"),
             )
-        except (PermissionDeniedError, NotFoundError, ValidationError, MemoryWriteRateLimitExceeded) as exc:
+        except (
+            PermissionDeniedError,
+            NotFoundError,
+            ValidationError,
+            MemoryWriteRateLimitExceeded,
+            # Issue #1823: an unreachable engine is 503/SERVICE_UNAVAILABLE.
+            MemoryBackendUnavailableError,
+        ) as exc:
             return _memory_error_response(exc, lang)
         return Response(view, status=status.HTTP_201_CREATED)
 
@@ -1907,6 +1940,9 @@ class MemoryEntryDetailView(APIView):
             NotFoundError,
             ValidationError,
             MemoryWriteRateLimitExceeded,
+            # Issue #1823: an unreachable engine is 503/SERVICE_UNAVAILABLE,
+            # not a 500 (see _memory_error_response).
+            MemoryBackendUnavailableError,
         ) as exc:
             return _memory_error_response(exc, lang)
         return Response(view)
@@ -1949,7 +1985,14 @@ class MemoryEntryPromoteView(APIView):
                 workspace_id=workspace_id,
                 change_reason=request.data.get("change_reason"),
             )
-        except (PermissionDeniedError, NotFoundError, ValidationError, MemoryWriteRateLimitExceeded) as exc:
+        except (
+            PermissionDeniedError,
+            NotFoundError,
+            ValidationError,
+            MemoryWriteRateLimitExceeded,
+            # Issue #1823: an unreachable engine is 503/SERVICE_UNAVAILABLE.
+            MemoryBackendUnavailableError,
+        ) as exc:
             return _memory_error_response(exc, lang)
         return Response(view)
 
@@ -2061,7 +2104,14 @@ class ArtifactMemoryView(APIView):
                 confidence=request.data.get("confidence", 1.0),
                 change_reason=request.data.get("change_reason"),
             )
-        except (PermissionDeniedError, NotFoundError, ValidationError, MemoryWriteRateLimitExceeded) as exc:
+        except (
+            PermissionDeniedError,
+            NotFoundError,
+            ValidationError,
+            MemoryWriteRateLimitExceeded,
+            # Issue #1823: an unreachable engine is 503/SERVICE_UNAVAILABLE.
+            MemoryBackendUnavailableError,
+        ) as exc:
             return _memory_error_response(exc, lang)
         return Response(view, status=status.HTTP_201_CREATED)
 
@@ -2515,6 +2565,9 @@ class MemorySelfServiceView(APIView):
             NotFoundError,
             ValidationError,
             MemoryWriteRateLimitExceeded,
+            # Issue #1823: an unreachable engine is 503/SERVICE_UNAVAILABLE,
+            # not a 500 (see _memory_error_response).
+            MemoryBackendUnavailableError,
         ) as exc:
             return _memory_error_response(exc, lang)
         return Response(view, status=status.HTTP_201_CREATED)

@@ -74,7 +74,11 @@ from mcp_server.tools.base import (
     require_param,
     require_uuid,
 )
-from memory.backends import VALID_QUERY_SOURCES, VALID_REASONING_LEVELS
+from memory.backends import (
+    VALID_QUERY_SOURCES,
+    VALID_REASONING_LEVELS,
+    MemoryBackendUnavailableError,
+)
 from memory.health import envelope
 from memory.policy import MemoryPolicy
 from memory.ratelimit import MemoryWriteRateLimitExceeded
@@ -800,12 +804,16 @@ class MemoryToolGroup(BaseToolGroup):
         ``ToolResult``. ``MemoryWriteRateLimitExceeded`` maps to the dedicated
         ``RATE_LIMITED`` JSON-RPC error code with the limit/retry-after details;
         ``ParameterError`` propagates so ``execute_tool`` answers
-        ``VALIDATION_ERROR``.
+        ``VALIDATION_ERROR``; ``MemoryBackendUnavailableError`` (issue #1823)
+        answers ``SERVICE_UNAVAILABLE`` with the same bounded transport detail
+        the REST layer publishes.
         """
         try:
             data = call()
         except ParameterError:
             raise
+        except MemoryBackendUnavailableError as exc:
+            return ToolResult.error("SERVICE_UNAVAILABLE", str(exc))
         except MemoryWriteRateLimitExceeded as exc:
             return ToolResult.error(
                 "RATE_LIMITED",

@@ -479,7 +479,10 @@ class McpHttpTransportView(CorsMixin, View):
             # 400 — "your request was malformed" — for an upstream outage).
             elif error_code == "LLM_TIMEOUT":
                 http_status = 504
-            elif error_code == "LLM_UNAVAILABLE":
+            elif error_code in ("LLM_UNAVAILABLE", "SERVICE_UNAVAILABLE"):
+                # #1823: an unreachable backing service (the memory engine)
+                # keeps the same HTTP semantics as REST -- 503, never the
+                # generic 400 "your request was malformed".
                 http_status = 503
             elif error_code == "LLM_OUTPUT_INVALID":
                 http_status = 502

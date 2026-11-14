@@ -272,6 +272,39 @@ class MemoryHealth:
     degraded: bool = False
 
 
+class MemoryBackendUnavailableError(RuntimeError):
+    """The active memory backend could not reach its engine (issue #1823).
+
+    Raised when a WRITE cannot be persisted because the external engine (e.g.
+    Honcho) is unreachable, answers 5xx, or times out. Before this type the
+    raw SDK/transport exception (`honcho.http.exceptions.ServerError`,
+    `httpx.ConnectError`, ...) escaped the service and both transports answered
+    a generic **500** -- indistinguishable from a defect, and impossible for a
+    client to retry intelligently.
+
+    Mirrors the marker-exception pattern of :mod:`application.base`: a plain
+    type carrying a stable ``error_code`` plus the bounded ``detail`` the
+    transport should publish. Mapping:
+
+    * REST (``memory.memory_rest._memory_error_response``): **503** with
+      ``SERVICE_UNAVAILABLE`` and a body that carries the same
+      ``backend``/``ok``/``detail``/``degraded`` envelope the read path uses;
+    * MCP (``mcp_server.tools.base.map_tool_exception``): the tool-execution
+      error ``SERVICE_UNAVAILABLE`` with the same message.
+
+    ``detail`` is built by the backend from the failing exception (type name +
+    a bounded message) so it never carries memory content -- see
+    ``memory.honcho_backend._engine_unavailable_detail``.
+    """
+
+    #: Stable transport code, shared by REST and MCP (see the docstring).
+    error_code = "SERVICE_UNAVAILABLE"
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
 @dataclass
 class MemoryDigest:
     """Prompt-ready digest of one scope's memory (RFC #1002 F6, Phase 3).
@@ -1342,6 +1375,7 @@ __all__ = [
     "ConsolidationStatus",
     "MemoryAnswer",
     "MemoryBackend",
+    "MemoryBackendUnavailableError",
     "MemoryDigest",
     "MemoryEntryId",
     "MemoryEntryRef",

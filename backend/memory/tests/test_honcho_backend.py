@@ -1619,12 +1619,19 @@ class TestHonchoMemoryBackendHealthCheck:
         mocked.assert_not_called()
 
     def test_health_check_down_when_embedding_base_url_not_configured(self, monkeypatch):
-        """GH #911: an unconfigured embedding endpoint must not report ok."""
+        """GH #911: an unconfigured embedding endpoint must not report ok.
+
+        #1824 moved the API reachability HEAD in front of the embedding
+        configuration check (an unreachable API is the critical case), so this
+        test pins a reachable API and proves the embedding branch still
+        answers ``ok=False`` with the #911 detail.
+        """
         monkeypatch.setenv("HONCHO_BASE_URL", "http://honcho.invalid")
         monkeypatch.delenv("HONCHO_EMBEDDING_BASE_URL", raising=False)
         monkeypatch.setenv("HONCHO_EMBEDDING_MODEL", "nomic-embed-text")
         backend = HonchoMemoryBackend()
-        ok, detail = backend.health_check()
+        with mock.patch("requests.head", return_value=mock.Mock(status_code=200)):
+            ok, detail = backend.health_check()
         assert ok is False
         assert "HONCHO_EMBEDDING_BASE_URL" in detail
         assert "#911" in detail
@@ -1634,7 +1641,8 @@ class TestHonchoMemoryBackendHealthCheck:
         monkeypatch.setenv("HONCHO_EMBEDDING_BASE_URL", "http://embed.invalid/v1")
         monkeypatch.delenv("HONCHO_EMBEDDING_MODEL", raising=False)
         backend = HonchoMemoryBackend()
-        ok, detail = backend.health_check()
+        with mock.patch("requests.head", return_value=mock.Mock(status_code=200)):
+            ok, detail = backend.health_check()
         assert ok is False
         assert "HONCHO_EMBEDDING_MODEL" in detail
 
@@ -1751,6 +1759,211 @@ class TestHonchoMemoryBackendHealthCheck:
         assert "503" in detail
         post_mock.assert_not_called()
 
+
+
+class TestWriteEngineDegradation:
+    """Issue #1823: an unreachable engine is a domain outage, not a 500.
+
+    Before the fix, ``peer.conclusions.create`` raising the SDK's
+    ``ServerError`` (the live case: Honcho's own embedding endpoint was
+    unreachable) escaped ``write`` and both transports answered a generic 500.
+    ``write`` now translates ``ServerError``/``ConnectError``/timeouts into
+    ``MemoryBackendUnavailableError`` (503/``SERVICE_UNAVAILABLE``).
+    """
+
+    def test_server_error_becomes_backend_unavailable(self):
+        from memory.backends import MemoryBackendUnavailableError
+
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.conclusions.create.side_effect = ServerError(
+            "Server error '500 Internal Server Error' for url "
+            "'http://honcho:8000/v3/workspaces/x/peers/y/conclusions'"
+        )
+
+        with pytest.raises(MemoryBackendUnavailableError) as excinfo:
+            backend.write(tenant_id, "user", user_id, "a fact the engine refused")
+
+        assert excinfo.value.error_code == "SERVICE_UNAVAILABLE"
+        # The detail names the cause and stays free of memory content.
+        assert "ServerError" in excinfo.value.detail
+        assert "500" in excinfo.value.detail
+        assert "a fact the engine refused" not in excinfo.value.detail
+
+    def test_peer_resolution_failure_is_also_translated(self):
+        """``client.peer()`` is a get-or-create POST -- it fails first."""
+        from memory.backends import MemoryBackendUnavailableError
+
+        backend, client = _backend_with_mock_client()
+        client.peer.side_effect = ConnectionError("Connection refused")
+
+        with pytest.raises(MemoryBackendUnavailableError) as excinfo:
+            backend.write(uuid4(), "user", uuid4(), "fact")
+
+        assert "ConnectionError" in excinfo.value.detail
+
+    def test_unrelated_error_still_propagates(self):
+        """A contract violation is not an outage: it must stay a 500."""
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.conclusions.create.side_effect = ValueError("malformed payload")
+
+        with pytest.raises(ValueError):
+            backend.write(tenant_id, "user", user_id, "fact")
+
+    def test_timeout_is_translated(self):
+        from memory.backends import MemoryBackendUnavailableError
+
+        backend, client = _backend_with_mock_client()
+        tenant_id, user_id = uuid4(), uuid4()
+        peer = client.peer(f"{tenant_id}_{user_id}")
+        peer.conclusions.create.side_effect = TimeoutError("read timed out")
+
+        with pytest.raises(MemoryBackendUnavailableError):
+            backend.write(tenant_id, "user", user_id, "fact")
+
+    def test_detail_is_bounded_and_single_line(self):
+        from memory.honcho_backend import _engine_unavailable_detail
+
+        detail = _engine_unavailable_detail(ServerError("x" * 5000 + "\nnext line"))
+
+        assert len(detail) < 400
+        assert "\n" not in detail
+        assert detail.startswith("ServerError: ")
+
+
+class TestHonchoHealthState1824:
+    """Issue #1824: reachable-but-not-embeddable is ``degraded``, not ``down``."""
+
+    @staticmethod
+    def _configure(monkeypatch, *, embedding: bool = True):
+        monkeypatch.setenv("HONCHO_BASE_URL", "http://honcho.invalid")
+        if embedding:
+            monkeypatch.setenv("HONCHO_EMBEDDING_BASE_URL", "http://embed.invalid/v1")
+            monkeypatch.setenv("HONCHO_EMBEDDING_MODEL", "nomic-embed-text")
+        else:
+            monkeypatch.delenv("HONCHO_EMBEDDING_BASE_URL", raising=False)
+            monkeypatch.delenv("HONCHO_EMBEDDING_MODEL", raising=False)
+
+    def test_unreachable_api_is_down_even_without_embedding_config(self, monkeypatch):
+        """The API probe runs BEFORE the embedding check on purpose."""
+        self._configure(monkeypatch, embedding=False)
+        with mock.patch(
+            "requests.head", side_effect=requests.ConnectionError("Connection refused")
+        ), mock.patch("requests.post") as post:
+            state, detail = HonchoMemoryBackend().health_state()
+
+        assert state == "down"
+        assert "refused" in detail
+        post.assert_not_called()
+
+    def test_api_5xx_is_down(self, monkeypatch):
+        self._configure(monkeypatch)
+        with mock.patch("requests.head", return_value=mock.Mock(status_code=503)):
+            state, detail = HonchoMemoryBackend().health_state()
+
+        assert state == "down"
+        assert "503" in detail
+
+    def test_missing_embedding_config_is_degraded(self, monkeypatch):
+        self._configure(monkeypatch, embedding=False)
+        with mock.patch(
+            "requests.head", return_value=mock.Mock(status_code=200)
+        ), mock.patch("requests.post") as post:
+            state, detail = HonchoMemoryBackend().health_state()
+
+        assert state == "degraded"
+        assert detail.startswith("embedding_unavailable")
+        assert "HONCHO_EMBEDDING_BASE_URL" in detail
+        post.assert_not_called()
+
+    def test_embedding_probe_failure_is_degraded(self, monkeypatch):
+        self._configure(monkeypatch)
+        with mock.patch(
+            "requests.head", return_value=mock.Mock(status_code=200)
+        ), mock.patch(
+            "requests.post", side_effect=requests.ConnectionError("Connection refused")
+        ):
+            state, detail = HonchoMemoryBackend().health_state()
+
+        assert state == "degraded"
+        assert detail.startswith("embedding_unavailable")
+
+    def test_fully_configured_backend_is_ok(self, monkeypatch):
+        self._configure(monkeypatch)
+        post = mock.Mock(status_code=200)
+        post.json.return_value = {"data": [{"embedding": [0.1, 0.2]}]}
+        with mock.patch(
+            "requests.head", return_value=mock.Mock(status_code=200)
+        ), mock.patch("requests.post", return_value=post):
+            state, detail = HonchoMemoryBackend().health_state()
+
+        assert state == "ok"
+        assert "nomic-embed-text" in detail
+
+    def test_health_maps_degraded_to_ok_but_degraded_true(self, monkeypatch):
+        """The envelope contract: reads still work (``ok``) but say degraded."""
+        self._configure(monkeypatch, embedding=False)
+        with mock.patch(
+            "requests.head", return_value=mock.Mock(status_code=200)
+        ), mock.patch("requests.post"):
+            health = HonchoMemoryBackend().health()
+
+        assert health.ok is True
+        assert health.degraded is True
+        assert health.detail.startswith("embedding_unavailable")
+
+    def test_health_check_stays_strict_for_the_admin_dashboard(self, monkeypatch):
+        """GH #911 is unchanged: cannot-embed is NOT ``health_check() ok``."""
+        self._configure(monkeypatch, embedding=False)
+        with mock.patch(
+            "requests.head", return_value=mock.Mock(status_code=200)
+        ), mock.patch("requests.post"):
+            ok, detail = HonchoMemoryBackend().health_check()
+
+        assert ok is False
+        assert detail.startswith("embedding_unavailable")
+
+
+class TestHonchoClientRetryBudget1823:
+    """The SDK default of 2 retries multiplied the ~12 s embedding timeout."""
+
+    def test_default_is_zero(self, monkeypatch):
+        from memory.honcho_backend import _DEFAULT_MAX_RETRIES, _max_retries
+
+        monkeypatch.delenv("HONCHO_MAX_RETRIES", raising=False)
+        assert _DEFAULT_MAX_RETRIES == 0
+        assert _max_retries() == 0
+
+    def test_env_override(self, monkeypatch):
+        from memory.honcho_backend import _max_retries
+
+        monkeypatch.setenv("HONCHO_MAX_RETRIES", "2")
+        assert _max_retries() == 2
+
+    def test_bad_values_fall_back(self, monkeypatch):
+        from memory.honcho_backend import _max_retries
+
+        for bad in ("-1", "not-a-number", ""):
+            monkeypatch.setenv("HONCHO_MAX_RETRIES", bad)
+            assert _max_retries() == 0
+
+    def test_ensure_client_passes_the_retry_budget(self, monkeypatch):
+        monkeypatch.setenv("HONCHO_BASE_URL", "http://honcho.invalid")
+        monkeypatch.setenv("HONCHO_MAX_RETRIES", "1")
+
+        captured: dict = {}
+
+        class _FakeHoncho:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        monkeypatch.setattr("honcho.Honcho", _FakeHoncho)
+        HonchoMemoryBackend()._ensure_client(uuid4())
+
+        assert captured["max_retries"] == 1
 
 
 class TestHonchoBackendDbOverride:
