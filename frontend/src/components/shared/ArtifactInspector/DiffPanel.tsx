@@ -107,6 +107,18 @@ export interface DiffPanelProps {
   leftVersion: number;
   /** The "to" version of the diff (higher in the timeline). */
   rightVersion: number;
+  /**
+   * The range `ArtifactDiff` actually resolved. The tab form renders its one
+   * pair line ("Basis … → Arbeitsstand vN") from this — never from the
+   * request above (M-04).
+   */
+  onRangeResolved?: (range: ArtifactDiffRange | null) => void;
+  /**
+   * `"panel"` (default) is the stacked RightSidebar form: own `h3` heading and
+   * own polite live region. `"tab"` drops both — the tab label names the area
+   * and the shell owns the single live region (#1762, spec §2.1/§5.3).
+   */
+  variant?: "panel" | "tab";
 }
 
 // ---------------------------------------------------------------------------
@@ -134,36 +146,44 @@ export function DiffPanel({
   entityId,
   leftVersion,
   rightVersion,
+  onRangeResolved,
+  variant = "panel",
 }: DiffPanelProps): JSX.Element {
   const { t } = useTranslation();
+  const isTab = variant === "tab";
   const entityType = mapKindToDiffEntityType(kind);
   // M-04: the range actually resolved and rendered by ArtifactDiff. `null`
   // until the version list has loaded.
   const [range, setRange] = useState<ArtifactDiffRange | null>(null);
   // Stable identity so it does not re-trigger ArtifactDiff's seeding effect.
-  const handleRangeChange = useCallback((next: ArtifactDiffRange | null): void => {
-    setRange((prev) =>
-      prev &&
-      next &&
-      prev.from === next.from &&
-      prev.to === next.to &&
-      prev.isInitialState === next.isInitialState
-        ? prev
-        : next,
-    );
-  }, []);
+  const handleRangeChange = useCallback(
+    (next: ArtifactDiffRange | null): void => {
+      setRange((prev) =>
+        prev &&
+        next &&
+        prev.from === next.from &&
+        prev.to === next.to &&
+        prev.isInitialState === next.isInitialState
+          ? prev
+          : next,
+      );
+      onRangeResolved?.(next);
+    },
+    [onRangeResolved],
+  );
+
+  const sectionLabels = isTab
+    ? { "aria-label": t("sidebar.diff.title") }
+    : { "aria-labelledby": "inspector-diff-label" };
 
   if (entityType === null) {
     return (
-      <section
-        className={styles.panel}
-        role="region"
-        aria-labelledby="inspector-diff-label"
-        data-testid="inspector-diff-panel"
-      >
-        <h3 className={styles.title} id="inspector-diff-label">
-          {t("sidebar.diff.title", "Diff")}
-        </h3>
+      <section className={styles.panel} role="region" {...sectionLabels} data-testid="inspector-diff-panel">
+        {!isTab && (
+          <h3 className={styles.title} id="inspector-diff-label">
+            {t("sidebar.diff.title")}
+          </h3>
+        )}
         <p className={styles.emptyMessage} data-testid="diff-unsupported">
           {t("sidebar.diff.unsupported", "Diff is not yet available for {{kind}} artifacts.", {
             kind,
@@ -174,15 +194,12 @@ export function DiffPanel({
   }
 
   return (
-    <section
-      className={styles.panel}
-      role="region"
-      aria-labelledby="inspector-diff-label"
-      data-testid="inspector-diff-panel"
-    >
-      <h3 className={styles.title} id="inspector-diff-label">
-        {t("sidebar.diff.title", "Diff")}
-      </h3>
+    <section className={styles.panel} role="region" {...sectionLabels} data-testid="inspector-diff-panel">
+      {!isTab && (
+        <h3 className={styles.title} id="inspector-diff-label">
+          {t("sidebar.diff.title")}
+        </h3>
+      )}
       {/* Polite live region — assistive tech announces the comparison
           range when the diff finishes loading. (UI standards §9.1.)
 
@@ -191,19 +208,24 @@ export function DiffPanel({
           it announced "Comparing v1 → v1", a comparison of a version against
           itself, while the panel below was in fact showing 0 → 1. It now
           reports the range ArtifactDiff resolved, and names the
-          no-predecessor case instead of dressing it up as a comparison. */}
-      <div className={styles.liveRegion} role="status" aria-live="polite">
-        {range === null
-          ? ""
-          : range.isInitialState
-            ? t("sidebar.diff.initialState", "Ausgangszustand v{{to}} — kein Vorgänger vorhanden", {
-                to: range.to,
-              })
-            : t("sidebar.diff.compareCurrent", "Comparing v{{from}} → v{{to}}", {
-                from: range.from,
-                to: range.to,
-              })}
-      </div>
+          no-predecessor case instead of dressing it up as a comparison.
+
+          Tab form (#1762): the shell owns the single polite region; a second
+          one here would speak the same fact twice (spec §5.3). */}
+      {!isTab && (
+        <div className={styles.liveRegion} role="status" aria-live="polite">
+          {range === null
+            ? ""
+            : range.isInitialState
+              ? t("sidebar.diff.initialState", "Ausgangszustand v{{to}} — kein Vorgänger vorhanden", {
+                  to: range.to,
+                })
+              : t("sidebar.diff.compareCurrent", "Comparing v{{from}} → v{{to}}", {
+                  from: range.from,
+                  to: range.to,
+                })}
+        </div>
+      )}
       <div className={styles.diffFrame}>
         <ArtifactDiff
           entityId={String(entityId)}

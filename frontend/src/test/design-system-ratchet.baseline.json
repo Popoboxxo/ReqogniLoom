@@ -113,9 +113,6 @@
     "button-missing-design-system-class::components/Audit/audit-dashboard.tsx::button[data-testid=audit-rule-info-${ruleId}]": {
       "reason": "Inline rule-id text trigger, not a button: it opens the rule-detail popover and must read as inline monospace text within the finding row, so btn-* chrome would break that (#1262)."
     },
-    "button-geometry-off-token::components/shared/ArtifactInspector/TracePanel.module.css::.skeletonChip": {
-      "reason": "Loading skeleton placeholder (`<span aria-hidden>`), not an interactive element: its 22px height is the skeleton's own shimmer scale, so a button hit-area token would be wrong (#1258)."
-    },
     "button-geometry-off-token::styles/global.css:::where(button, a, input, select, textarea, [tabindex]):focus-visible": {
       "reason": "Universal keyboard focus indicator: `border-radius: inherit` deliberately follows each focused element's own shape, so pinning it to --radius-btn would square off every focused input and card (#1258)."
     }

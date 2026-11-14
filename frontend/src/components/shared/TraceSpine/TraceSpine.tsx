@@ -220,9 +220,14 @@ export function TraceSpine({
                     </span>
                   )}
 
-                  {/* Verification badge — only meaningful on requirement and
-                      architecture stations (ch. 5.2). */}
-                  {(station.artifactType === ARTIFACT_TYPE_REQUIREMENT ||
+                  {/* Verification badge — spec §2.3 rule 3 / U-07: it appears
+                      at **every** station whose verification list is not
+                      empty, not only on requirement and architecture. The
+                      empty (disabled) badge stays where it already was — on
+                      the two derivation levels — so "no coverage here" keeps
+                      its existing signal instead of disappearing. */}
+                  {(verificationCount > 0 ||
+                    station.artifactType === ARTIFACT_TYPE_REQUIREMENT ||
                     station.artifactType === ARTIFACT_TYPE_ARCHITECTURE) && (
                     <button
                       type="button"

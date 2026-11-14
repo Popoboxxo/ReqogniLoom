@@ -13,6 +13,11 @@
 export { RightSidebar } from "./RightSidebar";
 export type { RightSidebarProps } from "./RightSidebar";
 
+// #1762 (M1): the tabbed shell. `RightSidebar` stays importable until M8 for
+// the not-yet-migrated routes (§8.2).
+export { InspectorShell } from "./InspectorShell";
+export type { InspectorShellProps } from "./InspectorShell";
+
 export { VersionPanel } from "./VersionPanel";
 export type { VersionPanelProps } from "./VersionPanel";
 

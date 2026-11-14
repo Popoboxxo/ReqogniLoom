@@ -38,6 +38,7 @@ import { glossaryApi } from "../../../api/glossary";
 import { goalsApi } from "../../../api/goals";
 import { mainGoalApi } from "../../../api/main-goal";
 import type { ArtifactVersion } from "../../../types";
+import { useInspectorAnnouncer, useInspectorCounts } from "./InspectorLiveRegions";
 import {
   DIFF_SUPPORTED_KINDS,
   type ArtifactKind,
@@ -123,6 +124,13 @@ export interface VersionPanelProps {
    * baselines.
    */
   baselines?: ReadonlyArray<BaselineSummary>;
+  /**
+   * `"panel"` (default) is the stacked RightSidebar form: own `h3` heading,
+   * own live region. `"tab"` is the tabbed shell (#1762): the tab label is
+   * the area heading and the shell owns the single live region, so the panel
+   * renders neither (spec §2.1/§5.3).
+   */
+  variant?: "panel" | "tab";
 }
 
 
@@ -140,8 +148,33 @@ export function VersionPanel({
   onSwitch,
   onCompare,
   baselines,
+  variant = "panel",
 }: VersionPanelProps): JSX.Element {
   const { t } = useTranslation();
+  // Async callbacks must not depend on `t`'s identity: some hosts (and test
+  // harnesses) return a fresh function per render, which would turn the
+  // fetch effect into a loop. The ref keeps the latest `t` without re-keying
+  // the callback.
+  const tRef = useRef(t);
+  tRef.current = t;
+  const announcer = useInspectorAnnouncer();
+  // Stable function identity: the context object is recreated on every count
+  // change, and depending on it would re-trigger the fetch that reported it.
+  const reportCount = useInspectorCounts()?.reportCount;
+  const isTab = variant === "tab";
+  // A retry is its own announcement ("Version geladen."), never an extra
+  // `versionLoaded` on top (spec §5.3 rule 1).
+  const retryingRef = useRef(false);
+  // An unmounted panel must not announce: its in-flight fetch may resolve
+  // after a tab switch, and a late "N versions loaded." would overwrite the
+  // new tab's announcement (spec §5.3 "one announcement per interaction").
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const [state, setState] = useState<LoadState>("idle");
   const [versions, setVersions] = useState<VersionRef[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -155,27 +188,83 @@ export function VersionPanel({
   const load = useCallback(async (): Promise<void> => {
     setState("loading");
     setErrorMessage(null);
+    const panelLabel = tRef.current("sidebar.version.title", "Version");
+    const announceRetryOutcome = (ok: boolean): void => {
+      if (!isTab || !announcer) return;
+      announcer.polite(
+        ok
+          ? tRef.current("sidebar.inspector.live.retrySucceeded", {
+              panel: panelLabel,
+              defaultValue: "{{panel}} loaded.",
+            })
+          : tRef.current("sidebar.inspector.live.retryFailed", {
+              panel: panelLabel,
+              defaultValue: "{{panel}} still unavailable.",
+            }),
+      );
+    };
     if (!VERSION_SUPPORTED_KINDS.has(kind)) {
       setVersions([]);
       setState("empty");
+      reportCount?.("version", 0);
       return;
     }
     try {
       const list = await fetchVersions(kind, entityId);
+      if (!mountedRef.current) return;
+      const wasRetry = retryingRef.current;
+      retryingRef.current = false;
+      reportCount?.("version", list.length);
       if (list.length === 0) {
         // Both "no history" and "endpoint not implemented for this kind"
         // collapse to the same empty state today (UI standards §5.1 / §11).
         setVersions([]);
         setState("empty");
+        if (isTab) {
+          if (wasRetry) announceRetryOutcome(true);
+          else
+            announcer?.polite(
+              tRef.current("sidebar.inspector.live.versionLoaded", {
+                count: 0,
+                defaultValue: "{{count}} versions loaded.",
+              }),
+            );
+        }
         return;
       }
       setVersions(list);
       setState("ready");
+      if (isTab) {
+        if (wasRetry) announceRetryOutcome(true);
+        else
+          announcer?.polite(
+            tRef.current("sidebar.inspector.live.versionLoaded", {
+              count: list.length,
+              defaultValue: "{{count}} versions loaded.",
+            }),
+          );
+      }
     } catch (err) {
+      if (!mountedRef.current) return;
       setErrorMessage(err instanceof Error ? err.message : String(err));
       setState("error");
+      if (isTab && announcer) {
+        const wasRetry = retryingRef.current;
+        retryingRef.current = false;
+        announcer.alert(
+          wasRetry
+            ? tRef.current("sidebar.inspector.live.retryFailed", {
+                panel: panelLabel,
+                defaultValue: "{{panel}} still unavailable.",
+              })
+            : tRef.current("sidebar.inspector.error.version", {
+                panel: panelLabel,
+                defaultValue: "{{panel}} could not be loaded. Try again.",
+              }),
+        );
+      }
     }
-  }, [kind, entityId]);
+  }, [kind, entityId, isTab, announcer, reportCount]);
 
   const currentVersionNumber = currentVersion?.version ?? null;
 
@@ -212,17 +301,20 @@ export function VersionPanel({
   // -------------------------------------------------------------------------
 
   function renderHeader(): JSX.Element {
+    // Tab form: the tab label already names the area (spec §2.1 — the area
+    // heading is not a second heading inside the tab panel).
+    if (isTab) return <></>;
     return (
       <h3 className={styles.title} id="inspector-version-label">
         {/* TODO(i18n): drop the literal fallback once en.json is deployed. */}
-        {t("sidebar.version.title", "Version")}
+        {t("sidebar.version.title")}
       </h3>
     );
   }
 
   function renderSkeleton(): JSX.Element {
     return (
-      <ol className={styles.list} aria-busy="true" aria-label={t("loading", "Loading...")}>
+      <ol className={styles.list} aria-busy="true" aria-label={t("loading")}>
         {[0, 1, 2].map((i) => (
           <li key={i} className={styles.skeletonRow} aria-hidden="true" />
         ))}
@@ -235,26 +327,35 @@ export function VersionPanel({
       <p className={styles.emptyMessage} data-testid="version-empty">
         {/* TODO(i18n): copy will diverge once the backend supports more
             kinds — see UI standards §5.1. */}
-        {t("sidebar.version.empty", "No version history for this artifact.")}
+        {t("sidebar.version.empty")}
       </p>
     );
   }
 
   function renderError(): JSX.Element {
     return (
-      <div className={styles.errorBanner} role="alert" data-testid="version-error">
+      <div
+        className={styles.errorBanner}
+        // Tab form: the shell's single `role="alert"` region carries the
+        // announcement; a second alert here would speak twice (spec §5.3).
+        role={isTab ? undefined : "alert"}
+        data-testid="version-error"
+      >
         <span>
-          {t("sidebar.version.error", "Could not load versions.")}
+          {t("sidebar.version.error")}
           {errorMessage ? ` (${errorMessage})` : ""}
         </span>
         <button
           type="button"
           className={`btn-secondary ${styles.retryButton}`}
           data-testid="version-retry"
-          onClick={(): void => void load()}
+          onClick={(): void => {
+            retryingRef.current = true;
+            void load();
+          }}
         >
           {/* TODO(i18n): add sidebar.version.retry key. */}
-          {t("actions.reload", "Reload")}
+          {t("actions.reload")}
         </button>
       </div>
     );
@@ -295,8 +396,8 @@ export function VersionPanel({
           {isCurrent && (
             <span
               className={styles.currentDot}
-              aria-label={t("sidebar.version.currentLabel", "Current")}
-              title={t("sidebar.version.currentLabel", "Current")}
+              aria-label={t("sidebar.version.currentLabel")}
+              title={t("sidebar.version.currentLabel")}
             />
           )}
           {/* H-03: the label truncates with an ellipsis on a narrow
@@ -380,7 +481,7 @@ export function VersionPanel({
                   }}
                   data-testid={`version-compare-${entry.version}`}
                 >
-                  {t("sidebar.version.menu.compare", "Compare to current")}
+                  {t("sidebar.version.menu.compare")}
                 </button>
               </li>
             </ul>
@@ -392,7 +493,12 @@ export function VersionPanel({
 
   function renderList(): JSX.Element {
     return (
-      <ol className={styles.list} aria-labelledby="inspector-version-label">
+      <ol
+        className={styles.list}
+        {...(isTab
+          ? { "aria-label": t("sidebar.version.title") }
+          : { "aria-labelledby": "inspector-version-label" })}
+      >
         {versions.map(renderRow)}
       </ol>
     );
@@ -402,7 +508,12 @@ export function VersionPanel({
     <section
       className={styles.panel}
       role="region"
-      aria-labelledby="inspector-version-label"
+      // Tab form: the surrounding `role="tabpanel"` already labels this area
+      // through its own `aria-labelledby`; a nested `region` with the same
+      // name would announce the same area twice.
+      {...(isTab
+        ? { "aria-label": t("sidebar.version.title") }
+        : { "aria-labelledby": "inspector-version-label" })}
       data-testid="inspector-version-panel"
     >
       {renderHeader()}
