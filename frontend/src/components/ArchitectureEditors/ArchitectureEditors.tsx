@@ -24,6 +24,8 @@ import type { WorkspaceTreeNode } from "../shared/WorkspaceTree";
 import { useWorkspaceLocks } from "../shared/WorkspaceTree/useWorkspaceLocks";
 import { EmptyState } from "../shared/EmptyState";
 import { PageHeader } from "../shared/PageHeader";
+import { ArtifactId } from "../shared/ArtifactId";
+import { StatusBadge } from "../shared/StatusBadge";
 import { useInterviewStartCta } from "../shared/useInterviewStartCta";
 import { IncludeDeletedToggle } from "../shared/IncludeDeletedToggle/IncludeDeletedToggle";
 import { ListToolbar } from "../shared/ListToolbar";
@@ -41,7 +43,7 @@ import { ArchitectureDecomposePanel } from "../ArchitectureDecompose/Architectur
 import { AiActionSection, type AiActionDescriptor } from "../shared/AiActions";
 import { AiDerivationDialog } from "../shared/AiDerivationDialog";
 import { RequirementBundleExportPanel } from "../RequirementBundleExport/RequirementBundleExportPanel";
-import { RightSidebar } from "../shared/ArtifactInspector";
+import { InspectorShell } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { EntityTypeProvider } from "../../context/EntityTypeContext";
 import { architectureApi } from "../../api/architecture";
@@ -467,6 +469,24 @@ export default function ArchitectureEditors(): JSX.Element {
     [archElementByArtifactId, navigate],
   );
 
+  // #1762 (M3, mirrors M2): the inspector's programmatic focus targets live in
+  // the route, not in the shell — the shell must not know the detail area's DOM
+  // (it only receives `coveredRef` for the `inert` bracket).
+  const detailScrollRef = useRef<HTMLDivElement | null>(null);
+
+  const focusInspectorHeading = useCallback((): void => {
+    document.getElementById('inspector-heading')?.focus();
+  }, []);
+
+  // Spec §2.3 rule 1: the Links tab's summary line jumps into the spine. The
+  // spine is a separate flex zone now, so this is the one place that knows its
+  // first station.
+  const focusSpine = useCallback((): void => {
+    document
+      .querySelector<HTMLElement>('[data-testid="trace-spine-station-button"]')
+      ?.focus();
+  }, []);
+
   if (isLoading) {
     return (
       <p
@@ -705,124 +725,147 @@ export default function ArchitectureEditors(): JSX.Element {
     </div>
   );
 
-  // Build detail panel (form + sidebar)
+  // Build detail panel (form + inspector) — #1762/M3: the detail area is a
+  // scroll container plus the tabbed inspector, the spine lives in SplitView's
+  // own slot so scrolling the form cannot move it.
   const detailPanel = (
-    <div className={styles.detailPanel}>
-      {element ? (
-        <>
-          {/* Main form wrapper */}
-          <div className={styles.detailFormCard}>
-            {/* Trace spine — UI concept ch. 5 / ch. 12.10. Architecture is
-                the pilot for it because its tree has a genuinely variable
-                depth, which is exactly what the dynamic station count has
-                to survive (ch. 5.1). */}
-            <TraceSpine
-              stations={derivationChain.stations}
-              isLoading={derivationChain.isLoading}
-              error={derivationChain.error}
-              onOpenArtifact={handleOpenChainArtifact}
-              isOpenable={isChainArtifactOpenable}
-            />
-
-            <EntityTypeProvider
-              entityType="architecture_element"
-              entitySubType={element.element_type}
-              visibleFields={{
-                asil_level: true,
-                make_or_buy: true,
+    <div className={styles.rightPane}>
+      <div className={styles.detailScroll} ref={detailScrollRef}>
+        {element ? (
+          <>
+            {/* Spec §5.1 #1: the skip link is the first focusable element of
+                the detail area and the only way into the inspector that does
+                not require walking the form first (#1762 M3). */}
+            <a
+              href="#inspector-heading"
+              className={`btn-ghost ${styles.inspectorSkipLink}`}
+              data-testid="inspector-skip-link"
+              onClick={(event) => {
+                event.preventDefault();
+                focusInspectorHeading();
               }}
             >
-              <ArchitectureArtifactForm
-                key={element.id}
-                element={element}
-                onSaved={refresh}
-                // Task 24: ArchitectureArtifactForm deletes through
-                // `architectureApi.delete` itself (ArtifactForm's own confirm
-                // dialog) — routing through the shared `handleDelete(id)`
-                // here would call the delete endpoint a second time. Mirrors
-                // `RiskEditors`/`IssueEditors`' `onDeleted` convention: only
-                // the post-delete navigation/refresh side effects, not the
-                // delete call itself (that still lives in `handleDelete` for
-                // the list-context-menu delete flow below).
-                onDeleted={() => {
-                  refresh();
-                  navigate("/architecture");
-                }}
-                onDirtyChange={setIsFormDirty}
+              {t("sidebar.inspector.skipLink", "Direkt zum Inspektor")}
+            </a>
+            {/* DoD 2 (#1762/M3): identity and workflow status have exactly one
+                place — the artifact head of the route, never the inspector
+                (spec §2.2). Architecture had neither in its head until now. */}
+            <div className={styles.artifactHead} data-testid="arch-artifact-head">
+              <ArtifactId
+                value={element.uid}
+                fallback={element.id.slice(0, 8)}
+                testId="arch-detail-id"
               />
-            </EntityTypeProvider>
+              {element.status ? (
+                <StatusBadge status={element.status} testId="arch-detail-status" />
+              ) : null}
+            </div>
 
-            {/* Issue #1092: the AI Decompose trigger's new, single home on this
-                route. It used to be a lone `btn-secondary` wedged between the
-                spine and the form (Task 24), which read as another form action
-                rather than an AI action. Same panel, same `showDecomposePanel`
-                state, same `arch-decompose-btn` test id. */}
-            <AiActionSection
-              title={t("aiActions.heading")}
-              hint={t("aiActions.hint")}
-              actions={aiActions}
-            />
-
-            {/* #1360: the derivation's outcome, once the dialog is closed. */}
-            {riskStatus && (
-              <p
-                role="status"
-                data-testid="arch-derive-risks-status"
-                className={styles.selectPrompt}
+            {/* Main form wrapper */}
+            <div className={styles.detailFormCard}>
+              <EntityTypeProvider
+                entityType="architecture_element"
+                entitySubType={element.element_type}
+                visibleFields={{
+                  asil_level: true,
+                  make_or_buy: true,
+                }}
               >
-                {riskStatus}
-              </p>
-            )}
+                <ArchitectureArtifactForm
+                  key={element.id}
+                  element={element}
+                  onSaved={refresh}
+                  // Task 24: ArchitectureArtifactForm deletes through
+                  // `architectureApi.delete` itself (ArtifactForm's own confirm
+                  // dialog) — routing through the shared `handleDelete(id)`
+                  // here would call the delete endpoint a second time. Mirrors
+                  // `RiskEditors`/`IssueEditors`' `onDeleted` convention: only
+                  // the post-delete navigation/refresh side effects, not the
+                  // delete call itself (that still lives in `handleDelete` for
+                  // the list-context-menu delete flow below).
+                  onDeleted={() => {
+                    refresh();
+                    navigate("/architecture");
+                  }}
+                  onDirtyChange={setIsFormDirty}
+                />
+              </EntityTypeProvider>
 
-            {/* TraceLink panel — carries the e2e test-id since the old
-                placeholder aside ("See the Inspector sidebar") was removed:
-                the linked-requirements management lives HERE, the read-only
-                trace view lives in the ArtifactInspector. */}
-            {(activeWorkspace?.id || element.workspace_id) && (
-              <div data-testid="arch-linked-reqs-panel">
-                <TraceLinkPanel
-                  workspaceId={activeWorkspace?.id ?? element.workspace_id}
-                  artifactId={element.id}
+              {/* Issue #1092: the AI Decompose trigger's new, single home on
+                  this route. It used to be a lone `btn-secondary` wedged
+                  between the spine and the form (Task 24), which read as
+                  another form action rather than an AI action. Same panel,
+                  same `showDecomposePanel` state, same `arch-decompose-btn`
+                  test id. */}
+              <AiActionSection
+                title={t("aiActions.heading")}
+                hint={t("aiActions.hint")}
+                actions={aiActions}
+              />
+
+              {/* #1360: the derivation's outcome, once the dialog is closed. */}
+              {riskStatus && (
+                <p
+                  role="status"
+                  data-testid="arch-derive-risks-status"
+                  className={styles.selectPrompt}
+                >
+                  {riskStatus}
+                </p>
+              )}
+
+              {/* TraceLink panel — carries the e2e test-id since the old
+                  placeholder aside ("See the Inspector sidebar") was removed:
+                  the linked-requirements CRUD lives HERE, the read-only trace
+                  view is split between the spine (derivation/verification)
+                  and the inspector's Links tab (every other type). */}
+              {(activeWorkspace?.id || element.workspace_id) && (
+                <div data-testid="arch-linked-reqs-panel">
+                  <TraceLinkPanel
+                    workspaceId={activeWorkspace?.id ?? element.workspace_id}
+                    artifactId={element.id}
+                  />
+                </div>
+              )}
+
+              {/* Derive requirement allocated to this element */}
+              <div className="detail-action-zone">
+                <DeriveRequirementForm
+                  isOpen={showDeriveForm}
+                  onOpen={openDeriveForm}
+                  onCancel={closeDeriveForm}
+                  onSubmit={(e) => { e.preventDefault(); void handleDeriveRequirement(); }}
+                  title={deriveTitle}
+                  onTitleChange={setDeriveTitle}
+                  architectureElements={[]}
+                  architectureElementId=""
+                  onArchitectureElementChange={() => {}}
+                  showArchitectureField={false}
+                  isSubmitting={isDeriving}
+                  error={deriveError}
+                  testIdPrefix="arch"
                 />
               </div>
-            )}
-
-            {/* Derive requirement allocated to this element */}
-            <div className="detail-action-zone">
-              <DeriveRequirementForm
-                isOpen={showDeriveForm}
-                onOpen={openDeriveForm}
-                onCancel={closeDeriveForm}
-                onSubmit={(e) => { e.preventDefault(); void handleDeriveRequirement(); }}
-                title={deriveTitle}
-                onTitleChange={setDeriveTitle}
-                architectureElements={[]}
-                architectureElementId=""
-                onArchitectureElementChange={() => {}}
-                showArchitectureField={false}
-                isSubmitting={isDeriving}
-                error={deriveError}
-                testIdPrefix="arch"
-              />
             </div>
-          </div>
+          </>
+        ) : (
+          <p className={styles.selectPrompt}>{t("arch.selectElement")}</p>
+        )}
+      </div>
 
-          {/* New unified right sidebar (REQ-L2-RF-034). Trace-link display is
-              now owned by the <TraceSpine> above (Task 3.3) — hideTraceLinks
-              keeps the sidebar to versions/baselines only.
-              #1763: two id spaces — `element.id` drives the versions/diff
-              routes, `element.artifact_id` (the backing Artifact) is the only
-              id the comments route accepts. */}
-          <RightSidebar
-            kind="architecture"
-            entityId={element.id}
-            artifactId={element.artifact_id}
-            currentVersion={currentVersion}
-            hideTraceLinks
-          />
-        </>
-      ) : (
-        <p className={styles.selectPrompt}>{t("arch.selectElement")}</p>
+      {/* #1762/M3: the tabbed inspector replaces the stacked RightSidebar.
+          #1763: two id spaces — `element.id` drives the versions/diff routes,
+          `element.artifact_id` (the backing Artifact) is the only id the
+          comments route accepts. */}
+      {element && (
+        <InspectorShell
+          kind="architecture"
+          entityId={element.id}
+          artifactPk={element.artifact_id ?? null}
+          currentVersion={currentVersion}
+          coveredRef={detailScrollRef}
+          onShowInSpine={focusSpine}
+        />
       )}
     </div>
   );
@@ -996,11 +1039,26 @@ export default function ArchitectureEditors(): JSX.Element {
         </Dialog>
       )}
 
+      {/* #1762/M3: concept contract (UI_KONZEPT ch. 12.6) — `list`/`detail`/
+          `spine` with no drag divider. The tree keeps its 250 px floor and the
+          detail content keeps the 448 px floor the concept prescribes. */}
       <SplitView
-        leftPanel={listPanel}
-        rightPanel={detailPanel}
-        moduleType="architecture"
-        leftMinWidth={250}
+        list={listPanel}
+        detail={detailPanel}
+        spine={
+          element ? (
+            <TraceSpine
+              stations={derivationChain.stations}
+              isLoading={derivationChain.isLoading}
+              error={derivationChain.error}
+              onOpenArtifact={handleOpenChainArtifact}
+              isOpenable={isChainArtifactOpenable}
+            />
+          ) : null
+        }
+        ratio={[40, 60]}
+        minWidths={[250, 448]}
+        containerClassName={styles.splitWrapper}
       />
     </>
   );

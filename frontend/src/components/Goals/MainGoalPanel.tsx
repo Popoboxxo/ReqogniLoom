@@ -37,6 +37,7 @@ import { extractErrorMessage } from "../../api/client";
 import { mainGoalApi } from "../../api/main-goal";
 import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import type { WorkflowAllowedTransition } from "../../api/workflow-transitions";
+import { ArtifactId } from "../shared/ArtifactId";
 import { StatusBadge } from "../shared/StatusBadge";
 import { VersionBadge } from "../shared/VersionBadge";
 import { ArchiveConfirmDialog } from "./ArchiveConfirmDialog";
@@ -278,7 +279,16 @@ export function MainGoalPanel({
           {t("goals.mainGoal", "Haupt-Ziel")}
         </h2>
         {current && (
-          <div className={styles.identityRow}>
+          <div className={styles.identityRow} data-testid="main-goal-artifact-head">
+            {/* #1762/M4 DoD 2: the main goal's artifact head carries identity
+                and status, exactly like the other routes' detail heads
+                (spec §2.2). MainGoal has no semantic uid, so the short UUID
+                is the readable handle. */}
+            <ArtifactId
+              fallback={current.id.slice(0, 8)}
+              copyValue={current.id}
+              testId="main-goal-detail-id"
+            />
             <StatusBadge status={current.status} testId="main-goal-status" />
             <VersionBadge version={current.sequence_number} hideWhenFirst />
           </div>

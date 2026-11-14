@@ -613,7 +613,7 @@ describe("GoalsPage", () => {
     render(<MemoryRouter><GoalsPage /></MemoryRouter>);
     await selectGoal("g1");
 
-    const inspector = await screen.findByTestId("artifact-inspector");
+    const inspector = await screen.findByTestId("inspector-shell");
     expect(inspector).toHaveAttribute("data-artifact-kind", "goal");
     // The version list is fetched for the Goal *entity* id — the versions
     // endpoint resolves the lineage from the row itself.
@@ -631,7 +631,7 @@ describe("GoalsPage", () => {
 
     render(<MemoryRouter><GoalsPage /></MemoryRouter>);
 
-    const inspector = await screen.findByTestId("artifact-inspector");
+    const inspector = await screen.findByTestId("inspector-shell");
     expect(inspector).toHaveAttribute("data-artifact-kind", "mainGoal");
     await waitFor(() =>
       expect(mainGoalModule.mainGoalApi.versions).toHaveBeenCalledWith("mg1")
@@ -645,6 +645,6 @@ describe("GoalsPage", () => {
     render(<MemoryRouter><GoalsPage /></MemoryRouter>);
 
     await screen.findByTestId("main-goal-empty");
-    expect(screen.queryByTestId("artifact-inspector")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("inspector-shell")).not.toBeInTheDocument();
   });
 });

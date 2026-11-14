@@ -124,11 +124,21 @@ describe("InspectorShell a11y (M1-3 / M1-10)", () => {
     expectEveryButtonNamed();
   });
 
-  // #1762 / M2: the five kinds migrated in this step all have a spine, so all
+  // #1762 / M2: the five kinds migrated in that step all have a spine, so all
   // of them render the full four-tab set (Links is only omitted for
   // `mainGoal`) — and the "every button has a name" baseline must hold for
-  // each of them, not just for Requirement.
-  it.each(["stakeholderNeed", "risk", "adr", "issue", "testCase"] as const)(
+  // each of them, not just for Requirement. M3 (`architecture`) and M4
+  // (`goal`) join the same matrix; `mainGoal` has its own case above because
+  // its three-tab set is the interesting one.
+  it.each([
+    "stakeholderNeed",
+    "risk",
+    "adr",
+    "issue",
+    "testCase",
+    "architecture",
+    "goal",
+  ] as const)(
     "panel form: every button is named (%s, four tabs)",
     async (kind) => {
       setViewport(1440);

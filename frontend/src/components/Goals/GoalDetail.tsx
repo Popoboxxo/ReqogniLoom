@@ -23,20 +23,22 @@
  * what ch. 3.4 ("Eine Fläche, eine Aufgabe") forbids — same reason
  * RiskEditors keeps its version list only in the sidebar.
  *
+ * Trace links are NOT rendered here either since #1762/M4: the derivation
+ * chain moved into the split view's own spine slot (the page owns it), so
+ * scrolling this pane cannot move it. What remains here is the identity row —
+ * the artifact head of the route, per spec §2.2: id + workflow status +
+ * version, one home each.
+ *
  * Mutations are delegated upwards: the page owns the API calls so that a
  * rejected action surfaces in exactly one place (ch. 12.12).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
 import { goalsApi } from "../../api/goals";
 import { ArtifactId } from "../shared/ArtifactId";
 import { StatusBadge } from "../shared/StatusBadge";
 import { VersionBadge } from "../shared/VersionBadge";
-import { TraceSpine, useDerivationChain } from "../shared/TraceSpine";
-import type { ChainArtifact } from "../shared/TraceSpine";
-import { getArtifactRoute } from "../../utils/artifactRoutes";
 import { isArchiveTransition } from "./goal-workflow";
 import type { WorkflowAllowedTransition } from "../../api/workflow-transitions";
 import type { Goal } from "../../types";
@@ -56,27 +58,7 @@ export interface GoalDetailProps {
 
 export function GoalDetail({ goal, onEdit, onTransition }: GoalDetailProps): JSX.Element {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const [transitions, setTransitions] = useState<WorkflowAllowedTransition[]>([]);
-
-  // Trace spine (Task 3.3 — UI concept ch. 5). Goal is one of the nine
-  // types the `/traceability/resolve/` endpoint covers (Task 3.2a); it has
-  // no special station/level handling of its own in useDerivationChain,
-  // which is fine — it falls back to a single generic "Goal" station.
-  const derivationChain = useDerivationChain(
-    goal.artifact_id ?? goal.id,
-    'Goal',
-    null,
-    { enabled: !!goal },
-  );
-
-  const handleOpenChainArtifact = useCallback(
-    (artifact: ChainArtifact): void => {
-      const entry = derivationChain.resolveEntry(artifact);
-      if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
-    },
-    [derivationChain, navigate],
-  );
 
   // Issue #220: the lifecycle controls are driven by the WorkflowEngine, not
   // by string equality against hardcoded German state names. A workspace may
@@ -122,18 +104,10 @@ export function GoalDetail({ goal, onEdit, onTransition }: GoalDetailProps): JSX
 
   return (
     <article data-testid="goal-detail">
-      {/* Trace spine (Task 3.3). Trace links are shown here and deliberately
-          NOT again in the inspector sidebar (`hideTraceLinks`). */}
-      <TraceSpine
-        stations={derivationChain.stations}
-        isLoading={derivationChain.isLoading}
-        error={derivationChain.error}
-        onOpenArtifact={handleOpenChainArtifact}
-        isOpenable={derivationChain.isOpenable}
-      />
-
-      {/* 1. Identity — ch. 12.4, same order and representation as the tree. */}
-      <div className={styles.goalIdentityRow}>
+      {/* 1. Identity — ch. 12.4, same order and representation as the tree.
+          This is the route's artifact head (#1762/M4, spec §2.2): id, workflow
+          status and version live here and nowhere else. */}
+      <div className={styles.goalIdentityRow} data-testid="goal-artifact-head">
         <ArtifactId
           testId="goal-artifact-id"
           // A Goal has no semantic uid; the lineage prefix is the stable
