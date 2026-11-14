@@ -23,12 +23,14 @@ import type { InspectorTabKey } from "./inspectorContract";
 import * as requirementsModule from "../../../api/requirements";
 import * as commentsModule from "../../../api/comments";
 import * as tracelinksModule from "../../../api/tracelinks";
+import * as interviewsModule from "../../../api/interviews";
 
 vi.mock("../../../api/requirements");
 vi.mock("../../../api/comments");
 vi.mock("../../../api/tracelinks");
 vi.mock("../../../api/architecture");
 vi.mock("../../../api/main-goal");
+vi.mock("../../../api/interviews");
 vi.mock("../../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-1", name: "WS" } }),
 }));
@@ -49,7 +51,20 @@ vi.mock("../../../context/LinkTypeContext", () => ({
     labelFor: (key: string) => key,
   }),
 }));
-vi.mock("react-router-dom", () => ({ useNavigate: () => vi.fn() }));
+vi.mock("react-router-dom", () => ({
+  useNavigate: () => vi.fn(),
+  // The header mounts the interview provenance badge (M8); its link needs a
+  // renderable `Link` under this partial router mock.
+  Link: ({
+    to,
+    children,
+    ...rest
+  }: { to: string; children?: React.ReactNode } & React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
+    <a href={to} {...rest}>
+      {children}
+    </a>
+  ),
+}));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, second?: unknown): string => {
@@ -98,6 +113,9 @@ function activeTab(): HTMLElement | null {
 describe("InspectorShell (#1762 M1)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(interviewsModule.interviewsApi.getProvenance).mockResolvedValue({
+      session_id: null,
+    } as never);
     sessionStorage.clear();
     localStorage.clear();
     window.history.replaceState({}, "", "/requirements/req-entity-1");
@@ -347,6 +365,33 @@ describe("InspectorShell (#1762 M1)", () => {
     // The width reaches CSS through the custom property and is persisted.
     expect(aside.style.getPropertyValue("--inspector-width")).toBe("280px");
     expect(localStorage.getItem("reqflow_inspector_width_requirement")).toBe("280");
+  });
+
+  // #1762/M8: the "created by an interview" badge used to live in the deleted
+  // stacked sidebar. It must stay mounted exactly once — in the shell header.
+  it("mounts the interview provenance badge for the backing Artifact", async () => {
+    vi.mocked(interviewsModule.interviewsApi.getProvenance).mockResolvedValue({
+      session_id: "sess-42",
+    } as never);
+
+    renderShell();
+
+    expect(await screen.findByTestId("interview-provenance-badge")).toHaveAttribute(
+      "href",
+      "/interviews/sess-42",
+    );
+    expect(interviewsModule.interviewsApi.getProvenance).toHaveBeenCalledWith("artifact-1");
+  });
+
+  it("falls back to the entity id for kinds without a backing Artifact UUID", async () => {
+    renderShell({ artifactPk: null });
+
+    await waitFor(() => {
+      expect(interviewsModule.interviewsApi.getProvenance).toHaveBeenCalledWith(
+        "req-entity-1",
+      );
+    });
+    expect(screen.queryByTestId("interview-provenance-badge")).not.toBeInTheDocument();
   });
 
   it("moves focus into the header when the rail expands (spec §5.1)", async () => {

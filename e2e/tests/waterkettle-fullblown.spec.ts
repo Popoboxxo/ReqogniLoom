@@ -665,6 +665,12 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
     await page.goto(`${FRONTEND_URL}/diagrams`);
     await page.getByTestId(`diagram-item-${diagramId}`).click();
 
+    // #1762/M7: the diagram detail mounts the shared inspector shell, which is
+    // an open sheet at the 1280 px E2E viewport and makes the covered detail
+    // area `inert` — every click on it would fail. Collapse it first (no-op on
+    // wide viewports).
+    await collapseInspector(page);
+
     // Issue #947: Version NICHT mehr über `page.content().includes('v2')`
     // prüfen. Der Detail-Pane rendert den Quellcode (diagram-source-preview),
     // und der Test schreibt selbst "Heizelement v2" hinein — der Substring war

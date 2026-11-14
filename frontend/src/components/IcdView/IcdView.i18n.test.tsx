@@ -27,6 +27,10 @@ import en from "../../i18n/locales/en.json";
 
 vi.mock("../../api/icds");
 vi.mock("../../api/architecture");
+vi.mock("../shared/ArtifactInspector", () => ({
+  // #1762/M6: the shell owns its own data fetching — stub it here.
+  InspectorShell: () => <aside data-testid="inspector-shell-stub" />,
+}));
 vi.mock("../../context/WorkspaceContext");
 
 import * as icdsModule from "../../api/icds";

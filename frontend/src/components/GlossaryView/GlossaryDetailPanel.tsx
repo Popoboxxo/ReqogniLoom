@@ -1,17 +1,19 @@
 /**
  * GlossaryDetailPanel — read-only detail of the selected glossary term:
- * abbreviation/global badges, definition, the synonym block and the usages
- * section (C9 trace links, REQ-142 version history/diff).
+ * abbreviation/global badges, definition and the synonym block.
  *
  * Extracted from GlossaryView.tsx (repowise code-health refactor) —
  * identical markup and data-testid attributes; the synonym block is composed
  * by the container so the synonym-link picker state stays in one place.
+ *
+ * #1762/M5 (spec §11 D8): the term's trace links ("Verwendungen") are no
+ * longer an inline block under the definition. They live in the Links tab of
+ * the shared `InspectorShell`, which the route mounts next to this panel —
+ * so the detail pane holds one definition block and nothing else.
  */
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { GlossaryTerm } from "../../types";
-import { RightSidebar } from "../shared/ArtifactInspector";
-import type { VersionRef } from "../shared/ArtifactInspector";
 import styles from "./GlossaryView.module.css";
 
 interface GlossaryDetailPanelProps {
@@ -70,35 +72,6 @@ export function GlossaryDetailPanel({
       <p className={styles.detailDefinition}>{term.definition}</p>
 
       {synonyms}
-
-      {/* Usages + Versions/Diff (REQ-142, UI-59): trace links referencing this
-          glossary entry (C9), plus the version history + field-level diff
-          that the shared VersionPanel/DiffPanel already support for
-          kind="glossary" — only wiring `currentVersion` was missing, which
-          previously forced this panel into its undefined/degraded state. */}
-      <div className={styles.usagesSection}>
-        <h3 className={styles.usagesHeading}>
-          {t("glossary.usages", "Verwendungen")}
-        </h3>
-        <RightSidebar
-          kind="glossary"
-          entityId={term.id}
-          // #1763: `global_uuid` *is* the backing Artifact id (#1266) — the
-          // only id `GET /artifacts/<id>/comments/` accepts. `term.id` is the
-          // entity id and is what the versions/diff routes need.
-          artifactId={term.global_uuid}
-          currentVersion={
-            typeof term.version === "number"
-              ? ({
-                  version: term.version,
-                  label: `v${term.version}`,
-                  createdAt: term.updated_at ?? null,
-                  baselineIds: [],
-                } satisfies VersionRef)
-              : undefined
-          }
-        />
-      </div>
     </div>
   );
 }

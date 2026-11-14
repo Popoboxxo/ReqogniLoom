@@ -449,7 +449,7 @@ export default function GoalsPage(): JSX.Element {
         ) : null}
       </div>
 
-      {/* #1762/M4: the tabbed inspector replaces the stacked RightSidebar.
+      {/* #1762/M4: the tabbed inspector replaces the stacked sidebar.
           Both Goal kinds share ONE tab-persistence slot
           (`reqflow_inspector_tab_goals`, inspectorContract.ts) so switching
           between them does not move the selected tab (I-14). */}

@@ -1,11 +1,11 @@
 /**
  * InspectorShell — accessibility baseline (spec §7, M1-3/M1-10, plan B2.0-5.1).
  *
- * The pattern is inherited from `RightSidebar.a11y.test.tsx`: **every**
+ * The pattern is inherited from the deleted stacked sidebar's a11y suite: **every**
  * rendered button must have a non-empty accessible name, in both forms of the
  * shell (panel and rail) and for the kinds with the most divergent tab sets.
  * A button without a name is unusable with a screen reader, and the rail is
- * where that defect used to live (`RightSidebar.tsx:344,353`, I-20).
+ * where that defect used to live (the stacked sidebar's collapsed strip, I-20).
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";

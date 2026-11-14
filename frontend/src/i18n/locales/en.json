@@ -2237,13 +2237,7 @@
   "sidebar": {
     "inspector": {
       "title": "Inspector",
-      "ariaLabel": "Inspector for {{kind}}",
-      "collapse": "Collapse sidebar",
       "expand": "Open sidebar",
-      "pin": "Pin sidebar",
-      "unpin": "Unpin sidebar",
-      "refresh": "Refresh",
-      "skeletonLoading": "Loading inspector...",
       "resize": "Resize inspector",
       "close": "Close inspector",
       "widthValue": "{{width}} pixels wide",
@@ -2320,7 +2314,6 @@
       "to": "To",
       "empty": "Select two versions above to compare.",
       "error": "Could not load diff.",
-      "unsupported": "Diff is not yet available for {{kind}} artifacts.",
       "compareCurrent": "Comparing v{{from}} → v{{to}}",
       "initialState": "Initial state v{{to}} — no predecessor available"
     },

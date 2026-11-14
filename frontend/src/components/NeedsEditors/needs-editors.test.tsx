@@ -55,9 +55,8 @@ vi.mock("../SplitView/SplitView", () => ({
   SplitView: ({ list }: { list: React.ReactNode }) => <div>{list}</div>,
 }));
 
-// The tabbed shell replaced RightSidebar in M2; this suite renders no detail.
+// The tabbed shell replaced the stacked sidebar in M2; this suite renders no detail.
 vi.mock("../shared/ArtifactInspector", () => ({
-  RightSidebar: () => null,
   InspectorShell: () => null,
 }));
 

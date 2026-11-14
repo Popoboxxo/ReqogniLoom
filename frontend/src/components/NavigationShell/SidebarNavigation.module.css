@@ -132,8 +132,8 @@
      invisible until actively scrolling, so short viewports give no visual
      cue that the remaining ~10 nav items are reachable below the fold.
      A persistent, styled thin scrollbar makes the affordance obvious
-     regardless of OS scrollbar theme. Same pattern as RightSidebar.module.css
-     .panels and WorkflowEditor.module.css, just using the nav's own
+     regardless of OS scrollbar theme. Same pattern as the inspector shell's
+     body and WorkflowEditor.module.css, just using the nav's own
      (always-dark) color tokens instead of the app-theme-aware ones. */
   scrollbar-width: thin;
   scrollbar-color: var(--color-nav-border) transparent;
@@ -485,7 +485,7 @@
   width: 12px;
   height: 12px;
   border-radius: 999px;
-  background: white;
+  background: var(--color-on-primary);
   transition: var(--transition-fast);
 }
 
@@ -586,7 +586,7 @@
   margin-top: var(--space-2);
   width: 100%;
   background: var(--color-primary);
-  color: white;
+  color: var(--color-on-primary);
   border: none;
   border-radius: var(--radius-btn);
   /* #1258: primary sidebar CTA — md tier of the button scale, not padding. */

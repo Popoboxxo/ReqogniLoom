@@ -26,6 +26,10 @@ import React from "react";
 
 vi.mock("../../api/icds");
 vi.mock("../../api/architecture");
+vi.mock("../shared/ArtifactInspector", () => ({
+  // #1762/M6: the shell owns its own data fetching — stub it here.
+  InspectorShell: () => <aside data-testid="inspector-shell-stub" />,
+}));
 vi.mock("../../context/WorkspaceContext");
 vi.mock("react-i18next", () => {
   // `t(key, fallback)` (string) and `t(key, { count, ... })` (interpolation

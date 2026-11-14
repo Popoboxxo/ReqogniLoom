@@ -121,7 +121,6 @@ vi.mock("../components/SplitView/SplitView", () => ({
 }));
 
 vi.mock("../components/shared/ArtifactInspector", () => ({
-  RightSidebar: () => null,
   InspectorShell: () => null,
 }));
 

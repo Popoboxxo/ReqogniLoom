@@ -8,9 +8,9 @@
  *          REQ-L0-062 AC6 (field-level diff between two versions)
  *
  * Wraps the existing `ArtifactDiff` component into a 360-px-friendly
- * column. As of REQ-142 all 10 artifact kinds expose a `/diff/` endpoint,
- * so the "unsupported" empty state below is now unreachable in practice
- * but kept as a defensive fallback (UI standards §4.5).
+ * column. All twelve artifact kinds expose a `/diff/` endpoint (REQ-142,
+ * GH-1200), so the former "unsupported" empty state is deleted (#1762/M8,
+ * I-15) — there is no kind left without a comparison.
  */
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -95,7 +95,7 @@ export interface DiffPanelProps {
   /**
    * The **domain-entity** id (`Requirement.id`, `ArchitectureElement.id`, …)
    * — `ArtifactDiff` fetches `/<kind>/<id>/diff/`, which is keyed on it, not
-   * on the backing Artifact UUID (see RightSidebar's prop docs, #1763).
+   * on the backing Artifact UUID (see the shell's prop docs, #1763).
    */
   entityId: string | number;
   /**
@@ -114,7 +114,8 @@ export interface DiffPanelProps {
    */
   onRangeResolved?: (range: ArtifactDiffRange | null) => void;
   /**
-   * `"panel"` (default) is the stacked RightSidebar form: own `h3` heading and
+   * `"panel"` is the legacy stacked form (kept for the panel's own contract
+   * tests): own `h3` heading and
    * own polite live region. `"tab"` drops both — the tab label names the area
    * and the shell owns the single live region (#1762, spec §2.1/§5.3).
    */
@@ -127,12 +128,18 @@ export interface DiffPanelProps {
 
 /**
  * Maps an ArtifactKind to the DiffEntityType that `ArtifactDiff` accepts.
- * `DiffEntityType` is an alias of `ArtifactKind`, so this is the identity
- * for backend-supported kinds and null otherwise — the panel renders the
- * empty state when null.
+ * `DiffEntityType` is an alias of `ArtifactKind` and every kind is backend-
+ * backed (`DIFF_SUPPORTED_KINDS` covers all twelve, I-15) — so this is the
+ * identity, and the old "unsupported" branch is gone (#1762/M8). The runtime
+ * set check stays as a guard for a kind added to the union but missed in the
+ * backend: it fails loudly in development instead of silently rendering an
+ * empty state that pretends the comparison succeeded.
  */
-function mapKindToDiffEntityType(kind: ArtifactKind): DiffEntityType | null {
-  return DIFF_SUPPORTED_KINDS.has(kind) ? kind : null;
+function mapKindToDiffEntityType(kind: ArtifactKind): DiffEntityType {
+  if (!DIFF_SUPPORTED_KINDS.has(kind)) {
+    throw new Error(`DiffPanel: unsupported ArtifactKind "${kind}" (no /diff/ endpoint)`);
+  }
+  return kind;
 }
 
 
@@ -175,23 +182,6 @@ export function DiffPanel({
   const sectionLabels = isTab
     ? { "aria-label": t("sidebar.diff.title") }
     : { "aria-labelledby": "inspector-diff-label" };
-
-  if (entityType === null) {
-    return (
-      <section className={styles.panel} role="region" {...sectionLabels} data-testid="inspector-diff-panel">
-        {!isTab && (
-          <h3 className={styles.title} id="inspector-diff-label">
-            {t("sidebar.diff.title")}
-          </h3>
-        )}
-        <p className={styles.emptyMessage} data-testid="diff-unsupported">
-          {t("sidebar.diff.unsupported", "Diff is not yet available for {{kind}} artifacts.", {
-            kind,
-          })}
-        </p>
-      </section>
-    );
-  }
 
   return (
     <section className={styles.panel} role="region" {...sectionLabels} data-testid="inspector-diff-panel">

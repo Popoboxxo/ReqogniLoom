@@ -242,7 +242,7 @@ export function TraceSpine({
                       }
                       title={
                         verificationCount > 0
-                          ? t("traceSpine.verificationOpen", "Verknuepfte Testfaelle anzeigen")
+                          ? t("traceSpine.verificationOpen", "Verknüpfte Testfälle anzeigen")
                           : t("traceSpine.noCoverage", "Keine Abdeckung")
                       }
                       onClick={() =>
@@ -275,7 +275,7 @@ export function TraceSpine({
           <div className={styles.panelHead}>
             <strong className={styles.panelTitle}>
               {openPanel?.kind === "verification"
-                ? t("traceSpine.verificationOpen", "Testfaelle")
+                ? t("traceSpine.verificationOpen", "Testfälle")
                 : stationLabel(activeStation)}
             </strong>
             <button

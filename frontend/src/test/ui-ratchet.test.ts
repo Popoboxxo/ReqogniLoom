@@ -1250,8 +1250,15 @@ const LOCAL_TOAST_BASELINE = 2;
 // 29 but THREE below it net, because the frozen 29 was itself stale by one —
 // `origin/main` measures 28 with the same scanner. Measured, not inferred:
 // never raise this constant, and re-measure rather than subtracting.
+//
+// #1762/M8: deleting the stacked inspector shell's stylesheet removed three
+// shorthand primary fills — its pin
+// button (pressed state), the collapsed expand button (hover) and the resize
+// handle (hover). Re-measured with this file's own scanner over the branch
+// tree: 23. Lowered 26 -> 23 in the same PR (spec §8.3 "Baseline-Einträge sind
+// kein Archiv").
 const PRIMARY_FILL_PATTERN = /background:\s*var\(--color-primary\)\s*;/g;
-const PRIMARY_FILL_BASELINE = 26;
+const PRIMARY_FILL_BASELINE = 23;
 
 describe("UI concept ratchet (Task 7.4)", () => {
   it("does not add new inline style={{ usages beyond the frozen baseline", () => {

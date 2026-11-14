@@ -115,7 +115,7 @@ const inspectorProbe = vi.hoisted(() => ({
         artifactPk?: string | null;
         hasCoveredRef?: boolean;
         hasOnShowInSpine?: boolean;
-        hasHideTraceLinks?: boolean;
+        unknownProps?: string[];
       }
     | undefined,
 }));
@@ -137,7 +137,6 @@ vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
   );
   return {
     ...actual,
-    RightSidebar: () => null,
     InspectorShell: (props: {
       kind: import("../components/shared/ArtifactInspector").ArtifactKind;
       entityId: string | number;
@@ -151,7 +150,20 @@ vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
         artifactPk: props.artifactPk,
         hasCoveredRef: props.coveredRef !== undefined,
         hasOnShowInSpine: props.onShowInSpine !== undefined,
-        hasHideTraceLinks: "hideTraceLinks" in (props as Record<string, unknown>),
+        // #1762/M8: no prop outside the documented shell contract — a
+        // removed route-level switch would show up here as an unknown key.
+        unknownProps: Object.keys(props).filter(
+          (key) =>
+            ![
+              "kind",
+              "entityId",
+              "artifactPk",
+              "currentVersion",
+              "initialTab",
+              "coveredRef",
+              "onShowInSpine",
+            ].includes(key),
+        ),
       };
       return inspectorProbe.renderRealComments ? (
         <CommentPanel kind={props.kind} artifactId={props.artifactPk ?? undefined} />
@@ -375,11 +387,11 @@ describe("IssueEditors Task 2.3 concept remodel (PageHeader / ArtifactRow / Dial
 });
 
 // ---------------------------------------------------------------------------
-// #1762 / M2 — the tabbed inspector replaces RightSidebar on this route
+// #1762 / M2 — the tabbed inspector replaces the stacked sidebar on this route
 // ---------------------------------------------------------------------------
 
 describe("IssueEditors — inspector shell mount (#1762 M2)", () => {
-  it("mounts InspectorShell with both id spaces and no hideTraceLinks switch", async () => {
+  it("mounts InspectorShell with both id spaces and only the documented props", async () => {
     renderEditor(`/issues/${ISSUE.id}`);
 
     await waitFor(() => {
@@ -394,7 +406,7 @@ describe("IssueEditors — inspector shell mount (#1762 M2)", () => {
       hasCoveredRef: true,
       hasOnShowInSpine: true,
     });
-    expect(inspectorProbe.lastShell?.hasHideTraceLinks).toBe(false);
+    expect(inspectorProbe.lastShell?.unknownProps).toEqual([]);
   });
 
   it("requests comments for the backing Artifact UUID, never the entity id", async () => {

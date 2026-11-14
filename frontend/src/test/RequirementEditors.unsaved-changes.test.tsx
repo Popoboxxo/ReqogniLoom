@@ -172,7 +172,6 @@ vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
   // This suite is about unsaved-changes behaviour, so both shells are inert.
   return {
     ...actual,
-    RightSidebar: () => <div data-testid="artifact-inspector" />,
     InspectorShell: () => <div data-testid="artifact-inspector" />,
   };
 });

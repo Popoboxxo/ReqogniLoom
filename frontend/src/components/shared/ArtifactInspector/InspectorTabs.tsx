@@ -28,24 +28,29 @@ import {
   INSPECTOR_TEST_IDS,
   inspectorPanelId,
   inspectorTabId,
+  inspectorTabLabelKey,
   type InspectorTabKey,
 } from "./inspectorContract";
+import type { ArtifactKind } from "./types";
 import styles from "./InspectorShell.module.css";
 
-const TAB_LABEL_KEYS: Record<InspectorTabKey, { key: string; fallback: string }> = {
-  version: { key: "sidebar.version.title", fallback: "Version" },
-  diff: { key: "sidebar.diff.title", fallback: "Diff" },
-  links: { key: "sidebar.inspector.tab.links", fallback: "Links" },
-  comments: { key: "comments.heading", fallback: "Comments" },
+/** Fallback label per tab; the i18n key comes from the kind-aware contract. */
+const TAB_LABEL_FALLBACKS: Record<InspectorTabKey, string> = {
+  version: "Version",
+  diff: "Diff",
+  links: "Links",
+  comments: "Comments",
 };
 
 export interface InspectorTabsProps {
+  kind: ArtifactKind;
   tabs: readonly InspectorTabKey[];
   activeTab: InspectorTabKey;
   onActivate: (tab: InspectorTabKey) => void;
 }
 
 export function InspectorTabs({
+  kind,
   tabs,
   activeTab,
   onActivate,
@@ -88,7 +93,6 @@ export function InspectorTabs({
       data-testid={INSPECTOR_TEST_IDS.tabs}
     >
       {tabs.map((key, index) => {
-        const label = TAB_LABEL_KEYS[key];
         const selected = key === activeTab;
         return (
           <button
@@ -109,7 +113,7 @@ export function InspectorTabs({
             onKeyDown={(event): void => onKeyDown(event, index)}
             data-testid={INSPECTOR_TEST_IDS.tab(key)}
           >
-            {t(label.key, label.fallback)}
+            {t(inspectorTabLabelKey(kind, key), TAB_LABEL_FALLBACKS[key])}
           </button>
         );
       })}

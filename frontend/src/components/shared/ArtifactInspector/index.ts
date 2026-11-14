@@ -2,19 +2,19 @@
  * ArtifactInspector — barrel export.
  *
  * leaf_id: COMP-RF-014 (ArtifactInspector)
- * req_id:  REQ-L2-RF-034..037
+ * req_id:  REQ-L2-RF-034..037, REQ-L1-089, REQ-L1-095
  *
  * Pages import from this module to avoid reaching into the
- * individual files (e.g. `import { RightSidebar } from
+ * individual files (e.g. `import { InspectorShell } from
  * "components/shared/ArtifactInspector"`).
+ *
+ * #1762/M8: the tabbed `InspectorShell` is the **only** inspector shell. The
+ * stacked sidebar this barrel used to export alongside it is deleted — every
+ * artifact route mounts the shell, so there is no second shell to keep
+ * importable.
  *
  * Named exports only — no default export (project coding convention).
  */
-export { RightSidebar } from "./RightSidebar";
-export type { RightSidebarProps } from "./RightSidebar";
-
-// #1762 (M1): the tabbed shell. `RightSidebar` stays importable until M8 for
-// the not-yet-migrated routes (§8.2).
 export { InspectorShell } from "./InspectorShell";
 export type { InspectorShellProps } from "./InspectorShell";
 

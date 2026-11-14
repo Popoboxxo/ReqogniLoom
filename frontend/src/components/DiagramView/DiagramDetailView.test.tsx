@@ -36,7 +36,9 @@ vi.mock("../canvas/CanvasEditor", () => ({
   CanvasEditor: () => <div data-testid="canvas-editor-mounted" />,
 }));
 vi.mock("../shared/ArtifactInspector", () => ({
-  RightSidebar: () => <aside data-testid="right-sidebar" />,
+  // #1762/M7: the tabbed shell replaced the stacked sidebar; the presenter
+  // test only needs to know the mount exists.
+  InspectorShell: () => <aside data-testid="inspector-shell-stub" />,
 }));
 vi.mock("../WorkflowStatusEditor", () => ({
   WorkflowStatusEditor: () => <div data-testid="workflow-status-editor" />,

@@ -12,6 +12,10 @@ import React from "react";
 import type { IcdDetail } from "../../api/icds";
 import { IcdDetailPane } from "./IcdDetailPane";
 
+vi.mock("../shared/ArtifactInspector", () => ({
+  // #1762/M6: the shell owns its own data fetching — stub it here.
+  InspectorShell: () => <aside data-testid="inspector-shell-stub" />,
+}));
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, fallback?: string) => fallback ?? key,
@@ -19,7 +23,6 @@ vi.mock("react-i18next", () => ({
 }));
 
 // Sibling panels are network-backed; this test is about the read-only lists.
-vi.mock("./IcdLinkedElements", () => ({ IcdLinkedElements: () => null }));
 vi.mock("../WorkflowStatusEditor", () => ({ WorkflowStatusEditor: () => null }));
 
 const DETAIL: IcdDetail = {

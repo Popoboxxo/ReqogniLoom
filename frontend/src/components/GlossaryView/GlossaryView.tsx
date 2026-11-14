@@ -32,6 +32,8 @@ import { glossaryApi } from "../../api/glossary";
 import type { GlossaryTerm, LinkType } from "../../types";
 import { Link2 } from "lucide-react";
 import { SplitView } from "../SplitView/SplitView";
+import { InspectorShell } from "../shared/ArtifactInspector";
+import type { VersionRef } from "../shared/ArtifactInspector";
 import { PageHeader } from "../shared/PageHeader";
 import { ListToolbar } from "../shared/ListToolbar";
 import { EmptyState } from "../shared/EmptyState";
@@ -209,9 +211,32 @@ export default function GlossaryView(): JSX.Element {
 
   const hasActiveListControls = Boolean(searchTerm || filterMode !== "workspace" || statusFilter);
 
+  // #1762/M5 (mirrors M1–M4): the inspector's programmatic focus targets live
+  // in the route, not in the shell — the shell only receives `coveredRef` for
+  // the `inert` bracket and never reads the detail area's DOM itself. Declared
+  // before the workspace guard: hooks must run on every render.
+  const detailScrollRef = useRef<HTMLDivElement | null>(null);
+
+  const focusInspectorHeading = (): void => {
+    document.getElementById("inspector-heading")?.focus();
+  };
+
   if (!activeWorkspace) return <div className={styles.workspacePrompt}>{t("workspace.selectFirst")}</div>;
 
   const selectedTerm = selectedId ? terms.find((term) => term.id === selectedId) : null;
+
+  // The version history/diff routes take the entity id (`GET
+  // /glossary/<term.id>/versions/`); only the comments route takes the backing
+  // Artifact UUID (D5) — `global_uuid` *is* that id (#1266/#1763).
+  const inspectorVersion: VersionRef | undefined =
+    selectedTerm && typeof selectedTerm.version === "number"
+      ? {
+          version: selectedTerm.version,
+          label: `v${selectedTerm.version}`,
+          createdAt: selectedTerm.updated_at ?? null,
+          baselineIds: [],
+        }
+      : undefined;
 
   // ---------------------------------------------------------------------------
   // Left panel: flat list (no hierarchy — glossary terms have no parent/child).
@@ -429,6 +454,44 @@ export default function GlossaryView(): JSX.Element {
     />
   );
 
+  const detailPane = (
+    <div className={styles.detailPane}>
+      <div className={styles.detailColumn} ref={detailScrollRef}>
+        {/* Spec §5.1 #1: the skip link is the first focusable element of the
+            detail area and the only way into the inspector that does not
+            require walking the detail first (#1762 M5). */}
+        {selectedTerm && (
+          <a
+            href="#inspector-heading"
+            className={`btn-ghost ${styles.inspectorSkipLink}`}
+            data-testid="inspector-skip-link"
+            onClick={(event) => {
+              event.preventDefault();
+              focusInspectorHeading();
+            }}
+          >
+            {t("sidebar.inspector.skipLink", "Direkt zum Inspektor")}
+          </a>
+        )}
+        {detailPanel}
+      </div>
+
+      {/* #1762/M5: one shell as the right column, instead of the
+          stacked sidebar that used to sit inside the detail block. Glossary has
+          no derivation chain, so the Links tab lists every type as a row and
+          the tab is labelled "Verwendungen" (spec §11 D8). */}
+      {selectedTerm && (
+        <InspectorShell
+          kind="glossary"
+          entityId={selectedTerm.id}
+          artifactPk={selectedTerm.global_uuid ?? null}
+          currentVersion={inspectorVersion}
+          coveredRef={detailScrollRef}
+        />
+      )}
+    </div>
+  );
+
   return (
     <div data-testid="glossary-view" className={styles.viewRoot}>
       {/* No `secondaryActions` here on purpose: the interview CTA that the
@@ -496,7 +559,7 @@ export default function GlossaryView(): JSX.Element {
       {createDialog}
 
       <div className={styles.splitViewWrap}>
-        <SplitView leftPanel={listPanel} rightPanel={detailPanel} initialLeftWidth={380} moduleType="glossary" />
+        <SplitView leftPanel={listPanel} rightPanel={detailPane} initialLeftWidth={380} moduleType="glossary" />
       </div>
     </div>
   );

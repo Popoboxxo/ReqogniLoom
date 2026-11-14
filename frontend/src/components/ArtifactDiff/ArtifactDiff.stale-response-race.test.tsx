@@ -115,7 +115,7 @@ describe("ArtifactDiff — stale diff response race (spurious error banner, not 
     await waitFor(() => expect(diffFetcher).toHaveBeenCalledTimes(1));
 
     // The artifact is saved again — currentVersion prop flips to 2, exactly
-    // as RequirementEditors re-renders RightSidebar/DiffPanel after the
+    // as RequirementEditors re-renders the inspector's DiffPanel after the
     // detail refetch that follows a PATCH.
     rerender(
       <ArtifactDiff

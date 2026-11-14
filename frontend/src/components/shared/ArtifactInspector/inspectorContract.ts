@@ -109,6 +109,25 @@ export const SPINE_LINK_TYPES: ReadonlySet<string> = new Set<string>([
   "verifies",
 ]);
 
+/**
+ * i18n key of a tab's label for one kind.
+ *
+ * Three of the four tabs read the same everywhere. The Links tab is the one
+ * place where a kind can have a more specific name for the same area: a
+ * glossary "usage" *is* a trace link to the term (spec §11 D8), so the
+ * glossary route names the tab "Verwendungen"/"Usages" instead of the generic
+ * "Links". The key lives here, not in a prop — like the type matrix this is
+ * kind-only logic, and a route switch would be a second source of truth
+ * (spec §8.2).
+ */
+export function inspectorTabLabelKey(kind: ArtifactKind, key: InspectorTabKey): string {
+  if (key === "links" && kind === "glossary") return "glossary.usages";
+  if (key === "version") return "sidebar.version.title";
+  if (key === "diff") return "sidebar.diff.title";
+  if (key === "comments") return "comments.heading";
+  return "sidebar.inspector.tab.links";
+}
+
 /** Normalise a backend link-type key for the matrix (`derives_from` → `derives-from`). */
 export function normalizeLinkTypeKey(raw: string): string {
   return raw.replace(/_/g, "-");

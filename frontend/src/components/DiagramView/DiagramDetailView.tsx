@@ -27,11 +27,11 @@
  * which `isEditing` can still become true.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { sanitizeSvg } from "../../utils/sanitizeSvg";
-import { RightSidebar } from "../shared/ArtifactInspector";
+import { InspectorShell } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
@@ -116,6 +116,15 @@ export function DiagramDetailView({
     saveError,
     resetSaveError,
   } = useDiagramDetail(diagramId);
+
+  // #1762/M7 (mirrors M1–M6): the inspector's programmatic focus targets live
+  // in the route, not in the shell — the shell only receives `coveredRef` for
+  // the `inert` bracket.
+  const detailScrollRef = useRef<HTMLDivElement | null>(null);
+
+  const focusInspectorHeading = (): void => {
+    document.getElementById("inspector-heading")?.focus();
+  };
 
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState("");
@@ -287,8 +296,22 @@ export function DiagramDetailView({
   }
 
   return (
-    <div className={styles.layout}>
-      <div className={styles.main}>
+    <div className={styles.detailPane}>
+      <div className={styles.main} ref={detailScrollRef}>
+        {/* Spec §5.1 #1: the skip link is the first focusable element of the
+            detail area and the only way into the inspector that does not
+            require walking the detail first (#1762 M7). */}
+        <a
+          href="#inspector-heading"
+          className={`btn-ghost ${styles.inspectorSkipLink}`}
+          data-testid="inspector-skip-link"
+          onClick={(event) => {
+            event.preventDefault();
+            focusInspectorHeading();
+          }}
+        >
+          {t("sidebar.inspector.skipLink", "Direkt zum Inspektor")}
+        </a>
         <h2 className={styles.title}>
           {detail.name}
         </h2>
@@ -533,15 +556,17 @@ export function DiagramDetailView({
         )}
       </div>
 
-      {/* Unified <RightSidebar kind="diagram" /> — Version / Diff / Trace (REQ-L1-095).
+      {/* #1762/M7: the shared tabbed shell is the right column (REQ-L1-095).
           #1763: `diagramId` stays the entity id for versions/diff; the
-          backing Artifact UUID (`detail.artifact_id`, #1374) is what the
-          comments route accepts. */}
-      <RightSidebar
+          backing Artifact UUID (`detail.artifact_id`, #1374 — or its
+          `global_uuid` alias) is what the comments route accepts. A legacy
+          diagram without either gets three tabs (spec §4.3). */}
+      <InspectorShell
         kind="diagram"
         entityId={diagramId}
-        artifactId={detail.artifact_id ?? undefined}
+        artifactPk={detail.artifact_id ?? detail.global_uuid ?? null}
         currentVersion={currentVersion}
+        coveredRef={detailScrollRef}
       />
 
       {showDeleteConfirm && (

@@ -11,15 +11,14 @@
  * new-version submit are driven by props from the IcdView container.
  */
 
-import { memo, useMemo } from "react";
+import { memo, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { Icd, IcdDetail } from "../../api/icds";
 import { VersionBadge } from "../shared/VersionBadge";
-import { RightSidebar } from "../shared/ArtifactInspector";
+import { InspectorShell } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
 import { findSimilarICDs, inputStyle, labelStyle } from "./icd-view-shared";
-import { IcdLinkedElements } from "./IcdLinkedElements";
 import styles from "./IcdDetailPane.module.css";
 
 export interface IcdDetailPaneProps {
@@ -75,10 +74,7 @@ export function IcdDetailPane({
 }: IcdDetailPaneProps): JSX.Element {
   const { t } = useTranslation();
 
-  // Build the current VersionRef consumed by ArtifactInspector
-  // (REQ-L2-RF-035). ICD's /versions/ endpoint is not exposed yet
-  // (UI standards §5.1), so we feed the inspector the current version
-  // only — VersionPanel renders the empty state for older entries.
+  // Build the current VersionRef consumed by the inspector (REQ-L2-RF-035).
   const currentVersion: VersionRef = useMemo(
     () => ({
       version: detail.version,
@@ -89,8 +85,32 @@ export function IcdDetailPane({
     [detail.version, detail.created_at]
   );
 
+  // #1762/M6 (mirrors M1–M5): the inspector's programmatic focus targets live
+  // in the route, not in the shell — the shell only receives `coveredRef` for
+  // the `inert` bracket.
+  const detailScrollRef = useRef<HTMLDivElement | null>(null);
+
+  const focusInspectorHeading = (): void => {
+    document.getElementById("inspector-heading")?.focus();
+  };
+
   return (
-    <div>
+    <div className={styles.detailPane}>
+      <div className={styles.detailColumn} ref={detailScrollRef}>
+      {/* Spec §5.1 #1: the skip link is the first focusable element of the
+          detail area and the only way into the inspector that does not
+          require walking the detail first (#1762 M6). */}
+      <a
+        href="#inspector-heading"
+        className={`btn-ghost ${styles.inspectorSkipLink}`}
+        data-testid="inspector-skip-link"
+        onClick={(event) => {
+          event.preventDefault();
+          focusInspectorHeading();
+        }}
+      >
+        {t("sidebar.inspector.skipLink", "Direkt zum Inspektor")}
+      </a>
       <div className={styles.header}>
         <div>
           <h2
@@ -180,8 +200,7 @@ export function IcdDetailPane({
         </div>
       )}
 
-      <div className={styles.mainGrid}>
-        <div>
+      <div>
           <div
             data-testid="icd-contract-section"
             className={styles.contractSection}
@@ -230,31 +249,30 @@ export function IcdDetailPane({
             />
           </div>
 
-          {/* #1268: linked elements in both directions (the ICD's anchored
-              architecture elements / requirements and any outgoing links). */}
-          <IcdLinkedElements icdId={detail.id} workspaceId={detail.workspace_id} />
-
           {/* REQ-006: Show similar interfaces based on name token similarity. */}
           <SimilarIcdsPanel
             currentICD={allICDs.find((icd) => icd.id === detail.id) || null}
             allICDs={allICDs}
             onSelect={onSelectIcd}
           />
-        </div>
-
-        {/* Removed: replaced by ArtifactInspector (REQ-L1-095).
-            The inline version-list + traceability aside is replaced by the
-            shared <RightSidebar kind="icd" />, which owns the VersionPanel,
-            DiffPanel and TracePanel (UI standards §3 / §4 / §11). */}
-        <RightSidebar
-          kind="icd"
-          entityId={detail.id}
-          // #1075: the backing Artifact id, published on both list and detail.
-          // #1763: comments key on it, versions/diff on `detail.id`.
-          artifactId={detail.artifact_id ?? undefined}
-          currentVersion={currentVersion}
-        />
       </div>
+      </div>
+
+      {/* #1762/M6: the grid track (`2fr 1fr`) and the separate
+          linked-elements panel are gone. The shell owns the right column
+          (Version/Diff) and is the only place a trace link is readable —
+          ICD has no derivation chain, so its Links tab lists every type as a
+          row (spec §2.3 rule 5, §11 D8). */}
+      <InspectorShell
+        kind="icd"
+        entityId={detail.id}
+        // #1075: the backing Artifact id, published on both list and detail.
+        // #1763: comments key on it, versions/diff on `detail.id`. Legacy ICDs
+        // without one get no comments tab at all (spec §4.3).
+        artifactPk={detail.artifact_id ?? null}
+        currentVersion={currentVersion}
+        coveredRef={detailScrollRef}
+      />
     </div>
   );
 }
