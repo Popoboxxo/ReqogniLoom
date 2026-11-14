@@ -41,6 +41,8 @@ import { extractApiErrorMessage } from '../../api/client';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { SplitView } from '../SplitView/SplitView';
 import { PageHeader } from '../shared/PageHeader';
+import { ArtifactId } from '../shared/ArtifactId';
+import { StatusBadge } from '../shared/StatusBadge';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
 import { RequirementList } from './RequirementList';
@@ -59,7 +61,7 @@ import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { useFormDirty } from '../../hooks/use-form-dirty';
 import { useEntityReset } from '../../hooks/use-entity-reset';
-import { RightSidebar } from '../shared/ArtifactInspector';
+import { InspectorShell } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
 import type { ChainArtifact } from '../shared/TraceSpine';
@@ -451,6 +453,24 @@ export default function RequirementEditors(): JSX.Element {
     [derivationChain, navigate],
   );
 
+  // #1762 (M1): the inspector's programmatic focus targets. Both live here in
+  // the route, not in the shell, because the shell must not know the detail
+  // area's DOM (it only receives `coveredRef` for the `inert` bracket).
+  const detailScrollRef = useRef<HTMLDivElement | null>(null);
+
+  const focusInspectorHeading = useCallback((): void => {
+    document.getElementById('inspector-heading')?.focus();
+  }, []);
+
+  // Spec §2.3 rule 1: the Links tab's summary line jumps into the spine. The
+  // spine is a separate flex zone now, so this is the one place that knows
+  // its first station.
+  const focusSpine = useCallback((): void => {
+    document
+      .querySelector<HTMLElement>('[data-testid="trace-spine-station-button"]')
+      ?.focus();
+  }, []);
+
   // Loading state
   if (isLoading) {
     return <p role="status">{t('loading')}</p>;
@@ -638,14 +658,35 @@ export default function RequirementEditors(): JSX.Element {
    */
   const rightPanel = requirement ? (
     <div className={styles.rightPane}>
-      <div className={styles.detailScroll}>
-      <TraceSpine
-        stations={derivationChain.stations}
-        isLoading={derivationChain.isLoading}
-        error={derivationChain.error}
-        onOpenArtifact={handleOpenChainArtifact}
-        isOpenable={derivationChain.isOpenable}
-      />
+      <div className={styles.detailScroll} ref={detailScrollRef}>
+      {/* Spec §5.1 #1: the skip link is the first focusable element of the
+          detail area and the only way into the inspector that does not
+          require walking the form first (U-14). */}
+      {currentVersion && (
+        <a
+          href="#inspector-heading"
+          className={`btn-ghost ${styles.inspectorSkipLink}`}
+          data-testid="inspector-skip-link"
+          onClick={(event) => {
+            event.preventDefault();
+            focusInspectorHeading();
+          }}
+        >
+          {t('sidebar.inspector.skipLink', 'Jump to the inspector')}
+        </a>
+      )}
+      {/* DoD 2 (#1762/M1): identity and workflow status have exactly one
+          place — the artifact head of the route, never the inspector
+          (spec §2.2). Requirements had neither in its head until now. */}
+      <div className={styles.artifactHead} data-testid="requirement-artifact-head">
+        <ArtifactId
+          value={requirement.uid}
+          fallback={requirement.id.slice(0, 8)}
+          testId="requirement-detail-id"
+        />
+        <StatusBadge status={requirement.status} testId="requirement-detail-status" />
+      </div>
+
       {/* #399 (D7): drift badge + CR shortcut live in the editor header only.
           Bound to the BACKING Artifact id (`artifact_id`) — the
           baseline-membership endpoint keys on artifacts, not entity pks. */}
@@ -744,12 +785,13 @@ export default function RequirementEditors(): JSX.Element {
       )}
       </div>
       {currentVersion && (
-        <RightSidebar
+        <InspectorShell
           kind="requirement"
           entityId={requirement.id}
-          artifactId={requirement.artifact_id}
+          artifactPk={requirement.artifact_id ?? null}
           currentVersion={currentVersion}
-          hideTraceLinks
+          coveredRef={detailScrollRef}
+          onShowInSpine={focusSpine}
         />
       )}
     </div>
@@ -816,12 +858,25 @@ export default function RequirementEditors(): JSX.Element {
         {pageHeader}
 
         <div className={styles.splitWrapper}>
+          {/* Concept contract (§8 M1-11): the spine gets its own slot between
+              list and detail, so it stops scrolling with the form (I-13). */}
           <SplitView
-            leftPanel={leftPanel}
-            rightPanel={rightPanel}
-            leftMinWidth={260}
-            leftMaxWidthPercent={70}
-            moduleType="requirements"
+            list={leftPanel}
+            detail={rightPanel}
+            spine={
+              requirement ? (
+                <TraceSpine
+                  stations={derivationChain.stations}
+                  isLoading={derivationChain.isLoading}
+                  error={derivationChain.error}
+                  onOpenArtifact={handleOpenChainArtifact}
+                  isOpenable={derivationChain.isOpenable}
+                />
+              ) : null
+            }
+            ratio={[40, 60]}
+            minWidths={[320, 448]}
+            containerClassName={styles.splitWrapper}
           />
         </div>
       </div>

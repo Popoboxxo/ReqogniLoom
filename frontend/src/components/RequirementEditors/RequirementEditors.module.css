@@ -142,12 +142,51 @@
   height: 100%;
   min-height: 0;
   gap: var(--space-3);
+  /* #1762 (M1): the inspector's sheet is an overlay over this pane, so the
+     pane is its positioning context (the shell never positions itself). */
+  position: relative;
+}
+
+/*
+ * #1762 (M1), spec §5.1 #1: the skip link into the inspector. It is the
+ * first focusable element of the detail area, hidden until focused — the
+ * global `.visually-hidden` utility cannot be revealed, so this local pair
+ * carries the reveal.
+ */
+.inspectorSkipLink {
+  position: absolute;
+  width: var(--control-border-width);
+  height: var(--control-border-width);
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.inspectorSkipLink:focus-visible {
+  position: static;
+  width: auto;
+  height: auto;
+  clip-path: none;
+  margin-bottom: var(--space-2);
 }
 
 .detailScroll {
   flex: 1 1 auto;
   min-width: 0;
   overflow: auto;
+}
+
+/*
+ * #1762 (M1) DoD 2: the artifact head carries identity + workflow status.
+ * Both used to live nowhere on the requirements detail route; the inspector
+ * must not become their second home (spec §2.2).
+ */
+.artifactHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 .deriveStatus {

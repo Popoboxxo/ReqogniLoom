@@ -168,7 +168,13 @@ vi.mock("../api/attribute-definitions", () => ({
 
 vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
   const actual = await importActual<typeof import("../components/shared/ArtifactInspector")>();
-  return { ...actual, RightSidebar: () => <div data-testid="artifact-inspector" /> };
+  // #1762 (M1): the requirements route mounts the tabbed `InspectorShell`.
+  // This suite is about unsaved-changes behaviour, so both shells are inert.
+  return {
+    ...actual,
+    RightSidebar: () => <div data-testid="artifact-inspector" />,
+    InspectorShell: () => <div data-testid="artifact-inspector" />,
+  };
 });
 
 // Issue #926: RequirementEditors -> ReqTraceLinkPanel now mounts the shared

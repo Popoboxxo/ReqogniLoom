@@ -1,0 +1,262 @@
+/*
+ * ArtifactInspector — shell styles (issue #1762, M1).
+ *
+ * Every value is a token or a component alias declared **in this module**
+ * (spec §6.1): `design-tokens.test.ts` only accepts local declarations, and
+ * `ui-ratchet.test.ts` rejects hex literals in a second CSS file.
+ *
+ * The four width aliases are the only bare pixel values, and they are width
+ * *preferences* from spec §4.1/§6.1 — exactly where the spec puts them.
+ *
+ * Geometry contract (spec §6.5): header `--btn-h-md`, tabs `--btn-h-sm`,
+ * rows `--btn-h-md`, rail buttons `--btn-h-sm`, splitter hitbox `--btn-h-xs`.
+ * No font size below `--font-size-xs`.
+ */
+
+.shell {
+  /* Component aliases (spec §6.1) — local on purpose. */
+  --inspector-w-min: 280px;
+  --inspector-w-default: 320px;
+  --inspector-w-wide: 360px;
+  --inspector-w-max: 520px;
+  --inspector-rail-w: calc(var(--btn-h-sm) + var(--space-1) * 2);
+  --inspector-tab-h: var(--btn-h-sm);
+  --inspector-row-h: var(--btn-h-md);
+  --inspector-resize-hit: var(--btn-h-xs);
+  /* Set at runtime from the layout hook (CSSOM, spec §6.1); declared here so
+     the token-existence check resolves it locally. */
+  --inspector-width: var(--inspector-w-default);
+
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  /* Splitter rest line: --color-text-muted is the only pair that clears
+     WCAG 1.4.11 on both surfaces (7.24:1 / 7.58:1, spec §6.1). */
+  border-left: var(--control-border-width) solid var(--color-text-muted);
+  transition: width var(--transition-fast);
+}
+
+.shell[data-inspector-form="panel"] {
+  width: var(--inspector-width, var(--inspector-w-default));
+  /* The splitter overlays the left edge (24 px hitbox); the content starts
+     after it instead of underneath it. */
+  padding-left: var(--inspector-resize-hit);
+}
+
+.shell[data-inspector-form="rail"] {
+  width: var(--inspector-rail-w);
+}
+
+/* Sheet and full-screen do not take flow width: the sheet is an overlay over
+   the detail area, the full-screen surface replaces it. The sheet anchors to
+   the positioned detail pane itself (width 0 left it behind the pane in the
+   stacking order, so its header could not be clicked, #1762 M1 E2E). */
+.shell[data-inspector-form="sheet"] {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  width: min(var(--inspector-width, var(--inspector-w-default)), 100%);
+  border-left: var(--control-border-width) solid var(--color-text-muted);
+  box-shadow: var(--shadow-card);
+}
+
+.shell[data-inspector-form="fullscreen"] {
+  width: auto;
+  border-left: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell {
+    transition: none;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Splitter — first child of the surface, own tab stop (spec §5.1 #5)         */
+/* ------------------------------------------------------------------------- */
+
+.splitter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--inspector-resize-hit);
+  min-width: var(--inspector-resize-hit);
+  background: transparent;
+  cursor: col-resize;
+}
+
+.splitter:hover {
+  border-left: var(--control-border-width) solid var(--color-primary);
+}
+
+.splitter:focus-visible {
+  outline: var(--control-focus-ring);
+  outline-offset: 1px;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Header                                                                     */
+/* ------------------------------------------------------------------------- */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: var(--btn-h-md);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--control-border-width) solid var(--color-border);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-semibold);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Tablist (`.btn-tab` supplies fill, border, type scale and the selected     */
+/* state — the inspector CSS must not declare a primary fill itself, §8.3)    */
+/* ------------------------------------------------------------------------- */
+
+.tabList {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0;
+  overflow-x: auto;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--control-border-width) solid var(--color-border);
+  scrollbar-gutter: stable;
+}
+
+.tabBtn {
+  flex: 0 0 auto;
+}
+
+/* R5 (< 360 px): two rows instead of a horizontal scroll — the tab strip
+   would otherwise be the page's only sideways scroll surface (spec §4.2). */
+@media (max-width: 359px) {
+  .tabList {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Area body — part of the detail scroll surface, never a fourth one          */
+/* ------------------------------------------------------------------------- */
+
+.body {
+  min-width: 0;
+  padding: var(--space-4);
+}
+
+.tabBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.diffPair {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface);
+  border: var(--control-border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+}
+
+/* ------------------------------------------------------------------------- */
+/* Rail                                                                       */
+/* ------------------------------------------------------------------------- */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+
+.railButton {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: var(--btn-h-sm);
+  min-width: var(--btn-h-sm);
+  min-height: var(--btn-h-sm);
+  padding: 0;
+}
+
+.railGlyph {
+  font-family: var(--font-cond);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+}
+
+.railCount {
+  font-family: var(--font-cond);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Sheet / full-screen                                                        */
+/* ------------------------------------------------------------------------- */
+
+.sheet {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  /* #1762 M1: the sheet must paint above the split-view detail pane; without
+     its own stacking level the detail intercepts clicks on the sheet header. */
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: min(var(--inspector-width, var(--inspector-w-default)), 100%);
+  background: var(--color-surface-raised);
+  border-left: var(--control-border-width) solid var(--color-text-muted);
+  box-shadow: var(--shadow-card);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* R4: the sheet takes the whole detail width (spec §4.2). */
+@media (max-width: 1023px) {
+  .sheet {
+    width: 100%;
+  }
+}
+
+.fullscreen {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  z-index: 900;
+  background: var(--color-surface-raised);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet,
+  .fullscreen {
+    transition: none;
+  }
+}

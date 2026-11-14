@@ -36,6 +36,8 @@ import { useWorkspace } from "../../../context/WorkspaceContext";
 import type { TraceLink } from "../../../types";
 import { getLinkTypeLabel } from "../../../constants/traceLinkLabels";
 import { getArtifactRoute } from "../../../utils/artifactRoutes";
+import { LINKS_ROWS_ONLY, isSpineLinkType } from "./inspectorContract";
+import { useInspectorAnnouncer, useInspectorCounts } from "./InspectorLiveRegions";
 import { type ArtifactKind, type LinkType, type TraceLinkRow } from "./types";
 import styles from "./TracePanel.module.css";
 
@@ -56,6 +58,23 @@ export interface TracePanelProps {
    * UUID is not published for every kind (#1763).
    */
   entityId: string | number;
+  /**
+   * `"panel"` (default) is the stacked RightSidebar form: own `h3` heading,
+   * own `role="alert"` banner, every link type as a row.
+   *
+   * `"tab"` is the Links tab of the tabbed shell (#1762). It follows spec
+   * §2.3: derivation/verification links are read as rows only in the spine,
+   * so this tab summarises them in **one** line with a jump and lists only the
+   * remaining types. The shell owns the live regions, so the panel announces
+   * through it instead of rendering its own.
+   */
+  variant?: "panel" | "tab";
+  /**
+   * Jump into the trace spine (spec §2.3 rule 1). Only meaningful in the tab
+   * form; without it the summary line stays a plain count (types without a
+   * spine never show the line at all).
+   */
+  onShowInSpine?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,11 +156,37 @@ function mapTraceLink(
 
 type LoadState = "idle" | "loading" | "ready" | "empty" | "error";
 
-export function TracePanel({ entityId }: TracePanelProps): JSX.Element {
+export function TracePanel({
+  kind,
+  entityId,
+  variant = "panel",
+  onShowInSpine,
+}: TracePanelProps): JSX.Element {
   const { t } = useTranslation();
+  // Async callbacks must not depend on `t`'s identity: some hosts (and test
+  // harnesses) return a fresh function per render, which would turn the
+  // fetch effect into a loop. The ref keeps the latest `t` without re-keying
+  // the callback.
+  const tRef = useRef(t);
+  tRef.current = t;
   const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
   const { linkTypes, labelFor } = useLinkTypes();
+  const announcer = useInspectorAnnouncer();
+  const reportCount = useInspectorCounts()?.reportCount;
+  const isTab = variant === "tab";
+  // Spec §2.3 rule 5: without a spine the tab lists every type as a row.
+  const rowsOnly = LINKS_ROWS_ONLY.has(kind);
+  // A retry announces its own outcome, never an extra `linksLoaded`.
+  const retryingRef = useRef(false);
+  // Late fetch after unmount must not announce (see VersionPanel).
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const [state, setState] = useState<LoadState>("idle");
   const [links, setLinks] = useState<TraceLinkRow[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -162,9 +207,29 @@ export function TracePanel({ entityId }: TracePanelProps): JSX.Element {
   const load = useCallback(async (): Promise<void> => {
     setState("loading");
     setErrorMessage(null);
+    const panelLabel = tRef.current("sidebar.inspector.tab.links", "Links");
+    const wasRetry = retryingRef.current;
+    const announceOutcome = (total: number, derived: number): void => {
+      reportCount?.("links", total);
+      retryingRef.current = false;
+      if (!isTab || !announcer) return;
+      announcer.polite(
+        wasRetry
+          ? tRef.current("sidebar.inspector.live.retrySucceeded", {
+              panel: panelLabel,
+              defaultValue: "{{panel}} loaded.",
+            })
+          : tRef.current("sidebar.inspector.live.linksLoaded", {
+              count: total,
+              derived,
+              defaultValue: "{{count}} links loaded, {{derived}} shown in the spine.",
+            }),
+      );
+    };
     if (!activeWorkspace) {
       setLinks([]);
       setState("empty");
+      announceOutcome(0, 0);
       return;
     }
     try {
@@ -175,21 +240,39 @@ export function TracePanel({ entityId }: TracePanelProps): JSX.Element {
       const mapped = paginated.results
         .map((link) => mapTraceLink(link, String(entityId)))
         .filter((row): row is TraceLinkRow => row !== null);
+      if (!mountedRef.current) return;
       if (mapped.length === 0) {
         setLinks([]);
         setState("empty");
+        announceOutcome(0, 0);
         return;
       }
       setLinks(mapped);
       setState("ready");
+      announceOutcome(mapped.length, mapped.filter((row) => isSpineLinkType(row.linkType)).length);
     } catch (err) {
+      if (!mountedRef.current) return;
       setErrorMessage(err instanceof Error ? err.message : String(err));
       setState("error");
+      if (isTab && announcer) {
+        retryingRef.current = false;
+        announcer.alert(
+          wasRetry
+            ? tRef.current("sidebar.inspector.live.retryFailed", {
+                panel: panelLabel,
+                defaultValue: "{{panel}} still unavailable.",
+              })
+            : tRef.current("sidebar.inspector.error.links", {
+                panel: panelLabel,
+                defaultValue: "{{panel}} could not be loaded. Try again.",
+              }),
+        );
+      }
     }
     // `kind` is deliberately NOT a dependency: the fetch is keyed by
     // `activeWorkspace` + `entityId` only, and a `kind`-only change cannot
     // alter the result set (it previously just triggered a redundant refetch).
-  }, [entityId, activeWorkspace]);
+  }, [entityId, activeWorkspace, isTab, announcer, reportCount]);
 
   useEffect(() => {
     void load();
@@ -236,14 +319,33 @@ export function TracePanel({ entityId }: TracePanelProps): JSX.Element {
     [links, deselected]
   );
 
+  // Spec §2.3: with a spine, the derivation/verification group is read there
+  // and only summarised here; without one, every type stays a row. The
+  // partitioning is a **tab-form** rule — the stacked panel keeps showing
+  // every link (its routes have no spine tab yet, M2–M7).
+  const partition = isTab && !rowsOnly;
+
+  const spineLinks = useMemo<TraceLinkRow[]>(
+    () => (partition ? filteredLinks.filter((l) => isSpineLinkType(l.linkType)) : []),
+    [partition, filteredLinks]
+  );
+
+  const rowLinks = useMemo<TraceLinkRow[]>(
+    () =>
+      partition
+        ? filteredLinks.filter((l) => !isSpineLinkType(l.linkType))
+        : filteredLinks,
+    [partition, filteredLinks]
+  );
+
   const inbound = useMemo<TraceLinkRow[]>(
-    () => filteredLinks.filter((l) => l.direction === "inbound"),
-    [filteredLinks]
+    () => rowLinks.filter((l) => l.direction === "inbound"),
+    [rowLinks]
   );
 
   const outbound = useMemo<TraceLinkRow[]>(
-    () => filteredLinks.filter((l) => l.direction === "outbound"),
-    [filteredLinks]
+    () => rowLinks.filter((l) => l.direction === "outbound"),
+    [rowLinks]
   );
 
   function toggleFilter(linkType: LinkType): void {
@@ -298,10 +400,41 @@ export function TracePanel({ entityId }: TracePanelProps): JSX.Element {
   // -------------------------------------------------------------------------
 
   function renderHeader(): JSX.Element {
+    // Tab form: the tab label names the area; a second heading inside the tab
+    // panel would break the "one heading per area" rule (spec §2.1/§7).
+    if (isTab) return <></>;
     return (
       <h3 className={styles.title} id="inspector-trace-label">
-        {t("sidebar.trace.title", "Trace Links")}
+        {t("sidebar.trace.title")}
       </h3>
+    );
+  }
+
+  /**
+   * Spec §2.3 rule 1: the derivation/verification group is read in the spine.
+   * Here it is exactly one line with a jump — a counter plus an affordance,
+   * not a second list of the same links.
+   */
+  function renderSpineSummary(): JSX.Element {
+    return (
+      <div className={styles.summaryRow} data-testid="inspector-links-summary">
+        <span className={styles.summaryText}>
+          {t("sidebar.inspector.linksSummary", {
+            count: spineLinks.length,
+            defaultValue: "{{count}} derivation and verification links — in the spine",
+          })}
+        </span>
+        {onShowInSpine && spineLinks.length > 0 && (
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={onShowInSpine}
+            data-testid="inspector-links-show-in-spine"
+          >
+            {t("sidebar.inspector.action.showInSpine")}
+          </button>
+        )}
+      </div>
     );
   }
 
@@ -312,7 +445,7 @@ export function TracePanel({ entityId }: TracePanelProps): JSX.Element {
         className={styles.filterRow}
         ref={chipRowRef}
         role="group"
-        aria-label={t("sidebar.trace.filter.label", "Filter by type")}
+        aria-label={t("sidebar.trace.filter.label")}
       >
         {chipTypes.map((lt, idx) => {
           const active = !deselected.has(lt);
@@ -345,8 +478,8 @@ export function TracePanel({ entityId }: TracePanelProps): JSX.Element {
           onClick={allSelected ? clearFilters : selectAllFilters}
         >
           {allSelected
-            ? t("sidebar.trace.filter.clear", "Clear")
-            : t("sidebar.trace.filter.allSelected", "All types")}
+            ? t("sidebar.trace.filter.clear")
+            : t("sidebar.trace.filter.allSelected")}
         </button>
       </div>
     );
@@ -382,13 +515,16 @@ export function TracePanel({ entityId }: TracePanelProps): JSX.Element {
   }
 
   function renderSection(heading: string, rows: TraceLinkRow[], id: string): JSX.Element {
+    // Spec §7: the inspector has h2 (surface) → h3 (area) only; the tab form
+    // must not introduce a fourth level.
+    const SectionHeading = isTab ? "h3" : "h4";
     return (
       <div className={styles.section}>
-        <h4 className={styles.sectionHeading} id={id}>
+        <SectionHeading className={styles.sectionHeading} id={id}>
           {heading} ({rows.length})
-        </h4>
+        </SectionHeading>
         {rows.length === 0 ? (
-          <p className={styles.emptyMessage}>{t("sidebar.trace.empty", "No trace links.")}</p>
+          <p className={styles.emptyMessage}>{t("sidebar.trace.empty")}</p>
         ) : (
           <ul className={styles.list} aria-labelledby={id}>
             {rows.map(renderRow)}
@@ -400,7 +536,7 @@ export function TracePanel({ entityId }: TracePanelProps): JSX.Element {
 
   function renderSkeleton(): JSX.Element {
     return (
-      <div aria-busy="true" aria-label={t("loading", "Loading...")}>
+      <div aria-busy="true" aria-label={t("loading")}>
         <div className={styles.skeletonChips} aria-hidden="true">
           {Array.from({ length: SKELETON_CHIP_COUNT }, (_, i) => (
             <span key={i} className={styles.skeletonChip} />
@@ -417,28 +553,39 @@ export function TracePanel({ entityId }: TracePanelProps): JSX.Element {
 
   function renderError(): JSX.Element {
     return (
-      <div className={styles.errorBanner} role="alert" data-testid="trace-error">
+      <div
+        className={styles.errorBanner}
+        role={isTab ? undefined : "alert"}
+        data-testid="trace-error"
+      >
         <span>
-          {t("sidebar.trace.error", "Could not load trace links.")}
+          {t("sidebar.trace.error")}
           {errorMessage ? ` (${errorMessage})` : ""}
         </span>
         <button
           type="button"
           className={`btn-secondary ${styles.retryButton}`}
           data-testid="trace-retry"
-          onClick={(): void => void load()}
+          onClick={(): void => {
+            retryingRef.current = true;
+            void load();
+          }}
         >
-          {t("actions.reload", "Reload")}
+          {t("actions.reload")}
         </button>
       </div>
     );
   }
 
+  const sectionLabels = isTab
+    ? { "aria-label": t("sidebar.inspector.tab.links") }
+    : { "aria-labelledby": "inspector-trace-label" };
+
   return (
     <section
       className={styles.panel}
       role="region"
-      aria-labelledby="inspector-trace-label"
+      {...sectionLabels}
       data-testid="inspector-trace-panel"
     >
       {renderHeader()}
@@ -446,20 +593,25 @@ export function TracePanel({ entityId }: TracePanelProps): JSX.Element {
       {state === "error" && renderError()}
       {(state === "ready" || state === "empty") && (
         <>
+          {isTab && !rowsOnly && renderSpineSummary()}
           {renderFilterRow()}
           {state === "empty" ? (
-            <p className={styles.emptyMessage} data-testid="trace-empty">
-              {t("sidebar.trace.empty", "No trace links.")}
+            <p className={styles.emptyMessage} data-testid={isTab ? "links-empty" : "trace-empty"}>
+              {isTab
+                ? rowsOnly
+                  ? t("sidebar.inspector.empty.linksAll")
+                  : t("sidebar.inspector.empty.linksOther")
+                : t("sidebar.trace.empty")}
             </p>
           ) : (
             <>
               {renderSection(
-                t("sidebar.trace.inbound", "Inbound"),
+                t("sidebar.trace.inbound"),
                 inbound,
                 "inspector-trace-inbound"
               )}
               {renderSection(
-                t("sidebar.trace.outbound", "Outbound"),
+                t("sidebar.trace.outbound"),
                 outbound,
                 "inspector-trace-outbound"
               )}

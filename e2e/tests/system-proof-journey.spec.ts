@@ -54,6 +54,7 @@ import {
   SEEDED_WORKSPACE_ID,
   TEST_USER,
 } from '../helpers/auth';
+import { collapseInspector } from '../helpers/inspector';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -361,6 +362,11 @@ test.describe.serial('System proof: MCP <-> REST <-> UI artifact journey', () =>
     const titleInput = page.locator('[data-testid="artifact-field-title"]');
     await expect(titleInput, 'requirement detail editor renders').toBeVisible({ timeout: 15000 });
     await expect(titleInput, 'UI shows the MCP-written title').toHaveValue(requirementTitle);
+    // #1762 (M1): the inspector mounts as a sheet at the 1280 px E2E viewport
+    // and covers the detail area, so the proof screenshots below would show the
+    // sheet instead of the form. Collapsing it is also what a user at this
+    // width has to do before the form is interactive (the area is `inert`).
+    await collapseInspector(page);
     await shot(page, '02-mcp-created.png');
 
     const form = page.locator('[data-testid="artifact-form"]');
@@ -435,6 +441,9 @@ test.describe.serial('System proof: MCP <-> REST <-> UI artifact journey', () =>
     // control is `artifact-field-title` (ArtifactForm.tsx fieldTestIds).
     const titleInput = page.locator('[data-testid="artifact-field-title"]');
     await expect(titleInput).toHaveValue(updatedRequirementTitle, { timeout: 15000 });
+    // #1762 (M1): the inspector's sheet covers — and `inert`s — the detail area
+    // at the 1280 px E2E viewport; the fill below would silently do nothing.
+    await collapseInspector(page);
     await titleInput.fill(uiEditedRequirementTitle);
 
     // The change-reason field only exists when the workspace's preset adapter
@@ -456,7 +465,20 @@ test.describe.serial('System proof: MCP <-> REST <-> UI artifact journey', () =>
     // A refused save leaves the form untouched, so prove a request actually
     // went out rather than only that the label settled.
     await expect(titleInput).toHaveValue(uiEditedRequirementTitle, { timeout: 15000 });
-    await expect(page.locator('[role="alert"]')).toHaveCount(0);
+    // Scope the "nothing was rejected" check to the FORM, not the page.
+    //
+    // #1762 (M1) mounted the tabbed inspector shell next to the detail pane, and
+    // that shell owns a persistent assertive live region
+    // (`InspectorLiveRegions`, `role="alert"`) so tab/panel changes can be
+    // announced. It is always in the DOM — a page-wide `[role="alert"]` count can
+    // therefore never be 0 again, and asserting 0 only reported "the shell exists",
+    // not "the save was accepted". What this step is about is the form: no error
+    // alert from `artifact-form` (its own surface is `artifact-form-error`).
+    const formScope = page.locator('[data-testid="artifact-form"]');
+    await expect(
+      formScope.locator('[role="alert"]'),
+      'the saved form must not report an error alert'
+    ).toHaveCount(0);
     await shot(page, '08-ui-edit-saved.png');
 
     // Now read the same requirement back through MCP — proof that the write

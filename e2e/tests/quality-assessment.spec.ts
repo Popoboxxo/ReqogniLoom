@@ -2,6 +2,7 @@
 // Mock provider verdict is 0.5 → the badge must show "50%".
 import { test, expect, type Page } from '@playwright/test';
 import { createIsolatedWorkspace, getAuthToken, loginAsAdmin, setWorkspaceId } from '../helpers/auth';
+import { collapseInspector } from '../helpers/inspector';
 import { getLlmProvider, llmRequestTimeoutMs, llmSkipHint } from '../helpers/llm';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -11,6 +12,10 @@ async function createRequirement(page: Page, title: string): Promise<void> {
   await page.locator('[data-testid="req-new-title-input"]').fill(title);
   await page.locator('[data-testid="req-new-save-btn"]').click();
   await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+  // #1762 (M1): the quality badge and its panel live in the requirement detail
+  // area, which the inspector's sheet covers (and `inert`s) at the 1280 px E2E
+  // viewport — collapse it before clicking the badge.
+  await collapseInspector(page);
 }
 
 test.describe('[COMP-RF-003] quality assessment badge', () => {

@@ -195,21 +195,28 @@ vi.mock("../context/LinkTypeContext", () => ({
   }),
 }));
 
-// Stub the shared ArtifactInspector so the RightSidebar shell is countable.
+// Stub the shared ArtifactInspector so the shell is countable.
 // Preserves the rest of the barrel (VersionPanel, types, ...) via importActual
-// and only replaces RightSidebar with a marker. This lets the test assert that
-// the Inspector is rendered exactly ONCE at container level (REQ-TBD:
-// remove duplicate ArtifactInspector rendering in editor components).
+// and replaces BOTH shells with a marker: `RightSidebar` (pre-#1762 routes)
+// and `InspectorShell` (the tabbed shell this route mounts since #1762/M1).
+// This lets the test assert that the Inspector is rendered exactly ONCE at
+// container level (REQ-TBD: remove duplicate ArtifactInspector rendering).
 //
 // #1763: the stub also records the two id spaces the editor passes in, and —
 // when `inspectorProbe.renderRealComments` is set — renders the REAL
-// CommentPanel with exactly those props. That is what makes the regression
-// assertion literal: the id that reaches `commentsApi.list` is the one this
-// editor handed to the shell.
+// CommentPanel with exactly those props.
 const inspectorProbe = vi.hoisted(() => ({
   renderRealComments: false,
   last: undefined as
     | { kind?: string; entityId?: string | number; artifactId?: string | undefined }
+    | undefined,
+  lastShell: undefined as
+    | {
+        kind?: string;
+        entityId?: string | number;
+        artifactPk?: string | null;
+        hasCoveredRef?: boolean;
+      }
     | undefined,
 }));
 
@@ -238,6 +245,24 @@ vi.mock("../components/shared/ArtifactInspector", async (importActual) => {
       inspectorProbe.last = props;
       return inspectorProbe.renderRealComments ? (
         <CommentPanel kind={props.kind} artifactId={props.artifactId} />
+      ) : (
+        <div data-testid="artifact-inspector" />
+      );
+    },
+    InspectorShell: (props: {
+      kind: import("../components/shared/ArtifactInspector").ArtifactKind;
+      entityId: string | number;
+      artifactPk: string | null;
+      coveredRef?: unknown;
+    }) => {
+      inspectorProbe.lastShell = {
+        kind: props.kind,
+        entityId: props.entityId,
+        artifactPk: props.artifactPk,
+        hasCoveredRef: props.coveredRef !== undefined,
+      };
+      return inspectorProbe.renderRealComments ? (
+        <CommentPanel kind={props.kind} artifactId={props.artifactPk ?? undefined} />
       ) : (
         <div data-testid="artifact-inspector" />
       );
@@ -404,14 +429,34 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
   // REQ-L1-040 — Resizable split-pane divider tests
   // -------------------------------------------------------------------------
 
-  it("renders split-pane divider for resizing (REQ-L1-040 — enable split-pane resizing)", async () => {
+  // #1762 (M1-11): the requirements route moved from SplitView's legacy
+  // contract (drag-resizable divider) to the concept contract
+  // (`list`/`detail`/`spine`, fixed ratio). That is the trade the approved
+  // inspector plan makes: the spine gets its own slot and stops scrolling with
+  // the form, and the divider gives way to the fixed 40/60 ratio of
+  // UI_KONZEPT ch. 12.6. Documented in the M1 report as a REQ-L1-040
+  // consequence.
+  it("renders the concept split layout with a dedicated spine slot (#1762 M1-11)", async () => {
     renderEditor(MOCK_REQUIREMENT.id);
 
     await waitFor(() => {
-      const divider = screen.getByTestId("splitview-divider");
-      expect(divider).toBeInTheDocument();
-      expect(divider).toHaveStyle("cursor: col-resize");
+      expect(screen.getByTestId("splitview-list")).toBeInTheDocument();
+      expect(screen.getByTestId("splitview-detail")).toBeInTheDocument();
+      expect(screen.getByTestId("splitview-spine")).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("splitview-divider")).not.toBeInTheDocument();
+  });
+
+  // #1762 (M1) DoD 2: identity and workflow status live in the artifact head
+  // of the route — the inspector never repeats them (spec §2.2).
+  it("shows the artifact id and workflow status in the detail head (#1762 DoD 2)", async () => {
+    renderEditor(MOCK_REQUIREMENT.id);
+
+    const head = await screen.findByTestId("requirement-artifact-head");
+    expect(within(head).getByTestId("requirement-detail-id")).toBeInTheDocument();
+    expect(within(head).getByTestId("requirement-detail-status")).toHaveTextContent(
+      MOCK_REQUIREMENT.status,
+    );
   });
 
   // -------------------------------------------------------------------------
@@ -575,7 +620,10 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
       // The entity id must never reach the comments route — that swap was the
       // 404 this test pins.
       expect(commentsApi.list).not.toHaveBeenCalledWith("req-entity-77");
-      expect(inspectorProbe.last?.entityId).toBe("req-entity-77");
+      // #1762: the tabbed shell receives the two id spaces separately —
+      // `entityId` for version/diff/links, `artifactPk` for comments.
+      expect(inspectorProbe.lastShell?.entityId).toBe("req-entity-77");
+      expect(inspectorProbe.lastShell?.artifactPk).toBe("art-req-77");
     } finally {
       inspectorProbe.renderRealComments = false;
     }
@@ -611,9 +659,11 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
     await userEvent.click(screen.getByTestId("artifact-form-save"));
 
     await waitFor(() => {
-      const alert = screen.getByRole("alert");
-      expect(alert).toBeInTheDocument();
-      expect(alert).toHaveTextContent(fieldErrorText);
+      // #1762: the inspector owns a permanently mounted `role="alert"` live
+      // region (spec §5.3), so the field error is one alert among several.
+      // The assertion is therefore on the message, scoped to an alert node.
+      const message = screen.getByText(fieldErrorText);
+      expect(message.closest('[role="alert"]')).not.toBeNull();
     });
   });
 });

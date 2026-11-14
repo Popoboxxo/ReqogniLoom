@@ -115,22 +115,34 @@ vi.mock("../components/RequirementEditors/RequirementList", () => ({
 }));
 
 vi.mock("../components/SplitView/SplitView", () => ({
+  // #1762 (M1-11): the requirements route uses the concept contract
+  // (`list`/`detail`/`spine`). The stub renders both contracts so the test
+  // keeps working whichever one the route passes.
   SplitView: ({
     leftPanel,
     rightPanel,
+    list,
+    detail,
+    spine,
   }: {
-    leftPanel: React.ReactNode;
-    rightPanel: React.ReactNode;
+    leftPanel?: React.ReactNode;
+    rightPanel?: React.ReactNode;
+    list?: React.ReactNode;
+    detail?: React.ReactNode;
+    spine?: React.ReactNode;
   }) => (
     <div>
-      {leftPanel}
-      {rightPanel}
+      {list ?? leftPanel}
+      {spine}
+      {detail ?? rightPanel}
     </div>
   ),
 }));
 
 vi.mock("../components/shared/ArtifactInspector", () => ({
   RightSidebar: () => null,
+  // #1762 (M1): the requirements route mounts the tabbed shell.
+  InspectorShell: () => null,
 }));
 
 vi.mock("../components/shared/TraceSpine", () => ({

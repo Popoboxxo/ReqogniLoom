@@ -27,6 +27,55 @@ const COLLAPSED_GROUPS = ['admin', 'test'] as const;
 const SCROLL_CONTENT = '[data-testid="sidebar-nav-scroll-content"]';
 
 /**
+ * Wait until the sidebar nav has finished its asynchronous first render.
+ *
+ * WHY THIS EXISTS (measured 2026-11-14 on the #1762 inspector branch): the nav
+ * is populated by two independent async sources — the workspace list (which
+ * mounts the pinned footer switcher) and the permission/preset query that
+ * decides which entries a workspace shows. `waitForSelector` on the scroll
+ * container resolves during the first frame, before either has landed. Sampled
+ * at 1366×768 on the same page, back-to-back:
+ *
+ *   t0      : 28 links, clientHeight 531, scrollHeight 1009, no switcher
+ *   t + 1.5 s: 30 links, clientHeight 500, scrollHeight 1202, switcher mounted
+ *
+ * A `scrollHeight` read taken in the t0 layout is therefore not comparable with
+ * one taken after the nav settled, and that is exactly how this case went red:
+ * the "space is reclaimed" delta came out as 225 px against a 409 px panel
+ * height, because the *baseline* had been measured in the pre-settle layout
+ * (1009 - (1202 - 409) ≈ 216).
+ *
+ * Both conditions are state-based, not a sleep: the switcher is the last pinned
+ * node to mount, and the region counts as settled once five consecutive
+ * animation frames agree on clientHeight, scrollHeight and link count.
+ */
+async function waitForNavSettled(page: Page): Promise<void> {
+  await expect(
+    page.locator('[data-testid="workspace-switcher"]'),
+    'the sidebar footer (workspace switcher) marks the end of the nav\'s first render'
+  ).toHaveCount(1, { timeout: 15000 });
+
+  await page.evaluate(async (selector) => {
+    const el = document.querySelector(selector) as HTMLElement | null;
+    if (!el) throw new Error(`nav scroll container ${selector} is not rendered`);
+    const snapshot = () =>
+      `${el.clientHeight}|${el.scrollHeight}|${el.querySelectorAll('a').length}`;
+    const deadline = performance.now() + 15000;
+    let previous = snapshot();
+    let stableFrames = 0;
+    while (performance.now() < deadline) {
+      // eslint-disable-next-line no-await-in-loop - one frame at a time is the point
+      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+      const current = snapshot();
+      stableFrames = current === previous ? stableFrames + 1 : 0;
+      previous = current;
+      if (stableFrames >= 5) return;
+    }
+    throw new Error(`sidebar nav did not settle within 15s (last sample: ${previous})`);
+  }, SCROLL_CONTENT);
+}
+
+/**
  * Collapse `groupId` unless it is already collapsed.
  *
  * The preference is persisted per user, so a previous (or interrupted) run may
@@ -42,8 +91,64 @@ async function collapseGroup(page: Page, groupId: string): Promise<void> {
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
 }
 
+/**
+ * Read the persisted disclosure state of the groups this case touches.
+ *
+ * WHY (#1762 M1 live run): that preference is stored per user and the nav is
+ * shared by every later spec, so a case that collapses "test" and walks away
+ * leaves `/baselines` hidden behind that collapsed panel. `se-workflow.spec.ts`
+ * asserts exactly that link is visible and went red with
+ *
+ *   locator resolved to <a href="/baselines" …>Baselines</a>
+ *   unexpected value "hidden"
+ *
+ * — in a *different* shard, i.e. the failure had no visible cause in its own
+ * file. Snapshotting here and restoring in the `afterEach` hook below keeps this
+ * case honest about what it changes (it is about the disclosure contract, not
+ * about leaving the user's sidebar folded).
+ */
+async function readDisclosureState(page: Page, groupIds: readonly string[]): Promise<boolean[]> {
+  const state: boolean[] = [];
+  for (const groupId of groupIds) {
+    const toggle = page.locator(`[data-testid="sidebar-group-toggle-${groupId}"]`);
+    state.push((await toggle.getAttribute('aria-expanded')) === 'true');
+  }
+  return state;
+}
+
+/** Click any touched toggle whose `aria-expanded` differs from `wantExpanded`. */
+async function restoreDisclosureState(
+  page: Page,
+  groupIds: readonly string[],
+  wantExpanded: readonly boolean[]
+): Promise<void> {
+  for (const [index, groupId] of groupIds.entries()) {
+    const toggle = page.locator(`[data-testid="sidebar-group-toggle-${groupId}"]`);
+    if ((await toggle.count()) === 0) continue;
+    const expanded = (await toggle.getAttribute('aria-expanded')) === 'true';
+    if (expanded !== wantExpanded[index]) {
+      await toggle.click();
+      await expect(toggle).toHaveAttribute('aria-expanded', String(wantExpanded[index]));
+    }
+  }
+}
+
 test.describe('Sidebar collapsible groups (T-C4-4)', () => {
   test.use({ viewport: { width: 1366, height: 768 } });
+
+  /**
+   * Disclosure state as found by this case, restored after it (see
+   * `readDisclosureState` for why the case must not leave the sidebar folded).
+   * `null` until the test has read it, so a failure before that point does not
+   * try to restore a guess.
+   */
+  let disclosureAsFound: boolean[] | null = null;
+
+  test.afterEach(async ({ page }) => {
+    if (!disclosureAsFound) return;
+    await restoreDisclosureState(page, COLLAPSED_GROUPS, disclosureAsFound);
+    disclosureAsFound = null;
+  });
 
   test('collapsing admin and test reclaims their space at 1366x768 without breaking overview..architecture', async ({
     page,
@@ -55,8 +160,10 @@ test.describe('Sidebar collapsible groups (T-C4-4)', () => {
     // open by the active-route guard, and so the sidebar is actually rendered.
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.waitForSelector(SCROLL_CONTENT, { timeout: 10000 });
+    await waitForNavSettled(page);
 
     const scrollContent = page.locator(SCROLL_CONTENT);
+    disclosureAsFound = await readDisclosureState(page, COLLAPSED_GROUPS);
 
     // The height the two panels occupy while expanded — the amount of scroll
     // length the collapse has to give back. Measured before collapsing,
@@ -78,7 +185,11 @@ test.describe('Sidebar collapsible groups (T-C4-4)', () => {
 
     // Captured with every group open, so the delta below is purely the two
     // collapsed panels.
-    const heightBefore = await scrollContent.evaluate((el) => el.scrollHeight);
+    const before = await scrollContent.evaluate((el) => ({
+      clientH: el.clientHeight,
+      scrollH: el.scrollHeight,
+    }));
+    const heightBefore = before.scrollH;
 
     for (const groupId of COLLAPSED_GROUPS) {
       await collapseGroup(page, groupId);
@@ -101,7 +212,19 @@ test.describe('Sidebar collapsible groups (T-C4-4)', () => {
     //    scrolled past.
     const heightAfter = await scrollContent.evaluate((el) => el.scrollHeight);
     expect(collapsedHeight).toBeGreaterThan(100);
-    expect(heightBefore - heightAfter).toBeGreaterThanOrEqual(collapsedHeight - 1);
+    // The reclaim can never exceed the overflow the region had before the
+    // collapse: when the nav is shorter than the two panels are tall (a
+    // workspace with few entries, or a taller viewport), the region stops
+    // overflowing at some point and `scrollHeight` floors at `clientHeight`.
+    // Both outcomes mean "the space is reclaimed"; only a delta of zero — or a
+    // region that grew — would break the contract this case pins.
+    const overflowBefore = Math.max(0, heightBefore - before.clientH);
+    expect(
+      heightBefore - heightAfter,
+      `collapsing ${COLLAPSED_GROUPS.join('+')} must shorten the nav region ` +
+        `(panels ${collapsedHeight}px, region overflow before ${overflowBefore}px, ` +
+        `scrollHeight ${heightBefore} -> ${heightAfter})`
+    ).toBeGreaterThanOrEqual(Math.min(collapsedHeight, overflowBefore) - 1);
 
     // 3. Nothing above the collapsed groups was clipped or dropped: every link
     //    of overview..architecture is still rendered and reachable, and the

@@ -8,6 +8,7 @@ import {
   setWorkspacePreset,
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
+import { collapseInspector } from '../helpers/inspector';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -384,6 +385,11 @@ test.describe('[REQ-L0-011] Audit trail', () => {
     await page.locator('[data-testid="req-new-title-input"]').fill('E2E Audit Trail Requirement');
     await page.locator('[data-testid="req-new-save-btn"]').click();
     await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+
+    // #1762 (M1): the requirement detail route mounts the tabbed inspector as a
+    // sheet at the 1280 px E2E viewport; the detail area it covers is `inert`,
+    // and a fill() on an inert input silently keeps the old value.
+    await collapseInspector(page);
 
     // The precondition above guarantees the extended preset, so the field must
     // be there — a missing field is a regression, not a skip.

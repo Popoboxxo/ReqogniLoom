@@ -206,7 +206,10 @@
 .skeletonChip {
   display: inline-block;
   width: 80px;
-  height: 22px;
+  /* #1762 / spec §8.3: a chip-shaped pseudo-element still reads through the
+     button token scale — the 22px literal was the one exemption this PR
+     removes from the design-system baseline. */
+  height: var(--btn-h-sm);
   border-radius: var(--radius-full);
   background: var(--color-border);
   opacity: 0.6;
@@ -224,4 +227,26 @@
   border-radius: var(--radius-md);
   background: var(--color-border);
   opacity: 0.6;
+}
+
+/*
+ * Spec §2.3 rule 1 — the derivation/verification summary of the Links tab.
+ * One line, one count, one jump; never a second list of the same links.
+ */
+.summaryRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-3);
+  background: var(--color-surface);
+  border: var(--control-border-width) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.summaryText {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
 }

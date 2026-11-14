@@ -8,6 +8,7 @@
 
 import type { Page, Locator } from '@playwright/test';
 import { expect } from '@playwright/test';
+import { collapseInspector } from '../helpers/inspector';
 
 export const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 export const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -80,9 +81,16 @@ export async function createRequirementViaUI(
   if (!match) throw new Error(`expected /requirements/:id URL, got: ${url}`);
   const id = match[1];
 
+  // #1762 (M1): the requirement detail route mounts the tabbed artifact
+  // inspector as a sheet at the 1280 px E2E viewport, and the detail area it
+  // covers is `inert` (spec §4.2). Everything below (description, category,
+  // change reason, save) lives in that area: without this the clicks are
+  // intercepted and `fill()` silently keeps the previous value.
+  await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 8000 });
+  await collapseInspector(page);
+
   // Optional: Description/Category im Detail-Editor ergänzen
   if (data.description) {
-    await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 8000 });
     const descArea = descriptionEditor(page);
     if (await descArea.count() > 0) {
       await descArea.fill(data.description);
@@ -127,6 +135,14 @@ export async function createRequirementViaUI(
  * unrelated to and not fixed by this Requirement-form migration.
  */
 async function saveRequirementDetail(page: Page, reason: string): Promise<void> {
+  // #1762 (M1): at the 1280×720 E2E viewport the tabbed inspector opens as a
+  // *sheet* over the detail pane and makes that pane `inert` (WCAG 2.2
+  // SC 2.4.11). Inert is not a visual state, so `isVisible()` below stayed
+  // true — and `fill()` on the change-reason input then waited out the whole
+  // 120 s test timeout ("waiting for element to be visible, enabled and
+  // editable") instead of failing on the real cause. Collapse to the rail
+  // first; the helper is idempotent and a no-op on wide viewports.
+  await collapseInspector(page);
   const reasonInput = page.locator('[data-testid="artifact-form-change-reason"]');
   if (await reasonInput.isVisible({ timeout: 2000 }).catch(() => false)) {
     await reasonInput.fill(reason);
@@ -196,6 +212,9 @@ export async function createTraceLinkViaUI(
 ): Promise<void> {
   await page.goto(`${FRONTEND_URL}/requirements/${sourceReqId}`);
   await page.locator('[data-testid="artifact-field-title"]').waitFor({ timeout: 12000 });
+  // #1762 (M1): the trace-link panel is inside the detail area the inspector's
+  // sheet makes `inert` at the 1280 px E2E viewport.
+  await collapseInspector(page);
   const panel = page.locator('[data-testid="req-tracelink-panel"]');
   await expect(panel).toBeVisible({ timeout: 8000 });
   // Issue #926: requirements now use the unified CreateTraceLinkDialog

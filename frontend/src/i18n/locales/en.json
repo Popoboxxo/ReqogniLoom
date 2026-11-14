@@ -2243,7 +2243,58 @@
       "unpin": "Unpin sidebar",
       "refresh": "Refresh",
       "skeletonLoading": "Loading inspector...",
-      "resize": "Resize inspector"
+      "resize": "Resize inspector",
+      "close": "Close inspector",
+      "widthValue": "{{width}} pixels wide",
+      "skipLink": "Jump to the inspector",
+      "linksSummary": "{{count}} derivation and verification links — in the spine",
+      "tab": {
+        "links": "Links"
+      },
+      "railCount": "{{tab}}, {{open}} open",
+      "count": {
+        "open": "open: {{n}}"
+      },
+      "action": {
+        "showInSpine": "Show in spine"
+      },
+      "empty": {
+        "linksOther": "No other links.",
+        "linksAll": "No links."
+      },
+      "partial": {
+        "noSnapshot": "No stored snapshot for this version."
+      },
+      "composer": {
+        "submitting": "Sending …"
+      },
+      "diffPair": {
+        "versions": "Comparison v{{from}} → v{{to}}",
+        "pending": "Comparison is being prepared"
+      },
+      "error": {
+        "version": "{{panel}} could not be loaded. Try again.",
+        "diff": "{{panel}} could not be loaded. Try again.",
+        "links": "{{panel}} could not be loaded. Try again.",
+        "comments": "{{panel}} could not be loaded. Try again."
+      },
+      "live": {
+        "tabChanged": "{{tab}} section, {{count}} items.",
+        "versionLoaded": "{{count}} versions loaded.",
+        "diffLoaded": "Comparison {{from}} to {{to}} loaded, {{n}} changed fields.",
+        "linksLoaded": "{{count}} links loaded, {{derived}} shown in the spine.",
+        "commentsLoaded": "{{count}} comments, {{open}} open.",
+        "baselineSelected": "Baseline {{name}} selected.",
+        "linkCreated": "Link created: {{type}} {{id}}.",
+        "linkDeleted": "Link {{type}} {{id}} deleted.",
+        "commentCreated": "Comment created.",
+        "commentResolved": "Comment marked as resolved.",
+        "commentDeleted": "Comment deleted.",
+        "retrySucceeded": "{{panel}} loaded.",
+        "retryFailed": "{{panel}} still unavailable.",
+        "fullscreenOpened": "Inspector opened full screen. Back in the page header.",
+        "resized": "Inspector {{width}} pixels wide."
+      }
     },
     "version": {
       "title": "Version",

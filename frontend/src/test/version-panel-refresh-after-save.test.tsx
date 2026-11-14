@@ -305,6 +305,18 @@ beforeEach(() => {
 });
 
 describe("VersionPanel refresh after save (#1256)", () => {
+  // #1762 (M1-4): the inspector starts as a 40 px rail below 1280 px
+  // (spec §4.2), so the requirement route no longer mounts the version panel
+  // at jsdom's default 1024 px viewport. The regression this file pins needs
+  // the panel visible — a desktop viewport is the honest setup for it.
+  beforeEach(() => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      writable: true,
+      value: 1440,
+    });
+  });
+
   it("Requirement: shows the new version row after a successful save", async () => {
     let versionList: ArtifactVersion[] = [V1];
     vi.mocked(requirementsApi.versions).mockImplementation(async () => versionList);

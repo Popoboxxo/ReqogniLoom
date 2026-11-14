@@ -3,6 +3,7 @@
 // memory REST API.
 import { test, expect, type Page } from '@playwright/test';
 import { loginAsAdmin, setWorkspaceId, SEEDED_WORKSPACE_ID } from '../helpers/auth';
+import { collapseInspector } from '../helpers/inspector';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -11,6 +12,10 @@ async function createRequirementViaQuickForm(page: Page, title: string): Promise
   await page.locator('[data-testid="req-new-title-input"]').fill(title);
   await page.locator('[data-testid="req-new-save-btn"]').click();
   await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+  // #1762 (M1): the artifact memory panel lives inside the detail area, which
+  // the inspector's sheet covers (and `inert`s) at the 1280 px E2E viewport.
+  // Collapse it first — otherwise the panel's "add" button is unreachable.
+  await collapseInspector(page);
 }
 
 test.describe('[RFC #1002] Workspace memory page (Gedächtnis)', () => {

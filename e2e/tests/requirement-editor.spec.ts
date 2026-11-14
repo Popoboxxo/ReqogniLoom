@@ -7,6 +7,7 @@ import {
   setWorkspaceId,
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
+import { collapseInspector } from '../helpers/inspector';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
@@ -22,6 +23,11 @@ async function createRequirementViaQuickForm(page: Page, title = 'E2E Requiremen
   await page.locator('[data-testid="req-new-title-input"]').fill(title);
   await page.locator('[data-testid="req-new-save-btn"]').click();
   await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+  // #1762 (M1): the artifact inspector mounts as a sheet at the 1280 px E2E
+  // viewport and marks the detail area it covers `inert` (spec §4.2). Every
+  // editor interaction below happens in that area; without this the clicks are
+  // intercepted and `fill()` silently keeps the old value.
+  await collapseInspector(page);
 }
 
 test.describe('[COMP-RF-003] RequirementEditors', () => {
@@ -247,69 +253,46 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
   });
 
   // -------------------------------------------------------------------------
-  // REQ-L1-040 — Resizable split-pane divider (analog ArchitectureEditors)
+  // REQ-L1-040 — split layout of the requirements route
+  //
+  // Until #1762/M1 this route used SplitView's *legacy* contract, so these two
+  // tests drove its drag divider (drag / keyboard / hover styling). The
+  // approved M1 contract moves the route to the *concept* contract
+  // (`list`/`detail`/`spine`, fixed 40:60 ratio, no divider) and the change is
+  // documented as an accepted gap: "the requirements route no longer has a drag
+  // divider because the approved contract has none (REQ-L1-040 needs a
+  // decision)".
+  //
+  // The drag/styling assertions are therefore replaced by a guard on the
+  // contract that is in force: the three zones exist, the divider does not come
+  // back, and the list keeps its own scroll surface. Legacy-contract drag
+  // behaviour stays covered by the SplitView unit tests; the E2E drag coverage
+  // went away with the route that used it (reported with the M1 test findings).
   // -------------------------------------------------------------------------
-  test('[REQ-L1-040] split-pane divider is draggable and resizes panels', async ({ page }) => {
-    await page.goto(`${FRONTEND_URL}/requirements`);
-
-    // Create a requirement so the detail panel is shown
-    await createRequirementViaQuickForm(page);
-
-    // Verify divider exists
-    const divider = page.locator('[data-testid="splitview-divider"]');
-    await expect(divider).toBeVisible();
-
-    // Get initial width of left panel. The left panel has no dedicated
-    // testid; it's the divider's immediate previous sibling (a `div`
-    // filter matches every ancestor of create-req-btn too, and `.first()`
-    // picks the outermost one — not the actual resizing flex panel).
-    const leftPanel = divider.locator('xpath=preceding-sibling::div[1]');
-    const initialWidth = await leftPanel.evaluate((el) => window.getComputedStyle(el).width);
-
-    // Drag divider 100px to the right. The seeded workspace accumulates
-    // requirements across test runs, so the left panel's content (and thus
-    // the full-height divider) can grow taller than the viewport; raw
-    // page.mouse calls don't auto-scroll like locator actions do, so target
-    // a point near the top of the box, which is always on-screen.
-    const dividerBox = await divider.boundingBox();
-    if (!dividerBox) throw new Error('Divider bounding box not found');
-    const dragY = dividerBox.y + Math.min(20, dividerBox.height / 2);
-
-    await page.mouse.move(dividerBox.x + dividerBox.width / 2, dragY);
-    await page.mouse.down();
-    await page.mouse.move(dividerBox.x + dividerBox.width / 2 + 100, dragY);
-    await page.mouse.up();
-
-    // Get new width of left panel (should be wider)
-    const newWidth = await leftPanel.evaluate((el) => window.getComputedStyle(el).width);
-
-    // Verify left panel got wider
-    const initialPx = parseInt(initialWidth);
-    const newPx = parseInt(newWidth);
-    expect(newPx).toBeGreaterThan(initialPx);
-  });
-
-  test('[REQ-L1-040] split-pane divider has correct styling and hover effect', async ({ page }) => {
+  test('[REQ-L1-040] requirements route renders list, spine and detail without a drag divider', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await createRequirementViaQuickForm(page);
 
-    const divider = page.locator('[data-testid="splitview-divider"]');
+    const list = page.getByTestId('splitview-list');
+    const spine = page.getByTestId('splitview-spine');
+    const detail = page.getByTestId('splitview-detail');
 
-    // Verify divider styling
-    // C9/#1406: 24px hitbox (WCAG 2.2 SC 2.5.8), 2px visual center line.
-    const width = await divider.evaluate((el) => window.getComputedStyle(el).width);
-    const cursor = await divider.evaluate((el) => window.getComputedStyle(el).cursor);
-    expect(width).toBe('24px');
-    expect(cursor).toBe('col-resize');
+    await expect(list).toBeVisible();
+    await expect(spine).toBeVisible();
+    await expect(detail).toBeVisible();
+    // The detail zone is the requirement form — the reason the split exists.
+    await expect(detail.locator('[data-testid="artifact-field-title"]')).toBeVisible();
 
-    // Verify hover effect changes background
-    const initialBg = await divider.evaluate((el) => window.getComputedStyle(el).backgroundColor);
-    await divider.hover();
-    const hoveredBg = await divider.evaluate((el) => window.getComputedStyle(el).backgroundColor);
-    // Background should change on hover (either different value or transition)
-    // Note: exact color depends on CSS tokens, just verify it's interactive
-    expect(initialBg).toBeTruthy();
-    expect(hoveredBg).toBeTruthy();
+    // Fixed ratio, no separator: nothing to drag and nothing that may claim
+    // `role="separator"` inside this split again.
+    await expect(page.locator('[data-testid="splitview-divider"]')).toHaveCount(0);
+
+    // The list stays its own scroll surface with scroll chaining contained
+    // (UI_KONZEPT ch. 7.1) — the property the drag divider used to be tested
+    // for is a property of the pane, not of the divider.
+    await expect
+      .poll(async () => list.evaluate((el) => window.getComputedStyle(el).overscrollBehaviorY))
+      .toBe('contain');
   });
 
   // -------------------------------------------------------------------------

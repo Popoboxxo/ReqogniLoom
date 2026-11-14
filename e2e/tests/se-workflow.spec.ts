@@ -8,6 +8,7 @@ import {
   createIsolatedWorkspace,
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
+import { collapseInspector } from '../helpers/inspector';
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -19,6 +20,12 @@ async function createRequirementViaQuickForm(page: Page, title = 'E2E Requiremen
   await page.locator('[data-testid="req-new-title-input"]').fill(title);
   await page.locator('[data-testid="req-new-save-btn"]').click();
   await expect(page.locator('[data-testid="artifact-field-title"]')).toBeVisible({ timeout: 10000 });
+  // #1762 (M1): only the *requirements* route mounts the tabbed inspector; the
+  // architecture helper below deliberately does not collapse anything (that
+  // route still uses the stacked RightSidebar). At the 1280 px E2E viewport the
+  // inspector is a sheet and the detail area is `inert`, so it is collapsed
+  // before the form is driven.
+  await collapseInspector(page);
 }
 
 async function createArchElementViaQuickForm(page: Page, title = 'E2E Arch Element'): Promise<void> {

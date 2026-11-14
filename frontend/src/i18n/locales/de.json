@@ -2243,7 +2243,58 @@
       "unpin": "Seitenleiste lösen",
       "refresh": "Aktualisieren",
       "skeletonLoading": "Lade Inspektor...",
-      "resize": "Inspektor skalieren"
+      "resize": "Inspektor skalieren",
+      "close": "Inspektor schließen",
+      "widthValue": "{{width}} Pixel breit",
+      "skipLink": "Direkt zum Inspektor",
+      "linksSummary": "{{count}} Ableitungs- und Verifikationslinks — in der Spine",
+      "tab": {
+        "links": "Links"
+      },
+      "railCount": "{{tab}}, {{open}} offen",
+      "count": {
+        "open": "offen: {{n}}"
+      },
+      "action": {
+        "showInSpine": "In der Spine anzeigen"
+      },
+      "empty": {
+        "linksOther": "Keine weiteren Verknüpfungen.",
+        "linksAll": "Keine Verknüpfungen."
+      },
+      "partial": {
+        "noSnapshot": "Kein gespeicherter Schnappschuss für diese Version."
+      },
+      "composer": {
+        "submitting": "Wird gesendet …"
+      },
+      "diffPair": {
+        "versions": "Vergleich v{{from}} → v{{to}}",
+        "pending": "Vergleich wird vorbereitet"
+      },
+      "error": {
+        "version": "{{panel}} konnte nicht geladen werden. Erneut versuchen.",
+        "diff": "{{panel}} konnte nicht geladen werden. Erneut versuchen.",
+        "links": "{{panel}} konnte nicht geladen werden. Erneut versuchen.",
+        "comments": "{{panel}} konnte nicht geladen werden. Erneut versuchen."
+      },
+      "live": {
+        "tabChanged": "Bereich {{tab}}, {{count}} Einträge.",
+        "versionLoaded": "{{count}} Versionen geladen.",
+        "diffLoaded": "Vergleich {{from}} bis {{to}} geladen, {{n}} geänderte Felder.",
+        "linksLoaded": "{{count}} Verknüpfungen geladen, davon {{derived}} in der Spine.",
+        "commentsLoaded": "{{count}} Kommentare, {{open}} offen.",
+        "baselineSelected": "Basis {{name}} gewählt.",
+        "linkCreated": "Verknüpfung erstellt: {{type}} {{id}}.",
+        "linkDeleted": "Verknüpfung {{type}} {{id}} gelöscht.",
+        "commentCreated": "Kommentar erstellt.",
+        "commentResolved": "Kommentar als erledigt markiert.",
+        "commentDeleted": "Kommentar gelöscht.",
+        "retrySucceeded": "{{panel}} geladen.",
+        "retryFailed": "{{panel}} weiterhin nicht verfügbar.",
+        "fullscreenOpened": "Inspektor im Vollbild geöffnet. Zurück im Kopf der Seite.",
+        "resized": "Inspektor {{width}} Pixel breit."
+      }
     },
     "version": {
       "title": "Version",
