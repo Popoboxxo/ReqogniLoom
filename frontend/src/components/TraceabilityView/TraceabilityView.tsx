@@ -56,6 +56,7 @@ import {
   getLinkTypeLabel,
 } from "../../constants/traceLinkLabels";
 import { CreateTraceLinkDialog } from "../shared/CreateTraceLinkDialog";
+import { LevelBadge } from "../shared/LevelBadge";
 import { SplitView } from "../SplitView/SplitView";
 import { PageHeader } from "../shared/PageHeader";
 import { ListToolbar } from "../shared/ListToolbar";
@@ -120,6 +121,17 @@ const INITIAL_STATE: TraceabilityState = {
 /** Artifact type of a requirement endpoint, as reported by the backend. */
 const REQUIREMENT_ARTIFACT_TYPE = "Requirement";
 
+/**
+ * V6 (triage 2026-11-10): the V-Modell level of one requirement, as far as the
+ * trace view needs it. Keyed by the **backing Artifact id** — the same id space
+ * as `titles`/`types`/`verifiedIds`, because a `TraceLink` endpoint is an
+ * `Artifact.id`, never the entity id.
+ */
+interface RequirementLevelInfo {
+  level: number | null;
+  tierName: string | null;
+}
+
 // Canonical link_type order (REQ-L2-RF-006 — predictable section order).
 // Sourced from the shared label map, which now only covers the eight
 // built-in link types (Task 23) — the per-workspace catalog is the source
@@ -157,6 +169,7 @@ function EndpointCell({
   types,
   entityIds,
   verifiedIds,
+  levels,
   testId,
   coveredLabel,
   uncoveredLabel,
@@ -167,6 +180,8 @@ function EndpointCell({
   types: Record<UUID, string>;
   entityIds: Record<UUID, UUID>;
   verifiedIds: ReadonlySet<UUID>;
+  /** V6: requirement levels keyed by backing Artifact id (the endpoint id space). */
+  levels: Record<UUID, RequirementLevelInfo>;
   testId: string;
   coveredLabel: string;
   uncoveredLabel: string;
@@ -180,12 +195,26 @@ function EndpointCell({
   const isRequirement = artifactType === REQUIREMENT_ARTIFACT_TYPE;
   const isVerified = verifiedIds.has(endpoint.id);
   const entityId = entityIds[endpoint.id];
+  const levelInfo = isRequirement ? levels[endpoint.id] : undefined;
 
   const content = (
     <>
       {artifactType && (
         <span data-testid={`${testId}-type`} className={styles.endpointType}>
           {artifactType}
+        </span>
+      )}
+      {/* V6 (triage 2026-11-10): the V-Modell level is readable in the
+          requirement list only; the trace row now carries the same neutral
+          badge. Data source is the requirement response already loaded for
+          the coverage surface — no extra request. */}
+      {levelInfo && (
+        <span className={styles.endpointLevel}>
+          <LevelBadge
+            level={levelInfo.level}
+            title={levelInfo.tierName ?? undefined}
+            testId={`${testId}-level`}
+          />
         </span>
       )}
       {/* GESAMTTEST_BERICHT_2026-08-21.md §6/§10.2 "Traceability: target-
@@ -551,6 +580,7 @@ function TraceLinkItem({
   types,
   entityIds,
   verifiedIds,
+  levels,
   coveredLabel,
   uncoveredLabel,
   onOpen,
@@ -560,6 +590,8 @@ function TraceLinkItem({
   types: Record<UUID, string>;
   entityIds: Record<UUID, UUID>;
   verifiedIds: ReadonlySet<UUID>;
+  /** V6: requirement levels keyed by backing Artifact id. */
+  levels: Record<UUID, RequirementLevelInfo>;
   coveredLabel: string;
   uncoveredLabel: string;
   onOpen: (artifactType: string, entityId: UUID) => void;
@@ -577,6 +609,7 @@ function TraceLinkItem({
         types={types}
         entityIds={entityIds}
         verifiedIds={verifiedIds}
+        levels={levels}
         testId="tracelink-source"
         coveredLabel={coveredLabel}
         uncoveredLabel={uncoveredLabel}
@@ -600,6 +633,7 @@ function TraceLinkItem({
         types={types}
         entityIds={entityIds}
         verifiedIds={verifiedIds}
+        levels={levels}
         testId="tracelink-target"
         coveredLabel={coveredLabel}
         uncoveredLabel={uncoveredLabel}
@@ -617,6 +651,7 @@ function LinkTypeGroupSection({
   types,
   entityIds,
   verifiedIds,
+  levels,
   coveredLabel,
   uncoveredLabel,
   onOpen,
@@ -627,6 +662,8 @@ function LinkTypeGroupSection({
   types: Record<UUID, string>;
   entityIds: Record<UUID, UUID>;
   verifiedIds: ReadonlySet<UUID>;
+  /** V6: requirement levels keyed by backing Artifact id. */
+  levels: Record<UUID, RequirementLevelInfo>;
   coveredLabel: string;
   uncoveredLabel: string;
   onOpen: (artifactType: string, entityId: UUID) => void;
@@ -654,6 +691,7 @@ function LinkTypeGroupSection({
             types={types}
             entityIds={entityIds}
             verifiedIds={verifiedIds}
+            levels={levels}
             coveredLabel={coveredLabel}
             uncoveredLabel={uncoveredLabel}
             onOpen={onOpen}
@@ -857,6 +895,23 @@ export default function TraceabilityView(): JSX.Element {
   const coveredLabel = t("traceability.verified", "verifiziert");
   const uncoveredLabel = t("traceability.notVerified", "kein Test");
 
+  // V6 (triage 2026-11-10): level map for the requirement endpoints of the
+  // trace rows. Keyed by the backing Artifact id — the endpoint id space — and
+  // fed by the requirement response the coverage surface already loads, so the
+  // badge costs no extra request. Rows without a resolved level (derived but
+  // still `null`, ADR-005) are omitted rather than rendered as an empty chip.
+  const requirementLevels = useMemo(() => {
+    const map: Record<UUID, RequirementLevelInfo> = {};
+    for (const requirement of state.requirements) {
+      if (requirement.level == null && !requirement.tier_name) continue;
+      map[requirement.artifact_id ?? requirement.id] = {
+        level: requirement.level ?? null,
+        tierName: requirement.tier_name ?? null,
+      };
+    }
+    return map;
+  }, [state.requirements]);
+
   // #184: hand off to the canonical `/impact` route instead of duplicating
   // the reachability computation/rendering inline. Pre-resolves the preset
   // from data already loaded here (titles + artifacts), so ImpactView can
@@ -1002,6 +1057,7 @@ export default function TraceabilityView(): JSX.Element {
               types={state.types}
               entityIds={state.entityIds}
               verifiedIds={verifiedIds}
+              levels={requirementLevels}
               coveredLabel={coveredLabel}
               uncoveredLabel={uncoveredLabel}
               onOpen={handleOpenEndpoint}

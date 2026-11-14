@@ -263,6 +263,17 @@
   white-space: nowrap;
 }
 
+/**
+ * V6: the level badge of a requirement endpoint. Layout-only wrapper — the
+ * chip itself is the shared `<LevelBadge>` (neutral, single implementation).
+ * `flex: 0 0 auto` keeps it from being squeezed by `.endpointTitle`'s ellipsis.
+ */
+.endpointLevel {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
 .endpointId {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);

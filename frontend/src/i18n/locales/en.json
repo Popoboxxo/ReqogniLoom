@@ -440,6 +440,7 @@
     "searchPlaceholder": "Search by title or ID...",
     "allCategories": "All categories",
     "allStatuses": "All statuses",
+    "allLevels": "All levels",
     "allAllocations": "All allocations",
     "allocated": "Allocated",
     "unallocated": "Not allocated",
