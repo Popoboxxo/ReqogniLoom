@@ -53,10 +53,22 @@
 }
 
 /* Sheet and full-screen do not take flow width: the sheet is an overlay over
-   the detail area, the full-screen surface replaces it. */
-.shell[data-inspector-form="sheet"],
+   the detail area, the full-screen surface replaces it. The sheet anchors to
+   the positioned detail pane itself (width 0 left it behind the pane in the
+   stacking order, so its header could not be clicked, #1762 M1 E2E). */
+.shell[data-inspector-form="sheet"] {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  width: min(var(--inspector-width, var(--inspector-w-default)), 100%);
+  border-left: var(--control-border-width) solid var(--color-text-muted);
+  box-shadow: var(--shadow-card);
+}
+
 .shell[data-inspector-form="fullscreen"] {
-  width: 0;
+  width: auto;
   border-left: none;
 }
 
