@@ -22,7 +22,7 @@
 import React, { useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { X } from 'lucide-react';
+import { X, Layers } from 'lucide-react';
 import { usePersistedListState } from '../../hooks/usePersistedListState';
 import { useHasRole } from '../../hooks/useHasRole';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -272,11 +272,13 @@ interface RequirementListProps {
     afterId: string | null | undefined,
   ) => Promise<void>;
   /**
-   * P6 Task 6.3: the group administration panel (create group, add/remove
-   * members). Rendered above the tree as an optional slot so this list stays
-   * free of group API state; omitted by every pre-P6 caller.
+   * P6 Task 6.3 / G1: opens the group administration (create group, add/remove
+   * members). The dialog itself is rendered at *page* level by the container —
+   * never inside this panel, whose SplitView column clips overflow — so the
+   * list only contributes the toolbar trigger. Omitted by a caller that has no
+   * group management; a viewer gets no trigger because the container omits it.
    */
-  groupPanel?: React.ReactNode;
+  onManageGroups?: () => void;
   /**
    * #1668: server-side allocation filter, owned by the container because it
    * drives the list query (`?allocated=`). Rendered here so it sits next to
@@ -308,7 +310,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
   onReorder,
   groups,
   onReorderGroupMember,
-  groupPanel,
+  onManageGroups,
   allocation,
   onAllocationChange,
   level,
@@ -469,10 +471,44 @@ export const RequirementList: React.FC<RequirementListProps> = ({
     onLevelChange('all');
   };
 
+  // G1 (spec §4.1/§4.2): the group administration is no longer a permanently
+  // mounted box above the tree — it moved into a dialog rendered by the page,
+  // and the toolbar keeps one trigger for it. `ListToolbar` must not receive an
+  // empty actions slot (it would render an empty wrapper div), so the slot is
+  // only built when it has content.
+  const showUnallocatedCount = allocation === 'unallocated';
+  const toolbarActions =
+    onManageGroups || showUnallocatedCount ? (
+      <>
+        {onManageGroups && (
+          <button
+            type="button"
+            className="btn-ghost"
+            data-testid="req-list-groups-btn"
+            aria-haspopup="dialog"
+            onClick={onManageGroups}
+          >
+            <Layers aria-hidden="true" size={14} />
+            {t('groups.manage')}
+          </button>
+        )}
+        {showUnallocatedCount && (
+          // #1668: the list is already server-filtered to the unallocated
+          // rows, so its length *is* the gap count. Visible only while that
+          // filter is active — a permanent "N unallocated" badge on an
+          // unfiltered list would be a number without a scope.
+          <span
+            data-testid="req-list-unallocated-count"
+            className={styles.unallocatedCount}
+          >
+            {t('editor.unallocatedCount', { count: requirements.length })}
+          </span>
+        )}
+      </>
+    ) : undefined;
+
   return (
     <div>
-      {groupPanel}
-
       <ListToolbar
         testIdPrefix="req-list"
         searchValue={listSearch}
@@ -527,20 +563,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
         ]}
         onSortChange={(value) => setSortKey(value as ReqSortKey)}
         sortLabel={t('editor.sortLabel')}
-        actions={
-          allocation === 'unallocated' ? (
-            // #1668: the list is already server-filtered to the unallocated
-            // rows, so its length *is* the gap count. Visible only while that
-            // filter is active — a permanent "N unallocated" badge on an
-            // unfiltered list would be a number without a scope.
-            <span
-              data-testid="req-list-unallocated-count"
-              className={styles.unallocatedCount}
-            >
-              {t('editor.unallocatedCount', { count: requirements.length })}
-            </span>
-          ) : undefined
-        }
+        actions={toolbarActions}
         countLabel={
           hasActiveListControls
             ? t('editor.filteredCount', {

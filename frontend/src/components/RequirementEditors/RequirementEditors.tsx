@@ -133,11 +133,15 @@ export default function RequirementEditors(): JSX.Element {
   // P6 Task 6.3: visual groups. Loaded here (not in RequirementList) so the
   // list itself stays free of group API state and its focused unit tests keep
   // rendering without mocks; viewers get the read-only pseudo-folders, editors
-  // additionally get the manager panel below.
+  // additionally get the manager dialog.
   const requirementGroups = useRequirementGroups(
     activeWorkspace?.id ?? null,
     requirements,
   );
+  // G1 (spec §4.1/§4.5.1): the group administration is a dialog now, not a
+  // permanently mounted box. Closed by default — in the idle state nothing of
+  // the manager is in the DOM, so the tree starts directly under the toolbar.
+  const [isGroupManagerOpen, setIsGroupManagerOpen] = useState(false);
 
   /**
    * P1 Task 1.7: the tree addresses nodes by Requirement id, the move route by
@@ -650,22 +654,14 @@ export default function RequirementEditors(): JSX.Element {
         // V6: server-side level filter (drives the list query, `?level=`).
         level={level}
         onLevelChange={setLevel}
-        // P6 Task 6.3: groups as pseudo-folders in the requirement tree, plus
-        // the admin panel for editors. Viewers only get the read-only view.
+        // P6 Task 6.3: groups as pseudo-folders in the requirement tree. Group
+        // administration sits behind `req-list-groups-btn` (G1) — only an
+        // editor gets the trigger, and the dialog it opens lives at page level
+        // so the list column keeps its full height and width.
         groups={requirementGroups.treeGroups}
         onReorderGroupMember={requirementGroups.reorderMember}
-        groupPanel={
-          hasRole('editor') ? (
-            <GroupManager
-              groups={requirementGroups.managerGroups}
-              requirements={requirements}
-              isLoading={requirementGroups.isLoading}
-              error={requirementGroups.error}
-              onCreate={requirementGroups.createGroup}
-              onAddMember={requirementGroups.addMember}
-              onRemoveMember={requirementGroups.removeMember}
-            />
-          ) : undefined
+        onManageGroups={
+          hasRole('editor') ? () => setIsGroupManagerOpen(true) : undefined
         }
         onCreateNew={openCreateForm}
       />
@@ -867,6 +863,30 @@ export default function RequirementEditors(): JSX.Element {
           onDiscard={closeAiDeriveDialog}
           testIdPrefix="req-derive-drafts"
         />
+      )}
+      {/* G1 (spec §4.2/§4.5.1): group administration as a dialog, rendered on
+          purpose at PAGE level — inside `leftPanel` the SplitView column's
+          `overflow` would clip it. `GroupManager` itself is unchanged: same
+          API, same testids, same per-group search. The shared <Dialog> brings
+          the focus trap, Escape and the focus return to the toolbar trigger. */}
+      {isGroupManagerOpen && hasRole('editor') && (
+        <Dialog
+          title={t('groups.title')}
+          description={t('groups.dialogHint')}
+          size="lg"
+          testId="group-manager-dialog"
+          onClose={() => setIsGroupManagerOpen(false)}
+        >
+          <GroupManager
+            groups={requirementGroups.managerGroups}
+            requirements={requirements}
+            isLoading={requirementGroups.isLoading}
+            error={requirementGroups.error}
+            onCreate={requirementGroups.createGroup}
+            onAddMember={requirementGroups.addMember}
+            onRemoveMember={requirementGroups.removeMember}
+          />
+        </Dialog>
       )}
       {/* Same page shell as RiskEditors/AdrEditors/IssueEditors: header at
           page level, SplitView filling the rest. */}
