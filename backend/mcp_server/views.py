@@ -25,6 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db import close_old_connections
 from django.http import (
     HttpRequest,
@@ -36,11 +37,19 @@ from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
-from django.core.exceptions import ImproperlyConfigured
-
 from auth_tenancy.errors import AuthenticationFailed
 from auth_tenancy.services.authentication import AuthenticationService
-from mcp_server.protocol_handler import ERROR_CODE_MAP, ERROR_CODES, ProtocolHandler
+from mcp_server.protocol_handler import (
+    ERROR_CODE_MAP,
+    ERROR_CODES,
+    SUPPORTED_PROTOCOL_VERSIONS,
+    ProtocolHandler,
+)
+from mcp_server.sse_pubsub import (
+    delete_session_api_key,
+    get_session_api_key,
+    store_session_api_key,
+)
 from mcp_server.throttling import (
     api_key_from_request,
     check_mcp_ip_rate_limit,
@@ -297,6 +306,16 @@ def _extract_django_headers(request: HttpRequest) -> dict:
     }
 
 
+#: Streamable-HTTP session header (MCP 2025-06-18). ``request.headers`` handles
+#: the HTTP_-prefix canonicalisation, so the literal spelling is enough here.
+_SESSION_HEADER = "Mcp-Session-Id"
+
+
+def _incoming_session_id(request: HttpRequest) -> str:
+    """Return the caller's ``Mcp-Session-Id``, or ``""`` when absent."""
+    return request.headers.get(_SESSION_HEADER, "").strip()
+
+
 def _jsonrpc_request_id(body: bytes) -> object | None:
     """Return the JSON-RPC ``id`` of a request body, or None.
 
@@ -342,12 +361,17 @@ def _apply_cors_headers(request, response, *, methods: str = "POST, GET, OPTIONS
 
 class CorsMixin:
     """Mixin to add CORS headers to MCP responses."""
+
+    #: Verbs advertised on the preflight response. A subclass that answers more
+    #: verbs widens this (see :class:`McpHttpTransportView`).
+    _CORS_METHODS = "POST, GET, OPTIONS"
+
     def options(self, request, *args, **kwargs):
         response = HttpResponse()
         return self._add_cors_headers(request, response)
 
     def _add_cors_headers(self, request, response):
-        return _apply_cors_headers(request, response)
+        return _apply_cors_headers(request, response, methods=self._CORS_METHODS)
 
     def dispatch(self, request, *args, **kwargs):
         response = super().dispatch(request, *args, **kwargs)
@@ -358,8 +382,14 @@ class CorsMixin:
 class McpHttpTransportView(CorsMixin, View):
     """HTTP transport endpoint for MCP JSON-RPC requests.
 
-    Accepts POST application/json with a JSON-RPC 2.0 body.
-    Returns application/json with a JSON-RPC 2.0 response.
+    Accepts POST application/json with a JSON-RPC 2.0 body and answers with an
+    application/json JSON-RPC 2.0 response — or with a single ``message`` SSE
+    event when the caller sends ``Accept: text/event-stream`` (Streamable HTTP,
+    MCP 2025-06-18).
+
+    Streamable HTTP sessions: a successful, credentialed ``initialize`` mints
+    an ``Mcp-Session-Id`` response header; follow-up requests may present it
+    instead of the credential, and ``DELETE`` terminates it.
 
     API key: Authorization: Bearer <key> or X-API-Key header only.
     ``params.api_key`` in the request body is intentionally not accepted
@@ -368,6 +398,9 @@ class McpHttpTransportView(CorsMixin, View):
     query-string keys, and stdio is the only transport without a header
     mechanism to fall back to).
     """
+
+    #: DELETE terminates a Streamable-HTTP session (MCP 2025-06-18).
+    _CORS_METHODS = "POST, GET, DELETE, OPTIONS"
 
     def post(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
         """Handle a single MCP tool call over HTTP."""
@@ -388,8 +421,41 @@ class McpHttpTransportView(CorsMixin, View):
         if rejection is not None:
             return rejection
 
+        # MCP 2025-06-18 (Transports): after initialize, a Streamable-HTTP
+        # client sends the negotiated revision on every request. A value this
+        # server cannot speak is a client bug, not an auth or routing problem —
+        # answer 400 rather than dispatching under a false assumption.
+        declared_version = request.headers.get("MCP-Protocol-Version", "").strip()
+        if declared_version and declared_version not in SUPPORTED_PROTOCOL_VERSIONS:
+            error_body = {
+                "jsonrpc": "2.0",
+                "id": _jsonrpc_request_id(request.body),
+                "error": {
+                    "error_code": "INVALID_REQUEST",
+                    "message": (
+                        f"Unsupported MCP-Protocol-Version '{declared_version}'. "
+                        f"Supported: {', '.join(SUPPORTED_PROTOCOL_VERSIONS)}."
+                    ),
+                },
+            }
+            return HttpResponse(
+                json.dumps(error_body),
+                content_type="application/json",
+                status=400,
+            )
+
         handler = _get_handler()
         headers = _extract_django_headers(request)
+
+        # Streamable HTTP (MCP 2025-06-18): a session id may stand in for the
+        # credential on follow-up requests, exactly as it already does on the
+        # legacy SSE message endpoint. An explicit header always wins, so this
+        # can never downgrade or override a credential the caller did send.
+        session_id = _incoming_session_id(request)
+        if session_id and not headers.get("X-API-Key") and not headers.get("Authorization"):
+            bound_key = get_session_api_key(session_id)
+            if bound_key:
+                headers["X-API-Key"] = bound_key
 
         # R3 (P0-soforthaertung task 12): a JSON-array (batch) body is not a
         # single JSON-RPC frame dict and would crash handle_http_request into
@@ -520,11 +586,91 @@ class McpHttpTransportView(CorsMixin, View):
                 status=500,
             )
 
-        return HttpResponse(
-            body,
-            content_type="application/json",
-            status=http_status,
-        )
+        if self._wants_event_stream(request):
+            http_response = HttpResponse(
+                self._sse_frame(response_frame),
+                content_type="text/event-stream",
+                status=http_status,
+            )
+            http_response["Cache-Control"] = "no-cache"
+        else:
+            http_response = HttpResponse(
+                body,
+                content_type="application/json",
+                status=http_status,
+            )
+        self._attach_session(request, http_response, response_frame, headers)
+        return http_response
+
+    @staticmethod
+    def _wants_event_stream(request: HttpRequest) -> bool:
+        """Return whether the caller asked for the SSE form of the response.
+
+        JSON stays the default: only an explicit ``text/event-stream`` in
+        ``Accept`` selects SSE, so a client sending ``*/*`` is unaffected.
+        """
+        return "text/event-stream" in request.headers.get("Accept", "")
+
+    @staticmethod
+    def _sse_frame(frame: dict) -> str:
+        """Serialise one JSON-RPC frame as a single SSE ``message`` event."""
+        return f"event: message\ndata: {json.dumps(frame)}\n\n"
+
+    def _attach_session(
+        self,
+        request: HttpRequest,
+        response: HttpResponse,
+        frame: dict,
+        headers: dict,
+    ) -> None:
+        """Mint or echo the ``Mcp-Session-Id`` header on *response*.
+
+        A session is minted only on a successful ``initialize`` that carried a
+        credential. An anonymous or failed initialize gets none, so an
+        unauthenticated caller can never obtain a binding to trade in later.
+        """
+        session_id = _incoming_session_id(request)
+        if session_id:
+            response[_SESSION_HEADER] = session_id
+            return
+
+        if "error" in frame:
+            return
+        try:
+            method = json.loads(request.body).get("method")
+        except (ValueError, TypeError, AttributeError):
+            return
+        if method != "initialize":
+            return
+
+        api_key = headers.get("X-API-Key") or ""
+        if not api_key:
+            authorization = headers.get("Authorization", "")
+            if authorization.startswith("Bearer "):
+                api_key = authorization[len("Bearer "):].strip()
+        if not api_key:
+            return
+
+        new_session_id = str(uuid.uuid4())
+        try:
+            store_session_api_key(new_session_id, api_key)
+        except Exception:
+            # A session is an optimisation, not a requirement: the caller can
+            # keep sending its credential header on every request. Failing the
+            # whole initialize over a Redis hiccup would be strictly worse.
+            logger.exception("Failed to store Streamable-HTTP session binding")
+            return
+        response[_SESSION_HEADER] = new_session_id
+
+    def delete(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
+        """Terminate a Streamable-HTTP session (MCP 2025-06-18)."""
+        session_id = _incoming_session_id(request)
+        if not session_id:
+            return HttpResponse(status=400)
+        if get_session_api_key(session_id) is None:
+            return HttpResponse(status=404)
+        delete_session_api_key(session_id)
+        return HttpResponse(status=204)
 
     def get(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
         """Return server info / health check for HTTP GET."""

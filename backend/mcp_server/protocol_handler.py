@@ -42,7 +42,33 @@ logger = logging.getLogger(__name__)
 # Single source of truth for the negotiated MCP protocol revision. Kept as a
 # module-level constant instead of a scattered string literal so a version bump
 # touches exactly one line. See https://modelcontextprotocol.io/specification.
-MCP_PROTOCOL_VERSION = "2024-11-05"
+MCP_PROTOCOL_VERSION = "2025-06-18"
+
+#: Every revision this server can speak, newest first. MCP negotiation is
+#: "echo the client's revision when we support it, otherwise answer with ours"
+#: — a client pinned to 2024-11-05 (spec section 8, risk 1) therefore keeps
+#: working unchanged after the bump.
+SUPPORTED_PROTOCOL_VERSIONS: tuple[str, ...] = (
+    "2025-06-18",
+    "2025-03-26",
+    "2024-11-05",
+)
+
+
+def negotiate_protocol_version(requested: object) -> str:
+    """Return the revision to answer ``initialize`` with.
+
+    Args:
+        requested: ``params.protocolVersion`` exactly as received — any type,
+            since it comes straight off the wire.
+
+    Returns:
+        *requested* when it is a supported revision string, else
+        :data:`MCP_PROTOCOL_VERSION`.
+    """
+    if isinstance(requested, str) and requested in SUPPORTED_PROTOCOL_VERSIONS:
+        return requested
+    return MCP_PROTOCOL_VERSION
 
 # ---------------------------------------------------------------------------
 # Error codes (REQ-L2-MC-011, JSON-RPC 2.0 compliant)
@@ -594,9 +620,13 @@ class ProtocolHandler:
             from reqogniloom.version import get_app_version
 
             response = ErrorFormatter.format_jsonrpc_result(request_id, {
-                "protocolVersion": MCP_PROTOCOL_VERSION,
+                "protocolVersion": negotiate_protocol_version(
+                    params.get("protocolVersion")
+                ),
                 "capabilities": {
-                    "tools": {}
+                    "tools": {},
+                    "resources": {},
+                    "prompts": {},
                 },
                 "serverInfo": {
                     "name": "ReqogniLoom",
@@ -785,6 +815,8 @@ class ProtocolHandler:
 
 __all__ = [
     "ERROR_CODES",
+    "MCP_PROTOCOL_VERSION",
+    "SUPPORTED_PROTOCOL_VERSIONS",
     "ErrorFormatter",
     "HttpTransportAdapter",
     "JsonRpcValidator",
@@ -793,4 +825,5 @@ __all__ = [
     "StdioTransportAdapter",
     "ToolResult",
     "TransportAdapter",
+    "negotiate_protocol_version",
 ]

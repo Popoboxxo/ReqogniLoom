@@ -132,6 +132,18 @@ def get_session_api_key(session_id: str) -> str | None:
         logger.exception(f"Failed to read session api key for {session_id}")
         return None
 
+def delete_session_api_key(session_id: str) -> None:
+    """Drop the API-key binding of *session_id* (Streamable-HTTP DELETE).
+
+    Idempotent and best-effort: a Redis failure is logged, never raised. The
+    binding carries its own TTL, so a missed delete expires on its own — an
+    exception here would turn an optional client courtesy call into a 500.
+    """
+    try:
+        _get_redis_client().delete(_session_auth_key(session_id))
+    except Exception:
+        logger.exception(f"Failed to delete session api key for {session_id}")
+
 def publish_mcp_message(session_id: str, message: dict[str, Any]) -> None:
     """Publish a JSON-RPC message to a specific SSE session.
 
