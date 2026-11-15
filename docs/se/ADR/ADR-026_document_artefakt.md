@@ -189,3 +189,53 @@ F2-Modells.
   Source-Bindung (F5) um die Herkunftsidentität ergänzt.
 - `workspace` ist nicht null. Pfade, die nur ein `artifact` setzen, verlassen sich auf
   den Mixin; ein künftiger `bulk_create`-Pfad müsste die Spalte selbst füllen.
+
+---
+
+## Nachtrag 2026-11-15 — Die Sicht ist bearbeitbar, kein zweites Modell
+
+**Was sich geändert hat.** Die Dokumentensicht wird nicht als eigenes Modell
+`DocumentView` gebaut. Sie ist eine **bearbeitbare Lesesicht auf dem vorhandenen
+`Document`-Artefakt**, gespeist aus dem Markdown-`body` des `Document`
+(Richtung E1(b) aus `docs/plans/2026-11-15-draft-spec-triage.md`, umgesetzt nach
+`docs/superpowers/plans/2026-11-15-document-view-on-document.md`). Damit ist die
+Aussage „die Sicht heißt `DocumentView`" aus dem Kontext (Punkt 3) und aus
+Alternative (c) für die **Implementierung** überholt; sie bleibt als
+Entscheidungsnachweis stehen.
+
+**Kapitel sind Markdown-Überschriften, kein Kapitel-Modell.** Was ein Kapitel
+ist, entscheidet allein `backend/application/markdown_chapters.py`
+(`split_chapters`, `MAX_CHAPTER_LEVEL = 3`): ATX- und Setext-Überschriften des
+`Document.body`; Überschriften in fenced Code-Blöcken zählen nicht, Sprünge über
+die maximale Tiefe bleiben Text. Die Nummerierung (`1`, `1.1`, `1.1.1`) ist
+Anzeige, der Anker ist die stabile Identität. Es gibt **keine**
+Kapitel-Konfiguration (`config`-JSON, `subtree|filter|list`) und **kein** zweites
+Artefakt als Kapitelquelle (Plan O1 = a).
+
+**Kein neues Modell, keine Migration.** Es entstehen weder eine Tabelle
+`pl_document_view` noch ein `DocumentView`-Modell; die RLS-, UID-, Freeze- und
+Soft-Delete-Zusagen dieses ADR (R1–R7, R11) gelten unverändert für `Document`.
+Neu ist ausschließlich ein Lesedienst in Layer 2:
+`application/document_reading_service.py` (`DocumentReadingService.read`) liefert
+das Leseobjekt hinter `GET /api/v1/documents/{id}/view/` und trägt
+`ETag: "<version>"` (R8).
+
+**Schreiben geht ausschließlich über die bestehenden Dienste.** Die Feld-Policy
+`application/document_edit_policy.py` (`resolve_field_permissions`,
+`EDITABLE_FIELDS_V1 = title, description, body, doc_date, custom_fields`) sagt
+nur, *was* erlaubt ist; sie schreibt nichts. Ausgeführt wird über
+`DocumentService.update_document` (ein Feld, `If-Match` stale → `412`) und für
+den Sammelmodus über `application/bulk_update_service.py`
+(`BulkUpdateService.apply`, max. 100 Einträge, eine Transaktion, alles oder
+nichts), erreichbar als `PATCH /api/v1/artifacts/bulk-update/` und MCP
+`artifact.bulk_update` (Werkzeug 297). Die Reihenfolge Syntax → Freeze (`409
+FIELD_FROZEN`) → Optimistic Lock bleibt die von R4/R8; Rechte (`PERMISSION`,
+`REPO_EXTERNAL`) sind einschränkend und werden nicht umgangen (R9, ENT-F5).
+
+**Zustand.** Die Spec `docs/superpowers/specs/2026-11-04-dokumentensicht-neu-design.md`
+bleibt als Ideenquelle stehen; ihr §4.1 (Modell `DocumentView`) ist dort als
+überholt markiert. Anwender- und Integratoren-Kurzreferenz:
+`docs/features/document-reading-view.md`.
+
+**Status dieses ADR:** unverändert `proposed` — der Nachtrag dokumentiert den
+gebauten Zustand, er entscheidet nichts Neues.
