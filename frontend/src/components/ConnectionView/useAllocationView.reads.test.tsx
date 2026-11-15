@@ -315,3 +315,74 @@ describe("useAllocationView — targeted element read (V2/B-3)", () => {
     expect(requirementQuery.kind).toBe("requirement");
   });
 });
+
+describe("useAllocationView — element read error/loading (V2 follow-up)", () => {
+  it("hook_reports_error_when_elements_query_fails", async () => {
+    mockedView.mockImplementation(async (_workspace, query = {}) => {
+      if (query.kind === "element") throw new Error("element read down");
+      return resultForKind(query);
+    });
+
+    const { result } = renderHook(() => useAllocationView(), {
+      wrapper: wrapper(),
+    });
+
+    await waitFor(() =>
+      expect(result.current.elementsError?.message).toBe("element read down")
+    );
+
+    // The requirement read succeeded, so no requirement rows are lost.
+    expect(result.current.requirements).toHaveLength(2);
+    // …but the failure is not swallowed by the aggregate error surface.
+    expect(result.current.error?.message).toBe("element read down");
+  });
+
+  it("elements_loading_is_exposed_separately", async () => {
+    let resolveElements:
+      | ((value: AllocationViewResponse) => void)
+      | undefined;
+    mockedView.mockImplementation(async (_workspace, query = {}) => {
+      if (query.kind === "element") {
+        return new Promise<AllocationViewResponse>((resolve) => {
+          resolveElements = resolve;
+        });
+      }
+      return resultForKind(query);
+    });
+
+    const { result } = renderHook(() => useAllocationView(), {
+      wrapper: wrapper(),
+    });
+
+    // Requirements are in, the element read is still pending.
+    await waitFor(() => expect(result.current.requirements).toHaveLength(2));
+    expect(result.current.elementsLoading).toBe(true);
+    expect(result.current.isLoading).toBe(true);
+
+    resolveElements?.(resultForKind({ kind: "element" }));
+
+    await waitFor(() => expect(result.current.elementsLoading).toBe(false));
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.elements).toHaveLength(2);
+    expect(result.current.elementsError).toBeNull();
+  });
+
+  it("requirements_error_is_unchanged", async () => {
+    mockedView.mockImplementation(async (_workspace, query = {}) => {
+      if (query.kind === "requirement") throw new Error("rows read down");
+      return resultForKind(query);
+    });
+
+    const { result } = renderHook(() => useAllocationView(), {
+      wrapper: wrapper(),
+    });
+
+    await waitFor(() =>
+      expect(result.current.error?.message).toBe("rows read down")
+    );
+    expect(result.current.elementsError).toBeNull();
+    // The element read still delivers its rows.
+    expect(result.current.elements).toHaveLength(2);
+  });
+});
+

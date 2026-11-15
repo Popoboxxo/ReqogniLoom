@@ -268,9 +268,18 @@ export interface UseAllocationViewResult {
     locked: number;
     findings: number;
   };
+  /** True while either targeted read (requirements or elements) is loading. */
   isLoading: boolean;
   isFetching: boolean;
+  /**
+   * First error of the two targeted reads (`rowsError ?? elementsError`), so a
+   * failed element read is never swallowed by a successful requirement read.
+   */
   error: Error | null;
+  /** Error of the element read alone — drives the element column's error state. */
+  elementsError: Error | null;
+  /** Loading state of the element read alone — never an empty element column. */
+  elementsLoading: boolean;
   setView: (view: ConnectionViewMode) => void;
   setFilters: (patch: Partial<ConnectionFilters>) => void;
   resetFilters: () => void;
@@ -480,6 +489,14 @@ export function useAllocationView(): UseAllocationViewResult {
     findings: 0,
   };
 
+  // V2 follow-up: the element read is a peer of the requirement read. A failed
+  // element read must reach the caller instead of leaving the element column
+  // silently empty, so both the aggregate and the dedicated field reflect it.
+  const rowsError = rowsQuery.error ? asError(rowsQuery.error) : null;
+  const elementsError = elementsQuery.error
+    ? asError(elementsQuery.error)
+    : null;
+
   return {
     workspaceId,
     view,
@@ -494,9 +511,11 @@ export function useAllocationView(): UseAllocationViewResult {
       locked: meta.locked,
       findings: meta.findings,
     },
-    isLoading: rowsQuery.isLoading,
+    isLoading: rowsQuery.isLoading || elementsQuery.isLoading,
     isFetching: rowsQuery.isFetching,
-    error: rowsQuery.error ? asError(rowsQuery.error) : null,
+    error: rowsError ?? elementsError,
+    elementsError,
+    elementsLoading: elementsQuery.isLoading,
     setView,
     setFilters,
     resetFilters,

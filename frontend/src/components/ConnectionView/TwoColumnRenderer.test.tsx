@@ -164,3 +164,57 @@ describe("TwoColumnRenderer", () => {
     );
   });
 });
+
+describe("TwoColumnRenderer — element read state (V2 follow-up)", () => {
+  it("elements_error_is_visible_in_the_element_column", () => {
+    render(
+      <TwoColumnRenderer
+        requirements={[R1, R2]}
+        elements={[]}
+        allocate={vi.fn()}
+        deallocate={vi.fn()}
+        elementsError={new Error("element read down")}
+      />
+    );
+
+    const alert = screen.getByTestId("connection-element-error");
+    expect(alert).toHaveAttribute("role", "alert");
+    expect(alert).toHaveTextContent("element read down");
+  });
+
+  it("element_read_failure_is_not_silently_empty", () => {
+    render(
+      <TwoColumnRenderer
+        requirements={[R1]}
+        elements={[]}
+        allocate={vi.fn()}
+        deallocate={vi.fn()}
+        elementsError={new Error("element read down")}
+      />
+    );
+
+    // The element column must not pretend to be empty while the read failed.
+    expect(
+      screen.queryByTestId("two-column-elements-empty")
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("connection-element-error")).toBeInTheDocument();
+  });
+
+  it("element_loading_does_not_render_the_empty_state", () => {
+    render(
+      <TwoColumnRenderer
+        requirements={[R1]}
+        elements={[]}
+        allocate={vi.fn()}
+        deallocate={vi.fn()}
+        elementsLoading
+      />
+    );
+
+    expect(
+      screen.queryByTestId("two-column-elements-empty")
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("connection-elements-loading")).toBeInTheDocument();
+  });
+});
+

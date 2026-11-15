@@ -29,6 +29,10 @@ export interface AllocationRendererProps {
   elements: AllocationRow[];
   allocate: (requirementId: string, elementId: string) => Promise<void>;
   deallocate: (allocationTraceLinkId: string) => Promise<void>;
+  /** V2 follow-up: failure of the targeted element read (optional for callers). */
+  elementsError?: Error | null;
+  /** V2 follow-up: loading state of the element read (optional for callers). */
+  elementsLoading?: boolean;
 }
 
 interface ElementNode {
@@ -89,6 +93,8 @@ export function TreeRenderer({
   elements,
   allocate,
   deallocate,
+  elementsError = null,
+  elementsLoading = false,
 }: AllocationRendererProps): JSX.Element {
   const { t } = useTranslation();
   const [draggingRequirementId, setDraggingRequirementId] = useState<
@@ -329,7 +335,21 @@ export function TreeRenderer({
         </div>
       )}
 
-      {roots.length === 0 && unallocated.length === 0 ? (
+      {elementsError ? (
+        <div
+          role="alert"
+          className={styles.error}
+          data-testid="connection-element-error"
+        >
+          {t("connectionView.elementsError", {
+            message: elementsError.message,
+          })}
+        </div>
+      ) : elementsLoading ? (
+        <p className={styles.status} data-testid="connection-elements-loading">
+          {t("connectionView.elementsLoading")}
+        </p>
+      ) : roots.length === 0 && unallocated.length === 0 ? (
         <p className={styles.empty} data-testid="tree-empty">
           {t("connectionView.empty")}
         </p>
