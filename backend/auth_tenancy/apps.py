@@ -114,6 +114,30 @@ def _register_q1_preference_keys() -> None:
             ui_editor=None,
             owner="P3",
         ),
+        # Edge overlay of the connection view's trees mode (navigation plan
+        # V.0, spec D7): a per-person reading aid, so only the user level is
+        # allowed — a workspace admin must not switch it off for others.
+        PreferenceKey(
+            key="ui.connection_view.show_edges",
+            value_type="bool",
+            default=True,
+            levels=frozenset({PREFERENCE_SCOPE_USER}),
+            mode="override",
+            ui_editor="checkbox",
+            owner="P3",
+        ),
+        # Expanded state of the connection view's extra-filter popover
+        # (navigation plan V.0, spec D8): convenience, not a data statement,
+        # hence user level only and no generic settings editor.
+        PreferenceKey(
+            key="ui.connection_view.filters_expanded",
+            value_type="bool",
+            default=False,
+            levels=frozenset({PREFERENCE_SCOPE_USER}),
+            mode="override",
+            ui_editor=None,
+            owner="P3",
+        ),
         # Allocation-graph card configuration (ordering plan, item 3): the
         # workspace default applies to every member, the user level overrides
         # it, and the global level supplies the tenant-wide default. Items are

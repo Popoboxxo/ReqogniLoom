@@ -11,6 +11,15 @@
  * registered in the backend preference registry, so no client-side mirror
  * exists: the preference store is the single source of truth.
  *
+ * The same module owns the connection view's two display switches
+ * (navigation plan V.0): `ui.connection_view.show_edges` and
+ * `ui.connection_view.filters_expanded`. Both are user-scoped booleans, so
+ * they are read and written at the user level only — a workspace admin must
+ * not change another person's reading aid, and the backend rejects any other
+ * level. These helpers keep no state of their own: the component owns the
+ * current value and stays authoritative while a write is in flight and after
+ * it fails, which is what "the state stays local" means here.
+ *
  * `load` still never rejects — a transport error must not take the whole view
  * down, and an absent key simply means "no saved views". `save` deliberately
  * propagates its rejection so the caller can report a failed write.
@@ -20,6 +29,25 @@ import { preferenceValuesApi } from "./preference-values";
 
 /** Key under which the saved views live in the preference store. */
 export const SAVED_VIEWS_PREFERENCE_KEY = "ui.connection_view.saved_views";
+
+/**
+ * Key of the trees-mode edge overlay switch (navigation plan V.0, spec D7).
+ * Registered as a user-scoped `bool` with default `true`.
+ */
+export const SHOW_EDGES_PREFERENCE_KEY = "ui.connection_view.show_edges";
+
+/**
+ * Key of the extra-filter popover's expanded state (navigation plan V.0, spec
+ * D8). Registered as a user-scoped `bool` with default `false`.
+ */
+export const FILTERS_EXPANDED_PREFERENCE_KEY =
+  "ui.connection_view.filters_expanded";
+
+/** Registry default of {@link SHOW_EDGES_PREFERENCE_KEY}. */
+export const SHOW_EDGES_DEFAULT = true;
+
+/** Registry default of {@link FILTERS_EXPANDED_PREFERENCE_KEY}. */
+export const FILTERS_EXPANDED_DEFAULT = false;
 
 /** One named filter snapshot. `params` is the URL search string's data. */
 export interface SavedConnectionView {
@@ -80,3 +108,59 @@ export const connectionViewsApi = {
     });
   },
 };
+
+/**
+ * Read one user-scoped `bool` preference, falling back to *fallback* for every
+ * non-boolean outcome: absent key, `null`, a foreign type, or a failed read.
+ * A preference must never keep a page from painting, so the read cannot reject.
+ */
+async function loadUserBoolean(
+  key: string,
+  fallback: boolean
+): Promise<boolean> {
+  try {
+    const level = await preferenceValuesApi.getLevel("user");
+    const raw = level.values[key];
+    return typeof raw === "boolean" ? raw : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Write one user-scoped `bool` preference. The rejection is propagated on
+ * purpose: the caller keeps its local state, keeps the switch where the user
+ * put it, and reports the failed write instead of pretending it was stored.
+ */
+async function saveUserBoolean(key: string, value: boolean): Promise<void> {
+  await preferenceValuesApi.patchLevel("user", { [key]: value });
+}
+
+/**
+ * Load the caller's edge-overlay switch. Defaults to `true` when the store is
+ * unreachable or the key was never set (spec D7).
+ */
+export async function loadShowEdges(): Promise<boolean> {
+  return loadUserBoolean(SHOW_EDGES_PREFERENCE_KEY, SHOW_EDGES_DEFAULT);
+}
+
+/** Persist the edge-overlay switch; a rejected write reaches the caller. */
+export async function saveShowEdges(showEdges: boolean): Promise<void> {
+  await saveUserBoolean(SHOW_EDGES_PREFERENCE_KEY, showEdges);
+}
+
+/**
+ * Load the caller's extra-filter popover state. Defaults to `false` — the
+ * popover starts collapsed — when the store is unreachable or unset (D8).
+ */
+export async function loadFiltersExpanded(): Promise<boolean> {
+  return loadUserBoolean(
+    FILTERS_EXPANDED_PREFERENCE_KEY,
+    FILTERS_EXPANDED_DEFAULT
+  );
+}
+
+/** Persist the popover state; a rejected write reaches the caller. */
+export async function saveFiltersExpanded(expanded: boolean): Promise<void> {
+  await saveUserBoolean(FILTERS_EXPANDED_PREFERENCE_KEY, expanded);
+}
