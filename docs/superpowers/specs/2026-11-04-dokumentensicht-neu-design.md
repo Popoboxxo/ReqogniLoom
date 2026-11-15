@@ -13,7 +13,20 @@ evidence: "Stand origin/main 8cda953f; Belege als `pfad:zeile`"
 
 # Dokumentensicht (`DocumentView`)
 
-> **Status: Entwurf zur Freigabe.** Im Gespräch vom 2026-11-04 entschieden sind E1–E7. Alles mit **[Vorschlag]** ist meine Festlegung und noch nicht bestätigt.
+> **Status: Entwurf (Frontmatter bleibt `draft`) — die Richtungsentscheidung E1(b) ist umgesetzt.**
+> Am 2026-11-15 fiel die Entscheidung gegen das Modell `DocumentView` und für eine
+> **bearbeitbare Lesesicht auf dem vorhandenen `Document`-Artefakt**
+> (`docs/plans/2026-11-15-draft-spec-triage.md` E1(b), Plan
+> `docs/superpowers/plans/2026-11-15-document-view-on-document.md`). Gebaut sind
+> **R1–R4 und R7.1**: Leseobjekt und Route mit `ETag` (`GET
+> /api/v1/documents/{id}/view/`), Feld-Policy (`fields[].editable/locked`,
+> `capabilities.read_only_reason`), Bulk-Endpunkt `PATCH
+> /api/v1/artifacts/bulk-update/` mit MCP `artifact.bulk_update` (Werkzeug 297),
+> die Lesesicht mit Inhaltsverzeichnis und der Markdown-Export
+> (`?format=markdown`). Offen sind R5/R6 (Inline- und Sammel-Speichern in der
+> Oberfläche) sowie Druck-Stylesheet und E2E (R7.2). §4.1 ist damit überholt
+> (Markierung dort); der übrige Text bleibt Ideenquelle und Entscheidungsnachweis.
+> Was tatsächlich gebaut ist, beschreibt `docs/features/document-reading-view.md`.
 
 ## 1. Ziel
 
@@ -84,7 +97,15 @@ Der Nutzer legt in einem Workspace eigene **Sichten** an, die wie ein lesbares D
 
 ## 4. Zielbild
 
-### 4.1 Datenmodell
+### 4.1 Datenmodell — ÜBERHOLT (2026-11-15)
+
+> **Überholt durch die Richtungsentscheidung E1(b).** Es gibt kein Modell
+> `DocumentView` und keine Kapitel-Konfiguration. Die Sicht ist eine Lesesicht auf
+> dem vorhandenen `Document`; Kapitel sind die Markdown-Überschriften des `body`
+> (`backend/application/markdown_chapters.py`, Plan O1 = a). Gültiger Ersatz:
+> Plan `docs/superpowers/plans/2026-11-15-document-view-on-document.md` §2 und
+> ADR-026 „Nachtrag 2026-11-15". Der folgende Text bleibt als
+> **Entscheidungsnachweis** stehen und wird nicht mehr umgesetzt.
 
 `DocumentView(TenantScopedModel)`: `workspace`, `owner_user`, `title` (255), `config` (JSON), `version` (Integer für Versionsschutz), `created_at`, `modified_at`. Eindeutig `(workspace, owner_user, title)`. RLS-Policy wie die übrigen Mandantentabellen.
 
