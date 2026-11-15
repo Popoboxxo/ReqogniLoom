@@ -2406,6 +2406,18 @@
    "get"
   ],
   [
+   "/api/v1/workspaces/{workspace_id}/summaries/",
+   "get"
+  ],
+  [
+   "/api/v1/workspaces/{workspace_id}/summaries/{artifact_type}/",
+   "get"
+  ],
+  [
+   "/api/v1/workspaces/{workspace_id}/summaries/{artifact_type}/refresh/",
+   "post"
+  ],
+  [
    "/api/v1/workspaces/{workspace_id}/traceability/suggest-links/",
    "post"
   ],

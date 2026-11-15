@@ -109,6 +109,12 @@ _TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
     # the role check instead of leaking a summary of its content. (Its sibling
     # ``artifact.get_tree`` needs no entry: ``workspace_id`` is required there.)
     "artifact.summary": (("artifact_id", "artifact"),),
+    # Issue #1793 (S6) deliberately has NO entry here: ``summary.get`` and
+    # ``summary.refresh`` both require ``workspace_id`` in their published
+    # schema, so the dispatcher narrows the caller's roles to it and gates
+    # there. The optional ``artifact_id`` narrows *within* that workspace and
+    # is re-checked by the service (item-level read for a read, workspace write
+    # for a refresh), never used to widen the target.
     "architecture.get": (("id", "architecture"),),
     "baseline.compare": (
         ("baseline_a_id", "baseline"),

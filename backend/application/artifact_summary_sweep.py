@@ -23,6 +23,13 @@ of trusting the schedule dict.
 ``0`` interval means "off"; values below the global minimum are clamped, never
 rejected (spec §9/E6). Only ids/type strings cross the Celery boundary — never
 a credential (ADR-03).
+
+``manual=True`` (the ``summary.refresh`` path of S6) keeps everything above
+except the cadence: gates 1 and 2 (sweep flag, interval, "not due yet") are the
+schedule, not the brakes, so an explicit caller request skips them while the
+summary budget (3), the agent key (4) and the throttle (5) still apply. The
+manual run hangs on ``ARTIFACT_SUMMARY_ENABLED`` instead of the sweep flag —
+the two switches are independent by design.
 """
 from __future__ import annotations
 
@@ -237,12 +244,25 @@ class ArtifactSummarySweeper:
         workspace_id: UUID | str,
         artifact_type: str,
         trigger: str = ArtifactSummary.Trigger.PERIODIC.value,
+        manual: bool = False,
     ) -> str:
         """Run the gates, then summarise one (workspace, type) scope.
 
+        ``manual=True`` is the ``summary.refresh`` path (issue #1793 / S6): the
+        caller asked *now*, so the workspace cadence (global sweep flag,
+        per-workspace interval, the "not due yet" check) is deliberately
+        bypassed. Every brake that protects the budget stays in force — the
+        on-demand switch ``ARTIFACT_SUMMARY_ENABLED``, the summary-only day
+        budget, the agent key and the min-interval throttle. The two switches
+        are independent by design: the sweep flag says "may this happen
+        unattended", the on-demand flag says "may this happen at all".
+
         Returns ``summarized|skipped:<reason>|failed``.
         """
-        if not sweep_enabled():
+        if manual:
+            if not bool(_setting("ARTIFACT_SUMMARY_ENABLED", False)):
+                return "skipped:flag_off"
+        elif not sweep_enabled():
             return "skipped:flag_off"
         if not tenant_id:
             logger.warning("summary sweep skipped: no tenant anchor.")
@@ -258,7 +278,7 @@ class ArtifactSummarySweeper:
                 return "skipped:no_workspace"
 
             interval = interval_for_workspace(workspace)
-            if interval == 0:
+            if interval == 0 and not manual:
                 return "skipped:interval_off"
 
             existing = ArtifactSummary.objects.filter(
@@ -267,7 +287,9 @@ class ArtifactSummarySweeper:
                 artifact_type=artifact_type,
             ).first()
             if (
-                trigger in (
+                not manual
+                and trigger
+                in (
                     ArtifactSummary.Trigger.PERIODIC.value,
                     ArtifactSummary.Trigger.PERIODIC,
                 )

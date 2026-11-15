@@ -36,8 +36,13 @@ Deliberate boundaries, all of them load-bearing:
   ``MEMORY_HARD_OFF_SLOTS`` (ADR-024 AC-1).
 
 The persisted, periodically refreshed per-artifact-type summary (#1793) is a
-different scope on the same vocabulary and lands in later slices (S4-S6); this
-module only implements the cache-only scope.
+second scope on the same vocabulary. It is written by
+:meth:`ArtifactSummaryService.summarize_artifact_type` (S5) and read here by
+:meth:`~ArtifactSummaryService.list_type_summaries`,
+:meth:`~ArtifactSummaryService.get_type_summary` and
+:meth:`~ArtifactSummaryService.get_artifact_scope_summary` (S6, with
+:meth:`~ArtifactSummaryService.refresh_type_summary` for the manual run). Both
+scopes share the gates, the caps and the E11 reason vocabulary.
 
 req_id: REQ-L2-AI-002 (LLM provider abstraction), issue #1792.
 """
@@ -48,7 +53,7 @@ import json
 import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -64,6 +69,7 @@ from application.base import (
     ValidationError,
 )
 from application.effective_permission_service import EffectivePermissionService
+from application.summary_support import ARTIFACT_KIND, TYPE_ROSTER_KIND
 from persistence.models import Artifact, ArtifactSummary, TraceLink, Workspace
 
 if TYPE_CHECKING:
@@ -106,6 +112,12 @@ DEGRADATION_REASONS: frozenset[str] = frozenset(
 
 _CACHE_PREFIX = "artifact_summary"
 _INFLIGHT_PREFIX = "artifact_summary:inflight"
+
+#: Upper bound for one read of the stored type scopes (issue #1793 / S6). The
+#: roster vocabulary is bounded (the twelve ``DEFAULT_SUMMARY_SCOPES``), so this
+#: only fences a pathological tenant; a caller sees ``truncated=true`` instead
+#: of an unbounded answer.
+MAX_SUMMARY_ROWS = 50
 
 
 @dataclass(frozen=True)
@@ -271,20 +283,65 @@ class _ReadAccess:
         self._decisions[key] = allowed
         return allowed
 
-    def _resolve(self, workspace_id: UUID, artifact_id: UUID | None) -> bool:
+    def workspace_roles(self, workspace_id: UUID | None) -> tuple[str, ...]:
+        """The caller's roles *in this workspace* (never ``ctx.active_roles``).
+
+        The API-key fence is applied first: a fenced key that does not name the
+        workspace gets an empty role tuple, so every downstream decision fails
+        closed instead of falling back to the tenant-wide aggregate.
+        """
         from auth_tenancy.resource_scope import workspace_fence_denial
         from auth_tenancy.services.authorization import AuthorizationService
 
+        if workspace_id is None:
+            return ()
         try:
             fence = getattr(self._ctx, "api_key_workspace_ids", ())
             if workspace_fence_denial(fence, workspace_id) is not None:
-                return False
+                return ()
             roles = self._roles.get(workspace_id)
             if roles is None:
                 roles = AuthorizationService().active_roles_for(
                     user_id=self._ctx.user_id, workspace_id=workspace_id
                 )
                 self._roles[workspace_id] = roles
+            return roles
+        except Exception:  # noqa: BLE001 - deny, never leak
+            logger.debug(
+                "artifact_summary: role lookup failed workspace=%s",
+                workspace_id,
+                exc_info=True,
+            )
+            return ()
+
+    def can_write(self, workspace_id: UUID | None) -> bool:
+        """Whether the caller may spend a provider call in *workspace_id*.
+
+        Deliberately evaluated against the roles *in that workspace*: a
+        ``ctx.active_roles`` check would let an editor of workspace A refresh
+        workspace B's summaries (the ADR-011 scope-classifier hole).
+        """
+        from auth_tenancy.services.authorization import AuthorizationService, Operation
+
+        roles = self.workspace_roles(workspace_id)
+        if not roles:
+            return False
+        try:
+            decision = AuthorizationService().decide_access(roles, Operation.WRITE)
+        except Exception:  # noqa: BLE001 - deny, never leak
+            logger.debug(
+                "artifact_summary: write decision failed workspace=%s",
+                workspace_id,
+                exc_info=True,
+            )
+            return False
+        return bool(decision.allow)
+
+    def _resolve(self, workspace_id: UUID, artifact_id: UUID | None) -> bool:
+        try:
+            roles = self.workspace_roles(workspace_id)
+            if not roles:
+                return False
             decision = self._service.resolve_effective_permission(
                 active_roles=roles,
                 user_id=self._ctx.user_id,
@@ -506,8 +563,129 @@ def _cached_text(entry: Any) -> tuple[str, datetime] | None:
     return text, generated_at
 
 
+#: Keys every stored-summary payload carries, on both transports (REST and MCP
+#: share this dict builder, so a field cannot appear on one channel only).
+SUMMARY_PAYLOAD_KEYS: tuple[str, ...] = (
+    "workspace_id",
+    "summary_kind",
+    "artifact_type",
+    "artifact_id",
+    "text",
+    "reason",
+    "stale",
+    "item_count",
+    "status",
+    "provider",
+    "model",
+    "token_usage",
+    "trigger",
+    "generated_at",
+    "updated_at",
+)
+
+
+def _iso_or_none(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+def empty_summary_payload(
+    workspace_id: UUID | str,
+    *,
+    summary_kind: str,
+    artifact_type: str | None = None,
+    artifact_id: UUID | str | None = None,
+) -> dict[str, Any]:
+    """The answer for a scope that has no stored state yet.
+
+    Spec §6.5: an empty type is *not* a degradation — ``text``/``reason`` are
+    ``null`` and ``item_count`` is 0, so the UI can say "not summarised yet"
+    without inventing a reason.
+    """
+    return {
+        "workspace_id": str(workspace_id),
+        "summary_kind": summary_kind,
+        "artifact_type": artifact_type,
+        "artifact_id": str(artifact_id) if artifact_id is not None else None,
+        "text": None,
+        "reason": None,
+        "stale": False,
+        "item_count": 0,
+        "status": None,
+        "provider": None,
+        "model": None,
+        "token_usage": None,
+        "trigger": None,
+        "generated_at": None,
+        "updated_at": None,
+    }
+
+
+def stored_summary_payload(row: ArtifactSummary, *, stale: bool) -> dict[str, Any]:
+    """The wire form of one stored summary row (spec §6.6).
+
+    ``reason`` falls back to ``"stale"`` when a previously successful row has
+    aged past its freshness horizon (spec §6.5): the stored ``reason`` column
+    only describes the *last run*, and a stale ``ok`` row has no reason of its
+    own. The four E11 values stay the only possible strings (CWE-209).
+    """
+    digest = row.input_digest if isinstance(row.input_digest, dict) else {}
+    try:
+        item_count = int(digest.get("item_count") or 0)
+    except (TypeError, ValueError):
+        item_count = 0
+    reason = row.reason or (DEGRADED_STALE if stale else None)
+    return {
+        "workspace_id": str(row.workspace_id),
+        "summary_kind": row.summary_kind,
+        "artifact_type": row.artifact_type or None,
+        "artifact_id": str(row.artifact_id) if row.artifact_id else None,
+        "text": row.text or None,
+        "reason": reason,
+        "stale": stale,
+        "item_count": item_count,
+        "status": row.status or None,
+        "provider": row.provider or None,
+        "model": row.model or None,
+        "token_usage": row.token_usage,
+        "trigger": row.trigger or None,
+        "generated_at": _iso_or_none(row.generated_at),
+        "updated_at": _iso_or_none(getattr(row, "modified_at", None)),
+    }
+
+
+def _stale_interval_minutes(workspace: Workspace) -> int:
+    """The freshness horizon in minutes; ``0`` means "nothing refreshes".
+
+    A switched-off sweep (global flag off, or the workspace cadence at 0) makes
+    every stored state stale — the read path then reports ``stale=true`` and
+    ``reason="stale"`` instead of silently presenting an ageing text as
+    current (S5 plan §7, spec §6.5). Imported lazily: the sweep module imports
+    this one.
+    """
+    from application.artifact_summary_sweep import interval_for_workspace, sweep_enabled
+
+    if not sweep_enabled():
+        return 0
+    return interval_for_workspace(workspace)
+
+
+def _summary_is_stale(row: ArtifactSummary, interval_minutes: int) -> bool:
+    """``generated_at < now - 2 x interval`` (spec §6.5), for successful rows."""
+    if row.status != ArtifactSummary.Status.OK or row.generated_at is None:
+        return False
+    cutoff = timezone.now() - timedelta(minutes=2 * interval_minutes)
+    return row.generated_at < cutoff
+
+
 class ArtifactSummaryService(ServiceBase):
-    """On-demand AI summary of one artifact plus its visible trace neighbours."""
+    """AI summaries: the cache-only artifact scope and the stored type scope.
+
+    The artifact scope (:meth:`summarize_artifact`) is on demand and writes
+    nothing; the type/artifact scopes that S5 persists are read by the
+    ``*_summary`` methods below and refreshed by
+    :meth:`refresh_type_summary`. Every public method re-checks the caller's
+    roles *in the addressed workspace* before returning a payload.
+    """
 
     def summarize_artifact(
         self,
@@ -925,7 +1103,193 @@ class ArtifactSummaryService(ServiceBase):
         )
         return "summarized"
 
+    # -- stored per-scope summaries (issue #1793 / S6) -------------------
+
+    def list_type_summaries(
+        self, ctx: AuthContext, workspace_id: UUID | str
+    ) -> dict[str, Any]:
+        """Return the stored type-roster states of one workspace (read-only).
+
+        One payload per artifact type that has ever been summarised, ordered by
+        type and capped at :data:`MAX_SUMMARY_ROWS`. A type without a row is
+        simply absent; the MCP ``summary.get`` and the REST list are the same
+        read, so both channels agree on that shape.
+
+        Raises:
+            NotFoundError: workspace unknown (including another tenant's).
+            PermissionDeniedError: no read role in the workspace, or an
+                API-key workspace fence excludes it.
+            ValidationError: ``workspace_id`` is not a UUID.
+        """
+        workspace = self._summary_workspace(ctx, workspace_id)
+        rows = list(
+            ArtifactSummary.objects.filter(
+                workspace=workspace,
+                summary_kind=TYPE_ROSTER_KIND,
+            ).order_by("artifact_type")[: MAX_SUMMARY_ROWS + 1]
+        )
+        truncated = len(rows) > MAX_SUMMARY_ROWS
+        stale_interval = _stale_interval_minutes(workspace)
+        summaries = [
+            stored_summary_payload(
+                row, stale=_summary_is_stale(row, stale_interval)
+            )
+            for row in rows[:MAX_SUMMARY_ROWS]
+        ]
+        return {
+            "workspace_id": str(workspace.id),
+            "summaries": summaries,
+            "count": len(summaries),
+            "truncated": truncated,
+            "limit": MAX_SUMMARY_ROWS,
+        }
+
+    def get_type_summary(
+        self,
+        ctx: AuthContext,
+        workspace_id: UUID | str,
+        artifact_type: str,
+    ) -> dict[str, Any]:
+        """Return the stored state of one ``(workspace, artifact_type)`` scope.
+
+        A type that was never summarised answers the empty payload (``text``
+        ``null``, ``item_count`` 0, ``reason`` ``null``) rather than 404: the
+        type itself is not an addressable resource, only the workspace is.
+
+        Raises: same as :meth:`list_type_summaries`; additionally
+        ``ValidationError`` for an empty ``artifact_type``.
+        """
+        type_key = str(artifact_type or "").strip()
+        if not type_key:
+            raise ValidationError("artifact_type must be a non-empty string.")
+        workspace = self._summary_workspace(ctx, workspace_id)
+        row = ArtifactSummary.objects.filter(
+            workspace=workspace,
+            summary_kind=TYPE_ROSTER_KIND,
+            artifact_type=type_key,
+        ).first()
+        if row is None:
+            return empty_summary_payload(
+                workspace.id, summary_kind=TYPE_ROSTER_KIND, artifact_type=type_key
+            )
+        return stored_summary_payload(
+            row, stale=_summary_is_stale(row, _stale_interval_minutes(workspace))
+        )
+
+    def get_artifact_scope_summary(
+        self,
+        ctx: AuthContext,
+        workspace_id: UUID | str,
+        artifact_id: UUID | str,
+    ) -> dict[str, Any]:
+        """Return the stored ``artifact``-scope state of one artifact.
+
+        This reads the **persisted** state only; it never triggers a provider
+        call (``summary.refresh``/``artifact.summary`` are the spending paths).
+        A scope that was never written answers the empty payload — the
+        cache-only on-demand summary of #1792 does not write rows.
+
+        Raises:
+            NotFoundError: workspace or artifact unknown (another tenant's, or
+                an artifact of a different workspace).
+            PermissionDeniedError: no read role, or an item-level deny on the
+                artifact.
+            ValidationError: ``artifact_id`` is not a UUID.
+        """
+        artifact_uuid = _as_uuid(artifact_id)
+        workspace = self._summary_workspace(ctx, workspace_id)
+        artifact = Artifact.objects.filter(
+            id=artifact_uuid, workspace_id=workspace.id
+        ).first()
+        if artifact is None:
+            raise NotFoundError(f"Artifact {artifact_uuid} not found.")
+        if not _ReadAccess(ctx).can_read(workspace.id, artifact.id):
+            raise PermissionDeniedError(
+                f"Permission denied: no read access to artifact {artifact_uuid}."
+            )
+        row = ArtifactSummary.objects.filter(
+            workspace=workspace,
+            summary_kind=ARTIFACT_KIND,
+            artifact=artifact,
+        ).first()
+        if row is None:
+            return empty_summary_payload(
+                workspace.id,
+                summary_kind=ARTIFACT_KIND,
+                artifact_id=artifact.id,
+            )
+        return stored_summary_payload(
+            row, stale=_summary_is_stale(row, _stale_interval_minutes(workspace))
+        )
+
+    def refresh_type_summary(
+        self,
+        ctx: AuthContext,
+        workspace_id: UUID | str,
+        artifact_type: str,
+    ) -> dict[str, Any]:
+        """Run one manual type-roster scope and return the resulting state.
+
+        The manual path deliberately bypasses the workspace *cadence* (that is
+        the point of a refresh) while keeping every brake of the periodic run:
+        the switch, the summary-only day budget, the agent key and the
+        min-interval throttle (``ArtifactSummarySweeper.run_for_scope`` with
+        ``manual=True``).
+
+        Returns the stored state (same shape as :meth:`get_type_summary`) plus
+        ``outcome`` — the sweeper's
+        ``summarized|skipped:<reason>|failed`` verdict, so a caller can tell
+        "unchanged" from "budget exhausted" without parsing prose.
+
+        Raises: ``NotFoundError``/``PermissionDeniedError`` as the read path;
+        ``PermissionDeniedError`` additionally when the caller has no write
+        role in the workspace (a refresh can spend money).
+        """
+        type_key = str(artifact_type or "").strip()
+        if not type_key:
+            raise ValidationError("artifact_type must be a non-empty string.")
+        workspace = self._summary_workspace(ctx, workspace_id)
+        if not _ReadAccess(ctx).can_write(workspace.id):
+            raise PermissionDeniedError(
+                "Permission denied: refreshing a summary requires write access "
+                f"to workspace {workspace.id}."
+            )
+
+        from application.artifact_summary_sweep import ArtifactSummarySweeper
+
+        outcome = ArtifactSummarySweeper(service=self).run_for_scope(
+            tenant_id=ctx.tenant_id,
+            workspace_id=workspace.id,
+            artifact_type=type_key,
+            trigger=ArtifactSummary.Trigger.MANUAL.value,
+            manual=True,
+        )
+        # Re-read through the public read path so the response cannot drift from
+        # what a plain GET would answer.
+        payload = self.get_type_summary(ctx, workspace.id, type_key)
+        payload["outcome"] = outcome
+        return payload
+
     # -- helpers ---------------------------------------------------------
+
+    def _summary_workspace(
+        self, ctx: AuthContext, workspace_id: UUID | str
+    ) -> Workspace:
+        """Resolve *workspace_id* for *ctx* and enforce a read decision.
+
+        A workspace outside the caller's tenant is ``NOT_FOUND`` (no existence
+        leak); a same-tenant workspace without a role is ``PERMISSION_DENIED``.
+        """
+        workspace_uuid = _as_uuid(workspace_id, "workspace_id")
+        self._set_tenant_context(ctx)
+        workspace = Workspace.objects.filter(id=workspace_uuid).first()
+        if workspace is None:
+            raise NotFoundError(f"Workspace {workspace_uuid} not found.")
+        if not _ReadAccess(ctx).can_read(workspace.id, None):
+            raise PermissionDeniedError(
+                f"Permission denied: no read access to workspace {workspace_uuid}."
+            )
+        return workspace
 
     @staticmethod
     def _result(
@@ -1018,11 +1382,11 @@ def _timestamp(value: datetime | None) -> str:
     return value.isoformat() if value is not None else ""
 
 
-def _as_uuid(value: Any) -> UUID:
+def _as_uuid(value: Any, name: str = "artifact_id") -> UUID:
     try:
         return value if isinstance(value, UUID) else UUID(str(value))
     except (TypeError, ValueError):
-        raise ValidationError("artifact_id must be a UUID.") from None
+        raise ValidationError(f"{name} must be a UUID.") from None
 
 
 def _roster_rows(spec: Any, workspace: Workspace, artifact_type: str) -> list[Any]:
