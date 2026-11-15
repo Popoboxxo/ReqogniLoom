@@ -17,6 +17,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { WorkspaceTree } from './workspace-tree';
 import type { WorkspaceTreeNode, WorkspaceTreeProps } from './workspace-tree';
 import type { WorkspaceTreeGroup } from './tree-groups';
+import { classifyTreeDrop } from './tree-drag';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -113,7 +114,9 @@ function stubRowBox(element: HTMLElement): void {
   });
 }
 
-/** Drop `fromId` on the bottom edge of `toId` (insert directly behind it). */
+/**
+ * Drop `fromId` on the bottom edge of `toId` (insert directly behind it).
+ */
 function dragAfter(fromId: string, toId: string): void {
   const dataTransfer = makeDataTransfer();
   const target = row(toId);
@@ -121,6 +124,19 @@ function dragAfter(fromId: string, toId: string): void {
   fireEvent.dragStart(row(fromId), { dataTransfer });
   fireEvent.dragOver(target, { dataTransfer, clientY: 95 });
   fireEvent.drop(target, { dataTransfer, clientY: 95 });
+}
+
+/**
+ * Drop `fromId` in the middle of `toId` — the "inside" zone, i.e. "onto this
+ * row". For a group folder that is the membership drop (G3).
+ */
+function dragOnto(fromId: string, toId: string): void {
+  const dataTransfer = makeDataTransfer();
+  const target = row(toId);
+  stubRowBox(target);
+  fireEvent.dragStart(row(fromId), { dataTransfer });
+  fireEvent.dragOver(target, { dataTransfer, clientY: 50 });
+  fireEvent.drop(target, { dataTransfer, clientY: 50 });
 }
 
 function toggleGroups(): void {
@@ -210,5 +226,135 @@ describe('WorkspaceTree — groups as pseudo-folders (P6 Task 6.3)', () => {
     toggleGroups();
     expect(renderedOrder()).toEqual(baseline);
     expect(screen.queryByTestId('workspace-tree-node-__group__:g1')).toBeNull();
+  });
+});
+
+/**
+ * G3 (spec §4.5.4/6 / plan Task G3.1): dragging a *non-member* row onto a group
+ * folder adds the membership, dragging a *member* row keeps reordering inside
+ * its group, and a tree without `onAddToGroup` behaves exactly as before.
+ */
+describe('WorkspaceTree — drop a non-member on a group folder (G3)', () => {
+  it('drop_of_non_member_calls_on_add_to_group', async () => {
+    const onAddToGroup = vi.fn().mockResolvedValue(undefined);
+    const onReorder = vi.fn().mockResolvedValue(undefined);
+    const onReorderGroupMember = vi.fn().mockResolvedValue(undefined);
+    renderTree({
+      nodes: NODES,
+      groups: GROUPS,
+      onReorder,
+      onReorderGroupMember,
+      onAddToGroup,
+    });
+    toggleGroups();
+
+    // `d` belongs to no group and is therefore rendered as a plain row below
+    // the folders; dropping it onto group 1's folder files it there.
+    dragOnto('d', '__group__:g1');
+
+    await waitFor(() =>
+      expect(onAddToGroup).toHaveBeenCalledWith('g1', 'd')
+    );
+    expect(onAddToGroup).toHaveBeenCalledTimes(1);
+    // The membership add must not be misread as an artifact move (risk R7).
+    expect(onReorder).not.toHaveBeenCalled();
+    expect(onReorderGroupMember).not.toHaveBeenCalled();
+  });
+
+  it('drop_of_member_still_reorders', async () => {
+    const onAddToGroup = vi.fn().mockResolvedValue(undefined);
+    const onReorder = vi.fn().mockResolvedValue(undefined);
+    const onReorderGroupMember = vi.fn().mockResolvedValue(undefined);
+    renderTree({
+      nodes: NODES,
+      groups: GROUPS,
+      onReorder,
+      onReorderGroupMember,
+      onAddToGroup,
+    });
+    toggleGroups();
+
+    // `a` is already a member of g1: dropping it on its own folder keeps the
+    // inside-the-group reorder, never a membership add.
+    dragOnto('__group__:g1::a', '__group__:g1');
+
+    await waitFor(() =>
+      expect(onReorderGroupMember).toHaveBeenCalledWith('g1', 'a', undefined)
+    );
+    expect(onAddToGroup).not.toHaveBeenCalled();
+    expect(onReorder).not.toHaveBeenCalled();
+  });
+
+  it('tree_without_prop_is_unchanged', () => {
+    const onReorder = vi.fn().mockResolvedValue(undefined);
+    const onReorderGroupMember = vi.fn().mockResolvedValue(undefined);
+    renderTree({ nodes: NODES, groups: GROUPS, onReorder, onReorderGroupMember });
+    toggleGroups();
+
+    const before = renderedOrder();
+    // Same gesture as above, but the consumer offers no membership add: the
+    // tree swallows the drop instead of inventing a group write.
+    dragOnto('d', '__group__:g1');
+
+    expect(onReorderGroupMember).not.toHaveBeenCalled();
+    expect(renderedOrder()).toEqual(before);
+    // Nothing marks a membership drop target without the prop.
+    expect(row('__group__:g1')).not.toHaveAttribute('data-drop-kind');
+  });
+
+  it('drop_target_marks_group_kind', () => {
+    renderTree({
+      nodes: NODES,
+      groups: GROUPS,
+      onReorder: vi.fn().mockResolvedValue(undefined),
+      onAddToGroup: vi.fn().mockResolvedValue(undefined),
+    });
+    toggleGroups();
+
+    // Only while a drag is in flight, and only on the folder row.
+    expect(row('__group__:g1')).not.toHaveAttribute('data-drop-kind');
+
+    const dataTransfer = makeDataTransfer();
+    fireEvent.dragStart(row('d'), { dataTransfer });
+
+    expect(row('__group__:g1')).toHaveAttribute('data-drop-kind', 'group');
+    expect(row('__group__:g2')).toHaveAttribute('data-drop-kind', 'group');
+    expect(row('d')).not.toHaveAttribute('data-drop-kind');
+
+    fireEvent.dragEnd(row('d'));
+    expect(row('__group__:g1')).not.toHaveAttribute('data-drop-kind');
+  });
+});
+
+/**
+ * The classifier itself, without a DOM: the R7 risk is that a member drop is
+ * misread as an add, so the discriminating cases are pinned here as well.
+ */
+describe('classifyTreeDrop (G3)', () => {
+  const NODES_FOR_CLASSIFIER = [
+    { id: '__group__:g1', parentId: null, isGroupFolder: true, groupId: 'g1' },
+    { id: '__group__:g1::a', parentId: '__group__:g1', groupId: 'g1', sourceNodeId: 'a' },
+    { id: 'd', parentId: null },
+  ];
+
+  it('adds a non-member dropped on a group folder', () => {
+    expect(
+      classifyTreeDrop(NODES_FOR_CLASSIFIER, GROUPS, 'd', '__group__:g1'),
+    ).toEqual({ kind: 'add-to-group', groupId: 'g1', nodeId: 'd' });
+  });
+
+  it('keeps a member drop on the move path', () => {
+    expect(
+      classifyTreeDrop(NODES_FOR_CLASSIFIER, GROUPS, '__group__:g1::a', '__group__:g1'),
+    ).toEqual({ kind: 'move' });
+  });
+
+  it('keeps a drop on a regular row and on a folder row on the move path', () => {
+    expect(
+      classifyTreeDrop(NODES_FOR_CLASSIFIER, GROUPS, 'd', '__group__:g1::a'),
+    ).toEqual({ kind: 'move' });
+    expect(
+      classifyTreeDrop(NODES_FOR_CLASSIFIER, GROUPS, '__group__:g1', 'd'),
+    ).toEqual({ kind: 'move' });
   });
 });

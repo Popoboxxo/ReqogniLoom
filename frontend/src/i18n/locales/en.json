@@ -415,6 +415,8 @@
     "moveNodeNoMatches": "No matching parent element.",
     "reorderDone": "{{name}} moved (position {{position}}).",
     "reorderFailed": "Move failed. The previous order was restored.",
+    "groupAddDone": "{{name}} added to \"{{group}}\".",
+    "groupAddFailed": "Adding to the group failed.",
     "title": "Title",
     "name": "Name",
     "description": "Description",

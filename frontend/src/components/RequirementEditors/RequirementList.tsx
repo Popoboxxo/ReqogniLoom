@@ -288,6 +288,18 @@ interface RequirementListProps {
    */
   onAddToGroup?: (requirementId: string) => void;
   /**
+   * G3 (spec §4.5.4/6): drag a **non-member** row onto a group folder to add
+   * the membership. Deliberately *not* named `onAddToGroup` — that prop above
+   * opens the row dialog for one requirement; this one is the drag gesture and
+   * takes the target group as well.
+   *
+   * `nodeId` is the requirement node id (the tree's artifact id space), i.e.
+   * exactly the id `groups[].memberIds` uses. Omitted by a caller without a
+   * group surface (and by the container for a viewer), in which case a drop on
+   * a folder does nothing and the tree renders as before.
+   */
+  onAddGroupMember?: (groupId: string, nodeId: string) => Promise<void>;
+  /**
    * #1668: server-side allocation filter, owned by the container because it
    * drives the list query (`?allocated=`). Rendered here so it sits next to
    * the other list filters; ``all`` is the unfiltered state.
@@ -320,6 +332,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
   onReorderGroupMember,
   onManageGroups,
   onAddToGroup,
+  onAddGroupMember,
   allocation,
   onAllocationChange,
   level,
@@ -698,6 +711,9 @@ export const RequirementList: React.FC<RequirementListProps> = ({
           onReorder={onReorder}
           groups={groups}
           onReorderGroupMember={onReorderGroupMember}
+          // G3: a drop of a non-member on a group folder adds the membership.
+          // Classified in `tree-drag.ts`; omitted for a caller without it.
+          onAddToGroup={onAddGroupMember}
           showSearch={false}
           // Issue #1257: resolve the configured field selection for this
           // artifact type in this workspace (user > workspace > global).

@@ -669,6 +669,14 @@ export default function RequirementEditors(): JSX.Element {
         // so the list column keeps its full height and width.
         groups={requirementGroups.treeGroups}
         onReorderGroupMember={requirementGroups.reorderMember}
+        // G3 (spec §4.5.4/6): dragging a non-member onto a group folder adds
+        // the membership through the same hook the group manager uses — no
+        // second source, no extra request, and the hook reloads the group list
+        // so the folder counter and the row marker update without a route
+        // reload. A viewer gets none (spec §4.5.5).
+        onAddGroupMember={
+          hasRole('editor') ? requirementGroups.addMember : undefined
+        }
         onManageGroups={
           hasRole('editor') ? () => setIsGroupManagerOpen(true) : undefined
         }

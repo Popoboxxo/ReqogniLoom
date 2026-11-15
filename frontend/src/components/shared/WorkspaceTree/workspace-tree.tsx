@@ -431,6 +431,23 @@ export interface WorkspaceTreeProps {
     id: string,
     afterId: string | null | undefined,
   ) => Promise<void>;
+  /**
+   * G3 (spec §4.5.4/6): dropping a **non-member** row onto a group folder adds
+   * that requirement to the group. `nodeId` is the artifact's node id — a
+   * grouped member's synthetic clone id is mapped back before the call, so the
+   * callback never has to know about `__group__:` ids.
+   *
+   * The decision which drop is an "add" and which is a reorder lives in
+   * `classifyTreeDrop` (`tree-drag.ts`); this callback only receives the
+   * already-classified case. A drop of an existing member keeps going through
+   * `onReorderGroupMember`.
+   *
+   * The promise is awaited so a rejected add surfaces the server message and
+   * the tree reports the failure instead of appearing to have succeeded.
+   * Omit the prop (every consumer without groups) and the tree behaves exactly
+   * as before — no membership drop target, no extra attribute.
+   */
+  onAddToGroup?: (groupId: string, nodeId: string) => Promise<void>;
   'data-testid'?: string;
 }
 
@@ -547,6 +564,7 @@ export function WorkspaceTree({
   stateKey,
   groups,
   onReorderGroupMember,
+  onAddToGroup,
   'data-testid': testId = 'workspace-tree',
   onToggle,
 }: WorkspaceTreeProps): JSX.Element {
@@ -633,9 +651,9 @@ export function WorkspaceTree({
     return ids;
   }, [renderedNodes]);
   // Shared transient-notification primitive (UI-51): the tree's only error
-  // surface for a rejected move, so a failed reorder explains itself instead of
-  // silently springing back.
-  const { message: reorderError, show: showReorderError } = useToast();
+  // surface for a rejected move *or* a rejected membership add, so a failed
+  // drag explains itself instead of silently springing back.
+  const { message: reorderError, show: showTreeError } = useToast();
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set((stateKey ? getExpanded(stateKey) : null) ?? []),
   );
@@ -900,7 +918,7 @@ export function WorkspaceTree({
             );
           } catch (err: unknown) {
             setPendingReorder(null);
-            showReorderError(
+            showTreeError(
               extractApiErrorMessage(err) ?? t('editor.reorderFailed'),
             );
           }
@@ -950,7 +968,7 @@ export function WorkspaceTree({
           await onReorder(nodeId, newParentId, afterId);
         } catch (err: unknown) {
           setPendingReorder(null);
-          showReorderError(
+          showTreeError(
             extractApiErrorMessage(err) ?? t('editor.reorderFailed'),
           );
         }
@@ -963,9 +981,57 @@ export function WorkspaceTree({
       onReorder,
       onReorderGroupMember,
       renderedNodes,
-      showReorderError,
+      showTreeError,
       t,
     ],
+  );
+
+  /**
+   * G3 (spec §4.5.4/6): applies a membership add and reports the outcome.
+   *
+   * The classification — "a non-member was dropped on a group folder" — already
+   * happened in `classifyTreeDrop`; this is the only place that forwards it, so
+   * the tree keeps a single error surface and a single live region for every
+   * drag gesture.
+   */
+  const handleAddToGroup = useCallback(
+    (groupId: string, nodeId: string): void => {
+      if (!onAddToGroup) return;
+      const moved = renderedNodes.find(
+        (node) => artifactNodeId(node) === nodeId,
+      );
+      const groupTitle =
+        groups?.find((candidate) => candidate.id === groupId)?.title ?? '';
+      void (async (): Promise<void> => {
+        try {
+          await onAddToGroup(groupId, nodeId);
+          setMoveAnnouncement(
+            t('editor.groupAddDone', {
+              name: describeMoveTarget(moved, t('editor.moveNodeRoot')),
+              group: groupTitle,
+            }),
+          );
+        } catch (err: unknown) {
+          showTreeError(
+            extractApiErrorMessage(err) ?? t('editor.groupAddFailed'),
+          );
+        }
+      })();
+    },
+    [groups, onAddToGroup, renderedNodes, showTreeError, t],
+  );
+
+  /**
+   * G3: `useTreeDrag` only gets the group wiring when the consumer actually
+   * offers a membership add — without it the drag state machine is exactly the
+   * one every pre-G3 consumer had.
+   */
+  const groupDrop = useMemo(
+    () =>
+      onAddToGroup && groups
+        ? { groups, onAddToGroup: handleAddToGroup }
+        : undefined,
+    [groups, handleAddToGroup, onAddToGroup],
   );
 
   /** Alt+↑ / Alt+↓: one step inside the current sibling block. */
@@ -1231,6 +1297,8 @@ export function WorkspaceTree({
     // stays possible on purpose — that write belongs to the dragged (unlocked)
     // artifact, and the frozen artifact's own parent/position is untouched.
     lockedNodeIds,
+    // G3: a drop of a non-member on a group folder adds the membership.
+    groupDrop,
   );
   const {
     dndEnabled,
@@ -1462,7 +1530,10 @@ export function WorkspaceTree({
       {/* P1 Task 1.7: a rejected move rolls the optimistic order back above;
           this is the visible half of that rollback, otherwise the row would
           silently jump back with no explanation. Rendered through the shared
-          `useToast` primitive rather than a page-local timer (UI-51). */}
+          `useToast` primitive rather than a page-local timer (UI-51).
+          G3: the same alert carries a rejected membership add — same surface,
+          same `role`, so every drag gesture in this tree reports failure the
+          same way (the test id keeps its historic name). */}
       {reorderError && (
         <p
           role="alert"
@@ -1678,6 +1749,14 @@ function TreeRow({
       data-dragging={isDragging ? 'true' : undefined}
       data-drop-target={isDropTarget ? 'true' : undefined}
       data-drop-position={dropPosition ?? undefined}
+      // G3 (spec §4.5.4/6): while a drag is in flight, a group folder is
+      // marked as a *membership* drop target — a distinct kind from the
+      // move/reorder rows, machine-readable instead of class-based.
+      data-drop-kind={
+        isGroupFolder && dragProps && dragProps.draggingId !== null
+          ? 'group'
+          : undefined
+      }
       data-locked={isLocked ? 'true' : undefined}
       aria-keyshortcuts={canReorderNode ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
       onDragStart={
