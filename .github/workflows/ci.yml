@@ -264,14 +264,14 @@ jobs:
           FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
         run: pytest ${{ matrix.test-set.paths }} ${{ matrix.test-set.xdist }}
 
-      - name: Security scan - pip-audit (fixes #153)
-        if: matrix.test-set.id == 'set-1-core'
-        working-directory: backend
-        run: |
-          pip install pip-audit
-          echo "Scanning backend dependencies for known vulnerabilities..."
-          pip-audit --desc
-        continue-on-error: false
+      # The pip-audit gate moved to the dedicated `dependency-audit` job
+      # (DEP-AUDIT-01, fixes #153). Two things were wrong with the step that
+      # used to sit here: `pip install pip-audit` was unpinned, and it audited
+      # the interpreter that had just installed the tool into its own
+      # site-packages (that is how the old run reported a finding against `uv`).
+      # The replacement pins the tool version, runs it from a throwaway venv and
+      # uses `--strict` so an unresolvable dependency fails instead of being
+      # skipped over as "nothing to report".
 
   requirements-drift-check:
     name: "Backend Requirements Drift Check"
@@ -506,12 +506,234 @@ jobs:
         working-directory: frontend
         run: npm run test
 
-      - name: Security scan - npm audit (fixes #153)
+      # The npm audit gate moved to the dedicated `dependency-audit` job
+      # (DEP-AUDIT-01, fixes #153): one scan, one threshold, one place to change
+      # it. Running it here as well meant two npm-registry round trips per CI run
+      # and two copies of the severity policy.
+
+  # DEP-AUDIT-01 (fixes #153, docs/audit/2026-11-15-code-audit.md §4.2 + §6):
+  # one reproducible dependency-audit gate covering both ecosystems.
+  #
+  # THRESHOLDS (deliberately different per ecosystem, see below):
+  #   frontend — npm's own `--audit-level=high`: exit 1 for high/critical, exit 0
+  #              for moderate and below (the report is still printed and written
+  #              to the job summary, so a moderate finding is visible without
+  #              blocking a merge). NOT `--omit=dev`/`--production`: the three
+  #              high/critical advisories in the 2026-11-15 audit (dompurify,
+  #              undici, zod) were transitive DEV-tool dependencies, so a
+  #              production-only audit would have answered "0" while those three
+  #              were open.
+  #   backend  — every severity. Baseline measured 2026-11-15 on main: 0 findings
+  #              across 145 resolved packages, so the "high/critical only"
+  #              relaxation that a non-empty baseline would require does not
+  #              apply yet. pip-audit exposes NO severity at all (no CVSS field
+  #              in json or cyclonedx output, no --audit-level flag); gating on
+  #              severity here would require a hand-rolled CVSS parser, i.e. a
+  #              DIY security heuristic that can silently mis-grade. Instead the
+  #              escape hatch is explicit: a moderate/low-only advisory is waived
+  #              with `--ignore-vuln <ID>` plus a one-line justification right
+  #              here, which keeps the decision in the diff. Never `|| true`.
+  #
+  # MERGE BLOCKING: this job is meant to be a required check — that is safe
+  # because the frontend half only fails on high/critical. An unwaived backend
+  # finding does block: an unowned advisory should not reach a merge.
+  #
+  # REPRODUCIBILITY: pip-audit is pinned (PIP_AUDIT_VERSION) and installed into a
+  # throwaway venv, never into the environment it audits — installing the tool
+  # into its own audit target is what produced the bogus `uv` finding in the old
+  # set-1-core step (PYSEC-2026-4321 against uv 0.13.1, the pip-audit installer
+  # of that job). `--strict` turns "dependency could not be collected" into a
+  # failure instead of a silent skip (fail-closed). The pip HTTP cache keyed on
+  # requirements.txt keeps the full resolution cheap; `npm audit` reads
+  # frontend/package-lock.json only, so no `npm ci` — and therefore no
+  # install-time lifecycle script from a transitive dependency — runs in a job
+  # that talks to the npm registry.
+  dependency-audit:
+    name: "Dependency Audit (npm + pip-audit)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Least privilege: the audits only read the checkout and the public registries.
+    permissions:
+      contents: read
+    env:
+      # Pinned like every other tool in this file (gitleaks/actionlint/uv): a
+      # floating pip-audit would make the gate's verdict drift with a tool
+      # upgrade instead of with a dependency change. Bump deliberately and
+      # re-measure the baseline in the same PR.
+      PIP_AUDIT_VERSION: '2.10.1'
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+
+      - name: Cache pip packages for the pip-audit resolution
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-audit-${{ hashFiles('backend/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-audit-
+
+      - name: Frontend - npm audit (fails on high/critical)
         working-directory: frontend
         run: |
-          echo "Scanning frontend dependencies for known vulnerabilities..."
-          npm audit --audit-level=high
-        continue-on-error: false
+          set -euo pipefail
+          status=0
+          # `--audit-level=high` decides the exit code: critical/high -> 1,
+          # moderate and below -> 0. The JSON report is captured for the
+          # summary below, so the verdict comes from npm, not from a parser.
+          npm audit --audit-level=high --json > "${RUNNER_TEMP}/npm-audit.json" || status=$?
+
+          python3 - "${RUNNER_TEMP}/npm-audit.json" <<'PY' >> "${GITHUB_STEP_SUMMARY}"
+          import json
+          import pathlib
+          import sys
+
+          try:
+              data = json.loads(pathlib.Path(sys.argv[1]).read_text() or "{}")
+          except (OSError, ValueError) as exc:
+              print(f"### npm audit - frontend\n\nNo parsable report: {exc}")
+              raise SystemExit(0)
+
+          if "error" in data:
+              print(f"### npm audit - frontend\n\nRegistry error: {data['error']}")
+
+          meta = data.get("metadata", {}).get("dependencies", {})
+          counts = data.get("metadata", {}).get("vulnerabilities", {})
+          vulns = data.get("vulnerabilities", {})
+
+          print("### npm audit - frontend")
+          print()
+          print(
+              f"Packages: {meta.get('total', 0)} "
+              f"(prod {meta.get('prod', 0)}, dev {meta.get('dev', 0)}, "
+              f"optional {meta.get('optional', 0)})"
+          )
+          print()
+          print("| severity | count | effect |")
+          print("|---|---|---|")
+          for severity in ("critical", "high", "moderate", "low", "info"):
+              count = counts.get(severity, 0)
+              effect = "**fails the gate**" if severity in ("critical", "high") and count else "warn only"
+              print(f"| {severity} | {count} | {effect} |")
+
+          if vulns:
+              print()
+              print("| package | severity | direct | fix available | advisory |")
+              print("|---|---|---|---|---|")
+              for name, entry in sorted(vulns.items()):
+                  via = entry.get("via", [])
+                  titles = [v.get("title", "") if isinstance(v, dict) else str(v) for v in via]
+                  title = "; ".join(t for t in titles if t)[:160]
+                  fix = entry.get("fixAvailable")
+                  if fix is True:
+                      fix_text = "yes"
+                  elif isinstance(fix, dict):
+                      suffix = " (semver-major)" if fix.get("isSemVerMajor") else ""
+                      fix_text = f"`{fix.get('name')}@{fix.get('version')}`{suffix}"
+                  else:
+                      fix_text = "no"
+                  direct = "yes" if entry.get("isDirect") else "no"
+                  print(f"| `{name}` | {entry.get('severity', '?')} | {direct} | {fix_text} | {title} |")
+          PY
+
+          exit "${status}"
+
+      - name: Backend - pip-audit (fails on any finding)
+        # Audits requirements.txt, not the runner's interpreter: pip-audit
+        # resolves the file into its own temporary environment, so the venv that
+        # holds the tool is never part of the audited set.
+        run: |
+          set -euo pipefail
+          venv="${RUNNER_TEMP}/pip-audit-venv"
+          python3 -m venv "${venv}"
+          "${venv}/bin/pip" install --quiet --disable-pip-version-check \
+            "pip-audit==${PIP_AUDIT_VERSION}"
+          "${venv}/bin/pip-audit" --version
+
+          status=0
+          # `--strict`: a dependency that cannot be resolved or collected fails
+          # the audit instead of being dropped from the result (fail-closed).
+          # `--timeout 60`: the 15 s default is tuned for a laptop and produced
+          # resolution timeouts against PyPI from CI.
+          (cd backend && "${venv}/bin/pip-audit" \
+            -r requirements.txt \
+            --strict \
+            --timeout 60 \
+            --progress-spinner off \
+            -f json \
+            -o "${RUNNER_TEMP}/pip-audit.json") || status=$?
+
+          python3 - "${RUNNER_TEMP}/pip-audit.json" <<'PY' >> "${GITHUB_STEP_SUMMARY}"
+          import json
+          import pathlib
+          import sys
+
+          try:
+              data = json.loads(pathlib.Path(sys.argv[1]).read_text() or "{}")
+          except (OSError, ValueError) as exc:
+              print(f"### pip-audit - backend\n\nNo parsable report: {exc}")
+              raise SystemExit(0)
+
+          deps = data.get("dependencies", [])
+          flagged = [dep for dep in deps if dep.get("vulns")]
+
+          print("### pip-audit - backend")
+          print()
+          print(f"Resolved packages audited: **{len(deps)}**")
+
+          if not flagged:
+              print()
+              print("No known vulnerabilities.")
+          else:
+              seen = set()
+              rows = []
+              for dep in sorted(flagged, key=lambda item: item["name"]):
+                  for vuln in dep["vulns"]:
+                      key = (dep["name"], vuln["id"])
+                      if key in seen:
+                          continue
+                      seen.add(key)
+                      aliases = ", ".join(vuln.get("aliases", [])[:2])
+                      fixes = ", ".join(vuln.get("fix_versions", [])[:2]) or "none published"
+                      advisory = vuln["id"] + (f" ({aliases})" if aliases else "")
+                      rows.append(f"| `{dep['name']}` | {dep['version']} | {advisory} | {fixes} |")
+              print()
+              print("| package | version | advisory | fix versions |")
+              print("|---|---|---|---|")
+              print("\n".join(rows))
+              print()
+              print(
+                  "Every finding fails this gate, including moderate. If one is "
+                  "moderate/low only, add `--ignore-vuln <ID>` to the pip-audit "
+                  "invocation above with a one-line justification."
+              )
+          PY
+
+          exit "${status}"
+
+      - name: Upload the audit reports
+        # Audit trail (DORA: change-fail rate / recovery evidence): the raw
+        # reports stay attached to the run even when the gate is red.
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: dependency-audit-reports
+          path: |
+            ${{ runner.temp }}/npm-audit.json
+            ${{ runner.temp }}/pip-audit.json
+          if-no-files-found: ignore
 
   # Plan D / D2.4 (#587, QR-S12): prompt-regression gate, ahead of Plan A WP A1.
   #
