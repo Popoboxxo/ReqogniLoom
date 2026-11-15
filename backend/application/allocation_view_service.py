@@ -5,6 +5,12 @@ columns, matrix, card graph): a flat row per Requirement and per
 ArchitectureElement, with the fields a renderer needs. Pagination is
 ``page_size`` (default 200, max 500); counters are computed over the filtered
 set, never over the page.
+
+``kind="requirement"|"element"`` narrows **only** the returned page (V2/B-1) —
+``meta`` still describes the whole filtered set, so a client can read the two
+row kinds in two targeted calls without losing the counters. Every row carries
+the persisted ``sort_key`` of its backing artifact (V2/B-2); element rows have
+``None`` when no artifact row exists.
 """
 from __future__ import annotations
 
@@ -20,6 +26,10 @@ _OPEN_FINAL_STATES = frozenset(
     {"approved", "done", "closed", "Freigegeben", "Abgelöst", "Archiviert"}
 )
 
+#: Row kinds the caller may restrict the page to (B-1). ``meta`` always counts
+#: the full filtered set, never only the requested kind.
+_KINDS = frozenset({None, "requirement", "element"})
+
 
 class AllocationViewService(ServiceBase):
     """Return the flat allocation view for one workspace."""
@@ -31,6 +41,7 @@ class AllocationViewService(ServiceBase):
         *,
         allocated: bool | None = None,
         intent: str | None = None,
+        kind: str | None = None,
         tier: str | None = None,
         type: str | None = None,
         category: str | None = None,
@@ -46,6 +57,8 @@ class AllocationViewService(ServiceBase):
             raise ValidationError("page_size must be between 1 and 500")
         if offset < 0:
             raise ValidationError("offset must be >= 0")
+        if kind not in _KINDS:
+            raise ValidationError("kind must be 'requirement' or 'element'")
 
         ladder = TierLadderService().get(workspace_id)
         names = {
@@ -93,7 +106,13 @@ class AllocationViewService(ServiceBase):
         artifact_rows = {
             row["id"]: row
             for row in Artifact.unscoped.filter(
-                id__in=[req["artifact_id"] for req in requirements]
+                id__in=[
+                    # one lookup for both row kinds: requirement artifacts for
+                    # `parent_id`/`sort_key`, element artifacts for `sort_key`
+                    # (B-2 — elements sort by their persisted key too).
+                    *(req["artifact_id"] for req in requirements),
+                    *(row["artifact_id"] for row in elements),
+                ]
             ).values("id", "parent_id", "sort_key")
         }
         allocation_by_artifact = {
@@ -146,12 +165,15 @@ class AllocationViewService(ServiceBase):
             }
 
         def _element_row(row: dict) -> dict:
+            artifact = artifact_rows.get(row["artifact_id"], {})
             return {
                 "kind": "element",
                 "id": str(row["id"]),
                 "artifact_id": str(row["artifact_id"]),
                 "parent_id": str(row["parent_id"]) if row["parent_id"] else None,
-                "sort_key": None,
+                # B-2: the persisted ordering key of the backing artifact;
+                # ``None`` (row sorts last) when no artifact row exists.
+                "sort_key": artifact.get("sort_key"),
                 "title": row["title"],
                 "state": element_states.get(str(row["id"])),
                 "tier_key": None,
@@ -212,8 +234,13 @@ class AllocationViewService(ServiceBase):
             return True
 
         filtered = [row for row in rows if matches(row)]
+        # B-1: `kind` narrows the *page*, never the counters — filtering here
+        # (after `matches`, before the slice) keeps pagination and meta honest.
+        visible = (
+            filtered if kind is None else [row for row in filtered if row["kind"] == kind]
+        )
         return {
-            "results": filtered[offset : offset + page_size],
+            "results": visible[offset : offset + page_size],
             "meta": {
                 "total": len(filtered),
                 "unallocated": sum(

@@ -5,7 +5,13 @@
  *
  * - the filter state lives in the URL (round-trips across reloads, survives
  *   switching the view), never in component state;
- * - the flat `allocation-view` read object is fetched through React Query;
+ * - the flat `allocation-view` read object is fetched through React Query in
+ *   two targeted reads (`kind=requirement` / `kind=element`, V2/B-3), so the
+ *   page cap applies per row kind — and the two reads carry *different*
+ *   filters: the requirement read takes the whole filter set, the element read
+ *   only the filters an element row can answer (`elementFiltersToQuery`,
+ *   V2/B-4), because requirement-state filters would empty the element column
+ *   server-side;
  * - the requirement/element split and the two UI-only quick filters
  *   (`Gesperrt`, `Befunde`) are applied client-side because the committed
  *   read object exposes those two flags per row but has no server filter for
@@ -43,10 +49,9 @@ export const CONNECTION_VIEW_MODES: readonly ConnectionViewMode[] = [
 export const DEFAULT_PAGE_SIZE = 50;
 
 /**
- * The read object paginates the *combined* requirement+element list; elements
- * are appended after requirements, so a small page would contain no element
- * rows at all and the tree/matrix would lose their columns. The renderers
- * therefore read the maximum page and window the matrix client-side.
+ * The read object paginates per call; the renderers need the full catalogue,
+ * so each targeted read (requirements / elements, V2/B-3) takes the maximum
+ * page. The 500 cap therefore applies **per kind**, not to the combined set.
  */
 export const SERVER_PAGE_SIZE = 500;
 
@@ -164,6 +169,36 @@ export function filtersToQuery(
   if (filters.q) query.q = filters.q;
   // `filters.group` is deliberately not forwarded: group membership is a
   // client-side join, the read object accepts no group parameter.
+  // `kind` is not a filter either — the two reads set it themselves (V2/B-3),
+  // so it must never leak into the URL or into a filter round-trip.
+  return query;
+}
+
+/**
+ * Element-side query (V2/B-4): only the filters an **element row** can answer.
+ *
+ * The read object drops every element row outright as soon as `allocated`,
+ * `intent`, `category`, `tier` or `open` is set (`allocation_view_service
+ * .matches()`: an element is never allocated and never "open", and its row is
+ * built with `allocated_to` / `allocation_intent` / `category` / `tier_key`
+ * unset). Forwarding those requirement-state filters would therefore empty the
+ * element column — and with it the element picker and the matrix points —
+ * while e.g. "Nicht allokiert" is active. So they are deliberately not
+ * forwarded; `kind` is set by the caller (V2/B-3), `group`, `locked` and
+ * `hasFindings` are client-side. `type` and `state` do apply to elements
+ * (element type and its workflow state), so they stay.
+ */
+export function elementFiltersToQuery(
+  filters: ConnectionFilters
+): AllocationViewQuery {
+  const query: AllocationViewQuery = {
+    page_size: SERVER_PAGE_SIZE,
+    offset: 0,
+  };
+  if (filters.type) query.type = filters.type;
+  if (filters.state) query.state = filters.state;
+  if (filters.elementSubtree) query.element_subtree = filters.elementSubtree;
+  if (filters.q) query.q = filters.q;
   return query;
 }
 
@@ -197,8 +232,8 @@ export const allocationViewKeys = {
   all: ["allocation-view"] as const,
   rows: (workspaceId: string | null, query: AllocationViewQuery) =>
     [...allocationViewKeys.all, "rows", workspaceId, query] as const,
-  elements: (workspaceId: string | null) =>
-    [...allocationViewKeys.all, "elements", workspaceId] as const,
+  elements: (workspaceId: string | null, query: AllocationViewQuery) =>
+    [...allocationViewKeys.all, "elements", workspaceId, query] as const,
   groups: (workspaceId: string | null) =>
     [...allocationViewKeys.all, "groups", workspaceId] as const,
 };
@@ -217,7 +252,13 @@ export interface UseAllocationViewResult {
   requirements: AllocationRow[];
   /** Requirements before the two client-side quick filters (filter options). */
   allRequirements: AllocationRow[];
-  /** Full element catalogue (independent of the active filters). */
+  /**
+   * Elements of the element read (V2/B-3). It carries only the filters an
+   * element row can answer (V2/B-4): `element_subtree`, `q`, `tier`, `type`,
+   * `state`. The requirement-state filters (`allocated`, `open`, `intent`,
+   * `category`) are intentionally not sent, so the column stays complete while
+   * "Nicht allokiert" is active.
+   */
   elements: AllocationRow[];
   /** P6: groups offered by the `group` filter (empty when none exist). */
   groups: ConnectionGroupOption[];
@@ -247,19 +288,36 @@ export function useAllocationView(): UseAllocationViewResult {
   );
   const view = parseConnectionView(searchParams);
   const query = useMemo(() => filtersToQuery(filters), [filters]);
+  // V2/B-4: the element read gets its own, narrower filter set —
+  // requirement-state filters would empty the element column server-side (see
+  // `elementFiltersToQuery`).
+  const elementQuery = useMemo(() => elementFiltersToQuery(filters), [filters]);
 
+  // V2/B-3: two targeted reads instead of two full loads. `kind` narrows the
+  // page server-side, so the 500 cap applies per row kind and a page full of
+  // requirements can no longer crowd the element rows out.
   const rowsQuery = useQuery({
-    queryKey: allocationViewKeys.rows(workspaceId, query),
-    queryFn: () => allocationViewApi.view(workspaceId as string, query),
+    queryKey: allocationViewKeys.rows(workspaceId, {
+      ...query,
+      kind: "requirement",
+    }),
+    queryFn: () =>
+      allocationViewApi.view(workspaceId as string, {
+        ...query,
+        kind: "requirement",
+      }),
     enabled: Boolean(workspaceId),
   });
 
   const elementsQuery = useQuery({
-    queryKey: allocationViewKeys.elements(workspaceId),
+    queryKey: allocationViewKeys.elements(workspaceId, {
+      ...elementQuery,
+      kind: "element",
+    }),
     queryFn: () =>
       allocationViewApi.view(workspaceId as string, {
-        page_size: SERVER_PAGE_SIZE,
-        offset: 0,
+        ...elementQuery,
+        kind: "element",
       }),
     enabled: Boolean(workspaceId),
   });
@@ -348,13 +406,12 @@ export function useAllocationView(): UseAllocationViewResult {
   );
 
   const elements = useMemo(() => {
-    const fromCatalog =
+    // V2/B-3: elements come only from the element read — no fallback to the
+    // requirement page (which no longer contains element rows at all).
+    const fromElementRead =
       elementsQuery.data?.results.filter((row) => row.kind === "element") ?? [];
-    const source = fromCatalog.length
-      ? fromCatalog
-      : allRows.filter((row) => row.kind === "element");
-    return source.slice().sort(compareRows);
-  }, [elementsQuery.data, allRows]);
+    return fromElementRead.slice().sort(compareRows);
+  }, [elementsQuery.data]);
 
   const setFilters = useCallback(
     (patch: Partial<ConnectionFilters>) => {

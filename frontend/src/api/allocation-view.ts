@@ -92,6 +92,11 @@ export interface AllocationViewResponse {
 export interface AllocationViewQuery {
   allocated?: boolean;
   intent?: string;
+  /**
+   * V2/B-1: restrict the page to one row kind (the counters stay independent).
+   * The connection view issues one targeted read per kind (V2/B-3).
+   */
+  kind?: AllocationRowKind;
   tier?: string;
   type?: string;
   category?: string;
@@ -164,6 +169,7 @@ function toSearchParams(query: AllocationViewQuery): string {
   const params = new URLSearchParams();
   if (query.allocated !== undefined) params.set("allocated", String(query.allocated));
   if (query.intent) params.set("intent", query.intent);
+  if (query.kind) params.set("kind", query.kind);
   if (query.tier) params.set("tier", query.tier);
   if (query.type) params.set("type", query.type);
   if (query.category) params.set("category", query.category);
