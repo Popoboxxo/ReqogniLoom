@@ -594,6 +594,10 @@ _ETAG_HEADER_OPERATIONS = {
     ("/api/v1/documents/", "post"): {"201"},
     ("/api/v1/documents/{id}/", "get"): {"200"},
     ("/api/v1/documents/{id}/", "patch"): {"200"},
+    # R1 document reading view (docs/superpowers/plans/2026-11-15-document-view-
+    # on-document.md): the read object carries the same tag as ``retrieve``, so a
+    # client can PATCH conditionally without a second GET.
+    ("/api/v1/documents/{id}/view/", "get"): {"200"},
     ("/api/v1/work-items/", "post"): {"201"},
     ("/api/v1/work-items/{id}/", "get"): {"200"},
     ("/api/v1/work-items/{id}/", "patch"): {"200"},

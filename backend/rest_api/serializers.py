@@ -2983,6 +2983,61 @@ class DocumentSerializer(
     updated_at = serializers.DateTimeField(read_only=True)
 
 
+class DocumentReadingChapterSerializer(serializers.Serializer):
+    """One chapter of the document reading view (R1).
+
+    ``anchor`` is the stable slug the reading view uses as a DOM id; ``number``
+    is the display number ("1.1") and empty for the unnumbered preamble chapter.
+    No body field is HTML — the client renders the Markdown itself.
+    """
+
+    number = serializers.CharField(allow_blank=True)
+    level = serializers.IntegerField()
+    title = serializers.CharField(allow_blank=True)
+    anchor = serializers.CharField(allow_blank=True)
+    body = serializers.CharField(allow_blank=True)
+
+
+class DocumentReadingProjectionSerializer(serializers.Serializer):
+    """Read-only projection bookkeeping exposed by the reading view (R1)."""
+
+    projection_mode = serializers.CharField(allow_blank=True)
+    source_path = serializers.CharField(allow_blank=True)
+    projected_sha256 = serializers.CharField(allow_blank=True)
+
+
+class DocumentReadingSerializer(serializers.Serializer):
+    """Response contract of ``GET /api/v1/documents/{id}/view/`` (R1, ADR-026).
+
+    Read-only by construction: the reading view is a *read* object, writes stay
+    on ``PATCH /api/v1/documents/{id}/`` (plan §0, "ein Schreibweg je Typ"). The
+    shape mirrors ``DocumentViewResult.to_dict()`` one-to-one — this serializer
+    exists for the OpenAPI schema, not to transform data.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
+    uid = serializers.CharField(read_only=True, allow_null=True)
+    title = serializers.CharField()
+    kind = serializers.CharField()
+    description = serializers.CharField(allow_blank=True)
+    body = serializers.CharField(allow_blank=True)
+    doc_date = serializers.DateField(allow_null=True)
+    version = serializers.IntegerField(help_text=LOCK_VERSION_HELP_TEXT)
+    status = serializers.CharField()
+    frozen_at = serializers.DateTimeField(allow_null=True)
+    frozen_fields = serializers.ListField(child=serializers.CharField())
+    editable_fields = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Content fields the freeze leaves writable (R1: freeze-derived; "
+            "permission-based narrowing follows with R2)."
+        ),
+    )
+    chapters = DocumentReadingChapterSerializer(many=True)
+    projection = DocumentReadingProjectionSerializer()
+
+
 class WorkItemSerializer(
     ClientUidRejectionMixin,
     WorkflowStateSerializerMixin,
