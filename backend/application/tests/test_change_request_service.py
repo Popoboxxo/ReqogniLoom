@@ -267,7 +267,7 @@ class TestUpdateChangeRequest:
         ):
             mock_objects.filter.return_value.first.return_value = cr
             mock_objects.filter.return_value.update = MagicMock()
-            result = svc.update_change_request(
+            svc.update_change_request(
                 cr_id=CR_ID, ctx=ctx, title="New Title"
             )
 

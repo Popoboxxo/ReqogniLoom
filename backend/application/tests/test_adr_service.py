@@ -401,7 +401,7 @@ class TestTransitionStatus:
             patch("application.adr_service.state_reader.current_state", return_value=None),
         ):
             mock_mgr.filter.return_value.first.return_value = existing_adr
-            result = svc.transition_status(
+            svc.transition_status(
                 adr_id=ADR_ID,
                 target_status=Adr.Status.SUPERSEDED,
                 ctx=ctx,

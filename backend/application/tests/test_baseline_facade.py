@@ -46,7 +46,7 @@ class TestCreateBaseline:
         ctx = _make_ctx()
 
         with (
-            patch("application.baseline_facade.TenantContext") as mock_tc,
+            patch("application.baseline_facade.TenantContext"),
             patch(
                 "application.baseline_facade.BaselineFacade._check_scope_allowed"
             ) as mock_scope,

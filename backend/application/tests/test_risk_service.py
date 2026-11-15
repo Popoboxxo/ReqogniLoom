@@ -281,7 +281,7 @@ class TestCreateRisk:
             mock_risk_cls.return_value = mock_instance
             mock_risk_cls.score_to_severity = Risk.score_to_severity
 
-            result = svc.create_risk(
+            svc.create_risk(
                 workspace_id=WS_ID,
                 title="Critical infrastructure risk",
                 probability="high",

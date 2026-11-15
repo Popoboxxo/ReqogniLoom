@@ -727,7 +727,7 @@ class TestBreakingChangeDetection:
             with patch("icd.traceability_connector.TraceabilityConnector.link_to_architecture"):
                 r1 = create_icd(dto)
             # Add new precondition — breaking
-            with patch("icd.audit_logger.AuditLogger.log_breaking_change") as mock_log:
+            with patch("icd.audit_logger.AuditLogger.log_breaking_change"):
                 r2 = update_icd(
                     icd_id=r1.icd.id,
                     payload=IcdUpdateDTO(preconditions=["auth", "new_req"]),

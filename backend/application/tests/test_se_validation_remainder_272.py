@@ -267,7 +267,6 @@ def test_system_writer_path_is_unaffected(env):
     from application.base import ValidationError
 
     tenant, user, workspace, ctx_factory = env
-    ctx = ctx_factory(workspace.id)
     service, source, target = _link_pair(tenant, workspace)
     target.artifact.lifecycle_status = "outdated"
     target.artifact.save(update_fields=["lifecycle_status"])

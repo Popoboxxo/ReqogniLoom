@@ -1839,7 +1839,7 @@ class ToolRegistry:
                 )
                 _attach_memory_injected(result, ledger)
                 return result
-        except Exception as exc:
+        except Exception:
             # fix #108: outer safety net — same masking as
             # BaseToolGroup.execute_tool's inner catch-all, in case a
             # tool group's execute_tool override raises before reaching it.

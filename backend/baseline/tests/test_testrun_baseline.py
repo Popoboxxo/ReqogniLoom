@@ -116,8 +116,6 @@ class TestScopeResolverIncludesTestRuns:
             def __exit__(self, *args):
                 pass
 
-        fake_cursor = FakeCursor()
-
         class FakeConnection:
             def cursor(self):
                 return FakeCursor()

@@ -533,7 +533,7 @@ class TestUpdateTestStatus:
             ),
             patch.object(svc, "_audit"),
         ):
-            result = svc.update_test_status(
+            svc.update_test_status(
                 test_case_id=TC_ID, execution_status="Passed", ctx=ctx
             )
 

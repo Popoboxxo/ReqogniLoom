@@ -175,7 +175,7 @@ class TestCSVExport:
             csv_str = vcrm_gen.export_vcrm_csv(workspace_a.id)
 
         reader = csv.reader(io.StringIO(csv_str))
-        header = next(reader)  # skip header
+        next(reader)  # skip header
         data_rows = list(reader)
         req_ids_in_csv = {row[0] for row in data_rows}
 

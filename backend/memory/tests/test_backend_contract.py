@@ -367,7 +367,7 @@ class TestMemoryBackendContract:
 
     def test_delete_entry_unknown_id_returns_false(self, backend, scope):
         with active_tenant() as tenant:
-            scope_id = _scope_id(tenant, scope)
+            _scope_id(tenant, scope)
             assert backend.delete_entry(tenant.id, str(uuid4())) is False
 
     def test_delete_scope_removes_only_that_scope(self, backend, scope):

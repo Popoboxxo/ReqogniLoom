@@ -424,7 +424,7 @@ def test_get_context_test_pass_count_ignores_null_executed_at_placeholder(tenant
 
         # Create placeholder TestRunResult (status='not_run', executed_at=NULL)
         # This mimics what create_test_run does initially
-        placeholder = TestRunResult.objects.create(
+        TestRunResult.objects.create(
             test_run=test_run,
             test_case_id=test_case_id,
             status="not_run",
@@ -432,7 +432,7 @@ def test_get_context_test_pass_count_ignores_null_executed_at_placeholder(tenant
         )
 
         # Create real passed TestRunResult with timestamp (comes later)
-        real_result = TestRunResult.objects.create(
+        TestRunResult.objects.create(
             test_run=test_run,
             test_case_id=test_case_id,
             status="passed",

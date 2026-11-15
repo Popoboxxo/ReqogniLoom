@@ -808,7 +808,9 @@ class TestDegradedEnvelope:
         dict.
         """
         with active_tenant() as tenant:
-            ctx = ctx_for_user(tenant, make_user(tenant))
+            # Side effect only: the health envelope is per-tenant, the
+            # created user is not inspected below.
+            ctx_for_user(tenant, make_user(tenant))
 
             envelope = _service().health()
 

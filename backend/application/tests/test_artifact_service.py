@@ -85,7 +85,7 @@ class TestCreateArtifact:
             patch(
                 "application.artifact_service.Artifact.objects.create",
                 return_value=mock_artifact,
-            ) as mock_create,
+            ),
             patch("application.artifact_service.ServiceBase._audit"),
             patch("application.artifact_service.ServiceBase._emit_event"),
         ):
@@ -351,7 +351,7 @@ class TestUpdateArtifact:
             ),
             patch.object(svc, "_audit") as mock_audit,
         ):
-            result = svc.update_artifact(
+            svc.update_artifact(
                 artifact_id=ARTIFACT_ID, ctx=ctx, artifact_type="TestCase"
             )
 

@@ -233,8 +233,6 @@ class TestSendHttpPost:
         dispatcher = WebhookDispatcher()
         captured_headers = {}
 
-        original_request = __import__("urllib.request", fromlist=["Request"]).Request
-
         def _capture_request(url, data, headers, method):
             captured_headers.update(headers)
             mock_req = MagicMock()

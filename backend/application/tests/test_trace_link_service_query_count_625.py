@@ -450,7 +450,6 @@ class TestCatalogGateStillFiresOnTheReusePath:
         detected and the rows re-read from the ids.
         """
         svc = TraceLinkService()
-        ctx = _ctx(tenant)
         TenantContext.set_tenant(tenant.id)
         try:
             source = _artifact(tenant, se_workspace, "TestCase")

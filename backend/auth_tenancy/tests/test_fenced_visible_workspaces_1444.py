@@ -141,7 +141,7 @@ def test_visible_workspaces_are_fence_intersected_with_owner_roles() -> None:
 @pytest.mark.django_db
 def test_tenant_admin_owner_sees_every_in_tenant_fence_workspace() -> None:
     tenant, user = _tenant()
-    ws_a, ws_b, ws_c = (
+    ws_a, _ws_b, ws_c = (
         _workspace(tenant, "A"),
         _workspace(tenant, "B"),
         _workspace(tenant, "C"),

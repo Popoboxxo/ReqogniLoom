@@ -110,7 +110,7 @@ def test_refresh_with_valid_cookie_mints_new_access_token(admin_user):
     client = APIClient(enforce_csrf_checks=True)
     login_resp = _login(client)
     csrf_token = client.cookies["csrftoken"].value
-    old_access_token = login_resp.cookies[ACCESS_COOKIE_NAME].value
+    assert login_resp.status_code == 200
 
     resp = _refresh(client, csrf_token=csrf_token)
 
@@ -135,7 +135,7 @@ def test_refresh_rotates_refresh_cookie(admin_user):
     client = APIClient(enforce_csrf_checks=True)
     login_resp = _login(client)
     csrf_token = client.cookies["csrftoken"].value
-    old_refresh_token = login_resp.cookies[REFRESH_COOKIE_NAME].value
+    assert login_resp.status_code == 200
 
     resp = _refresh(client, csrf_token=csrf_token)
 

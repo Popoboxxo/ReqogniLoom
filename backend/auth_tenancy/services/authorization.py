@@ -843,13 +843,13 @@ class AuthorizationService:
                 self._assert_not_last_workspace_admin(
                     workspace_id=workspace_id, excluding_user_id=target_user_id
                 )
-            updated_count = UserRole.objects.filter(
+            UserRole.objects.filter(
                 user_id=target_user_id,
                 workspace_id=workspace_id,
                 role=normalized,
                 suspended_at__isnull=True,
             ).update(suspended_at=datetime.now(UTC))
-            # Existence was already confirmed above, so `updated_count == 0`
+            # Existence was already confirmed above, so a zero-row update
             # here is now unambiguous: the row exists but was already
             # suspended (the `suspended_at__isnull=True` filter excluded it)
             # — a legitimate no-op, not an error.

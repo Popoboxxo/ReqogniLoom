@@ -1491,7 +1491,6 @@ class TestUrlRouting:
             p = url.pattern
             return getattr(p, "_route", None) or getattr(p, "_regex", "") or str(p)
 
-        registered_prefixes = {_pattern_str(url) for url in router.get_urls()}
         # All 7 entity types should have routes
         expected = {"artifacts", "requirements", "architecture", "testcases", "tracelinks", "baselines", "workflows"}
         for entity in expected:
@@ -1583,13 +1582,13 @@ class TestCollectArtifactNames:
             req_artifact = Artifact.objects.create(
                 tenant=tenant, workspace=workspace, artifact_type="Requirement"
             )
-            requirement = Requirement.objects.create(
+            Requirement.objects.create(
                 tenant=tenant, artifact=req_artifact, title="Login must succeed"
             )
             sn_artifact = Artifact.objects.create(
                 tenant=tenant, workspace=workspace, artifact_type="StakeholderNeed"
             )
-            need = StakeholderNeed.objects.create(
+            StakeholderNeed.objects.create(
                 tenant=tenant, artifact=sn_artifact, title="User wants fast login"
             )
         finally:
