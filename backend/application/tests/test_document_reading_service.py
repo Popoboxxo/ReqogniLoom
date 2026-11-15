@@ -23,13 +23,18 @@ from datetime import date
 
 import pytest
 
-from application.base import NotFoundError, PermissionDeniedError
-from application.document_reading_service import (
-    ALWAYS_EDITABLE_FIELDS,
-    EDITABLE_TEXT_FIELDS,
-    DocumentReadingService,
-    compute_editable_fields,
+from application.base import (
+    FieldFrozenError,
+    NotFoundError,
+    PermissionDeniedError,
 )
+from application.document_edit_policy import (
+    CODE_FIELD_FROZEN,
+    CODE_PERMISSION,
+    CODE_REPO_EXTERNAL,
+    EDITABLE_FIELDS_V1,
+)
+from application.document_reading_service import DocumentReadingService
 from application.document_service import FROZEN_FIELDS, DocumentService
 from auth_tenancy.context import AuthContext
 from auth_tenancy.models import ItemPermission
@@ -251,8 +256,9 @@ def test_frozen_document_reports_frozen_fields(
     assert result.status == RELEASE_STATE
     assert result.frozen_at is not None
     assert set(result.frozen_fields) == set(FROZEN_FIELDS)
-    # Every frozen content field is gone, ``doc_date`` stays (ADR-026 F-2).
-    assert set(result.editable_fields) == set(ALWAYS_EDITABLE_FIELDS)
+    # Frozen content is gone; ``doc_date`` and ``custom_fields`` stay
+    # (ADR-026 F-2).
+    assert set(result.editable_fields) == {"doc_date", "custom_fields"}
     assert "doc_date" in result.editable_fields
     assert "title" not in result.editable_fields
 
@@ -260,26 +266,143 @@ def test_frozen_document_reports_frozen_fields(
 def test_unfrozen_document_reports_every_editable_field(service, document, editor_ctx) -> None:
     result = service.read(document.id, editor_ctx)
 
-    assert result.editable_fields == EDITABLE_TEXT_FIELDS + ALWAYS_EDITABLE_FIELDS
+    assert result.editable_fields == EDITABLE_FIELDS_V1
 
 
 def test_kind_is_never_reported_as_editable(service, document, editor_ctx) -> None:
     """``kind`` is classification, not content (plan O2 = (a))."""
-    assert "kind" not in service.read(document.id, editor_ctx).editable_fields
+    result = service.read(document.id, editor_ctx)
+    assert "kind" not in result.editable_fields
+    assert "kind" not in {field["name"] for field in result.fields}
 
 
-def test_compute_editable_fields_is_pure() -> None:
-    assert compute_editable_fields(None, []) == ("title", "description", "body", "doc_date")
-    assert compute_editable_fields(object(), ["title", "body"]) == (
-        "description",
-        "doc_date",
+# ---------------------------------------------------------------------------
+# Per-field write verdicts (R2)
+# ---------------------------------------------------------------------------
+
+
+def _field_by_name(result) -> dict[str, dict]:
+    return {field["name"]: field for field in result.fields}
+
+
+def test_fields_editable_for_editor_in_draft(service, document, editor_ctx) -> None:
+    result = service.read(document.id, editor_ctx)
+
+    fields = _field_by_name(result)
+    assert list(fields) == list(EDITABLE_FIELDS_V1)
+    assert all(fields[name]["editable"] for name in EDITABLE_FIELDS_V1)
+    assert all(fields[name]["locked"] is None for name in EDITABLE_FIELDS_V1)
+    assert fields["title"]["value"] == "System Spec"
+    assert fields["doc_date"]["value"] == "2026-11-15"
+    assert fields["custom_fields"]["value"] == {}
+    assert result.capabilities == {
+        "can_write": True,
+        "read_only_reason": None,
+    }
+
+
+def test_fields_locked_for_frozen_document(
+    service, document, editor_ctx, approver_ctx
+) -> None:
+    _released(document, editor_ctx, approver_ctx)
+
+    result = service.read(document.id, editor_ctx)
+    fields = _field_by_name(result)
+
+    for name in ("title", "description", "body"):
+        assert fields[name]["editable"] is False
+        assert fields[name]["locked"]["code"] == CODE_FIELD_FROZEN
+    assert fields["doc_date"]["editable"] is True
+    assert fields["custom_fields"]["editable"] is True
+    # ``doc_date``/``custom_fields`` are writable, so the document is not
+    # read-only as a whole (the freeze reason lives per field, not here).
+    assert result.capabilities == {"can_write": True, "read_only_reason": None}
+
+
+def test_fields_locked_for_repo_external_document(
+    service, document, editor_ctx
+) -> None:
+    document.owner_mode = "repo_external"
+    document.source_path = "docs/spec/system.md"
+    document.save(update_fields=["owner_mode", "source_path"])
+
+    result = service.read(document.id, editor_ctx)
+    fields = _field_by_name(result)
+
+    assert all(fields[name]["editable"] is False for name in EDITABLE_FIELDS_V1)
+    assert all(
+        fields[name]["locked"]["code"] == CODE_REPO_EXTERNAL
+        for name in EDITABLE_FIELDS_V1
     )
-    # An unknown frozen field name must not invent an editable one.
-    assert compute_editable_fields(object(), ["description"]) == (
-        "title",
-        "body",
-        "doc_date",
+    assert result.capabilities == {
+        "can_write": False,
+        "read_only_reason": CODE_REPO_EXTERNAL,
+    }
+
+
+def _patch_outcome(document_id, ctx, field_name: str) -> bool:
+    """Return whether a real service PATCH of *field_name* is accepted."""
+    values = {
+        "title": {"title": "Changed title"},
+        "description": {"description": "Changed description"},
+        "body": {"body": "# Changed body"},
+        "doc_date": {"doc_date": date(2026, 12, 1)},
+        "custom_fields": {"custom_fields": {"team": "core"}},
+    }
+    try:
+        DocumentService().update_document(
+            document_id, ctx, **values[field_name]
+        )
+    except (FieldFrozenError, PermissionDeniedError):
+        return False
+    return True
+
+
+@pytest.mark.parametrize("state", ["draft", "released"])
+@pytest.mark.parametrize("role", ["viewer", "editor"])
+def test_fields_match_actual_patch_outcome(
+    service,
+    workspace,
+    tenant,
+    editor_ctx,
+    viewer_ctx,
+    approver_ctx,
+    state,
+    role,
+):
+    """The load-bearing R2 assurance: ``editable`` == real PATCH outcome.
+
+    One document per (state, role) cell, then one real service PATCH per field.
+    If the policy and the write path ever disagree, this table fails — the
+    surface would otherwise offer a save the service rejects (or hide one it
+    accepts).
+    """
+    ctx = viewer_ctx if role == "viewer" else editor_ctx
+    document = DocumentService().create_document(
+        workspace.id,
+        editor_ctx,
+        title="Table Doc",
+        kind=Document.Kind.SPEC,
+        description="Table",
+        body="# Body",
+        doc_date=date(2026, 11, 15),
     )
+    if state == "released":
+        _released(document, editor_ctx, approver_ctx)
+
+    fields = _field_by_name(service.read(document.id, ctx))
+
+    for name in EDITABLE_FIELDS_V1:
+        reported = fields[name]["editable"]
+        actual = _patch_outcome(document.id, ctx, name)
+        assert reported == actual, (
+            f"{name}: reading view says editable={reported}, "
+            f"PATCH outcome={actual} (state={state}, role={role})"
+        )
+
+    # A viewer is denied by permission before the freeze is even considered.
+    if role == "viewer":
+        assert fields["title"]["locked"]["code"] == CODE_PERMISSION
 
 
 # ---------------------------------------------------------------------------
@@ -433,6 +556,8 @@ def test_to_dict_is_wire_ready(service, document, editor_ctx) -> None:
         "frozen_at",
         "frozen_fields",
         "editable_fields",
+        "fields",
+        "capabilities",
         "chapters",
         "projection",
     }

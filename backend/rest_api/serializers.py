@@ -3006,6 +3006,44 @@ class DocumentReadingProjectionSerializer(serializers.Serializer):
     projected_sha256 = serializers.CharField(allow_blank=True)
 
 
+class DocumentReadingLockedSerializer(serializers.Serializer):
+    """Why a document field is not editable (R2).
+
+    ``code`` is machine-readable (``PERMISSION`` / ``REPO_EXTERNAL`` /
+    ``FIELD_FROZEN``); ``detail`` is the human sentence a surface may show
+    without inventing its own wording.
+    """
+
+    code = serializers.CharField()
+    detail = serializers.CharField()
+
+
+class DocumentReadingFieldSerializer(serializers.Serializer):
+    """One field of the document reading view with its write verdict (R2).
+
+    ``value`` is polymorphic (string, ISO date or the ``custom_fields`` map), so
+    it stays a ``JSONField`` — the surface renders it; ``editable``/``locked``
+    are the policy answer, identical to what ``PATCH /documents/{id}/`` accepts.
+    """
+
+    name = serializers.CharField()
+    value = serializers.JSONField(allow_null=True)
+    editable = serializers.BooleanField()
+    locked = DocumentReadingLockedSerializer(allow_null=True)
+
+
+class DocumentReadingCapabilitiesSerializer(serializers.Serializer):
+    """Document-level write capability of the reading view (R2).
+
+    ``read_only_reason`` is ``PERMISSION`` or ``REPO_EXTERNAL`` when nothing may
+    be written, ``null`` otherwise — the same reason the per-field ``locked``
+    blocks carry first.
+    """
+
+    can_write = serializers.BooleanField()
+    read_only_reason = serializers.CharField(allow_null=True)
+
+
 class DocumentReadingSerializer(serializers.Serializer):
     """Response contract of ``GET /api/v1/documents/{id}/view/`` (R1, ADR-026).
 
@@ -3030,9 +3068,20 @@ class DocumentReadingSerializer(serializers.Serializer):
     editable_fields = serializers.ListField(
         child=serializers.CharField(),
         help_text=(
-            "Content fields the freeze leaves writable (R1: freeze-derived; "
-            "permission-based narrowing follows with R2)."
+            "Flat list of field names reported as editable in ``fields`` — "
+            "same source, same order, so the two cannot disagree."
         ),
+    )
+    fields = DocumentReadingFieldSerializer(
+        many=True,
+        help_text=(
+            "Per-field value plus the write verdict (R2): ``editable`` matches "
+            "what PATCH /documents/{id}/ actually accepts, ``locked`` names the "
+            "reason when it does not."
+        ),
+    )
+    capabilities = DocumentReadingCapabilitiesSerializer(
+        help_text="Document-level write capability of the caller (R2)."
     )
     chapters = DocumentReadingChapterSerializer(many=True)
     projection = DocumentReadingProjectionSerializer()

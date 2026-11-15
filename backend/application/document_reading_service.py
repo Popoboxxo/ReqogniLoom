@@ -1,15 +1,16 @@
 """Document reading view — the read object behind ``GET /documents/{id}/view/``.
 
-Slice R1 of ``docs/superpowers/plans/2026-11-15-document-view-on-document.md``:
+Slices R1+R2 of ``docs/superpowers/plans/2026-11-15-document-view-on-document.md``:
 the document view is **not** a new model, it is an editable reading surface on
 the existing ``Document`` artifact (triage direction E1(b)). This service is the
 single Layer-2 entry point for that surface — it reads, it never writes:
 
 * the document head (identity, content fields, version, workflow state, freeze
   bookkeeping, projection bookkeeping),
-* the freeze-derived list of editable fields (R1: freeze only — the
-  permission- and repo-external-aware resolution arrives with R2,
-  ``application/document_edit_policy.py``),
+* per-field write verdicts and the document-level read-only reason
+  (``application/document_edit_policy.py``, R2): permission beats ownership,
+  ownership beats freeze, so the surface never offers a write the service would
+  reject,
 * the chapters, extracted purely from the Markdown ``body``
   (:mod:`application.markdown_chapters`).
 
@@ -32,60 +33,26 @@ from typing import Any
 from uuid import UUID
 
 from application.base import PermissionDeniedError, ServiceBase
-from application.document_service import (
-    DOCUMENT_ITEM_TYPE,
-    FROZEN_FIELDS,
-    DocumentService,
+from application.document_edit_policy import (
+    EDITABLE_FIELDS_V1,
+    resolve_field_permissions,
 )
+from application.document_service import DOCUMENT_ITEM_TYPE, DocumentService
 from application.markdown_chapters import Chapter, split_chapters
 from auth_tenancy.context import AuthContext
 from persistence.models import Document
 from workflow.state_reader import current_states, initial_state
 
 __all__ = [
-    "ALWAYS_EDITABLE_FIELDS",
-    "EDITABLE_TEXT_FIELDS",
     "DocumentProjectionInfo",
     "DocumentReadingService",
     "DocumentViewResult",
-    "compute_editable_fields",
 ]
 
-#: Content fields a release freezes, minus ``kind``: the kind is the document's
-#: classification, not authored content, and is never edited inline
-#: (plan O2 = (a), ADR-026 F-2 freezes it against the generic write path).
-EDITABLE_TEXT_FIELDS: tuple[str, ...] = tuple(
-    name for name in FROZEN_FIELDS if name != "kind"
-)
-
-#: Fields that stay editable even on a frozen document (ADR-026 F-2: ``doc_date``
-#: is derived metadata; ``custom_fields`` follow the attribute catalog and are
-#: not part of the R1 field list).
-ALWAYS_EDITABLE_FIELDS: tuple[str, ...] = ("doc_date",)
-
-
-def compute_editable_fields(
-    frozen_at: datetime | None,
-    frozen_fields: Any,
-) -> tuple[str, ...]:
-    """Return the content fields a client may still write (R1 freeze rule).
-
-    Pure function — no DB, no ``ctx`` — so the REST layer and a future edit
-    policy share one truth and the rule is testable without a database.
-
-    R1 scope: the field freeze only. R2 replaces this with
-    ``application.document_edit_policy.resolve_field_permissions``, which also
-    accounts for the caller's write permission and ``owner_mode``. Until then a
-    caller must not read this list as "everything here will actually save" — it
-    is the *freeze* answer, not a permission grant.
-    """
-    if frozen_at is None:
-        return EDITABLE_TEXT_FIELDS + ALWAYS_EDITABLE_FIELDS
-    frozen = {str(name) for name in (frozen_fields or ())}
-    return (
-        tuple(name for name in EDITABLE_TEXT_FIELDS if name not in frozen)
-        + ALWAYS_EDITABLE_FIELDS
-    )
+#: Read-only document-level reason used when no field can be written because the
+#: content is owned by an external repository (ADR-026 ENT-F5).
+REASON_PERMISSION = "PERMISSION"
+REASON_REPO_EXTERNAL = "REPO_EXTERNAL"
 
 
 @dataclass(frozen=True)
@@ -127,6 +94,8 @@ class DocumentViewResult:
     frozen_at: datetime | None
     frozen_fields: tuple[str, ...]
     editable_fields: tuple[str, ...]
+    fields: tuple[dict[str, Any], ...]
+    capabilities: dict[str, Any]
     chapters: tuple[Chapter, ...]
     projection: DocumentProjectionInfo
 
@@ -145,6 +114,8 @@ class DocumentViewResult:
             "frozen_at": self.frozen_at.isoformat() if self.frozen_at else None,
             "frozen_fields": list(self.frozen_fields),
             "editable_fields": list(self.editable_fields),
+            "fields": [dict(field) for field in self.fields],
+            "capabilities": dict(self.capabilities),
             "chapters": [chapter.to_dict() for chapter in self.chapters],
             "projection": self.projection.to_dict(),
         }
@@ -186,6 +157,27 @@ class DocumentReadingService(ServiceBase):
 
     def _build(self, document: Document, ctx: AuthContext) -> DocumentViewResult:
         frozen_fields = tuple(str(name) for name in (document.frozen_fields or ()))
+        owner_mode = getattr(document, "owner_mode", "loom")
+        permission_ok = self._has_write_permission(ctx, document)
+        permissions = resolve_field_permissions(
+            document,
+            can_write=permission_ok,
+            owner_mode=owner_mode,
+            frozen_fields=frozen_fields,
+            # No attribute-catalog restriction exists on this write path:
+            # ``update_document`` accepts any key ``validate_custom_fields``
+            # permits, so ``None`` (= catalog unknown) is the honest input and
+            # keeps ``editable`` aligned with the real PATCH outcome.
+            allowed_custom_fields=None,
+        )
+        can_write = permission_ok and owner_mode != "repo_external"
+        read_only_reason: str | None = None
+        if not can_write:
+            read_only_reason = (
+                REASON_REPO_EXTERNAL
+                if permission_ok
+                else REASON_PERMISSION
+            )
         return DocumentViewResult(
             id=document.id,
             artifact_id=document.artifact_id,
@@ -199,13 +191,75 @@ class DocumentReadingService(ServiceBase):
             status=self._status(document, ctx),
             frozen_at=document.frozen_at,
             frozen_fields=frozen_fields,
-            editable_fields=compute_editable_fields(document.frozen_at, frozen_fields),
+            editable_fields=tuple(
+                name for name in EDITABLE_FIELDS_V1 if permissions[name].editable
+            ),
+            fields=self._field_entries(document, permissions),
+            capabilities={
+                "can_write": can_write,
+                "read_only_reason": read_only_reason,
+            },
             chapters=split_chapters(document.body or ""),
             projection=DocumentProjectionInfo(
                 projection_mode=getattr(document, "projection_mode", "none"),
                 source_path=getattr(document, "source_path", "") or "",
                 projected_sha256=getattr(document, "projected_sha256", "") or "",
             ),
+        )
+
+    @staticmethod
+    def _has_write_permission(ctx: AuthContext, document: Document) -> bool:
+        """Return whether the caller may write this document.
+
+        Merged answer from :class:`EffectivePermissionService` (RBAC matrix +
+        item-level rule), never a broader one: the item layer can only narrow.
+        The item-level lookup is cached per (user, workspace, artifact), and the
+        read gate above already resolved the same triple, so this adds no query
+        (plan R2: "keine neue Query").
+        """
+        from application.effective_permission_service import EffectivePermissionService
+
+        artifact_id = getattr(document, "artifact_id", None)
+        decision = EffectivePermissionService().resolve_effective_permission(
+            active_roles=ctx.active_roles,
+            user_id=ctx.user_id,
+            workspace_id=document.workspace_id,
+            artifact_id=UUID(str(artifact_id)) if artifact_id else None,
+            level="write",
+        )
+        return decision.is_allowed
+
+    @staticmethod
+    def _field_entries(
+        document: Document,
+        permissions: dict[str, Any],
+    ) -> tuple[dict[str, Any], ...]:
+        """Render one wire entry per policy field, in policy order.
+
+        Values are wire-ready (ISO date, plain dict for ``custom_fields``); the
+        editable/locked half comes from the shared policy so it cannot drift from
+        what ``PATCH /documents/{id}/`` accepts.
+        """
+        custom_fields = dict(getattr(document.artifact, "custom_fields", None) or {})
+        values: dict[str, Any] = {
+            "title": document.title,
+            "description": document.description or "",
+            "body": document.body or "",
+            "doc_date": document.doc_date.isoformat() if document.doc_date else None,
+            "custom_fields": custom_fields,
+        }
+        return tuple(
+            {
+                "name": name,
+                "value": values[name],
+                "editable": permissions[name].editable,
+                "locked": (
+                    dict(permissions[name].locked)
+                    if permissions[name].locked is not None
+                    else None
+                ),
+            }
+            for name in EDITABLE_FIELDS_V1
         )
 
     @staticmethod
