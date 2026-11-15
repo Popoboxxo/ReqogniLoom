@@ -1,7 +1,11 @@
 # Navigationsbaum entlasten und Verbindungsansicht als zwei Bäume — Umsetzungsplan
 
-> **Status: geplant, nicht umgesetzt.** Alle Checkboxen sind offen. Nichts aus diesem Plan ist
-> implementiert; der Branch enthält nur Spezifikation und diesen Plan.
+> **Status: `superseded` (2026-11-15).** Ersetzt durch
+> [`docs/superpowers/plans/2026-11-15-navigation-trees.md`](../superpowers/plans/2026-11-15-navigation-trees.md)
+> (Schnitte S0, G, V2, V). Der Nachfolger ersetzt die **Schnittfolge** dieses Plans (additive
+> Reihenfolge innerhalb von V, plus die D4/O5-Entscheidung als S0), nicht seinen Inhalt: die
+> Aufgabenbeschreibungen hier bleiben als Entscheidungs- und Detailnachweis stehen. Nichts aus diesem
+> Plan ist umgesetzt; alle Checkboxen sind offen.
 
 **Ziel:** Die Requirements-Route bekommt ihre Navigationsspalte zurück (Gruppenverwaltung in einen
 Dialog, Mitgliedschaft aus dem Baum heraus), und die Verbindungs-Route bekommt eine

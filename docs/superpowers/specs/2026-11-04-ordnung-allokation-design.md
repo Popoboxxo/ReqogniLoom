@@ -137,6 +137,8 @@ Dieses Dokument ersetzt die Stufenfolge aus #1670 durch einen engeren, im Code g
 
 Siehe §6.
 
+> **Nachtrag 2026-11-15:** D4/O5 der Navigationsbaum-Spec ist entschieden — `Bäume` wird die Standarddarstellung, §6.2 wird mit dem Default-Flip nachgezogen; Einzelheiten im [Nachtrag dort](2026-11-08-navigationsbaum-und-verbindungsansicht-design.md#16-nachtrag-2026-11-15--d4o5-entschieden). Die P-Liste unten bleibt unverändert.
+
 ### 4.5 Sperre aus dem Workflow — P4
 
 - Die vorhandene Markierung `state_meta.freeze_on_enter` (`workflow/precondition_rules.py:859-881`) gilt künftig auch für Requirements und Architekturelemente. Welche Zustände sperren, stellt der Nutzer im Workflow ein; **die Standard-Presets bleiben unverändert**, es ändert sich also zunächst nichts im Verhalten.
