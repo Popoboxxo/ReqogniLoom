@@ -90,6 +90,15 @@
   --palette-indigo-500-a08: rgba(99, 102, 241, 0.08);
   --palette-indigo-500-a10: rgba(99, 102, 241, 0.1);
   --palette-indigo-500-a15: rgba(99, 102, 241, 0.15);
+  /* Alpha rungs pulled out of the diagram/workflow editor shadows
+     (design-token-colours cleanup, audit 2026-11-15 §5.3). Both values were
+     hardcoded in two separate modules each (the `.colorDot` ring and the
+     `--gn-glow`/`--wf-glow` node glow), so they get one shared primitive
+     each instead of staying inline. Exact values, frozen — the shadows have
+     always been indigo-500 regardless of theme, so mapping them onto
+     `--color-primary` (indigo-600/…) would have changed the rendering. */
+  --palette-indigo-500-a20: rgba(99, 102, 241, 0.2);
+  --palette-indigo-500-a25: rgba(99, 102, 241, 0.25);
   --palette-indigo-500-a30: rgba(99, 102, 241, 0.3);
   --palette-indigo-600: #4f46e5;
   --palette-indigo-600-rgb: 79, 70, 229;
@@ -134,7 +143,13 @@
   --palette-red-300: #fca5a5;
   --palette-red-500: #ef4444;
   --palette-red-500-rgb: 239, 68, 68;
+  /* Alpha rungs for the danger focus rings / hover tints in the diagram and
+     workflow editors (design-token-colours cleanup, audit 2026-11-15 §5.3).
+     Same rationale as --palette-indigo-500-a20/-a25: exact values, frozen,
+     each used by two call sites across the two editor modules. */
+  --palette-red-500-a10: rgba(239, 68, 68, 0.1);
   --palette-red-500-a20: rgba(239, 68, 68, 0.2);
+  --palette-red-500-a40: rgba(239, 68, 68, 0.4);
   --palette-red-600: #dc2626;
   --palette-red-600-rgb: 220, 38, 38;
   --palette-blue-300: #93c5fd;

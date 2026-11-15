@@ -108,6 +108,18 @@ type BaselineEntry = {
  * Every entry is *existing debt*, not an endorsement: the count is a ceiling,
  * not a target. New files must not appear here — fix the literal instead
  * (use a token reference, a CSS class, or `rgb()` around an `-rgb` token).
+ *
+ * First paydown (2026-11-15, `chore/design-token-colours`): 74 literals in 14
+ * files -> 43 in 9. Five entries disappeared entirely (the `--shadow-*`
+ * fallbacks in `audit-dashboard.module.css` / `styles/global.css`, the
+ * `var(--color-*, #hex)` fallbacks in `buildGraph.ts` /
+ * `diagram-view-shared.ts`, and `SidebarNavigation.module.css`, which now uses
+ * the existing `--palette-royal-500-a20`) and the two editor modules kept only
+ * their single-call-site alphas — every alpha that already had a
+ * `--palette-*-aNN` rung, plus four newly added shared rungs
+ * (`--palette-indigo-500-a20/-a25`, `--palette-red-500-a10/-a40`), now reads
+ * that token. The four canvas entries and the ASIL scale stay: see their own
+ * reasons.
  */
 const BASELINE: Readonly<Record<string, BaselineEntry>> = {
   // Fabric.js draws into a <canvas> and only accepts real colour strings, so
@@ -127,55 +139,41 @@ const BASELINE: Readonly<Record<string, BaselineEntry>> = {
     reason: 'Initial tool colours for the Fabric.js canvas (state defaults).',
   },
   'styles/components/CanvasEditor.module.css': {
-    count: 2,
-    reason: 'Canvas chrome shadows; no shadow token with this alpha exists.',
+    count: 1,
+    reason:
+      'Inset canvas-frame shadow at 4% slate-900; no alpha token exists at this step ' +
+      '(the 5% sibling already reads --palette-slate-900-a05).',
   },
   // ASIL safety-integrity badges: the palette encodes a certification scale
   // (gray/amber/orange/red/dark red) and is deliberately theme-independent.
+  // NOTE (audit 2026-11-15 §5.3): getAsilColor()/getAsilBadgeStyle() currently
+  // have zero consumers — deleting them would retire all 18 literals; left in
+  // place here because that is a code deletion, not a colour migration.
   'utils/asilUtils.ts': {
     count: 18,
     reason:
       'ASIL badge colours encode a fixed safety-integrity scale; theme-independent by design.',
   },
-  // Token-with-fallback pairs: the token wins everywhere it is defined; the
-  // fallback only matters for a consumer without tokens.css (print/export).
-  'components/AllocationGraph/buildGraph.ts': {
-    count: 2,
-    reason: 'Token-with-fallback strokes (`--token`, `#fallback`) for the allocation graph.',
-  },
-  'components/DiagramView/diagram-view-shared.ts': {
-    count: 2,
-    reason: '`--color-danger` fallbacks (`#ef4444`) for the diagram preview.',
-  },
   'components/DiagramGraphEditor/GraphEdge.tsx': {
     count: 1,
     reason: 'Containment edge colour has no adequately close token (see tokens.css).',
   },
-  // Focus-ring / hover-glow shadows: alpha variants of a palette colour that
-  // the token layer does not expose as a ready-made shadow.
+  // Focus-ring / node-glow shadows: alpha variants of a palette colour. The
+  // ones with a matching --palette-*-aNN rung now read that token; these are
+  // the single-call-site alphas with no rung of their own.
   'components/DiagramGraphEditor/DiagramGraphEditor.module.css': {
-    count: 12,
-    reason: 'Focus-ring and node-glow shadows with per-state alpha.',
+    count: 1,
+    reason: 'Dashed ghost-node backdrop tint (slate-400 at 6%); no alpha token at this step.',
   },
   'components/WorkflowEditor/WorkflowEditor.module.css': {
-    count: 15,
-    reason: 'Focus-ring, node-glow and canvas-overlay shadows with per-state alpha.',
-  },
-  'components/NavigationShell/SidebarNavigation.module.css': {
-    count: 1,
-    reason: 'Selected-nav focus ring using a primary-alpha shadow.',
-  },
-  'components/Audit/audit-dashboard.module.css': {
-    count: 1,
-    reason: '`--shadow-md` fallback for the audit dashboard.',
+    count: 3,
+    reason:
+      'Terminal-state outline (slate-400 at 30%), error glow (red at 15%) and the ' +
+      'canvas backdrop (slate-950 at 60%) — single call sites, no alpha token at these steps.',
   },
   'components/shared/Dialog/Dialog.module.css': {
     count: 1,
     reason: 'Modal overlay dim layer; no overlay token exists yet.',
-  },
-  'styles/global.css': {
-    count: 1,
-    reason: '`--shadow-sm` fallback for the base button shadow.',
   },
 };
 

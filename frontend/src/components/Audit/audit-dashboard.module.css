@@ -128,7 +128,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
-  box-shadow: var(--shadow-md, 0 2px 8px rgba(0, 0, 0, 0.15));
+  box-shadow: var(--shadow-md);
   color: var(--color-text);
   font-size: 0.875rem;
   font-weight: 400;

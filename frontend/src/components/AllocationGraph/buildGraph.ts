@@ -48,9 +48,9 @@ const DAGRE_MAX_NODES = 400;
 const DAGRE_MAX_DEPTH = 60;
 
 /** Grey stroke for parent → child edges. */
-export const HIERARCHY_STROKE = 'var(--color-border, #94a3b8)';
+export const HIERARCHY_STROKE = 'var(--color-border)';
 /** Blue stroke for the allocation edges between the two bands. */
-export const ALLOCATION_STROKE = 'var(--color-primary, #2563eb)';
+export const ALLOCATION_STROKE = 'var(--color-primary)';
 
 export type AllocationRowKind = 'requirement' | 'element';
 
