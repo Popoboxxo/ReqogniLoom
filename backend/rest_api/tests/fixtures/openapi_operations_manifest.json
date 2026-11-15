@@ -694,6 +694,10 @@
    "get"
   ],
   [
+   "/api/v1/documents/{id}/view/",
+   "get"
+  ],
+  [
    "/api/v1/documents/{id}/workflow-history/",
    "get"
   ],

@@ -105,6 +105,9 @@ from application.baseline_rollback_service import (
     RollbackTooLargeError,
 )
 from application.change_request_service import ChangeRequestDTO
+# R1 reading view (docs/superpowers/plans/2026-11-15-document-view-on-document.md):
+# one read object, no write path.
+from application.document_reading_service import DocumentReadingService
 # Plan F F2-T5 (PR-F18a): the Document artifact's single write entry point
 # (ADR-01). Exposed over REST here; MCP follows in F2-T6.
 from application.document_service import DocumentService
@@ -243,6 +246,7 @@ from rest_api.serializers import (
     ChangeRequestSerializer,
     CsvImportReportSerializer,
     DocumentSerializer,
+    DocumentReadingSerializer,
     GlossaryTermSerializer,
     GoalSerializer,
     ImpactNodeSerializer,
@@ -9945,6 +9949,45 @@ class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         return self.with_etag(
             Response(DocumentSerializer(_document_to_dict(item)).data), item
         )
+
+    @extend_schema(
+        parameters=[_ETAG_RESPONSE_HEADER],
+        responses={200: DocumentReadingSerializer},
+        description=(
+            "Read object of the document reading view (R1): document head, "
+            "freeze-derived editable fields and the body split into numbered "
+            "Markdown chapters. Read-only — writes stay on PATCH. "
+            "Read permission is the RBAC matrix narrowed by any item-level rule."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="view")
+    def view(self, request: Request, pk: str, **kwargs: Any) -> Response:
+        """GET /api/v1/documents/{pk}/view/ — chaptered reading object.
+
+        Answers ``200`` with :class:`DocumentReadingSerializer` and
+        ``ETag: "<version>"`` (the same convention as ``retrieve``, so the client
+        can PATCH conditionally without a second GET). An unknown or foreign id
+        answers ``404``; a built-in or item-level permission denial ``403``.
+        Nothing here writes: the endpoint is the read half of the editable
+        document view (plan R1), never a second write path.
+        """
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            reading = DocumentReadingService().read(UUID(pk), ctx)
+        except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
+            return _service_error_response(exc, lang)
+        except ValueError:
+            # Unreachable for HTTP traffic: ``BaseEntityViewSet.initial`` already
+            # answers 400 for a malformed ``pk`` (#271). Kept as a guard for unit
+            # tests that call the handler directly.
+            return Response(
+                build_error_response("NOT_FOUND", lang),
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        response = Response(DocumentReadingSerializer(reading.to_dict()).data)
+        response["ETag"] = f'"{reading.version}"'
+        return response
 
     # ---------- Create ----------
 
