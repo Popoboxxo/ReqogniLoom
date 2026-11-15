@@ -46,8 +46,20 @@ export function MatrixRenderer({
     [requirements, currentPage, pageSize]
   );
 
-  const columnSums = useMemo(() => {
-    const sums = new Map<string, number>();
+  /** V.4: target resolution for the row markers (`allocated_to` = Artifact id). */
+  const knownTargetArtifacts = useMemo(
+    () =>
+      new Set(
+        elements.flatMap((element) =>
+          element.artifact_id
+            ? [element.artifact_id, element.id]
+            : [element.id]
+        )
+      ),
+    [elements]
+  );
+
+  const columnSums = useMemo(() => {    const sums = new Map<string, number>();
     for (const element of elements) sums.set(element.id, 0);
     for (const row of windowRows) {
       // `allocated_to` is the element's backing *Artifact* id, while the
@@ -109,6 +121,24 @@ export function MatrixRenderer({
                     />
                   </span>
                   <span className={styles.matrixRowTitle}>{row.title}</span>
+                  {!row.allocated_to && (
+                    <span
+                      className={styles.unallocatedMarker}
+                      data-testid={`unallocated-marker-${row.id}`}
+                      title={t("connectionView.unallocated")}
+                      aria-hidden="true"
+                    />
+                  )}
+                  {row.allocated_to &&
+                    !knownTargetArtifacts.has(row.allocated_to) && (
+                      <span
+                        className={`${styles.badge} ${styles.targetExternal}`}
+                        data-testid={`alloc-target-external-${row.id}`}
+                        title={t("connectionView.targetExternal")}
+                      >
+                        {t("connectionView.targetExternal")}
+                      </span>
+                    )}
                   {isRowLocked(row.locked) && (
                     <span
                       className={styles.lockIcon}

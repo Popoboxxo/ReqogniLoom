@@ -14,7 +14,7 @@ import de from "../../i18n/locales/de.json";
 
 import type { AllocationRow } from "../../api/allocation-view";
 import { allocationViewApi } from "../../api/allocation-view";
-import { connectionViewsApi } from "../../api/connection-views";
+import { connectionViewsApi, loadFiltersExpanded, saveFiltersExpanded } from "../../api/connection-views";
 import { loadGroupsWithMembers } from "../../api/groups";
 import { preferenceValuesApi } from "../../api/preference-values";
 import { ConnectionView } from "./ConnectionView";
@@ -99,6 +99,11 @@ vi.mock("../../api/connection-views", () => ({
     load: vi.fn(),
     save: vi.fn(),
   },
+  // V.4: the "Weitere Filter" popover state is a user preference.
+  loadFiltersExpanded: vi.fn(),
+  saveFiltersExpanded: vi.fn(),
+  loadShowEdges: vi.fn(),
+  saveShowEdges: vi.fn(),
 }));
 
 function requirement(overrides: Partial<AllocationRow>): AllocationRow {
@@ -177,6 +182,17 @@ function renderView(initialPath = "/connections"): void {  const queryClient = n
   );
 }
 
+/**
+ * V.4: the free filters and the saved views live in the "Weitere Filter"
+ * popover. Let the preference read settle first, then expand it — clicking
+ * before the read resolves could be undone by the async `false`.
+ */
+async function openMoreFilters(): Promise<void> {
+  await waitFor(() => expect(loadFiltersExpanded).toHaveBeenCalled());
+  fireEvent.click(screen.getByTestId("filter-more-toggle"));
+  await screen.findByTestId("filter-more");
+}
+
 beforeEach(() => {
   vi.mocked(allocationViewApi.view).mockResolvedValue(RESPONSE);
   vi.mocked(allocationViewApi.tiers).mockResolvedValue({
@@ -190,6 +206,8 @@ beforeEach(() => {
   vi.mocked(connectionViewsApi.load).mockResolvedValue([]);
   vi.mocked(loadGroupsWithMembers).mockResolvedValue([]);
   vi.mocked(connectionViewsApi.save).mockResolvedValue(undefined);
+  vi.mocked(loadFiltersExpanded).mockResolvedValue(false);
+  vi.mocked(saveFiltersExpanded).mockResolvedValue(undefined);
   vi.mocked(preferenceValuesApi.effective).mockResolvedValue({
     workspace_id: "ws-1",
     values: {},
@@ -300,10 +318,13 @@ describe("ConnectionView — the trees mode is additive (V.3)", () => {
       "true"
     );
 
-    // Additivity guarantee of this slice: the assistant list is untouched, so
-    // the existing selection/write path keeps working next to the new mode.
-    expect(screen.getByTestId("assistant-row-r1")).toBeInTheDocument();
-    expect(screen.getByTestId("assistant-check-r1")).toBeInTheDocument();
+    // V.4: the assistant is presentational — the tree checkboxes are the one
+    // selection, the action bar only reads it.
+    expect(screen.getByTestId("assistant-selection-count")).toHaveTextContent(
+      "0 ausgewählt"
+    );
+    expect(screen.queryByTestId("assistant-check-r1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("assistant-row-r1")).not.toBeInTheDocument();
   });
 
   it("restores the trees mode from the URL and keeps the filters", async () => {
@@ -339,6 +360,7 @@ describe("ConnectionView — writes go through the atomic bulk endpoint", () => 
 
 describe("ConnectionView — saved views", () => {  it("creates a saved view from the current filters and reapplies it", async () => {
     renderView();
+    await openMoreFilters();
 
     fireEvent.change(screen.getByTestId("filter-q"), {
       target: { value: "bremse" },
@@ -371,6 +393,7 @@ describe("ConnectionView — saved views", () => {  it("creates a saved view fro
       new Error("preference store unavailable")
     );
     renderView();
+    await openMoreFilters();
 
     fireEvent.change(screen.getByTestId("saved-view-name"), {
       target: { value: "Meine Sicht" },
@@ -381,5 +404,148 @@ describe("ConnectionView — saved views", () => {  it("creates a saved view fro
       "connection-view-saved-views-error"
     );
     expect(alert).toHaveTextContent("preference store unavailable");
+  });
+});
+
+describe("ConnectionView — action bar and filter row (V.4)", () => {
+  it("assistant_has_no_list", async () => {
+    renderView();
+    await screen.findByTestId("tree-renderer");
+
+    // The bar is present, the second requirement list is not.
+    expect(screen.getByTestId("allocation-assistant")).toBeInTheDocument();
+    expect(screen.queryByTestId("assistant-row-r1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("assistant-check-r1")).not.toBeInTheDocument();
+  });
+
+  it("action_bar_visible_without_selection", async () => {
+    renderView();
+    await screen.findByTestId("tree-renderer");
+
+    expect(screen.getByTestId("assistant-selection-count")).toHaveTextContent(
+      "0 ausgewählt"
+    );
+    expect(screen.getByTestId("assistant-allocate")).toBeDisabled();
+    expect(screen.getByTestId("assistant-suggest")).toBeEnabled();
+  });
+
+  it("select_all_counts_visible_unlocked_only", async () => {
+    vi.mocked(allocationViewApi.view).mockResolvedValue({
+      ...RESPONSE,
+      results: [
+        ...RESPONSE.results,
+        requirement({
+          id: "r3",
+          title: "Gesperrt",
+          sort_key: "c",
+          locked: "Freigegeben",
+        }),
+      ],
+    });
+    renderView();
+    await screen.findByTestId("tree-renderer");
+
+    fireEvent.click(screen.getByTestId("assistant-select-all"));
+
+    // r3 is frozen: the visible selection is the two unlocked rows.
+    expect(screen.getByTestId("assistant-selection-count")).toHaveTextContent(
+      "2 ausgewählt"
+    );
+  });
+
+  it("filter_more_state_follows_preference", async () => {
+    vi.mocked(loadFiltersExpanded).mockResolvedValue(true);
+    renderView();
+
+    // The stored preference opens the row without a click.
+    expect(await screen.findByTestId("filter-more")).toBeInTheDocument();
+    expect(screen.getByTestId("filter-more-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
+
+    fireEvent.click(screen.getByTestId("filter-more-toggle"));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("filter-more")).not.toBeInTheDocument()
+    );
+    expect(saveFiltersExpanded).toHaveBeenCalledWith(false);
+  });
+
+  it("filters_expanded_survives_reload", async () => {
+    vi.mocked(loadFiltersExpanded).mockResolvedValue(true);
+    renderView();
+
+    // A reload restores the row from the preference, not from the URL.
+    expect(await screen.findByTestId("filter-more")).toBeInTheDocument();
+    expect(loadFiltersExpanded).toHaveBeenCalled();
+  });
+
+  it("failed_preference_write_keeps_popover_open", async () => {
+    vi.mocked(saveFiltersExpanded).mockRejectedValue(
+      new Error("preference store unavailable")
+    );
+    renderView();
+    await waitFor(() => expect(loadFiltersExpanded).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByTestId("filter-more-toggle"));
+
+    expect(await screen.findByTestId("filter-more")).toBeInTheDocument();
+    expect(await screen.findByTestId("filter-more-error")).toHaveTextContent(
+      "preference store unavailable"
+    );
+  });
+
+  it("unallocated_block_is_gone_and_marker_exists", async () => {
+    renderView();
+    await screen.findByTestId("tree-renderer");
+
+    // The counted block is gone — the number lives in the header counter.
+    expect(screen.queryByTestId("unallocated-block")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("unallocated-count")).not.toBeInTheDocument();
+    expect(screen.getByTestId("counter-unallocated")).toHaveTextContent("2");
+
+    // The state is now a row marker.
+    expect(screen.getByTestId("unallocated-marker-r1")).toBeInTheDocument();
+    expect(screen.getByTestId("unallocated-marker-r2")).toBeInTheDocument();
+  });
+
+  it("url_still_carries_filter_values", async () => {
+    vi.mocked(allocationViewApi.tiers).mockResolvedValue({
+      workspace_id: "ws-1",
+      tiers: [
+        {
+          tier_key: "L1",
+          name: { de: "System", en: "System" },
+          position: 1,
+          rule: "",
+          from_end: null,
+          level: 1,
+        },
+      ],
+    });
+    renderView();
+    await openMoreFilters();
+
+    fireEvent.change(screen.getByTestId("filter-q"), {
+      target: { value: "bremse" },
+    });
+    fireEvent.change(screen.getByTestId("filter-tier"), {
+      target: { value: "L1" },
+    });
+
+    await waitFor(() =>
+      expect(allocationViewApi.view).toHaveBeenCalledWith(
+        "ws-1",
+        expect.objectContaining({
+          q: "bremse",
+          tier: "L1",
+          kind: "requirement",
+        })
+      )
+    );
+    // Expanding the popover is a preference, not a filter: the URL keeps the
+    // values (and gains nothing for the popover).
+    expect(screen.getByTestId("filter-more")).toBeInTheDocument();
   });
 });

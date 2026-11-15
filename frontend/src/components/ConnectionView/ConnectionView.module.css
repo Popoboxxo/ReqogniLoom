@@ -71,6 +71,41 @@
   background: var(--color-surface-raised);
 }
 
+/* V.4: row 1 is the always-visible filter row (quick filters, search, the
+   "Weitere Filter" trigger and the counters). */
+.filterRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+/* V.4: row 2 lives in the popover; a dashed border marks it as secondary. */
+.moreFilters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.moreToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.moreCaret {
+  font-size: var(--font-size-xs);
+  line-height: 1;
+}
+
+.searchField {
+  flex: 0 1 18rem;
+}
+
 .quickFilters,
 .freeFilters,
 .savedViews {
@@ -297,6 +332,22 @@
   border-radius: var(--radius-md);
   padding: var(--space-2);
   background: var(--color-surface);
+}
+
+/* V.4 (§5.6): "not allocated" is a row marker, not a counted block. */
+.unallocatedMarker {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-warning);
+}
+
+/* A target that sits outside the current element filter is not "unallocated". */
+.targetExternal {
+  color: var(--color-text-muted);
+  font-style: italic;
 }
 
 .unallocatedDropTarget {
@@ -591,32 +642,6 @@
 .assistantNothingWritten {
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
-}
-
-.assistantList {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  max-height: 14rem;
-  overflow-y: auto;
-}
-
-.assistantRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  font-size: var(--font-size-sm);
-}
-
-.assistantRow[data-locked="true"] {
-  opacity: 0.6;
 }
 
 .assistantRowTitle {

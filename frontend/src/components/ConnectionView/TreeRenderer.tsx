@@ -2,7 +2,7 @@
  * ARCH-L1-001 ReactFrontend — connection view "Baum" renderer (P3 Task 3.3).
  *
  * Architecture tree by `parent_id`/`sort_key` with the requirements allocated
- * to each element as a sub-list and a "Nicht allokiert" block. Interactions:
+ * to each element as a sub-list and a "Nicht allokiert" drop zone. Interactions:
  *
  * - drag a requirement onto an element -> atomic bulk allocate (re-allocation
  *   included, the backend replaces the existing edge);
@@ -12,6 +12,13 @@
  * - a frozen requirement (`locked` non-null) is neither draggable nor
  *   allocatable;
  * - a rejected write is shown verbatim in `allocation-error`.
+ *
+ * V.4: the "Nicht allokiert" **count** is gone (it lives in the header's
+ * `counter-unallocated`); every requirement row carries the state as a marker
+ * instead — `unallocated-marker-<id>` for "not allocated",
+ * `alloc-target-external-<id>` for a target the element filter hides. The
+ * section itself stays, because in this renderer it is also the pointer drop
+ * zone for deallocating (the keyboard path is the trees renderer's row action).
  */
 
 import { useMemo, useState, type DragEvent } from "react";
@@ -113,6 +120,21 @@ export function TreeRenderer({
     [elements, requirements]
   );
 
+  /** Target resolution for the per-row markers (`allocated_to` = Artifact id). */
+  const targetTitleByArtifact = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const element of elements) {
+      // `allocated_to` is the Artifact id in the read object; the entity id is
+      // accepted as a fallback so older payloads/fixtures are not mislabelled
+      // as "outside the filter".
+      if (element.artifact_id && !map.has(element.artifact_id)) {
+        map.set(element.artifact_id, element.title);
+      }
+      if (!map.has(element.id)) map.set(element.id, element.title);
+    }
+    return map;
+  }, [elements]);
+
   const run = async (action: () => Promise<void>): Promise<boolean> => {
     setError(null);
     try {
@@ -199,7 +221,11 @@ export function TreeRenderer({
   const renderRequirement = (row: AllocationRow): JSX.Element => {
     const locked = isRowLocked(row.locked);
     const lockedState = lockStateName(row.locked);
-    return (
+    // V.4: state lives on the row. "Outside the filter" is a resolved target
+    // the element read no longer contains — not the same as "unallocated".
+    const targetExternal =
+      Boolean(row.allocated_to) &&
+      !targetTitleByArtifact.has(row.allocated_to as string);    return (
       <li
         key={row.id}
         data-testid={`req-row-${row.id}`}
@@ -212,9 +238,26 @@ export function TreeRenderer({
         onDragStart={(event) => handleDragStart(row, event)}
         onDragEnd={() => setDraggingRequirementId(null)}
       >
+        {!row.allocated_to && (
+          <span
+            className={styles.unallocatedMarker}
+            data-testid={`unallocated-marker-${row.id}`}
+            title={t("connectionView.unallocated")}
+            aria-hidden="true"
+          />
+        )}
         <span className={styles.reqTitle} title={row.title}>
           {row.title}
         </span>
+        {targetExternal && (
+          <span
+            className={`${styles.badge} ${styles.targetExternal}`}
+            data-testid={`alloc-target-external-${row.id}`}
+            title={t("connectionView.targetExternal")}
+          >
+            {t("connectionView.targetExternal")}
+          </span>
+        )}
         {row.tier_name && (
           <span className={styles.badge} data-testid={`req-tier-${row.id}`}>
             {row.tier_name}
@@ -359,9 +402,9 @@ export function TreeRenderer({
         </ul>
       )}
 
-      {/* Pointer drop target; the keyboard path is the picker button on the
-          requirement row. */}
-      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
+      {/* Pointer drop target for deallocating; the keyboard path is the picker
+          button on the requirement row. V.4 removed the counted block — the
+          number lives in `counter-unallocated`, the state on the row marker. */}
       <section
         className={[
           styles.unallocated,
@@ -369,7 +412,8 @@ export function TreeRenderer({
         ]
           .filter(Boolean)
           .join(" ")}
-        data-testid="unallocated-block"
+        data-testid="tree-unallocated"
+        aria-label={t("connectionView.unallocated")}
         onDragOver={(event) => {
           event.preventDefault();
           if (draggingRequirementId) setDropTarget("unallocated");
@@ -379,12 +423,6 @@ export function TreeRenderer({
       >
         <h2 className={styles.sectionTitle}>
           {t("connectionView.unallocated")}
-          <span
-            className={styles.countBadge}
-            data-testid="unallocated-count"
-          >
-            {unallocated.length}
-          </span>
         </h2>
         {unallocated.length > 0 ? (
           <ul className={styles.reqList}>

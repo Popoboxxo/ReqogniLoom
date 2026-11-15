@@ -201,6 +201,21 @@
   font-size: var(--font-size-xs);
 }
 
+/* V.4 (§5.6): "not allocated" is a row marker, not a counted block. The text
+   beside it already says so, hence `aria-hidden` on the dot. */
+.unallocatedMarker {
+  flex: 0 0 auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-warning);
+}
+
+/* A target outside the current element filter is not "unallocated". */
+.targetExternal {
+  font-style: italic;
+}
+
 .badge {
   flex: 0 0 auto;
   padding: 0 var(--space-1);

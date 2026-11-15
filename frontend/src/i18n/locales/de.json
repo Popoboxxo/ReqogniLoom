@@ -3579,7 +3579,9 @@
       "elementSubtree": "Element-Teilbaum",
       "group": "Gruppe",
       "search": "Suche",
-      "searchPlaceholder": "Titel durchsuchen"
+      "searchPlaceholder": "Titel durchsuchen",
+      "more": "Weitere Filter",
+      "preferenceFailed": "Der Filterzustand konnte nicht gespeichert werden: {{message}}"
     },
     "all": "Alle",
     "reset": "Filter zurücksetzen",
@@ -3606,6 +3608,7 @@
     "elementsLoading": "Architekturelemente werden geladen …",
     "elementsEmpty": "Keine Architekturelemente vorhanden.",
     "unallocated": "Nicht allokiert",
+    "targetExternal": "zugeordnet (außerhalb des Filters)",
     "unallocatedEmpty": "Alle Anforderungen sind allokiert.",
     "allocateTo": "Allokieren auf …",
     "pickerTitle": "„{{title}}“ allokieren auf …",

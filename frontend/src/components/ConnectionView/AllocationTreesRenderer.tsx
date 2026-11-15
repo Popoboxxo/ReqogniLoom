@@ -150,8 +150,12 @@ export function AllocationTreesRenderer({
     const map = new Map<string, string>();
     for (const element of elements) {
       const artifactId = element.artifact_id;
-      if (!artifactId || map.has(artifactId)) continue;
-      map.set(artifactId, element.title);
+      // Artifact id first (the read object's contract); the entity id is a
+      // fallback so an older payload is not mislabelled "outside the filter".
+      if (artifactId && !map.has(artifactId)) {
+        map.set(artifactId, element.title);
+      }
+      if (!map.has(element.id)) map.set(element.id, element.title);
     }
     return map;
   }, [elements]);
@@ -345,6 +349,10 @@ export function AllocationTreesRenderer({
     const targetTitle = row.allocated_to
       ? targetTitleByArtifact.get(row.allocated_to) ?? null
       : null;
+    // `allocated_to` set but no element in the rendered set: the row is assigned
+    // to something the current element filter hides — "outside the filter", not
+    // "unallocated" (design §5.3/§5.6).
+    const targetExternal = Boolean(row.allocated_to) && targetTitle === null;
 
     return (
       <li
@@ -374,6 +382,14 @@ export function AllocationTreesRenderer({
           data-alloc-kind="requirement"
         >
           {renderRowChrome(row, expanded, hasChildren, subtreeId, labelId)}
+          {!row.allocated_to && (
+            <span
+              className={styles.unallocatedMarker}
+              data-testid={`unallocated-marker-${row.id}`}
+              title={t("connectionView.unallocated")}
+              aria-hidden="true"
+            />
+          )}
           <input
             type="checkbox"
             id={`alloc-check-${row.id}`}
@@ -427,11 +443,22 @@ export function AllocationTreesRenderer({
           {/* Last in the row: the target text is the column that sits next to
               the corridor, so the eye can follow the edge back to the row. */}
           <span
-            className={styles.target}
-            data-testid={`alloc-target-${row.id}`}
-            title={targetTitle ?? t("connectionView.unallocated")}
+            className={`${styles.target} ${targetExternal ? styles.targetExternal : ""}`}
+            data-testid={
+              targetExternal
+                ? `alloc-target-external-${row.id}`
+                : `alloc-target-${row.id}`
+            }
+            data-external={targetExternal ? "true" : "false"}
+            title={
+              targetExternal
+                ? t("connectionView.targetExternal")
+                : targetTitle ?? t("connectionView.unallocated")
+            }
           >
-            {targetTitle ?? t("connectionView.unallocated")}
+            {targetExternal
+              ? t("connectionView.targetExternal")
+              : targetTitle ?? t("connectionView.unallocated")}
           </span>
         </div>
         {hasChildren && (

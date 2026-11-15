@@ -9,7 +9,7 @@
  * filter and a reload/bookmark restores the same view.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
@@ -21,6 +21,8 @@ import { useCardFields } from "../AllocationGraph/useCardFields";
 import { useToast } from "../shared/Toast/useToast";
 import {
   connectionViewsApi,
+  loadFiltersExpanded,
+  saveFiltersExpanded,
   type SavedConnectionView,
 } from "../../api/connection-views";
 import { AllocationAssistant } from "./AllocationAssistant";
@@ -82,9 +84,9 @@ export function ConnectionView(): JSX.Element {
   const canEdit = hasRole("editor");
   const cardFields = useCardFields(workspaceId);
   // V.3: the tree renderer's selection. It is created here (not inside the
-  // renderer) so the action bar in V.4 can read the same selection instead of
-  // keeping a second one. The assistant below still owns its own list state in
-  // this slice — that is the additivity guarantee.
+  // renderer) so the V.4 action bar reads the same selection instead of keeping
+  // a second one. The assistant is presentational since V.4 — this hook is the
+  // only selection state in the connection view.
   const selection = useAllocationSelection(requirements);
 
   const tiersQuery = useQuery({
@@ -99,6 +101,42 @@ export function ConnectionView(): JSX.Element {
   // unhandled promise rejection; the in-memory list is kept so the user can
   // retry the save without re-entering the name.
   const { message: savedViewsError, show: showSavedViewsError } = useToast();
+
+  // V.4: the "Weitere Filter" row's visibility is a user preference, not URL
+  // state (design §5.5). The local value is authoritative; a failed write only
+  // adds a message, it never closes the popover.
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [filtersExpandedError, setFiltersExpandedError] = useState<
+    string | null
+  >(null);
+  /** A click before the preference read resolves wins over the stored value. */
+  const filtersToggledRef = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    void loadFiltersExpanded().then((expanded) => {
+      if (!active || filtersToggledRef.current) return;
+      setFiltersExpanded(expanded);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const toggleFiltersExpanded = (): void => {
+    filtersToggledRef.current = true;
+    const next = !filtersExpanded;
+    setFiltersExpanded(next);
+    setFiltersExpandedError(null);
+    void saveFiltersExpanded(next).catch((err: unknown) => {
+      // Keep the popover open: the local state is what the user just asked for.
+      setFiltersExpandedError(
+        t("connectionView.filters.preferenceFailed", {
+          message: err instanceof Error ? err.message : String(err),
+        })
+      );
+    });
+  };
 
   useEffect(() => {
     let active = true;
@@ -208,6 +246,7 @@ export function ConnectionView(): JSX.Element {
       </header>
 
       <AllocationAssistant
+        selection={selection}
         requirements={requirements}
         elements={elements}
         allocateBulk={allocateBulk}
@@ -224,6 +263,9 @@ export function ConnectionView(): JSX.Element {
         states={states}
         categories={categories}
         savedViews={savedViews}
+        expanded={filtersExpanded}
+        onToggleExpanded={toggleFiltersExpanded}
+        expandedError={filtersExpandedError}
         onChange={setFilters}
         onReset={resetFilters}
         onSaveView={handleSaveView}

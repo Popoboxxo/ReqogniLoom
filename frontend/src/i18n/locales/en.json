@@ -3579,7 +3579,9 @@
       "elementSubtree": "Element subtree",
       "group": "Group",
       "search": "Search",
-      "searchPlaceholder": "Search titles"
+      "searchPlaceholder": "Search titles",
+      "more": "More filters",
+      "preferenceFailed": "The filter state could not be saved: {{message}}"
     },
     "all": "All",
     "reset": "Reset filters",
@@ -3606,6 +3608,7 @@
     "elementsLoading": "Loading architecture elements …",
     "elementsEmpty": "No architecture elements available.",
     "unallocated": "Unallocated",
+    "targetExternal": "allocated (outside the filter)",
     "unallocatedEmpty": "All requirements are allocated.",
     "allocateTo": "Allocate to …",
     "pickerTitle": "Allocate “{{title}}” to …",

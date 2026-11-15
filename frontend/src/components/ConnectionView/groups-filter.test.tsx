@@ -14,7 +14,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import type { AllocationRow } from "../../api/allocation-view";
 import { allocationViewApi } from "../../api/allocation-view";
-import { connectionViewsApi } from "../../api/connection-views";
+import {
+  connectionViewsApi,
+  loadFiltersExpanded,
+  saveFiltersExpanded,
+} from "../../api/connection-views";
 import {
   loadGroupsWithMembers,
   type GroupWithMembers,
@@ -77,6 +81,10 @@ vi.mock("../../api/connection-views", () => ({
     load: vi.fn(),
     save: vi.fn(),
   },
+  loadFiltersExpanded: vi.fn(),
+  saveFiltersExpanded: vi.fn(),
+  loadShowEdges: vi.fn(),
+  saveShowEdges: vi.fn(),
 }));
 
 function requirement(overrides: Partial<AllocationRow>): AllocationRow {
@@ -179,6 +187,8 @@ beforeEach(() => {
   });
   vi.mocked(connectionViewsApi.load).mockResolvedValue([]);
   vi.mocked(connectionViewsApi.save).mockResolvedValue(undefined);
+  vi.mocked(loadFiltersExpanded).mockResolvedValue(false);
+  vi.mocked(saveFiltersExpanded).mockResolvedValue(undefined);
   vi.mocked(loadGroupsWithMembers).mockResolvedValue(GROUPS);
   vi.mocked(preferenceValuesApi.effective).mockResolvedValue({
     workspace_id: "ws-1",
@@ -190,6 +200,9 @@ describe("ConnectionView — group filter (P6 Task 6.3)", () => {
   it("offers the workspace's groups and filters the rows by membership", async () => {
     renderView();
     await screen.findByTestId("tree-renderer");
+    // V.4: the free filters live in the "Weitere Filter" popover.
+    await waitFor(() => expect(loadFiltersExpanded).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId("filter-more-toggle"));
 
     const select = await screen.findByTestId("filter-group");
     expect(select).toHaveTextContent("Bremssystem");
@@ -210,6 +223,9 @@ describe("ConnectionView — group filter (P6 Task 6.3)", () => {
     vi.mocked(loadGroupsWithMembers).mockResolvedValue([]);
     renderView();
     await screen.findByTestId("tree-renderer");
+    await waitFor(() => expect(loadFiltersExpanded).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId("filter-more-toggle"));
+    await screen.findByTestId("filter-more");
     expect(screen.queryByTestId("filter-group")).toBeNull();
   });
 

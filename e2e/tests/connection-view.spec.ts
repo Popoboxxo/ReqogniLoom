@@ -81,14 +81,17 @@ test.describe('Connection view — allocation assistant', () => {
   test('filters "Nicht allokiert", bulk-allocates the selection, count drops and the matrix shows the dot', async ({
     page,
   }) => {
-    await page.goto(`${FRONTEND_URL}/connections`);
+    // V.4: the selection checkboxes live on the requirement rows of the trees
+    // renderer, so the flow opts into that mode explicitly. The default mode is
+    // still `tree` until V.5.
+    await page.goto(`${FRONTEND_URL}/connections?view=trees`);
     await expect(page.getByTestId('connection-view')).toBeVisible();
 
     await page.getByTestId('quick-unallocated').click();
-    await expect(page.getByTestId('unallocated-count')).toHaveText('2');
+    await expect(page.getByTestId('counter-unallocated')).toHaveText('2');
 
-    await page.getByTestId(`assistant-check-${requirementIds[0]}`).check();
-    await page.getByTestId(`assistant-check-${requirementIds[1]}`).check();
+    await page.getByTestId(`alloc-select-${requirementIds[0]}`).check();
+    await page.getByTestId(`alloc-select-${requirementIds[1]}`).check();
     await expect(page.getByTestId('assistant-selection-count')).toContainText(
       '2'
     );
@@ -100,7 +103,7 @@ test.describe('Connection view — allocation assistant', () => {
 
     // The whole selection is one atomic request; both rows leave the
     // "Nicht allokiert" result.
-    await expect(page.getByTestId('unallocated-count')).toHaveText('0');
+    await expect(page.getByTestId('counter-unallocated')).toHaveText('0');
 
     // Clear the quick filter, then verify the allocation in the matrix.
     await page.getByTestId('quick-unallocated').click();
@@ -132,11 +135,11 @@ test.describe('Connection view — allocation assistant', () => {
         })
     );
 
-    await page.goto(`${FRONTEND_URL}/connections`);
+    await page.goto(`${FRONTEND_URL}/connections?view=trees`);
     await expect(page.getByTestId('connection-view')).toBeVisible();
     await page.getByTestId('quick-unallocated').click();
 
-    await page.getByTestId(`assistant-check-${requirementIds[0]}`).check();
+    await page.getByTestId(`alloc-select-${requirementIds[0]}`).check();
     await page.getByTestId('assistant-suggest').click();
 
     const suggestion = page.getByTestId(
