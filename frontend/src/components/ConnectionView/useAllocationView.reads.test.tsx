@@ -122,6 +122,13 @@ beforeEach(() => {
   vi.mocked(loadGroupsWithMembers).mockResolvedValue([]);
 });
 
+/** The query the hook handed to the read of one row kind. */
+function queryForKind(kind: "requirement" | "element"): AllocationViewQuery {
+  const call = mockedView.mock.calls.find(([, query]) => query?.kind === kind);
+  if (!call) throw new Error(`no ${kind} read was issued`);
+  return call[1] ?? {};
+}
+
 function resultForKind(query: AllocationViewQuery): AllocationViewResponse {
   // Simulate the server: `kind` narrows the page, meta stays global.
   if (query.kind === "requirement") {
@@ -239,5 +246,72 @@ describe("useAllocationView — targeted element read (V2/B-3)", () => {
     expect(params.has("kind")).toBe(false);
     expect(filtersToQuery(filters)).not.toHaveProperty("kind");
     expect(filtersToQuery(filters)).not.toHaveProperty("view");
+  });
+
+  it("element_query_omits_requirement_state_filters", async () => {
+    mockedView.mockImplementation(async (_workspace, query = {}) =>
+      resultForKind(query)
+    );
+
+    renderHook(() => useAllocationView(), {
+      wrapper: wrapper(
+        "/connections?allocated=false&open=true&intent=unassigned&category=functional&tier=tier-first&element_subtree=element-1&q=bremse"
+      ),
+    });
+
+    await waitFor(() => expect(mockedView).toHaveBeenCalledTimes(2));
+
+    const elementQuery = queryForKind("element");
+    // An element row is never allocated, never "open" and carries no tier, so
+    // the server would drop every element row (V2/B-4) and the column would go
+    // empty.
+    expect(elementQuery).not.toHaveProperty("allocated");
+    expect(elementQuery).not.toHaveProperty("open");
+    expect(elementQuery).not.toHaveProperty("intent");
+    expect(elementQuery).not.toHaveProperty("category");
+    expect(elementQuery).not.toHaveProperty("tier");
+    // The element-relevant filters still apply.
+    expect(elementQuery.element_subtree).toBe("element-1");
+    expect(elementQuery.q).toBe("bremse");
+  });
+
+  it("element_query_keeps_kind_element", async () => {
+    mockedView.mockImplementation(async (_workspace, query = {}) =>
+      resultForKind(query)
+    );
+
+    const { result } = renderHook(() => useAllocationView(), {
+      wrapper: wrapper("/connections?allocated=false"),
+    });
+
+    await waitFor(() => expect(result.current.elements).toHaveLength(2));
+
+    const elementQuery = queryForKind("element");
+    expect(elementQuery.kind).toBe("element");
+    expect(elementQuery.page_size).toBe(500);
+    expect(elementQuery.offset).toBe(0);
+  });
+
+  it("requirement_query_keeps_its_filters", async () => {
+    mockedView.mockImplementation(async (_workspace, query = {}) =>
+      resultForKind(query)
+    );
+
+    renderHook(() => useAllocationView(), {
+      wrapper: wrapper(
+        "/connections?allocated=false&open=true&intent=unassigned&category=functional&element_subtree=element-1&q=bremse"
+      ),
+    });
+
+    await waitFor(() => expect(mockedView).toHaveBeenCalledTimes(2));
+
+    const requirementQuery = queryForKind("requirement");
+    expect(requirementQuery.allocated).toBe(false);
+    expect(requirementQuery.open).toBe(true);
+    expect(requirementQuery.intent).toBe("unassigned");
+    expect(requirementQuery.category).toBe("functional");
+    expect(requirementQuery.element_subtree).toBe("element-1");
+    expect(requirementQuery.q).toBe("bremse");
+    expect(requirementQuery.kind).toBe("requirement");
   });
 });

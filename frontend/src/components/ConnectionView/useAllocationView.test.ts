@@ -12,6 +12,7 @@ import {
   DEFAULT_PAGE_SIZE,
   SERVER_PAGE_SIZE,
   buildConnectionSearch,
+  elementFiltersToQuery,
   filtersToQuery,
   parseConnectionSearch,
   parseConnectionView,
@@ -65,6 +66,57 @@ describe("filtersToQuery", () => {
 
   it("uses the committable default windows", () => {
     expect(filtersToQuery({ page: 1, pageSize: DEFAULT_PAGE_SIZE })).toEqual({
+      page_size: SERVER_PAGE_SIZE,
+      offset: 0,
+    });
+  });
+});
+
+describe("elementFiltersToQuery (V2/B-4)", () => {
+  it("forwards the filters an element row can answer", () => {
+    expect(elementFiltersToQuery(FULL_FILTERS)).toEqual({
+      type: "SyReq",
+      state: "draft",
+      element_subtree: "element-1",
+      q: "bremse",
+      page_size: SERVER_PAGE_SIZE,
+      offset: 0,
+    });
+  });
+
+  it("never forwards the requirement-state filters that empty the element column", () => {
+    const query = elementFiltersToQuery(FULL_FILTERS);
+    expect(query).not.toHaveProperty("allocated");
+    expect(query).not.toHaveProperty("open");
+    expect(query).not.toHaveProperty("intent");
+    expect(query).not.toHaveProperty("category");
+    // Element rows are built with `tier_key: None`, so a tier filter would
+    // empty the column just like the allocation-state filters.
+    expect(query).not.toHaveProperty("tier");
+  });
+
+  it("keeps the UI-only and client-side filters out of the request", () => {
+    const query = elementFiltersToQuery(FULL_FILTERS);
+    expect(query).not.toHaveProperty("locked");
+    expect(query).not.toHaveProperty("has_findings");
+    expect(query).not.toHaveProperty("group");
+    expect(query).not.toHaveProperty("kind");
+  });
+
+  it.each<[string, Partial<ConnectionFilters>]>([
+    ["type", { type: "component" }],
+    ["state", { state: "approved" }],
+    ["element_subtree", { elementSubtree: "element-1" }],
+    ["q", { q: "bremse" }],
+  ])("forwards %s when it is the only active filter", (key, patch) => {
+    const query = elementFiltersToQuery({ page: 1, pageSize: 25, ...patch });
+    expect(Object.keys(query).sort()).toEqual(
+      ["offset", "page_size", key].sort()
+    );
+  });
+
+  it("uses the committed server window", () => {
+    expect(elementFiltersToQuery({ page: 3, pageSize: 25 })).toEqual({
       page_size: SERVER_PAGE_SIZE,
       offset: 0,
     });

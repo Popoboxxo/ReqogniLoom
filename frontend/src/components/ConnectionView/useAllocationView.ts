@@ -7,7 +7,11 @@
  *   switching the view), never in component state;
  * - the flat `allocation-view` read object is fetched through React Query in
  *   two targeted reads (`kind=requirement` / `kind=element`, V2/B-3), so the
- *   page cap applies per row kind;
+ *   page cap applies per row kind — and the two reads carry *different*
+ *   filters: the requirement read takes the whole filter set, the element read
+ *   only the filters an element row can answer (`elementFiltersToQuery`,
+ *   V2/B-4), because requirement-state filters would empty the element column
+ *   server-side;
  * - the requirement/element split and the two UI-only quick filters
  *   (`Gesperrt`, `Befunde`) are applied client-side because the committed
  *   read object exposes those two flags per row but has no server filter for
@@ -170,6 +174,34 @@ export function filtersToQuery(
   return query;
 }
 
+/**
+ * Element-side query (V2/B-4): only the filters an **element row** can answer.
+ *
+ * The read object drops every element row outright as soon as `allocated`,
+ * `intent`, `category`, `tier` or `open` is set (`allocation_view_service
+ * .matches()`: an element is never allocated and never "open", and its row is
+ * built with `allocated_to` / `allocation_intent` / `category` / `tier_key`
+ * unset). Forwarding those requirement-state filters would therefore empty the
+ * element column — and with it the element picker and the matrix points —
+ * while e.g. "Nicht allokiert" is active. So they are deliberately not
+ * forwarded; `kind` is set by the caller (V2/B-3), `group`, `locked` and
+ * `hasFindings` are client-side. `type` and `state` do apply to elements
+ * (element type and its workflow state), so they stay.
+ */
+export function elementFiltersToQuery(
+  filters: ConnectionFilters
+): AllocationViewQuery {
+  const query: AllocationViewQuery = {
+    page_size: SERVER_PAGE_SIZE,
+    offset: 0,
+  };
+  if (filters.type) query.type = filters.type;
+  if (filters.state) query.state = filters.state;
+  if (filters.elementSubtree) query.element_subtree = filters.elementSubtree;
+  if (filters.q) query.q = filters.q;
+  return query;
+}
+
 /** Parse the selected renderer from the URL; `Baum` is the default. */
 export function parseConnectionView(params: URLSearchParams): ConnectionViewMode {
   const raw = params.get("view");
@@ -221,8 +253,11 @@ export interface UseAllocationViewResult {
   /** Requirements before the two client-side quick filters (filter options). */
   allRequirements: AllocationRow[];
   /**
-   * Elements of the element read (V2/B-3). The server-side filters apply —
-   * `element_subtree` therefore restricts this column too.
+   * Elements of the element read (V2/B-3). It carries only the filters an
+   * element row can answer (V2/B-4): `element_subtree`, `q`, `tier`, `type`,
+   * `state`. The requirement-state filters (`allocated`, `open`, `intent`,
+   * `category`) are intentionally not sent, so the column stays complete while
+   * "Nicht allokiert" is active.
    */
   elements: AllocationRow[];
   /** P6: groups offered by the `group` filter (empty when none exist). */
@@ -253,6 +288,10 @@ export function useAllocationView(): UseAllocationViewResult {
   );
   const view = parseConnectionView(searchParams);
   const query = useMemo(() => filtersToQuery(filters), [filters]);
+  // V2/B-4: the element read gets its own, narrower filter set —
+  // requirement-state filters would empty the element column server-side (see
+  // `elementFiltersToQuery`).
+  const elementQuery = useMemo(() => elementFiltersToQuery(filters), [filters]);
 
   // V2/B-3: two targeted reads instead of two full loads. `kind` narrows the
   // page server-side, so the 500 cap applies per row kind and a page full of
@@ -272,12 +311,12 @@ export function useAllocationView(): UseAllocationViewResult {
 
   const elementsQuery = useQuery({
     queryKey: allocationViewKeys.elements(workspaceId, {
-      ...query,
+      ...elementQuery,
       kind: "element",
     }),
     queryFn: () =>
       allocationViewApi.view(workspaceId as string, {
-        ...query,
+        ...elementQuery,
         kind: "element",
       }),
     enabled: Boolean(workspaceId),
