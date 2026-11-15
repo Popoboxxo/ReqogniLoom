@@ -33,6 +33,7 @@ from application.artifact_summary_sweep import (
     ArtifactSummarySweeper,
     interval_for_workspace,
     resolve_summary_scopes,
+    run_sweep_all,
 )
 from application.summary_support import TYPE_ROSTER_KIND, upsert_summary
 from audit.models import AuditEntry
@@ -293,6 +294,55 @@ def test_no_agent_key_means_no_run(settings, tenant):
 
 
 # ---------------------------------------------------------------------------
+# RLS: the sweep must arm the session variable, not just the thread-local
+# ---------------------------------------------------------------------------
+
+
+def test_run_sweep_arms_the_rls_session_variable(settings, tenant):
+    """Regression (live finding 2026-11-15): arm *both* isolation layers.
+
+    ``TenantContext`` alone leaves ``app.current_tenant`` unset, so RLS narrows
+    every query to zero rows and the tick reports zeros while scopes are due.
+    """
+    workspace = _workspace(tenant, summary_scopes=["Requirement"])
+    _enable(settings, key=_agent_key(tenant, workspace))
+
+    with patch(
+        "persistence.middleware.set_request_tenant",
+        side_effect=TenantContext.set_tenant,
+    ) as arm, patch(
+        "persistence.middleware.clear_request_tenant",
+        side_effect=TenantContext.clear_tenant,
+    ) as reset, _call_spy():
+        ArtifactSummarySweeper().run_sweep(tenant.id)
+
+    assert [call.args[0] for call in arm.call_args_list] == [tenant.id]
+    reset.assert_called_once()
+
+
+def test_run_sweep_all_arms_the_session_variable_per_tenant(settings, tenant):
+    """The beat entry point arms the session variable once per tenant."""
+    settings.ARTIFACT_SUMMARY_SWEEP_ENABLED = True
+    other = Tenant.objects.create(
+        name="Summary Sweep Other", slug=f"summary-sweep-{uuid.uuid4().hex[:8]}"
+    )
+
+    with patch(
+        "persistence.middleware.set_request_tenant",
+        side_effect=TenantContext.set_tenant,
+    ) as arm, patch(
+        "persistence.middleware.clear_request_tenant",
+        side_effect=TenantContext.clear_tenant,
+    ) as reset:
+        run_sweep_all()
+
+    armed = [call.args[0] for call in arm.call_args_list]
+    assert len(armed) == 2
+    assert set(armed) == {tenant.id, other.id}
+    assert reset.call_count == 2
+
+
+# ---------------------------------------------------------------------------
 # Service: upsert per type, unchanged input
 # ---------------------------------------------------------------------------
 
@@ -306,6 +356,21 @@ class _FakeProvider:
 
     def __call__(self, *args, **kwargs):  # pragma: no cover - not a callable API
         return self.complete(*args, **kwargs)
+
+
+class _ConfiguredModelProvider(_FakeProvider):
+    """Class default vs. configured instance model (live finding 2026-11-15).
+
+    ``MODEL_NAME`` is only the class default; a deployment configures the real
+    model via ``model_name`` (``LLM_MODEL`` / DB ``LlmSettings``). The stored
+    provenance must name the model that answered, not the default.
+    """
+
+    MODEL_NAME = "claude-sonnet-4-5"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.model_name = "beam-free"
 
 
 def test_summarize_artifact_type_upserts_one_row_per_type(settings, tenant):
@@ -352,6 +417,51 @@ def test_summarize_artifact_type_upserts_one_row_per_type(settings, tenant):
     assert row.input_digest["item_count"] == 2
     assert row.status == ArtifactSummary.Status.OK
     assert row.trigger == ArtifactSummary.Trigger.PERIODIC
+
+
+def test_stored_model_is_the_configured_model_not_the_class_default(settings, tenant):
+    """The persisted ``model`` names the model that answered (live finding).
+
+    ``provider=opencode_go`` was stored with ``model=claude-sonnet-4-5`` (the
+    class default) although the configured ``provider.model_name`` was
+    ``beam-free``. Provenance must follow the instance, like
+    ``QualityAssessmentService._provider_provenance``.
+    """
+    workspace = _workspace(tenant)
+    TenantContext.set_tenant(tenant.id)
+    try:
+        make_requirement(workspace, title="Login")
+    finally:
+        TenantContext.clear_tenant()
+
+    provider = _ConfiguredModelProvider()
+    service = ArtifactSummaryService()
+    ctx = AuthContext(
+        user_id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        active_roles=("editor",),
+        auth_method=AuthMethod.API_KEY,
+        actor_type="agent",
+        agent_label="Summary Bot",
+    )
+
+    with patch.object(
+        ArtifactSummaryService,
+        "_resolve_provider",
+        staticmethod(lambda: (provider, "opencode_go", None)),
+    ), patch(
+        "application.ai_derivation_service.AiDerivationService._resolve_and_render",
+        return_value="PROMPT",
+    ):
+        assert service.summarize_artifact_type(ctx, workspace.id, "Requirement") == "summarized"
+
+    TenantContext.set_tenant(tenant.id)
+    try:
+        row = ArtifactSummary.objects.get(workspace=workspace, artifact_type="Requirement")
+    finally:
+        TenantContext.clear_tenant()
+    assert row.provider == "opencode_go"
+    assert row.model == "beam-free"
 
 
 # ---------------------------------------------------------------------------

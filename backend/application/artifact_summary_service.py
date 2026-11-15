@@ -1092,11 +1092,7 @@ class ArtifactSummaryService(ServiceBase):
                 "input_digest": digest,
                 "prompt_slot": TYPE_SUMMARY_PROMPT_TEMPLATE_NAME,
                 "provider": provider_name,
-                "model": str(
-                    getattr(provider, "MODEL_NAME", "")
-                    or getattr(provider, "model", "")
-                    or ""
-                ),
+                "model": _provider_model(provider),
                 "token_usage": input_tokens + output_tokens,
                 "trigger": trigger,
                 "status": ArtifactSummary.Status.OK,
@@ -1398,6 +1394,23 @@ class ArtifactSummaryService(ServiceBase):
         if not isinstance(text, str) or not text.strip():
             return None, DEGRADED_PROVIDER_UNAVAILABLE
         return text.strip(), None
+
+
+def _provider_model(provider: Any | None) -> str:
+    """Return the model that actually answers for *provider*.
+
+    Mirrors ``QualityAssessmentService._provider_provenance``: the instance
+    attribute ``model_name`` (``LLM_MODEL_NAME`` / DB ``LlmSettings.model_name``)
+    wins over the class default ``MODEL_NAME``. Reading ``MODEL_NAME`` first
+    stored a model that never ran (e.g. ``claude-sonnet-4-5`` while the
+    configured provider answered with ``beam-free``).
+    """
+    if provider is None:
+        return ""
+    model = getattr(provider, "model_name", None) or getattr(
+        provider, "MODEL_NAME", ""
+    )
+    return str(model or "")
 
 
 def _timestamp(value: datetime | None) -> str:
