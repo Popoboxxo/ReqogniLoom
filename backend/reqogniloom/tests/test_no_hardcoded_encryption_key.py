@@ -45,8 +45,8 @@ _FERNET_LITERAL = re.compile(r"[A-Za-z0-9_\-]{43}=")
 
 _SCANNED_SUFFIXES = {".py", ".yml", ".yaml", ".ts", ".tsx", ".json", ".sh"}
 
-# `.env` is untracked (developer-local) and the woodpecker placeholder is not a
-# real key; only tracked, scannable sources are relevant here.
+# `.env` is untracked (developer-local) and therefore never part of
+# `git ls-files`; only tracked, scannable sources are relevant here.
 _EXCLUDED_PARTS = {"node_modules", "external", ".agent-meta", "__pycache__"}
 
 # npm lockfiles are full of `sha512-<base64>` integrity digests whose base64

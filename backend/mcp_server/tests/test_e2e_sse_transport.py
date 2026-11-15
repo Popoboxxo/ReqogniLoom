@@ -43,9 +43,9 @@ non-skipped regression coverage:
      ``mcp_server/tests/test_mcp_api_key_roles.py`` for the established
      precedent) and skips cleanly — instead of hanging or failing — when no
      live Redis is reachable (e.g. a bare ``pytest`` run outside
-     docker-compose). CI (GitHub ``backend-test`` and Woodpecker
-     ``test-backend``) provides a Redis service and exports ``REDIS_URL``, so
-     this test DOES run there (AUD-2026-09-198). Run it explicitly via:
+     docker-compose). CI (the GitHub Actions ``backend-test`` job) provides a
+     Redis service container and exports ``REDIS_URL``, so this test DOES run
+     there (AUD-2026-09-198). Run it explicitly via:
 
         docker compose run --rm backend pytest \
             mcp_server/tests/test_e2e_sse_transport.py -m integration -v
@@ -361,10 +361,10 @@ _REDIS_REACHABLE = _redis_reachable(_INTEGRATION_REDIS_URL)
 @pytest.mark.integration
 # AUD-2026-09-198 (DOC-03): there used to be a second `skipif` that disabled
 # this test in *every* CI run (`CI`/`GITHUB_ACTIONS`), hiding the MCP live-SSE
-# path from the pipeline entirely. The GitHub `backend-test` job (and the
-# Woodpecker `test-backend` step) now provide a real Redis service and export
-# `REDIS_URL`, so the only remaining skip is the honest one: no reachable Redis
-# (e.g. a bare local `pytest` run without the compose stack).
+# path from the pipeline entirely. The GitHub Actions `backend-test` job now
+# provides a real Redis service container and exports `REDIS_URL`, so the only
+# remaining skip is the honest one: no reachable Redis (e.g. a bare local
+# `pytest` run without the compose stack).
 @pytest.mark.skipif(
     not _REDIS_REACHABLE,
     reason=(
