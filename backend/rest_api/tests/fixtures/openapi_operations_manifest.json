@@ -234,6 +234,10 @@
    "get"
   ],
   [
+   "/api/v1/artifacts/{artifact_id}/summary/",
+   "get"
+  ],
+  [
    "/api/v1/artifacts/{id}/",
    "delete"
   ],

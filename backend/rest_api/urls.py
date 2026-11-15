@@ -89,6 +89,7 @@ from memory.memory_rest import (
     WorkspaceMemorySettingsView,
 )
 from rest_api.api_key_views import ApiKeyViewSet
+from rest_api.summary_views import ArtifactSummaryView
 from rest_api.release_views import (
     ElementReleaseImpactView,
     ElementReleaseStatusView,
@@ -1284,6 +1285,14 @@ urlpatterns = [
         "artifacts/<uuid:artifact_id>/comments/",
         ArtifactCommentsView.as_view(),
         name="api-v1-artifact-comments",
+    ),
+    # Issue #1792 (S1): on-demand AI summary of one artifact plus its visible
+    # trace neighbours. Same nested-route form as the memory digest above and
+    # likewise placed before router.urls.
+    path(
+        "artifacts/<uuid:artifact_id>/summary/",
+        ArtifactSummaryView.as_view(),
+        name="api-v1-artifact-summary",
     ),
     # Release cascade (ADR-028 A1) — the workflow transition into the
     # ``freeze_on_enter`` state is the only lock. These routes must precede

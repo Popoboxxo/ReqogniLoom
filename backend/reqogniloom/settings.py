@@ -593,6 +593,53 @@ QUALITY_ASSESS_RATE: str = config(
     "QUALITY_ASSESS_RATE", default="60/hour"
 ).strip()
 
+# ---------------------------------------------------------------------------
+# Issue #1792 — on-demand AI summary of ONE artifact plus its trace neighbours
+# (spec: docs/superpowers/specs/2026-11-14-ai-artifact-summaries-design.md).
+#
+# Off by default (spec §9/E2): the feature spends a paid completion per call,
+# so a deployment opts in. The flag produces a *reason*, not an error — with it
+# off the route still answers 200 with ``degraded_reason="disabled"`` so a
+# client can render "feature off" instead of "nothing linked" (spec §9/E11).
+# ---------------------------------------------------------------------------
+ARTIFACT_SUMMARY_ENABLED: bool = config(
+    "ARTIFACT_SUMMARY_ENABLED", default=False, cast=bool
+)
+#: Like ``QUALITY_ASSESS_RATE``: this endpoint runs one paid completion per
+#: request, so an empty/missing value means the 60/hour default, never
+#: unlimited (an unthrottled LLM endpoint is a cost incident, not a switch).
+ARTIFACT_SUMMARY_RATE: str = config(
+    "ARTIFACT_SUMMARY_RATE", default="60/hour"
+).strip()
+#: Hard caps on the prompt payload (spec §5.2/§9/E3). They hold for every
+#: trace depth: the summary must stay bounded regardless of graph size.
+SUMMARY_MAX_NEIGHBOURS: int = config("SUMMARY_MAX_NEIGHBOURS", default=20, cast=int)
+SUMMARY_MAX_CHARS_PER_NEIGHBOR: int = config(
+    "SUMMARY_MAX_CHARS_PER_NEIGHBOR", default=300, cast=int
+)
+#: Cap on the focus artifact's own text inside the prompt (1500 characters).
+SUMMARY_MAX_CHARS_PER_SECTION: int = config(
+    "SUMMARY_MAX_CHARS_PER_SECTION", default=1500, cast=int
+)
+#: Upper bound for one synchronous summary call (spec §5.7). Sits below the
+#: generic ``LLM_SYNC_TIMEOUT`` so a hanging provider cannot pin a worker.
+SUMMARY_SYNC_TIMEOUT_SECONDS: int = config(
+    "SUMMARY_SYNC_TIMEOUT_SECONDS", default=20, cast=int
+)
+#: Cache TTL for a genuine provider answer (1 h, like the other free-form AI
+#: flows). Mock/placeholder answers are never cached (spec §5.4).
+SUMMARY_CACHE_TTL_SECONDS: int = config(
+    "SUMMARY_CACHE_TTL_SECONDS", default=3600, cast=int
+)
+#: Minimum gap a second, *concurrent* generation of the same artifact has to
+#: respect: the in-flight marker is set before the provider call and removed in
+#: a ``finally``, so a "refresh" storm on one artifact cannot spend two calls at
+#: once (pattern ``QUALITY_AUTO_ASSESS_MIN_INTERVAL_SECONDS``). The periodic
+#: sweep in #1793 reuses the same setting as its real minimum interval.
+ARTIFACT_SUMMARY_MIN_INTERVAL_SECONDS: int = config(
+    "ARTIFACT_SUMMARY_MIN_INTERVAL_SECONDS", default=3600, cast=int
+)
+
 # Issue #1578: automatic quality assessment. Off by default because every run
 # is a paid completion. The feature needs an agent API key per tenant
 # (principal_type=agent); without it nothing runs, so an automatic assessment
@@ -832,6 +879,10 @@ REST_FRAMEWORK = {
         # Plan B B5-T3 (#378): LLM spend guard for POST .../quality/assess/.
         # ``or "60/hour"`` (not ``or None``) — see QUALITY_ASSESS_RATE above.
         "quality_assess": QUALITY_ASSESS_RATE or "60/hour",
+        # Issue #1792: LLM spend guard for the on-demand artifact summary.
+        # Same "never unlimited" rule as quality_assess — see
+        # ARTIFACT_SUMMARY_RATE above.
+        "artifact_summary": ARTIFACT_SUMMARY_RATE or "60/hour",
         # Plan A T-A4-7: inbound Honcho webhook receiver (HMAC-authenticated,
         # unauthenticated by JWT). See rest_api.throttling.
         "memory_webhook": MEMORY_WEBHOOK_RATE or None,

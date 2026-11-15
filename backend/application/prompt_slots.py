@@ -48,6 +48,10 @@ MEMORY_HARD_OFF_SLOTS: frozenset[str] = frozenset(
         # Issue #18: summarising search hits must not feed memory back into
         # the writer that produces it (ADR-024 AC-1).
         "search_summary",
+        # Issue #1792: same reasoning for the artifact summary -- it is built
+        # from artifact content that the memory extractor already reads, so an
+        # injected memory block would be a second feedback path.
+        "artifact_summary",
     }
 )
 
@@ -157,6 +161,16 @@ _DATA_VARIABLES_BY_SLOT: dict[str, tuple[str, ...]] = {
     "decision_to_adr": ("decision_description", *MEMORY_DATA_VARIABLES),
     "bundle_compression": ("bundle_markdown",),
     "search_summary": ("query", "hits_json"),
+    # Issue #1792 (S1): one artifact plus its permission-filtered trace
+    # neighbours. ``language`` is the ISO code of the content language; the
+    # template does not reference it yet -- the directive is appended by the
+    # service until S7 centralises it in ``application.ai_language``.
+    "artifact_summary": (
+        "artifact_json",
+        "neighbours_json",
+        "artifact_type",
+        "language",
+    ),
     "interview.grounding_rank": (
         "answers_text",
         "candidates_json",
