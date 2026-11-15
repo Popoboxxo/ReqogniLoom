@@ -147,7 +147,7 @@ Nicht archivieren: das Dokument bleibt der Entscheidungsnachweis der Sitzung vom
 
 ## 6. Statusänderungen
 
-### Anzuwenden (Datei liegt nur auf `origin/main`, nicht im ausgecheckten Branch)
+### Angewendet
 
 **a) `docs/superpowers/specs/2026-11-04-ordnung-allokation-design.md`**
 
