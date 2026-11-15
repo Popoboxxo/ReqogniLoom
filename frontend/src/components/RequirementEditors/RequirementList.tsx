@@ -22,7 +22,7 @@
 import React, { useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { X, Layers } from 'lucide-react';
+import { X, Layers, FolderPlus } from 'lucide-react';
 import { usePersistedListState } from '../../hooks/usePersistedListState';
 import { useHasRole } from '../../hooks/useHasRole';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -280,6 +280,14 @@ interface RequirementListProps {
    */
   onManageGroups?: () => void;
   /**
+   * G2 (spec §4.5.3/§4.5.5): opens the "Zu Gruppe hinzufügen…" dialog for one
+   * row. The dialog itself is owned by the container (page level, outside this
+   * panel's clipped SplitView column) — the list only contributes the row
+   * trigger. Omitted by a caller with no group surface (and by the container
+   * for a viewer), in which case the trigger is absent from the DOM.
+   */
+  onAddToGroup?: (requirementId: string) => void;
+  /**
    * #1668: server-side allocation filter, owned by the container because it
    * drives the list query (`?allocated=`). Rendered here so it sits next to
    * the other list filters; ``all`` is the unfiltered state.
@@ -311,6 +319,7 @@ export const RequirementList: React.FC<RequirementListProps> = ({
   groups,
   onReorderGroupMember,
   onManageGroups,
+  onAddToGroup,
   allocation,
   onAllocationChange,
   level,
@@ -790,6 +799,28 @@ export const RequirementList: React.FC<RequirementListProps> = ({
                     also selecting the row (the <li> above owns onSelect).
                     R2/T1: rendered conditionally, not just disabled — a
                     viewer must not find this trigger in the DOM at all. */}
+                {/* G2 (spec §4.5.3): assign this row to a group without
+                    leaving the list. Same role gate and same
+                    stopPropagation rule as the delete trigger next to it — a
+                    viewer must not find it in the DOM at all, and the click
+                    must not also select the row. The dialog opens on page
+                    level, so `aria-haspopup="dialog"` is literally true. */}
+                {hasRole('editor') && onAddToGroup && (
+                  <button
+                    type="button"
+                    data-testid={`req-row-group-${req.id}`}
+                    aria-label={t('groups.addAction')}
+                    title={t('groups.addAction')}
+                    aria-haspopup="dialog"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onAddToGroup(req.id);
+                    }}
+                    className={styles.groupButton}
+                  >
+                    <FolderPlus aria-hidden="true" size={14} />
+                  </button>
+                )}
                 {hasRole('editor') && (
                   <button
                     type="button"

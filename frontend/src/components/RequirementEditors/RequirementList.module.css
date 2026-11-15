@@ -68,6 +68,13 @@
   border-radius: var(--radius-btn);
 }
 
+/* G2 (plan 2026-11-15 G2.1): the row's "add to group" trigger is the same
+   control shape as the delete trigger next to it — one shared rule, so the
+   24×24 hit-target floor (issue #1395) can never diverge between the two. */
+.groupButton {
+  composes: deleteButton;
+}
+
 /* #1668: "unallocated" indicator in the toolbar. Text-only, no border — it is
    a read-out next to the filter, not a second control. Muted so it does not
    compete with the primary create action. */

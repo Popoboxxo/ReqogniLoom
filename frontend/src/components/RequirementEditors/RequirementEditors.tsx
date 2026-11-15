@@ -55,6 +55,7 @@ import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
 import { RequirementList } from './RequirementList';
 import { GroupManager } from './GroupManager';
+import { AddToGroupDialog } from './AddToGroupDialog';
 import { useRequirementGroups } from './useRequirementGroups';
 import { RequirementArtifactForm, REQUIREMENT_ATTRIBUTE_OVERRIDES } from './RequirementArtifactForm';
 import { ArtifactForm, type ArtifactFormValues } from '../shared/ArtifactForm';
@@ -142,6 +143,14 @@ export default function RequirementEditors(): JSX.Element {
   // permanently mounted box. Closed by default — in the idle state nothing of
   // the manager is in the DOM, so the tree starts directly under the toolbar.
   const [isGroupManagerOpen, setIsGroupManagerOpen] = useState(false);
+  // G2 (spec §4.5.3): the row action "Zu Gruppe hinzufügen…" opens a dialog for
+  // exactly one requirement. Only the *id* is state — the requirement itself is
+  // read from the current list, so a refresh that removes the row (filter,
+  // delete) closes the dialog instead of leaving it pointed at a ghost.
+  const [addToGroupId, setAddToGroupId] = useState<string | null>(null);
+  const addToGroupRequirement = addToGroupId
+    ? requirements.find((req) => req.id === addToGroupId)
+    : undefined;
 
   /**
    * P1 Task 1.7: the tree addresses nodes by Requirement id, the move route by
@@ -663,6 +672,9 @@ export default function RequirementEditors(): JSX.Element {
         onManageGroups={
           hasRole('editor') ? () => setIsGroupManagerOpen(true) : undefined
         }
+        // G2 (spec §4.5.3): the per-row "add to group" trigger; page-level
+        // dialog below. A viewer gets no trigger at all (§4.5.5).
+        onAddToGroup={hasRole('editor') ? setAddToGroupId : undefined}
         onCreateNew={openCreateForm}
       />
     </div>
@@ -887,6 +899,25 @@ export default function RequirementEditors(): JSX.Element {
             onRemoveMember={requirementGroups.removeMember}
           />
         </Dialog>
+      )}
+      {/* G2 (spec §4.5.3): "Zu Gruppe hinzufügen…" — page level for the same
+          reason as the group manager dialog above (the SplitView column clips
+          overflow). The hook owns the write + reload, so the folder counters
+          and the "in N Gruppen" marker update without a route reload; the
+          dialog itself stays open on a rejected add (role="alert"). */}
+      {addToGroupRequirement && hasRole('editor') && (
+        <AddToGroupDialog
+          requirementId={addToGroupRequirement.id}
+          requirementTitle={
+            addToGroupRequirement.title || t('editor.untitled')
+          }
+          groups={requirementGroups.managerGroups}
+          isLoading={requirementGroups.isLoading}
+          groupsError={requirementGroups.error}
+          onAdd={requirementGroups.addMember}
+          onCreateGroup={requirementGroups.createGroup}
+          onClose={() => setAddToGroupId(null)}
+        />
       )}
       {/* Same page shell as RiskEditors/AdrEditors/IssueEditors: header at
           page level, SplitView filling the rest. */}

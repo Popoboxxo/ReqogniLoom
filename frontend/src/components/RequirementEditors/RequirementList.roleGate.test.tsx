@@ -10,6 +10,7 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { RequirementList } from "./RequirementList";
 import * as authModule from "../../context/AuthContext";
 import type { Requirement } from "../../types";
@@ -121,5 +122,62 @@ describe("RequirementList — role-gated create trigger (R2/T1)", () => {
     mockRoles(["admin"]);
     renderList([]);
     expect(screen.getByTestId("req-list-empty-create")).toBeInTheDocument();
+  });
+});
+
+/**
+ * G2 (spec 2026-11-08 §4.5.3/§4.5.5, plan 2026-11-15 G2.1): the row action
+ * "Zu Gruppe hinzufügen…" is a write path, so it follows the same gate as the
+ * delete trigger — absent for a viewer, not merely disabled. It announces the
+ * dialog it opens, and it hands the row's requirement id to the container
+ * (which owns the dialog, outside this panel's clipped column).
+ */
+describe("RequirementList — row action 'add to group' (G2)", () => {
+  function renderWithGroupAction(onAddToGroup = vi.fn()) {
+    return render(
+      <RequirementList
+        requirements={REQUIREMENTS}
+        onSelect={vi.fn()}
+        onDelete={vi.fn()}
+        onCreateNew={vi.fn()}
+        onAddToGroup={onAddToGroup}
+        allocation="all"
+        onAllocationChange={vi.fn()}
+        level="all"
+        onLevelChange={vi.fn()}
+      />
+    );
+  }
+
+  it("does not render the row action for a viewer", () => {
+    mockRoles(["viewer"]);
+    renderWithGroupAction();
+    expect(
+      screen.queryByTestId(`req-row-group-${REQUIREMENTS[0].id}`)
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens the group dialog for an editor", async () => {
+    const user = userEvent.setup();
+    const onAddToGroup = vi.fn();
+    mockRoles(["editor"]);
+    renderWithGroupAction(onAddToGroup);
+
+    const trigger = screen.getByTestId(`req-row-group-${REQUIREMENTS[0].id}`);
+    expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
+
+    await user.click(trigger);
+
+    expect(onAddToGroup).toHaveBeenCalledWith(REQUIREMENTS[0].id);
+    // The click must not also select the row (the <li> owns onSelect).
+    expect(screen.getByTestId(`req-row-${REQUIREMENTS[0].id}`)).toBeInTheDocument();
+  });
+
+  it("renders no row action when the container provides none", () => {
+    mockRoles(["editor"]);
+    renderList();
+    expect(
+      screen.queryByTestId(`req-row-group-${REQUIREMENTS[0].id}`)
+    ).not.toBeInTheDocument();
   });
 });
