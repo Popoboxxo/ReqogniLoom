@@ -1,9 +1,10 @@
 ﻿# ReqFlow — Codebase-Übersicht (IST-Zustand)
 
-> **Status:** Greenfield-Implementierung abgeschlossen + v1.1 Features (SE-Phasen 1–6) + Canvas/Mermaid (REQ-L1-056/057) + v1.2 Memory Admin UI (Phasen 1–5) + Memory-Engine/Digest (RFC #1002 F6)  
-> **Letzte Aktualisierung:** 2026-10-06  
-> **Branch:** `feat/memory-rfc-1002-f6`  
-> **Validierung:** 1130/1130 pytest Tests grün; 111/112 E2E Tests (Playwright) grün; `manage.py check` 0 Issues
+> **Zweck:** Code-genaues Inventar der `backend/`- und `frontend/`-Bereiche (exportierte API, Module, Flows) als Nachschlagewerk für Mitwirkende und Agenten. Kein Wunschzustand, kein Architektur-Entwurf — nur was im Repository steht.
+> **Stand:** `1.9.0-beta.1` (Beta-Ziel; Code-Stand des vermessenen Checkouts: `1.8.0-beta.29`)  
+> **Letzte Aktualisierung:** 2026-11-15  
+> **Datenquelle:** eigener Checkout von `origin/main`, Dateien und Manifeste direkt gelesen (u. a. `docs/agent-templates/tool-manifest.json`, `.github/workflows/ci.yml`, `backend/application/*`, `frontend/src/components/*`); Testzahlen sind Dateizahlen, keine Testergebnisse  
+> **Validierung:** keine Testläufe in diesem Durchgang — der `manage.py check`-Stand und die pytest-/Playwright-Ergebnisse gehören in den Release-Report, nicht in dieses Inventar
 
 ---
 
@@ -17,7 +18,7 @@ ReqFlow ist ein Requirements-Management-Tool mit AI- und Systems-Engineering-Sup
 - **Layer 0 (Foundation):** Persistierung, Auth/Tenancy, Konfiguration, Audit
 - **Layer 1 (Domain Services):** LLM-Adapter, Traceability, Workflow, Baseline, Diagram, ICD
 - **Layer 2 (Orchestration):** ApplicationService (16 Services, Single Entry Point)
-- **Layer 3 (Interfaces):** REST API + MCP Server (290 Tools, 46 Tool-Gruppen-Präfixe — Stand `v1.8.0-beta.29`, siehe [api/MCP-SURFACE.md](api/MCP-SURFACE.md) für die Messmethode)
+- **Layer 3 (Interfaces):** REST API + MCP Server (297 Tools, 47 Tool-Gruppen-Präfixe — Stand `1.9.0-beta.1`, siehe [api/MCP-SURFACE.md](api/MCP-SURFACE.md) für die Messmethode)
 - **Layer 4 (Frontend):** React-SPA
 - **Cross-Cutting:** SeMetrics (Read Model), ResilienceOrchestrator
 
@@ -499,6 +500,53 @@ class RiskService:
 
 ---
 
+#### `application/` — Dokumentansicht, Editier-Policy und Bulk-Update (R1–R7, ADR-026)
+
+Vier Module ergänzen die Service-Schicht für die bearbeitbare Dokumentansicht
+(`docs/features/document-reading-view.md`). Sie ändern das Domänenmodell **nicht**:
+es gibt weiterhin genau ein `Document`-Artefakt, die Sicht ist eine Lese-/Schreibfläche
+darauf (ADR-026, Nachtrag 2026-11-15).
+
+- **`markdown_chapters.py`** — `split_chapters(markdown, *, max_level=MAX_CHAPTER_LEVEL)`
+  bzw. `Chapter`: Kapitel sind reine Textverarbeitung der Markdown-Überschriften des
+  `body` (ATX und Setext bis Ebene `###`; `####` und tiefer bleibt Fließtext,
+  Überschriften in fenced Code-Blöcken zählen nicht). Hierarchische Nummerierung
+  (`1`, `1.1`, `1.1.1`), stabiler Anker je Kapitel; Text vor der ersten Überschrift
+  wird ein führendes Level-0-Kapitel, ein leerer Body genau ein leeres. Kein
+  Kapitel-Modell, keine Persistenz.
+- **`document_reading_service.py`** — `DocumentReadingService` +
+  `DocumentViewResult` / `DocumentProjectionInfo`: **der einzige Layer-2-Einstieg**
+  für die Sicht. Liest Kopf (Identität, Inhaltsfelder, `version`, Workflow-Status,
+  Freeze-Buchhaltung), die Kapitel, die Markdown-Fassung (`to_markdown()`) und je
+  Feld das Schreiburteil. Schreibt nie.
+- **`document_edit_policy.py`** — `resolve_field_permissions(...)`, `EDITABLE_FIELDS_V1`:
+  das Urteil je Feld in fester Reihenfolge (erster Treffer gewinnt) —
+  `PERMISSION` (RBAC/Item-Permission) → `REPO_EXTERNAL` (`owner_mode = repo_external`,
+  bis `adopt` nie beschreibbar) → `FIELD_FROZEN` (`FROZEN_FIELDS` aus
+  `document_service.py`: `title, description, body, kind`; `doc_date` und
+  `custom_fields` bleiben schreibbar). Rechte sind einschränkend, nie erweiternd.
+- **`bulk_update_service.py`** — `BulkUpdateService.apply(...)`: **der einzige neue
+  Schreibpfad** dieser Beta. Ein Aufruf, viele Artefakte, **alles oder nichts**
+  (eine Transaktion, max. `MAX_ENTRIES = 100` Einträge). Jeder Eintrag läuft durch
+  den Dienst **seines Typs** (explizite Dispatch-Tabelle `Document` →
+  `DocumentService.update_document`, `Requirement` → `RequirementService.update_requirement`),
+  nie durch einen generischen `ArtifactService`-Update. Vorab geprüft wird nur, was
+  ein Einzeldienst nicht prüfen kann: Form/Größe der Liste, Existenz + Workspace +
+  bekannter Typ, und ob die Feldnamen im Update-Vertrag des Typs vorkommen. Freeze,
+  Change-Reason, Syntax und Optimistic Lock bleiben allein Sache der typisierten
+  Dienste. Vertrag: `BulkEntry(artifact_id, expected_version, fields)` →
+  `BulkUpdateResult(updated[], errors[])`; Fehlercodes sind die der Transports
+  (`NOT_FOUND`, `WORKSPACE_MISMATCH`, `UNSUPPORTED_ARTIFACT_TYPE`, `UNKNOWN_FIELD`,
+  `CONFLICT`, `FIELD_FROZEN`, `WORKFLOW_FROZEN`, `PERMISSION_DENIED`,
+  `VALIDATION_ERROR`).
+
+**Kein zweiter Schreibpfad für Inhalte:** ein einzelnes Feld geht weiterhin über
+`DocumentService.update_document` (REST `PATCH /api/v1/documents/{id}/` mit
+`If-Match`), der Sammelmodus über `BulkUpdateService` (REST `PATCH
+/api/v1/artifacts/bulk-update/`, MCP `artifact.bulk_update`).
+
+---
+
 ### Layer 3: Interface Adapters
 
 #### `rest_api/` (ARCH-L1-002)
@@ -620,6 +668,20 @@ class WorkspaceMemoryDigestView(APIView):
 
 class ArtifactMemoryDigestView(APIView):
     # GET /api/v1/artifacts/{id}/memory/digest/ — konsolidierter Artifact-Digest (RFC #1002 F6, read-only)
+
+# Dokumentansicht (R1/R7.1, ADR-026) — Leseobjekt, kein neues Modell
+class DocumentViewSet(viewsets.ModelViewSet):
+    # GET   /api/v1/documents/{id}/            — Document-Kopf + ETag: "<version>"
+    # POST  /api/v1/documents/                 — create (201 + ETag)
+    # PATCH /api/v1/documents/{id}/            — ein Feld, If-Match → 412/409 FIELD_FROZEN
+    # @action GET /api/v1/documents/{id}/view/ — Kapitel-Leseobjekt (R1)
+    #        `?format=markdown` → text/markdown, gleiche Kapitel, gleiches ETag/403/404 (R7.1)
+
+# Sammel-Schreibpfad (R3, ADR-026) — PATCH, nicht Teil des ArtifactViewSet-Routers
+class ArtifactBulkUpdateView(APIView):
+    # PATCH /api/v1/artifacts/bulk-update/
+    #   Body {workspace_id, entries: [{artifact_id, expected_version, fields}]}, 1..100
+    #   Alles oder nichts; 409 + errors[] (index, artifact_id, code, message, field?)
 ```
 
 **Auth-Endpoints:**
@@ -654,7 +716,7 @@ POST /api/v1/auth/logout             # Optional (stateless, JWT in localStorage)
 ---
 
 #### `mcp_server/` (ARCH-L1-003)
-**Modell:** MCP-Server (JSON-RPC 2.0) mit Tool-Gruppen, direkt gegen ApplicationService (ADR-01). **290 Tools in 46 Gruppen-Präfixen** (gemessen auf `v1.8.0-beta.29`, zuletzt erweitert um die Statistik-Gruppe `metrics` (`metrics.catalog`/`metrics.get`, #1265), davor die ADR-019-WP3-Gruppe `suggestion` (`suggestion.list`/`accept`/`reject`) und `traceability.suggest_links` als Write-Tool, siehe `docs/api/MCP-SURFACE.md`; die vollständige, generierte Tool-Liste inkl. `inputSchema` steht in `docs/agent-templates/tool-manifest.json`, die lesbare Referenz in [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md)).
+**Modell:** MCP-Server (JSON-RPC 2.0) mit Tool-Gruppen, direkt gegen ApplicationService (ADR-01). **297 Tools in 47 Gruppen-Präfixen** (gemessen auf `1.9.0-beta.1`; zuletzt erweitert um die Summary-Gruppe `summary` (`summary.get`/`summary.refresh`, #1793) und um `artifact.bulk_update` als Write-Tool der Dokumentansicht, davor `allocation.query`, die `group`-Gruppe, `milestone`, `work_item`, `document` und die Statistik-Gruppe `metrics`; siehe `docs/api/MCP-SURFACE.md`. Die vollständige, generierte Tool-Liste inkl. `inputSchema` steht in `docs/agent-templates/tool-manifest.json`.)
 
 > **Zahlen nicht aus diesem Dokument übernehmen.** Die Werkzeuganzahl ändert sich mit jedem neuen Tool; maßgeblich sind `tool-manifest.json` und die Messmethode in [`docs/api/MCP-SURFACE.md` §1](api/MCP-SURFACE.md#1-catalogue-size) (`tools/list` per `curl` oder offline `manage.py export_tool_manifest`). Die früheren Angaben in diesem Dokument (143, 171, 172, 212, 215) waren Kopien ohne Nachmessung; die CI-Guards `test_tool_manifest_drift.py` und `test_entity_surface_parity.py` verhindern inzwischen, dass eine Zahl still veraltet.
 
@@ -781,7 +843,7 @@ from resilience.services import (
 ### Layer 4: Frontend
 
 #### `frontend/` (ARCH-L1-001)
-**Stack:** React 18 + TypeScript + Vitest + react-i18next
+**Stack:** React 19 + TypeScript + Vitest + react-i18next
 
 **Struktur:**
 ```
@@ -803,6 +865,9 @@ frontend/
         useDashboardData.ts        # Custom Hook für Dashboard-Daten
       RequirementEditors/         # Requirement-CRUD
         useRequirementData.ts      # Custom Hook
+        useRequirementGroups.ts    # Gruppen als Pseudo-Ordner + Mitgliedschaften (eine Quelle für Liste und Dialoge)
+        GroupManager.tsx           # Gruppenverwaltung (nur editor) im Dialog
+        AddToGroupDialog.tsx       # Zeilenaktion „Zu Gruppe hinzufügen" (Dialog, ein Requirement, optional neue Gruppe)
       ArchitectureEditors/        # Architecture-CRUD
         useArchitectureData.ts     # Custom Hook
       ArtifactDiff/               # Visueller Artefakt-Diff (side-by-side + unified)
@@ -811,6 +876,19 @@ frontend/
         CsvImport.tsx
       TestRuns/                   # Test-Run-Ansicht mit Ergebnisliste
         TestRuns.tsx
+      Documents/                  # Dokument-Artefakt + bearbeitbare Leseansicht (ADR-026, Route /documents und /documents/:id in NavigationShell)
+        Documents.tsx             # Liste + Detail (SplitView)
+        DocumentReadingView.tsx   # Leseobjekt: Kopf, Felder, Kapitel, Speicherleiste
+        DocumentReadingChapters.tsx # Kapitel + Inhaltsverzeichnis (Anker kommen aus dem Backend)
+        DocumentFieldEditor.tsx   # Inline-Editor je Feld (nur wenn `fields[].editable`)
+        DocumentSaveBar.tsx       # Speichern: sofort (ein Feld) oder gesammelt (ein Stapel)
+        useDocumentDrafts.ts      # Entwürfe + zwei Speichermodi (immediate/batch), 412/409-Mapping
+        Documents.module.css      # enthält den `@media print`-Block der Sicht
+      ConnectionView/             # Verbindungsansicht, fünf Modi (Default "trees", Route /connections)
+        AllocationTreesRenderer.tsx # Zwei-Baum-Modus: Requirements links, Architektur rechts, Kanten dazwischen
+        useAllocationSelection.ts   # Zeilenauswahl und gesperrte Zeilen (eine Wahrheit für die Seite)
+        allocation-trees.ts         # Baumaufbau + Allokationskanten, reine Funktionen
+        edge-geometry.ts            # Messung → SVG-Pfade der Kanten (nur gemountete Zeilen)
       DiagramView/                  # Diagram-CRUD + Traceability-Sidebar
       canvas/                       # Free-Hand Canvas Editor (Fabric.js v6)
         CanvasEditor.tsx
@@ -828,6 +906,8 @@ frontend/
       TraceabilityView/           # Trace-Link-Visualisierung
       NavigationShell/            # Sidebar, Workspace-Switcher, globale Suche
         BannerStack.tsx            # Rendert globales System-Banner + Workspace-Banner (session-scoped Dismiss)
+      shared/WorkspaceTree/       # Gemeinsamer Baum (Requirements/Architektur/Verbindungsansicht)
+        tree-drag.ts               # `classifyTreeDrop`: ein Drop-Ziel wird an genau einer Stelle klassifiziert (Elternwechsel, Umsortieren, Gruppenordner)
       WorkspaceSettings/          # Workspace-Settings (Preset, Terminologie, Sprache)
         WorkspaceBannerSection.tsx # Workspace-Banner-Verwaltung (Workspace-Admin oder System-Admin)
     context/
@@ -850,7 +930,7 @@ frontend/
   vitest.config.ts                # Vitest Config
 ```
 
-**Key Components (15 hauptsächliche):**
+**Key Components (17 hauptsächliche):**
 1. `DashboardViews` — Übersichts-Dashboards (Requirements, Architecture, Tests)
 2. `RequirementEditors` — Requirement-Create/Edit/Delete Forms
 3. `ArchitectureEditors` — Architecture-Element-Editor
@@ -866,6 +946,8 @@ frontend/
 13. `IssueList` — Issue-Liste
 14. `canvas/CanvasEditor` — Free-Hand Canvas Editor (Fabric.js v6, REQ-L1-056)
 15. `mermaid/MermaidEditor` — Mermaid Code-Editor mit Live-Preview (CodeMirror 6 + mermaid.js, REQ-L1-057)
+16. `Documents/DocumentReadingView` — bearbeitbare Dokumentansicht: Kapitel aus `GET /documents/{id}/view/`, Feldsperren aus dem Urteil des Backends, Speichern über `DocumentFieldEditor`/`DocumentSaveBar` (`docs/features/document-reading-view.md`)
+17. `ConnectionView` — Verbindungsansicht mit fünf Modi; Default `trees` rendert `AllocationTreesRenderer` (zwei Bäume, Kanten-Overlay, Filterleiste mit „Weitere Filter"-Popover, Kantenschalter `ui.connection_view.show_edges`, `docs/features/connection-view-trees.md`)
 
 **Hooks:**
 - `useDashboardData()` — Fetch via `api/requirements`, caching
@@ -873,10 +955,14 @@ frontend/
 - `useArchitectureData(id)` — Load architecture element
 - `useAuthContext()` — Auth-State (Token, CurrentUser, Tenant)
 - `useWorkspaceContext()` — Workspace-State, Preset, Terminologie
+- `useAllocationSelection(requirements)` — Auswahl-/Sperr-Zustand der Verbindungsansicht (eine Wahrheit für beide Bäume)
+- `useDocumentDrafts(reading, …)` — ungespeicherte Feld-Entwürfe der Dokumentansicht, zwei Speichermodi: `saveField` (ein `PATCH /documents/{id}/` mit `If-Match`) und `saveAll` (ein `PATCH /artifacts/bulk-update/`), Status `clean|dirty|saving|conflict|error`
+
+**Präferenz-Schreibpfad:** Nutzer-Präferenzen (u. a. `ui.connection_view.show_edges`, `ui.connection_view.filters_expanded`, `ui.connection_view.saved_views`) laufen über `api/preference-values.ts` und werden per `PATCH` mit `keepalive: true` (`api/client.ts`) geschrieben, damit ein Reload den Klick nicht verliert; Schreibvorgänge serialisiert `api/preference-write-queue.ts` (Last-Click-Wins). Kein localStorage-Fallback.
 
 **i18n:** DE/EN via react-i18next (Übersetzungen in `locales/de.json`, `locales/en.json`)
 
-**Test-Coverage:** 34+ Frontend-Dateien; Vitest für Unit-Tests; 111 E2E Tests (Playwright/Chromium)
+**Test-Coverage:** 387 Frontend-Testdateien (`*.test.ts`/`*.test.tsx` unter `frontend/src/`, Dateizahl gemessen 2026-11-15); Vitest für Unit-Tests; 70 E2E-Spec-Dateien unter `e2e/tests/` (Playwright/Chromium, 4 CI-Shards)
 
 ---
 
@@ -1001,8 +1087,12 @@ docker-compose exec backend python manage.py seed_demo
 
 ### Tests
 ```bash
-# Alle Backend-Tests (1130 Tests)
+# Alle Backend-Tests (1018 Testdateien, `test_*.py` unter backend/)
 docker-compose exec backend pytest
+
+# Isolierter Test-Stack (verbindlicher Weg, siehe README/.meta-config)
+make test-backend
+make test-frontend
 
 # Nach Änderungen (Auto-Test im CI)
 docker-compose exec backend pytest -v --cov=backend --cov-report=html
@@ -1085,6 +1175,52 @@ Das optionale Honcho-Memory-Backend (`profiles: ["honcho"]`) pinnt alle aktiven 
 
 **Für Produktionsumgebungen:** Siehe die jeweilige Deployment-Option oben. Alle Optionen unterstützen die vollständige Feature-Set (Multi-Tenancy, RBAC, LLM-Integration, API-Keys, MCP-Server).
 
+### CI/Pipelines (Stand 1.9.0-beta.1)
+
+**GitHub Actions ist die einzige Pipeline.** Eine `.woodpecker.yml` existiert im
+Repository nicht (mehr); die einzigen CI-Definitionen liegen unter
+`.github/workflows/`.
+
+`ci.yml` (Trigger `push`/`pull_request`) fährt zwölf Jobs:
+
+| Job | Inhalt |
+|-----|--------|
+| `lint` | ESLint + TypeScript-Typecheck (Frontend) |
+| `backend-test` | pytest in vier Matrix-Sets — `set-1-core` (application, persistence), `set-2-api` (REST/auth/presets/reqogniloom), `set-3-mcp` (mcp_server), `set-4-features` (Cross-Cutting inkl. root `tests/`); je Set `ruff`, Django-Checks und Migration-Check |
+| `requirements-drift-check` | Security-kritische Versions-Floors in `backend/requirements.txt` |
+| `agent-templates-test` | `docs/agent-templates`, `dist`, Repository-Skripte; Compose-/`.env.example`-Konsistenz, Version-Carrier |
+| `hermes-plugin-test` | Suite des Hermes-Agent-Plugins |
+| `frontend-test` | Vitest |
+| `dependency-audit` | „Dependency Audit (npm + pip-audit)" — siehe unten |
+| `prompt-regression` | promptfoo-Regression (LLM-frei) |
+| `workflow-lint` | actionlint über alle Workflows |
+| `restore-smoke` | atomarer Restore-Smoke (ADR-012) |
+| `nginx-headers-smoke` | Security-Header der nginx-Konfiguration inkl. Negativfall |
+| `secret-scan` | gitleaks 8.30.1 (Working Tree, volle Historie, PR-Diff) |
+
+**Dependency-Audit:** eigener Job `dependency-audit` („Dependency Audit (npm +
+pip-audit)", `permissions: contents: read`, `timeout-minutes: 15`). Die Scans
+laufen **nicht** mehr in `backend-test`/`frontend-test`; dort stehen nur noch
+Kommentare, die auf den Job verweisen (DEP-AUDIT-01, Issue #153).
+
+- **Frontend:** `npm audit --audit-level=high` liest ausschließlich
+  `frontend/package-lock.json` (kein `npm ci`, damit kein Install-Lifecycle-Skript
+  einer transitiven Abhängigkeit im Registry-Job läuft). Critical/high setzen den
+  Exit-Code auf 1, moderate und darunter auf 0 — der JSON-Report landet trotzdem
+  in der Job-Summary.
+- **Backend:** `PIP_AUDIT_VERSION: '2.10.1'` gepinnt; pip-audit wird in ein
+  Wegwerf-venv installiert (nie in das auditierte Environment) und läuft als
+  `pip-audit -r requirements.txt --strict --timeout 60 -f json`. `--strict` macht
+  eine nicht auflösbare Abhängigkeit zum Fehler (fail-closed); jede Finding blockiert,
+  ein moderate/low-only-Advisory wird explizit per `--ignore-vuln <ID>` mit
+  Einzeiler-Begründung gewaivt, nie per `|| true`.
+- Beide JSON-Reports (`npm-audit.json`, `pip-audit.json`) werden als Artefakt
+  `dependency-audit-reports` hochgeladen, auch wenn das Gate rot ist.
+
+Getrennte Workflows: `playwright.yml` (4 Shards), `docker-publish.yml` (GHCR),
+`version-drift-check.yml`, `pages.yml`, `client-smoke.yml`/`client-artifacts-check.yml`,
+`publish-*.yml`.
+
 ---
 
 ## MCP Server Reference
@@ -1137,7 +1273,7 @@ Returns `204 No Content`. The key is immediately invalidated.
 
 ### Tool Reference
 
-> **Auszug, nicht die Referenz.** Der MCP-Server bietet **290 Tools in 46 Gruppen-Präfixen** (Stand `v1.8.0-beta.29`, zuletzt erweitert um die Statistik-Gruppe `metrics` (`metrics.catalog`/`metrics.get`, #1265), davor die ADR-019-WP3-Gruppe `suggestion` (`suggestion.list`/`accept`/`reject`) und `traceability.suggest_links` als Write-Tool). Die vollständige, generierte Liste mit `inputSchema` steht in [`docs/agent-templates/tool-manifest.json`](agent-templates/tool-manifest.json); die lesbare Referenz samt Methoden zum Nachmessen der Zahlen ist [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md). Die früher hier genannten „12 tool groups" waren ein längst überholter Stand.
+> **Auszug, nicht die Referenz.** Der MCP-Server bietet **297 Tools in 47 Gruppen-Präfixen** (Stand `1.9.0-beta.1`; zuletzt erweitert um die Summary-Gruppe `summary` (`summary.get`/`summary.refresh`, #1793) und um `artifact.bulk_update` als Write-Tool der Dokumentansicht, davor `allocation.query`, `group`, `milestone`, `work_item`, `document` und `metrics`). Die vollständige, generierte Liste mit `inputSchema` steht in [`docs/agent-templates/tool-manifest.json`](agent-templates/tool-manifest.json); die lesbare Referenz samt Methoden zum Nachmessen der Zahlen ist [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md). Die früher hier genannten „12 tool groups" waren ein längst überholter Stand.
 >
 > Tools werden als `<prefix>.<tool_name>` aufgerufen, z. B. `requirement.query` oder `test.run_create`.
 
@@ -1249,11 +1385,17 @@ curl -X POST http://localhost:8000/mcp/ \
 
 ---
 
-####5 `artifact.*` — Artifact Tree & Comments
+####5 `artifact.*` — Artifact Tree, Comments & Batch Write
 
-Retrieve the full artifact tree and comments for a workspace.
+Retrieve the full artifact tree and comments for a workspace; write several artifacts in one transaction.
 
-**Tools:** `get_tree`, `get_comments`
+**Tools:** `get_tree`, `get_comments`, `bulk_update`
+
+`artifact.bulk_update` is the MCP twin of `PATCH /api/v1/artifacts/bulk-update/`:
+1–100 entries `{artifact_id, expected_version, fields}`, all or nothing, writable
+types `Document` and `Requirement`. A refused entry rolls the whole batch back and
+answers `CONFLICT` with `errors[]` (`index`, `artifact_id`, `code`, `message`,
+optional `field`).
 
 **Example:**
 ```bash

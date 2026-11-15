@@ -194,7 +194,7 @@ variables:
     User-/Preference-Verwaltung, System-Health und Admin-Ops. 3 Rigor-Presets
     (Minimal/Standard/Extended) und Terminology-Profile (dev_mode/se_mode). LLM-Adapter:
     Anthropic, OpenAI, Ollama, Azure, opencode_go, mock (Default: mock). Embeddings:
-    sentence-transformers 6+ (Default), optional Ollama/OpenAI. Stand VERSION 1.8.0-beta.28.
+    sentence-transformers 6+ (Default), optional Ollama/OpenAI. Stand VERSION 1.9.0-beta.1.
   ARCHITECTURE: |
     backend/
       manage.py                              # Django Entry-Point
@@ -236,7 +236,7 @@ variables:
       src/{__tests__,__mocks__}/             # Vitest 5 Unit-Tests
       package.json                           # React 19, Vite 8, react-i18next, Vitest 5, ESLint 10
     e2e/
-      tests/**/*.spec.ts                     # Playwright/Chromium E2E-Tests (67 Spec-Dateien)
+      tests/**/*.spec.ts                     # Playwright/Chromium E2E-Tests (70 Spec-Dateien)
       playwright.config.ts                   # 4 Shards, globalTimeout 10 min
     deploy/
       docker-compose.yml                    # Full-Stack-Basis: 9 Default-Services (postgres, postgres-backup, redis, backend, llm-preflight, migrate, celery, celery-beat, frontend) + Profile honcho (5 Services) und qdrant (1 Service); pinnt fertige GHCR-Images
@@ -257,7 +257,7 @@ variables:
     frontend/            # React 19 + TS 5.5+ SPA (Vite 8, Vitest 5, ESLint 10)
                          #   src/api/  src/components/  src/config/  src/constants/  src/context/
                          #   src/hooks/  src/i18n/  src/queries/  src/styles/  src/types/  src/utils/
-    e2e/                 # Playwright/Chromium E2E-Tests (67 Spec-Dateien, 4 CI-Shards)
+    e2e/                 # Playwright/Chromium E2E-Tests (70 Spec-Dateien, 4 CI-Shards)
     docs/                # Anforderungen, Architektur, SE-Kaskade (docs/se/), Pläne (docs/plans/, docs/superpowers/), Konzepte, Release-Reports
     deploy/              # Deployment: docker-compose.yml (Basis), .override.yml (Dev), .minimal.yml, .env, README.md
     testing/             # docker-compose.test.yml (Standalone-Test-Stack, kein Overlay, kein Deployment-File)
@@ -416,7 +416,7 @@ variables:
     5. git tag v<version> (z.B. v1.8.0-beta.28)
     6. Release-Build via scripts/build.sh (bzw. make build) — NICHT nacktes docker compose build. scripts/build.sh berechnet APP_VERSION=$(cat VERSION), GIT_COMMIT_SHA=$(git rev-parse HEAD) und BUILD_TIME=$(date -u ...) und übergibt sie als Build-Args an `docker compose -f deploy/docker-compose.yml --project-directory . build`. Ein nacktes docker compose build lässt APP_VERSION/GIT_COMMIT_SHA/BUILD_TIME auf "unknown" — GET /api/v1/version/ liefert dann keine echten Werte. Die eigentliche Image-Publikation nach GHCR läuft in .github/workflows/docker-publish.yml.
     7. `docker compose -f deploy/docker-compose.yml --project-directory . push` (optional, Self-Hosted-First)
-    Stand VERSION 1.8.0-beta.28: 963 Backend-Testdateien (`test_*.py` unter backend/), 67 E2E-Spec-Dateien unter e2e/tests/ (4 CI-Shards), MCP-Katalog 297 Tools in 47 Gruppen. Release-Reports liegen unter docs/se/reports/; der jüngste vorhandene ist RELEASE_v1.8.0-beta.18.md — für beta.19 bis beta.28 fehlt der Report. Anzahl der pytest-/Playwright-Testfälle ist bewusst NICHT hier hinterlegt — sie nur per Testlauf ermitteln (`make test-backend`, `make test-frontend`, `npm run test:e2e` in e2e/), CI-Zahlen stehen im jeweiligen Release-Report.
+    Stand VERSION 1.9.0-beta.1: 1018 Backend-Testdateien (`test_*.py` unter backend/), 387 Frontend-Testdateien (`*.test.ts`/`*.test.tsx` unter frontend/src/), 70 E2E-Spec-Dateien unter e2e/tests/ (4 CI-Shards), MCP-Katalog 297 Tools in 47 Gruppen. Release-Reports liegen unter docs/se/reports/; der jüngste vorhandene ist RELEASE_v1.8.0-beta.18.md — für beta.19 bis beta.29 fehlt der Report, der für 1.9.0-beta.1 entsteht im Release-Schritt. Anzahl der pytest-/Playwright-Testfälle ist bewusst NICHT hier hinterlegt — sie nur per Testlauf ermitteln (`make test-backend`, `make test-frontend`, `npm run test:e2e` in e2e/), CI-Zahlen stehen im jeweiligen Release-Report.
   SE_MIN_DEPTH: 1
   SE_MAX_DEPTH: 4
   SE_MAX_CRITIC_ITERATIONS: 1

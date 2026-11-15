@@ -4,7 +4,7 @@
 
 ## What is ReqogniLoom?
 
-ReqogniLoom is an AI-integrated requirements management and test case tracking system designed for organizations ranging from simple project management to complex systems engineering workflows. Built on Django, React 18, and PostgreSQL, ReqogniLoom provides scalable artifact-based traceability, workflow automation, and intelligent integration points for large language models.
+ReqogniLoom is an AI-integrated requirements management and test case tracking system designed for organizations ranging from simple project management to complex systems engineering workflows. Built on Django, React 19, and PostgreSQL, ReqogniLoom provides scalable artifact-based traceability, workflow automation, and intelligent integration points for large language models.
 
 Whether you're managing a small backlog or orchestrating a multi-level systems architecture with MBSE-style decomposition, ReqogniLoom adapts to your rigor level and integrates seamlessly with your LLM tools.
 
@@ -73,6 +73,8 @@ Facts, not narrative:
 - **CSV Bulk Import** — Atomic CSV import for Requirements, ArchitectureElements, and TestCases
 - **API-Key Management** — Create, list, and revoke API keys for CI/CD integration
 - **Workflow Automation** — Configurable requirement states and transitions
+- **Editable Document View** — `/documents/:id` renders a Document's Markdown body as numbered chapters with a table of contents, marks each field editable or locked, and saves either one field (`If-Match` optimistic lock) or a collected batch (all-or-nothing, up to 100 entries). `?format=markdown` exports exactly the reading state; a print stylesheet keeps the page usable on paper. Limits and the per-field write rules: [`docs/features/document-reading-view.md`](docs/features/document-reading-view.md)
+- **Connection View: Two Trees** — `/connections` shows the requirement tree and the architecture tree side by side with one allocation edge per requirement, a text label on every row, keyboard allocation, and a filter bar — `docs/features/connection-view-trees.md`
 
 ### AI Integration
 - **MCP Server** — native Model Context Protocol server; 47 tool-group prefixes (admin, adr, ai_derivation, allocation, architecture, artifact, attribute_catalog, attribute_definition, attribute_migration, audit, baseline, change_request, comment, context, create_form_definition, diagram, document, events, glossary, goal, group, icd, interview, issue, link_type, main_goal, memory, metrics, milestone, needs, permissions, preference, prompt_template, prompt_variable, quality, requirement, requirement_bundle, review, risk, suggestion, summary, test, traceability, tree_display_config, user, work_item, workspace), 297 individual tools — measured from `tools/list`; see `docs/api/MCP-SURFACE.md` for the count and how to re-derive it, and `docs/agent-templates/tool-manifest.json` for the machine-readable manifest. For Claude Desktop, Cursor, and other MCP-capable LLM platforms
@@ -91,8 +93,8 @@ Facts, not narrative:
 
 ### Developer Experience
 - **REST API** — Full-featured /api/v1/ with JWT authentication, 20+ ViewSets/APIViews, OpenAPI 3.0 schema (drf-spectacular)
-- **Type-Safe Frontend** — React 18 + TypeScript (strict) + Vite; unified page-header/list-toolbar/artifact-row/empty-state pattern across artifact types, shared `Dialog` primitive (focus-trap, keyboard nav), Trace-Spine derivation-chain navigator, ARIA-compliant virtualized tree — see [`docs/UI_KONZEPT.md`](docs/UI_KONZEPT.md) for the design system rationale
-- **Comprehensive Tests** — pytest backend suite + Vitest frontend unit tests + Playwright E2E suite (42 spec files)
+- **Type-Safe Frontend** — React 19 + TypeScript (strict) + Vite; unified page-header/list-toolbar/artifact-row/empty-state pattern across artifact types, shared `Dialog` primitive (focus-trap, keyboard nav), Trace-Spine derivation-chain navigator, ARIA-compliant virtualized tree — see [`docs/UI_KONZEPT.md`](docs/UI_KONZEPT.md) for the design system rationale
+- **Comprehensive Tests** — pytest backend suite (1018 test files) + Vitest frontend unit tests (387 test files) + Playwright E2E suite (70 spec files, 4 CI shards)
 - **Docker Compose** — self-hosted stack (ADR-08) with dedicated migrate/backup services
 
 ## System Architecture
@@ -101,7 +103,7 @@ ReqogniLoom follows a strict **Single-Entry-Point Pattern** (ADR-01): both the R
 
 ```mermaid
 graph TD
-    subgraph FE["Frontend — React 18 + TypeScript SPA"]
+    subgraph FE["Frontend — React 19 + TypeScript SPA"]
         UI["components/ (pages, Trace-Spine, Dialog)"]
         CTX["context/ (state)"]
         APICLIENT["api/ (Axios client, JWT injection)"]
@@ -777,6 +779,37 @@ npm run mcp:playwright       # starte Playwright MCP Server für LLM-Agenten
 > restart. See [`e2e/TESTING.md`](e2e/TESTING.md#known-gap-stale-host--session-drift)
 > for the symptom pattern and how to tell it apart from a real auth bug.
 
+### Continuous Integration
+
+**GitHub Actions is the only CI system** — there is no second pipeline (no
+Woodpecker file in the repository). Definitions live in `.github/workflows/`.
+
+`ci.yml` runs on every push and pull request with twelve jobs: `lint` (ESLint +
+TypeScript), `backend-test` (pytest in four path-based sets — core, REST API,
+MCP server, cross-cutting), `requirements-drift-check`, `agent-templates-test`,
+`hermes-plugin-test`, `frontend-test` (Vitest), `dependency-audit` (npm +
+pip-audit), `prompt-regression` (promptfoo), `workflow-lint` (actionlint),
+`restore-smoke` (ADR-012), `nginx-headers-smoke`, and `secret-scan` (gitleaks,
+working tree + full history + PR diff). E2E runs separately in `playwright.yml`
+on four shards; images are published by `docker-publish.yml`.
+
+`dependency-audit` is a dedicated job (one scan, one threshold, one place to
+change it) running with `permissions: contents: read`:
+
+- **Frontend:** `npm audit --audit-level=high` reads `frontend/package-lock.json`
+  only (no `npm ci`, so no install-time lifecycle script runs). Critical/high
+  advisories fail the job; moderate and below are reported in the job summary
+  but do not block.
+- **Backend:** a pinned `pip-audit` (`PIP_AUDIT_VERSION: 2.10.1`) is installed
+  into a throwaway venv and runs `pip-audit -r backend/requirements.txt
+  --strict` — the venv is never part of the audited set, and `--strict` turns an
+  unresolvable dependency into a failure (fail-closed). Any finding fails; a
+  moderate/low-only advisory is waived explicitly with `--ignore-vuln <ID>` plus
+  a one-line justification, never with `|| true`.
+
+Both JSON reports are uploaded as the `dependency-audit-reports` artifact even
+when the gate is red (audit trail).
+
 ## Production Deployment
 
 ReqogniLoom is designed for self-hosted deployment on Linux/Unix servers using Docker Compose. This section covers hardening the stack for production use.
@@ -1257,7 +1290,7 @@ Streamable-HTTP alternative in
 For clients that speak only stdio, use the verified `mcp-remote@0.16.0`
 bridge in [Step 9](#9-connect-an-mcp-client).
 
-### Tool Groups (39 prefixes)
+### Tool Groups (47 prefixes)
 
 | Prefix | Purpose | Example tools | Role required |
 |--------|---------|---------------|---------------|
