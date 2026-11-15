@@ -15,8 +15,11 @@ export {
   groupFolderNodeId,
   groupMemberNodeId,
   isGroupFolderNode,
+  isGroupMember,
   isGroupMemberNode,
 } from './tree-groups';
-export type { WorkspaceTreeGroup } from './tree-groups';
+export type { GroupMembershipRef, WorkspaceTreeGroup } from './tree-groups';
+export { classifyTreeDrop } from './tree-drag';
+export type { TreeDropNode, TreeDropPlan } from './tree-drag';
 export { collectSelfAndDescendantIds } from './tree-hierarchy';
 export type { HierarchyRef } from './tree-hierarchy';

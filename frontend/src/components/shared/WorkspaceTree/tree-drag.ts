@@ -19,6 +19,11 @@
  *   - Dropping a node on itself or into its own subtree is swallowed here and
  *     never reaches a callback (see `collectSelfAndDescendantIds` — a cycle
  *     makes a subtree unreachable).
+ *   - G3 (spec §4.5.4/6): dropping a **non-member** on a group folder means
+ *     "add this requirement to that group" and is decided by
+ *     `classifyTreeDrop` below — never by the row's JSX. A drop of an existing
+ *     member keeps going through the reorder path, so the two gestures cannot
+ *     collide (spec risk R7).
  *   - `ROOT_DROP_TARGET` is a sentinel for the root dropzone; node ids come
  *     from the API, so a reserved non-UUID string cannot collide with one.
  */
@@ -37,6 +42,7 @@ import {
   type TreeDropPosition,
   resolveDropTarget,
 } from './tree-reorder';
+import { isGroupMember, type GroupMembershipRef } from './tree-groups';
 
 /**
  * Sentinel drop-target id for the root dropzone. Not a node id — node ids come
@@ -106,6 +112,88 @@ export interface TreeRowDragProps {
 }
 
 /**
+ * G3: the group-related part of a tree node. `WorkspaceTreeNode` satisfies it
+ * structurally; `useTreeDrag` only needs these three optional fields on top of
+ * the hierarchy.
+ */
+export interface TreeDropNode extends HierarchyRef {
+  isGroupFolder?: boolean;
+  groupId?: string;
+  sourceNodeId?: string;
+}
+
+/** What a drop on a row means (G3, spec §4.5.4/6). */
+export type TreeDropPlan =
+  /** A non-member was dropped on a group folder — add the membership. */
+  | { kind: 'add-to-group'; groupId: string; nodeId: string }
+  /** Everything else: the move/reorder path keeps the drop. */
+  | { kind: 'move' };
+
+/**
+ * Decides what dropping `draggedId` on `targetId` means.
+ *
+ * Only one case turns a drop into a membership add: a node that belongs to no
+ * group at all, dropped onto a group folder it is not a member of. Every other
+ * combination — a member clone (its order is the membership `sort_key`), a
+ * folder row, a drop on a regular row, an already existing membership — stays
+ * on the move/reorder path, which is why the member-reorder gesture keeps
+ * working exactly as before (spec risk R7).
+ *
+ * Pure by design: the row JSX only forwards the drop, so the branch that is
+ * easy to get wrong is testable without a DOM. Ids arrive in the tree's row id
+ * space; a clone id is mapped back to its artifact id, because that is what a
+ * membership add addresses (`tree-groups.artifactNodeId`).
+ *
+ * The pointer position inside the folder row is deliberately ignored: a folder
+ * holds a membership order, not a sequence of artifacts to insert between, so
+ * `before`/`after` on a folder mean the same thing as `inside`.
+ *
+ * @param nodes      Flat node list the tree renders (in render order).
+ * @param groups     The workspace's groups, in the caller's order.
+ * @param draggedId  Row id of the dragged node (clone id when grouped).
+ * @param targetId   Row id of the drop target, or the root sentinel.
+ */
+export function classifyTreeDrop(
+  nodes: readonly TreeDropNode[],
+  groups: readonly GroupMembershipRef[],
+  draggedId: string,
+  targetId: string,
+): TreeDropPlan {
+  const target = nodes.find((node) => node.id === targetId);
+  // Only a synthetic group folder is a membership target; a regular row (and
+  // the root sentinel, which is not in `nodes`) keeps the plain move path.
+  if (!target?.isGroupFolder || !target.groupId) return { kind: 'move' };
+
+  const dragged = nodes.find((node) => node.id === draggedId);
+  // A folder is chrome, a grouped row is a member: neither is "a non-member
+  // being filed into this group".
+  if (!dragged || dragged.isGroupFolder || dragged.groupId) {
+    return { kind: 'move' };
+  }
+  const nodeId = dragged.sourceNodeId ?? dragged.id;
+  // Already a member (e.g. the row is a duplicate of a grouped requirement):
+  // adding again would be a no-op or a duplicate-membership error, so the
+  // existing move path decides instead.
+  if (isGroupMember(groups, target.groupId, nodeId)) return { kind: 'move' };
+
+  return { kind: 'add-to-group', groupId: target.groupId, nodeId };
+}
+
+/**
+ * Group-view drop wiring for `useTreeDrag`: present only when the consumer
+ * wants a drag onto a group folder to create a membership.
+ */
+export interface TreeGroupDropOptions {
+  /** Groups the view is built from; membership is read from `memberIds`. */
+  groups: readonly GroupMembershipRef[];
+  /**
+   * Applies the membership. The tree calls it and surfaces a rejection itself
+   * (same toast as a rejected move), so the consumer only has to forward.
+   */
+  onAddToGroup: (groupId: string, nodeId: string) => void;
+}
+
+/**
  * Wires up the drag & drop reordering state for one tree.
  *
  * @param nodes       Flat hierarchy the tree renders (in render order).
@@ -113,7 +201,7 @@ export interface TreeRowDragProps {
  * @param onReorder   Positional callback; when given it takes precedence.
  */
 export function useTreeDrag(
-  nodes: readonly HierarchyRef[],
+  nodes: readonly TreeDropNode[],
   onReparent?: (id: string, newParentId: string | null) => void,
   onReorder?: (
     id: string,
@@ -127,8 +215,14 @@ export function useTreeDrag(
    * artifact, not to the frozen one (the backend remains the authority).
    */
   lockedIds?: ReadonlySet<string>,
+  /**
+   * G3: makes a drop of a non-member onto a group folder a membership add
+   * instead of a move. Omitted by every consumer that has no groups, which
+   * keeps their tree byte-for-byte unchanged.
+   */
+  groupDrop?: TreeGroupDropOptions,
 ): TreeDragController {
-  const dndEnabled = Boolean(onReparent || onReorder);
+  const dndEnabled = Boolean(onReparent || onReorder || groupDrop);
   const reorderEnabled = Boolean(onReorder);
   const isLocked = useCallback(
     (id: string): boolean => lockedIds?.has(id) ?? false,
@@ -256,6 +350,22 @@ export function useTreeDrag(
       // locked must not forward a move either.
       if (isLocked(draggedId)) return;
 
+      // G3 (spec §4.5.4/6): a non-member dropped on a group folder *adds* the
+      // membership. The branch lives in the pure classifier above, before the
+      // reorder path, so a member drop can never be misread as an add (R7).
+      if (groupDrop && rowTargetId !== null) {
+        const plan = classifyTreeDrop(
+          nodes,
+          groupDrop.groups,
+          draggedId,
+          rowTargetId,
+        );
+        if (plan.kind === 'add-to-group') {
+          groupDrop.onAddToGroup(plan.groupId, plan.nodeId);
+          return;
+        }
+      }
+
       if (onReorder) {
         const target =
           rowTargetId === null
@@ -267,7 +377,7 @@ export function useTreeDrag(
 
       reparent(draggedId, rowTargetId);
     },
-    [draggingId, nodes, onReorder, reparent, resetDrag, isLocked],
+    [draggingId, nodes, onReorder, groupDrop, reparent, resetDrag, isLocked],
   );
 
   const handleRootDragOver = useCallback((e: ReactDragEvent): void => {

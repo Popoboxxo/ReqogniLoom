@@ -415,6 +415,8 @@
     "moveNodeNoMatches": "Kein passendes Elternelement.",
     "reorderDone": "{{name}} verschoben (Position {{position}}).",
     "reorderFailed": "Verschieben fehlgeschlagen. Die Reihenfolge wurde zurückgesetzt.",
+    "groupAddDone": "{{name}} zu „{{group}}“ hinzugefügt.",
+    "groupAddFailed": "Zuordnen zur Gruppe fehlgeschlagen.",
     "title": "Titel",
     "name": "Name",
     "description": "Beschreibung",

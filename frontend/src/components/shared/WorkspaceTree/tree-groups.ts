@@ -38,6 +38,16 @@ export interface WorkspaceTreeGroup {
   memberIds: string[];
 }
 
+/**
+ * The part of a group a membership question needs. Structural rather than
+ * `WorkspaceTreeGroup`, so the pure drop classifier in `tree-drag.ts` can ask
+ * "is this a member?" without importing the group view's full model.
+ */
+export interface GroupMembershipRef {
+  id: string;
+  memberIds: readonly string[];
+}
+
 /** Synthetic row id of the group's folder. */
 export function groupFolderNodeId(groupId: string): string {
   return `${GROUP_FOLDER_PREFIX}${groupId}`;
@@ -56,6 +66,23 @@ export function isGroupFolderNode(node: WorkspaceTreeNode): boolean {
 /** True for a member clone inside a group folder. */
 export function isGroupMemberNode(node: WorkspaceTreeNode): boolean {
   return Boolean(node.groupId && node.sourceNodeId);
+}
+
+/**
+ * G3 (spec §4.5.4/6): is `nodeId` already a member of `groupId`?
+ *
+ * Both sides are compared in the **artifact** id space — the space the caller
+ * resolves `memberIds` into and the space `artifactNodeId` maps a clone row
+ * back to. This is the single membership question the drag path asks, so the
+ * answer cannot drift between the tree and the group panel.
+ */
+export function isGroupMember(
+  groups: readonly GroupMembershipRef[],
+  groupId: string,
+  nodeId: string,
+): boolean {
+  const group = groups.find((candidate) => candidate.id === groupId);
+  return group ? group.memberIds.includes(nodeId) : false;
 }
 
 /**
