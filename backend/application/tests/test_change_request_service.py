@@ -44,6 +44,7 @@ WS_ID = uuid.uuid4()
 CR_ID = uuid.uuid4()
 TENANT_ID = uuid.uuid4()
 USER_ID = uuid.uuid4()
+ARTIFACT_ID = uuid.uuid4()
 
 
 def _make_cr(**kwargs):
@@ -69,6 +70,11 @@ def _make_cr(**kwargs):
     cr.assigned_reviewer_id = kwargs.get("assigned_reviewer_id", None)
     cr.version = kwargs.get("version", 1)
     cr.created_by_name = kwargs.get("created_by_name", str(USER_ID))
+    # #1763 parity: only set when a test cares about the backing Artifact id.
+    # Leaving it unset keeps MagicMock's auto-attribute, which the pre-existing
+    # create/update unit tests rely on (they never touch the Artifact table).
+    if "artifact_id" in kwargs:
+        cr.artifact_id = kwargs["artifact_id"]
     return cr
 
 
@@ -779,6 +785,19 @@ class TestChangeRequestDTO:
         assert dto.title == cr.title
         assert dto.status == cr.status
         assert dto.version == cr.version
+
+    def test_from_orm_carries_the_backing_artifact_id(self):
+        """Audit 2026-11-15 §5.3: the model had the field, the DTO did not —
+        so no DTO consumer could tell which Artifact a CR owns."""
+        dto = ChangeRequestDTO.from_orm(_make_cr(artifact_id=ARTIFACT_ID))
+
+        assert dto.artifact_id == ARTIFACT_ID
+
+    def test_from_orm_tolerates_a_missing_backing_artifact(self):
+        """Pre-Phase-3 rows have ``artifact = NULL``; the DTO must not raise."""
+        cr = _make_cr(artifact_id=None)
+
+        assert ChangeRequestDTO.from_orm(cr).artifact_id is None
 
 
 # ---------------------------------------------------------------------------

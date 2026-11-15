@@ -1,7 +1,7 @@
 """``artifact_id`` parity for the artifact-backed governance entities (#1763).
 
-leaf_id : COMP-RA-AD, COMP-RA-RK, COMP-RA-IS, COMP-RA-MG
-req_id  : REQ-L2-RA-001, REQ-L2-TE-020, REQ-L1-029
+leaf_id : COMP-RA-AD, COMP-RA-RK, COMP-RA-IS, COMP-RA-MG, COMP-AS-021
+req_id  : REQ-L2-RA-001, REQ-L2-TE-020, REQ-L1-029, REQ-157
 
 The Inspector's comment panel addresses comments by **Artifact**, not by the
 per-type entity id (see the frontend ``RightSidebar`` fix that split
@@ -10,10 +10,14 @@ TestCase responses already expose the backing Artifact id through their DTOs;
 Adr, Risk, Issue and MainGoal did not, so their comment tabs fell back to
 "not available" even though the rows do have a backing Artifact.
 
-These are the four regression cases: each entity is created through the real
-middleware stack (JWT, RBAC, service layer, test database) and the response
-must carry an ``artifact_id`` that matches the row's actual backing Artifact —
-not merely a present-but-null key.
+``ChangeRequest`` was the fifth and last entity with the same gap (audit
+2026-11-15 §5.3: "artifact_id-Paritaetsluecke"): the model has had a backing
+``Artifact`` since Datenmodell-Konsolidierung Phase 3, but neither the REST
+DTO nor ``ChangeRequestDTO`` carried its id.
+
+Each case is created through the real middleware stack (JWT, RBAC, service
+layer, test database) and the response must carry an ``artifact_id`` that
+matches the row's actual backing Artifact — not merely a present-but-null key.
 """
 from __future__ import annotations
 
@@ -24,7 +28,16 @@ from rest_framework.test import APIClient
 
 from auth_tenancy.models import ROLE_ADMIN, UserRole
 from persistence.middleware import clear_request_tenant, set_request_tenant
-from persistence.models import Adr, Issue, MainGoal, Risk, Tenant, User, Workspace
+from persistence.models import (
+    Adr,
+    ChangeRequest,
+    Issue,
+    MainGoal,
+    Risk,
+    Tenant,
+    User,
+    Workspace,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -172,3 +185,39 @@ def test_main_goal_response_carries_the_backing_artifact_id() -> None:
     detail = client.get(f"/api/v1/main-goals/{body['id']}/")
     assert detail.status_code == 200, detail.content
     assert detail.json()["artifact_id"] == body["artifact_id"]
+
+
+def test_change_request_response_carries_the_backing_artifact_id() -> None:
+    """Audit 2026-11-15 §5.3 — the fifth entity with the #1763 gap.
+
+    ``ChangeRequestService.create_change_request`` creates the backing Artifact
+    via ``ensure_artifact`` (Datenmodell-Konsolidierung Phase 3), but neither
+    the REST DTO (``_cr_to_dict``) nor ``ChangeRequestDTO`` carried its id, so
+    a client could not tell which Artifact the CR owns.
+    """
+    tenant, user, workspace = _scenario()
+    client = _client(user)
+
+    resp = client.post(
+        "/api/v1/change-requests/",
+        {
+            "workspace_id": str(workspace.id),
+            "title": "Artifact id parity",
+            "description": "the inspector comment tab needs this",
+        },
+        format="json",
+    )
+    assert resp.status_code == 201, resp.content
+    body = resp.json()
+    _assert_artifact_id_matches(tenant, ChangeRequest, body)
+
+    detail = client.get(f"/api/v1/change-requests/{body['id']}/")
+    assert detail.status_code == 200, detail.content
+    assert detail.json()["artifact_id"] == body["artifact_id"]
+
+    listed = client.get(
+        "/api/v1/change-requests/", {"workspace_id": str(workspace.id)}
+    )
+    assert listed.status_code == 200, listed.content
+    rows = {row["id"]: row for row in listed.json()["results"]}
+    assert rows[body["id"]]["artifact_id"] == body["artifact_id"]

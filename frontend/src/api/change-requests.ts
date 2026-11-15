@@ -17,6 +17,12 @@ import type { UUID } from "../types";
 export interface ChangeRequest {
   id: UUID;
   workspace_id: UUID;
+  /**
+   * Id of the backing Artifact (#1763 parity). The Inspector's comment,
+   * version and trace panels are Artifact-addressed, so this is the id to
+   * use there — never the CR's own `id`. Nullable for pre-Phase-3 rows.
+   */
+  artifact_id?: UUID | null;
   title: string;
   description?: string;
   status: string;

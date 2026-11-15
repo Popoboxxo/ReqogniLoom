@@ -104,6 +104,10 @@ class ChangeRequestDTO:
     assigned_reviewer_id: UUID | None
     version: int
     baseline_id: UUID | None = None
+    #: Id of the backing Artifact (#1763 parity, audit 2026-11-15 §5.3). The
+    #: Artifact is created server-side by ``create_change_request``; nullable
+    #: because the OneToOne is nullable for pre-Phase-3 rows.
+    artifact_id: UUID | None = None
 
     @classmethod
     def from_orm(cls, cr: ChangeRequest) -> ChangeRequestDTO:
@@ -133,6 +137,7 @@ class ChangeRequestDTO:
             assigned_reviewer_id=cr.assigned_reviewer_id,
             version=cr.version,
             baseline_id=getattr(cr, "baseline_id", None),
+            artifact_id=getattr(cr, "artifact_id", None),
         )
 
 
