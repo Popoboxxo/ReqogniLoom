@@ -60,6 +60,8 @@ export function ConnectionView(): JSX.Element {
     isLoading,
     isFetching,
     error,
+    elementsError,
+    elementsLoading,
     setView,
     setFilters,
     resetFilters,
@@ -246,6 +248,8 @@ export function ConnectionView(): JSX.Element {
               elements={elements}
               allocate={allocate}
               deallocate={deallocate}
+              elementsError={elementsError}
+              elementsLoading={elementsLoading}
             />
           )}
           {view === "two-column" && (
@@ -254,6 +258,8 @@ export function ConnectionView(): JSX.Element {
               elements={elements}
               allocate={allocate}
               deallocate={deallocate}
+              elementsError={elementsError}
+              elementsLoading={elementsLoading}
             />
           )}
           {view === "matrix" && (

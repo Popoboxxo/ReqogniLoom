@@ -30,6 +30,8 @@ export function TwoColumnRenderer({
   requirements,
   elements,
   allocate,
+  elementsError = null,
+  elementsLoading = false,
 }: AllocationRendererProps): JSX.Element {
   const { t } = useTranslation();
   const [selectedRequirementId, setSelectedRequirementId] = useState<
@@ -166,44 +168,68 @@ export function TwoColumnRenderer({
 
       <section className={styles.column} aria-label={t("connectionView.elements")}>
         <h2 className={styles.columnTitle}>{t("connectionView.elements")}</h2>
-        <ul className={styles.columnList}>
-          {sortedElements.map((element) => {
-            const highlighted = highlightedElementId === element.id;
-            const isDropTarget = dropTarget === element.id;
-            return (
-              <li
-                key={element.id}
-                data-testid={`twocol-element-${element.id}`}
-                data-highlighted={String(highlighted)}
-                className={[
-                  styles.listItem,
-                  highlighted ? styles.listItemHiglighted : "",
-                  isDropTarget ? styles.listItemDropTarget : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  if (draggingRequirementId) setDropTarget(element.id);
-                }}
-                onDragLeave={() => setDropTarget(null)}
-                onDrop={(event) => void handleDrop(element.id, event)}
-              >
-                <button
-                  type="button"
-                  className={`btn-ghost ${styles.listItemButton}`}
-                  data-testid={`twocol-element-select-${element.id}`}
-                  onClick={() => {
-                    setSelectedElementId(element.id);
-                    setSelectedRequirementId(null);
+        {elementsError ? (
+          <div
+            role="alert"
+            className={styles.error}
+            data-testid="connection-element-error"
+          >
+            {t("connectionView.elementsError", {
+              message: elementsError.message,
+            })}
+          </div>
+        ) : elementsLoading ? (
+          // A pending element read must not look like an empty element column.
+          <p
+            className={styles.status}
+            data-testid="connection-elements-loading"
+          >
+            {t("connectionView.elementsLoading")}
+          </p>
+        ) : sortedElements.length === 0 ? (
+          <p className={styles.empty} data-testid="two-column-elements-empty">
+            {t("connectionView.elementsEmpty")}
+          </p>
+        ) : (
+          <ul className={styles.columnList}>
+            {sortedElements.map((element) => {
+              const highlighted = highlightedElementId === element.id;
+              const isDropTarget = dropTarget === element.id;
+              return (
+                <li
+                  key={element.id}
+                  data-testid={`twocol-element-${element.id}`}
+                  data-highlighted={String(highlighted)}
+                  className={[
+                    styles.listItem,
+                    highlighted ? styles.listItemHiglighted : "",
+                    isDropTarget ? styles.listItemDropTarget : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    if (draggingRequirementId) setDropTarget(element.id);
                   }}
+                  onDragLeave={() => setDropTarget(null)}
+                  onDrop={(event) => void handleDrop(element.id, event)}
                 >
-                  {element.title}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+                  <button
+                    type="button"
+                    className={`btn-ghost ${styles.listItemButton}`}
+                    data-testid={`twocol-element-select-${element.id}`}
+                    onClick={() => {
+                      setSelectedElementId(element.id);
+                      setSelectedRequirementId(null);
+                    }}
+                  >
+                    {element.title}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
     </div>
   );
