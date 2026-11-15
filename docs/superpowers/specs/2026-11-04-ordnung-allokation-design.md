@@ -1,7 +1,7 @@
 ---
 type: Spec
 title: "Ordnung und Allokation — Gesamtkonzept (P0–P6)"
-status: draft
+status: accepted
 date: 2026-11-04
 author_agent: claude (Sonnet 5.5), gemeinsam mit dem Product Owner erarbeitet
 language: de
