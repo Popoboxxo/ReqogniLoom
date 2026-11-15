@@ -214,6 +214,10 @@
    "post"
   ],
   [
+   "/api/v1/artifacts/bulk-update/",
+   "patch"
+  ],
+  [
    "/api/v1/artifacts/{artifact_id}/comments/",
    "get"
   ],

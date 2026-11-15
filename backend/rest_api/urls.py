@@ -246,6 +246,7 @@ from rest_api.views import (
     AdrViewSet,
     AllocationListView,
     ArchitectureElementViewSet,
+    ArtifactBulkUpdateView,
     ArtifactViewSet,
     AttributeSchemaView,
     BaselineViewSet,
@@ -1309,6 +1310,15 @@ urlpatterns = [
         "artifacts/<uuid:artifact_id>/comments/",
         ArtifactCommentsView.as_view(),
         name="api-v1-artifact-comments",
+    ),
+    # R3.2 (document view): the batch write of the editable document/table view.
+    # A plain collection route — placed before router.urls for the same reason as
+    # the comments route above: ``artifacts/<pk>/`` matches any non-slash
+    # segment, so ``bulk-update`` would be read as a detail pk afterwards.
+    path(
+        "artifacts/bulk-update/",
+        ArtifactBulkUpdateView.as_view(),
+        name="api-v1-artifact-bulk-update",
     ),
     # Issue #1792 (S1): on-demand AI summary of one artifact plus its visible
     # trace neighbours. Same nested-route form as the memory digest above and

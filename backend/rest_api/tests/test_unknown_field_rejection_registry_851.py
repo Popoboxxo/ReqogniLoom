@@ -43,6 +43,8 @@ from rest_api.serializers import (
     BaselineRollbackRequestSerializer,
     BaselineSerializer,
     BaselineTagsRequestSerializer,
+    BulkUpdateEntrySerializer,
+    BulkUpdateRequestSerializer,
     ChangeRequestSerializer,
     CommentSerializer,
     DocumentSerializer,
@@ -139,6 +141,11 @@ _GUARDED_WRITE_SERIALIZERS: tuple[type, ...] = (
     # F4.4: the two rollback POST bodies (/rollback-request/, /rollback/).
     BaselineRollbackRequestSerializer,
     BaselineRollbackApplyRequestSerializer,
+    # R3.2 (document view): the bulk-update body and its nested entry. The entry
+    # is guarded too — a typo'd key inside one entry would otherwise be dropped
+    # while the other 99 rows were written.
+    BulkUpdateRequestSerializer,
+    BulkUpdateEntrySerializer,
 )
 
 #: Write serializers that reject unknown request keys with their *own*,
@@ -183,6 +190,18 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     "DocumentReadingLockedSerializer": "nested read-only response serializer (R2)",
     "DocumentReadingCapabilitiesSerializer": (
         "nested read-only response serializer (R2)"
+    ),
+    # R3.2 (document view): response shapes of PATCH /artifacts/bulk-update/.
+    # The route's request body is the guarded BulkUpdateRequestSerializer.
+    "BulkUpdateUpdatedSerializer": (
+        "nested read-only 200/409 row of BulkUpdateResponseSerializer (R3.2)"
+    ),
+    "BulkUpdateErrorSerializer": (
+        "nested read-only 200/409 error row of BulkUpdateResponseSerializer (R3.2)"
+    ),
+    "BulkUpdateResponseSerializer": (
+        "read-only 200/409 body of PATCH /artifacts/bulk-update/ (R3.2); the "
+        "request body is the guarded BulkUpdateRequestSerializer"
     ),
     "BaselineSummarySerializer": (
         "read-only list response serializer for GET /baselines/ (#1078); every "

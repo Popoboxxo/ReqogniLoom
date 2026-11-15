@@ -37,6 +37,7 @@ from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from application.bulk_update_service import MAX_ENTRIES
 from application.test_steps import normalize_steps, validate_steps
 from persistence.models import (
     Document,
@@ -3085,6 +3086,111 @@ class DocumentReadingSerializer(serializers.Serializer):
     )
     chapters = DocumentReadingChapterSerializer(many=True)
     projection = DocumentReadingProjectionSerializer()
+
+
+# ---------------------------------------------------------------------------
+# R3 (document view): PATCH /api/v1/artifacts/bulk-update/
+#
+# The batch write the editable document view (and the table view it shares this
+# contract with) sends: a page of rows in one request, so a single stale version
+# cannot leave the page half-saved. The request/response shapes mirror
+# ``application.bulk_update_service`` (``BulkEntry`` / ``BulkUpdateResult``) —
+# they are not a second contract, only its wire form.
+# ---------------------------------------------------------------------------
+
+
+class BulkUpdateEntrySerializer(UnknownFieldRejectionMixin, serializers.Serializer):
+    """One ``entries[]`` item of the bulk-update request (R3.2).
+
+    ``fields`` is deliberately a free-form map: the accepted field *names* depend
+    on the artifact's type, and ``BulkUpdateService`` checks them against the
+    type's own update signature. Declaring one flat field set here would either
+    reject valid keys or advertise keys the type's service does not accept.
+    """
+
+    artifact_id = serializers.UUIDField(
+        help_text=(
+            "UUID of the backing Artifact (the id trace links and the generic "
+            "artifact routes use), not the typed row's own id."
+        )
+    )
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text=(
+            "Caller's last-seen version of the row. A stale value fails this "
+            "entry with CONFLICT and rolls the whole batch back."
+        ),
+    )
+    fields = serializers.DictField(
+        help_text=(
+            "Service fields to write, e.g. {\"title\": \"…\", \"body\": \"…\"}. "
+            "Names are checked per artifact type; values are validated by that "
+            "artifact's own service (freeze gate, syntax, change-reason policy)."
+        )
+    )
+
+
+class BulkUpdateRequestSerializer(UnknownFieldRejectionMixin, serializers.Serializer):
+    """Body of ``PATCH /api/v1/artifacts/bulk-update/`` (R3.2)."""
+
+    workspace_id = serializers.UUIDField(
+        help_text=(
+            "Workspace every entry must belong to. An artifact of another "
+            "workspace is refused with WORKSPACE_MISMATCH."
+        )
+    )
+    entries = BulkUpdateEntrySerializer(
+        many=True,
+        allow_empty=False,
+        max_length=MAX_ENTRIES,
+        help_text=(
+            f"1..{MAX_ENTRIES} writes, applied in order in one transaction. The "
+            "first failure rolls every entry back."
+        ),
+    )
+
+
+class BulkUpdateUpdatedSerializer(serializers.Serializer):
+    """One written artifact in the ``updated`` list."""
+
+    artifact_id = serializers.UUIDField()
+    version = serializers.IntegerField(
+        help_text="Version after the write (the value to send next time)."
+    )
+
+
+class BulkUpdateErrorSerializer(serializers.Serializer):
+    """One refused entry in the ``errors`` list."""
+
+    index = serializers.IntegerField(
+        help_text="Zero-based position in the request's ``entries`` list."
+    )
+    artifact_id = serializers.UUIDField(
+        allow_null=True, help_text="The entry's artifact id, or null if absent."
+    )
+    code = serializers.CharField(
+        help_text=(
+            "NOT_FOUND | WORKSPACE_MISMATCH | UNSUPPORTED_ARTIFACT_TYPE | "
+            "UNKNOWN_FIELD | CONFLICT | FIELD_FROZEN | WORKFLOW_FROZEN | "
+            "PERMISSION_DENIED | VALIDATION_ERROR"
+        )
+    )
+    message = serializers.CharField()
+    field = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Offending field name when the refusal names one.",
+    )
+
+
+class BulkUpdateResponseSerializer(serializers.Serializer):
+    """Body of ``200`` and of the ``409`` refusal (same shape, different list)."""
+
+    updated = BulkUpdateUpdatedSerializer(
+        many=True,
+        help_text="Empty whenever ``errors`` is non-empty — nothing was written.",
+    )
+    errors = BulkUpdateErrorSerializer(many=True)
 
 
 class WorkItemSerializer(

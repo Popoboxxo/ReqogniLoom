@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 296,
+  "tool_count": 297,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -891,6 +891,54 @@
         },
         "required": [
           "id"
+        ]
+      }
+    },
+    {
+      "name": "artifact.bulk_update",
+      "prefix": "artifact",
+      "is_write": true,
+      "description": "Write several artifacts in ONE transaction (write, audited). Body {workspace_id, entries: [{artifact_id, expected_version, fields}]}, 1..100 entries. All or nothing: the first refused entry rolls every entry back and answers CONFLICT with errors[] carrying index, artifact_id, code, message and — where the refusal names one — the offending field. Codes are the REST ones (CONFLICT, FIELD_FROZEN, WORKFLOW_FROZEN, NOT_FOUND, WORKSPACE_MISMATCH, UNSUPPORTED_ARTIFACT_TYPE, UNKNOWN_FIELD, PERMISSION_DENIED, VALIDATION_ERROR). Writable types: Document, Requirement — the field names each type accepts are its own update contract. MCP twin of PATCH /api/v1/artifacts/bulk-update/; returns {updated: [{artifact_id, version}], errors: []}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace every entry must belong to; an artifact of another workspace is refused with WORKSPACE_MISMATCH."
+          },
+          "entries": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "description": "The writes, applied in order. Nothing is written unless every entry succeeds.",
+            "items": {
+              "type": "object",
+              "properties": {
+                "artifact_id": {
+                  "type": "string",
+                  "description": "UUID of the backing Artifact."
+                },
+                "expected_version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Caller's last-seen version of the row. A stale value fails this entry with CONFLICT and rolls the batch back."
+                },
+                "fields": {
+                  "type": "object",
+                  "description": "Fields to write, e.g. {\"title\": …, \"body\": …}. Names are checked per artifact type; values are validated by that type's own service."
+                }
+              },
+              "required": [
+                "artifact_id",
+                "expected_version",
+                "fields"
+              ]
+            }
+          }
+        },
+        "required": [
+          "workspace_id",
+          "entries"
         ]
       }
     },

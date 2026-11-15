@@ -105,6 +105,14 @@ from application.baseline_rollback_service import (
     RollbackTooLargeError,
 )
 from application.change_request_service import ChangeRequestDTO
+# R3 batch write (docs/superpowers/plans/2026-11-15-document-view-on-document.md):
+# one transaction over several artifacts; the entries are built from the
+# validated request body, so the service never sees transport data.
+from application.bulk_update_service import (
+    BulkEntry,
+    BulkUpdateService,
+    MAX_ENTRIES as MAX_BULK_ENTRIES,
+)
 # R1 reading view (docs/superpowers/plans/2026-11-15-document-view-on-document.md):
 # one read object, no write path.
 from application.document_reading_service import DocumentReadingService
@@ -243,6 +251,8 @@ from rest_api.serializers import (
     BaselineSummarySerializer,
     BaselineTagsRequestSerializer,
     BaselineTagsResponseSerializer,
+    BulkUpdateRequestSerializer,
+    BulkUpdateResponseSerializer,
     ChangeRequestSerializer,
     CsvImportReportSerializer,
     DocumentSerializer,
@@ -9849,6 +9859,100 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         except Exception as exc:  # noqa: BLE001 — map any service error uniformly
             return _service_error_response(exc, lang)
         return Response(result)
+
+
+# ---------------------------------------------------------------------------
+# ArtifactBulkUpdateView — R3.2 (document view batch write)
+# ---------------------------------------------------------------------------
+
+
+class ArtifactBulkUpdateView(APIView):
+    """PATCH /api/v1/artifacts/bulk-update/ — write several artifacts at once.
+
+    The batch write of the editable document/table view (plan R3). Deliberately
+    an ``APIView`` and **not** a ``ViewSet`` action: the path lives on the
+    ``artifacts/`` collection, and a router would have to treat
+    ``bulk-update`` as a detail pk (``artifacts/<pk>/`` matches any non-slash
+    segment). ``rest_api.urls`` therefore registers it *before* ``router.urls``,
+    exactly like ``artifacts/<uuid>/comments/``.
+
+    Contract
+    --------
+    * **200** — every entry was written; ``{"updated": [{artifact_id, version}],
+      "errors": []}``.
+    * **409** — at least one entry was refused (stale version, freeze, unknown
+      field, foreign workspace, …). **Nothing** was written; the body is the same
+      ``{"updated": [], "errors": [...]}`` shape, so a client can mark the row by
+      ``index`` instead of re-reading the page.
+    * **400** — the request itself is malformed: a bad entry schema, an empty
+      ``entries`` list, or more than ``MAX_ENTRIES`` items.
+    * **403** — the caller holds no write role in the workspace.
+
+    Every write goes through :class:`application.bulk_update_service
+    .BulkUpdateService` (ADR-01); this class only translates.
+    """
+
+    @extend_schema(
+        tags=["artifacts"],
+        summary="Bulk-update several artifacts in one transaction",
+        description=(
+            "Applies 1..100 per-artifact writes in a single transaction. Either "
+            "every entry is written (200) or none is (409) — the errors list "
+            "names the refusing entry by index and code. Supports the artifact "
+            "types that have their own write service: Document and Requirement."
+        ),
+        request=BulkUpdateRequestSerializer,
+        responses={
+            200: BulkUpdateResponseSerializer,
+            400: OpenApiResponse(
+                description=(
+                    "Malformed body, an empty entries list, or more than "
+                    f"{MAX_BULK_ENTRIES} entries."
+                )
+            ),
+            403: OpenApiResponse(
+                description="The caller has no write role in the workspace."
+            ),
+            409: BulkUpdateResponseSerializer,
+        },
+    )
+    def patch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        serializer = BulkUpdateRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[
+                        {"field": key, "errors": value}
+                        for key, value in serializer.errors.items()
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        entries = [
+            BulkEntry(
+                artifact_id=entry["artifact_id"],
+                expected_version=entry["expected_version"],
+                fields=entry["fields"],
+            )
+            for entry in data["entries"]
+        ]
+
+        try:
+            ctx = get_auth_context(request)
+            result = BulkUpdateService().apply(data["workspace_id"], entries, ctx)
+        except Exception as exc:  # noqa: BLE001 — mapped by _service_error_response
+            return _service_error_response(exc, lang)
+
+        if result.errors:
+            # 409 with the same body shape as the success case: the request was
+            # well-formed and authorised, it conflicted with the stored state.
+            return Response(result.to_dict(), status=status.HTTP_409_CONFLICT)
+        return Response(result.to_dict(), status=status.HTTP_200_OK)
 
 
 # ---------------------------------------------------------------------------
