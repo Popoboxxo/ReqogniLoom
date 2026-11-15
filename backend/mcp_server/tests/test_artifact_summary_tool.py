@@ -210,7 +210,7 @@ def test_registry_classifies_it_as_a_read_tool() -> None:
     assert ToolRegistry()._is_write_tool("artifact.summary") is False
 
 
-def test_manifest_lists_it_once_as_read_and_the_count_moved_to_294() -> None:
+def test_manifest_lists_it_once_as_read_and_the_count_moved_to_296() -> None:
     from mcp_server.management.commands.export_tool_manifest import build_manifest
 
     manifest = build_manifest()
@@ -219,9 +219,10 @@ def test_manifest_lists_it_once_as_read_and_the_count_moved_to_294() -> None:
     assert len(entries) == 1, entries
     assert entries[0]["prefix"] == "artifact"
     assert entries[0]["is_write"] is False
-    # Issue #1792 / S3: 293 -> 294. Documented in six places, gated by
+    # Issue #1792 / S3 moved 293 -> 294; issue #1793 / S6 moved 294 -> 296
+    # (``summary.get``/``summary.refresh``). Documented in six places, gated by
     # test_tool_manifest_drift.py and the two doc-surface guards.
-    assert manifest["tool_count"] == 294
+    assert manifest["tool_count"] == 296
     assert manifest["tool_count"] == len(manifest["tools"])
 
 

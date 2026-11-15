@@ -389,6 +389,13 @@ _WORKSPACE_VIA_REQUEST = (
     # rule (QR-S04) before reading anything.
     "WorkspaceMemorySessionSummariesView",
     "WorkspaceMemorySettingsView",
+    # Issue #1793 (S6): the persisted summary surface is workspace-addressed
+    # (``workspaces/<uuid:workspace_id>/summaries/...``). The workspace in the
+    # URL is the authority; the service re-binds every scope lookup to it and
+    # additionally requires a write role for the manual refresh.
+    "WorkspaceSummaryListView",
+    "WorkspaceSummaryDetailView",
+    "WorkspaceSummaryRefreshView",
     "WorkspacePermissionDefinitionView",
     "WorkspacePermissionResetView",
     "WorkspaceReviewsPendingView",

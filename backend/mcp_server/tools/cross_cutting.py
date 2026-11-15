@@ -199,7 +199,7 @@ def _complete_change_impact(prompt: str, *, context: dict[str, Any]) -> str:
     )
 
 
-def _artifact_summary_rate_limited(auth_context: AuthContext) -> bool:
+def artifact_summary_rate_limited(auth_context: AuthContext) -> bool:
     """Per-caller cap for the paid ``artifact.summary`` (Issue #1792, S3).
 
     REST applies ``ArtifactSummaryRateThrottle`` (scope ``artifact_summary``,
@@ -1676,7 +1676,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     "Parameter 'depth' must be an integer."
                 ) from None
 
-        if _artifact_summary_rate_limited(auth_context):
+        if artifact_summary_rate_limited(auth_context):
             return ToolResult.error(
                 "RATE_LIMITED",
                 "artifact.summary is rate limited; the same artifact_summary "

@@ -89,7 +89,12 @@ from memory.memory_rest import (
     WorkspaceMemorySettingsView,
 )
 from rest_api.api_key_views import ApiKeyViewSet
-from rest_api.summary_views import ArtifactSummaryView
+from rest_api.summary_views import (
+    ArtifactSummaryView,
+    WorkspaceSummaryDetailView,
+    WorkspaceSummaryListView,
+    WorkspaceSummaryRefreshView,
+)
 from rest_api.release_views import (
     ElementReleaseImpactView,
     ElementReleaseStatusView,
@@ -1149,6 +1154,25 @@ urlpatterns = [
         "workspaces/<uuid:workspace_id>/audit/",
         WorkspaceAuditView.as_view(),
         name="workspace-audit",
+    ),
+    # Issue #1793 (S6) — the persisted per-scope AI summaries. Three routes over
+    # one Layer-2 facade; read-only except the manual refresh. ``refresh/`` and
+    # the detail route cannot shadow each other (3 vs 2 segments after
+    # ``summaries/``).
+    path(
+        "workspaces/<uuid:workspace_id>/summaries/",
+        WorkspaceSummaryListView.as_view(),
+        name="workspace-summaries",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/summaries/<str:artifact_type>/refresh/",
+        WorkspaceSummaryRefreshView.as_view(),
+        name="workspace-summary-refresh",
+    ),
+    path(
+        "workspaces/<uuid:workspace_id>/summaries/<str:artifact_type>/",
+        WorkspaceSummaryDetailView.as_view(),
+        name="workspace-summary-detail",
     ),
     # Plan B B5-T3 (#378) — advisory quality assessment of ONE artifact.
     # ``assess/`` is listed before the history route only for readability; the

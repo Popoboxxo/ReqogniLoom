@@ -140,7 +140,174 @@ class ArtifactSummaryView(APIView):
         return Response(result.as_payload(), status=status.HTTP_200_OK)
 
 
+class StoredSummarySerializer(serializers.Serializer):
+    """Wire form of one persisted summary scope (spec §6.6).
+
+    The same dict comes out of ``stored_summary_payload`` on the MCP side, so
+    the two channels share one contract; this serializer exists to give
+    drf-spectacular a real schema.
+    """
+
+    workspace_id = serializers.UUIDField()
+    summary_kind = serializers.CharField(help_text="'type_roster' or 'artifact'.")
+    artifact_type = serializers.CharField(allow_null=True)
+    artifact_id = serializers.UUIDField(allow_null=True)
+    text = serializers.CharField(allow_null=True)
+    reason = serializers.CharField(
+        allow_null=True,
+        help_text="budget_exhausted | provider_unavailable | stale | disabled",
+    )
+    stale = serializers.BooleanField()
+    item_count = serializers.IntegerField()
+    status = serializers.CharField(allow_null=True)
+    provider = serializers.CharField(allow_null=True)
+    model = serializers.CharField(allow_null=True)
+    token_usage = serializers.IntegerField(allow_null=True)
+    trigger = serializers.CharField(allow_null=True)
+    generated_at = serializers.DateTimeField(allow_null=True)
+    updated_at = serializers.DateTimeField(allow_null=True)
+
+
+class StoredSummaryListSerializer(serializers.Serializer):
+    """Body of ``GET /workspaces/<id>/summaries/``."""
+
+    workspace_id = serializers.UUIDField()
+    summaries = StoredSummarySerializer(many=True)
+    count = serializers.IntegerField()
+    truncated = serializers.BooleanField()
+    limit = serializers.IntegerField()
+
+
+class StoredSummaryRefreshSerializer(StoredSummarySerializer):
+    """Body of ``POST .../summaries/<artifact_type>/refresh/``."""
+
+    outcome = serializers.CharField(
+        help_text="summarized | skipped:<reason> | failed"
+    )
+
+
+class WorkspaceSummaryListView(APIView):
+    """GET /api/v1/workspaces/<workspace_id>/summaries/ — stored type states.
+
+    Read-only and free: nothing is generated here. A workspace outside the
+    caller's tenant answers 404 (no existence leak); a same-tenant workspace
+    without a role answers 403.
+    """
+
+    @extend_schema(
+        tags=["summaries"],
+        operation_id="summaries_list",
+        summary="Stored AI summaries of every artifact type",
+        responses={
+            200: StoredSummaryListSerializer,
+            403: OpenApiResponse(description="No role in the workspace."),
+            404: OpenApiResponse(description="Workspace not found."),
+        },
+    )
+    def get(
+        self, request: Request, workspace_id: Any, *args: Any, **kwargs: Any
+    ) -> Response:
+        lang = detect_lang(request)
+        try:
+            payload = ArtifactSummaryService().list_type_summaries(
+                get_auth_context(request), workspace_id
+            )
+        except Exception as exc:  # noqa: BLE001 -- mapped by _service_error_response
+            return _service_error_response(exc, lang)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class WorkspaceSummaryDetailView(APIView):
+    """GET /api/v1/workspaces/<workspace_id>/summaries/<artifact_type>/.
+
+    One type roster; an unknown or never-summarised type answers the empty
+    payload (``text=null``, ``item_count=0``, ``reason=null``) rather than 404.
+    """
+
+    @extend_schema(
+        tags=["summaries"],
+        operation_id="summaries_retrieve",
+        summary="Stored AI summary of one artifact type",
+        responses={
+            200: StoredSummarySerializer,
+            403: OpenApiResponse(description="No role in the workspace."),
+            404: OpenApiResponse(description="Workspace not found."),
+        },
+    )
+    def get(
+        self,
+        request: Request,
+        workspace_id: Any,
+        artifact_type: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Response:
+        lang = detect_lang(request)
+        try:
+            payload = ArtifactSummaryService().get_type_summary(
+                get_auth_context(request), workspace_id, artifact_type
+            )
+        except Exception as exc:  # noqa: BLE001 -- mapped by _service_error_response
+            return _service_error_response(exc, lang)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class WorkspaceSummaryRefreshView(APIView):
+    """POST .../summaries/<artifact_type>/refresh/ — one manual run.
+
+    Cost guard: the dedicated :class:`ArtifactSummaryRateThrottle` (scope
+    ``artifact_summary``) sits next to the generic throttles, exactly like the
+    on-demand artifact summary — one spend ceiling for every summary route.
+
+    The run bypasses the workspace cadence but keeps every brake (switch, day
+    budget, agent key, throttle); a refused run still answers 200 with
+    ``outcome="skipped:<reason>"`` and the stored state, so the caller can tell
+    "nothing changed" from "not allowed right now".
+    """
+
+    throttle_classes = [
+        AuthContextUserRateThrottle,
+        AuthContextAnonRateThrottle,
+        ArtifactSummaryRateThrottle,
+    ]
+
+    @extend_schema(
+        tags=["summaries"],
+        operation_id="summaries_refresh",
+        summary="Refresh one artifact type's stored summary now",
+        request=None,
+        responses={
+            200: StoredSummaryRefreshSerializer,
+            403: OpenApiResponse(description="No write role in the workspace."),
+            404: OpenApiResponse(description="Workspace not found."),
+            429: OpenApiResponse(description="artifact_summary rate limit exceeded."),
+        },
+    )
+    def post(
+        self,
+        request: Request,
+        workspace_id: Any,
+        artifact_type: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Response:
+        lang = detect_lang(request)
+        try:
+            payload = ArtifactSummaryService().refresh_type_summary(
+                get_auth_context(request), workspace_id, artifact_type
+            )
+        except Exception as exc:  # noqa: BLE001 -- mapped by _service_error_response
+            return _service_error_response(exc, lang)
+        return Response(payload, status=status.HTTP_200_OK)
+
+
 __all__ = [
     "ArtifactSummarySerializer",
     "ArtifactSummaryView",
+    "StoredSummaryListSerializer",
+    "StoredSummaryRefreshSerializer",
+    "StoredSummarySerializer",
+    "WorkspaceSummaryDetailView",
+    "WorkspaceSummaryListView",
+    "WorkspaceSummaryRefreshView",
 ]

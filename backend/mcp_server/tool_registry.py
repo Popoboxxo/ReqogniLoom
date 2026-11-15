@@ -442,6 +442,9 @@ _WRITE_TOOL_PREFIXES: tuple[str, ...] = (
     # BaselineGateWaiver row (and its audit entry) — a governance write.
     # audit.waivers (the read-only list) lives in _READ_ONLY_TOOL_NAMES below.
     "audit.waive_finding",
+    # Issue #1793 (S6): the manual summary run spends one provider call per
+    # scope, so it is a write tool on both counts (RBAC and cost).
+    "summary.refresh",
 )
 
 # ---------------------------------------------------------------------------
@@ -504,6 +507,11 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # Viewer key could not read a summary. The LLM spend ceiling is the
         # `artifact_summary` rate scope, not the RBAC tier.
         "artifact.summary",
+        # Issue #1793 (S6): reading a stored summary is free and persists
+        # nothing, so it is a read for RBAC purposes. Its required
+        # ``workspace_id`` is what scopes the dispatcher gate. summary.refresh
+        # is deliberately absent — it spends a provider call.
+        "summary.get",
         "allocation.query",
         "group.list",
         "group.members",
@@ -1124,6 +1132,7 @@ class ToolRegistry:
         from mcp_server.tools.requirements import RequirementsToolGroup
         from mcp_server.tools.review import ReviewToolGroup
         from mcp_server.tools.suggestion import SuggestionToolGroup
+        from mcp_server.tools.summaries import SummaryToolGroup
         from mcp_server.tools.tests import TestToolGroup
         from mcp_server.tools.tree_display_config import TreeDisplayConfigToolGroup
         from mcp_server.tools.users import UsersToolGroup
@@ -1263,6 +1272,11 @@ class ToolRegistry:
             # the service, which filters the entity lookup by the addressed
             # workspace — a fenced key on a foreign workspace answers -32001.
             "quality": QualityToolGroup(),
+            # Issue #1793 (S6): the persisted per-scope AI summaries.
+            # summary.get is read-exempt below; summary.refresh is the paid
+            # manual run and stays fail-closed WRITE-gated (Editor+ plus the
+            # shared ``artifact_summary`` rate scope).
+            "summary": SummaryToolGroup(),
         })
 
     def list_tools(

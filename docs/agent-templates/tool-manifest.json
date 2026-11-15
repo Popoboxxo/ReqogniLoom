@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 294,
+  "tool_count": 296,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -7638,6 +7638,58 @@
         },
         "required": [
           "id"
+        ]
+      }
+    },
+    {
+      "name": "summary.get",
+      "prefix": "summary",
+      "is_write": false,
+      "description": "Read the last STORED AI summary state of one workspace (issue #1793), one payload per scope: {workspace_id, summary_kind, artifact_type, artifact_id, text, reason, stale, item_count, status, provider, model, token_usage, trigger, generated_at, updated_at}. Read-only and free — no provider call, ever. Without 'artifact_type'/'artifact_id' it returns every type roster the workspace has (result.summaries, result.count, result.truncated, result.limit); with 'artifact_type' it returns that type's state; with 'artifact_id' the stored artifact scope. Passing both is a VALIDATION_ERROR. A scope never summarised answers text=null, item_count=0, reason=null; 'stale' is true when the stored text is older than twice the workspace cadence (or the sweep is off), and 'reason' then reads 'stale'. The four values of 'reason' are 'budget_exhausted', 'provider_unavailable', 'stale' and 'disabled' — a degradation is NOT an error.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace to read."
+          },
+          "artifact_type": {
+            "type": "string",
+            "description": "Optional artifact type (e.g. 'Requirement'). Omit for every stored type roster of the workspace."
+          },
+          "artifact_id": {
+            "type": "string",
+            "description": "Optional UUID of one artifact whose stored 'artifact' scope to read. Mutually exclusive with 'artifact_type'."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "summary.refresh",
+      "prefix": "summary",
+      "is_write": true,
+      "description": "Run one summary scope NOW (write, issue #1793). Pass exactly one of 'artifact_type' (type roster) or 'artifact_id' (that artifact's on-demand summary). A manual run bypasses the workspace cadence but keeps every spend brake: ARTIFACT_SUMMARY_ENABLED, the summary-only day budget, the configured agent key and the min-interval throttle — a refused run answers 'outcome'='skipped:<reason>' with the stored state instead of an error. A type roster answers the same payload as summary.get plus 'outcome' (summarized|skipped:<reason>|failed); 'artifact_id' answers the artifact.summary payload (cache-backed, nothing persisted). Costs at most one LLM call, and the shared 'artifact_summary' rate scope applies to both transports.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the workspace to refresh in."
+          },
+          "artifact_type": {
+            "type": "string",
+            "description": "Artifact type whose roster to re-summarise (e.g. 'Requirement')."
+          },
+          "artifact_id": {
+            "type": "string",
+            "description": "UUID of one artifact to summarise on demand. Mutually exclusive with 'artifact_type'."
+          }
+        },
+        "required": [
+          "workspace_id"
         ]
       }
     },
