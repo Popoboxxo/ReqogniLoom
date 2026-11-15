@@ -12,7 +12,9 @@ Slice R1 of ``docs/superpowers/plans/2026-11-15-document-view-on-document.md``
   (issue #1578),
 * an unknown or foreign-tenant document is ``NotFoundError``, never a leak,
 * the status comes from the workflow engine (one ``current_states`` call), so a
-  soft-deleted document reports ``"outdated"`` like the detail route.
+  soft-deleted document reports ``"outdated"`` like the detail route,
+* the Markdown export (R7.1) is the golden of those chapters — numbers, order,
+  no edit markers — and an empty body exports an empty document.
 
 The suite runs against a real database with the ``document_default`` workflow,
 so the freeze is exercised on the same state machine the product uses.
@@ -573,3 +575,116 @@ def test_to_dict_is_wire_ready(service, document, editor_ctx) -> None:
         "body": "Purpose of the system.",
     }
     assert payload["projection"]["projection_mode"] == "none"
+
+
+# ---------------------------------------------------------------------------
+# Markdown export (R7.1)
+# ---------------------------------------------------------------------------
+
+#: Golden document for :data:`BODY`: one ATX heading per chapter, the chapter's
+#: own level, prefixed with the number the view shows, bodies verbatim.
+EXPECTED_MARKDOWN = (
+    "Lead paragraph.\n"
+    "\n"
+    "# 1 System Spec\n"
+    "\n"
+    "Purpose of the system.\n"
+    "\n"
+    "## 1.1 Scope\n"
+    "\n"
+    "In scope: everything.\n"
+    "\n"
+    "```text\n"
+    "# not a heading\n"
+    "```\n"
+    "\n"
+    "## 1.2 Out of Scope\n"
+    "\n"
+    "Nothing.\n"
+)
+
+
+def _render_chapters(chapters: list[dict]) -> str:
+    """Render a ``to_dict()`` chapter list the way the export must look.
+
+    The golden is derived from the **wire form** on purpose: the export has to
+    be the reading object's chapters, not a second reading of the raw body.
+    """
+    blocks: list[str] = []
+    for chapter in chapters:
+        if chapter["level"] > 0:
+            blocks.append(
+                f"{'#' * chapter['level']} {chapter['number']} {chapter['title']}"
+            )
+        if chapter["body"]:
+            blocks.append(chapter["body"])
+    return "\n\n".join(blocks) + "\n" if blocks else ""
+
+
+def test_markdown_export_matches_reading_object(service, document, editor_ctx) -> None:
+    """The export is exactly the golden of the reading object's chapters."""
+    result = service.read(document.id, editor_ctx)
+
+    assert result.to_markdown() == EXPECTED_MARKDOWN
+    # Guard against drift between the export and the wire chapters it claims
+    # to render: same numbers, same order, same bodies.
+    assert result.to_markdown() == _render_chapters(result.to_dict()["chapters"])
+
+
+def _headings(markdown: str) -> list[str]:
+    """Return the ATX heading lines **outside** fenced code blocks."""
+    headings: list[str] = []
+    fence: str | None = None
+    for line in markdown.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith(("```", "~~~")):
+            fence = None if fence else stripped[:3]
+            continue
+        if fence is None and line.startswith("#"):
+            headings.append(line)
+    return headings
+
+
+def test_export_contains_no_edit_markers(service, document, editor_ctx) -> None:
+    """The export is the reading state, not the editing surface (R7.1).
+
+    Field verdicts, lock reasons, capability flags and HTML/Markdown comment
+    fences are surface furniture — a document that leaves the app must not
+    carry them. The only headings are the chapter headings.
+    """
+    markdown = service.read(document.id, editor_ctx).to_markdown()
+
+    for marker in (
+        "editable",
+        "locked",
+        "can_write",
+        "read_only_reason",
+        "frozen_fields",
+        "<!--",
+        "data-testid",
+        "🔒",
+        "✎",
+    ):
+        assert marker not in markdown
+    assert _headings(markdown) == [
+        "# 1 System Spec",
+        "## 1.1 Scope",
+        "## 1.2 Out of Scope",
+    ]
+    # The fenced block stays text: its ``#`` line did not become a heading.
+    assert "```text\n# not a heading\n```" in markdown
+
+
+def test_export_of_empty_body_is_empty_document(
+    service, workspace, editor_ctx
+) -> None:
+    """An empty body exports an empty document, never a lone heading."""
+    empty = DocumentService().create_document(
+        workspace.id, editor_ctx, title="Empty", kind=Document.Kind.PLAN
+    )
+
+    result = service.read(empty.id, editor_ctx)
+
+    assert result.chapters[0].body == ""  # R1 precondition: one empty chapter
+    assert result.to_markdown() == ""
+

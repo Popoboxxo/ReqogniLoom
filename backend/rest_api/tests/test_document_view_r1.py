@@ -10,7 +10,10 @@ write path), so this suite pins:
   ``400`` for a malformed path segment (#271),
 * the route is *inventoried*: it resolves to the ``view`` action and is part of
   the committed OpenAPI operation manifest
-  (``rest_api/tests/fixtures/openapi_operations_manifest.json``).
+  (``rest_api/tests/fixtures/openapi_operations_manifest.json``),
+* ``?format=markdown`` (R7.1) answers ``text/markdown`` — the reading object's
+  chapters as a document, same ``ETag``, same ``403``/``404`` — without adding
+  an operation to the inventory.
 
 The full schema-completeness gate runs separately
 (``test_schema_completeness_1388.py``); this file deliberately does not
@@ -34,6 +37,7 @@ from workflow.services import create_default_workflow
 pytestmark = pytest.mark.django_db
 
 COLLECTION = "/api/v1/documents/"
+VIEW_ROUTE = "/api/v1/documents/{id}/view/"
 MANIFEST_PATH = (
     Path(__file__).with_name("fixtures") / "openapi_operations_manifest.json"
 )
@@ -161,7 +165,8 @@ def test_view_is_read_only(authed_client, document, workspace) -> None:
     assert response.json()["version"] == document["version"]
 
 
-def test_item_level_deny_is_403(authed_client, tenant, workspace, document) -> None:
+def _deny_item_read(tenant, workspace, document) -> None:
+    """Pin an item-level ``none`` rule for the authenticated test user."""
     user = User.objects.get(username="bundleadmin")
     set_request_tenant(tenant.id)
     try:
@@ -174,6 +179,10 @@ def test_item_level_deny_is_403(authed_client, tenant, workspace, document) -> N
         )
     finally:
         clear_request_tenant()
+
+
+def test_item_level_deny_is_403(authed_client, tenant, workspace, document) -> None:
+    _deny_item_read(tenant, workspace, document)
 
     response = authed_client.get(_view_url(document["id"]))
 
@@ -260,4 +269,96 @@ def test_openapi_manifest_contains_the_view_route() -> None:
     document = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     operations = {(path, method) for path, method in document["operations"]}
 
-    assert ("/api/v1/documents/{id}/view/", "get") in operations
+    assert (VIEW_ROUTE, "get") in operations
+
+
+# ---------------------------------------------------------------------------
+# Markdown export (R7.1) — ``?format=markdown``
+# ---------------------------------------------------------------------------
+
+
+def test_markdown_format_answers_text_markdown(authed_client, document) -> None:
+    """``?format=markdown`` is the reading object, exported as a document."""
+    response = authed_client.get(f"{_view_url(document['id'])}?format=markdown")
+
+    assert response.status_code == 200, response.content
+    assert response["Content-Type"].startswith("text/markdown")
+    # Golden for this fixture's body — the numbers and order the JSON path
+    # publishes, headings at the chapter's own level, no edit markers.
+    assert response.content.decode() == (
+        "# 1 System Spec\n"
+        "\n"
+        "Purpose.\n"
+        "\n"
+        "## 1.1 Scope\n"
+        "\n"
+        "Everything.\n"
+    )
+
+
+def test_markdown_body_is_the_reading_object_chapters(authed_client, document) -> None:
+    """The export equals a rendering of the JSON path's own chapters.
+
+    Deliberately derived from ``GET .../view/`` instead of the service: the two
+    representations must describe the same document, and this is the assertion
+    that notices if one of them grows a chapter logic of its own (plan R1).
+    """
+    reading = authed_client.get(_view_url(document["id"])).json()
+
+    blocks: list[str] = []
+    for chapter in reading["chapters"]:
+        if chapter["level"] > 0:
+            blocks.append(
+                f"{'#' * chapter['level']} {chapter['number']} {chapter['title']}"
+            )
+        if chapter["body"]:
+            blocks.append(chapter["body"])
+    expected = "\n\n".join(blocks) + "\n"
+
+    response = authed_client.get(f"{_view_url(document['id'])}?format=markdown")
+
+    assert response.content.decode() == expected
+
+
+def test_markdown_format_keeps_the_etag(authed_client, document) -> None:
+    response = authed_client.get(f"{_view_url(document['id'])}?format=markdown")
+
+    assert response["ETag"] == f'"{document["version"]}"'
+
+
+def test_markdown_format_is_read_only(authed_client, document) -> None:
+    authed_client.get(f"{_view_url(document['id'])}?format=markdown")
+
+    detail = authed_client.get(f"{COLLECTION}{document['id']}/")
+    assert detail.json()["version"] == document["version"]
+
+
+def test_markdown_format_denies_item_level_denial(
+    authed_client, tenant, workspace, document
+) -> None:
+    """The export sits behind the same two-layer read gate as the JSON path."""
+    _deny_item_read(tenant, workspace, document)
+
+    response = authed_client.get(f"{_view_url(document['id'])}?format=markdown")
+
+    assert response.status_code == 403, response.content
+    # Errors stay JSON even on the markdown branch — one error envelope.
+    assert response["Content-Type"].startswith("application/json")
+    assert response.json()["error"]["code"] == "PERMISSION_DENIED"
+
+
+def test_markdown_format_unknown_id_is_404(authed_client) -> None:
+    response = authed_client.get(f"{_view_url(uuid.uuid4())}?format=markdown")
+
+    assert response.status_code == 404, response.content
+    assert response.json()["error"]["code"] == "NOT_FOUND"
+
+
+def test_markdown_export_adds_no_openapi_operation() -> None:
+    """R7.1 is a representation of the existing operation, not a new route."""
+    document = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    view_operations = [
+        (path, method) for path, method in document["operations"] if path == VIEW_ROUTE
+    ]
+
+    assert view_operations == [(VIEW_ROUTE, "get")]

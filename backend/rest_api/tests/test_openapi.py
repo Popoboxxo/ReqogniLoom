@@ -466,3 +466,32 @@ class TestFilterEnumParameters:
             "P30D",
             "P90D",
         }
+
+
+# ---------------------------------------------------------------------------
+# R7.1 — the document reading view's Markdown export is discoverable
+# ---------------------------------------------------------------------------
+
+
+DOCUMENT_VIEW_PATH = "/api/v1/documents/{id}/view/"
+
+
+class TestDocumentViewMarkdownExport:
+    """``?format=markdown`` (plan R7.1) is the same operation, two media types.
+
+    A client can only use the export if the document names the parameter and
+    both representations; the route inventory must stay untouched (no new
+    operation — the gate for that is ``test_schema_completeness_1388``).
+    """
+
+    def test_documents_the_format_parameter(self, openapi_schema: dict) -> None:
+        params = _query_params(openapi_schema, DOCUMENT_VIEW_PATH)
+
+        assert set(params["format"]["schema"]["enum"]) == {"json", "markdown"}
+
+    def test_publishes_both_representations(self, openapi_schema: dict) -> None:
+        operation = openapi_schema["paths"][DOCUMENT_VIEW_PATH]["get"]
+        content = operation["responses"]["200"]["content"]
+
+        assert {"application/json", "text/markdown"} <= set(content)
+        assert "ETag" in operation["responses"]["200"]["headers"]
