@@ -2382,6 +2382,8 @@ class TestWorkspaceMemorySettingsPolicyFacade:
                 "search_summary",
                 # #1792: artifact summaries are memory-hard-off as well.
                 "artifact_summary",
+                # #1793: periodic type-roster summaries too.
+                "artifact_type_summary",
             }
             declared = {
                 name

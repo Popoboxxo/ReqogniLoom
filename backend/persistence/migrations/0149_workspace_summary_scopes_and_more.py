@@ -13,17 +13,17 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='workspace',
             name='summary_scopes',
-            field=models.JSONField(blank=True, default=list, help_text='Artifact types this workspace summarises periodically; empty = all default types (issue #1793, spec §9/E6).'),
+            field=models.JSONField(blank=True, db_default=models.Value([], output_field=models.JSONField()), default=list, help_text='Artifact types this workspace summarises periodically; empty = all default types (issue #1793, spec §9/E6).'),
         ),
         migrations.AddField(
             model_name='workspace',
             name='summary_sweep_interval_minutes',
-            field=models.PositiveIntegerField(default=1440, help_text='Minutes between periodic summary runs for this workspace; 0 disables it (issue #1793, spec §9/E6).'),
+            field=models.PositiveIntegerField(db_default=1440, default=1440, help_text='Minutes between periodic summary runs for this workspace; 0 disables it (issue #1793, spec §9/E6).'),
         ),
         migrations.AddField(
             model_name='workspace',
             name='summary_trace_depth',
-            field=models.PositiveSmallIntegerField(default=1, help_text='Trace depth (1-2 hops) for on-demand artifact summaries (issue #1793, spec §9/E3).'),
+            field=models.PositiveSmallIntegerField(db_default=1, default=1, help_text='Trace depth (1-2 hops) for on-demand artifact summaries (issue #1793, spec §9/E3).'),
         ),
         migrations.AddConstraint(
             model_name='workspace',

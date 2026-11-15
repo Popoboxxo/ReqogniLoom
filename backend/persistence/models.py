@@ -825,6 +825,7 @@ class Workspace(TenantScopedModel):
     # the same rule true for writes that bypass ``full_clean``.
     summary_trace_depth = models.PositiveSmallIntegerField(
         default=1,
+        db_default=1,
         help_text=(
             "Trace depth (1-2 hops) for on-demand artifact summaries "
             "(issue #1793, spec §9/E3)."
@@ -834,6 +835,7 @@ class Workspace(TenantScopedModel):
     #: (``application.artifact_summary_sweep.DEFAULT_SUMMARY_SCOPES``).
     summary_scopes = models.JSONField(
         default=list,
+        db_default=models.Value([], output_field=models.JSONField()),
         blank=True,
         help_text=(
             "Artifact types this workspace summarises periodically; empty = "
@@ -844,6 +846,7 @@ class Workspace(TenantScopedModel):
     #: global minimum are clamped, never rejected (spec §9/E6).
     summary_sweep_interval_minutes = models.PositiveIntegerField(
         default=1440,
+        db_default=1440,
         help_text=(
             "Minutes between periodic summary runs for this workspace; "
             "0 disables it (issue #1793, spec §9/E6)."
