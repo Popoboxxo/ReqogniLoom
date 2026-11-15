@@ -22,13 +22,15 @@ import type {
   DocumentTransitionsResponse,
   DocumentUpdatePayload,
 } from "../api/documents";
-import type { Document, UUID } from "../types";
+import type { Document, DocumentReading, UUID } from "../types";
 
 export const documentKeys = {
   all: ["documents"] as const,
   list: (workspaceId: UUID, includeDeleted: boolean) =>
     ["documents", "list", workspaceId, includeDeleted] as const,
   detail: (id: UUID) => ["documents", "detail", id] as const,
+  reading: (workspaceId: UUID | undefined, id: UUID | undefined) =>
+    ["documents", "reading", workspaceId ?? "", id ?? ""] as const,
   transitions: (id: UUID) => ["documents", "transitions", id] as const,
 };
 
@@ -51,6 +53,27 @@ export function useDocument(id: UUID | undefined): UseQueryResult<Document, Erro
     queryKey: documentKeys.detail(id ?? ""),
     queryFn: () => documentsApi.get(id as UUID),
     enabled: !!id,
+  });
+}
+
+/**
+ * The chaptered reading object of one document (R4, plan
+ * 2026-11-15-document-view-on-document.md).
+ *
+ * `staleTime: 0` is deliberate: the surface shows the document's current
+ * state, never a cache snapshot. `workspaceId` only participates in the cache
+ * key (the endpoint itself is workspace-agnostic), so switching workspace can
+ * never serve another workspace's reading object.
+ */
+export function useDocumentReading(
+  documentId: UUID | undefined,
+  workspaceId?: UUID
+): UseQueryResult<DocumentReading, Error> {
+  return useQuery({
+    queryKey: documentKeys.reading(workspaceId, documentId),
+    queryFn: () => documentsApi.readingView(documentId as UUID),
+    enabled: !!documentId,
+    staleTime: 0,
   });
 }
 

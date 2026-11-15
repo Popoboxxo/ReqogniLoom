@@ -56,6 +56,7 @@ vi.mock("../api/documents", () => ({
   documentsApi: {
     listAll: vi.fn(),
     get: vi.fn(),
+    readingView: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     delete: vi.fn(),
@@ -131,9 +132,52 @@ import { documentsApi } from "../api/documents";
 
 const listAll = documentsApi.listAll as ReturnType<typeof vi.fn>;
 const get = documentsApi.get as ReturnType<typeof vi.fn>;
+const readingView = documentsApi.readingView as ReturnType<typeof vi.fn>;
 const create = documentsApi.create as ReturnType<typeof vi.fn>;
 const transitions = documentsApi.transitions as ReturnType<typeof vi.fn>;
 const transition = documentsApi.transition as ReturnType<typeof vi.fn>;
+
+/** Reading object the detail route fetches alongside the document (R4). */
+function readingFor(document: typeof DOC | typeof FROZEN): Record<string, unknown> {
+  return {
+    id: document.id,
+    artifact_id: document.artifact_id,
+    uid: document.uid,
+    title: document.title,
+    kind: document.kind,
+    description: document.description,
+    body: document.body,
+    doc_date: document.doc_date,
+    version: document.version,
+    status: document.status,
+    frozen_at: document.frozen_at,
+    frozen_fields: document.frozen_fields,
+    editable_fields: ["title", "description", "body", "doc_date"],
+    fields: [
+      {
+        name: "title",
+        value: document.title,
+        editable: true,
+        locked: null,
+      },
+    ],
+    capabilities: { can_write: true, read_only_reason: null },
+    chapters: [
+      {
+        number: "1",
+        level: 1,
+        title: "Guide",
+        anchor: "guide",
+        body: document.body,
+      },
+    ],
+    projection: {
+      projection_mode: "none",
+      source_path: "",
+      projected_sha256: "",
+    },
+  };
+}
 
 function renderRoute(route: string): void {
   const client = new QueryClient({
@@ -156,6 +200,7 @@ describe("Documents route (F2-T8)", () => {
     vi.clearAllMocks();
     listAll.mockResolvedValue([DOC]);
     get.mockResolvedValue(DOC);
+    readingView.mockResolvedValue(readingFor(DOC));
     create.mockResolvedValue(DOC);
     transitions.mockResolvedValue({
       current_state: "Entwurf",
@@ -220,11 +265,15 @@ describe("Documents route (F2-T8)", () => {
   it("shows the freeze banner and disables frozen editor fields", async () => {
     listAll.mockResolvedValue([FROZEN]);
     get.mockResolvedValue(FROZEN);
+    readingView.mockResolvedValue(readingFor(FROZEN));
     renderRoute("/documents/doc-2");
 
     await waitFor(() =>
-      expect(screen.getByTestId("document-detail")).toBeInTheDocument()
+      expect(screen.getByTestId("document-reading-view")).toBeInTheDocument()
     );
+    expect(
+      screen.getByTestId("document-reading-capability-notice")
+    ).toBeInTheDocument();
     expect(screen.getByTestId("document-frozen-banner")).toBeInTheDocument();
     expect(screen.getByTestId("document-frozen-fields")).toBeInTheDocument();
 

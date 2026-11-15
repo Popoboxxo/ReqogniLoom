@@ -5,6 +5,7 @@
  *
  *   GET    /api/v1/documents/?workspace_id=[&include_deleted=true]
  *   GET    /api/v1/documents/{id}/
+ *   GET    /api/v1/documents/{id}/view/       (chaptered reading object, R1)
  *   POST   /api/v1/documents/
  *   PATCH  /api/v1/documents/{id}/            (If-Match: "<version>")
  *   DELETE /api/v1/documents/{id}/            (optional change_reason)
@@ -23,6 +24,7 @@ import type {
   CustomFields,
   Document,
   DocumentKind,
+  DocumentReading,
   UUID,
 } from "../types";
 
@@ -100,6 +102,15 @@ export const documentsApi = {
 
   get(id: UUID): Promise<Document> {
     return apiClient.get<Document>(`/documents/${id}/`);
+  },
+
+  /**
+   * Fetch the chaptered reading object (R1/R2). Read-only: it carries the
+   * document head, the per-field write verdicts and the Markdown body split
+   * into numbered chapters — writing still goes through `update`.
+   */
+  readingView(id: UUID): Promise<DocumentReading> {
+    return apiClient.get<DocumentReading>(`/documents/${id}/view/`);
   },
 
   create(payload: DocumentCreatePayload): Promise<Document> {

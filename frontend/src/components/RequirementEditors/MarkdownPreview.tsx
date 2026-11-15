@@ -67,6 +67,12 @@ interface MarkdownPreviewProps {
    * all (and no dead control).
    */
   onToggleToolbar?: () => void;
+  /**
+   * R4 document reading view: render the preview pane only — no edit/preview
+   * tabs and no textarea. The Markdown renderer stays the single place that
+   * turns Markdown into DOM (react-markdown; raw HTML is never injected).
+   */
+  readOnly?: boolean;
 }
 
 /** `[[glossary:<uuid>]]` / `[[glossary:<uuid>@<revision>]]`. */
@@ -97,6 +103,7 @@ export function MarkdownPreview({
   artifactId = null,
   showToolbar = false,
   onToggleToolbar,
+  readOnly = false,
 }: MarkdownPreviewProps): JSX.Element {
   const { t } = useTranslation();
   const [isPreview, setIsPreview] = useState(false);
@@ -131,11 +138,13 @@ export function MarkdownPreview({
   }, [value]);
 
   // Legacy `@Term` support: terms are only needed once a preview is shown.
+  // A read-only surface does not link bare `@Term` mentions (no term list is
+  // fetched there); version-bound `[[glossary:…]]` tokens still resolve below.
   useEffect(() => {
-    if (isPreview && workspaceId) {
+    if (!readOnly && isPreview && workspaceId) {
       glossaryApi.list(workspaceId).then(setTerms).catch(console.error);
     }
-  }, [isPreview, workspaceId]);
+  }, [isPreview, readOnly, workspaceId]);
 
   const termsMap = useMemo(() => {
     const map = new Map<string, GlossaryTerm>();
@@ -175,7 +184,7 @@ export function MarkdownPreview({
   // #1266: resolve reference tokens against the pinned revision / head. Only
   // fires in preview mode and only when the text actually carries a token.
   useEffect(() => {
-    if (!isPreview || !workspaceId || !hasToken) {
+    if (!(isPreview || readOnly) || !workspaceId || !hasToken) {
       setResolved(null);
       return;
     }
@@ -189,7 +198,7 @@ export function MarkdownPreview({
     return () => {
       cancelled = true;
     };
-  }, [isPreview, workspaceId, hasToken, value]);
+  }, [isPreview, readOnly, workspaceId, hasToken, value]);
 
   const resolutionMap = useMemo(() => {
     const map = new Map<string, GlossaryReferenceResolution>();
@@ -262,6 +271,15 @@ export function MarkdownPreview({
       );
     },
   };
+
+  /**
+   * One URL policy for both panes: the internal reference schemes must survive
+   * react-markdown's sanitiser, everything else goes through its default.
+   */
+  const transformUrl = (url: string): string =>
+    url.startsWith(REF_SCHEME) || url.startsWith("glossary:")
+      ? url
+      : defaultUrlTransform(url);
 
   const insertAtCursor = useCallback(
     (token: string): void => {
@@ -381,6 +399,21 @@ export function MarkdownPreview({
     [workspaceId, terms.length]
   );
 
+  /*
+   * R4: a read-only consumer (document reading view) gets the preview pane
+   * only. No tablist and no textarea — an editable control on a read surface
+   * would be a promise the caller cannot keep.
+   */
+  if (readOnly) {
+    return (
+      <div className={styles.readOnlyBody} data-testid="markdown-read-only">
+        <ReactMarkdown components={components} urlTransform={transformUrl}>
+          {processedValue}
+        </ReactMarkdown>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div role="tablist" className={styles.tablist}>
@@ -423,11 +456,7 @@ export function MarkdownPreview({
           ) : null}
           <ReactMarkdown
             components={components}
-            urlTransform={(url) =>
-              url.startsWith(REF_SCHEME) || url.startsWith("glossary:")
-                ? url
-                : defaultUrlTransform(url)
-            }
+            urlTransform={transformUrl}
           >
             {processedValue}
           </ReactMarkdown>

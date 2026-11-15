@@ -31,6 +31,7 @@ import {
   useCreateDocument,
   useDeleteDocument,
   useDocument,
+  useDocumentReading,
   useDocuments,
   useReactivateDocument,
   useUpdateDocument,
@@ -39,7 +40,7 @@ import { DOCUMENT_KINDS } from "../../types";
 import type { DocumentKind } from "../../types";
 import type { DocumentUpdatePayload } from "../../api/documents";
 import { DocumentList } from "./DocumentList";
-import { DocumentDetail } from "./DocumentDetail";
+import { DocumentReadingView } from "./DocumentReadingView";
 import { DocumentForm } from "./DocumentForm";
 import styles from "./Documents.module.css";
 
@@ -86,6 +87,7 @@ export default function Documents(): JSX.Element {
     !isLoadingWorkspace
   );
   const detailQuery = useDocument(selectedId);
+  const readingQuery = useDocumentReading(selectedId, workspaceId);
 
   const createMutation = useCreateDocument(workspaceId, includeDeleted);
   const updateMutation = useUpdateDocument(workspaceId, includeDeleted);
@@ -261,12 +263,43 @@ export default function Documents(): JSX.Element {
         />
       );
     }
+    if (readingQuery.isLoading) {
+      return (
+        <EmptyState
+          variant="loading"
+          testId="document-reading-loading"
+          label={t("documents.readingLoading")}
+        />
+      );
+    }
+    if (readingQuery.error) {
+      return (
+        <EmptyState
+          variant="error"
+          testId="document-reading-error"
+          title={t("documents.readingLoadFailed")}
+          description={readingQuery.error.message}
+          onRetry={() => {
+            void readingQuery.refetch();
+          }}
+          retryLabel={t("documents.retry")}
+        />
+      );
+    }
+    const reading = readingQuery.data;
+    if (!reading) {
+      return (
+        <p className={styles.placeholder} data-testid="documents-not-found">
+          {t("documents.notFound")}
+        </p>
+      );
+    }
     return (
-      <DocumentDetail
+      <DocumentReadingView
         document={document}
-        canWrite={canWrite}
-        workspaceId={workspaceId}
+        reading={reading}
         onEdit={() => setIsEditing(true)}
+        workspaceId={workspaceId}
         onDelete={() => {
           setDeleteReason("");
           setDeleteError(null);
