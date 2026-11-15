@@ -12,12 +12,15 @@ evidence: "Ist-Stand am 2026-11-08 gegen den Arbeitsstand im Repo geprüft; Bele
 
 # Navigationsbaum entlasten und Verbindungsansicht als zwei Bäume
 
-> **Status: Entwurf zur Freigabe.** Die fünf offenen Fragen (O1–O5) wurden am 2026-11-08 entschieden
+> **Status: Entwurf.** Die fünf offenen Fragen (O1–O5) wurden am 2026-11-08 entschieden
 > (Protokoll in §3.3); die Festlegungen in §3.2 sind damit gesetzt und nicht mehr Vorschlag.
 > Abschnitte, die eine bestehende Zusage ändern, sind mit **ÄNDERT** markiert.
+> **D4/O5 ist am 2026-11-15 entschieden: Option (a) — `Bäume` wird Default** (Nachtrag, §16).
+> Der Status bleibt `draft`, bis G/V2/V gemergt sind.
 >
-> **Umsetzungsplan:** [`docs/plans/2026-11-08-navigationsbaum-und-verbindungsansicht.md`](../../plans/2026-11-08-navigationsbaum-und-verbindungsansicht.md)
-> (Phasen G, V2, V — geschrieben, nicht umgesetzt).
+> **Umsetzungsplan:** [`docs/superpowers/plans/2026-11-15-navigation-trees.md`](../plans/2026-11-15-navigation-trees.md)
+> (Schnitte S0, G, V2, V — geschrieben, nicht umgesetzt). Der frühere Plan
+> `docs/plans/2026-11-08-navigationsbaum-und-verbindungsansicht.md` ist damit **superseded**.
 
 ## 1. Ziel
 
@@ -100,12 +103,12 @@ Bei drei Gruppen mit je vier Mitgliedern sind das ≈ 800 px vor der ersten Baum
 | **D1** | Die linke Spalte der Requirements-Route enthält **nur** Navigationsbaum + Suche/Filter. Die Gruppenverwaltung wird aus der Spalte entfernt. |
 | **D2** | Die Gruppenverwaltung bleibt vorhanden, wird aber **bei Bedarf eingeblendet** statt dauerhaft gerendert. |
 | **D3** | Die Verbindungsansicht bekommt eine Darstellung, die Requirements-Baum und Architektur-Baum **verbindet**. |
-| **D4** | Diese Darstellung wird die **Standarddarstellung** der Route. **ÄNDERT** §6.2 der Vorlagenspezifikation (dort ist „Architektur-Baum mit Unterlisten" Default), Inkraftsetzung erst nach Freigabe (O5). |
+| **D4** | Diese Darstellung wird die **Standarddarstellung** der Route. **ÄNDERT** §6.2 der Vorlagenspezifikation (dort ist „Architektur-Baum mit Unterlisten" Default), Inkraftsetzung erst nach Freigabe (O5). **Entschieden am 2026-11-15: Option (a) — siehe Nachtrag §16.** |
 | **D5** | Gruppenverwaltung als **modaler Dialog**, nicht als Tab und nicht als einklappbarer Bereich (Antwort zu O1, 2026-11-08). |
 | **D6** | `Zwei Spalten` **bleibt** als eigener Modus erhalten (Antwort zu O2). Die Modus-Menge hat damit fünf Einträge. |
 | **D7** | Die Kantendarstellung ist **abschaltbar als Nutzerpräferenz** (Antwort zu O3). |
 | **D8** | Der Aufklapp-Zustand von „Weitere Filter" wird **als Nutzerpräferenz** gemerkt (Antwort zu O4). |
-| **D9** | §6.2 der Vorlagenspezifikation wird **erst nach Freigabe** dieser Spezifikation geändert (Antwort zu O5). |
+| **D9** | §6.2 der Vorlagenspezifikation wird **erst nach Freigabe** dieser Spezifikation geändert (Antwort zu O5). **Erledigt am 2026-11-15 — Form der Änderung in §16 festgelegt.** |
 
 ### 3.2 Festlegungen dieser Spezifikation
 
@@ -854,7 +857,9 @@ Antworten sind in D5–D9 sowie S3, S6, S9 und S11 eingearbeitet:
 - §6.2 der Vorlagenspezifikation wird erst nach Freigabe geändert (O5).
 
 Offen ist damit nur noch die **Freigabe dieser Spezifikation**; danach kann die Umsetzung mit
-Phase G beginnen (§12).
+Schnitt S0 des Plans beginnen (§12). Die Frage, ob das die Umsetzung aufhaltende D4/O5-Paar die
+Default-Darstellung ändert, ist seit dem **2026-11-15** beantwortet (Option a, §16) — sie ist damit
+kein Vorbehalt der Freigabe mehr.
 
 ## 15. Bezüge
 
@@ -864,10 +869,70 @@ Phase G beginnen (§12).
   (Cluster).
 - `docs/superpowers/plans/2026-11-04-ordnung-allokation.md` — P3 (Zusammenhangs-Ansicht), P5
   (Karten-Graph), P6 (Gruppen).
-- `docs/plans/2026-11-08-navigationsbaum-und-verbindungsansicht.md` — Umsetzungsplan zu dieser
-  Spezifikation (Phasen G, V2, V).
+- `docs/superpowers/plans/2026-11-15-navigation-trees.md` — Umsetzungsplan zu dieser Spezifikation
+  (Schnitte S0, G, V2, V). Ersetzt `docs/plans/2026-11-08-navigationsbaum-und-verbindungsansicht.md`
+  (seit 2026-11-15 `superseded`, siehe §16).
 - `docs/UI_KONZEPT.md` ch. 12.1 (eine primäre Aktion pro Route), ch. 12.3 (Zeilenlayout), ch. 12.8
   (Dialog-Vertrag), ch. 13.3 (Empty States).
 - Code-Einstiegspunkte: `RequirementEditors.tsx`, `RequirementList.tsx`, `GroupManager.tsx`,
   `ConnectionView.tsx`, `useAllocationView.ts`, `AllocationAssistant.tsx`, `TreeRenderer.tsx`,
   `buildGraph.ts`, `allocation_view_service.py`.
+
+## 16. Nachtrag 2026-11-15 — D4/O5 entschieden
+
+**Entscheidung: Option (a) — `Bäume` wird die Standarddarstellung der Verbindungs-Route.**
+`Architektur` (bisheriger Default, ehemals `tree`) bleibt als eigener Modus erhalten. Damit ist D4
+wirksam und D9 erledigt; die Modus-Menge aus S3 (`Bäume` · `Architektur` · `Zwei Spalten` · `Matrix` ·
+`Graph`) ist final.
+
+**Begründung.** Der Kernbefund dieser Spezifikation ist nicht, dass eine Baumform fehlt, sondern dass
+die naheliegende Form hinter einem Umschalter liegt (§1, §2.2). Option (b) — Karten-Graph bleibt
+Default, `Bäume` wird fünfter Modus — würde genau diesen Befund dauerhaft konservieren und zwei
+„Standard"-Kandidaten nebeneinander stellen. Der Preis von (a) ist benannt und gedeckt: bestehende
+Aufrufe ohne `view`-Parameter wechseln die Darstellung (nicht die Gültigkeit), und
+`e2e/tests/connection-view.spec.ts` muss im selben Schnitt angepasst werden.
+
+**Drei Auflagen, an die die Entscheidung gebunden ist** (Umsetzung in V.5 des Plans):
+
+1. **Alias statt Bruch.** `view=tree` → `architecture`; `trees` wird beim Setzen **nicht** als
+   `view`-Parameter geschrieben (der Default bleibt implizit). Gespeicherte Sichten mit
+   `view=tree|two-column|matrix|graph` funktionieren unverändert (S4).
+2. **Einmaliger Hinweis, keine stille Umstellung.** Beim ersten Öffnen ohne `view`-Parameter
+   erscheint ein entfernbarer Hinweis („Neu: Bäume — die bisherige Ansicht findest du unter
+   *Architektur*", `data-testid="trees-default-notice"`), gemerkt als
+   `ui.connection_view.trees_notice_seen`.
+3. **Spec 1 wird nachgezogen, nicht überschrieben.** Siehe unten.
+
+**Konsequenzen für Spec 1** (`2026-11-04-ordnung-allokation-design.md`, bleibt `accepted`):
+
+- **§4.4 (Darstellungsformen)** trägt seit 2026-11-15 einen Verweis auf diesen Nachtrag. Die P-Liste
+  (P3/P5/P6) wird **nicht** umgeschrieben; sie beschreibt weiterhin die Darstellungen, nicht den
+  Default.
+- **§6.2 (Zusammenhangs-Ansicht), Satz 1** — heute: „Standarddarstellung ist B (Architektur-Baum mit
+  den Requirements als Unterlisten …, plus Block *Nicht allokiert*)". Ab dem Default-Flip in **V.5**
+  lautet die Aussage: Standard ist **`Bäume`**; `Architektur` entspricht der bisherigen
+  Standarddarstellung B und bleibt als Modus erhalten.
+- **§6.2, Satz 2** — heute: „A … und C … sind über einen Umschalter wählbar; die grafische
+  Darstellung (P5) kommt als vierte Variante dazu". Ab V.5: **fünf** Modi (`Bäume`, `Architektur`,
+  `Zwei Spalten`, `Matrix`, `Graph`), alle über einen Umschalter.
+- **Unverändert:** `TraceLink(allocated-to)` als einzige Wahrheit, N:1, Sperre (§4.5),
+  `sort_key`, das gemeinsame Leseobjekt (V10/B9).
+- **Warum §6.2 nicht schon jetzt umgeschrieben ist:** bis zum Default-Flip in V.5 ist `tree`
+  (= `Architektur`) tatsächlich der Default (`useAllocationView.ts`, `parseConnectionView` fällt auf
+  `"tree"` zurück). Ein vorgezogenes Umschreiben von §6.2 würde eine Doku-Wahrheit gegen eine
+  Code-Wahrheit tauschen — der Nachtrag dokumentiert die Absicht, §6.2 folgt dem Code. Das ist eine
+  bewusste Abweichung von S0 Schritt 2 des Plans („Spec 1 §4.4/§6.2 patchen"), die nur den Zeitpunkt
+  betrifft, nicht den Inhalt.
+
+**Rückfallvariante (Option b).** Bleibt möglich und billig: `Bäume` wird fünfter Modus, `tree` bleibt
+Default. Kosten dann: der letzte Schritt von V.5 entfällt (kein Default-Flip, kein Alias-Zwang, keine
+E2E-Anpassung über die neuen Testids hinaus), die Spec-1-Änderung entfällt vollständig, und dieser
+Nachtrag wird auf „verworfen" gesetzt statt gelöscht. Umgesetzt wäre `Bäume` in beiden Fällen
+identisch — deshalb ist die Entscheidung **additiv rückholbar** und blockiert keinen der Schnitte
+G, V2, V.0–V.4.
+
+**Umsetzung.** Der Default-Flip ist der **letzte** Schritt von Schnitt **V.5** des Plans
+[`2026-11-15-navigation-trees.md`](../plans/2026-11-15-navigation-trees.md) (Modus-Set final,
+URL-Alias, Kopfschalter, E2E, Doku). Bis dahin bleibt `tree` Default; V.3 fügt `trees` additiv hinzu
+und ändert den Default nicht.
+
