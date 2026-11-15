@@ -3693,6 +3693,8 @@
   },
   "groups": {
     "title": "Groups",
+    "manage": "Groups",
+    "dialogHint": "Groups bundle requirements without changing them or their allocation.",
     "name": "Name",
     "namePlaceholder": "e.g. Brake system",
     "description": "Description",

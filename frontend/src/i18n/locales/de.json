@@ -3693,6 +3693,8 @@
   },
   "groups": {
     "title": "Gruppen",
+    "manage": "Gruppen",
+    "dialogHint": "Gruppen bündeln Anforderungen, ohne sie oder ihre Zuordnung zu verändern.",
     "name": "Name",
     "namePlaceholder": "z. B. Bremssystem",
     "description": "Beschreibung",
