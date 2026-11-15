@@ -336,6 +336,9 @@ export default function Documents(): JSX.Element {
 
       <SplitView
         moduleType="documents"
+        // R7.2 print stylesheet: the print sheet has to undo the split view's
+        // inline flex/height so the chapters can flow across pages.
+        containerClassName={styles.splitRoot}
         list={
           <DocumentList
             items={listQuery.data ?? []}
