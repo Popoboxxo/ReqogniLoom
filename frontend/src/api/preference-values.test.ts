@@ -17,7 +17,7 @@ vi.mock("./client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./client")>();
   return {
     ...actual,
-    apiClient: { get: vi.fn(), patch: vi.fn() },
+    apiClient: { get: vi.fn(), patch: vi.fn(), patchKeepalive: vi.fn() },
   };
 });
 
@@ -85,11 +85,11 @@ describe("preferenceValuesApi", () => {
       preferenceValuesApi.patchLevel("workspace", { "ui.ids.show_readable": true })
     ).rejects.toThrow(/workspace/i);
     expect(apiClient.get).not.toHaveBeenCalled();
-    expect(apiClient.patch).not.toHaveBeenCalled();
+    expect(apiClient.patchKeepalive).not.toHaveBeenCalled();
   });
 
   it("PATCHes the level's `values` envelope and keeps an explicit null (reset)", async () => {
-    vi.mocked(apiClient.patch).mockResolvedValue({
+    vi.mocked(apiClient.patchKeepalive).mockResolvedValue({
       scope: "global",
       workspace_id: null,
       values: {},
@@ -100,7 +100,7 @@ describe("preferenceValuesApi", () => {
       "ui.ids.show_readable": null,
     });
 
-    expect(apiClient.patch).toHaveBeenCalledWith("/system/preference-values/", {
+    expect(apiClient.patchKeepalive).toHaveBeenCalledWith("/system/preference-values/", {
       values: {
         "ui.markdown.toolbar": "on",
         "ui.ids.show_readable": null,
@@ -108,8 +108,27 @@ describe("preferenceValuesApi", () => {
     });
   });
 
+  it("writes through the keepalive path so a reload cannot drop the value", async () => {
+    vi.mocked(apiClient.patchKeepalive).mockResolvedValue({
+      scope: "user",
+      workspace_id: null,
+      values: { "ui.connection_view.show_edges": false },
+    });
+
+    await preferenceValuesApi.patchLevel("user", {
+      "ui.connection_view.show_edges": false,
+    });
+
+    // A plain `patch` is aborted when the document unloads: the user flips a
+    // switch, reloads immediately, and the store still holds the old value.
+    // Every level write therefore goes through the keepalive method — and never
+    // through the plain one.
+    expect(apiClient.patchKeepalive).toHaveBeenCalledTimes(1);
+    expect(apiClient.patch).not.toHaveBeenCalled();
+  });
+
   it("PATCHes the workspace level through the workspace route", async () => {
-    vi.mocked(apiClient.patch).mockResolvedValue({
+    vi.mocked(apiClient.patchKeepalive).mockResolvedValue({
       scope: "workspace",
       workspace_id: "ws-1",
       values: {},
@@ -121,7 +140,7 @@ describe("preferenceValuesApi", () => {
       "ws-1"
     );
 
-    expect(apiClient.patch).toHaveBeenCalledWith(
+    expect(apiClient.patchKeepalive).toHaveBeenCalledWith(
       "/workspaces/ws-1/preference-values/",
       { values: { "ui.ids.show_readable": false } }
     );

@@ -476,6 +476,38 @@ export const apiClient = {
     });
   },
 
+  /**
+   * PATCH whose request survives the document that issued it.
+   *
+   * `keepalive: true` is the browser mechanism (`navigator.sendBeacon` is
+   * built on the same flag): the request keeps running after the page is
+   * unloaded, so a user who flips a switch and immediately reloads or
+   * navigates away does not lose the write to the cancelled document. Without
+   * it the in-flight PATCH is aborted on unload and the server keeps the old
+   * value — the reload then shows a setting the user already changed.
+   *
+   * Everything else is {@link apiFetch}'s normal path — CSRF header,
+   * credentials, the single-flight 401 refresh-and-retry, `ForbiddenError` /
+   * `UnprocessableEntityError` / `ApiError` handling, the empty-body guard — so
+   * callers see byte-identical answers and errors to `apiClient.patch`.
+   *
+   * Only for small bodies: the fetch spec caps the buffered body of a keepalive
+   * request at 64 KiB and throws a `TypeError` above it (a preference payload
+   * is a handful of keys, far below that).
+   */
+  patchKeepalive<T>(
+    path: string,
+    body: unknown,
+    timeoutMs?: number
+  ): Promise<T> {
+    return apiFetch<T>(path, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+      keepalive: true,
+      timeoutMs,
+    });
+  },
+
   delete<T = void>(path: string, body?: unknown, timeoutMs?: number): Promise<T> {
     const options: ApiFetchOptions = { method: "DELETE", timeoutMs };
     if (body !== undefined) {

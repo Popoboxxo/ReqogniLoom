@@ -97,7 +97,17 @@ test.describe('Connection view — trees (default mode)', () => {
     await loginAsAdmin(page);
   });
 
-  test.afterEach(async () => {
+  test.afterEach(async ({ request }) => {
+    // The edge switch is a *user* preference, so it outlives the workspace this
+    // spec creates (and now really lands, see §5.8.13). Restore the documented
+    // default first, or a retry / the next run of this file starts with the
+    // overlay hidden and the "exactly one edge per allocation" assertions fail
+    // for the wrong reason. Same pattern as the readable-id restore in
+    // `requirement-editor.spec.ts`.
+    await request.patch(`${BACKEND_URL}/api/v1/users/me/preference-values/`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { values: { 'ui.connection_view.show_edges': true } },
+    });
     await deleteWorkspace(token, workspaceId, workspaceName);
   });
 
@@ -227,14 +237,27 @@ test.describe('Connection view — trees (default mode)', () => {
       page.getByTestId(`allocation-edge-${requirementIds[0]}`)
     ).toHaveCount(1);
 
+    // The preference survives a reload (spec §5.8.13) — but only if the write
+    // reached the store before the reload reads it back. Waiting for the PATCH
+    // response (the canvas-diagram/artifact-diff pattern) makes this assertion
+    // about the product instead of about network timing. This is not a
+    // workaround for a dropped request: the product keeps the write alive
+    // across the unload (`keepalive`, `api/preference-values.ts`), so the wait
+    // would resolve even for a click that was immediately navigated away from.
+    const writeResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes('/users/me/preference-values/') &&
+        response.request().method() === 'PATCH',
+      { timeout: 10000 }
+    );
     await page.getByTestId('connection-view-show-edges').click();
+    expect((await writeResponse).status()).toBe(200);
 
     await expect(page.getByTestId('allocation-edges')).toHaveCount(0);
     await expect(page.getByTestId(`alloc-target-${requirementIds[0]}`)).toHaveText(
       'Bremse'
     );
 
-    // The preference survives a reload (spec §5.8.13).
     await page.reload();
     await expect(page.getByTestId('allocation-trees-renderer')).toBeVisible();
     await expect(page.getByTestId('connection-view-show-edges')).not.toBeChecked();
