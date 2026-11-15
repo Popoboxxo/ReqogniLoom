@@ -24,7 +24,7 @@
 # `hermes config set` (Env-Referenz statt Key):
 bash scripts/clients/install.sh --client hermes \
   --url "https://<host>" --key-env REQOGNILOOM_API_KEY
-hermes mcp test reqogniloom         # -> ✓ Connected, 293 Tools
+hermes mcp test reqogniloom         # -> ✓ Connected, 294 Tools
 ```
 
 ### Agent-/Dashboard-Plugin
@@ -83,8 +83,8 @@ mcp_servers:
 ## 5. Verifikation
 
 - **Befehl:** `hermes mcp test reqogniloom`
-- **Erwartet:** `✓ Connected` (QA: 2232 ms, 293 Tools); echte Calls: `requirement_query` → 49, `architecture_query` → 1.
-- **Tool-Call-Ergebnis:** 293 tools; requirement_query = 49
+- **Erwartet:** `✓ Connected` (QA: 2232 ms, 294 Tools); echte Calls: `requirement_query` → 49, `architecture_query` → 1.
+- **Tool-Call-Ergebnis:** 294 tools; requirement_query = 49
 
 ## 6. Fallstricke
 

@@ -24,6 +24,7 @@ import * as requirementsModule from "../../../api/requirements";
 import * as commentsModule from "../../../api/comments";
 import * as tracelinksModule from "../../../api/tracelinks";
 import * as interviewsModule from "../../../api/interviews";
+import * as artifactSummaryModule from "../../../api/artifact-summary";
 
 vi.mock("../../../api/requirements");
 vi.mock("../../../api/comments");
@@ -31,6 +32,7 @@ vi.mock("../../../api/tracelinks");
 vi.mock("../../../api/architecture");
 vi.mock("../../../api/main-goal");
 vi.mock("../../../api/interviews");
+vi.mock("../../../api/artifact-summary");
 vi.mock("../../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-1", name: "WS" } }),
 }));
@@ -139,7 +141,7 @@ describe("InspectorShell (#1762 M1)", () => {
     setViewport(1024);
   });
 
-  it("renders four tabs with the id contract and exactly one tabpanel", async () => {
+  it("renders five tabs with the id contract and exactly one tabpanel", async () => {
     renderShell();
 
     const tabs = screen.getAllByRole("tab");
@@ -148,6 +150,7 @@ describe("InspectorShell (#1762 M1)", () => {
       "inspector-tab-diff",
       "inspector-tab-links",
       "inspector-tab-comments",
+      "inspector-tab-summary",
     ]);
 
     const selected = screen.getByRole("tab", { selected: true });
@@ -189,12 +192,14 @@ describe("InspectorShell (#1762 M1)", () => {
     expect(levels.every((level) => level <= 3)).toBe(true);
   });
 
-  it("omits the comments tab when artifactPk is null — no tab, no request, no banner (M1-7)", async () => {
+  it("omits the comments and summary tabs when artifactPk is null — no tab, no request, no banner (M1-7)", async () => {
     renderShell({ artifactPk: null });
 
     expect(screen.getAllByRole("tab")).toHaveLength(3);
     expect(screen.queryByTestId("inspector-tab-comments")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("inspector-tab-summary")).not.toBeInTheDocument();
     expect(commentsModule.commentsApi.list).not.toHaveBeenCalled();
+    expect(artifactSummaryModule.fetchArtifactSummary).not.toHaveBeenCalled();
     expect(screen.queryByTestId("comment-panel-error")).not.toBeInTheDocument();
   });
 
@@ -208,6 +213,41 @@ describe("InspectorShell (#1762 M1)", () => {
     });
     expect(commentsModule.commentsApi.list).toHaveBeenCalledWith("artifact-1");
     expect(screen.getByTestId("inspector-panel-comments")).toBeInTheDocument();
+  });
+
+  // #1792/S2: a summary costs one provider call, so activating the tab must
+  // not request anything — only the user's click may.
+  it("opens the Summary tab without a request and fetches once on the click", async () => {
+    vi.mocked(artifactSummaryModule.fetchArtifactSummary).mockResolvedValue({
+      artifactId: "artifact-1",
+      artifactType: "requirement",
+      summary: "Pinned ordering keeps exports stable.",
+      degraded: false,
+      degradedReason: null,
+      cacheHit: false,
+      traceDepth: 1,
+      neighbourCount: 2,
+      omittedNeighbours: 0,
+      generatedAt: "2026-11-15T09:30:00Z",
+    });
+
+    renderShell();
+    fireEvent.click(screen.getByTestId("inspector-tab-summary"));
+
+    expect(screen.getByTestId("summary-empty")).toBeInTheDocument();
+    expect(artifactSummaryModule.fetchArtifactSummary).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("summary-trigger"));
+
+    await waitFor(() => {
+      expect(artifactSummaryModule.fetchArtifactSummary).toHaveBeenCalledTimes(1);
+    });
+    expect(artifactSummaryModule.fetchArtifactSummary).toHaveBeenCalledWith("artifact-1", {
+      refresh: false,
+    });
+    expect(await screen.findByTestId("summary-text")).toHaveTextContent(
+      "Pinned ordering keeps exports stable.",
+    );
   });
 
   it("writes ?inspector= without navigating and keeps the pathname (M1-4)", async () => {
@@ -242,7 +282,7 @@ describe("InspectorShell (#1762 M1)", () => {
     // Rail and sheet are ONE node: the panel content (and its tablist) is gone.
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
 
-    for (const key of ["version", "diff", "links", "comments"] as const) {
+    for (const key of ["version", "diff", "links", "comments", "summary"] as const) {
       const counter = screen.getByTestId(`inspector-rail-count-${key}`);
       expect(counter.tagName).toBe("BUTTON");
       const name = counter.getAttribute("aria-label") ?? "";

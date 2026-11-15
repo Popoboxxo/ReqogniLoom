@@ -92,7 +92,7 @@ describe("InspectorShell a11y (M1-3 / M1-10)", () => {
     });
   });
 
-  it("panel form: every button is named (requirement, four tabs)", async () => {
+  it("panel form: every button is named (requirement, five tabs)", async () => {
     setViewport(1440);
     renderShell({ kind: "requirement" });
 
@@ -102,7 +102,7 @@ describe("InspectorShell a11y (M1-3 / M1-10)", () => {
     expectEveryButtonNamed();
   });
 
-  it("panel form: every button is named (mainGoal, three tabs, no links)", async () => {
+  it("panel form: every button is named (mainGoal, four tabs, no links)", async () => {
     setViewport(1440);
     renderShell({ kind: "mainGoal", entityId: "mg-1" });
 
@@ -125,11 +125,11 @@ describe("InspectorShell a11y (M1-3 / M1-10)", () => {
   });
 
   // #1762 / M2: the five kinds migrated in that step all have a spine, so all
-  // of them render the full four-tab set (Links is only omitted for
+  // of them render the full five-tab set (Links is only omitted for
   // `mainGoal`) — and the "every button has a name" baseline must hold for
   // each of them, not just for Requirement. M3 (`architecture`) and M4
   // (`goal`) join the same matrix; `mainGoal` has its own case above because
-  // its three-tab set is the interesting one.
+  // its four-tab set is the interesting one.
   it.each([
     "stakeholderNeed",
     "risk",
@@ -139,7 +139,7 @@ describe("InspectorShell a11y (M1-3 / M1-10)", () => {
     "architecture",
     "goal",
   ] as const)(
-    "panel form: every button is named (%s, four tabs)",
+    "panel form: every button is named (%s, five tabs)",
     async (kind) => {
       setViewport(1440);
       renderShell({ kind, entityId: "entity-1" });
@@ -147,7 +147,7 @@ describe("InspectorShell a11y (M1-3 / M1-10)", () => {
       await waitFor(() => {
         expect(screen.getByTestId("inspector-tab-comments")).toBeInTheDocument();
       });
-      for (const key of ["version", "diff", "links", "comments"] as const) {
+      for (const key of ["version", "diff", "links", "comments", "summary"] as const) {
         expect(screen.getByTestId(`inspector-tab-${key}`)).toBeInTheDocument();
       }
       expectEveryButtonNamed();
@@ -162,7 +162,7 @@ describe("InspectorShell a11y (M1-3 / M1-10)", () => {
 
     expectEveryButtonNamed();
 
-    for (const key of ["version", "diff", "links", "comments"] as const) {
+    for (const key of ["version", "diff", "links", "comments", "summary"] as const) {
       const counter = screen.getByTestId(`inspector-rail-count-${key}`);
       const name = counter.getAttribute("aria-label") ?? "";
       // The visible glyph is `aria-hidden`; it must not leak into the name

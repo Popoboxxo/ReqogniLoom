@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 293,
+  "tool_count": 294,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -1018,6 +1018,32 @@
         },
         "required": [
           "query"
+        ]
+      }
+    },
+    {
+      "name": "artifact.summary",
+      "prefix": "artifact",
+      "is_write": false,
+      "description": "Return a short AI summary of ONE artifact and the trace neighbours the caller may read (issue #1792). Read-only, and the MCP twin of GET /api/v1/artifacts/<artifact_id>/summary/: identical payload, including the degradation fields. A switched-off feature, an unavailable provider or an exhausted budget is NOT an error -- it returns degraded=true with one of 'budget_exhausted', 'provider_unavailable', 'stale' or 'disabled' in degraded_reason. Costs at most one LLM call and none on a cache hit; the shared 'artifact_summary' rate scope applies to both transports. Nothing is persisted.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "description": "UUID of the backing Artifact to summarise."
+          },
+          "refresh": {
+            "type": "boolean",
+            "description": "Regenerate instead of serving the answer cached for the same content (default false). Must be a real JSON boolean -- the string \"false\" is rejected."
+          },
+          "depth": {
+            "type": "integer",
+            "description": "Trace hops to include: 1 (default) or 2. Values outside 1..2 are clamped, not rejected."
+          }
+        },
+        "required": [
+          "artifact_id"
         ]
       }
     },

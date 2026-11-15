@@ -7,7 +7,7 @@
  * One module owns every name the shell, its rail, its tabs and its tests have
  * to agree on:
  *
- *  - the four tab keys and the order they are rendered in,
+ *  - the tab keys and the order they are rendered in,
  *  - the DOM ids (`inspector-tab-<key>` / `inspector-panel-<key>`, spec §7),
  *  - the `data-testid` inventory (spec §8.4 point 7),
  *  - the per-kind type matrix (spec §3) — **derived from `kind` only**, never
@@ -16,10 +16,10 @@
  *
  * The matrix is the whole answer to "which kind gets which tab": Version and
  * Diff exist for every `ArtifactKind` (`DIFF_SUPPORTED_KINDS` in `./types`),
- * the Links tab exists for every kind except `mainGoal`, and the Comments tab
- * exists only when the route could hand over the backing generic Artifact UUID
- * (spec §4.3 / D5). A kind without that UUID gets no comments tab — not an
- * empty one, not a disabled one.
+ * the Links tab exists for every kind except `mainGoal`, and the Comments and
+ * Summary tabs exist only when the route could hand over the backing generic
+ * Artifact UUID (spec §4.3 / D5, #1792). A kind without that UUID gets no
+ * comments/summary tab — not an empty one, not a disabled one.
  *
  * Nothing in here touches the DOM or React; it is the pure contract the rest
  * of the shell consumes.
@@ -31,14 +31,17 @@ import type { ArtifactKind } from "./types";
 // Tabs
 // ---------------------------------------------------------------------------
 
-/** The four areas of the inspector, in rendered order (spec §2.1). */
-export type InspectorTabKey = "version" | "diff" | "links" | "comments";
+/** The areas of the inspector, in rendered order (spec §2.1). */
+export type InspectorTabKey = "version" | "diff" | "links" | "comments" | "summary";
 
 export const INSPECTOR_TAB_ORDER: readonly InspectorTabKey[] = [
   "version",
   "diff",
   "links",
   "comments",
+  // #1792/S2: on-demand AI summary. Appended instead of prepended so the
+  // default tab (Version) and the existing tab order stay untouched.
+  "summary",
 ] as const;
 
 /** Default tab for every kind: "Version" (spec §3). */
@@ -125,6 +128,7 @@ export function inspectorTabLabelKey(kind: ArtifactKind, key: InspectorTabKey): 
   if (key === "version") return "sidebar.version.title";
   if (key === "diff") return "sidebar.diff.title";
   if (key === "comments") return "comments.heading";
+  if (key === "summary") return "summary.title";
   return "sidebar.inspector.tab.links";
 }
 
@@ -147,8 +151,8 @@ export function isSpineLinkType(raw: string): boolean {
  *
  * `artifactPk` is the backing generic Artifact UUID (D5 id space). `null`
  * means "this kind's REST response does not publish it", which removes the
- * comments tab entirely (spec §4.3) instead of rendering a tab that cannot
- * load.
+ * comments **and** summary tabs entirely (spec §4.3, #1792) instead of
+ * rendering tabs that cannot load.
  */
 export function inspectorTabKeys(
   kind: ArtifactKind,
@@ -157,6 +161,9 @@ export function inspectorTabKeys(
   return INSPECTOR_TAB_ORDER.filter((key) => {
     if (key === "links") return HAS_LINKS_TAB.has(kind);
     if (key === "comments") return artifactPk !== null && artifactPk !== "";
+    // #1792/S2: like comments, the summary endpoint is addressed by the
+    // backing Artifact UUID only.
+    if (key === "summary") return artifactPk !== null && artifactPk !== "";
     return true;
   });
 }

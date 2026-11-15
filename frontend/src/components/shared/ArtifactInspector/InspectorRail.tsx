@@ -10,9 +10,9 @@
  *
  * Every counter is a real `<button>` — not a `<span>` — because clicking it
  * has to open the inspector **on that tab** (spec §3). The visible `V`/`D`/
- * `L`/`K` abbreviation is `aria-hidden`; the accessible name comes entirely
- * from the localised `aria-label` ("Kommentare, 3 offen"). Reading "V 9" out
- * loud was the defect this replaces (WCAG 4.1.2, I-20).
+ * `L`/`K`/`Z` abbreviation is `aria-hidden`; the accessible name comes
+ * entirely from the localised `aria-label` ("Kommentare, 3 offen"). Reading
+ * "V 9" out loud was the defect this replaces (WCAG 4.1.2, I-20).
  *
  * Rail and sheet are one DOM node in two states (spec §2.1): when the sheet is
  * open this component is not rendered at all, so no second, invisible set of
@@ -31,12 +31,13 @@ import {
 import type { ArtifactKind } from "./types";
 import styles from "./InspectorShell.module.css";
 
-/** Abbreviation per tab (spec §3 "V/D/L/K"). */
+/** Abbreviation per tab (spec §3 "V/D/L/K", #1792 adds "Z"). */
 const RAIL_GLYPHS: Record<InspectorTabKey, string> = {
   version: "V",
   diff: "D",
   links: "L",
   comments: "K",
+  summary: "Z",
 };
 
 const TAB_LABEL_FALLBACKS: Record<InspectorTabKey, string> = {
@@ -44,6 +45,7 @@ const TAB_LABEL_FALLBACKS: Record<InspectorTabKey, string> = {
   diff: "Diff",
   links: "Links",
   comments: "Comments",
+  summary: "Summary",
 };
 
 export interface InspectorRailProps {

@@ -498,6 +498,12 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         "traceability.suggest_links_status",
         "artifact.search",
         "artifact.get_tree",
+        # Issue #1792 (S3): a summary is a read (no persistence), even though it
+        # may cost one LLM call. It does not end on ".read"/".query", so it must
+        # be listed explicitly or it would fail closed to WRITE-gated and a
+        # Viewer key could not read a summary. The LLM spend ceiling is the
+        # `artifact_summary` rate scope, not the RBAC tier.
+        "artifact.summary",
         "allocation.query",
         "group.list",
         "group.members",

@@ -69,6 +69,7 @@ import { VersionTab } from "./tabs/VersionTab";
 import { DiffTab } from "./tabs/DiffTab";
 import { LinksTab } from "./tabs/LinksTab";
 import { CommentsTab } from "./tabs/CommentsTab";
+import { SummaryPanel } from "./SummaryPanel";
 import type { ArtifactKind, VersionRef } from "./types";
 import styles from "./InspectorShell.module.css";
 
@@ -460,6 +461,9 @@ function InspectorShellBody({
           )}
           {key === activeTab && key === "comments" && artifactPk !== null && (
             <CommentsTab kind={kind} artifactPk={artifactPk} />
+          )}
+          {key === activeTab && key === "summary" && artifactPk !== null && (
+            <SummaryPanel artifactId={artifactPk} artifactType={kind} />
           )}
         </div>
       ))}
