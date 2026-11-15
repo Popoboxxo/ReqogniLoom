@@ -48,12 +48,17 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
 
 from application import workspace_context_service
 from application.artifact_summary_service import ArtifactSummaryService
 from application.base import ProducerContextRequiredError
+
+# R3.2: the batch size is the service's constant, so the advertised MCP schema
+# and the enforced limit cannot drift apart.
+from application.bulk_update_service import MAX_ENTRIES
 from application.search_service import SEARCHABLE_ARTIFACT_TYPES
 from application.services import (
     ArtifactService,
@@ -241,6 +246,73 @@ def artifact_summary_rate_limited(auth_context: AuthContext) -> bool:
     return False
 
 
+def _bulk_entries_param(params: dict[str, Any]) -> list[Any]:
+    """Return the raw ``entries`` array of ``artifact.bulk_update``.
+
+    Transport-shape only: a missing, empty or non-list ``entries`` value is a
+    ``ParameterError`` (→ ``VALIDATION_ERROR``), the same 400 class REST answers
+    for a malformed body. The *content* of each entry is not validated here —
+    :class:`application.bulk_update_service.BulkUpdateService` owns every rule
+    that needs the database, and the typed services own the field values.
+    """
+    raw = params.get("entries")
+    if isinstance(raw, Mapping):
+        # A single object is accepted as a one-entry batch, matching
+        # ``test.run_report_results`` (REQ-L2-MC-013) — an agent that already
+        # has one row does not have to wrap it.
+        return [raw]
+    if not isinstance(raw, list) or not raw:
+        raise ParameterError("'entries' must be a non-empty array.")
+    return raw
+
+
+def _bulk_entry_from_raw(position: int, raw: Any) -> Any:
+    """Build one ``BulkEntry`` from a raw MCP entry, or raise ``ParameterError``.
+
+    Deliberately strict about types: ``expected_version`` must be a genuine
+    integer (``bool`` is an ``int`` subclass, and ``"1"`` is a string), because
+    a coerced value would silently weaken the optimistic-lock compare the whole
+    batch exists for.
+    """
+    from application.bulk_update_service import BulkEntry
+
+    if not isinstance(raw, Mapping):
+        raise ParameterError(f"'entries[{position}]' must be an object.")
+
+    artifact_raw = raw.get("artifact_id")
+    if artifact_raw is None or (
+        isinstance(artifact_raw, str) and not artifact_raw.strip()
+    ):
+        raise ParameterError(f"'entries[{position}].artifact_id' is required.")
+    try:
+        artifact_id = UUID(str(artifact_raw))
+    except (ValueError, AttributeError):
+        raise ParameterError(
+            f"'entries[{position}].artifact_id' is not a valid UUID: "
+            f"'{artifact_raw}'"
+        ) from None
+
+    expected_version = raw.get("expected_version")
+    if (
+        not isinstance(expected_version, int)
+        or isinstance(expected_version, bool)
+        or expected_version < 1
+    ):
+        raise ParameterError(
+            f"'entries[{position}].expected_version' must be an integer >= 1."
+        )
+
+    fields = raw.get("fields")
+    if not isinstance(fields, Mapping):
+        raise ParameterError(f"'entries[{position}].fields' must be an object.")
+
+    return BulkEntry(
+        artifact_id=artifact_id,
+        expected_version=expected_version,
+        fields=dict(fields),
+    )
+
+
 class CrossCuttingToolGroup(BaseToolGroup):
     """COMP-MC-006 — Cross-cutting tool group (6 tools).
 
@@ -271,6 +343,10 @@ class CrossCuttingToolGroup(BaseToolGroup):
         "group.remove_member": "_handle_group_remove_member",
         "group.move_member": "_handle_group_move_member",
         "artifact.move": "_handle_artifact_move",
+        # R3.2 (document view): the batch write the editable document/table view
+        # sends. One transaction, all or nothing — the MCP twin of
+        # PATCH /api/v1/artifacts/bulk-update/.
+        "artifact.bulk_update": "_handle_artifact_bulk_update",
         "workspace.get_context": "_handle_workspace_get_context",
         "workspace.list": "_handle_workspace_list",
         "workspace.resolve_references": "_handle_workspace_resolve_references",
@@ -638,6 +714,75 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     },
                 },
                 "required": ["artifact_id"],
+            },
+        },
+        {
+            "name": "artifact.bulk_update",
+            "description": (
+                "Write several artifacts in ONE transaction (write, audited). "
+                "Body {workspace_id, entries: [{artifact_id, expected_version, "
+                "fields}]}, 1..100 entries. All or nothing: the first refused "
+                "entry rolls every entry back and answers CONFLICT with "
+                "errors[] carrying index, artifact_id, code, message and — where "
+                "the refusal names one — the offending field. Codes are the REST "
+                "ones (CONFLICT, FIELD_FROZEN, WORKFLOW_FROZEN, NOT_FOUND, "
+                "WORKSPACE_MISMATCH, UNSUPPORTED_ARTIFACT_TYPE, UNKNOWN_FIELD, "
+                "PERMISSION_DENIED, VALIDATION_ERROR). Writable types: Document, "
+                "Requirement — the field names each type accepts are its own "
+                "update contract. MCP twin of PATCH "
+                "/api/v1/artifacts/bulk-update/; returns {updated: "
+                "[{artifact_id, version}], errors: []}."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": (
+                            "UUID of the workspace every entry must belong to; an "
+                            "artifact of another workspace is refused with "
+                            "WORKSPACE_MISMATCH."
+                        ),
+                    },
+                    "entries": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": MAX_ENTRIES,
+                        "description": (
+                            "The writes, applied in order. Nothing is written "
+                            "unless every entry succeeds."
+                        ),
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "artifact_id": {
+                                    "type": "string",
+                                    "description": "UUID of the backing Artifact.",
+                                },
+                                "expected_version": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "description": (
+                                        "Caller's last-seen version of the row. A "
+                                        "stale value fails this entry with "
+                                        "CONFLICT and rolls the batch back."
+                                    ),
+                                },
+                                "fields": {
+                                    "type": "object",
+                                    "description": (
+                                        "Fields to write, e.g. {\"title\": …, "
+                                        "\"body\": …}. Names are checked per "
+                                        "artifact type; values are validated by "
+                                        "that type's own service."
+                                    ),
+                                },
+                            },
+                            "required": ["artifact_id", "expected_version", "fields"],
+                        },
+                    },
+                },
+                "required": ["workspace_id", "entries"],
             },
         },
         {
@@ -1800,6 +1945,68 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 "sort_key": artifact.sort_key,
             }
         })
+
+    # ------------------------------------------------------------------
+    # artifact.bulk_update (R3.2)
+    # ------------------------------------------------------------------
+
+    def _handle_artifact_bulk_update(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """artifact.bulk_update — write several artifacts in one transaction.
+
+        All or nothing (R3): the service rolls the batch back on the first
+        refusal. A refusal is reported as ``CONFLICT`` with the *same* per-entry
+        ``errors[]`` payload REST answers with a 409, so an agent can tell WHICH
+        entry it has to re-read instead of retrying the whole page blindly.
+
+        The typed services write one audit entry per artifact on their own; the
+        handoff suppresses those duplicates and this handler writes the MCP
+        entry per artifact instead (Codeberg #313 pattern), so the trail names
+        the tool and the client without doubling every row.
+        """
+        from application.bulk_update_service import BulkUpdateService
+
+        workspace_id = require_uuid(params, "workspace_id")
+        entries = [
+            _bulk_entry_from_raw(position, raw)
+            for position, raw in enumerate(_bulk_entries_param(params))
+        ]
+
+        try:
+            with mcp_audit_handoff():
+                result = BulkUpdateService().apply(
+                    workspace_id, entries, auth_context
+                )
+        except ValidationError as exc:
+            # Empty list / more than MAX_ENTRIES / not a batch: the same 400
+            # class REST answers, i.e. a request defect rather than a conflict.
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        if result.errors:
+            return ToolResult.error(
+                "CONFLICT",
+                result.errors[0]["message"],
+                details=result.to_dict(),
+            )
+
+        for row in result.updated:
+            write_mcp_audit(
+                ctx=auth_context,
+                operation="update",
+                entity_type="Artifact",
+                entity_id=UUID(row["artifact_id"]),
+                tool_name="artifact.bulk_update",
+                api_key=api_key,
+                details={
+                    "version": row["version"],
+                    "batch_size": len(result.updated),
+                },
+            )
+
+        return ToolResult.ok(result.to_dict())
 
     # ------------------------------------------------------------------
     # allocation.query / group.*

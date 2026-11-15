@@ -247,7 +247,7 @@ def test_registry_classifies_read_and_write() -> None:
     assert registry._is_write_tool("summary.refresh") is True
 
 
-def test_manifest_moves_to_296_with_a_new_prefix() -> None:
+def test_manifest_keeps_47_prefixes_and_the_current_count() -> None:
     from mcp_server.management.commands.export_tool_manifest import build_manifest
 
     manifest = build_manifest()
@@ -257,8 +257,10 @@ def test_manifest_moves_to_296_with_a_new_prefix() -> None:
     assert by_name["summary.get"]["is_write"] is False
     assert by_name["summary.refresh"]["prefix"] == "summary"
     assert by_name["summary.refresh"]["is_write"] is True
-    # Issue #1793 / S6: 294 -> 296, 46 -> 47 prefixes.
-    assert manifest["tool_count"] == 296
+    # Issue #1793 / S6: 294 -> 296, 46 -> 47 prefixes. The catalogue then kept
+    # growing within the same 47 prefixes (R3.2: ``artifact.bulk_update`` moved
+    # 296 -> 297), which is what the current-size assertion below pins.
+    assert manifest["tool_count"] == 297
     assert manifest["tool_count"] == len(manifest["tools"])
     assert len({t["prefix"] for t in manifest["tools"]}) == 47
 

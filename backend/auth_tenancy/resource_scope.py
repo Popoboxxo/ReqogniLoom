@@ -349,6 +349,13 @@ for _name in ("SuggestionAcceptView", "SuggestionRejectView"):
 _WORKSPACE_VIA_REQUEST = (
     "CsvImportView",
     "AllocationListView",
+    # R3.2 (document view): the batch write names its workspace in the body
+    # (``workspace_id``), and ``resolve_request_workspace_id`` prefers the body
+    # for unsafe methods — so the caller's roles are scoped to the same
+    # workspace the entries are checked against. An entry pointing at another
+    # workspace is refused by the service (``WORKSPACE_MISMATCH``), not by a
+    # second, weaker authority here.
+    "ArtifactBulkUpdateView",
     "CsvExportView",
     "ReqifImportView",
     "ReqifExportView",

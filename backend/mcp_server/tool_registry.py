@@ -235,6 +235,9 @@ _WRITE_TOOL_PREFIXES: tuple[str, ...] = (
     "traceability.create_link",
     # P1: reparent/reorder via ArtifactService.move (CrossCuttingToolGroup).
     "artifact.move",
+    # R3.2 (document view): the batch write behind the editable document/table
+    # view — one transaction over several artifacts (CrossCuttingToolGroup).
+    "artifact.bulk_update",
     "group.create",
     "group.add_member",
     "group.remove_member",
