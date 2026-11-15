@@ -179,7 +179,7 @@ class TestApply:
     def test_apply_writes_one_audit_entry_per_changed_artifact(
         self, service, admin_ctx, requirements
     ) -> None:
-        report = service.apply(admin_ctx, _plan())
+        service.apply(admin_ctx, _plan())
         entries = AuditEntry.objects.filter(
             op=AuditEntry.OP_ATTRIBUTE_MIGRATION_APPLY,
             entity_type="Artifact",

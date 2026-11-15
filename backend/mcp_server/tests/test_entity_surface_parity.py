@@ -526,7 +526,7 @@ class TestRunParity:
             api_key=e2e_api_key_admin,
         )
         assert mine.success, mine.message
-        theirs = registry.dispatch_request(
+        registry.dispatch_request(
             tool_name="test.run_create",
             params={"workspace_id": str(other.id), "name": "theirs"},
             api_key=e2e_api_key_admin,

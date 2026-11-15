@@ -783,7 +783,6 @@ class MfaService:
         deleted — the user would save ten codes of which none worked.
         """
         self._require_active(user)
-        now = timezone.now()
         codes: list[str] = []
         error: MfaError | None = None
         with transaction.atomic():

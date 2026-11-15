@@ -452,7 +452,7 @@ class TestRecomputeRequirementLevels:
         with active_tenant(tenant_a):
             a, _ = _req(tenant_a, workspace_a, "A")
             b, _ = _req(tenant_a, workspace_a, "B", parent_artifact=a)
-            recompute_requirement_levels([root := a.id])
+            recompute_requirement_levels([a.id])
             assert _levels(tenant_a)[b.id] == 2
 
             Artifact.objects.filter(id=a.id).update(parent_id=b.id)

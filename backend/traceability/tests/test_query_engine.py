@@ -222,8 +222,6 @@ class TestTraceGraphCollection:
             # Mock the count query to return a value > MAX_GRAPH_ITEMS
             from django.db import connection as conn
 
-            original_cursor = conn.cursor
-
             class FakeCursor:
                 def __init__(self):
                     self._count_returned = False

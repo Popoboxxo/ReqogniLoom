@@ -308,7 +308,7 @@ class TestUpdateArchitectureElement:
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
         ):
-            result = svc.update_architecture_element(
+            svc.update_architecture_element(
                 arch_el_id=ARCH_EL_ID,
                 ctx=ctx,
                 expected_version=1,
@@ -349,7 +349,7 @@ class TestUpdateArchitectureElement:
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
         ):
-            result = svc.update_architecture_element(
+            svc.update_architecture_element(
                 arch_el_id=ARCH_EL_ID,
                 ctx=ctx,
                 title="Updated without lock",
@@ -762,7 +762,8 @@ class TestElementTypeValidation:
             patches = self._patch_create_chain(svc)
 
             # Enter all patches
-            cms = [p.start() for p in patches]
+            for p in patches:
+                p.start()
             try:
                 result = svc.create_architecture_element(
                     workspace_id=WS_ID,
@@ -795,7 +796,8 @@ class TestElementTypeValidation:
             side_effect=capture_create,
         )
 
-        cms = [p.start() for p in patches]
+        for p in patches:
+            p.start()
         try:
             svc.create_architecture_element(
                 workspace_id=WS_ID,
@@ -825,7 +827,8 @@ class TestElementTypeValidation:
             side_effect=capture_create,
         )
 
-        cms = [p.start() for p in patches]
+        for p in patches:
+            p.start()
         try:
             svc.create_architecture_element(
                 workspace_id=WS_ID,
@@ -857,7 +860,8 @@ class TestElementTypeValidation:
             side_effect=capture_create,
         )
 
-        cms = [p.start() for p in patches]
+        for p in patches:
+            p.start()
         try:
             svc.create_architecture_element(
                 workspace_id=WS_ID,
@@ -899,7 +903,7 @@ class TestElementTypeValidation:
             patch.object(svc, "_audit"),
             patch.object(svc, "_emit_event"),
         ):
-            result = svc.update_architecture_element(
+            svc.update_architecture_element(
                 arch_el_id=ARCH_EL_ID,
                 ctx=ctx,
                 expected_version=1,
@@ -1003,7 +1007,8 @@ class TestElementTypeValidation:
             side_effect=capture_create,
         )
 
-        cms = [p.start() for p in patches]
+        for p in patches:
+            p.start()
         try:
             svc.create_architecture_element(
                 workspace_id=WS_ID,

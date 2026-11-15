@@ -196,7 +196,7 @@ class TestTenantIsolation:
         # tenant_b has no workspace / links — get_trace_links must return empty
         from persistence.models import Workspace
         with active_tenant(tenant_b):
-            ws_b = Workspace.objects.create(tenant=tenant_b, name="ws-isolation")
+            Workspace.objects.create(tenant=tenant_b, name="ws-isolation")
             links = manager.get_trace_links()
         assert links == []
 
@@ -359,7 +359,7 @@ class TestReferentialIntegrity:
         with active_tenant(tenant_a):
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
-            link = manager.create(src.id, tgt.id, "allocated-to")
+            manager.create(src.id, tgt.id, "allocated-to")
 
             # Delete source artifact — CASCADE must remove the link
             src.delete()
@@ -373,7 +373,7 @@ class TestReferentialIntegrity:
         with active_tenant(tenant_a):
             src = make_artifact(tenant_a, workspace_a, "requirement")
             tgt = make_artifact(tenant_a, workspace_a, "requirement")
-            link = manager.create(src.id, tgt.id, "allocated-to")
+            manager.create(src.id, tgt.id, "allocated-to")
 
             tgt.delete()
 

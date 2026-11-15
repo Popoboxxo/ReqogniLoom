@@ -599,14 +599,6 @@ class TestPresetAwareSerializerMixin:
         from persistence.tenancy import TenantContext
 
         ff = FieldFilter(permitted_fields=frozenset({"id", "title"}), required_fields=frozenset())
-        data = {
-            "workspace_id": str(uuid.uuid4()),
-            "title": "My req",
-            "description": "Excluded",
-            "category": "functional",
-            "status": "draft",
-        }
-        ser = RequirementSerializer(data=data)
         # The field_filter is applied in to_representation;
         # we test it by setting field_filter on the serializer instance.
         # To test filtering, we need an instance with data already set.

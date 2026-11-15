@@ -33,7 +33,7 @@ class TestGetContext:
         from traceability.types import LinkType
 
         tenant, workspace, ctx = seed_workspace("cg-ctxsvc")
-        settings_row = seed_context_settings(tenant, workspace, enabled_generators=["glossary"])
+        seed_context_settings(tenant, workspace, enabled_generators=["glossary"])
         seed_glossary_term(tenant, workspace, term="Autopilot")
         req_a = seed_requirement(tenant, workspace, title="Autopilot engage", uid="REQ-A")
         req_b = seed_requirement(tenant, workspace, title="Autopilot disengage", uid="REQ-B")

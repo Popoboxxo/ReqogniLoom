@@ -301,7 +301,7 @@ def test_an_element_with_allocations_requires_a_requirement_release_state(
     artifact = Artifact.objects.create(
         tenant=tenant, workspace=workspace, artifact_type="Requirement"
     )
-    requirement = Requirement.objects.create(
+    Requirement.objects.create(
         tenant=tenant, workspace=workspace, artifact=artifact, title="R", type="SyReq"
     )
     Allocation.objects.create(

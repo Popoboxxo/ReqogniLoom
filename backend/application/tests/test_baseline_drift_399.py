@@ -251,7 +251,7 @@ def test_service_leaves_a_pre_armed_context_untouched(env):
         assert TenantContext.is_set() is True
         before = TenantContext.get_tenant()
 
-        memberships = _memberships(artifact.id, ctx)
+        _memberships(artifact.id, ctx)
 
         assert TenantContext.is_set() is True
         assert TenantContext.get_tenant() == before

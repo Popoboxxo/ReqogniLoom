@@ -913,7 +913,7 @@ class TestRemediateTraceP1:
         with _active(tenant):
             _need(tenant, workspace, "Need A")
             _need(tenant, workspace, "Need B")
-            root = _requirement(tenant, workspace, "Root")
+            _requirement(tenant, workspace, "Root")
 
             svc = AuditService()
             report = svc.run_audit(workspace.id, ctx, tier="extended")

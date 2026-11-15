@@ -94,7 +94,6 @@ class VCRMReportGenerator:
 
         # Load component links for each requirement via QueryEngine (IF-TE-INT-005)
         # We query downstream from each requirement artifact for its allocations
-        tenant_id = TenantContext.get_tenant()
 
         rows: list[VCRMRow] = []
         for entry in coverage_data.entries:

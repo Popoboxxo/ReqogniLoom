@@ -60,7 +60,7 @@ def test_apply_fills_a_null_level_from_the_architecture_allocation(env):
         workspace=env["workspace"],
         artifact_type="architecture-element",
     )
-    element = ArchitectureElement.objects.create(
+    ArchitectureElement.objects.create(
         tenant=env["tenant"], artifact=element_artifact, title="System"
     )
     artifact, requirement = _requirement(env, "Allocated")

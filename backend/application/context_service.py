@@ -235,7 +235,9 @@ def get_related(
             "'workspace' is valid."
         )
 
-    artifact = _resolve_artifact_and_workspace(artifact_id)
+    # Existence guard only: the returned artifact is not needed here, the
+    # resolver raises NotFoundError for unknown ids.
+    _resolve_artifact_and_workspace(artifact_id)
     safe_limit = max(1, min(int(limit or 10), 50))
 
     edges = _soft_edges_for_artifact(

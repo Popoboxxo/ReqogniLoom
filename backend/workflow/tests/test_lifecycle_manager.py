@@ -124,7 +124,7 @@ class TestStateInitialization:
     def test_initializes_three_items(self):
         """initialize([id1, id2, id3], …) → 3 WorkflowItemState records with draft."""
         ws = _ws()
-        def_record = _make_def_record(self._tenant_id, ws)
+        _make_def_record(self._tenant_id, ws)
         dto = _dto(ws)
         store = _mock_store(dto)
         mgr = StateLifecycleManager(definition_store=store)

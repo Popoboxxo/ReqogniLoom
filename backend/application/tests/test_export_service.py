@@ -348,7 +348,7 @@ class TestExportPdf:
                 "traceability.pdf_report_generator.generate_pdf_report",
                 return_value=fake_pdf,
             ) as mock_gen:
-                result = svc.export_pdf("Requirement", WS_ID, ctx)
+                svc.export_pdf("Requirement", WS_ID, ctx)
 
                 # Verify generate_pdf_report was called with requirement_document layout
                 mock_gen.assert_called_once()
@@ -367,7 +367,7 @@ class TestExportPdf:
                     "traceability.pdf_report_generator.generate_pdf_report",
                     return_value=fake_pdf,
                 ) as mock_gen:
-                    result = svc.export_pdf(entity_type, WS_ID, ctx)
+                    svc.export_pdf(entity_type, WS_ID, ctx)
 
                     # Verify generate_pdf_report was called with traceability_matrix layout
                     mock_gen.assert_called_once()

@@ -270,7 +270,7 @@ class TestToolRegistryDispatch:
         mock_group.execute_tool.return_value = ToolResult.ok({"requirement": {}})
         registry.register_groups({"requirement": mock_group})
 
-        result = registry.dispatch_request(
+        registry.dispatch_request(
             tool_name="requirement.create",
             params={"title": "Test", "workspace_id": "00000000-0000-0000-0000-000000000010"},
             api_key="reqlo_validkey",
@@ -284,7 +284,7 @@ class TestToolRegistryDispatch:
         mock_group.execute_tool.return_value = ToolResult.ok({"requirement": {}})
         registry.register_groups({"requirement": mock_group})
 
-        result = registry.dispatch_request(
+        registry.dispatch_request(
             tool_name="requirement.get",
             params={"id": "00000000-0000-0000-0000-000000000099"},
             api_key="reqlo_validkey",

@@ -311,7 +311,7 @@ class TestPreviewScopeItemsWithData:
                 artifact_type="subsystem",
                 parent=root,
             )
-            child2 = Artifact.unscoped.create(
+            Artifact.unscoped.create(
                 tenant=tenant,
                 workspace=ws,
                 artifact_type="subsystem",

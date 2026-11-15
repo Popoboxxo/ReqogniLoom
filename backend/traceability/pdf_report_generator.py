@@ -158,7 +158,6 @@ def _fetch_workspace_data(
 
     # TraceLinks where source is a requirement artifact in this workspace
     req_artifact_ids = [str(r.artifact_id) for r in requirements]
-    tc_artifact_ids = [str(tc.artifact_id) for tc in testcases]
 
     tracelinks = []
     if req_artifact_ids:
@@ -391,7 +390,6 @@ def _build_traceability_matrix(data: dict[str, Any]) -> bytes:
 
     # Data rows
     table_data = [header]
-    tc_artifact_id_map = {str(tc.artifact_id): tc for tc in testcases}
 
     for req in requirements:
         row = [
@@ -414,7 +412,6 @@ def _build_traceability_matrix(data: dict[str, Any]) -> bytes:
         table_data.append(row)
 
     # Calculate column widths
-    n_cols = 1 + len(testcases)
     available_width = page_size[0] - 30 * mm  # page width minus margins
     req_col_width = 50 * mm
     tc_col_width = max(

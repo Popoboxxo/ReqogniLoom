@@ -455,9 +455,7 @@ class StakeholderNeedService(ServiceBase):
             Dict containing the task_id.
         """
         try:
-            need = StakeholderNeed.objects.select_related(
-                "artifact", "artifact__owner", "artifact__reporter"
-            ).get(id=need_id, tenant_id=ctx.tenant_id)
+            StakeholderNeed.objects.get(id=need_id, tenant_id=ctx.tenant_id)
         except StakeholderNeed.DoesNotExist:
             raise NotFoundError(f"StakeholderNeed {need_id} not found.")
 
