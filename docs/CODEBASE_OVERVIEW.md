@@ -1,7 +1,7 @@
 ﻿# ReqFlow — Codebase-Übersicht (IST-Zustand)
 
 > **Zweck:** Code-genaues Inventar der `backend/`- und `frontend/`-Bereiche (exportierte API, Module, Flows) als Nachschlagewerk für Mitwirkende und Agenten. Kein Wunschzustand, kein Architektur-Entwurf — nur was im Repository steht.
-> **Stand:** `1.9.0-beta.1` (Beta-Ziel; Code-Stand des vermessenen Checkouts: `1.8.0-beta.29`)  
+> **Stand:** `1.9.0-beta.1` (Beta-Ziel; Code-Stand des vermessenen Checkouts: `1.9.0-beta.1`)  
 > **Letzte Aktualisierung:** 2026-11-15  
 > **Datenquelle:** eigener Checkout von `origin/main`, Dateien und Manifeste direkt gelesen (u. a. `docs/agent-templates/tool-manifest.json`, `.github/workflows/ci.yml`, `backend/application/*`, `frontend/src/components/*`); Testzahlen sind Dateizahlen, keine Testergebnisse  
 > **Validierung:** keine Testläufe in diesem Durchgang — der `manage.py check`-Stand und die pytest-/Playwright-Ergebnisse gehören in den Release-Report, nicht in dieses Inventar

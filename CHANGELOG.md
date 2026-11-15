@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0-beta.1] — 2026-11-16
+
+### Added
+- feat(summary): on-demand AI summary of one artifact plus its trace neighbours — `GET /api/v1/artifacts/{artifact_id}/summary/` and the MCP tool `artifact.summary`; every outcome is 200 with a closed degradation enum, only readable neighbours enter the prompt, `content_hash` dedupe never caches a degraded answer, and every paid run respects the flag, day budget, API-key throttle and prompt slot (`artifact_summary`) (#1792, #1833, #1834)
+- feat(summary): one stored AI summary stand per `(workspace, artifact_type)` in `ArtifactSummary` with RLS, flag-gated periodic sweep, `stale` rule (`generated_at < now − 2 × interval`), REST read paths and the new `summary` MCP group (`summary.get`/`summary.refresh`, 47th prefix, 297 tools); each paid run writes exactly one audit entry without text or titles, and `docs/AI-SUMMARIES-OPERATIONS.md` documents env vars, cost and the manual prune (#1793, #1835–#1839)
+- feat(ai): a single language resolution (`application/ai_language.py`) now drives every AI answer — agent/API-key, workspace and system-level preference, one prompt slot per feature — instead of per-feature language knobs (#1838)
+- feat(inspector): tabbed artifact inspector M1–M8 — one shell with type-specific tabs for requirements, architecture elements and goals, plus the V6 level filter; the legacy sidebar is gone (#1762, #1822, #1827, #1828, #1829)
+- feat(documents): editable document reading view R1–R7 — `GET /api/v1/documents/{id}/view/` returns head, fields with a write verdict and chapters derived from the markdown headings, carrying `ETag: "<version>"`; one edit policy (`document_edit_policy.resolve_field_permissions`) decides `editable`/`locked` in the order `PERMISSION` → `REPO_EXTERNAL` → `FIELD_FROZEN` so the UI never offers a write the service would reject (#1843, #1846, #1855)
+- feat(api): transactional bulk update — `PATCH /api/v1/artifacts/bulk-update/` writes up to 100 artifacts in one transaction, all-or-nothing, naming the failing entry by `index` (400 for a malformed batch, 409 with `errors[]` for rejected content); the same body is the write-gated MCP tool `artifact.bulk_update` (#1854)
+- feat(documents): instant and batch saving in the reading view — a single field is written with `If-Match`, a lost precondition surfaces as a field-level conflict with "reload", `409 FIELD_FROZEN` and `400 details[].field` stay field errors; the batch mode sends one bulk request and keeps the drafts when the server rejects any entry (#1859)
+- feat(documents): `?format=markdown` export of the reading view (same chapters, order, numbering, `ETag` and 403/404, no editing marks) and a print stylesheet that drops shell chrome, action bar, save bar and the table of contents (#1856, #1861)
+- feat(connection-view): the allocation view as two trees — requirement tree from `parent_id` and `sort_key` beside the architecture tree in one scroll container, a measured edge overlay that draws one line per cross-column allocation and never for a collapsed branch, every requirement row naming its target as text, and a checkbox selection that survives filter changes (#1848, #1852, #1853)
+- feat(connection-view): `kind=requirement|element` on `GET /api/v1/workspaces/{id}/allocation-view/` (two targeted reads instead of one shared 500-row ceiling) and a `sort_key` on element rows (#1848)
+- feat(connection-view): display preferences `ui.connection_view.show_edges` (default `true`) and `ui.connection_view.filters_expanded` (default `false`) as user-level preferences, written through the keepalive `PATCH` with a last-click-wins queue so a reload does not lose the toggle (#1851, #1857)
+- feat(requirements): group management moved from the permanent nav column into a dialog, plus a row action "add to group" and drag-onto-group-folder as a membership add (not a move) (#1845, #1847, #1850)
+- feat(allocation): allocation as an object beside the trace edge — configurable cardinality (`allocation.cardinality`: `single` default, `multiple` with `is_primary`; `allocation.conflict_severity`), the `ALLOC-P1` audit rule for multiple active allocations, relative tier naming with workspace overrides, and `tier_compute` resolving several allocations without a leading edge to `unresolved`; migration `0142` drops `uniq_tracelink_allocated_to_source` because the rule is now a workspace setting enforced in the service layer (#1670, #1794–#1799)
+- feat(workflow): an explicit terminal `released` state with `freeze_on_enter` for requirements and architecture elements (transitions `approved → released`, `verified → released`, `released → deprecated`; `minimal` keeps no release path); migration `0026` adds it to existing definitions idempotently and moves no data row (#1670, #1800)
+- feat(release): a workflow-driven release cascade for elements and requirements over REST, with content freeze, tier pin and allocation mirror, run asynchronously above 5,000 items, plus the `REL-P1` audit for divergent live/release tier pins (#1670, #1801–#1803, #1804, #1805, #1819, #1820)
+- feat(testcases): typed Given/When/Then step model across model, REST, MCP, baselines and migration, with a typed step editor (#1564, #1806–#1808)
+- feat(quality): event-driven auto-assessment behind a flag, advisory and non-blocking (#1578, #1809)
+- feat(documents): document projection, status comparison and adoption over REST and MCP, a projection CLI with a CI template, and a document-steward agent role (#1374, #1811–#1814)
+- feat(hermes-plugin): requirements views with an API/state layer and a hub entry in the desktop plugin (#1701, #1815–#1817)
+- feat(search): optional AI summary over `artifact.search` results (#18, #1791)
+- feat(clients): stdlib-only MCP probe for the `/mcp/` endpoint and a verified OpenCode 1/2 report (#1703, #1776, #1789, #1790)
+
+### Changed
+- **Breaking:** `/connections` now opens in `trees` mode when no `view` parameter is set; the former `?view=tree` stays a permanent alias for `architecture`, so saved views and bookmarks keep working unchanged (#1844, #1853)
+- Allocation cardinality becomes a workspace preference: switching `multiple → single` is refused with 409 while any requirement still has more than one active allocation, and the rule is enforced in the service layer instead of a database constraint (#1796, #1798)
+- refactor(frontend): 14 hotspot components split by responsibility across 10 iterations (#598, #1764–#1773)
+- chore(deps): dependency refresh across backend and frontend plus the pinned GitHub Actions (#1717–#1726, #1777–#1788)
+- chore(frontend): npm audit advisories cleared to 0; the `minimatch` chain is fixed by a nested override (`minimatch: ^11.0.8`) as a bridge until `@typescript-eslint` pins it (#1860)
+- chore(backend): the 59 Ruff `F841` findings are gone — 9 in production code, 50 in tests, with two assertions tightened instead of silenced (#1862)
+- chore(frontend): 31 of 74 hardcoded colour literals replaced by design tokens (74 → 43, 14 → 9 files) and the unused ASIL helpers removed on top (43 → 25) (#1863, #1866)
+- ci: dependency advisories are gated in one job instead of two (#1865)
+- docs: project docs refreshed for this release (`README`, `ARCHITECTURE`, `CODEBASE_OVERVIEW`, `MCP-SURFACE`, clients) (#1869), the 2026-11-15 code audit is recorded and its closed findings are tracked (#1832, #1867)
+
+### Fixed
+- fix(inspector): the comment panel receives the artifact UUID instead of an unrelated identifier and loads the thread again (#1763, #1818)
+- fix(connection-view): element read failures are surfaced instead of being swallowed into an empty column (#1849)
+- fix(connection-view): preference writes use `keepalive` so a reload during navigation does not drop the click (#1857)
+- fix(memory): a Honcho write degradation is reported and readiness no longer claims a healthy backend (#1823, #1824, #1826)
+- fix(rest): `page_size` is validated instead of accepted blindly, closing the V2/V4/V6 leftovers (#1761, #1821)
+- fix(change-requests): the API exposes the backing `artifact_id` of a change request (#1864)
+- fix(summary): the sweep records model provenance and arms RLS before it reads across tenants (#1793, #1840)
+- test(e2e): the waterkettle Phase 1b count is deterministic (#1825, #1830)
+
+### Removed
+- The legacy artifact side bar, replaced by the tabbed inspector (#1829)
+- `.woodpecker.yml` — the stale pipeline is dropped, CI runs on GitHub Actions only (#1868)
+- The unused ASIL colour helpers in the frontend (#1866)
+
 ## [1.8.0-beta.29] — 2026-11-09
 
 ### Added
