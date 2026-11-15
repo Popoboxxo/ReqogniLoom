@@ -1,6 +1,6 @@
 # Allokation als Objekt und Freigabe-Kaskade — Design (Stufen 2–4)
 
-**Status:** proposed (Freigabe-Gate vor Task 4–6 des Plans)
+**Status:** accepted (umgesetzt in Phase E, ADR-028; Restpunkte als #1804/#1805 erledigt)
 **Datum:** 2026-11-12
 **Bezug:** ADR-028, ADR-027, Issue #1670 (Konzept), Plan `docs/superpowers/plans/2026-11-10-phase-e-requirements-architektur.md`
 **Entscheidungen:** D9 (Mehrfachallokation konfigurierbar), D10 (beide Release-Pfade), D12 (Inhaltsfreeze rigor-abhängig)

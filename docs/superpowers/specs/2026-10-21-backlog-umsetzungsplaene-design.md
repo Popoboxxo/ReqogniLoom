@@ -1,7 +1,8 @@
 ---
 type: STRATEGY
 scope: Issue-Backlog (67 offene Issues), Cluster A–G
-status: proposed
+status: superseded
+superseded_by: docs/superpowers/plans/2026-11-10-backlog-roadmap.md
 date: 2026-10-21
 author_agent: claude-main-chat
 ---
