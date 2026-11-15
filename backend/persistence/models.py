@@ -4694,6 +4694,276 @@ class QualityAssessment(TenantScopedModel):
         return f"QualityAssessment({self.entity_type}/{self.score:.2f})"
 
 
+class ArtifactSummary(TenantScopedModel):
+    """Latest AI summary per scope (issue #1793, spec §6.1 / E4 / E5).
+
+    A summary is *state*, not history: exactly one row per scope, overwritten in
+    place on every successful run (``E5``). Two scopes share the table and are
+    told apart by :attr:`summary_kind`:
+
+    * ``artifact`` — a summary of one :class:`Artifact` (``artifact`` set,
+      ``artifact_type`` empty).
+    * ``type_roster`` — a summary of every artifact of one type in a workspace
+      (``artifact_type`` set, ``artifact`` NULL).
+
+    ``summary_kind`` deliberately carries **no** ``choices`` (same pattern as
+    :attr:`QualityAssessment.entity_type`): a third scope must not need a
+    migration.
+
+    Scope uniqueness is enforced by two *partial* unique constraints (see
+    ``Meta.constraints``), so a writer never has to trust application code to
+    keep the table at one row per scope:
+
+    * ``uq_artifact_summary_artifact`` — ``(workspace, artifact)`` for
+      ``summary_kind='artifact'``.
+    * ``uq_artifact_summary_type`` — ``(workspace, artifact_type)`` for
+      ``summary_kind='type_roster'``.
+
+    The tenant lives in :class:`Workspace` (the FK is tenant-scoped) and is
+    also stamped on the row for RLS. Use
+    :func:`application.summary_support.upsert_summary` rather than
+    ``update_or_create`` directly: it derives the tenant from the workspace and
+    absorbs a concurrent-insert ``IntegrityError``.
+
+    ``text``/``content_hash`` describe the last *successful* run; a degraded or
+    failed run records ``status``/``reason`` with the previous text intact (the
+    service decides whether to overwrite). ``reason`` is the closed E11 enum
+    (``budget_exhausted``/``provider_unavailable``/``stale``/``disabled``), empty
+    for ``ok`` — never free text (CWE-209).
+
+    req_id: REQ-L2-AI-002, issue #1793.
+    """
+
+    class SummaryKind(models.TextChoices):
+        """Scopes the table covers; documentation only (column is loose)."""
+
+        ARTIFACT = "artifact", "Artifact"
+        TYPE_ROSTER = "type_roster", "Type roster"
+
+    class PromptScope(models.TextChoices):
+        """Level the prompt template version was resolved from."""
+
+        WORKSPACE = "workspace", "Workspace"
+        GLOBAL = "global", "Global"
+        FACTORY = "factory", "Factory"
+
+    class Trigger(models.TextChoices):
+        """Which run wrote this row (spec §6.1)."""
+
+        MANUAL = "manual", "Manual"
+        PERIODIC = "periodic", "Periodic"
+        ARTIFACT_CHANGED = "artifact_changed", "Artifact changed"
+
+    class Status(models.TextChoices):
+        """Outcome of the last run touching this row."""
+
+        OK = "ok", "OK"
+        FAILED = "failed", "Failed"
+        SKIPPED = "skipped", "Skipped"
+
+    class Reason(models.TextChoices):
+        """Closed degradation enum (spec §9/E11); empty string means ``ok``."""
+
+        BUDGET_EXHAUSTED = "budget_exhausted", "Budget exhausted"
+        PROVIDER_UNAVAILABLE = "provider_unavailable", "Provider unavailable"
+        STALE = "stale", "Stale"
+        DISABLED = "disabled", "Disabled"
+
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="artifact_summaries",
+        help_text="Tenant anchor for the summary; deletes with the workspace.",
+    )
+    # No ``choices=SummaryKind.choices`` on purpose (spec §6.1): a new scope
+    # kind is code-only; ``SummaryKind`` documents the known set.
+    summary_kind = models.CharField(
+        max_length=16,
+        help_text="Scope kind, e.g. 'artifact' or 'type_roster'.",
+    )
+    artifact = models.ForeignKey(
+        Artifact,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="summaries",
+        help_text="Summarized artifact for summary_kind='artifact'; NULL otherwise.",
+    )
+    artifact_type = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Artifact type for summary_kind='type_roster'; empty otherwise.",
+    )
+    text = models.TextField(
+        blank=True,
+        default="",
+        help_text="The summary of the last successful run; empty when none exists.",
+    )
+    content_hash = models.CharField(
+        max_length=64,
+        db_index=True,
+        help_text="Hash over the input set (artifact contents) this text describes.",
+    )
+    input_digest = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Compact provenance: {'item_count': n, 'latest_updated_at': ...}.",
+    )
+    prompt_slot = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text="Prompt template slot used for the run.",
+    )
+    prompt_scope = models.CharField(
+        max_length=16,
+        blank=True,
+        default="",
+        choices=PromptScope.choices,
+        help_text="Level the prompt version was resolved from.",
+    )
+    prompt_version = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Version of the resolved prompt template; NULL when unknown.",
+    )
+    provider = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="LLM provider key of the last run.",
+    )
+    model = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text="Provider model identifier of the last run.",
+    )
+    token_usage = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Reported token count; NULL when the provider does not report it.",
+    )
+    trigger = models.CharField(
+        max_length=16,
+        blank=True,
+        default="",
+        choices=Trigger.choices,
+        help_text="Which kind of run wrote this row.",
+    )
+    status = models.CharField(
+        max_length=16,
+        blank=True,
+        default="",
+        choices=Status.choices,
+        help_text="Outcome of the last run.",
+    )
+    reason = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        choices=Reason.choices,
+        help_text="E11 degradation reason; empty on success.",
+    )
+    generated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the last *successful* text was produced; NULL if none yet.",
+    )
+    # ``created_at`` (auto_now_add), ``modified_at`` (auto_now), ``version`` and
+    # ``id`` are inherited from AuditableModel.
+
+    class Meta:
+        db_table = "pl_artifact_summary"
+        # DB-level mirrors of the TextChoices above (app-level only otherwise, so
+        # a path skipping ``full_clean`` could store an unknown enum value).
+        # ``summary_kind`` stays unconstrained on purpose.
+        constraints = [
+            # One row per artifact scope. Partial, so the type_roster rows
+            # (artifact IS NULL) never collide with each other.
+            models.UniqueConstraint(
+                fields=["workspace", "artifact"],
+                condition=models.Q(summary_kind="artifact"),
+                name="uq_artifact_summary_artifact",
+            ),
+            # One row per type scope. Partial for the same reason in reverse.
+            models.UniqueConstraint(
+                fields=["workspace", "artifact_type"],
+                condition=models.Q(summary_kind="type_roster"),
+                name="uq_artifact_summary_type",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    prompt_scope__in=["", "workspace", "global", "factory"]
+                ),
+                name="ck_artifact_summary_prompt_scope",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    trigger__in=["", "manual", "periodic", "artifact_changed"]
+                ),
+                name="ck_artifact_summary_trigger",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(status__in=["", "ok", "failed", "skipped"]),
+                name="ck_artifact_summary_status",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    reason__in=[
+                        "",
+                        "budget_exhausted",
+                        "provider_unavailable",
+                        "stale",
+                        "disabled",
+                    ]
+                ),
+                name="ck_artifact_summary_reason",
+            ),
+        ]
+        indexes = [
+            # Read path: "all type summaries of this workspace" and
+            # "the summary for this type" (spec §6.1).
+            models.Index(
+                fields=["workspace", "summary_kind", "artifact_type"],
+                name="idx_asummary_ws_kind_type",
+            ),
+            # Dedupe/skip lookup: has this exact input already been summarized
+            # for this tenant? (spec §6.1)
+            models.Index(
+                fields=["tenant", "content_hash"],
+                name="idx_asummary_tenant_hash",
+            ),
+        ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Reject cross-tenant references before the row reaches the DB.
+
+        RLS already fences ``tenant_id``; this additionally guarantees that the
+        ``workspace``/``artifact`` a row points at belong to the *same* tenant,
+        so no read path can follow a FK across the isolation boundary. Both
+        checks use the cached relation when it is loaded.
+        """
+        if self.workspace_id is not None and (
+            self.workspace.tenant_id != self.tenant_id
+        ):
+            raise ValidationError(
+                {"workspace": "Must belong to the same tenant as the summary."}
+            )
+        if self.artifact_id is not None and (
+            self.artifact.tenant_id != self.tenant_id
+        ):
+            raise ValidationError(
+                {"artifact": "Must belong to the same tenant as the summary."}
+            )
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        scope = self.artifact_id or self.artifact_type or self.summary_kind
+        return f"ArtifactSummary({self.summary_kind}/{scope})"
+
+
 class Document(ArtifactWorkspaceMirrorMixin, TenantScopedModel):
     """Document artifact with its own lifecycle (Plan F F2-T1, #1374).
 
