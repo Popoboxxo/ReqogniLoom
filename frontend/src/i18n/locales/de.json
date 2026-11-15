@@ -2206,6 +2206,30 @@
     "resolveFailed": "Kommentar konnte nicht erledigt werden.",
     "deleteFailed": "Kommentar konnte nicht gelöscht werden."
   },
+  "summary": {
+    "title": "Zusammenfassung",
+    "ariaLabel": "KI-Zusammenfassung",
+    "idle": "Noch nicht zusammengefasst.",
+    "trigger": "Zusammenfassen",
+    "refresh": "Aktualisieren",
+    "working": "Wird erstellt …",
+    "loading": "Zusammenfassung wird erstellt …",
+    "loaded": "Zusammenfassung geladen.",
+    "error": "Zusammenfassung konnte nicht geladen werden.",
+    "retry": "Erneut versuchen",
+    "degraded": "Keine KI-Zusammenfassung verfügbar.",
+    "meta": "Nachbarn: {{n}} · Tiefe {{depth}}",
+    "omitted": "{{n}} weitere ausgelassen",
+    "generatedAt": "Erstellt: {{date}}",
+    "cacheHit": "aus dem Cache",
+    "reason": {
+      "budget_exhausted": "Das KI-Budget für diesen Zeitraum ist erschöpft.",
+      "provider_unavailable": "Der KI-Anbieter ist derzeit nicht erreichbar.",
+      "stale": "Die gespeicherte Zusammenfassung ist veraltet.",
+      "disabled": "KI-Zusammenfassungen sind für diesen Workspace deaktiviert.",
+      "unknown": "Kein Grund angegeben."
+    }
+  },
   "notifications": {
     "ariaLabel": "Benachrichtigungen",
     "label": "Benachrichtigungen",

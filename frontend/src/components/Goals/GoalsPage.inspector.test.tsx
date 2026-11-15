@@ -105,7 +105,7 @@ async function selectNode(id: string): Promise<void> {
 
 /** Assert the exact tab inventory and that none of them is disabled. */
 function expectTabs(expected: readonly string[]): void {
-  for (const key of ["version", "diff", "links", "comments"] as const) {
+  for (const key of ["version", "diff", "links", "comments", "summary"] as const) {
     const tab = screen.queryByTestId(`inspector-tab-${key}`);
     if (expected.includes(key)) {
       expect(tab, `${key} tab should exist`).toBeInTheDocument();
@@ -160,7 +160,7 @@ describe("GoalsPage — inspector shell (#1762 M4)", () => {
     vi.mocked(commentsModule.commentsApi.list).mockResolvedValue([]);
   });
 
-  it("renders four tabs for a Goal and requests comments on the Artifact UUID (M4-2)", async () => {
+  it("renders five tabs for a Goal and requests comments on the Artifact UUID (M4-2)", async () => {
     renderGoals();
     await selectNode("g1");
 
@@ -169,7 +169,7 @@ describe("GoalsPage — inspector shell (#1762 M4)", () => {
       "data-artifact-kind",
       "goal",
     );
-    expectTabs(["version", "diff", "links", "comments"]);
+    expectTabs(["version", "diff", "links", "comments", "summary"]);
 
     fireEvent.click(screen.getByTestId("inspector-tab-comments"));
     await waitFor(() =>
@@ -178,7 +178,7 @@ describe("GoalsPage — inspector shell (#1762 M4)", () => {
     expect(commentsModule.commentsApi.list).not.toHaveBeenCalledWith("g1");
   });
 
-  it("renders three tabs for a MainGoal — no Links tab, none disabled (M4-3)", async () => {
+  it("renders four tabs for a MainGoal — no Links tab, none disabled (M4-3)", async () => {
     renderGoals();
 
     await waitFor(() => expect(screen.getByTestId("inspector-shell")).toBeInTheDocument());
@@ -186,7 +186,7 @@ describe("GoalsPage — inspector shell (#1762 M4)", () => {
       "data-artifact-kind",
       "mainGoal",
     );
-    expectTabs(["version", "diff", "comments"]);
+    expectTabs(["version", "diff", "comments", "summary"]);
     expect(screen.queryByTestId("inspector-tab-links")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("inspector-tab-comments"));
@@ -195,7 +195,7 @@ describe("GoalsPage — inspector shell (#1762 M4)", () => {
     );
   });
 
-  it("omits the comments tab for a MainGoal that publishes no Artifact UUID (M4-4)", async () => {
+  it("omits the comments and summary tabs for a MainGoal that publishes no Artifact UUID (M4-4)", async () => {
     // B2.0-4 projects `MainGoal.artifact_id`, but a hand-built/legacy payload
     // may omit it. The shell then renders no comments tab at all — not an
     // empty one, not a disabled one (spec §4.3).

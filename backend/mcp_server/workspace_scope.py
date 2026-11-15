@@ -103,6 +103,12 @@ def _artifact_or_domain(param: str) -> tuple[tuple[str, str], ...]:
 _TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
     # -- reads ---------------------------------------------------------
     "adr.read": (("id", "adr"),),
+    # Issue #1792 (S3): the on-demand artifact summary names its target by
+    # ``artifact_id`` and declares no ``workspace_id``, so the gate resolves the
+    # owning workspace from the artifact itself — a foreign workspace then fails
+    # the role check instead of leaking a summary of its content. (Its sibling
+    # ``artifact.get_tree`` needs no entry: ``workspace_id`` is required there.)
+    "artifact.summary": (("artifact_id", "artifact"),),
     "architecture.get": (("id", "architecture"),),
     "baseline.compare": (
         ("baseline_a_id", "baseline"),

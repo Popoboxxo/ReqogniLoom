@@ -24,6 +24,9 @@ Tools implemented:
                                  candidate's ``artifact_id``) can be fed in
                                  directly with only ``link_type`` added.
   artifact.search      — full-text search across all artifact types
+  artifact.summary     — on-demand AI summary of one artifact plus its visible
+                         trace neighbours (#1792); the MCP twin of
+                         ``GET /api/v1/artifacts/<id>/summary/``
   artifact.get_tree    — hierarchical artifact structure rooted at an artifact
   workspace.get_context — workspace status summary for AI agent session start
   workspace.list        — list workspaces (id, name, description) visible to
@@ -49,6 +52,7 @@ from typing import Any
 from uuid import UUID
 
 from application import workspace_context_service
+from application.artifact_summary_service import ArtifactSummaryService
 from application.base import ProducerContextRequiredError
 from application.search_service import SEARCHABLE_ARTIFACT_TYPES
 from application.services import (
@@ -195,6 +199,48 @@ def _complete_change_impact(prompt: str, *, context: dict[str, Any]) -> str:
     )
 
 
+def _artifact_summary_rate_limited(auth_context: AuthContext) -> bool:
+    """Per-caller cap for the paid ``artifact.summary`` (Issue #1792, S3).
+
+    REST applies ``ArtifactSummaryRateThrottle`` (scope ``artifact_summary``,
+    ``60/hour`` by default and never unlimited -- see
+    ``rest_api.throttling.ArtifactSummaryRateThrottle``). MCP has no DRF
+    throttles inside a tool handler, so this mirrors the same scope and cache
+    budget through :func:`admin_ops.rate_limits.resolve_rate`: one config for
+    both transports instead of a second number that can drift. Mirrors
+    ``mcp_server.tools.quality._assess_rate_limited``, whose tool has the same
+    "one call may cost one provider call" shape.
+
+    Returns ``True`` when the caller has spent the budget, so the tool answers
+    ``RATE_LIMITED`` without touching the service.
+    """
+    import time
+
+    from django.core.cache import cache
+    from rest_framework.throttling import SimpleRateThrottle
+
+    from admin_ops.rate_limits import resolve_rate
+
+    rate = (
+        resolve_rate("artifact_summary", tenant_id=auth_context.tenant_id)
+        or "60/hour"
+    )
+    # ``parse_rate`` reads no instance state; instantiating the throttle would
+    # resolve the setting a second time and could diverge from the override.
+    num_requests, duration = SimpleRateThrottle.parse_rate(None, rate)
+    if not num_requests:
+        return False
+    ident = auth_context.api_key_id or auth_context.user_id
+    key = f"throttle:artifact_summary:mcp:{ident}"
+    now = time.time()
+    history = [stamp for stamp in cache.get(key, []) if stamp > now - duration]
+    if len(history) >= num_requests:
+        return True
+    history.append(now)
+    cache.set(key, history, duration)
+    return False
+
+
 class CrossCuttingToolGroup(BaseToolGroup):
     """COMP-MC-006 — Cross-cutting tool group (6 tools).
 
@@ -213,6 +259,9 @@ class CrossCuttingToolGroup(BaseToolGroup):
         "traceability.suggest_links_status": "_handle_traceability_suggest_links_status",
         "traceability.create_link": "_handle_traceability_create_link",
         "artifact.search": "_handle_artifact_search",
+        # Issue #1792 (S3): the on-demand artifact summary, the MCP twin of
+        # GET /artifacts/<id>/summary/. Same Layer-2 facade, same payload.
+        "artifact.summary": "_handle_artifact_summary",
         "artifact.get_tree": "_handle_artifact_get_tree",
         "allocation.query": "_handle_allocation_query",
         "group.create": "_handle_group_create",
@@ -507,6 +556,46 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     },
                 },
                 "required": ["query"],
+            },
+        },
+        {
+            "name": "artifact.summary",
+            "description": (
+                "Return a short AI summary of ONE artifact and the trace "
+                "neighbours the caller may read (issue #1792). Read-only, and "
+                "the MCP twin of GET /api/v1/artifacts/<artifact_id>/summary/: "
+                "identical payload, including the degradation fields. A "
+                "switched-off feature, an unavailable provider or an exhausted "
+                "budget is NOT an error -- it returns degraded=true with one of "
+                "'budget_exhausted', 'provider_unavailable', 'stale' or "
+                "'disabled' in degraded_reason. Costs at most one LLM call and "
+                "none on a cache hit; the shared 'artifact_summary' rate scope "
+                "applies to both transports. Nothing is persisted."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "artifact_id": {
+                        "type": "string",
+                        "description": "UUID of the backing Artifact to summarise.",
+                    },
+                    "refresh": {
+                        "type": "boolean",
+                        "description": (
+                            "Regenerate instead of serving the answer cached for "
+                            "the same content (default false). Must be a real "
+                            "JSON boolean -- the string \"false\" is rejected."
+                        ),
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": (
+                            "Trace hops to include: 1 (default) or 2. Values "
+                            "outside 1..2 are clamped, not rejected."
+                        ),
+                    },
+                },
+                "required": ["artifact_id"],
             },
         },
         {
@@ -1047,11 +1136,13 @@ class CrossCuttingToolGroup(BaseToolGroup):
         search_service: SearchService | None = None,
         trace_service: TraceLinkService | None = None,
         trace_suggest_service: TraceabilitySuggestService | None = None,
+        summary_service: ArtifactSummaryService | None = None,
     ) -> None:
         self._artifact_service = artifact_service or ArtifactService()
         self._search_service = search_service or SearchService()
         self._trace_service = trace_service or TraceLinkService()
         self._trace_suggest_service = trace_suggest_service or TraceabilitySuggestService()
+        self._summary_service = summary_service or ArtifactSummaryService()
 
     # ------------------------------------------------------------------
     # traceability.query
@@ -1530,6 +1621,87 @@ class CrossCuttingToolGroup(BaseToolGroup):
             payload["ai_summary"] = summary.text
             payload["summary_degraded"] = summary.degraded
         return ToolResult.ok(payload)
+
+    # ------------------------------------------------------------------
+    # artifact.summary
+    # ------------------------------------------------------------------
+
+    def _handle_artifact_summary(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """artifact.summary — AI summary of one artifact plus visible neighbours.
+
+        Issue #1792 / S3: the MCP twin of
+        ``GET /api/v1/artifacts/<artifact_id>/summary/``. One Layer-2 facade
+        (:class:`~application.artifact_summary_service.ArtifactSummaryService`),
+        the same ``as_payload()`` wire shape, so the two channels cannot drift
+        apart. Read-only: nothing is persisted, so there is no audit entry
+        (REQ-L2-MC-012). A caller without a role in the artifact's workspace is
+        denied by the dispatch gate before this handler runs
+        (``workspace_scope._TOOL_TARGETS`` maps ``artifact_id`` → the owning
+        workspace), and the service repeats the item-level check.
+
+        Two caller-facing contract points:
+
+        * ``refresh`` is a *strict* boolean. ``"false"`` is a caller error, not
+          a false-y string that would silently buy an LLM call — the same rule
+          ``artifact.search`` applies to ``include_summary``.
+        * ``depth`` is clamped to ``1..2`` by the service (``0`` behaves like
+          1, ``7`` like 2), exactly as in REST; only a non-integer is an error.
+
+        A degraded answer is still a success: the four enum reasons travel in
+        ``degraded_reason`` so "feature off" stays distinguishable from "no
+        neighbours" (spec §5.6, §9/E11).
+        """
+        artifact_id = require_uuid(params, "artifact_id")
+
+        refresh_raw = params.get("refresh", False)
+        if not isinstance(refresh_raw, bool):
+            raise ParameterError("Parameter 'refresh' must be a boolean.")
+
+        depth_raw = params.get("depth")
+        # ``bool`` is an ``int`` subclass -- ``True`` must not silently mean
+        # depth 1 (same guard as ``artifact.search``'s ``min_score``). Floats
+        # are rejected too: the schema declares an integer, and truncating 1.9
+        # to 1 would be a quiet behaviour change.
+        if isinstance(depth_raw, (bool, float)):
+            raise ParameterError("Parameter 'depth' must be an integer.")
+        if depth_raw is None:
+            depth: int | None = None
+        else:
+            try:
+                depth = int(str(depth_raw).strip())
+            except (TypeError, ValueError):
+                raise ParameterError(
+                    "Parameter 'depth' must be an integer."
+                ) from None
+
+        if _artifact_summary_rate_limited(auth_context):
+            return ToolResult.error(
+                "RATE_LIMITED",
+                "artifact.summary is rate limited; the same artifact_summary "
+                "scope applies to REST and MCP.",
+            )
+
+        try:
+            result = self._summary_service.summarize_artifact(
+                artifact_id,
+                auth_context,
+                refresh=refresh_raw,
+                depth=depth,
+            )
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except Exception:
+            logger.exception("artifact.summary failed for artifact=%s", artifact_id)
+            # #697 (CWE-209): mask the unmapped cause toward the caller.
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+
+        return ToolResult.ok(result.as_payload())
 
     # ------------------------------------------------------------------
     # artifact.get_tree

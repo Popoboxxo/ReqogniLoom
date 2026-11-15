@@ -4,7 +4,7 @@
  * Each tab activates a fetch. APG *tabs* offers two models; this inspector
  * uses the **manual** one, so the distinguishing assertion is a fetch count:
  *
- *   four arrow presses  → 0 fetches
+ *   five arrow presses  → 0 fetches
  *   one Enter           → exactly 1 fetch
  *   focus               → stays on the tab
  *
@@ -83,11 +83,12 @@ describe("InspectorTabs — manual activation (M1-2)", () => {
     const versionTab = screen.getByTestId("inspector-tab-version");
     versionTab.focus();
 
-    // Four arrows: diff → links → comments → version. Focus only.
+    // Five arrows: diff → links → comments → summary → version. Focus only.
     for (const expected of [
       "inspector-tab-diff",
       "inspector-tab-links",
       "inspector-tab-comments",
+      "inspector-tab-summary",
       "inspector-tab-version",
     ]) {
       fireEvent.keyDown(document.activeElement as HTMLElement, { key: "ArrowRight" });
@@ -134,7 +135,7 @@ describe("InspectorTabs — manual activation (M1-2)", () => {
     screen.getByTestId("inspector-tab-version").focus();
 
     fireEvent.keyDown(document.activeElement as HTMLElement, { key: "End" });
-    expect(document.activeElement).toBe(screen.getByTestId("inspector-tab-comments"));
+    expect(document.activeElement).toBe(screen.getByTestId("inspector-tab-summary"));
 
     fireEvent.keyDown(document.activeElement as HTMLElement, { key: "Home" });
     expect(document.activeElement).toBe(screen.getByTestId("inspector-tab-version"));
@@ -155,6 +156,6 @@ describe("InspectorTabs — manual activation (M1-2)", () => {
 
     const tabs = screen.getAllByRole("tab");
     expect(tabs.filter((tab) => tab.getAttribute("tabindex") === "0")).toHaveLength(1);
-    expect(tabs.filter((tab) => tab.getAttribute("tabindex") === "-1")).toHaveLength(3);
+    expect(tabs.filter((tab) => tab.getAttribute("tabindex") === "-1")).toHaveLength(4);
   });
 });

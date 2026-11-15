@@ -24,6 +24,35 @@ const COMMENT_KEYS = [
 
 const NOTIFICATION_KEYS = ["ariaLabel", "label", "empty", "markAllRead"];
 
+// Issue #1792/S2: the inspector's Summary tab. Listed explicitly for the same
+// reason as the comments namespace — a missing key in one language is a
+// visible half-translated panel, not a build error.
+const SUMMARY_KEYS = [
+  "title",
+  "ariaLabel",
+  "idle",
+  "trigger",
+  "refresh",
+  "working",
+  "loading",
+  "loaded",
+  "error",
+  "retry",
+  "degraded",
+  "meta",
+  "omitted",
+  "generatedAt",
+  "cacheHit",
+];
+
+const SUMMARY_REASON_KEYS = [
+  "budget_exhausted",
+  "provider_unavailable",
+  "stale",
+  "disabled",
+  "unknown",
+];
+
 // Plan F F2-T8: the Documents route's own namespace. Listed explicitly so a
 // newly added call site cannot ship with only one language filled in — the
 // generic de/en key-set parity guard covers presence, this covers usage.
@@ -163,10 +192,21 @@ describe.each([
     }
   });
 
+  it.each(SUMMARY_KEYS)("has summary.%s", (key) => {
+    expect((locale.summary as Record<string, string>)[key]).toBeTruthy();
+  });
+
+  it.each(SUMMARY_REASON_KEYS)("has summary.reason.%s", (key) => {
+    expect(
+      ((locale.summary as Record<string, unknown>).reason as Record<string, string>)[key]
+    ).toBeTruthy();
+  });
+
   it("uses no flat dotted keys in these namespaces", () => {
     // keySeparator is "."; a literal "comments.heading" key never resolves.
     expect(Object.keys(locale).some((k) => k.startsWith("comments."))).toBe(false);
     expect(Object.keys(locale).some((k) => k.startsWith("notifications."))).toBe(false);
     expect(Object.keys(locale).some((k) => k.startsWith("notificationPreferences."))).toBe(false);
+    expect(Object.keys(locale).some((k) => k.startsWith("summary."))).toBe(false);
   });
 });

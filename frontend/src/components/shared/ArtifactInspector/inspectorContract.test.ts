@@ -32,8 +32,14 @@ import {
 import type { ArtifactKind } from "./types";
 
 describe("inspectorContract — type matrix (spec §3)", () => {
-  it("has exactly the four documented tabs, in order", () => {
-    expect(INSPECTOR_TAB_ORDER).toEqual(["version", "diff", "links", "comments"]);
+  it("has exactly the five documented tabs, in order", () => {
+    expect(INSPECTOR_TAB_ORDER).toEqual([
+      "version",
+      "diff",
+      "links",
+      "comments",
+      "summary",
+    ]);
   });
 
   it("never gives mainGoal a links tab", () => {
@@ -59,25 +65,29 @@ describe("inspectorContract — type matrix (spec §3)", () => {
 });
 
 describe("inspectorContract — tabs per artifact", () => {
-  it("renders all four tabs for a requirement with an Artifact UUID", () => {
+  it("renders all five tabs for a requirement with an Artifact UUID", () => {
     expect(inspectorTabKeys("requirement", "artifact-uuid")).toEqual([
       "version",
       "diff",
       "links",
       "comments",
+      "summary",
     ]);
   });
 
-  it("omits the comments tab when the Artifact UUID is not published", () => {
-    expect(inspectorTabKeys("requirement", null)).toEqual(["version", "diff", "links"]);
-    expect(inspectorTabKeys("adr", null)).toEqual(["version", "diff", "links"]);
+  it("omits comments and summary when the Artifact UUID is not published", () => {
+    for (const kind of ["requirement", "adr"] as ArtifactKind[]) {
+      expect(inspectorTabKeys(kind, null)).toEqual(["version", "diff", "links"]);
+      expect(inspectorTabKeys(kind, "")).toEqual(["version", "diff", "links"]);
+    }
   });
 
-  it("renders three tabs for mainGoal (no links, comments with a UUID)", () => {
+  it("renders four tabs for mainGoal (no links, comments and summary with a UUID)", () => {
     expect(inspectorTabKeys("mainGoal", "artifact-uuid")).toEqual([
       "version",
       "diff",
       "comments",
+      "summary",
     ]);
   });
 
@@ -97,11 +107,12 @@ describe("inspectorContract — tab labels (spec §11 D8)", () => {
     expect(inspectorTabLabelKey("diagram", "links")).toBe("sidebar.inspector.tab.links");
   });
 
-  it("keeps version, diff and comments on the shared keys for every kind", () => {
+  it("keeps version, diff, comments and summary on the shared keys for every kind", () => {
     for (const kind of ["glossary", "requirement", "mainGoal"] as ArtifactKind[]) {
       expect(inspectorTabLabelKey(kind, "version")).toBe("sidebar.version.title");
       expect(inspectorTabLabelKey(kind, "diff")).toBe("sidebar.diff.title");
       expect(inspectorTabLabelKey(kind, "comments")).toBe("comments.heading");
+      expect(inspectorTabLabelKey(kind, "summary")).toBe("summary.title");
     }
   });
 });

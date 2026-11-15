@@ -142,5 +142,15 @@ export type { ArtifactKind } from "../components/shared/ArtifactInspector/types"
 // ---------------------------------------------------------------------------
 export { commentsApi } from "./comments";
 export type { Comment, ListCommentsOptions } from "./comments";
+// Issue #1792 (S2): the on-demand AI summary behind the inspector's Summary tab.
+export {
+  fetchArtifactSummary,
+  SUMMARY_DEGRADED_REASONS,
+} from "./artifact-summary";
+export type {
+  ArtifactSummary,
+  FetchArtifactSummaryOptions,
+  SummaryDegradedReason,
+} from "./artifact-summary";
 export { NOTIFICATION_FEED_LIMIT, notificationsApi } from "./notifications";
 export type { Notification, NotificationFeed, NotificationKind } from "./notifications";

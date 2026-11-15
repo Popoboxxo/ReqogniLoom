@@ -30,6 +30,9 @@ export type { TracePanelProps } from "./TracePanel";
 export { CommentPanel } from "./CommentPanel";
 export type { CommentPanelProps } from "./CommentPanel";
 
+export { SummaryPanel } from "./SummaryPanel";
+export type { SummaryPanelProps } from "./SummaryPanel";
+
 export { DIFF_SUPPORTED_KINDS } from "./types";
 export type {
   ArtifactKind,

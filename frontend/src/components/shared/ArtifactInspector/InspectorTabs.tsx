@@ -8,7 +8,7 @@
  * `shared/tablistKeyboardNav.ts` implements the automatic one — every arrow
  * key calls `onChange` — which is right for the settings tabs and wrong here:
  * each tab of this inspector triggers a fetch (versions, diff, links,
- * comments), so browsing four tabs with the arrow keys would fire four
+ * comments, summary), so browsing five tabs with the arrow keys would fire five
  * requests (spec §5.1/§5.2).
  *
  * Therefore:
@@ -40,6 +40,7 @@ const TAB_LABEL_FALLBACKS: Record<InspectorTabKey, string> = {
   diff: "Diff",
   links: "Links",
   comments: "Comments",
+  summary: "Summary",
 };
 
 export interface InspectorTabsProps {
