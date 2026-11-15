@@ -233,3 +233,40 @@ def test_summary_prompt_contains_only_the_passed_hits(
 
     assert "the hit this caller received" in provider.last_prompt
     assert "Foreign Secret Title" not in provider.last_prompt
+
+
+# ---------------------------------------------------------------------------
+# S7 (spec §7.6/E10) — the summary answers in the workspace's AI language
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_carries_the_ai_language_directive(
+    workspace: Workspace, auth_ctx: AuthContext
+) -> None:
+    """Search summaries used to carry no language directive at all (#18/S7)."""
+    provider = _FakeProvider()
+    with patch("llm_adapter.providers.get_provider", return_value=provider):
+        SearchSummaryService().summarize(
+            query="x", hits=[_hit(str(workspace.id))], ctx=auth_ctx
+        )
+
+    assert "Respond in English" in provider.last_prompt
+
+
+def test_ai_language_override_changes_the_prompt_and_the_cache_key(
+    workspace: Workspace, auth_ctx: AuthContext
+) -> None:
+    """A language switch must never be masked by a cached entry (spec §7.6)."""
+    provider = _FakeProvider()
+    hits = [_hit(str(workspace.id))]
+    with patch("llm_adapter.providers.get_provider", return_value=provider):
+        first = SearchSummaryService().summarize(query="x", hits=hits, ctx=auth_ctx)
+        with _active(workspace.tenant):
+            Workspace.objects.filter(id=workspace.id).update(ai_language="de")
+        second = SearchSummaryService().summarize(query="x", hits=hits, ctx=auth_ctx)
+
+    assert first.cache_hit is False
+    assert second.cache_hit is False
+    assert provider.calls == 2
+    assert "Respond in German" in provider.last_prompt
+    assert "Respond in English" not in provider.last_prompt

@@ -298,6 +298,18 @@ class AllocationIntent(models.TextChoices):
     UNASSIGNED = "unassigned", "Unassigned"
 
 
+class AiLanguage(models.TextChoices):
+    """Language every LLM prompt of a workspace answers in (E10, spec §7.6).
+
+    ``auto`` inherits ``Workspace.language`` (the content language) and then
+    falls back to English -- i.e. the behaviour before S7.
+    """
+
+    AUTO = "auto", "Auto (inherit the content language)"
+    DE = "de", "German"
+    EN = "en", "English"
+
+
 class WorkspaceTierRule(models.TextChoices):
     """Position of a ladder entry relative to the tree (P2, V4/V5)."""
 
@@ -811,6 +823,21 @@ class Workspace(TenantScopedModel):
         default="en",
         blank=True,
         help_text="Per-workspace UI/content language (REQ-133).",
+    )
+    # Issue #1793 (S7, spec §7.6/E10): ONE language setting for every LLM
+    # prompt of this workspace. ``auto`` reproduces the pre-S7 behaviour
+    # (inherit ``language``, then English), so the default needs no data
+    # migration and keeps every existing prompt snapshot unchanged.
+    ai_language = models.CharField(
+        max_length=8,
+        choices=AiLanguage.choices,
+        default=AiLanguage.AUTO,
+        db_default=AiLanguage.AUTO,
+        blank=True,
+        help_text=(
+            "Language for all AI-generated text: 'auto' inherits the content "
+            "language, 'de'/'en' override it (issue #1793, spec §9/E10)."
+        ),
     )
     is_active = models.BooleanField(
         default=True,

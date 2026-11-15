@@ -317,3 +317,26 @@ class TestLanguageEnforcement:
 
             assert result["facts_rejected_language"] == 0
             assert result["workspace_facts_stored"] == 1
+
+    def test_explicit_ai_language_overrides_the_content_language(self, monkeypatch):
+        """S7 (spec §7.6/E10): the workspace's AI language wins in the prompt.
+
+        ``auto`` keeps the pre-S7 behaviour covered by the tests above; an
+        explicit setting must reach ``memory.extract`` exactly like every
+        other prompt path.
+        """
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant, language="de", ai_language="en")
+            user = make_user(tenant)
+            prompts: list[str] = []
+
+            def _fake(prompt: str) -> str:
+                prompts.append(prompt)
+                return '{"facts": []}'
+
+            with patch("memory.tasks._call_llm", side_effect=_fake):
+                consolidate_interaction(tenant.id, ws.id, user.id, "text")
+
+        assert "workspace language (en)" in prompts[0]

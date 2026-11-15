@@ -410,3 +410,42 @@ def test_assessment_payload_carries_the_documented_keys(
     assert payload["cached"] is True
     assert payload["prompt_scope"] in {"factory", "global", "workspace"}
     assert payload["trigger"] == "manual"
+
+
+# ---------------------------------------------------------------------------
+# S7 (spec §7.6/E10) — the verdict reasoning follows the AI language
+# ---------------------------------------------------------------------------
+
+
+def test_quality_prompt_carries_the_ai_language_directive(
+    ctx: AuthContext, workspace, requirement, provider: _CountingProvider
+):
+    """Quality assessments used to carry no language directive at all (#378/S7)."""
+    QualityService().assess(ctx, workspace.id, "Requirement", requirement.id)
+
+    assert "Respond in English" in provider.calls[0]
+
+
+def test_ai_language_switch_invalidates_the_cached_verdict(
+    ctx: AuthContext, workspace, requirement, provider: _CountingProvider
+):
+    """The language is part of the assessment's content hash (spec §7.6)."""
+    service = QualityService()
+    service.assess(ctx, workspace.id, "Requirement", requirement.id)
+    calls_after_first = len(provider.calls)
+
+    from persistence.models import Workspace
+
+    TenantContext.set_tenant(workspace.tenant_id)
+    try:
+        Workspace.objects.filter(id=workspace.id).update(ai_language="de")
+    finally:
+        TenantContext.clear_tenant()
+
+    _assessment, cached = service.assess(
+        ctx, workspace.id, "Requirement", requirement.id
+    )
+
+    assert cached is False
+    assert len(provider.calls) == calls_after_first + 1
+    assert "Respond in German" in provider.calls[-1]

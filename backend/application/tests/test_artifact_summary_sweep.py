@@ -327,9 +327,6 @@ def test_summarize_artifact_type_upserts_one_row_per_type(settings, tenant):
     ), patch(
         "application.ai_derivation_service.AiDerivationService._resolve_and_render",
         return_value="PROMPT",
-    ), patch(
-        "application.ai_derivation_service.AiDerivationService._language_instruction",
-        return_value="",
     ):
         first = service.summarize_artifact_type(ctx, workspace.id, "Requirement")
         second = service.summarize_artifact_type(ctx, workspace.id, "Requirement")

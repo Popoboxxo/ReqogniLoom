@@ -106,6 +106,8 @@ _VALID_PRESETS = {key for key, _ in PRESET_CHOICES}
 _VALID_TERMINOLOGY_PROFILES = {key for key, _ in TERMINOLOGY_CHOICES}
 # #1266: mirrors persistence.models.Workspace.glossary_reference_mode choices.
 _VALID_GLOSSARY_REFERENCE_MODES = {"pinned", "always_head"}
+# S7 (spec §7.6): mirrors persistence.models.AiLanguage.
+_VALID_AI_LANGUAGES = {"auto", "de", "en"}
 
 # Sentinel distinguishing "field omitted" from an explicit ``None`` in PATCH.
 _UNSET: object = object()
@@ -148,6 +150,14 @@ def _validate_and_cap(value: str, *, max_length: int, field_name: str) -> str:
             f"{field_name} must not exceed {max_length} characters"
         )
     return value
+
+
+def _validate_ai_language(value: object) -> str:
+    """Return the validated ``ai_language`` code, or raise ``ValidationError``."""
+    code = str(value or "").strip().lower()
+    if code not in _VALID_AI_LANGUAGES:
+        raise ValidationError("ai_language must be auto, de or en")
+    return code
 
 
 def _assert_workspace_name_free(
@@ -226,6 +236,7 @@ class WorkspaceService(ServiceBase):
         goals_enabled: bool | None = None,
         goals_ai_enabled: bool | None = None,
         glossary_reference_mode: str | None = None,
+        ai_language: str | None = None,
     ) -> Workspace:
         """Create a Workspace + its WorkspacePresetConfig companion.
 
@@ -323,6 +334,10 @@ class WorkspaceService(ServiceBase):
                     "glossary_reference_mode must be pinned or always_head"
                 )
             extra_columns["glossary_reference_mode"] = mode
+        # S7 (spec §7.6): the one language setting for every LLM prompt.
+        # ``None`` means "not supplied" and keeps the model default (``auto``).
+        if ai_language is not None:
+            extra_columns["ai_language"] = _validate_ai_language(ai_language)
 
         workspace = Workspace.objects.create(
             tenant=tenant,
@@ -914,6 +929,7 @@ class WorkspaceService(ServiceBase):
         goals_enabled: object = _UNSET,
         goals_ai_enabled: object = _UNSET,
         glossary_reference_mode: object = _UNSET,
+        ai_language: object = _UNSET,
         expected_version: int | None = None,
     ) -> Workspace:
         """Update workspace metadata + optional terminology-profile switch (REQ-066).
@@ -1026,6 +1042,11 @@ class WorkspaceService(ServiceBase):
                 )
             ws.glossary_reference_mode = mode
             update_fields.append("glossary_reference_mode")
+
+        if ai_language is not _UNSET:
+            # S7 (spec §7.6): one language setting for every LLM prompt.
+            ws.ai_language = _validate_ai_language(ai_language)
+            update_fields.append("ai_language")
 
         if update_fields:
             # #1244: bump the optimistic-concurrency counter on a real write so
