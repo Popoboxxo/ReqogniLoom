@@ -3,9 +3,8 @@
  *
  * Two hierarchies side by side — requirements on the left, architecture
  * elements on the right — plus allocation edges drawn across the corridor
- * between them. The renderer is **additive**: it is one more view mode next to
- * `Baum` / `Zwei Spalten` / `Matrix` / `Graph`, and every existing mode keeps
- * working untouched.
+ * between them. Since V.5 this is the **default** view of the route; the other
+ * four modes (`architecture`, `two-column`, `matrix`, `graph`) are unchanged.
  *
  * Layout contract (plan V.3):
  *
@@ -18,6 +17,9 @@
  *   Artifact ids with `sort_key` ordering. The edges come from
  *   `buildAllocationEdges` (V.1) and their SVG paths from `buildEdgePaths`
  *   (V.2) — no geometry lives in this file.
+ * - Emphasis (V.5, spec §5.8.4): hovering or focusing a row marks its edge and
+ *   the row at the other end (`data-emphasized`); an element row marks every
+ *   requirement allocated to it. Purely presentational — it writes nothing.
  * - The corridor is measured, not guessed: `useLayoutEffect` reads
  *   `getBoundingClientRect()` for every mounted row (`[data-alloc-row]`) and
  *   for the two column boxes, and re-measures on `scroll`, `resize`,
@@ -121,6 +123,15 @@ export function AllocationTreesRenderer({
   const [collapsedIds, setCollapsedIds] = useState<ReadonlySet<string>>(
     () => new Set<string>()
   );
+  /**
+   * V.5 (spec §5.3/§5.8.4): the row the user clicked or focused. It emphasises
+   * its edge **and** the row at the other end of that edge; an element row
+   * emphasises every requirement allocated to it.
+   */
+  const [emphasis, setEmphasis] = useState<{
+    kind: "requirement" | "element";
+    id: string;
+  } | null>(null);
   const [draggingRequirementId, setDraggingRequirementId] = useState<
     string | null
   >(null);
@@ -159,6 +170,59 @@ export function AllocationTreesRenderer({
     }
     return map;
   }, [elements]);
+
+  /** Element entity id per Artifact id — the emphasis needs the row, not the title. */
+  const elementIdByArtifact = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const element of elements) {
+      if (element.artifact_id) map.set(element.artifact_id, element.id);
+    }
+    return map;
+  }, [elements]);
+
+  /**
+   * Entity ids on both ends of the emphasised edge(s). Empty while nothing is
+   * clicked/focused, so the default render stays untouched.
+   */
+  const emphasisedRequirementIds = useMemo((): ReadonlySet<string> => {
+    if (!emphasis) return new Set<string>();
+    if (emphasis.kind === "requirement") return new Set<string>([emphasis.id]);
+    // Element row: every requirement pointing at it (N:1, so `allocated_to`
+    // carries the element's Artifact id; `element_id` is the resolved fallback).
+    const element = elements.find((row) => row.id === emphasis.id);
+    const artifactId = element?.artifact_id ?? null;
+    return new Set(
+      requirements
+        .filter(
+          (row) =>
+            (artifactId !== null && row.allocated_to === artifactId) ||
+            row.element_id === emphasis.id
+        )
+        .map((row) => row.id)
+    );
+  }, [emphasis, requirements, elements]);
+
+  const emphasisedElementIds = useMemo((): ReadonlySet<string> => {
+    if (!emphasis) return new Set<string>();
+    // The clicked element row emphasises itself plus every requirement pointing
+    // at it; a requirement row emphasises only its target element.
+    if (emphasis.kind === "element") return new Set<string>([emphasis.id]);
+    const requirement = requirements.find((row) => row.id === emphasis.id);
+    if (!requirement) return new Set<string>();
+    const fromArtifact = requirement.allocated_to
+      ? elementIdByArtifact.get(requirement.allocated_to)
+      : undefined;
+    const targetId = fromArtifact ?? requirement.element_id ?? null;
+    return targetId ? new Set<string>([targetId]) : new Set<string>();
+  }, [emphasis, requirements, elementIdByArtifact]);
+
+  const emphasise = (kind: "requirement" | "element", id: string): void => {
+    setEmphasis((previous) =>
+      previous && previous.kind === kind && previous.id === id
+        ? previous
+        : { kind, id }
+    );
+  };
 
   const measure = useCallback((): void => {
     if (!showEdges) {
@@ -360,9 +424,11 @@ export function AllocationTreesRenderer({
         data-testid={`alloc-req-${row.id}`}
         data-locked={locked ? "true" : "false"}
         data-selected={selected ? "true" : "false"}
+        data-emphasized={emphasisedRequirementIds.has(row.id) ? "true" : "false"}
         className={[
           styles.node,
           selected ? styles.nodeSelected : "",
+          emphasisedRequirementIds.has(row.id) ? styles.nodeEmphasized : "",
           locked ? styles.nodeLocked : "",
         ]
           .filter(Boolean)
@@ -380,6 +446,12 @@ export function AllocationTreesRenderer({
           className={styles.rowLine}
           data-alloc-row={row.id}
           data-alloc-kind="requirement"
+          // Emphasis is a visual read help, not an action: hovering and
+          // focusing are the two equivalent triggers, neither changes data
+          // (spec §5.3 "Hervorheben"). The highlight stays after leave, so a
+          // click on the row keeps it.
+          onMouseEnter={() => emphasise("requirement", row.id)}
+          onFocus={() => emphasise("requirement", row.id)}
         >
           {renderRowChrome(row, expanded, hasChildren, subtreeId, labelId)}
           {!row.allocated_to && (
@@ -490,7 +562,17 @@ export function AllocationTreesRenderer({
         key={row.id}
         data-testid={`alloc-el-${row.id}`}
         data-drop-target={isDropTarget ? "true" : "false"}
-        className={isDropTarget ? styles.nodeDropTarget : styles.node}
+        data-emphasized={emphasisedElementIds.has(row.id) ? "true" : "false"}
+        className={
+          isDropTarget
+            ? styles.nodeDropTarget
+            : [
+                styles.node,
+                emphasisedElementIds.has(row.id) ? styles.nodeEmphasized : "",
+              ]
+                .filter(Boolean)
+                .join(" ")
+        }
         onDragOver={(event) => {
           if (!canEdit) return;
           event.preventDefault();
@@ -504,6 +586,8 @@ export function AllocationTreesRenderer({
           className={styles.rowLine}
           data-alloc-row={row.id}
           data-alloc-kind="element"
+          onMouseEnter={() => emphasise("element", row.id)}
+          onFocus={() => emphasise("element", row.id)}
         >
           {renderRowChrome(row, expanded, hasChildren, subtreeId, labelId)}
           <span
@@ -568,14 +652,20 @@ export function AllocationTreesRenderer({
               aria-hidden="true"
               data-testid="allocation-edges"
             >
-              {edgePaths.map((path) => (
-                <path
-                  key={path.requirementId}
-                  className={styles.edge}
-                  d={path.d}
-                  data-testid={`allocation-edge-${path.requirementId}`}
-                />
-              ))}
+              {edgePaths.map((path) => {
+                const emphasised = emphasisedRequirementIds.has(
+                  path.requirementId
+                );
+                return (
+                  <path
+                    key={path.requirementId}
+                    className={emphasised ? styles.edgeEmphasized : styles.edge}
+                    d={path.d}
+                    data-emphasized={emphasised ? "true" : "false"}
+                    data-testid={`allocation-edge-${path.requirementId}`}
+                  />
+                );
+              })}
             </svg>
           )}
 

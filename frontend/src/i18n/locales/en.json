@@ -3559,12 +3559,14 @@
     "title": "Connections",
     "viewSwitcher": "Switch view",
     "views": {
-      "tree": "Tree",
+      "trees": "Trees",
+      "architecture": "Architecture",
       "twoColumn": "Two columns",
       "matrix": "Matrix",
-      "graph": "Graph",
-      "trees": "Trees"
+      "graph": "Graph"
     },
+    "showEdges": "Show connections",
+    "showEdgesFailed": "The setting could not be saved: {{message}}",
     "quick": {
       "open": "Open",
       "unallocated": "Unallocated",

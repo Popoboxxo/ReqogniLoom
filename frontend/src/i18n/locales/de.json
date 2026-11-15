@@ -3559,12 +3559,14 @@
     "title": "Verbindungen",
     "viewSwitcher": "Ansicht wechseln",
     "views": {
-      "tree": "Baum",
+      "trees": "Bäume",
+      "architecture": "Architektur",
       "twoColumn": "Zwei Spalten",
       "matrix": "Matrix",
-      "graph": "Graph",
-      "trees": "Bäume"
+      "graph": "Graph"
     },
+    "showEdges": "Verbindungen anzeigen",
+    "showEdgesFailed": "Die Einstellung konnte nicht gespeichert werden: {{message}}",
     "quick": {
       "open": "Offen",
       "unallocated": "Nicht allokiert",

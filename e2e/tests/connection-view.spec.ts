@@ -81,9 +81,8 @@ test.describe('Connection view — allocation assistant', () => {
   test('filters "Nicht allokiert", bulk-allocates the selection, count drops and the matrix shows the dot', async ({
     page,
   }) => {
-    // V.4: the selection checkboxes live on the requirement rows of the trees
-    // renderer, so the flow opts into that mode explicitly. The default mode is
-    // still `tree` until V.5.
+    // V.5: `trees` is the default, but the flow names the mode explicitly so a
+    // later default change cannot silently re-point this test.
     await page.goto(`${FRONTEND_URL}/connections?view=trees`);
     await expect(page.getByTestId('connection-view')).toBeVisible();
 

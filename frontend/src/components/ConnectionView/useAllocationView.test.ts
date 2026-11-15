@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CONNECTION_VIEW_MODES,
+  DEFAULT_CONNECTION_VIEW,
   DEFAULT_PAGE_SIZE,
   SERVER_PAGE_SIZE,
   buildConnectionSearch,
@@ -172,21 +173,54 @@ describe("URL round-trip", () => {
 });
 
 describe("parseConnectionView", () => {
-  it("defaults to the tree and only accepts the five known renderers", () => {
-    expect(parseConnectionView(new URLSearchParams())).toBe("tree");
-    expect(parseConnectionView(new URLSearchParams("view=matrix"))).toBe("matrix");
+  it("default_mode_matches_decision", () => {
+    // S0 decision D4/O5 = option (a): a URL without `view` opens `trees`.
+    expect(parseConnectionView(new URLSearchParams())).toBe("trees");
+    expect(parseConnectionView(new URLSearchParams("q=bremse"))).toBe("trees");
+    expect(DEFAULT_CONNECTION_VIEW).toBe("trees");
+    expect(CONNECTION_VIEW_MODES[0]).toBe("trees");
+    // Exactly the five renderers of the spec's mode set (S3).
+    expect([...CONNECTION_VIEW_MODES].sort()).toEqual(
+      ["architecture", "graph", "matrix", "trees", "two-column"].sort()
+    );
+  });
+
+  it("tree_alias_opens_architecture", () => {
+    // `tree` is the pre-V.5 name: saved views and bookmarks carry it.
+    expect(parseConnectionView(new URLSearchParams("view=tree"))).toBe(
+      "architecture"
+    );
+    expect(parseConnectionView(new URLSearchParams("view=architecture"))).toBe(
+      "architecture"
+    );
+    // An unknown mode is not a mode: it falls back to the default.
+    expect(parseConnectionView(new URLSearchParams("view=unknown"))).toBe(
+      "trees"
+    );
+  });
+
+  it("two_column_is_unchanged", () => {
     expect(parseConnectionView(new URLSearchParams("view=two-column"))).toBe(
       "two-column"
     );
+    expect(parseConnectionView(new URLSearchParams("view=matrix"))).toBe(
+      "matrix"
+    );
     expect(parseConnectionView(new URLSearchParams("view=graph"))).toBe("graph");
-    expect(parseConnectionView(new URLSearchParams("view=unknown"))).toBe("tree");
+    expect(parseConnectionView(new URLSearchParams("view=trees"))).toBe("trees");
+    // V.5 (spec §5.8.8): the two-column URL keeps its filters untouched.
+    expect(
+      parseConnectionView(
+        new URLSearchParams("view=two-column&q=bremse&allocated=false")
+      )
+    ).toBe("two-column");
   });
 
-  it("V.3: recognises `trees` additively without changing the default", () => {
-    expect(parseConnectionView(new URLSearchParams("view=trees"))).toBe("trees");
-    // No `view` parameter still means `Baum`; V.5 owns the default flip.
-    expect(parseConnectionView(new URLSearchParams("q=bremse"))).toBe("tree");
-    expect(CONNECTION_VIEW_MODES).toContain("trees");
-    expect(CONNECTION_VIEW_MODES[0]).toBe("tree");
+  it("saved_view_with_old_params_still_works", () => {
+    // A saved view is a URL snapshot; the alias decides what it opens.
+    const saved = new URLSearchParams("view=tree&q=bremse&allocated=false");
+    expect(parseConnectionView(saved)).toBe("architecture");
+    expect(parseConnectionSearch(saved).q).toBe("bremse");
+    expect(parseConnectionSearch(saved).allocated).toBe(false);
   });
 });

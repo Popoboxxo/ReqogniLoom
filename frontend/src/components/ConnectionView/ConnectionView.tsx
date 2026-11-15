@@ -2,11 +2,11 @@
  * ARCH-L1-001 ReactFrontend — Connection View page (P3 Tasks 3.2–3.4).
  *
  * Route `/connections`. Header view switcher
- * [Baum | Zwei Spalten | Matrix | Graph | Bäume] (default Baum; the card graph
- * is the P5 renderer, the two trees are V.3's additive mode), quick + free
- * filters, counters from the read object's `meta`, and per-user saved views. All
- * filter state lives in the URL, so the renderers switch without losing a
- * filter and a reload/bookmark restores the same view.
+ * [Bäume | Architektur | Zwei Spalten | Matrix | Graph] plus the "Verbindungen
+ * anzeigen" switch that owns the edge overlay (V.5), quick + free filters,
+ * counters from the read object's `meta`, and per-user saved views. All filter
+ * state lives in the URL, so the renderers switch without losing a filter and
+ * a reload/bookmark restores the same view.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -22,7 +22,9 @@ import { useToast } from "../shared/Toast/useToast";
 import {
   connectionViewsApi,
   loadFiltersExpanded,
+  loadShowEdges,
   saveFiltersExpanded,
+  saveShowEdges,
   type SavedConnectionView,
 } from "../../api/connection-views";
 import { AllocationAssistant } from "./AllocationAssistant";
@@ -43,10 +45,10 @@ import styles from "./ConnectionView.module.css";
 const STALE_TIME_MS = 60 * 1000;
 
 /**
- * V.3 ships the edge overlay switched on. The user-level preference
- * `ui.connection_view.show_edges` (plan V.0) owns this switch in a later slice;
- * until then the renderer gets the documented default, so a missing preference
- * cannot silently hide the edges.
+ * V.5: the edge overlay's on/off switch is a user preference
+ * (`ui.connection_view.show_edges`, plan V.0) and defaults to on. Until the
+ * preference read resolves — and when it fails — the documented default keeps
+ * the edges visible, so a broken preference store cannot hide them silently.
  */
 const SHOW_EDGES_DEFAULT = true;
 
@@ -138,6 +140,41 @@ export function ConnectionView(): JSX.Element {
     });
   };
 
+  // V.5: the header switch "Verbindungen anzeigen" owns the edge overlay. It is
+  // a user preference, never URL state — and it only hides the overlay, the
+  // target text on every row stays.
+  const [showEdges, setShowEdges] = useState(SHOW_EDGES_DEFAULT);
+  const [showEdgesError, setShowEdgesError] = useState<string | null>(null);
+  /** A click before the preference read resolves wins over the stored value. */
+  const showEdgesToggledRef = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    void loadShowEdges().then((enabled) => {
+      if (!active || showEdgesToggledRef.current) return;
+      setShowEdges(enabled);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const toggleShowEdges = (): void => {
+    showEdgesToggledRef.current = true;
+    const next = !showEdges;
+    setShowEdges(next);
+    setShowEdgesError(null);
+    void saveShowEdges(next).catch((err: unknown) => {
+      // The local state stays authoritative: a failed write must not flip the
+      // switch back under the user's hand.
+      setShowEdgesError(
+        t("connectionView.showEdgesFailed", {
+          message: err instanceof Error ? err.message : String(err),
+        })
+      );
+    });
+  };
+
   useEffect(() => {
     let active = true;
     void connectionViewsApi.load().then((views) => {
@@ -176,13 +213,12 @@ export function ConnectionView(): JSX.Element {
   );
 
   const viewOptions: Array<{ mode: ConnectionViewMode; label: string }> = [
-    { mode: "tree", label: t("connectionView.views.tree") },
+    // V.5: five entries, `Bäume` first and default (S0 = option a).
+    { mode: "trees", label: t("connectionView.views.trees") },
+    { mode: "architecture", label: t("connectionView.views.architecture") },
     { mode: "two-column", label: t("connectionView.views.twoColumn") },
     { mode: "matrix", label: t("connectionView.views.matrix") },
     { mode: "graph", label: t("connectionView.views.graph") },
-    // V.3 is additive: the new mode is appended, so every existing button keeps
-    // its position and test id and the default stays `Baum` until V.5.
-    { mode: "trees", label: t("connectionView.views.trees") },
   ];
 
   const persistSavedViews = (views: SavedConnectionView[]): void => {
@@ -219,31 +255,57 @@ export function ConnectionView(): JSX.Element {
     <section className={styles.page} data-testid="connection-view">
       <header className={styles.header}>
         <h1 className={styles.title}>{t("connectionView.title")}</h1>
-        <div
-          className={styles.viewSwitcher}
-          role="group"
-          aria-label={t("connectionView.viewSwitcher")}
-        >
-          {viewOptions.map((option) => (
-            <button
-              key={option.mode}
-              type="button"
-              className={[
-                "btn-ghost",
-                styles.viewButton,
-                view === option.mode ? styles.viewButtonActive : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              aria-pressed={view === option.mode}
-              data-testid={`view-switch-${option.mode}`}
-              onClick={() => setView(option.mode)}
-            >
-              {option.label}
-            </button>
-          ))}
+        <div className={styles.viewControls}>
+          <div
+            className={styles.viewSwitcher}
+            role="group"
+            aria-label={t("connectionView.viewSwitcher")}
+          >
+            {viewOptions.map((option) => (
+              <button
+                key={option.mode}
+                type="button"
+                className={[
+                  "btn-ghost",
+                  styles.viewButton,
+                  view === option.mode ? styles.viewButtonActive : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                aria-pressed={view === option.mode}
+                data-testid={`view-switch-${option.mode}`}
+                onClick={() => setView(option.mode)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          {/*
+           * V.5 (spec 5.1/5.8.13): the switch hides the edge overlay only. The
+           * target text on every row ("→ Bremse" / "nicht allokiert") stays, so
+           * the allocation never depends on a line being drawn.
+           */}
+          <label className={styles.checkboxLabel}>
+            <input
+              type="checkbox"
+              data-testid="connection-view-show-edges"
+              checked={showEdges}
+              onChange={toggleShowEdges}
+            />
+            {t("connectionView.showEdges")}
+          </label>
         </div>
       </header>
+
+      {showEdgesError && (
+        <p
+          role="alert"
+          className={styles.error}
+          data-testid="connection-view-show-edges-error"
+        >
+          {showEdgesError}
+        </p>
+      )}
 
       <AllocationAssistant
         selection={selection}
@@ -302,7 +364,7 @@ export function ConnectionView(): JSX.Element {
           className={styles.renderer}
           aria-busy={isFetching ? "true" : "false"}
         >
-          {view === "tree" && (
+          {view === "architecture" && (
             <TreeRenderer
               requirements={requirements}
               elements={elements}
@@ -345,7 +407,7 @@ export function ConnectionView(): JSX.Element {
               requirements={requirements}
               elements={elements}
               selection={selection}
-              showEdges={SHOW_EDGES_DEFAULT}
+              showEdges={showEdges}
               onAllocate={allocate}
               onDeallocate={deallocate}
               canEdit={canEdit}

@@ -54,6 +54,14 @@
   opacity: 0.55;
 }
 
+/* V.5 (spec §5.8.4): the clicked/focused row's edge, drawn over the rest. */
+.edgeEmphasized {
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-width: 2.5;
+  opacity: 1;
+}
+
 .column {
   min-width: 0;
 }
@@ -124,6 +132,17 @@
 
 .nodeLocked > .rowLine {
   opacity: 0.6;
+}
+
+/* V.5 (spec §5.8.4): row at the other end of the clicked/focused edge. */
+.nodeEmphasized > .rowLine {
+  background-color: color-mix(
+    in srgb,
+    var(--color-primary) 10%,
+    transparent
+  );
+  outline: 1px solid color-mix(in srgb, var(--color-primary) 45%, transparent);
+  outline-offset: -1px;
 }
 
 .nodeDropTarget > .rowLine {

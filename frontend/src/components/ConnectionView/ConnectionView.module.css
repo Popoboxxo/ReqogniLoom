@@ -29,6 +29,13 @@
   font-weight: 600;
 }
 
+.viewControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 .viewSwitcher {
   display: inline-flex;
   gap: var(--space-1);
@@ -59,6 +66,23 @@
 
 .viewButtonActive:hover {
   color: var(--color-on-primary, var(--color-surface));
+}
+
+/* V.5: "Verbindungen anzeigen" — a real checkbox with the label as the click
+   target (WCAG 2.2 SC 2.5.8 floor, same shape as the settings rows). */
+.checkboxLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--space-6);
+  min-width: var(--space-6);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.checkboxLabel:hover {
+  color: var(--color-text);
 }
 
 .filterBar {

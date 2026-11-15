@@ -7,14 +7,26 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import de from "../../i18n/locales/de.json";
 
 import type { AllocationRow } from "../../api/allocation-view";
 import { allocationViewApi } from "../../api/allocation-view";
-import { connectionViewsApi, loadFiltersExpanded, saveFiltersExpanded } from "../../api/connection-views";
+import {
+  connectionViewsApi,
+  loadFiltersExpanded,
+  loadShowEdges,
+  saveFiltersExpanded,
+  saveShowEdges,
+} from "../../api/connection-views";
 import { loadGroupsWithMembers } from "../../api/groups";
 import { preferenceValuesApi } from "../../api/preference-values";
 import { ConnectionView } from "./ConnectionView";
@@ -148,7 +160,14 @@ function element(id: string, title: string): AllocationRow {
 const RESPONSE = {
   results: [
     requirement({ id: "r1", title: "Bremsen" }),
-    requirement({ id: "r2", title: "Lenken", sort_key: "b" }),
+    // Distinct artifact ids: the tree de-duplicates by Artifact id, and two
+    // requirements never share one.
+    requirement({
+      id: "r2",
+      title: "Lenken",
+      sort_key: "b",
+      artifact_id: "art-r2",
+    }),
     element("e1", "Bremse"),
     element("e2", "Lenkung"),
   ],
@@ -208,6 +227,9 @@ beforeEach(() => {
   vi.mocked(connectionViewsApi.save).mockResolvedValue(undefined);
   vi.mocked(loadFiltersExpanded).mockResolvedValue(false);
   vi.mocked(saveFiltersExpanded).mockResolvedValue(undefined);
+  // V.5: the edge overlay switch is a user preference (default on).
+  vi.mocked(loadShowEdges).mockResolvedValue(true);
+  vi.mocked(saveShowEdges).mockResolvedValue(undefined);
   vi.mocked(preferenceValuesApi.effective).mockResolvedValue({
     workspace_id: "ws-1",
     values: {},
@@ -254,7 +276,7 @@ describe("ConnectionView — filters are URL state", () => {
     );
   });
 
-  it("offers the card graph as the fourth renderer and keeps the filters", async () => {
+  it("offers the card graph as the fifth renderer and keeps the filters", async () => {
     renderView();
     fireEvent.change(screen.getByTestId("filter-q"), {
       target: { value: "bremse" },
@@ -296,26 +318,21 @@ describe("ConnectionView — filters are URL state", () => {
   });
 });
 
-describe("ConnectionView — the trees mode is additive (V.3)", () => {
-  it("mode_trees_is_reachable_and_additive", async () => {
+describe("ConnectionView — default mode, alias and the edge switch (V.5)", () => {
+  it("default_mode_matches_decision", async () => {
     renderView();
 
-    // The default stays the architecture tree until V.5.
-    expect(await screen.findByTestId("tree-renderer")).toBeInTheDocument();
-    expect(screen.getByTestId("view-switch-tree")).toHaveAttribute(
-      "aria-pressed",
-      "true"
-    );
-
-    fireEvent.click(screen.getByTestId("view-switch-trees"));
-
+    // S0 = option (a): a URL without `view` opens the two trees.
     expect(
       await screen.findByTestId("allocation-trees-renderer")
     ).toBeInTheDocument();
-    expect(screen.queryByTestId("tree-renderer")).not.toBeInTheDocument();
     expect(screen.getByTestId("view-switch-trees")).toHaveAttribute(
       "aria-pressed",
       "true"
+    );
+    expect(screen.getByTestId("view-switch-architecture")).toHaveAttribute(
+      "aria-pressed",
+      "false"
     );
 
     // V.4: the assistant is presentational — the tree checkboxes are the one
@@ -327,23 +344,113 @@ describe("ConnectionView — the trees mode is additive (V.3)", () => {
     expect(screen.queryByTestId("assistant-row-r1")).not.toBeInTheDocument();
   });
 
-  it("restores the trees mode from the URL and keeps the filters", async () => {
-    renderView("/connections?q=bremse&view=trees");
+  it("tree_alias_opens_architecture", async () => {
+    // Saved views written before V.5 carry `view=tree`.
+    renderView("/connections?view=tree");
 
+    expect(await screen.findByTestId("tree-renderer")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("allocation-trees-renderer")
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("view-switch-architecture")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+  });
+
+  it("five_switch_entries", async () => {
+    renderView();
+    await screen.findByTestId("allocation-trees-renderer");
+
+    for (const mode of [
+      "trees",
+      "architecture",
+      "two-column",
+      "matrix",
+      "graph",
+    ]) {
+      expect(screen.getByTestId(`view-switch-${mode}`)).toBeInTheDocument();
+    }
+    // The pre-V.5 test id is gone — `tree` is not a mode any more.
+    expect(screen.queryByTestId("view-switch-tree")).not.toBeInTheDocument();
+
+    const group = screen.getByRole("group", { name: "Ansicht wechseln" });
+    expect(within(group).getAllByRole("button")).toHaveLength(5);
+  });
+
+  it("show_edges_preference_persists_across_mode_switch", async () => {
+    renderView();
+    await screen.findByTestId("allocation-trees-renderer");
+
+    const toggle = await screen.findByTestId("connection-view-show-edges");
+    await waitFor(() => expect(toggle).toBeChecked());
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(saveShowEdges).toHaveBeenCalledWith(false));
+    expect(toggle).not.toBeChecked();
+
+    // Switch away and back: the state is page state and was persisted, so the
+    // switch comes back off instead of resetting to the default.
+    fireEvent.click(screen.getByTestId("view-switch-matrix"));
+    await screen.findByTestId("matrix-renderer");
+    fireEvent.click(screen.getByTestId("view-switch-trees"));
+    await screen.findByTestId("allocation-trees-renderer");
+
+    expect(screen.getByTestId("connection-view-show-edges")).not.toBeChecked();
+    expect(saveShowEdges).toHaveBeenCalledTimes(1);
+  });
+
+  it("show_edges_off_hides_overlay_keeps_target_text", async () => {
+    vi.mocked(allocationViewApi.view).mockResolvedValue({
+      ...RESPONSE,
+      results: [
+        requirement({
+          id: "r1",
+          title: "Bremsen",
+          allocated_to: "art-e1",
+          element_id: "e1",
+          allocation_trace_link_id: "link-1",
+        }),
+        element("e1", "Bremse"),
+        element("e2", "Lenkung"),
+      ],
+    });
+    vi.mocked(loadShowEdges).mockResolvedValue(false);
+
+    renderView();
     expect(
       await screen.findByTestId("allocation-trees-renderer")
     ).toBeInTheDocument();
+
+    // Spec §5.8.13: no overlay …
+    await waitFor(() =>
+      expect(screen.queryByTestId("allocation-edges")).not.toBeInTheDocument()
+    );
+    // … but the target text on the row stays.
+    expect(screen.getByTestId("alloc-target-r1")).toHaveTextContent("Bremse");
+  });
+
+  it("saved_view_with_old_params_still_works", async () => {
+    // A saved view is a URL snapshot; `view=tree` still opens `Architektur`.
+    renderView("/connections?q=bremse&allocated=false&view=tree");
+
+    expect(await screen.findByTestId("tree-renderer")).toBeInTheDocument();
+    expect(screen.getByTestId("view-switch-architecture")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
     expect(screen.getByTestId("filter-q")).toHaveValue("bremse");
-    expect(allocationViewApi.view).toHaveBeenLastCalledWith(
-      "ws-1",
-      expect.objectContaining({ q: "bremse" })
+    expect(screen.getByTestId("quick-unallocated")).toHaveAttribute(
+      "aria-pressed",
+      "true"
     );
   });
 });
 
 describe("ConnectionView — writes go through the atomic bulk endpoint", () => {
   it("allocates a dragged requirement via POST /trace-links/bulk/", async () => {
-    renderView();
+    // `Architektur` is a mode of its own since V.5, so the flow opts in.
+    renderView("/connections?view=architecture");
     await screen.findByTestId("tree-renderer");
 
     const dataTransfer = fakeDataTransfer();
@@ -410,7 +517,7 @@ describe("ConnectionView — saved views", () => {  it("creates a saved view fro
 describe("ConnectionView — action bar and filter row (V.4)", () => {
   it("assistant_has_no_list", async () => {
     renderView();
-    await screen.findByTestId("tree-renderer");
+    await screen.findByTestId("allocation-trees-renderer");
 
     // The bar is present, the second requirement list is not.
     expect(screen.getByTestId("allocation-assistant")).toBeInTheDocument();
@@ -420,7 +527,7 @@ describe("ConnectionView — action bar and filter row (V.4)", () => {
 
   it("action_bar_visible_without_selection", async () => {
     renderView();
-    await screen.findByTestId("tree-renderer");
+    await screen.findByTestId("allocation-trees-renderer");
 
     expect(screen.getByTestId("assistant-selection-count")).toHaveTextContent(
       "0 ausgewählt"
@@ -438,12 +545,13 @@ describe("ConnectionView — action bar and filter row (V.4)", () => {
           id: "r3",
           title: "Gesperrt",
           sort_key: "c",
+          artifact_id: "art-r3",
           locked: "Freigegeben",
         }),
       ],
     });
     renderView();
-    await screen.findByTestId("tree-renderer");
+    await screen.findByTestId("allocation-trees-renderer");
 
     fireEvent.click(screen.getByTestId("assistant-select-all"));
 
@@ -498,7 +606,7 @@ describe("ConnectionView — action bar and filter row (V.4)", () => {
 
   it("unallocated_block_is_gone_and_marker_exists", async () => {
     renderView();
-    await screen.findByTestId("tree-renderer");
+    await screen.findByTestId("allocation-trees-renderer");
 
     // The counted block is gone — the number lives in the header counter.
     expect(screen.queryByTestId("unallocated-block")).not.toBeInTheDocument();

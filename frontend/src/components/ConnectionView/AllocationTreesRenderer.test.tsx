@@ -413,3 +413,85 @@ describe("AllocationTreesRenderer — write path", () => {
     expect(screen.queryByTestId("alloc-deallocate-r1")).not.toBeInTheDocument();
   });
 });
+
+describe("AllocationTreesRenderer — emphasis (V.5, spec §5.8.4)", () => {
+  it("clicking_a_requirement_emphasises_its_edge_and_the_target_element", () => {
+    renderTrees();
+
+    expect(screen.getByTestId("alloc-el-e1")).toHaveAttribute(
+      "data-emphasized",
+      "false"
+    );
+
+    // Click the row's target cell: it bubbles to the row line like any other
+    // click inside the row (the checkbox is not needed for the emphasis).
+    fireEvent.mouseEnter(screen.getByTestId("alloc-target-r1").parentElement as HTMLElement);
+
+    expect(screen.getByTestId("alloc-req-r1")).toHaveAttribute(
+      "data-emphasized",
+      "true"
+    );
+    expect(screen.getByTestId("alloc-el-e1")).toHaveAttribute(
+      "data-emphasized",
+      "true"
+    );
+    expect(screen.getByTestId("allocation-edge-r1")).toHaveAttribute(
+      "data-emphasized",
+      "true"
+    );
+    // The other allocation stays untouched.
+    expect(screen.getByTestId("alloc-el-e2")).toHaveAttribute(
+      "data-emphasized",
+      "false"
+    );
+    expect(screen.getByTestId("allocation-edge-r2")).toHaveAttribute(
+      "data-emphasized",
+      "false"
+    );
+  });
+
+  it("clicking_an_element_emphasises_all_its_requirements", () => {
+    renderTrees();
+
+    fireEvent.mouseEnter(
+      within(screen.getByTestId("alloc-el-e2")).getByText("Lenkung").parentElement as HTMLElement
+    );
+
+    expect(screen.getByTestId("alloc-el-e2")).toHaveAttribute(
+      "data-emphasized",
+      "true"
+    );
+    expect(screen.getByTestId("alloc-req-r2")).toHaveAttribute(
+      "data-emphasized",
+      "true"
+    );
+    expect(screen.getByTestId("allocation-edge-r2")).toHaveAttribute(
+      "data-emphasized",
+      "true"
+    );
+    expect(screen.getByTestId("alloc-req-r1")).toHaveAttribute(
+      "data-emphasized",
+      "false"
+    );
+  });
+
+  it("unallocated_requirement_emphasises_no_element", () => {
+    renderTrees();
+
+    // R2 is allocated to E2, R_LOCKED is not allocated at all.
+    fireEvent.mouseEnter(screen.getByTestId("alloc-target-r3").parentElement as HTMLElement);
+
+    expect(screen.getByTestId("alloc-req-r3")).toHaveAttribute(
+      "data-emphasized",
+      "true"
+    );
+    expect(screen.getByTestId("alloc-el-e1")).toHaveAttribute(
+      "data-emphasized",
+      "false"
+    );
+    expect(screen.getByTestId("alloc-el-e2")).toHaveAttribute(
+      "data-emphasized",
+      "false"
+    );
+  });
+});

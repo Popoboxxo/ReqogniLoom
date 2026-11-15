@@ -17,7 +17,9 @@ import { allocationViewApi } from "../../api/allocation-view";
 import {
   connectionViewsApi,
   loadFiltersExpanded,
+  loadShowEdges,
   saveFiltersExpanded,
+  saveShowEdges,
 } from "../../api/connection-views";
 import {
   loadGroupsWithMembers,
@@ -166,7 +168,7 @@ const CARD_FIELD_PREFERENCE = {
   },
 };
 
-function renderView(initialPath = "/connections"): void {
+function renderView(initialPath = "/connections?view=architecture"): void {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -189,6 +191,9 @@ beforeEach(() => {
   vi.mocked(connectionViewsApi.save).mockResolvedValue(undefined);
   vi.mocked(loadFiltersExpanded).mockResolvedValue(false);
   vi.mocked(saveFiltersExpanded).mockResolvedValue(undefined);
+  // V.5: the edge overlay switch is a user preference (default on).
+  vi.mocked(loadShowEdges).mockResolvedValue(true);
+  vi.mocked(saveShowEdges).mockResolvedValue(undefined);
   vi.mocked(loadGroupsWithMembers).mockResolvedValue(GROUPS);
   vi.mocked(preferenceValuesApi.effective).mockResolvedValue({
     workspace_id: "ws-1",
