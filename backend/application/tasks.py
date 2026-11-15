@@ -406,6 +406,64 @@ def quality_auto_assess_sweep() -> dict[str, int | bool]:
     return totals
 
 
+@shared_task(name="application.artifact_summary_sweep_tick")
+def artifact_summary_sweep_tick() -> dict[str, int | bool]:
+    """Periodic per-type summary sweep across tenants (issue #1793, S5).
+
+    Registered in the beat schedule only while
+    ``ARTIFACT_SUMMARY_SWEEP_ENABLED`` is on, but the task reads the flag
+    again: a beat row synced by an older deployment keeps firing and must
+    become a no-op, not a paid run.
+    """
+    from application.artifact_summary_sweep import run_sweep_all
+
+    return run_sweep_all()
+
+
+@shared_task(name="application.artifact_summary_refresh_scope")
+def artifact_summary_refresh_scope(
+    tenant_id: str,
+    workspace_id: str,
+    artifact_type: str,
+    trigger: str = "periodic",
+) -> str:
+    """Summarise one ``(workspace, artifact_type)`` scope in a worker.
+
+    Same gates as the timed sweep (this is not a bypass); used by the manual
+    refresh path in S6. Only ids cross the queue boundary (ADR-03); the worker
+    re-arms the tenant context before the first query and swallows provider
+    faults so Celery does not retry-storm a paid endpoint.
+    """
+    from application.artifact_summary_sweep import ArtifactSummarySweeper
+    from persistence.middleware import clear_request_tenant, set_request_tenant
+    from persistence.tenancy import TenantContext
+
+    tenant_was_set = TenantContext.is_set()
+    try:
+        set_request_tenant(tenant_id)
+        return ArtifactSummarySweeper().run_for_scope(
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            artifact_type=artifact_type,
+            trigger=trigger,
+        )
+    except Exception:  # noqa: BLE001 - logged, never a retry on a paid call
+        logger.exception(
+            "artifact_summary_refresh_scope failed for %s/%s",
+            workspace_id,
+            artifact_type,
+        )
+        return "failed"
+    finally:
+        if not tenant_was_set and TenantContext.is_set():
+            try:
+                clear_request_tenant()
+            except Exception:  # noqa: BLE001 - teardown must not mask the cause
+                logger.exception(
+                    "artifact_summary_refresh_scope could not reset the tenant context"
+                )
+
+
 def _coerce_auth_method(raw: str | None) -> AuthMethod:
     """Map the request's auth-method value back onto :class:`AuthMethod`.
 

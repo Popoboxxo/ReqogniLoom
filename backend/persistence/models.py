@@ -818,6 +818,40 @@ class Workspace(TenantScopedModel):
     )
     goals_enabled = models.BooleanField(default=True)
     goals_ai_enabled = models.BooleanField(default=False)
+    # Issue #1793 (S5, spec §9/E6): periodic artifact-type summaries.
+    # ``summary_trace_depth`` is consumed by
+    # ``application.artifact_summary_service.resolve_trace_depth``; it is
+    # clamped to 1..2 rather than rejected. The check constraint below makes
+    # the same rule true for writes that bypass ``full_clean``.
+    summary_trace_depth = models.PositiveSmallIntegerField(
+        default=1,
+        db_default=1,
+        help_text=(
+            "Trace depth (1-2 hops) for on-demand artifact summaries "
+            "(issue #1793, spec §9/E3)."
+        ),
+    )
+    #: Empty list = every type the summary service can assess
+    #: (``application.artifact_summary_sweep.DEFAULT_SUMMARY_SCOPES``).
+    summary_scopes = models.JSONField(
+        default=list,
+        db_default=models.Value([], output_field=models.JSONField()),
+        blank=True,
+        help_text=(
+            "Artifact types this workspace summarises periodically; empty = "
+            "all default types (issue #1793, spec §9/E6)."
+        ),
+    )
+    #: ``0`` disables the periodic sweep for this workspace; values below the
+    #: global minimum are clamped, never rejected (spec §9/E6).
+    summary_sweep_interval_minutes = models.PositiveIntegerField(
+        default=1440,
+        db_default=1440,
+        help_text=(
+            "Minutes between periodic summary runs for this workspace; "
+            "0 disables it (issue #1793, spec §9/E6)."
+        ),
+    )
     # #1266: how a version-bound glossary reference token
     # (``[[glossary:<uuid>@<revision>]]``) resolves in a rendered text field.
     # ``pinned`` keeps the revision stored at insertion time; ``always_head``
@@ -880,6 +914,15 @@ class Workspace(TenantScopedModel):
             # place this invariant can be enforced race-free.
             models.UniqueConstraint(
                 fields=["tenant", "name"], name="uq_workspace_tenant_name"
+            ),
+            # Issue #1793 (S5): the service clamps the depth to 1..2, but a
+            # write path that skips ``full_clean`` must not store a value the
+            # prompt builder cannot honour.
+            models.CheckConstraint(
+                condition=models.Q(
+                    summary_trace_depth__gte=1, summary_trace_depth__lte=2
+                ),
+                name="ck_workspace_summary_trace_depth",
             ),
         ]
 

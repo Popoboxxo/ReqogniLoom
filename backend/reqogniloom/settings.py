@@ -640,6 +640,49 @@ ARTIFACT_SUMMARY_MIN_INTERVAL_SECONDS: int = config(
     "ARTIFACT_SUMMARY_MIN_INTERVAL_SECONDS", default=3600, cast=int
 )
 
+# ---------------------------------------------------------------------------
+# Issue #1793 — periodic per-artifact-type summaries per workspace (S5, spec §6).
+#
+# Two independent switches (decided 2026-11-15): the periodic sweep hangs on
+# ``ARTIFACT_SUMMARY_SWEEP_ENABLED`` *and* the per-workspace interval, the
+# on-demand path above keeps reading ``ARTIFACT_SUMMARY_ENABLED``. Reading a
+# stored summary needs no switch.
+# ---------------------------------------------------------------------------
+#: Periodic sweep master switch (default off — every run is a paid completion).
+ARTIFACT_SUMMARY_SWEEP_ENABLED: bool = config(
+    "ARTIFACT_SUMMARY_SWEEP_ENABLED", default=False, cast=bool
+)
+#: Beat cadence for the tick that only *selects* due (workspace, type) scopes.
+#: The effective lower bound is ``ARTIFACT_SUMMARY_MIN_INTERVAL_MINUTES``.
+ARTIFACT_SUMMARY_TICK_MINUTES: int = config(
+    "ARTIFACT_SUMMARY_TICK_MINUTES", default=60, cast=int
+)
+#: Global fallback cadence when a workspace has no explicit interval.
+ARTIFACT_SUMMARY_INTERVAL_MINUTES: int = config(
+    "ARTIFACT_SUMMARY_INTERVAL_MINUTES", default=1440, cast=int
+)
+#: Lower bound for any interval (tick and workspace alike). Smaller values are
+#: clamped, never rejected (spec §9/E6).
+ARTIFACT_SUMMARY_MIN_INTERVAL_MINUTES: int = config(
+    "ARTIFACT_SUMMARY_MIN_INTERVAL_MINUTES", default=60, cast=int
+)
+#: Global ceiling of type scopes per tenant run (spec §6.4). Not configurable
+#: per workspace — otherwise the cap would be meaningless.
+ARTIFACT_SUMMARY_SWEEP_BATCH: int = config(
+    "ARTIFACT_SUMMARY_SWEEP_BATCH", default=25, cast=int
+)
+#: Agent API key (``principal_type=agent``) the sweep writes under. Without an
+#: active key nothing runs (spec §6.4, pattern ``QUALITY_AUTO_ASSESS_*``).
+ARTIFACT_SUMMARY_AGENT_KEY_ID: str = config(
+    "ARTIFACT_SUMMARY_AGENT_KEY_ID", default=""
+).strip()
+#: Day budget for summaries only, independent of ``TENANT_TOKEN_LIMIT_PER_DAY``
+#: (spec §9/E8). ``0``/empty = off.
+SUMMARY_DAILY_TOKEN_LIMIT: int = config(
+    "SUMMARY_DAILY_TOKEN_LIMIT", default=200_000, cast=int
+)
+
+
 # Issue #1578: automatic quality assessment. Off by default because every run
 # is a paid completion. The feature needs an agent API key per tenant
 # (principal_type=agent); without it nothing runs, so an automatic assessment
@@ -1284,6 +1327,39 @@ if QUALITY_AUTO_ASSESS_ENABLED and QUALITY_AUTO_ASSESS_INTERVAL_MINUTES > 0:
         "task": "application.quality_auto_assess_sweep",
         "schedule": timedelta(minutes=QUALITY_AUTO_ASSESS_INTERVAL_MINUTES),
     }
+
+
+def _artifact_summary_beat_entry(
+    *, enabled: bool, tick_minutes: int, min_interval_minutes: int
+) -> dict | None:
+    """Return the beat entry for the periodic summary sweep, or ``None``.
+
+    Issue #1793 (S5, spec §6.3). Three rules live here so they are testable
+    without reloading this settings module:
+
+    * the sweep only exists while its own flag is on,
+    * a non-positive tick means "off" (no entry at all), and
+    * a tick below the global minimum is clamped, never rejected — a 30-minute
+      tick would make every run a no-op once the workspace interval floors at
+      60 anyway.
+    """
+    if not enabled or tick_minutes <= 0:
+        return None
+    minutes = max(int(min_interval_minutes), int(tick_minutes))
+    return {
+        "task": "application.artifact_summary_sweep_tick",
+        "schedule": timedelta(minutes=minutes),
+    }
+
+
+_ARTIFACT_SUMMARY_BEAT_ENTRY = _artifact_summary_beat_entry(
+    enabled=ARTIFACT_SUMMARY_SWEEP_ENABLED,
+    tick_minutes=ARTIFACT_SUMMARY_TICK_MINUTES,
+    min_interval_minutes=ARTIFACT_SUMMARY_MIN_INTERVAL_MINUTES,
+)
+if _ARTIFACT_SUMMARY_BEAT_ENTRY is not None:
+    CELERY_BEAT_SCHEDULE["artifact-summary-sweep"] = _ARTIFACT_SUMMARY_BEAT_ENTRY
+
 
 # Use database scheduler for Celery Beat (REQ-030)
 # Requires django_celery_beat to be in INSTALLED_APPS and initialized with migrations

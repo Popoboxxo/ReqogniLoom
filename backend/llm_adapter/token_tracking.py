@@ -140,6 +140,21 @@ def get_daily_usage(days: int = 1) -> int:
     Returns:
         Sum of ``input_tokens + output_tokens`` over the window, or 0.
     """
+    return get_daily_usage_for_capability(None, days=days)
+
+
+def get_daily_usage_for_capability(
+    capability: str | None, days: int = 1
+) -> int:
+    """Return the active tenant's tokens for one capability (or all), best-effort.
+
+    Issue #1793 (S5, spec §9/E8): the summary sweep needs its *own* budget,
+    counted per purpose (``artifact_type_summary``), so it can neither eat the
+    other AI flows' budget nor be blocked by them unexpectedly. A ``None``
+    capability preserves the historical all-flows behaviour of
+    :func:`get_daily_usage`; callers that pass a capability get the same
+    fail-open contract (0 on any error).
+    """
     try:
         from django.db import transaction  # noqa: PLC0415
         from django.db.models import Sum  # noqa: PLC0415
@@ -155,7 +170,10 @@ def get_daily_usage(days: int = 1) -> int:
         # paths only. This one matters most: is_over_daily_limit() calls it
         # before *every* LLM request, in-request, from seven services.
         with transaction.atomic():
-            agg = TokenUsageRecord.objects.filter(created_at__gte=since).aggregate(
+            queryset = TokenUsageRecord.objects.filter(created_at__gte=since)
+            if capability is not None:
+                queryset = queryset.filter(capability=capability)
+            agg = queryset.aggregate(
                 total=Sum("input_tokens") + Sum("output_tokens")
             )
         return int(agg["total"] or 0)
@@ -249,6 +267,7 @@ __all__ = [
     "approximate_token_count",
     "get_daily_token_limit",
     "get_daily_usage",
+    "get_daily_usage_for_capability",
     "is_over_daily_limit",
     "record_token_usage",
 ]
