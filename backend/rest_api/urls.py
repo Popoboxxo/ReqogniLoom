@@ -246,6 +246,7 @@ from rest_api.views import (
     AdrViewSet,
     AllocationListView,
     ArchitectureElementViewSet,
+    ArtifactBulkTransitionView,
     ArtifactBulkUpdateView,
     ArtifactViewSet,
     AttributeSchemaView,
@@ -1319,6 +1320,13 @@ urlpatterns = [
         "artifacts/bulk-update/",
         ArtifactBulkUpdateView.as_view(),
         name="api-v1-artifact-bulk-update",
+    ),
+    # Slice 2 of the Tabellenansicht plan: the bulk workflow transition of the
+    # table view (same collection-route form and ordering reason as bulk-update).
+    path(
+        "artifacts/bulk-transition/",
+        ArtifactBulkTransitionView.as_view(),
+        name="api-v1-artifact-bulk-transition",
     ),
     # Issue #1792 (S1): on-demand AI summary of one artifact plus its visible
     # trace neighbours. Same nested-route form as the memory digest above and

@@ -238,6 +238,9 @@ _WRITE_TOOL_PREFIXES: tuple[str, ...] = (
     # R3.2 (document view): the batch write behind the editable document/table
     # view — one transaction over several artifacts (CrossCuttingToolGroup).
     "artifact.bulk_update",
+    # Slice 2 (Tabellenansicht): the bulk workflow transition — partial success,
+    # every id through the facade (CrossCuttingToolGroup).
+    "artifact.bulk_transition",
     "group.create",
     "group.add_member",
     "group.remove_member",

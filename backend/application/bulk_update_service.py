@@ -43,12 +43,37 @@ without a second vocabulary: ``NOT_FOUND``, ``WORKSPACE_MISMATCH``,
 ``expected_version``), ``FIELD_FROZEN``, ``WORKFLOW_FROZEN``,
 ``PERMISSION_DENIED``, ``VALIDATION_ERROR``.
 
+Bulk *transition* (Tabellenansicht plan, slice 2)
+-------------------------------------------------
+:meth:`BulkUpdateService.bulk_transition` is the second, deliberately different
+batch shape the table view needs: "move the selected rows to one state". It is
+**partial success by design** (spec §3.2), because a state graph legitimately
+refuses a subset (a draft may go to ``approved``, an already released row may
+not) and the user's selected page must not be all-or-nothing there.
+
+It never writes ``status``. Every id runs through
+:meth:`application.workflow_facade.WorkflowFacade.transition`, i.e. the normal
+per-artifact gate: the workspace's graph decides whether the edge exists, the
+preset/transition roles decide who may take it, the change-reason policy and
+signature gates apply per item, and the audit/history rows come from the same
+code path a single transition uses. The service adds only what a service cannot
+delegate: the 100-id bound, the derived workspace, the per-workspace role fence
+(the request names no workspace, so ``ctx.active_roles`` is the tenant-wide
+union — using it as-is would let an editor of workspace B transition A's rows)
+and the ``artifact_id`` → typed-row-id translation.
+
+Contract::
+
+    BulkTransitionResult(transitioned=[{artifact_id, state}],
+                         failed=[{index, artifact_id, code, message}])
+
 Architecture:
   docs/se/L1/Gesamtsystem/L2/ApplicationServiceSystem/
     L2_ApplicationServiceSystem_Architecture.md  (ADR-AS-01 single entry point)
 """
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import logging
 from collections.abc import Callable, Mapping, Sequence
@@ -70,6 +95,7 @@ from application.base import (
 from application.document_service import DocumentService
 from application.requirement_service import RequirementService
 from auth_tenancy.context import AuthContext
+from persistence.artifact_backing import ARTIFACT_TYPE_MODELS, model_for
 from persistence.models import Artifact, Document, Requirement
 from persistence.transactions import atomic_transaction
 
@@ -179,6 +205,36 @@ class BulkUpdateResult:
         return {"updated": list(self.updated), "errors": list(self.errors)}
 
 
+#: Upper bound for one bulk transition, deliberately the same page size as
+#: :data:`MAX_ENTRIES`: the table view selects at most a page. Over the limit is
+#: a *request* defect (400), not a business refusal.
+MAX_TRANSITION_IDS: int = 100
+
+
+@dataclass(frozen=True)
+class BulkTransitionResult:
+    """Outcome of :meth:`BulkUpdateService.bulk_transition`.
+
+    Unlike :class:`BulkUpdateResult` a non-empty ``failed`` list does **not**
+    mean nothing happened: bulk transition is partial-success by contract
+    (spec §3.2), so ``transitioned`` lists exactly the rows that moved and
+    ``failed`` names every row the graph/gate refused, by index.
+    """
+
+    transitioned: tuple[Mapping[str, Any], ...]
+    failed: tuple[Mapping[str, Any], ...]
+
+    @property
+    def ok(self) -> bool:
+        """True when every requested row was transitioned."""
+        return not self.failed
+
+    def to_dict(self) -> dict[str, list[Mapping[str, Any]]]:
+        """Return the transport payload (``{"transitioned": [...], "failed": [...]}``)."""
+        return {"transitioned": list(self.transitioned), "failed": list(self.failed)}
+
+
+
 class _EntryRejected(Exception):
     """Internal: one entry cannot be written; carries its public error payload."""
 
@@ -264,6 +320,33 @@ def _entry_error(index: int, entry: Any, exc: Exception) -> dict[str, Any]:
     # transaction rolls back and the defect is visible instead of being reported
     # as a tidy per-entry message.
     raise exc
+
+
+def _transition_error(
+    index: int, artifact_id: UUID, exc: Exception
+) -> dict[str, Any] | None:
+    """Translate a facade refusal into its ``failed[]`` entry.
+
+    Returns ``None`` for an exception that is not a domain refusal, so the
+    caller re-raises it instead of reporting a bug as a tidy per-row message.
+
+    Mapping (the four codes the plan fixes for this path; a ``ValidationError``
+    subclass such as ``DocumentGateFailedError`` is still bad input for the
+    requested edge, so it lands on ``VALIDATION_ERROR``):
+    ``PermissionDeniedError`` → ``FORBIDDEN``, ``OptimisticLockError`` →
+    ``CONFLICT``, ``NotFoundError`` → ``NOT_FOUND``, everything the workflow
+    facade raises (already remapped to ``ValidationError``/``PermissionDeniedError``/
+    ``OptimisticLockError``) → the matching code above.
+    """
+    if isinstance(exc, PermissionDeniedError):
+        return _error_payload(index, artifact_id, "FORBIDDEN", str(exc))
+    if isinstance(exc, OptimisticLockError):
+        return _error_payload(index, artifact_id, "CONFLICT", str(exc))
+    if isinstance(exc, NotFoundError):
+        return _error_payload(index, artifact_id, "NOT_FOUND", str(exc))
+    if isinstance(exc, ValidationError):
+        return _error_payload(index, artifact_id, "VALIDATION_ERROR", str(exc))
+    return None
 
 
 class BulkUpdateService(ServiceBase):
@@ -460,11 +543,277 @@ class BulkUpdateService(ServiceBase):
         return item_type, row_id
 
 
+    # ------------------------------------------------------------------
+    # Bulk workflow transition (Tabellenansicht slice 2)
+    # ------------------------------------------------------------------
+
+    def bulk_transition(
+        self,
+        ctx: AuthContext,
+        item_type: str,
+        artifact_ids: Sequence[UUID],
+        to_state: str,
+        change_reason: str,
+    ) -> BulkTransitionResult:
+        """Transition several artifacts of one type into one state.
+
+        Partial success: each id runs through the normal workflow facade in its
+        own savepoint, so one refused row neither aborts nor rolls back the
+        others. The response names what moved and what was refused, by index.
+
+        Args:
+            ctx: Resolved AuthContext of the caller. ``active_roles`` is
+                typically the tenant-wide union here (the request names no
+                workspace), which is exactly why this method re-resolves the
+                caller's roles **in the derived workspace** before writing.
+            item_type: ``Artifact.artifact_type`` every id must have, e.g.
+                ``"Requirement"``.
+            artifact_ids: 1..:data:`MAX_TRANSITION_IDS` backing Artifact ids
+                (the ids the table rows carry, not the typed row ids).
+            to_state: Target state name as declared in the workspace's graph.
+            change_reason: Non-empty reason, forwarded to every transition
+                (the facade applies the workspace's change-reason policy).
+
+        Returns:
+            :class:`BulkTransitionResult`.
+
+        Raises:
+            ValidationError: Request defect (400): empty id list, more than
+                :data:`MAX_TRANSITION_IDS` ids, a duplicate id, an unknown/blank
+                ``item_type``/``to_state``, a blank ``change_reason``, or ids
+                spanning two workspaces.
+            PermissionDeniedError: The caller holds no write role in the
+                workspace the ids belong to, or the API key is fenced elsewhere
+                (403).
+        """
+        self._set_tenant_context(ctx)
+
+        clean_type = self._validate_transition_request(
+            item_type, artifact_ids, to_state, change_reason
+        )
+        ids = [UUID(str(value)) for value in artifact_ids]
+
+        # One lookup for the whole batch: what exists, of which type, in which
+        # workspace. Missing ids are per-row NOT_FOUND (never a batch defect —
+        # a deleted row must not block the rows the user selected with it).
+        rows = {
+            row["id"]: row
+            for row in Artifact.objects.filter(
+                id__in=ids, tenant_id=ctx.tenant_id
+            ).values("id", "artifact_type", "workspace_id")
+        }
+        workspace_id = self._derive_transition_workspace(ids, rows)
+        if workspace_id is None:
+            # Nothing resolved: no workspace to check, and every id is a
+            # NOT_FOUND row. Report that instead of inventing a 403.
+            return BulkTransitionResult(
+                transitioned=(),
+                failed=tuple(
+                    self._transition_not_found(index, artifact_id)
+                    for index, artifact_id in enumerate(ids)
+                ),
+            )
+
+        scoped_ctx = self._assert_transition_rights(ctx, workspace_id)
+
+        transitioned: list[Mapping[str, Any]] = []
+        failed: list[Mapping[str, Any]] = []
+        for index, artifact_id in enumerate(ids):
+            row = rows.get(artifact_id)
+            if row is None:
+                failed.append(self._transition_not_found(index, artifact_id))
+                continue
+            if row["artifact_type"] != clean_type:
+                failed.append(
+                    _error_payload(
+                        index,
+                        artifact_id,
+                        "VALIDATION_ERROR",
+                        f"Artifact {artifact_id} is a '{row['artifact_type']}', "
+                        f"not a '{clean_type}'",
+                    )
+                )
+                continue
+
+            try:
+                state = self._transition_one(
+                    scoped_ctx, clean_type, artifact_id, to_state, change_reason
+                )
+            except Exception as exc:  # classified by _transition_error
+                failure = _transition_error(index, artifact_id, exc)
+                if failure is None:
+                    raise
+                failed.append(failure)
+                continue
+            transitioned.append(
+                {"artifact_id": str(artifact_id), "state": state}
+            )
+
+        return BulkTransitionResult(
+            transitioned=tuple(transitioned), failed=tuple(failed)
+        )
+
+    @staticmethod
+    def _validate_transition_request(
+        item_type: str,
+        artifact_ids: Sequence[UUID],
+        to_state: str,
+        change_reason: str,
+    ) -> str:
+        """Return the normalised item type, or raise the 400-class defect."""
+        if isinstance(artifact_ids, (str, bytes)) or not isinstance(
+            artifact_ids, Sequence
+        ):
+            raise ValidationError("ids must be a list of artifact ids")
+        ids = list(artifact_ids)
+        if not ids:
+            raise ValidationError("ids must not be empty")
+        if len(ids) > MAX_TRANSITION_IDS:
+            raise ValidationError(
+                f"ids must not contain more than {MAX_TRANSITION_IDS} items "
+                f"(got {len(ids)})"
+            )
+        seen: set[str] = set()
+        for position, value in enumerate(ids):
+            if not isinstance(value, UUID):
+                raise ValidationError(f"ids[{position}] is not a UUID")
+            if str(value) in seen:
+                raise ValidationError(
+                    f"ids[{position}] repeats artifact {value}: a row cannot be "
+                    "transitioned twice in one request"
+                )
+            seen.add(str(value))
+        clean_type = (item_type or "").strip()
+        if not clean_type:
+            raise ValidationError("item_type must not be empty")
+        if clean_type not in ARTIFACT_TYPE_MODELS:
+            raise ValidationError(
+                f"'{clean_type}' is not an artifact type that can be transitioned"
+            )
+        if not (to_state or "").strip():
+            raise ValidationError("to_state must not be empty")
+        if not (change_reason or "").strip():
+            raise ValidationError("change_reason must not be empty")
+        return clean_type
+
+    @staticmethod
+    def _derive_transition_workspace(
+        ids: Sequence[UUID], rows: Mapping[UUID, Mapping[str, Any]]
+    ) -> UUID | None:
+        """Return the one workspace the resolvable ids belong to.
+
+        ``None`` when no id resolved. Raises ``ValidationError`` naming the first
+        id whose workspace differs: one request must not span two workspaces, or
+        the role fence it passed would not describe it.
+        """
+        workspace_id: UUID | None = None
+        for artifact_id in ids:
+            row = rows.get(artifact_id)
+            if row is None:
+                continue
+            if workspace_id is None:
+                workspace_id = row["workspace_id"]
+            elif row["workspace_id"] != workspace_id:
+                raise ValidationError(
+                    f"Artifact {artifact_id} belongs to another workspace: one "
+                    "bulk transition must stay inside a single workspace"
+                )
+        return workspace_id
+
+    def _assert_transition_rights(
+        self, ctx: AuthContext, workspace_id: UUID
+    ) -> AuthContext:
+        """Authorise the caller in *workspace_id* and scope *ctx* to it.
+
+        Returns a context whose ``active_roles`` are the roles held **in that
+        workspace** and whose ``workspace_id`` names it. That single change is
+        what makes the facade's own gates (preset transition roles, signature
+        gate) evaluate the right authority: they read ``ctx.active_roles``.
+
+        Raises:
+            PermissionDeniedError: The key is fenced away from the workspace, or
+                the caller holds no role there that permits a write (403).
+        """
+        from auth_tenancy.resource_scope import workspace_fence_denial
+        from auth_tenancy.services.authorization import (
+            AuthorizationService,
+            Operation,
+        )
+
+        fence = tuple(getattr(ctx, "api_key_workspace_ids", ()) or ())
+        denial = workspace_fence_denial(fence, workspace_id)
+        if denial is not None:
+            raise PermissionDeniedError(denial)
+
+        authz = AuthorizationService()
+        roles = authz.active_roles_for(
+            user_id=ctx.user_id, workspace_id=workspace_id
+        )
+        if not authz.decide_access(roles, Operation.WRITE).allow:
+            raise PermissionDeniedError(
+                "Permission denied: bulk transition requires a write role in "
+                f"workspace {workspace_id}, user has {roles}"
+            )
+        return dataclasses.replace(
+            ctx, active_roles=roles, workspace_id=workspace_id
+        )
+
+    def _transition_one(
+        self,
+        ctx: AuthContext,
+        item_type: str,
+        artifact_id: UUID,
+        to_state: str,
+        change_reason: str,
+    ) -> str:
+        """Run one id through the workflow facade; return the new state.
+
+        The typed row id, not the artifact id, is what the engine keys on, so it
+        is resolved here (the same ``artifact_id`` FK every type uses).
+
+        Raises:
+            NotFoundError: The artifact has no typed row (data defect).
+            Plus every refusal :meth:`WorkflowFacade.transition` raises.
+        """
+        from application.workflow_facade import WorkflowFacade
+
+        entity_id = (
+            model_for(item_type)
+            .objects.filter(artifact_id=artifact_id, tenant_id=ctx.tenant_id)
+            .values_list("id", flat=True)
+            .first()
+        )
+        if entity_id is None:
+            raise NotFoundError(
+                f"No {item_type} row backs artifact {artifact_id}"
+            )
+        result = WorkflowFacade().transition(
+            entity_id,
+            to_state,
+            change_reason,
+            ctx,
+            item_type=item_type,
+            workspace_id=ctx.workspace_id,
+        )
+        return str(result.new_state)
+
+    @staticmethod
+    def _transition_not_found(
+        index: int, artifact_id: UUID
+    ) -> Mapping[str, Any]:
+        """The per-row payload for an id that does not resolve in this tenant."""
+        return _error_payload(
+            index, artifact_id, "NOT_FOUND", f"Artifact {artifact_id} not found"
+        )
+
+
 __all__ = [
     "ACCEPTED_FIELDS",
     "MAX_ENTRIES",
+    "MAX_TRANSITION_IDS",
     "UPDATE_DISPATCH",
     "BulkEntry",
+    "BulkTransitionResult",
     "BulkUpdateResult",
     "BulkUpdateService",
 ]

@@ -214,6 +214,10 @@
    "post"
   ],
   [
+   "/api/v1/artifacts/bulk-transition/",
+   "post"
+  ],
+  [
    "/api/v1/artifacts/bulk-update/",
    "patch"
   ],

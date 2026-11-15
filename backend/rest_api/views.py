@@ -112,6 +112,7 @@ from application.bulk_update_service import (
     BulkEntry,
     BulkUpdateService,
     MAX_ENTRIES as MAX_BULK_ENTRIES,
+    MAX_TRANSITION_IDS as MAX_BULK_TRANSITION_IDS,
 )
 # R1 reading view (docs/superpowers/plans/2026-11-15-document-view-on-document.md):
 # one read object, no write path.
@@ -251,6 +252,8 @@ from rest_api.serializers import (
     BaselineSummarySerializer,
     BaselineTagsRequestSerializer,
     BaselineTagsResponseSerializer,
+    BulkTransitionRequestSerializer,
+    BulkTransitionResponseSerializer,
     BulkUpdateRequestSerializer,
     BulkUpdateResponseSerializer,
     ChangeRequestSerializer,
@@ -9963,6 +9966,101 @@ class ArtifactBulkUpdateView(APIView):
             # 409 with the same body shape as the success case: the request was
             # well-formed and authorised, it conflicted with the stored state.
             return Response(result.to_dict(), status=status.HTTP_409_CONFLICT)
+        return Response(result.to_dict(), status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# ArtifactBulkTransitionView — slice 2 of the Tabellenansicht plan
+# ---------------------------------------------------------------------------
+
+
+class ArtifactBulkTransitionView(APIView):
+    """POST /api/v1/artifacts/bulk-transition/ — move several rows to one state.
+
+    The bulk accept/reject/release action of the table view (slice 2, spec
+    §3.2). Like :class:`ArtifactBulkUpdateView` an ``APIView`` on the
+    ``artifacts/`` collection, registered *before* ``router.urls`` so the
+    router's ``artifacts/<pk>/`` detail pattern cannot swallow the segment.
+
+    Contract
+    --------
+    * **200** — every row was processed. ``{"transitioned": [{artifact_id,
+      state}], "failed": [{index, artifact_id, code, message}]}``. Partial
+      success is the *specified* behaviour (a state graph legitimately refuses a
+      subset), so failures keep 200 rather than turning the page into an error.
+    * **400** — the request itself is malformed: empty/duplicate id list, more
+      than ``MAX_TRANSITION_IDS`` ids, an empty ``change_reason``/``to_state``,
+      or ids spanning two workspaces.
+    * **403** — the caller holds no write role in the workspace the ids belong
+      to (the workspace is derived from the ids, see
+      :class:`application.bulk_update_service.BulkUpdateService`).
+
+    No ``If-Match``/412: optimistic locking on this path is the workflow row's
+    own CAS, and the route publishes none (contract gate
+    ``rest_api/conditional_requests.py``).
+
+    The write itself is never this class's business (ADR-01): every id runs
+    through :class:`application.bulk_update_service.BulkUpdateService`
+    ``.bulk_transition`` → ``WorkflowFacade.transition``.
+    """
+
+    @extend_schema(
+        tags=["artifacts"],
+        summary="Bulk-transition several artifacts into one workflow state",
+        description=(
+            f"Moves 1..{MAX_BULK_TRANSITION_IDS} artifacts of one type into one "
+            "target state, each through the workspace's own workflow graph. "
+            "Partial success: rows the graph or a gate refuses are reported in "
+            "failed[] and do not stop the others. The workspace is derived from "
+            "the ids (no workspace_id in the body) and the caller must hold a "
+            "write role there."
+        ),
+        request=BulkTransitionRequestSerializer,
+        responses={
+            200: BulkTransitionResponseSerializer,
+            400: OpenApiResponse(
+                description=(
+                    "Malformed body, an empty/duplicate id list, more than "
+                    f"{MAX_BULK_TRANSITION_IDS} ids, or ids of two workspaces."
+                )
+            ),
+            403: OpenApiResponse(
+                description=(
+                    "The caller has no write role in the workspace the ids "
+                    "belong to."
+                )
+            ),
+        },
+    )
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        lang = detect_lang(request)
+        serializer = BulkTransitionRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[
+                        {"field": key, "errors": value}
+                        for key, value in serializer.errors.items()
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        try:
+            ctx = get_auth_context(request)
+            result = BulkUpdateService().bulk_transition(
+                ctx,
+                data["item_type"],
+                data["ids"],
+                data["to_state"],
+                data["change_reason"],
+            )
+        except Exception as exc:  # noqa: BLE001 — mapped by _service_error_response
+            return _service_error_response(exc, lang)
+
         return Response(result.to_dict(), status=status.HTTP_200_OK)
 
 
