@@ -278,6 +278,48 @@ describe("ConnectionView — filters are URL state", () => {
   });
 });
 
+describe("ConnectionView — the trees mode is additive (V.3)", () => {
+  it("mode_trees_is_reachable_and_additive", async () => {
+    renderView();
+
+    // The default stays the architecture tree until V.5.
+    expect(await screen.findByTestId("tree-renderer")).toBeInTheDocument();
+    expect(screen.getByTestId("view-switch-tree")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+
+    fireEvent.click(screen.getByTestId("view-switch-trees"));
+
+    expect(
+      await screen.findByTestId("allocation-trees-renderer")
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("tree-renderer")).not.toBeInTheDocument();
+    expect(screen.getByTestId("view-switch-trees")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+
+    // Additivity guarantee of this slice: the assistant list is untouched, so
+    // the existing selection/write path keeps working next to the new mode.
+    expect(screen.getByTestId("assistant-row-r1")).toBeInTheDocument();
+    expect(screen.getByTestId("assistant-check-r1")).toBeInTheDocument();
+  });
+
+  it("restores the trees mode from the URL and keeps the filters", async () => {
+    renderView("/connections?q=bremse&view=trees");
+
+    expect(
+      await screen.findByTestId("allocation-trees-renderer")
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("filter-q")).toHaveValue("bremse");
+    expect(allocationViewApi.view).toHaveBeenLastCalledWith(
+      "ws-1",
+      expect.objectContaining({ q: "bremse" })
+    );
+  });
+});
+
 describe("ConnectionView — writes go through the atomic bulk endpoint", () => {
   it("allocates a dragged requirement via POST /trace-links/bulk/", async () => {
     renderView();

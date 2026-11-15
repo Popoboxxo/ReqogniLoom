@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CONNECTION_VIEW_MODES,
   DEFAULT_PAGE_SIZE,
   SERVER_PAGE_SIZE,
   buildConnectionSearch,
@@ -171,7 +172,7 @@ describe("URL round-trip", () => {
 });
 
 describe("parseConnectionView", () => {
-  it("defaults to the tree and only accepts the four known renderers", () => {
+  it("defaults to the tree and only accepts the five known renderers", () => {
     expect(parseConnectionView(new URLSearchParams())).toBe("tree");
     expect(parseConnectionView(new URLSearchParams("view=matrix"))).toBe("matrix");
     expect(parseConnectionView(new URLSearchParams("view=two-column"))).toBe(
@@ -179,5 +180,13 @@ describe("parseConnectionView", () => {
     );
     expect(parseConnectionView(new URLSearchParams("view=graph"))).toBe("graph");
     expect(parseConnectionView(new URLSearchParams("view=unknown"))).toBe("tree");
+  });
+
+  it("V.3: recognises `trees` additively without changing the default", () => {
+    expect(parseConnectionView(new URLSearchParams("view=trees"))).toBe("trees");
+    // No `view` parameter still means `Baum`; V.5 owns the default flip.
+    expect(parseConnectionView(new URLSearchParams("q=bremse"))).toBe("tree");
+    expect(CONNECTION_VIEW_MODES).toContain("trees");
+    expect(CONNECTION_VIEW_MODES[0]).toBe("tree");
   });
 });

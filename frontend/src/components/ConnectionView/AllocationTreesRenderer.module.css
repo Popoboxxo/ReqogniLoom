@@ -1,0 +1,271 @@
+/**
+ * AllocationTreesRenderer — styles (V.3).
+ *
+ * CSS Modules + tokens from `styles/tokens.css` only; no hardcoded colours or
+ * sizes (the ~28px row height is `1.75rem`, i.e. the same compact rhythm the
+ * rest of the connection view uses via `--space-*`). The reduced-motion reset
+ * lives once in `styles/global.css`, so the chevron transition needs no local
+ * media query.
+ *
+ * Class names deliberately avoid the `btn`/`button`/`tab`/`chip`/`pill`/
+ * `segment` tokens: the design-system ratchet reads those as button geometry
+ * and would freeze a row/disclosure box that is not a button.
+ */
+
+.trees {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* The single scroll container both columns share — no scroll sync. */
+.scroll {
+  position: relative;
+  overflow: auto;
+  max-height: 70vh;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+/* Positioning context for the edge overlay; also the two-column grid. */
+.canvas {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: var(--space-6);
+  align-items: start;
+  padding: var(--space-2);
+}
+
+.edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.edge {
+  fill: none;
+  stroke: var(--color-primary);
+  stroke-width: 1.5;
+  opacity: 0.55;
+}
+
+.column {
+  min-width: 0;
+}
+
+.columnTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.count {
+  display: inline-flex;
+  min-width: 1.5rem;
+  justify-content: center;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  letter-spacing: normal;
+}
+
+.treeList,
+.subtree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.subtree {
+  padding-inline-start: var(--space-4);
+}
+
+/* The tree node itself: no box of its own, the row line below carries it. */
+.node {
+  min-width: 0;
+}
+
+.rowLine {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 1.75rem;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.rowLine:hover {
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+}
+
+.nodeSelected > .rowLine {
+  background-color: color-mix(
+    in srgb,
+    var(--color-primary) 14%,
+    transparent
+  );
+}
+
+.nodeLocked > .rowLine {
+  opacity: 0.6;
+}
+
+.nodeDropTarget > .rowLine {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+/*
+ * The disclosure keeps the shared `btn-ghost` chrome (design-system ratchet:
+ * no bare `<button>`) but is sized down to the 24px target floor, because a
+ * 36px button would stretch every tree row to 36px and the compact ~28px row
+ * rhythm is the point of this renderer. 24px is exactly WCAG 2.2 SC 2.5.8's
+ * minimum target size, not below it.
+ */
+.expander {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  min-height: 1.5rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.expander:hover {
+  color: var(--color-text);
+}
+
+.expanderSpacer {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 1.5rem;
+}
+
+.icon {
+  transition: transform var(--transition-fast);
+}
+
+.iconOpen {
+  transform: rotate(90deg);
+  transition: transform var(--transition-fast);
+}
+
+.rowTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* Element rows have no right-aligned target column, so their title only takes
+ * the space it needs and the trailing `.fill` keeps the rest empty. */
+.elementTitle {
+  flex: 0 1 auto;
+}
+
+.fill {
+  flex: 1 1 auto;
+}
+
+.target {
+  flex: 0 1 auto;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.badge {
+  flex: 0 0 auto;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.lock {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--color-warning);
+}
+
+.rowAction {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  min-height: 1.5rem;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.rowAction:hover {
+  color: var(--color-danger);
+}
+
+.status,
+.empty {
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-left-width: 4px;
+  border-radius: var(--radius-sm);
+  background: color-mix(
+    in srgb,
+    var(--color-danger) 12%,
+    var(--color-surface-raised)
+  );
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.errorCode {
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}

@@ -3562,7 +3562,8 @@
       "tree": "Baum",
       "twoColumn": "Zwei Spalten",
       "matrix": "Matrix",
-      "graph": "Graph"
+      "graph": "Graph",
+      "trees": "Bäume"
     },
     "quick": {
       "open": "Offen",
@@ -3641,6 +3642,11 @@
       "confirmHint": "Die folgenden Schreibvorgänge werden als ein atomarer Batch gesendet:",
       "confirm": "Bestätigen und schreiben",
       "cancel": "Abbrechen"
+    },
+    "trees": {
+      "expand": "{{title}} ausklappen",
+      "collapse": "{{title}} zuklappen",
+      "deallocate": "Allokation von „{{title}}“ löschen"
     }
   },
   "allocationGraph": {

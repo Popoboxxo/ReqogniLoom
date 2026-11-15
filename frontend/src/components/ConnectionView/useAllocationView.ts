@@ -35,14 +35,20 @@ import { asError } from "../../queries/query-error";
 import { isRowLocked } from "../../utils/allocation";
 import { useWorkspace } from "../../context/WorkspaceContext";
 
-/** The four renderers: P3's three plus the P5 card graph. */
-export type ConnectionViewMode = "tree" | "two-column" | "matrix" | "graph";
+/** The five renderers: P3's three, the P5 card graph and V.3's two trees. */
+export type ConnectionViewMode =
+  | "tree"
+  | "two-column"
+  | "matrix"
+  | "graph"
+  | "trees";
 
 export const CONNECTION_VIEW_MODES: readonly ConnectionViewMode[] = [
   "tree",
   "two-column",
   "matrix",
   "graph",
+  "trees",
 ];
 
 /** Default client-side window for the matrix. */
@@ -202,10 +208,24 @@ export function elementFiltersToQuery(
   return query;
 }
 
-/** Parse the selected renderer from the URL; `Baum` is the default. */
+/**
+ * Parse the selected renderer from the URL; `Baum` is the default.
+ *
+ * V.3 adds `trees` **additively**: it is reachable through the URL and the view
+ * switcher, but a URL without `view` keeps resolving to `tree`. The default
+ * flip (with its alias and one-time notice) is V.5's decision and must not ride
+ * along with the renderer.
+ */
 export function parseConnectionView(params: URLSearchParams): ConnectionViewMode {
   const raw = params.get("view");
-  if (raw === "two-column" || raw === "matrix" || raw === "graph") return raw;
+  if (
+    raw === "two-column" ||
+    raw === "matrix" ||
+    raw === "graph" ||
+    raw === "trees"
+  ) {
+    return raw;
+  }
   return "tree";
 }
 

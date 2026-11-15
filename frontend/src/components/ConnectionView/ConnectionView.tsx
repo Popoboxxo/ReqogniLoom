@@ -2,11 +2,11 @@
  * ARCH-L1-001 ReactFrontend — Connection View page (P3 Tasks 3.2–3.4).
  *
  * Route `/connections`. Header view switcher
- * [Baum | Zwei Spalten | Matrix | Graph] (default Baum; the card graph is the
- * P5 renderer), quick + free filters, counters from the read object's `meta`,
- * and per-user saved views. All filter state lives in the URL, so the
- * renderers switch without losing a filter and a reload/bookmark restores the
- * same view.
+ * [Baum | Zwei Spalten | Matrix | Graph | Bäume] (default Baum; the card graph
+ * is the P5 renderer, the two trees are V.3's additive mode), quick + free
+ * filters, counters from the read object's `meta`, and per-user saved views. All
+ * filter state lives in the URL, so the renderers switch without losing a
+ * filter and a reload/bookmark restores the same view.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -24,11 +24,13 @@ import {
   type SavedConnectionView,
 } from "../../api/connection-views";
 import { AllocationAssistant } from "./AllocationAssistant";
+import { AllocationTreesRenderer } from "./AllocationTreesRenderer";
 import { FilterBar } from "./FilterBar";
 import { MatrixRenderer } from "./MatrixRenderer";
 import { TreeRenderer } from "./TreeRenderer";
 import { TwoColumnRenderer } from "./TwoColumnRenderer";
 import { useAllocationMutations } from "./useAllocationMutations";
+import { useAllocationSelection } from "./useAllocationSelection";
 import {
   DEFAULT_PAGE_SIZE,
   useAllocationView,
@@ -37,6 +39,14 @@ import {
 import styles from "./ConnectionView.module.css";
 
 const STALE_TIME_MS = 60 * 1000;
+
+/**
+ * V.3 ships the edge overlay switched on. The user-level preference
+ * `ui.connection_view.show_edges` (plan V.0) owns this switch in a later slice;
+ * until then the renderer gets the documented default, so a missing preference
+ * cannot silently hide the edges.
+ */
+const SHOW_EDGES_DEFAULT = true;
 
 function newViewId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -71,6 +81,11 @@ export function ConnectionView(): JSX.Element {
   const hasRole = useHasRole();
   const canEdit = hasRole("editor");
   const cardFields = useCardFields(workspaceId);
+  // V.3: the tree renderer's selection. It is created here (not inside the
+  // renderer) so the action bar in V.4 can read the same selection instead of
+  // keeping a second one. The assistant below still owns its own list state in
+  // this slice — that is the additivity guarantee.
+  const selection = useAllocationSelection(requirements);
 
   const tiersQuery = useQuery({
     queryKey: ["workspace-tiers", workspaceId],
@@ -127,6 +142,9 @@ export function ConnectionView(): JSX.Element {
     { mode: "two-column", label: t("connectionView.views.twoColumn") },
     { mode: "matrix", label: t("connectionView.views.matrix") },
     { mode: "graph", label: t("connectionView.views.graph") },
+    // V.3 is additive: the new mode is appended, so every existing button keeps
+    // its position and test id and the default stays `Baum` until V.5.
+    { mode: "trees", label: t("connectionView.views.trees") },
   ];
 
   const persistSavedViews = (views: SavedConnectionView[]): void => {
@@ -278,6 +296,17 @@ export function ConnectionView(): JSX.Element {
               allocate={allocate}
               canEdit={canEdit}
               cardFields={cardFields}
+            />
+          )}
+          {view === "trees" && (
+            <AllocationTreesRenderer
+              requirements={requirements}
+              elements={elements}
+              selection={selection}
+              showEdges={SHOW_EDGES_DEFAULT}
+              onAllocate={allocate}
+              onDeallocate={deallocate}
+              canEdit={canEdit}
             />
           )}
         </div>

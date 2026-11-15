@@ -3562,7 +3562,8 @@
       "tree": "Tree",
       "twoColumn": "Two columns",
       "matrix": "Matrix",
-      "graph": "Graph"
+      "graph": "Graph",
+      "trees": "Trees"
     },
     "quick": {
       "open": "Open",
@@ -3641,6 +3642,11 @@
       "confirmHint": "The following writes will be sent as one atomic batch:",
       "confirm": "Confirm and write",
       "cancel": "Cancel"
+    },
+    "trees": {
+      "expand": "Expand {{title}}",
+      "collapse": "Collapse {{title}}",
+      "deallocate": "Remove allocation of “{{title}}”"
     }
   },
   "allocationGraph": {
