@@ -5,7 +5,9 @@
  *
  * - the filter state lives in the URL (round-trips across reloads, survives
  *   switching the view), never in component state;
- * - the flat `allocation-view` read object is fetched through React Query;
+ * - the flat `allocation-view` read object is fetched through React Query in
+ *   two targeted reads (`kind=requirement` / `kind=element`, V2/B-3), so the
+ *   page cap applies per row kind;
  * - the requirement/element split and the two UI-only quick filters
  *   (`Gesperrt`, `Befunde`) are applied client-side because the committed
  *   read object exposes those two flags per row but has no server filter for
@@ -43,10 +45,9 @@ export const CONNECTION_VIEW_MODES: readonly ConnectionViewMode[] = [
 export const DEFAULT_PAGE_SIZE = 50;
 
 /**
- * The read object paginates the *combined* requirement+element list; elements
- * are appended after requirements, so a small page would contain no element
- * rows at all and the tree/matrix would lose their columns. The renderers
- * therefore read the maximum page and window the matrix client-side.
+ * The read object paginates per call; the renderers need the full catalogue,
+ * so each targeted read (requirements / elements, V2/B-3) takes the maximum
+ * page. The 500 cap therefore applies **per kind**, not to the combined set.
  */
 export const SERVER_PAGE_SIZE = 500;
 
@@ -164,6 +165,8 @@ export function filtersToQuery(
   if (filters.q) query.q = filters.q;
   // `filters.group` is deliberately not forwarded: group membership is a
   // client-side join, the read object accepts no group parameter.
+  // `kind` is not a filter either — the two reads set it themselves (V2/B-3),
+  // so it must never leak into the URL or into a filter round-trip.
   return query;
 }
 
@@ -197,8 +200,8 @@ export const allocationViewKeys = {
   all: ["allocation-view"] as const,
   rows: (workspaceId: string | null, query: AllocationViewQuery) =>
     [...allocationViewKeys.all, "rows", workspaceId, query] as const,
-  elements: (workspaceId: string | null) =>
-    [...allocationViewKeys.all, "elements", workspaceId] as const,
+  elements: (workspaceId: string | null, query: AllocationViewQuery) =>
+    [...allocationViewKeys.all, "elements", workspaceId, query] as const,
   groups: (workspaceId: string | null) =>
     [...allocationViewKeys.all, "groups", workspaceId] as const,
 };
@@ -217,7 +220,10 @@ export interface UseAllocationViewResult {
   requirements: AllocationRow[];
   /** Requirements before the two client-side quick filters (filter options). */
   allRequirements: AllocationRow[];
-  /** Full element catalogue (independent of the active filters). */
+  /**
+   * Elements of the element read (V2/B-3). The server-side filters apply —
+   * `element_subtree` therefore restricts this column too.
+   */
   elements: AllocationRow[];
   /** P6: groups offered by the `group` filter (empty when none exist). */
   groups: ConnectionGroupOption[];
@@ -248,18 +254,31 @@ export function useAllocationView(): UseAllocationViewResult {
   const view = parseConnectionView(searchParams);
   const query = useMemo(() => filtersToQuery(filters), [filters]);
 
+  // V2/B-3: two targeted reads instead of two full loads. `kind` narrows the
+  // page server-side, so the 500 cap applies per row kind and a page full of
+  // requirements can no longer crowd the element rows out.
   const rowsQuery = useQuery({
-    queryKey: allocationViewKeys.rows(workspaceId, query),
-    queryFn: () => allocationViewApi.view(workspaceId as string, query),
+    queryKey: allocationViewKeys.rows(workspaceId, {
+      ...query,
+      kind: "requirement",
+    }),
+    queryFn: () =>
+      allocationViewApi.view(workspaceId as string, {
+        ...query,
+        kind: "requirement",
+      }),
     enabled: Boolean(workspaceId),
   });
 
   const elementsQuery = useQuery({
-    queryKey: allocationViewKeys.elements(workspaceId),
+    queryKey: allocationViewKeys.elements(workspaceId, {
+      ...query,
+      kind: "element",
+    }),
     queryFn: () =>
       allocationViewApi.view(workspaceId as string, {
-        page_size: SERVER_PAGE_SIZE,
-        offset: 0,
+        ...query,
+        kind: "element",
       }),
     enabled: Boolean(workspaceId),
   });
@@ -348,13 +367,12 @@ export function useAllocationView(): UseAllocationViewResult {
   );
 
   const elements = useMemo(() => {
-    const fromCatalog =
+    // V2/B-3: elements come only from the element read — no fallback to the
+    // requirement page (which no longer contains element rows at all).
+    const fromElementRead =
       elementsQuery.data?.results.filter((row) => row.kind === "element") ?? [];
-    const source = fromCatalog.length
-      ? fromCatalog
-      : allRows.filter((row) => row.kind === "element");
-    return source.slice().sort(compareRows);
-  }, [elementsQuery.data, allRows]);
+    return fromElementRead.slice().sort(compareRows);
+  }, [elementsQuery.data]);
 
   const setFilters = useCallback(
     (patch: Partial<ConnectionFilters>) => {

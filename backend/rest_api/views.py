@@ -8345,7 +8345,11 @@ class WorkspaceViewSet(BaseEntityViewSet):
 
     @action(detail=True, methods=["get"], url_path="allocation-view")
     def allocation_view(self, request: Request, pk: str, **kwargs: Any) -> Response:
-        """GET /api/v1/workspaces/{pk}/allocation-view/ — flat view (P3)."""
+        """GET /api/v1/workspaces/{pk}/allocation-view/ — flat view (P3).
+
+        Query parameters: ``kind=requirement|element`` narrows the page to one
+        row kind (counters stay global, V2/B-1); ``page_size`` is 1..500.
+        """
         from application.allocation_view_service import AllocationViewService
 
         lang = detect_lang(request)
@@ -8364,6 +8368,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 ctx,
                 allocated=_bool("allocated"),
                 intent=params.get("intent"),
+                kind=params.get("kind"),
                 tier=params.get("tier"),
                 type=params.get("type"),
                 category=params.get("category"),
