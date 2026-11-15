@@ -133,8 +133,8 @@ export const previewBoxStyle: React.CSSProperties = {
 export const formDangerButtonStyle: React.CSSProperties = {
   padding: "var(--space-2) var(--space-4)",
   background: "transparent",
-  color: "var(--color-danger, #ef4444)",
-  border: "1px solid var(--color-danger, #ef4444)",
+  color: "var(--color-danger)",
+  border: "1px solid var(--color-danger)",
   borderRadius: "var(--radius-md)",
   cursor: "pointer",
   fontSize: "var(--font-size-sm)",
