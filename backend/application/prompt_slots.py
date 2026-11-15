@@ -52,6 +52,10 @@ MEMORY_HARD_OFF_SLOTS: frozenset[str] = frozenset(
         # from artifact content that the memory extractor already reads, so an
         # injected memory block would be a second feedback path.
         "artifact_summary",
+        # Issue #1793 (S5): the periodic per-type summary reads the same
+        # artifact content, so an injected memory block would be the same
+        # second feedback path.
+        "artifact_type_summary",
     }
 )
 
@@ -169,6 +173,13 @@ _DATA_VARIABLES_BY_SLOT: dict[str, tuple[str, ...]] = {
         "artifact_json",
         "neighbours_json",
         "artifact_type",
+        "language",
+    ),
+    # Issue #1793 (S5): every artifact of one type in the workspace.
+    "artifact_type_summary": (
+        "artifact_type",
+        "items_json",
+        "item_count",
         "language",
     ),
     "interview.grounding_rank": (

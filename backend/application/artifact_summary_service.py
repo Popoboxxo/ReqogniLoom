@@ -64,7 +64,7 @@ from application.base import (
     ValidationError,
 )
 from application.effective_permission_service import EffectivePermissionService
-from persistence.models import Artifact, TraceLink, Workspace
+from persistence.models import Artifact, ArtifactSummary, TraceLink, Workspace
 
 if TYPE_CHECKING:
     from auth_tenancy.context import AuthContext
@@ -188,10 +188,9 @@ def resolve_trace_depth(workspace: Any | None, requested: int | None = None) -> 
 
     Spec §9/E3: the workspace setting ``summary_trace_depth`` is the default and
     the caller may ask for less/more, but both are clamped rather than rejected
-    -- ``0`` behaves like 1, ``7`` like 2. The workspace column itself arrives
-    with the periodic scope (#1793, S5); until then the attribute lookup simply
-    finds nothing and the documented default applies, so this function needs no
-    change when the column lands.
+    -- ``0`` behaves like 1, ``7`` like 2. Since S5 the column exists on
+    :class:`~persistence.models.Workspace`; the attribute lookup stays
+    defensive so a bare ``SimpleNamespace`` in tests keeps working.
     """
     configured: Any = requested
     if configured is None and workspace is not None:
@@ -201,6 +200,49 @@ def resolve_trace_depth(workspace: Any | None, requested: int | None = None) -> 
     except (TypeError, ValueError):
         value = DEFAULT_TRACE_DEPTH
     return max(1, min(MAX_TRACE_DEPTH, value))
+
+
+# ---------------------------------------------------------------------------
+# Issue #1793 (S5, spec §9/E8): the summary-only daily token budget.
+#
+# Counted per purpose (``artifact_type_summary``) so the sweep can neither eat
+# the other AI flows' budget nor be blocked by it unexpectedly. ``0``/empty
+# means "off", matching ``TENANT_TOKEN_LIMIT_PER_DAY`` semantics.
+# ---------------------------------------------------------------------------
+
+#: Prompt slot *and* token-accounting purpose of the periodic type summary.
+TYPE_SUMMARY_PROMPT_TEMPLATE_NAME = "artifact_type_summary"
+
+#: Cap on the roster prompt: at most this many artifacts, each rendered to
+#: ``ROSTER_MAX_CHARS_PER_ITEM``. Same reasoning as the S1 caps — the prompt
+#: must stay bounded no matter how large the workspace grows.
+ROSTER_MAX_ITEMS = 200
+ROSTER_MAX_CHARS_PER_ITEM = 300
+
+
+def summary_daily_token_limit() -> int:
+    """Return the summary-only daily limit; ``0`` means unlimited."""
+    try:
+        value = int(getattr(settings, "SUMMARY_DAILY_TOKEN_LIMIT", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, value)
+
+
+def summary_tokens_used_today() -> int:
+    """Tokens spent on summary purposes in the active tenant's last 24 h."""
+    from llm_adapter.token_tracking import get_daily_usage_for_capability
+
+    return get_daily_usage_for_capability(TYPE_SUMMARY_PROMPT_TEMPLATE_NAME)
+
+
+def summary_budget_exhausted() -> bool:
+    """Whether the summary-only daily budget is spent (fail-open when unset)."""
+    limit = summary_daily_token_limit()
+    if limit <= 0:
+        return False
+    return summary_tokens_used_today() >= limit
+
 
 
 class _ReadAccess:
@@ -673,6 +715,216 @@ class ArtifactSummaryService(ServiceBase):
             generated_at=generated_at,
         )
 
+    # -- periodic per-type scope (issue #1793 / S5) ----------------------
+
+    def summarize_artifact_type(
+        self,
+        ctx: AuthContext,
+        workspace_id: UUID | str,
+        artifact_type: str,
+        *,
+        trigger: str = "periodic",
+    ) -> str:
+        """Summarise every artifact of *artifact_type* in one workspace.
+
+        Returns ``summarized|skipped:<reason>|failed``. The write is an upsert
+        into :class:`~persistence.models.ArtifactSummary` (one row per
+        ``(workspace, artifact_type)``), so a second run with an unchanged
+        input is a no-op that does **not** touch ``updated_at`` (spec §6.5).
+
+        Gates that need identity/schedule live in
+        :mod:`application.artifact_summary_sweep`; this method only owns the
+        content and the row. It still re-checks the summary-only budget so a
+        direct/manual call (S6) cannot bypass §9/E8.
+        """
+        from application.ai_derivation_service import AiDerivationService
+        from application.artifact_indexer import SOURCES, _artifact_label
+        from application.summary_support import TYPE_ROSTER_KIND, upsert_summary
+
+        self._set_tenant_context(ctx)
+        workspace = (
+            Workspace.objects.filter(id=workspace_id)
+            .only("id", "tenant_id", "language")
+            .first()
+        )
+        if workspace is None:
+            return "skipped:no_workspace"
+
+        spec = SOURCES.get(artifact_type)
+        if spec is None:
+            return "skipped:unknown_type"
+
+        rows = _roster_rows(spec, workspace, artifact_type)
+        if not rows:
+            # Spec §6.5: an empty type is not a summary opportunity — no call,
+            # no write.
+            return "skipped:empty"
+
+        items = _roster_items(rows, spec, _artifact_label)
+        language = (getattr(workspace, "language", "") or "en").strip() or "en"
+        provider, provider_name, resolve_error = self._resolve_provider()
+        items_json = json.dumps(items, ensure_ascii=False, sort_keys=True)
+
+        try:
+            prompt = AiDerivationService._resolve_and_render(
+                ctx,
+                TYPE_SUMMARY_PROMPT_TEMPLATE_NAME,
+                workspace.id,
+                artifact_type=artifact_type,
+                items_json=items_json,
+                item_count=len(items),
+                language=language,
+            )
+            prompt += AiDerivationService._language_instruction(workspace.id)
+        except Exception:  # noqa: BLE001 - degrade, never fail the sweep
+            logger.exception("artifact_type_summary: prompt resolution failed")
+            return "failed"
+
+        content_hash = _roster_content_hash(
+            items=items,
+            prompt=prompt,
+            provider_name=provider_name,
+            language=language,
+        )
+        existing = ArtifactSummary.objects.filter(
+            workspace=workspace,
+            summary_kind=TYPE_ROSTER_KIND,
+            artifact_type=artifact_type,
+        ).first()
+        if (
+            existing is not None
+            and existing.status == ArtifactSummary.Status.OK
+            and existing.content_hash == content_hash
+        ):
+            return "skipped:unchanged"
+
+        latest_updated = max(
+            (row.modified_at for row in rows if getattr(row, "modified_at", None)),
+            default=None,
+        )
+        digest = {
+            "item_count": len(items),
+            "latest_updated_at": latest_updated.isoformat() if latest_updated else None,
+        }
+
+        if summary_budget_exhausted():
+            logger.warning(
+                "artifact_type_summary: summary budget exhausted for %s/%s",
+                workspace.id,
+                artifact_type,
+            )
+            upsert_summary(
+                workspace=workspace,
+                summary_kind=TYPE_ROSTER_KIND,
+                artifact_type=artifact_type,
+                values={
+                    "text": existing.text if existing is not None else "",
+                    "content_hash": content_hash,
+                    "input_digest": digest,
+                    "prompt_slot": TYPE_SUMMARY_PROMPT_TEMPLATE_NAME,
+                    "provider": provider_name,
+                    "trigger": trigger,
+                    "status": ArtifactSummary.Status.SKIPPED,
+                    "reason": ArtifactSummary.Reason.BUDGET_EXHAUSTED,
+                },
+            )
+            return "skipped:budget_exhausted"
+
+        if provider is None or provider_name == MOCK_PROVIDER_NAME:
+            logger.warning(
+                "artifact_type_summary: no usable LLM provider (%s)",
+                resolve_error or provider_name,
+            )
+            upsert_summary(
+                workspace=workspace,
+                summary_kind=TYPE_ROSTER_KIND,
+                artifact_type=artifact_type,
+                values={
+                    "text": existing.text if existing is not None else "",
+                    "content_hash": content_hash,
+                    "input_digest": digest,
+                    "prompt_slot": TYPE_SUMMARY_PROMPT_TEMPLATE_NAME,
+                    "provider": provider_name,
+                    "trigger": trigger,
+                    "status": ArtifactSummary.Status.FAILED,
+                    "reason": ArtifactSummary.Reason.PROVIDER_UNAVAILABLE,
+                },
+            )
+            return "skipped:no_provider"
+
+        timeout = float(getattr(settings, "SUMMARY_SYNC_TIMEOUT_SECONDS", 20))
+        try:
+            text = provider.complete(
+                prompt,
+                purpose=TYPE_SUMMARY_PROMPT_TEMPLATE_NAME,
+                timeout=timeout,
+            )
+        except Exception:  # noqa: BLE001 - one failed scope must not abort the sweep
+            logger.exception(
+                "artifact_type_summary: provider call failed for %s/%s",
+                workspace.id,
+                artifact_type,
+            )
+            upsert_summary(
+                workspace=workspace,
+                summary_kind=TYPE_ROSTER_KIND,
+                artifact_type=artifact_type,
+                values={
+                    "text": existing.text if existing is not None else "",
+                    "content_hash": content_hash,
+                    "input_digest": digest,
+                    "prompt_slot": TYPE_SUMMARY_PROMPT_TEMPLATE_NAME,
+                    "provider": provider_name,
+                    "trigger": trigger,
+                    "status": ArtifactSummary.Status.FAILED,
+                    "reason": ArtifactSummary.Reason.PROVIDER_UNAVAILABLE,
+                },
+            )
+            return "failed"
+
+        cleaned = (text or "").strip()
+        if not cleaned:
+            return "skipped:empty_answer"
+
+        from llm_adapter.token_tracking import (
+            approximate_token_count,
+            record_token_usage,
+        )
+
+        input_tokens = approximate_token_count(prompt)
+        output_tokens = approximate_token_count(cleaned)
+        record_token_usage(
+            provider=provider_name,
+            capability=TYPE_SUMMARY_PROMPT_TEMPLATE_NAME,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            workspace_id=str(workspace.id),
+        )
+
+        upsert_summary(
+            workspace=workspace,
+            summary_kind=TYPE_ROSTER_KIND,
+            artifact_type=artifact_type,
+            values={
+                "text": cleaned,
+                "content_hash": content_hash,
+                "input_digest": digest,
+                "prompt_slot": TYPE_SUMMARY_PROMPT_TEMPLATE_NAME,
+                "provider": provider_name,
+                "model": str(
+                    getattr(provider, "MODEL_NAME", "")
+                    or getattr(provider, "model", "")
+                    or ""
+                ),
+                "token_usage": input_tokens + output_tokens,
+                "trigger": trigger,
+                "status": ArtifactSummary.Status.OK,
+                "reason": "",
+                "generated_at": timezone.now(),
+            },
+        )
+        return "summarized"
+
     # -- helpers ---------------------------------------------------------
 
     @staticmethod
@@ -773,6 +1025,55 @@ def _as_uuid(value: Any) -> UUID:
         raise ValidationError("artifact_id must be a UUID.") from None
 
 
+def _roster_rows(spec: Any, workspace: Workspace, artifact_type: str) -> list[Any]:
+    """Return the tenant+workspace rows of one source type, deterministically.
+
+    ``SOURCES`` entries are the same models the indexer renders into text, so
+    the summary sees exactly what search sees. Sorting by primary key keeps the
+    prompt (and therefore the content hash) stable across runs.
+    """
+    model = spec.model()
+    manager = getattr(model, "unscoped", model.objects)
+    queryset = manager.filter(tenant_id=workspace.tenant_id)
+    if any(field.name == "workspace" for field in model._meta.get_fields()):
+        queryset = queryset.filter(workspace_id=workspace.id)
+    rows = [row for row in queryset if spec.workspace(row) == workspace.id]
+    rows.sort(key=lambda row: str(row.pk))
+    return rows
+
+
+def _roster_items(rows: list[Any], spec: Any, label_of: Any) -> list[dict[str, Any]]:
+    """Render at most ``ROSTER_MAX_ITEMS`` rows as compact, bounded entries."""
+    items: list[dict[str, Any]] = []
+    for row in rows[:ROSTER_MAX_ITEMS]:
+        text = spec.render(row)
+        items.append(
+            {
+                "id": str(row.pk),
+                "label": label_of(row),
+                "text": text[:ROSTER_MAX_CHARS_PER_ITEM],
+            }
+        )
+    return items
+
+
+def _roster_content_hash(
+    *, items: list[dict[str, Any]], prompt: str, provider_name: str, language: str
+) -> str:
+    """Hash the input set plus everything that changes the answer (spec §6.5)."""
+    payload = json.dumps(
+        {
+            "items": items,
+            "prompt": prompt,
+            "provider": provider_name,
+            "language": language,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 __all__ = [
     "DEFAULT_TRACE_DEPTH",
     "DEGRADATION_REASONS",
@@ -782,8 +1083,14 @@ __all__ = [
     "DEGRADED_STALE",
     "MAX_TRACE_DEPTH",
     "PROMPT_TEMPLATE_NAME",
+    "ROSTER_MAX_CHARS_PER_ITEM",
+    "ROSTER_MAX_ITEMS",
+    "TYPE_SUMMARY_PROMPT_TEMPLATE_NAME",
     "ArtifactSummaryResult",
     "ArtifactSummaryService",
     "SummaryLimits",
     "resolve_trace_depth",
+    "summary_budget_exhausted",
+    "summary_daily_token_limit",
+    "summary_tokens_used_today",
 ]

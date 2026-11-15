@@ -131,6 +131,18 @@ PROMPT_VARIABLE_DEFAULTS: dict[str, PromptVariableSpec] = {
         "direction, hop, rationale); empty when nothing is linked.",
         "json",
     ),
+    # Issue #1793 (S5): the roster the periodic per-type summary reads.
+    "items_json": _data(
+        "items_json",
+        "JSON array of every artifact of the summarised type in the workspace "
+        "(id, label, bounded text).",
+        "json",
+    ),
+    "item_count": _data(
+        "item_count",
+        "Number of artifacts in items_json (capped at the roster ceiling).",
+        "int",
+    ),
     "answers_text": _data(
         "answers_text", "The interview answers collected so far, as text."
     ),
