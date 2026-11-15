@@ -353,7 +353,14 @@ class ArtifactSummarySweeper:
                 TenantContext.set_tenant(previous)
 
     def run_sweep(self, tenant_id: UUID | str) -> dict[str, int | bool]:
-        """Summarise the due scopes of one tenant, bounded by the global batch."""
+        """Summarise the due scopes of one tenant, bounded by the global batch.
+
+        The worker runs outside any request thread, so it must arm **both**
+        isolation layers before the first query: ``set_request_tenant`` (ORM
+        thread-local *and* ``SET app.current_tenant`` for Postgres RLS), not the
+        bare ``TenantContext``. With only the thread-local set, RLS filters every
+        row away and the tick silently reports zeros while scopes are due.
+        """
         counts: dict[str, int | bool] = {
             "summarized": 0,
             "skipped": 0,
@@ -365,10 +372,16 @@ class ArtifactSummarySweeper:
             counts["disabled"] = True
             return counts
 
+        from persistence.middleware import clear_request_tenant, set_request_tenant
+
         tenant_uuid = UUID(str(tenant_id))
-        previous = TenantContext.get_tenant() if TenantContext.is_set() else None
-        TenantContext.set_tenant(tenant_uuid)
+        # #522: under CELERY_TASK_ALWAYS_EAGER the task body may run inline on a
+        # thread that already carries a tenant; snapshot it so the teardown does
+        # not clear the caller's isolation.
+        tenant_was_set = TenantContext.is_set()
+        previous = TenantContext.get_tenant() if tenant_was_set else None
         try:
+            set_request_tenant(tenant_uuid)
             now = timezone.now()
             workspaces = list(
                 Workspace.objects.filter(tenant_id=tenant_uuid, is_active=True)
@@ -423,10 +436,21 @@ class ArtifactSummarySweeper:
                     counts["skipped"] += 1
             return counts
         finally:
-            if previous is None:
-                TenantContext.clear_tenant()
-            else:
-                TenantContext.set_tenant(previous)
+            if tenant_was_set and previous is not None:
+                # Restore the caller's tenant on *both* layers.
+                try:
+                    set_request_tenant(previous)
+                except Exception:  # noqa: BLE001 - teardown must not mask the cause
+                    logger.exception(
+                        "summary sweep could not restore the previous tenant context"
+                    )
+            elif TenantContext.is_set():
+                try:
+                    clear_request_tenant()
+                except Exception:  # noqa: BLE001 - teardown must not mask the cause
+                    logger.exception(
+                        "summary sweep could not reset the tenant context"
+                    )
 
 
 def run_sweep_all() -> dict[str, int | bool]:
