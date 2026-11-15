@@ -3693,6 +3693,14 @@ class ChangeRequestSerializer(
 
     id = serializers.UUIDField(read_only=True)
     workspace_id = serializers.UUIDField(required=True)
+    # #1763 parity / audit 2026-11-15 §5.3: id of the backing Artifact. The
+    # Inspector's comment panel addresses comments by Artifact, not by the
+    # per-type entity id, so without this field the CR comment tab degrades to
+    # "not available". Read-only — the Artifact is created by
+    # ChangeRequestService.create_change_request (``ensure_artifact``), never
+    # supplied by the client; nullable because the OneToOne is nullable for
+    # rows migrated from the pre-Phase-3 data model.
+    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
     title = SanitizedCharField(max_length=255)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     # #104: narrative CCB fields, unbounded before (DoS risk).

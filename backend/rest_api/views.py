@@ -8173,6 +8173,13 @@ def _cr_to_dict(cr: Any) -> dict[str, Any]:
     return {
         "id": str(cr.id),
         "workspace_id": str(cr.workspace_id),
+        # #1763 parity / audit 2026-11-15 §5.3: every artifact-backed entity
+        # response carries the backing Artifact id. Without it a client cannot
+        # tell which Artifact a ChangeRequest owns (comment/trace/version
+        # panels are Artifact-addressed).
+        "artifact_id": (
+            str(cr.artifact_id) if getattr(cr, "artifact_id", None) else None
+        ),
         "title": cr.title,
         "description": getattr(cr, "description", ""),
         "impact_assessment": getattr(cr, "impact_assessment", ""),
