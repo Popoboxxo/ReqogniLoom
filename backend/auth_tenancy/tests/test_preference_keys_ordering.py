@@ -5,6 +5,8 @@ registry used to reject as unknown:
 
 * ``ui.connection_view.saved_views`` — user-scoped JSON-encoded view documents.
 * ``ui.allocation_graph.card_fields`` — global/workspace/user card configuration.
+* ``ui.connection_view.show_edges`` / ``ui.connection_view.filters_expanded`` —
+  user-scoped booleans for the connection view (navigation plan V.0).
 
 These tests pin the registry contract and the level gate: a key is only
 writable on a level its ``PreferenceKey.levels`` declares, and a ``str_list``
@@ -26,6 +28,8 @@ from persistence.errors import ValidationError
 
 SAVED_VIEWS_KEY = "ui.connection_view.saved_views"
 CARD_FIELDS_KEY = "ui.allocation_graph.card_fields"
+SHOW_EDGES_KEY = "ui.connection_view.show_edges"
+FILTERS_EXPANDED_KEY = "ui.connection_view.filters_expanded"
 
 pytestmark = pytest.mark.django_db
 
@@ -206,3 +210,83 @@ class TestCardFieldsLevels:
             workspace_id=workspace_a.id,
         )
         assert _effective() == {"value": ["global"], "source": "global"}
+
+
+class TestConnectionViewDisplayRegistration:
+    """Navigation plan V.0 — the connection view's two display switches."""
+
+    def test_both_keys_are_registered_as_user_scoped_booleans(self) -> None:
+        show_edges = get_preference_key(SHOW_EDGES_KEY)
+        assert (
+            show_edges.value_type,
+            show_edges.default,
+            show_edges.mode,
+            show_edges.ui_editor,
+            show_edges.owner,
+        ) == ("bool", True, "override", "checkbox", "P3")
+        assert show_edges.levels == {"user"}
+        assert show_edges.choices is None
+
+        filters_expanded = get_preference_key(FILTERS_EXPANDED_KEY)
+        assert (
+            filters_expanded.value_type,
+            filters_expanded.default,
+            filters_expanded.mode,
+            filters_expanded.ui_editor,
+            filters_expanded.owner,
+        ) == ("bool", False, "override", None, "P3")
+        assert filters_expanded.levels == {"user"}
+        assert filters_expanded.choices is None
+
+    @pytest.mark.parametrize(
+        ("key", "expected_default"),
+        [(SHOW_EDGES_KEY, True), (FILTERS_EXPANDED_KEY, False)],
+    )
+    def test_unset_key_resolves_to_its_registry_default(
+        self, service, admin_ctx, key: str, expected_default: bool
+    ) -> None:
+        resolved = service.effective(admin_ctx, keys=[key])["values"][key]
+
+        assert resolved == {"value": expected_default, "source": "default"}
+
+    @pytest.mark.parametrize("key", [SHOW_EDGES_KEY, FILTERS_EXPANDED_KEY])
+    def test_non_boolean_value_is_rejected(self, key: str) -> None:
+        spec = get_preference_key(key)
+        with pytest.raises(ValidationError, match="must be a boolean"):
+            validate_preference_value(spec, "true")
+
+
+class TestConnectionViewDisplayLevels:
+    """User-only level gate (spec D7/D8): no workspace/global default."""
+
+    @pytest.mark.parametrize("key", [SHOW_EDGES_KEY, FILTERS_EXPANDED_KEY])
+    @pytest.mark.parametrize("value", [True, False])
+    def test_user_level_accepts_a_boolean(
+        self, service, admin_ctx, key: str, value: bool
+    ) -> None:
+        payload = service.set_level(admin_ctx, scope="user", values={key: value})
+        assert payload["values"] == {key: value}
+
+        effective = service.effective(admin_ctx, keys=[key])["values"][key]
+        assert effective == {"value": value, "source": "user"}
+
+    @pytest.mark.parametrize("key", [SHOW_EDGES_KEY, FILTERS_EXPANDED_KEY])
+    def test_workspace_level_write_is_rejected(
+        self, service, admin_ctx, workspace_a, key: str
+    ) -> None:
+        with pytest.raises(
+            ValidationError, match="cannot be set at level 'workspace'"
+        ):
+            service.set_level(
+                admin_ctx,
+                scope="workspace",
+                values={key: True},
+                workspace_id=workspace_a.id,
+            )
+
+    @pytest.mark.parametrize("key", [SHOW_EDGES_KEY, FILTERS_EXPANDED_KEY])
+    def test_global_level_write_is_rejected(
+        self, service, admin_ctx, key: str
+    ) -> None:
+        with pytest.raises(ValidationError, match="cannot be set at level 'global'"):
+            service.set_level(admin_ctx, scope="global", values={key: True})
