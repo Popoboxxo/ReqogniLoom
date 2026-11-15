@@ -113,3 +113,143 @@ export async function fetchArtifactSummary(
   );
   return toArtifactSummary(wire);
 }
+
+// ---------------------------------------------------------------------------
+// Stored per-scope summaries (issue #1793 / S6, surface in S8)
+// ---------------------------------------------------------------------------
+
+/** Wire form of one persisted summary scope (spec §6.6). */
+interface StoredSummaryWire {
+  workspace_id: string;
+  summary_kind: string;
+  artifact_type: string | null;
+  artifact_id: string | null;
+  text: string | null;
+  reason: string | null;
+  stale: boolean;
+  item_count: number;
+  status: string | null;
+  provider: string | null;
+  model: string | null;
+  token_usage: number | null;
+  trigger: string | null;
+  generated_at: string | null;
+  updated_at: string | null;
+}
+
+interface StoredSummaryRefreshWire extends StoredSummaryWire {
+  outcome: string;
+}
+
+interface WorkspaceSummaryListWire {
+  workspace_id: string;
+  summaries: StoredSummaryWire[];
+  count: number;
+  truncated: boolean;
+  limit: number;
+}
+
+export interface StoredSummary {
+  workspaceId: UUID;
+  /** `type_roster` for a workspace/type stand, `artifact` for a single item. */
+  summaryKind: string;
+  artifactType: string | null;
+  artifactId: string | null;
+  /** Generated free text; `null` when the scope has never produced one. */
+  text: string | null;
+  /** Closed enum (E11). `null` for a scope that was never summarised. */
+  reason: SummaryDegradedReason | null;
+  stale: boolean;
+  itemCount: number;
+  status: string | null;
+  provider: string | null;
+  model: string | null;
+  tokenUsage: number | null;
+  trigger: string | null;
+  generatedAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface WorkspaceSummaryList {
+  workspaceId: UUID;
+  summaries: StoredSummary[];
+  count: number;
+  truncated: boolean;
+  limit: number;
+}
+
+export interface RefreshedTypeSummary extends StoredSummary {
+  /** `summarized | skipped:<reason> | failed` — the manual run's verdict. */
+  outcome: string;
+}
+
+function toStoredSummary(wire: StoredSummaryWire): StoredSummary {
+  return {
+    workspaceId: wire.workspace_id,
+    summaryKind: wire.summary_kind,
+    artifactType: wire.artifact_type,
+    artifactId: wire.artifact_id,
+    text: wire.text,
+    reason: toDegradedReason(wire.reason),
+    stale: wire.stale,
+    itemCount: wire.item_count,
+    status: wire.status,
+    provider: wire.provider,
+    model: wire.model,
+    tokenUsage: wire.token_usage,
+    trigger: wire.trigger,
+    generatedAt: wire.generated_at,
+    updatedAt: wire.updated_at,
+  };
+}
+
+/**
+ * Every stored type stand of one workspace (read-only, free).
+ *
+ * Types that were never summarised are simply absent from the list — the
+ * caller renders its own "nothing yet" state instead of inventing a reason.
+ */
+export async function fetchWorkspaceSummaries(
+  workspaceId: UUID,
+): Promise<WorkspaceSummaryList> {
+  const wire = await apiClient.get<WorkspaceSummaryListWire>(
+    `/workspaces/${workspaceId}/summaries/`,
+  );
+  return {
+    workspaceId: wire.workspace_id,
+    summaries: wire.summaries.map(toStoredSummary),
+    count: wire.count,
+    truncated: wire.truncated,
+    limit: wire.limit,
+  };
+}
+
+/**
+ * The stored stand of one artifact type. A never-summarised type answers the
+ * empty payload (`text: null`, `itemCount: 0`, `reason: null`), never a 404.
+ */
+export async function fetchTypeSummary(
+  workspaceId: UUID,
+  artifactType: string,
+): Promise<StoredSummary> {
+  const wire = await apiClient.get<StoredSummaryWire>(
+    `/workspaces/${workspaceId}/summaries/${encodeURIComponent(artifactType)}/`,
+  );
+  return toStoredSummary(wire);
+}
+
+/**
+ * One manual run of a type stand. Requires a write role; every brake of the
+ * periodic sweep (switch, budget, agent key, throttle) stays in force, so a
+ * refused run still resolves with `outcome: "skipped:<reason>"`.
+ */
+export async function refreshTypeSummary(
+  workspaceId: UUID,
+  artifactType: string,
+): Promise<RefreshedTypeSummary> {
+  const wire = await apiClient.post<StoredSummaryRefreshWire>(
+    `/workspaces/${workspaceId}/summaries/${encodeURIComponent(artifactType)}/refresh/`,
+    {},
+  );
+  return { ...toStoredSummary(wire), outcome: wire.outcome };
+}

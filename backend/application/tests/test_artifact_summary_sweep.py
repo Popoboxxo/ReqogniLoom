@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -36,6 +35,8 @@ from application.artifact_summary_sweep import (
     resolve_summary_scopes,
 )
 from application.summary_support import TYPE_ROSTER_KIND, upsert_summary
+from audit.models import AuditEntry
+from auth_tenancy.context import AuthContext, AuthMethod
 from auth_tenancy.models import ApiKey, UserRole
 from persistence.models import ArtifactSummary, Tenant, User, Workspace
 from persistence.tenancy import TenantContext
@@ -318,7 +319,14 @@ def test_summarize_artifact_type_upserts_one_row_per_type(settings, tenant):
 
     provider = _FakeProvider()
     service = ArtifactSummaryService()
-    ctx = SimpleNamespace(tenant_id=tenant.id, user_id=uuid.uuid4())
+    ctx = AuthContext(
+        user_id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        active_roles=("editor",),
+        auth_method=AuthMethod.API_KEY,
+        actor_type="agent",
+        agent_label="Summary Bot",
+    )
 
     with patch.object(
         ArtifactSummaryService,
@@ -372,6 +380,129 @@ def test_beat_entry_clamps_the_tick(settings):
     assert entry is not None
     assert entry["task"] == "application.artifact_summary_sweep_tick"
     assert entry["schedule"].total_seconds() == 3600
+
+
+# ---------------------------------------------------------------------------
+# Audit trail (S8, #1792/#1793)
+# ---------------------------------------------------------------------------
+
+
+def _summary_audit_rows(tenant: Tenant) -> list[AuditEntry]:
+    TenantContext.set_tenant(tenant.id)
+    try:
+        return list(
+            AuditEntry.objects.filter(
+                op=AuditEntry.OP_ARTIFACT_SUMMARY_GENERATE
+            ).order_by("timestamp")
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+def test_every_paid_run_writes_exactly_one_audit_entry(settings, tenant):
+    """Three summarised scopes -> three audit entries, one per provider call.
+
+    The entry carries the cost and the scope, never the generated text: an
+    audit query about *AI spend* must not become a second copy of the content.
+    """
+    workspaces = []
+    for index in range(3):
+        workspace = _workspace(tenant, summary_scopes=["Requirement"])
+        TenantContext.set_tenant(tenant.id)
+        try:
+            make_requirement(workspace, title=f"Audited {index}")
+        finally:
+            TenantContext.clear_tenant()
+        workspaces.append(workspace)
+    _enable(settings, key=_agent_key(tenant, workspaces[0]), batch=25)
+
+    provider = _FakeProvider()
+    with patch.object(
+        ArtifactSummaryService,
+        "_resolve_provider",
+        staticmethod(lambda: (provider, "fake", None)),
+    ), patch(
+        "application.ai_derivation_service.AiDerivationService._resolve_and_render",
+        return_value="PROMPT",
+    ):
+        counts = ArtifactSummarySweeper().run_sweep(tenant.id)
+
+    assert counts["summarized"] == 3
+    assert provider.complete.call_count == 3
+    rows = _summary_audit_rows(tenant)
+    assert len(rows) == 3
+    for row in rows:
+        assert row.entity_type == "ArtifactSummary"
+        assert row.actor_type == "agent"
+        assert row.details["artifact_type"] == "Requirement"
+        assert row.details["item_count"] == 1
+        assert row.details["provider"] == "fake"
+        assert row.details["trigger"] == "periodic"
+        # No content, no artifact titles: only ids, counts and cost.
+        assert "text" not in row.details
+        assert "PROMPT" not in str(row.details)
+
+
+def test_unchanged_roster_writes_no_second_audit_entry(settings, tenant):
+    """A cache hit / unchanged roster is not a paid run and must not be logged."""
+    workspace = _workspace(tenant)
+    TenantContext.set_tenant(tenant.id)
+    try:
+        make_requirement(workspace, title="Login")
+    finally:
+        TenantContext.clear_tenant()
+
+    provider = _FakeProvider()
+    service = ArtifactSummaryService()
+    ctx = AuthContext(
+        user_id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        active_roles=("editor",),
+        auth_method=AuthMethod.API_KEY,
+        actor_type="agent",
+        agent_label="Summary Bot",
+    )
+
+    with patch.object(
+        ArtifactSummaryService,
+        "_resolve_provider",
+        staticmethod(lambda: (provider, "fake", None)),
+    ), patch(
+        "application.ai_derivation_service.AiDerivationService._resolve_and_render",
+        return_value="PROMPT",
+    ):
+        assert service.summarize_artifact_type(ctx, workspace.id, "Requirement") == "summarized"
+        assert (
+            service.summarize_artifact_type(ctx, workspace.id, "Requirement")
+            == "skipped:unchanged"
+        )
+
+    assert provider.complete.call_count == 1
+    assert len(_summary_audit_rows(tenant)) == 1
+
+
+def test_flag_off_and_budget_write_no_audit_entry(settings, tenant):
+    """The two cheapest non-runs stay silent in the audit log as well."""
+    workspace = _workspace(tenant, summary_scopes=["Requirement"])
+    _enable(settings, key=_agent_key(tenant, workspace))
+    settings.ARTIFACT_SUMMARY_SWEEP_ENABLED = False
+
+    ArtifactSummarySweeper().run_sweep(tenant.id)
+    assert _summary_audit_rows(tenant) == []
+
+    settings.ARTIFACT_SUMMARY_SWEEP_ENABLED = True
+    with patch(
+        "application.artifact_summary_sweep.summary_budget_exhausted",
+        return_value=True,
+    ):
+        outcome = ArtifactSummarySweeper().run_for_scope(
+            tenant_id=tenant.id,
+            workspace_id=workspace.id,
+            artifact_type="Requirement",
+        )
+
+    assert outcome == "skipped:budget_exhausted"
+    assert _summary_audit_rows(tenant) == []
 
 
 # ---------------------------------------------------------------------------

@@ -2228,6 +2228,20 @@
       "stale": "Die gespeicherte Zusammenfassung ist veraltet.",
       "disabled": "KI-Zusammenfassungen sind für diesen Workspace deaktiviert.",
       "unknown": "Kein Grund angegeben."
+    },
+    "overview": {
+      "title": "Überblick",
+      "ariaLabel": "Typ-Überblick",
+      "refresh": "Typ-Zusammenfassung aktualisieren",
+      "working": "Wird aktualisiert …",
+      "loading": "Typ-Zusammenfassung wird geladen …",
+      "loadFailed": "Die Typ-Zusammenfassung konnte nicht geladen werden.",
+      "refreshFailed": "Die Typ-Zusammenfassung konnte nicht aktualisiert werden.",
+      "refreshed": "Typ-Zusammenfassung aktualisiert.",
+      "empty": "Noch keine Typ-Zusammenfassung gespeichert.",
+      "itemCount": "{{n}} Artefakte",
+      "generatedAt": "Stand vom {{date}}",
+      "staleBadge": "Veraltet"
     }
   },
   "notifications": {

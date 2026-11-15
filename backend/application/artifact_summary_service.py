@@ -71,6 +71,7 @@ from application.base import (
 )
 from application.effective_permission_service import EffectivePermissionService
 from application.summary_support import ARTIFACT_KIND, TYPE_ROSTER_KIND
+from audit.models import AuditEntry
 from persistence.models import Artifact, ArtifactSummary, TraceLink, Workspace
 
 if TYPE_CHECKING:
@@ -1081,7 +1082,7 @@ class ArtifactSummaryService(ServiceBase):
             workspace_id=str(workspace.id),
         )
 
-        upsert_summary(
+        row = upsert_summary(
             workspace=workspace,
             summary_kind=TYPE_ROSTER_KIND,
             artifact_type=artifact_type,
@@ -1101,6 +1102,25 @@ class ArtifactSummaryService(ServiceBase):
                 "status": ArtifactSummary.Status.OK,
                 "reason": "",
                 "generated_at": timezone.now(),
+            },
+        )
+        # S8 (#1792/#1793): exactly one audit entry per *paid* run — a cache
+        # hit, an unchanged roster, a spent budget or an off switch return
+        # before this point and write nothing. Details carry the cost and the
+        # scope, never the generated text or an artifact title (no content,
+        # no PII in the audit log).
+        self._audit(
+            ctx=ctx,
+            operation=AuditEntry.OP_ARTIFACT_SUMMARY_GENERATE,
+            entity_type="ArtifactSummary",
+            entity_id=row.id,
+            details={
+                "workspace_id": str(workspace.id),
+                "artifact_type": artifact_type,
+                "item_count": len(items),
+                "provider": provider_name,
+                "trigger": trigger,
+                "token_usage": input_tokens + output_tokens,
             },
         )
         return "summarized"

@@ -143,14 +143,21 @@ export type { ArtifactKind } from "../components/shared/ArtifactInspector/types"
 export { commentsApi } from "./comments";
 export type { Comment, ListCommentsOptions } from "./comments";
 // Issue #1792 (S2): the on-demand AI summary behind the inspector's Summary tab.
+// Issue #1793 (S8): the stored per-type stands the overview block reads.
 export {
   fetchArtifactSummary,
+  fetchTypeSummary,
+  fetchWorkspaceSummaries,
+  refreshTypeSummary,
   SUMMARY_DEGRADED_REASONS,
 } from "./artifact-summary";
 export type {
   ArtifactSummary,
   FetchArtifactSummaryOptions,
+  RefreshedTypeSummary,
+  StoredSummary,
   SummaryDegradedReason,
+  WorkspaceSummaryList,
 } from "./artifact-summary";
 export { NOTIFICATION_FEED_LIMIT, notificationsApi } from "./notifications";
 export type { Notification, NotificationFeed, NotificationKind } from "./notifications";

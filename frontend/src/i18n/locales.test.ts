@@ -53,6 +53,23 @@ const SUMMARY_REASON_KEYS = [
   "unknown",
 ];
 
+// Issue #1793/S8: the stored type stand above the Summary tab. Same rule —
+// a half-translated overview is a visible defect, not a build error.
+const SUMMARY_OVERVIEW_KEYS = [
+  "title",
+  "ariaLabel",
+  "refresh",
+  "working",
+  "loading",
+  "loadFailed",
+  "refreshFailed",
+  "refreshed",
+  "empty",
+  "itemCount",
+  "generatedAt",
+  "staleBadge",
+];
+
 // Plan F F2-T8: the Documents route's own namespace. Listed explicitly so a
 // newly added call site cannot ship with only one language filled in — the
 // generic de/en key-set parity guard covers presence, this covers usage.
@@ -199,6 +216,12 @@ describe.each([
   it.each(SUMMARY_REASON_KEYS)("has summary.reason.%s", (key) => {
     expect(
       ((locale.summary as Record<string, unknown>).reason as Record<string, string>)[key]
+    ).toBeTruthy();
+  });
+
+  it.each(SUMMARY_OVERVIEW_KEYS)("has summary.overview.%s", (key) => {
+    expect(
+      ((locale.summary as Record<string, unknown>).overview as Record<string, string>)[key]
     ).toBeTruthy();
   });
 
