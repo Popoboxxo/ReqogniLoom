@@ -196,6 +196,13 @@ class AuditEntry(TenantScopedModel):
     # sessions did that kill" must be answerable from the audit trail without
     # reconstructing it from a generic ``update`` on the User row.
     OP_USER_PASSWORD_CHANGE = "user.password_change"
+    # #1792/#1793 (S8): a stored artifact/type summary is written by a paid LLM
+    # completion, and the periodic sweep runs unattended under an agent key.
+    # "which scope did the AI summarise, when, at what token cost" must be
+    # answerable from the audit trail alone — a generic ``create``/``update``
+    # on the ArtifactSummary row would drown in ordinary CRUD. Own namespace,
+    # same reasoning as the ``ai.*`` family above; fits varchar(32).
+    OP_ARTIFACT_SUMMARY_GENERATE = "artifact_summary.generate"
     # NOTE (#265): ``op`` is validated against this list by
     # ``AuditLogWriter.write`` via ``full_clean``, and ``ServiceBase._audit``
     # re-raises the resulting ValidationError — so a service that audits an
@@ -277,6 +284,7 @@ class AuditEntry(TenantScopedModel):
         (OP_USER_MFA_ENROLL_GRANT, "User MFA Enrollment Grant"),
         (OP_USER_MFA_CUTOVER, "User MFA Cutover"),
         (OP_USER_PASSWORD_CHANGE, "User Password Change"),
+        (OP_ARTIFACT_SUMMARY_GENERATE, "Artifact Summary Generate"),
     ]
 
     SOURCE_REST = "rest"

@@ -28,7 +28,16 @@ import {
   type ArtifactSummary,
   type SummaryDegradedReason,
 } from "../../../api/artifact-summary";
+import { useOptionalWorkspace } from "../../../context/WorkspaceContext";
+import { useHasRole } from "../../../hooks/useHasRole";
 import { useInspectorAnnouncer } from "./InspectorLiveRegions";
+import { SUMMARY_TYPE_BY_KIND, SummaryOverview } from "./SummaryOverview";
+import {
+  REASON_FALLBACKS,
+  REASON_LABEL_KEYS,
+  formatGeneratedAt,
+} from "./summaryReasonLabels";
+import type { ArtifactKind } from "./types";
 import styles from "./SummaryPanel.module.css";
 
 export interface SummaryPanelProps {
@@ -36,25 +45,6 @@ export interface SummaryPanelProps {
   artifactId: string;
   /** Artifact kind of the inspected item (e.g. `requirement`), for diagnostics. */
   artifactType: string;
-}
-
-const REASON_LABEL_KEYS: Record<SummaryDegradedReason, string> = {
-  budget_exhausted: "summary.reason.budget_exhausted",
-  provider_unavailable: "summary.reason.provider_unavailable",
-  stale: "summary.reason.stale",
-  disabled: "summary.reason.disabled",
-};
-
-const REASON_FALLBACKS: Record<SummaryDegradedReason, string> = {
-  budget_exhausted: "The AI budget for this period is exhausted.",
-  provider_unavailable: "The AI provider is currently unavailable.",
-  stale: "The stored summary is out of date.",
-  disabled: "AI summaries are disabled for this workspace.",
-};
-
-function formatGeneratedAt(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
 export function SummaryPanel({
@@ -67,6 +57,16 @@ export function SummaryPanel({
   const tRef = useRef(t);
   tRef.current = t;
   const announcer = useInspectorAnnouncer();
+  // Non-throwing reader: the shell may be mounted without a workspace
+  // provider (unit tests, embedding routes). No workspace -> no overview
+  // request, and the on-demand section keeps working unchanged.
+  const workspace = useOptionalWorkspace();
+  const workspaceId = workspace?.activeWorkspace?.id ?? null;
+  const canRefresh = useHasRole()("editor");
+  // S8: map the inspector kind onto the backend's PascalCase type spelling;
+  // kinds without a roster (diagram, glossary, mainGoal) yield `undefined`
+  // and the overview renders nothing.
+  const summaryArtifactType = SUMMARY_TYPE_BY_KIND[artifactType as ArtifactKind];
 
   const mountedRef = useRef(true);
   // Monotonic token: an answer that belongs to a previously inspected
@@ -136,6 +136,14 @@ export function SummaryPanel({
       : t("summary.reason.unknown", "No reason given.");
 
   return (
+    <>
+      {/* S8: the workspace's stored type stand, free and read-only, above the
+          paid on-demand section. Renders nothing without workspace/type. */}
+      <SummaryOverview
+        workspaceId={workspaceId}
+        artifactType={summaryArtifactType}
+        canRefresh={canRefresh}
+      />
     <section
       className={styles.panel}
       aria-label={t("summary.ariaLabel", "AI summary")}
@@ -221,5 +229,6 @@ export function SummaryPanel({
         </p>
       )}
     </section>
+    </>
   );
 }

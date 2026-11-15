@@ -16,6 +16,13 @@ vi.mock("../../../api/artifact-summary", () => ({
   fetchArtifactSummary: vi.fn(),
 }));
 
+// S8 mounts the read-only type overview inside the summary tab. It reads the
+// workspace through the non-throwing `useOptionalWorkspace` (null here) and
+// gates its refresh on a role, so neither provider needs to be real.
+vi.mock("../../../hooks/useHasRole", () => ({
+  useHasRole: () => (): boolean => false,
+}));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, second?: unknown): string => {

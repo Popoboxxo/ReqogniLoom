@@ -103,6 +103,34 @@ German AI answers, which is deliberate (spec §7.6/E10). Cache keys that depend 
 prompt (search summary, quality verdict, artifact summaries) include the resolved language, so a
 switch never serves stale text in the old language.
 
+## Periodic artifact-type summaries are opt-in and need an agent key (#1793)
+
+The two summary surfaces have **separate switches**, because they answer different questions:
+
+- `ARTIFACT_SUMMARY_ENABLED` (default `false`) allows **any** summary call — the manual refresh in
+  the inspector and the `summary.refresh` MCP tool. Off means `skipped:flag_off` without a provider
+  call.
+- `ARTIFACT_SUMMARY_SWEEP_ENABLED` (default `false`) allows the **periodic** sweep — "may this
+  happen unattended". It is deliberately independent of the first switch.
+
+The sweep keeps five brakes, all **before** the provider call, in this order: flag → summary-only
+day budget (`SUMMARY_DAILY_TOKEN_LIMIT`, default 200 000, independent of
+`TENANT_TOKEN_LIMIT_PER_DAY`) → batch ceiling (`ARTIFACT_SUMMARY_SWEEP_BATCH`, default 25 **per
+tenant run**) → agent key (`ARTIFACT_SUMMARY_AGENT_KEY_ID`, an active `principal_type=agent` key;
+without it nothing runs) → throttle (`ARTIFACT_SUMMARY_MIN_INTERVAL_SECONDS`, default 3600, set
+before the call so a hanging provider cannot start a second run).
+
+Cadence is per workspace (`summary_sweep_interval_minutes`, default 1440, `0` = off, values below
+`ARTIFACT_SUMMARY_MIN_INTERVAL_MINUTES` are clamped) and per type list (`summary_scopes`, empty =
+the twelve defaults). A stored stand older than twice its interval — or every stand while the sweep
+is off — is reported as `stale` **with** its reason, never silently as current. Every paid run
+writes exactly one `artifact_summary.generate` audit entry (no content, no titles); cache hits,
+unchanged rosters, spent budgets and switched-off runs write none.
+
+There is **no automatic prune**: orphaned artifact-scope rows and type stands outside
+`summary_scopes` are cleaned up manually (shell/admin). Env table, cost example, stale rules and
+the manual cleanup procedure: **[`docs/AI-SUMMARIES-OPERATIONS.md`](../docs/AI-SUMMARIES-OPERATIONS.md)**.
+
 ## Base images are pinned tag + digest (#1391)
 
 Every third-party base image used by the Dockerfiles and the Compose files documented in the table

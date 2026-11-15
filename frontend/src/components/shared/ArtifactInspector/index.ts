@@ -33,6 +33,9 @@ export type { CommentPanelProps } from "./CommentPanel";
 export { SummaryPanel } from "./SummaryPanel";
 export type { SummaryPanelProps } from "./SummaryPanel";
 
+export { SUMMARY_TYPE_BY_KIND, SummaryOverview } from "./SummaryOverview";
+export type { SummaryOverviewProps } from "./SummaryOverview";
+
 export { DIFF_SUPPORTED_KINDS } from "./types";
 export type {
   ArtifactKind,

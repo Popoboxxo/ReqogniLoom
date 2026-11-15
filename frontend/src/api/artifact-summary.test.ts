@@ -12,10 +12,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./client", () => ({
   apiClient: {
     get: vi.fn(),
+    post: vi.fn(),
   },
 }));
 
-import { fetchArtifactSummary } from "./artifact-summary";
+import {
+  fetchArtifactSummary,
+  fetchTypeSummary,
+  fetchWorkspaceSummaries,
+  refreshTypeSummary,
+} from "./artifact-summary";
 import { apiClient } from "./client";
 import { ForbiddenError } from "./errors";
 
@@ -139,5 +145,126 @@ describe("fetchArtifactSummary", () => {
 
     await expect(fetchArtifactSummary(ARTIFACT_ID)).rejects.toBe(forbidden);
     expect(apiClient.get).toHaveBeenCalledTimes(1);
+  });
+});
+
+const WORKSPACE_ID = "0b6a1a52-2f0b-4a6e-9a3c-7f1f3d2c8e11";
+
+const STORED_WIRE = {
+  workspace_id: WORKSPACE_ID,
+  summary_kind: "type_roster",
+  artifact_type: "Requirement",
+  artifact_id: null,
+  text: "Twelve requirements cover export and import.",
+  reason: null,
+  stale: false,
+  item_count: 12,
+  status: "ok",
+  provider: "anthropic",
+  model: "claude",
+  token_usage: 900,
+  trigger: "periodic",
+  generated_at: "2026-11-15T09:30:00Z",
+  updated_at: "2026-11-15T09:30:00Z",
+};
+
+describe("stored workspace/type summaries (S6 read paths, surfaced in S8)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("lists the workspace stands from the list route", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      workspace_id: WORKSPACE_ID,
+      summaries: [STORED_WIRE],
+      count: 1,
+      truncated: false,
+      limit: 50,
+    });
+
+    const result = await fetchWorkspaceSummaries(WORKSPACE_ID);
+
+    expect(apiClient.get).toHaveBeenCalledWith(`/workspaces/${WORKSPACE_ID}/summaries/`);
+    expect(result.count).toBe(1);
+    expect(result.truncated).toBe(false);
+    expect(result.summaries[0]).toMatchObject({
+      workspaceId: WORKSPACE_ID,
+      summaryKind: "type_roster",
+      artifactType: "Requirement",
+      artifactId: null,
+      text: "Twelve requirements cover export and import.",
+      reason: null,
+      stale: false,
+      itemCount: 12,
+      tokenUsage: 900,
+      generatedAt: "2026-11-15T09:30:00Z",
+    });
+  });
+
+  it("reads one type stand and encodes the type in the path", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      ...STORED_WIRE,
+      artifact_type: "Architecture Element",
+    });
+
+    await fetchTypeSummary(WORKSPACE_ID, "Architecture Element");
+
+    expect(apiClient.get).toHaveBeenCalledWith(
+      `/workspaces/${WORKSPACE_ID}/summaries/Architecture%20Element/`,
+    );
+  });
+
+  it("keeps a stale stand and its E11 reason", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      ...STORED_WIRE,
+      stale: true,
+      reason: "stale",
+    });
+
+    const result = await fetchTypeSummary(WORKSPACE_ID, "Requirement");
+
+    expect(result.stale).toBe(true);
+    expect(result.reason).toBe("stale");
+  });
+
+  it("maps an unknown reason to null while keeping the stand", async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      ...STORED_WIRE,
+      reason: "a_reason_from_the_future",
+    });
+
+    const result = await fetchTypeSummary(WORKSPACE_ID, "Requirement");
+
+    expect(result.reason).toBeNull();
+    expect(result.text).not.toBeNull();
+  });
+
+  it("posts the manual refresh and returns the verdict", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({
+      ...STORED_WIRE,
+      outcome: "summarized",
+    });
+
+    const result = await refreshTypeSummary(WORKSPACE_ID, "Requirement");
+
+    expect(apiClient.post).toHaveBeenCalledWith(
+      `/workspaces/${WORKSPACE_ID}/summaries/Requirement/refresh/`,
+      {},
+    );
+    expect(result.outcome).toBe("summarized");
+    expect(result.summaryKind).toBe("type_roster");
+  });
+
+  it("passes a skipped verdict through unchanged", async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({
+      ...STORED_WIRE,
+      outcome: "skipped:budget_exhausted",
+      reason: "budget_exhausted",
+    });
+
+    const result = await refreshTypeSummary(WORKSPACE_ID, "Requirement");
+
+    expect(result.outcome).toBe("skipped:budget_exhausted");
+    expect(result.reason).toBe("budget_exhausted");
   });
 });

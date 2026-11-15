@@ -2228,6 +2228,20 @@
       "stale": "The stored summary is out of date.",
       "disabled": "AI summaries are disabled for this workspace.",
       "unknown": "No reason given."
+    },
+    "overview": {
+      "title": "Overview",
+      "ariaLabel": "Type overview",
+      "refresh": "Refresh type summary",
+      "working": "Refreshing …",
+      "loading": "Loading type summary …",
+      "loadFailed": "The type summary could not be loaded.",
+      "refreshFailed": "The type summary could not be refreshed.",
+      "refreshed": "Type summary refreshed.",
+      "empty": "No type summary stored yet.",
+      "itemCount": "{{n}} artifacts",
+      "generatedAt": "As of {{date}}",
+      "staleBadge": "Out of date"
     }
   },
   "notifications": {

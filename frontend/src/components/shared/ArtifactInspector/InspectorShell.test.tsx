@@ -33,8 +33,18 @@ vi.mock("../../../api/architecture");
 vi.mock("../../../api/main-goal");
 vi.mock("../../../api/interviews");
 vi.mock("../../../api/artifact-summary");
+// S8: the Summary tab's type-stand block gates its refresh on a workspace
+// role. This shell test renders without an AuthProvider, so the gate is a
+// plain "no write role" stub — the paid on-demand call stays the subject.
+vi.mock("../../../hooks/useHasRole", () => ({
+  useHasRole: () => (): boolean => false,
+}));
 vi.mock("../../../context/WorkspaceContext", () => ({
   useWorkspace: () => ({ activeWorkspace: { id: "ws-1", name: "WS" } }),
+  // S8: the Summary tab also mounts the read-only type-stand block, which
+  // resolves its scope through the non-throwing reader. `null` keeps this
+  // shell test free of that read; it asserts the *paid* on-demand call.
+  useOptionalWorkspace: () => null,
 }));
 vi.mock("../../../context/LinkTypeContext", () => ({
   useLinkTypes: () => ({
