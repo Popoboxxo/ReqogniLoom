@@ -112,12 +112,21 @@ test.describe('Document reading view', () => {
     await page.goto(`${FRONTEND_URL}/documents/${document.id}`);
     await expect(page.getByTestId('document-reading-view')).toBeVisible();
 
-    // TOC: one entry per heading, in chapter order.
+    // TOC: one entry per chapter, in chapter order. The leading level-0
+    // chapter carries the text before the first heading, so it is listed too —
+    // that is the R1 contract (`split_chapters` never special-cases "no
+    // chapters"), and the entry is labelled with the document title.
     const toc = page.getByTestId('document-reading-toc');
     await expect(toc).toBeVisible();
-    await expect(toc.getByRole('link')).toHaveCount(2);
+    const tocEntries = toc.locator('a[href^="#"]');
+    await expect(tocEntries).toHaveCount(3);
+    await expect(tocEntries.nth(1)).toContainText('Einleitung');
+    await expect(tocEntries.nth(2)).toContainText('Anforderungen');
 
-    // Chapters: numbered sections, the preamble is not a phantom TOC entry.
+    // Chapters: numbered sections; the preamble stays an unnumbered section.
+    const preamble = page.getByTestId('document-reading-chapter-section');
+    await expect(preamble).toContainText('Der Lesetext beginnt');
+
     const introduction = page.getByTestId('document-reading-chapter-einleitung');
     await expect(introduction).toBeVisible();
     await expect(introduction).toContainText('Einleitung');
