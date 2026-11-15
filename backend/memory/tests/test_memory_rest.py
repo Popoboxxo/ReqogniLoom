@@ -2380,6 +2380,8 @@ class TestWorkspaceMemorySettingsPolicyFacade:
                 "memory.extract",
                 # Issue #18: summarising hits must not feed memory back in.
                 "search_summary",
+                # #1792: artifact summaries are memory-hard-off as well.
+                "artifact_summary",
             }
             declared = {
                 name

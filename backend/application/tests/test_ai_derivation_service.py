@@ -204,6 +204,8 @@ def test_get_template_content_covers_all_eight_names():
         "bundle_compression",
         # Issue #18: optional AI summary of one search result page.
         "search_summary",
+        # #1792: one-artifact summary with trace neighbours (S1).
+        "artifact_summary",
         "interview.grounding_rank",
         "interview.chat_turn",
         "interview.transcript_summary",
