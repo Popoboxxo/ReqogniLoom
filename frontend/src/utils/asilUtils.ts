@@ -1,8 +1,8 @@
 /**
  * ASIL Level Utilities — REQ-L3-RF004-004
  *
- * Helper functions for ASIL (Automotive Safety Integrity Level) rendering,
- * color coding, and label mapping.
+ * Helper functions for ASIL (Automotive Safety Integrity Level) label mapping
+ * and dropdown options.
  */
 
 import type { ASILLevel } from '../types';
@@ -47,55 +47,6 @@ export function getAsilLabel(
         label: 'Not set',
         description: 'ASIL level not specified',
       };
-  }
-}
-
-/**
- * Returns CSS color for ASIL level badge.
- *
- * @param level - ASIL level
- * @returns Color string (var(--color-*) or hex)
- */
-export function getAsilColor(level: ASILLevel): string {
-  switch (level) {
-    case 'QM':
-      return '#9CA3AF'; // gray
-    case 'A':
-      return '#FBBF24'; // amber/yellow
-    case 'B':
-      return '#F97316'; // orange
-    case 'C':
-      return '#EF4444'; // red
-    case 'D':
-      return '#7F1D1D'; // dark red
-    default:
-      return '#D1D5DB'; // light gray
-  }
-}
-
-/**
- * Returns background and text colors for ASIL badge.
- *
- * @param level - ASIL level
- * @returns { background, text } color pair
- */
-export function getAsilBadgeStyle(level: ASILLevel): {
-  background: string;
-  text: string;
-} {
-  switch (level) {
-    case 'QM':
-      return { background: '#F3F4F6', text: '#4B5563' };
-    case 'A':
-      return { background: '#FEF3C7', text: '#92400E' };
-    case 'B':
-      return { background: '#FFEDD5', text: '#9A3412' };
-    case 'C':
-      return { background: '#FEE2E2', text: '#991B1B' };
-    case 'D':
-      return { background: '#7F1D1D', text: '#FFFFFF' };
-    default:
-      return { background: '#F3F4F6', text: '#6B7280' };
   }
 }
 

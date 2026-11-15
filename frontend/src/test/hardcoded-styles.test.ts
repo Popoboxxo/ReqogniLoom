@@ -118,8 +118,9 @@ type BaselineEntry = {
  * their single-call-site alphas — every alpha that already had a
  * `--palette-*-aNN` rung, plus four newly added shared rungs
  * (`--palette-indigo-500-a20/-a25`, `--palette-red-500-a10/-a40`), now reads
- * that token. The four canvas entries and the ASIL scale stay: see their own
- * reasons.
+ * that token. The four canvas entries stay, plus a later paydown
+ * (2026-11-15, `chore/remove-asil-colour-helpers`) retired the `asilUtils.ts`
+ * entry entirely by deleting its two unconsumed colour helpers (18 literals).
  */
 const BASELINE: Readonly<Record<string, BaselineEntry>> = {
   // Fabric.js draws into a <canvas> and only accepts real colour strings, so
@@ -143,16 +144,6 @@ const BASELINE: Readonly<Record<string, BaselineEntry>> = {
     reason:
       'Inset canvas-frame shadow at 4% slate-900; no alpha token exists at this step ' +
       '(the 5% sibling already reads --palette-slate-900-a05).',
-  },
-  // ASIL safety-integrity badges: the palette encodes a certification scale
-  // (gray/amber/orange/red/dark red) and is deliberately theme-independent.
-  // NOTE (audit 2026-11-15 §5.3): getAsilColor()/getAsilBadgeStyle() currently
-  // have zero consumers — deleting them would retire all 18 literals; left in
-  // place here because that is a code deletion, not a colour migration.
-  'utils/asilUtils.ts': {
-    count: 18,
-    reason:
-      'ASIL badge colours encode a fixed safety-integrity scale; theme-independent by design.',
   },
   'components/DiagramGraphEditor/GraphEdge.tsx': {
     count: 1,
