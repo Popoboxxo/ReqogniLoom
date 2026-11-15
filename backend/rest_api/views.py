@@ -7839,6 +7839,10 @@ def _workspace_to_dict(ws: Any) -> dict[str, Any]:
         or "pinned",
         "terminology_profile": terminology_profile,
         "language": (ws.preset or {}).get("language", "de"),  # REQ-013: language stored in preset blob
+        # S7 (spec §7.6): the AI language is a dedicated column, not part of
+        # the UI preset blob -- the UI language and the AI language are
+        # deliberately independent.
+        "ai_language": getattr(ws, "ai_language", "") or "auto",
         "theme": (ws.preset or {}).get("theme", "dark"),  # #568: theme stored in preset blob, mirrors language
         "is_active": getattr(ws, "is_active", True),
         "closed_at": ws.closed_at.isoformat() if getattr(ws, "closed_at", None) else None,
@@ -8536,6 +8540,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
             "goals_enabled",
             "goals_ai_enabled",
             "glossary_reference_mode",
+            "ai_language",
         )
         supplied = request.data if isinstance(request.data, dict) else {}
         config_kwargs = {
@@ -8677,6 +8682,7 @@ class WorkspaceViewSet(BaseEntityViewSet):
                 "goals_enabled",
                 "goals_ai_enabled",
                 "glossary_reference_mode",
+                "ai_language",
             )
             fields = {
                 key: value

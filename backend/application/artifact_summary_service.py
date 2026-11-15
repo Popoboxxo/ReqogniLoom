@@ -62,6 +62,7 @@ from django.core.cache import cache
 from django.db.models import Q
 from django.utils import timezone
 
+from application.ai_language import effective_ai_language
 from application.base import (
     NotFoundError,
     PermissionDeniedError,
@@ -735,7 +736,9 @@ class ArtifactSummaryService(ServiceBase):
             )
 
         limits = SummaryLimits.from_settings()
-        language = (getattr(workspace, "language", "") or "en").strip() or "en"
+        # S7 (spec §7.6): the summary's language is the workspace's AI
+        # language, not the raw content column.
+        language = effective_ai_language(workspace_id)
 
         section, full_text = _artifact_section(
             artifact, char_limit=limits.max_chars_per_section
@@ -798,10 +801,8 @@ class ArtifactSummaryService(ServiceBase):
                 neighbours_json=json.dumps(entries, ensure_ascii=False, sort_keys=True),
                 artifact_type=artifact.artifact_type,
                 language=language,
+                append_language_directive=True,
             )
-            # Until S7 centralises the directive in ``application.ai_language``,
-            # the one existing source is this helper (spec §7.6).
-            prompt += AiDerivationService._language_instruction(workspace_id)
         except Exception:  # noqa: BLE001 - degrade, never fail the request
             logger.exception("artifact_summary: prompt resolution failed")
             return self._result(
@@ -939,7 +940,8 @@ class ArtifactSummaryService(ServiceBase):
             return "skipped:empty"
 
         items = _roster_items(rows, spec, _artifact_label)
-        language = (getattr(workspace, "language", "") or "en").strip() or "en"
+        # S7 (spec §7.6): same single language source as the on-demand path.
+        language = effective_ai_language(workspace.id)
         provider, provider_name, resolve_error = self._resolve_provider()
         items_json = json.dumps(items, ensure_ascii=False, sort_keys=True)
 
@@ -952,8 +954,8 @@ class ArtifactSummaryService(ServiceBase):
                 items_json=items_json,
                 item_count=len(items),
                 language=language,
+                append_language_directive=True,
             )
-            prompt += AiDerivationService._language_instruction(workspace.id)
         except Exception:  # noqa: BLE001 - degrade, never fail the sweep
             logger.exception("artifact_type_summary: prompt resolution failed")
             return "failed"

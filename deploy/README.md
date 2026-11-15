@@ -83,6 +83,26 @@ assessments. Every run is a **paid** completion, so the feature has four indepen
 Findings stay `WARNING` only; nothing here can block a baseline. Provider failures are recorded as
 a `failed` assessment row and are **not** retried automatically.
 
+## One language for every AI answer (`Workspace.ai_language`, #1793/S7)
+
+Every LLM prompt of a deployment — requirement/test-case/risk/ADR derivation, architecture
+decomposition, AI review, search summaries (`include_summary`), quality assessment, memory
+extraction and the artifact/artifact-type summaries — answers in **one** language per workspace:
+`Workspace.ai_language`.
+
+| Value | Effect |
+|---|---|
+| `auto` (default) | Inherits the content language `Workspace.language`, then falls back to English. This reproduces the pre-S7 behaviour byte for byte, so no migration and no prompt change is needed. |
+| `de` / `en` | Pins every AI answer to German/English, independent of the UI language. |
+
+There is **no environment variable** and no extra service: the setting is a workspace column
+(`persistence.migrations.0150_workspace_ai_language`), written through
+`PATCH /api/v1/workspaces/{id}/` (`ai_language`) and returned by the `workspace` MCP tool.
+`Workspace.language` keeps steering the UI — a German-language team can run an English UI with
+German AI answers, which is deliberate (spec §7.6/E10). Cache keys that depend on the rendered
+prompt (search summary, quality verdict, artifact summaries) include the resolved language, so a
+switch never serves stale text in the old language.
+
 ## Base images are pinned tag + digest (#1391)
 
 Every third-party base image used by the Dockerfiles and the Compose files documented in the table

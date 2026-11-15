@@ -239,8 +239,14 @@ class MainGoalService(ServiceBase):
         # RFC #1002 PR C: routed through _resolve_and_render (not the legacy
         # _get_template_content + _render pair) so the slot's declared
         # {memory_context} is auto-injected by the central resolver.
+        # S7 (spec §7.6): the aggregation prompt carries the workspace's AI
+        # language directive, same as every other content-generating flow.
         prompt = AiDerivationService._resolve_and_render(
-            ctx, "goal_aggregate", workspace_id, goals=goals_text
+            ctx,
+            "goal_aggregate",
+            workspace_id,
+            goals=goals_text,
+            append_language_directive=True,
         )
         # AiDerivationService._complete() now returns a (text, cache_key)
         # tuple (fix #552) instead of stashing the cache key on

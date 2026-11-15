@@ -90,14 +90,20 @@ def _summary_cache_key(
     query: str,
     hits: Sequence[SearchHit],
     provider_name: str,
+    language: str,
     prompt: str,
 ) -> str:
-    """Cache key over the query, the returned hit identities, provider, prompt."""
+    """Cache key over the query, hit identities, provider, language and prompt.
+
+    ``language`` is explicit even though the directive is part of *prompt*: a
+    language switch must never be masked for a full TTL (S7, spec §7.6).
+    """
     material = json.dumps(
         {
             "query": query,
             "hits": [[hit.id, hit.artifact_type] for hit in hits],
             "provider": provider_name,
+            "language": language,
             "prompt": prompt,
         },
         ensure_ascii=False,
@@ -146,6 +152,12 @@ class SearchSummaryService(ServiceBase):
         # summary itself still only contains the hits returned to this caller.
         workspace_id = _workspace_uuid(capped[0])
 
+        # S7 (spec §7.6): search summaries carried no language directive at
+        # all -- they answered in whatever language the provider picked.
+        from application.ai_language import effective_ai_language
+
+        language = effective_ai_language(workspace_id)
+
         try:
             prompt = AiDerivationService._resolve_and_render(
                 ctx,
@@ -153,6 +165,7 @@ class SearchSummaryService(ServiceBase):
                 workspace_id,
                 query=query,
                 hits_json=hits_json,
+                append_language_directive=True,
             )
         except Exception:  # noqa: BLE001 - degrade, never fail the search
             logger.exception("search_summary: prompt resolution failed")
@@ -161,7 +174,9 @@ class SearchSummaryService(ServiceBase):
             )
 
         provider, provider_name, resolve_error = self._resolve_provider()
-        cache_key = _summary_cache_key(query, capped, provider_name, prompt)
+        cache_key = _summary_cache_key(
+            query, capped, provider_name, language, prompt
+        )
         cached = cache.get(cache_key)
         if isinstance(cached, str) and cached.strip():
             return SearchSummary(

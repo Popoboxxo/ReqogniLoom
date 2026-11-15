@@ -227,6 +227,12 @@ class QualityService(ServiceBase):
         prompt_scope, prompt_version, template_hash = self._prompt_provenance(
             ctx, slot, workspace_id
         )
+        # S7 (spec §7.6): the verdict's language is part of "the same input".
+        # Without it a language switch would keep serving the cached verdict
+        # of the previous language until the artifact happened to change.
+        from application.ai_language import effective_ai_language
+
+        language = effective_ai_language(workspace_id)
         digest = content_hash(
             {
                 "content": payload,
@@ -234,6 +240,7 @@ class QualityService(ServiceBase):
                 "prompt_scope": prompt_scope,
                 "prompt_version": prompt_version,
                 "prompt_template_hash": template_hash,
+                "language": language,
             }
         )
 
@@ -566,12 +573,15 @@ class QualityService(ServiceBase):
         # (the resolver entry point every current flow uses; it also injects the
         # catalog config variables). ``quality_*`` is a memory HARD_OFF family,
         # so no memory block is consulted.
+        # S7 (spec §7.6): the quality verdicts carried no language directive,
+        # so a German workspace could get an English reasoning field.
         prompt = service._resolve_and_render(  # noqa: SLF001 - shared flow helper
             ctx,
             slot,
             workspace_id,
             artifact_id=getattr(entity, "artifact_id", None),
             entity_type=entity_type,
+            append_language_directive=True,
             **data,
         )
         parsed, _is_mock_fallback = service._complete_json_object(  # noqa: SLF001

@@ -357,12 +357,20 @@ def resolve_and_render(
     config_overrides: dict[str, Any] | None = None,
     artifact_id: UUID | str | None = None,
     entity_type: str = "",
+    append_language_directive: bool = False,
     **data_kwargs: Any,
 ) -> str:
     """Resolve *slot_name*'s body and render it with config + data values.
 
     ``data_kwargs`` win on a name collision with a ``config`` variable — the
     code-supplied artifact data is always the more specific answer.
+
+    ``append_language_directive`` (S7, spec §7.6) pins the output language of
+    this prompt to the workspace's AI language (``application.ai_language``).
+    It is opt-in per call because not every slot produces free text meant for
+    a human; the renderer has the *unrendered* body at hand, so it can skip the
+    directive when the template already carries ``{language}`` itself (no two
+    competing language commands in one prompt).
 
     ``workspace_id`` is, like in :func:`resolve_template_content` and
     :func:`resolve_config_values`, never defaulted from ``ctx.workspace_id`` —
@@ -460,6 +468,21 @@ def resolve_and_render(
                 values[name],
                 neutralise=name in caller_supplied and name != "memory_facts_json",
             )
+    if append_language_directive:
+        # A template that names ``{language}`` gets the human-readable name so
+        # its own directive reads naturally; the append helper then leaves it
+        # alone instead of adding a second, competing command.
+        from application.ai_language import (
+            append_language_instruction,
+            language_label,
+        )
+
+        values.setdefault("language", language_label(workspace_id))
+        return append_language_instruction(
+            render_template(content, **values),
+            workspace_id,
+            template_content=content,
+        )
     return render_template(content, **values)
 
 

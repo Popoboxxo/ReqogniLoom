@@ -166,9 +166,9 @@ _DATA_VARIABLES_BY_SLOT: dict[str, tuple[str, ...]] = {
     "bundle_compression": ("bundle_markdown",),
     "search_summary": ("query", "hits_json"),
     # Issue #1792 (S1): one artifact plus its permission-filtered trace
-    # neighbours. ``language`` is the ISO code of the content language; the
-    # template does not reference it yet -- the directive is appended by the
-    # service until S7 centralises it in ``application.ai_language``.
+    # neighbours. ``language`` is the ISO code of the AI language; the
+    # template does not reference it -- the directive is appended by the
+    # central resolver (``application.ai_language``, S7/spec §7.6).
     "artifact_summary": (
         "artifact_json",
         "neighbours_json",

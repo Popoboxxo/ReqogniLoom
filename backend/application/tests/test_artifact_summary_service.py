@@ -568,3 +568,30 @@ def test_out_of_range_depth_is_clamped_not_rejected(
     result = _summarize(focus.artifact_id, ctx, provider, depth=7)
 
     assert result.trace_depth == 2
+
+
+# ---------------------------------------------------------------------------
+# S7 (spec §7.6/E10) — the summary follows the workspace's AI language
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_carries_the_ai_language_directive(
+    workspace: Workspace, focus, ctx: AuthContext
+) -> None:
+    provider = _FakeProvider()
+
+    _summarize(focus.artifact_id, ctx, provider)
+
+    assert "Respond in English" in provider.calls[0]
+
+
+def test_explicit_ai_language_overrides_the_content_language(
+    workspace: Workspace, focus, ctx: AuthContext
+) -> None:
+    with _active(workspace.tenant):
+        Workspace.objects.filter(id=workspace.id).update(ai_language="de")
+    provider = _FakeProvider()
+
+    _summarize(focus.artifact_id, ctx, provider)
+
+    assert "Respond in German" in provider.calls[0]

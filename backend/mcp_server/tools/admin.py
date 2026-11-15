@@ -351,6 +351,9 @@ class AdminToolGroup(BaseToolGroup):
                     workspace.default_link_type or default_trace_link_type()
                 ),
                 "language": workspace.language,
+                # S7 (spec §7.6): the AI output language, separate from the
+                # UI/content language above.
+                "ai_language": getattr(workspace, "ai_language", "") or "auto",
             }
         })
 

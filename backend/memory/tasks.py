@@ -165,14 +165,21 @@ def _as_uuid(value: object) -> UUID | None:
 
 
 def _resolve_workspace_language(workspace_id: UUID) -> str:
-    """Return ``Workspace.language`` for *workspace_id*, or ``""``.
+    """Return the language memory facts must be written in, or ``""``.
 
-    ``""`` (unknown/empty workspace language) means "no language enforcement"
-    -- see ``consolidate_interaction``'s F11 handling. Must be called with a
-    tenant context active (the caller is already inside ``_tenant_context``).
+    S7 (spec §7.6): the AI language setting (``Workspace.ai_language``) wins
+    when it is explicit. On ``auto`` -- the default -- the previous behaviour
+    is preserved exactly: inherit ``Workspace.language``; an empty value means
+    "no language enforcement" (see ``consolidate_interaction``'s F11
+    handling). Must be called with a tenant context active (the caller is
+    already inside ``_tenant_context``).
     """
+    from application.ai_language import resolve_ai_language
     from persistence.models import Workspace
 
+    explicit = resolve_ai_language(workspace_id)
+    if explicit is not None:
+        return explicit
     language = (
         Workspace.objects.filter(id=workspace_id)
         .values_list("language", flat=True)

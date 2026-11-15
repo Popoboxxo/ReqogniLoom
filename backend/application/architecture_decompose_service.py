@@ -826,7 +826,6 @@ class ArchitectureDecomposeService(ServiceBase):
         """
         from django.conf import settings
 
-        from application.ai_derivation_service import AiDerivationService
         from application.prompt_resolver import resolve_and_render
         from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.providers import (
@@ -851,12 +850,10 @@ class ArchitectureDecomposeService(ServiceBase):
             workspace_id,
             config_overrides={"max_breadth": max_breadth, "max_depth": max_depth},
             element_title=element_title,
+            # R5/R7 Sprache (systemaudit 2026-09-02; S7/spec §7.6): the one
+            # language source is ``application.ai_language``.
+            append_language_directive=True,
         )
-        # R5/R7 Sprache (systemaudit 2026-09-02): reuse AiDerivationService's
-        # workspace-language directive (issue #795) rather than duplicating
-        # it -- architecture.decompose (N1) is a content-generating flow
-        # that fix did not cover (it lives in a sibling module).
-        prompt += AiDerivationService._language_instruction(workspace_id)
         context = {
             "element_title": element_title,
             "max_breadth": max_breadth,

@@ -2644,8 +2644,9 @@ class WorkspaceSerializer(
     """Serializer for Workspace entity (REQ-L1-017, REQ-L1-042).
 
     ``terminology_profile`` is sourced from the optional
-    ``WorkspacePresetConfig`` one-to-one companion; ``language`` is reserved
-    for a future per-workspace setting and currently defaults to ``"en"``.
+    ``WorkspacePresetConfig`` one-to-one companion; ``language`` is the
+    UI/content language (preset blob), ``ai_language`` the separate setting
+    every LLM prompt answers in (S7, spec §7.6).
 
     Lifecycle fields (REQ-L1-042):
       ``is_active``, ``closed_at``, ``closed_by`` — soft-delete / close metadata.
@@ -2708,6 +2709,17 @@ class WorkspaceSerializer(
         required=False, default="se_mode", max_length=32
     )
     language = serializers.CharField(required=False, default="en", max_length=8)
+    # S7 (spec §7.6/E10): one language setting for every LLM prompt of this
+    # workspace. ``auto`` inherits ``language`` and keeps the pre-S7 behaviour.
+    ai_language = serializers.ChoiceField(
+        choices=["auto", "de", "en"],
+        required=False,
+        default="auto",
+        help_text=(
+            "Language every AI-generated text uses: 'auto' inherits the "
+            "content language, 'de'/'en' override it."
+        ),
+    )
     theme = serializers.CharField(required=False, default="dark", max_length=32)
     is_active = serializers.BooleanField(read_only=True, default=True)
     closed_at = serializers.DateTimeField(read_only=True, allow_null=True, default=None)
