@@ -487,6 +487,67 @@ describe("extractApiErrorMessage (#339/#340)", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Keepalive writes — a preference change must survive the page that sent it
+// (connection view V.5: toggle the edge switch, reload, the switch stayed on)
+// ---------------------------------------------------------------------------
+
+describe("apiClient.patchKeepalive — writes that outlive the document", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    advanceAuthSessionGeneration();
+    setUnauthorizedHandler(vi.fn());
+    resetUnauthorizedGuard();
+    document.documentElement.lang = "en";
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("sends the PATCH with keepalive: true", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(mockResponse(200, { values: { a: false } }));
+
+    const result = await apiClient.patchKeepalive(
+      "/users/me/preference-values/",
+      { values: { a: false } }
+    );
+
+    expect(result).toEqual({ values: { a: false } });
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("/api/v1/users/me/preference-values/");
+    expect(init?.method).toBe("PATCH");
+    // The whole point: without this flag the browser aborts the request when
+    // the document unloads, and the reload shows the previous value again.
+    expect(init?.keepalive).toBe(true);
+    expect(init?.body).toBe(JSON.stringify({ values: { a: false } }));
+  });
+
+  it("keeps the shared response handling (a 403 stays a ForbiddenError)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      mockResponse(403, { detail: "CSRF Failed: Origin checking failed." })
+    );
+
+    await expect(
+      apiClient.patchKeepalive("/users/me/preference-values/", { values: {} })
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("keeps the same handler/notification behaviour on 401 as apiClient.patch", async () => {
+    const unauthorizedHandler = vi.fn();
+    setUnauthorizedHandler(unauthorizedHandler);
+    // Both the write and the refresh fail → one notification, then a typed error.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(mockResponse(401));
+
+    await expect(
+      apiClient.patchKeepalive("/users/me/preference-values/", { values: {} })
+    ).rejects.toMatchObject({ error: { code: "AUTHENTICATION_REQUIRED" } });
+    expect(unauthorizedHandler).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("asList — pagination envelope tolerance (INT-05)", () => {
   it("returns a bare array unchanged", () => {
     expect(asList<number>([1, 2, 3])).toEqual([1, 2, 3]);

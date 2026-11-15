@@ -131,6 +131,11 @@ async function loadUserBoolean(
  * Write one user-scoped `bool` preference. The rejection is propagated on
  * purpose: the caller keeps its local state, keeps the switch where the user
  * put it, and reports the failed write instead of pretending it was stored.
+ *
+ * The transport is the keepalive PATCH in `preference-values.ts`, so the write
+ * outlives an immediate reload; `ConnectionView` additionally serializes the
+ * click stream (`preference-write-queue.ts`) so two fast clicks cannot produce
+ * out-of-order requests.
  */
 async function saveUserBoolean(key: string, value: boolean): Promise<void> {
   await preferenceValuesApi.patchLevel("user", { [key]: value });

@@ -13,6 +13,7 @@ import {
   screen,
   waitFor,
   within,
+  type RenderResult,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -189,10 +190,10 @@ function fakeDataTransfer(): {
   };
 }
 
-function renderView(initialPath = "/connections"): void {  const queryClient = new QueryClient({
+function renderView(initialPath = "/connections"): RenderResult {  const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  render(
+  return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialPath]}>
         <ConnectionView />
@@ -428,6 +429,79 @@ describe("ConnectionView — default mode, alias and the edge switch (V.5)", () 
     );
     // … but the target text on the row stays.
     expect(screen.getByTestId("alloc-target-r1")).toHaveTextContent("Bremse");
+  });
+
+  it("show_edges_write_survives_a_reload", async () => {
+    // CI regression (E2E shard 1, connection-trees.spec.ts §5.8.13): the switch
+    // flipped locally, the PATCH was still in flight, and an immediate reload
+    // aborted it — the reload then painted the *old* value. The write path is
+    // keepalive (`preference-values.ts`) so the request outlives the document;
+    // this test drives the same sequence at unit level: click, unload while the
+    // write is open, let it land, mount again with the store holding `false`.
+    let persisted = true;
+    let settleWrite: (() => void) | null = null;
+    vi.mocked(loadShowEdges).mockImplementation(async () => persisted);
+    vi.mocked(saveShowEdges).mockImplementation(
+      (value: boolean) =>
+        new Promise<void>((resolve) => {
+          settleWrite = () => {
+            persisted = value;
+            resolve();
+          };
+        })
+    );
+
+    const first = renderView();
+    const toggle = await screen.findByTestId("connection-view-show-edges");
+    await waitFor(() => expect(toggle).toBeChecked());
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(saveShowEdges).toHaveBeenCalledWith(false));
+    await waitFor(() => expect(settleWrite).not.toBeNull());
+
+    // The reload: the document that issued the write is gone, the request is
+    // not — it lands afterwards and the store keeps the new value.
+    first.unmount();
+    settleWrite!();
+    await Promise.resolve();
+
+    renderView();
+    const reloaded = await screen.findByTestId("connection-view-show-edges");
+    await waitFor(() => expect(reloaded).not.toBeChecked());
+  });
+
+  it("toggle_while_write_in_flight_keeps_the_last_click", async () => {
+    // Two clicks faster than the network must not produce two racing PATCHes:
+    // the second value waits for the first request, so the store cannot end up
+    // with the *older* of the two (no out-of-order result).
+    const writes: Array<{ value: boolean; settle: () => void }> = [];
+    vi.mocked(saveShowEdges).mockImplementation(
+      (value: boolean) =>
+        new Promise<void>((resolve) => {
+          writes.push({ value, settle: resolve });
+        })
+    );
+
+    renderView();
+    const toggle = await screen.findByTestId("connection-view-show-edges");
+    await waitFor(() => expect(toggle).toBeChecked());
+
+    fireEvent.click(toggle); // off — request 1 on the wire
+    await waitFor(() => expect(writes).toHaveLength(1));
+    fireEvent.click(toggle); // on again — queued, not sent
+    expect(toggle).toBeChecked();
+    expect(writes).toHaveLength(1);
+
+    writes[0].settle();
+    await waitFor(() => expect(writes).toHaveLength(2));
+    // The last click wins, and it only started after the first one settled.
+    expect(writes.map((write) => write.value)).toEqual([false, true]);
+    writes[1].settle();
+
+    // A failed predecessor must not flip the switch the user just set.
+    await waitFor(() =>
+      expect(screen.getByTestId("connection-view-show-edges")).toBeChecked()
+    );
   });
 
   it("saved_view_with_old_params_still_works", async () => {

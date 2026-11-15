@@ -15,6 +15,10 @@ import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 
 import { allocationViewApi } from "../../api/allocation-view";
+import {
+  createPreferenceWriteQueue,
+  type PreferenceWriteQueue,
+} from "../../api/preference-write-queue";
 import { useHasRole } from "../../hooks/useHasRole";
 import { AllocationGraph } from "../AllocationGraph/AllocationGraph";
 import { useCardFields } from "../AllocationGraph/useCardFields";
@@ -57,6 +61,22 @@ function newViewId(): string {
     return crypto.randomUUID();
   }
   return `view-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * One write queue per preference key, created lazily and kept in a ref for the
+ * component's lifetime (`preference-write-queue.ts`): rendering must not reset
+ * the knowledge that a write is in flight, or a re-render would reopen the
+ * out-of-order race the queue exists to close.
+ */
+function usePreferenceWriteQueue(
+  write: (value: boolean) => Promise<void>
+): PreferenceWriteQueue {
+  const queue = useRef<PreferenceWriteQueue | null>(null);
+  if (queue.current === null) {
+    queue.current = createPreferenceWriteQueue(write);
+  }
+  return queue.current;
 }
 
 export function ConnectionView(): JSX.Element {
@@ -113,6 +133,12 @@ export function ConnectionView(): JSX.Element {
   >(null);
   /** A click before the preference read resolves wins over the stored value. */
   const filtersToggledRef = useRef(false);
+  /**
+   * Serializes the popover write: a second click while the first PATCH is on
+   * the wire replaces the pending value instead of racing it (last click wins,
+   * `preference-write-queue.ts`).
+   */
+  const filtersWriteQueue = usePreferenceWriteQueue(saveFiltersExpanded);
 
   useEffect(() => {
     let active = true;
@@ -130,7 +156,7 @@ export function ConnectionView(): JSX.Element {
     const next = !filtersExpanded;
     setFiltersExpanded(next);
     setFiltersExpandedError(null);
-    void saveFiltersExpanded(next).catch((err: unknown) => {
+    void filtersWriteQueue.request(next).catch((err: unknown) => {
       // Keep the popover open: the local state is what the user just asked for.
       setFiltersExpandedError(
         t("connectionView.filters.preferenceFailed", {
@@ -147,6 +173,13 @@ export function ConnectionView(): JSX.Element {
   const [showEdgesError, setShowEdgesError] = useState<string | null>(null);
   /** A click before the preference read resolves wins over the stored value. */
   const showEdgesToggledRef = useRef(false);
+  /**
+   * Serializes the edge-switch write (V.5). Together with the keepalive PATCH in
+   * `preference-values.ts` this is what makes "toggle, then reload" hold the new
+   * value: the queue keeps the requests ordered and the transport keeps the last
+   * one alive across the unload.
+   */
+  const showEdgesWriteQueue = usePreferenceWriteQueue(saveShowEdges);
 
   useEffect(() => {
     let active = true;
@@ -164,7 +197,7 @@ export function ConnectionView(): JSX.Element {
     const next = !showEdges;
     setShowEdges(next);
     setShowEdgesError(null);
-    void saveShowEdges(next).catch((err: unknown) => {
+    void showEdgesWriteQueue.request(next).catch((err: unknown) => {
       // The local state stays authoritative: a failed write must not flip the
       // switch back under the user's hand.
       setShowEdgesError(

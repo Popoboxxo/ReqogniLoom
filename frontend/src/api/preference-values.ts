@@ -137,14 +137,21 @@ export const preferenceValuesApi = {
   /**
    * PATCH one level. `null` per key resets it (delete the row), so the next
    * lower level takes over again. Returns the level's fresh stored values.
+   *
+   * Written through the keepalive path on purpose: a preference is exactly the
+   * thing a user changes right before leaving a page, and a plain `fetch` is
+   * aborted when the document unloads. The request therefore has to outlive the
+   * reload/navigation that follows the click, or the switch silently reverts on
+   * the next load.
    */
   async patchLevel(
     scope: PreferenceScope,
     values: Record<string, unknown | null>,
     workspaceId?: string
   ): Promise<PreferenceLevel> {
-    return apiClient.patch<PreferenceLevel>(levelPath(scope, workspaceId), {
-      values,
-    });
+    return apiClient.patchKeepalive<PreferenceLevel>(
+      levelPath(scope, workspaceId),
+      { values }
+    );
   },
 };

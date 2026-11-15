@@ -30,7 +30,7 @@ vi.mock("../../../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../api/client")>();
   return {
     ...actual,
-    apiClient: { get: vi.fn(), patch: vi.fn() },
+    apiClient: { get: vi.fn(), patch: vi.fn(), patchKeepalive: vi.fn() },
   };
 });
 
@@ -71,7 +71,7 @@ describe("MarkdownField (#1287)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     effective();
-    vi.mocked(apiClient.patch).mockResolvedValue({
+    vi.mocked(apiClient.patchKeepalive).mockResolvedValue({
       scope: "user",
       workspace_id: null,
       values: {},
@@ -114,8 +114,10 @@ describe("MarkdownField (#1287)", () => {
 
     fireEvent.click(screen.getByTestId("md-toolbar-toggle"));
 
+    // The level write goes through the keepalive path (a preference changed
+    // right before leaving a page must outlive the unload), not the plain PATCH.
     await waitFor(() =>
-      expect(apiClient.patch).toHaveBeenCalledWith(
+      expect(apiClient.patchKeepalive).toHaveBeenCalledWith(
         "/users/me/preference-values/",
         { values: { "ui.markdown.toolbar": "off" } }
       )
