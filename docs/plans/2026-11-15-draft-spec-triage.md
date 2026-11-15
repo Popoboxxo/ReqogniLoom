@@ -12,12 +12,10 @@ Git-Tree von `origin/main`, dazu gezielte `grep`-Läufe in den genannten Dateien
 Zeilennummern driften, deshalb sind Symbole und Dateipfade der Anker. Zusätzlich geprüft:
 Status der zugehörigen Issues (#1660, #1668, #1669, #1670, #1374, #801 — alle `closed`).
 
-> **Werkzeugeinschränkung dieser Sitzung:** In der Sitzung stand kein Shell-Werkzeug zur
-> Verfügung. Der Worktree `.tmp/wt-phase-b1` (Branch `docs/draft-spec-triage`) konnte daher
-> **nicht** angelegt werden, und die vier Spec-Dateien existieren auf dem ausgecheckten Branch
-> (`docs/opencode-v2-support-plan`) nicht. Die **Statusänderungen sind deshalb nicht angewendet**,
-> sondern unten als exakte Patch-Anweisung hinterlegt (§5). Dieses Memo liegt im Arbeitsbaum,
-> nicht committet.
+> **Umsetzung:** Die Statusänderungen aus §6 sind angewendet: Ordnung-und-Allokation und das
+> Release-Design stehen auf `accepted`, der Backlog-Umbrella auf `superseded`. Die beiden
+> inhaltlich offenen Konzepte (Navigationsbaum, Dokumentensicht) bleiben `draft`. §6 enthält
+> weiterhin die Begründung; die dort gezeigten Patch-Blöcke sind bereits eingespielt.
 
 ---
 
