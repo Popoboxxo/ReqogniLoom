@@ -96,6 +96,8 @@ def test_view_returns_reading_object(authed_client, document) -> None:
         "frozen_at",
         "frozen_fields",
         "editable_fields",
+        "fields",
+        "capabilities",
         "chapters",
         "projection",
     }
@@ -104,7 +106,22 @@ def test_view_returns_reading_object(authed_client, document) -> None:
     assert payload["status"] == "Entwurf"
     assert payload["version"] == 1
     assert payload["frozen_fields"] == []
-    assert payload["editable_fields"] == ["title", "description", "body", "doc_date"]
+    assert payload["editable_fields"] == [
+        "title",
+        "description",
+        "body",
+        "doc_date",
+        "custom_fields",
+    ]
+    # R2: the per-field verdict matches the flat list, and the document-level
+    # capability carries no read-only reason for a writer.
+    assert [field["name"] for field in payload["fields"]] == payload["editable_fields"]
+    assert all(field["editable"] for field in payload["fields"])
+    assert all(field["locked"] is None for field in payload["fields"])
+    assert payload["capabilities"] == {
+        "can_write": True,
+        "read_only_reason": None,
+    }
     assert payload["chapters"] == [
         {
             "number": "1",
