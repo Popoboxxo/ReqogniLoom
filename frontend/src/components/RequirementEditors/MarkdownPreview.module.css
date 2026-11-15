@@ -20,6 +20,24 @@
   color: var(--color-text);
 }
 
+/*
+ * R4: read-only consumers (document reading view) render prose, not a box.
+ * The chapter layout owns heading spacing; this only sets the text rhythm.
+ */
+.readOnlyBody {
+  color: var(--color-text);
+  line-height: var(--leading-relaxed);
+  overflow-wrap: anywhere;
+}
+
+.readOnlyBody > :first-child {
+  margin-top: 0;
+}
+
+.readOnlyBody > :last-child {
+  margin-bottom: 0;
+}
+
 .textarea {
   width: 100%;
   padding: var(--space-3);

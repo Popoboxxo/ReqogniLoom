@@ -199,3 +199,235 @@
   flex: 1 1 12rem;
   width: auto;
 }
+
+/* ==========================================================================
+ * Reading view (R4) — table of contents left, chapters right.
+ * Mobile-first: one column without a media query, the two-column layout is
+ * the `min-width: 768px` extension (documented --bp-md breakpoint).
+ * ========================================================================== */
+
+.readingLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (min-width: 768px) {
+  .readingLayout {
+    grid-template-columns: minmax(0, 16rem) minmax(0, 1fr);
+  }
+}
+
+.readingToc {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+@media (min-width: 768px) {
+  .readingToc {
+    position: sticky;
+    top: var(--space-4);
+  }
+}
+
+.tocList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tocItem {
+  margin: 0;
+}
+
+.tocLink {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+}
+
+.tocLink:hover {
+  background: var(--color-surface);
+  text-decoration: underline;
+}
+
+.tocLink:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.tocNumber {
+  flex: 0 0 auto;
+  min-width: 2.5rem;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
+.chapters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+}
+
+.chapter {
+  max-width: var(--measure);
+}
+
+.chapterHeading {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-xl);
+  line-height: var(--leading-tight);
+  color: var(--color-text);
+}
+
+.chapterHeadingMinor {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-lg);
+  line-height: var(--leading-tight);
+  color: var(--color-text);
+}
+
+.chapterNumber {
+  margin-right: var(--space-2);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.chapterBody {
+  color: var(--color-text);
+}
+
+.chapterBody :is(h1, h2, h3, h4) {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--font-size-lg);
+  line-height: var(--leading-tight);
+}
+
+.chapterBody p {
+  margin: 0 0 var(--space-2);
+}
+
+.chapterBody ul,
+.chapterBody ol {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-6);
+}
+
+.chapterBody blockquote {
+  margin: 0 0 var(--space-2);
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.chapterBody pre {
+  overflow-x: auto;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+.chapterBody code {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.chapterBody table {
+  border-collapse: collapse;
+}
+
+.chapterBody th,
+.chapterBody td {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+}
+
+.chapterEmpty {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.capabilityNotice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.capabilityNotice p {
+  margin: 0;
+}
+
+.readingFields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.fieldList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.fieldRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fieldName {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-text-muted);
+}
+
+.fieldValue {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.fieldLock {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-muted);
+}
+
+@media print {
+  .readingToc {
+    display: none;
+  }
+}
+
