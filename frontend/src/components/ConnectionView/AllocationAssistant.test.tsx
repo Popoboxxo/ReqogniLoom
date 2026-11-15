@@ -1,13 +1,19 @@
 /**
- * P3 Task 3.5 / P4.4 — allocation assistant.
+ * P3 Task 3.5 / P4.4 / V.4 — the allocation action bar.
  *
- * The contracts under test:
+ * V.4 moved the selection out of the assistant into the page-level
+ * `useAllocationSelection` hook. These tests therefore drive the selection
+ * through that hook (the same one the tree checkboxes write to) and pin the
+ * contracts that remain the bar's own:
+ *
+ * - there is **no** second requirement list in the bar;
+ * - the four controls are always rendered; only "Allokieren auf …" waits for a
+ *   selection, "Vorschläge" never does;
  * - a multi-selection is sent as exactly ONE atomic bulk call;
  * - a rejected bulk write is surfaced verbatim and explicitly states that
  *   nothing was written (all-or-nothing);
  * - suggestions only hit the write path after an explicit confirmation;
- * - frozen rows are not selectable and expose the workflow state via tooltip,
- *   while frozen elements stay valid targets.
+ * - frozen rows are not selectable, frozen elements stay valid targets.
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -20,6 +26,7 @@ import type {
   SuggestArchitectureResponse,
 } from "../../api/allocation-view";
 import { AllocationAssistant } from "./AllocationAssistant";
+import { useAllocationSelection } from "./useAllocationSelection";
 
 vi.mock("react-i18next", () => {
   function lookup(key: string): string | undefined {
@@ -93,6 +100,59 @@ const R2 = row({ id: "r2", title: "Bremsweg messen", sort_key: "b" });
 const E1 = element({ id: "e1", title: "Bremse" });
 const E2 = element({ id: "e2", title: "Lenkung", sort_key: "b" });
 
+/**
+ * The page owns the selection; this harness wires the same hook the tree
+ * renderer's checkboxes write to, so the tests never invent a second state.
+ */
+function Harness({
+  requirements,
+  elements,
+  allocateBulk,
+  suggestArchitecture,
+  canEdit,
+}: {
+  requirements: AllocationRow[];
+  elements: AllocationRow[];
+  allocateBulk: (items: BulkAllocationItem[]) => Promise<{ allocated: [] }>;
+  suggestArchitecture: (
+    requirementId: string
+  ) => Promise<SuggestArchitectureResponse>;
+  canEdit: boolean;
+}): JSX.Element {
+  const selection = useAllocationSelection(requirements);
+  return (
+    <>
+      <AllocationAssistant
+        selection={selection}
+        requirements={requirements}
+        elements={elements}
+        allocateBulk={allocateBulk}
+        suggestArchitecture={suggestArchitecture}
+        canEdit={canEdit}
+      />
+      <div>
+        <button
+          type="button"
+          data-testid="harness-select-all"
+          onClick={() => selection.selectAll()}
+        >
+          harness select all
+        </button>
+        {requirements.map((requirementRow) => (
+          <button
+            key={requirementRow.id}
+            type="button"
+            data-testid={`harness-toggle-${requirementRow.id}`}
+            onClick={() => selection.toggle(requirementRow.id)}
+          >
+            harness toggle {requirementRow.id}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
 function renderAssistant(options: {
   requirements?: AllocationRow[];
   elements?: AllocationRow[];
@@ -115,7 +175,7 @@ function renderAssistant(options: {
     );
 
   render(
-    <AllocationAssistant
+    <Harness
       requirements={options.requirements ?? [R1, R2]}
       elements={options.elements ?? [E1, E2]}
       allocateBulk={
@@ -134,12 +194,64 @@ function renderAssistant(options: {
   return { allocateBulk, suggestArchitecture };
 }
 
+describe("AllocationAssistant — presentational bar (V.4)", () => {
+  it("assistant_has_no_list", () => {
+    renderAssistant();
+
+    expect(screen.getByTestId("allocation-assistant")).toBeInTheDocument();
+    // The second requirement list is gone: no rows, no row checkboxes.
+    expect(screen.queryByTestId("assistant-row-r1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("assistant-check-r1")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("assistant-list")).not.toBeInTheDocument();
+  });
+
+  it("action_bar_visible_without_selection", () => {
+    renderAssistant();
+
+    expect(screen.getByTestId("assistant-selection-count")).toHaveTextContent(
+      "0 ausgewählt"
+    );
+    expect(screen.getByTestId("assistant-select-all")).toBeEnabled();
+    // Only the write needs a selection; the ephemeral suggestion read does not.
+    expect(screen.getByTestId("assistant-allocate")).toBeDisabled();
+    expect(screen.getByTestId("assistant-suggest")).toBeEnabled();
+  });
+
+  it("select_all_counts_visible_unlocked_only", () => {
+    const frozen = row({
+      id: "r3",
+      title: "Gesperrt",
+      locked: "Freigegeben",
+      sort_key: "c",
+    });
+    renderAssistant({ requirements: [R1, R2, frozen] });
+
+    fireEvent.click(screen.getByTestId("harness-select-all"));
+
+    // r3 is frozen and stays unselectable, so the visible selection is 2.
+    expect(screen.getByTestId("assistant-selection-count")).toHaveTextContent(
+      "2 ausgewählt"
+    );
+    expect(screen.getByTestId("assistant-select-all")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+  });
+
+  it("keeps the suggestion read available without a write role", () => {
+    renderAssistant({ canEdit: false });
+
+    expect(screen.getByTestId("assistant-allocate")).toBeDisabled();
+    expect(screen.getByTestId("assistant-suggest")).toBeEnabled();
+  });
+});
+
 describe("AllocationAssistant — multi-select bulk allocation", () => {
   it("sends the whole selection as exactly one atomic bulk call", async () => {
     const { allocateBulk } = renderAssistant();
 
-    fireEvent.click(screen.getByTestId("assistant-check-r1"));
-    fireEvent.click(screen.getByTestId("assistant-check-r2"));
+    fireEvent.click(screen.getByTestId("harness-toggle-r1"));
+    fireEvent.click(screen.getByTestId("harness-toggle-r2"));
     expect(screen.getByTestId("assistant-selection-count")).toHaveTextContent(
       "2 ausgewählt"
     );
@@ -159,6 +271,10 @@ describe("AllocationAssistant — multi-select bulk allocation", () => {
     expect(await screen.findByTestId("assistant-notice")).toHaveTextContent(
       "2 Anforderung(en) auf „Bremse“ allokiert."
     );
+    // A successful write consumes the page-level selection.
+    expect(screen.getByTestId("assistant-selection-count")).toHaveTextContent(
+      "0 ausgewählt"
+    );
   });
 
   it("reports a rejected batch verbatim and says nothing was written", async () => {
@@ -172,7 +288,7 @@ describe("AllocationAssistant — multi-select bulk allocation", () => {
       });
     renderAssistant({ allocateBulk });
 
-    fireEvent.click(screen.getByTestId("assistant-check-r1"));
+    fireEvent.click(screen.getByTestId("harness-toggle-r1"));
     fireEvent.click(screen.getByTestId("assistant-allocate"));
     fireEvent.click(
       await screen.findByTestId("assistant-element-picker-option-e1")
@@ -202,7 +318,7 @@ describe("AllocationAssistant — suggestions", () => {
       });
     const { allocateBulk } = renderAssistant({ suggestArchitecture });
 
-    fireEvent.click(screen.getByTestId("assistant-check-r1"));
+    fireEvent.click(screen.getByTestId("harness-toggle-r1"));
     fireEvent.click(screen.getByTestId("assistant-suggest"));
 
     const panel = await screen.findByTestId("assistant-suggestions");
@@ -225,17 +341,30 @@ describe("AllocationAssistant — suggestions", () => {
     expect(allocateBulk).toHaveBeenCalledTimes(1);
   });
 
+  it("falls back to all unallocated requirements when nothing is selected", async () => {
+    const suggestArchitecture = vi
+      .fn<(requirementId: string) => Promise<SuggestArchitectureResponse>>()
+      .mockResolvedValue({ suggested_arch_element_ids: ["e1"] });
+    renderAssistant({ suggestArchitecture });
+
+    fireEvent.click(screen.getByTestId("assistant-suggest"));
+
+    await waitFor(() =>
+      expect(suggestArchitecture).toHaveBeenCalledTimes(2)
+    );
+    expect(suggestArchitecture).toHaveBeenCalledWith("r1");
+    expect(suggestArchitecture).toHaveBeenCalledWith("r2");
+  });
+
   it("accepts a single candidate through the same bulk confirmation", async () => {
     const suggestArchitecture = vi
       .fn<(requirementId: string) => Promise<SuggestArchitectureResponse>>()
       .mockResolvedValue({ suggested_arch_element_ids: ["e2"] });
     const { allocateBulk } = renderAssistant({ suggestArchitecture });
 
-    fireEvent.click(screen.getByTestId("assistant-check-r1"));
+    fireEvent.click(screen.getByTestId("harness-toggle-r1"));
     fireEvent.click(screen.getByTestId("assistant-suggest"));
-    fireEvent.click(
-      await screen.findByTestId("assistant-accept-r1-e2")
-    );
+    fireEvent.click(await screen.findByTestId("assistant-accept-r1-e2"));
     expect(allocateBulk).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId("assistant-confirm-write"));
@@ -248,26 +377,6 @@ describe("AllocationAssistant — suggestions", () => {
 });
 
 describe("AllocationAssistant — locks (P4.4)", () => {
-  it("does not let a frozen requirement be selected and shows the state", () => {
-    const frozen = row({
-      id: "r3",
-      title: "Gesperrt",
-      locked: "Freigegeben",
-      sort_key: "c",
-    });
-    renderAssistant({ requirements: [R1, frozen] });
-
-    const checkbox = screen.getByTestId("assistant-check-r3");
-    expect(checkbox).toBeDisabled();
-    const lock = screen.getByTestId("assistant-lock-r3");
-    expect(lock).toHaveAttribute("title", "Freigegeben");
-    expect(lock).toHaveTextContent("Freigegeben");
-    expect(screen.getByTestId("assistant-row-r3")).toHaveAttribute(
-      "data-locked",
-      "true"
-    );
-  });
-
   it("keeps a frozen element as a valid allocation target", async () => {
     const frozenElement = element({
       id: "e3",
@@ -279,7 +388,7 @@ describe("AllocationAssistant — locks (P4.4)", () => {
       elements: [E1, frozenElement],
     });
 
-    fireEvent.click(screen.getByTestId("assistant-check-r1"));
+    fireEvent.click(screen.getByTestId("harness-toggle-r1"));
     fireEvent.click(screen.getByTestId("assistant-allocate"));
 
     const option = await screen.findByTestId(

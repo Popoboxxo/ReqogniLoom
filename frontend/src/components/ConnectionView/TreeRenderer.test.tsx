@@ -155,11 +155,15 @@ describe("TreeRenderer — grouping and counts", () => {
     expect(screen.getByTestId("element-count-e2")).toHaveTextContent("0");
   });
 
-  it("renders the unallocated block with its own count", () => {
+  it("marks unallocated rows instead of counting them in a block (V.4)", () => {
     renderTree();
-    const block = screen.getByTestId("unallocated-block");
-    expect(block).toContainElement(screen.getByTestId("req-row-r3"));
-    expect(screen.getByTestId("unallocated-count")).toHaveTextContent("1");
+    const region = screen.getByTestId("tree-unallocated");
+    expect(region).toContainElement(screen.getByTestId("req-row-r3"));
+
+    // The counted block is gone; the number lives in the header counter.
+    expect(screen.queryByTestId("unallocated-count")).not.toBeInTheDocument();
+    expect(screen.getByTestId("unallocated-marker-r3")).toBeInTheDocument();
+    expect(screen.queryByTestId("unallocated-marker-r1")).not.toBeInTheDocument();
   });
 });
 
@@ -181,7 +185,7 @@ describe("TreeRenderer — drag and drop", () => {
     const dataTransfer = fakeDataTransfer();
 
     fireEvent.dragStart(screen.getByTestId("req-row-r1"), { dataTransfer });
-    fireEvent.drop(screen.getByTestId("unallocated-block"), { dataTransfer });
+    fireEvent.drop(screen.getByTestId("tree-unallocated"), { dataTransfer });
 
     await waitFor(() =>
       expect(deallocate).toHaveBeenCalledWith("link-1")

@@ -1,18 +1,29 @@
 /**
- * P3 Task 3.5 / P4.4 — multi-select allocation assistant.
+ * P3 Task 3.5 / P4.4 / V.4 — the allocation action bar.
  *
- * The assistant is the selection toolbar of the connection view:
+ * V.4 makes the assistant **presentational**: the second requirement list is
+ * gone, and the selection lives in the page-level `useAllocationSelection` hook
+ * (V.3), shared with the tree renderer's checkboxes. There is exactly one
+ * selection in the connection view — ticking a row in the tree and reading the
+ * counter in this bar are the same state, never two parallel ones.
  *
- * - select any number of requirement rows (frozen rows are not selectable);
- * - "Allokieren auf …" opens the shared element picker and sends **one** atomic
+ * The bar therefore always shows its four controls:
+ *
+ * - the selection counter (`assistant-selection-count`);
+ * - "Alle auswählen" (`assistant-select-all`) — adds every visible, unlocked
+ *   row; hidden ticks are preserved by the hook;
+ * - "Allokieren auf …" (`assistant-allocate`) — disabled without a selection;
+ *   opens the shared element picker and sends **one** atomic
  *   `POST /trace-links/bulk/` for the whole selection. The endpoint is
  *   all-or-nothing, so a failure means nothing was written and the UI says so;
- * - "Vorschläge" asks the backend suggestion endpoint for the selected (or all
- *   unallocated) requirements, shows target + reason, and writes only after an
- *   explicit confirmation in the dialog.
+ * - "Vorschläge" (`assistant-suggest`) — always active; without a selection it
+ *   works over all unallocated requirements (the pre-V.4 behaviour), with a
+ *   selection over the selected rows. The answer is ephemeral and is written
+ *   only after an explicit confirmation in the dialog.
  *
- * Frozen requirements show a lock icon whose tooltip carries the workflow
- * state name; frozen elements stay valid targets.
+ * Frozen requirements are not selectable (the hook enforces that, this file
+ * only renders the lock icon in the picker for frozen elements, which stay
+ * valid targets).
  */
 
 import { useCallback, useMemo, useState } from "react";
@@ -32,10 +43,21 @@ import {
 } from "../../utils/allocation";
 import { Dialog } from "../shared/Dialog";
 import { toAllocationError } from "../AllocationGraph/errors";
+import type { AllocationSelection } from "./useAllocationSelection";
 import styles from "./ConnectionView.module.css";
 
+/** One error shape for the bar's `role="alert"` surface. */
+export interface AllocationAssistantError {
+  code: string;
+  message: string;
+}
+
 export interface AllocationAssistantProps {
-  /** Requirements after the active filters. */
+  /**
+   * Page-level selection (V.3). The bar never keeps its own selection state.
+   */
+  selection: AllocationSelection;
+  /** Requirement rows after the active filters (suggestion fallback + labels). */
   requirements: AllocationRow[];
   /** Full element catalogue (picker + suggestion target titles). */
   elements: AllocationRow[];
@@ -45,8 +67,13 @@ export interface AllocationAssistantProps {
   suggestArchitecture: (
     requirementId: string
   ) => Promise<SuggestArchitectureResponse>;
-  /** Write authority; false renders the toolbar read-only. */
+  /** Write authority; false keeps the picker closed and the rows untouchable. */
   canEdit: boolean;
+  /**
+   * Optional page-level error (e.g. a read/write failure owned by the page).
+   * Rendered in the same alert surface as the bar's own write failures.
+   */
+  error?: AllocationAssistantError | null;
 }
 
 interface SuggestionGroup {
@@ -66,50 +93,30 @@ function sortByTitle(rows: AllocationRow[]): AllocationRow[] {
 }
 
 export function AllocationAssistant({
+  selection,
   requirements,
   elements,
   allocateBulk,
   suggestArchitecture,
   canEdit,
+  error: pageError = null,
 }: AllocationAssistantProps): JSX.Element {
   const { t } = useTranslation();
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(
-    () => new Set()
-  );
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const [suggestions, setSuggestions] = useState<SuggestionGroup[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [pendingWrite, setPendingWrite] = useState<PendingWrite | null>(null);
-  const [error, setError] = useState<{ code: string; message: string } | null>(
-    null
-  );
+  const [writeError, setWriteError] =
+    useState<AllocationAssistantError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const selectedRows = selection.selectedRows;
+  const selectedCount = selectedRows.length;
 
   const elementById = useMemo(
     () => new Map(elements.map((element) => [element.id, element])),
     [elements]
-  );
-
-  const selectableIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const row of requirements) {
-      if (!isRowLocked(row.locked)) ids.add(row.id);
-    }
-    return ids;
-  }, [requirements]);
-
-  const selectedRows = useMemo(
-    () =>
-      requirements.filter(
-        (row) => selectedIds.has(row.id) && selectableIds.has(row.id)
-      ),
-    [requirements, selectedIds, selectableIds]
-  );
-
-  const selectedRowIds = useMemo(
-    () => new Set(selectedRows.map((row) => row.id)),
-    [selectedRows]
   );
 
   const unallocatedRows = useMemo(
@@ -123,35 +130,15 @@ export function AllocationAssistant({
   );
 
   const clearError = (): void => {
-    setError(null);
+    setWriteError(null);
     setNotice(null);
   };
 
   const showFailure = useCallback((err: unknown): void => {
     const info = toAllocationError(err);
     setNotice(null);
-    setError({ code: info.code, message: info.message });
+    setWriteError({ code: info.code, message: info.message });
   }, []);
-
-  const toggleSelected = (id: string): void => {
-    if (!selectableIds.has(id)) return;
-    setSuggestions([]);
-    setSelectedIds((previous) => {
-      const next = new Set(previous);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleAll = (): void => {
-    setSuggestions([]);
-    if (selectableIds.size > 0 && selectedRows.length === selectableIds.size) {
-      setSelectedIds(new Set());
-      return;
-    }
-    setSelectedIds(new Set(selectableIds));
-  };
 
   const pickerElements = useMemo(() => {
     const needle = pickerQuery.trim().toLowerCase();
@@ -167,7 +154,8 @@ export function AllocationAssistant({
     clearError();
     try {
       await allocateBulk(items);
-      setSelectedIds(new Set());
+      // The page owns the selection; a successful bulk write consumes it.
+      selection.clear();
       setSuggestions([]);
       setNotice(successMessage);
       return true;
@@ -178,14 +166,14 @@ export function AllocationAssistant({
   };
 
   const allocateSelection = async (element: AllocationRow): Promise<void> => {
-    if (selectedRows.length === 0) return;
+    if (selectedCount === 0) return;
     await runBulk(
       selectedRows.map((row) => ({
         requirement_id: row.id,
         element_id: element.id,
       })),
       t("connectionView.assistant.allocatedNotice", {
-        count: selectedRows.length,
+        count: selectedCount,
         element: element.title,
       })
     );
@@ -197,7 +185,7 @@ export function AllocationAssistant({
   const requestSuggestions = async (): Promise<void> => {
     clearError();
     const targets =
-      selectedRows.length > 0
+      selectedCount > 0
         ? selectedRows.filter((row) => !row.allocated_to)
         : unallocatedRows;
     if (targets.length === 0) {
@@ -289,7 +277,10 @@ export function AllocationAssistant({
   };
 
   const allSelected =
-    selectableIds.size > 0 && selectedRows.length === selectableIds.size;
+    selection.selectableIds.size > 0 &&
+    selectedCount === selection.selectableIds.size;
+
+  const shownError = writeError ?? pageError ?? null;
 
   return (
     <section
@@ -313,17 +304,18 @@ export function AllocationAssistant({
             className={styles.assistantCount}
             data-testid="assistant-selection-count"
           >
-            {t("connectionView.assistant.selected", {
-              count: selectedRows.length,
-            })}
+            {t("connectionView.assistant.selected", { count: selectedCount })}
           </span>
           <button
             type="button"
             className={`btn-ghost ${styles.actionButton}`}
             data-testid="assistant-select-all"
             aria-pressed={allSelected}
-            disabled={!canEdit || requirements.length === 0}
-            onClick={toggleAll}
+            disabled={!canEdit || selection.selectableIds.size === 0}
+            onClick={() => {
+              clearError();
+              selection.selectAll();
+            }}
           >
             {t("connectionView.assistant.selectAll")}
           </button>
@@ -331,7 +323,7 @@ export function AllocationAssistant({
             type="button"
             className={`btn-ghost ${styles.actionButton}`}
             data-testid="assistant-allocate"
-            disabled={!canEdit || selectedRows.length === 0}
+            disabled={!canEdit || selectedCount === 0}
             onClick={() => {
               clearError();
               setPickerQuery("");
@@ -340,11 +332,13 @@ export function AllocationAssistant({
           >
             {t("connectionView.allocateTo")}
           </button>
+          {/* Suggestions are an ephemeral read: they stay available without a
+              write role (and without a selection, over all unallocated rows). */}
           <button
             type="button"
             className={`btn-ghost ${styles.actionButton}`}
             data-testid="assistant-suggest"
-            disabled={!canEdit || suggestionsLoading}
+            disabled={suggestionsLoading}
             onClick={() => void requestSuggestions()}
           >
             {t("connectionView.assistant.suggest")}
@@ -352,17 +346,17 @@ export function AllocationAssistant({
         </div>
       </header>
 
-      {error && (
+      {shownError && (
         <div
           role="alert"
           className={styles.error}
           data-testid="assistant-error"
-          data-error-code={error.code}
+          data-error-code={shownError.code}
         >
           <span className={styles.errorCode} data-testid="assistant-error-code">
-            {error.code}
+            {shownError.code}
           </span>
-          <span data-testid="assistant-error-message">{error.message}</span>
+          <span data-testid="assistant-error-message">{shownError.message}</span>
           <span className={styles.assistantNothingWritten}>
             {t("connectionView.assistant.nothingWritten")}
           </span>
@@ -378,64 +372,6 @@ export function AllocationAssistant({
           {notice}
         </p>
       )}
-
-      <ul className={styles.assistantList}>
-        {requirements.length === 0 ? (
-          <li className={styles.status} data-testid="assistant-empty">
-            {t("connectionView.empty")}
-          </li>
-        ) : (
-          requirements.map((row) => {
-            const lockedState = lockStateName(row.locked);
-            const locked = isRowLocked(row.locked);
-            const checked = selectedRowIds.has(row.id);
-            return (
-              <li
-                key={row.id}
-                className={styles.assistantRow}
-                data-testid={`assistant-row-${row.id}`}
-                data-locked={locked ? "true" : "false"}
-              >
-                <input
-                  type="checkbox"
-                  id={`assistant-check-${row.id}`}
-                  data-testid={`assistant-check-${row.id}`}
-                  checked={checked}
-                  disabled={locked || !canEdit}
-                  onChange={() => toggleSelected(row.id)}
-                />
-                <label
-                  htmlFor={`assistant-check-${row.id}`}
-                  className={styles.assistantRowTitle}
-                >
-                  {row.title}
-                </label>
-                {row.allocated_to && (
-                  <span className={styles.badge}>
-                    {elementById.get(row.element_id ?? "")
-                      ?.title ?? t("connectionView.allocated")}
-                  </span>
-                )}
-                {locked && (
-                  <span
-                    className={styles.lockIcon}
-                    data-testid={`assistant-lock-${row.id}`}
-                    title={lockedState ?? t("connectionView.locked")}
-                    aria-label={t("connectionView.assistant.lockedTooltip", {
-                      state: lockedState ?? t("connectionView.locked"),
-                    })}
-                  >
-                    <Lock aria-hidden="true" size={14} />
-                    {lockedState && (
-                      <span className={styles.lockState}>{lockedState}</span>
-                    )}
-                  </span>
-                )}
-              </li>
-            );
-          })
-        )}
-      </ul>
 
       {suggestionsLoading && (
         <p className={styles.status} data-testid="assistant-suggest-loading">
@@ -507,7 +443,7 @@ export function AllocationAssistant({
       {pickerOpen && (
         <Dialog
           title={t("connectionView.assistant.pickerTitle", {
-            count: selectedRows.length,
+            count: selectedCount,
           })}
           onClose={() => {
             setPickerOpen(false);

@@ -1,7 +1,7 @@
 /**
  * ARCH-L1-001 ReactFrontend — connection-view state (P3 Tasks 3.2–3.4, V10/B9).
  *
- * One hook owns everything the three renderers share:
+ * One hook owns everything the renderers share:
  *
  * - the filter state lives in the URL (round-trips across reloads, survives
  *   switching the view), never in component state;
@@ -35,15 +35,46 @@ import { asError } from "../../queries/query-error";
 import { isRowLocked } from "../../utils/allocation";
 import { useWorkspace } from "../../context/WorkspaceContext";
 
-/** The four renderers: P3's three plus the P5 card graph. */
-export type ConnectionViewMode = "tree" | "two-column" | "matrix" | "graph";
+/**
+ * The five renderers (V.5 final set): the two trees, the element-centred
+ * architecture tree (`tree` until V.5), two columns, the matrix and the card
+ * graph.
+ */
+export type ConnectionViewMode =
+  | "trees"
+  | "architecture"
+  | "two-column"
+  | "matrix"
+  | "graph";
 
 export const CONNECTION_VIEW_MODES: readonly ConnectionViewMode[] = [
-  "tree",
+  "trees",
+  "architecture",
   "two-column",
   "matrix",
   "graph",
 ];
+
+/**
+ * S0 decision D4/O5 = option (a): the two trees are the default view, so a URL
+ * without a `view` parameter opens `trees` — and `setView("trees")` writes no
+ * parameter at all (see `setView`).
+ */
+export const DEFAULT_CONNECTION_VIEW: ConnectionViewMode = "trees";
+
+/**
+ * URL aliases of the mode names (spec S4, plan V.5). `tree` is the pre-V.5
+ * name of the architecture renderer; saved views and bookmarks carry it, so it
+ * stays a **permanent** alias instead of a migration step.
+ */
+const VIEW_ALIASES: Readonly<Record<string, ConnectionViewMode>> = {
+  tree: "architecture",
+  architecture: "architecture",
+  trees: "trees",
+  "two-column": "two-column",
+  matrix: "matrix",
+  graph: "graph",
+};
 
 /** Default client-side window for the matrix. */
 export const DEFAULT_PAGE_SIZE = 50;
@@ -202,11 +233,16 @@ export function elementFiltersToQuery(
   return query;
 }
 
-/** Parse the selected renderer from the URL; `Baum` is the default. */
+/**
+ * Parse the selected renderer from the URL.
+ *
+ * - `tree` (pre-V.5) and `architecture` both open the element-centred tree;
+ * - a missing or unknown `view` opens the default `trees` (S0 = option a).
+ */
 export function parseConnectionView(params: URLSearchParams): ConnectionViewMode {
   const raw = params.get("view");
-  if (raw === "two-column" || raw === "matrix" || raw === "graph") return raw;
-  return "tree";
+  if (raw === null) return DEFAULT_CONNECTION_VIEW;
+  return VIEW_ALIASES[raw] ?? DEFAULT_CONNECTION_VIEW;
 }
 
 /** Whether a row passes the two client-side quick filters. */
@@ -435,8 +471,11 @@ export function useAllocationView(): UseAllocationViewResult {
             page: patch.page ?? 1,
           };
           const params = buildConnectionSearch(next);
+          // The mode is orthogonal to the filters (switching a filter must
+          // never switch the renderer), so it is carried over explicitly.
+          // `trees` is the default and therefore lives in no parameter.
           const mode = parseConnectionView(previous);
-          if (mode !== "tree") params.set("view", mode);
+          if (mode !== DEFAULT_CONNECTION_VIEW) params.set("view", mode);
           return params;
         },
         { replace: true }
@@ -450,7 +489,9 @@ export function useAllocationView(): UseAllocationViewResult {
       setSearchParams(
         (previous) => {
           const params = new URLSearchParams(previous);
-          if (nextView === "tree") params.delete("view");
+          // V.5: the default mode writes no `view` parameter, every other mode
+          // writes its own name.
+          if (nextView === DEFAULT_CONNECTION_VIEW) params.delete("view");
           else params.set("view", nextView);
           return params;
         },
@@ -468,7 +509,7 @@ export function useAllocationView(): UseAllocationViewResult {
           pageSize: parseConnectionSearch(previous).pageSize,
         });
         const mode = parseConnectionView(previous);
-        if (mode !== "tree") params.set("view", mode);
+        if (mode !== DEFAULT_CONNECTION_VIEW) params.set("view", mode);
         return params;
       },
       { replace: true }

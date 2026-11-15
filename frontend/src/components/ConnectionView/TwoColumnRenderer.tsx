@@ -54,6 +54,21 @@ export function TwoColumnRenderer({
   );
   const sortedElements = useMemo(() => elements.slice().sort(sortRows), [elements]);
 
+  /** V.4: target resolution for the row markers (`allocated_to` = Artifact id). */
+  const targetTitleByArtifact = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const element of elements) {
+      // `allocated_to` is the Artifact id in the read object; the entity id is
+      // accepted as a fallback so older payloads/fixtures are not mislabelled
+      // as "outside the filter".
+      if (element.artifact_id && !map.has(element.artifact_id)) {
+        map.set(element.artifact_id, element.title);
+      }
+      if (!map.has(element.id)) map.set(element.id, element.title);
+    }
+    return map;
+  }, [elements]);
+
   const highlightedElementId = selectedRequirementId
     ? sortedRequirements.find((row) => row.id === selectedRequirementId)
         ?.allocated_to ?? null
@@ -120,6 +135,10 @@ export function TwoColumnRenderer({
             const highlighted = selectedElementId
               ? (row.element_id ?? row.allocated_to) === selectedElementId
               : undefined;
+            // V.4: "outside the filter" ≠ "unallocated" (design §5.6).
+            const targetExternal =
+              Boolean(row.allocated_to) &&
+              !targetTitleByArtifact.has(row.allocated_to as string);
             return (
               <li
                 key={row.id}
@@ -148,6 +167,23 @@ export function TwoColumnRenderer({
                 >
                   {row.title}
                 </button>
+                {!row.allocated_to && (
+                  <span
+                    className={styles.unallocatedMarker}
+                    data-testid={`unallocated-marker-${row.id}`}
+                    title={t("connectionView.unallocated")}
+                    aria-hidden="true"
+                  />
+                )}
+                {targetExternal && (
+                  <span
+                    className={`${styles.badge} ${styles.targetExternal}`}
+                    data-testid={`alloc-target-external-${row.id}`}
+                    title={t("connectionView.targetExternal")}
+                  >
+                    {t("connectionView.targetExternal")}
+                  </span>
+                )}
                 {locked && (
                   <span
                     className={styles.lockIcon}

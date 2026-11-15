@@ -14,7 +14,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import type { AllocationRow } from "../../api/allocation-view";
 import { allocationViewApi } from "../../api/allocation-view";
-import { connectionViewsApi } from "../../api/connection-views";
+import {
+  connectionViewsApi,
+  loadFiltersExpanded,
+  loadShowEdges,
+  saveFiltersExpanded,
+  saveShowEdges,
+} from "../../api/connection-views";
 import {
   loadGroupsWithMembers,
   type GroupWithMembers,
@@ -77,6 +83,10 @@ vi.mock("../../api/connection-views", () => ({
     load: vi.fn(),
     save: vi.fn(),
   },
+  loadFiltersExpanded: vi.fn(),
+  saveFiltersExpanded: vi.fn(),
+  loadShowEdges: vi.fn(),
+  saveShowEdges: vi.fn(),
 }));
 
 function requirement(overrides: Partial<AllocationRow>): AllocationRow {
@@ -158,7 +168,7 @@ const CARD_FIELD_PREFERENCE = {
   },
 };
 
-function renderView(initialPath = "/connections"): void {
+function renderView(initialPath = "/connections?view=architecture"): void {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -179,6 +189,11 @@ beforeEach(() => {
   });
   vi.mocked(connectionViewsApi.load).mockResolvedValue([]);
   vi.mocked(connectionViewsApi.save).mockResolvedValue(undefined);
+  vi.mocked(loadFiltersExpanded).mockResolvedValue(false);
+  vi.mocked(saveFiltersExpanded).mockResolvedValue(undefined);
+  // V.5: the edge overlay switch is a user preference (default on).
+  vi.mocked(loadShowEdges).mockResolvedValue(true);
+  vi.mocked(saveShowEdges).mockResolvedValue(undefined);
   vi.mocked(loadGroupsWithMembers).mockResolvedValue(GROUPS);
   vi.mocked(preferenceValuesApi.effective).mockResolvedValue({
     workspace_id: "ws-1",
@@ -190,6 +205,9 @@ describe("ConnectionView — group filter (P6 Task 6.3)", () => {
   it("offers the workspace's groups and filters the rows by membership", async () => {
     renderView();
     await screen.findByTestId("tree-renderer");
+    // V.4: the free filters live in the "Weitere Filter" popover.
+    await waitFor(() => expect(loadFiltersExpanded).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId("filter-more-toggle"));
 
     const select = await screen.findByTestId("filter-group");
     expect(select).toHaveTextContent("Bremssystem");
@@ -210,6 +228,9 @@ describe("ConnectionView — group filter (P6 Task 6.3)", () => {
     vi.mocked(loadGroupsWithMembers).mockResolvedValue([]);
     renderView();
     await screen.findByTestId("tree-renderer");
+    await waitFor(() => expect(loadFiltersExpanded).toHaveBeenCalled());
+    fireEvent.click(screen.getByTestId("filter-more-toggle"));
+    await screen.findByTestId("filter-more");
     expect(screen.queryByTestId("filter-group")).toBeNull();
   });
 
