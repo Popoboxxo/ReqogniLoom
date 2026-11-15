@@ -3707,6 +3707,13 @@
     "searchEmpty": "Keine passende Anforderung gefunden.",
     "add": "Hinzufügen",
     "removeMember": "{{name}} aus der Gruppe entfernen",
-    "actionFailed": "Die Gruppenaktion ist fehlgeschlagen."
+    "actionFailed": "Die Gruppenaktion ist fehlgeschlagen.",
+    "addAction": "Zu Gruppe hinzufügen…",
+    "addDialogTitle": "Zu Gruppe hinzufügen: {{name}}",
+    "addDialogHint": "Eine Anforderung kann in mehreren Gruppen liegen. Bereits zugeordnete Gruppen sind markiert.",
+    "alreadyMember": "Bereits zugeordnet",
+    "addFailed": "Die Anforderung konnte nicht zur Gruppe hinzugefügt werden.",
+    "addEmptyHint": "Lege zuerst eine Gruppe an, um Anforderungen zu bündeln.",
+    "addDone": "Fertig"
   }
 }

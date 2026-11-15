@@ -3707,6 +3707,13 @@
     "searchEmpty": "No matching requirement found.",
     "add": "Add",
     "removeMember": "Remove {{name}} from the group",
-    "actionFailed": "The group action failed."
+    "actionFailed": "The group action failed.",
+    "addAction": "Add to group…",
+    "addDialogTitle": "Add to group: {{name}}",
+    "addDialogHint": "A requirement can sit in several groups. Groups it already belongs to are marked.",
+    "alreadyMember": "Already assigned",
+    "addFailed": "The requirement could not be added to the group.",
+    "addEmptyHint": "Create a group first to bundle requirements.",
+    "addDone": "Done"
   }
 }

@@ -344,4 +344,64 @@ describe("RequirementEditors — group management as a dialog (G1)", () => {
       expect(screen.queryByTestId("req-list-groups-btn")).not.toBeInTheDocument();
     });
   });
+
+  /**
+   * G2 (spec §4.5.3): the row action opens the dialog for *that* requirement,
+   * and the membership write goes through the group hook — which re-reads the
+   * groups, so the folder counter and the "in N Gruppen" marker update without
+   * a route reload.
+   */
+  it("opens the add-to-group dialog from the row action and reloads groups after the add", async () => {
+    const user = userEvent.setup();
+    // A second group without the requirement in it: exactly the assign case.
+    vi.mocked(loadGroupsWithMembers).mockResolvedValue([
+      GROUP,
+      {
+        id: "grp-2",
+        workspace_id: "ws-001",
+        title: "Chassis",
+        description: "",
+        members: [],
+      },
+    ]);
+    vi.mocked(groupsApi.addMember).mockResolvedValue([]);
+    await renderReady();
+
+    const rowAction = await screen.findByTestId("req-row-group-req-1");
+    expect(rowAction).toHaveAttribute("aria-haspopup", "dialog");
+    await user.click(rowAction);
+
+    const dialog = await screen.findByTestId("add-to-group-dialog");
+    // This suite's i18n stub does not interpolate, so the title is asserted on
+    // its stable part; the interpolated name is covered in
+    // src/test/AddToGroupDialog.test.tsx.
+    expect(
+      within(dialog).getByText(/Zu Gruppe hinzufügen/),
+    ).toBeInTheDocument();
+    // Existing membership is read from the same hook the manager uses.
+    expect(within(dialog).getByTestId("group-add-member-grp-1")).toBeChecked();
+    expect(within(dialog).getByTestId("group-add-member-grp-1")).toBeDisabled();
+
+    const readsBefore = vi.mocked(loadGroupsWithMembers).mock.calls.length;
+    await user.click(within(dialog).getByTestId("group-add-member-grp-2"));
+
+    await waitFor(() => {
+      expect(groupsApi.addMember).toHaveBeenCalledWith("grp-2", "req-1");
+    });
+    // The hook's reload: one more group read, no route navigation.
+    await waitFor(() => {
+      expect(vi.mocked(loadGroupsWithMembers).mock.calls.length).toBeGreaterThan(
+        readsBefore,
+      );
+    });
+    expect(screen.getByTestId("add-to-group-dialog")).toBeInTheDocument();
+  });
+
+  it("shows no row-level group action to a viewer", async () => {
+    mockAuthRoles = ["viewer"];
+    await renderReady();
+
+    await screen.findByTestId("req-list-tree");
+    expect(screen.queryByTestId("req-row-group-req-1")).not.toBeInTheDocument();
+  });
 });
