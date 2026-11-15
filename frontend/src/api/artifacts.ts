@@ -113,4 +113,110 @@ export const artifactsApi = {
   delete(id: UUID): Promise<void> {
     return apiClient.delete(`/artifacts/${id}/`);
   },
+
+  /**
+   * `PATCH /api/v1/artifacts/bulk-update/` (R3 → R6, plan
+   * 2026-11-15-document-view-on-document.md).
+   *
+   * All-or-nothing: the server validates and writes every entry inside one
+   * transaction, so a single bad entry leaves the database untouched and the
+   * whole batch comes back as 409 with an `errors` list (see
+   * `extractBulkErrors`). A 400 is a *request* problem (empty list, more than
+   * `BULK_UPDATE_MAX_ENTRIES` entries) and carries no per-entry detail.
+   */
+  bulkUpdate(
+    workspaceId: UUID,
+    entries: BulkUpdateEntry[]
+  ): Promise<BulkUpdateResult> {
+    return apiClient.patch<BulkUpdateResult>("/artifacts/bulk-update/", {
+      workspace_id: workspaceId,
+      entries,
+    });
+  },
 };
+
+/** One write of `PATCH /artifacts/bulk-update/` (mirrors `BulkEntry`). */
+export interface BulkUpdateEntry {
+  /** The **backing Artifact** id (`Document.artifact_id`, not the entity id). */
+  artifact_id: UUID;
+  /** The version the surface rendered; a mismatch rolls the batch back. */
+  expected_version: number;
+  fields: Record<string, unknown>;
+}
+
+/** One successfully written entry; `version` is the post-write revision. */
+export interface BulkUpdateUpdatedEntry {
+  artifact_id: UUID;
+  version: number;
+}
+
+/** One rejected entry (mirrors `BulkUpdateResult.errors`). */
+export interface BulkUpdateErrorEntry {
+  index: number;
+  artifact_id: UUID;
+  /** Backend error code, e.g. `FIELD_FROZEN`, `CONFLICT`, `VALIDATION_ERROR`. */
+  code: string;
+  message: string;
+  /** Set when the failure is attributable to a single field. */
+  field?: string;
+}
+
+export interface BulkUpdateResult {
+  updated: BulkUpdateUpdatedEntry[];
+  errors: BulkUpdateErrorEntry[];
+}
+
+/** Server-side ceiling of one batch (mirrors `BulkUpdateService.MAX_ENTRIES`). */
+export const BULK_UPDATE_MAX_ENTRIES = 100;
+
+/**
+ * Normalise the two shapes a rejected batch can arrive in into one
+ * `BulkUpdateErrorEntry[]`.
+ *
+ * The contract says 409 answers with `{updated, errors}`. The shared API
+ * client, however, throws the *parsed body* of any non-2xx response, and the
+ * REST error envelope is the house shape for service failures — so a batch
+ * rejected before it reaches the service (or a future server-side change)
+ * arrives as `{error: {code, message, details: [{field, errors}]}}`. Both are
+ * mapped here so the caller never has to know which one it got; an unknown
+ * shape degrades to the envelope's `message`.
+ */
+export function extractBulkErrors(error: unknown): BulkUpdateErrorEntry[] {
+  const body = error as
+    | {
+        errors?: unknown;
+        error?: {
+          code?: string;
+          message?: string;
+          details?: ReadonlyArray<{ field?: string; errors?: string[] }>;
+        };
+      }
+    | null
+    | undefined;
+
+  if (Array.isArray(body?.errors)) {
+    return body.errors as BulkUpdateErrorEntry[];
+  }
+
+  const envelope = body?.error;
+  if (!envelope) return [];
+
+  if (Array.isArray(envelope.details) && envelope.details.length > 0) {
+    return envelope.details.map((detail, index) => ({
+      index,
+      artifact_id: "",
+      code: envelope.code ?? "UNKNOWN",
+      message: detail.errors?.[0] ?? envelope.message ?? "",
+      ...(detail.field ? { field: detail.field } : {}),
+    }));
+  }
+
+  return [
+    {
+      index: 0,
+      artifact_id: "",
+      code: envelope.code ?? "UNKNOWN",
+      message: envelope.message ?? "",
+    },
+  ];
+}

@@ -138,6 +138,31 @@ export const documentsApi = {
   },
 
   /**
+   * PATCH exactly **one** field, guarded by the strong `If-Match`
+   * precondition (R5, plan 2026-11-15-document-view-on-document.md).
+   *
+   * Inline editing sends one field per request on purpose: the smallest
+   * possible write means a lost race can only cost that one field, and the
+   * 412 can be attributed to the field the user just touched. `expectedVersion`
+   * is required (not optional like `update`) because an inline save without a
+   * precondition would silently overwrite a concurrent edit — the exact
+   * failure the reading view has to surface instead.
+   */
+  updateField(
+    id: UUID,
+    field: string,
+    value: unknown,
+    expectedVersion: number
+  ): Promise<Document> {
+    return apiClient.patch<Document>(
+      `/documents/${id}/`,
+      { [field]: value } as DocumentUpdatePayload,
+      undefined,
+      { "If-Match": `"${expectedVersion}"` }
+    );
+  },
+
+  /**
    * Soft-delete a document (G1.5 V2). The backend may require a
    * `change_reason` depending on the workspace preset.
    */

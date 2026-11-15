@@ -308,6 +308,9 @@ export default function Documents(): JSX.Element {
         onReactivate={reactivate}
         onTransitionComplete={refreshAll}
         actionError={actionError}
+        onReload={() => {
+          void readingQuery.refetch();
+        }}
       />
     );
   })();
