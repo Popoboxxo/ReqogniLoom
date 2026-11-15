@@ -425,13 +425,6 @@
   color: var(--color-text-muted);
 }
 
-@media print {
-  .readingToc {
-    display: none;
-  }
-}
-
-
 /* ==========================================================================
  * Inline editing (R5) and batch save (R6).
  *
@@ -547,4 +540,146 @@
 .modeToggle [aria-pressed="true"] {
   color: var(--color-primary);
   font-weight: 600;
+}
+
+/* ==========================================================================
+ * Print (R7.2, plan 2026-11-15-document-view-on-document.md)
+ *
+ * A printed document is the document, nothing else: no navigation, no table
+ * of contents column, no action bars, no save bar, no mode switch, no field
+ * editors, no toasts. What stays is the head (title, meta, description) and
+ * the chapter text, fully readable, black on white.
+ *
+ * The rules sit at the end of the file on purpose: every one of them has to
+ * override the screen layout above (`display: grid`, `flex`, sticky aside) at
+ * equal specificity, and the later rule in the cascade wins inside `@media
+ * print` exactly as it does on screen.
+ *
+ * Colours stay token references (`--palette-white` / `--palette-black` are the
+ * primitive layer's absolute endpoints, not a theme) so the print sheet is
+ * independent of the active palette. No shadows, no backgrounds, no images.
+ * ========================================================================== */
+
+@media print {
+  /*
+   * Shell chrome. These live outside this module (sidebar navigation, banner
+   * stack/toasts, skip link), so they are addressed by their stable
+   * `data-testid` rather than by a hashed module class name.
+   */
+  :global([data-testid="app-sidebar"]),
+  :global([data-testid="sidebar-burger"]),
+  :global([data-testid="sidebar-overlay"]),
+  :global([data-testid="banner-stack"]),
+  :global([data-testid="skip-link"]) {
+    display: none;
+  }
+
+  /* Document chrome inside this module. */
+  .actions,
+  .modeToggle,
+  .saveBar,
+  .readingFields,
+  .lifecycle,
+  .readingToc {
+    display: none;
+  }
+
+  /* The list picker is navigation, not content. */
+  .page :global([data-testid="splitview-list"]) {
+    display: none !important;
+  }
+
+  /*
+   * Printing from a dark theme must not paint the sheet with the theme's
+   * surface: the canvas behind (and between) the content is the paper.
+   */
+  :global(body) {
+    background: var(--palette-white);
+    color: var(--palette-black);
+  }
+
+  /* Black on white, no page chrome around the text. The split container and
+   * its detail pane carry inline `height/overflow` and `display: flex` (see
+   * `SplitView`); flex items do not fragment across pages in Chromium, so the
+   * print sheet has to drop back to normal block flow — `!important` is the
+   * documented way to beat an inline style here. */
+  .page,
+  .detail {
+    height: auto;
+    overflow: visible;
+    padding: 0;
+    background: var(--palette-white);
+    color: var(--palette-black);
+  }
+
+  .splitRoot {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .page :global([data-testid="splitview-detail"]) {
+    display: block !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background: var(--palette-white) !important;
+  }
+
+  .detail {
+    display: block;
+    gap: 0;
+  }
+
+  .detailTitle,
+  .description,
+  .chapterHeading,
+  .chapterHeadingMinor,
+  .chapterBody,
+  .chapterNumber,
+  .meta,
+  .sectionLabel {
+    color: var(--palette-black);
+  }
+
+  /* The reading layout is the only column that prints: drop the TOC grid. */
+  .readingLayout {
+    display: block;
+  }
+
+  .chapters {
+    gap: var(--space-4);
+  }
+
+  /* A chapter may span pages — its heading may not be split or stranded. */
+  .chapter {
+    max-width: none;
+  }
+
+  .chapterHeading,
+  .chapterHeadingMinor,
+  .chapterBody :is(h1, h2, h3, h4) {
+    break-after: avoid;
+    break-inside: avoid;
+  }
+
+  /* Code blocks, tables and quotes stay in one piece instead of breaking mid
+   * cell or mid-line; `overflow` would silently clip them on paper. */
+  .chapterBody pre,
+  .chapterBody table,
+  .chapterBody blockquote {
+    break-inside: avoid;
+    background: none;
+    box-shadow: none;
+  }
+
+  .chapterBody pre {
+    overflow: visible;
+    white-space: pre-wrap;
+  }
+
+  .chapterBody th,
+  .chapterBody td,
+  .chapterBody blockquote {
+    border-color: var(--palette-black);
+  }
 }

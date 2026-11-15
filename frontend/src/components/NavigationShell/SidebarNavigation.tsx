@@ -605,6 +605,10 @@ export function SidebarNavigation(): JSX.Element {
       // desktop rail must stay fully interactive.
       inert={isMobileViewport && !isMobileNavOpen ? true : undefined}
       aria-label={t("nav.mainNavigation")}
+      // R7.2 print stylesheet: the nav is chrome, not content. Documents'
+      // `@media print` block hides it through this stable hook (module class
+      // names are hashed and not addressable from another module).
+      data-testid="app-sidebar"
       className={`${styles.sidebarNav} ${styles.navRoot} ${isMobileNavOpen ? styles.open : ""}`}
     >
       {/* Drawer close control (M-1): the pointer-free, tab-reachable way out
