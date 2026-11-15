@@ -288,6 +288,15 @@ def _entities_for(
     return entities
 
 
+def _effective_language(workspace_id: UUID) -> str | None:
+    from application.ai_language import effective_ai_language
+
+    try:
+        return effective_ai_language(workspace_id)
+    except Exception:  # noqa: BLE001 - a lookup must not fail the audit
+        return None
+
+
 def _digests_for(
     context: AuditContext,
     rows: tuple[QualityAssessment, ...],
@@ -353,6 +362,9 @@ def _digests_for(
                     "prompt_scope": prompt_scope,
                     "prompt_version": prompt_version,
                     "prompt_template_hash": template_hash,
+                    # S7 (spec §7.6): the verdict's language is part of the
+                    # input, exactly as in QualityService.assess.
+                    "language": _effective_language(context.workspace_id),
                 }
             )
         except Exception:  # noqa: BLE001 — one odd row must not abort the rule
