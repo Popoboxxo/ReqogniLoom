@@ -175,6 +175,10 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     "SimilarTraceLinkSerializer": "read-only response serializer",
     "TracePathSerializer": "read-only response serializer",
     "BaselineDeltaEntrySerializer": "read-only response serializer",
+    # R1 (#document-view): pure read projection over Document.
+    "DocumentReadingSerializer": "read-only response serializer (R1)",
+    "DocumentReadingChapterSerializer": "nested read-only response serializer (R1)",
+    "DocumentReadingProjectionSerializer": "nested read-only response serializer (R1)",
     "BaselineSummarySerializer": (
         "read-only list response serializer for GET /baselines/ (#1078); every "
         "field is read_only, so the route accepts no body to guard"
