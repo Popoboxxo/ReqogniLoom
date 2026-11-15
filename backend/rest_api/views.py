@@ -3416,6 +3416,10 @@ class _JsonOnlyContentNegotiation(BaseContentNegotiation):
     Pinning negotiation to JSON removes that whole channel: whatever the
     client sends in ``Accept``/``?format=``, DRF resolves to
     ``JSONRenderer``, and the action alone decides the real output format.
+
+    Same seam for the document reading view's Markdown export (R7.1): there
+    ``?format=markdown`` is the action's own parameter and the body leaves as
+    ``text/markdown``, so the reserved override must not answer ``404`` first.
     """
 
     def select_parser(self, request, parsers):
@@ -9959,6 +9963,10 @@ class ArtifactBulkUpdateView(APIView):
 # DocumentViewSet — Plan F F2-T5 (PR-F18a, ADR-026)
 # ---------------------------------------------------------------------------
 
+#: ``?format=`` value that switches the reading route to the Markdown export
+#: (plan R7.1). Consumed by the action itself, never by DRF's renderer override.
+_VIEW_FORMAT_MARKDOWN = "markdown"
+
 
 class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
     """REST surface for the ``Document`` artifact (Plan F F2-T5, ADR-026).
@@ -10060,16 +10068,48 @@ class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         )
 
     @extend_schema(
-        parameters=[_ETAG_RESPONSE_HEADER],
-        responses={200: DocumentReadingSerializer},
+        parameters=[
+            _ETAG_RESPONSE_HEADER,
+            OpenApiParameter(
+                "format",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                enum=["json", _VIEW_FORMAT_MARKDOWN],
+                default="json",
+                description=(
+                    "Response representation. ``json`` (default) answers the "
+                    "reading object; ``markdown`` answers the same chapters as a "
+                    "``text/markdown`` document for export — same ETag, same "
+                    "permission and not-found behaviour. The value is consumed "
+                    "by this action, not by DRF's reserved format override."
+                ),
+            ),
+        ],
+        responses={
+            (200, "application/json"): DocumentReadingSerializer,
+            (200, "text/markdown"): OpenApiTypes.STR,
+        },
         description=(
             "Read object of the document reading view (R1): document head, "
             "freeze-derived editable fields and the body split into numbered "
             "Markdown chapters. Read-only — writes stay on PATCH. "
-            "Read permission is the RBAC matrix narrowed by any item-level rule."
+            "Read permission is the RBAC matrix narrowed by any item-level rule. "
+            "``?format=markdown`` (R7.1) exports the same chapters — numbers and "
+            "order included, no edit markers — as ``text/markdown``; it is the "
+            "same operation, so the route inventory is unchanged."
         ),
     )
-    @action(detail=True, methods=["get"], url_path="view")
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="view",
+        # ``?format=`` is this action's own parameter (markdown export), not a
+        # renderer selector: pinning negotiation to JSON keeps DRF's
+        # URL_FORMAT_OVERRIDE from 404ing the request before it reaches the
+        # handler (same seam as ``requirement_bundle``).
+        renderer_classes=[JSONRenderer],
+        content_negotiation_class=_JsonOnlyContentNegotiation,
+    )
     def view(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/documents/{pk}/view/ — chaptered reading object.
 
@@ -10079,6 +10119,11 @@ class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         answers ``404``; a built-in or item-level permission denial ``403``.
         Nothing here writes: the endpoint is the read half of the editable
         document view (plan R1), never a second write path.
+
+        ``?format=markdown`` answers the same request as ``text/markdown``:
+        :meth:`DocumentReadingService.read` → ``to_markdown()`` — the chapters
+        exactly as the surface shows them (numbers, order, no edit markers),
+        with the same ``ETag`` and the same ``403``/``404`` contract (plan R7.1).
         """
         lang = detect_lang(request)
         try:
@@ -10094,7 +10139,13 @@ class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        response = Response(DocumentReadingSerializer(reading.to_dict()).data)
+        if request.query_params.get("format") == _VIEW_FORMAT_MARKDOWN:
+            response: HttpResponse | Response = HttpResponse(
+                reading.to_markdown(),
+                content_type="text/markdown; charset=utf-8",
+            )
+        else:
+            response = Response(DocumentReadingSerializer(reading.to_dict()).data)
         response["ETag"] = f'"{reading.version}"'
         return response
 

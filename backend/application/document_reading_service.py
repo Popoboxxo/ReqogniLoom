@@ -12,7 +12,10 @@ single Layer-2 entry point for that surface — it reads, it never writes:
   ownership beats freeze, so the surface never offers a write the service would
   reject,
 * the chapters, extracted purely from the Markdown ``body``
-  (:mod:`application.markdown_chapters`).
+  (:mod:`application.markdown_chapters`),
+* the Markdown export of those chapters (R7.1,
+  :meth:`DocumentViewResult.to_markdown`): exactly the reading state, no edit
+  markers.
 
 Writing stays where it is: ``DocumentService.update_document`` is the only
 content write path (plan §0), and R5/R6 will call it through the existing REST
@@ -119,6 +122,33 @@ class DocumentViewResult:
             "chapters": [chapter.to_dict() for chapter in self.chapters],
             "projection": self.projection.to_dict(),
         }
+
+    def to_markdown(self) -> str:
+        """Render this reading object as Markdown — the surface's reading state.
+
+        Slice R7.1: the export is the *reading* half of the object, never the
+        editing one. It reads :attr:`chapters` only — the same numbered, flat
+        list ``to_dict()`` publishes — so the export carries the numbers and
+        order the view shows and cannot grow a second chapter logic (plan risk
+        R1). No edit markers: no per-field verdicts (``editable``/``locked``),
+        no capability flags, no HTML or Markdown comment fences; those belong to
+        the surface, not to a document that leaves the application.
+
+        Returns:
+            Markdown with one ATX heading per chapter (the chapter's own level,
+            prefixed with its number and title), each chapter body beneath it,
+            and the unnumbered preamble first. An empty body yields an empty
+            document (``""``) — never a lone heading.
+        """
+        blocks: list[str] = []
+        for chapter in self.chapters:
+            if chapter.level > 0:
+                blocks.append(f"{'#' * chapter.level} {chapter.number} {chapter.title}")
+            if chapter.body:
+                blocks.append(chapter.body)
+        if not blocks:
+            return ""
+        return "\n\n".join(blocks) + "\n"
 
 
 class DocumentReadingService(ServiceBase):
