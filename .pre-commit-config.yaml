@@ -2,8 +2,7 @@
 #
 # Reproducible secret-scan gate for the incident pattern `reqlo_<40 alnum>`.
 # The scanner is pinned to gitleaks v8.30.1 (the same sha256-pinned binary is
-# installed by the CI backstop steps in .github/workflows/ci.yml and
-# .woodpecker.yml).
+# installed by the CI backstop step in .github/workflows/ci.yml).
 #
 # Local, non-global install of the pinned binary (no system-wide changes):
 #   Windows: https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_windows_x64.zip

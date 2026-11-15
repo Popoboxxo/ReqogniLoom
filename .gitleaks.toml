@@ -27,9 +27,8 @@
 #
 # Pinned scanner: gitleaks 8.30.1. gitleaks 8.30.1 only knows the `git` and
 # `dir` subcommands; the older `detect`/`protect` commands no longer exist.
-# See .pre-commit-config.yaml (rev v8.30.1) and the CI backstop steps in
-# .github/workflows/ci.yml and .woodpecker.yml (release archive pinned by
-# sha256).
+# See .pre-commit-config.yaml (rev v8.30.1) and the CI backstop step in
+# .github/workflows/ci.yml (release archive pinned by sha256).
 #
 # The default ruleset is declared (useDefault = true) so a full-coverage scan
 # is available on demand. The ENFORCED (blocking) gate scopes execution to the

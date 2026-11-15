@@ -154,7 +154,6 @@ release by tag. The optional Honcho and Qdrant images are pinned too — see the
 **Not covered yet (follow-up).** The claim above is scoped to the table. These still reference moving
 tags and are **not** pinned by #1391:
 
-- `.woodpecker.yml` — several, including an untagged `woodpeckerci/plugin-docker-buildx` and `alpine:latest`
 - `.github/workflows/ci.yml:71,85`
 - `.github/workflows/playwright.yml:27,40`
 
