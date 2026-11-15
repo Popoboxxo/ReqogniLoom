@@ -3,6 +3,10 @@
 > Ergänzende Architektur-Dokumentation zur formalen SE-Hierarchie unter
 > `docs/se/`. Diese Datei hält querschnittliche Konventionen fest, die nicht an
 > eine einzelne Komponente gebunden sind.
+>
+> **Stand:** `1.9.0-beta.1` · **Letzte Aktualisierung:** 2026-11-15 ·
+> **Datenquelle:** eigener Checkout von `origin/main` (`VERSION` 1.8.0-beta.29),
+> Belege sind die im Text genannten Dateien — keine Aussage ohne gelesenen Code.
 
 ## Transaktionsgrenzen (REQ-073, BE-17)
 
@@ -54,6 +58,7 @@ Alle öffentlichen Schreibpfade sind transaktional gekapselt:
 | `workspace_service` | 5 | – |
 | `test_service` / `test_run_service` | ✓ | – |
 | `import_service` | – | 1 (Bulk-Import, ein TX pro Datei, REQ-L3-IMP-002) |
+| `bulk_update_service` | 1 (`apply`) | – (eine TX für 1–100 Einträge, alles oder nichts) |
 | `dlq_service` | – | 1 (atomarer DLQ-Move, REQ-021) |
 | `event_bus` | – | 1 (Status-Update + Dispatch) |
 | `workflow_facade` | – | 1 |
@@ -65,6 +70,75 @@ erzeugen, ohne die Semantik zu verändern.
 
 `trace_link_service.query_trace_links` und andere reine Read-Pfade laufen
 bewusst ohne Transaktions-Wrapper (ADR-L3-AS005-02).
+
+### Schreibpfade der Dokumentansicht (ADR-026, Stand 1.9.0-beta.1)
+
+Die bearbeitbare Dokumentansicht führt **keinen zweiten Schreibpfad** ein. Sie
+zerlegt die Fläche in genau drei Layer-2-Bausteine:
+
+| Baustein | Rolle | Transaktion |
+|----------|-------|-------------|
+| `application/document_reading_service.py` (`DocumentReadingService`, `DocumentViewResult`) | Lesedienst: Kopf, Kapitel, Markdown-Fassung, Schreiburteile je Feld. Schreibt nie. | – (reiner Read) |
+| `application/document_edit_policy.py` (`resolve_field_permissions`, `EDITABLE_FIELDS_V1`) | Urteil je Feld in der Reihenfolge `PERMISSION` → `REPO_EXTERNAL` → `FIELD_FROZEN`; Rechte sind einschränkend, nie erweiternd. | – (pure Entscheidung) |
+| `application/bulk_update_service.py` (`BulkUpdateService.apply`) | **Der einzige neue Schreibpfad** dieser Beta: 1–100 Einträge, eine Transaktion, alles oder nichts. | `@atomic_transaction` |
+
+Regeln, die daraus folgen:
+
+1. **Einzelfeld** geht unverändert über `DocumentService.update_document`
+   (`PATCH /api/v1/documents/{id}/` mit `If-Match`). Der Bulk-Service ist kein
+   Ersatz, sondern die Sammelvariante.
+2. **Der Bulk-Service prüft nicht nach, was ein typisierter Dienst schon prüft.**
+   Freeze, Change-Reason, Syntax und Optimistic Lock bleiben dort; im Batch
+   geprüft werden nur die batch-eigenen Fragen (Form/Größe, Existenz +
+   Workspace + bekannter Typ, Feldnamen im Update-Vertrag des Typs). Zwei
+   Vorabprüfungen an zwei Orten würden irgendwann zwei Antworten liefern.
+3. **Die Dispatch-Tabelle ist explizit** (`Document` → `DocumentService`,
+   `Requirement` → `RequirementService`), nie der generische
+   `ArtifactService`-Update — der kann Inhaltsfelder wie einen Dokument-`body`
+   nicht schreiben.
+4. **Ein Fehler schreibt nichts** und nennt den Eintrag über `index`; der Client
+   markiert die Zeile, statt die Seite neu zu lesen.
+
+## Dokumentansicht: „Sicht ist bearbeitbar, kein zweites Modell" (ADR-026)
+
+ADR-026 (Nachtrag 2026-11-15) hält fest, dass die bearbeitbare Sicht **kein
+zweites Modell** neben dem `Document`-Artefakt ist. Diese Aussage ist am Code
+prüfbar und bleibt gültig:
+
+- Es gibt **kein** `DocumentView`-Modell und keine Migration dafür; die Sicht
+  liegt auf dem bestehenden `Document` (`persistence/models.py`).
+- Kapitel sind **Textverarbeitung** des Markdown-`body`
+  (`application/markdown_chapters.py`), kein Katalog von Kapitel-Entitäten und
+  keine artefakt-übergreifenden Kapitel.
+- Die Sicht zeigt und schreibt nur Felder, die das `Document` ohnehin besitzt;
+  `kind` ist bewusst nicht Teil von `EDITABLE_FIELDS_V1` (Klassifikation, kein
+  Inhalt).
+- Struktur (Verschieben, Allokieren) ändert sie nie — dafür sind Bäume und
+  Verbindungsansicht zuständig.
+
+## Verbindungsansicht: Renderer, Selektion, Geometrie (Frontend)
+
+Die Verbindungsansicht ist eine **Lesehilfe mit Schreibzugriff nur über die
+bestehenden Endpunkte**. Vier Bausteine tragen den Modus `trees`:
+
+| Datei | Verantwortung |
+|-------|---------------|
+| `frontend/src/components/ConnectionView/allocation-trees.ts` | Baumaufbau beider Spalten und die Allokationskanten als reine Funktionen — kein React, kein DOM. |
+| `frontend/src/components/ConnectionView/AllocationTreesRenderer.tsx` | Rendert die zwei Bäume, das Kanten-Overlay und die Zeilenaktionen; ein gemeinsamer Scroll-Container, keine Scroll-Synchronisation. |
+| `frontend/src/components/ConnectionView/edge-geometry.ts` | Misst gemountete Zeilen und rechnet sie in SVG-Pfade um; ein zugeklappter Zweig zeichnet deshalb bewusst keine Kante. |
+| `frontend/src/components/ConnectionView/useAllocationSelection.ts` | Auswahl und Sperr-Zustand der Zeilen — eine Wahrheit für beide Bäume und die Aktionsleiste. |
+
+Der Modus ist eine **reine Sicht-Präferenz**: `view` steht in der URL (Default
+`trees` schreibt keinen Parameter, `?view=tree` bleibt als Alias auf
+`architecture` gültig), die Kanten-Sichtbarkeit in der Nutzer-Präferenz
+`ui.connection_view.show_edges`.
+
+**Präferenz-Schreibpfad:** Nutzer-Präferenzen werden per `PATCH` mit
+`keepalive: true` geschrieben (`frontend/src/api/client.ts`,
+`preference-values.ts`), damit ein Reload mitten im Klick die Änderung nicht
+verliert, und durch `frontend/src/api/preference-write-queue.ts` serialisiert
+(Last-Click-Wins). Ein fehlgeschlagenes Schreiben meldet einen Fehler und lässt
+den lokalen Zustand stehen; einen localStorage-Fallback gibt es nicht mehr.
 
 ## Service-Layer-Grenzen (REQ-066, A-16, BE-10)
 

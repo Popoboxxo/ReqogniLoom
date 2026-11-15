@@ -92,12 +92,20 @@ bewusst nicht: `document.projection` liefert bereits Markdown.
 - **Kein Kapitel-Modell und keine Kapitel-Konfiguration.** Kapitel sind reine
   Textverarbeitung des `body`; es gibt keine artefakt-übergreifenden Kapitel,
   keine Filter-Sprache und keine Attribute je Kapitel.
-- **`custom_fields`** wird als Wert angezeigt; eine Inline-Bearbeitung der Map
-  gibt es in v1 nicht.
+- **`custom_fields` ohne Karten-Editor.** Das Feld ist laut Policy schreibbar
+  (`EDITABLE_FIELDS_V1`), aber die Sicht rendert die Map in einem einzeiligen
+  Text-Control (`DocumentFieldEditor.tsx`, `String(field.value)`); einzelne
+  Schlüssel lassen sich dort nicht sauber bearbeiten. Die Map pflegt man weiter
+  über das Formular („Bearbeiten").
+- **`kind` ist nie inline änderbar** — es steht bewusst nicht in
+  `EDITABLE_FIELDS_V1`; eine Klassifikationsänderung läuft über das Formular.
 - **`repo_external`** ist bis zum `adopt` schreibgeschützt — ein Schreibzugriff
   würde den `source_sha256`-Vertrag fälschen.
 - **Die Sicht ändert nie die Struktur** (Verschieben, Allokieren); das läuft über
   Bäume und Verbindungsansicht.
-- **Noch nicht in diesem Stand:** Inline- und Sammel-Speichern in der Oberfläche
-  (R5/R6 — „Bearbeiten" öffnet weiterhin das Formular), Druck-Stylesheet und der
-  E2E-Test (R7.2). Kein DOCX-Export, kein Teilen von Sichten.
+- **Bewusst außerhalb dieses Stands:** DOCX-Export und das Teilen von Sichten.
+  Der „Bearbeiten"-Knopf öffnet weiterhin das vollständige Formular — für alles,
+  was nicht zu den fünf Inline-Feldern gehört (z. B. `kind`). Inline- und
+  Sammel-Speichern (R5/R6), das Druck-Stylesheet (R7.2,
+  `Documents.module.css` `@media print`) und der E2E-Test
+  (`e2e/tests/document-reading-view.spec.ts`) sind gebaut.
