@@ -118,6 +118,19 @@ PROMPT_VARIABLE_DEFAULTS: dict[str, PromptVariableSpec] = {
         "JSON array of the search hits returned to the caller (max 10).",
         "json",
     ),
+    # Issue #1792 (S1): the one artifact under summary plus the already
+    # permission-filtered trace neighbours around it.
+    "artifact_json": _data(
+        "artifact_json",
+        "JSON object of the summarised artifact (id, type, label, text).",
+        "json",
+    ),
+    "neighbours_json": _data(
+        "neighbours_json",
+        "JSON array of the readable trace neighbours (label, type, link type, "
+        "direction, hop, rationale); empty when nothing is linked.",
+        "json",
+    ),
     "answers_text": _data(
         "answers_text", "The interview answers collected so far, as text."
     ),

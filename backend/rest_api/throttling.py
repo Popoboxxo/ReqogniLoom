@@ -84,6 +84,7 @@ from auth_tenancy.context import AuthMethod
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "ArtifactSummaryRateThrottle",
     "AuthContextAnonRateThrottle",
     "AuthContextUserRateThrottle",
     # Public because mcp_server.throttling builds on it: the MCP transport
@@ -533,6 +534,38 @@ class QualityAssessRateThrottle(DynamicRateThrottle):
 
     def get_rate(self) -> str | None:
         """Settings rate for ``quality_assess``, falling back to the default."""
+        return super().get_rate() or self.DEFAULT_RATE
+
+    def _refresh_rate(self, request: Any) -> None:
+        """Re-apply the default after the runtime layer, if that emptied it."""
+        super()._refresh_rate(request)
+        if not self.rate:
+            self.rate = self.DEFAULT_RATE
+            self.num_requests, self.duration = self.parse_rate(self.rate)
+
+    def get_cache_key(self, request: Request, view: Any) -> str | None:
+        ident = _auth_identity(request)
+        if ident is None:
+            return None
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class ArtifactSummaryRateThrottle(DynamicRateThrottle):
+    """Per-caller cap on the LLM-backed artifact summary (Issue #1792, S1).
+
+    Every ``GET /artifacts/<id>/summary/`` that misses the cache costs one
+    provider call, so it needs a ceiling of its own on top of the generic
+    ``user`` throttle -- the same reasoning as
+    :class:`QualityAssessRateThrottle`. The scope's ``DEFAULT_THROTTLE_RATES``
+    value is ``ARTIFACT_SUMMARY_RATE`` with a ``60/hour`` default, and an empty
+    value means "use the default", never "unlimited".
+    """
+
+    scope = "artifact_summary"
+    DEFAULT_RATE = "60/hour"
+
+    def get_rate(self) -> str | None:
+        """Settings rate for ``artifact_summary``, falling back to the default."""
         return super().get_rate() or self.DEFAULT_RATE
 
     def _refresh_rate(self, request: Any) -> None:

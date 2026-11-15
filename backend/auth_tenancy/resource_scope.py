@@ -289,6 +289,14 @@ _declare(
         ResourceScope.WORKSPACE, entity_key="artifact", id_kwargs=("artifact_id",)
     ),
 )
+# Issue #1792 (S1): authority for a summary follows the artifact it names --
+# the same rule as the artifact memory digest above.
+_declare(
+    "ArtifactSummaryView",
+    ResourceClassification(
+        ResourceScope.WORKSPACE, entity_key="artifact", id_kwargs=("artifact_id",)
+    ),
+)
 # ADR-028 A1: the release cascade names its object by id (``element_id`` /
 # ``requirement_id``), so the owning workspace — and with it the caller's
 # authority — follows the artefact, not a client-supplied workspace.
