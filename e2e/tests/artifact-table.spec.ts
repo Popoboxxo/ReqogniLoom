@@ -108,6 +108,10 @@ async function createRequirement(
       title,
       description: `E2E artifact-table fixture: ${title}`,
       category: 'Functional',
+      // The `standard` preset gates ``approved`` on an acceptance criterion —
+      // omitting it makes the bulk-transition flow answer 200 with every row
+      // in ``failed[]``, which is exactly the false green this spec must catch.
+      acceptance_criteria: `Given ${title}, when approved, then it is approved.`,
     },
   });
   expect(response.status()).toBe(201);

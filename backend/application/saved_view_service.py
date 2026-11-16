@@ -545,7 +545,13 @@ class SavedViewService(_TableViewBase):
 
     # ---------- Apply ----------
 
-    def apply(self, ctx: AuthContext, view_id: UUID | str) -> SavedViewApplyResult:
+    def apply(
+        self,
+        ctx: AuthContext,
+        view_id: UUID | str,
+        *,
+        workspace_id: UUID | str | None = None,
+    ) -> SavedViewApplyResult:
         """Run a stored view and return its rows plus warnings.
 
         Fail-soft by contract: an unreadable stored document (removed
@@ -556,6 +562,10 @@ class SavedViewService(_TableViewBase):
         self._set_tenant_context(ctx)
         row = self._get(ctx, view_id)
         self._assert_readable(ctx, row)
+        if workspace_id is not None and str(row.workspace_id) != str(workspace_id):
+            # Fence, mirroring the MCP tool: a view of another workspace is not
+            # applied by accident, and the caller learns nothing about it.
+            raise NotFoundError("SavedView", view_id)
         dto = _dto(row)
 
         service = TableQueryService()
