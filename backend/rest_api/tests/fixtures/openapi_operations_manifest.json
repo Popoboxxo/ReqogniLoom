@@ -1522,6 +1522,30 @@
    "get"
   ],
   [
+   "/api/v1/saved-views/",
+   "get"
+  ],
+  [
+   "/api/v1/saved-views/",
+   "post"
+  ],
+  [
+   "/api/v1/saved-views/{id}/",
+   "delete"
+  ],
+  [
+   "/api/v1/saved-views/{id}/",
+   "get"
+  ],
+  [
+   "/api/v1/saved-views/{id}/",
+   "patch"
+  ],
+  [
+   "/api/v1/saved-views/{id}/apply/",
+   "get"
+  ],
+  [
    "/api/v1/search/",
    "get"
   ],
@@ -1940,6 +1964,14 @@
   [
    "/api/v1/users/me/preferences/",
    "patch"
+  ],
+  [
+   "/api/v1/users/me/table-view-state/",
+   "get"
+  ],
+  [
+   "/api/v1/users/me/table-view-state/",
+   "put"
   ],
   [
    "/api/v1/users/me/theme-preference/",

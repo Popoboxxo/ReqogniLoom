@@ -227,6 +227,12 @@ from rest_api.settings_views import (
     PromptTemplateView,
     ReviewPolicyView,
 )
+from rest_api.saved_view_views import (
+    SavedViewApplyView,
+    SavedViewCollectionView,
+    SavedViewDetailView,
+    UserTableViewStateView,
+)
 from rest_api.suggestion_views import (
     SuggestionAcceptView,
     SuggestionListView,
@@ -579,6 +585,28 @@ urlpatterns = [
         "users/me/preferences/",
         UserPreferenceView.as_view(),
         name="user-preferences",
+    ),
+    # Tabellenansicht slice 3: named table views (workspace-scoped, authority
+    # from the view row) and the caller's own per-table layout state.
+    path(
+        "saved-views/",
+        SavedViewCollectionView.as_view(),
+        name="saved-view-list",
+    ),
+    path(
+        "saved-views/<uuid:pk>/apply/",
+        SavedViewApplyView.as_view(),
+        name="saved-view-apply",
+    ),
+    path(
+        "saved-views/<uuid:pk>/",
+        SavedViewDetailView.as_view(),
+        name="saved-view-detail",
+    ),
+    path(
+        "users/me/table-view-state/",
+        UserTableViewStateView.as_view(),
+        name="user-table-view-state",
     ),
     # Notification delivery preferences (OD-1, 2026-09-15) — the caller's own
     # opt-out switches over the four notification triggers. Same self-service

@@ -561,6 +561,12 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # mutating tools stay fail-closed WRITE-gated above.
         "milestone.get",
         "milestone.list",
+        # Tabellenansicht slice 3 (Task 3.4): both saved_view tools are reads —
+        # apply runs the stored filter DSL as a SELECT, list enumerates the views
+        # the caller may see. They do not end on ".read"/".query", so they are
+        # listed explicitly; there is no saved_view write tool at all.
+        "saved_view.list",
+        "saved_view.apply",
         "admin.backup_list",
         "review.list_pending",
         # ADR-019 WP3: the proposal inbox read; accept/reject are write-gated.
@@ -1172,6 +1178,7 @@ class ToolRegistry:
         from mcp_server.tools.requirements import RequirementsToolGroup
         from mcp_server.tools.resources import ResourcesToolGroup
         from mcp_server.tools.review import ReviewToolGroup
+        from mcp_server.tools.saved_view import SavedViewToolGroup
         from mcp_server.tools.suggestion import SuggestionToolGroup
         from mcp_server.tools.summaries import SummaryToolGroup
         from mcp_server.tools.tests import TestToolGroup
@@ -1328,6 +1335,11 @@ class ToolRegistry:
             # MCP-Modernisierung Task 13: always-visible introspection so a
             # client with narrowed tool_groups can still discover what exists.
             "tool": IntrospectionToolGroup(),
+            # Tabellenansicht slice 3 (Task 3.4): saved table views. Both tools
+            # are reads (saved_view.list / saved_view.apply are listed in
+            # _READ_ONLY_TOOL_NAMES below); creating or editing a view stays a
+            # UI act owned by a human.
+            "saved_view": SavedViewToolGroup(),
         })
 
     def list_tools(

@@ -343,6 +343,21 @@ for _name in ("SuggestionAcceptView", "SuggestionRejectView"):
         ),
     )
 
+# Tabellenansicht slice 3 (Task 3.3): a saved view is a plain workspace-scoped
+# row, so both the detail route (``saved-views/<pk>/``) and ``.../apply/`` derive
+# the caller's authority from the row itself. A view of another tenant resolves
+# to nothing (404); a same-tenant private view of another user is not filtered
+# here — the service answers 404 so the fence cannot become an existence oracle.
+for _name in ("SavedViewDetailView", "SavedViewApplyView"):
+    _declare(
+        _name,
+        ResourceClassification(
+            ResourceScope.WORKSPACE,
+            entity_key="saved_view",
+            id_kwargs=("pk",),
+        ),
+    )
+
 # -- workspace-scoped: workspace named in URL/query/body ------------------------
 # These routes carry the workspace explicitly (``workspaces/<uuid:...>/...``),
 # so ``resolve_request_workspace_id`` supplies the target. No object lookup.
@@ -555,6 +570,22 @@ _TENANT_SCOPED = {
     # auth layer scopes the caller's roles to it, so a same-tenant non-member is
     # denied by RBAC while a foreign-tenant workspace answers an empty page.
     "SuggestionListView": "flat suggestion inbox; mandatory ?workspace_id",
+    # Tabellenansicht slice 3: the flat saved-view collection names its
+    # workspace in the query (list) or the body (create); the view validates the
+    # mandatory parameter (400 when absent) and the auth layer scopes the
+    # caller's roles to it, so a same-tenant non-member is denied by RBAC. The
+    # two detail routes (detail/apply) resolve authority from the view row
+    # instead — see the workspace-scoped block above.
+    "SavedViewCollectionView": (
+        "flat saved-view collection; mandatory workspace_id in query (list) "
+        "or body (create)"
+    ),
+    # The per-user table state is self-service *and* workspace-scoped: the row
+    # is keyed by ``ctx.user_id`` (no cross-user path) while the mandatory
+    # ``?workspace_id`` narrows the caller's roles like the collection above.
+    "UserTableViewStateView": (
+        "caller's own per-table layout state; mandatory ?workspace_id"
+    ),
     "SearchViewSet": "tenant-wide search across accessible workspaces",
     "MetricsViewSet": "tenant-wide KPI read-model",
     # #1262: read-only SE-Auditor rule catalogue (global rule vocabulary, no

@@ -35,7 +35,7 @@ from workflow.services import create_default_workflow
 
 pytestmark = pytest.mark.django_db
 
-EXPECTED_TOOL_COUNT = 299
+EXPECTED_TOOL_COUNT = 301
 BULK_TOOL = "artifact.bulk_update"
 
 
@@ -142,13 +142,14 @@ def test_manifest_contains_bulk_update(manifest: dict[str, Any]) -> None:
     ]
 
 
-def test_tool_count_is_298(manifest: dict[str, Any]) -> None:
+def test_tool_count_is_301(manifest: dict[str, Any]) -> None:
     assert manifest["tool_count"] == EXPECTED_TOOL_COUNT
     assert len(manifest["tools"]) == EXPECTED_TOOL_COUNT
-    # 48 prefixes since MCP-Modernisierung Phase D added the ``tool`` group
-    # (``tool.list_groups``); bulk_update itself joins the existing ``artifact``
-    # group.
-    assert len({tool["prefix"] for tool in manifest["tools"]}) == 48
+    # The prefix count is 49: MCP-Modernisierung Phase D added the ``tool``
+    # group (``tool.list_groups``) and Tabellenansicht slice 3 the ``saved_view``
+    # group (``saved_view.list`` / ``saved_view.apply``); bulk_update itself
+    # joins the existing ``artifact`` group.
+    assert len({tool["prefix"] for tool in manifest["tools"]}) == 49
 
 
 def test_registry_advertises_the_tool_as_a_write() -> None:

@@ -221,11 +221,12 @@ def test_manifest_lists_it_once_as_read_and_the_count_is_current() -> None:
     assert entries[0]["is_write"] is False
     # Issue #1792 / S3 moved 293 -> 294; issue #1793 / S6 moved 294 -> 296
     # (``summary.get``/``summary.refresh``); R3.2 (document view) moved
-    # 296 -> 297 (``artifact.bulk_update``), 297 -> 298 (``artifact.bulk_transition``,
-    # #1872) and MCP-Modernisierung Phase D moved 298 -> 299 (``tool.list_groups``).
-    # Documented in six places, gated by
+    # 296 -> 297 (``artifact.bulk_update``), 297 -> 298
+    # (``artifact.bulk_transition``, #1872), 298 -> 299 (MCP-Modernisierung
+    # Phase D: ``tool.list_groups``) and 299 -> 301 (the ``saved_view`` group,
+    # Tabellenansicht slice 3). Documented in six places, gated by
     # test_tool_manifest_drift.py and the two doc-surface guards.
-    assert manifest["tool_count"] == 299
+    assert manifest["tool_count"] == 301
     assert manifest["tool_count"] == len(manifest["tools"])
 
 
