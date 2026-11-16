@@ -25,12 +25,12 @@
 
 | # | Befund (`pfad:zeile`) | Erwartete mobile Folge | Schnitt | Status |
 |---|---|---|---|---|
-| B1 | `SplitView.tsx:424,566` — `isResponsiveCollapsed` bedeutet „mobil" **und** „welche Spalte"; `:580-591` harte `List`/`Detail`-Labels | „Detail" rendert den Desktop-Zweig (zwei Spalten à ≥380 px + Divider) auf 390 px; DE-Oberfläche zeigt Englisch | M5 | offen |
-| B2 | `AppShell.module.css:7`, `SidebarNavigation.module.css:16`, `LoginPage.module.css:10`, `WorkflowEditor.module.css:17,1106`, `DiagramGraphEditor.module.css:17`, `SystemSettings.module.css:51` — `100vh` | Fußzeilen/Speicherknöpfe verschwinden hinter der Browser-Leiste | M4 | offen |
+| B1 | `SplitView.tsx:424,566` — `isResponsiveCollapsed` bedeutet „mobil" **und** „welche Spalte"; `:580-591` harte `List`/`Detail`-Labels | „Detail" rendert den Desktop-Zweig (zwei Spalten à ≥380 px + Divider) auf 390 px; DE-Oberfläche zeigt Englisch | M5 | geschlossen (Zustand getrennt, Zurück, i18n) |
+| B2 | `AppShell.module.css:7`, `SidebarNavigation.module.css:16`, `LoginPage.module.css:10`, `WorkflowEditor.module.css:17,1106`, `DiagramGraphEditor.module.css:17`, `SystemSettings.module.css:51` — `100vh` | Fußzeilen/Speicherknöpfe verschwinden hinter der Browser-Leiste | M4 | geschlossen (dvh, Safe-Areas, Login-Layout) |
 | B3 | `AllocationTreesRenderer.module.css:35`, `ConnectionView.module.css:451` — feste 2-Spalten-Grids, kein `@media`; `PermissionMatrixEditor.module.css:23`, `WorkflowPermissionsSection.module.css:51` — `min-width: 520px` | Zwei Bäume à ~180 px auf 390 px; Matrizen quetschen oder laufen über | M8 | offen |
-| B4 | `WorkflowEditor.module.css:550`, `DiagramGraphEditor.module.css:480`, `AllocationGraph.module.css:231` — `opacity: 0` ohne Hover-Alternative | Zeilenaktionen auf Touch unerreichbar | M6 | offen |
-| B5 | `useSaveShortcut.ts:110` (`Strg`/`Cmd`), `canvas/CanvasEditor.tsx:962` (nur Wheel/Maus) | Kein Speichern-Weg, kein Zoom/Pan auf Touch | M7/M8 | offen |
-| B6 | `frontend/index.html` — kein Manifest, kein `theme-color`, kein Icon; `frontend/public/` existiert nicht | Nicht installierbar | M1 | **in Arbeit** |
+| B4 | `WorkflowEditor.module.css:550`, `DiagramGraphEditor.module.css:480`, `AllocationGraph.module.css:231` — `opacity: 0` ohne Hover-Alternative | Zeilenaktionen auf Touch unerreichbar | M6 | geschlossen (Filterumbruch, Hover-Aktionen, sticky Spalte) |
+| B5 | `useSaveShortcut.ts:110` (`Strg`/`Cmd`), `canvas/CanvasEditor.tsx:962` (nur Wheel/Maus) | Kein Speichern-Weg, kein Zoom/Pan auf Touch | M7/M8 | teilweise (Read-only-Hinweis, Tabs, Save-Bar; Touch-Pan/Zoom offen) |
+| B6 | `frontend/index.html` — kein Manifest, kein `theme-color`, kein Icon; `frontend/public/` existiert nicht | Nicht installierbar | M1 | geschlossen (Manifest, Icons, nginx, Install-UX in M3) |
 
 ## 3. Nach M0 zu messen (noch offen)
 
@@ -41,8 +41,18 @@
 - [ ] Touch-Zielgrößen der Primäraktionen (Ziel ≥ 44 px).
 - [ ] Tastatur-/Zoom-Verhalten bei `interactive-widget=resizes-content` auf Android (M1 liefert das Attribut).
 
-## 4. Abschlussvermerk
+## 4. Abschlussvermerk (2026-11-16)
 
-Nach M9 werden hier die gemessenen Ergebnisse eingetragen und jede Zeile aus §2 auf „geschlossen"
-oder „bewusst offen (Begründung)" gesetzt. Bis dahin ist dieses Dokument eine **Hypothesenliste**,
-kein Abnahmebericht.
+M0–M9 sind **weitgehend** implementiert (Commits `a9dd6a49`, `dc03bb19`, `1dba30c4`; die
+M6–M9-Folge steht als *pending commit* aus). Die **strukturellen** Nachweise sind grün:
+`tsc --noEmit`, `npm run build` mit `dist/sw.js`, `nginx -t` und `check-nginx-headers.sh`
+gegen einen nginx-Testcontainer sowie statische/gemockte Frontend-Tests. Testzahlen driften
+und werden hier nicht als aktuell behauptet (Stand bei Schnitt, nicht erneut verifiziert:
+Vitest zuletzt 406 Dateien / 3998 Tests im vollen Lauf; ein Reviewer zählte in der
+Playwright-Liste 452 Tests in 3 Projekten). **Gerenderte** Nachweise (390-px-Screenshots,
+Chrome-Install-Prompt, Lighthouse, echtes iPhone/Android-Gerät) stehen weiter aus — sie
+benötigen einen laufenden Stack bzw. echte Geräte und sind in
+`docs/features/mobile-and-pwa.md` als Grenzen ausgewiesen. §2 ist damit teils geschlossen,
+teils bewusst offen: Touch-Pan/Zoom, Filter-Sheet <640 px, allgemeine klebende
+Sammelleiste, Inspector-Sheet erst <640 px, iOS nur Emulation, kein gerendertes
+E2E/Lighthouse und kein manueller Android-Installationsnachweis.

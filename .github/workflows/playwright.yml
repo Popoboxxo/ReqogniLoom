@@ -391,5 +391,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: playwright-report-${{ matrix.shard }}
-          path: e2e/playwright-report/
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
           retention-days: 7

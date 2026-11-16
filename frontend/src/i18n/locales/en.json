@@ -1,4 +1,9 @@
-{
+{  "mobile": {
+    "desktopOnly": "{{feature}}: editing is available on desktop only.",
+    "featureDiagram": "Diagram",
+    "featureCanvas": "Canvas"
+  },
+
   "app": {
     "title": "ReqogniLoom",
     "placeholder": "AI-native Requirements Management — implementation in progress."

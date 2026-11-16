@@ -128,6 +128,31 @@ const DEFAULT_MIN_WIDTHS: [number, number] = [380, 520];
 const FALLBACK_BP_MD = 768;
 const FALLBACK_BP_LG = 1024;
 
+/**
+ * Mobile row-click delegation (plan M5, REQ-209).
+ *
+ * Both row conventions in this app announce selection through ARIA —
+ * `[role="treeitem"][aria-selected]` (WorkspaceTree) and `[aria-pressed]` on a
+ * `div[role="button"]` (ArtifactRow) — but so do real controls: the
+ * `RequirementViewToggle` buttons, filter checkboxes and toolbar switches all
+ * carry `aria-pressed`. A bare `[aria-pressed]` match therefore opens a detail
+ * when the user only flips the list/table view. Check controls first, rows
+ * second, and only inside the pane that owns the delegation.
+ */
+const MOBILE_ROW_SELECTOR = '[role="treeitem"], [aria-pressed], [aria-selected]';
+const MOBILE_CONTROL_SELECTOR =
+  'button, input, select, textarea, [role="toolbar"], [data-testid="req-view-toggle"]';
+const MOBILE_CONTROL_TAG = /^(?:BUTTON|INPUT|SELECT|TEXTAREA)$/;
+
+/** Return the genuine list/tree row under `target`, or `null` for a control. */
+function findClickedListRow(target: EventTarget | null, container: HTMLElement): HTMLElement | null {
+  if (!(target instanceof Element)) return null;
+  if (target.closest(MOBILE_CONTROL_SELECTOR) !== null) return null;
+  const row = target.closest<HTMLElement>(MOBILE_ROW_SELECTOR);
+  if (row === null || !container.contains(row)) return null;
+  return MOBILE_CONTROL_TAG.test(row.tagName) ? null : row;
+}
+
 function readBreakpointToken(varName: string, fallback: number): number {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     return fallback;
@@ -210,6 +235,12 @@ const MOBILE_PANEL_STYLE: React.CSSProperties = {
   flex: 1,
   padding: 'var(--space-4)',
 };
+
+/** Hoisted visibility variants — no static inline objects in JSX. */
+const MOBILE_LIST_VISIBLE_STYLE: React.CSSProperties = { ...MOBILE_PANEL_STYLE, display: 'block' };
+const MOBILE_LIST_HIDDEN_STYLE: React.CSSProperties = { ...MOBILE_PANEL_STYLE, display: 'none' };
+const MOBILE_DETAIL_VISIBLE_STYLE: React.CSSProperties = { ...MOBILE_PANEL_STYLE, display: 'block' };
+const MOBILE_DETAIL_HIDDEN_STYLE: React.CSSProperties = { ...MOBILE_PANEL_STYLE, display: 'none' };
 
 /** Desktop root: side-by-side row shell. */
 const DESKTOP_ROOT_STYLE: React.CSSProperties = {
@@ -569,45 +600,83 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
       }
     }, [rightPanel]);
 
-    const handleMobileListClick = (event: React.MouseEvent<HTMLDivElement>): void => {
-      const target = event.target as HTMLElement;
-      // Both row conventions carry one of these attributes (see the concept
-      // contract's position-memory selector and the E2E helper).
-      if (target.closest('[aria-selected], [aria-pressed]')) setMobilePane('detail');
-    };
+    const listPaneRef = useRef<HTMLDivElement>(null);
+    const backButtonRef = useRef<HTMLButtonElement>(null);
+    const lastClickedRowRef = useRef<HTMLElement | null>(null);
+
+    // Delegated via a native listener rather than a JSX `onClick` on the list
+    // pane: that pane is a clickable *region*, not a button, so a `btn-*` chrome
+    // class would be wrong (the design-system ratchet exempts such regions
+    // elsewhere). A ref listener keeps the region out of the gate entirely and
+    // works for rows mounted by the list component after the first paint.
+    const handleMobileListClick = useCallback((event: MouseEvent): void => {
+      const container = listPaneRef.current;
+      if (!container) return;
+      const row = findClickedListRow(event.target, container);
+      if (row === null) return;
+      lastClickedRowRef.current = row;
+      setMobilePane('detail');
+    }, []);
+
+    useEffect(() => {
+      if (!isMobile) return;
+      const container = listPaneRef.current;
+      if (!container) return;
+      container.addEventListener('click', handleMobileListClick);
+      return () => container.removeEventListener('click', handleMobileListClick);
+    }, [isMobile, handleMobileListClick]);
+
+    const showDetail =
+      isMobile && mobilePane === 'detail' && rightPanel !== null && rightPanel !== undefined;
+
+    // Focus follows the visible pane (spec §7.2): opening a detail focuses the
+    // single back control; returning to the list restores focus to the row that
+    // opened it, so keyboard and screen-reader users keep their position.
+    useEffect(() => {
+      if (showDetail) backButtonRef.current?.focus();
+    }, [showDetail]);
+
+    useEffect(() => {
+      if (!isMobile || mobilePane !== 'list') return;
+      const row = lastClickedRowRef.current;
+      if (row === null) return;
+      lastClickedRowRef.current = null;
+      row.focus();
+    }, [isMobile, mobilePane]);
 
     // -----------------------------------------------------------------------
     // Responsive render: stacked layout or toggle tabs on mobile
     // -----------------------------------------------------------------------
 
     if (isMobile) {
-      const showDetail = mobilePane === 'detail' && rightPanel !== null && rightPanel !== undefined;
       return (
         <div ref={ref} className={containerClassName} style={MOBILE_ROOT_STYLE}>
           {showDetail && (
             <div style={MOBILE_HEADER_STYLE}>
               <button
+                ref={backButtonRef}
                 type="button"
                 className="btn-ghost"
                 data-testid="splitview-back"
                 onClick={() => setMobilePane('list')}
               >
-                ← {t('splitView.back', 'Zurück zur Liste')}
+                ← {t('splitView.back')}
               </button>
             </div>
           )}
           {/* Both panes stay mounted: the list keeps its native scrollTop
               while the detail replaces it visually. */}
           <div
+            ref={listPaneRef}
+            className="splitview-list-pane"
             data-testid="splitview-list"
-            onClick={handleMobileListClick}
-            style={{ ...MOBILE_PANEL_STYLE, display: showDetail ? 'none' : undefined }}
+            style={showDetail ? MOBILE_LIST_HIDDEN_STYLE : MOBILE_LIST_VISIBLE_STYLE}
           >
             {leftPanel}
           </div>
           <div
             data-testid="splitview-detail"
-            style={{ ...MOBILE_PANEL_STYLE, display: showDetail ? undefined : 'none' }}
+            style={showDetail ? MOBILE_DETAIL_VISIBLE_STYLE : MOBILE_DETAIL_HIDDEN_STYLE}
           >
             {rightPanel}
           </div>
@@ -724,7 +793,20 @@ function computeZone(bpMd: number, bpLg: number): ResponsiveZone {
 
 const ConceptSplitView = React.forwardRef<HTMLDivElement, ConceptSplitViewProps>(
   ({ list, detail, spine, ratio, minWidths, containerClassName }, ref) => {
+    const { t } = useTranslation();
     const hasDetail = detail !== null && detail !== undefined;
+
+    // Same mobile state machine as the legacy branch: on a phone the detail
+    // replaces the list and a single back step returns to it. The parent keeps
+    // its selection — `detail` is a controlled prop, so "back" only flips this
+    // local pane choice (spec §7.2 / ch. 6.2).
+    const [mobilePane, setMobilePane] = useState<'list' | 'detail'>(() =>
+      hasDetail ? 'detail' : 'list'
+    );
+    const listContainerRef = useRef<HTMLDivElement>(null);
+    const backButtonRef = useRef<HTMLButtonElement>(null);
+    const lastClickedRowRef = useRef<HTMLElement | null>(null);
+    const lastDetailRef = useRef<React.ReactNode>(detail);
 
     const [zone, setZone] = useState<ResponsiveZone>(() =>
       computeZone(
@@ -762,7 +844,6 @@ const ConceptSplitView = React.forwardRef<HTMLDivElement, ConceptSplitViewProps>
     // forward-compat hygiene, not a user-visible fix today.
     // ---------------------------------------------------------------------
 
-    const listContainerRef = useRef<HTMLDivElement>(null);
     const wasDetailOpenRef = useRef(hasDetail);
 
     useEffect(() => {
@@ -775,7 +856,50 @@ const ConceptSplitView = React.forwardRef<HTMLDivElement, ConceptSplitViewProps>
       wasDetailOpenRef.current = hasDetail;
     }, [hasDetail]);
 
-    const isMobileReplace = zone === 'mobile' && hasDetail;
+    // Only a genuine null -> detail transition follows the controlled prop;
+    // a new inline <Detail/> identity on every parent render must not pop the
+    // detail back open after the user pressed back (same rule as legacy).
+    useEffect(() => {
+      if (lastDetailRef.current === detail) return;
+      const hadDetail = lastDetailRef.current !== null && lastDetailRef.current !== undefined;
+      lastDetailRef.current = detail;
+      if (!hadDetail && hasDetail) setMobilePane('detail');
+      else if (!hasDetail) setMobilePane('list');
+    }, [detail, hasDetail]);
+
+    const isMobileReplace = zone === 'mobile' && hasDetail && mobilePane === 'detail';
+
+    // Same delegated row click as the legacy branch — see the selector note at
+    // the top of this module. Toolbar / view-toggle controls never open detail.
+    const handleMobileListClick = useCallback((event: MouseEvent): void => {
+      const container = listContainerRef.current;
+      if (!container) return;
+      const row = findClickedListRow(event.target, container);
+      if (row === null) return;
+      lastClickedRowRef.current = row;
+      setMobilePane('detail');
+    }, []);
+
+    useEffect(() => {
+      if (zone !== 'mobile') return;
+      const container = listContainerRef.current;
+      if (!container) return;
+      container.addEventListener('click', handleMobileListClick);
+      return () => container.removeEventListener('click', handleMobileListClick);
+    }, [zone, handleMobileListClick]);
+
+    // Focus follows the visible pane; back returns it to the originating row.
+    useEffect(() => {
+      if (isMobileReplace) backButtonRef.current?.focus();
+    }, [isMobileReplace]);
+
+    useEffect(() => {
+      if (zone !== 'mobile' || mobilePane !== 'list') return;
+      const row = lastClickedRowRef.current;
+      if (row === null) return;
+      lastClickedRowRef.current = null;
+      row.focus();
+    }, [zone, mobilePane]);
 
     const listStyle: React.CSSProperties = hasDetail
       ? {
@@ -799,6 +923,10 @@ const ConceptSplitView = React.forwardRef<HTMLDivElement, ConceptSplitViewProps>
 
     const detailStyle: React.CSSProperties = {
       ...SCROLL_SURFACE_STYLE,
+      // The detail stays mounted after "back" (the controlled `detail` prop
+      // still holds the selection), so hide it explicitly on a phone — the
+      // legacy branch does the same with MOBILE_DETAIL_HIDDEN_STYLE.
+      display: zone === 'mobile' && !isMobileReplace ? 'none' : 'block',
       flex: zone === 'mobile' ? '1 1 100%' : `1 1 ${effectiveRatio[1]}%`,
       minWidth: zone === 'mobile' ? undefined : `${minWidths[1]}px`,
       background: 'var(--color-surface)',
@@ -838,7 +966,9 @@ const ConceptSplitView = React.forwardRef<HTMLDivElement, ConceptSplitViewProps>
 
     const rootStyle: React.CSSProperties = {
       display: 'flex',
-      flexDirection: spineIsHorizontal ? 'column' : 'row',
+      // The mobile back header is a full-width sibling above the panes; a
+      // horizontal spine request cannot keep the root on the row axis.
+      flexDirection: isMobileReplace || spineIsHorizontal ? 'column' : 'row',
       height: '100%',
       overflow: 'hidden',
       background: 'var(--color-surface)',
@@ -854,6 +984,19 @@ const ConceptSplitView = React.forwardRef<HTMLDivElement, ConceptSplitViewProps>
 
     return (
       <div ref={ref} className={containerClassName} style={rootStyle}>
+        {isMobileReplace && (
+          <div style={MOBILE_HEADER_STYLE} data-testid="splitview-mobile-header">
+            <button
+              ref={backButtonRef}
+              type="button"
+              className="btn-ghost"
+              data-testid="splitview-back"
+              onClick={() => setMobilePane('list')}
+            >
+              ← {t('splitView.back')}
+            </button>
+          </div>
+        )}
         {spineIsHorizontal ? (
           <>
             {spineNode}

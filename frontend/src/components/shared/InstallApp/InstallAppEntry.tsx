@@ -55,16 +55,16 @@ export function InstallAppEntry(): JSX.Element | null {
         data-testid="install-app"
         onClick={() => void onInstall()}
       >
-        {t("pwa.install", "Als App installieren")}
+        {t("pwa.install", "Install app")}
       </button>
       {hintOpen && (
         <Dialog
           onClose={() => setHintOpen(false)}
-          title={t("pwa.installTitle", "ReqogniLoom installieren")}
+          title={t("pwa.installTitle", "Install ReqogniLoom")}
         >
-          <p data-testid="install-hint">{t("pwa.installHint", "Zum Home-Bildschirm hinzufügen")}</p>
+          <p data-testid="install-hint">{t("pwa.installHint", "Use “Add to Home Screen” from the share menu")}</p>
           <button type="button" className="btn-primary" data-testid="install-hint-dismiss" onClick={dismiss}>
-            {t("pwa.installDismiss", "Nicht mehr fragen")}
+            {t("pwa.installDismiss", "Don't ask again")}
           </button>
         </Dialog>
       )}

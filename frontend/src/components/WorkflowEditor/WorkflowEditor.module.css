@@ -1319,3 +1319,10 @@
   color: var(--color-text-muted);
   cursor: pointer;
 }
+
+/* Touch devices cannot hover: connection handles must stay visible (M6). */
+@media (hover: none) {
+  .handle {
+    opacity: 1;
+  }
+}

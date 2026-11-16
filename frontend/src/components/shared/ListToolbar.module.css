@@ -84,3 +84,21 @@
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
 }
+
+/* Phone density (plan M6/REQ-211): filters wrap into two lines instead of
+   shrinking selects below their readable width. */
+@media (max-width: 640px) {
+  .filterRow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .selectFlex {
+    flex: 1 1 100%;
+  }
+
+  .actionsGroup {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

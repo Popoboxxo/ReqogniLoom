@@ -683,3 +683,13 @@
     border-color: var(--palette-black);
   }
 }
+
+/* M7: the bulk save bar stays reachable above the iOS home indicator.
+   `@media screen` keeps the print view (which hides this bar) untouched. */
+@media screen and (max-width: 768px) {
+  .saveBar {
+    position: sticky;
+    bottom: env(safe-area-inset-bottom, 0px);
+    z-index: 10;
+  }
+}

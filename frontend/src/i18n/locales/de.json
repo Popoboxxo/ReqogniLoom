@@ -1,4 +1,9 @@
-{
+{  "mobile": {
+    "desktopOnly": "{{feature}}: Bearbeiten nur am Desktop.",
+    "featureDiagram": "Diagramm",
+    "featureCanvas": "Canvas"
+  },
+
   "app": {
     "title": "ReqogniLoom",
     "placeholder": "KI-natives Anforderungsmanagement — Implementierung in Bearbeitung."

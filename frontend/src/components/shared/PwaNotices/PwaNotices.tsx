@@ -44,14 +44,14 @@ export function PwaNotices(): JSX.Element | null {
     <div className={styles.pwaNotices} role="status" aria-live="polite">
       {!online && (
         <div className={`${styles.pwaNotice} ${styles.offline}`} data-testid="offline-notice">
-          {t("pwa.offlineNotice", "Offline — Änderungen können nicht gespeichert werden.")}
+          {t("pwa.offlineNotice", "Offline — changes cannot be saved.")}
         </div>
       )}
       {updateAvailable && (
         <div className={`${styles.pwaNotice} ${styles.update}`} data-testid="pwa-update-banner">
-          <span>{t("pwa.updateAvailable", "Neue Version verfügbar.")}</span>
+          <span>{t("pwa.updateAvailable", "A new version is available.")}</span>
           <button type="button" className="btn-primary" onClick={applyUpdate} data-testid="pwa-update-apply">
-            {t("pwa.updateApply", "Jetzt neu laden")}
+            {t("pwa.updateApply", "Reload now")}
           </button>
         </div>
       )}

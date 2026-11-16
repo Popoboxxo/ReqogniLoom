@@ -828,3 +828,10 @@
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
+
+/* Touch devices cannot hover: connection handles must stay visible (M6). */
+@media (hover: none) {
+  .handle {
+    opacity: 1;
+  }
+}

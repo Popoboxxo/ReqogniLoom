@@ -1644,3 +1644,11 @@
   --glass-bg: var(--palette-white-a70);
   --glass-border: var(--palette-slate-900-a08);
 }
+
+/*
+ * Mobile plan M7: iOS Safari zooms the page when a focused control's font is
+ * smaller than 16px. One token keeps that number out of component CSS.
+ */
+:root {
+  --control-font-size-touch: 16px;
+}

@@ -3,14 +3,25 @@
  *
  * The regression this guards: one boolean used to mean both "mobile" and
  * "which pane", so opening a detail on a phone rendered the desktop
- * two-column layout, and the tabs were hardcoded English.
+ * two-column layout, and the tabs were hardcoded English. The concept
+ * contract (list/detail/spine) gets the same single back step as the legacy
+ * branch — without it, six artifact routes had no mobile return path.
  */
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SplitView } from "../components/SplitView/SplitView";
 
+// A tiny realistic dictionary: the production `fallbackLng` is `en`, so the
+// German label must come from the key, not from a hardcoded t() fallback.
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string, fallback?: string) => fallback ?? key }),
+  useTranslation: () => ({
+    t: (key: string, fallback?: string) => {
+      const labels: Record<string, string> = {
+        "splitView.back": "Zurück zur Liste",
+      };
+      return labels[key] ?? fallback ?? key;
+    },
+  }),
 }));
 
 describe("SplitView mobile", () => {
@@ -71,5 +82,71 @@ describe("SplitView mobile", () => {
     render(<SplitView leftPanel={<div>Liste</div>} rightPanel={<div>Detail</div>} responsiveMode={false} />);
     expect(screen.queryByTestId("splitview-back")).toBeNull();
     expect(screen.getByTestId("splitview-divider")).toBeTruthy();
+  });
+
+  it("moves focus to the back control and restores it to the originating row", () => {
+    render(
+      <SplitView
+        leftPanel={<div aria-pressed="false" tabIndex={0} data-testid="focus-row">Zeile</div>}
+        rightPanel={<div>Detail</div>}
+      />
+    );
+    fireEvent.click(screen.getByTestId("focus-row"));
+    expect(document.activeElement?.getAttribute("data-testid")).toBe("splitview-back");
+    fireEvent.click(screen.getByTestId("splitview-back"));
+    expect(document.activeElement?.getAttribute("data-testid")).toBe("focus-row");
+  });
+
+  describe("concept contract (list/detail/spine)", () => {
+    const conceptList = (
+      <div role="treeitem" aria-selected={false} data-testid="concept-row">Zeile</div>
+    );
+
+    it("hides the list behind the detail on mobile and offers a back step", () => {
+      render(<SplitView list={conceptList} detail={<div data-testid="concept-detail">Detail</div>} />);
+      expect(screen.getByTestId("splitview-back")).toBeTruthy();
+      expect(screen.getByTestId("splitview-list").style.display).toBe("none");
+      expect(screen.getByTestId("splitview-detail").style.display).not.toBe("none");
+
+      fireEvent.click(screen.getByTestId("splitview-back"));
+      expect(screen.getByTestId("splitview-list").style.display).not.toBe("none");
+      expect(screen.getByTestId("splitview-detail").style.display).toBe("none");
+      expect(screen.queryByTestId("splitview-back")).toBeNull();
+    });
+
+    it("reopens the detail when a row is clicked after going back", () => {
+      render(<SplitView list={conceptList} detail={<div data-testid="concept-detail">Detail</div>} />);
+      fireEvent.click(screen.getByTestId("splitview-back"));
+      expect(screen.getByTestId("splitview-detail").style.display).toBe("none");
+      fireEvent.click(screen.getByTestId("concept-row"));
+      expect(screen.getByTestId("splitview-detail").style.display).not.toBe("none");
+      expect(screen.getByTestId("splitview-back")).toBeTruthy();
+    });
+
+    it("never opens the detail from a toolbar/view-toggle control", () => {
+      render(
+        <SplitView
+          list={
+            <>
+              <button type="button" aria-pressed={false} data-testid="fake-toggle">List</button>
+              {conceptList}
+            </>
+          }
+          detail={<div data-testid="concept-detail">Detail</div>}
+        />
+      );
+      fireEvent.click(screen.getByTestId("splitview-back"));
+      fireEvent.click(screen.getByTestId("fake-toggle"));
+      expect(screen.getByTestId("splitview-list").style.display).not.toBe("none");
+      fireEvent.click(screen.getByTestId("concept-row"));
+      expect(screen.getByTestId("splitview-detail").style.display).not.toBe("none");
+    });
+
+    it("has no back affordance at desktop width", () => {
+      Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 1440 });
+      render(<SplitView list={conceptList} detail={<div>Detail</div>} />);
+      expect(screen.queryByTestId("splitview-back")).toBeNull();
+      expect(screen.getByTestId("splitview-list").style.display).not.toBe("none");
+    });
   });
 });

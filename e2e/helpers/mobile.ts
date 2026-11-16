@@ -23,15 +23,37 @@ export async function expectNoHorizontalDocumentScroll(page: Page): Promise<void
 }
 
 /**
- * Open the first selectable row of a list/tree.
+ * Selector for a genuine list/tree row.
  *
  * Two row conventions exist in the app (see ConceptSplitView's position
- * memory): treeitems carry `aria-selected="true"`, artifact rows carry
- * `aria-pressed="true"`. A mobile list may render either, so this helper
- * tries both instead of encoding one editor's markup into the smoke test.
+ * memory): `WorkspaceTree` renders `<li role="treeitem" aria-selected>`,
+ * `ArtifactRow` renders `<div role="button" aria-pressed>`. Both carry an ARIA
+ * selection attribute — and so do real controls: `RequirementViewToggle` uses
+ * `<button aria-pressed>` and is rendered *before* the rows on /requirements.
+ * A bare `[aria-selected], [aria-pressed]` query therefore clicks the view
+ * toggle on a fresh route and opens no detail (the M5 regression this helper
+ * must not reintroduce). Every toolbar/view toggle in the app is a real
+ * `<button>`, so excluding native controls removes them without encoding one
+ * editor's markup into the helper.
+ */
+const LIST_ROW_SELECTOR = [
+  '[role="treeitem"]:not(button)',
+  '[aria-pressed]:not(button):not(input):not(select)',
+  '[aria-selected]:not(button):not(input):not(select)',
+].join(', ');
+
+/**
+ * Open the first genuine row of a list/tree and wait for the mobile detail.
+ *
+ * On a phone the detail replaces the list (Spec §4.1 / REQ-209): the list pane
+ * becomes `display: none` and the shared back control appears. Waiting for
+ * that indicator turns a mis-targeted click into an actionable timeout instead
+ * of a silently passing smoke step.
  */
 export async function openFirstListItem(page: Page): Promise<void> {
-  const row = page.locator('[aria-selected="true"], [aria-pressed="true"]').first();
+  const row = page.locator(LIST_ROW_SELECTOR).first();
   await expect(row).toBeVisible();
   await row.click();
+  await expect(page.getByTestId('splitview-detail')).toBeVisible();
+  await expect(page.getByTestId('splitview-back')).toBeVisible();
 }

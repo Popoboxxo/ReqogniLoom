@@ -15,6 +15,17 @@ pipeline_stages:
 
 # Mobil bedienbar und installierbar — Umsetzungsplan (M0–M9)
 
+**Stand 2026-11-16: M0–M9 weitgehend umgesetzt.** Die Schnitte M6–M9 sind mit den in
+`docs/features/mobile-and-pwa.md` ausgewiesenen Grenzen geliefert (Touch-Pan/Zoom in
+Diagramm/Canvas, Filter-Sheet <640 px, allgemeine klebende Sammelleiste, Inspector-Sheet erst
+<640 px; REQ-211/212/215 daher „Teilweise"). Gerenderte Abnahmen — 390-px-Screenshots,
+Chrome-Install-Prompt, Lighthouse und der manuelle Android-Installationsnachweis — benötigen
+einen laufenden Stack / echte Geräte und stehen aus.
+
+**Belege (Stand bei Schnitt, nicht erneut verifiziert):** Commits `a9dd6a49`, `dc03bb19`,
+`1dba30c4`; die M6–M9-Folge steht als *pending commit* aus. Strukturelle Gates und
+statische/gemockte Tests sind grün; eine gerenderte Geräteabnahme liegt nicht vor.
+
 **Goal:** Die SPA auf Telefonbreite (360–430 px) bedienbar machen und als installierbare PWA
 auf Android ausliefern — in zehn einzeln lieferbaren Schnitten. Nach **M1** ist die App
 installierbar (ohne Offline-Hülle), nach **M2** startet sie auch bei wackligem Netz, nach
@@ -87,9 +98,11 @@ nicht mehr kaputt"; M5–M8 sind die eigentliche Mobil-Arbeit.
 ## 2. M0 — Messbasis
 
 **Ziel:** Vor der ersten Zeile Produktivcode ist belegt, was kaputt ist — statt es zu glauben.
-**Stand 2026-11-16: umgesetzt.** Playwright listet 3 Projekte / 450 Tests; die mobile Suite
-läuft nur in `mobile-chrome` und `mobile-safari`. Gerenderte Baseline-Screenshots fehlen,
-solange kein Stack läuft (siehe `docs/plans/mobile-baseline-2026-11.md`).
+**Stand 2026-11-16: umgesetzt.** Stand bei Schnitt: 3 Projekte; Playwright listete rund
+450 Tests (ein Reviewer zählte 452) — die Zahl driftet und wurde nicht erneut verifiziert.
+Die mobile Suite läuft nur in `mobile-chrome` und `mobile-safari`. Gerenderte
+Baseline-Screenshots fehlen, solange kein Stack läuft (siehe
+`docs/plans/mobile-baseline-2026-11.md`).
 
 - [x] `e2e/playwright.config.ts`: Projekte `mobile-chrome` (`devices['Pixel 7']`) und
       `mobile-safari` (`devices['iPhone 13']`) ergänzen; Desktop-Projekt unverändert lassen.
@@ -155,39 +168,45 @@ Start ist standalone, Name/Icon korrekt. Keine Änderung an CSP, keine neue Depe
 **Ziel:** Die installierte App startet sofort und zeigt bei fehlendem Netz eine ehrliche Hülle
 statt einer Browser-Fehlerseite. **Keine** Fachdaten im Cache.
 
-- [ ] `vite-plugin-pwa` als `devDependency`; `frontend/vite.config.ts`:
-      `registerType: "prompt"`, `injectRegister: "auto"`,
+- [x] `vite-plugin-pwa` als `devDependency`; `frontend/vite.config.ts`:
+      `registerType: "prompt"`, `injectRegister: null` (manuelle Registrierung in
+      `frontend/src/pwa/register.ts`),
       `workbox.navigateFallback: "/index.html"`,
       `navigateFallbackDenylist: [/^\/api\//, /^\/mcp\//, /^\/admin\//, /^\/static\//]`,
       `globPatterns: ["**/*.{js,css,html,woff2,png,svg,webmanifest}"]`,
       `cleanupOutdatedCaches: true`.
-- [ ] Explizite Laufzeitregeln (Spec §6.3): `NetworkOnly` für `/api/`, `/mcp/`;
+- [x] Explizite Laufzeitregeln (Spec §6.3): `NetworkOnly` für `/api/`, `/mcp/`;
       `CacheFirst` für `/assets/`; `StaleWhileRevalidate` für Icons/Manifest. **Kein**
       `NetworkFirst` auf API-Pfaden, auch nicht als „nur lesend".
-- [ ] `frontend/src/pwa/register.ts`: Registrierung, `updatefound`-Erkennung, Export
+- [x] `frontend/src/pwa/register.ts`: Registrierung, `updatefound`-Erkennung, Export
       `applyUpdate()`/`onUpdateAvailable()`; in `index.tsx` eingehängt (nicht in `App.tsx`,
       damit Tests ohne SW laufen).
-- [ ] `frontend/src/components/shared/UpdateBanner/`: „Neue Version verfügbar — jetzt neu
-      laden" (`pwa-update-banner`), i18n DE/EN, `role="status"`, kein Auto-Reload.
-- [ ] `frontend/src/components/shared/OfflineNotice/`: Banner bei `navigator.onLine === false`
-      („Offline — Änderungen können nicht gespeichert werden"), `data-testid="offline-notice"`;
-      verschwindet bei `online`.
-- [ ] Logout-Pfad (`frontend/src/context/AuthContext.tsx`): `postMessage` an den SW
-      (`{type: "purge-caches"}`) und im SW `caches.delete` für alle Cache-Namen.
-- [ ] `frontend/src/test/pwa-sw-policy.test.ts`: liest die generierte
+- [x] `frontend/src/components/shared/PwaNotices/PwaNotices.tsx`: Update-Banner „Neue Version
+      verfügbar — jetzt neu laden" (`pwa-update-banner`), i18n DE/EN, `role="status"`, kein
+      Auto-Reload. *(Plan-Namen `shared/UpdateBanner/` und `shared/OfflineNotice/` gibt es so
+      nicht — beide Hinweise liegen in `PwaNotices`.)*
+- [x] `frontend/src/components/shared/PwaNotices/PwaNotices.tsx`: Offline-Banner bei
+      `navigator.onLine === false` („Offline — Änderungen können nicht gespeichert werden"),
+      `data-testid="offline-notice"`; verschwindet bei `online`. Test:
+      `frontend/src/test/PwaNotices.test.tsx`.
+- [x] Logout-Pfad (`frontend/src/context/AuthContext.tsx`): Cache-Löschung beim Logout.
+      **Abweichung:** kein `postMessage` an den SW nötig — Seite und Worker teilen sich
+      denselben Cache-Storage; `caches.delete()` auf der Seite reicht (Test in `pwa-runtime.test.ts`).
+- [x] `frontend/src/test/pwa-sw-policy.test.ts`: liest die generierte
       `vite.config.ts`-Konfiguration (bzw. die exportierte `workbox`-Konstante) und asserted,
       dass `/api/` und `/mcp/` in `navigateFallbackDenylist` stehen **und** in keiner
       Laufzeitregel mit Cache-Strategie auftauchen. Der Test ist der Wächter gegen den
       Datenschutz-Fehler aus Spec §8.
-- [ ] `frontend/nginx.conf`: `location = /sw.js` mit `no-cache, no-store, must-revalidate`,
+- [x] `frontend/nginx.conf`: `location = /sw.js` mit `no-cache, no-store, must-revalidate`,
       Security-Header-Include; `check-nginx-headers.sh` prüft zusätzlich die Cache-Direktive.
-- [ ] `docs/features/mobile-and-pwa.md` fortschreiben: Cache-Inhalt, Update-Verhalten,
+- [x] `docs/features/mobile-and-pwa.md` fortschreiben: Cache-Inhalt, Update-Verhalten,
       Logout-Löschung.
 
-**Tests:** E2E `pwa.spec.ts` — SW registriert (`navigator.serviceWorker.ready`), Offline via
-`context.setOffline(true)`: Navigation auf `/requirements` rendert die Hülle + Offline-Hinweis;
-`/api/`-Antwort ist **nicht** im Cache (`caches.keys()` + `cache.match`). Update-Banner erscheint
-nach einem simulierten `waiting`-Worker.
+**Tests (tatsächlich vorhanden, statisch/gemockt):** `frontend/src/test/pwa-sw-policy.test.ts`
+prüft die `vite.config.ts`-Richtlinie (`/api/`, `/mcp/` in `navigateFallbackDenylist`, keine
+Cache-Strategie), `pwa-runtime.test.ts` die Logout-Cache-Löschung und `PwaNotices.test.tsx` die
+beiden Banner. **Kein** E2E `pwa.spec.ts` — die Datei existiert nicht; Offline-Verhalten und
+Update-Banner wurden nicht in einem echten Browser gegen einen laufenden Stack geprüft.
 
 **DoD:** Offline-Start zeigt Shell statt Netzfehler; ein Logout hinterlässt keinen API-Eintrag
 im Cache; Update wird nie ungefragt eingespielt.
@@ -199,20 +218,21 @@ im Cache; Update wird nie ungefragt eingespielt.
 **Ziel:** Ein sichtbarer Weg in die Installation, der auf Android wirklich installiert und auf
 iOS ehrlich erklärt.
 
-- [ ] `frontend/src/hooks/useInstallPrompt.ts`: fängt `beforeinstallprompt`, hält das Event,
+- [x] `frontend/src/hooks/useInstallPrompt.ts`: fängt `beforeinstallprompt`, hält das Event,
       meldet `canInstall`; `promptInstall()` ruft `prompt()` und wertet `userChoice` aus;
       erkennt `display-mode: standalone` (`matchMedia`) und blendet danach aus.
-- [ ] `frontend/src/components/NavigationShell/InstallAppButton.tsx`
+- [x] `frontend/src/components/shared/InstallApp/InstallAppEntry.tsx`
       (`data-testid="install-app"`): im Sidebar-Fuß und in `UserProfileSettings`; auf
-      Nicht-Chromium öffnet er das Anleitungs-Sheet (`InstallInstructionsSheet`), das die
-      Teilen-Anleitung für iOS zeigt — kein toter Knopf.
-- [ ] „Nicht mehr fragen": Präferenz `ui.pwa.install_dismissed` über den bestehenden
+      Nicht-Chromium öffnet er eine `Dialog`-basierte Anleitung mit der Teilen-Anleitung für
+      iOS — kein toter Knopf. *(Plan-Namen `NavigationShell/InstallAppButton.tsx` und
+      `InstallInstructionsSheet` gibt es so nicht.)*
+- [x] „Nicht mehr fragen": Präferenz `ui.pwa.install_dismissed` über den bestehenden
       Präferenzdienst (Muster: `frontend/src/api/preference-values.ts`,
       `ui.connection_view.*`), inkl. Backend-Registrierung — **Ausnahme von „kein Backend"**:
       die Präferenz ist Nutzerzustand, kein Fachdatum; Registrierung in
       `backend/auth_tenancy/apps.py` und Test in `test_preference_keys_ordering.py`.
-- [ ] i18n: `pwa.install.*` in DE und EN.
-- [ ] `frontend/src/test/useInstallPrompt.test.ts`: Event-Reihenfolge, `userChoice`-Ausgänge
+- [x] i18n: `pwa.install.*` in DE und EN.
+- [x] `frontend/src/test/useInstallPrompt.test.ts`: Event-Reihenfolge, `userChoice`-Ausgänge
       (`accepted`/`dismissed`), Standalone-Erkennung, Dismiss-Persistenz.
 
 **DoD:** Auf Android führt der Knopf zur echten Installation; nach Installation ist der Knopf
@@ -225,17 +245,17 @@ erneut aufgedrängt.
 
 **Ziel:** Nichts verschwindet mehr hinter der mobilen Browser-Leiste oder der Tastatur.
 
-- [ ] `AppShell.module.css:7` → `height: 100dvh` (mit `100vh` davor als Fallback),
+- [x] `AppShell.module.css:7` → `height: 100dvh` (mit `100vh` davor als Fallback),
       `.main`-Padding unter 640 px auf `--space-3`/`--space-4`.
-- [ ] `SidebarNavigation.module.css:16` (`100vh` → `dvh`), Drawer-Breite `min(85vw, 320px)`,
+- [x] `SidebarNavigation.module.css:16` (`100vh` → `dvh`), Drawer-Breite `min(85vw, 320px)`,
       `padding-top: env(safe-area-inset-top)`, Schließen bei Routenwechsel (falls nicht schon
       vorhanden: `NavigationShell`-Test ergänzen).
-- [ ] `LoginPage.module.css:10` → `100dvh`; Formular `min-width` durch `width: min(100% - 2*var(--space-4), 420px)` ersetzen (320 px Mindestbreite bricht auf 360-px-Geräten mit Tastatur).
-- [ ] `WorkflowEditor.module.css:17,1106`, `DiagramGraphEditor.module.css:17`,
+- [x] `LoginPage.module.css:10` → `100dvh`; Formular `min-width` durch `width: min(100% - 2*var(--space-4), 420px)` ersetzen (320 px Mindestbreite bricht auf 360-px-Geräten mit Tastatur).
+- [x] `WorkflowEditor.module.css:17,1106`, `DiagramGraphEditor.module.css:17`,
       `SystemSettings.module.css:51`: `100vh` → `100dvh` in den `calc()`-Ausdrücken.
-- [ ] Detailspalten-Fuß: `padding-bottom: env(safe-area-inset-bottom)` für die klebende
+- [x] Detailspalten-Fuß: `padding-bottom: env(safe-area-inset-bottom)` für die klebende
       Speicherleiste (Vorbereitung für M7).
-- [ ] `frontend/src/test/mobile-shell.test.ts`: statische Assertions auf `dvh` und
+- [x] `frontend/src/test/mobile-shell.test.ts`: statische Assertions auf `dvh` und
       `env(safe-area-inset` in den vier Dateien (Muster: bestehender
       `Dialog.test.tsx:628-650` prüft CSS-Inhalte genauso).
 
@@ -249,25 +269,25 @@ vollständig sichtbar; Tastatur-Test in M0-Screenshot nachvollzogen.
 **Ziel:** Detail ersetzt die Liste mit einem echten Zurück-Schritt — auf allen 17 Aufrufern,
 ohne sie einzeln umzubauen.
 
-- [ ] `SplitView.tsx`: `isResponsiveCollapsed` in zwei Zustände zerlegen:
+- [x] `SplitView.tsx`: `isResponsiveCollapsed` in zwei Zustände zerlegen:
       `isMobile` (Breakpoint, via bestehendem Resize-Effekt) und
       `mobilePane: "list" | "detail"`.
-- [ ] Mobil rendert **entweder** Liste **oder** Detail (`display: none` für die versteckte
+- [x] Mobil rendert **entweder** Liste **oder** Detail (`display: none` für die versteckte
       Seite, nicht unmounten — Scroll-Position); die Tab-Leiste
       (`MOBILE_TAB_ROW_STYLE`) entfällt.
-- [ ] Zurück-Schritt: `data-testid="splitview-back"`, `aria-label` aus i18n, sichtbar nur
+- [x] Zurück-Schritt: `data-testid="splitview-back"`, `aria-label` aus i18n, sichtbar nur
       mobil, an derselben Kopfzeile wie der Detailtitel (Portal-Slot `detailBack`? — Umsetzung
       im Primitiv: ein `SplitView`-eigener Kopfstreifen über dem Detail, damit kein Aufrufer
       angefasst werden muss).
-- [ ] Auswahl-Kopplung: Wechsel von `rightPanel`/`detail`-Inhalt (Prop-Identität) schaltet
+- [x] Auswahl-Kopplung: Wechsel von `rightPanel`/`detail`-Inhalt (Prop-Identität) schaltet
       `mobilePane` auf `"detail"`; ein Zurück setzt `"list"` und fokussiert die zuletzt
       gewählte Zeile (`[aria-selected="true"], [aria-pressed="true"]`).
-- [ ] i18n: `splitView.list`, `splitView.detail`, `splitView.back` (DE/EN); die englischen
+- [x] i18n: `splitView.list`, `splitView.detail`, `splitView.back` (DE/EN); die englischen
       Literale `List`/`Detail` entfernen.
-- [ ] Tests: `frontend/src/test/SplitView.mobile.test.tsx` — Zustandsmaschine
+- [x] Tests: `frontend/src/test/SplitView.mobile.test.tsx` — Zustandsmaschine
       (`isMobile` × `mobilePane` × Detail vorhanden), Breakpoint-Wechsel setzt `mobilePane`
       zurück, Scroll-Position bleibt, Labels aus i18n.
-- [ ] E2E: `e2e/tests/mobile-list-detail.spec.ts` über `/requirements`, `/needs`, `/risks`,
+- [x] E2E: `e2e/tests/mobile-list-detail.spec.ts` über `/requirements`, `/needs`, `/risks`,
       `/issues`, `/adrs`, `/testcases`, `/glossary`, `/baselines`: Zeile öffnen → Detail
       sichtbar, Liste nicht → Zurück → Liste sichtbar, gewählte Zeile im Blick.
 
@@ -280,19 +300,24 @@ horizontaler Overflow; DE-Oberfläche ohne englische Labels.
 
 **Ziel:** Finden und Auswählen funktioniert mit dem Daumen.
 
-- [ ] `ListToolbar.module.css`: unter 640 px Suche volle Breite, Filter in zwei Zeilen,
-      „Weitere Filter" als Sheet (Dialog-Primitiv, `use-sheet-gestures` existiert).
-- [ ] `ArtifactRow`: Zeilenaktionen als sichtbares Kebab (`data-testid="row-actions"`),
-      Sheet unter 640 px; `ArtifactRow.module.css` bekommt keinen Hover-only-Zugang.
-- [ ] `ArtifactTable.module.css`: erste Spalte `position: sticky; left: 0` mit
+- [x] `ListToolbar.module.css`: unter 640 px Suche volle Breite, Filter in zwei Zeilen
+      (statisch geprüft in `mobile-surfaces.test.tsx`). **Offen:** „Weitere Filter" als Sheet —
+      es gibt nur den zweizeiligen Umbruch, kein Filter-Sheet.
+- [ ] `ArtifactRow`: Zeilenaktionen als sichtbares Kebab (`data-testid="row-actions"`), Sheet
+      unter 640 px — **offen**: `row-actions`-Testid und Sheet existieren nicht; nur die
+      Hover-only-Stellen in `WorkflowEditor`/`DiagramGraphEditor` sind aufgelöst.
+- [x] `ArtifactTable.module.css`: erste Spalte `position: sticky; left: 0` mit
       Hintergrund-Token, Kopfzeile sticky; `overflow: auto` bleibt der Scroll-Ort.
 - [ ] Sammelleiste: klebt über `safe-area-inset-bottom`, solange Auswahl besteht
-      (`data-testid="bulk-bar"`).
-- [ ] Hover-only-Stellen aus Spec §3.2 (B4) auflösen: `WorkflowEditor.module.css:550`,
+      (`data-testid="bulk-bar"`) — **offen**: keine allgemeine klebende Sammelleiste; nur die
+      Dokument-Speicherleiste ist klebend und safe-area-bewusst.
+- [x] Hover-only-Stellen aus Spec §3.2 (B4) auflösen: `WorkflowEditor.module.css:550`,
       `DiagramGraphEditor.module.css:480`, `AllocationGraph.module.css:231` — unter
       `@media (hover: none)` dauerhaft sichtbar.
-- [ ] Tests: `ArtifactTable`-Unit (sticky-Spalte als CSS-Assertion), E2E-Filter-Sheet,
-      E2E-Sammelleiste auf 390 px.
+- [x] Tests: `frontend/src/test/mobile-surfaces.test.tsx` (statische CSS-Assertions für
+      Filterumbruch, sticky Spalte, `@media (hover: none)`). **Offen:** E2E-Filter-Sheet und
+      E2E-Sammelleiste auf 390 px — keine Sheet-/Bar-Implementierung, keine entsprechende
+      E2E-Datei.
 
 **DoD:** Jede Aktion einer Listenzeile ist ohne Hover erreichbar; Filter bleiben lesbar; keine
 Tabelle schiebt das Dokument.
@@ -303,16 +328,19 @@ Tabelle schiebt das Dokument.
 
 **Ziel:** Bearbeiten auf dem Telefon ist langsam, aber möglich — oder sichtbar nicht angeboten.
 
-- [ ] Formulare einspaltig unter 768 px (gemeinsame Primitives:
+- [x] Formulare einspaltig unter 768 px (gemeinsame Primitives:
       `shared/ArtifactForm`, `shared/CreateFormFields`, `FormField`).
-- [ ] Klebende Speicherleiste im Detail (`data-testid="detail-save-bar"`) über der Safe-Area;
+- [x] Klebende Speicherleiste im Detail über der Safe-Area (real: `DocumentSaveBar`,
+      `data-testid="document-save-bar"`, Sticky-Regel in `Documents.module.css:691`);
       `useSaveShortcut` bleibt zusätzlich (Desktop), kein Ersatz.
-- [ ] Inspector unter 768 px als Bottom-Sheet (Dialog-Primitiv), Trigger im Detailkopf.
-- [ ] `MarkdownField`-Toolbar horizontal scrollbar (kein Umbruch in drei Zeilen).
-- [ ] Editoren mit vielen Feldern (`RequirementEditors`, `ArchitectureEditors`,
+- [x] Inspector als Bottom-Sheet (Dialog-Primitiv), Trigger im Detailkopf — **unter 640 px**,
+      nicht schon unter 768 px (`shared/Dialog/Dialog.module.css:159`, `@media (max-width:
+      640px)`).
+- [x] `MarkdownField`-Toolbar horizontal scrollbar (kein Umbruch in drei Zeilen).
+- [x] Editoren mit vielen Feldern (`RequirementEditors`, `ArchitectureEditors`,
       `TestCaseEditors`): Abschnitts-Reihenfolge unverändert, nur Darstellung; kein
       Collapse-Verhalten neu erfinden.
-- [ ] Unit: `FormField`/`ArtifactForm` CSS-Assertions; E2E: Bearbeiten + Speichern auf
+- [x] Unit: `FormField`/`ArtifactForm` CSS-Assertions; E2E: Bearbeiten + Speichern auf
       `mobile-chrome` für Requirement und Testfall.
 
 **DoD:** Anlegen/Bearbeiten/Speichern eines Requirements und eines Testfalls ist auf 390 px
@@ -324,21 +352,25 @@ ohne Zoom möglich; die Speicherleiste ist immer erreichbar.
 
 **Ziel:** Kein kaputter Editor, keine zwei 180-px-Bäume, keine unlesbare Matrix.
 
-- [ ] `ConnectionView`: unter 768 px Tabs `Anforderungen`/`Architektur` (Umschalter wie
+- [x] `ConnectionView`: unter 768 px Tabs `Anforderungen`/`Architektur` (Umschalter wie
       Modus-Leiste, `data-testid="allocation-trees-tabs"`), Kanten als Textzeile je Zeile
       (bestehende Zieltexte in `AllocationTreesRenderer`), Overlay aus (keine Messung über
       verdeckte Spalten).
-- [ ] `PermissionMatrix`/`WorkflowPermissionsSection`: `min-width: 520px` bleibt, aber in
+- [x] `PermissionMatrix`/`WorkflowPermissionsSection`: `min-width: 520px` bleibt, aber in
       einem `overflow-x`-Container mit fixierter erster Spalte und Hinweis
       („horizontal scrollen") — kein Quetschen.
-- [ ] `MetricsDashboard`: Kacheln unter 768 px einspaltig, Diagramme `min-height` statt fester
+- [x] `MetricsDashboard`: Kacheln unter 768 px einspaltig, Diagramme `min-height` statt fester
       Höhe.
-- [ ] `DiagramGraphEditor`/`CanvasEditor`: Touch-Pan + Pinch-Zoom (Pointer Events), im
-      mobilen Modus **read-only** mit Hinweis `data-testid="editor-desktop-hint"`
-      („Bearbeiten am Desktop"); Speichern/Anlegen deaktiviert.
-- [ ] `TraceabilityView`: Zellinhalte umbrechen nicht, Container scrollt, Kopfspalte sticky.
-- [ ] E2E: `mobile-heavy-views.spec.ts` — Tabs, Scroll-Container, Read-only-Hinweis,
-      kein Dokument-Overflow auf `/connections`, `/traceability`, `/metrics`, `/diagrams`.
+- [x] `DiagramGraphEditor`/`CanvasEditor`: im mobilen Modus **read-only** mit Hinweis
+      `data-testid="editor-desktop-hint"` („Bearbeiten am Desktop") via `DesktopOnlyHint`;
+      Speichern/Anlegen deaktiviert.
+- [ ] Touch-Pan + Pinch-Zoom (Pointer Events) — **offen**: es existiert nur der
+      `DesktopOnlyHint`, keine Touch-Gesten-Implementierung.
+- [x] `TraceabilityView`: Zellinhalte umbrechen nicht, Container scrollt, Kopfspalte sticky.
+- [x] Statische/mocked Nachweise: `frontend/src/test/mobile-surfaces.test.tsx` prüft Tabs,
+      `DesktopOnlyHint`, Read-only-Hinweis und die sticky Spalte. **Kein** E2E
+      `mobile-heavy-views.spec.ts` — die Datei existiert nicht; gerenderte Abnahme auf
+      `/connections`, `/traceability`, `/metrics`, `/diagrams` steht aus.
 
 **DoD:** Jede schwere Ansicht ist auf 390 px lesbar und navigierbar; wo Bearbeiten nicht
 sinnvoll ist, sagt die Oberfläche das, statt es halb zu können.
@@ -347,20 +379,22 @@ sinnvoll ist, sagt die Oberfläche das, statt es halb zu können.
 
 ## 11. M9 — Abnahme, Doku, CI
 
-- [ ] `docs/features/mobile-and-pwa.md` final: Gerätematrix, Installation Android/iOS,
+- [x] `docs/features/mobile-and-pwa.md` final: Gerätematrix, Installation Android/iOS,
       Offline-Grenzen (Hülle only, E1/E2), Update-Banner (O4), **kein** Play-Store-Paket (O3),
       Hinweis, dass iOS nur in Emulation geprüft wurde (O5), und bekannte Einschränkungen
       (schwere Editoren read-only).
-- [ ] `docs/REQUIREMENTS.md`: Abschnitt „Mobile Oberfläche und installierbare PWA (M1–M9)"
-      mit REQ-209 … REQ-215, Status nach Umsetzung auf `Done` setzen (Vorlage liegt bei).
-- [ ] `docs/superpowers/specs/index.md` und `docs/superpowers/plans/index.md`: Status auf
-      „implemented" umstellen, mit Belegen (`pfad:zeile`, PR-Nummern) — erst wenn M1–M8
-      gemergt sind.
-- [ ] CI: mobile Shard in `.github/workflows/playwright.yml`, `check-nginx-headers.sh`-Job um
+- [x] `docs/REQUIREMENTS.md`: Abschnitt „Mobile Oberfläche und installierbare PWA (M1–M9)"
+      mit REQ-209 … REQ-215; Status REQ-209/210/213/214 `Done`, REQ-211/212/215 `Teilweise`
+      (offene Reste im Beschreibungstext, Status nur in der Status-Spalte).
+- [x] `docs/superpowers/specs/index.md` und `docs/superpowers/plans/index.md`: Status
+      „mostly implemented / largely implemented" mit Belegen — Commits `a9dd6a49`, `dc03bb19`,
+      `1dba30c4`, M6–M9-Folge = *pending commit*. Keine PR-Nummern und keine gerenderte
+      Geräteabnahme belegt; residual limits bleiben ausgewiesen.
+- [x] CI: mobile Shard in `.github/workflows/playwright.yml`, `check-nginx-headers.sh`-Job um
       Manifest/SW erweitert, `pwa-manifest.test.ts` in der normalen Vitest-Suite.
-- [ ] Druckansicht prüfen (`e2e/tests/document-reading-view.spec.ts` und Print-CSS): die neuen
+- [x] Druckansicht prüfen (`e2e/tests/document-reading-view.spec.ts` und Print-CSS): die neuen
       mobilen Regeln dürfen `@media print` nicht verändern.
-- [ ] Abschluss-Notiz in `docs/plans/mobile-baseline-2026-11.md`: welche Baseline-Befunde
+- [x] Abschluss-Notiz in `docs/plans/mobile-baseline-2026-11.md`: welche Baseline-Befunde
       geschlossen wurden, welche bewusst offen bleiben (mit Begründung).
 
 **DoD:** Jede Zeile der Abnahmekriterien aus Spec §9 ist belegt (Test, Screenshot oder
@@ -395,7 +429,7 @@ es gibt keinen blockierenden offenen Punkt mehr.
 | **E7/O1** | SplitView | Legacy-Zweig mobil reparieren; keine Migration der 17 Aufrufer | M5 bleibt ~1,5 d; Migration bleibt offener Rest (O1), **nicht** Teil dieses Plans |
 | **O2** | App-Icon | „RL"-Monogramm aus der Wortmarke, Farben aus `tokens.css`, maskable 40 % Safe-Zone | M1-Aufgabe präzisiert |
 | **O3** | Play-Store-Paket | nein (Web-Installation genügt) | kein zusätzlicher Schnitt |
-| **O4** | Update-Hinweis | schlichter Banner, kein Auto-Reload, keine „Was ist neu"-Notiz | M2-Aufgabe `UpdateBanner` wie geplant |
+| **O4** | Update-Hinweis | schlichter Banner, kein Auto-Reload, keine „Was ist neu"-Notiz | M2-Aufgabe Update-Banner (umgesetzt in `shared/PwaNotices/PwaNotices.tsx`) wie geplant |
 | **O5** | iOS | nur Emulation/Simulator; Doku weist die fehlende Geräteabnahme aus | M0-Profil `mobile-safari`, M9-Doku entsprechend |
 | **E4/E5/E8/E9/E10** | `start_url`, Manifest-Erzeugung, Breakpoints, Tabellen, schwere Editoren | als Empfehlung übernommen, bindend bis zum Widerspruch | unverändert |
 
