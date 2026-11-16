@@ -23,7 +23,7 @@
 | `tools/call` `requirement.query` | ok, 1 Zeile, 631 ms |
 | Exit-Code | 0 (`initialize_ok`, `tool_count > 0`, `has_tool`, `call_ok`) |
 
-**Tool-Zahl ist scope-abhängig.** Die 107 sind der Katalog eines Read-only-Keys auf einem geseedeten Workspace, nicht die Gesamtzahl. Zum Messzeitpunkt dieses Berichts nannte das Manifest 290 Tools; mit Stand `1.9.0-beta.1` sind es 297 (`docs/agent-templates/tool-manifest.json`, `tool_count`). Eine feste Zahl darf daraus nicht abgeleitet werden (#1593/#1730).
+**Tool-Zahl ist scope-abhängig.** Die 107 sind der Katalog eines Read-only-Keys auf einem geseedeten Workspace, nicht die Gesamtzahl. Zum Messzeitpunkt dieses Berichts nannte das Manifest 290 Tools; mit Stand `1.9.0-beta.1` sind es 299 (`docs/agent-templates/tool-manifest.json`, `tool_count`). Eine feste Zahl darf daraus nicht abgeleitet werden (#1593/#1730).
 
 **Discovery-GET = 405 ist gewollt.** `McpHttpTransportView.get` beantwortet einen SSE-Accept mit 405, damit Clients nicht in einen Reconnect-Loop gegen einen nicht bedienten Stream laufen (H1/H5.2). Die Probe wertet 405 als sauberen Zustand, nicht als Fehler.
 
@@ -55,7 +55,7 @@ Beide Clients wurden in einem isolierten `HOME` installiert (`install.sh`) und �
 | Auslieferungszustand | `codemode: false` ist im Snippet und in der erzeugten V2-Config wirksam (`opencode debug config` zeigt `codemode: false`) |
 | Kataloggröße | 66.408 Bytes für 107 Tools ≈ **16,6k Token** (Bytes/4, ausdrücklich Näherung) |
 | Katalog-Latenz | 274 ms (weit unter dem `timeout.catalog`-Default von 30 s) |
-| Skills → Tools | Die sechs Skills unter `dist/opencode/` nennen **92 der 290** Manifest-Tools zum Messzeitpunkt (Stand heute: 297); alle 92 existieren im Manifest (einziger Treffer ohne Manifest-Bezug ist der Regex-Artefakt-String `e.g`) |
+| Skills → Tools | Die sechs Skills unter `dist/opencode/` nennen **92 der 290** Manifest-Tools zum Messzeitpunkt (Stand heute: 299); alle 92 existieren im Manifest (einziger Treffer ohne Manifest-Bezug ist der Regex-Artefakt-String `e.g`) |
 | V1 mit `codemode`-Key | **toleriert**: V1 verbindet mit `codemode: false` im Server-Block (`✓ reqogniloom connected`) — eine Config-Form trägt beide Versionen |
 | Sichtbarkeit `codemode: true` vs. `false` | **nicht messbar** ohne clientseitige Tool-Introspektion; die Spike-Aussage (`reqogniloom_<tool>` über Katalog) bleibt unbelegt |
 

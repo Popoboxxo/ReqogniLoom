@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 298,
+  "tool_count": 299,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -8329,6 +8329,17 @@
         "required": [
           "id"
         ]
+      }
+    },
+    {
+      "name": "tool.list_groups",
+      "prefix": "tool",
+      "is_write": false,
+      "description": "List every MCP tool group with its tool count. Always visible, never narrowed by an API key's tool_groups curation — call it to discover which group names exist before configuring a key's tool_groups list. Note that tool_groups only changes what tools/list advertises; every tool your role and key scope permit stays callable by name.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
       }
     },
     {

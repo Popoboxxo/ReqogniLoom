@@ -72,6 +72,10 @@ class ApiKeyCreationResult:
     api_key_id: UUID
     name: str
     plaintext: str
+    #: Capability tier the key was issued with (spec #865).
+    scope: str = "write"
+    #: MCP manifest curation prefixes (spec 6.2); empty = every group.
+    tool_groups: tuple[str, ...] = ()
 
 
 class ApiKeyLookupRow(NamedTuple):
@@ -267,6 +271,29 @@ def generate_api_key_plaintext() -> str:
     """Generate a new plaintext key ``reqlo_<40 chars>`` (REQ-L3-AT001-003)."""
     body = "".join(secrets.choice(_API_KEY_ALPHABET) for _ in range(_API_KEY_RANDOM_LEN))
     return f"{_API_KEY_PREFIX}{body}"
+
+
+def load_api_key_policy_row(api_key_id: UUID) -> dict[str, Any] | None:
+    """Return the MCP policy fields of one API key, or ``None`` if it is gone.
+
+    This is the application-layer seam for the MCP server's manifest curation
+    (``scope`` / ``tool_groups``, see :mod:`mcp_server.api_key_policy`):
+    ADR-01 forbids the ``mcp_server`` root from touching the ORM itself, so
+    that module shapes the row instead of reading it.
+
+    ``unscoped`` is deliberate and safe here. The caller has already
+    authenticated the key (``validate_api_key``) and passes the primary key
+    taken from that validated credential, so no application-level tenant
+    filter is needed — the request runs with the key's own tenant context
+    armed and the database RLS policy still applies as a backstop (ADR-PL-03).
+    An unarmed read simply returns no row, which degrades downstream to the
+    permissive default policy and gains no capability.
+    """
+    return (
+        ApiKey.unscoped.filter(id=api_key_id)
+        .values("scope", "tool_groups")
+        .first()
+    )
 
 
 class AuthenticationService:
@@ -826,6 +853,7 @@ class AuthenticationService:
         scope: str | None = None,
         workspace_ids: list[str] | None = None,
         expires_at: datetime | None = None,
+        tool_groups: list[str] | None = None,
     ) -> ApiKeyCreationResult:
         """Create an API key and return its plaintext exactly once.
 
@@ -833,6 +861,9 @@ class AuthenticationService:
             user_id: Owner user primary key.
             tenant_id: Tenant the key belongs to.
             name: Human-readable label.
+            tool_groups: Optional MCP tool-group prefixes to advertise in
+                ``tools/list``. Catalogue curation only — it does not restrict
+                what the key may execute (see ``ApiKey.tool_groups``).
 
         Returns:
             :class:`ApiKeyCreationResult` containing the one-time plaintext.
@@ -941,6 +972,9 @@ class AuthenticationService:
                 )
 
             plaintext = generate_api_key_plaintext()
+            effective_tool_groups = [
+                str(prefix) for prefix in (tool_groups or []) if str(prefix).strip()
+            ]
             api_key = ApiKey.unscoped.create(
                 user_id=user_id,
                 tenant_id=tenant_id,
@@ -951,9 +985,14 @@ class AuthenticationService:
                 scope=effective_scope,
                 workspace_ids=effective_workspace_ids,
                 expires_at=expires_at,
+                tool_groups=effective_tool_groups,
             )
         return ApiKeyCreationResult(
-            api_key_id=api_key.id, name=name, plaintext=plaintext
+            api_key_id=api_key.id,
+            name=name,
+            plaintext=plaintext,
+            scope=effective_scope,
+            tool_groups=tuple(effective_tool_groups),
         )
 
     def list_api_keys(self, *, user_id: UUID) -> list[dict[str, object]]:
@@ -969,6 +1008,7 @@ class AuthenticationService:
                 "principal_type": k.principal_type,
                 "agent_label": k.agent_label,
                 "scope": k.scope,
+                "tool_groups": list(k.tool_groups or []),
                 "workspace_ids": list(k.workspace_ids or []),
                 "expires_at": k.expires_at.isoformat() if k.expires_at else None,
                 "expired": k.is_expired,

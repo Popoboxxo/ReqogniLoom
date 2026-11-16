@@ -245,7 +245,7 @@ def test_resource_tools_are_read_only():
 
 
 def test_resource_and_prompt_prefixes_add_no_public_tools():
-    """Phase B must not grow ``tools/list`` (297 tools / 47 prefixes)."""
+    """Phase B must not grow ``tools/list`` (299 tools / 48 prefixes)."""
     from mcp_server.tool_registry import ToolRegistry
 
     names = {schema["name"] for schema in ToolRegistry().all_tool_schemas()}

@@ -1,4 +1,4 @@
-"""R3.2 — MCP tool ``artifact.bulk_update`` (group ``artifact``, tool 297).
+"""R3.2 — MCP tool ``artifact.bulk_update`` (group ``artifact``, 298th of 299).
 
 Slice R3.2 of ``docs/superpowers/plans/2026-11-15-document-view-on-document.md``.
 The batch semantics live in ``application.bulk_update_service`` (covered by
@@ -6,7 +6,9 @@ The batch semantics live in ``application.bulk_update_service`` (covered by
 surface:
 
 * the **manifest** (``docs/agent-templates/tool-manifest.json``) contains the
-  tool and the catalogue size moved 296 -> 297 (the drift gate compares the live
+  tool and the catalogue size moved 296 -> 297 (297 -> 298 with
+  ``artifact.bulk_transition``, 298 -> 299 with the Phase D ``tool`` group) (the
+  drift gate compares the live
   registry against that file, so the number is not maintained by hand);
 * the registry *advertises* the schema (required ``workspace_id`` + ``entries``)
   and classifies the tool as a write (RBAC-gated) — the fail-closed default;
@@ -33,7 +35,7 @@ from workflow.services import create_default_workflow
 
 pytestmark = pytest.mark.django_db
 
-EXPECTED_TOOL_COUNT = 298
+EXPECTED_TOOL_COUNT = 299
 BULK_TOOL = "artifact.bulk_update"
 
 
@@ -143,8 +145,10 @@ def test_manifest_contains_bulk_update(manifest: dict[str, Any]) -> None:
 def test_tool_count_is_298(manifest: dict[str, Any]) -> None:
     assert manifest["tool_count"] == EXPECTED_TOOL_COUNT
     assert len(manifest["tools"]) == EXPECTED_TOOL_COUNT
-    # The prefix count is unchanged (47): bulk_update joins an existing group.
-    assert len({tool["prefix"] for tool in manifest["tools"]}) == 47
+    # 48 prefixes since MCP-Modernisierung Phase D added the ``tool`` group
+    # (``tool.list_groups``); bulk_update itself joins the existing ``artifact``
+    # group.
+    assert len({tool["prefix"] for tool in manifest["tools"]}) == 48
 
 
 def test_registry_advertises_the_tool_as_a_write() -> None:

@@ -323,7 +323,10 @@ def test_valid_agent_key_returns_the_unchanged_201_payload(env):
         "principal_type",
         "agent_label",
         "scope",
+        # MCP-Modernisierung Phase D: manifest curation is echoed back.
+        "tool_groups",
     }
+    assert body["tool_groups"] == []
     assert body["name"] == "my-agent"
     assert body["plaintext"].startswith("reqlo_")
     assert body["warning"] == "Save this key now — it will not be shown again."
@@ -371,6 +374,7 @@ def test_openapi_documents_the_create_request_body(openapi_schema: dict) -> None
         "scope",
         "workspace_ids",
         "expires_at",
+        "tool_groups",
         "agent_label",
     }
     assert body.get("required") == ["name"]
@@ -390,4 +394,5 @@ def test_openapi_documents_the_201_response_body(openapi_schema: dict) -> None:
         "principal_type",
         "agent_label",
         "scope",
+        "tool_groups",
     }

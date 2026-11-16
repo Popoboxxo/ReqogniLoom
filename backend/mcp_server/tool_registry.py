@@ -50,6 +50,7 @@ from auth_tenancy.services.authorization import (
     scope_allows,
     scope_denial_reason,
 )
+from mcp_server.api_key_policy import get_api_key_policy
 from mcp_server.protocol_handler import ToolResult
 
 logger = logging.getLogger(__name__)
@@ -706,6 +707,9 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # prompt_template.create/update remain the admin-gated write path.
         "prompt.list",
         "prompt.get",
+        # MCP-Modernisierung Task 13: pure catalogue metadata (group names and
+        # counts), no tenant data, no persistence.
+        "tool.list_groups",
     }
 )
 
@@ -850,6 +854,22 @@ _INSTANCE_LEVEL_TOOLS: frozenset[str] = frozenset(
         "admin.restore",
     }
 )
+
+# ---------------------------------------------------------------------------
+# Tools exempt from the ApiKey.tool_groups catalogue filter (spec section 6.2).
+#
+# tool.list_groups is how a client discovers which groups exist in the first
+# place, so filtering it out of a narrowed manifest would strand the caller:
+# they would see a short menu and have no way to learn what else they could
+# ask for. It is pure metadata (group names + counts), carries no tenant data
+# and is read-only, so leaving it always visible costs nothing.
+#
+# Module-level (not a class attribute): the introspection tool's own tests
+# import it directly, and it is a property of the catalogue, not of one
+# registry instance.
+# ---------------------------------------------------------------------------
+
+_ALWAYS_VISIBLE_TOOLS: frozenset[str] = frozenset({"tool.list_groups"})
 
 # ---------------------------------------------------------------------------
 # Tenant-admin-elevated user.* tools (multi-user management design spec §3).
@@ -1136,6 +1156,7 @@ class ToolRegistry:
         from mcp_server.tools.goals import GoalToolGroup, MainGoalToolGroup
         from mcp_server.tools.icd import IcdToolGroup
         from mcp_server.tools.interview import InterviewToolGroup
+        from mcp_server.tools.introspection import IntrospectionToolGroup
         from mcp_server.tools.link_type import LinkTypeToolGroup
         from mcp_server.tools.memory import MemoryToolGroup
         from mcp_server.tools.metrics import MetricsToolGroup
@@ -1304,6 +1325,9 @@ class ToolRegistry:
             # ``prompt_variable`` (the router matches on ``prefix + "."``).
             "resource": ResourcesToolGroup(),
             "prompt": PromptsToolGroup(),
+            # MCP-Modernisierung Task 13: always-visible introspection so a
+            # client with narrowed tool_groups can still discover what exists.
+            "tool": IntrospectionToolGroup(),
         })
 
     def list_tools(
@@ -1359,6 +1383,11 @@ class ToolRegistry:
             # tier, so their tool list is unchanged.
             can_govern = scope_allows(auth_ctx.scope, Operation.WORKSPACE_CONFIG)
 
+            # MCP-Modernisierung spec section 6: the key's own policy. One
+            # primary-key lookup serves both the manifest-side read-only mirror
+            # below and the ``tool_groups`` curation at the end of this method.
+            policy = get_api_key_policy(auth_ctx.api_key_id)
+
             # Deduplicate by group object identity (REQ-129): several prefixes
             # intentionally share a single instance (e.g. "audit"/"events" →
             # one AuditToolGroup, "traceability"/"artifact" → one
@@ -1366,20 +1395,27 @@ class ToolRegistry:
             # gated list and the ungated catalogue size cannot diverge.
             tools: list[dict[str, Any]] = self.all_tool_schemas()
 
-            if not can_write:
-                # Hide write tools from read-only callers (Viewer role) —
-                # except the tenant-admin-elevated ``user.*`` tools
-                # (_TENANT_ADMIN_ELEVATED_USER_TOOLS), which a pure
+            if not can_write or policy.is_read_only:
+                # Hide write tools from read-only callers (Viewer role, or a
+                # read-scoped key) — except the tenant-admin-elevated ``user.*``
+                # tools (_TENANT_ADMIN_ELEVATED_USER_TOOLS), which a pure
                 # tenant-admin (TenantRole(admin), zero workspace-level
                 # UserRole) can actually execute via the same
                 # ``_is_tenant_admin_exempt`` bypass ``dispatch_request``'s
                 # Step 3 RBAC gate already applies. Without this, tools/list
                 # advertised none of the 8 tools such a caller can run.
+                # That elevation does NOT survive a read scope: scope is a hard
+                # boundary the dispatcher enforces above every exemption, so
+                # advertising those tools to a read-scoped key would promise
+                # something tools/call refuses.
                 tools = [
                     t
                     for t in tools
                     if not self._is_write_tool(t.get("name", ""))
-                    or self._is_tenant_admin_exempt(t.get("name", ""), auth_ctx)
+                    or (
+                        not policy.is_read_only
+                        and self._is_tenant_admin_exempt(t.get("name", ""), auth_ctx)
+                    )
                 ]
             if not can_govern:
                 # AUTHOR-tier key: everything it may not execute is hidden,
@@ -1392,6 +1428,20 @@ class ToolRegistry:
                     for t in tools
                     if self._required_scope_operation(t.get("name", ""))
                     is not Operation.WORKSPACE_CONFIG
+                ]
+            # Spec section 6.2: ApiKey.tool_groups is CATALOGUE CURATION ONLY.
+            # It changes what this key SEES, never what it may EXECUTE — there
+            # is deliberately no counterpart to this block in
+            # dispatch_request(). A key with narrow tool_groups loses no
+            # ability; it just gets a smaller menu (fewer manifest tokens in the
+            # client's context) and can still call any other permitted tool
+            # directly by name.
+            if policy.tool_groups:
+                tools = [
+                    t
+                    for t in tools
+                    if t.get("name", "") in _ALWAYS_VISIBLE_TOOLS
+                    or policy.allows_group(t.get("name", "").split(".", 1)[0])
                 ]
             return tools
         finally:
@@ -1808,6 +1858,14 @@ class ToolRegistry:
         # never exempt a caller from the capability tier their key was
         # issued with, or a read-scoped bootstrap/tenant-admin key
         # could write freely.
+        #
+        # MCP-Modernisierung spec section 6.1: this is also the enforcement
+        # point for ``scope="read"`` on the ``tools/call`` path — the read tier
+        # is below WRITE's required tier, so a read-scoped key is refused here
+        # with PERMISSION_DENIED whether or not it learned the tool name from
+        # ``tools/list``. Deliberately the *same* gate as REST (one tier table,
+        # not a second MCP-only rule); ``ApiKeyPolicy.is_read_only`` mirrors it
+        # on the manifest side in ``list_tools``.
         #
         # #865: the required tier depends on the tool — governance
         # namespaces need the ADMIN tier, ordinary content writes only

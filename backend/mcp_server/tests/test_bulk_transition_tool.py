@@ -4,9 +4,9 @@ The transition semantics live in ``application.bulk_update_service`` (covered by
 ``application/tests/test_bulk_update_service_transition.py``); this file pins the
 MCP surface:
 
-* the **manifest** contains the tool, the catalogue moved 297 -> 298 and the
-  prefix count stayed 47 (the drift gate compares the live registry against that
-  file, so the number is not maintained by hand);
+* the **manifest** contains the tool, the catalogue moved 297 -> 298 (and on to
+  299 with the Phase D ``tool`` group, the 48th prefix); the drift gate compares
+  the live registry against that file, so the number is not maintained by hand;
 * the registry advertises the schema (required ``item_type``/``ids``/``to_state``/
   ``change_reason``, **no** ``workspace_id``) and classifies the tool as a write;
 * **error codes are the REST ones**: a request defect is ``VALIDATION_ERROR``, a
@@ -40,7 +40,7 @@ from workflow.services import create_default_workflow
 
 pytestmark = pytest.mark.django_db
 
-EXPECTED_TOOL_COUNT = 298
+EXPECTED_TOOL_COUNT = 299
 TRANSITION_TOOL = "artifact.bulk_transition"
 IN_REVIEW = "in_review"
 APPROVED = "approved"
@@ -159,10 +159,10 @@ def test_manifest_contains_the_transition_tool(manifest: dict[str, Any]) -> None
     assert properties["ids"]["maxItems"] == 100
 
 
-def test_tool_count_is_298_with_47_prefixes(manifest: dict[str, Any]) -> None:
+def test_tool_count_is_299_with_48_prefixes(manifest: dict[str, Any]) -> None:
     assert manifest["tool_count"] == EXPECTED_TOOL_COUNT
     assert len(manifest["tools"]) == EXPECTED_TOOL_COUNT
-    assert len({tool["prefix"] for tool in manifest["tools"]}) == 47
+    assert len({tool["prefix"] for tool in manifest["tools"]}) == 48
 
 
 def test_registry_advertises_the_tool_as_a_write() -> None:

@@ -159,6 +159,14 @@ class ApiKey(TenantScopedModel):
     #: Workspace UUIDs (as strings) this key may act in. Empty list = every
     #: workspace the owning user holds a role in (the historical behaviour).
     workspace_ids = models.JSONField(default=list, blank=True)
+    #: MCP-Modernisierung spec section 6.2 — CATALOG CURATION ONLY, NOT A
+    #: SECURITY BOUNDARY. A non-empty list of tool-group prefixes (e.g.
+    #: ``["requirement", "traceability"]``) narrows what ``tools/list``
+    #: advertises to this key, which shrinks the client's context cost. It does
+    #: NOT restrict what ``tools/call`` may execute: any tool this key's role
+    #: and ``scope`` allow stays callable by name. Use ``scope`` for a real
+    #: restriction. Empty list = every group, the pre-existing behaviour.
+    tool_groups = models.JSONField(default=list, blank=True)
     #: Hard expiry. NULL = never expires (historical behaviour).
     expires_at = models.DateTimeField(null=True, blank=True)
 

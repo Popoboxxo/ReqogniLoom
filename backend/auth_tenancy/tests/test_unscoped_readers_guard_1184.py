@@ -114,6 +114,18 @@ _UNSCOPED_ALLOWLIST: dict[tuple[str, str, str], tuple[int, str]] = {
         ),
     ),
     (
+        "backend/auth_tenancy/services/authentication.py",
+        "load_api_key_policy_row",
+        "ApiKey",
+    ): (
+        1,
+        (
+            "MCP manifest curation READ by primary key behind an already-authenticated "
+            "AuthContext: the key id comes from the validated credential, so the "
+            "tenant context is armed and RLS still applies as a backstop."
+        ),
+    ),
+    (
         "backend/auth_tenancy/management/commands/revoke_api_key.py",
         "Command._resolve_key",
         "ApiKey",
