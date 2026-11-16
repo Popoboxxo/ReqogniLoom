@@ -10,6 +10,19 @@
 > In der Gesamtschau gelten: **Critical/Blocker** = sofort handeln (Sicherheits-/Datenverlust-Risiko), **High** = vor dem nächsten Release fixen,
 > **Medium** = zeitnah einplanen, **Low/Info** = technische Schuld mit Track Record. Die Original-Severity steht in jeder Zeile unverändert.
 
+## Umsetzungsstatus (fortlaufend)
+
+| Finding | Status | Nachweis |
+|---|---|---|
+| L0-002 | fixed in `7d6593a3` | 0141-Reverse = `migrations.RunSQL.noop`; Guard-Test; Forward-SQL-Checksum unverändert |
+| L0-001 | fixed in `7d6593a3` | `audit_ops.purge_entries_before` (SECURITY DEFINER, 30-Tage-Floor, Batch-DELETE, Trigger bleibt aktiv) |
+| L1-002 | fixed in `7d6593a3` | tenant-scoped Advisory Locks vor allen Graph-Reads; PG16-Zwei-Thread-Test grün |
+| L1-001 | fixed in `7d6593a3` | State-first-Recovery + `baseline_id` im Cache-Key; Legacy-Pfad bewusst beibehalten |
+| OPS-001 | closed as not a problem (2026-11-16) | Laufzeit-Repro am exakten Digest `nginx:1.31-alpine@sha256:785835ea…`: `/usr/bin/curl` vorhanden, Healthcheck exit 0; False Positive |
+| DEP-002 | ANPASSEN (Fix-Design korrigiert) | „Floors aus requirements.txt ableiten" wäre tautologisch; unabhängige CVE-Floor-Source nötig |
+
+Gate-Protokoll: `docs/audit/gates/2026-11-16/mvp-gates.md`. Review: database-engineer APPROVE nach 10 behobenen Review-Punkten.
+
 ## 1. Executive Summary
 
 **Pass 1: 126 Findings / 15 Dimensionen. Pass 2: 60 Findings / 8 Dimensionen** (siehe §5). Verteilung (Pass 1):

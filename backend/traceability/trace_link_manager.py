@@ -25,6 +25,17 @@ Interface contracts exposed:
 Architecture:
   docs/se/L1/Gesamtsystem/L2/TraceabilityEngineSystem/Components/
   COMP-TE-001_TraceLinkManager/L3_COMP-TE-001_TraceLinkManager_Architecture.md
+
+Advisory-lock scope (L1-002)
+----------------------------
+Only the four methods that perform a graph read-decide-write over an *undetermined*
+edge take the tenant advisory lock: ``create()``, ``batch_create()``,
+``update()`` and ``delete()``. ``batch_delete()`` (bulk removal of an already
+identified set of link ids) and the read-only ``validate_graph_integrity()`` are
+deliberately **out of scope** for this slice — they are not given the lock here.
+Do not expand that scope without a fresh concurrency/deadlock analysis (the
+lock-ordering contract in ``persistence.advisory_locks`` applies to every new
+caller).
 """
 from __future__ import annotations
 
@@ -36,6 +47,10 @@ from typing import Any
 from django.db import transaction
 from django.db.models import QuerySet
 
+from persistence.advisory_locks import (
+    TRACE_GRAPH_NAMESPACE,
+    acquire_tenant_advisory_lock,
+)
 from persistence.models import Artifact, TraceLink
 from persistence.tenancy import TenantContext
 from traceability.audit.hierarchy import (
@@ -340,6 +355,17 @@ class TraceLinkManager:
         that reintroduces exactly the defect the recompute exists to remove.
         Nesting inside a caller's existing transaction (``TraceLinkService``
         already wraps this) is a savepoint, so this is additive.
+
+        L1-002 (concurrency): the advisory lock is taken *before the first
+        read*. Under READ COMMITTED two transactions could otherwise both read
+        a graph with no A→B edge, both pass the DFS/Tarjan cycle check, and
+        both commit (A→B and B→A), closing a cycle. The tenant-scoped advisory
+        lock serialises the read-decide-write window. The four advisory-locked
+        methods (create/batch_create/update/delete) use the same lock family;
+        ``batch_delete`` and ``validate_graph_integrity`` are out of scope (see
+        the module docstring). ``persistence.advisory_locks`` documents the
+        ordering rule vs. the workflow row lock (advisory first, row lock second
+        — never reversed).
         """
         _validate_link_type(link_type)
 
@@ -352,6 +378,11 @@ class TraceLinkManager:
             raise SelfLinkError(source_id)
 
         tenant_id = TenantContext.get_tenant()
+        # L1-002: must precede the first read (the Artifact lookups below).
+        # @transaction.atomic on this method keeps the xact-scoped lock until
+        # the edge (and any hierarchy level recompute) is committed; a nesting
+        # caller's outer transaction keeps it even longer, which is safe.
+        acquire_tenant_advisory_lock(tenant_id, namespace=TRACE_GRAPH_NAMESPACE)
 
         # Fetch source and target using unscoped to allow explicit tenant check
         try:
@@ -501,6 +532,7 @@ class TraceLinkManager:
         return TraceLink.objects.get(pk=link_id)
 
     # IF-TE-EXT-IN-003: update
+    @transaction.atomic
     def update(
         self,
         link_id: uuid.UUID,
@@ -510,7 +542,16 @@ class TraceLinkManager:
         """Update link_type on an existing TraceLink.
 
         REQ-L2-TE-010: modified_by / modified_at are captured.
+
+        L1-002: changing a link's type changes which directed graph the edge
+        belongs to, so this is a graph mutation. The advisory lock is taken
+        before the row is read; ``@transaction.atomic`` is required for the
+        transaction-scoped lock to survive past the lock statement (without it
+        PostgreSQL would drop the lock immediately and the guard would be a
+        no-op). Nesting inside a caller's transaction is a savepoint.
         """
+        tenant_id = TenantContext.get_tenant()
+        acquire_tenant_advisory_lock(tenant_id, namespace=TRACE_GRAPH_NAMESPACE)
         link = TraceLink.objects.get(pk=link_id)
         if link_type is not None:
             _validate_link_type(link_type)
@@ -533,7 +574,15 @@ class TraceLinkManager:
         The row is read before the delete because afterwards its link type and
         endpoints are gone. ``@transaction.atomic`` (ADR-005) keeps the delete
         and the re-derivation all-or-nothing, for the same reason as ``create``.
+
+        L1-002: a delete removes an edge from the tenant graph and re-derives
+        hierarchy levels, so it joins the same advisory-lock family as the
+        other graph mutations. The lock precedes the row read; the method's
+        ``@transaction.atomic`` holds it until the delete and re-derivation
+        commit.
         """
+        tenant_id = TenantContext.get_tenant()
+        acquire_tenant_advisory_lock(tenant_id, namespace=TRACE_GRAPH_NAMESPACE)
         link = TraceLink.objects.get(pk=link_id)
         link_type, source_id, target_id = link.link_type, link.source_id, link.target_id
         link.delete()
@@ -564,6 +613,11 @@ class TraceLinkManager:
         Tarjan rollback below also undoes it.
         """
         tenant_id = TenantContext.get_tenant()
+        # L1-002: serialise the whole read-decide-write window. The Tarjan check
+        # at the end of this batch reads the graph *after* the inserts below;
+        # without the lock two batches on the same tenant could each see an
+        # acyclic snapshot and together commit a cycle.
+        acquire_tenant_advisory_lock(tenant_id, namespace=TRACE_GRAPH_NAMESPACE)
         created: list[TraceLink] = []
         hierarchy_seeds: list[uuid.UUID] = []
 
