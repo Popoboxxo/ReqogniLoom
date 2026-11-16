@@ -20,6 +20,8 @@ zuerst, danach Verträge, Struktur, Testqualität und Doku. Jeder Schnitt liefer
 Doku-Update**; kein Schnitt ist ein „Refactoring ohne Befund".
 
 **Leitlinie (unser Vorgehen):**
+0. **Problemanalyse zuerst (Gate 0.1):** Jeder Schnitt belegt vor dem ersten Code, dass das Finding
+   real ist und der geplante Fix Best Practice ist — sonst wird nicht implementiert.
 1. **Ein Schnitt = ein PR** auf `feat/*`/`fix/*`/`docs/*`, nie direkt auf `main`.
 2. **Ein Finding ohne Regressionstest gilt als nicht behoben.** Jeder Schnitt nennt den Test, der
    vorher rot und nachher grün ist (bzw. den Guard, der den Zustand dauerhaft hält).
@@ -58,6 +60,41 @@ Widerspruch, OPS-001/DEP-001-Ausmaß).
   keine Datenverluste im Reverse (L0-002 ist der Präzedenzfall).
 - **Doku:** interne Doku Deutsch, Code/Kommentare/Commits Englisch; Status nur in Statusfeldern,
   nicht im Fließtext (DOC-005).
+
+### 0.1 Problemanalyse-Gate (verbindlich vor jedem Schnitt)
+
+**Regel:** Kein Schnitt beginnt mit Code. Zuerst wird das Finding **reproduziert oder code-/datenbasiert
+belegt**, dann wird geprüft, ob der geplante Fix dem Stand der Technik entspricht. Erst das Ergebnis
+dieses Gates entscheidet, ob implementiert, anders implementiert oder das Finding geschlossen wird.
+
+**Ablauf pro Finding/Schnitt (in dieser Reihenfolge, Ergebnis im PR dokumentiert):**
+
+1. **Reproduktion / Beleg.** Laufzeit-Repro (Test, API-Call, Log, Query-Plan) oder ein präziser
+   Code-Pfad mit Eingabebedingungen. „Steht im Audit" ist **kein** Beleg — das Audit ist Hypothese.
+2. **Ist-Verhalten vs. Erwartung.** Was passiert tatsächlich, was wäre korrekt? Fällt der Fall unter
+   eine bewusste Design-Entscheidung (ADR, dokumentierter Trade-off)?
+3. **Best-Practice-Abgleich.** Konkrete Referenz zitieren: OWASP/CWE, Django-Doku, React-Doku,
+   RFC/JSON-RPC, WCAG-SC, PostgreSQL-Doku oder eine Repo-ADR. Ohne Referenz kein „Best Practice".
+4. **Blast-Radius & Alternativen.** Wer ist betroffen (Tenant, Route, Deployment)? Gibt es eine
+   kleinere, rückwärtskompatible Lösung? Was kostet der Fix gegenüber dem Risiko?
+5. **Entscheidung.** Genau eine von:
+   - **BESTÄTIGT** — Problem real, geplanter Fix ist Best Practice → umsetzen.
+   - **ANPASSEN** — Problem real, aber der geplante Fix ist nicht Best Practice/zu riskant →
+     Alternativdesign im Schnitt dokumentieren und umsetzen.
+   - **KEIN PROBLEM** — Fehlalarm, bewusster Trade-off oder nicht erreichbarer Pfad → Finding mit
+     Begründung im Audit schließen (`closed as not a problem`, Datum, Beleg).
+   - **BEWUSST AKZEPTIERT** — real, aber Restrisiko wird mit Owner und Review-Datum akzeptiert →
+     Finding bleibt `accepted risk`, kein Code.
+   - **NICHT REPRODUZIERBAR** — mit Environment/Version dokumentieren; nicht „grün waschen".
+6. **Fix-Design + Regressionsnachweis.** Erst jetzt Implementierung: erwarteter Test (vorher rot),
+   Guard/Ratchet, Rollback, Doku-Update.
+
+**Analyse-Artefakt:** kurzer Block im PR (`## Problemanalyse` mit Repro, Referenz, Entscheidung,
+Restrisiko). Bei sicherheits-/datenkritischen Schnitten (S0.x, S1.4, S5.1) zusätzlich Review durch
+`security-auditor` bzw. `database-engineer`.
+
+**Stop-Regel:** Ist ein Finding nicht BESTÄTIGT/ANPASSEN, wird **nicht** implementiert. Ein „kein
+Problem" ist ein vollwertiges Ergebnis — es verhindert unnötigen Umbau und falsche Doku.
 
 ## 1. Schnitt-Übersicht
 
@@ -99,6 +136,8 @@ kaputten Release-Gates weg, bevor Strukturarbeit beginnt.
 ## 2. Welle 0 — Sofortmaßnahmen (P0)
 
 ### S0.1 Secret-Incident & Security-Baseline
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Sind die Secrets tatsächlich gültig/aktiv (keine Fixtures)? Wie weit reicht die History? Welche Scan-Typen deckt der Gate heute ab? Sind MFA-Default und Rate-Limit-Fail-open real oder nur Konfigurationshinweise?
 **Findings:** SEC-001 (echte `SECRET_KEY`/`DB_PASSWORD` in der Git-History), SEC-003 (Admin-MFA default `optional`),
 SEC-004 (Rate-Limiter fail-open), SEC-005 (DIY-JWT), SEC-006 (Secret-Scan zu eng), SEC-007
 (Honcho-Default-Passwort), OPS-003 (gitleaks nur mit `--enable-rule`).
@@ -123,6 +162,8 @@ erwartet, Incident-Report in `docs/audit/`.
 **Risiko:** History-Rewrite bricht offene Forks/PRs — Zeitfenster und Kommunikation nötig.
 
 ### S0.2 Tenant-/RLS-Korrektheit
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Reproduziert ein Hintergrund-Task unter RLS-Role wirklich 0 Zeilen? Welche Flags sind im Default-Deploy gesetzt? Ist der Memory-Consent-Pfad ohne Tenant erreichbar?
 **Findings:** APP-001 (Sweep setzt nur Thread-Local), SEC-002 (RLS default permissiv),
 EXT-001 (Memory-Consent liest ohne RLS), L1-006, EXT-006 (Tenant-Defence-in-Depth).
 **Ziel:** Jede Hintergrund-/Service-Query hat beide Isolationsschichten oder einen begründeten
@@ -144,6 +185,8 @@ dokumentiert und im Deployment gesetzt.
 Feature-Flag und Monitoring.
 
 ### S0.3 Datenintegrität (Audit, Baseline, Graph)
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Schlägt die Retention am Append-only-Trigger fehl (Integrationstest)? Was löscht das 0141-Reverse wirklich? Liefert der Reconstructor nach einem Edit den Live-Stand? Ist das Graph-Race mit zwei Transaktionen reproduzierbar?
 **Findings:** L0-001 (Audit-Retention durch Append-only-Trigger blockiert), L0-002 (Migration-0141-
 Reverse löscht alle Allocations), L0-003 (MCP-Audit schluckt Validierungsfehler), L1-001
 (Baseline-Reconstructor liefert Live-Stand), L1-002 (Zyklus-Race), L1-003 (Update umgeht Vertrag),
@@ -167,6 +210,8 @@ zeitrichtige Werte; parallele Graph-Writes können keinen Zyklus erzeugen.
 **Risiko:** Advisory-Lock erhöht Write-Latenz — Messung vor Rollout.
 
 ### S0.4 Release-Gates & Lock
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Läuft der ausgelieferte Container wirklich `unhealthy`? Blockiert ein roter E2E-Lauf das Publishing? Ist der Lock mit dem Docker-Interpreter reproduzierbar falsch? Testet das nginx-Gate die produktive Version?
 **Findings:** OPS-001 (prod-Healthcheck nutzt fehlendes `curl`), OPS-002 (E2E blockt Publishing
 nicht), OPS-004 (`secrets: inherit` zu breit), DEP-001 (`requirements.lock` driftet), DEP-002
 (Floor-Gate prüft falsche Konstanten), DEP-004 (nginx-Gate 1.27 vs 1.31).
@@ -191,6 +236,8 @@ publiziert werden.
 ## 3. Welle 1 — Verträge, Service-Härtung, AI
 
 ### S1.1 REST-Vertrag & Fehlerbild
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Lässt sich der 500 auf einem „proposed“ Item reproduzieren (ohne manuell gesetzten Tenant)? Welche Fehlerstatus fehlen im Schema? Ist der geplante Envelope-Fix mit bestehenden Clients kompatibel?
 **Findings:** API-001 (500 auf `/transitions/`), API-006 (OpenAPI unvollständig), R2A-001
 (Envelope-Drift), R2A-002 (OpenAPI-Version), R2A-005 (Client-Wrapper-Duplikation), R2A-006
 (Client-Fehlertypen), R2A-007/008 (Deprecation-Signal, Pagination-Links).
@@ -207,6 +254,8 @@ publiziert werden.
 Envelope-Test deckt REST+Client.
 
 ### S1.2 MCP-Protokoll & Tool-Vertrag
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Antwortet der Server heute auf `notifications/*` ohne `id` mit Fehler? Ist die Session-ID aus Logs/URL erreichbar? Welche Manifest-Kollisionen sind strukturell möglich? Erfüllt der Fix RFC 7235/JSON-RPC 2.0?
 **Findings:** API-002 (Session-ID in URL/DELETE ohne Bindung), API-003 (Notifications ohne `id`
 abgelehnt), API-004 (Transport-Fehler ohne `code`), API-005 (Manifest dedupliziert still),
 API-007 (SSE ohne 503-Fallback), API-008 (keine zentrale inputSchema-Validierung), R2A-003/004
@@ -222,6 +271,8 @@ API-007 (SSE ohne 503-Fallback), API-008 (keine zentrale inputSchema-Validierung
 **DoD:** Standard-MCP-Client (initialize/notifications/tools) läuft ohne Protokollfehler.
 
 ### S1.3 Service-Fail-open & Governance
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Lässt sich der Freeze-Lookup gezielt zum Fehlschlagen bringen und öffnet dann Schreiben? Ist das Change-Reason-Gate wirklich fail-open? Welche Sortierungen sind paginierbar instabil?
 **Findings:** APP-002 (Freeze-Check schluckt Fehler), APP-003 (Change-Reason-Gate fail-open),
 APP-004/005/006 (Sortier-/Auswahl-Instabilität), EXT-004 (Restore-Vertrag), EXT-005 (SE-Metrik),
 EXT-007 (Resilience-Audit), EXT-008 (Config-Propagation).
@@ -235,6 +286,8 @@ EXT-007 (Resilience-Audit), EXT-008 (Config-Propagation).
 **DoD:** Kein Governance-Gate fällt bei Exception auf „erlaubt"; Sortierung paginierbar stabil.
 
 ### S1.4 AI-Sicherheit
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Ist der Injection-Pfad mit einem präparierten `interaction_text` reproduzierbar? Fehlen Budget/Audit-Einträge messbar? Ist die SSRF-Lücke über env-URL erreichbar? Entspricht der Fix OWASP LLM Top 10?
 **Findings:** AI-001 (Memory-Poisoning), AI-002 (Budget-/Audit-Bypass), AI-003 (SSRF-Lücke env),
 AI-004 (keine System/User-Trennung), AI-005 (Modellausgabe im Write-Path), AI-006 (Resume-Fehler),
 AI-007 (AI-Lock-Drift).
@@ -250,6 +303,8 @@ AI-007 (AI-Lock-Drift).
 ohne Budget-/Audit-Eintrag.
 
 ### S1.5 Prompt-/Agent-Assets
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Welche Link-Typen existieren real vs. im Agent-Asset? Welche Output-Contracts weichen ab? Fehlen Few-Shots/Contract-Tests? Ist die geplante Vereinheitlichung mit externen Agenten kompatibel?
 **Findings:** R2P-001 (veraltete Link-Typen in `DOMAIN_MODEL.md`), R2P-002 (drei Output-Vokabulare),
 R2P-003 (keine Few-Shots), R2P-004 (Boilerplate-Duplikation), R2P-005 (nur Interpolations-Tests),
 R2P-006 (DE/EN-Mix), R2P-007 (Locale-Drift), R2P-008 (Provenance nicht geloggt), R2P-009
@@ -266,6 +321,8 @@ R2P-006 (DE/EN-Mix), R2P-007 (Locale-Drift), R2P-008 (Provenance nicht geloggt),
 ## 4. Welle 2 — Performance, DB, Frontend
 
 ### S2.1 Backend-Performance
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Zeigt `EXPLAIN`/Query-Count das O(n)-Verhalten? Ist die DB-Pagination semantisch gleich? Bringt der Fix messbar weniger Queries/Rows (vorher/nachher)?
 **Findings:** PERF-001 (Allocation-View materialisiert Workspace), PERF-002 (VCRM 2R-Queries),
 PERF-003 (Tenant-Search-Fan-out), PERF-010 (unbounded rows), PERF-011 (Serialisierung/Sort).
 - [ ] Allocation-View: Filter in den QuerySet, `order_by("sort_key","id")`, DB-Pagination, Counts per
@@ -279,6 +336,8 @@ PERF-003 (Tenant-Search-Fan-out), PERF-010 (unbounded rows), PERF-011 (Serialisi
 dokumentiert (keine „gefühlte" Optimierung).
 
 ### S2.2 DB-Handwerk & Indizes
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Welche Queries laufen ohne Index (Plan)? Sind die Indizes ohne Lock erstellbar? Sind die Migrationen rückwärts sicher? Ist die RLS-DDL-Duplikation funktional identisch?
 **Findings:** PERF-005 (Full Table Scan), PERF-006 (Permission-N+1), PERF-008 (Pooling),
 PERF-009 (Cache-Keyspace), R2D-001…R2D-008 (Datenmigrationen, RLS-DDL-Duplikate, Backfills,
 Doku-Drift, Choice-Vokabular).
@@ -292,6 +351,8 @@ Doku-Drift, Choice-Vokabular).
 **DoD:** Query-Plan ohne Seq Scan auf heißen Pfaden; Migrationen rückwärts getestet.
 
 ### S2.3 Frontend-Performance
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Wie groß sind Bundle/Precache real (Analyzer)? Ist die Doppel-Hydration messbar? Führt der Key-Fix zu korrektem DOM-Verhalten (Test)?
 **Findings:** PERF-004 (Doppel-Hydration), PERF-007 (Precache lädt alle Lazy-Chunks), UI-009
 (Re-Renders), R2F-004 (Index-Keys), R2F-006 (Effekt-Reset).
 - [ ] Precache auf App-Shell + tatsächlich genutzte Routen begrenzen; schwere Editoren lazy halten.
@@ -306,6 +367,8 @@ Doku-Drift, Choice-Vokabular).
 ## 5. Welle 3 — Frontend-Korrektheit, A11Y, UI
 
 ### S3.1 Client, Auth, i18n, PWA
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Werden 403/422 wirklich 3× retryt (Test)? Reproduziert der Logout-Race den alten Workspace? Sind die TS-Casts erreichbar (Crash-Pfad)? Entspricht der Fix React-/TS-Best-Practice?
 **Findings:** FE-001 (Retry bei 403/422), FE-002 (Workspace-Race nach Logout), FE-003 (CSRF-Banner
 DE), FE-004 (Install-Prompt-Rejection), FE-005 (i18n-Baselines), FE-006 (`any`-Typen), FE-007
 (Update-Banner vor Erfolg), FE-008 (Test-Polyfill), R2F-001/003/005/007/008.
@@ -320,6 +383,8 @@ DE), FE-004 (Install-Prompt-Rejection), FE-005 (i18n-Baselines), FE-006 (`any`-T
 retryt; kein Crash bei unbekanntem Preset.
 
 ### S3.2 Komponenten-Verträge
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Welche Props-Kombinationen sind real unmöglich? Kostet die Union-Migration mehr als sie nutzt? Ist der SplitView-Legacy-Pfad noch produktiv? Welche Breakpoints sind belegt?
 **Findings:** R2F-002 (28-Prop-Boolean-Trap), UI-001 (SplitView-Doppelimplementierung), UI-002
 (God-Components), UI-003 (Breakpoint-Vokabular), UI-006 (klickbare Divs).
 - [ ] `ArtifactFormActions` auf diskriminierte `mode`-Union umbauen.
@@ -331,6 +396,8 @@ retryt; kein Crash bei unbekanntem Preset.
 **DoD:** Kein unmöglicher Props-Zustand kompilierbar; ein SplitView-Pfad; Breakpoint-Scan grün.
 
 ### S3.3 Barrierefreiheit
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Welche Verstöße findet axe pro Theme/Route? Welche sind manuell bestätigt (SR/Tastatur)? Ist der Fix WCAG-konform (SC-Referenz) oder nur „axe-grün"?
 **Findings:** A11Y-001 (Lock-Icon ohne SR-Name), A11Y-002 (Gate scannt nur 3 States), A11Y-003
 (Link nur per Farbe), A11Y-004 (Fokusring-Kontrast), A11Y-005 (16px-Chevron), A11Y-006
 (Checkboxen ohne Namen).
@@ -344,6 +411,8 @@ retryt; kein Crash bei unbekanntem Preset.
 „nur 3 States" grün sein.
 
 ### S3.4 UI-Design-Schuld
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Sind die Literale/`!important` wirklich im aktuellen Theme sichtbar problematisch? Lohnt der Token-Paydown? Bleibt Print korrekt?
 **Findings:** UI-004 (Rohfarben), UI-005 (Print-CSS / `!important`), UI-007 (Inline-Styles),
 UI-008 (Hover-only-Kanten).
 - [ ] Fehlende Alpha-Tokens ergänzen, WorkflowEditor-Literale ersetzen, Baseline-Eintrag löschen.
@@ -358,6 +427,8 @@ UI-008 (Hover-only-Kanten).
 ## 6. Welle 4 — Struktur, Clean Code, Tests
 
 ### S4.1 Clean Code / SOLID Backend
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Belegt ein Clone-/Komplexitätsreport die Duplikate? Ist die Abstraktion billiger als die Duplizierung? Bleibt die Fassade stabil?
 **Findings:** R2C-001 (LLM-Plumbing 4×), R2C-002 (CRUD-Quartett 13×), R2C-003 (19-Parameter-Update),
 R2C-004 (72-Methoden-Service), R2C-005 (tote Handler-Parameter), R2C-006 (333-Zeilen-Funktion),
 R2C-007 (tote Parameter/lügende Kommentare), R2C-008 (Lookup-Duplikate), R2C-009 (Policy-Metadaten).
@@ -370,6 +441,8 @@ R2C-007 (tote Parameter/lügende Kommentare), R2C-008 (Lookup-Duplikate), R2C-00
 **DoD:** Duplikate messbar reduziert (Clone-Report), Fassade unverändert, alle Tests grün.
 
 ### S4.2 Struktur, Zyklen, Layer
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Zeigt der Import-Graph die Zyklen/Layer-Brüche? Ist der Split mechanisch verhaltensgleich? Welche Merge-Konflikte drohen?
 **Findings:** R2S-001 (`views.py` 15,6k), R2S-002 (Fassade/echte Zyklen), R2S-003 (MCP→Persistence),
 R2S-004 (Layer-0→Layer-2), R2S-005 (2.012-Zeilen-Tree), R2S-006 (Viewport-Duplikate), R2S-007
 (Model-/Serializer-Monolithen), R2S-008 (LLM-JSON-Parser), R2S-009 (latente Zyklen), R2S-010
@@ -385,6 +458,8 @@ R2S-004 (Layer-0→Layer-2), R2S-005 (2.012-Zeilen-Tree), R2S-006 (Viewport-Dupl
 Layer-Regeln ab.
 
 ### S4.3 Testqualität
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Sind die Tests wirklich „always green“ (Mutation/Assertions prüfen)? Ist die fehlende Isolation reproduzierbar? Entspricht der neue Test dem Test-Pyramiden-Prinzip?
 **Findings:** TEST-001 (Skip maskiert Features), TEST-002 (Mega-Spec), TEST-003 (fehlende Isolation),
 TEST-004/005 (mobile Visual/Seed), TEST-006 (Helper-Duplikate), TEST-007 (catch-and-ignore),
 TEST-008 (A11Y-Gate), TEST-009 (Shard-Balance), TEST-010 (fixed sleeps), TEST-011 (Error-Paths),
@@ -405,6 +480,8 @@ Fehlerpfade haben Assertions.
 ## 7. Welle 5 — Supply Chain, Ops, Betriebsreife
 
 ### S5.1 Supply Chain
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Sind Images/Locks wirklich unpinned/driftend? Ist die Lizenzfrage rechtlich entschieden? Deckt der Audit-Scope die Ökosysteme ab?
 **Findings:** DEP-003 (First-Party-Images nur Tag), DEP-005 (Dependency-Confusion), DEP-006
 (Audit-Scope), DEP-007 (MPL-2.0), DEP-008/009/010, EXT-002, EXT-003 (False Positive dokumentiert).
 - [ ] Erste-Partei-Images mit `@sha256` pinnen; Dependabot/Digest-Update.
@@ -415,6 +492,8 @@ Fehlerpfade haben Assertions.
 **DoD:** Kein unpinned `ghcr.io`-Image; Lizenzmatrix konsistent; Audit deckt alle Ökosysteme.
 
 ### S5.2 CI/Compose/Ops-Härtung
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Sind die Gates tatsächlich nicht verdrahtet? Testet das Header-Gate die falsche Version? Welche Permissions sind zu weit?
 **Findings:** OPS-005…OPS-011 (Image-Pinning, Overlay, Environment-Gates, Header-Test, Permissions,
 Migration-Ordering, Ressourcenlimits).
 - [ ] Compose-Images pinnen; Dev-Overlay nicht in Produktion zulassen.
@@ -426,6 +505,8 @@ Migration-Ordering, Ressourcenlimits).
 die echte Version.
 
 ### S5.3 Betriebsreife (Meta-Lücken)
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Existiert für Config/Lifecycle/Observability/Migration-Safety/CI-Feedback wirklich noch kein Artefakt? Wer ist Owner? Welche Minimalvariante liefert Nutzen?
 **Findings:** Meta-Review „Missing Dimensions": Configuration Management, Data Lifecycle/
 Decommissioning, Domain-Event-Observability, Migration-Safety-Governance, CI-Feedback-Integrität.
 - [ ] Config-Katalog (eine Quelle für Env-Vars/Defaults/Secrets) + Startup-Validierung.
@@ -441,6 +522,8 @@ Decommissioning, Domain-Event-Observability, Migration-Safety-Governance, CI-Fee
 ## 8. Welle 6 — Dokumentation
 
 ### S6.1 Doku-Wahrheit & Status
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Widerlegt der Code die Doku-Aussage (z. B. localStorage-JWT)? Sind Zahlen reproduzierbar? Ist REQUIREMENTS.md autoritativ oder historisch?
 **Findings:** DOC-002 („pending commit" trotz Merge), DOC-003 (REQ-209…215 im historischen Dokument),
 DOC-004 (falsche Auth-Aussage), DOC-005 („Done" ohne Messung), DOC-006 (Index-Stale), DOC-007
 (Versionswiderspruch), DOC-008 (falsche Zahlen).
@@ -454,6 +537,8 @@ DOC-004 (falsche Auth-Aussage), DOC-005 („Done" ohne Messung), DOC-006 (Index-
 **DoD:** Keine Doku behauptet etwas, das der Code widerlegt; Zahlen sind reproduzierbar.
 
 ### S6.2 SE-/ADR-Lifecycle
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Welche SE-Docs haben wirklich kein Pflicht-Frontmatter? Ist die Regel auf ADRs beschränkt? Sind Reviews wirklich offen?
 **Findings:** DOC-001 (fehlendes Frontmatter/`open_adrs`), DOC-009 (ADR-Namens-/Heading-Verstoß),
 DOC-010 (Reviews `open` seit 2 Wochen), DOC-011 (tote Links).
 - [ ] Frontmatter für die betroffenen SE-Dokumente ergänzen (oder Regel präzisieren + CI-Check).
@@ -464,6 +549,8 @@ DOC-010 (Reviews `open` seit 2 Wochen), DOC-011 (tote Links).
 **DoD:** Schema-/Frontmatter-Check grün; keine offenen Review-Protokolle ohne Status.
 
 ### S6.3 Sprach-/Link-Hygiene
+
+**Problemanalyse vor Umsetzung (Gate 0.1):** Welche internen Dokumente sind englisch? Ist die Sprachregel dort anwendbar? Lohnt ein CI-Lint?
 **Findings:** DOC-012 (EN in internen Indizes).
 - [ ] Interne Index-Dokumente auf Deutsch umstellen (externe bleiben Englisch).
 - [ ] Sprachregel-Check als leichten CI-Lint (nur Indizes/Docs, keine Code-Kommentare).
@@ -546,6 +633,8 @@ Kritischer Pfad: S0.1 → S0.2 → S0.3 → S4.2 (Struktur) ≈ 15 Tage.
 
 ## 13. Definition of Done (pro Schnitt)
 
+0. **Problemanalyse (Gate 0.1) dokumentiert:** Repro/Beleg, Best-Practice-Referenz, Entscheidung
+   (`BESTÄTIGT`/`ANPASSEN`/`KEIN PROBLEM`/`BEWUSST AKZEPTIERT`/`NICHT REPRODUZIERBAR`) und Restrisiko.
 1. Finding(s) behoben oder bewusst als „nicht reproduzierbar/akzeptiert" mit Begründung geschlossen.
 2. Regressionstest existiert und war vor dem Fix rot (im PR nachvollziehbar).
 3. `npm test`, `tsc`, ESLint, betroffene Backend-Tests, Playwright-Smoke grün.
