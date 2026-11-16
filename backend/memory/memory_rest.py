@@ -203,6 +203,7 @@ from persistence.qdrant_config import (
     QDRANT_DISTANCE_ATTRS,
 )
 from rest_api.auth_enforcer import get_auth_context
+from rest_api.query_params import reject_unknown_query_params
 from rest_api.serializers import build_error_response, detect_lang
 from rest_api.throttling import MemoryWebhookRateThrottle
 
@@ -1342,6 +1343,14 @@ class SystemMemoryProjectionView(_SystemMemoryVisualizationView):
         return Response({**result, **envelope()})
 
 
+#: Query parameters ``DELETE /api/v1/workspaces/<ws>/memory/entries/`` accepts.
+#: ``change_reason`` is the audited purge reason (same carrier rule as
+#: :func:`rest_api.query_params.parse_change_reason`). The list is the single
+#: source for both the runtime guard and the ``@extend_schema`` declaration, so
+#: the OpenAPI contract cannot drift from the accepted set (issue #1879).
+_WORKSPACE_MEMORY_DELETE_QUERY_PARAMS: tuple[str, ...] = ("change_reason",)
+
+
 class WorkspaceMemoryEntriesView(APIView):
     """``/api/v1/workspaces/<uuid:workspace_id>/memory/entries/``.
 
@@ -1351,6 +1360,13 @@ class WorkspaceMemoryEntriesView(APIView):
     the whole workspace scope. All delegate to
     :class:`application.memory_entry_service.MemoryEntryService`, so the
     response always carries ``backend`` + ``degraded`` (F9).
+
+    DELETE is a **collection purge**: it takes no per-entry selector. Issue
+    #1879 showed that ``?entry_id=<uuid>`` was accepted and silently ignored
+    while the whole workspace scope was deleted — a data-loss trap. Every
+    parameter outside :data:`_WORKSPACE_MEMORY_DELETE_QUERY_PARAMS` is now
+    rejected with ``400 VALIDATION_ERROR`` (fail closed, the purge semantics
+    themselves are unchanged).
     """
 
     @extend_schema(
@@ -1503,8 +1519,27 @@ class WorkspaceMemoryEntriesView(APIView):
     @extend_schema(
         tags=["memory"],
         summary="Purge every workspace-scoped memory entry",
+        parameters=[
+            OpenApiParameter(
+                "change_reason",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Audit reason for the purge (fallback for clients that "
+                    "cannot send a DELETE body). No per-entry selector is "
+                    "accepted: use DELETE /api/v1/memory/entries/{entry_id}/ "
+                    "to remove a single entry."
+                ),
+            ),
+        ],
         responses={
             200: MemoryScopePurgeResponseSerializer,
+            400: OpenApiResponse(
+                description=(
+                    "Unsupported query parameter (e.g. 'entry_id'); this route "
+                    "purges the whole workspace scope."
+                )
+            ),
             403: OpenApiResponse(description="Workspace-Admin role required."),
         },
     )
@@ -1515,11 +1550,27 @@ class WorkspaceMemoryEntriesView(APIView):
         Viewer/Editor is denied. Deletes are not charged to the ``memory.write``
         limiter (that quota guards the embedding budget, and a delete embeds
         nothing) -- the same rule MCP ``memory.forget`` follows.
+
+        Issue #1879: the route previously ignored ``?entry_id=<uuid>`` and
+        purged the whole scope anyway. It now rejects every undeclared query
+        parameter (``400``) and points at
+        ``DELETE /api/v1/memory/entries/<entry_id>/`` for single-entry deletes.
         """
         lang = detect_lang(request)
         ctx = _auth_or_401(request, lang)
         if isinstance(ctx, Response):
             return ctx
+        rejected = reject_unknown_query_params(
+            request,
+            _WORKSPACE_MEMORY_DELETE_QUERY_PARAMS,
+            lang,
+            hint=(
+                "This route purges the whole workspace scope; to delete a "
+                "single entry use DELETE /api/v1/memory/entries/<entry_id>/."
+            ),
+        )
+        if rejected is not None:
+            return rejected
         change_reason = request.query_params.get("change_reason") or request.data.get(
             "change_reason"
         )

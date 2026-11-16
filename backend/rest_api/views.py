@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import wraps
 from typing import Any
 from uuid import UUID
@@ -10470,31 +10470,63 @@ class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         Body: ``{"workspace_id": "<uuid>", "files": {"<path>": "<sha256>"},
         "confirm": {"document_id": "<uuid>", "sha256": "<sha256>"}}``.
         ``files`` carries hashes the client computed locally.
+
+        Issue #1880: an empty (or non-object) body used to reach
+        ``UUID("")`` and surface as **500** through the generic service
+        mapping. Every required member is now validated up front and answers
+        **400 VALIDATION_ERROR** with the offending field name, the same
+        envelope the sibling actions use.
         """
         from application.document_projection_service import (
             DocumentProjectionService,
         )
 
         lang = detect_lang(request)
-        files = request.data.get("files") or {}
+        body = request.data if isinstance(request.data, Mapping) else {}
+        details: list[dict[str, Any]] = []
+        workspace_id, workspace_error = parse_uuid_param(
+            body.get("workspace_id"), lang, name="workspace_id"
+        )
+        if workspace_error is not None:
+            details.append(
+                {
+                    "field": "workspace_id",
+                    "errors": [workspace_error.data["error"]["message"]],
+                }
+            )
+        files = body.get("files") or {}
         if not isinstance(files, dict):
+            details.append({"field": "files", "errors": ["Must be an object."]})
+            files = {}
+        confirm: dict[str, Any] | None = None
+        raw_confirm = body.get("confirm")
+        if raw_confirm:
+            if not isinstance(raw_confirm, Mapping):
+                details.append({"field": "confirm", "errors": ["Must be an object."]})
+            else:
+                confirm_id, confirm_error = parse_uuid_param(
+                    raw_confirm.get("document_id"), lang, name="confirm.document_id"
+                )
+                if confirm_error is not None:
+                    details.append(
+                        {
+                            "field": "confirm.document_id",
+                            "errors": [confirm_error.data["error"]["message"]],
+                        }
+                    )
+                confirm = {**raw_confirm, "document_id": confirm_id}
+        if details:
             return Response(
-                build_error_response(
-                    "VALIDATION_ERROR",
-                    lang,
-                    details=[{"field": "files", "errors": ["Must be an object."]}],
-                ),
+                build_error_response("VALIDATION_ERROR", lang, details=details),
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            workspace_id = UUID(str(request.data.get("workspace_id") or ""))
             ctx = get_auth_context(request)
             service = DocumentProjectionService()
             rows = service.status(workspace_id, files, ctx)
-            confirm = request.data.get("confirm") or None
             if confirm:
                 service.confirm(
-                    UUID(str(confirm.get("document_id") or "")),
+                    confirm["document_id"],
                     str(confirm.get("sha256") or ""),
                     ctx,
                 )

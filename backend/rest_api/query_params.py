@@ -192,6 +192,8 @@ def reject_unknown_query_params(
     request: Any,
     allowed: Any,
     lang: str = "en",
+    *,
+    hint: str | None = None,
 ) -> Response | None:
     """Reject query parameters the endpoint does not declare (C3 / #1668).
 
@@ -203,17 +205,25 @@ def reject_unknown_query_params(
     Returns ``None`` when the request is valid, otherwise a ready-to-return
     HTTP 400. Parameter *names* may be echoed (they are bounded by the request
     line); values are never echoed.
+
+    ``hint`` is appended to the message when at least one parameter was
+    rejected. It exists for endpoints where an unsupported parameter is a
+    *wrong-route* signal (e.g. ``?entry_id=`` on a collection-purge endpoint,
+    issue #1879): the caller must be told which route does what they meant,
+    and that wording belongs to the endpoint, not to this shared helper.
     """
     allowed_set = frozenset(allowed)
     unknown = sorted(
         key for key in request.query_params.keys() if key not in allowed_set
     )
     if unknown:
-        return _validation_error(
+        message = (
             "Unknown query parameter(s): "
-            f"{', '.join(unknown)}. Allowed: {', '.join(sorted(allowed_set))}.",
-            lang,
+            f"{', '.join(unknown)}. Allowed: {', '.join(sorted(allowed_set))}."
         )
+        if hint:
+            message = f"{message} {hint}"
+        return _validation_error(message, lang)
     if "include_deleted" in request.query_params:
         try:
             parse_bool_param(request.query_params, "include_deleted")
