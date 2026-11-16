@@ -343,7 +343,7 @@ class TestAppModelRoundTrip:
     def test_issue_roundtrip_preserves_tags(self, ws):
         t, w = ws["tenant"], ws["workspace"]
         _make_definition(
-            ws, "Issue", ["Open", "In Progress", "Resolved", "Closed", "Wontfix"]
+            ws, "Issue", ["open", "in_progress", "resolved", "closed", "wontfix"]
         )
         assignee = uuid.uuid4()
         art = Artifact.objects.create(tenant=t, workspace=w, artifact_type="Issue")
@@ -367,7 +367,7 @@ class TestAppModelRoundTrip:
         _assert_identity(out, artifact_id=art.id, modified_attr="updated_at")
         assert out.severity == "high"
         assert out.category == "defect"
-        assert state_reader.current_state("Issue", out.id) == "Open"
+        assert state_reader.current_state("Issue", out.id) == "open"
         assert out.assignee_id == assignee
         assert out.tags == ["frontend", "auth"]
         assert out.uid == "ISSUE-RT-001"

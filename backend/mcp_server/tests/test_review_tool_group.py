@@ -132,7 +132,7 @@ def issue_workflow(auth_context, workspace):
 
 @pytest.fixture
 def issue_open(auth_context, workspace, issue_workflow):
-    """A freshly created Issue, still at its initial "Open" state."""
+    """A freshly created Issue, still at its initial ``open`` state."""
     from application.issue_service import IssueService
 
     return IssueService().create_issue(
@@ -145,10 +145,10 @@ def issue_open(auth_context, workspace, issue_workflow):
 
 @pytest.fixture
 def issue_in_progress(auth_context, workspace, issue_workflow):
-    """An Issue transitioned Open -> In Progress -- one real approval-gated
-    hop ("In Progress" -> "Wontfix", approver/admin-only) away from the
-    reject path, and one editor-allowed hop away from its preset's real
-    auto_approve_target ("Resolved")."""
+    """An Issue transitioned ``open`` -> ``in_progress`` -- one real
+    approval-gated hop (``in_progress`` -> ``wontfix``, approver/admin-only)
+    away from the reject path, and one editor-allowed hop away from its
+    preset's real auto_approve_target (``resolved``)."""
     from application.issue_service import IssueService
     from workflow.services import transition
 
@@ -163,7 +163,7 @@ def issue_in_progress(auth_context, workspace, issue_workflow):
     try:
         transition(
             item_id=created.id,
-            target_state="In Progress",
+            target_state="in_progress",
             change_reason="picked up",
             ctx=auth_context,
             item_type="Issue",
@@ -252,11 +252,12 @@ def test_approve_transitions_to_auto_approve_target(
 def test_approve_issue_in_progress_transitions_to_resolved_not_wontfix(
     review_tool_group, auth_context, api_key, workspace, issue_in_progress
 ):
-    """GH-370 regression: issue_default now marks "Resolved" as the
+    """GH-370 regression: issue_default marks ``resolved`` as the
     auto_approve_target (definition_store.py), so review.approve() on an
-    Issue one hop away from the real approval gate ("In Progress" ->
-    "Wontfix") must land on "Resolved" -- never on "Wontfix", which is a
-    rejection-equivalent state, not an approval outcome."""
+    Issue one hop away from the real approval gate (``in_progress`` ->
+    ``wontfix``) must land on ``resolved`` -- never on ``wontfix``, which is
+    a rejection-equivalent state, not an approval outcome. (GH-1881: the
+    states are lowercase snake_case.)"""
     result = review_tool_group.execute_tool(
         "review.approve",
         {
@@ -268,21 +269,22 @@ def test_approve_issue_in_progress_transitions_to_resolved_not_wontfix(
         auth_context,
         api_key,
     )
-    assert result.data["new_state"] == "Resolved"
-    assert result.data["new_state"] != "Wontfix"
+    assert result.data["new_state"] == "resolved"
+    assert result.data["new_state"] != "wontfix"
 
 
 def test_approve_issue_open_never_falls_back_to_wontfix(
     review_tool_group, auth_context, api_key, workspace, issue_open
 ):
     """GH-370 regression: before this fix, review.approve() on a freshly
-    filed Issue ("Open") wrongly picked "Wontfix" -- the fallback's "first
-    approval-gated transition" from "Open" (Open -> Wontfix is the only
-    approver/admin-gated hop out of "Open"; Open -> In Progress is
-    editor-gated, not a gate). "Resolved" is not directly reachable from
-    "Open" in a single hop, so the hardened fallback now correctly refuses
-    to guess an approval target here (VALIDATION_ERROR) instead of silently
-    rejecting the issue by moving it to "Wontfix"."""
+    filed Issue (``open``) wrongly picked ``wontfix`` -- the fallback's
+    "first approval-gated transition" from ``open`` (``open`` -> ``wontfix``
+    is the only approver/admin-gated hop out of ``open``; ``open`` ->
+    ``in_progress`` is editor-gated, not a gate). ``resolved`` is not
+    directly reachable from ``open`` in a single hop, so the hardened
+    fallback now correctly refuses to guess an approval target here
+    (VALIDATION_ERROR) instead of silently rejecting the issue by moving it
+    to ``wontfix``."""
     result = review_tool_group.execute_tool(
         "review.approve",
         {

@@ -95,11 +95,20 @@ describe('buildStatusFilterOptions', () => {
   });
 
   it('handles the Title-Case vocabularies that are NOT part of the rename', () => {
-    const issues = [{ status: 'Open' }, { status: 'Resolved' }, { status: 'Wontfix' }];
+    const adrs = [{ status: 'Draft' }, { status: 'In Review' }, { status: 'Approved' }];
+    expect(buildStatusFilterOptions(adrs)).toEqual([
+      { value: 'Draft', label: 'Draft' },
+      { value: 'In Review', label: 'In Review' },
+      { value: 'Approved', label: 'Approved' },
+    ]);
+  });
+
+  it('treats the Issue vocabulary as lowercase snake after GH-1881', () => {
+    const issues = [{ status: 'open' }, { status: 'resolved' }, { status: 'wontfix' }];
     expect(buildStatusFilterOptions(issues)).toEqual([
-      { value: 'Open', label: 'Open' },
-      { value: 'Resolved', label: 'Resolved' },
-      { value: 'Wontfix', label: "Won't Fix" },
+      { value: 'open', label: 'Open' },
+      { value: 'resolved', label: 'Resolved' },
+      { value: 'wontfix', label: "Won't Fix" },
     ]);
   });
 

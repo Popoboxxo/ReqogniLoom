@@ -40,8 +40,13 @@ class AllocationMultiplicityRule(Rule):
         "Allokation (is_primary) über die Spezifikationsebene; ohne führende "
         "Kante bleibt sie unresolved. Der Befund macht den Zustand sichtbar."
     )
-    standard_basis = "ADR-028 D9"
-    how_to_fix = (
+    # GH-1882: the catalogue's ``standard_ref`` was empty for this rule — it
+    # carried the dead ``standard_basis`` attribute instead, which no consumer
+    # reads. Same reference scheme as its neighbours (ADR-028 D11 for REL-P1,
+    # UMSETZUNGSPLAN_SYSENG_2.0.md §2.2 for TRACE-P*): the decision this rule
+    # enforces is ADR-028 D9, so that is what it cites.
+    standard_ref = "ADR-028 D9 (allocation cardinality / leading allocation)"
+    remediation_hint = (
         "Entweder eine Allokation als führend markieren (is_primary) oder die "
         "überzähligen Allokationen zurückziehen."
     )

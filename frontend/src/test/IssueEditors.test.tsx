@@ -61,7 +61,7 @@ const { ISSUE } = vi.hoisted(() => ({
     description: "Retrying login after a token refresh throws a 500.",
     severity: "high" as const,
     category: "defect" as const,
-    status: "Open" as const,
+    status: "open" as const,
     tags: [],
     version: 1,
     // #1762/M2: identity (head) + the backing Artifact id (comments tab).
@@ -265,7 +265,8 @@ describe("IssueEditors Task 2.3 concept remodel (PageHeader / ArtifactRow / Dial
     });
     const row = screen.getByTestId(`issue-row-${ISSUE.id}`);
     expect(row).toHaveTextContent(ISSUE.title);
-    expect(screen.getByTestId(`issue-row-${ISSUE.id}-status`)).toHaveTextContent(ISSUE.status);
+    // GH-1881: the machine value is ``open``; the row renders the human label.
+    expect(screen.getByTestId(`issue-row-${ISSUE.id}-status`)).toHaveTextContent("Open");
   });
 
   it("shows the empty variant with a create action when there are no issues at all", async () => {
@@ -442,7 +443,7 @@ describe("IssueEditors — inspector shell mount (#1762 M2)", () => {
 });
 
 describe("IssueEditors — include_deleted reveals outdated issues (D6)", () => {
-  const OUTDATED_ISSUE = { ...ISSUE, id: "issue-outdated-1", title: "Retired issue", status: "Wontfix" };
+  const OUTDATED_ISSUE = { ...ISSUE, id: "issue-outdated-1", title: "Retired issue", status: "wontfix" };
 
   beforeEach(() => {
     vi.clearAllMocks();

@@ -59,7 +59,7 @@ const ISSUE = {
   description: "d",
   severity: "high",
   category: "defect",
-  status: "Open",
+  status: "open",
   tags: [],
   due_date: "2026-10-01T00:00:00Z",
   version: 2,
@@ -83,7 +83,7 @@ const FULL_ISSUE_GET_PAYLOAD = {
   description: "d",
   severity: "high",
   category: "defect",
-  status: "Open",
+  status: "open",
   tags: ["urgent"],
   due_date: "2026-10-01T00:00:00Z",
   uid: "ISSUE-0001",
@@ -146,10 +146,10 @@ describe("IssueArtifactForm", () => {
     vi.mocked(issuesApi.update).mockReset();
     vi.mocked(issuesApi.delete).mockReset();
     vi.mocked(workflowTransitionsApi.getTransitions).mockResolvedValue({
-      current_state: "Open",
-      states: ["Open", "Wontfix"],
+      current_state: "open",
+      states: ["open", "wontfix"],
       allowed_transitions: [
-        { target_state: "Wontfix", requires_change_reason: false, signature_gate: false },
+        { target_state: "wontfix", requires_change_reason: false, signature_gate: false },
       ],
       proposed_by: null,
     });
@@ -219,7 +219,7 @@ describe("IssueArtifactForm", () => {
       expect(workflowTransitionsApi.transition).toHaveBeenCalledWith(
         "issue",
         "i-1",
-        "Wontfix",
+        "wontfix",
         ""
       )
     );

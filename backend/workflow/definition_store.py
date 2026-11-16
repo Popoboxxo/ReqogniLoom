@@ -729,47 +729,57 @@ def _risk_transitions() -> list[dict[str, Any]]:
 
 
 def _issue_transitions() -> list[dict[str, Any]]:
-    # State values match application.models.Issue.IssueStatus.
+    # State values match persistence.models.Issue.IssueStatus values.
+    #
+    # GH-1881: lowercased (was "Open"/"In Progress"/"Resolved"/"Closed"/
+    # "Wontfix"). Issue was the last artifact workflow spelled in Title Case,
+    # which meant its graph mixed two vocabularies as soon as the engine
+    # injected the lowercase "proposed"/"rejected" states — clients POSTing
+    # ``in_progress`` got "Transition not allowed: 'Open' → 'in_progress' is
+    # not defined" and only the exact label with a space worked. Same fix and
+    # same rationale as GH-453 for TestCase; the human-readable spelling lives
+    # in Issue.IssueStatus's *label* and in the frontend label map, not in the
+    # value.
     return [
         {
-            "from_state": "Open",
-            "to_state": "In Progress",
+            "from_state": "open",
+            "to_state": "in_progress",
             "allowed_roles": ["editor", "admin"],
             "requires_change_reason": False,
             "signature_gate": False,
         },
         {
-            "from_state": "In Progress",
-            "to_state": "Resolved",
+            "from_state": "in_progress",
+            "to_state": "resolved",
             "allowed_roles": ["editor", "admin"],
             "requires_change_reason": False,
             "signature_gate": False,
         },
         {
-            "from_state": "In Progress",
-            "to_state": "Wontfix",
+            "from_state": "in_progress",
+            "to_state": "wontfix",
             "allowed_roles": ["approver", "admin"],
             "requires_change_reason": True,
             "signature_gate": False,
         },
         {
-            "from_state": "Resolved",
-            "to_state": "Closed",
+            "from_state": "resolved",
+            "to_state": "closed",
             "allowed_roles": ["approver", "admin"],
             "requires_change_reason": False,
             "signature_gate": False,
         },
         {
             # Reopen path.
-            "from_state": "Resolved",
-            "to_state": "In Progress",
+            "from_state": "resolved",
+            "to_state": "in_progress",
             "allowed_roles": ["editor", "admin"],
             "requires_change_reason": False,
             "signature_gate": False,
         },
         {
-            "from_state": "Open",
-            "to_state": "Wontfix",
+            "from_state": "open",
+            "to_state": "wontfix",
             "allowed_roles": ["approver", "admin"],
             "requires_change_reason": True,
             "signature_gate": False,
@@ -1138,19 +1148,22 @@ PRESET_SCHEMAS: dict[str, dict[str, Any]] = {
         },
     },
     "issue_default": {
-        "states": ["Open", "In Progress", "Resolved", "Closed", "Wontfix"],
+        # GH-1881: lowercase state values (was Title Case) — see
+        # _issue_transitions. Existing installs need a data migration for
+        # GlobalWorkflowDefinition/WorkflowEngineDefinition/WorkflowItemState.
+        "states": ["open", "in_progress", "resolved", "closed", "wontfix"],
         "transitions": _issue_transitions(),
-        # REQ-Phase3 / GH-370: "Resolved" is the intended auto-approve
+        # REQ-Phase3 / GH-370: "resolved" is the intended auto-approve
         # destination — review.approve() must move an Issue towards being
-        # fixed, never towards the reject-equivalent "Wontfix" state (see
+        # fixed, never towards the reject-equivalent "wontfix" state (see
         # is_outdated_equivalent below). Without this flag,
         # ReviewToolGroup._transition_to_gate_target's fallback picked the
-        # first approval-gated transition it found, which from "Open" is
-        # "Open" -> "Wontfix" (the only approver/admin-gated hop) — the
+        # first approval-gated transition it found, which from "open" is
+        # "open" -> "wontfix" (the only approver/admin-gated hop) — the
         # opposite of what "approve" should mean.
         "state_meta": {
-            "Wontfix": {"is_outdated_equivalent": True},
-            "Resolved": {"auto_approve_target": True},
+            "wontfix": {"is_outdated_equivalent": True},
+            "resolved": {"auto_approve_target": True},
         },
     },
     # 2026-08-20: Interview-Session UI-visibility fix. "abandoned" is the

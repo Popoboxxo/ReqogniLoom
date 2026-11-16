@@ -196,7 +196,7 @@ def test_issue_transition_stale_expected_version_is_a_conflict(issue_env):
     svc = IssueService()
     svc.transition_status(
         issue_id=issue.id,
-        target_status="In Progress",
+        target_status="in_progress",
         ctx=editor,
         change_reason="starting work",
     )
@@ -205,7 +205,7 @@ def test_issue_transition_stale_expected_version_is_a_conflict(issue_env):
     with pytest.raises(OptimisticLockError):
         svc.transition_status(
             issue_id=issue.id,
-            target_status="In Progress",
+            target_status="in_progress",
             ctx=editor,
             change_reason="stale retry",
             expected_version=stale,
@@ -218,13 +218,13 @@ def test_issue_transition_current_expected_version_succeeds(issue_env):
 
     updated = IssueService().transition_status(
         issue_id=issue.id,
-        target_status="In Progress",
+        target_status="in_progress",
         ctx=editor,
         change_reason="starting work",
         expected_version=current,
     )
 
-    assert updated.status == "In Progress"
+    assert updated.status == "in_progress"
 
 
 # ---------------------------------------------------------------------------

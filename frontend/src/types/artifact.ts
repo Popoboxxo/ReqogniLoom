@@ -169,7 +169,7 @@ export interface Risk {
 
 export type IssueSeverity = "critical" | "high" | "medium" | "low";
 export type IssueCategory = "defect" | "improvement" | "documentation" | "question";
-export type IssueStatus = "Open" | "In Progress" | "Resolved" | "Closed" | "Wontfix";
+export type IssueStatus = "open" | "in_progress" | "resolved" | "closed" | "wontfix";
 
 export interface Issue extends SystemFieldValues {
   id: UUID;

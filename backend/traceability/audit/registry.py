@@ -424,6 +424,30 @@ def get_registered_rules() -> list[Rule]:
 _CATALOGUE_TIERS: tuple[str, ...] = ("minimal", "standard", "extended")
 
 
+def get_rule_metadata(rule_id: str) -> dict | None:
+    """Return one rule's catalogue metadata, or ``None`` for an unknown id.
+
+    Split out of :func:`get_rule_catalogue` so a *single* consumer — the
+    finding payload of an audit run (GH-1882) — can resolve a rule's
+    ``standard_ref`` / title without materialising the whole catalogue per
+    finding. Returns ``None`` instead of raising so a finding whose rule is no
+    longer registered (a rule removed between a persisted run and the report,
+    or a test double) degrades to absent metadata rather than a 500.
+    """
+    import traceability.audit.rules  # noqa: F401  (registration side effect)
+
+    rule = _REGISTRY.get(rule_id)
+    if rule is None:
+        return None
+    return {
+        "rule_id": rule.rule_id,
+        "title": rule.title,
+        "description": rule.description,
+        "standard_ref": rule.standard_ref,
+        "remediation_hint": rule.remediation_hint,
+    }
+
+
 def get_rule_catalogue() -> list[dict]:
     """Return the rule catalogue as JSON-serialisable dicts (#1262).
 
@@ -497,5 +521,6 @@ __all__ = [
     "full_se_rule_ids",
     "get_registered_rules",
     "get_rule_catalogue",
+    "get_rule_metadata",
     "register_rule",
 ]

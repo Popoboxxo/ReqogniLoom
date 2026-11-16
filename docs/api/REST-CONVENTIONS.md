@@ -680,7 +680,7 @@ no generative engine, this degradation is the normal shape, not an error.
 (requirements, needs, adrs, risks, issues, testcases, architecture) and on the
 MCP surface. It is a **soft** delete: the row survives and moves to the
 workflow's outdated-equivalent state (`state_meta: {…: {is_outdated_equivalent:
-true}}`, e.g. `deprecated`, `Superseded`, `Wontfix`, `Closed`), and the list
+true}}`, e.g. `deprecated`, `Superseded`, `wontfix`, `Closed`), and the list
 endpoints hide it unless the caller opts in with `?include_deleted=true`.
 
 The endpoints exist for **admin / data-hygiene / automation** callers (scripts,
