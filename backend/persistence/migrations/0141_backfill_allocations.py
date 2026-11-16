@@ -8,6 +8,19 @@ retroactive release would freeze artefacts nobody released. The release path
 Idempotent by construction: the partial unique constraint on
 ``(requirement_artifact, element_artifact)`` for active rows plus
 ``ON CONFLICT DO NOTHING`` means a second run inserts nothing.
+
+DELIBERATE ONE-WAY DOOR (S0.3-A / L0-002)
+-----------------------------------------
+This migration has **no reverse**. Reversing it used to issue an unqualified
+bulk ``DELETE`` against ``pl_allocation``, which would wipe *every* allocation
+— including the ones subsequently created through the API and released by users. The
+backfilled draft rows carry no provenance marker that distinguishes them from
+API-created rows ("drafts are indistinguishable from real allocations"), so a
+targeted rollback is impossible. A broad delete is worse than an irreversible
+forward step: it destroys live data on a routine ``migrate <app> 0140``. The
+reverse is therefore ``RunSQL.noop`` on purpose — operators must use an
+explicit, audited data-repair path instead of rolling this migration back.
+Guarded by ``persistence/tests/test_backfill_allocations_reverse_guard.py``.
 """
 from __future__ import annotations
 
@@ -31,14 +44,14 @@ WHERE tl.link_type = 'allocated-to'
 ON CONFLICT DO NOTHING;
 """
 
-_DELETE_SQL = "DELETE FROM pl_allocation;"
-
 
 class Migration(migrations.Migration):
+    """One-way backfill; see the module docstring for the one-way-door rationale."""
+
     dependencies = [
         ("persistence", "0140_allocation_rls_policy"),
     ]
 
     operations = [
-        migrations.RunSQL(sql=_BACKFILL_SQL, reverse_sql=_DELETE_SQL),
+        migrations.RunSQL(sql=_BACKFILL_SQL, reverse_sql=migrations.RunSQL.noop),
     ]

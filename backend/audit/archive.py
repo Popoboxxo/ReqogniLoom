@@ -312,28 +312,45 @@ class ExportOrchestrator:
 
 
 class PartitionDropper:
-    """Drops a PostgreSQL RANGE partition by name after confirmed export.
+    """Removes expired audit entries after a confirmed export (ADR-L3-AL003-02).
 
     REQ-L3-AL003-002: called ONLY after ExportOrchestrator.export() returns
     outcome='success'. Never called on failure.
 
-    Note: In the current v1 implementation, the AuditEntry table is a regular
-    Django model table (not natively PostgreSQL-partitioned via DDL). The
-    partition drop is implemented as a DELETE on timestamp range, which is
-    semantically equivalent for the test environment. In production PostgreSQL
-    with native table partitioning, this would be:
-        ALTER TABLE audit_entry DETACH PARTITION <partition_name>;
-        DROP TABLE <partition_name>;
+    ``AuditEntry`` is not natively PostgreSQL-partitioned in v1, so there is no
+    ``DETACH/DROP PARTITION`` to issue. A raw ``DELETE`` is not a substitute:
+    the mandatory BEFORE DELETE append-only trigger (audit/migrations/0002)
+    rejects it, so the old implementation failed on the first row and the same
+    rows were re-exported every month (S0.3-A / L0-001).
+
+    Deletion instead goes through the narrow SECURITY DEFINER maintenance
+    function installed by audit/migrations/0020. It disables only
+    ``trg_audit_entry_append_only`` for the duration of one transaction, deletes
+    rows older than the cutoff, and re-enables the trigger even on error. Its
+    EXECUTE privilege is granted exclusively to the archiver role.
+    ``session_replication_role`` is deliberately never used — that would also
+    disable FK triggers and every other user trigger on the table.
+
+    Lock window / cutoff bound (DBE-03, DBE-05): ``DISABLE TRIGGER`` holds
+    ACCESS EXCLUSIVE on ``audit_entry`` until the calling transaction commits.
+    The function deletes in bounded batches (summing per-batch ``ROW_COUNT``),
+    which limits each statement's duration and WAL footprint but does **not**
+    shorten that table-lock window — the whole loop runs under one lock. Keep
+    the cutoff narrow (this is the monthly, multi-year retention job). The
+    definer rejects any cutoff more recent than 30 days, so the elevated
+    arbitrary-cutoff capability inherited by the app role via the cluster-wide
+    ``archiver`` membership cannot erase recent audit history.
     """
+
+    #: Bounded maintenance call — the only supported way to purge audit rows.
+    _PURGE_SQL = "SELECT audit_ops.purge_entries_before(%s)"
 
     @staticmethod
     def drop_partition(cutoff_timestamp: datetime) -> int:
-        """Delete entries older than cutoff from the primary DB.
+        """Delete entries older than the cutoff via the maintenance function.
 
-        In a fully partitioned deployment, this would be a DDL partition drop.
-        For v1 (non-partitioned table), this is a bulk DELETE that the append-
-        only DB trigger does NOT block because it operates at the SQL level via
-        direct execute (bypassing the row-level trigger in test setups).
+        Idempotent: a second call deletes nothing and returns 0. The append-only
+        trigger is left present and enabled in both the success and error paths.
 
         Args:
             cutoff_timestamp: Delete entries with timestamp < cutoff.
@@ -344,11 +361,8 @@ class PartitionDropper:
         from django.db import connection
 
         with connection.cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM audit_entry WHERE timestamp < %s",
-                [cutoff_timestamp],
-            )
-            deleted = cursor.rowcount
+            cursor.execute(PartitionDropper._PURGE_SQL, [cutoff_timestamp])
+            deleted = cursor.fetchone()[0]
 
         logger.info(
             "PartitionDropper: deleted %d entries older than %s from primary DB.",
