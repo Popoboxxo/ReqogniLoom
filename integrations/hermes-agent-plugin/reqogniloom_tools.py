@@ -117,6 +117,11 @@ READ_EXACT = frozenset(
         # computes what an additive rollback to a baseline would change; the
         # write path is rollback_request + rollback_apply, both MUTATE.
         "baseline.rollback_preview",
+        # table view slice 3: `apply` here means "run the stored filter document
+        # and return a page". The manifest marks it `is_write: false`, and the
+        # server keeps it in `_READ_ONLY_TOOL_NAMES`; the verb is inherited from
+        # the saved-view vocabulary, not from a write.
+        "saved_view.apply",
     }
 )
 
@@ -144,6 +149,8 @@ COMPUTE_EXACT = frozenset(
         "attribute_migration.dry_run",  # preview of a migration
         "attribute_definition.export",
         "attribute_definition.export_workspace",
+        # Table view slice 3: running a stored view reads rows, it never writes.
+        "saved_view.apply",
     }
 )
 
@@ -172,6 +179,7 @@ COMPUTE_JUSTIFICATIONS: Dict[str, str] = {
     "attribute_migration.dry_run": "preview of a migration, commits nothing",
     "attribute_definition.export": "produces an export bundle",
     "attribute_definition.export_workspace": "produces an export bundle",
+    "saved_view.apply": "runs a stored filter and sort, persists nothing",
 }
 
 #: Tools that decide a *human* question — a proposal, a review, an approval.
