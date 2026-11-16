@@ -12,10 +12,16 @@
  *   GET|PUT /api/v1/users/me/table-view-state/
  *
  * Design notes:
- * - `bulkUpdate` resolves on a 200 *and* on the 400/409 all-or-nothing
- *   failure body (`committed: false` + `failed[]`), because the surface must
- *   render the per-artifact failure list instead of a thrown error. Any other
- *   non-2xx still throws through the shared client.
+ * - The bulk endpoints are spoken exactly as the merged backend declares them
+ *   (`rest_api.serializers.BulkUpdateRequestSerializer` /
+ *   `BulkTransitionRequestSerializer`): `{workspace_id, entries}` on update,
+ *   `{item_type, ids, to_state, change_reason}` on transition. The result is
+ *   normalised into this module's UI shape (`committed`/`updated`/`failed`),
+ *   never the other way round.
+ * - `bulkUpdate` resolves on a 200 *and* on the 409 all-or-nothing refusal
+ *   (`committed: false` + `failed[]`), because the surface must render the
+ *   per-artifact failure list instead of a thrown error. 400 (malformed body)
+ *   and 403 (no write role) keep throwing through the shared client.
  * - `savedViewsApi`/`tableViewStateApi` are against contracts that may not be
  *   deployed yet (slice 3 is a separate PR). Callers therefore treat a 404 as
  *   "feature absent" and degrade to an empty/local state — the wrapper itself
@@ -55,46 +61,50 @@ export interface TableRow {
   locked: { state: string } | null;
 }
 
-export interface BulkItem {
+export interface BulkUpdateEntry {
+  /** Backing `pl_artifact` id — same id the table row reports. */
   artifact_id: string;
+  /** The version the row carried when it was rendered. */
   expected_version: number;
+  /** Service fields to write, e.g. `{title, body, change_reason}`. */
   fields: Record<string, unknown>;
 }
 
-export type BulkFailureCode =
-  | "VALIDATION_ERROR"
-  | "NOT_FOUND"
-  | "FORBIDDEN"
-  | "CONFLICT";
-
+/** One refused entry of `BulkUpdateResponseSerializer.errors`. */
 export interface BulkFailure {
+  /** Zero-based position in the request's `entries` list. */
   index: number;
   artifact_id: string | null;
-  code: BulkFailureCode;
-  reason: string;
+  /** `NOT_FOUND | CONFLICT | FIELD_FROZEN | WORKFLOW_FROZEN | …` */
+  code: string;
+  message: string;
+  /** Offending field when the refusal names one (used to mark the cell). */
+  field?: string | null;
 }
 
+/** One written entry of `BulkUpdateResponseSerializer.updated`. */
 export interface BulkUpdatedEntry {
   artifact_id: string;
-  id: string;
-  item_type: string;
+  /** Version after the write (the value to send next time). */
   version: number;
 }
 
+/** UI-facing outcome: `committed: false` means nothing was written. */
 export interface BulkUpdateResult {
   committed: boolean;
-  mode: string;
   updated: BulkUpdatedEntry[];
   failed: BulkFailure[];
 }
 
+/** Body of `PATCH /artifacts/bulk-update/` (`BulkUpdateRequestSerializer`). */
 export interface BulkUpdateBody {
-  /** Defaults to `"atomic"` on the server; declared here for the UI switch. */
-  mode?: "atomic" | "partial";
-  change_reason?: string;
-  items: BulkItem[];
+  /** Every entry must belong to this workspace. */
+  workspace_id: UUID;
+  /** 1..100 writes, applied all-or-nothing. */
+  entries: BulkUpdateEntry[];
 }
 
+/** Body of `POST /artifacts/bulk-transition/` (no `workspace_id` by contract). */
 export interface BulkTransitionBody {
   item_type: string;
   ids: string[];
@@ -102,9 +112,22 @@ export interface BulkTransitionBody {
   change_reason: string;
 }
 
+/** One moved entry of `BulkTransitionResponseSerializer.transitioned`. */
+export interface BulkTransitionedEntry {
+  artifact_id: string;
+  state: string;
+}
+
+/** UI-facing outcome; partial success is the contract, so failures keep 200. */
 export interface BulkTransitionResult {
-  transitioned: string[];
+  transitioned: BulkTransitionedEntry[];
   failed: BulkFailure[];
+}
+
+/** Raw body shared by the 200 and the 409 answer of bulk-update. */
+interface BulkUpdateResponseBody {
+  updated: BulkUpdatedEntry[];
+  errors: BulkFailure[];
 }
 
 export interface TableViewState {
@@ -170,17 +193,30 @@ function tableParams(params: TableQueryParams): Record<string, string> {
   return out;
 }
 
-/** Read the failure body of a rejected atomic/partial request, if it is one. */
-function failureBody(error: unknown): BulkUpdateResult | null {
-  const body = error as Partial<BulkUpdateResult> | null | undefined;
-  if (!body || typeof body !== "object") return null;
-  if (body.committed !== false || !Array.isArray(body.failed)) return null;
+/**
+ * Read the 409 refusal body of a bulk-update, if the thrown value is one.
+ *
+ * The contract answers a refused batch with `{updated: [], errors: [...]}` and
+ * status 409; the shared client throws the parsed body. A 400 request defect
+ * arrives as the house error envelope (`{error: {code, message, details}}`)
+ * instead and must keep throwing — hence the explicit `error`-key exclusion.
+ */
+function refusedBatchBody(error: unknown): BulkUpdateResponseBody | null {
+  if (!isRecord(error) || "error" in error) return null;
+  if (!Array.isArray(error.errors)) return null;
   return {
-    committed: false,
-    mode: typeof body.mode === "string" ? body.mode : "atomic",
-    updated: Array.isArray(body.updated) ? body.updated : [],
-    failed: body.failed,
+    updated: Array.isArray(error.updated)
+      ? (error.updated as BulkUpdatedEntry[])
+      : [],
+    errors: error.errors as BulkFailure[],
   };
+}
+
+/** `{updated, errors}` → the UI result; `committed` only when nothing failed. */
+function toBulkUpdateResult(body: BulkUpdateResponseBody | null): BulkUpdateResult {
+  const updated = Array.isArray(body?.updated) ? body.updated : [];
+  const failed = Array.isArray(body?.errors) ? body.errors : [];
+  return { committed: failed.length === 0, updated, failed };
 }
 
 /** A slice-3 endpoint that is not deployed yet answers 404; list callers
@@ -226,32 +262,52 @@ export const tableApi = {
   },
 
   /**
-   * `PATCH /artifacts/bulk-update/` — all-or-nothing or per-item.
+   * `PATCH /artifacts/bulk-update/` — all-or-nothing batch write.
    *
-   * A 400/409 all-or-nothing failure is a *result*, not an exception: the
-   * server answers with `committed: false` and the per-item `failed` list, so
-   * the surface can show exactly which rows were rejected. Both are resolved
-   * here; anything else (403, network, malformed 400) throws.
+   * A 409 refusal is a *result*, not an exception: the server answers with
+   * `updated: []` and the per-entry `errors` list, so the surface can mark the
+   * offending rows instead of re-reading the page. It is mapped here to
+   * `committed: false` + `failed`. 400 (malformed body, empty/oversized
+   * `entries`) and 403 (no write role) keep throwing.
    */
   async bulkUpdate(body: BulkUpdateBody): Promise<BulkUpdateResult> {
-    const payload = { ...body, mode: body.mode ?? "atomic" };
     try {
-      return await apiClient.patch<BulkUpdateResult>(
+      const response = await apiClient.patch<BulkUpdateResponseBody>(
         "/artifacts/bulk-update/",
-        payload
+        { workspace_id: body.workspace_id, entries: body.entries }
       );
+      return toBulkUpdateResult(response);
     } catch (error) {
-      const failure = failureBody(error);
-      if (failure) return failure;
+      const refused = refusedBatchBody(error);
+      if (refused) return toBulkUpdateResult(refused);
       throw error;
     }
   },
 
-  bulkTransition(body: BulkTransitionBody): Promise<BulkTransitionResult> {
-    return apiClient.post<BulkTransitionResult>(
+  /**
+   * `POST /artifacts/bulk-transition/` — one target state for the selection.
+   *
+   * The workspace is **not** sent: the backend derives it from the ids (so a
+   * caller cannot scope the role check differently from the write). Partial
+   * success is the contract, so a 200 can carry both `transitioned` and
+   * `failed`; 400/403 still throw.
+   */
+  async bulkTransition(body: BulkTransitionBody): Promise<BulkTransitionResult> {
+    const response = await apiClient.post<BulkTransitionResult>(
       "/artifacts/bulk-transition/",
-      body
+      {
+        item_type: body.item_type,
+        ids: body.ids,
+        to_state: body.to_state,
+        change_reason: body.change_reason,
+      }
     );
+    return {
+      transitioned: Array.isArray(response?.transitioned)
+        ? response.transitioned
+        : [],
+      failed: Array.isArray(response?.failed) ? response.failed : [],
+    };
   },
 };
 

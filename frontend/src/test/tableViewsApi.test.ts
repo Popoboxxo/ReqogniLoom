@@ -2,8 +2,9 @@
  * Task 4.1 — table view API wrapper (plan 2026-11-04-tabellenansicht-s4).
  *
  * Pins the wire format of the slice-1/2/3 endpoints the table builds on:
- * JSON-serialised `filters`/`sort`, the atomic-failure body that must not be
- * thrown away, and the saved-view/state paths.
+ * JSON-serialised `filters`/`sort`, the bulk-update body/answer exactly as the
+ * merged backend declares it (`{workspace_id, entries}` → `{updated, errors}`,
+ * 409 mapped to `committed:false`), and the saved-view/state paths.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -69,49 +70,79 @@ describe("tableApi", () => {
     expect(params.page_size).toBe("50");
   });
 
-  it("defaults the bulk mode to atomic", async () => {
+  it("sends the backend body: workspace_id + entries", async () => {
     mockPatch.mockResolvedValue({
-      committed: true,
-      mode: "atomic",
-      updated: [],
-      failed: [],
+      updated: [{ artifact_id: "artifact-1", version: 5 }],
+      errors: [],
     });
 
-    await tableApi.bulkUpdate({ items: [] });
+    const result = await tableApi.bulkUpdate({
+      workspace_id: WS,
+      entries: [
+        { artifact_id: "artifact-1", expected_version: 4, fields: { title: "New" } },
+      ],
+    });
 
     const [path, body] = mockPatch.mock.calls[0];
     expect(path).toBe("/artifacts/bulk-update/");
-    expect(body.mode).toBe("atomic");
-  });
-
-  it("returns the failure body on 409/400 with committed:false instead of throwing", async () => {
-    const failed = [
-      { index: 1, artifact_id: "a", code: "CONFLICT", reason: "version" },
-    ];
-    mockPatch
-      .mockRejectedValueOnce({ committed: false, mode: "atomic", failed })
-      .mockRejectedValueOnce({ committed: false, mode: "partial", failed });
-
-    const atomic = await tableApi.bulkUpdate({ items: [] });
-    const partial = await tableApi.bulkUpdate({ mode: "partial", items: [] });
-    expect(atomic.committed).toBe(false);
-    expect(atomic.failed).toEqual(failed);
-    expect(partial.committed).toBe(false);
-  });
-
-  it("throws on 403", async () => {
-    mockPatch.mockRejectedValue({ error: { code: "FORBIDDEN" } });
-    await expect(tableApi.bulkUpdate({ items: [] })).rejects.toEqual({
-      error: { code: "FORBIDDEN" },
+    expect(body).toEqual({
+      workspace_id: WS,
+      entries: [
+        { artifact_id: "artifact-1", expected_version: 4, fields: { title: "New" } },
+      ],
     });
+    expect(result.committed).toBe(true);
+    expect(result.updated).toEqual([{ artifact_id: "artifact-1", version: 5 }]);
+    expect(result.failed).toEqual([]);
   });
 
-  it("posts the bulk transition body", async () => {
-    mockPost.mockResolvedValue({ transitioned: [], failed: [] });
+  it("maps a 409 refusal body to committed:false with the per-entry errors", async () => {
+    const errors = [
+      { index: 0, artifact_id: "artifact-1", code: "CONFLICT", message: "stale version" },
+      { index: 1, artifact_id: "artifact-2", code: "FIELD_FROZEN", message: "frozen", field: "title" },
+    ];
+    mockPatch.mockRejectedValue({ updated: [], errors });
 
-    await tableApi.bulkTransition({
+    const result = await tableApi.bulkUpdate({
+      workspace_id: WS,
+      entries: [
+        { artifact_id: "artifact-1", expected_version: 1, fields: { title: "a" } },
+        { artifact_id: "artifact-2", expected_version: 1, fields: { title: "b" } },
+      ],
+    });
+
+    expect(result.committed).toBe(false);
+    expect(result.updated).toEqual([]);
+    expect(result.failed).toEqual(errors);
+    expect(result.failed[1].field).toBe("title");
+  });
+
+  it("throws on a malformed 400 and on 403 instead of reporting a refusal", async () => {
+    mockPatch
+      .mockRejectedValueOnce({
+        error: { code: "VALIDATION_ERROR", message: "bad body", details: [] },
+      })
+      .mockRejectedValueOnce({ error: { code: "FORBIDDEN", message: "no role" } });
+
+    await expect(
+      tableApi.bulkUpdate({ workspace_id: WS, entries: [] })
+    ).rejects.toEqual({
+      error: { code: "VALIDATION_ERROR", message: "bad body", details: [] },
+    });
+    await expect(
+      tableApi.bulkUpdate({ workspace_id: WS, entries: [] })
+    ).rejects.toEqual({ error: { code: "FORBIDDEN", message: "no role" } });
+  });
+
+  it("posts the bulk transition body without a workspace_id", async () => {
+    mockPost.mockResolvedValue({
+      transitioned: [{ artifact_id: "artifact-1", state: "approved" }],
+      failed: [],
+    });
+
+    const result = await tableApi.bulkTransition({
       item_type: "Requirement",
-      ids: ["a"],
+      ids: ["artifact-1"],
       to_state: "approved",
       change_reason: "ok",
     });
@@ -120,10 +151,15 @@ describe("tableApi", () => {
     expect(path).toBe("/artifacts/bulk-transition/");
     expect(body).toEqual({
       item_type: "Requirement",
-      ids: ["a"],
+      ids: ["artifact-1"],
       to_state: "approved",
       change_reason: "ok",
     });
+    expect(body).not.toHaveProperty("workspace_id");
+    expect(result.transitioned).toEqual([
+      { artifact_id: "artifact-1", state: "approved" },
+    ]);
+    expect(result.failed).toEqual([]);
   });
 });
 

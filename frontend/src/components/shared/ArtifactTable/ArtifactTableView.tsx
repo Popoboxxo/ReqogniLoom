@@ -298,8 +298,9 @@ export function ArtifactTableView({ itemType }: ArtifactTableViewProps): JSX.Ele
         </button>
       </div>
 
-      {selection.size > 0 && (
+      {selection.size > 0 && workspaceId && (
         <BulkActionBar
+          workspaceId={workspaceId}
           selectedRows={rows.filter((row) => selection.has(row.id))}
           columns={columns}
           onDone={() => {

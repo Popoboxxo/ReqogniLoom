@@ -126,7 +126,7 @@ describe("ArtifactTableView", () => {
     putState.mockResolvedValue({ columns: [], filters: {}, sort: [] });
     listViews.mockResolvedValue([]);
     query.mockResolvedValue(page([ROW], 1));
-    bulkUpdate.mockResolvedValue({ committed: true, mode: "atomic", updated: [], failed: [] });
+    bulkUpdate.mockResolvedValue({ committed: true, updated: [], failed: [] });
   });
 
   it("loads definition, state and rows and renders the columns", async () => {
@@ -212,7 +212,12 @@ describe("ArtifactTableView", () => {
     await user.click(screen.getByTestId("bulk-edit-fields"));
     await user.type(screen.getByTestId("bulk-field-title"), "Beta");
     await user.click(screen.getByTestId("bulk-submit"));
-    expect(bulkUpdate).toHaveBeenCalled();
+    expect(bulkUpdate).toHaveBeenCalledWith({
+      workspace_id: "ws",
+      entries: [
+        { artifact_id: "artifact-1", expected_version: 2, fields: { title: "Beta" } },
+      ],
+    });
     await waitFor(() => expect(query.mock.calls.length).toBeGreaterThan(callsBefore));
   });
 

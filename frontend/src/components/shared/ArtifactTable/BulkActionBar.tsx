@@ -1,16 +1,18 @@
 /**
  * Task 4.7 — bulk action bar (plan 2026-11-04-tabellenansicht-s4).
  *
- * Two actions on a selection:
+ * Two actions on a selection, both against the merged backend contract:
  * - **Edit fields** → one `PATCH /artifacts/bulk-update/` with
- *   `expected_version` from each row, `mode` atomic/partial and one change
- *   reason. Atomic failures keep the dialog open with a per-artifact list and
- *   report nothing as saved; partial reports "N of M updated, K failed".
- * - **Change status** → `POST /artifacts/bulk-transition/` with the target
- *   states reachable from *every* selected row's current state (never a direct
- *   status write).
+ *   `{workspace_id, entries}`; each entry carries the row's own
+ *   `expected_version` and the edited fields plus `change_reason` (the batch is
+ *   all-or-nothing, so one stale row rejects the whole write and the dialog
+ *   stays open with the per-entry error list).
+ * - **Change status** → `POST /artifacts/bulk-transition/` with
+ *   `{item_type, ids, to_state, change_reason}` — the target states reachable
+ *   from *every* selected row's current state, never a direct status write.
  *
- * The workspace is never sent: the backend derives it from the items.
+ * The workspace is sent on the update (its serializer demands it) and *not* on
+ * the transition (the backend derives it from the ids).
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -19,7 +21,7 @@ import { useTranslation } from "react-i18next";
 import {
   tableApi,
   type BulkFailure,
-  type BulkItem,
+  type BulkUpdateEntry,
   type BulkUpdateResult,
   type BulkTransitionResult,
   type TableRow,
@@ -27,6 +29,7 @@ import {
 import { extractApiErrorMessage } from "../../../api/client";
 import { workflowTransitionsApi } from "../../../api/workflow-transitions";
 import type { WorkflowArtifactType } from "../../../api/workflow-transitions";
+import type { UUID } from "../../../types";
 import { Dialog } from "../Dialog";
 import type { TableColumn } from "./columnModel";
 import styles from "./ArtifactTable.module.css";
@@ -34,6 +37,8 @@ import styles from "./ArtifactTable.module.css";
 export const BULK_MAX_ITEMS = 100;
 
 export interface BulkActionBarProps {
+  /** Scope of the write; `BulkUpdateRequestSerializer` requires it. */
+  workspaceId: UUID;
   selectedRows: TableRow[];
   columns: TableColumn[];
   onDone(): void;
@@ -52,16 +57,16 @@ const WORKFLOW_TYPE: Record<string, WorkflowArtifactType> = {
 
 function failureLabel(failure: BulkFailure, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const id = failure.artifact_id ?? `#${failure.index}`;
-  return t("table.bulkFailureLine", { id, code: failure.code, reason: failure.reason });
+  return t("table.bulkFailureLine", { id, code: failure.code, reason: failure.message });
 }
 
 export function BulkActionBar({
+  workspaceId,
   selectedRows,
   columns,
   onDone,
 }: BulkActionBarProps): JSX.Element {
   const { t } = useTranslation();
-  const [mode, setMode] = useState<"atomic" | "partial">("atomic");
   const [editing, setEditing] = useState(false);
   const [statusEditing, setStatusEditing] = useState(false);
   const [changeReason, setChangeReason] = useState("");
@@ -85,15 +90,20 @@ export function BulkActionBar({
     setChangeReason("");
   }, []);
 
-  function buildItems(): BulkItem[] {
+  /**
+   * One entry per selected row. `change_reason` is not a batch-level field on
+   * the wire: the artifact services take it per write, so it joins `fields`.
+   */
+  function buildEntries(): BulkUpdateEntry[] {
     const fields: Record<string, unknown> = {};
     for (const [field, raw] of Object.entries(values)) {
       if (raw !== "") fields[field] = raw;
     }
+    const reason = changeReason.trim();
     return selectedRows.map((row) => ({
       artifact_id: row.artifact_id,
       expected_version: row.version,
-      fields,
+      fields: reason ? { ...fields, change_reason: reason } : { ...fields },
     }));
   }
 
@@ -104,27 +114,14 @@ export function BulkActionBar({
     setConflict(false);
     try {
       const result: BulkUpdateResult = await tableApi.bulkUpdate({
-        mode,
-        ...(changeReason.trim() ? { change_reason: changeReason.trim() } : {}),
-        items: buildItems(),
+        workspace_id: workspaceId,
+        entries: buildEntries(),
       });
       if (!result.committed) {
         setFailures(result.failed);
         setConflict(
           result.failed.length > 0 && result.failed.every((f) => f.code === "CONFLICT")
         );
-        return;
-      }
-      if (result.failed.length > 0) {
-        setFailures(result.failed);
-        setMessage(
-          t("table.bulkPartialResult", {
-            updated: result.updated.length,
-            total: selectedRows.length,
-            failed: result.failed.length,
-          })
-        );
-        onDone();
         return;
       }
       setEditing(false);
@@ -268,19 +265,6 @@ export function BulkActionBar({
               </label>
             ))}
           </div>
-
-          <label className={styles.filterLabel}>
-            {t("table.bulkMode")}
-            <select
-              className={styles.select}
-              data-testid="bulk-mode"
-              value={mode}
-              onChange={(event) => setMode(event.target.value as "atomic" | "partial")}
-            >
-              <option value="atomic">{t("table.bulkModeAtomic")}</option>
-              <option value="partial">{t("table.bulkModePartial")}</option>
-            </select>
-          </label>
 
           <label className={styles.filterLabel}>
             {t("table.bulkChangeReason")}

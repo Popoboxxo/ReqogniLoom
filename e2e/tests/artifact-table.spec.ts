@@ -358,16 +358,24 @@ test.describe('Artifact table view', () => {
     await expect(page.getByTestId('bulk-action-bar')).toHaveCount(0);
     expect(bulkRequests).toHaveLength(1);
 
-    // One request, both items, each with its own version precondition.
+    // One request, both entries, each with its own version precondition.
+    // Body is the merged backend contract: `{workspace_id, entries}`.
     const payload = bulkRequests[0].postDataJSON() as {
-      mode: string;
-      items: Array<{ artifact_id: string; expected_version: number; fields: Record<string, unknown> }>;
+      workspace_id: string;
+      entries: Array<{
+        artifact_id: string;
+        expected_version: number;
+        fields: Record<string, unknown>;
+      }>;
     };
-    expect(payload.mode).toBe('atomic');
-    expect(payload.items).toHaveLength(2);
-    for (const item of payload.items) {
-      expect(item.fields).toEqual({ title: 'Bulk renamed' });
-      expect(typeof item.expected_version).toBe('number');
+    expect(payload.workspace_id).toBeTruthy();
+    expect(payload).not.toHaveProperty('mode');
+    expect(payload).not.toHaveProperty('items');
+    expect(payload.entries).toHaveLength(2);
+    for (const entry of payload.entries) {
+      expect(entry.fields).toMatchObject({ title: 'Bulk renamed' });
+      expect(entry.fields.change_reason).toBe('E2E bulk guardrail');
+      expect(typeof entry.expected_version).toBe('number');
     }
 
     await expect(page.getByTestId(`cell-${alpha.id}-title`)).toHaveText(
