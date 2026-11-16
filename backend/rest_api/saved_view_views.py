@@ -27,9 +27,9 @@ Contract notes
 * ``apply`` answers **200** even when the stored documents no longer compile:
   the result is then an empty ``results`` list plus one ``warnings`` entry
   naming the field (plan Review Focus 4). A stale view is not an error.
-* The table row shape is shared with the planned ``artifacts/table/`` route
-  (``saved_view_query.query_rows``): ``{id, artifact_id, item_type, version,
-  values, locked}``.
+* The table row shape is shared with ``GET /api/v1/artifacts/table/``
+  (``application.table_query_service.TableQueryService.serialize_rows``):
+  ``{id, artifact_id, item_type, version, values, locked}``.
 """
 from __future__ import annotations
 
@@ -385,12 +385,19 @@ class SavedViewApplyView(APIView):
     def get(self, request: Request, pk: Any, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         rejected = reject_unknown_query_params(
-            request, {"page", "page_size"}, lang
+            # ``workspace_id`` is an optional fence, mirroring the MCP tool: the
+            # table keeps the workspace in every request, and a view from a
+            # different workspace must not be applied silently.
+            request, {"page", "page_size", "workspace_id"}, lang
         )
         if rejected is not None:
             return rejected
         try:
-            result = SavedViewService().apply(get_auth_context(request), pk)
+            result = SavedViewService().apply(
+                get_auth_context(request),
+                pk,
+                workspace_id=request.query_params.get("workspace_id") or None,
+            )
             paginator = self.pagination_class()
             page = paginator.paginate_queryset(result.rows, request, view=None)
             rows = page if page is not None else result.rows

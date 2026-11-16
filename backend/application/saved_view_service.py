@@ -8,7 +8,8 @@ The single write entry point (ADR-01) for the two table-view tables of
 
 * :class:`SavedViewService` — a named, shareable view of one artifact type
   (columns, filters, sort) plus :meth:`apply`, which runs the stored documents
-  against the table query core (:mod:`application.saved_view_query`).
+  through the slice-1 table query service
+  (:mod:`application.table_query_service` / :mod:`application.table_filter_dsl`).
 * :class:`TableViewStateService` — the per-user "where I was last" state, one
   row per ``(user, workspace, item_type)``, upserted.
 
@@ -57,13 +58,8 @@ from application.optimistic_lock import (
     assert_expected_version,
     lock_for_version_check,
 )
-from application.saved_view_query import (
-    compile_filters,
-    compile_sort,
-    is_known_item_type,
-    query_rows,
-    warning_for,
-)
+from application.table_filter_dsl import TABLE_ITEM_TYPES, compile_filters, compile_sort
+from application.table_query_service import TableQueryService
 from auth_tenancy.context import AuthContext
 from auth_tenancy.models import ROLE_ADMIN
 from persistence.models import SavedView, Tenant, UserTableViewState, Workspace
@@ -132,10 +128,11 @@ class SavedViewDTO:
 class SavedViewApplyResult:
     """Outcome of :meth:`SavedViewService.apply`.
 
-    ``rows`` are the table rows (``saved_view_query.query_rows``); ``warnings``
-    names every reason the stored documents could not be honoured. A stale view
-    is therefore a 200 with an empty (or unfiltered) result *and* an
-    explanation, never an error.
+    ``rows`` are the table rows
+    (:meth:`application.table_query_service.TableQueryService.serialize_rows`);
+    ``warnings`` names every reason the stored documents could not be honoured.
+    A stale view is therefore a 200 with an empty result *and* an explanation,
+    never an error.
     """
 
     rows: list[dict[str, Any]]
@@ -189,29 +186,51 @@ def _clean_columns(columns: Any) -> list[Any]:
     return columns
 
 
-def _clean_filters(item_type: str, filters: Any) -> dict[str, Any]:
+def _clean_filters(
+    ctx: AuthContext,
+    workspace_id: UUID,
+    item_type: str,
+    filters: Any,
+    attributes: list[dict[str, Any]],
+) -> dict[str, Any]:
     if filters is None:
         return {}
     if not isinstance(filters, dict):
         raise ValidationError("'filters' must be an object")
     # Compiling validates without executing: unknown field/operator/type raise.
-    compile_filters(item_type, filters)
+    compile_filters(
+        item_type,
+        attributes,
+        filters,
+        tenant_id=ctx.tenant_id,
+        workspace_id=workspace_id,
+    )
     return filters
 
 
-def _clean_sort(item_type: str, sort: Any) -> list[Any]:
+def _clean_sort(
+    item_type: str,
+    sort: Any,
+    attributes: list[dict[str, Any]],
+) -> list[Any]:
     if sort is None:
         return []
     if not isinstance(sort, list):
         raise ValidationError("'sort' must be a list")
-    compile_sort(item_type, sort)
+    compile_sort(item_type, attributes, sort)
     return sort
+
+
+def _warning_for(exc: Exception) -> str:
+    """Render a DSL ``ValidationError`` as the warning an apply returns."""
+    message = getattr(exc, "message", None) or str(exc)
+    return f"Saved view could not be applied: {message}"
 
 
 def _clean_item_type(item_type: Any) -> str:
     if not isinstance(item_type, str) or not item_type.strip():
         raise ValidationError("'item_type' is required")
-    if not is_known_item_type(item_type):
+    if item_type not in TABLE_ITEM_TYPES:
         raise ValidationError(
             f"Unknown item_type {item_type!r}: the table covers the eight "
             "artifact types Requirement, StakeholderNeed, ArchitectureElement, "
@@ -382,13 +401,18 @@ class SavedViewService(_TableViewBase):
         cleaned_name = _clean_name(name)
         cleaned_visibility = _clean_visibility(visibility)
         cleaned_columns = _clean_columns(columns)
-        cleaned_filters = _clean_filters(cleaned_type, filters)
-        cleaned_sort = _clean_sort(cleaned_type, sort)
 
         tenant = Tenant.objects.filter(id=ctx.tenant_id).first()
         if tenant is None:
             raise NotFoundError(f"Tenant {ctx.tenant_id} not found")
         workspace = self._workspace(ctx, workspace_id)
+        attributes = TableQueryService().attributes(
+            ctx, workspace.id, cleaned_type
+        )
+        cleaned_filters = _clean_filters(
+            ctx, workspace.id, cleaned_type, filters, attributes
+        )
+        cleaned_sort = _clean_sort(cleaned_type, sort, attributes)
 
         self._guard_unique_name(
             workspace.id, cleaned_type, ctx.user_id, cleaned_name
@@ -453,6 +477,13 @@ class SavedViewService(_TableViewBase):
         self._assert_mutable(ctx, row)
         assert_expected_version(row, expected_version, entity_type="SavedView")
 
+        # Only a filter/sort change needs the attribute list (one definition
+        # resolve, cached per workspace); a rename must not touch it.
+        attributes: list[dict[str, Any]] | None = None
+        if filters is not _UNSET or sort is not _UNSET:
+            attributes = TableQueryService().attributes(
+                ctx, row.workspace_id, row.item_type
+            )
         updates: dict[str, Any] = {}
         if name is not _UNSET:
             cleaned_name = _clean_name(name)
@@ -467,9 +498,11 @@ class SavedViewService(_TableViewBase):
         if columns is not _UNSET:
             updates["columns"] = _clean_columns(columns)
         if filters is not _UNSET:
-            updates["filters"] = _clean_filters(row.item_type, filters)
+            updates["filters"] = _clean_filters(
+                ctx, row.workspace_id, row.item_type, filters, attributes or []
+            )
         if sort is not _UNSET:
-            updates["sort"] = _clean_sort(row.item_type, sort)
+            updates["sort"] = _clean_sort(row.item_type, sort, attributes or [])
         if visibility is not _UNSET:
             updates["visibility"] = _clean_visibility(visibility)
 
@@ -512,7 +545,13 @@ class SavedViewService(_TableViewBase):
 
     # ---------- Apply ----------
 
-    def apply(self, ctx: AuthContext, view_id: UUID | str) -> SavedViewApplyResult:
+    def apply(
+        self,
+        ctx: AuthContext,
+        view_id: UUID | str,
+        *,
+        workspace_id: UUID | str | None = None,
+    ) -> SavedViewApplyResult:
         """Run a stored view and return its rows plus warnings.
 
         Fail-soft by contract: an unreadable stored document (removed
@@ -523,18 +562,29 @@ class SavedViewService(_TableViewBase):
         self._set_tenant_context(ctx)
         row = self._get(ctx, view_id)
         self._assert_readable(ctx, row)
+        if workspace_id is not None and str(row.workspace_id) != str(workspace_id):
+            # Fence, mirroring the MCP tool: a view of another workspace is not
+            # applied by accident, and the caller learns nothing about it.
+            raise NotFoundError("SavedView", view_id)
         dto = _dto(row)
 
+        service = TableQueryService()
         try:
-            rows = query_rows(
-                row.workspace_id, row.item_type, row.filters, row.sort
+            attributes = service.attributes(ctx, row.workspace_id, row.item_type)
+            queryset = service.query(
+                ctx,
+                row.workspace_id,
+                row.item_type,
+                row.filters,
+                row.sort,
+            )
+            rows = service.serialize_rows(
+                ctx, list(queryset), attributes, workspace_id=row.workspace_id
             )
         except ValidationError as exc:
-            logger.info(
-                "Saved view %s no longer applies: %s", row.id, exc
-            )
+            logger.info("Saved view %s no longer applies: %s", row.id, exc)
             return SavedViewApplyResult(
-                rows=[], warnings=[warning_for(exc)], view=dto
+                rows=[], warnings=[_warning_for(exc)], view=dto
             )
         return SavedViewApplyResult(rows=rows, warnings=[], view=dto)
 

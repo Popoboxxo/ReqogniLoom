@@ -371,6 +371,11 @@ _WORKSPACE_VIA_REQUEST = (
     # workspace is refused by the service (``WORKSPACE_MISMATCH``), not by a
     # second, weaker authority here.
     "ArtifactBulkUpdateView",
+    # Tabellenansicht slice 1 (Task 1.6): the table read names its workspace in
+    # the mandatory ``?workspace_id``; the same classification as the saved-view
+    # collection below — the workspace in the query is the authority, and the
+    # service binds every lookup (definition, rows, item rules) to it.
+    "TableQueryView",
     "CsvExportView",
     "ReqifImportView",
     "ReqifExportView",

@@ -111,7 +111,7 @@ describe("buildColumns", () => {
     expect(byName.owner.inlineEditable).toBe(false);
   });
 
-  it("keeps state order first, then definition order", () => {
+  it("renders the stored visible set in stored order", () => {
     const attributes = [
       attr("a", "text", { order: 0 }),
       attr("b", "text", { order: 1 }),
@@ -119,10 +119,44 @@ describe("buildColumns", () => {
     ];
     const columns = buildColumns(
       attributes,
-      { columns: [{ field: "c", order: 0 }, { field: "a", order: 1 }] },
+      {
+        columns: [
+          { field: "c", order: 0 },
+          { field: "a", order: 1 },
+          { field: "b", order: 2 },
+        ],
+      },
       "en"
     );
     expect(columns.map((c) => c.name)).toEqual(["c", "a", "b"]);
+  });
+
+  // The E2E promise "hide a column and the column choice survives reload"
+  // (artifact-table.spec.ts) rests on this: the stored list is the user's
+  // explicit visible set, not an ordering hint. Appending every missing
+  // attribute (the pre-fix behaviour) made the grid re-add hidden columns.
+  it("hides every column that is not in the stored list", () => {
+    const attributes = [
+      attr("title", "text", { order: 0 }),
+      attr("status", "enum", { order: 1, editable: "workflow" }),
+      attr("description", "textarea", { order: 2 }),
+    ];
+    const columns = buildColumns(
+      attributes,
+      { columns: [{ field: "status", order: 0 }] },
+      "en"
+    );
+    expect(columns.map((c) => c.name)).toEqual(["status"]);
+  });
+
+  it("falls back to every visible column when the stored list resolves to nothing", () => {
+    const attributes = [attr("title", "text", { order: 0 })];
+    const columns = buildColumns(
+      attributes,
+      { columns: [{ field: "deleted_field", order: 0 }] },
+      "en"
+    );
+    expect(columns.map((c) => c.name)).toEqual(["title"]);
   });
 
   it("excludes hidden attributes", () => {

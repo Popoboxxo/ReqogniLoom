@@ -271,6 +271,28 @@ def test_apply_stale_view_is_200_empty_with_warning(
     assert "removed_attribute" in body["warnings"][0]
 
 
+def test_apply_accepts_its_own_workspace_as_a_fence(authed_client, workspace):
+    """The table sends the workspace with every read; applying its own view works."""
+    view_id = _create(authed_client, workspace).json()["id"]
+
+    ok = authed_client.get(
+        f"{COLLECTION}{view_id}/apply/", {"workspace_id": str(workspace.id)}
+    )
+    assert ok.status_code == 200
+    assert ok.json()["warnings"] == []
+
+
+def test_apply_rejects_a_view_of_another_workspace(authed_client, workspace):
+    """A workspace id that the view does not belong to is a 404, not a silent apply."""
+    view_id = _create(authed_client, workspace).json()["id"]
+
+    foreign = authed_client.get(
+        f"{COLLECTION}{view_id}/apply/",
+        {"workspace_id": "00000000-0000-0000-0000-000000000000"},
+    )
+    assert foreign.status_code == 404
+
+
 def test_apply_unknown_query_param_400(authed_client, workspace):
     view_id = _create(authed_client, workspace).json()["id"]
 
