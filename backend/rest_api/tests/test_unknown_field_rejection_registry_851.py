@@ -185,6 +185,17 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     "ImpactNodeSerializer": "read-only response serializer",
     "ResolvedArtifactSerializer": "read-only response serializer",
     "SimilarRequirementSerializer": "read-only response serializer",
+    # GH-1883: the allocation-coverage report's response contract. The route
+    # reads its input from the path only, so no request body ever binds to
+    # either class.
+    "ArchitectureAllocationCoverageSerializer": (
+        "read-only 200 body of GET /api/v1/architecture/{id}/allocation-coverage/ "
+        "(GH-1883); no request body to guard"
+    ),
+    "ArchitectureAllocationCoverageRequirementSerializer": (
+        "nested read-only row of ArchitectureAllocationCoverageSerializer "
+        "(GH-1883)"
+    ),
     "SimilarTraceLinkSerializer": "read-only response serializer",
     "TracePathSerializer": "read-only response serializer",
     "BaselineDeltaEntrySerializer": "read-only response serializer",

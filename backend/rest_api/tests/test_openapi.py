@@ -495,3 +495,57 @@ class TestDocumentViewMarkdownExport:
 
         assert {"application/json", "text/markdown"} <= set(content)
         assert "ETag" in operation["responses"]["200"]["headers"]
+
+
+# ---------------------------------------------------------------------------
+# #1883 — the allocation-coverage route's 200 body is a report, not an element
+# ---------------------------------------------------------------------------
+
+
+ALLOCATION_COVERAGE_PATH = "/api/v1/architecture/{id}/allocation-coverage/"
+
+
+class TestAllocationCoverageContract:
+    """GH-1883: the route published an ``ArchitectureElement`` while serving
+    ``{allocated_count, not_allocatable_count, coverage_percent,
+    unallocated_requirements}``. A generated client typed the response as the
+    wrong object and could not discover the percentage field's unit.
+    """
+
+    def test_declares_the_coverage_report_schema(self, openapi_schema: dict) -> None:
+        operation = openapi_schema["paths"][ALLOCATION_COVERAGE_PATH]["get"]
+        response_schema = operation["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+
+        # drf-spectacular strips the ``Serializer`` suffix from component names.
+        assert response_schema.get("$ref", "").endswith(
+            "/ArchitectureAllocationCoverage"
+        )
+        # The lie this issue is about: it must no longer point at the entity.
+        assert not response_schema.get("$ref", "").endswith(
+            "/ArchitectureElement"
+        )
+
+    def test_declares_the_four_report_fields(self, openapi_schema: dict) -> None:
+        operation = openapi_schema["paths"][ALLOCATION_COVERAGE_PATH]["get"]
+        response_schema = operation["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+        report = _resolve(openapi_schema, response_schema)
+
+        assert set(report["properties"]) == {
+            "allocated_count",
+            "not_allocatable_count",
+            "coverage_percent",
+            "unallocated_requirements",
+        }
+        assert "coverage_ratio" not in report["properties"]
+        coverage = report["properties"]["coverage_percent"]
+        assert "0…100" in coverage["description"]
+
+        row = _resolve(
+            openapi_schema,
+            report["properties"]["unallocated_requirements"]["items"],
+        )
+        assert set(row["properties"]) == {"id", "uid", "title"}

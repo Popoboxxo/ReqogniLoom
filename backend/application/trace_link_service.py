@@ -1634,7 +1634,7 @@ class TraceLinkService(ServiceBase):
         *target* is this element's Artifact. A Requirement allocated to a child
         element does **not** count towards the parent — the allocation lives on
         the child's own coverage report. ``all_reqs`` is every Requirement in the
-        element's workspace, so ``coverage_ratio`` is "share of the workspace's
+        element's workspace, so ``coverage_percent`` is "share of the workspace's
         Requirements that point at this element", not a subtree metric.
 
         Args:
@@ -1644,9 +1644,14 @@ class TraceLinkService(ServiceBase):
         Returns:
             Dict with keys:
               - allocated_count: Requirements allocated directly to this element.
-              - coverage_ratio: Percentage (0-100) of ``allocated_count`` over
-                every Requirement in the element's workspace.
-              - unallocated_requirements: List of ``{id, title}`` for the
+              - not_allocatable_count: Requirements deliberately excluded
+                (``allocation_intent="not_allocatable"``); removed from the
+                coverage denominator.
+              - coverage_percent: Percentage (0-100) of ``allocated_count`` over
+                the allocatable Requirements in the element's workspace
+                (GH-1883: renamed from ``coverage_ratio``; the value was always a
+                percentage, not a ratio).
+              - unallocated_requirements: List of ``{id, uid, title}`` for the
                 workspace Requirements not allocated to this element.
 
         Raises:
@@ -1697,7 +1702,7 @@ class TraceLinkService(ServiceBase):
             all_reqs = list(
                 Requirement.objects.filter(
                     artifact__workspace_id=workspace_id
-                ).values("id", "title", "artifact_id", "allocation_intent")
+                ).values("id", "uid", "title", "artifact_id", "allocation_intent")
             )
 
             # Issue #1384: one bulk lookup for the allocation edges instead of
@@ -1729,19 +1734,20 @@ class TraceLinkService(ServiceBase):
             else:
                 unallocated_list.append({
                     "id": req["id"],
+                    "uid": req["uid"],
                     "title": req["title"],
                 })
 
-        # Calculate coverage ratio over the allocatable requirements only.
+        # Calculate coverage percentage over the allocatable requirements only.
         allocatable_total = len(all_reqs) - not_allocatable_count
-        coverage_ratio = (
-            (allocated_count / allocatable_total * 100) if allocatable_total > 0 else 0
+        coverage_percent = (
+            (allocated_count / allocatable_total * 100) if allocatable_total > 0 else 0.0
         )
 
         return {
             "allocated_count": allocated_count,
             "not_allocatable_count": not_allocatable_count,
-            "coverage_ratio": coverage_ratio,
+            "coverage_percent": coverage_percent,
             "unallocated_requirements": unallocated_list,
         }
 

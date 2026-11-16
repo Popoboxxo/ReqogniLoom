@@ -240,6 +240,7 @@ from rest_api.platform_schema_serializers import (
 from rest_api.schema import ReqLoAutoSchema
 from rest_api.serializers import (
     AdrSerializer,
+    ArchitectureAllocationCoverageSerializer,
     ArchitectureElementSerializer,
     ArtifactSerializer,
     BaselineDiffSerializer,
@@ -3811,16 +3812,42 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(
+        responses={
+            200: ArchitectureAllocationCoverageSerializer,
+            404: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Unknown ArchitectureElement, or one outside the caller's tenant.",
+            ),
+        },
+        description=(
+            "Allocation coverage of this ArchitectureElement (REQ-L1-042, "
+            "GH-1883). `coverage_percent` is a percentage (0…100) — the field "
+            "was previously published as `coverage_ratio`, although the value "
+            "was always a percentage, and the 200 body was wrongly documented "
+            "as an `ArchitectureElement`. Membership is decided solely by "
+            "`allocated-to` links whose target is this element; allocations on "
+            "child elements do not roll up. Requirements with "
+            "`allocation_intent='not_allocatable'` are excluded from the "
+            "denominator and reported separately."
+        ),
+    )
     @action(detail=True, methods=["get"], url_path="allocation-coverage")
     def allocation_coverage(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """GET /api/v1/architecture-elements/{id}/allocation-coverage/
 
         REQ-L1-042: Returns allocation coverage metrics for this ArchitectureElement.
+        The published contract (200 body, error codes) is the ``extend_schema``
+        block above.
 
         Response:
-          - allocated_count: Number of allocated Requirements.
-          - coverage_ratio: Percentage (0-100) of allocated vs total child requirements.
-          - unallocated_requirements: List of unallocated child requirements.
+          - allocated_count: Number of Requirements allocated to this element.
+          - not_allocatable_count: Requirements deliberately excluded from the
+            coverage denominator.
+          - coverage_percent: Percentage (0…100) of allocated vs allocatable
+            requirements (GH-1883: renamed from ``coverage_ratio``).
+          - unallocated_requirements: List of ``{id, uid, title}`` for the
+            workspace requirements not allocated to this element.
         """
         lang = detect_lang(request)
         try:
