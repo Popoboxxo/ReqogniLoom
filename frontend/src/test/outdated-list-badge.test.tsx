@@ -58,7 +58,7 @@ describe("artifact lists — outdated badge (D6)", () => {
   });
 
   it("marks a wontfix Issue row", () => {
-    const issue = base({ id: "issue-1", status: "Wontfix" }) as unknown as Issue;
+    const issue = base({ id: "issue-1", status: "wontfix" }) as unknown as Issue;
     render(<IssueList items={[issue]} onSelect={vi.fn()} onCreateNew={vi.fn()} />);
     expect(screen.getByTestId("issue-row-issue-1-outdated")).toBeInTheDocument();
   });

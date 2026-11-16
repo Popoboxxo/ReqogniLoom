@@ -226,6 +226,11 @@ class AuditFindingSerializer(serializers.Serializer):
     suppression_reason = serializers.CharField(required=False, allow_null=True)
     suppression_id = serializers.CharField(required=False, allow_null=True)
     remediation = serializers.DictField()
+    # GH-1882: the standard the finding violates, resolved from the rule
+    # catalogue on read (never stored on the finding). ``standard_title`` is the
+    # rule's catalogue title. Both are ``null`` for an unregistered rule id.
+    standard_ref = serializers.CharField(required=False, allow_null=True)
+    standard_title = serializers.CharField(required=False, allow_null=True)
 
 
 class AuditReportSerializer(serializers.Serializer):

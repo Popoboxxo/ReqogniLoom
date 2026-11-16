@@ -23,7 +23,7 @@ function makeIssue(i: number): Issue {
     description: '',
     severity: 'medium',
     category: 'defect',
-    status: 'Open',
+    status: 'open',
     tags: [],
     version: 1,
     created_at: '2026-01-01T00:00:00Z',

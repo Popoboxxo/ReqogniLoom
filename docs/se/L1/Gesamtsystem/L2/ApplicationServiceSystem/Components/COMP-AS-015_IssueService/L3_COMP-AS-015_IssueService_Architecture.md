@@ -59,7 +59,7 @@ Der IssueService verwaltet den vollständigen Lifecycle von Issue-Entitäten im 
   - `created_by`: String (User/Agent-ID)
   - `due_date`: DateTime (optional, ISO 8601)
   - `tags`: Array (optional, String-Array)
-  - `status`: enum (Open, In Progress, Resolved, Closed, Wontfix)
+  - `status`: enum (`open`, `in_progress`, `resolved`, `closed`, `wontfix`; GH-1881 — lowercase-snake machine values, die Title-Case-Schreibweise lebt im Label)
   - `version`: Integer (Append-Only)
   - `created_at`, `updated_at`: DateTime
   - `assignee_changed_date`: DateTime (tracking)
@@ -70,11 +70,11 @@ Der IssueService verwaltet den vollständigen Lifecycle von Issue-Entitäten im 
 
 | REQ-L3 | Implementierungs-Ansatz |
 |--------|-------------------------|
-| REQ-L3-ISSUE-001 (Issue-Erstellung) | Methode `create_issue(payload)`: (1) Validiere Payload (title, description, severity, status erforderlich), (2) Erstelle Issue-Entity mit UUID, (3) Initialisiere WorkflowState (delegiere an WorkflowFacade für status=Open), (4) Persistiere atomare Transaktion. Rückgabe: Issue-UUID. |
+| REQ-L3-ISSUE-001 (Issue-Erstellung) | Methode `create_issue(payload)`: (1) Validiere Payload (title, description, severity, status erforderlich), (2) Erstelle Issue-Entity mit UUID, (3) Initialisiere WorkflowState (delegiere an WorkflowFacade für status=`open`), (4) Persistiere atomare Transaktion. Rückgabe: Issue-UUID. |
 | REQ-L3-ISSUE-002 (Issue-Metadaten) | Issue-Entity speichert: title, description, severity (critical/high/medium/low), category (defect/improvement/documentation/question), assignee (optional User/Agent), created_by (automatisch erfasst), due_date (optional, ISO 8601), tags (optional Array), status (enum). Alle Felder validiert. Severity ist querybar und sortierbar. |
 | REQ-L3-ISSUE-003 (Update mit Versionierung) | Methode `update_issue(issue_id, updates)`: Alte Version beibehalten, neue Version mit version+1 erstellen. Timestamp und Actor erfasst. Audit-Trail vollständig. Versionsverlauf querybar. |
 | REQ-L3-ISSUE-004 (Deletion mit Cascade-Cleanup) | Methode `delete_issue(issue_id)` in `transaction.atomic()`: (1) Lösche TraceLinks, (2) Lösche WorkflowState-History, (3) Lösche Issue. Bei Fehler: Rollback. |
-| REQ-L3-ISSUE-005 (Status-Transitions) | Methode `transition_status(issue_id, target_status, change_reason)`: Delegiere an WorkflowFacade. Gültige Status: Open (initial) → In Progress (nur von Open) → Resolved → Closed (oder Wontfix). change_reason erfasst (wenn erforderlich). Audit-Log-Eintrag geschrieben. |
+| REQ-L3-ISSUE-005 (Status-Transitions) | Methode `transition_status(issue_id, target_status, change_reason)`: Delegiere an WorkflowFacade. Gültige Status: `open` (initial) → `in_progress` (nur von `open`) → `resolved` → `closed` (oder `wontfix`). change_reason erfasst (wenn erforderlich). Audit-Log-Eintrag geschrieben. |
 | REQ-L3-ISSUE-006 (TraceLink-Verwaltung) | Keine eigene Link-Methode und keine private Link-Vokabel: Links über den Workspace-Link-Typ-Katalog (`references`, `mitigates`; ab ENT-F1=b zusätzlich `blocks`, `resolves`, `threatens`) via `TraceLinkService.create_trace_link(source_id, target_id, link_type)`. Einziger öffentlicher Pfad ist der generische Endpoint `POST /api/v1/trace-links/`; kein Issue-spezifischer Link-Endpoint. Bidirektionale Querybarkeit. |
 | REQ-L3-ISSUE-007 (Priorisierung nach Severity) | Issue-Priorisierung: Critical (sofortige Behandlung), High (1 Woche), Medium (2 Wochen), Low (Standard-Zyklus). Severity ist querybar und sortierbar. Sorting aufsteigend/absteigend. Filtering nach Severity-Range möglich (z.B. High+Critical). Severity wird in Result-Payload geliefert. |
 | REQ-L3-ISSUE-008 (Assignee-Management) | Methode `assign_issue(issue_id, assignee_id)`: Validiere Assignee (existierender User). Assignee kann null sein (unassigned). Assignee-Wechsel wird in Audit-Log dokumentiert. assignee_changed_date aktualisiert. Query nach assignee_id möglich (list_by_assignee()). |

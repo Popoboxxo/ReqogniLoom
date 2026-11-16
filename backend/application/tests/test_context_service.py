@@ -313,7 +313,7 @@ class TestOpenRisksAndIssuesReadTheEngine:
 
         try:
             _close_via_engine(
-                tenant, workspace, issue.id, "Issue", "issue_default", "Closed"
+                tenant, workspace, issue.id, "Issue", "issue_default", "closed"
             )
             result = _open_issues_for_artifact(req.artifact_id)
         finally:

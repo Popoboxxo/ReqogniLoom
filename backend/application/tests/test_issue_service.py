@@ -133,7 +133,7 @@ def _make_issue(**kwargs):
     issue.assignee_changed_date = kwargs.get("assignee_changed_date", None)
     issue.due_date = kwargs.get("due_date", None)
     issue.tags = kwargs.get("tags", [])
-    issue.status = kwargs.get("status", "Open")
+    issue.status = kwargs.get("status", "open")
     issue.version = kwargs.get("version", 1)
     return issue
 
@@ -583,18 +583,18 @@ class TestListIssuesMultiFilter:
             qs_mock.order_by.return_value = []
             mock_mgr.filter.return_value = qs_mock
 
-            svc.list_issues_multi_filter(WS_ID, ctx, statuses=["Open", "In Progress"])
+            svc.list_issues_multi_filter(WS_ID, ctx, statuses=["open", "in_progress"])
 
         assert mock_seam.call_count == 2
-        mock_seam.assert_any_call("Issue", "Open", tenant_id=ctx.tenant_id)
-        mock_seam.assert_any_call("Issue", "In Progress", tenant_id=ctx.tenant_id)
-        qs_mock.filter.assert_called_with(id__in={"id-Open", "id-In Progress"})
+        mock_seam.assert_any_call("Issue", "open", tenant_id=ctx.tenant_id)
+        mock_seam.assert_any_call("Issue", "in_progress", tenant_id=ctx.tenant_id)
+        qs_mock.filter.assert_called_with(id__in={"id-open", "id-in_progress"})
 
     def test_status_filter_reads_the_engine_not_the_stale_column(self, issue_tenant, issue_workspace):
-        """DB-backed: an Issue whose WorkflowItemState is "Closed" but whose
-        (now write-once, frozen-at-creation) ``status`` column still says
-        "Open" must be found under the "Closed" filter, not the column's
-        stale value — the whole point of Finding B."""
+        """DB-backed: an Issue whose WorkflowItemState is ``closed`` must be
+        found under the ``closed`` filter (GH-1881: the Issue vocabulary is
+        lowercase snake_case; the engine state is the only source since the
+        ``status`` column was dropped)."""
         from persistence.tenancy import TenantContext
         from workflow.lifecycle_manager import StateLifecycleManager
         from workflow.services import create_default_workflow
@@ -626,7 +626,7 @@ class TestListIssuesMultiFilter:
                 item_id=issue.id,
                 item_type="Issue",
                 workspace_id=workspace_id,
-                target_state="Closed",
+                target_state="closed",
                 transitioned_by="test",
                 validation_result=ValidationResult(valid=True),
             )
@@ -637,7 +637,7 @@ class TestListIssuesMultiFilter:
         # frozen creation-time column value left to also check.
 
         ctx = _make_ctx(tenant_id=issue_tenant.id)
-        found = svc.list_issues_multi_filter(workspace_id, ctx, statuses=["Closed"])
+        found = svc.list_issues_multi_filter(workspace_id, ctx, statuses=["closed"])
 
         assert [i.id for i in found] == [issue.id]
 
@@ -656,7 +656,7 @@ class TestListIssuesMultiFilter:
             mock_mgr.filter.return_value = qs_mock
 
             svc.list_issues_multi_filter(
-                WS_ID, ctx, statuses=["Open"], severities=["critical", "high"]
+                WS_ID, ctx, statuses=["open"], severities=["critical", "high"]
             )
 
         # Both filters called
@@ -737,12 +737,12 @@ class TestTransitionStatus:
 
         updated = svc.transition_status(
             issue_id=issue.id,
-            target_status="In Progress",
+            target_status="in_progress",
             ctx=auth_ctx,
             change_reason="starting work",
         )
 
-        assert updated.status == "In Progress"
+        assert updated.status == "in_progress"
         # Task 12: the `status` column is dropped entirely -- there is no
         # frozen creation-time column value left to also check.
 

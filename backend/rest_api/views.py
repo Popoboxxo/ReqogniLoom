@@ -8149,7 +8149,7 @@ def _issue_to_dict(issue: Any) -> dict[str, Any]:
         "severity": getattr(issue, "severity", "medium"),
         "category": getattr(issue, "category", "defect"),
         "uid": getattr(issue, "uid", None),
-        "status": getattr(issue, "status", "Open"),
+        "status": getattr(issue, "status", "open"),
         "tags": issue.tags if isinstance(issue.tags, list) else [],
         # Task 20 finding: see IssueSerializer.due_date — the GET side of the
         # same silent-discard gap (the value was never even readable).

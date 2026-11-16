@@ -174,9 +174,10 @@ def test_issue_default_approval_matrix_is_untouched() -> None:
     """Control: GH-370 already tuned ``issue_default`` and P1-16 must not have
     moved it. "Closed" there is a *resolution* of a fixed issue, not a
     dead-end, and stays a legitimate approval target."""
-    assert _approval_target("issue_default", "In Progress") == "Resolved"
-    assert _approval_target("issue_default", "Resolved") == "Closed"
-    assert _approval_target("issue_default", "Open") is None
+    # GH-1881: the Issue graph is lowercase snake_case now.
+    assert _approval_target("issue_default", "in_progress") == "resolved"
+    assert _approval_target("issue_default", "resolved") == "closed"
+    assert _approval_target("issue_default", "open") is None
 
 
 def test_every_preset_state_meta_key_names_a_declared_state() -> None:

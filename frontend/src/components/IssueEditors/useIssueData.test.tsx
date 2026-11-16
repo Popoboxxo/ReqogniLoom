@@ -38,7 +38,7 @@ const MOCK_ISSUE = {
   title: "Authentication token not refreshed after session timeout",
   description: "Users are redirected to login on every API call after 30 min idle.",
   priority: "high",
-  status: "In Progress",
+  status: "in_progress",
   assignee: "eng-team@example.com",
   version: 3,
   created_at: "2026-03-05T11:00:00Z",

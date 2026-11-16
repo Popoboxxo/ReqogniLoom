@@ -54,15 +54,16 @@ def test_get_state_meta_returns_auto_approve_target_flag_when_present():
 
 def test_issue_default_preset_marks_resolved_as_auto_approve_target():
     """GH-370: review.approve() on an Issue must move it towards being
-    fixed ("Resolved"), never towards the reject-equivalent "Wontfix" state.
-    Mirrors adr_default's "Approved" and risk_default's "Mitigated"."""
+    fixed ("resolved"), never towards the reject-equivalent "wontfix" state.
+    Mirrors adr_default's "Approved" and risk_default's "Mitigated". GH-1881:
+    the Issue states are lowercase snake_case like every other modern graph."""
     issue_default = PRESET_SCHEMAS["issue_default"]
-    assert get_state_meta(issue_default, "Resolved") == {
+    assert get_state_meta(issue_default, "resolved") == {
         "is_outdated_equivalent": False,
         "auto_approve_target": True,
     }
     # Wontfix stays a rejection-equivalent state -- never the approve target.
-    assert get_state_meta(issue_default, "Wontfix") == {
+    assert get_state_meta(issue_default, "wontfix") == {
         "is_outdated_equivalent": True,
         "auto_approve_target": False,
     }

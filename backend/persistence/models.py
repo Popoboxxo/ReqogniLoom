@@ -3987,11 +3987,20 @@ class Issue(TenantScopedModel):
         QUESTION = "question"
 
     class IssueStatus(models.TextChoices):
-        OPEN = "Open"
-        IN_PROGRESS = "In Progress"
-        RESOLVED = "Resolved"
-        CLOSED = "Closed"
-        WONTFIX = "Wontfix"
+        """Issue lifecycle vocabulary (GH-1881: lowercase values).
+
+        The value strings MUST stay byte-identical to the ``issue_default``
+        preset states in ``workflow.definition_store.PRESET_SCHEMAS`` — the
+        WorkflowEngine, not this enum, stores the state. Labels keep the
+        human-readable Title Case spelling (same split as TestCase.Status after
+        GH-453).
+        """
+
+        OPEN = "open", "Open"
+        IN_PROGRESS = "in_progress", "In Progress"
+        RESOLVED = "resolved", "Resolved"
+        CLOSED = "closed", "Closed"
+        WONTFIX = "wontfix", "Wontfix"
 
     # REQ-L2-TE-020: OneToOne backing Artifact so Issues participate in the
     # TraceLink graph (which stores Artifact-to-Artifact edges). Mirrors

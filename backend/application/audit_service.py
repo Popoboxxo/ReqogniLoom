@@ -68,6 +68,7 @@ from traceability.audit import (
     RuleEngine,
     Severity,
     get_remediation,
+    get_rule_metadata,
     remediation_run_cache,
 )
 
@@ -137,6 +138,15 @@ class AuditFindingView:
             str(self.suppression_id) if self.suppression_id else None
         )
         data["remediation"] = self.remediation.to_dict()
+        # GH-1882: the finding carries the standard it violates, resolved from
+        # the rule catalogue on read — never duplicated onto the finding (the
+        # rule is the single source of truth, and a rule edit must not require
+        # rewriting stored findings). Both keys are always present, ``None``
+        # for a rule that is not registered (unknown id / removed rule), so a
+        # client never has to guard against a missing key.
+        metadata = get_rule_metadata(self.finding.rule_id) or {}
+        data["standard_ref"] = metadata.get("standard_ref") or None
+        data["standard_title"] = metadata.get("title") or None
         return data
 
 

@@ -23,6 +23,7 @@ from traceability.audit.registry import (
     active_rule_ids_for_tier,
     get_registered_rules,
     get_rule_catalogue,
+    get_rule_metadata,
     register_rule,
 )
 
@@ -63,6 +64,7 @@ __all__ = [
     "get_registered_rules",
     "get_remediation",
     "get_rule_catalogue",
+    "get_rule_metadata",
     "register_remediation",
     "register_rule",
     "remediation_run_cache",

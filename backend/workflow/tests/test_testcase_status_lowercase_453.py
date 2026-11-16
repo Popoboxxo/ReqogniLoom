@@ -190,12 +190,14 @@ def test_testcase_default_state_meta_key_was_renamed_too() -> None:
 
 @pytest.mark.parametrize(
     "preset,expected_first_state",
-    [("adr_default", "Draft"), ("risk_default", "Identified"), ("issue_default", "Open")],
+    # GH-1881 moved ``issue_default`` into the lowercase group, so only the
+    # two Title-Case graphs Adr/Risk remain here as controls.
+    [("adr_default", "Draft"), ("risk_default", "Identified")],
 )
 def test_other_presets_keep_their_own_vocabulary(
     preset: str, expected_first_state: str
 ) -> None:
-    """Guard against the obvious over-reach: Adr/Risk/Issue share literals with
+    """Guard against the obvious over-reach: Adr/Risk share literals with
     the old TestCase spelling and must NOT have been lowercased."""
     assert PRESET_SCHEMAS[preset]["states"][0] == expected_first_state
 

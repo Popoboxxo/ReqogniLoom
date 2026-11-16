@@ -899,7 +899,7 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
       title: 'WK-Issue-001: Trockenlauf-Test sporadisch fehlerhaft',
       description: 'In 3 von 10 Versuchen löst die Abschaltung zu spät aus.',
       severity: 'high',
-      status: 'Open',
+      status: 'open',
     });
     ids.issueIds.push(id);
     expect(id).toMatch(/^[0-9a-f-]+$/);
