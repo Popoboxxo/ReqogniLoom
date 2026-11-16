@@ -2295,6 +2295,7 @@
     "newUser": "New User"
   },
   "splitView": {
+    "back": "Back to list",
     "resizeDivider": "Resize panels"
   },
   "sidebar": {
