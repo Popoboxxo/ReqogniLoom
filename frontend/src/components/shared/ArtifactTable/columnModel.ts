@@ -94,9 +94,14 @@ function toColumn(attr: AttributeSpec, language: string): TableColumn {
 }
 
 /**
- * Build the ordered column list: the state's stored order first (only fields
- * that still exist in the definition), then the definition order for every
- * remaining visible attribute.
+ * Build the rendered column list from the stored table state.
+ *
+ * `state.columns` is the user's **explicit visible set** in order (that is what
+ * {@link ColumnPicker} writes on every toggle/reorder), so it is honoured as a
+ * whitelist: a field the user unchecked must not reappear. An empty list means
+ * "no choice made yet" and renders every visible attribute in definition order.
+ * The fallback also covers a stored list that no longer resolves (renamed or
+ * deleted attributes): a table with zero columns would be a dead end.
  */
 export function buildColumns(
   attributes: AttributeSpec[],
@@ -119,14 +124,11 @@ export function buildColumns(
     ordered.push(toColumn(attr, language));
   }
 
-  const rest = [...visible].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  for (const attr of rest) {
-    if (seen.has(attr.name)) continue;
-    seen.add(attr.name);
-    ordered.push(toColumn(attr, language));
-  }
+  if (ordered.length > 0) return ordered;
 
-  return ordered;
+  return [...visible]
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map((attr) => toColumn(attr, language));
 }
 
 /** Sort terms for the columns a table can actually order by. */

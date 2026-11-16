@@ -4,6 +4,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import "../i18n/index";
 import { i18n } from "../i18n/index";
 
@@ -283,5 +284,62 @@ describe("BulkActionBar", () => {
     const failures = await screen.findByTestId("bulk-failures");
     expect(failures).toHaveTextContent("artifact-2");
     expect(failures).toHaveTextContent("no edge");
+  });
+
+  // Regression guard for the e2e "bulk transition of two rows" flow: the parent
+  // rebuilds `selectedRows` on every render, so a re-render used to reset the
+  // chosen target state, refetch the transitions and leave the submit button
+  // disabled — the POST the guardrail waits for never happened.
+  it("keeps the chosen target state across a parent re-render", async () => {
+    const user = userEvent.setup();
+    bulkTransition.mockResolvedValue({
+      transitioned: [
+        { artifact_id: "artifact-1", state: "approved" },
+        { artifact_id: "artifact-2", state: "approved" },
+      ],
+      failed: [],
+    });
+
+    function Harness(): JSX.Element {
+      const [tick, setTick] = useState(0);
+      // New array identity every render, identical content.
+      const selected = [row(1), row(2)];
+      return (
+        <div data-tick={tick}>
+          <button type="button" data-testid="parent-rerender" onClick={() => setTick((n) => n + 1)}>
+            rerender
+          </button>
+          <BulkActionBar
+            workspaceId={WS}
+            selectedRows={selected}
+            columns={COLUMNS}
+            onDone={vi.fn()}
+          />
+        </div>
+      );
+    }
+
+    render(<Harness />);
+    await user.click(screen.getByTestId("bulk-change-status"));
+    await waitFor(() =>
+      expect(screen.getByTestId("bulk-target-state")).not.toBeDisabled()
+    );
+    await user.selectOptions(screen.getByTestId("bulk-target-state"), "approved");
+    await user.type(screen.getByTestId("bulk-status-change-reason"), "because");
+
+    await user.click(screen.getByTestId("parent-rerender"));
+
+    expect(screen.getByTestId("bulk-target-state")).toHaveValue("approved");
+    expect(screen.getByTestId("bulk-status-change-reason")).toHaveValue("because");
+    expect(screen.getByTestId("bulk-transition-submit")).not.toBeDisabled();
+
+    await user.click(screen.getByTestId("bulk-transition-submit"));
+    await waitFor(() => expect(bulkTransition).toHaveBeenCalledTimes(1));
+    expect(bulkTransition.mock.calls[0][0]).toEqual({
+      item_type: "Requirement",
+      ids: ["artifact-1", "artifact-2"],
+      to_state: "approved",
+      change_reason: "because",
+    });
   });
 });

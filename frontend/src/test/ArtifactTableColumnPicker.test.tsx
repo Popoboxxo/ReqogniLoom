@@ -92,6 +92,33 @@ describe("ColumnPicker", () => {
       ],
     });
   });
+
+  // The stored list is a whitelist (see buildColumns): a column the user hid
+  // must render unchecked and be re-addable, otherwise the picker lies about
+  // what the grid shows.
+  it("renders a hidden column unchecked and re-adds it last", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const state = { columns: [{ field: "status", order: 0 }], filters: {}, sort: [] };
+    render(
+      <ColumnPicker
+        attributes={[attr("title", 0), attr("status", 1)]}
+        state={state}
+        onChange={onChange}
+      />
+    );
+    expect(screen.getByTestId("column-toggle-status")).toBeChecked();
+    expect(screen.getByTestId("column-toggle-title")).not.toBeChecked();
+
+    await user.click(screen.getByTestId("column-toggle-title"));
+    expect(onChange).toHaveBeenLastCalledWith({
+      ...state,
+      columns: [
+        { field: "status", order: 0 },
+        { field: "title", order: 1 },
+      ],
+    });
+  });
 });
 
 describe("useTableViewState", () => {

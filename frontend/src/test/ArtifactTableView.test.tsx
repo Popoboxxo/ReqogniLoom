@@ -221,6 +221,29 @@ describe("ArtifactTableView", () => {
     await waitFor(() => expect(query.mock.calls.length).toBeGreaterThan(callsBefore));
   });
 
+  it("hides an unchecked column and writes the visible set to the per-user state", async () => {
+    const user = userEvent.setup();
+    renderView();
+    await screen.findByTestId("table-row-row-1");
+    expect(screen.getByTestId("sort-title")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("column-picker-toggle"));
+    await user.click(screen.getByTestId("column-toggle-title"));
+
+    // The grid must drop the column, not just reorder it — that is what makes
+    // the e2e "column choice survives reload" flow meaningful.
+    await waitFor(() =>
+      expect(screen.queryByTestId("sort-title")).not.toBeInTheDocument()
+    );
+    expect(screen.getByTestId("sort-status")).toBeInTheDocument();
+
+    await waitFor(() => expect(putState).toHaveBeenCalled(), { timeout: 3000 });
+    const written = putState.mock.calls[putState.mock.calls.length - 1][2] as {
+      columns: { field: string }[];
+    };
+    expect(written.columns.map((column) => column.field)).toEqual(["status"]);
+  });
+
   it("shows the empty state together with active filter chips", async () => {
     const user = userEvent.setup();
     query.mockResolvedValue(page([]));

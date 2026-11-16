@@ -70,6 +70,50 @@ describe("tableApi", () => {
     expect(params.page_size).toBe("50");
   });
 
+  it("always carries filters and sort, even when they are empty", async () => {
+    // The e2e guardrail reads the *parsed* term out of the query string and
+    // treats an absent parameter as "no sort at all", so the parameters must be
+    // present from the first request on — not omitted until the user clicks.
+    (getList as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      count: 0,
+      results: [],
+    });
+
+    await tableApi.query({
+      workspace_id: WS,
+      item_type: "Requirement",
+      filters: {},
+      sort: [],
+    });
+
+    const [, params] = (getList as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0] as [string, Record<string, string>];
+    expect(params.sort).toBe("[]");
+    expect(params.filters).toBe("{}");
+  });
+
+  it("serialises a single constraint as the frozen DSL object", async () => {
+    (getList as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      count: 0,
+      results: [],
+    });
+
+    await tableApi.query({
+      workspace_id: WS,
+      item_type: "Requirement",
+      filters: { title: { op: "contains", value: "Alpha" } },
+      sort: [{ field: "title", dir: "asc" }],
+    });
+
+    const [, params] = (getList as unknown as ReturnType<typeof vi.fn>).mock
+      .calls[0] as [string, Record<string, string>];
+    // `{"<field>": {"op": …, "value": …}}`, not a bare `{field: value}` search.
+    expect(JSON.parse(params.filters)).toEqual({
+      title: { op: "contains", value: "Alpha" },
+    });
+    expect(JSON.parse(params.sort)).toEqual([{ field: "title", dir: "asc" }]);
+  });
+
   it("sends the backend body: workspace_id + entries", async () => {
     mockPatch.mockResolvedValue({
       updated: [{ artifact_id: "artifact-1", version: 5 }],

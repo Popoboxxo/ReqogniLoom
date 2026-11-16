@@ -45,6 +45,7 @@ const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
 const TABLE_URL = `${BACKEND_URL}/api/v1/artifacts/table/`;
+const TABLE_PATH = '/api/v1/artifacts/table/';
 const BULK_UPDATE_URL = '/api/v1/artifacts/bulk-update/';
 const BULK_TRANSITION_URL = '/api/v1/artifacts/bulk-transition/';
 const TABLE_STATE_URL = '/api/v1/users/me/table-view-state/';
@@ -74,6 +75,23 @@ function track(
     if (match(request)) hits.push(request);
   });
   return hits;
+}
+
+/**
+ * Match the table read **by path**, not by origin.
+ *
+ * The page requests its own origin (`FRONTEND_URL`) and the Vite/nginx proxy
+ * forwards `/api` to the backend, so `request.url()` never starts with
+ * `BACKEND_URL` — the pre-fix `startsWith(TABLE_URL)` matcher caught nothing
+ * and every `expect.poll` on the tracked requests read `null`. `TABLE_URL`
+ * stays for the `APIRequestContext` probe in `beforeAll`, which *does* talk to
+ * the backend directly.
+ */
+function isTableQuery(request: Request): boolean {
+  return (
+    request.method() === 'GET' &&
+    new URL(request.url()).pathname === TABLE_PATH
+  );
 }
 
 async function createRequirement(
@@ -207,11 +225,7 @@ test.describe('Artifact table view', () => {
   }) => {
     await openTableView(page);
 
-    const tableRequests = track(
-      page,
-      (request) =>
-        request.method() === 'GET' && request.url().startsWith(TABLE_URL)
-    );
+    const tableRequests = track(page, isTableQuery);
 
     const header = page.getByTestId('sort-title');
     await header.click();
@@ -243,11 +257,7 @@ test.describe('Artifact table view', () => {
   }) => {
     await openTableView(page);
 
-    const tableRequests = track(
-      page,
-      (request) =>
-        request.method() === 'GET' && request.url().startsWith(TABLE_URL)
-    );
+    const tableRequests = track(page, isTableQuery);
 
     const stateWrite = nextTableStateWrite(page);
     await filterByTitle(page, 'Alpha');

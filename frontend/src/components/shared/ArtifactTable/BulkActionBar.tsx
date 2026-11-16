@@ -15,7 +15,7 @@
  * the transition (the backend derives it from the ids).
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -140,13 +140,28 @@ export function BulkActionBar({
   const [statesLoading, setStatesLoading] = useState(false);
   const [targetState, setTargetState] = useState("");
 
+  // The parent rebuilds `selectedRows` (a `.filter()` over the current page) on
+  // every render, so its identity is not a stable dependency: keying the load
+  // on it re-ran the effect on any unrelated parent update and wiped the target
+  // state the user had just picked (the submit button then stayed disabled and
+  // the transition was never posted). The selection *content* is the stable
+  // key; the rows themselves come from a ref so the effect body stays current
+  // without re-subscribing.
+  const rowsRef = useRef(selectedRows);
+  rowsRef.current = selectedRows;
+  const selectionKey = selectedRows
+    .map((row) => `${row.id}:${row.item_type}`)
+    .join(",");
+
   useEffect(() => {
-    if (!statusEditing || selectedRows.length === 0) return undefined;
+    if (!statusEditing) return undefined;
+    const rows = rowsRef.current;
+    if (rows.length === 0) return undefined;
     let cancelled = false;
     setStatesLoading(true);
     setCommonStates([]);
     setTargetState("");
-    const loads = selectedRows.map(async (row) => {
+    const loads = rows.map(async (row) => {
       const type = WORKFLOW_TYPE[row.item_type];
       if (!type) return null;
       const response = await workflowTransitionsApi.getTransitions(type, row.id);
@@ -174,7 +189,7 @@ export function BulkActionBar({
     return () => {
       cancelled = true;
     };
-  }, [statusEditing, selectedRows]);
+  }, [statusEditing, selectionKey]);
 
   async function submitTransition(): Promise<void> {
     if (!targetState || !changeReason.trim()) return;

@@ -20,8 +20,14 @@ export interface ColumnPickerProps {
 }
 
 /**
- * The full ordered column list: the stored order when present, otherwise every
- * visible attribute in definition order (that is what the grid renders).
+ * The checked columns: the stored visible set in stored order, otherwise every
+ * visible attribute in definition order.
+ *
+ * Must stay in lockstep with {@link buildColumns}: a non-empty `state.columns`
+ * is a whitelist, so a field absent from it is rendered unchecked here and
+ * hidden in the grid. Appending the missing attributes (the pre-fix behaviour)
+ * showed them as checked while the grid still rendered them — and let the grid
+ * re-add every column the user had hidden.
  */
 export function effectiveColumnOrder(
   attributes: AttributeSpec[],
@@ -39,10 +45,8 @@ export function effectiveColumnOrder(
       ordered.push(entry.field);
     }
   }
-  for (const attr of visible) {
-    if (!seen.has(attr.name)) ordered.push(attr.name);
-  }
-  return ordered;
+  if (ordered.length > 0) return ordered;
+  return visible.map((attr) => attr.name);
 }
 
 export function ColumnPicker({
