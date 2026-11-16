@@ -10,6 +10,9 @@ proven against the source code (not against the plan's own claims).
 
 ## Top level — open work
 
+## [2026-11-16-mobile-pwa.md](2026-11-16-mobile-pwa.md)
+**Open — plan written 2026-11-16, no task started.** Ten mergeable slices that make the SPA usable on 360–430 px and installable as a PWA on Android: M0 measurement harness (Pixel 7 / iPhone 13 Playwright projects + per-route overflow assertions + a baseline audit report), M1 installable PWA (manifest, icons, `theme-color`, viewport meta, nginx MIME/cache), M2 service worker app-shell only with `/api/` and `/mcp/` never cached and a purge on logout, M3 install UX (Android prompt, iOS share-instructions sheet, dismissal preference), M4 shell heights (`dvh`) and safe areas, M5 the core fix — legacy `SplitView` state split, detail-replaces-list with a back step and i18n labels across all 19 callers without editing them, M6 lists/toolbars/tables, M7 detail and editor surfaces, M8 heavy views (connection-tree tabs, scrollable matrices, read-only diagram/canvas with touch pan/zoom), M9 acceptance evidence and docs. ≈10.75 days; M1–M4 give "installable and not broken" early. Blocked on E1/E2 (service worker yes/no) before M2; M1 and M4–M8 can start immediately. Spec: [`../specs/2026-11-16-mobile-pwa-design.md`](../specs/2026-11-16-mobile-pwa-design.md).
+
 ## [2026-09-24-motivated-improvement-plan.md](2026-09-24-motivated-improvement-plan.md)
 **Open — audit-based improvement plan; partially implemented and not a release approval.** Derived from the 2026-09 system audit, it prioritizes P1 validation, QS-first evidence, a central Django core with a versioned contract/tool registry, and Bluepencil as QS-only/default-off. The plan records open measurements and implementation waves; it contains no application-code changes.
 
