@@ -273,6 +273,29 @@ def generate_api_key_plaintext() -> str:
     return f"{_API_KEY_PREFIX}{body}"
 
 
+def load_api_key_policy_row(api_key_id: UUID) -> dict[str, Any] | None:
+    """Return the MCP policy fields of one API key, or ``None`` if it is gone.
+
+    This is the application-layer seam for the MCP server's manifest curation
+    (``scope`` / ``tool_groups``, see :mod:`mcp_server.api_key_policy`):
+    ADR-01 forbids the ``mcp_server`` root from touching the ORM itself, so
+    that module shapes the row instead of reading it.
+
+    ``unscoped`` is deliberate and safe here. The caller has already
+    authenticated the key (``validate_api_key``) and passes the primary key
+    taken from that validated credential, so no application-level tenant
+    filter is needed — the request runs with the key's own tenant context
+    armed and the database RLS policy still applies as a backstop (ADR-PL-03).
+    An unarmed read simply returns no row, which degrades downstream to the
+    permissive default policy and gains no capability.
+    """
+    return (
+        ApiKey.unscoped.filter(id=api_key_id)
+        .values("scope", "tool_groups")
+        .first()
+    )
+
+
 class AuthenticationService:
     """Identity validation and API-key lifecycle (COMP-AT-001).
 
