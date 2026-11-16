@@ -222,6 +222,10 @@
    "patch"
   ],
   [
+   "/api/v1/artifacts/table/",
+   "get"
+  ],
+  [
    "/api/v1/artifacts/{artifact_id}/comments/",
    "get"
   ],

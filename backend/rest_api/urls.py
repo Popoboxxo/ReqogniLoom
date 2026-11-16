@@ -248,6 +248,7 @@ from rest_api.tree_display_config_views import (
     TreeDisplayConfigWorkspaceView,
 )
 from rest_api.user_management_views import UserViewSet
+from rest_api.table_views import TableQueryView
 from rest_api.views import (
     AdrViewSet,
     AllocationListView,
@@ -1348,6 +1349,14 @@ urlpatterns = [
         "artifacts/bulk-update/",
         ArtifactBulkUpdateView.as_view(),
         name="api-v1-artifact-bulk-update",
+    ),
+    # Slice 1 of the Tabellenansicht plan: the server-side table read. Same
+    # collection-route form and ordering reason as bulk-update — ``table`` would
+    # otherwise be read as an artifacts/<pk> detail.
+    path(
+        "artifacts/table/",
+        TableQueryView.as_view(),
+        name="api-v1-artifact-table",
     ),
     # Slice 2 of the Tabellenansicht plan: the bulk workflow transition of the
     # table view (same collection-route form and ordering reason as bulk-update).

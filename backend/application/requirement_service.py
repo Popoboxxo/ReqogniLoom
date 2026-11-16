@@ -55,6 +55,7 @@ from application.optimistic_lock import (
     assert_expected_version,
     lock_for_version_check,
 )
+from application.requirement_filters import allocated_q, level_q
 from application.vector_port import (
     COLLECTION_REQUIREMENT,
     QdrantBackendUnavailableError,
@@ -1301,20 +1302,12 @@ class RequirementService(ServiceBase):
                 | Q(uid__icontains=search)
             )
         if level is not None:
-            qs = qs.filter(level=level)
+            qs = qs.filter(level_q(int(level)))
         if allocated is not None:
-            # #1668: an 'allocated-to' TraceLink runs Requirement -> Element,
-            # so its ``source_id`` is the Requirement's backing Artifact id.
-            from persistence.models import TraceLink
-
-            allocated_artifact_ids = TraceLink.unscoped.filter(
-                tenant_id=ctx.tenant_id,
-                link_type="allocated-to",
-            ).values_list("source_id", flat=True)
-            if allocated:
-                qs = qs.filter(artifact_id__in=allocated_artifact_ids)
-            else:
-                qs = qs.exclude(artifact_id__in=allocated_artifact_ids)
+            # #1668 + Tabellenansicht S1: one implementation shared with the
+            # table filter DSL's ``allocated`` pseudo-field, so `?allocated=` and
+            # a stored view filter cannot disagree about "allocated".
+            qs = qs.filter(allocated_q(allocated=allocated, tenant_id=ctx.tenant_id))
         # P1: siblings follow the persistent fractional order. ``sort_key`` is
         # NULL for requirements created before the backfill or outside an
         # ordered block; those sort last, then by creation (the former

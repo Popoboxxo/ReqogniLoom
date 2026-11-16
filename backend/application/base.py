@@ -156,6 +156,7 @@ class WorkflowFrozenError(ValidationError):
     def __init__(self, message: str, state_name: str) -> None:
         super().__init__(message)
         self.message = message
+        self.state_name = state_name
         self.details = {"state": state_name}
 
 

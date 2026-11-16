@@ -16,7 +16,7 @@ from __future__ import annotations
 from auth_tenancy.context import AuthContext
 from persistence.errors import PermissionDeniedError
 
-__all__ = ["assert_workspace_config_permission"]
+__all__ = ["assert_read_permission", "assert_workspace_config_permission"]
 
 
 def assert_workspace_config_permission(ctx: AuthContext, *, what: str) -> None:
@@ -51,4 +51,30 @@ def assert_workspace_config_permission(ctx: AuthContext, *, what: str) -> None:
         raise PermissionDeniedError(
             f"Permission denied: a {what} requires the workspace_config "
             f"operation, user has {ctx.active_roles}"
+        )
+
+
+def assert_read_permission(ctx: AuthContext, *, what: str) -> None:
+    """Raise unless *ctx* may perform ``Operation.READ``.
+
+    The read counterpart of :meth:`application.base.ServiceBase
+    ._assert_write_permission`: positive check against the RBAC matrix, so an
+    empty or unknown role set fails closed. Used by read services that are not
+    backed by a ``ViewSet`` (whose permission class would otherwise cover this),
+    e.g. the server-side table query.
+
+    Args:
+        ctx: The caller's auth context (``active_roles`` decides).
+        what: Short noun phrase naming the read object, used in the message.
+
+    Raises:
+        PermissionDeniedError: no active role allows ``Operation.READ``.
+    """
+    from auth_tenancy.services.authorization import AuthorizationService, Operation
+
+    decision = AuthorizationService().decide_access(ctx.active_roles, Operation.READ)
+    if not decision.allow:
+        raise PermissionDeniedError(
+            f"Permission denied: {what} requires the read operation, "
+            f"user has {ctx.active_roles}"
         )

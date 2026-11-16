@@ -321,7 +321,10 @@ def test_apply_workspace_view_of_another_user_is_readable(env):
 
 def test_in_with_empty_list_matches_nothing(env):
     _requirement(env["tenant"], env["workspace"], "Alpha")
-    view = _create(env, filters={"title": {"op": "in", "value": []}})
+    # ``in`` belongs to the enum/actor/status types of the frozen operator
+    # table (text is filtered with ``contains``), so the edge is pinned on
+    # ``status`` — an empty list still has to match nothing, not everything.
+    view = _create(env, filters={"status": {"op": "in", "value": []}})
 
     assert SavedViewService().apply(env["ctx"], view.id).rows == []
 

@@ -27,9 +27,9 @@ Contract notes
 * ``apply`` answers **200** even when the stored documents no longer compile:
   the result is then an empty ``results`` list plus one ``warnings`` entry
   naming the field (plan Review Focus 4). A stale view is not an error.
-* The table row shape is shared with the planned ``artifacts/table/`` route
-  (``saved_view_query.query_rows``): ``{id, artifact_id, item_type, version,
-  values, locked}``.
+* The table row shape is shared with ``GET /api/v1/artifacts/table/``
+  (``application.table_query_service.TableQueryService.serialize_rows``):
+  ``{id, artifact_id, item_type, version, values, locked}``.
 """
 from __future__ import annotations
 
