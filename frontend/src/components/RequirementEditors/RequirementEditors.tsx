@@ -54,6 +54,13 @@ import { StatusBadge } from '../shared/StatusBadge';
 import { useInterviewStartCta } from '../shared/useInterviewStartCta';
 import { IncludeDeletedToggle } from '../shared/IncludeDeletedToggle/IncludeDeletedToggle';
 import { RequirementList } from './RequirementList';
+import { ArtifactTableView } from '../shared/ArtifactTable';
+import {
+  RequirementViewToggle,
+  readRequirementViewMode,
+  writeRequirementViewMode,
+  type RequirementViewMode,
+} from './RequirementViewToggle';
 import { GroupManager } from './GroupManager';
 import { AddToGroupDialog } from './AddToGroupDialog';
 import { useRequirementGroups } from './useRequirementGroups';
@@ -96,6 +103,13 @@ export default function RequirementEditors(): JSX.Element {
   const hasRole = useHasRole();
   // Shared with the other artifact routes so the CTA cannot drift.
   const interviewCta = useInterviewStartCta('Requirement');
+  // Task 4.9 (table view): list/table mode persists per browser. A blocked
+  // localStorage degrades to list mode instead of failing the page.
+  const [viewMode, setViewMode] = useState<RequirementViewMode>(readRequirementViewMode);
+  const handleViewModeChange = useCallback((mode: RequirementViewMode) => {
+    setViewMode(mode);
+    writeRequirementViewMode(mode);
+  }, []);
   // GH-443: opt-in to soft-deleted requirements (status="outdated").
   const [includeDeleted, setIncludeDeleted] = useState(false);
   // #1668: allocation filter. It is a **server-side** filter (`?allocated=`),
@@ -650,7 +664,12 @@ export default function RequirementEditors(): JSX.Element {
         testIdPrefix="req-list"
       />
 
-      {/* Requirement list */}
+      <RequirementViewToggle mode={viewMode} onChange={handleViewModeChange} />
+
+      {viewMode === 'table' ? (
+        <ArtifactTableView itemType="Requirement" />
+      ) : (
+      /* Requirement list */
       <RequirementList
         requirements={requirements}
         selectedId={selectedId}
@@ -685,6 +704,7 @@ export default function RequirementEditors(): JSX.Element {
         onAddToGroup={hasRole('editor') ? setAddToGroupId : undefined}
         onCreateNew={openCreateForm}
       />
+      )}
     </div>
   );
 
