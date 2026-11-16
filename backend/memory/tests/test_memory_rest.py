@@ -1949,6 +1949,72 @@ class TestWorkspaceMemoryEntryWriteRest:
             response = _client_for(token).delete(_WS_ENTRIES.format(ws=ws.id))
             assert response.status_code == 403
 
+    def test_entry_id_query_param_is_rejected_and_deletes_nothing(
+        self, monkeypatch, _clear_memory_cache
+    ):
+        """Issue #1879: ``?entry_id=`` must not be silently ignored.
+
+        The route purges the whole workspace scope; a caller passing
+        ``entry_id`` meant a single delete. It has to fail closed (400, naming
+        the detail route) and leave every row untouched.
+        """
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            from memory.backends import get_memory_backend
+
+            get_memory_backend().upsert(tenant.id, "workspace", ws.id, "ws fact")
+            get_memory_backend().upsert(tenant.id, "workspace", ws.id, "ws fact two")
+            _user, token = _workspace_admin_user_and_token(tenant, ws)
+            single = MemoryEntry.objects.filter(workspace_id=ws.id).first()
+            before = MemoryEntry.objects.filter(workspace_id=ws.id).count()
+            assert before == 2
+
+            response = _client_for(token).delete(
+                f"{_WS_ENTRIES.format(ws=ws.id)}?entry_id={single.id}"
+            )
+
+            assert response.status_code == 400
+            assert response.data["error"]["code"] == "VALIDATION_ERROR"
+            message = response.data["error"]["message"]
+            assert "entry_id" in message
+            assert "/api/v1/memory/entries/<entry_id>/" in message
+            assert MemoryEntry.objects.filter(workspace_id=ws.id).count() == before
+            assert MemoryEntry.objects.filter(id=single.id).exists()
+
+    def test_unknown_query_param_is_rejected(self, monkeypatch, _clear_memory_cache):
+        """Any undeclared parameter is a 400 — the allow-list is ``change_reason``."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            from memory.backends import get_memory_backend
+
+            get_memory_backend().upsert(tenant.id, "workspace", ws.id, "ws fact")
+            _user, token = _workspace_admin_user_and_token(tenant, ws)
+            response = _client_for(token).delete(
+                f"{_WS_ENTRIES.format(ws=ws.id)}?scope=artifact"
+            )
+            assert response.status_code == 400
+            assert response.data["error"]["code"] == "VALIDATION_ERROR"
+            assert MemoryEntry.objects.filter(workspace_id=ws.id).count() == 1
+
+    def test_change_reason_query_param_still_accepted(
+        self, monkeypatch, _clear_memory_cache
+    ):
+        """The one allow-listed parameter keeps working (purge semantics intact)."""
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            from memory.backends import get_memory_backend
+
+            get_memory_backend().upsert(tenant.id, "workspace", ws.id, "ws fact")
+            _user, token = _workspace_admin_user_and_token(tenant, ws)
+            response = _client_for(token).delete(
+                f"{_WS_ENTRIES.format(ws=ws.id)}?change_reason=gdpr"
+            )
+            assert response.status_code == 200
+            assert response.data["deleted"] == 1
+
 
 @pytest.mark.django_db
 class TestMemoryBackendOutageRest:
