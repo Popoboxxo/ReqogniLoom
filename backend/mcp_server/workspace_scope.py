@@ -443,6 +443,9 @@ TOOL_ENFORCED_WORKSPACE_SCOPE: frozenset[str] = frozenset(
 #:   ``workspace_id`` is what makes the workspace level participate, and then
 #:   the dispatcher narrows the roles to it and runs the read gate — the
 #:   parameter *is* the target workspace, so ``_TOOL_TARGETS`` adds nothing.
+#: * ``tool.list_groups`` (MCP-Modernisierung Task 13) — pure catalogue
+#:   metadata: the registry's group names and schema counts, derived from code
+#:   with no DB access. There is no workspace (or tenant) data to scope to.
 TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
     {
         "admin.backup_list",
@@ -471,6 +474,7 @@ TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
         "create_form_definition.export",
         "preference.registry",
         "preference.get",
+        "tool.list_groups",
     }
 )
 

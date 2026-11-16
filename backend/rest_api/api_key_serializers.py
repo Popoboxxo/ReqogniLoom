@@ -80,6 +80,9 @@ SCOPE_INVALID_MESSAGE = (
     "(or the legacy aliases 'read', 'write')."
 )
 WORKSPACE_IDS_INVALID_MESSAGE = "Field 'workspace_ids' must be a list of UUID strings."
+TOOL_GROUPS_INVALID_MESSAGE = (
+    "Field 'tool_groups' must be a list of tool-group prefix strings."
+)
 EXPIRES_AT_INVALID_MESSAGE = "Field 'expires_at' must be an ISO-8601 datetime."
 
 #: Message used when two or more problems are reported at once.
@@ -97,6 +100,7 @@ FIELD_ORDER: tuple[str, ...] = (
     "principal_type",
     "scope",
     "workspace_ids",
+    "tool_groups",
     "expires_at",
     "agent_label",
 )
@@ -247,6 +251,17 @@ class ApiKeyCreateSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Agent keys require a strictly future timezone-aware value.",
     )
+    tool_groups = serializers.ListField(
+        child=serializers.CharField(allow_blank=False),
+        required=False,
+        allow_null=True,
+        error_messages={"not_a_list": TOOL_GROUPS_INVALID_MESSAGE},
+        help_text=(
+            "MCP tool-group prefixes to advertise in tools/list. Catalogue "
+            "curation only — it does NOT restrict what the key may execute. "
+            "Empty list (default) = every group."
+        ),
+    )
     agent_label = CoercedTextField(
         required=False,
         allow_blank=True,
@@ -276,6 +291,12 @@ class ApiKeyCreateSerializer(serializers.Serializer):
             return []
         return [str(uuid_value) for uuid_value in value]
 
+    def validate_tool_groups(self, value: Any) -> list[str]:
+        if value is None:
+            return []
+        cleaned = [str(prefix).strip() for prefix in value if str(prefix).strip()]
+        return cleaned
+
     def validate_agent_label(self, value: Any) -> str:
         return str(value or "")[:255]
 
@@ -283,6 +304,7 @@ class ApiKeyCreateSerializer(serializers.Serializer):
         """Fill the optional defaults the old hand-rolled view applied."""
         attrs.setdefault("scope", None)
         attrs.setdefault("workspace_ids", [])
+        attrs.setdefault("tool_groups", [])
         attrs.setdefault("expires_at", None)
         attrs.setdefault("agent_label", "")
         attrs.setdefault("principal_type", PRINCIPAL_TYPE_USER)
@@ -420,6 +442,8 @@ def _field_error_detail(field: str) -> dict[str, Any]:
         return _validation_detail(field, "invalid", SCOPE_INVALID_MESSAGE)
     if field == "workspace_ids":
         return _validation_detail(field, "invalid", WORKSPACE_IDS_INVALID_MESSAGE)
+    if field == "tool_groups":
+        return _validation_detail(field, "invalid", TOOL_GROUPS_INVALID_MESSAGE)
     if field == "expires_at":
         return _validation_detail(field, "invalid", EXPIRES_AT_INVALID_MESSAGE)
     return _validation_detail(field, "invalid", "Invalid value.")
@@ -478,6 +502,7 @@ class ApiKeyCreateResponseSerializer(serializers.Serializer):
     )
     agent_label = serializers.CharField(allow_blank=True)
     scope = serializers.ChoiceField(choices=API_KEY_SCOPE_CHOICES)
+    tool_groups = serializers.ListField(child=serializers.CharField())
 
 
 class ApiKeyMetadataSerializer(serializers.Serializer):
@@ -499,6 +524,7 @@ class ApiKeyMetadataSerializer(serializers.Serializer):
     )
     agent_label = serializers.CharField(allow_blank=True)
     scope = serializers.CharField(allow_null=True)
+    tool_groups = serializers.ListField(child=serializers.CharField())
     workspace_ids = serializers.ListField(child=serializers.UUIDField())
     expires_at = serializers.DateTimeField(allow_null=True)
     expired = serializers.BooleanField()

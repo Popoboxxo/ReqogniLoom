@@ -6,6 +6,11 @@ from uuid import uuid4
 import pytest
 
 from auth_tenancy.context import AuthContext, AuthMethod
+from auth_tenancy.models import ApiKey
+from auth_tenancy.services.authentication import (
+    generate_api_key_plaintext,
+    hash_api_key,
+)
 from mcp_server.tool_registry import ToolRegistry
 
 
@@ -141,3 +146,81 @@ def test_fenced_key_sees_no_write_tools_in_list(monkeypatch):
         registry, "_resolve_roles", lambda c, _ws: _fenced_ctx(allowed)
     )
     assert registry._resolve_list_roles(_fenced_ctx(allowed), allowed) == ("admin",)
+
+
+# --- MCP-Modernisierung Phase D (Task 11): scope is a real boundary ----------
+# End-to-end with a real ApiKey row, not a stubbed context: a read-scoped key
+# must be refused by tools/call for every write tool and must never see one in
+# tools/list, regardless of the owner's roles.
+
+
+def _real_key(user, tenant, *, scope: str) -> str:
+    plaintext = generate_api_key_plaintext()
+    ApiKey.unscoped.create(
+        tenant=tenant,
+        user=user,
+        name=f"scope-{scope}-{uuid4().hex[:8]}",
+        key_hash=hash_api_key(plaintext),
+        scope=scope,
+    )
+    return plaintext
+
+
+@pytest.mark.django_db
+def test_read_scope_key_sees_no_write_tools_in_list(
+    e2e_user_admin, e2e_userrole_admin, e2e_tenant
+):
+    key = _real_key(e2e_user_admin, e2e_tenant, scope="read")
+    registry = ToolRegistry()
+    tools = registry.list_tools(api_key=key)
+    names = [t["name"] for t in tools]
+    assert names, "a read-scoped key must still see the read tools"
+    assert all(not registry._is_write_tool(name) for name in names)
+    assert "tool.list_groups" in names
+
+
+@pytest.mark.django_db
+def test_write_scope_key_still_sees_write_tools(
+    e2e_user_admin, e2e_userrole_admin, e2e_tenant
+):
+    key = _real_key(e2e_user_admin, e2e_tenant, scope="write")
+    registry = ToolRegistry()
+    names = [t["name"] for t in registry.list_tools(api_key=key)]
+    assert any(registry._is_write_tool(name) for name in names)
+
+
+@pytest.mark.django_db
+def test_read_scope_key_rejects_a_write_tool_call(
+    e2e_user_admin, e2e_userrole_admin, e2e_tenant
+):
+    key = _real_key(e2e_user_admin, e2e_tenant, scope="read")
+    result = ToolRegistry().dispatch_request(
+        tool_name="requirement.create", params={}, api_key=key
+    )
+    assert result.success is False
+    assert result.error_code == "PERMISSION_DENIED"
+    assert "scope" in str(result.message).lower()
+
+
+@pytest.mark.django_db
+def test_read_scope_key_still_reaches_a_read_tool(
+    e2e_user_admin, e2e_userrole_admin, e2e_tenant
+):
+    key = _real_key(e2e_user_admin, e2e_tenant, scope="read")
+    result = ToolRegistry().dispatch_request(
+        tool_name="requirement.get", params={}, api_key=key
+    )
+    # Missing parameters are a validation error, never a scope denial.
+    assert result.error_code != "PERMISSION_DENIED"
+
+
+@pytest.mark.django_db
+def test_unknown_tool_still_reports_unknown_tool_for_a_read_key(
+    e2e_user_admin, e2e_tenant
+):
+    """The scope gate must sit after routing, so it cannot mask UNKNOWN_TOOL."""
+    key = _real_key(e2e_user_admin, e2e_tenant, scope="read")
+    result = ToolRegistry().dispatch_request(
+        tool_name="nosuchgroup.create", params={}, api_key=key
+    )
+    assert result.error_code == "UNKNOWN_TOOL"

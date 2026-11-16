@@ -72,6 +72,10 @@ class ApiKeyCreationResult:
     api_key_id: UUID
     name: str
     plaintext: str
+    #: Capability tier the key was issued with (spec #865).
+    scope: str = "write"
+    #: MCP manifest curation prefixes (spec 6.2); empty = every group.
+    tool_groups: tuple[str, ...] = ()
 
 
 class ApiKeyLookupRow(NamedTuple):
@@ -826,6 +830,7 @@ class AuthenticationService:
         scope: str | None = None,
         workspace_ids: list[str] | None = None,
         expires_at: datetime | None = None,
+        tool_groups: list[str] | None = None,
     ) -> ApiKeyCreationResult:
         """Create an API key and return its plaintext exactly once.
 
@@ -833,6 +838,9 @@ class AuthenticationService:
             user_id: Owner user primary key.
             tenant_id: Tenant the key belongs to.
             name: Human-readable label.
+            tool_groups: Optional MCP tool-group prefixes to advertise in
+                ``tools/list``. Catalogue curation only — it does not restrict
+                what the key may execute (see ``ApiKey.tool_groups``).
 
         Returns:
             :class:`ApiKeyCreationResult` containing the one-time plaintext.
@@ -941,6 +949,9 @@ class AuthenticationService:
                 )
 
             plaintext = generate_api_key_plaintext()
+            effective_tool_groups = [
+                str(prefix) for prefix in (tool_groups or []) if str(prefix).strip()
+            ]
             api_key = ApiKey.unscoped.create(
                 user_id=user_id,
                 tenant_id=tenant_id,
@@ -951,9 +962,14 @@ class AuthenticationService:
                 scope=effective_scope,
                 workspace_ids=effective_workspace_ids,
                 expires_at=expires_at,
+                tool_groups=effective_tool_groups,
             )
         return ApiKeyCreationResult(
-            api_key_id=api_key.id, name=name, plaintext=plaintext
+            api_key_id=api_key.id,
+            name=name,
+            plaintext=plaintext,
+            scope=effective_scope,
+            tool_groups=tuple(effective_tool_groups),
         )
 
     def list_api_keys(self, *, user_id: UUID) -> list[dict[str, object]]:
@@ -969,6 +985,7 @@ class AuthenticationService:
                 "principal_type": k.principal_type,
                 "agent_label": k.agent_label,
                 "scope": k.scope,
+                "tool_groups": list(k.tool_groups or []),
                 "workspace_ids": list(k.workspace_ids or []),
                 "expires_at": k.expires_at.isoformat() if k.expires_at else None,
                 "expired": k.is_expired,

@@ -389,6 +389,7 @@ class ApiKeyViewSet(ViewSet):
                 scope=data["scope"],
                 workspace_ids=data["workspace_ids"],
                 expires_at=data["expires_at"],
+                tool_groups=data["tool_groups"],
             )
         except ApiKeyPolicyError as exc:
             # WP E3.6: a policy rejection names the offending field, so the 400
@@ -418,6 +419,9 @@ class ApiKeyViewSet(ViewSet):
                 "principal_type": data["principal_type"],
                 "agent_label": data["agent_label"],
                 "scope": "write" if data["scope"] is None else data["scope"],
+                # MCP-Modernisierung 6.2: catalogue curation only, echoed back
+                # so a client can show what it just configured.
+                "tool_groups": list(result.tool_groups),
             },
             status=status.HTTP_201_CREATED,
         )
