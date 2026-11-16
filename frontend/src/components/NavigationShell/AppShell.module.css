@@ -4,7 +4,8 @@
 .shell {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100vh; /* fallback for browsers without dvh */
+  height: 100dvh;
 }
 
 .contentRow {
@@ -49,4 +50,15 @@ a.skipLink:focus {
   height: 100%;
   padding: var(--space-6);
   overflow: auto;
+  padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+}
+
+/* Phone density (plan M4, --bp-sm): keep the content width, spend less of it
+   on chrome. The value is the documented token, not a new layout breakpoint. */
+@media (max-width: 640px) {
+  .main {
+    padding-left: var(--space-3);
+    padding-right: var(--space-3);
+    padding-top: var(--space-4);
+  }
 }

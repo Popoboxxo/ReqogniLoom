@@ -23,6 +23,7 @@ import { useWorkspace } from "../../context/WorkspaceContext";
 import { OPTIONAL_FEATURES, type OptionalArtifactFeature } from "../../api/preferences";
 import { useState, useCallback } from "react";
 import { PageHeader } from "../shared/PageHeader";
+import { InstallAppEntry } from "../shared/InstallApp/InstallAppEntry";
 import { PreferenceLevelSection } from "../shared/PreferenceLevelSection/PreferenceLevelSection";
 import styles from "./UserProfileSettings.module.css";
 
@@ -78,6 +79,10 @@ export default function UserProfileSettings(): JSX.Element {
           "Persönliche Einstellungen: Profil, Personal Access Tokens und Sichtbarkeit optionaler Artefakttypen.",
         )}
       />
+
+      <div data-testid="profile-install-app" className={styles.installSection}>
+        <InstallAppEntry />
+      </div>
 
       <ProfileSection />
 

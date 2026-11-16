@@ -906,7 +906,10 @@
    *   --bp-md:  768px  (split-view stacks to a single column)
    *   --bp-xl: 1600px  (SE-metrics KPI row fits five tiles side by side,
    *                     #809; below it the five tiles lay out 3+2)
+   *   --bp-sm:  640px  (DENSITY only, not a layout breakpoint: touch targets,
+   *                     bottom sheets and compact padding — plan M4/E8)
    */
+  --bp-sm: 640px;
   --bp-md: 768px;
   --bp-lg: 1024px;
   --bp-xl: 1600px;

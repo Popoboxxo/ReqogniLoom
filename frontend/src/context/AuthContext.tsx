@@ -33,6 +33,7 @@ import {
   setUnauthorizedHandler,
 } from "../api/client";
 import { mfaApi } from "../api/mfa";
+import { purgePwaCaches } from "../pwa/register";
 const AUTH_TRANSITION_TIMEOUT_MS = 30_000;
 
 // ---------------------------------------------------------------------------
@@ -402,6 +403,8 @@ export function AuthProvider({
     loginAbortController.current?.abort();
     loginAbortController.current = null;
     invalidateAuth();
+    // REQ-214: never leave cached artifact data on a shared device.
+    void purgePwaCaches();
     void enqueueCookieTransition(async () => {
       try {
         await apiClient.post("/auth/logout/", {});

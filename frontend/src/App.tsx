@@ -40,6 +40,7 @@ import { LinkTypeProvider } from "./context/LinkTypeContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { PreferencesHydrator } from "./components/PreferencesHydrator";
 import { NavigationShell } from "./components/NavigationShell/NavigationShell";
+import { PwaNotices } from "./components/shared/PwaNotices/PwaNotices";
 
 // ---------------------------------------------------------------------------
 // CSRF-cookie-unreachable banner (systemaudit 2026-09-03, R2)
@@ -126,6 +127,7 @@ function AppInner(): JSX.Element {
       }
     >
       <CsrfCookieWarning />
+      <PwaNotices />
       <ThemeProvider>
         <WorkspaceProvider>
           <WorkspaceScopedTreeState>

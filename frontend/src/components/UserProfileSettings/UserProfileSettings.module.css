@@ -108,3 +108,8 @@
 .resetButtonInactive {
   opacity: 0.5;
 }
+
+/* Mobile plan M3: the install action follows the user, not the workspace. */
+.installSection {
+  margin-bottom: var(--space-5);
+}

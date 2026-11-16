@@ -1,10 +1,56 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { VitePWA } from "vite-plugin-pwa";
 import { resolve } from "path";
+import {
+  PWA_NAVIGATION_DENYLIST,
+  PWA_PRECACHE_GLOBS,
+} from "./src/config/pwa-config";
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Plan M2: generate a Workbox service worker for the app shell only.
+    // The manifest itself is static in public/ (E5), so `manifest: false`.
+    VitePWA({
+      strategies: "generateSW",
+      registerType: "prompt",
+      injectRegister: null,
+      manifest: false,
+      workbox: {
+        globPatterns: [...PWA_PRECACHE_GLOBS],
+        navigateFallback: "/index.html",
+        navigateFallbackDenylist: PWA_NAVIGATION_DENYLIST,
+        cleanupOutdatedCaches: true,
+        runtimeCaching: [
+          // Explicit network-only rule for authenticated surfaces. The
+          // denylist above is the second line of defence for navigations.
+          {
+            // Inlined on purpose: Workbox serialises this predicate into
+            // the generated worker, where imported names do not exist.
+            urlPattern: ({ url }: { url: URL }) =>
+              url.pathname.startsWith("/api/") || url.pathname.startsWith("/mcp/"),
+            handler: "NetworkOnly",
+          },
+          {
+            urlPattern: ({ url }: { url: URL }) => url.pathname.startsWith("/assets/"),
+            handler: "CacheFirst",
+            options: {
+              cacheName: "reqlo-assets",
+              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 365 },
+            },
+          },
+          {
+            urlPattern: ({ url }: { url: URL }) =>
+              url.pathname.startsWith("/icons/") || url.pathname === "/manifest.webmanifest",
+            handler: "StaleWhileRevalidate",
+            options: { cacheName: "reqlo-static", expiration: { maxEntries: 20 } },
+          },
+        ],
+      },
+    }),
+  ],
   resolve: {
     alias: {
       "@": resolve(__dirname, "./src"),
@@ -48,6 +94,9 @@ export default defineConfig({
     alias: {
       // fabric@6 is installed via Docker/npm install — stub it for local unit tests
       fabric: resolve(__dirname, "./src/__mocks__/fabric.ts"),
+      // M2: the PWA virtual module exists only in the Vite build; Vitest
+      // gets a deterministic stub so components can be unit-tested.
+      "virtual:pwa-register": resolve(__dirname, "./src/test/mocks/pwa-register.ts"),
     },
   },
 });

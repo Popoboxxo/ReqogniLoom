@@ -1,0 +1,5 @@
+/* Single install entry point (plan M3) — token-driven, no hardcoded chrome. */
+.installButton {
+  width: 100%;
+  justify-content: flex-start;
+}

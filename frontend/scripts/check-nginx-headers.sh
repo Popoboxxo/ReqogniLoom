@@ -182,6 +182,15 @@ if ! printf '%s\n' "${manifest_headers}" | grep -qi '^cache-control: no-cache'; 
   fail "/manifest.webmanifest" 'missing Cache-Control: no-cache'
 fi
 
+# 6. Service worker (plan M2): the generated /sw.js is not hashed and must
+#    revalidate on every load, otherwise clients keep an old worker forever.
+sw_url="${BASE_URL}/sw.js"
+check_url "${sw_url}" "/sw.js"
+sw_headers="$(curl -sS -D - -o /dev/null "${sw_url}" || true)"
+if ! printf '%s\n' "${sw_headers}" | grep -qi '^cache-control: no-cache'; then
+  fail "/sw.js" 'missing Cache-Control: no-cache'
+fi
+
 if [ "${failures}" -ne 0 ]; then
   printf '%d header check(s) failed\n' "${failures}" >&2
   exit 1

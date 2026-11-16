@@ -3819,5 +3819,14 @@
     "previousPage": "Zurück",
     "nextPage": "Weiter",
     "pageInfo": "Seite {{page}} von {{pages}}"
+  },
+  "pwa": {
+    "offlineNotice": "Offline — Änderungen können nicht gespeichert werden.",
+    "updateAvailable": "Neue Version verfügbar.",
+    "updateApply": "Jetzt neu laden",
+    "install": "Als App installieren",
+    "installHint": "Über das Teilen-Menü „Zum Home-Bildschirm“ wählen",
+    "installDismiss": "Nicht mehr fragen",
+    "installTitle": "ReqogniLoom installieren"
   }
 }

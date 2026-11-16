@@ -13,7 +13,8 @@
 
 .sidebarNav {
   width: 220px;
-  height: 100vh;
+  height: 100vh; /* fallback */
+  height: 100dvh;
   position: sticky;
   top: 0;
   flex-shrink: 0;
@@ -47,6 +48,11 @@
     position: fixed;
     top: 0;
     left: 0;
+    /* One-handed on a phone: never cover the whole viewport with the drawer. */
+    width: min(85vw, 320px);
+    height: 100dvh;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     transform: translateX(-100%);
     box-shadow: var(--shadow-card);
   }

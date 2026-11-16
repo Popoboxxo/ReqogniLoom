@@ -290,3 +290,15 @@ class TestConnectionViewDisplayLevels:
     ) -> None:
         with pytest.raises(ValidationError, match="cannot be set at level 'global'"):
             service.set_level(admin_ctx, scope="global", values={key: True})
+
+
+def test_pwa_install_dismissed_is_registered_as_user_scoped_bool() -> None:
+    """Mobile plan M3 / REQ-213: install-prompt dismissal is personal UI state."""
+    from application.preference_registry import get_preference_key
+    from auth_tenancy.models import PREFERENCE_SCOPE_USER
+
+    key = get_preference_key("ui.pwa.install_dismissed")
+    assert key.value_type == "bool"
+    assert key.default is False
+    assert key.levels == frozenset({PREFERENCE_SCOPE_USER})
+    assert key.ui_editor is None

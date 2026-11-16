@@ -7,7 +7,8 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 100vh;
+  min-height: 100vh; /* fallback */
+  min-height: 100dvh;
   font-family: var(--font-sans);
   background: var(--color-surface);
 }
@@ -16,8 +17,12 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  min-width: 320px;
-  padding: var(--space-8);
+  /* 320px minimum broke on 360px phones once the on-screen keyboard or a
+     safe-area inset reduced the usable width (plan M4). */
+  width: min(100%, 420px);
+  min-width: 0;
+  box-sizing: border-box;
+  padding: var(--space-6);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);

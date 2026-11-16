@@ -3819,5 +3819,14 @@
     "previousPage": "Previous",
     "nextPage": "Next",
     "pageInfo": "Page {{page}} of {{pages}}"
+  },
+  "pwa": {
+    "offlineNotice": "Offline — changes cannot be saved.",
+    "updateAvailable": "A new version is available.",
+    "updateApply": "Reload now",
+    "install": "Install app",
+    "installHint": "Use “Add to Home Screen” from the share menu",
+    "installDismiss": "Don't ask again",
+    "installTitle": "Install ReqogniLoom"
   }
 }
