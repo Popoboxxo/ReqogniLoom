@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0-beta.2] — 2026-11-16
+
+### Added
+- feat(table): the artifact table view is complete — `GET /api/v1/artifacts/table/` serves the frozen row shape through one query service over the eight table types with a typed filter DSL (page size capped at 100, constant query count, id tiebreak on every sort), `ArtifactTable` renders it beside the tree with a per-type column model, filter chips, virtualised rows and one bulk request for field edits or transitions, and a Playwright spec guards the flows instead of skipping silently (#1872, #1874, #1876, #1877)
+- feat(table): bulk transition — `PATCH /api/v1/artifacts/bulk-transition/` runs up to 100 entries through the type's own transition service in one all-or-nothing transaction (400 for schema and size, 403 without a write role, 409 with `errors[]`), mirrored as the write-gated MCP tool `artifact.bulk_transition` (#1872)
+- feat(table): saved views and per-user table state — workspace-scoped `saved-views/` collection with `apply/`, the caller's own `users/me/table-view-state/`, migrations `0151`/`0152` with RLS, and the read-only MCP tools `saved_view.list`/`saved_view.apply` (#1874, #1877)
+- feat(mcp): protocol negotiation — the server echoes any supported client revision and otherwise answers with `2025-06-18`, `initialize` mints an `Mcp-Session-Id` bound to the API key in Redis (the existing binding store with its TTL and encryption), later requests echo it and `DELETE /mcp/` ends the session, a POST asking for `text/event-stream` answers with a single SSE message frame, and an unsupported `MCP-Protocol-Version` header is `400 INVALID_REQUEST` before the dispatcher (#1871)
+- feat(mcp): `resources/*` and `prompts/*` are served — `resources/list`, `resources/templates/list` and `resources/read` expose artifacts as `reqogniloom://artifact/{id}` markdown with a membership check, `prompts/list` and `prompts/get` expose the workspace prompt templates; both route through the existing tool registry so auth, tenant isolation, RBAC and presets stay one path, and neither appears in `tools/list` (#1873)
+- feat(mcp): API keys carry `tool_groups` and enforce `scope` — migration `0035` adds the curation list, `tools/list` is narrowed by it while `scope` stays the enforced gate, and the always-visible introspection tool `tool.list_groups` reports every group with its tool count (#1875)
+- docs(mcp): the MCP modernisation plan is closed and `docs/api/MCP-SURFACE.md` now separates what `scope` enforces from what `tool_groups` only curates (#1878)
+
+### Changed
+- **Breaking:** `coverage_ratio` is now `coverage_percent` with its honest `0..100` range — `1 of 51` requirements no longer reads as `1.96` in a field documented as a proportion (#1886)
+- **Breaking:** issue workflow states are lowercase (`open`, `in_progress`, `resolved`, `closed`, `wontfix`); display labels are unchanged, and a client sending `"In Progress"` gets a 400 that names a state it can actually express (#1885)
+- **Breaking:** MCP negotiates `2025-06-18` as its newest revision; `2025-03-26` and `2024-11-05` keep being negotiated, so only a client that relied on a hard-coded revision sees a different answer (#1871)
+- The allocation coverage route publishes a real read-only schema (`allocated_count`, `not_allocatable_count`, `coverage_percent`, unallocated requirement list) instead of declaring `ArchitectureElement` as its 200 payload (#1886)
+- Audit findings carry the rule catalogue's `standard_ref` and title, resolved at read time; `ALLOC-P1` finally has one too (#1885)
+- The MCP catalogue grows from 297 tools in 47 prefixes to **301 tools in 49 prefixes** — `artifact.bulk_transition`, `tool.list_groups`, `saved_view.list` and `saved_view.apply` (#1872, #1874, #1875)
+
+### Fixed
+- fix(memory): the workspace purge refuses an `entry_id` query parameter with 400 and names the single-entry route, instead of silently accepting it and deleting the whole scope (#1884)
+- fix(memory): `projection-status` validates its body up front — an empty body is a 400 that names the field instead of a 500 from an uncaught `ValueError` (#1884)
+- fix(table): `saved_view.apply` is classified as a read in the plugin manifest, and the apply route fences by workspace (404 for a foreign view instead of 400) (#1874, #1877)
+- fix(table): sort, filter and column state stay honest across reloads, and the table speaks the real bulk contracts (#1877)
+- test(e2e): the bulk-transition flow asserts the outcome instead of a bare 200, and the fixture seeds `acceptance_criteria` because the standard preset gates `approved` on it (#1877)
+- test(mcp): the catalogue pins follow 297 → 298 → 301 and the read/write classifier matches the manifest flags (#1872, #1875)
+
 ## [1.9.0-beta.1] — 2026-11-16
 
 ### Added

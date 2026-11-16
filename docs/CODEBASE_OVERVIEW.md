@@ -1,7 +1,7 @@
 ﻿# ReqFlow — Codebase-Übersicht (IST-Zustand)
 
 > **Zweck:** Code-genaues Inventar der `backend/`- und `frontend/`-Bereiche (exportierte API, Module, Flows) als Nachschlagewerk für Mitwirkende und Agenten. Kein Wunschzustand, kein Architektur-Entwurf — nur was im Repository steht.
-> **Stand:** `1.9.0-beta.1` (Beta-Ziel; Code-Stand des vermessenen Checkouts: `1.9.0-beta.1`)  
+> **Stand:** `1.9.0-beta.2` (Beta-Ziel; Code-Stand des vermessenen Checkouts: `1.9.0-beta.2`)  
 > **Letzte Aktualisierung:** 2026-11-15  
 > **Datenquelle:** eigener Checkout von `origin/main`, Dateien und Manifeste direkt gelesen (u. a. `docs/agent-templates/tool-manifest.json`, `.github/workflows/ci.yml`, `backend/application/*`, `frontend/src/components/*`); Testzahlen sind Dateizahlen, keine Testergebnisse  
 > **Validierung:** keine Testläufe in diesem Durchgang — der `manage.py check`-Stand und die pytest-/Playwright-Ergebnisse gehören in den Release-Report, nicht in dieses Inventar
@@ -18,7 +18,7 @@ ReqFlow ist ein Requirements-Management-Tool mit AI- und Systems-Engineering-Sup
 - **Layer 0 (Foundation):** Persistierung, Auth/Tenancy, Konfiguration, Audit
 - **Layer 1 (Domain Services):** LLM-Adapter, Traceability, Workflow, Baseline, Diagram, ICD
 - **Layer 2 (Orchestration):** ApplicationService (16 Services, Single Entry Point)
-- **Layer 3 (Interfaces):** REST API + MCP Server (299 Tools, 48 Tool-Gruppen-Präfixe — Stand `1.9.0-beta.1`, siehe [api/MCP-SURFACE.md](api/MCP-SURFACE.md) für die Messmethode)
+- **Layer 3 (Interfaces):** REST API + MCP Server (299 Tools, 48 Tool-Gruppen-Präfixe — Stand `1.9.0-beta.2`, siehe [api/MCP-SURFACE.md](api/MCP-SURFACE.md) für die Messmethode)
 - **Layer 4 (Frontend):** React-SPA
 - **Cross-Cutting:** SeMetrics (Read Model), ResilienceOrchestrator
 
@@ -716,7 +716,7 @@ POST /api/v1/auth/logout             # Optional (stateless, JWT in localStorage)
 ---
 
 #### `mcp_server/` (ARCH-L1-003)
-**Modell:** MCP-Server (JSON-RPC 2.0) mit Tool-Gruppen, direkt gegen ApplicationService (ADR-01). **301 Tools in 49 Gruppen-Präfixen** (gemessen auf `1.9.0-beta.1`; zuletzt erweitert um die `saved_view`-Gruppe (`saved_view.list`/`saved_view.apply`, Tabellenansicht Slice 3), davor um die Introspektions-Gruppe `tool` (`tool.list_groups`) aus MCP-Modernisierung Phase D, davor `artifact.bulk_transition` ([#1872](https://github.com/Popoboxxo/ReqogniLoom/issues/1872), Write-Tool der Tabellenansicht) und `artifact.bulk_update` als Write-Tool der Dokumentansicht (keine neuen Präfixe), davor die Summary-Gruppe `summary` (`summary.get`/`summary.refresh`, #1793), davor `allocation.query`, die `group`-Gruppe, `milestone`, `work_item`, `document` und die Statistik-Gruppe `metrics`; siehe `docs/api/MCP-SURFACE.md`. Die vollständige, generierte Tool-Liste inkl. `inputSchema` steht in `docs/agent-templates/tool-manifest.json`.)
+**Modell:** MCP-Server (JSON-RPC 2.0) mit Tool-Gruppen, direkt gegen ApplicationService (ADR-01). **301 Tools in 49 Gruppen-Präfixen** (gemessen auf `1.9.0-beta.2`; zuletzt erweitert um die `saved_view`-Gruppe (`saved_view.list`/`saved_view.apply`, Tabellenansicht Slice 3), davor um die Introspektions-Gruppe `tool` (`tool.list_groups`) aus MCP-Modernisierung Phase D, davor `artifact.bulk_transition` ([#1872](https://github.com/Popoboxxo/ReqogniLoom/issues/1872), Write-Tool der Tabellenansicht) und `artifact.bulk_update` als Write-Tool der Dokumentansicht (keine neuen Präfixe), davor die Summary-Gruppe `summary` (`summary.get`/`summary.refresh`, #1793), davor `allocation.query`, die `group`-Gruppe, `milestone`, `work_item`, `document` und die Statistik-Gruppe `metrics`; siehe `docs/api/MCP-SURFACE.md`. Die vollständige, generierte Tool-Liste inkl. `inputSchema` steht in `docs/agent-templates/tool-manifest.json`.)
 
 > **Zahlen nicht aus diesem Dokument übernehmen.** Die Werkzeuganzahl ändert sich mit jedem neuen Tool; maßgeblich sind `tool-manifest.json` und die Messmethode in [`docs/api/MCP-SURFACE.md` §1](api/MCP-SURFACE.md#1-catalogue-size) (`tools/list` per `curl` oder offline `manage.py export_tool_manifest`). Die früheren Angaben in diesem Dokument (143, 171, 172, 212, 215) waren Kopien ohne Nachmessung; die CI-Guards `test_tool_manifest_drift.py` und `test_entity_surface_parity.py` verhindern inzwischen, dass eine Zahl still veraltet.
 
@@ -1178,7 +1178,7 @@ Das optionale Honcho-Memory-Backend (`profiles: ["honcho"]`) pinnt alle aktiven 
 
 **Für Produktionsumgebungen:** Siehe die jeweilige Deployment-Option oben. Alle Optionen unterstützen die vollständige Feature-Set (Multi-Tenancy, RBAC, LLM-Integration, API-Keys, MCP-Server).
 
-### CI/Pipelines (Stand 1.9.0-beta.1)
+### CI/Pipelines (Stand 1.9.0-beta.2)
 
 **GitHub Actions ist die einzige Pipeline.** Eine `.woodpecker.yml` existiert im
 Repository nicht (mehr); die einzigen CI-Definitionen liegen unter
@@ -1276,7 +1276,7 @@ Returns `204 No Content`. The key is immediately invalidated.
 
 ### Tool Reference
 
-> **Auszug, nicht die Referenz.** Der MCP-Server bietet **299 Tools in 48 Gruppen-Präfixen** (Stand `1.9.0-beta.1`; zuletzt erweitert um die Introspektions-Gruppe `tool` (`tool.list_groups`, MCP-Modernisierung Phase D), `artifact.bulk_transition` ([#1872](https://github.com/Popoboxxo/ReqogniLoom/issues/1872)) und `artifact.bulk_update` als Write-Tools der Dokument-/Tabellenansicht (keine neuen Präfixe), davor die Summary-Gruppe `summary` (`summary.get`/`summary.refresh`, #1793), davor `allocation.query`, `group`, `milestone`, `work_item`, `document` und `metrics`). Die vollständige, generierte Liste mit `inputSchema` steht in [`docs/agent-templates/tool-manifest.json`](agent-templates/tool-manifest.json); die lesbare Referenz samt Methoden zum Nachmessen der Zahlen ist [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md). Die früher hier genannten „12 tool groups" waren ein längst überholter Stand.
+> **Auszug, nicht die Referenz.** Der MCP-Server bietet **299 Tools in 48 Gruppen-Präfixen** (Stand `1.9.0-beta.2`; zuletzt erweitert um die Introspektions-Gruppe `tool` (`tool.list_groups`, MCP-Modernisierung Phase D), `artifact.bulk_transition` ([#1872](https://github.com/Popoboxxo/ReqogniLoom/issues/1872)) und `artifact.bulk_update` als Write-Tools der Dokument-/Tabellenansicht (keine neuen Präfixe), davor die Summary-Gruppe `summary` (`summary.get`/`summary.refresh`, #1793), davor `allocation.query`, `group`, `milestone`, `work_item`, `document` und `metrics`). Die vollständige, generierte Liste mit `inputSchema` steht in [`docs/agent-templates/tool-manifest.json`](agent-templates/tool-manifest.json); die lesbare Referenz samt Methoden zum Nachmessen der Zahlen ist [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md). Die früher hier genannten „12 tool groups" waren ein längst überholter Stand.
 >
 > Tools werden als `<prefix>.<tool_name>` aufgerufen, z. B. `requirement.query` oder `test.run_create`.
 
