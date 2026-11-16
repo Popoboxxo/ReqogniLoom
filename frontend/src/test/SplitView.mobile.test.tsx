@@ -6,6 +6,10 @@
  * two-column layout, and the tabs were hardcoded English. The concept
  * contract (list/detail/spine) gets the same single back step as the legacy
  * branch — without it, six artifact routes had no mobile return path.
+ *
+ * PR #1888 adds the mobile entry rule: a phone ALWAYS starts in the list pane,
+ * even when a deep link / route selection already supplies a detail at mount.
+ * Hiding the list at mount made every row invisible to the mobile E2E shards.
  */
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -30,17 +34,19 @@ describe("SplitView mobile", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 390 });
   });
 
-  it("shows the list first and replaces it with the detail when a row opens", () => {
-    const { rerender } = render(
-      <SplitView leftPanel={<div>Liste</div>} rightPanel={null} />
+  it("starts in the list pane with a detail already provided, and opens the detail on a row click", () => {
+    render(
+      <SplitView
+        leftPanel={<div aria-pressed="false" data-testid="legacy-row">Zeile</div>}
+        rightPanel={<div>Detail</div>}
+      />
     );
+    // Deep link / route-selected artifact must not hide the list on mount.
     expect(screen.getByTestId("splitview-list").style.display).not.toBe("none");
     expect(screen.getByTestId("splitview-detail").style.display).toBe("none");
     expect(screen.queryByTestId("splitview-back")).toBeNull();
 
-    rerender(
-      <SplitView leftPanel={<div>Liste</div>} rightPanel={<div>Detail</div>} />
-    );
+    fireEvent.click(screen.getByTestId("legacy-row"));
     expect(screen.getByTestId("splitview-list").style.display).toBe("none");
     expect(screen.getByTestId("splitview-detail").style.display).not.toBe("none");
     expect(screen.getByTestId("splitview-back")).toBeTruthy();
@@ -48,14 +54,22 @@ describe("SplitView mobile", () => {
 
   it("keeps both panes mounted and returns to the list without a desktop jump", () => {
     const { rerender } = render(
-      <SplitView leftPanel={<div>Liste</div>} rightPanel={<div data-testid="detail-body">Detail</div>} />
+      <SplitView
+        leftPanel={<div aria-pressed="false" data-testid="legacy-row">Zeile</div>}
+        rightPanel={<div data-testid="detail-body">Detail</div>}
+      />
     );
     expect(screen.getByTestId("detail-body")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("legacy-row"));
+    expect(screen.getByTestId("splitview-detail").style.display).not.toBe("none");
     fireEvent.click(screen.getByTestId("splitview-back"));
     expect(screen.getByTestId("splitview-list").style.display).not.toBe("none");
     // A parent re-render with a new element identity must not reopen the detail.
     rerender(
-      <SplitView leftPanel={<div>Liste</div>} rightPanel={<div data-testid="detail-body">Detail</div>} />
+      <SplitView
+        leftPanel={<div aria-pressed="false" data-testid="legacy-row">Zeile</div>}
+        rightPanel={<div data-testid="detail-body">Detail</div>}
+      />
     );
     expect(screen.getByTestId("splitview-list").style.display).not.toBe("none");
     // The desktop divider is never part of the mobile branch.
@@ -63,16 +77,21 @@ describe("SplitView mobile", () => {
   });
 
   it("uses the translated back label, not a hardcoded English tab", () => {
-    render(<SplitView leftPanel={<div>Liste</div>} rightPanel={<div>Detail</div>} />);
+    render(
+      <SplitView
+        leftPanel={<div aria-pressed="false" data-testid="legacy-row">Zeile</div>}
+        rightPanel={<div>Detail</div>}
+      />
+    );
+    fireEvent.click(screen.getByTestId("legacy-row"));
     expect(screen.getByTestId("splitview-back").textContent).toContain("Zurück zur Liste");
     expect(screen.queryByText("Detail", { selector: "button" })).toBeNull();
   });
 
-  it("opens the detail when a list row is clicked after going back", () => {
+  it("opens the detail when a list row is clicked", () => {
     render(
       <SplitView leftPanel={<div aria-pressed="false">Zeile</div>} rightPanel={<div>Detail</div>} />
     );
-    fireEvent.click(screen.getByTestId("splitview-back"));
     expect(screen.getByTestId("splitview-list").style.display).not.toBe("none");
     fireEvent.click(screen.getByText("Zeile"));
     expect(screen.getByTestId("splitview-detail").style.display).not.toBe("none");
@@ -102,8 +121,13 @@ describe("SplitView mobile", () => {
       <div role="treeitem" aria-selected={false} data-testid="concept-row">Zeile</div>
     );
 
-    it("hides the list behind the detail on mobile and offers a back step", () => {
+    it("starts in the list pane with a detail provided, and offers a back step after a row click", () => {
       render(<SplitView list={conceptList} detail={<div data-testid="concept-detail">Detail</div>} />);
+      expect(screen.getByTestId("splitview-list").style.display).not.toBe("none");
+      expect(screen.getByTestId("splitview-detail").style.display).toBe("none");
+      expect(screen.queryByTestId("splitview-back")).toBeNull();
+
+      fireEvent.click(screen.getByTestId("concept-row"));
       expect(screen.getByTestId("splitview-back")).toBeTruthy();
       expect(screen.getByTestId("splitview-list").style.display).toBe("none");
       expect(screen.getByTestId("splitview-detail").style.display).not.toBe("none");
@@ -116,6 +140,8 @@ describe("SplitView mobile", () => {
 
     it("reopens the detail when a row is clicked after going back", () => {
       render(<SplitView list={conceptList} detail={<div data-testid="concept-detail">Detail</div>} />);
+      fireEvent.click(screen.getByTestId("concept-row"));
+      expect(screen.getByTestId("splitview-detail").style.display).not.toBe("none");
       fireEvent.click(screen.getByTestId("splitview-back"));
       expect(screen.getByTestId("splitview-detail").style.display).toBe("none");
       fireEvent.click(screen.getByTestId("concept-row"));
@@ -135,7 +161,6 @@ describe("SplitView mobile", () => {
           detail={<div data-testid="concept-detail">Detail</div>}
         />
       );
-      fireEvent.click(screen.getByTestId("splitview-back"));
       fireEvent.click(screen.getByTestId("fake-toggle"));
       expect(screen.getByTestId("splitview-list").style.display).not.toBe("none");
       fireEvent.click(screen.getByTestId("concept-row"));

@@ -440,9 +440,14 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
     const [isMobile, setIsMobile] = useState(
       responsiveMode && window.innerWidth < readBreakpointToken('--bp-md', FALLBACK_BP_MD)
     );
-    const [mobilePane, setMobilePane] = useState<'list' | 'detail'>(
-      rightPanel !== null && rightPanel !== undefined ? 'detail' : 'list'
-    );
+    // PR #1888: on a phone the list is always the entry point — even for a
+    // deep link or a route-selected artifact that already provides `rightPanel`
+    // at mount. Initialising from a non-null `rightPanel` hid the list behind
+    // `display: none`, so no row was clickable and the mobile list/detail E2E
+    // flows timed out on `toBeVisible()`. The detail is reached through the
+    // delegated row click below; the back step still returns to this pane.
+    // Desktop never reads `mobilePane`, so its behaviour is unchanged.
+    const [mobilePane, setMobilePane] = useState<'list' | 'detail'>('list');
     const lastRightPanelRef = useRef<React.ReactNode>(rightPanel);
 
     // Drag state
@@ -591,13 +596,11 @@ const LegacySplitView = React.forwardRef<HTMLDivElement, LegacySplitViewProps>(
     // list pane (below) handle changes of an already-open detail.
     useEffect(() => {
       if (lastRightPanelRef.current === rightPanel) return;
-      const hadDetail = lastRightPanelRef.current !== null && lastRightPanelRef.current !== undefined;
       lastRightPanelRef.current = rightPanel;
-      if (!hadDetail && rightPanel !== null && rightPanel !== undefined) {
-        setMobilePane('detail');
-      } else if (rightPanel === null || rightPanel === undefined) {
-        setMobilePane('list');
-      }
+      // The list is ALWAYS the mobile entry point — including when a detail
+      // appears later from async data loading. Opening a detail is an explicit
+      // user action on a row (see the delegated click handler below).
+      if (rightPanel === null || rightPanel === undefined) setMobilePane('list');
     }, [rightPanel]);
 
     const listPaneRef = useRef<HTMLDivElement>(null);
@@ -800,9 +803,10 @@ const ConceptSplitView = React.forwardRef<HTMLDivElement, ConceptSplitViewProps>
     // replaces the list and a single back step returns to it. The parent keeps
     // its selection — `detail` is a controlled prop, so "back" only flips this
     // local pane choice (spec §7.2 / ch. 6.2).
-    const [mobilePane, setMobilePane] = useState<'list' | 'detail'>(() =>
-      hasDetail ? 'detail' : 'list'
-    );
+    // PR #1888: same rule as the legacy branch — a phone always enters on the
+    // list, even when a controlled `detail` is already present at mount. The
+    // detail is opened by the delegated row click below; "back" returns here.
+    const [mobilePane, setMobilePane] = useState<'list' | 'detail'>('list');
     const listContainerRef = useRef<HTMLDivElement>(null);
     const backButtonRef = useRef<HTMLButtonElement>(null);
     const lastClickedRowRef = useRef<HTMLElement | null>(null);
@@ -861,10 +865,9 @@ const ConceptSplitView = React.forwardRef<HTMLDivElement, ConceptSplitViewProps>
     // detail back open after the user pressed back (same rule as legacy).
     useEffect(() => {
       if (lastDetailRef.current === detail) return;
-      const hadDetail = lastDetailRef.current !== null && lastDetailRef.current !== undefined;
       lastDetailRef.current = detail;
-      if (!hadDetail && hasDetail) setMobilePane('detail');
-      else if (!hasDetail) setMobilePane('list');
+      // Same rule as the legacy branch: never auto-hide the list on mobile.
+      if (!hasDetail) setMobilePane('list');
     }, [detail, hasDetail]);
 
     const isMobileReplace = zone === 'mobile' && hasDetail && mobilePane === 'detail';

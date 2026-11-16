@@ -51,6 +51,10 @@ const LIST_ROW_SELECTOR = [
  * of a silently passing smoke step.
  */
 export async function openFirstListItem(page: Page): Promise<void> {
+  // PR #1888: a phone always starts in the list pane. Wait for it before
+  // locating a row so a detail-on-mount regression fails here with an
+  // actionable "list pane hidden" timeout rather than deep in the locator.
+  await expect(page.getByTestId('splitview-list')).toBeVisible();
   const row = page.locator(LIST_ROW_SELECTOR).first();
   await expect(row).toBeVisible();
   await row.click();

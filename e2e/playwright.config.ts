@@ -87,7 +87,10 @@ export default defineConfig({
     },
     {
       name: 'mobile-safari',
-      use: { ...devices['iPhone 13'] },
+      // CI installs Chromium only (`npx playwright install --with-deps
+      // chromium`), so keep the iPhone 13 viewport/UA emulation but force the
+      // installed browser. iOS is emulated, not real Safari (documented limit).
+      use: { ...devices['iPhone 13'], browserName: 'chromium' },
       grep: /@mobile/,
     },
   ],
