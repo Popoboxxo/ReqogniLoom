@@ -29,7 +29,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        # Shards 1-4: desktop. Shard 5: the @mobile smoke suite on two device
+        # profiles (plan M0). The desktop shards stay at 1/4..4/4 so adding
+        # mobile coverage does not reshuffle the existing test partition.
+        shard: [1, 2, 3, 4, 5]
 
     services:
       postgres:
@@ -362,7 +365,8 @@ jobs:
         if: matrix.shard == 1
         run: docker build -f frontend/Dockerfile --target production frontend --no-cache -t reqflow-frontend:${{ github.sha }}
 
-      - name: Run Playwright E2E tests
+      - name: Run Playwright E2E tests (desktop, shards 1-4)
+        if: matrix.shard != 5
         working-directory: e2e
         env:
           FRONTEND_URL: http://localhost:5173
@@ -370,7 +374,15 @@ jobs:
           # Plan E / WP E3.8 (#1308): the MFA spec skips itself when this is
           # absent; keep it aligned with the seed_demo step above.
           E2E_MFA_PASSWORD: e2e-mfa-password
-        run: npm run test:e2e -- --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+        run: npm run test:e2e -- --project=chromium --shard=${{ matrix.shard }}/4
+
+      - name: Run mobile smoke (Pixel 7 + iPhone 13, shard 5)
+        if: matrix.shard == 5
+        working-directory: e2e
+        env:
+          FRONTEND_URL: http://localhost:5173
+          BACKEND_URL: http://localhost:8000
+        run: npm run test:e2e -- --project=mobile-chrome --project=mobile-safari --grep=@mobile
 
       - name: Upload Playwright report
         # Failure only: uploading a report for a green run burned time and once

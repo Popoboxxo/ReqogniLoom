@@ -87,19 +87,22 @@ nicht mehr kaputt"; M5–M8 sind die eigentliche Mobil-Arbeit.
 ## 2. M0 — Messbasis
 
 **Ziel:** Vor der ersten Zeile Produktivcode ist belegt, was kaputt ist — statt es zu glauben.
+**Stand 2026-11-16: umgesetzt.** Playwright listet 3 Projekte / 450 Tests; die mobile Suite
+läuft nur in `mobile-chrome` und `mobile-safari`. Gerenderte Baseline-Screenshots fehlen,
+solange kein Stack läuft (siehe `docs/plans/mobile-baseline-2026-11.md`).
 
-- [ ] `e2e/playwright.config.ts`: Projekte `mobile-chrome` (`devices['Pixel 7']`) und
+- [x] `e2e/playwright.config.ts`: Projekte `mobile-chrome` (`devices['Pixel 7']`) und
       `mobile-safari` (`devices['iPhone 13']`) ergänzen; Desktop-Projekt unverändert lassen.
-- [ ] `e2e/tests/mobile-smoke.spec.ts`: Login, Dashboard, `/requirements`, `/documents`,
+- [x] `e2e/tests/mobile-smoke.spec.ts`: Login, Dashboard, `/requirements`, `/documents`,
       `/traceability`, `/connections`; je Route Assertion
       `document.documentElement.scrollWidth <= clientWidth + 1` und ein Screenshot
       `mobile-<route>.png` (nur `toHaveScreenshot` im mobilen Projekt).
-- [ ] `e2e/helpers/mobile.ts`: `expectNoHorizontalDocumentScroll(page)` und
+- [x] `e2e/helpers/mobile.ts`: `expectNoHorizontalDocumentScroll(page)` und
       `openFirstListItem(page)` (kapselt die zwei Zeilen-Konventionen
       `aria-selected`/`aria-pressed`).
-- [ ] `docs/plans/mobile-baseline-2026-11.md` (neu, kurz): Ist-Audit je Route — was bricht,
+- [x] `docs/plans/mobile-baseline-2026-11.md` (neu, kurz): Ist-Audit je Route — was bricht,
       mit Screenshot-Verweis und `pfad:zeile`. Ergebnis wird zur Abhakliste für M4–M8.
-- [ ] CI: die mobile Suite als eigener Shard einhängen (`.github/workflows/playwright.yml`),
+- [x] CI: die mobile Suite als eigener Shard einhängen (`.github/workflows/playwright.yml`),
       damit sie nicht am Desktop-Shard hängt.
 
 **DoD:** Suite läuft lokal und in CI; der Baseline-Bericht nennt je Route mindestens einen
@@ -111,29 +114,32 @@ Befund oder belegt Abwesenheit. **Kein** Produktivcode in diesem Schnitt.
 
 **Ziel:** Chrome/Android bietet „App installieren" an; die installierte App startet standalone.
 Noch ohne Service Worker — das ist laut Spec §3.3 zulässig und hält den Schnitt klein.
+**Stand 2026-11-16: umgesetzt.** Vitest 9/9 grün, `tsc --noEmit` grün, `nginx -t` grün,
+`check-nginx-headers.sh` gegen einen nginx-Testcontainer grün. Lighthouse-/Geräte-Check
+stehen noch aus (kein Stack / kein Android-Gerät in dieser Sitzung).
 
-- [ ] `frontend/public/icons/` anlegen: `icon.svg` (Master, „RL"-Monogramm nach O2/E6 —
+- [x] `frontend/public/icons/` anlegen: `icon.svg` (Master, „RL"-Monogramm nach O2/E6 —
       Farben `--color-primary` auf `--color-nav-bg` aus `tokens.css`, 20 % Innenabstand),
       `icon-192.png`, `icon-512.png`, `maskable-512.png` (Safe-Zone 40 % Radius, Motiv
       vollständig innerhalb), `apple-touch-180.png` (deckend, ohne Transparenz — iOS zeigt
       sonst Schwarz).
-- [ ] `frontend/public/manifest.webmanifest` nach Spec §6.1.
-- [ ] `frontend/index.html` nach Spec §6.2 (`viewport`, `manifest`, `theme-color` hell/dunkel,
+- [x] `frontend/public/manifest.webmanifest` nach Spec §6.1.
+- [x] `frontend/index.html` nach Spec §6.2 (`viewport`, `manifest`, `theme-color` hell/dunkel,
       `apple-touch-icon`, `mobile-web-app-capable`). `viewport-fit=cover` **und**
       `interactive-widget=resizes-content` in **einem** `content`-Attribut.
-- [ ] `frontend/src/config/app-name.ts` bleibt die Namensquelle; `name`/`short_name` im
+- [x] `frontend/src/config/app-name.ts` bleibt die Namensquelle; `name`/`short_name` im
       Manifest müssen dazu passen (Test: `frontend/src/test/pwa-manifest.test.ts` liest die
       Datei per `fs` und vergleicht mit dem Default `"ReqogniLoom"`; bei gesetztem
       `VITE_APP_NAME` ist der Test bewusst tolerant und prüft nur Nicht-Leere).
-- [ ] `frontend/src/test/pwa-icons.test.ts`: liest PNG-Header (Bytes 16–24) und prüft
+- [x] `frontend/src/test/pwa-icons.test.ts`: liest PNG-Header (Bytes 16–24) und prüft
       192×192, 512×512, 180×180 — kein Bild-Decoder, keine neue Abhängigkeit.
-- [ ] `frontend/nginx.conf`: `location = /manifest.webmanifest` mit
+- [x] `frontend/nginx.conf`: `location = /manifest.webmanifest` mit
       `Cache-Control: no-cache` + `include /etc/nginx/snippets/security-headers.conf;`;
       `webmanifest` in die MIME-Auslieferung (nginx `mime.types` deckt es ab — im
       Container-Test verifizieren).
-- [ ] `frontend/scripts/check-nginx-headers.sh`: Manifest-Pfad in die geprüften Routen
+- [x] `frontend/scripts/check-nginx-headers.sh`: Manifest-Pfad in die geprüften Routen
       aufnehmen (Header + Content-Type), damit die Regression aus RB-D02 nicht zurückkommt.
-- [ ] `docs/features/mobile-and-pwa.md` (neu): Installation auf Android/iOS, was die App
+- [x] `docs/features/mobile-and-pwa.md` (neu): Installation auf Android/iOS, was die App
       offline kann (in M1: nichts), wie man sie deinstalliert.
 
 **Tests:** Manifest-JSON valide, Icon-Maße, `curl`-Smoke im CI (`nginx-headers-smoke`-Job

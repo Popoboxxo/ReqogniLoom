@@ -6,7 +6,8 @@
 # static asset location and `/healthz` each define one, so they used to serve
 # no CSP, no X-Frame-Options and no nosniff. This script is the executable
 # definition of "fixed": it checks the document route, a deep-link route (SPA
-# fallback), a real script asset and the health endpoint.
+# fallback), a real script asset, the health endpoint and the PWA manifest
+# (M1: MIME type and no-cache).
 #
 # It also enforces the CSP hardening from QR-S17:
 #   * `frame-ancestors 'none'` must be present,
@@ -166,6 +167,19 @@ elif printf '%s' "${asset}" | grep -qE '^/'; then
   check_url "${BASE_URL}${asset}" "${asset}"
 else
   check_url "${BASE_URL}/${asset}" "${asset}"
+fi
+
+# 5. Web app manifest (plan M1): correct MIME and no-cache. Renaming the
+#    product or changing an icon must become visible without waiting out a
+#    long-lived browser cache.
+manifest_url="${BASE_URL}/manifest.webmanifest"
+check_url "${manifest_url}" "/manifest.webmanifest"
+manifest_headers="$(curl -sS -D - -o /dev/null "${manifest_url}" || true)"
+if ! printf '%s\n' "${manifest_headers}" | grep -qi '^content-type: application/manifest+json'; then
+  fail "/manifest.webmanifest" "missing or wrong Content-Type (expected application/manifest+json)"
+fi
+if ! printf '%s\n' "${manifest_headers}" | grep -qi '^cache-control: no-cache'; then
+  fail "/manifest.webmanifest" 'missing Cache-Control: no-cache'
 fi
 
 if [ "${failures}" -ne 0 ]; then

@@ -76,6 +76,19 @@ export default defineConfig({
     video: 'on-first-retry',
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    // Desktop stays the default for the four existing CI shards. Mobile
+    // smoke tests are tagged `@mobile` and run only in the two device
+    // projects (the dedicated fifth CI shard) — see mobile-smoke.spec.ts.
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] }, grepInvert: /@mobile/ },
+    {
+      name: 'mobile-chrome',
+      use: { ...devices['Pixel 7'] },
+      grep: /@mobile/,
+    },
+    {
+      name: 'mobile-safari',
+      use: { ...devices['iPhone 13'] },
+      grep: /@mobile/,
+    },
   ],
 });

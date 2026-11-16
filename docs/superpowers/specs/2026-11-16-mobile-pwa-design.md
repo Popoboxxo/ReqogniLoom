@@ -209,8 +209,8 @@ herumliegt.
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui", "browser"],
   "orientation": "any",
-  "background_color": "#11151f",
-  "theme_color": "#11151f",
+  "background_color": "#1a1f2e",
+  "theme_color": "#1a1f2e",
   "lang": "de",
   "dir": "ltr",
   "icons": [
@@ -221,10 +221,12 @@ herumliegt.
 }
 ```
 
-Regeln: `name` folgt `APP_NAME` (E5); `lang` bleibt `de` (Oberfläche ist DE/EN, die
-Erstsprache der Installation ist Deutsch — Wechsel zur Laufzeit ist über `i18next` möglich,
-das Manifest wird nicht pro Sprache ausgeliefert); `background_color`/`theme_color` sind
-Token-Werte des Default-Themes, keine Rohwerte mit zweiter Wahrheit (Test in M1).
+Regeln: `name` folgt `APP_NAME` (E5); `background_color`/`theme_color` sind **Kopien** der
+Token-Werte `--color-nav-bg` (`#1a1f2e`, `tokens.css:505`) und `--color-surface` im Light-Theme
+(`#f8fafc`, `tokens.css:930`) — ein Manifest kann keine `var()` auflösen, der Vitest in M1 prüft
+die Werte deshalb gegen `tokens.css` statt sie als zweite Wahrheit stehen zu lassen; `lang`
+bleibt `de` (Oberfläche ist DE/EN, Erstsprache der Installation ist Deutsch — Wechsel zur
+Laufzeit über `i18next`, das Manifest wird nicht pro Sprache ausgeliefert).
 
 ### 6.2 `index.html`
 
@@ -233,8 +235,8 @@ Token-Werte des Default-Themes, keine Rohwerte mit zweiter Wahrheit (Test in M1)
 <link rel="manifest" href="/manifest.webmanifest" />
 <link rel="icon" href="/icons/icon-192.png" sizes="192x192" />
 <link rel="apple-touch-icon" href="/icons/apple-touch-180.png" />
-<meta name="theme-color" content="#11151f" media="(prefers-color-scheme: dark)" />
-<meta name="theme-color" content="#f7f8fa" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#1a1f2e" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)" />
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
