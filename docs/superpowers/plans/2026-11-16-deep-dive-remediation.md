@@ -1,6 +1,6 @@
 ---
 type: PLAN
-title: "Deep-Dive 2026-11-16 — Remediation in 24 Schnitten (S0–S6)"
+title: "Deep-Dive 2026-11-16 — Remediation in 25 Schnitten (S0–S6)"
 status: proposed
 date: 2026-11-16
 author_agent: planner

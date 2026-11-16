@@ -3,7 +3,7 @@
 **Datum:** 2026-11-16 · **Basis:** `origin/main` `d097ef06` (Branch `docs/deep-dive-audit`, Worktree `.tmp/wt-deep-dive`)  
 **Art:** statischer, read-only Deep Dive über alle Quellcode- und Dokumentationsbereiche; keine Source-Änderung, kein Commit auf `main`.  
 **Durchläufe:** 2 (Pass 1: Korrektheit/Sicherheit/Perf/Doku; Pass 2: Coding Best Practices + Meta-Review).
-**Umsetzungsplan:** [`docs/superpowers/plans/2026-11-16-deep-dive-remediation.md`](../superpowers/plans/2026-11-16-deep-dive-remediation.md) — 24 Schnitte, 186/186 Findings zugeordnet.
+**Umsetzungsplan:** [`docs/superpowers/plans/2026-11-16-deep-dive-remediation.md`](../superpowers/plans/2026-11-16-deep-dive-remediation.md) — 25 Schnitte, 186/186 Findings zugeordnet.
 **Umfang:** 2110 Python-Dateien, 1016 Frontend-TS/TSX-Dateien, 83 E2E-TS-Dateien, deploy-/CI-/Doku-Bestände; 15 disjunkte Review-Dimensionen.
 
 > **Hinweis zur Schwere-Skala:** Die Reviewer nutzten leicht unterschiedliche Vokabeln (HIGH/High/Major/major/MEDIUM/…).
