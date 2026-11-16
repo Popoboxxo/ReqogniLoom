@@ -1,8 +1,9 @@
 ---
 type: SPEC
 title: "Mobil bedienbar und auf Android installierbar: responsive Oberfläche + PWA-Hülle"
-status: proposed
+status: accepted
 date: 2026-11-16
+decided: 2026-11-16
 author_agent: planner
 language: de
 related_issues: []
@@ -12,9 +13,17 @@ evidence: "Stand origin/main fe34e583 (2026-11-16); Belege als `pfad:zeile` aus 
 
 # Mobil bedienbar und auf Android installierbar
 
-> **Status: Entwurf (2026-11-16), nicht freigegeben.** §5 enthält zehn Entscheidungen mit
-> Empfehlung; sie sind **Vorschläge**, nicht beschlossen. Offene Punkte stehen ausschließlich
-> in §11. Kein Produktivcode, kein Commit auf `main`.
+> **Status: beschlossen (2026-11-16).** Die in §5 geführten Entscheidungen sind entschieden
+> (Nutzerbefragung 2026-11-16: acht Entscheidungsfragen plus eine Frage zum weiteren Vorgehen, einzeln beantwortet); E4, E5, E8, E9 und E10 wurden
+> als Empfehlung **übernommen** und sind bis zu einem ausdrücklichen Widerspruch bindend. Der
+> Bauplan liegt vor: `docs/superpowers/plans/2026-11-16-mobile-pwa.md` (M0–M9). Noch kein
+> Produktivcode — der Arbeitsstand ist eine Spec auf einem Docs-Branch, nicht auf `main`.
+>
+> **Kurzfassung der Entscheidungen:** volle PWA (installierbar **und** Service Worker),
+> Offline nur App-Hülle (keine Fachdaten), SW über `vite-plugin-pwa`/Workbox, Legacy-SplitView
+> reparieren (keine Migration der 17 Aufrufer), Icon als „RL"-Monogramm aus der Wortmarke,
+> kein Play-Store-Paket, Update-Hinweis als schlichter Banner, iOS nur per Emulation mit
+> ausgewiesener Einschränkung.
 >
 > **Auftrag (Nutzer, 2026-11-16):** „Ziel ist, die Website auch auf einem Handy gut aussehen zu
 > lassen und als Pseudo-App auf Android (mindestens) zu speichern."
@@ -39,8 +48,9 @@ Play-Store-Paket, kein Offline-Betrieb der Fachdaten.
 
 - **Kein Offline-Schreibbetrieb.** Keine Sync-Queue, kein Konfliktauflösungsmodell, keine
   IndexedDB-Kopie von Artefakten. Offline wird nur die App-Hülle ausgeliefert (§6.3).
-- **Kein Play-Store-/App-Store-Paket** (TWA/Bubblewrap, PWABuilder). Möglich als späteres
-  Vorhaben; es ändert an dieser Spec nur den Vertrieb, nicht die Technik.
+- **Kein Play-Store-/App-Store-Paket** (TWA/Bubblewrap, PWABuilder). Entscheidung O3
+  (2026-11-16): Web-Installation genügt; ein Store-Paket wäre ein späteres, eigenes Vorhaben
+  und ändert an dieser Spec nur den Vertrieb, nicht die Technik.
 - **Kein Redesign.** Die in `docs/UI_KONZEPT.md` Kap. 6.3 beschriebene Mobil-IA ist der
   Vertrag; es wird umgesetzt, was dort steht, nicht neu erfunden.
 - **Keine Backend-, REST- oder MCP-Änderung.** Kein neues Tool, kein neues Feld, keine
@@ -166,23 +176,23 @@ herumliegt.
   (`display-mode: standalone`) verschwindet der Eintrag.
 - iOS: derselbe Eintrag öffnet ein Bottom-Sheet mit der Teilen-Anleitung statt eines
   Install-Buttons.
-- Nach Installation: Start auf `/` (bzw. zuletzt gemerkte Route? siehe E4), ohne Browser-Chrome,
-  Statusbar-Farbe passend zum Theme (`theme-color` hell/dunkel).
+- Nach Installation: Start auf `/` (E4), ohne Browser-Chrome, Statusbar-Farbe passend zum Theme
+  (`theme-color` hell/dunkel).
 
-## 5. Entscheidungen (Vorschlag, zu bestätigen)
+## 5. Entscheidungen (beschlossen 2026-11-16)
 
-| # | Frage | Empfehlung | Begründung / Alternative |
+| # | Frage | Entscheidung | Begründung / verworfene Alternative |
 |---|---|---|---|
-| **E1** | Umfang der „Pseudo-App" | **Installierbar + App-Hülle**, kein Offline-Schreibbetrieb | Der Auftrag sagt „speichern", nicht „offline arbeiten". Offline-Fachdaten verlangen Konfliktmodell und Tenant-Daten im Gerätespeicher — eigener großer Vorlauf |
-| **E2** | Service Worker überhaupt? | **Ja, aber nur für die Hülle** (App-Shell-Precache + Navigations-Fallback, `/api/` und `/mcp/` ausdrücklich ausgenommen) | Ohne SW startet die installierte App bei wackligem Netz auf einer weißen Seite; mit SW startet sie sofort und zeigt einen ehrlichen Offline-Hinweis. Kein Caching von Fachantworten (§8) |
-| **E3** | SW-Toolchain | **`vite-plugin-pwa` (Workbox, `generateSW`)** statt handgeschriebenem SW | Precache-Manifest mit Content-Hashes entsteht im Build; ein handgeschriebener SW müsste die Asset-Liste selbst pflegen und würde bei jedem Build driften. Neue Dev-Dependency ist der Preis, `registerType: "prompt"` hält Updates unter Kontrolle |
-| **E4** | `start_url` | **`"/"`** (nicht „letzte Route") | Deterministischer Einstieg, keine Zustandsmaschine im Manifest; Deep-Links funktionieren weiter über die SPA-Routen. „Letzte Route" wäre eine eigene Präferenz und ein eigener Fehlerpfad |
-| **E5** | Manifest-Erzeugung | **Statische Datei** `frontend/public/manifest.webmanifest` + Vitest-Drift-Test gegen `APP_NAME` (`frontend/src/config/app-name.ts`) | `VITE_APP_NAME` ist Build-Zeit-Konfiguration; ein Manifest-Rename darf nicht stillschweigend auseinanderlaufen. Ein Build-Plugin für einen 20-Zeilen-JSON ist unverhältnismäßig |
-| **E6** | Icons | **Ein SVG-Master + committete PNGs** 192/512/maskable-512/apple-touch-180, Test prüft Existenz und Pixelmaße | Kein Logo-Asset im Repo (3.2/B5); PNGs müssen committet werden, weil der Build sie unverändert ausliefert und ein SVG-zu-PNG-Schritt im Docker-Build eine neue native Abhängigkeit wäre |
-| **E7** | SplitView-Strategie | **Legacy-Zweig mobil reparieren** (Zustand trennen, i18n, Detail-Zurück), `ConceptSplitView` **nicht** in diesem Zug migrieren; Migration als eigene Entscheidung O1 | 17 Aufrufer in einem Zug umzubauen ist ein eigener Umbau mit Regressionsrisiko; der Legacy-Zweig ist mit ~40 Zeilen korrigierbar. Doppelte Pflege bleibt bewusst kurzfristig |
-| **E8** | Breakpoints | **Keine neuen Layout-Kanten**; `--bp-sm: 640px` nur als Dichte-/Sheet-Stufe dokumentieren | Das UI-Konzept nennt zwei Haltepunkte; eine dritte Layout-Kante würde jede bestehende `@media`-Regel mehrdeutig machen |
-| **E9** | Tabellen und Matrizen | **Horizontal scrollen im Container** bleibt (kein Karten-Fallback), plus erste Spalte fixiert und Zeilenaktionen immer sichtbar (Kebab statt Hover) | Ein Karten-Fallback für 20+ Tabellen ist ein zweites Rendering pro Tabelle; Scrollen im Container ist ehrlich und barrierearm, wenn die fixierte erste Spalte den Kontext hält |
-| **E10** | Schwere Editoren (Diagramm, Canvas, Verbindungsbaum) | **Lesen mobil, Bearbeiten am Desktop**: Zoom/Pan per Touch, klarer Hinweis „Bearbeiten am Desktop", keine Halb-Editing-Fläche | Ein Graph-Editor auf 390 px ist kein sinnvolles Ziel; ein kaputter Editor ist schlechter als ein ehrlicher Lesemodus |
+| **E1** | Umfang der „Pseudo-App" | **Volle PWA**: installierbar **und** Service Worker; offline nur die App-Hülle, **kein** Offline-Schreibbetrieb | Nutzerentscheid („Ich will, dass es eine progressive Web App ist") plus explizit „App-Hülle only". Verworfen: nur installierbar ohne SW (weiße Seite ohne Netz), Offline-Fachdaten (Konfliktmodell, Tenant-Daten auf dem Gerät) |
+| **E2** | Offline-Tiefe | **App-Hülle only**: HTML/JS/CSS/Fonts gecacht, `/api/` und `/mcp/` nie; Offline-Banner statt Fachdaten | Nutzerentscheid. Verworfen: zuletzt gesehene Artefakte im Cache (+1 Schnitt, Datenschutz auf geteilten Geräten), Offline lesen und schreiben (eigenes Großvorhaben) |
+| **E3** | SW-Toolchain | **`vite-plugin-pwa` / Workbox (`generateSW`)** | Nutzerentscheid. Precache-Manifest mit Content-Hashes entsteht im Build; ein handgeschriebener SW müsste die Asset-Liste selbst pflegen. Preis: eine Dev-Dependency |
+| **E4** | `start_url` | **`"/"`** (nicht „letzte Route") — übernommen | Deterministischer Einstieg, keine Zustandsmaschine im Manifest; Deep-Links laufen über die SPA-Routen. „Letzte Route" wäre eine eigene Präferenz und ein eigener Fehlerpfad |
+| **E5** | Manifest-Erzeugung | **Statische Datei** + Vitest-Drift-Test gegen `APP_NAME` — übernommen | `VITE_APP_NAME` ist Build-Zeit-Konfiguration; ein Rename darf nicht stillschweigend auseinanderlaufen. Ein Build-Plugin für 20 Zeilen JSON ist unverhältnismäßig |
+| **E6** | App-Icon | **„RL"-Monogramm aus der bestehenden Wortmarke** (Vorschlag des Planers, angenommen): SVG-Master, PNGs 192/512/maskable-512/apple-touch-180, Farben aus `tokens.css`, 40 % Safe-Zone in der maskable-Variante | Wiedererkennbar ohne neues Design. Verworfen: neu zeichnen lassen (Design-Zeit), externes SVG (liegt nicht vor) |
+| **E7** | SplitView-Strategie | **Legacy-Zweig mobil reparieren** (Zustand trennen, i18n, Detail-Zurück); `ConceptSplitView` **nicht** migrieren | Nutzerentscheid. 17 Aufrufer in einem Zug umzubauen ist ein eigener Umbau mit Regressionsrisiko; der Legacy-Zweig ist mit ~40 Zeilen korrigierbar. Migration bleibt als O1 offen |
+| **E8** | Breakpoints | **Keine neuen Layout-Kanten**; `--bp-sm: 640px` nur als Dichte-/Sheet-Stufe — übernommen | Das UI-Konzept nennt zwei Haltepunkte; eine dritte Layout-Kante würde jede bestehende `@media`-Regel mehrdeutig machen |
+| **E9** | Tabellen und Matrizen | **Horizontal scrollen im Container**, erste Spalte fixiert, Zeilenaktionen immer sichtbar (Kebab statt Hover) — übernommen | Ein Karten-Fallback für 20+ Tabellen ist ein zweites Rendering pro Tabelle; Scrollen im Container ist ehrlich, wenn die fixierte erste Spalte den Kontext hält |
+| **E10** | Schwere Editoren (Diagramm, Canvas, Verbindungsbaum) | **Lesen mobil, Bearbeiten am Desktop**: Zoom/Pan per Touch, Hinweis „Bearbeiten am Desktop", keine Halb-Editing-Fläche — übernommen | Ein Graph-Editor auf 390 px ist kein sinnvolles Ziel; ein kaputter Editor ist schlechter als ein ehrlicher Lesemodus |
 
 ## 6. Technische Spezifikation — PWA
 
@@ -361,18 +371,25 @@ Abnahmekriterien (Definition of Done des Vorhabens):
 | Cache leakt Tenant-Daten auf geteiltem Gerät | Datenschutzvorfall | Kein API-Caching (technisch erzwungen, getestet), Cache-Löschung beim Logout |
 | 17 Legacy-SplitView-Aufrufer, je eigene Detail-Kopfzeile | Zurück-Schritt wird 17× unterschiedlich | ein `SplitDetailHeader`-Primitiv mit `data-testid`, E2E-Sweep über alle Routen |
 | E2E-Laufzeit wächst (2 Geräte × Smoke) | CI-Zeit, Shard-Balance | Mobile-Suite als eigener Shard, nur Smoke (keine visuellen Snapshots aller Routen) |
-| iOS-Verhalten (Installation, Session-Lifetime) weicht ab | „Funktioniert auf Android, nicht auf iPhone" | iOS nur als „unterstützt, ohne Install-API" zusagen; Teilen-Anleitung und Test auf einem echten Gerät |
+| iOS-Verhalten (Installation, Session-Lifetime) weicht ab | „Funktioniert auf Android, nicht auf iPhone" | iOS nur als „unterstützt, ohne Install-API" zusagen; Teilen-Anleitung und Prüfung in Emulation (O5), die Doku weist die fehlende Geräteabnahme aus |
 | Scope-Dehnung in Editor-Umbauten | Vorhaben wird unfertig | E10: schwere Editoren bleiben read-only; alles andere ist Nicht-Ziel (§2) |
 
-## 11. Offene Punkte
+## 11. Entschiedene Punkte und offener Rest
 
-| # | Punkt | Entscheidung nötig von |
+Befragung 2026-11-16, neun Fragen einzeln beantwortet:
+
+| # | Punkt | Ergebnis |
 |---|---|---|
-| **O1** | `ConceptSplitView` migrieren und Legacy-Zweig löschen (17 Aufrufer) — nach oder statt E7? | Auftraggeber/Architektur |
-| **O2** | Icons: Monogramm aus bestehender Wortmarke ableiten oder neu zeichnen (Design-System)? | UI/Design |
-| **O3** | Play-Store-Paket (TWA) als späteres Vorhaben gewünscht? | Auftraggeber |
-| **O4** | Soll die installierte App eine „Was ist neu"-Notiz nach Update zeigen? | Auftraggeber |
-| **O5** | iOS-Verifikation auf echtem Gerät vorhanden (oder nur Simulator)? | QS |
+| **O1** | `ConceptSplitView` migrieren und Legacy-Zweig löschen (17 Aufrufer) | **Offen, nicht blockierend.** E7 entscheidet die Reparatur; die Migration bleibt ein eigenes Vorhaben (eigener Plan, eigenes Risiko) und darf erst nach M5/M9 bewertet werden |
+| **O2** | Icon-Motiv | **Entschieden:** „RL"-Monogramm aus der Wortmarke, Farben aus `tokens.css`, maskable mit 40 % Safe-Zone |
+| **O3** | Play-Store-Paket (TWA) | **Entschieden: nein.** Web-Installation genügt; ein TWA-Paket ist ein späteres, eigenes Vorhaben (§2) |
+| **O4** | Update-Hinweis | **Entschieden:** schlichter Banner „Neue Version verfügbar — jetzt neu laden"; **keine** „Was ist neu"-Notiz, kein Auto-Reload |
+| **O5** | iOS-Verifikation | **Entschieden:** nur Emulation/Simulator; die Doku weist ausdrücklich aus, dass iOS nicht auf echtem Gerät abgenommen wurde |
+| **—** | Zusätzlich beantwortet | „Volle PWA" (E1), „App-Hülle only" (E2), `vite-plugin-pwa` (E3), Legacy-Reparatur (E7) |
+
+Nicht separat befragt und deshalb als **übernommene Empfehlung** bindend bis zum Widerspruch:
+E4 (`start_url` `/`), E5 (statisches Manifest + Drift-Test), E8 (keine neue Layout-Kante),
+E9 (scrollende Tabellen mit fixierter erster Spalte), E10 (schwere Editoren mobil read-only).
 
 ## 12. Quellen
 

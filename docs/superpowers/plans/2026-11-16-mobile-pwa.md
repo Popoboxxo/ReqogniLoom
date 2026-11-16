@@ -1,8 +1,9 @@
 ---
 type: PLAN
 title: "Mobil bedienbar und installierbar — Umsetzung M0–M9"
-status: proposed
+status: accepted
 date: 2026-11-16
+decided: 2026-11-16
 author_agent: planner
 language: de
 spec: "docs/superpowers/specs/2026-11-16-mobile-pwa-design.md"
@@ -31,7 +32,8 @@ bis O1 entschieden ist.
 `styles/tokens.css`, Playwright (Chromium, neu: Pixel-7-/iPhone-13-Projekte), nginx 1.31,
 `vite-plugin-pwa` (Workbox) als einzige neue Abhängigkeit.
 
-**Spec:** `docs/superpowers/specs/2026-11-16-mobile-pwa-design.md` (Entwurf 2026-11-16).
+**Spec:** `docs/superpowers/specs/2026-11-16-mobile-pwa-design.md` (beschlossen 2026-11-16,
+Entscheidungen in §5 und §11 der Spec; Zusammenfassung in §13 dieses Plans).
 
 **Nicht in diesem Plan:** Offline-Schreibbetrieb/Sync-Queue (Spec §2), Play-Store-Paket (O3),
 Migration auf `ConceptSplitView` (O1), Redesign der Mobil-IA (Spec §4.1 ist bindend),
@@ -110,9 +112,11 @@ Befund oder belegt Abwesenheit. **Kein** Produktivcode in diesem Schnitt.
 **Ziel:** Chrome/Android bietet „App installieren" an; die installierte App startet standalone.
 Noch ohne Service Worker — das ist laut Spec §3.3 zulässig und hält den Schnitt klein.
 
-- [ ] `frontend/public/icons/` anlegen: `icon.svg` (Master), `icon-192.png`, `icon-512.png`,
-      `maskable-512.png` (Safe-Zone 80 %, Motiv innerhalb 40 % Radius), `apple-touch-180.png`
-      (deckend, ohne Transparenz — iOS zeigt sonst Schwarz).
+- [ ] `frontend/public/icons/` anlegen: `icon.svg` (Master, „RL"-Monogramm nach O2/E6 —
+      Farben `--color-primary` auf `--color-nav-bg` aus `tokens.css`, 20 % Innenabstand),
+      `icon-192.png`, `icon-512.png`, `maskable-512.png` (Safe-Zone 40 % Radius, Motiv
+      vollständig innerhalb), `apple-touch-180.png` (deckend, ohne Transparenz — iOS zeigt
+      sonst Schwarz).
 - [ ] `frontend/public/manifest.webmanifest` nach Spec §6.1.
 - [ ] `frontend/index.html` nach Spec §6.2 (`viewport`, `manifest`, `theme-color` hell/dunkel,
       `apple-touch-icon`, `mobile-web-app-capable`). `viewport-fit=cover` **und**
@@ -338,7 +342,9 @@ sinnvoll ist, sagt die Oberfläche das, statt es halb zu können.
 ## 11. M9 — Abnahme, Doku, CI
 
 - [ ] `docs/features/mobile-and-pwa.md` final: Gerätematrix, Installation Android/iOS,
-      Offline-Grenzen, bekannte Einschränkungen (schwere Editoren read-only, Offline nur Hülle).
+      Offline-Grenzen (Hülle only, E1/E2), Update-Banner (O4), **kein** Play-Store-Paket (O3),
+      Hinweis, dass iOS nur in Emulation geprüft wurde (O5), und bekannte Einschränkungen
+      (schwere Editoren read-only).
 - [ ] `docs/REQUIREMENTS.md`: Abschnitt „Mobile Oberfläche und installierbare PWA (M1–M9)"
       mit REQ-209 … REQ-215, Status nach Umsetzung auf `Done` setzen (Vorlage liegt bei).
 - [ ] `docs/superpowers/specs/index.md` und `docs/superpowers/plans/index.md`: Status auf
@@ -370,15 +376,23 @@ geplanten.
 | E2E | Desktop-Suite unverändert grün, mobiler Shard grün |
 | Doku | `docs/features/mobile-and-pwa.md` beschreibt den Stand der Scheibe |
 
-## 13. Offene Entscheidungen (blockieren den Start)
+## 13. Entscheidungen (beschlossen 2026-11-16) und Startfreigabe
 
-| # | Entscheidung | Optionen | Wirkung |
+Alle Fragen aus Spec §5/§11 sind am 2026-11-16 beantwortet. Der Plan ist damit **startbar**;
+es gibt keinen blockierenden offenen Punkt mehr.
+
+| # | Entscheidung | Ergebnis | Wirkung auf den Plan |
 |---|---|---|---|
-| **E1/E2** | Offline-Umfang und Service Worker | (a) Hülle + SW (Empfehlung), (b) nur installierbar ohne SW, (c) Offline-Fachdaten (großer Vorlauf) | entscheidet über M2 und die Hälfte des Risikoprofils |
-| **E3** | `vite-plugin-pwa` einführen | (a) ja (Empfehlung), (b) handgeschriebener SW | neue Dev-Abhängigkeit vs. eigener Precache-Generator |
-| **E7/O1** | Legacy-SplitView reparieren oder auf `ConceptSplitView` migrieren | (a) reparieren (Empfehlung), (b) 17 Aufrufer migrieren, Legacy löschen | (b) ist sauberer, aber ein eigener Umbau mit eigenem Plan |
-| **O2** | Icon-Motiv | (a) Monogramm „RL" aus der Wortmarke, (b) neu zeichnen | blockiert nur M1 |
-| **O3/O4** | Play-Store-Paket, „Was ist neu"-Notiz | ja/nein | nicht blockierend, nur Doku/Scope |
+| **E1** | Umfang der Pseudo-App | Volle PWA (installierbar **und** Service Worker), offline nur App-Hülle | M2 bleibt im Umfang wie geplant |
+| **E2** | Offline-Tiefe | App-Hülle only, keine Fachdaten im Cache | M2 wie geplant; „zuletzt gesehene Artefakte" ist **nicht** Teil des Plans |
+| **E3** | SW-Toolchain | `vite-plugin-pwa` / Workbox, `registerType: "prompt"` | neue Dev-Dependency in M2 |
+| **E7/O1** | SplitView | Legacy-Zweig mobil reparieren; keine Migration der 17 Aufrufer | M5 bleibt ~1,5 d; Migration bleibt offener Rest (O1), **nicht** Teil dieses Plans |
+| **O2** | App-Icon | „RL"-Monogramm aus der Wortmarke, Farben aus `tokens.css`, maskable 40 % Safe-Zone | M1-Aufgabe präzisiert |
+| **O3** | Play-Store-Paket | nein (Web-Installation genügt) | kein zusätzlicher Schnitt |
+| **O4** | Update-Hinweis | schlichter Banner, kein Auto-Reload, keine „Was ist neu"-Notiz | M2-Aufgabe `UpdateBanner` wie geplant |
+| **O5** | iOS | nur Emulation/Simulator; Doku weist die fehlende Geräteabnahme aus | M0-Profil `mobile-safari`, M9-Doku entsprechend |
+| **E4/E5/E8/E9/E10** | `start_url`, Manifest-Erzeugung, Breakpoints, Tabellen, schwere Editoren | als Empfehlung übernommen, bindend bis zum Widerspruch | unverändert |
 
-Ohne Entscheidung zu E1/E2 wird **nicht** mit M2 begonnen; M1, M4–M8 sind unabhängig davon
-startbar.
+**Startreihenfolge:** M0 (Messbasis) → M1 (installierbar) → M4 (Höhen/Safe-Areas) → M2
+(SW-Hülle) → M3 (Install-UX) → M5 (SplitView) → M6 → M7 → M8 → M9. M2 hängt nur an M1, M3 an
+M1; die Reihenfolge ist eine Empfehlung, keine technische Abhängigkeit außer M5→M7 und M6→M8.

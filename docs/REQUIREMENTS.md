@@ -337,6 +337,9 @@ Bauplan `docs/superpowers/plans/2026-11-15-navigation-trees.md` (ersetzt den sup
 Quelle: `docs/superpowers/specs/2026-11-16-mobile-pwa-design.md` (Entwurf) und
 `docs/superpowers/plans/2026-11-16-mobile-pwa.md` (Schnitte M0–M9). Status `Proposed`: nichts
 davon ist gebaut; die Anwender-Referenz `docs/features/mobile-and-pwa.md` entsteht in M1/M9.
+Entschieden am 2026-11-16 (Spec §5/§11): volle PWA (installierbar **und** Service Worker),
+Offline nur App-Hülle, Workbox via `vite-plugin-pwa`, Legacy-SplitView reparieren, „RL"-Monogramm
+als Icon, kein Play-Store-Paket, iOS nur in Emulation geprüft.
 
 | REQ-ID | Kategorie | Titel | Beschreibung | Status |
 |--------|-----------|-------|-------------|--------|
