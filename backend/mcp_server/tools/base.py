@@ -539,9 +539,19 @@ class BaseToolGroup(ABC):
 
     # Subclasses must define: {"tool.name": "_method_name"}
     _TOOL_MAP: dict[str, str] = {}
-    
-    # Subclasses can define schema mapping: {"tool.name": {...schema dict...}}
+
+    #: Subclasses can define schema mapping: {"tool.name": {...schema dict...}}
     _TOOL_SCHEMAS: list[dict[str, Any]] = []
+
+    #: True only for *capability* groups: they are routable pseudo-tool groups
+    #: that deliberately publish no schemas (``get_tool_schemas() == []``), so
+    #: they never appear in ``tools/list``. Only the ``resources/*`` and
+    #: ``prompts/*`` MCP capabilities use this (MCP-Modernisierung Task 6/7);
+    #: the "no shadow tools" ratchet in
+    #: ``test_mcp_workspace_fence_1376.py`` skips them by this flag. A normal
+    #: tool group must leave it False — otherwise its tools would silently lose
+    #: the #1376 undeclared-``workspace_id`` guard.
+    capability_only: bool = False
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
         """Return the MCP JSON schemas for all tools in this group."""

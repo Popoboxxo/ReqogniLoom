@@ -691,6 +691,18 @@ _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
         # (the latter additionally lifted to the ADMIN tier below).
         "preference.registry",
         "preference.get",
+        # MCP-Modernisierung Task 6/7: the resources/* and prompts/* MCP
+        # capabilities are pure read paths. Listed explicitly because the
+        # fail-closed default (#99) would otherwise RBAC-gate them as write
+        # tools; ``resource.*``/``prompt.*`` are internal pseudo-tools that
+        # never appear in tools/list (their groups return no schemas).
+        "resource.list",
+        "resource.read",
+        "resource.templates_list",
+        # prompts/* is the read/use path for the PromptTemplate system;
+        # prompt_template.create/update remain the admin-gated write path.
+        "prompt.list",
+        "prompt.get",
     }
 )
 
@@ -1130,9 +1142,11 @@ class ToolRegistry:
         from mcp_server.tools.preference import PreferenceToolGroup
         from mcp_server.tools.prompt_template import PromptTemplateToolGroup
         from mcp_server.tools.prompt_variable import PromptVariableToolGroup
+        from mcp_server.tools.prompts import PromptsToolGroup
         from mcp_server.tools.quality import QualityToolGroup
         from mcp_server.tools.requirement_bundle import RequirementBundleToolGroup
         from mcp_server.tools.requirements import RequirementsToolGroup
+        from mcp_server.tools.resources import ResourcesToolGroup
         from mcp_server.tools.review import ReviewToolGroup
         from mcp_server.tools.suggestion import SuggestionToolGroup
         from mcp_server.tools.summaries import SummaryToolGroup
@@ -1280,6 +1294,13 @@ class ToolRegistry:
             # manual run and stays fail-closed WRITE-gated (Editor+ plus the
             # shared ``artifact_summary`` rate scope).
             "summary": SummaryToolGroup(),
+            # MCP-Modernisierung Task 6/7: internal pseudo-tools backing the
+            # resources/* and prompts/* capabilities. Their get_tool_schemas()
+            # returns [] so the prefixes are routable but invisible in
+            # tools/list. ``prompt`` is distinct from ``prompt_template``/
+            # ``prompt_variable`` (the router matches on ``prefix + "."``).
+            "resource": ResourcesToolGroup(),
+            "prompt": PromptsToolGroup(),
         })
 
     def list_tools(

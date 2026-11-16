@@ -234,6 +234,20 @@ _PROTOCOL_ERROR_CODES = frozenset({
     "FEATURE_NOT_ENABLED",
 })
 
+#: MCP capability methods served by internal pseudo-tools. Dispatching them
+#: through ``ToolRegistry`` gives them the full auth/tenant/RBAC/preset chain
+#: for free; their tool groups return an empty ``get_tool_schemas()``, so they
+#: never appear in ``tools/list``. The handlers return the MCP-shaped payload
+#: directly, which the non-``tools/call`` serialisation branch passes through
+#: unwrapped.
+_METHOD_TO_INTERNAL_TOOL: dict[str, str] = {
+    "resources/list": "resource.list",
+    "resources/read": "resource.read",
+    "resources/templates/list": "resource.templates_list",
+    "prompts/list": "prompt.list",
+    "prompts/get": "prompt.get",
+}
+
 # JSON-RPC 2.0 Error Code Mapping
 # See: https://www.jsonrpc.org/specification#error_object
 # Standard codes: -32700 to -32603; Server-defined: -32000 to -32768
@@ -714,7 +728,7 @@ class ProtocolHandler:
             adapter.write_response(response)
             return response
 
-        tool_name = method
+        tool_name = _METHOD_TO_INTERNAL_TOOL.get(method, method)
         tool_args = clean_params
 
         if method == "tools/call":
@@ -817,6 +831,7 @@ __all__ = [
     "ERROR_CODES",
     "MCP_PROTOCOL_VERSION",
     "SUPPORTED_PROTOCOL_VERSIONS",
+    "_METHOD_TO_INTERNAL_TOOL",
     "ErrorFormatter",
     "HttpTransportAdapter",
     "JsonRpcValidator",
