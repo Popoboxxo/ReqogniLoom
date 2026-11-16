@@ -50,6 +50,9 @@ const BULK_UPDATE_URL = '/api/v1/artifacts/bulk-update/';
 const BULK_TRANSITION_URL = '/api/v1/artifacts/bulk-transition/';
 const TABLE_STATE_URL = '/api/v1/users/me/table-view-state/';
 const SAVED_VIEWS_URL = '/api/v1/saved-views/';
+const SAVED_VIEWS_PATH = '/api/v1/saved-views/';
+const REQUIREMENT_TRANSITIONS_PATH = (id: string): string =>
+  `/api/v1/requirements/${id}/transitions/`;
 
 const TITLE_ALPHA = 'Alpha table fixture';
 const TITLE_BETA = 'Beta table fixture';
@@ -121,6 +124,36 @@ async function readRequirement(
   });
   expect(response.ok()).toBeTruthy();
   return (await response.json()) as { title: string; version: number };
+}
+
+interface TransitionsBody {
+  current_state: string | null;
+  allowed_transitions: Array<{ target_state: string }>;
+}
+
+/**
+ * Read the row's own workflow graph — the single source of truth for "which
+ * moves are legal from here".
+ *
+ * The table's status dropdown derives its options from exactly this endpoint,
+ * so a test that hardcodes a target state asserts a state the workspace may not
+ * declare (`standard` has `draft -> approved`, `extended` has
+ * `draft -> in_review -> approved`). Reading it here keeps the spec honest and
+ * makes the chosen target explain itself in the failure message.
+ */
+async function readTransitions(
+  request: APIRequestContext,
+  id: string
+): Promise<TransitionsBody> {
+  const response = await request.get(
+    `${BACKEND_URL}${REQUIREMENT_TRANSITIONS_PATH(id)}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  expect(
+    response.ok(),
+    `GET ${REQUIREMENT_TRANSITIONS_PATH(id)} answered ${response.status()}`
+  ).toBeTruthy();
+  return (await response.json()) as TransitionsBody;
 }
 
 /** The table only renders when `canRead` and the rows query resolved. */
@@ -402,6 +435,32 @@ test.describe('Artifact table view', () => {
   }) => {
     await openTableView(page);
 
+    // Derive the target from the workspace's own graph instead of hardcoding a
+    // state. Both rows must share the current state and the edge, or a single
+    // bulk target cannot exist in the first place.
+    const [alphaTransitions, betaTransitions] = await Promise.all([
+      readTransitions(request, alpha.id),
+      readTransitions(request, beta.id),
+    ]);
+    expect(
+      alphaTransitions.current_state,
+      'both fixtures must start in the same state for one bulk target'
+    ).toBe(betaTransitions.current_state);
+    const betaTargets = new Set(
+      betaTransitions.allowed_transitions.map((entry) => entry.target_state)
+    );
+    const commonTargets = alphaTransitions.allowed_transitions
+      .map((entry) => entry.target_state)
+      .filter((state) => betaTargets.has(state));
+    const targets = commonTargets.filter(
+      (state) => state !== alphaTransitions.current_state
+    );
+    expect(
+      targets.length,
+      `no common transition out of '${alphaTransitions.current_state}' for both rows`
+    ).toBeGreaterThan(0);
+    const targetState = targets[0];
+
     const transitionRequests = track(
       page,
       (req) =>
@@ -414,15 +473,19 @@ test.describe('Artifact table view', () => {
 
     const target = page.getByTestId('bulk-target-state');
     await expect(target).toBeEnabled();
-    const targets = await target
+    const offered = await target
       .locator('option')
       .evaluateAll((options) =>
         options
           .map((option) => (option as HTMLOptionElement).value)
           .filter((value) => value !== '')
       );
-    expect(targets.length).toBeGreaterThan(0);
-    await target.selectOption(targets[0]);
+    // The dialog must offer exactly the graph's common moves — no more (an
+    // option the engine refuses is what produced "200 with failed[]") and no
+    // less. Order is the first row's transition order.
+    expect(offered).toEqual(commonTargets);
+
+    await target.selectOption(targetState);
     await page
       .getByTestId('bulk-status-change-reason')
       .fill('E2E bulk transition guardrail');
@@ -435,8 +498,6 @@ test.describe('Artifact table view', () => {
     await page.getByTestId('bulk-transition-submit').click();
     const response = await responsePromise;
     expect(response.status()).toBe(200);
-
-    await expect(page.getByTestId('bulk-action-bar')).toHaveCount(0);
     expect(transitionRequests).toHaveLength(1);
     const payload = transitionRequests[0].postDataJSON() as {
       item_type: string;
@@ -444,16 +505,44 @@ test.describe('Artifact table view', () => {
       to_state: string;
     };
     expect(payload.ids).toHaveLength(2);
-    expect(payload.to_state).toBe(targets[0]);
+    expect(payload.to_state).toBe(targetState);
 
-    // Both rows really moved — asserted through the API, independently of the
-    // badge's translated label.
+    const result = (await response.json()) as {
+      transitioned: Array<{ artifact_id: string; state: string }>;
+      failed: Array<{
+        index: number;
+        artifact_id: string;
+        code: string;
+        message: string;
+      }>;
+    };
+    // A 200 alone proves nothing: the endpoint is partial-success by contract
+    // and answers 200 with every row in `failed`. Without this assertion the
+    // test stayed green while both rows kept their old state (exactly the
+    // regression this guard exists for).
+    expect(
+      result.failed,
+      `bulk transition refused rows: ${JSON.stringify(result.failed)}`
+    ).toEqual([]);
+    expect(result.transitioned.map((entry) => entry.artifact_id).sort()).toEqual(
+      [...payload.ids].sort()
+    );
+    for (const entry of result.transitioned) {
+      expect(entry.state).toBe(targetState);
+    }
+
+    await expect(page.getByTestId('bulk-action-bar')).toHaveCount(0);
+
+    // Both rows really moved — asserted through the workflow state endpoint
+    // (the single source of truth) and through the entity's mirrored status.
     for (const id of [alpha.id, beta.id]) {
+      const after = await readTransitions(request, id);
+      expect(after.current_state).toBe(targetState);
       const reread = await request.get(`${BACKEND_URL}/api/v1/requirements/${id}/`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       expect(reread.ok()).toBeTruthy();
-      expect((await reread.json()).status).toBe(targets[0]);
+      expect((await reread.json()).status).toBe(targetState);
     }
   });
 
@@ -560,7 +649,60 @@ test.describe('Artifact table view', () => {
     await page.getByTestId('saved-view-save').click();
     await expect(page.getByTestId('saved-view-dialog')).toBeVisible();
     await page.getByTestId('saved-view-name').fill(viewName);
+
+    // Pin the create contract instead of only waiting for the dialog to close:
+    // a 400 (unknown item_type/field, bad visibility, duplicate name) left the
+    // dialog open and the test failed with a generic timeout that hid the
+    // server's message.
+    const createRequest = page.waitForRequest(
+      (req) =>
+        req.method() === 'POST' &&
+        new URL(req.url()).pathname === SAVED_VIEWS_PATH
+    );
+    const createResponse = page.waitForResponse(
+      (resp) =>
+        resp.request().method() === 'POST' &&
+        new URL(resp.url()).pathname === SAVED_VIEWS_PATH
+    );
     await page.getByTestId('saved-view-submit').click();
+    const createBody = (await createRequest).postDataJSON() as {
+      workspace_id: string;
+      item_type: string;
+      name: string;
+      visibility: string;
+      columns: unknown[];
+      filters: Record<string, unknown>;
+      sort: unknown[];
+    };
+    const create = await createResponse;
+    if (create.status() !== 201) {
+      throw new Error(
+        `POST ${SAVED_VIEWS_PATH} answered ${create.status()}: ${await create.text()}`
+      );
+    }
+    const created = (await create.json()) as {
+      id: string;
+      name: string;
+      item_type: string;
+      filters: Record<string, unknown>;
+    };
+    // The body the UI is required to send (SavedViewWriteSerializer).
+    expect(createBody).toMatchObject({
+      workspace_id: workspaceId,
+      item_type: 'Requirement',
+      name: viewName,
+      visibility: 'private',
+    });
+    expect(createBody.filters).toEqual({
+      title: { op: 'contains', value: 'Alpha' },
+    });
+    expect(Array.isArray(createBody.columns)).toBe(true);
+    expect(Array.isArray(createBody.sort)).toBe(true);
+    expect(created).toMatchObject({
+      name: viewName,
+      item_type: 'Requirement',
+      filters: { title: { op: 'contains', value: 'Alpha' } },
+    });
     await expect(page.getByTestId('saved-view-dialog')).toHaveCount(0);
 
     // Drop the filter (and the selection) so applying the view has to restore
@@ -578,7 +720,17 @@ test.describe('Artifact table view', () => {
         response.url().includes('/apply/')
     );
     await page.getByTestId('saved-view-select').selectOption({ label: viewName });
-    expect((await applyResponse).status()).toBe(200);
+    const applied = await applyResponse;
+    expect(applied.status()).toBe(200);
+    const appliedBody = (await applied.json()) as {
+      count: number;
+      results: Array<{ id: string; values?: { title?: string } }>;
+      warnings?: string[];
+    };
+    // `apply` is 200 even for a stale view: only the body proves the stored
+    // filter still compiles and actually narrows the rows here.
+    expect(appliedBody.warnings ?? []).toEqual([]);
+    expect(appliedBody.results.map((row) => row.id)).toEqual([alpha.id]);
 
     await expect(page.getByTestId('filter-chip-remove-title-0')).toBeVisible();
     await expect(page.getByTestId(`table-row-${alpha.id}`)).toBeVisible();
