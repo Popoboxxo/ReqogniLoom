@@ -10,6 +10,11 @@
 
 **Spec:** docs/superpowers/specs/2026-09-03-mcp-modernisierung-design.md
 
+**Status (2026-11-16):** Phasen A, B, D und E umgesetzt, Phase C als bereits
+vorhanden abgehakt. Der Ist-Abgleich am Code, die Abweichungen und die offenen
+Punkte stehen in [§ Umsetzungsstand](#umsetzungsstand-ist-2026-11-16) — dort
+zuerst lesen, die Task-Texte darunter sind der ursprüngliche Plan.
+
 ## Global Constraints
 
 - `MCP_PROTOCOL_VERSION` becomes exactly `"2025-06-18"` (currently `"2024-11-05"` at `backend/mcp_server/protocol_handler.py:45`).
@@ -106,6 +111,12 @@ Two cross-edges that are easy to miss:
 
 ### Task 1: Protocol version negotiation and extended capabilities
 
+> **Ist (2026-11-16):** umgesetzt. `MCP_PROTOCOL_VERSION = "2025-06-18"`,
+> `SUPPORTED_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")` und
+> `negotiate_protocol_version()` in `protocol_handler.py:45-71`; `initialize`
+> meldet `capabilities: {tools, resources, prompts}` (`:640-644`) und
+> `serverInfo.version` aus `reqogniloom.version.get_app_version()`.
+
 **Files:**
 - Modify: `backend/mcp_server/protocol_handler.py:45` (constant), `:451-463` (`initialize` branch), `:609-619` (`__all__`)
 - Test: `backend/mcp_server/tests/test_protocol_version_negotiation.py`
@@ -114,7 +125,7 @@ Two cross-edges that are easy to miss:
 - Consumes: nothing.
 - Produces: `MCP_PROTOCOL_VERSION: str = "2025-06-18"`, `SUPPORTED_PROTOCOL_VERSIONS: tuple[str, ...]`, `negotiate_protocol_version(requested: object) -> str`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `backend/mcp_server/tests/test_protocol_version_negotiation.py`:
 
@@ -180,12 +191,12 @@ def test_initialize_defaults_to_newest_without_params():
     assert _initialize({})["result"]["protocolVersion"] == "2025-06-18"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_protocol_version_negotiation.py -v`
 Expected: FAIL with `ImportError: cannot import name 'SUPPORTED_PROTOCOL_VERSIONS' from 'mcp_server.protocol_handler'`
 
-- [ ] **Step 3: Bump the constant and add the negotiator**
+- [x] **Step 3: Bump the constant and add the negotiator**
 
 In `backend/mcp_server/protocol_handler.py`, replace line 45 (`MCP_PROTOCOL_VERSION = "2024-11-05"`) with:
 
@@ -219,7 +230,7 @@ def negotiate_protocol_version(requested: object) -> str:
     return MCP_PROTOCOL_VERSION
 ```
 
-- [ ] **Step 4: Extend the initialize response**
+- [x] **Step 4: Extend the initialize response**
 
 Replace the `initialize` branch body (`protocol_handler.py:451-463`) with:
 
@@ -251,17 +262,17 @@ Add to `__all__` (`protocol_handler.py:609`):
     "negotiate_protocol_version",
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_protocol_version_negotiation.py -v`
 Expected: PASS (10 passed)
 
-- [ ] **Step 6: Run the neighbouring protocol suites for regressions**
+- [x] **Step 6: Run the neighbouring protocol suites for regressions**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_protocol_handler.py mcp_server/tests/test_e2e_mcp.py -q`
 Expected: PASS, no new failures versus the pre-change baseline.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/mcp_server/protocol_handler.py backend/mcp_server/tests/test_protocol_version_negotiation.py
@@ -271,6 +282,16 @@ git commit -m "feat(mcp): negotiate protocol 2025-06-18, advertise resources+pro
 ---
 
 ### Task 2: `Mcp-Session-Id` for the Streamable HTTP transport
+
+> **Ist:** umgesetzt. Mint/Echo in `views.py:309-311, 619-663`, `DELETE`
+> (`:665-673`: 400 ohne Header, 404 unbekannt, 204 beendet),
+> `delete_session_api_key()` in `sse_pubsub.py:135`, `_CORS_METHODS` enthält
+> `DELETE`; Tests in `test_streamable_http_session.py`.
+> **Offen:** die CORS-Header sind browser-untauglich für diesen Transport —
+> `Access-Control-Allow-Headers` führt nur `Content-Type, Authorization,
+> X-API-Key` (`views.py:355`) und ein `Access-Control-Expose-Headers` fehlt
+> komplett, ein Browser-Client kann den geminteten Header also weder lesen noch
+> senden (native Clients und der Legacy-SSE-Pfad sind nicht betroffen).
 
 **Files:**
 - Modify: `backend/mcp_server/sse_pubsub.py` (append `delete_session_api_key` after `get_session_api_key`, ~line 132)
@@ -283,7 +304,7 @@ git commit -m "feat(mcp): negotiate protocol 2025-06-18, advertise resources+pro
 
 **Decision:** the Streamable-HTTP session reuses the existing Redis-backed SSE session store instead of introducing a second one — both bind a session id to an authenticated API key with a TTL, which is the same primitive. Encryption at rest and TTL come along for free.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `backend/mcp_server/tests/test_streamable_http_session.py`:
 
@@ -384,12 +405,12 @@ def test_delete_without_session_header_is_400():
     assert Client().delete("/mcp/").status_code == 400
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_streamable_http_session.py -v`
 Expected: FAIL — `AttributeError: <module 'mcp_server.views'> does not have the attribute 'store_session_api_key'`
 
-- [ ] **Step 3: Add the session-deletion primitive**
+- [x] **Step 3: Add the session-deletion primitive**
 
 Append to `backend/mcp_server/sse_pubsub.py`, directly after `get_session_api_key` (which ends at line 131):
 
@@ -407,7 +428,7 @@ def delete_session_api_key(session_id: str) -> None:
         logger.exception(f"Failed to delete session api key for {session_id}")
 ```
 
-- [ ] **Step 4: Import the session store into the view module**
+- [x] **Step 4: Import the session store into the view module**
 
 In `backend/mcp_server/views.py`, extend the existing `mcp_server.sse_pubsub` import (used today by `McpMessagesView` / `McpSseTransportView`) so all three names are available at module level — the tests patch them there:
 
@@ -421,7 +442,7 @@ from mcp_server.sse_pubsub import (
 
 If those names are currently imported inside functions rather than at module scope, move them to module scope; leave every other `sse_pubsub` import (e.g. `publish_mcp_message`, `async_sse_generator`) exactly as it is.
 
-- [ ] **Step 5: Add the session-header helper**
+- [x] **Step 5: Add the session-header helper**
 
 In `backend/mcp_server/views.py`, next to `_extract_django_headers` (`:176`):
 
@@ -436,7 +457,7 @@ def _incoming_session_id(request: HttpRequest) -> str:
     return request.headers.get(_SESSION_HEADER, "").strip()
 ```
 
-- [ ] **Step 6: Let a session id stand in for the credential header**
+- [x] **Step 6: Let a session id stand in for the credential header**
 
 In `McpHttpTransportView.post`, directly after `headers = _extract_django_headers(request)` (`views.py:279`):
 
@@ -452,7 +473,7 @@ In `McpHttpTransportView.post`, directly after `headers = _extract_django_header
                 headers["X-API-Key"] = bound_key
 ```
 
-- [ ] **Step 7: Mint / echo the session header on the response**
+- [x] **Step 7: Mint / echo the session header on the response**
 
 In `McpHttpTransportView.post`, replace the final `return HttpResponse(body, content_type="application/json", status=http_status)` (`views.py:381-385`) with:
 
@@ -528,7 +549,7 @@ Add these two methods to `McpHttpTransportView`:
 
 `import uuid` and `logger` already exist at the top of `views.py` (`McpSseTransportView._resolve_session_id` uses `uuid.uuid4()`); do not re-add them.
 
-- [ ] **Step 8: Allow DELETE through CORS**
+- [x] **Step 8: Allow DELETE through CORS**
 
 Read `_apply_cors_headers` (`views.py:208`) and `CorsMixin` (`views.py:233`). Change only the `methods=` value that `McpHttpTransportView` passes / defaults to, from `"POST, GET, OPTIONS"` to:
 
@@ -538,17 +559,17 @@ Read `_apply_cors_headers` (`views.py:208`) and `CorsMixin` (`views.py:233`). Ch
 
 Leave `McpMessagesView`'s own value untouched.
 
-- [ ] **Step 9: Run test to verify it passes**
+- [x] **Step 9: Run test to verify it passes**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_streamable_http_session.py -v`
 Expected: PASS (7 passed)
 
-- [ ] **Step 10: Run the transport regression suites**
+- [x] **Step 10: Run the transport regression suites**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_e2e_sse_transport.py mcp_server/tests/test_csrf_exempt_invariant.py mcp_server/tests/test_mcp_transport_throttling.py -q`
 Expected: PASS, unchanged versus baseline — the legacy SSE transport must be provably untouched.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add backend/mcp_server/sse_pubsub.py backend/mcp_server/views.py backend/mcp_server/tests/test_streamable_http_session.py
@@ -558,6 +579,12 @@ git commit -m "feat(mcp): Mcp-Session-Id sessions for the Streamable HTTP transp
 ---
 
 ### Task 3: SSE response body on POST `/mcp/` when the client asks for it
+
+> **Ist:** umgesetzt. `_wants_event_stream()`/`_sse_frame()` in
+> `views.py:605-617`, Verzweigung bei `:589-601`; JSON bleibt Default (`*/*` und
+> fehlender Accept-Header). Abgedeckt durch
+> `test_post_returns_sse_when_client_prefers_event_stream` /
+> `test_post_still_returns_json_by_default` in `test_streamable_http_session.py`.
 
 **Files:**
 - Modify: `backend/mcp_server/views.py` (`McpHttpTransportView`)
@@ -569,7 +596,7 @@ git commit -m "feat(mcp): Mcp-Session-Id sessions for the Streamable HTTP transp
 
 **Decision:** Streamable HTTP lets the server answer a POST with either JSON or an SSE stream. This server answers every request in exactly one frame, so the SSE form is a single `message` event followed by stream close — no long-lived generator, no ASGI streaming requirement, no change to the legacy SSE endpoint.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `backend/mcp_server/tests/test_streamable_http_session.py`:
 
@@ -612,12 +639,12 @@ def test_sse_response_still_carries_the_session_header():
     assert "Mcp-Session-Id" in response.headers
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_streamable_http_session.py -k event_stream -v`
 Expected: FAIL — `AssertionError` because `response["Content-Type"]` is `application/json`.
 
-- [ ] **Step 3: Add the two helpers**
+- [x] **Step 3: Add the two helpers**
 
 Add to `McpHttpTransportView` in `backend/mcp_server/views.py`:
 
@@ -637,7 +664,7 @@ Add to `McpHttpTransportView` in `backend/mcp_server/views.py`:
         return f"event: message\ndata: {json.dumps(frame)}\n\n"
 ```
 
-- [ ] **Step 4: Branch the response construction**
+- [x] **Step 4: Branch the response construction**
 
 Replace the response construction added in Task 2 Step 7 with:
 
@@ -659,12 +686,12 @@ Replace the response construction added in Task 2 Step 7 with:
         return http_response
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_streamable_http_session.py -v`
 Expected: PASS (10 passed)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/mcp_server/views.py backend/mcp_server/tests/test_streamable_http_session.py
@@ -675,6 +702,10 @@ git commit -m "feat(mcp): answer POST /mcp/ with SSE when Accept requests it"
 
 ### Task 4: `MCP-Protocol-Version` request-header validation
 
+> **Ist:** umgesetzt. `views.py:424-445`: ein unbekannter Wert antwortet HTTP 400
+> mit `error.error_code = "INVALID_REQUEST"` und nennt Wert plus die drei
+> unterstützten Revisionen; ein fehlender Header bleibt erlaubt.
+
 **Files:**
 - Modify: `backend/mcp_server/views.py` (`McpHttpTransportView.post`, after the rate-limit block at `:272-276`)
 - Test: `backend/mcp_server/tests/test_protocol_version_negotiation.py` (append)
@@ -683,7 +714,7 @@ git commit -m "feat(mcp): answer POST /mcp/ with SSE when Accept requests it"
 - Consumes: `SUPPORTED_PROTOCOL_VERSIONS` (Task 1).
 - Produces: no new symbol; a 400 JSON-RPC error frame for an unsupported header value.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `backend/mcp_server/tests/test_protocol_version_negotiation.py`:
 
@@ -728,12 +759,12 @@ def test_absent_protocol_header_passes_through():
     assert response.status_code != 400
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_protocol_version_negotiation.py -k protocol_header -v`
 Expected: FAIL — `assert 401 == 400`; the header is ignored today, so the request falls through to the auth failure.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Extend the `mcp_server.protocol_handler` import in `backend/mcp_server/views.py` with `SUPPORTED_PROTOCOL_VERSIONS`, then insert into `McpHttpTransportView.post`, after the rate-limit block (`views.py:272-276`) and before `handler = _get_handler()`:
 
@@ -762,12 +793,12 @@ Extend the `mcp_server.protocol_handler` import in `backend/mcp_server/views.py`
             )
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_protocol_version_negotiation.py -v`
 Expected: PASS (13 passed)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/mcp_server/views.py backend/mcp_server/tests/test_protocol_version_negotiation.py
@@ -779,6 +810,13 @@ git commit -m "feat(mcp): reject unsupported MCP-Protocol-Version request header
 ## Phase B — Shared Markdown renderer, `resources/*`, `prompts/*`
 
 ### Task 5: Generic artifact Markdown renderer
+
+> **Ist:** umgesetzt. `backend/application/artifact_markdown.py` mit
+> `ARTIFACT_MARKDOWN_MIME = "text/markdown"` und
+> `render_artifact_markdown(artifact_id, ctx)` (`:159`) — genau die Signatur, die
+> die Dokumentensicht konsumieren soll (einziger Aufrufer ist derzeit
+> `mcp_server/tools/resources.py`); Test
+> `application/tests/test_artifact_markdown.py` vorhanden.
 
 **Files:**
 - Create: `backend/application/artifact_markdown.py`
@@ -808,7 +846,7 @@ this task's field-class reflection, then delegate to the shared primitive for fo
 Whoever implements this task first should leave the module open for the other shape
 rather than closing it off.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `backend/application/tests/test_artifact_markdown.py`:
 
@@ -922,12 +960,12 @@ def seeded_requirement(db, md_auth_ctx):
 
 `set_request_tenant` is the arming call used by `ToolRegistry.list_tools` (`tool_registry.py:633`) — it arms both the thread-local and the DB-level RLS session variable, which a `django_db` test needs.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose exec backend pytest application/tests/test_artifact_markdown.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'application.artifact_markdown'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `backend/application/artifact_markdown.py`:
 
@@ -1114,12 +1152,12 @@ __all__ = ["ARTIFACT_MARKDOWN_MIME", "render_artifact_markdown"]
 
 The `TextField` branch must stay **before** the `_SCALAR_FIELD_TYPES` branch: Django's `TextField` is not a `CharField` subclass today, but the explicit order documents that long text must never collapse into a one-line bullet. Do not reorder.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `docker compose exec backend pytest application/tests/test_artifact_markdown.py -v`
 Expected: PASS (8 passed)
 
-- [ ] **Step 5: Verify a second artifact type by hand**
+- [x] **Step 5: Verify a second artifact type by hand**
 
 Run:
 
@@ -1141,7 +1179,7 @@ for a in Artifact.objects.exclude(artifact_type='Requirement')[:2]:
 
 Expected: readable Markdown for at least one non-Requirement type (e.g. `StakeholderNeed`, `ArchitectureElement`) with an H1, a `- **Type:**` line and at least one `##` section. A type that renders metadata only is correct behaviour, not a failure — note which and continue.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/application/artifact_markdown.py backend/application/tests/test_artifact_markdown.py backend/application/tests/conftest.py
@@ -1151,6 +1189,15 @@ git commit -m "feat(application): shared generic artifact Markdown renderer"
 ---
 
 ### Task 6: `resources/*` capability
+
+> **Ist:** umgesetzt. `mcp_server/tools/resources.py` (`resource.list`,
+> `resource.read`, `resource.templates_list`, `get_tool_schemas() == []`),
+> Routing über `_METHOD_TO_INTERNAL_TOOL` (`protocol_handler.py:243-249`),
+> Seiten-Deckel 200/Default 100; `cursor` ist ein numerischer Offset (kein
+> opaker Token) und `nextCursor` die nächste Offset-Zahl als String.
+> `list_artifact_resources()` liegt im `ArtifactService`. Test:
+> `test_resources_capability.py`. Kein `resource`-Präfix im Manifest — wie im
+> Plan gefordert.
 
 **Files:**
 - Create: `backend/mcp_server/tools/resources.py`
@@ -1170,7 +1217,7 @@ git commit -m "feat(application): shared generic artifact Markdown renderer"
 
 **Decision (architecture note):** `resources/*` and `prompts/*` are dispatched as internal pseudo-tools through the existing `ToolRegistry.dispatch_request()`, and their tool groups override `get_tool_schemas()` to return `[]`. Consequence: API-key validation, `TenantContext`/RLS arming, role resolution, the RBAC gate and the preset gate all apply to the new surfaces unchanged, with zero new auth code — while `tools/list` stays free of five phantom entries. Alternatives rejected: a parallel auth path inside `ProtocolHandler` (duplicates the exact chain fix #110 hardened) and exposing them as real tools (pollutes the very manifest this spec shrinks).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `backend/mcp_server/tests/test_resources_capability.py`:
 
@@ -1334,12 +1381,12 @@ def test_resource_tools_are_read_only():
         assert registry._is_write_tool(name) is False
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_resources_capability.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'mcp_server.tools.resources'`
 
-- [ ] **Step 3: Add the bounded listing to ArtifactService**
+- [x] **Step 3: Add the bounded listing to ArtifactService**
 
 Append this method to `ArtifactService` in `backend/application/artifact_service.py`, next to `resolve_artifact_titles`:
 
@@ -1403,7 +1450,7 @@ Append this method to `ArtifactService` in `backend/application/artifact_service
 
 Check the module's existing imports and add only the missing names among `Optional`, `List`, `Dict`, `Any`, `UUID`, `AuthContext`, `Artifact`.
 
-- [ ] **Step 4: Create the resources tool group**
+- [x] **Step 4: Create the resources tool group**
 
 Create `backend/mcp_server/tools/resources.py`:
 
@@ -1614,7 +1661,7 @@ __all__ = [
 ]
 ```
 
-- [ ] **Step 5: Register the group and mark its tools read-only**
+- [x] **Step 5: Register the group and mark its tools read-only**
 
 In `backend/mcp_server/tool_registry.py`, add inside `_READ_ONLY_TOOL_NAMES` (before the closing brace at `:283`):
 
@@ -1642,7 +1689,7 @@ and this entry to the `self.register_groups({...})` dict:
             "resource": ResourcesToolGroup(),
 ```
 
-- [ ] **Step 6: Route the JSON-RPC methods**
+- [x] **Step 6: Route the JSON-RPC methods**
 
 In `backend/mcp_server/protocol_handler.py`, add after `_PROTOCOL_ERROR_CODES` (`:96-103`):
 
@@ -1669,12 +1716,12 @@ Change the direct-dispatch fallthrough (`:510`) from `tool_name = method` to:
 
 Leave the following `tool_args = clean_params` line unchanged. Add `"_METHOD_TO_INTERNAL_TOOL"` to `__all__`.
 
-- [ ] **Step 7: Run test to verify it passes**
+- [x] **Step 7: Run test to verify it passes**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_resources_capability.py -v`
 Expected: PASS (14 passed)
 
-- [ ] **Step 8: Verify end to end against a real key**
+- [x] **Step 8: Verify end to end against a real key**
 
 Run (paste an active `reqlo_` key when prompted):
 
@@ -1693,12 +1740,12 @@ for method, params in [('resources/templates/list', {}), ('resources/list', {'li
 
 Expected: both return 200 with a `result` carrying `resourceTemplates` / `resources`. Take one `uri` from the second output and repeat the call with `{'method': 'resources/read', 'params': {'uri': '<that uri>'}}` — expect `result.contents[0].text` to start with a Markdown H1. Use the Django test `Client`, not `curl`: a `uvicorn --reload` worker can hold the port in a zombie state.
 
-- [ ] **Step 9: Run the registry regression suites**
+- [x] **Step 9: Run the registry regression suites**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_export_tool_manifest.py mcp_server/tests/test_e2e_all_tools.py mcp_server/tests/test_own_tool_groups_lifecycle.py -q`
 Expected: PASS — `test_export_tool_manifest.py` in particular must show the manifest tool count **unchanged**, proving the `resource.*` group stayed invisible.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add backend/mcp_server/tools/resources.py backend/mcp_server/tool_registry.py backend/mcp_server/protocol_handler.py backend/application/artifact_service.py backend/mcp_server/tests/test_resources_capability.py
@@ -1708,6 +1755,14 @@ git commit -m "feat(mcp): resources/* capability over the shared Markdown render
 ---
 
 ### Task 7: `prompts/*` capability
+
+> **Ist:** umgesetzt. `mcp_server/tools/prompts.py` (`prompt.list`, `prompt.get`,
+> `get_tool_schemas() == []`) auf Basis von
+> `application.prompt_template_versioning.list_active_templates` und
+> `application.prompt_resolver.try_resolve_template_content`; `arguments: []`
+> bleibt wie entschieden (OFFENE FRAGEN Punkt 3). Kein Präfix-Konflikt: das
+> Manifest kennt nur `prompt_template` und `prompt_variable`. Test:
+> `test_prompts_capability.py`.
 
 **Files:**
 - Create: `backend/mcp_server/tools/prompts.py`
@@ -1720,7 +1775,7 @@ git commit -m "feat(mcp): resources/* capability over the shared Markdown render
 
 **Decision:** `prompts/get` returns the template body verbatim as a single `user` message and advertises `arguments: []`. Placeholder substitution stays where it already lives (`application.prompt_resolver` / `prompt_variables`) and is deliberately not duplicated here — spec §4 scopes Prompts as the *read/use* path, with `prompt_template.*` remaining the management path.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `backend/mcp_server/tests/test_prompts_capability.py`:
 
@@ -1848,12 +1903,12 @@ def test_prompt_tools_are_read_only():
     assert registry._is_write_tool("prompt.get") is False
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_prompts_capability.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'mcp_server.tools.prompts'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `backend/mcp_server/tools/prompts.py`:
 
@@ -1990,7 +2045,7 @@ class PromptsToolGroup(BaseToolGroup):
 __all__ = ["PromptsToolGroup", "accessible_workspace_ids"]
 ```
 
-- [ ] **Step 4: Register the group and mark its tools read-only**
+- [x] **Step 4: Register the group and mark its tools read-only**
 
 In `backend/mcp_server/tool_registry.py`, add inside `_READ_ONLY_TOOL_NAMES`:
 
@@ -2018,7 +2073,7 @@ and add this entry as the **last** key of the `self.register_groups({...})` dict
             "prompt": PromptsToolGroup(),
 ```
 
-- [ ] **Step 5: Verify no prefix collision with prompt_template / prompt_variable**
+- [x] **Step 5: Verify no prefix collision with prompt_template / prompt_variable**
 
 Run:
 
@@ -2034,17 +2089,17 @@ for name in ('prompt.list','prompt.get','prompt_template.get','prompt_template.l
 
 Expected: `prompt.list` / `prompt.get` → `PromptsToolGroup`; `prompt_template.*` → `PromptTemplateToolGroup`; `prompt_variable.list` → `PromptVariableToolGroup`. `ToolGroupRouter.route` matches `tool_name.startswith(f"{prefix}.")`, and `prompt_template.get` does not start with `prompt.` — but the check must pass before continuing, because `_groups` is a plain dict whose iteration order decides the winner.
 
-- [ ] **Step 6: Run test to verify it passes**
+- [x] **Step 6: Run test to verify it passes**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_prompts_capability.py -v`
 Expected: PASS (8 passed)
 
-- [ ] **Step 7: Run the prompt-template regression suites**
+- [x] **Step 7: Run the prompt-template regression suites**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_prompt_template_tool_group.py mcp_server/tests/test_prompt_variable_tool_group.py mcp_server/tests/test_export_tool_manifest.py -q`
 Expected: PASS, manifest tool count still unchanged.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/mcp_server/tools/prompts.py backend/mcp_server/tool_registry.py backend/mcp_server/tests/test_prompts_capability.py
@@ -2056,6 +2111,16 @@ git commit -m "feat(mcp): prompts/* capability over the PromptTemplate system"
 ## Phase C — `icd.*` tool group
 
 ### Task 8: ICD read tools (`icd.get`, `icd.query`)
+
+> **Ist:** erledigt, aber unter anderen Namen und mit größerem Umfang als geplant.
+> Der Plan nennt `icd.get`/`icd.query`; der Code hat **`icd.read`** (nicht
+> `icd.get`) und zusätzlich `icd.create`/`icd.update` — vier Tools statt zwei,
+> entstanden aus Epic #934 WS1 (Transport-Parität REST+MCP), obwohl Schreib-Tools
+> hier laut Global Constraints out of scope waren. `icd.read` nimmt nur `id` und
+> liefert `current_revision` als Feld: **keine `IcdVersion`-Parameter**, weil die
+> Versionstabelle mit `icd/migrations/0013_drop_icd_version.py`
+> (Datenmodell-Konsolidierung 28c-2) entfallen ist. Test heißt
+> `mcp_server/tests/test_icd_tools.py`, nicht `test_icd_tool_group.py`.
 
 **Files:**
 - Create: `backend/mcp_server/tools/icd.py`
@@ -2072,7 +2137,7 @@ git commit -m "feat(mcp): prompts/* capability over the PromptTemplate system"
 
 **Decision:** read-only MVP exactly as spec §5 scopes it. `Icd` is not an `Artifact`, so `mcp_server/workspace_scope.py` cannot derive a workspace from an `icd_id` — the group therefore performs its own explicit membership check against `accessible_workspace_ids`, the same narrowing `artifact.search` and `prompt_template.list` apply. Without it, a valid key from workspace A could read workspace B's interface contracts.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `backend/mcp_server/tests/test_icd_tool_group.py`:
 
@@ -2284,12 +2349,12 @@ def test_icd_group_is_registered():
     assert type(group).__name__ == "IcdToolGroup"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_icd_tool_group.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'mcp_server.tools.icd'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `backend/mcp_server/tools/icd.py`:
 
@@ -2488,7 +2553,7 @@ class IcdToolGroup(BaseToolGroup):
 __all__ = ["IcdToolGroup"]
 ```
 
-- [ ] **Step 4: Register the group and mark `icd.get` read-only**
+- [x] **Step 4: Register the group and mark `icd.get` read-only**
 
 In `backend/mcp_server/tool_registry.py`, add inside `_READ_ONLY_TOOL_NAMES`:
 
@@ -2514,12 +2579,12 @@ and this entry to the registration dict:
             "icd": IcdToolGroup(),
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_icd_tool_group.py -v`
 Expected: PASS (11 passed)
 
-- [ ] **Step 6: Verify the manifest grew by exactly two tools**
+- [x] **Step 6: Verify the manifest grew by exactly two tools**
 
 Run:
 
@@ -2537,12 +2602,12 @@ print('phantom?   =', [t['name'] for t in m['tools'] if t['prefix'] in ('resourc
 
 Expected: `icd tools = ['icd.get', 'icd.query']`, `write? = [False, False]`, `phantom? = []`, and `tool_count` exactly two higher than before Task 8.
 
-- [ ] **Step 7: Run the ICD regression suite**
+- [x] **Step 7: Run the ICD regression suite**
 
 Run: `docker compose exec backend pytest icd/ mcp_server/tests/test_export_tool_manifest.py -q`
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/mcp_server/tools/icd.py backend/mcp_server/tool_registry.py backend/mcp_server/tests/test_icd_tool_group.py
@@ -2555,6 +2620,12 @@ git commit -m "feat(mcp): icd.get and icd.query for REST/MCP parity"
 
 ### Task 9: `ApiKey.tool_groups` field and migration
 
+> **Ist:** umgesetzt. Der Laufzeit-Check aus Step 1 ergab: `ApiKey.scope`
+> existierte bereits (#865/#917, `auth_tenancy/models.py:157` mit
+> `API_KEY_SCOPE_CHOICES`), angelegt wurde nur `tool_groups`
+> (`auth_tenancy/migrations/0035_apikey_tool_groups.py`). Die
+> Migrationsnummern-Kollision aus OFFENE FRAGEN Punkt 1 ist damit erledigt.
+
 **Files:**
 - Modify: `backend/auth_tenancy/models.py` (`ApiKey`, `:62-108`)
 - Create: `backend/auth_tenancy/migrations/00XX_apikey_tool_groups.py` (generated)
@@ -2564,7 +2635,7 @@ git commit -m "feat(mcp): icd.get and icd.query for REST/MCP parity"
 - Consumes: nothing.
 - Produces: `ApiKey.tool_groups: JSONField(default=list, blank=True)`; and, only if it is still missing, `ApiKey.scope: CharField(max_length=16, choices=[("read","Read"),("write","Write")], default="write")` exactly as defined in `docs/superpowers/specs/2026-09-03-ki-vorschlag-als-zustand-design.md:47`.
 
-- [ ] **Step 1: Determine whether `ApiKey.scope` already exists**
+- [x] **Step 1: Determine whether `ApiKey.scope` already exists**
 
 Run:
 
@@ -2579,7 +2650,7 @@ print('tool_groups :', 'tool_groups' in names)
 
 Record the answer. If `scope` is `True`, the KI-Vorschlag-als-Zustand plan (implementation order #4) has landed — skip its half of Step 3. If `False`, this task adds it too, using that spec's exact definition, and the field stays compatible when that plan merges later.
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 Create `backend/mcp_server/tests/test_api_key_tool_groups_filter.py`:
 
@@ -2630,12 +2701,12 @@ def seeded_api_key(db):
     return ApiKey.unscoped.get(id=result.api_key_id)
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_api_key_tool_groups_filter.py -v`
 Expected: FAIL with `FieldDoesNotExist: ApiKey has no field named 'tool_groups'`
 
-- [ ] **Step 4: Add the field(s) to the model**
+- [x] **Step 4: Add the field(s) to the model**
 
 In `backend/auth_tenancy/models.py`, add to `ApiKey` after `last_used_at` (`:93`):
 
@@ -2673,7 +2744,7 @@ If Step 1 reported `scope: False`, also add — verbatim from `docs/superpowers/
     )
 ```
 
-- [ ] **Step 5: Generate and apply the migration**
+- [x] **Step 5: Generate and apply the migration**
 
 Run:
 
@@ -2686,12 +2757,12 @@ Expected: one new migration adding `tool_groups` (and `scope`, if Step 1 said it
 
 Migrations and the test database need the DB **owner** role, not the app role: if `migrate` silently no-ops or `pytest` reports permission errors, re-run with the owner credentials from `.env` and always pass `--create-db` on the first pytest run after a migration.
 
-- [ ] **Step 6: Run test to verify it passes**
+- [x] **Step 6: Run test to verify it passes**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_api_key_tool_groups_filter.py -v --create-db`
 Expected: PASS (3 passed)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/auth_tenancy/models.py backend/auth_tenancy/migrations/ backend/mcp_server/tests/test_api_key_tool_groups_filter.py backend/mcp_server/tests/conftest.py
@@ -2701,6 +2772,13 @@ git commit -m "feat(auth): add ApiKey.tool_groups for MCP manifest curation"
 ---
 
 ### Task 10: `ApiKeyPolicy` lookup seam
+
+> **Ist:** umgesetzt. `mcp_server/api_key_policy.py` (`ApiKeyPolicy`,
+> `get_api_key_policy`, `DEFAULT_POLICY`, `is_read_only` über
+> `scope_denial_reason`) plus der Layer-2-Seam
+> `auth_tenancy.services.authentication.load_api_key_policy_row` (`:276`), der
+> nur `scope` und `tool_groups` liest. Degradiert bewusst permissiv, bricht also
+> keinen Aufruf.
 
 **Files:**
 - Create: `backend/mcp_server/api_key_policy.py`
@@ -2716,7 +2794,7 @@ git commit -m "feat(auth): add ApiKey.tool_groups for MCP manifest curation"
 
 **Decision:** the policy is read with one indexed primary-key query rather than being threaded through `IdentityClaims` / `AuthContext`. Those two are project-wide identity contracts consumed by REST, Celery and the audit writer; hanging MCP-specific manifest-curation fields off them would ripple into every consumer and collide with the KI-Vorschlag-als-Zustand plan's own edits to the same dataclasses. One extra PK lookup per MCP call is negligible beside the role-resolution queries already on that path.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `backend/mcp_server/tests/test_api_key_scope_gate.py`:
 
@@ -2776,12 +2854,12 @@ def test_malformed_tool_groups_degrade_to_no_filter(seeded_api_key):
     assert get_api_key_policy(seeded_api_key.id).tool_groups == ()
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_api_key_scope_gate.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'mcp_server.api_key_policy'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `backend/mcp_server/api_key_policy.py`:
 
@@ -2890,12 +2968,12 @@ def get_api_key_policy(api_key_id: Optional[UUID]) -> ApiKeyPolicy:
 __all__ = ["SCOPE_READ", "ApiKeyPolicy", "DEFAULT_POLICY", "get_api_key_policy"]
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_api_key_scope_gate.py -v`
 Expected: PASS (7 passed)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/mcp_server/api_key_policy.py backend/mcp_server/tests/test_api_key_scope_gate.py
@@ -2906,6 +2984,13 @@ git commit -m "feat(mcp): ApiKeyPolicy lookup seam for scope and tool_groups"
 
 ### Task 11: Enforce `scope="read"` in `list_tools` and `dispatch_request`
 
+> **Ist:** umgesetzt. `list_tools` filtert über `ApiKeyPolicy.is_read_only`
+> (`tool_registry.py:1410-1431`, inkl. Sonderfall der tenant-admin-elevated
+> `user.*`-Tools), `dispatch_request` prüft `scope_denial_reason(...)` **vor**
+> Bootstrap- und Tenant-Admin-Exemption (`:1866-1897`). Tests:
+> `mcp_server/tests/test_api_key_scope_gate.py` und
+> `rest_api/tests/test_api_key_scope_gate.py`.
+
 **Files:**
 - Modify: `backend/mcp_server/tool_registry.py` (`list_tools` `:604-676`, `dispatch_request` `:678-801`)
 - Test: `backend/mcp_server/tests/test_api_key_scope_gate.py` (append)
@@ -2914,7 +2999,7 @@ git commit -m "feat(mcp): ApiKeyPolicy lookup seam for scope and tool_groups"
 - Consumes: `get_api_key_policy(api_key_id) -> ApiKeyPolicy`, `ApiKeyPolicy.is_read_only` (Task 10); `ToolRegistry._is_write_tool(tool_name) -> bool` (existing, `:934`).
 - Produces: no new public symbol; a `PERMISSION_DENIED` `ToolResult` for a write tool called with a read-scoped key.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `backend/mcp_server/tests/test_api_key_scope_gate.py`:
 
@@ -3035,12 +3120,12 @@ def test_unknown_tool_still_reports_unknown_tool_for_a_read_key():
     assert result.error_code == "UNKNOWN_TOOL"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_api_key_scope_gate.py -k scope -v`
 Expected: FAIL — `test_read_scope_rejects_a_write_tool_call` gets `UNKNOWN_TOOL`/success instead of `PERMISSION_DENIED`; the gate does not exist yet.
 
-- [ ] **Step 3: Import the policy in the registry**
+- [x] **Step 3: Import the policy in the registry**
 
 Add to the imports at the top of `backend/mcp_server/tool_registry.py`:
 
@@ -3048,7 +3133,7 @@ Add to the imports at the top of `backend/mcp_server/tool_registry.py`:
 from mcp_server.api_key_policy import get_api_key_policy
 ```
 
-- [ ] **Step 4: Filter `tools/list` on scope**
+- [x] **Step 4: Filter `tools/list` on scope**
 
 In `ToolRegistry.list_tools`, replace the write-tool hiding block (`:658-672`) with:
 
@@ -3080,7 +3165,7 @@ In `ToolRegistry.list_tools`, replace the write-tool hiding block (`:658-672`) w
             return tools
 ```
 
-- [ ] **Step 5: Enforce scope in `dispatch_request`**
+- [x] **Step 5: Enforce scope in `dispatch_request`**
 
 In `ToolRegistry.dispatch_request`, insert immediately **after** the Step 2b routing block (right after the `if route_error: return ToolResult.error("UNKNOWN_TOOL", ...)` at `:744-745`) and **before** the Step 3 RBAC comment:
 
@@ -3105,17 +3190,17 @@ In `ToolRegistry.dispatch_request`, insert immediately **after** the Step 2b rou
                 )
 ```
 
-- [ ] **Step 6: Run test to verify it passes**
+- [x] **Step 6: Run test to verify it passes**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_api_key_scope_gate.py -v`
 Expected: PASS (14 passed)
 
-- [ ] **Step 7: Run the RBAC regression suites**
+- [x] **Step 7: Run the RBAC regression suites**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_mcp_rbac_role_matrix.py mcp_server/tests/test_mcp_api_key_roles.py mcp_server/tests/test_mcp_workspace_scope.py -q`
 Expected: PASS — a default (`scope="write"`) key must behave exactly as before.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/mcp_server/tool_registry.py backend/mcp_server/tests/test_api_key_scope_gate.py
@@ -3126,6 +3211,12 @@ git commit -m "feat(mcp): enforce ApiKey.scope=read in tools/list and tools/call
 
 ### Task 12: `tool_groups` catalog curation in `tools/list` only
 
+> **Ist:** umgesetzt. Der Filter sitzt am Ende von `list_tools`
+> (`tool_registry.py:1444-1457`), bewusst ohne Gegenstück in `dispatch_request`
+> (der Kommentar dort nennt das explizit); leer = alle Gruppen,
+> `_ALWAYS_VISIBLE_TOOLS = {"tool.list_groups"}` ist ausgenommen. Test:
+> `test_api_key_tool_groups_filter.py`.
+
 **Files:**
 - Modify: `backend/mcp_server/tool_registry.py` (`list_tools`)
 - Test: `backend/mcp_server/tests/test_api_key_tool_groups_filter.py` (append)
@@ -3134,7 +3225,7 @@ git commit -m "feat(mcp): enforce ApiKey.scope=read in tools/list and tools/call
 - Consumes: `ApiKeyPolicy.allows_group(prefix) -> bool` (Task 10); the `policy` local introduced in Task 11 Step 4.
 - Produces: `mcp_server.tool_registry._ALWAYS_VISIBLE_TOOLS: frozenset[str]` — a **module-level** constant, not a class attribute (Task 13's test imports it directly from the module).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `backend/mcp_server/tests/test_api_key_tool_groups_filter.py`:
 
@@ -3213,12 +3304,12 @@ def test_unknown_group_name_does_not_empty_the_manifest():
 
 `test_unknown_group_name_does_not_empty_the_manifest` and the `"tool"` allowance in `test_tool_groups_narrows_the_manifest` depend on Task 13. Expect them red until Task 13 Step 4 lands; every other test in this task must pass at Step 4 below.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_api_key_tool_groups_filter.py -k tool_groups -v`
 Expected: FAIL — `test_tool_groups_narrows_the_manifest` sees every prefix; the filter does not exist yet.
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 In `backend/mcp_server/tool_registry.py`, add next to `_INSTANCE_LEVEL_TOOLS` (`:307`):
 
@@ -3258,12 +3349,12 @@ In `list_tools`, insert this block directly after the scope-filter block from Ta
 
 Remove the now-duplicated `return tools` left over from Task 11 Step 4 so the method has exactly one exit inside the `try` block.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_api_key_tool_groups_filter.py -k "tool_groups and not unknown_group" -v`
 Expected: PASS. `test_unknown_group_name_does_not_empty_the_manifest` stays red until Task 13.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add backend/mcp_server/tool_registry.py backend/mcp_server/tests/test_api_key_tool_groups_filter.py
@@ -3274,6 +3365,13 @@ git commit -m "feat(mcp): curate tools/list by ApiKey.tool_groups (catalog only)
 
 ### Task 13: `tool.list_groups` introspection tool
 
+> **Ist:** umgesetzt. `mcp_server/tools/introspection.py` zählt die Gruppen aus
+> dem eigenen Schema-Build (kann daher nicht von `tools/list` driften) und lässt
+> die schemalosen `resource`/`prompt`-Pseudo-Gruppen per Konstruktion weg;
+> `_ALWAYS_VISIBLE_TOOLS` (`tool_registry.py:878`) hält es sichtbar, der
+> Read-only-Eintrag steht in `_READ_ONLY_TOOL_NAMES` (`:718`). Test:
+> `test_introspection_tool_group.py`.
+
 **Files:**
 - Create: `backend/mcp_server/tools/introspection.py`
 - Modify: `backend/mcp_server/tool_registry.py` (`_READ_ONLY_TOOL_NAMES`, `_ensure_groups`)
@@ -3283,7 +3381,7 @@ git commit -m "feat(mcp): curate tools/list by ApiKey.tool_groups (catalog only)
 - Consumes: `ToolRegistry._ensure_groups()`, `ToolRegistry._groups: Dict[str, Any]`, `group.get_tool_schemas()` (existing); `_ALWAYS_VISIBLE_TOOLS` (Task 12).
 - Produces: `mcp_server.tools.introspection.IntrospectionToolGroup` handling `tool.list_groups`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `backend/mcp_server/tests/test_introspection_tool_group.py`:
 
@@ -3376,12 +3474,12 @@ def test_group_is_registered():
     assert type(group).__name__ == "IntrospectionToolGroup"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_introspection_tool_group.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'mcp_server.tools.introspection'`
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `backend/mcp_server/tools/introspection.py`:
 
@@ -3468,7 +3566,7 @@ __all__ = ["IntrospectionToolGroup"]
 
 Deduplicating by `id(group)` mirrors `list_tools` (`:643-654`) and `build_manifest`: several prefixes deliberately share one instance (`audit`/`events`, `traceability`/`artifact`), and counting per prefix instead would double-count their schemas.
 
-- [ ] **Step 4: Register the group and mark the tool read-only**
+- [x] **Step 4: Register the group and mark the tool read-only**
 
 In `backend/mcp_server/tool_registry.py`, add inside `_READ_ONLY_TOOL_NAMES`:
 
@@ -3491,17 +3589,17 @@ and this entry to the registration dict:
             "tool": IntrospectionToolGroup(),
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_introspection_tool_group.py -v`
 Expected: PASS (10 passed)
 
-- [ ] **Step 6: Close out Task 12's deferred tests**
+- [x] **Step 6: Close out Task 12's deferred tests**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_api_key_tool_groups_filter.py -v`
 Expected: PASS in full, including `test_unknown_group_name_does_not_empty_the_manifest`.
 
-- [ ] **Step 7: Verify the manifest by hand**
+- [x] **Step 7: Verify the manifest by hand**
 
 Run:
 
@@ -3517,7 +3615,7 @@ print('introspect =', [t['name'] for t in m['tools'] if t['prefix'] == 'tool'])
 
 Expected: `introspect = ['tool.list_groups']`; `groups` contains `icd` and `tool` and does **not** contain `resource` or `prompt`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/mcp_server/tools/introspection.py backend/mcp_server/tool_registry.py backend/mcp_server/tests/test_introspection_tool_group.py
@@ -3527,6 +3625,16 @@ git commit -m "feat(mcp): add always-visible tool.list_groups introspection tool
 ---
 
 ### Task 14: Expose `scope` and `tool_groups` on the API-key REST surface
+
+> **Ist:** umgesetzt, aber die Validierung liegt nicht mehr handgeschrieben in
+> `api_key_views.py`: `rest_api/api_key_serializers.py`
+> (`ApiKeyCreateSerializer`, #1439) sammelt alle Feld- und Cross-Field-Fehler;
+> `ApiKeyMetadataSerializer` liefert `scope`/`tool_groups` auf `list`/`retrieve`
+> (über `AuthenticationService.list_api_keys`, `authentication.py:998-1017`).
+> Zusätzlich zum Plan: Mutationen des Endpunkts verlangen den ADMIN-Tier
+> (`required_scope_operation` → `ASSIGN_ROLE`) und der Key-Tier ist durch die
+> Rechte des Erstellers begrenzt (#1608). `tool_groups`-Namen werden **nicht**
+> gegen den Katalog geprüft.
 
 **Files:**
 - Modify: `backend/auth_tenancy/services/authentication.py` (`create_api_key` `:549`, `ApiKeyCreationResult` `:49`)
@@ -3539,7 +3647,7 @@ git commit -m "feat(mcp): add always-visible tool.list_groups introspection tool
   - `AuthenticationService.create_api_key(self, *, user_id: UUID, tenant_id: UUID, name: str, scope: str = "write", tool_groups: Optional[list[str]] = None) -> ApiKeyCreationResult`
   - `ApiKeyCreationResult.scope: str`, `ApiKeyCreationResult.tool_groups: tuple[str, ...]`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Read `backend/rest_api/api_key_views.py` and the existing API-key tests first, then append to `backend/rest_api/tests/test_api_key_views.py` (create it with the surrounding suite's fixtures/auth helper if absent):
 
@@ -3604,12 +3712,12 @@ def test_list_reports_scope_and_tool_groups(api_client_authenticated):
 
 Adjust the route prefix, the pagination envelope key (`results` vs a bare list) and the auth fixture name to match the existing suite — read one neighbouring REST test before writing these.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `docker compose exec backend pytest rest_api/tests/test_api_key_views.py -k "scope or tool_groups" -v`
 Expected: FAIL with `KeyError: 'scope'` on the create response.
 
-- [ ] **Step 3: Extend the creation service**
+- [x] **Step 3: Extend the creation service**
 
 In `backend/auth_tenancy/services/authentication.py`, extend `ApiKeyCreationResult` (`:49`):
 
@@ -3658,7 +3766,7 @@ and include them in the returned `ApiKeyCreationResult`:
 
 Add `Optional` to the module's `typing` import if it is not already there.
 
-- [ ] **Step 4: Validate and surface the fields in the REST view**
+- [x] **Step 4: Validate and surface the fields in the REST view**
 
 In `backend/rest_api/api_key_views.py`, inside `create` (`:162`), after the existing `name` validation (`:189-193`):
 
@@ -3695,17 +3803,17 @@ Pass them to the service call (`:201`) as `scope=scope, tool_groups=tool_groups`
 
 In `list` (`:102`) and `retrieve` (`:117`), add `"scope"` and `"tool_groups"` to the per-row payload each already builds. Read those two methods before editing — reuse whatever row-building helper they share rather than duplicating a dict.
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `docker compose exec backend pytest rest_api/tests/test_api_key_views.py -v`
 Expected: PASS.
 
-- [ ] **Step 6: Run the auth regression suites**
+- [x] **Step 6: Run the auth regression suites**
 
 Run: `docker compose exec backend pytest auth_tenancy/ rest_api/tests/test_api_key_views.py -q`
 Expected: PASS — every existing `create_api_key(user_id=…, tenant_id=…, name=…)` caller keeps working, since both new parameters are keyword-only with defaults.
 
-- [ ] **Step 7: Verify the whole gate end to end**
+- [x] **Step 7: Verify the whole gate end to end**
 
 Run (paste a `reqlo_` key from a freshly created read-scoped key when prompted):
 
@@ -3731,7 +3839,7 @@ print('read call        :', call('tools/call', {'name':'artifact.search','argume
 
 Expected: `any write listed` is `False`; `list_groups here` is `True`; the write call returns a JSON-RPC error with code `-32001` (`PERMISSION_DENIED`) mentioning `scope='read'`; the read call returns 200.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/auth_tenancy/services/authentication.py backend/rest_api/api_key_views.py backend/rest_api/tests/test_api_key_views.py
@@ -3744,6 +3852,20 @@ git commit -m "feat(api): expose ApiKey scope and tool_groups on the REST surfac
 
 ### Task 15: Regenerate the tool manifest and document the scope/tool_groups distinction
 
+> **Ist:** Manifest steht bei **301 Tools / 49 Präfixen** (`tool_count` in
+> `docs/agent-templates/tool-manifest.json`); `icd` (4 Tools) und `tool` (1 Tool)
+> sind enthalten, `resource`/`prompt` wie gefordert **nicht**. Die gesuchte
+> Integrator-Seite ist `docs/api/MCP-SURFACE.md` (der Plan riet auf
+> `docs/MCP_SERVER.md` — die Datei existiert nicht); sie trägt die
+> `scope`/`tool_groups`-Differenzierung jetzt als **§10**, Protokoll/Transport/
+> Sessions/`resources/*`/`prompts/*` als **§11** (2026-11-16). Step 4 ist an
+> besserer Stelle erfüllt: die Warnung steht in den `help_text`s von
+> `ApiKeyCreateSerializer` und wird damit über `GET /api/schema/` publiziert; eine
+> Prosa-REST-Seite mit Body-Feldern existiert nicht. Nebenbefund derselben
+> Durchsicht: die Gruppen-Tabelle in §2 listete `document` mit 9 Tools, das
+> Manifest hat 12 (`document.adopt`/`project`/`projection_status` fehlten) —
+> korrigiert, sonst hätte die Tabelle 298 statt 301 summiert.
+
 **Files:**
 - Regenerate: `docs/agent-templates/tool-manifest.json`
 - Modify: the MCP documentation page (locate it in Step 2)
@@ -3755,7 +3877,7 @@ git commit -m "feat(api): expose ApiKey scope and tool_groups on the REST surfac
 
 **Why this task exists:** spec §8 (risk 3) states explicitly that the `scope` vs `tool_groups` distinction must be made in the implementation's documentation, not only in the spec — otherwise `tool_groups` will be mistaken for a security feature.
 
-- [ ] **Step 1: Regenerate the manifest**
+- [x] **Step 1: Regenerate the manifest**
 
 Run:
 
@@ -3777,7 +3899,7 @@ print('new groups =', sorted({t['prefix'] for t in m['tools']} & {'icd','tool','
 
 Expected: `tool_count` exactly three higher than before this plan (`icd.get`, `icd.query`, `tool.list_groups`), and `new groups = ['icd', 'tool']` — `resource` and `prompt` must be absent.
 
-- [ ] **Step 2: Locate the MCP documentation page**
+- [x] **Step 2: Locate the MCP documentation page**
 
 Run:
 
@@ -3787,7 +3909,7 @@ grep -rln "tools/list\|MCP Server\|/mcp/" docs/*.md docs/**/*.md 2>/dev/null | h
 
 Pick the page that documents the MCP server for integrators (likely `docs/MCP_SERVER.md` or a section of the API docs). Use that path in Step 3. If more than one candidate exists, edit the one the README links to.
 
-- [ ] **Step 3: Document the two filters and the new surfaces**
+- [x] **Step 3: Document the two filters and the new surfaces**
 
 Append this section to that page:
 
@@ -3841,7 +3963,7 @@ Beide Capabilities laufen über dieselbe Auth-/RBAC-/Preset-Kette wie jedes
 Tool, erscheinen aber bewusst nicht in `tools/list`.
 ```
 
-- [ ] **Step 4: Add the same warning to the API-key REST docs**
+- [x] **Step 4: Add the same warning to the API-key REST docs**
 
 If the REST API documentation lists the `POST /api/v1/api-keys/` body fields, add there:
 
@@ -3853,12 +3975,12 @@ If the REST API documentation lists the `POST /api/v1/api-keys/` body fields, ad
   MCP-Dokumentation.
 ```
 
-- [ ] **Step 5: Verify the manifest test still passes**
+- [x] **Step 5: Verify the manifest test still passes**
 
 Run: `docker compose exec backend pytest mcp_server/tests/test_export_tool_manifest.py -v`
 Expected: PASS — including the idempotence check (`tool_count` unchanged on a second export).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/agent-templates/tool-manifest.json docs/
@@ -3867,9 +3989,51 @@ git commit -m "docs(mcp): document scope vs tool_groups, 2025-06-18 transports, 
 
 ---
 
+## Umsetzungsstand (Ist, 2026-11-16)
+
+Am Code von `origin/main` (`b8eaea06`) verifiziert, nicht an den Behauptungen des
+Plans. Die Schritt-Checkboxen der Tasks 1–15 sind gesetzt, wo das Ergebnis im Code
+und in den genannten Testdateien belegbar ist; die zwei nicht belegbaren Schritte
+der Cross-cutting-Verifikation bleiben offen.
+
+| Phase | Tasks | Stand |
+|---|---|---|
+| A — Protokoll & Transport | 1–4 | umgesetzt: `2025-06-18` + Negotiation, `Mcp-Session-Id` (Mint/Echo/`DELETE`), SSE-Antwort auf POST, `MCP-Protocol-Version`-Validierung |
+| B — Renderer, `resources/*`, `prompts/*` | 5–7 | umgesetzt (`application/artifact_markdown.py`, beide Capabilities unsichtbar in `tools/list`) |
+| C — `icd.*` | 8 | als **bereits vorhanden** abgehakt: die Gruppe kam aus Epic #934 WS1, hat 4 statt 2 Tools und heißt `icd.read` statt `icd.get` |
+| D — Manifest-Filter | 9–14 | umgesetzt: `scope` als Grenze in `tools/list` **und** `tools/call`, `tool_groups` nur als Kuration, `tool.list_groups`, REST-Felder |
+| E — Doku & Manifest | 15 | nachgezogen: `docs/api/MCP-SURFACE.md` §10/§11, Manifest bei 301 Tools / 49 Präfixen |
+
+Offene Punkte:
+
+1. **CORS blockiert Browser-Clients am Session-Header.**
+   `Access-Control-Allow-Headers` nennt `Mcp-Session-Id` nicht, und ein
+   `Access-Control-Expose-Headers` fehlt vollständig (`mcp_server/views.py:355`):
+   ein Browser kann den geminteten Header weder lesen noch auf Folge-Requests
+   senden. Für native Clients (Claude Code, OpenCode) und den Legacy-SSE-Pfad
+   ohne Belang.
+2. **`hidden_by_scope` zählt auch kuratierte Tools.** Der Wert ist
+   `catalogue_total - total`, und `total` stammt aus `list_tools()` *nach* dem
+   `tool_groups`-Filter — für einen kuratierten Key zählt er also auch die
+   Kurations-Ausblendung mit, obwohl §7 der MCP-Surface-Doku ihn als reinen
+   Rollen-/Scope-Wert beschreibt. Belastbar bleibt `filtered`.
+3. **`icd.read` liefert keine `IcdVersion`-Parameter** — und soll es nicht:
+   `IcdVersion` wurde mit `icd/migrations/0013_drop_icd_version.py`
+   (Datenmodell-Konsolidierung 28c-2) gedroppt, `current_revision` ist ein Feld
+   auf `Icd`. Die Plan-Namensgebung `icd.get` ist damit gegenstandslos.
+4. **Zwei Verifikationsschritte bleiben offen**, weil ihr Ergebnis nirgends im
+   Repo steht: der Suite-Lauf (Cross-cutting Step 1, nicht wiederholt) und der
+   Smoke-Test gegen Claude Code/OpenCode (Step 2, kein PR-Text/Protokoll). Beide
+   Checkboxen sind bewusst **nicht** gesetzt.
+
+---
+
 ## Cross-cutting verification (run once, after Task 15)
 
 - [ ] **Step 1: Run every suite this plan touched**
+
+> **Offen (2026-11-16):** nicht in diesem Durchgang ausgeführt; ein Ergebnis
+> (Baseline-Vergleich) ist im Repo nicht festgehalten — bewusst nicht abgehakt.
 
 Run:
 
@@ -3883,6 +4047,9 @@ Expected: PASS. Compare against the baseline recorded before Task 1 — this rep
 
 - [ ] **Step 2: Smoke-test both real clients (spec §8, risk 1)**
 
+> **Offen (2026-11-16):** das Ergebnis steht nirgends im Repo (kein PR-Text, kein
+> Dokument) — nicht nachprüfbar, daher nicht abgehakt.
+
 Point Claude Code and OpenCode at the running server (the same two clients that verified H1/H2) and confirm for each:
 1. `initialize` succeeds and the client reports the tool count;
 2. one read tool call succeeds;
@@ -3890,7 +4057,7 @@ Point Claude Code and OpenCode at the running server (the same two clients that 
 
 Record the outcome in the PR description. Do not ship without this: it is the only check that covers the downgrade-compatibility risk the spec names.
 
-- [ ] **Step 3: Confirm the Dokumentensicht hand-off**
+- [x] **Step 3: Confirm the Dokumentensicht hand-off**
 
 Run:
 

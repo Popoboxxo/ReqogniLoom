@@ -141,7 +141,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 | `context` | 4 | `context.change_impact`, `context.query`, `context.related`, `context.test_coverage` |
 | `create_form_definition` | 4 | `create_form_definition.export`, `create_form_definition.get`, `create_form_definition.import`, `create_form_definition.set` |
 | `diagram` | 6 | `diagram.create`, `diagram.get`, `diagram.outdate`, `diagram.query`, `diagram.reactivate`, `diagram.update` |
-| `document` | 9 | `document.create`, `document.diff`, `document.outdate`, `document.query`, `document.reactivate`, `document.read`, `document.transition`, `document.update`, `document.versions` |
+| `document` | 12 | `document.adopt`, `document.create`, `document.diff`, `document.outdate`, `document.project`, `document.projection_status`, `document.query`, `document.reactivate`, `document.read`, `document.transition`, `document.update`, `document.versions` |
 | `events` | 2 | `events.dlq_list`, `events.dlq_replay` |
 | `glossary` | 7 | `glossary.create`, `glossary.delete`, `glossary.outdate`, `glossary.query`, `glossary.read`, `glossary.reactivate`, `glossary.update` |
 | `goal` | 10 | `goal.create`, `goal.create_version`, `goal.delete`, `goal.list_versions`, `goal.outdate`, `goal.query`, `goal.read`, `goal.reactivate`, `goal.transition`, `goal.update` |
@@ -481,7 +481,8 @@ note below).
 
 `tools/call` still works for any tool the key's scope and role permit,
 regardless of the filter — `ApiKey.tool_groups` is catalogue curation, not a
-security boundary.
+security boundary. §10 states both filters side by side, including how they
+appear on the API-key REST surface.
 
 Two error shapes worth distinguishing when diagnosing a `tools/call`:
 
@@ -549,3 +550,219 @@ message is the specific sub-case where the presented credential is a JWT.
 The same rule is enforced at the SSE handshake (`GET /mcp/sse/`): the key is
 resolved from the header, bound server-side to the session, and never carried in
 the `/mcp/messages/?session_id=…` URL.
+
+---
+
+## 10. API-key filters: `scope` vs. `tool_groups`
+
+Two fields on an `ApiKey` change what this server answers. They look alike and
+their force differs completely; reading `tool_groups` as a security feature is
+the mistake this section exists to prevent.
+
+| Field | Effect on `tools/list` | Effect on `tools/call` | Security boundary? |
+|-------|------------------------|------------------------|--------------------|
+| `scope` — `read_only`/`read`, `author`, `admin`/`write` | Tools above the key's tier are hidden | Tools above the key's tier are **refused** (`PERMISSION_DENIED`, `-32001`) | **yes** |
+| `tool_groups` — list of group prefixes | Only the listed groups (plus `tool.list_groups`) are advertised | **none** — every tool the role and `scope` permit stays callable by name | **no** |
+
+Authoritative code: `backend/mcp_server/api_key_policy.py` (`ApiKeyPolicy`),
+`backend/mcp_server/tool_registry.py` (`list_tools` and `dispatch_request`),
+`backend/auth_tenancy/services/authorization.py` (the one tier table),
+`backend/rest_api/api_key_serializers.py` (the REST contract).
+
+### 10.1 What `scope` enforces
+
+`scope` is an ordered capability tier, not a read/write bit:
+
+| Tier | `scope` values | May perform |
+|-----:|----------------|-------------|
+| 0 | `read_only`, legacy `read` | `read` |
+| 1 | `author` | `read`, `write`, `workflow_transition` |
+| 2 | `admin`, legacy `write` | everything, incl. `workspace_config`, `assign_role`, `workflow_approval` (the governance operations) |
+
+Three properties matter for a client author:
+
+1. **Two enforcement points, one gate.** `tools/list` hides what the tier cannot
+   execute (`ApiKeyPolicy.is_read_only`, itself a mirror of
+   `scope_denial_reason(scope, WRITE)`), and `dispatch_request` refuses the rest.
+   A read-scoped key therefore cannot reach a write tool *even if it knows the
+   name* — the refusal is `PERMISSION_DENIED` (`-32001`), never `UNKNOWN_TOOL`.
+2. **Above every RBAC exemption.** The scope gate runs *before* the bootstrap and
+   tenant-admin exemptions, so a read-scoped key owned by an admin or used for
+   tenant bootstrap still cannot write. `scope` can only narrow what the role
+   matrix allows, never widen it.
+3. **Fail-closed.** An unrecognised `scope` maps to tier `-1` and denies every
+   operation; only a credential that carries **no** scope at all (a REST JWT
+   bearer session) is exempt from the key gate.
+
+The refusal text names the required tier, e.g. for a read-scoped key:
+`API key is read-only (scope='read'); operation 'write' requires scope='author' or higher.`
+The same function backs REST (`rest_api.auth_enforcer.RbacPermission`,
+`auth_tenancy.rest.HasOperationPermission`), so REST and MCP cannot drift apart.
+
+### 10.2 What `tool_groups` curates
+
+`tool_groups` is a **manifest filter only** — a token-cost lever, not an
+authorisation rule:
+
+- It is applied as the *last* step of `list_tools`, and there is deliberately no
+  counterpart in `dispatch_request`. A curated key loses no capability; it sees a
+  smaller menu.
+- An empty list (the default) means "every group", i.e. exactly the behaviour
+  every pre-existing key already has.
+- `tool.list_groups` is exempt (`_ALWAYS_VISIBLE_TOOLS`) and is never filtered by
+  `tool_groups`: a client whose catalogue was narrowed must still be able to learn
+  which groups exist.
+- The group names are **not** validated when the key is created. A typo therefore
+  yields a manifest that contains only `tool.list_groups` — the key itself stays
+  fully capable. `tool.list_groups` is the discovery path for the correct
+  spellings.
+
+### 10.3 On the API-key REST surface
+
+Both fields are readable and writable on `POST /api/v1/api-keys/`
+(`ApiKeyCreateSerializer`), and readable on `GET /api/v1/api-keys/` and
+`GET /api/v1/api-keys/<pk>/` (`ApiKeyMetadataSerializer`):
+
+| Field | Type / default | Contract |
+|-------|----------------|----------|
+| `scope` | `read_only` \| `author` \| `admin` (aliases `read` \| `write`), default `write` | **Security boundary.** Required for agent keys. Invalid value → `400 VALIDATION_ERROR` naming the five accepted names. |
+| `tool_groups` | list of prefix strings, default `[]` | **Curation only.** Invalid shape (not a list) → `400 VALIDATION_ERROR`. |
+
+Two guards sit on the creation path so a key cannot outgrow its creator:
+mutations of `/api/v1/api-keys/` require the **ADMIN** tier
+(`required_scope_operation`), and a requested tier above read-only additionally
+requires effective `write` in at least one addressed workspace (#1608) — no
+silent downgrade, the request is refused with `403 PERMISSION_DENIED`.
+
+The published OpenAPI component (`GET /api/schema/`) carries the same warning in
+the field descriptions, so a client generator sees it without reading this page.
+
+### 10.4 What happens when a key combines both
+
+The two filters intersect for `tools/list` and do not intersect for `tools/call`:
+
+```
+tools/list  = role-allowed  ∩  scope-allowed  ∩  tool_groups      + tool.list_groups
+tools/call  = role-allowed  ∩  scope-allowed                      (tool_groups silent)
+```
+
+A key with `scope=read` and `tool_groups=["requirement"]` therefore sees the read
+tools of the `requirement` group plus `tool.list_groups`; a `requirement.create`
+call is refused `PERMISSION_DENIED` for the *scope*, while an
+`artifact.search` call **succeeds** even though its group was never advertised —
+curation hides, scope forbids.
+
+One reporting caveat when diagnosing such a key: `total` and `hidden_by_scope`
+in the `tools/list` reply are computed from the already-curated list, so for a
+curated key `hidden_by_scope` counts curation-hidden tools too, not only those
+the role or scope hid. `filtered` is the honest "this reply is not the whole
+catalogue" flag; `catalogue_total` is the registry size.
+
+---
+
+## 11. Protocol revision, transports, sessions, `resources/*` and `prompts/*`
+
+### 11.1 Negotiation
+
+- The server speaks **`2025-06-18`** (`MCP_PROTOCOL_VERSION`) and additionally
+  accepts `2025-03-26` and `2024-11-05` (`SUPPORTED_PROTOCOL_VERSIONS`).
+- `initialize` **echoes a requested revision it supports** and answers with its
+  own newest otherwise — a client pinned to `2024-11-05` keeps working unchanged.
+  Any non-string `params.protocolVersion` falls back to the newest revision.
+- `initialize` needs no credential: it is part of the lifecycle, answered before
+  API-key extraction. `ping` likewise.
+- `capabilities` advertises `tools`, `resources` **and** `prompts`.
+  `serverInfo.version` is the real application version from the same resolver as
+  `GET /api/v1/version/` (ADR-017), never a hardcoded literal.
+- `notifications/*` — including `notifications/initialized` — get no JSON-RPC
+  frame back; the HTTP transport answers `202` with an empty body.
+
+### 11.2 The `MCP-Protocol-Version` request header
+
+After `initialize`, a Streamable-HTTP client sends the negotiated revision on
+every request. The header is **optional** here, but a value this server cannot
+speak is rejected before dispatch: HTTP `400` with
+`error.error_code = "INVALID_REQUEST"` naming the offending value and the
+supported list (a client bug, not an auth or routing problem).
+
+### 11.3 Streamable HTTP on `POST /mcp/`
+
+- **Response shape.** JSON by default. If `Accept` contains `text/event-stream`,
+  the same response is returned as a single `event: message` frame with
+  `Cache-Control: no-cache`. A client sending `*/*` keeps getting JSON.
+- **Sessions.** A successful `initialize` that carried a credential mints an
+  `Mcp-Session-Id` (uuid4) and binds it server-side to that API key in Redis.
+  Follow-up requests may then present the session id **instead of** the
+  credential header; an explicitly sent `X-API-Key`/`Authorization` always wins,
+  so a session can never downgrade a credential. An anonymous or failed
+  `initialize` mints nothing. The header is echoed on every response that
+  presented one.
+- **Termination.** `DELETE /mcp/` with `Mcp-Session-Id` answers `204` (and
+  advertises `DELETE` in `Access-Control-Allow-Methods`); `400` without the
+  header, `404` for an unknown session.
+- **No server-initiated stream.** `GET /mcp/` is a discovery document
+  (`transports: ["http", "sse"]`, app version); with
+  `Accept: text/event-stream` it answers `405` instead of a stream that would
+  immediately close and make SDK clients reconnect-loop.
+- **A session is an optimisation.** If the Redis write fails during the mint, the
+  `initialize` still succeeds — the caller can keep sending its credential.
+- **Legacy SSE is unchanged** and remains the fallback path:
+  `GET /mcp/sse/` (stream) + `POST /mcp/messages/?session_id=…` (202, the reply
+  is published onto the stream). The key is bound to the session at the
+  handshake and never appears in the message URL.
+
+### 11.4 `resources/*`
+
+| Method | Serves | Payload |
+|--------|--------|---------|
+| `resources/list` | a bounded page of artifact resources | `resources: [{uri, name, description, mimeType}]`, `nextCursor` when the page was full |
+| `resources/read` | one artifact rendered as Markdown | `contents: [{uri, mimeType: "text/markdown", text}]` |
+| `resources/templates/list` | the parameterised URI | `resourceTemplates: [{uriTemplate: "reqogniloom://artifact/{id}", …}]` |
+
+- URI scheme: `reqogniloom://artifact/{id}`, `{id}` being the backing
+  `Artifact` primary key.
+- `resources/list` is capped server-side at **`limit` default 100, maximum 200**;
+  `cursor` is a numeric offset and `nextCursor` is the next offset as a string.
+  The listing is limited to the workspaces where the caller holds an active role
+  (an unbounded tenant enumeration would be exactly the context-cost explosion
+  this surface avoids). A workspace-fenced key passes `workspace_id`.
+- `resources/read` narrows on top of the dispatcher's gates: an artifact of a
+  workspace the caller has no role in answers `PERMISSION_DENIED`, an unknown or
+  foreign-tenant id answers `NOT_FOUND` (no existence oracle).
+- The renderer is `application.artifact_markdown.render_artifact_markdown(
+  artifact_id, ctx)` — one implementation for every artifact type. Today
+  `resources/read` is its only caller; it is the seam the Dokumentensicht is meant
+  to consume, so its signature is the contract to keep stable.
+
+### 11.5 `prompts/*`
+
+| Method | Serves | Payload |
+|--------|--------|---------|
+| `prompts/list` | the active `PromptTemplate`s visible to the caller | `prompts: [{name, description, arguments: []}]` |
+| `prompts/get` | one template body | `description`, `messages: [{role: "user", content: {type: "text", text}}]` |
+
+`prompts/get` takes `name` (plus optional `workspace_id`) and returns the
+template **verbatim**: `arguments` is deliberately `[]`, because deriving an
+argument list from the `{{…}}` placeholder catalogue would duplicate
+`application/prompt_variables.py` into a second, silently diverging copy.
+Substitution stays in `application/prompt_resolver`. An unknown name answers
+`NOT_FOUND`.
+
+Management is not part of this capability: `prompt_template.create`/`update` and
+`prompt_variable.*` remain the (governance-gated) write tools.
+
+### 11.6 Why neither appears in `tools/list`
+
+Both capabilities are dispatched as **internal pseudo-tools**
+(`resource.list`/`resource.read`/`resource.templates_list`, `prompt.list`/
+`prompt.get`) through `ToolRegistry.dispatch_request`, so they inherit the full
+API-key, tenant/RLS, role and preset chain with no second auth path. Their tool
+groups return an empty `get_tool_schemas()`, which keeps them out of `tools/list`,
+out of the manifest and out of `tool.list_groups`.
+
+Two consequences worth knowing: `resource.*`/`prompt.*` are implementation
+names, not part of the advertised catalogue — the documented path is the MCP
+method (`resources/read`, not `tools/call` with `resource.read`), and a failure
+on these methods comes back as a JSON-RPC **error** (e.g. `-32004 NOT_FOUND`)
+rather than as a `tools/call` result with `isError: true`.
+

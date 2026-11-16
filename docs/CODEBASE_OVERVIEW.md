@@ -716,7 +716,7 @@ POST /api/v1/auth/logout             # Optional (stateless, JWT in localStorage)
 ---
 
 #### `mcp_server/` (ARCH-L1-003)
-**Modell:** MCP-Server (JSON-RPC 2.0) mit Tool-Gruppen, direkt gegen ApplicationService (ADR-01). **299 Tools in 48 Gruppen-Präfixen** (gemessen auf `1.9.0-beta.1`; zuletzt erweitert um die Introspektions-Gruppe `tool` (`tool.list_groups`) aus MCP-Modernisierung Phase D, davor `artifact.bulk_transition` ([#1872](https://github.com/Popoboxxo/ReqogniLoom/issues/1872), Write-Tool der Tabellenansicht) und `artifact.bulk_update` als Write-Tool der Dokumentansicht (keine neuen Präfixe), davor die Summary-Gruppe `summary` (`summary.get`/`summary.refresh`, #1793), davor `allocation.query`, die `group`-Gruppe, `milestone`, `work_item`, `document` und die Statistik-Gruppe `metrics`; siehe `docs/api/MCP-SURFACE.md`. Die vollständige, generierte Tool-Liste inkl. `inputSchema` steht in `docs/agent-templates/tool-manifest.json`.)
+**Modell:** MCP-Server (JSON-RPC 2.0) mit Tool-Gruppen, direkt gegen ApplicationService (ADR-01). **301 Tools in 49 Gruppen-Präfixen** (gemessen auf `1.9.0-beta.1`; zuletzt erweitert um die `saved_view`-Gruppe (`saved_view.list`/`saved_view.apply`, Tabellenansicht Slice 3), davor um die Introspektions-Gruppe `tool` (`tool.list_groups`) aus MCP-Modernisierung Phase D, davor `artifact.bulk_transition` ([#1872](https://github.com/Popoboxxo/ReqogniLoom/issues/1872), Write-Tool der Tabellenansicht) und `artifact.bulk_update` als Write-Tool der Dokumentansicht (keine neuen Präfixe), davor die Summary-Gruppe `summary` (`summary.get`/`summary.refresh`, #1793), davor `allocation.query`, die `group`-Gruppe, `milestone`, `work_item`, `document` und die Statistik-Gruppe `metrics`; siehe `docs/api/MCP-SURFACE.md`. Die vollständige, generierte Tool-Liste inkl. `inputSchema` steht in `docs/agent-templates/tool-manifest.json`.)
 
 > **Zahlen nicht aus diesem Dokument übernehmen.** Die Werkzeuganzahl ändert sich mit jedem neuen Tool; maßgeblich sind `tool-manifest.json` und die Messmethode in [`docs/api/MCP-SURFACE.md` §1](api/MCP-SURFACE.md#1-catalogue-size) (`tools/list` per `curl` oder offline `manage.py export_tool_manifest`). Die früheren Angaben in diesem Dokument (143, 171, 172, 212, 215) waren Kopien ohne Nachmessung; die CI-Guards `test_tool_manifest_drift.py` und `test_entity_surface_parity.py` verhindern inzwischen, dass eine Zahl still veraltet.
 
@@ -785,9 +785,12 @@ memory.ask              # Natural-language answer from one scope (REQ-192, write
 
 **Komponenten:**
 - `tool_registry.py` — Registry, Rollen-/Scope-Gate, Tool-Gruppen-Registrierung
+- `api_key_policy.py` — per-Key-Policy (`scope` als Grenze, `tool_groups` als Manifest-Kuration; liest über `auth_tenancy.services.authentication.load_api_key_policy_row`)
 - `tools/` — ein Modul pro Tool-Gruppe (jede Gruppe eine `BaseToolGroup`-Subklasse, siehe `tools/base.py`)
-- `protocol_handler.py` — JSON-RPC 2.0 Dispatch (`initialize`, `tools/list`, `tools/call`)
-- `views.py` / `urls.py` — HTTP- und SSE-Transport
+- `tools/resources.py` / `tools/prompts.py` — MCP-Capabilities `resources/*` und `prompts/*` als interne Pseudo-Tools (`resource.*`, `prompt.*`) mit leerem `get_tool_schemas()`, dadurch unsichtbar in `tools/list`
+- `protocol_handler.py` — JSON-RPC 2.0 Dispatch (`initialize`, `tools/list`, `tools/call`, `resources/*`, `prompts/*`), Revisions-Negotiation
+- `views.py` / `urls.py` — HTTP- und SSE-Transport (`Mcp-Session-Id`, SSE-Antwort auf POST, `DELETE`)
+- `sse_pubsub.py` — SSE-Bus und Session-Key-Bindung
 - `workspace_scope.py` — Workspace-Scoping des Read-Gates
 
 **Test-Coverage:** siehe [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md) und `backend/mcp_server/tests/`
