@@ -519,6 +519,16 @@ class TestDeclaredWorkspaceIdUnchanged:
             seen_group_ids.add(id(group))
             if not isinstance(group, BaseToolGroup):  # test double
                 continue
+            # MCP-Modernisierung Task 6/7: ``resources/*`` and ``prompts/*`` are
+            # capability groups — pseudo-tools dispatched by ProtocolHandler
+            # that deliberately publish no schema so they stay out of
+            # ``tools/list``. Their handlers either take no workspace_id at all
+            # (resource.read/prompt.*) or scope themselves explicitly
+            # (resource.list passes a workspace_id it owns; resource.read
+            # validates the artifact's real workspace against the caller's
+            # accessible set), so the #1376 shadow risk does not apply.
+            if group.capability_only:
+                continue
             checked += 1
             published = {
                 schema.get("name") for schema in group.get_tool_schemas()

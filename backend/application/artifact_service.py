@@ -892,6 +892,80 @@ class ArtifactService(ServiceBase):
 
         return result
 
+    def get_artifact_workspace_id(
+        self, artifact_id: UUID | str, ctx: AuthContext
+    ) -> UUID | None:
+        """Return the workspace owning *artifact_id*, or ``None``.
+
+        Tenant-scoped: an artifact of another tenant is indistinguishable from
+        a missing one (the caller asked for a 404, not an existence oracle).
+        Backs the MCP ``resources/read`` workspace gate, which narrows a
+        resource read to the workspaces the caller holds a role in — the same
+        narrowing :meth:`list_artifact_resources` applies to ``resources/list``.
+        """
+        self._set_tenant_context(ctx)
+        return (
+            Artifact.objects.filter(id=artifact_id)
+            .values_list("workspace_id", flat=True)
+            .first()
+        )
+
+    def list_artifact_resources(
+        self,
+        ctx: AuthContext,
+        workspace_id: UUID | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Return a bounded page of artifacts for the MCP resource surface.
+
+        Scoping mirrors ``artifact.search`` and ``prompt_template.list``: with
+        an explicit *workspace_id* the dispatcher has already gated the caller
+        on that workspace; without one, the result spans exactly the workspaces
+        the caller holds an active role in — never the whole tenant.
+
+        Args:
+            ctx: Caller identity.
+            workspace_id: Restrict to one workspace, or ``None`` for every
+                accessible one.
+            limit: Page size. Callers clamp; this method does not.
+            offset: Rows to skip.
+
+        Returns:
+            ``[{"artifact_id": str, "artifact_type": str, "title": str}]``,
+            newest first. Every value is a string: the MCP transport serialises
+            with the stdlib JSON encoder, which cannot encode UUIDs.
+        """
+        self._set_tenant_context(ctx)
+
+        queryset = Artifact.objects.all()
+        if workspace_id is not None:
+            queryset = queryset.filter(workspace_id=workspace_id)
+        else:
+            from auth_tenancy.services.authorization import AuthorizationService
+
+            accessible = list(
+                AuthorizationService().accessible_workspace_ids(
+                    user_id=ctx.user_id, tenant_id=ctx.tenant_id
+                )
+            )
+            queryset = queryset.filter(workspace_id__in=accessible)
+
+        rows = list(
+            queryset.order_by("-created_at").values("id", "artifact_type")[
+                offset : offset + limit
+            ]
+        )
+        titles = self.resolve_artifact_titles([row["id"] for row in rows])
+        return [
+            {
+                "artifact_id": str(row["id"]),
+                "artifact_type": row["artifact_type"],
+                "title": titles.get(str(row["id"]), {}).get("title", ""),
+            }
+            for row in rows
+        ]
+
     def collect_artifact_names(
         self, item_ids: list[str], tenant_id: UUID
     ) -> dict[str, str]:
