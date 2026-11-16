@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ReqogniLoom">
+  <!-- Master for the PWA icons (plan M1 / REQ-213). Colours mirror the dark
+       theme tokens in src/styles/tokens.css; frontend/scripts/generate-icons.py
+       parses those tokens and renders the committed PNG set. -->
+  <rect width="512" height="512" rx="112" fill="#1a1f2e"/>
+  <text x="256" y="300" fill="#ffffff" font-family="IBM Plex Sans, Arial, sans-serif"
+        font-size="210" font-weight="700" text-anchor="middle">RL</text>
+  <rect x="181" y="335" width="150" height="11" rx="5.5" fill="#4f46e5"/>
+</svg>

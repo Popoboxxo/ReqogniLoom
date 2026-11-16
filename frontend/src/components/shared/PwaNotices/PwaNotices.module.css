@@ -1,0 +1,30 @@
+/* PWA status notices (plan M2), token-only — no hardcoded theme values. */
+
+.pwaNotices {
+  position: relative;
+  z-index: 65;
+  display: flex;
+  flex-direction: column;
+}
+
+.pwaNotice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--space-4);
+  padding-top: calc(var(--space-2) + env(safe-area-inset-top, 0px));
+  font-size: var(--font-size-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.offline {
+  background: var(--color-warning);
+  color: var(--color-on-primary);
+}
+
+.update {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}

@@ -45,6 +45,7 @@ import {
   makeObjectId,
   zoomViewportAt,
 } from "./canvas-geometry";
+import { DesktopOnlyHint } from "../shared/DesktopOnlyHint/DesktopOnlyHint";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1213,7 +1214,7 @@ export function CanvasEditor({
 
   return (
     <div className={styles.container} data-testid="canvas-editor">
-      {/* Toolbar */}
+      <DesktopOnlyHint feature="Canvas" />      {/* Toolbar */}
       <div className={styles.toolbar} data-testid="canvas-toolbar">
         <div className={styles.toolGroup}>
           {toolButton("select", ICONS.select, t("canvas.toolbar.select", "Select / Move"))}

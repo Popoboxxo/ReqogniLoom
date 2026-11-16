@@ -303,3 +303,29 @@
   font-size: var(--font-size-xs);
   white-space: nowrap;
 }
+
+/* M8: the two-tree grid collapses to tabs below --bp-md (768px). */
+.mobileTabs {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .mobileTabs {
+    display: flex;
+    gap: var(--space-1);
+  }
+
+  .canvas {
+    grid-template-columns: 1fr;
+  }
+
+  /* Cross-column edge lines are meaningless in a one-column renderer; the
+     per-row target text (always rendered) carries the allocation instead. */
+  .edges {
+    display: none;
+  }
+
+  .column[data-mobile-hidden="true"] {
+    display: none;
+  }
+}

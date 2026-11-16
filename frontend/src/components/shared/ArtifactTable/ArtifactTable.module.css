@@ -447,3 +447,23 @@
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
 }
+
+/* Plan M6: a horizontally scrolled table keeps its identifier column. */
+.headerCell:first-child {
+  left: 0;
+  z-index: 2;
+}
+
+/* The sticky identifier column must paint whatever the row paints — a fixed
+   surface colour masked row hover/selection state. Rows carry an explicit
+   background so `inherit` stays opaque while the cell is pinned (no gaps). */
+.table tbody tr {
+  background: var(--color-surface);
+}
+
+.bodyCell:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: inherit;
+}

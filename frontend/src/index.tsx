@@ -27,6 +27,7 @@ import "./styles/global.css";
 import "./i18n/index";
 import { App } from "./App";
 import { APP_NAME } from "./config/app-name";
+import { registerPwa } from "./pwa/register";
 
 // Force React to be globally available to prevent esbuild from stripping the import
 // and to satisfy any old JSX transforms or third-party libraries.
@@ -34,6 +35,9 @@ import { APP_NAME } from "./config/app-name";
 
 // Override the static fallback title (index.html) with the configured product name.
 document.title = APP_NAME;
+
+// M2: register the generated service worker once, before React mounts.
+registerPwa();
 
 const rootElement = document.getElementById("root");
 if (!rootElement) {

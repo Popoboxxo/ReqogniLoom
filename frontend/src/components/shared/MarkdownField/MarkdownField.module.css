@@ -13,3 +13,12 @@
   gap: var(--space-1);
   margin-bottom: var(--space-2);
 }
+
+/* Phone density (M7): one horizontal strip instead of a three-line toolbar. */
+@media (max-width: 640px) {
+  .toolbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: var(--space-1);
+  }
+}

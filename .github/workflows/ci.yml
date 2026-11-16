@@ -964,6 +964,12 @@ jobs:
           printf '<!doctype html><html><body><div id="root"></div><script src="/assets/a.js"></script></body></html>\n' \
             > "${RUNNER_TEMP}/www/index.html"
           printf 'console.log("header smoke");\n' > "${RUNNER_TEMP}/www/assets/a.js"
+          # check-nginx-headers.sh also probes /manifest.webmanifest and /sw.js.
+          # Ship the real manifest so its exact-location headers (explicit MIME,
+          # no-cache) are exercised; a minimal dummy worker is enough because the
+          # smoke test checks status/headers only, not service-worker behaviour.
+          cp frontend/public/manifest.webmanifest "${RUNNER_TEMP}/www/manifest.webmanifest"
+          printf 'self.addEventListener("install", function(){});\n' > "${RUNNER_TEMP}/www/sw.js"
 
       - name: Start nginx with the real config
         run: |

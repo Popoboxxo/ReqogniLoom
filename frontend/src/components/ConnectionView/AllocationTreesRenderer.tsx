@@ -630,6 +630,10 @@ export function AllocationTreesRenderer({
     );
   };
 
+  const [mobileColumn, setMobileColumn] = useState<'requirements' | 'elements'>(
+    'requirements'
+  );
+
   return (
     <div className={styles.trees} data-testid="allocation-trees-renderer">
       {error && (
@@ -643,6 +647,30 @@ export function AllocationTreesRenderer({
           <span>{error.message}</span>
         </div>
       )}
+
+      {/* M8: on a phone the two-tree grid becomes one tree at a time.
+          Buttons are real buttons (keyboard + touch), and both sections stay
+          mounted in the DOM — only their visibility changes. */}
+      <div className={styles.mobileTabs} role="group" data-testid="allocation-trees-tabs">
+        <button
+          type="button"
+          className="btn-tab"
+          data-testid="allocation-trees-tab-requirements"
+          aria-pressed={mobileColumn === 'requirements'}
+          onClick={() => setMobileColumn('requirements')}
+        >
+          {t('connectionView.requirements')}
+        </button>
+        <button
+          type="button"
+          className="btn-tab"
+          data-testid="allocation-trees-tab-elements"
+          aria-pressed={mobileColumn === 'elements'}
+          onClick={() => setMobileColumn('elements')}
+        >
+          {t('connectionView.elements')}
+        </button>
+      </div>
 
       <div className={styles.scroll} ref={scrollRef} data-testid="trees-scroll">
         <div className={styles.canvas} ref={canvasRef}>
@@ -671,6 +699,7 @@ export function AllocationTreesRenderer({
 
           <section
             className={styles.column}
+            data-mobile-hidden={mobileColumn !== 'requirements'}
             aria-label={t("connectionView.requirements")}
             ref={requirementColumnRef}
           >
@@ -691,6 +720,7 @@ export function AllocationTreesRenderer({
 
           <section
             className={styles.column}
+            data-mobile-hidden={mobileColumn !== 'elements'}
             aria-label={t("connectionView.elements")}
             ref={elementColumnRef}
           >

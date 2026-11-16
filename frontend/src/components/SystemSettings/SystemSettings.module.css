@@ -48,6 +48,7 @@
 }
 
 .editorHost {
-  height: calc(100vh - 220px);
+  height: calc(100vh - 220px); /* fallback */
+  height: calc(100dvh - 220px);
   position: relative;
 }

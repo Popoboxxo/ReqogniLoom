@@ -138,6 +138,18 @@ def _register_q1_preference_keys() -> None:
             ui_editor=None,
             owner="P3",
         ),
+        # Install-PWA dismissal (mobile plan M3, REQ-213). A personal UI
+        # preference, not a data statement: only the user level is allowed and
+        # there is deliberately no generic settings editor for it.
+        PreferenceKey(
+            key="ui.pwa.install_dismissed",
+            value_type="bool",
+            default=False,
+            levels=frozenset({PREFERENCE_SCOPE_USER}),
+            mode="override",
+            ui_editor=None,
+            owner="M3",
+        ),
         # Allocation-graph card configuration (ordering plan, item 3): the
         # workspace default applies to every member, the user level overrides
         # it, and the global level supplies the tenant-wide default. Items are

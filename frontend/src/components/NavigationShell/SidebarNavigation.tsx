@@ -13,6 +13,7 @@
 
 import React from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { InstallAppEntry } from "../shared/InstallApp/InstallAppEntry";
 import { useTranslation } from "react-i18next";
 import { Check, ChevronDown, Menu, X } from "lucide-react";
 import { APP_NAME } from "../../config/app-name";
@@ -945,6 +946,7 @@ export function SidebarNavigation(): JSX.Element {
         >
           {t("nav.profile")}
         </button>
+        <InstallAppEntry />
         <button data-testid="nav-logout" onClick={logout} className={`btn-ghost ${styles.footerBtn}`}>
           {t("nav.logout")}
         </button>

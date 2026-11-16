@@ -344,3 +344,13 @@ input, select, textarea {
   white-space: nowrap;
   border: 0;
 }
+
+/* M7: prevent the iOS focus-zoom on touch devices. Scoped to coarse pointers
+   so desktop typography stays exactly as designed. */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: var(--control-font-size-touch);
+  }
+}

@@ -43,6 +43,7 @@ import { useGraphAutosave } from "./useGraphAutosave";
 import { useToast } from "../shared/Toast/useToast";
 import type { GraphEdge, GraphHandlePosition, GraphNode, NodeGraphPayload } from "../../types";
 import styles from "./DiagramGraphEditor.module.css";
+import { DesktopOnlyHint } from "../shared/DesktopOnlyHint/DesktopOnlyHint";
 
 // Stable empty-array identities so `nodes`/`edges` below don't produce a new
 // array reference on every render while `draft` is still null (which would
@@ -358,6 +359,7 @@ export function DiagramGraphEditorPage(): JSX.Element {
 
   return (
     <div className={styles.page} data-testid="graph-editor-page">
+      <DesktopOnlyHint feature="Diagramm" />
       <header className={styles.header} data-testid="graph-editor-header">
         <button
           type="button"

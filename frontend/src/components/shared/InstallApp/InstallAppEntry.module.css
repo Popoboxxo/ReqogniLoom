@@ -1,0 +1,19 @@
+/* Single install entry point (plan M3) — token-driven, no hardcoded chrome. */
+.installButton {
+  width: 100%;
+  justify-content: flex-start;
+  /* The composed `.btn-ghost` base paints --color-text-muted, which is tuned
+     for light --color-surface, but this button sits in the sidebar footer on
+     the permanently-dark --color-nav-bg. Use the frozen nav chrome token
+     (white, ~13:1) instead; --color-primary fails AA here in 4 of 5 themes
+     (see tokens.css). */
+  color: var(--color-nav-text);
+}
+
+.installButton:hover:not(:disabled) {
+  /* Mirror the sibling .footerBtn: beat global `.btn-ghost:hover:not(:disabled)`
+     so hover keeps the nav palette instead of repainting with the light
+     --color-surface-raised, which would leave white text on a light fill. */
+  background: var(--color-nav-hover-bg);
+  color: var(--color-nav-text);
+}
