@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 299,
+  "tool_count": 301,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -7669,6 +7669,59 @@
           "id"
         ],
         "additionalProperties": false
+      }
+    },
+    {
+      "name": "saved_view.apply",
+      "prefix": "saved_view",
+      "is_write": false,
+      "description": "Run a saved table view and return its rows (read-only): {results: [{id, artifact_id, item_type, version, values, locked}], count, page, page_size, warnings}. The stored filter DSL is applied server-side; if it no longer compiles (attribute removed) the answer is an empty []result plus a warnings entry, never an error.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "view_id": {
+            "type": "string",
+            "description": "Required. UUID of the saved view."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "Required. UUID of the workspace the view belongs to; a view of another workspace answers NOT_FOUND."
+          },
+          "page": {
+            "type": "integer",
+            "description": "Optional. 1-based page number (default 1)."
+          },
+          "page_size": {
+            "type": "integer",
+            "description": "Optional. Rows per page (default 50, maximum 100)."
+          }
+        },
+        "required": [
+          "view_id",
+          "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "saved_view.list",
+      "prefix": "saved_view",
+      "is_write": false,
+      "description": "List the saved table views a workspace offers: the caller's own views plus every workspace-wide view of other users. A private view of another user is never listed (read-only).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "Required. UUID of the workspace."
+          },
+          "item_type": {
+            "type": "string",
+            "description": "Optional. Restrict to one artifact type, e.g. 'Requirement'."
+          }
+        },
+        "required": [
+          "workspace_id"
+        ]
       }
     },
     {

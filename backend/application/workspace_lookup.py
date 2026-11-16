@@ -128,6 +128,11 @@ ENTITY_SPECS: dict[str, EntityWorkspaceSpec] = {
     # ``workspace_id`` required). ``objects`` is tenant-scoped, so a foreign id
     # resolves to ``None`` and the view answers 404 rather than leaking.
     "suggestion": EntityWorkspaceSpec("persistence.models.Suggestion"),
+    # Tabellenansicht slice 3: a saved view carries a direct, non-null
+    # workspace FK, so ``saved-views/<pk>/`` and ``.../apply/`` derive the
+    # caller's authority from the view row (a private view of another user is
+    # filtered by the service, not by this fence).
+    "saved_view": EntityWorkspaceSpec("persistence.models.SavedView"),
 }
 
 

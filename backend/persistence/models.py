@@ -5780,6 +5780,212 @@ class Allocation(TenantScopedModel):
         )
 
 
+# ---------------------------------------------------------------------------
+# Table view state — slice 3 of the Tabellenansicht plan
+# (docs/superpowers/plans/2026-11-04-tabellenansicht-neu.md, Task 3.1)
+# ---------------------------------------------------------------------------
+
+#: Who may see a :class:`SavedView` besides its owner.
+SAVED_VIEW_VISIBILITY_CHOICES = (
+    ("private", "Private"),
+    ("workspace", "Workspace"),
+)
+
+
+class UserTableViewState(TenantScopedModel):
+    """Per-user "where I was last" state of one artifact table (Task 3.1).
+
+    A *state* row, not a saved view: exactly one row per
+    ``(user, workspace, item_type)``, overwritten in place on every write, so a
+    user reopening the table finds their columns, filters and sort again
+    without having created anything deliberately.
+
+    Deliberately unvalidated against the attribute definition: this is
+    layout memory, and a column whose attribute was removed since must not
+    make the stored state unreadable. The service only enforces the JSON shape
+    and size caps (:data:`application.saved_view_service.MAX_STATE_BYTES`).
+    :class:`SavedView` is the validated, named counterpart.
+
+    The tenant lives on :class:`Workspace` and is stamped on the row for RLS;
+    :meth:`save` rejects a workspace of another tenant on top of that.
+
+    leaf_id : COMP-PL-001
+    req_id  : REQ-L2-PL-004
+    """
+
+    user = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.CASCADE,
+        related_name="table_view_states",
+        help_text="Owner of this layout state; deletes with the user.",
+    )
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="table_view_states",
+        help_text="Tenant anchor for the state; deletes with the workspace.",
+    )
+    item_type = models.CharField(
+        max_length=128,
+        help_text="Artifact type the table shows, e.g. 'Requirement'.",
+    )
+    columns = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Ordered column descriptors [{'field': ..., 'order': ...}].",
+    )
+    filters = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Filter DSL document: {'<field>': <constraint> | [<constraint>]}.",
+    )
+    sort = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Sort document: [{'field': ..., 'dir': 'asc' | 'desc'}].",
+    )
+
+    class Meta:
+        db_table = "pl_user_table_view_state"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "workspace", "item_type"],
+                name="uq_utvs_user_ws_type",
+            ),
+        ]
+        indexes = [
+            # Read path: "the state of this user in this workspace/type".
+            models.Index(
+                fields=["workspace", "item_type"], name="idx_utvs_ws_type"
+            ),
+        ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Reject a workspace of another tenant before the row reaches the DB."""
+        if (
+            self.workspace_id is not None
+            and self.workspace.tenant_id != self.tenant_id
+        ):
+            raise ValidationError(
+                {"workspace": "Must belong to the same tenant as the state."}
+            )
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"UserTableViewState({self.user_id}/{self.item_type})"
+
+
+class SavedView(TenantScopedModel):
+    """A named, shared table view of one artifact type (Task 3.1).
+
+    Stores the same three layout documents as :class:`UserTableViewState`
+    (columns, filters, sort) plus a name and a visibility. Unlike the
+    per-user state a saved view **is** validated when written: ``filters`` and
+    ``sort`` go through the filter DSL against the current attribute
+    definition, so an unknown field is refused at creation instead of
+    producing an empty table later (spec §4.1).
+
+    Visibility:
+      * ``private`` — only :attr:`owner` reads it (the list endpoint filters
+        it out for everybody else and a direct fetch answers 404).
+      * ``workspace`` — every member reads it; only the owner or a workspace
+        admin may change or delete it.
+
+    ``name`` is unique per ``(workspace, item_type, owner)``: two users may
+    both keep a view called "Offene Anforderungen", the same user may not keep
+    two of that name for one type.
+
+    leaf_id : COMP-PL-001
+    req_id  : REQ-L2-PL-004
+    """
+
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="saved_views",
+        help_text="Tenant anchor for the view; deletes with the workspace.",
+    )
+    owner = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.CASCADE,
+        related_name="saved_views",
+        help_text="Creator of the view; only they (or an admin) may change it.",
+    )
+    item_type = models.CharField(
+        max_length=128,
+        help_text="Artifact type the view shows, e.g. 'Requirement'.",
+    )
+    name = models.CharField(
+        max_length=255,
+        help_text="Display name, unique per owner and item type in a workspace.",
+    )
+    columns = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Ordered column descriptors [{'field': ..., 'order': ...}].",
+    )
+    filters = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Filter DSL document: {'<field>': <constraint> | [<constraint>]}.",
+    )
+    sort = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Sort document: [{'field': ..., 'dir': 'asc' | 'desc'}].",
+    )
+    visibility = models.CharField(
+        max_length=16,
+        choices=SAVED_VIEW_VISIBILITY_CHOICES,
+        default="private",
+        help_text="'private' (owner only) or 'workspace' (every member reads).",
+    )
+
+    class Meta:
+        db_table = "pl_saved_view"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["workspace", "item_type", "owner", "name"],
+                name="uq_saved_view_ws_type_owner_name",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(visibility__in=["private", "workspace"]),
+                name="ck_saved_view_visibility",
+            ),
+        ]
+        indexes = [
+            # Read path: "all views of this type a member may see".
+            models.Index(
+                fields=["workspace", "item_type"], name="idx_sview_ws_type"
+            ),
+            # Visibility filter of the list path.
+            models.Index(
+                fields=["workspace", "visibility"], name="idx_sview_ws_visibility"
+            ),
+        ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Reject cross-tenant references before the row reaches the DB."""
+        if (
+            self.workspace_id is not None
+            and self.workspace.tenant_id != self.tenant_id
+        ):
+            raise ValidationError(
+                {"workspace": "Must belong to the same tenant as the view."}
+            )
+        if self.owner_id is not None and self.owner.tenant_id not in (
+            None,
+            self.tenant_id,
+        ):
+            raise ValidationError(
+                {"owner": "Must belong to the same tenant as the view."}
+            )
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"SavedView({self.item_type}/{self.name})"
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -5852,4 +6058,8 @@ __all__ = [
     "WorkspaceTier",
     "Allocation",
     "AllocationStatus",
+    # Tabellenansicht slice 3: persisted table views and per-user table state.
+    "UserTableViewState",
+    "SavedView",
+    "SAVED_VIEW_VISIBILITY_CHOICES",
 ]

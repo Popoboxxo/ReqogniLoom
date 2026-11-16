@@ -247,7 +247,7 @@ def test_registry_classifies_read_and_write() -> None:
     assert registry._is_write_tool("summary.refresh") is True
 
 
-def test_manifest_keeps_47_prefixes_and_the_current_count() -> None:
+def test_manifest_keeps_48_prefixes_and_the_current_count() -> None:
     from mcp_server.management.commands.export_tool_manifest import build_manifest
 
     manifest = build_manifest()
@@ -258,13 +258,15 @@ def test_manifest_keeps_47_prefixes_and_the_current_count() -> None:
     assert by_name["summary.refresh"]["prefix"] == "summary"
     assert by_name["summary.refresh"]["is_write"] is True
     # Issue #1793 / S6: 294 -> 296, 46 -> 47 prefixes. The catalogue then kept
-    # growing within the same 47 prefixes (R3.2: ``artifact.bulk_update`` moved
+    # growing within those 47 prefixes (R3.2: ``artifact.bulk_update`` moved
     # 296 -> 297; ``artifact.bulk_transition``, #1872, moved 297 -> 298), and
     # MCP-Modernisierung Phase D added the 48th prefix ``tool``
-    # (``tool.list_groups``) and moved it to 299.
-    assert manifest["tool_count"] == 299
+    # (``tool.list_groups``) and moved it to 299. Tabellenansicht slice 3 added
+    # the two ``saved_view`` read tools inside that same 48th prefix set
+    # (299 -> 301).
+    assert manifest["tool_count"] == 301
     assert manifest["tool_count"] == len(manifest["tools"])
-    assert len({t["prefix"] for t in manifest["tools"]}) == 48
+    assert len({t["prefix"] for t in manifest["tools"]}) == 49
 
 
 # ---------------------------------------------------------------------------
