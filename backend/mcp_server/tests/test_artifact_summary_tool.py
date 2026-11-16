@@ -221,9 +221,9 @@ def test_manifest_lists_it_once_as_read_and_the_count_is_current() -> None:
     assert entries[0]["is_write"] is False
     # Issue #1792 / S3 moved 293 -> 294; issue #1793 / S6 moved 294 -> 296
     # (``summary.get``/``summary.refresh``); R3.2 (document view) moved
-    # 296 -> 297 (``artifact.bulk_update``). Documented in six places, gated by
+    # 296 -> 297 (``artifact.bulk_update``), 297 -> 298 (``artifact.bulk_transition``). Documented in six places, gated by
     # test_tool_manifest_drift.py and the two doc-surface guards.
-    assert manifest["tool_count"] == 297
+    assert manifest["tool_count"] == 298
     assert manifest["tool_count"] == len(manifest["tools"])
 
 

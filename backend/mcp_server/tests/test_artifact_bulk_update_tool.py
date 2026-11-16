@@ -33,7 +33,7 @@ from workflow.services import create_default_workflow
 
 pytestmark = pytest.mark.django_db
 
-EXPECTED_TOOL_COUNT = 297
+EXPECTED_TOOL_COUNT = 298
 BULK_TOOL = "artifact.bulk_update"
 
 
@@ -140,7 +140,7 @@ def test_manifest_contains_bulk_update(manifest: dict[str, Any]) -> None:
     ]
 
 
-def test_tool_count_is_297(manifest: dict[str, Any]) -> None:
+def test_tool_count_is_298(manifest: dict[str, Any]) -> None:
     assert manifest["tool_count"] == EXPECTED_TOOL_COUNT
     assert len(manifest["tools"]) == EXPECTED_TOOL_COUNT
     # The prefix count is unchanged (47): bulk_update joins an existing group.
