@@ -269,6 +269,8 @@ def test_allocation_coverage_of_an_unallocated_element() -> None:
     assert resp.status_code == 200, resp.content
     body = resp.json()
     assert body["allocated_count"] == 0
+    assert body["not_allocatable_count"] == 0
+    assert body["coverage_percent"] == 0.0
     assert body["unallocated_requirements"] == []
 
 

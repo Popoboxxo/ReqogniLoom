@@ -1718,6 +1718,55 @@ class NeedValidationCoverageResponseSerializer(serializers.Serializer):
     needs = NeedValidationCoverageEntrySerializer(many=True)
 
 
+class ArchitectureAllocationCoverageRequirementSerializer(serializers.Serializer):
+    """One unallocated Requirement row of the allocation coverage report (#1883)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Requirement id.")
+    uid = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Stable, workspace-unique Requirement uid (may be empty).",
+    )
+    title = serializers.CharField(read_only=True, allow_blank=True)
+
+
+class ArchitectureAllocationCoverageSerializer(serializers.Serializer):
+    """Response contract of ``GET /api/v1/architecture/{id}/allocation-coverage/``.
+
+    GH-1883: the route was documented as returning an
+    ``ArchitectureElement`` — the body has always been this coverage report
+    instead, and ``coverage_ratio`` carried a 0…100 percentage, not a ratio.
+    The field is published as ``coverage_percent`` to match the house naming of
+    ``MetricsCoverage.coverage_percent``. Every field is read-only: the route
+    takes its input from the path only.
+    """
+
+    allocated_count = serializers.IntegerField(
+        read_only=True,
+        help_text="Requirements allocated directly to this ArchitectureElement.",
+    )
+    not_allocatable_count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Requirements with allocation_intent='not_allocatable'. Deliberately "
+            "excluded from the coverage denominator, never reported as a gap."
+        ),
+    )
+    coverage_percent = serializers.FloatField(
+        read_only=True,
+        help_text=(
+            "Coverage in percent (0…100): allocated_count / allocatable "
+            "Requirements * 100. Not a 0…1 ratio."
+        ),
+    )
+    unallocated_requirements = ArchitectureAllocationCoverageRequirementSerializer(
+        many=True,
+        read_only=True,
+        help_text="Workspace Requirements not allocated to this element.",
+    )
+
+
 class ArchitectureElementSerializer(
     ClientUidRejectionMixin,
     WorkflowStateSerializerMixin,

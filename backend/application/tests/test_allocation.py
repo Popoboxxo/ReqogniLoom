@@ -285,7 +285,7 @@ class TestAllocationCoverageReport:
         ``TraceLinkService.get_allocation_coverage``: membership is decided only
         by ``allocated-to`` links whose target is *this* element's artifact, so
         the parent reports 0 even though all three requirements are allocated to
-        its child. ``coverage_ratio`` is therefore 0 of the workspace's 3
+        its child. ``coverage_percent`` is therefore 0 of the workspace's 3
         requirements.
         """
         req_svc = RequirementService()
@@ -328,7 +328,7 @@ class TestAllocationCoverageReport:
 
         assert report is not None
         assert report["allocated_count"] == 0
-        assert report["coverage_ratio"] == 0
+        assert report["coverage_percent"] == 0
         assert len(report["unallocated_requirements"]) == 3
 
         # ... while the child itself reports the three allocations.
@@ -337,7 +337,7 @@ class TestAllocationCoverageReport:
             ctx=auth_context,
         )
         assert child_report["allocated_count"] == 3
-        assert child_report["coverage_ratio"] == 100.0
+        assert child_report["coverage_percent"] == 100.0
         assert child_report["unallocated_requirements"] == []
 
     def test_coverage_report_partial_allocation(self, auth_context, workspace):
@@ -391,7 +391,7 @@ class TestAllocationCoverageReport:
         # *arch_el*. ``>=`` here would pass even if the link lookup silently
         # returned nothing.
         assert report["allocated_count"] == 2
-        assert report["coverage_ratio"] == 50.0
+        assert report["coverage_percent"] == 50.0
         assert len(report["unallocated_requirements"]) == 2
         assert {entry["id"] for entry in report["unallocated_requirements"]} == {
             req.id for req in unallocated_reqs
@@ -415,8 +415,127 @@ class TestAllocationCoverageReport:
 
         assert report is not None
         assert report["allocated_count"] == 0
-        assert report["coverage_ratio"] == 0
+        assert report["coverage_percent"] == 0
         assert len(report["unallocated_requirements"]) == 0
+
+    def test_coverage_percent_reports_a_percentage_not_a_ratio(
+        self, auth_context, workspace
+    ):
+        """GH-1883: 1 of 51 allocated is 1.96 %, not a 0…1 ratio.
+
+        The field used to be called ``coverage_ratio`` while holding
+        ``allocated/total*100``. The rename to ``coverage_percent`` makes the
+        unit explicit; this test pins both the value and the 0…100 range so a
+        future "fix" cannot divide by 100 and call it a ratio.
+        """
+        req_svc = RequirementService()
+        arch_svc = ArchitectureService()
+        link_svc = TraceLinkService()
+
+        arch_el = arch_svc.create_architecture_element(
+            workspace_id=workspace.id,
+            title="Fifty-one",
+            ctx=auth_context,
+        )
+        for i in range(51):
+            req = req_svc.create_requirement(
+                workspace_id=workspace.id,
+                title=f"Requirement {i}",
+                ctx=auth_context,
+            )
+            if i == 0:
+                link_svc.allocate(
+                    requirement_id=req.id,
+                    architecture_element_id=arch_el.id,
+                    ctx=auth_context,
+                )
+
+        report = link_svc.get_allocation_coverage(
+            architecture_element_id=arch_el.id,
+            ctx=auth_context,
+        )
+
+        assert report["allocated_count"] == 1
+        assert report["not_allocatable_count"] == 0
+        assert report["coverage_percent"] == pytest.approx(100 / 51)
+        assert round(report["coverage_percent"], 2) == 1.96
+        assert 0.0 <= report["coverage_percent"] <= 100.0
+        assert report["coverage_percent"] > 1.0  # a 0…1 ratio would be 0.0196
+
+    def test_coverage_percent_is_zero_without_allocations_and_hundred_when_full(
+        self, auth_context, workspace
+    ):
+        """GH-1883: 0 allocated → 0.0; all allocated → 100.0, never above 100."""
+        req_svc = RequirementService()
+        arch_svc = ArchitectureService()
+        link_svc = TraceLinkService()
+
+        arch_el = arch_svc.create_architecture_element(
+            workspace_id=workspace.id,
+            title="Bounds",
+            ctx=auth_context,
+        )
+        reqs = [
+            req_svc.create_requirement(
+                workspace_id=workspace.id,
+                title=f"Requirement {i}",
+                ctx=auth_context,
+            )
+            for i in range(2)
+        ]
+
+        empty = link_svc.get_allocation_coverage(
+            architecture_element_id=arch_el.id,
+            ctx=auth_context,
+        )
+        assert empty["allocated_count"] == 0
+        assert empty["coverage_percent"] == 0.0
+        assert len(empty["unallocated_requirements"]) == 2
+
+        for req in reqs:
+            link_svc.allocate(
+                requirement_id=req.id,
+                architecture_element_id=arch_el.id,
+                ctx=auth_context,
+            )
+
+        full = link_svc.get_allocation_coverage(
+            architecture_element_id=arch_el.id,
+            ctx=auth_context,
+        )
+        assert full["allocated_count"] == 2
+        assert full["coverage_percent"] == 100.0
+        assert full["coverage_percent"] <= 100.0
+        assert full["unallocated_requirements"] == []
+
+    def test_unallocated_requirements_carry_id_uid_and_title(
+        self, auth_context, workspace
+    ):
+        """GH-1883: the nested rows expose the stable uid next to id/title."""
+        req_svc = RequirementService()
+        arch_svc = ArchitectureService()
+        link_svc = TraceLinkService()
+
+        arch_el = arch_svc.create_architecture_element(
+            workspace_id=workspace.id,
+            title="Unallocated rows",
+            ctx=auth_context,
+        )
+        req = req_svc.create_requirement(
+            workspace_id=workspace.id,
+            title="Has a uid",
+            ctx=auth_context,
+        )
+
+        report = link_svc.get_allocation_coverage(
+            architecture_element_id=arch_el.id,
+            ctx=auth_context,
+        )
+
+        assert report["unallocated_requirements"] == [
+            {"id": req.id, "uid": req.uid, "title": "Has a uid"}
+        ]
+        assert req.uid  # the service-generated local uid is not empty
 
 
 @pytest.mark.django_db
@@ -466,11 +585,11 @@ class TestAllocationCoverageQueryCount:
             # ... and the reported numbers are unchanged.
             assert reports[100]["allocated_count"] == 50
             assert reports[400]["allocated_count"] == 200
-            assert reports[100]["coverage_ratio"] == 50.0
-            assert reports[400]["coverage_ratio"] == 50.0
+            assert reports[100]["coverage_percent"] == 50.0
+            assert reports[400]["coverage_percent"] == 50.0
             assert len(reports[400]["unallocated_requirements"]) == 200
             assert all(
-                set(entry) == {"id", "title"}
+                set(entry) == {"id", "uid", "title"}
                 for entry in reports[400]["unallocated_requirements"]
             )
         finally:
