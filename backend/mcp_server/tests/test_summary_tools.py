@@ -259,8 +259,8 @@ def test_manifest_keeps_47_prefixes_and_the_current_count() -> None:
     assert by_name["summary.refresh"]["is_write"] is True
     # Issue #1793 / S6: 294 -> 296, 46 -> 47 prefixes. The catalogue then kept
     # growing within the same 47 prefixes (R3.2: ``artifact.bulk_update`` moved
-    # 296 -> 297), which is what the current-size assertion below pins.
-    assert manifest["tool_count"] == 297
+    # 296 -> 297 -> 298), which is what the current-size assertion below pins.
+    assert manifest["tool_count"] == 298
     assert manifest["tool_count"] == len(manifest["tools"])
     assert len({t["prefix"] for t in manifest["tools"]}) == 47
 

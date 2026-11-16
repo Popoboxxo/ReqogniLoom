@@ -563,6 +563,18 @@ _TENANT_SCOPED = {
     "BundleCompressionStatusView": "async task status, tenant-owned",
     "ConsistencyStatusView": "async task status, tenant-owned",
     "TraceabilitySuggestLinksStatusView": "async task status, tenant-owned",
+    # Slice 2 (Tabellenansicht): the bulk workflow transition names no workspace
+    # at all — it is derived from the artifact ids in the body. The seam has
+    # nothing to resolve (and denying outright would break every call), so the
+    # *service* is the enforcement point: BulkUpdateService.bulk_transition
+    # derives the workspace, applies the API-key fence and requires a write role
+    # in it before the first transition. Pinned by
+    # rest_api/tests/test_bulk_transition_view.py (403 for a viewer, and for an
+    # editor of workspace B acting on A's rows).
+    "ArtifactBulkTransitionView": (
+        "target workspace derived in-service from the artifact ids; write role "
+        "and API-key fence enforced there before the first transition"
+    ),
     "scope_preview": "baseline scope preview",
     # admin / system operations
     "AdminRestoreView": "system-admin disaster recovery",

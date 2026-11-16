@@ -58,7 +58,7 @@ from application.base import ProducerContextRequiredError
 
 # R3.2: the batch size is the service's constant, so the advertised MCP schema
 # and the enforced limit cannot drift apart.
-from application.bulk_update_service import MAX_ENTRIES
+from application.bulk_update_service import MAX_ENTRIES, MAX_TRANSITION_IDS
 from application.search_service import SEARCHABLE_ARTIFACT_TYPES
 from application.services import (
     ArtifactService,
@@ -266,6 +266,36 @@ def _bulk_entries_param(params: dict[str, Any]) -> list[Any]:
     return raw
 
 
+def _transition_ids_param(params: dict[str, Any]) -> list[UUID]:
+    """Return the parsed ``ids`` array of ``artifact.bulk_transition``.
+
+    Transport-shape only, the same split as :func:`_bulk_entries_param`: a
+    missing, empty, oversized or non-UUID list is a ``ParameterError`` (→
+    ``VALIDATION_ERROR``), while the batch/business rules (duplicates, two
+    workspaces, unknown rows, the graph itself) stay in
+    :class:`application.bulk_update_service.BulkUpdateService`.
+    """
+    raw = params.get("ids")
+    if isinstance(raw, (str, bytes)) or not isinstance(raw, list) or not raw:
+        raise ParameterError("'ids' must be a non-empty array of artifact UUIDs.")
+    if len(raw) > MAX_TRANSITION_IDS:
+        raise ParameterError(
+            f"'ids' must not contain more than {MAX_TRANSITION_IDS} items "
+            f"(got {len(raw)})."
+        )
+    parsed: list[UUID] = []
+    for position, value in enumerate(raw):
+        if value is None or (isinstance(value, str) and not str(value).strip()):
+            raise ParameterError(f"'ids[{position}]' is required.")
+        try:
+            parsed.append(UUID(str(value)))
+        except (ValueError, AttributeError):
+            raise ParameterError(
+                f"'ids[{position}]' is not a valid UUID: '{value}'"
+            ) from None
+    return parsed
+
+
 def _bulk_entry_from_raw(position: int, raw: Any) -> Any:
     """Build one ``BulkEntry`` from a raw MCP entry, or raise ``ParameterError``.
 
@@ -347,6 +377,9 @@ class CrossCuttingToolGroup(BaseToolGroup):
         # sends. One transaction, all or nothing — the MCP twin of
         # PATCH /api/v1/artifacts/bulk-update/.
         "artifact.bulk_update": "_handle_artifact_bulk_update",
+        # Slice 2 (Tabellenansicht): the bulk workflow transition, the MCP twin
+        # of POST /api/v1/artifacts/bulk-transition/.
+        "artifact.bulk_transition": "_handle_artifact_bulk_transition",
         "workspace.get_context": "_handle_workspace_get_context",
         "workspace.list": "_handle_workspace_list",
         "workspace.resolve_references": "_handle_workspace_resolve_references",
@@ -783,6 +816,66 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     },
                 },
                 "required": ["workspace_id", "entries"],
+            },
+        },
+        {
+            "name": "artifact.bulk_transition",
+            "description": (
+                "Move several artifacts into ONE workflow state (write, audited). "
+                "Body {item_type, ids: [artifact_id], to_state, change_reason}, "
+                f"1..{MAX_TRANSITION_IDS} ids. Every id runs through the "
+                "workspace's own workflow graph, so the usual per-item gates "
+                "apply (allowed roles, change-reason policy, signature gates) — "
+                "no status column is ever written directly. PARTIAL SUCCESS is "
+                "the contract: rows the graph refuses are listed in failed[] "
+                "(index, artifact_id, code, message) and the others still move. "
+                "Codes: VALIDATION_ERROR, NOT_FOUND, FORBIDDEN, CONFLICT. The "
+                "workspace is derived from the ids (no workspace_id parameter) "
+                "and the caller needs a write role there. MCP twin of POST "
+                "/api/v1/artifacts/bulk-transition/; returns {transitioned: "
+                "[{artifact_id, state}], failed: []}."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "item_type": {
+                        "type": "string",
+                        "description": (
+                            "Artifact type every id must have, e.g. "
+                            "\"Requirement\"; the value the table row reports as "
+                            "artifact_type."
+                        ),
+                    },
+                    "ids": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": MAX_TRANSITION_IDS,
+                        "items": {
+                            "type": "string",
+                            "description": "UUID of the backing Artifact.",
+                        },
+                        "description": (
+                            "The rows to move. Missing ids are reported per row "
+                            "as NOT_FOUND; ids of two workspaces reject the whole "
+                            "request."
+                        ),
+                    },
+                    "to_state": {
+                        "type": "string",
+                        "description": (
+                            "Target state name as declared in the workspace's "
+                            "workflow graph."
+                        ),
+                    },
+                    "change_reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": (
+                            "Reason recorded on every transition; required."
+                        ),
+                    },
+                },
+                "required": ["item_type", "ids", "to_state", "change_reason"],
             },
         },
         {
@@ -2006,6 +2099,63 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 },
             )
 
+        return ToolResult.ok(result.to_dict())
+
+    # ------------------------------------------------------------------
+    # artifact.bulk_transition (Tabellenansicht slice 2)
+    # ------------------------------------------------------------------
+
+    def _handle_artifact_bulk_transition(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """artifact.bulk_transition — move several rows into one workflow state.
+
+        Partial success by contract (spec §3.2), so a refusal is *not* a tool
+        error: the tool answers ``ok`` with the ``failed[]`` list and the caller
+        decides what to retry. Only a request defect (bad ids, blank reason, two
+        workspaces) or a missing workspace write role is an error result — the
+        same split REST uses (400/403 vs 200-with-failures).
+
+        Audit: the workflow facade writes the transition history and the service
+        writes one audit row per transitioned item through the handoff, so this
+        handler adds the request-level MCP entry once (Codeberg #313 pattern).
+        """
+        from application.bulk_update_service import BulkUpdateService
+
+        item_type = str(require_param(params, "item_type")).strip()
+        to_state = str(require_param(params, "to_state")).strip()
+        change_reason = str(require_param(params, "change_reason")).strip()
+        ids = _transition_ids_param(params)
+
+        try:
+            with mcp_audit_handoff():
+                result = BulkUpdateService().bulk_transition(
+                    auth_context,
+                    item_type,
+                    ids,
+                    to_state,
+                    change_reason,
+                )
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="transition",
+            entity_type=item_type,
+            # One request-level entry: the entity ids are the batch, not a row.
+            entity_id=ids[0],
+            tool_name="artifact.bulk_transition",
+            api_key=api_key,
+            details={
+                "to_state": to_state,
+                "requested": len(ids),
+                "transitioned": len(result.transitioned),
+                "failed": len(result.failed),
+            },
+        )
         return ToolResult.ok(result.to_dict())
 
     # ------------------------------------------------------------------

@@ -37,7 +37,7 @@ from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from application.bulk_update_service import MAX_ENTRIES
+from application.bulk_update_service import MAX_ENTRIES, MAX_TRANSITION_IDS
 from application.test_steps import normalize_steps, validate_steps
 from persistence.models import (
     Document,
@@ -3191,6 +3191,79 @@ class BulkUpdateResponseSerializer(serializers.Serializer):
         help_text="Empty whenever ``errors`` is non-empty — nothing was written.",
     )
     errors = BulkUpdateErrorSerializer(many=True)
+
+
+# ---------------------------------------------------------------------------
+# Slice 2 (Tabellenansicht): POST /api/v1/artifacts/bulk-transition/
+#
+# "Move the selected rows to one state." Deliberately a second body shape rather
+# than a mode on bulk-update: the transition takes no per-row expected_version
+# (the workflow row lock serialises concurrent transitions) and is
+# **partial-success** by contract, so its result names what moved instead of
+# reporting that nothing did. No ``workspace_id``: the workspace is derived from
+# the ids, so a caller cannot scope the role check to A while writing B's rows.
+# ---------------------------------------------------------------------------
+
+
+class BulkTransitionRequestSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
+    """Body of ``POST /api/v1/artifacts/bulk-transition/`` (slice 2)."""
+
+    item_type = serializers.CharField(
+        help_text=(
+            "Artifact type every id must have (e.g. \"Requirement\"), i.e. the "
+            "``artifact_type`` the table row reports."
+        )
+    )
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=MAX_TRANSITION_IDS,
+        help_text=(
+            f"1..{MAX_TRANSITION_IDS} backing Artifact ids. Missing ids are "
+            "reported per row as NOT_FOUND; ids of two workspaces reject the "
+            "whole request (400)."
+        ),
+    )
+    to_state = serializers.CharField(
+        help_text=(
+            "Target state name as declared in the workspace's workflow graph. "
+            "The graph decides per row whether the edge exists."
+        )
+    )
+    change_reason = serializers.CharField(
+        allow_blank=False,
+        help_text=(
+            "Reason recorded on every transition. Required: a bulk state change "
+            "without a reason is not auditable."
+        ),
+    )
+
+
+class BulkTransitionedSerializer(serializers.Serializer):
+    """One moved artifact in the ``transitioned`` list."""
+
+    artifact_id = serializers.UUIDField()
+    state = serializers.CharField(
+        help_text="State the row is in after the transition."
+    )
+
+
+class BulkTransitionResponseSerializer(serializers.Serializer):
+    """Body of ``200`` (partial success is the contract, so failures keep 200)."""
+
+    transitioned = BulkTransitionedSerializer(
+        many=True,
+        help_text="Rows that moved. Empty rows are named in ``failed`` instead.",
+    )
+    failed = BulkUpdateErrorSerializer(
+        many=True,
+        help_text=(
+            "Rows the graph or a gate refused, with index, artifact_id, code and "
+            "message. Codes: VALIDATION_ERROR | NOT_FOUND | FORBIDDEN | CONFLICT."
+        ),
+    )
 
 
 class WorkItemSerializer(

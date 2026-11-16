@@ -43,6 +43,7 @@ from rest_api.serializers import (
     BaselineRollbackRequestSerializer,
     BaselineSerializer,
     BaselineTagsRequestSerializer,
+    BulkTransitionRequestSerializer,
     BulkUpdateEntrySerializer,
     BulkUpdateRequestSerializer,
     ChangeRequestSerializer,
@@ -146,6 +147,11 @@ _GUARDED_WRITE_SERIALIZERS: tuple[type, ...] = (
     # while the other 99 rows were written.
     BulkUpdateRequestSerializer,
     BulkUpdateEntrySerializer,
+    # Slice 2 (Tabellenansicht): the bulk-transition body. ``workspace_id`` is
+    # deliberately *not* a declared key — the workspace is derived from the ids —
+    # so a caller that sends one learns it was ignored instead of assuming it
+    # scoped the role check.
+    BulkTransitionRequestSerializer,
 )
 
 #: Write serializers that reject unknown request keys with their *own*,
@@ -202,6 +208,14 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
     "BulkUpdateResponseSerializer": (
         "read-only 200/409 body of PATCH /artifacts/bulk-update/ (R3.2); the "
         "request body is the guarded BulkUpdateRequestSerializer"
+    ),
+    # Slice 2 (Tabellenansicht): response shapes of the bulk transition route.
+    "BulkTransitionedSerializer": (
+        "nested read-only row of BulkTransitionResponseSerializer (slice 2)"
+    ),
+    "BulkTransitionResponseSerializer": (
+        "read-only 200 body of POST /artifacts/bulk-transition/ (slice 2); the "
+        "request body is the guarded BulkTransitionRequestSerializer"
     ),
     "BaselineSummarySerializer": (
         "read-only list response serializer for GET /baselines/ (#1078); every "

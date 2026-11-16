@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 297,
+  "tool_count": 298,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -891,6 +891,46 @@
         },
         "required": [
           "id"
+        ]
+      }
+    },
+    {
+      "name": "artifact.bulk_transition",
+      "prefix": "artifact",
+      "is_write": true,
+      "description": "Move several artifacts into ONE workflow state (write, audited). Body {item_type, ids: [artifact_id], to_state, change_reason}, 1..100 ids. Every id runs through the workspace's own workflow graph, so the usual per-item gates apply (allowed roles, change-reason policy, signature gates) — no status column is ever written directly. PARTIAL SUCCESS is the contract: rows the graph refuses are listed in failed[] (index, artifact_id, code, message) and the others still move. Codes: VALIDATION_ERROR, NOT_FOUND, FORBIDDEN, CONFLICT. The workspace is derived from the ids (no workspace_id parameter) and the caller needs a write role there. MCP twin of POST /api/v1/artifacts/bulk-transition/; returns {transitioned: [{artifact_id, state}], failed: []}.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Artifact type every id must have, e.g. \"Requirement\"; the value the table row reports as artifact_type."
+          },
+          "ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "string",
+              "description": "UUID of the backing Artifact."
+            },
+            "description": "The rows to move. Missing ids are reported per row as NOT_FOUND; ids of two workspaces reject the whole request."
+          },
+          "to_state": {
+            "type": "string",
+            "description": "Target state name as declared in the workspace's workflow graph."
+          },
+          "change_reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Reason recorded on every transition; required."
+          }
+        },
+        "required": [
+          "item_type",
+          "ids",
+          "to_state",
+          "change_reason"
         ]
       }
     },
