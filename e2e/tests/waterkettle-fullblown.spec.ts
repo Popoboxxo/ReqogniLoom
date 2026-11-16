@@ -594,10 +594,10 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
   test('Phase 2a: derives-from Link zwischen Requirements über UI', async ({ page }) => {
     const fromId = ids.requirementIds['L1-FUNC'];
     const toId = ids.requirementIds['L2-CTRL-001'];
-    if (!fromId || !toId) {
-      test.skip(true, 'IDs fehlen — Phase 1b fehlgeschlagen');
-      return;
-    }
+    // Prerequisites come from Phase 1b in this serial scenario. Fail loudly if
+    // they are missing (a prior phase regressed) instead of skipping green.
+    expect(fromId, 'Phase 1b must have created L1-FUNC').toBeTruthy();
+    expect(toId, 'Phase 1b must have created L2-CTRL-001').toBeTruthy();
     await createTraceLinkViaUI(page, fromId, toId, 'derives-from');
     await page.goto(`${FRONTEND_URL}/requirements/${fromId}`);
     await expect(page.locator('[data-testid="req-tracelink-panel"]')).toBeVisible({ timeout: 8000 });
@@ -606,10 +606,9 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
   test('Phase 2b: Requirement → Architektur allocated-to Links über UI', async ({ page }) => {
     const archId = ids.architectureIds['A-HEAT'];
     const reqId = ids.requirementIds['L1-PERF'];
-    if (!archId || !reqId) {
-      test.skip(true, 'IDs fehlen — Phase 1 fehlgeschlagen');
-      return;
-    }
+    // Phase 1f/1b own these IDs — a missing one is a real phase failure.
+    expect(archId, 'Phase 1f must have created A-HEAT').toBeTruthy();
+    expect(reqId, 'Phase 1b must have created L1-PERF').toBeTruthy();
     // link-types catalog migration (2026-09): 'satisfies' (ArchitectureElement
     // -> Requirement) was retired and folded into 'allocated-to', with the
     // endpoints swapped (Requirement -> ArchitectureElement) — see Task 17 of
@@ -636,10 +635,7 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
   test('Phase 3a: ICD-Create-Form hat source/target Selects mit Arch-Elementen', async ({ page }) => {
     test.setTimeout(15_000);
     const ctrlId = ids.architectureIds['A-CTRL'];
-    if (!ctrlId) {
-      test.skip(true, 'Architektur-IDs fehlen');
-      return;
-    }
+    expect(ctrlId, 'Phase 1f must have created A-CTRL').toBeTruthy();
     await page.goto(`${FRONTEND_URL}/icds`);
     await page.locator('[data-testid="create-icd-btn"]').click();
     await page.locator('[data-testid="create-icd-form"]').waitFor({ timeout: 6000 });
@@ -680,10 +676,8 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
   test('Phase 3c: ICD zwischen Arch-Elementen über UI anlegen', async ({ page }) => {
     const sourceId = ids.architectureIds['A-CTRL'];
     const targetId = ids.architectureIds['A-SENSOR-T'];
-    if (!sourceId || !targetId) {
-      test.skip(true, 'Architektur-IDs fehlen');
-      return;
-    }
+    expect(sourceId, 'Phase 1f must have created A-CTRL').toBeTruthy();
+    expect(targetId, 'Phase 1f must have created A-SENSOR-T').toBeTruthy();
     const icdId = await createIcdViaUI(page, {
       name: 'WK-ICD-001: MCU ↔ Temperatursensor',
       sourceArchId: sourceId,
@@ -946,10 +940,8 @@ test.describe('[WK-FULL-BLOWN] Wasserkocher SE über 4 Ebenen (UI-driven, Bug-Fi
   test('Phase 6e: 4 TestRuns mit Lifecycle open → in_progress → closed/failed über UI', async ({ page }) => {
     test.setTimeout(90_000);
     const testCases = Object.values(ids.testCaseIds);
-    if (testCases.length < 4) {
-      test.skip(true, 'TestCases fehlen — Phase 6d fehlgeschlagen');
-      return;
-    }
+    // Phase 6d owns the 4 TestCases — missing ones are a real phase failure.
+    expect(testCases.length, 'Phase 6d must have created 4 TestCases').toBe(4);
 
     const runs = [
       { key: 'SMOKE', name: 'WK-Run-Smoke', fail: false },

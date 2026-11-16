@@ -287,13 +287,18 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     });
 
     if (!linkResp.ok()) {
-      // Some backends require artifact UUIDs not requirement UUIDs — skip gracefully
       const errText = await linkResp.text();
-      test.skip(true, `TraceLink creation failed (${linkResp.status()}): ${errText.slice(0, 200)}`);
-      // Cleanup reqs anyway (extended preset requires change_reason, #604)
+      // Clean up first so a failing assertion cannot leak artifacts
+      // (extended preset requires change_reason, #604).
       await request.delete(`${BACKEND_URL}/api/v1/requirements/${req1.id}/`, { headers, data: { change_reason: 'e2e cleanup' } });
       await request.delete(`${BACKEND_URL}/api/v1/requirements/${req2.id}/`, { headers, data: { change_reason: 'e2e cleanup' } });
-      return;
+      // A failed TraceLink POST is a real regression, not a skippable
+      // environment condition. Fail loudly with the backend diagnostic instead
+      // of reporting a false-green run (TEST-001/002/005).
+      expect(
+        linkResp.ok(),
+        `TraceLink creation failed (${linkResp.status()}): ${errText.slice(0, 200)}`
+      ).toBeTruthy();
     }
 
     const link = await linkResp.json();
