@@ -36,7 +36,7 @@ export async function expectNoHorizontalDocumentScroll(page: Page): Promise<void
  * `<button>`, so excluding native controls removes them without encoding one
  * editor's markup into the helper.
  */
-const LIST_ROW_SELECTOR = [
+export const LIST_ROW_SELECTOR = [
   '[role="treeitem"]:not(button)',
   '[aria-pressed]:not(button):not(input):not(select)',
   '[aria-selected]:not(button):not(input):not(select)',
