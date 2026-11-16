@@ -58,8 +58,8 @@ Update 2026-11-04: PR #1073 (the W2 slice) was merged on 2026-09-26, so the "PR 
 ## [2026-09-03-tabellenansicht.md](2026-09-03-tabellenansicht.md)
 **Superseded by [2026-11-04-tabellenansicht-neu.md](2026-11-04-tabellenansicht-neu.md) — do not implement.** The old 24-task plan has a stale bulk-update contract (partial success, `ids[]`, limit 200 against the Dokumentensicht's all-or-nothing, `items[]`, 100), no update seam, a wrong migration number and React 18. Nothing of it exists on main.
 
-## [2026-08-08-reqmd-interop-and-inspiration-concept.md](2026-08-08-reqmd-interop-and-inspiration-concept.md)
-**Deferred — concept document, no task list.** The proposed reqmd import/export bridge and the CTRF test-result adapter do not exist in the backend, and version-pinned trace links are not implemented (only the `suspect` flag). Only the audited-waiver idea was realised, independently, through #569. Stays deferred until the bridge is explicitly wanted.
+## [2026-08-08-vwz-interop-and-inspiration-concept.md](2026-08-08-vwz-interop-and-inspiration-concept.md)
+**Deferred — concept document, no task list.** The proposed VWZ import/export bridge and the CTRF test-result adapter do not exist in the backend, and version-pinned trace links are not implemented (only the `suspect` flag). Only the audited-waiver idea was realised, independently, through #569. Stays deferred until the bridge is explicitly wanted.
 
 ## [2026-09-03-menschen-im-system.md](2026-09-03-menschen-im-system.md)
 **Superseded — kept at top level as historical record of the original scope.** The owner/assignment half was replaced by the central `Artifact.owner`/`reporter` model (Attribut-System v3, AWMS migration plans); the collaboration half (comments, notifications, preferences) was re-scoped, implemented and merged in PR #956, see [Archive/2026-09-03-menschen-im-system-collaboration.md](Archive/2026-09-03-menschen-im-system-collaboration.md). Original header notes: tasks 1–6, 12, 13, 14, 21, 26 cancelled; the physical column drop is left as an AWMS-owned contract step.

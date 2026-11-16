@@ -275,7 +275,7 @@ Task 14: Rule-driven suspect propagation (closes #849 structurally) — **done**
 
 1. **Silent-Skip-Fall hinterlässt falschen Audit-Marker** — wenn ein Modelltyp nicht flaggbar ist (z.B. `Adr` in einem Workspace ohne `Adr`-Support), werden `TraceLink.suspect_flagged_at`/`suspect_source_change` trotzdem gestempelt, obwohl `flagged == 0` zurückgegeben wird. Sollte zusammen mit der geplanten `Artifact.suspect`-Verschiebung adressiert werden (siehe unten).
 
-2. **Veraltete Doku-Referenz** — `docs/superpowers/plans/2026-08-08-reqmd-interop-and-inspiration-concept.md:773` referenziert das jetzt komplett ungenutzte `SUSPECT_PROPAGATION_MAX_DEPTH`. Bereinigung notiert für spätere Doku-Cleanup-Runde.
+2. **Veraltete Doku-Referenz** — `docs/superpowers/plans/2026-08-08-vwz-interop-and-inspiration-concept.md:773` referenziert das jetzt komplett ungenutzte `SUSPECT_PROPAGATION_MAX_DEPTH`. Bereinigung notiert für spätere Doku-Cleanup-Runde.
 
 **Merkposten für künftige Datenmodell-Konsolidierung (Task 16 / Phase D):**
 

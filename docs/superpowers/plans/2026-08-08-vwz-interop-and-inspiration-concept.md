@@ -1,21 +1,23 @@
-# reqmd — Interop-Brücke und Konzept-Lehren
+# VWZ — Interop-Brücke und Konzept-Lehren
+
+> **Namensregel:** Das Vergleichswerkzeug wird in diesem Dokument **VWZ** genannt. Bezeichner des Werkzeugs sind entsprechend umbenannt (`x-vwz`, `vwz check`, …). `<Quellrepo>` und `<Webseite>` stehen für die Originalquellen. Inhaltlich unverändert.
 
 > **Kein Implementierungsplan.** Dieses Dokument enthält keine `- [ ]`-Tasks. Es beantwortet
 > zwei Fragen: **(1)** Wie sähe eine zweiseitige Brücke zwischen ReqogniLoom und
-> [`dVoo/reqmd`](https://github.com/dVoo/reqmd) konkret aus, und **(2)** welche
-> Konstruktionsideen aus reqmd sind für ReqogniLoom selbst wertvoll — unabhängig davon, ob
+> `<Quellrepo>` konkret aus, und **(2)** welche
+> Konstruktionsideen aus VWZ sind für ReqogniLoom selbst wertvoll — unabhängig davon, ob
 > die Brücke je gebaut wird. Ergebnis ist ein v1-Zuschnitt, sieben bewertete Konzepte mit
 > Adopt/Adapt/Reject-Empfehlung und die offenen Punkte aus §9.
 >
 > **Alle Ist-Aussagen über ReqogniLoom sind gegen den Quellcode auf
 > `feat/mcp-plugin-distribution`, Stand 2026-08-08, verifiziert** und mit `Datei:Zeile`
-> belegt. Aussagen über reqmd stammen aus dessen README/Dokumentation, nicht aus dessen
+> belegt. Aussagen über VWZ stammen aus dessen README/Dokumentation, nicht aus dessen
 > Go-Quellcode, und sind als solche zu behandeln.
 
-**Kernbefund vorweg.** reqmd ist kein Traceability-Hilfswerkzeug, sondern ein
+**Kernbefund vorweg.** VWZ ist kein Traceability-Hilfswerkzeug, sondern ein
 funktionsgleicher Konkurrent im selben Problemraum — mit Ebenen-Hierarchie, typisierten
 Attributen, Schema-Validierung pro Ebene, Regel-Engine, Baseline-Diff und V&V-Ergebnis-
-Einspeisung. Genau deshalb ist der Vergleich unbequem: **an vier Stellen ist reqmds Modell
+Einspeisung. Genau deshalb ist der Vergleich unbequem: **an vier Stellen ist VWZs Modell
 nachweislich strenger als ReqogniLooms**, obwohl ReqogniLoom das schwerere, formalere
 Werkzeug sein will.
 
@@ -23,32 +25,32 @@ Werkzeug sein will.
    darauf zeigt — unabhängig davon, ob dieser Test je gelaufen ist oder ob er fehlschlägt.**
    `coverage_calculator.py:60` („ADR-L3-TE3-01: Only `verifies` links count"), und die
    SE-Auditor-Regel VERIF-P8 prüft ausschließlich Link-*Existenz*
-   (`traceability/audit/rules/coverage_consistency.py:299`). reqmds `--results` macht genau
+   (`traceability/audit/rules/coverage_consistency.py:299`). VWZs `--results` macht genau
    daraus einen `failing-verdict`-Fehler. **Das ist die schwerwiegendste Lücke im ganzen
    Dokument.**
 2. **CI kann Testergebnisse nur einspeisen, wenn sie ReqogniLooms interne UUIDs kennt.**
    `TestRunService.add_results_bulk` verlangt `test_case_id` (`test_run_service.py:263-266`),
    ebenso das MCP-Schema (`mcp_server/tools/tests.py:235`). Es gibt keinen Standardformat-
-   Import. reqmd liest CTRF, das viele Runner ohnehin ausgeben, ohne eine Zeile
+   Import. VWZ liest CTRF, das viele Runner ohnehin ausgeben, ohne eine Zeile
    Integrationscode.
 3. **ReqogniLoom hat keine Inhalts-Revisionsnummer.** `AuditableModel.version` ist
    ausdrücklich „a **pure optimistic-concurrency counter** … not a content revision number"
    (`persistence/models.py:305-322`, #213). Deshalb kann ein Trace-Link nicht festhalten,
-   *gegen welchen Stand* er geprüft wurde — reqmds `trace: [SYS-001~3]` kann genau das. Der
+   *gegen welchen Stand* er geprüft wurde — VWZs `trace: [SYS-001~3]` kann genau das. Der
    Ersatz, das `suspect`-Flag, ist ein Boolean, wird nie automatisch zurückgesetzt und
    feuert auf jede Speicherung.
 4. **Der Baseline-Diff klassifiziert über einen Zähler statt über Inhalt** — und genau
    deshalb existiert GH #398 („reports zero change for genuinely changed artifacts",
-   `diff_engine.py:35`, `:75`). reqmd vergleicht zwei Git-Tags inhaltlich und ist gegen
+   `diff_engine.py:35`, `:75`). VWZ vergleicht zwei Git-Tags inhaltlich und ist gegen
    diese Fehlerklasse *strukturell* immun.
 
-Die Brücke selbst ist demgegenüber der einfachere Teil: reqmds typisierte `attr`-Blöcke
+Die Brücke selbst ist demgegenüber der einfachere Teil: VWZs typisierte `attr`-Blöcke
 mappen weitgehend 1:1 auf `Requirement`, und der Importer sieht dem ReqIF-Importer sehr
 ähnlich — nicht einem Prosa-Parser.
 
 ---
 
-## 0. reqmd auf zwei Seiten
+## 0. VWZ auf zwei Seiten
 
 Referenzrahmen. Quelle: README/Doku des Projekts.
 
@@ -82,17 +84,17 @@ provided the head unit is operational.
 | `requires-trace-from` | string[] — **deklarative Abdeckungserwartung**: welche Downstream-Ebenen auf dieses Requirement zeigen *müssen* |
 | `version` | int — **inhaltliche** Revisionsnummer, menschlich gepflegt |
 | `status` | Default `approved`; **nur `approved` zählt als gültiger Upstream-Abdeckungsgeber** |
-| `reqmd-suppress` | Liste von Check-IDs, die für *dieses* Requirement unterdrückt werden |
+| `vwz-suppress` | Liste von Check-IDs, die für *dieses* Requirement unterdrückt werden |
 
 Versions-Pinning: `trace: [SYS-001~3]` merkt sich, gegen welchen Upstream-Stand geprüft
 wurde. `pin < upstream.version` → ERROR („outdated", per `--relaxed-versions` zu WARNING
 degradierbar), `pin > upstream.version` → ERROR („predated", nie automatisch reparierbar).
-`reqmd repin` zieht Pins nach.
+`VWZ repin` zieht Pins nach.
 
 ### 0.3 Schema pro Verzeichnis
 
 ```yaml
-x-reqmd:
+x-vwz:
   level: software-requirements
   id-prefix: IVI-FUN-
   upstream:
@@ -133,11 +135,11 @@ fehlender/fehlgeschlagener Verdict (mit `--results`).
 
 ### 0.5 V&V-Ergebnis-Einspeisung
 
-`reqmd check spec/ --results ci-out/ --results reviews/` lädt **ephemere** Ergebnisse (nie
+`VWZ check spec/ --results ci-out/ --results reviews/` lädt **ephemere** Ergebnisse (nie
 ins Spec-Repo zurückgeschrieben) aus zwei Quellen:
 
 1. **CTRF** (Common Test Report Format, offener JSON-Standard) — Verzeichnis wird nach
-   `*.ctrf.json` durchsucht; `tests[].extra["x-reqmd.id"]` bindet ein Testergebnis an eine
+   `*.ctrf.json` durchsucht; `tests[].extra["x-vwz.id"]` bindet ein Testergebnis an eine
    Requirement-ID; Status-Mapping `passed→pass`, `failed→fail`, `skipped→skipped`,
    `flaky:true→inconclusive`.
 2. **Manuelle Review-Ergebnisse** als eigene Markdown+Schema-Dokumente (`outcome`,
@@ -162,7 +164,7 @@ Verzeichnis · Parallelisierung über Worker-Pool · Dogfooding (233 eigene Requ
 
 `persistence.Requirement` (`persistence/models.py:818`):
 
-| Feld | Zeile | reqmd-Gegenstück |
+| Feld | Zeile | VWZ-Gegenstück |
 |---|---|---|
 | `title` | `:848` | `## <ID>: <Titel>` — `CharField(max_length=500)`, harte Grenze |
 | `description` | `:849` | Prosa-Body |
@@ -170,17 +172,17 @@ Verzeichnis · Parallelisierung über Worker-Pool · Dogfooding (233 eigene Requ
 | `category` | `:855` | eigenes Schema-Feld |
 | `status` | `:856` | `status` — **aber**: Workflow-Spiegel, nie direkt schreibbar (REQ-143) |
 | `type` | `:857` | eigenes Schema-Feld (`RequirementType`) |
-| `level` | `:863` | `x-reqmd.level` — **`NULL` für praktisch alle** über `decompose()` erzeugten Zeilen |
+| `level` | `:863` | `x-vwz.level` — **`NULL` für praktisch alle** über `decompose()` erzeugten Zeilen |
 | `verification_method` | `:878` | `verify` — direkte Entsprechung |
 | `complexity_fibonacci` | `:872` | eigenes Schema-Feld |
-| `uid` | `:885` | die reqmd-ID — **client-vergeben, keine Auto-Generierung** |
-| `suspect` | `:891` | kein Gegenstück; reqmds Äquivalent ist der Versions-Pin (§8.2) |
+| `uid` | `:885` | die VWZ-ID — **client-vergeben, keine Auto-Generierung** |
+| `suspect` | `:891` | kein Gegenstück; VWZs Äquivalent ist der Versions-Pin (§8.2) |
 | `version` | `AuditableModel:305-322` | **kein** Gegenstück — Lock-Zähler, nicht Revision (§8.2) |
 
 Zwei Detailbefunde mit direkter Entwurfsfolge:
 
 - **`uid` ist optional und frei** (kein Generator; `RequirementService` prüft nur
-  Eindeutigkeit, `application/requirement_service.py:138`). reqmds ID-Regex ist deutlich
+  Eindeutigkeit, `application/requirement_service.py:138`). VWZs ID-Regex ist deutlich
   enger.
 - **DB-erzwungene `uid`-Eindeutigkeit gibt es nur bei `Requirement`**:
   `uq_requirement_workspace_uid` (`persistence/models.py:959-963`, partiell über
@@ -199,12 +201,12 @@ Disposition-Feld. Unique `(source, target, link_type)` (`:1275`).
 ### 1.3 Präzedenzfall ReqIF — das Muster, dem die Brücke folgt
 
 `application/reqif_import_service.py` (865 Zeilen) ist der einzige echte Fremdformat-Importer
-und beantwortet jede Frage, die auch ein reqmd-Importer stellt:
+und beantwortet jede Frage, die auch ein VWZ-Importer stellt:
 
 - **Upsert zweistufig**: primär die im Export codierte Artefakt-UUID (`_<uuid>`,
   `_parse_artifact_uuid`, `:219`), **sekundär die fachliche `uid` im Workspace** (`:624-630`).
   Die zweite Stufe wurde nachgerüstet, weil ein Reimport in einen anderen Workspace mit der
-  UUID-Stufe nie traf und bei jedem Lauf Duplikate erzeugte (`:617-623`). **Für reqmd ist nur
+  UUID-Stufe nie traf und bei jedem Lauf Duplikate erzeugte (`:617-623`). **Für VWZ ist nur
   die zweite Stufe anwendbar.**
 - **`status` nie als Feld schreiben**: `_apply_status` (`:701-749`) reproduziert
   `workflow/migrations/0003_reconcile_status_mirror._map_status` wortgleich und legt einen
@@ -234,7 +236,7 @@ inklusive Identitätsspalten für einen verlustfreien Round-Trip.
 und im Vertrag `IF-AS-EXT-IN-001` geführt — hat aber **keinen Aufrufer**: `rest_api/urls.py`
 bietet nur `export/csv/` (`:193`) und `export/reqif/` (`:199`), `mcp_server/` bietet gar
 keine Export-/Import-Werkzeuge. Die Ausgabe ist zudem eine Feldliste (`**key:** value`,
-`:417-424`), kein Dokument. **Ein reqmd-Exporter ersetzt diese Methode; sie ist nicht die
+`:417-424`), kein Dokument. **Ein VWZ-Exporter ersetzt diese Methode; sie ist nicht die
 Grundlage, sondern der Vorgänger.**
 
 ### 1.6 Negative Befunde
@@ -253,20 +255,20 @@ Grundlage, sondern der Vorgänger.**
 
 ### 2.1 Was direkt abbildbar ist
 
-| reqmd | ReqogniLoom | Bemerkung |
+| VWZ | ReqogniLoom | Bemerkung |
 |---|---|---|
-| ID + `## <ID>: <Titel>` | `uid` + `title` | verlustfrei, wenn `uid` reqmd-ID-tauglich (§3.3) |
+| ID + `## <ID>: <Titel>` | `uid` + `title` | verlustfrei, wenn `uid` VWZ-ID-tauglich (§3.3) |
 | Prosa-Body | `description` | verlustfrei |
 | `verify` | `verification_method` (`:878`) | Wertemenge muss ins Schema-`enum` |
-| `status` | `status` (Workflow-Spiegel) | über `x-reqmd.additional-status-values` (§3.4) |
+| `status` | `status` (Workflow-Spiegel) | über `x-vwz.additional-status-values` (§3.4) |
 | `trace` | `derives-from` / `satisfies` TraceLinks | Richtung: Kind → Eltern, wie in ReqogniLoom |
-| `x-reqmd.level` | Verzeichnisebene, aus dem Artefakttyp/der Graphtiefe abgeleitet | `Requirement.level` ist meist NULL (§2.3) |
+| `x-vwz.level` | Verzeichnisebene, aus dem Artefakttyp/der Graphtiefe abgeleitet | `Requirement.level` ist meist NULL (§2.3) |
 | Beliebige Schema-Felder | `category`, `type`, `complexity_fibonacci`, `custom_fields` | ReqogniLoom generiert das `schema.yaml` aus dem eigenen Feldbestand |
 
 ### 2.2 Was nur mit Konvention abbildbar ist
 
-- **`acceptance_criteria`** — kein reqmd-Standardattribut. Lösung: als eigenes Schema-Feld
-  `acceptance-criteria` (string) im generierten `schema.yaml` deklarieren. reqmd validiert
+- **`acceptance_criteria`** — kein VWZ-Standardattribut. Lösung: als eigenes Schema-Feld
+  `acceptance-criteria` (string) im generierten `schema.yaml` deklarieren. VWZ validiert
   es dann als gewöhnliches Attribut. Sauber, weil das Schema von ReqogniLoom kommt.
 - **`disposition` / `disposition-reason`** — ReqogniLoom hat kein Gegenstück (der nächste
   Verwandte ist `ChangeRequest`, aber das ist ein Änderungsantrag, kein Vermerk am
@@ -286,12 +288,12 @@ Grundlage, sondern der Vorgänger.**
 > revision number and carries no history … Any save bumps it — including writes that change
 > nothing a user would recognise as content."
 
-reqmds `version:` ist genau das Gegenteil: eine menschlich gepflegte Inhaltsrevision, gegen
+VWZs `version:` ist genau das Gegenteil: eine menschlich gepflegte Inhaltsrevision, gegen
 die `trace: [SYS-001~3]` pinnt. Würde der Exporter `Requirement.version` in das `version:`-
 Attribut schreiben, entstünde ein Pin, der bei jeder belanglosen Speicherung des Upstream-
 Requirements als „outdated" ERROR feuert — ein Fehlalarmgenerator.
 
-**Entscheidung: v1 exportiert kein `version:` und keine `~N`-Pins.** Das reqmd-Schema wird
+**Entscheidung: v1 exportiert kein `version:` und keine `~N`-Pins.** Das VWZ-Schema wird
 so erzeugt, dass `version` nicht in `required` steht. Der Import liest vorhandene Pins,
 speichert sie aber nur als Meldung (§4.5). Der eigentliche Fix liegt in §8.2 und ist ein
 eigenes Vorhaben.
@@ -301,7 +303,7 @@ Formats. Kein Verlust im Sinne eines Fehlers, aber die Grenze des Round-Trips.
 
 ---
 
-## 3. Export: ReqogniLoom → reqmd-Verzeichnisbaum
+## 3. Export: ReqogniLoom → VWZ-Verzeichnisbaum
 
 ### 3.1 Struktur
 
@@ -310,7 +312,7 @@ Ein Workspace wird zu einem Verzeichnisbaum, **eine Ebene = ein Verzeichnis = ei
 
 ```
 spec/
-  00-needs/          schema.yaml   x-reqmd.level: stakeholder-needs      (kein upstream)
+  00-needs/          schema.yaml   x-vwz.level: stakeholder-needs      (kein upstream)
     needs.md
   10-system/         schema.yaml   upstream.sources: [../00-needs/]
     system.md
@@ -336,7 +338,7 @@ Pro Ebene, aus ReqogniLooms eigenem Feldbestand plus dem Rigor-Preset erzeugt:
 
 ```yaml
 # generated by ReqogniLoom — do not edit; regenerate via export
-x-reqmd:
+x-vwz:
   level: system-requirements
   id-prefix: ""                       # leer, solange uid frei ist (§3.3)
   upstream:
@@ -361,7 +363,7 @@ additionalProperties: true
   (`mandatory_fields`, `:154`/`:170`/`:186`), abzüglich der Policy-Felder, die keine
   Entitätsspalten sind (`change_reason`, `traceability_target` —
   `workflow/precondition_rules.py:163-171`).
-- `additional-status-values` aus der `WorkflowEngineDefinition` des Workspace, damit reqmd
+- `additional-status-values` aus der `WorkflowEngineDefinition` des Workspace, damit VWZ
   die tatsächlich konfigurierten Zustände kennt statt nur `draft`/`approved`.
 - `additionalProperties: true`, weil `Artifact.custom_fields` beliebige Schlüssel führt
   (`persistence/models.py:729-744`). `false` würde jeden Workspace mit Custom Fields
@@ -369,7 +371,7 @@ additionalProperties: true
 
 ### 3.3 IDs
 
-reqmds Regex ist `^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*$`, endend auf eine Zahl. `Requirement.uid`
+VWZs Regex ist `^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*$`, endend auf eine Zahl. `Requirement.uid`
 ist ein freies 64-Zeichen-Feld.
 
 **Regel: `uid` wird verbatim übernommen, wenn es passt; sonst wird das Requirement
@@ -388,11 +390,11 @@ eine Präfix-Konvention erzwingen würde — tut es nicht (§9.6).
 schreibt ihn verbatim ins `status:`-Attribut und deklariert die zulässigen Werte über
 `additional-status-values`.
 
-**Ein Detail mit Konsequenz:** reqmd wertet nur `status: approved` als gültigen
+**Ein Detail mit Konsequenz:** VWZ wertet nur `status: approved` als gültigen
 Upstream-Abdeckungsgeber. ReqogniLooms Freigabezustand heißt je nach Workspace-Sprache und
 Workflow anders (`Freigegeben`, `approved`, …). Der Exporter muss daher entweder den
 Freigabezustand auf `approved` normalisieren (verlustbehaftet, aber semantisch korrekt) oder
-`ignore-status: true` setzen (dann zählt jeder Zustand — reqmds Abdeckungsprüfung wird
+`ignore-status: true` setzen (dann zählt jeder Zustand — VWZs Abdeckungsprüfung wird
 schwächer als ReqogniLooms). **Empfehlung: normalisieren, den Originalwert zusätzlich in
 einem eigenen Attribut `reqlo-status` mitführen.** Ein Round-Trip liest dann `reqlo-status`
 und lässt den Workflow-Zustand unangetastet.
@@ -401,7 +403,7 @@ und lässt den Workflow-Zustand unangetastet.
 
 Aus `derives-from`- und `satisfies`-TraceLinks, Richtung Kind → Eltern (die in diesem Repo
 mehrfach bestätigte Konvention). Rendert die `uid` des Ziels. Ziele ohne `uid` werden
-ausgelassen und gemeldet — eine reqmd-Referenz auf eine UUID wäre keine Referenz.
+ausgelassen und gemeldet — eine VWZ-Referenz auf eine UUID wäre keine Referenz.
 
 **Ohne `~N`-Pins** (§2.3).
 
@@ -412,16 +414,16 @@ sein, bis auf einen klar markierten Zeitstempel, der über `?stable_header=true`
 unterdrückbar ist. Sortierung lexikografisch nach `uid`, nicht nach `created_at` — sonst ist
 jeder Diff Rauschen und das CI-Gate aus §8.5 wertlos.
 
-### 3.7 `reqmd check` als unabhängige Zweitmeinung — lohnt sich das?
+### 3.7 `VWZ check` als unabhängige Zweitmeinung — lohnt sich das?
 
-Die naheliegende Idee: Export nach reqmd, dann `reqmd check` in CI als zweiter,
+Die naheliegende Idee: Export nach VWZ, dann `VWZ check` in CI als zweiter,
 unabhängiger Validator gegen ReqogniLooms eigenen SE-Auditor laufen lassen.
 
 **Ehrliche Antwort: als Hauptbegründung trägt es nicht, als Nebennutzen ist es echt.**
 
 Redundant, weil ReqogniLoom es bereits hat oder strukturell nicht haben kann:
 
-| reqmd-Check | ReqogniLoom |
+| VWZ-Check | ReqogniLoom |
 |---|---|
 | gebrochene Referenz | **strukturell unmöglich** — `TraceLink.source/target` sind FKs mit CASCADE |
 | Zyklus (DFS) | `traceability/service.py::detect_cycles`, REST-exponiert |
@@ -442,21 +444,21 @@ Echter Zugewinn, weil ReqogniLoom es nicht hat:
   und er ist genau der, den ReqogniLoom selbst haben sollte, statt ihn extern zu leihen.
 
 **Fazit:** der Export lohnt sich aus anderen Gründen (§8.5, PR-Sichtbarkeit); die
-Zweitmeinung ist ein Bonus. Und wo reqmd echten Mehrwert liefert, ist die richtige Antwort
-nicht „reqmd dazustellen", sondern die Regel in ReqogniLoom nachzuziehen.
+Zweitmeinung ist ein Bonus. Und wo VWZ echten Mehrwert liefert, ist die richtige Antwort
+nicht „VWZ dazustellen", sondern die Regel in ReqogniLoom nachzuziehen.
 
 ---
 
-## 4. Import: reqmd-Verzeichnisbaum → ReqogniLoom
+## 4. Import: VWZ-Verzeichnisbaum → ReqogniLoom
 
 Der Importer sieht dem ReqIF-Importer strukturell ähnlich — typisierte Attribute statt
 Prosa-Interpretation. Das ist die wichtigste Konsequenz aus der Korrektur des Vorwissens.
 
 ### 4.1 Parsing
 
-1. `schema.yaml` je Verzeichnis lesen → `x-reqmd.level` (Zielebene),
+1. `schema.yaml` je Verzeichnis lesen → `x-vwz.level` (Zielebene),
    `upstream.sources` (Ebenenkette), `id-prefix`, `required`, `properties`.
-   **Das Schema wird als Beschreibung gelesen, nicht durchgesetzt** — reqmd hat schon
+   **Das Schema wird als Beschreibung gelesen, nicht durchgesetzt** — VWZ hat schon
    validiert; ReqogniLoom validiert gegen sein *eigenes* Modell und meldet Abweichungen.
    Kein JSON-Schema-Validator im Backend (`requirements.txt` hat keinen), und einen
    einzuführen, um eine Prüfung zu wiederholen, die das Quellwerkzeug bereits gemacht hat,
@@ -496,11 +498,11 @@ Fehlerklasse wie #263/#269.
 ### 4.3 Upsert-Identität und Round-Trip
 
 **Vorgabe: das Muster aus `reqif_import_service` spiegeln, nicht neu erfinden.** Die
-UUID-Stufe entfällt (eine reqmd-Datei trägt keine UUID); es bleibt genau die zweite Stufe
+UUID-Stufe entfällt (eine VWZ-Datei trägt keine UUID); es bleibt genau die zweite Stufe
 (`reqif_import_service.py:624-630`):
 
 ```
-reqmd-ID -> Requirement.objects.filter(artifact__workspace_id=ws, uid=<id>)
+VWZ-ID -> Requirement.objects.filter(artifact__workspace_id=ws, uid=<id>)
   Treffer      -> UPDATE der gemappten Felder; Artefakt-UUID bleibt stabil
   kein Treffer -> CREATE (neues Artifact + Requirement, uid = <id>)
 ```
@@ -523,7 +525,7 @@ Originalzustand aus §3.4), sonst `attr.status`, sonst leer → Initialzustand. 
 
 ### 4.5 `trace` → TraceLinks
 
-Anders als bei reqmds ursprünglich angenommenem Codestellen-Modell ist das hier **direkt
+Anders als bei VWZs ursprünglich angenommenem Codestellen-Modell ist das hier **direkt
 abbildbar**: `trace: [SYS-001, SAFE-003]` sind fachliche IDs im selben Import-Lauf.
 
 ```
@@ -564,7 +566,7 @@ wird **nicht** gelockert; sie ist die Grundlage dafür, dass Beschreibungen im F
 `AuditEntry.OP_CHOICES` (`audit/models.py:130-141`) via `full_clean`; ein nicht deklarierter
 String lässt die gesamte Transaktion **nach** der erfolgreichen Mutation mit 500 scheitern
 (Kommentar `:123-129`, Issue #265). Also `operation="create"`,
-`entity_type="ReqmdImport"` — analog `reqif_import_service.py:440-453`. Keine neue Operation
+`entity_type="vwzImport"` — analog `reqif_import_service.py:440-453`. Keine neue Operation
 erfinden.
 
 ### 4.7 dry_run, Atomarität, Report
@@ -591,14 +593,14 @@ Requirement, `dry_run=True` → `transaction.set_rollback(True)` am äußeren Ra
 **Zwei Layer-2-Dienste in `application/`, exakt wie ReqIF — kein neues Ext-Modul.**
 
 `icd/` ist eine eigene App, **weil sie Tabellen besitzt** (`icd/models.py`, eigene
-Migrationen, eigene RLS-Policies, Layer-1-Fassade `icd/services.py`). Die reqmd-Brücke
+Migrationen, eigene RLS-Policies, Layer-1-Fassade `icd/services.py`). Die VWZ-Brücke
 besitzt in v1 keine einzige Tabelle. Eine App ohne Modelle bringt `apps.py`, ein
 Migrationsverzeichnis, einen `INSTALLED_APPS`-Eintrag und eine zusätzliche Importgrenze — und
 keinen Fähigkeitsgewinn.
 
 ```
-backend/application/reqmd_export_service.py   # COMP-AS-008-Familie
-backend/application/reqmd_import_service.py   # COMP-AS-008b-Familie
+backend/application/vwz_export_service.py   # COMP-AS-008-Familie
+backend/application/vwz_import_service.py   # COMP-AS-008b-Familie
 ```
 
 Gemeinsame Konstanten (Attributnamen, ID-Regex, Ebenen-Verzeichnisnamen, Status-Normalisierung)
@@ -612,19 +614,19 @@ die ersten zwei Zeilen des Import-Einstiegspunkts. Re-Export über
 **REST** (neben `rest_api/urls.py:187-207`):
 
 ```
-GET  /api/v1/workspaces/<uuid:pk>/export/reqmd/     -> application/zip (Verzeichnisbaum)
-POST /api/v1/workspaces/<uuid:pk>/import/reqmd/     -> multipart, Feld "file" (zip), ?dry_run=
+GET  /api/v1/workspaces/<uuid:pk>/export/VWZ/     -> application/zip (Verzeichnisbaum)
+POST /api/v1/workspaces/<uuid:pk>/import/VWZ/     -> multipart, Feld "file" (zip), ?dry_run=
 ```
 
 Ein Verzeichnisbaum ist kein einzelnes Dokument — deshalb ZIP statt Textkörper. Das ist der
-einzige Punkt, an dem die reqmd-Brücke vom ReqIF-View-Muster abweicht, und er braucht eine
+einzige Punkt, an dem die VWZ-Brücke vom ReqIF-View-Muster abweicht, und er braucht eine
 Größen- und Pfadprüfung beim Entpacken (Zip-Slip: jeder Eintragspfad muss nach Normalisierung
 innerhalb des Zielverzeichnisses liegen, keine absoluten Pfade, keine Symlinks, harte Grenze
 für entpackte Gesamtgröße).
 
 **MCP: bewusst nicht in v1.** Weder CSV noch ReqIF haben Werkzeuge; ein ZIP ist eine
 schlechte MCP-Payload. Falls später: Payload-Schlüssel nie `content` (Envelope-Kollision),
-Treffer und Nicht-Treffer in derselben Form, `reqmd.import` in `_WRITE_TOOL_PREFIXES`
+Treffer und Nicht-Treffer in derselben Form, `VWZ.import` in `_WRITE_TOOL_PREFIXES`
 (`mcp_server/tool_registry.py:57ff`).
 
 **Preset-Gate: keins.** ReqIF und CSV haben keins; die fünf Feature-Schlüssel
@@ -640,9 +642,9 @@ Musters.
 
 | # | Fähigkeit | Art | Tage |
 |---|---|---|---|
-| 1 | `ReqmdExportService`: Ebenenableitung, `schema.yaml`-Generierung, `attr`-Blöcke, `trace`, Determinismus | [N] | 4–6 |
+| 1 | `vwzExportService`: Ebenenableitung, `schema.yaml`-Generierung, `attr`-Blöcke, `trace`, Determinismus | [N] | 4–6 |
 | 2 | REST-Export-View (ZIP) + OpenAPI + Tests | [K] | 1–2 |
-| 3 | `ReqmdImportService`: Parser, Feld-Mapping, Upsert, Status, `trace`, Soft-Errors, Report | [N] | 5–7 |
+| 3 | `vwzImportService`: Parser, Feld-Mapping, Upsert, Status, `trace`, Soft-Errors, Report | [N] | 5–7 |
 | 4 | REST-Import-View (multipart ZIP, Zip-Slip-Guard, dry_run) + Tests | [K] | 2 |
 | 5 | Round-Trip-Test (Export → Handedit → Import → Export identisch bis auf den Edit) | [K] | 2 |
 | 6 | Frontend: Export-/Import-Knopf neben CSV/ReqIF | [K] | 1–2 |
@@ -658,8 +660,8 @@ Musters.
 generiertem `schema.yaml`; Import mit `uid`-Upsert und `trace`-Auflösung; keine
 Versions-Pins, kein `requires-trace-from`, keine `disposition`.
 
-**Was v1 beweist:** dass ein Workspace als validierbarer reqmd-Baum in ein Ziel-Repository
-ausgeleitet, dort von `reqmd check` geprüft, im PR bearbeitet und ohne Identitätsverlust
+**Was v1 beweist:** dass ein Workspace als validierbarer VWZ-Baum in ein Ziel-Repository
+ausgeleitet, dort von `VWZ check` geprüft, im PR bearbeitet und ohne Identitätsverlust
 zurückgeführt werden kann.
 
 ---
@@ -673,7 +675,7 @@ nur sichtbar macht. Teil 2 behandelt sie.
 
 ---
 
-# Teil 2 — Was reqmds Design ReqogniLoom lehren kann
+# Teil 2 — Was VWZs Design ReqogniLoom lehren kann
 
 Sieben Konzepte, in absteigender Wertigkeit. Für jedes: Befund gegen den Code, Bewertung,
 Empfehlung.
@@ -715,7 +717,7 @@ Statusmenge ist `{passed, failed, blocked, not_run}` (`test_run_service.py:41`) 
 
 ### Bewertung
 
-reqmds Lösung ist in beiden Punkten eleganter, und der Grund ist eine bewusste
+VWZs Lösung ist in beiden Punkten eleganter, und der Grund ist eine bewusste
 Entwurfsentscheidung: **Ergebnisse sind ephemer.** Sie werden nie ins Spec-Repo
 zurückgeschrieben, sondern pro Prüflauf geladen. Damit entfällt die gesamte Frage nach
 Lebenszyklus, Versionierung und Aufräumen von Testergebnissen — und die Prüfung
@@ -726,7 +728,7 @@ Audit, Test-Run-Protokollierung). Aber die *Verwertung* fehlt komplett.
 
 Der CTRF-Teil ist die günstigste Verbesserung im ganzen Dokument: CTRF ist ein offener
 JSON-Standard, den viele Runner bereits ausgeben, und der Bindungsmechanismus ist ein
-einziges Feld pro Test (`tests[].extra["x-reqmd.id"]`). Ein Adapter, der CTRF liest, das
+einziges Feld pro Test (`tests[].extra["x-vwz.id"]`). Ein Adapter, der CTRF liest, das
 Bindungsfeld gegen `TestCase.uid` auflöst und `add_results_bulk` füttert, ist eine kleine,
 klar abgegrenzte Komponente.
 
@@ -778,16 +780,16 @@ Verhalten, verifiziert:
 
 Vergleich der beiden Mechanismen:
 
-| | ReqogniLoom `suspect` | reqmd `~N`-Pin |
+| | ReqogniLoom `suspect` | VWZ `~N`-Pin |
 |---|---|---|
 | Granularität | pro **Artefakt** | pro **Link** |
 | Information | „irgendetwas oben hat sich geändert" | „geprüft gegen Version 3, oben steht jetzt 5" |
 | Reichweite | volle transitive Hülle | genau ein Kantenende |
 | Auslöser | jede Speicherung, auch inhaltsneutrale | Erhöhung der Inhaltsrevision |
-| Zurücksetzen | nur manuell, pro Artefakt | `reqmd repin`, automatisch, pro Link |
+| Zurücksetzen | nur manuell, pro Artefakt | `VWZ repin`, automatisch, pro Link |
 | Fehlerrichtung | erkennt „vorgezogen" nicht | erkennt `pin > version` als eigenen Fehler |
 
-**reqmds Modell ist in jeder Zeile strenger.** Und die praktische Folge des ReqogniLoom-
+**VWZs Modell ist in jeder Zeile strenger.** Und die praktische Folge des ReqogniLoom-
 Modells ist absehbar: Bei einer Änderung an einem L1-Requirement wird die gesamte
 Downstream-Hülle markiert; nichts löscht die Markierungen; nach kurzer Zeit ist alles
 `suspect` und das Signal wertlos — die klassische Alarm-Ermüdung.
@@ -853,7 +855,7 @@ festverdrahtet:
 
 ### Bewertung
 
-reqmds Modell dreht die Richtung um: nicht „das Werkzeug weiß, welche Links es geben muss",
+VWZs Modell dreht die Richtung um: nicht „das Werkzeug weiß, welche Links es geben muss",
 sondern „**das Artefakt (bzw. seine Ebene) erklärt, von welchen Ebenen es Verweise
 erwartet**". Zwei echte Vorteile:
 
@@ -887,7 +889,7 @@ Das ist nahe verwandt mit §8.4 und sollte mit ihm zusammen entworfen werden: be
 
 ### Befund
 
-**Gröber als reqmd, verifiziert an drei Stellen:**
+**Gröber als VWZ, verifiziert an drei Stellen:**
 
 1. `mandatory_fields` ist **ein Tupel pro Rigor-Stufe**, gültig für den ganzen Workspace:
    `("title",)` / `(… , "priority")` / `(…, "classification", "traceability_target",
@@ -903,7 +905,7 @@ Das ist nahe verwandt mit §8.4 und sollte mit ihm zusammen entworfen werden: be
    trägt `is_visible` und `is_required` (`:1543-1550`).
 
 **Es gibt also keinen Weg zu sagen: „L1-Requirements brauchen `verification_method`,
-L3-Requirements nicht."** Genau das ist bei reqmd der Normalfall — jedes Verzeichnis hat sein
+L3-Requirements nicht."** Genau das ist bei VWZ der Normalfall — jedes Verzeichnis hat sein
 eigenes `required`.
 
 ### Bewertung
@@ -962,10 +964,10 @@ inhaltlich nichts ändern.
 
 ### Bewertung
 
-reqmd hat gar keinen Versionszähler zur Verfügung: `baseline diff <tag1> <tag2>` liest zwei
+VWZ hat gar keinen Versionszähler zur Verfügung: `baseline diff <tag1> <tag2>` liest zwei
 Git-Tags und vergleicht **Inhalt**. Das ist keine Raffinesse, sondern eine erzwungene
 Einfachheit — und sie macht das Werkzeug gegen diese ganze Fehlerklasse **strukturell
-immun**. Man kann in reqmd nicht versehentlich „0 geändert" melden, weil es keinen Zähler
+immun**. Man kann in VWZ nicht versehentlich „0 geändert" melden, weil es keinen Zähler
 gibt, der lügen könnte.
 
 Die Lehre ist deshalb nicht „git benutzen", sondern: **die einzige verlässliche Antwort auf
@@ -1026,8 +1028,8 @@ verliert man sie für alle 2000 anderen Requirements.
 
 ### Bewertung
 
-Das ist eine echte Lücke, und sie ist **größer als reqmds Lösung**. reqmds
-`reqmd-suppress: [untraced, id-prefix]` ist eine Liste im Attributblock, versioniert durch
+Das ist eine echte Lücke, und sie ist **größer als VWZs Lösung**. VWZs
+`vwz-suppress: [untraced, id-prefix]` ist eine Liste im Attributblock, versioniert durch
 git — für ein Werkzeug ohne Datenbank angemessen.
 
 Für ein Werkzeug, das Extended-Rigor, Audit-Log und Freigabe-Workflows verkauft, ist eine
@@ -1039,7 +1041,7 @@ Die Alternative, die heute faktisch praktiziert wird, ist schlimmer: entweder di
 abschalten (dann ist die Aussage weg) oder mit dem Befund leben (dann ist der Bericht dauerhaft
 rot und wird ignoriert — dieselbe Alarm-Ermüdung wie bei `suspect`, §8.2).
 
-### Empfehlung: **Adopt, aber schwerer als reqmd — als auditierter Waiver, nicht als Unterdrückungsliste.**
+### Empfehlung: **Adopt, aber schwerer als VWZ — als auditierter Waiver, nicht als Unterdrückungsliste.**
 
 Ein Modell `AuditFindingWaiver` (tenant-scoped, RLS-Migration nach dem Muster von
 `0026_add_llm_settings.py`):
@@ -1081,7 +1083,7 @@ Felder auf `Requirement`, `disposition` (enum, Default `implemented`) und
 Precondition-Schicht wie `mandatory_fields`. ≈2 T. Nutzen: TRACE-P1b-Befunde für bewusst
 offene Requirements werden erklärbar — und es ist die leichte Variante von §8.6.
 
-**Randerkennung für Trace-Regeln.** reqmd leitet obere/untere Ebenengrenze aus der
+**Randerkennung für Trace-Regeln.** VWZ leitet obere/untere Ebenengrenze aus der
 Schema-Topologie ab und unterdrückt Falschmeldungen dort automatisch. ReqogniLooms
 TRACE-P1b bestimmt die Wurzel über die Graphtiefe
 (`trace_derivation_allocation.py:22-27`) — das funktioniert, sagt aber nichts darüber, ob es
@@ -1096,7 +1098,7 @@ befüllt.
 
 **Exit-Codes und `--json` als CI-Gate.** Setzt eine CLI voraus, die nicht existiert
 (`mcp_server/protocol_handler.py:261` ist definiert und wird nirgends instanziiert). Eine
-dünne CLI über die vorhandene REST-API (`reqlo export reqmd … `, `reqlo audit --json`,
+dünne CLI über die vorhandene REST-API (`reqlo export VWZ … `, `reqlo audit --json`,
 Exit-Code ≠ 0 bei BLOCKER) kostet 4–6 T, führt keine zweite Architektur ein und ist die
 Voraussetzung für §8.5-artige Gates und für jede Nutzung in fremden Pipelines.
 **Empfehlung: Adopt, als eigenständige Betriebsverbesserung.** Sie ist ausdrücklich *kein*
@@ -1104,11 +1106,11 @@ Einstieg in einen datenbankfreien Modus — Mandantentrennung liegt in PostgreSQ
 (`persistence/migrations/0003_rls_policies.py`), Workflow, Baselines und Audit-Log sind
 Tabellen; ein DB-freies ReqogniLoom wäre ein zweites Produkt, kein Deployment-Modus.
 
-**Dogfooding.** reqmd validiert seine eigenen 233 Requirements mit sich selbst.
+**Dogfooding.** VWZ validiert seine eigenen 233 Requirements mit sich selbst.
 ReqogniLooms SE-Kaskade lebt in `docs/se/` als Markdown; der einzige Weg hinein ist
 `application/management/commands/migrate_se_docs.py` (55 KB), ein einmaliger
 Migrationsbefehl, kein laufender Abgleich. Der SE-Auditor kann die eigene Architektur
-deshalb nicht prüfen. **Ein reqmd-Export der eigenen SE-Kaskade wäre der billigste Weg zu
+deshalb nicht prüfen. **Ein VWZ-Export der eigenen SE-Kaskade wäre der billigste Weg zu
 einem laufenden Selbsttest** — und ein hübscher Nebennutzen von Teil 1. Erwähnenswert, aber
 kein eigenständiger Grund.
 
@@ -1119,7 +1121,7 @@ kein eigenständiger Grund.
 | # | Konzept | Vorhanden? | Empfehlung | Aufwand | Wert |
 |---|---|---|---|---|---|
 | 8.1 | Ergebnis-getriebene Abdeckung + CTRF | nein | **Adopt** | ~10 T | **sehr hoch** |
-| 8.6 | Auditierter Waiver statt Unterdrückung | nein | **Adopt** (schwerer als reqmd) | 5–7 T | **hoch** |
+| 8.6 | Auditierter Waiver statt Unterdrückung | nein | **Adopt** (schwerer als VWZ) | 5–7 T | **hoch** |
 | 8.5 | Baseline-Diff nach Inhalt | fehlerhaft (#398) | **Adopt die Lehre** | Teil von #398 | **hoch** |
 | 8.4 | Pflichtfelder pro Ebene/Typ | gröber | **Adopt** | 5–8 T (mit 8.3) | mittel-hoch |
 | 8.3 | `requires-trace-from` als Vertrag | nein | **Adapt** (Ebene, nicht Artefakt) | mit 8.4 | mittel |
@@ -1154,9 +1156,9 @@ hinter dem, was sie sichtbar gemacht hat.
 ## 9. Offene Fragen (Menschentscheidung nötig)
 
 **9.1 Ist die Brücke gewollt — und in welche Richtung?**
-Export allein (ReqogniLoom als Autorität, reqmd als Ansicht plus Zweitmeinung) ist etwa die
+Export allein (ReqogniLoom als Autorität, VWZ als Ansicht plus Zweitmeinung) ist etwa die
 Hälfte des Aufwands und trägt die meisten Vorteile. Vollständiger Round-Trip lohnt sich nur,
-wenn Menschen die Dateien tatsächlich bearbeiten sollen. *Gibt es ein konkretes reqmd-Projekt,
+wenn Menschen die Dateien tatsächlich bearbeiten sollen. *Gibt es ein konkretes VWZ-Projekt,
 mit dem ausgetauscht werden soll, oder ist das eine Option auf Vorrat?*
 
 **9.2 Braucht ReqogniLoom eine Inhaltsrevision (§8.2 Schritt 1)?**
@@ -1189,7 +1191,7 @@ Beide tragen ein `uid`-Feld ohne Constraint und ohne Anwendungsprüfung
 (#133, `:959`). **Das blockiert drei Dinge gleichzeitig:** den `uid`-basierten
 Ergebnis-Schlüssel aus §8.1, den Import weiterer Entitätsarten (Teil 1/Position 8) und jede
 `uid`-basierte Referenz aus einem externen Werkzeug. Es ist ein Datenintegritätsbefund
-**unabhängig von reqmd** und gehört als eigenes Issue erfasst — mit einer Datenbereinigung
+**unabhängig von VWZ** und gehört als eigenes Issue erfasst — mit einer Datenbereinigung
 für vorhandene Duplikate vor der Migration.
 
 **9.7 Wer besitzt eine exportierte Datei im Ziel-Repository?**
