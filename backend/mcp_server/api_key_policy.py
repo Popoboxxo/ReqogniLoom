@@ -91,9 +91,10 @@ def get_api_key_policy(api_key_id: Optional[UUID]) -> ApiKeyPolicy:
         return DEFAULT_POLICY
 
     try:
-        from auth_tenancy.models import ApiKey
+        # ADR-01: the ORM read lives in the application layer, not here.
+        from auth_tenancy.services.api_key_policy_service import read_api_key_policy_row
 
-        row = ApiKey.unscoped.filter(id=api_key_id).values("scope", "tool_groups").first()
+        row = read_api_key_policy_row(api_key_id)
     except Exception:  # noqa: BLE001 — a policy read must never break a call
         logger.exception("Failed to load ApiKey policy for %s", api_key_id)
         return DEFAULT_POLICY
