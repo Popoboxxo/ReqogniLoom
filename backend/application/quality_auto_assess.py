@@ -244,12 +244,14 @@ def run_sweep(tenant_id: UUID | str) -> dict[str, int | bool]:
         return counts
 
     from application.quality_service import _ENTITY_TYPES
+    from persistence.middleware import clear_request_tenant, set_request_tenant
 
     batch = int(_setting("QUALITY_AUTO_ASSESS_SWEEP_BATCH", 50))
     tenant_uuid = UUID(str(tenant_id))
-    previous = TenantContext.get_tenant() if TenantContext.is_set() else None
-    TenantContext.set_tenant(tenant_uuid)
+    tenant_was_set = TenantContext.is_set()
+    previous = TenantContext.get_tenant() if tenant_was_set else None
     try:
+        set_request_tenant(tenant_uuid)
         latest = dict(
             QualityAssessment.objects.filter(tenant_id=tenant_uuid).values_list(
                 "entity_id", "created_at"
@@ -288,10 +290,16 @@ def run_sweep(tenant_id: UUID | str) -> dict[str, int | bool]:
                 counts["skipped"] += 1
         return counts
     finally:
-        if previous is None:
-            TenantContext.clear_tenant()
+        if tenant_was_set and previous is not None:
+            try:
+                set_request_tenant(previous)
+            except Exception:
+                logger.warning(
+                    "quality auto-assess sweep could not restore tenant context",
+                    exc_info=True,
+                )
         else:
-            TenantContext.set_tenant(previous)
+            clear_request_tenant()
 
 
 def _entity_type_for_created_event(event_type: str) -> str:

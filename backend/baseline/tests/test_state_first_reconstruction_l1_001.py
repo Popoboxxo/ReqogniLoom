@@ -155,7 +155,7 @@ def test_legacy_null_state_still_uses_audit_log_with_recorded_version() -> None:
     payload = reconstructor.get_item_at_baseline(baseline_id, item_id, tenant_id)
 
     assert payload is from_audit
-    reconstructor._load_from_audit_log.assert_called_once_with(item_id, 1)
+    reconstructor._load_from_audit_log.assert_called_once_with(item_id, 1, tenant_id)
 
 
 @pytest.mark.django_db

@@ -463,14 +463,16 @@ class TestResolveRequirementTitles:
         assert entries[0].title == str(foreign_req.id)[:8]
 
     def test_bulk_query_no_n_plus_1(self, db, tenant, django_assert_num_queries):
-        """All ids are resolved with exactly one query, regardless of count."""
+        """All ids resolve in a single SELECT regardless of count (no N+1)."""
         reqs = [self._make_requirement(tenant, title=f"Req {i}") for i in range(5)]
         entries = [
             VolatileRequirement(requirement_id=str(r.id), change_count=i)
             for i, r in enumerate(reqs)
         ]
 
-        with django_assert_num_queries(1):
+        # RLS GUC set/reset adds two fixed session commands (SET/RESET
+        # app.current_tenant); the SELECT count stays constant with id count.
+        with django_assert_num_queries(3):
             _resolve_requirement_titles(entries, tenant.id)
 
         titles = {e.title for e in entries}

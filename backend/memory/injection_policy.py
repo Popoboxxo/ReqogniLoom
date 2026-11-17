@@ -116,26 +116,38 @@ def _workspace_enabled(tenant_id: UUID, workspace_id: UUID) -> bool:
     """Read the ``WorkspaceMemorySettings.enabled`` facade column.
 
     Missing row = feature ON, exactly like the REST GET and the projector. The
-    tenant is armed for the single query and the previous thread-local state is
-    restored in a ``finally`` — the same hygiene contract ``levels_for``
-    follows, so a Celery caller neither leaks nor loses its tenant.
+    tenant is armed for the single query through ``set_request_tenant`` (both
+    the thread-local context *and* the PostgreSQL ``app.current_tenant`` GUC,
+    so RLS can actually see the row) and the previous state is restored in a
+    ``finally`` — the same hygiene contract ``levels_for`` follows, so a
+    Celery caller neither leaks nor loses its tenant.
     """
     from memory.models import WorkspaceMemorySettings
+    from persistence.middleware import clear_request_tenant, set_request_tenant
 
-    was_set = TenantContext.is_set()
-    previous = TenantContext.get_tenant() if was_set else None
-    TenantContext.set_tenant(tenant_id)
+    tenant_uuid = UUID(str(tenant_id))
+    tenant_was_set = TenantContext.is_set()
+    previous = TenantContext.get_tenant() if tenant_was_set else None
     try:
+        set_request_tenant(tenant_uuid)
         enabled = (
-            WorkspaceMemorySettings.objects.filter(workspace_id=workspace_id)
+            WorkspaceMemorySettings.objects.filter(
+                tenant_id=tenant_uuid, workspace_id=workspace_id
+            )
             .values_list("enabled", flat=True)
             .first()
         )
     finally:
-        if was_set and previous is not None:
-            TenantContext.set_tenant(previous)
+        if tenant_was_set and previous is not None:
+            try:
+                set_request_tenant(previous)
+            except Exception:
+                logger.warning(
+                    "memory workspace-enabled lookup could not restore tenant context",
+                    exc_info=True,
+                )
         else:
-            TenantContext.clear_tenant()
+            clear_request_tenant()
     return True if enabled is None else enabled
 
 

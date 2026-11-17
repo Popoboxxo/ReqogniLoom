@@ -383,45 +383,64 @@ def _resolve_requirement_titles(
     entries outlive hard-deletes), has an empty title, or title resolution
     fails outright — so the caller never renders an empty row.
 
+    The tenant is armed with ``set_request_tenant`` (thread-local context
+    *and* PostgreSQL ``app.current_tenant``), so this also works for a direct
+    caller outside the request middleware; the previous state is restored in
+    a ``finally``, including on the two early-return paths.
+
     Args:
         volatile_requirements: top10_volatile entries from VolatilityResult.
         tenant_id: Active tenant, used to scope the Requirement lookup.
     """
-    if not volatile_requirements:
-        return
-
-    TenantContext.set_tenant(tenant_id)
-
-    id_by_uuid: dict[UUID, VolatileRequirement] = {}
-    for vr in volatile_requirements:
-        try:
-            id_by_uuid[UUID(str(vr.requirement_id))] = vr
-        except (ValueError, TypeError):
-            # Not a parseable UUID (e.g. legacy/test data) — fallback applies.
-            vr.title = vr.requirement_id[:8]
-
-    if not id_by_uuid:
-        return
-
+    tenant_was_set = TenantContext.is_set()
+    previous = TenantContext.get_tenant() if tenant_was_set else None
     try:
-        from persistence.models import Requirement  # lazy import
+        set_request_tenant(tenant_id)
 
-        titles: dict[UUID, str] = dict(
-            Requirement.objects.filter(id__in=id_by_uuid.keys()).values_list(
-                "id", "title"
+        if not volatile_requirements:
+            return
+
+        id_by_uuid: dict[UUID, VolatileRequirement] = {}
+        for vr in volatile_requirements:
+            try:
+                id_by_uuid[UUID(str(vr.requirement_id))] = vr
+            except (ValueError, TypeError):
+                # Not a parseable UUID (e.g. legacy/test data) — fallback applies.
+                vr.title = vr.requirement_id[:8]
+
+        if not id_by_uuid:
+            return
+
+        try:
+            from persistence.models import Requirement  # lazy import
+
+            titles: dict[UUID, str] = dict(
+                Requirement.objects.filter(id__in=id_by_uuid.keys()).values_list(
+                    "id", "title"
+                )
             )
-        )
-    except Exception:
-        logger.warning(
-            "MetricsAggregator: requirement title resolution failed, "
-            "falling back to short ids",
-            exc_info=True,
-        )
-        titles = {}
+        except Exception:
+            logger.warning(
+                "MetricsAggregator: requirement title resolution failed, "
+                "falling back to short ids",
+                exc_info=True,
+            )
+            titles = {}
 
-    for req_uuid, vr in id_by_uuid.items():
-        title = titles.get(req_uuid)
-        vr.title = title if title else vr.requirement_id[:8]
+        for req_uuid, vr in id_by_uuid.items():
+            title = titles.get(req_uuid)
+            vr.title = title if title else vr.requirement_id[:8]
+    finally:
+        if tenant_was_set and previous is not None:
+            try:
+                set_request_tenant(previous)
+            except Exception:
+                logger.warning(
+                    "MetricsAggregator: title resolution could not restore tenant context",
+                    exc_info=True,
+                )
+        else:
+            clear_request_tenant()
 
 
 def _compute_verification_coverage(
@@ -444,10 +463,13 @@ def _fetch_verification_coverage(
     are excluded from both numerator and denominator — they are not active.
 
     Runs on the calling thread (unlike the four ``_fetch_*`` source adapters):
-    it reuses the request thread's already-armed tenant context/RLS session
-    variable, so no extra thread-local hand-off is needed. Never raises — a
-    lookup failure degrades to an empty metric (REQ-L2-SM-008).
+    it reuses the request thread's tenant context but re-arms both that context
+    and the RLS session variable defensively, so a direct call outside the
+    middleware cannot read across tenants. Never raises — a lookup failure
+    degrades to an empty metric (REQ-L2-SM-008).
     """
+    tenant_was_set = TenantContext.is_set()
+    previous = TenantContext.get_tenant() if tenant_was_set else None
     try:
         from persistence.models import Requirement, TraceLink
         from traceability.types import LinkType
@@ -456,7 +478,7 @@ def _fetch_verification_coverage(
         # Same defensive arm as _resolve_requirement_titles: compute() normally
         # runs with the request thread's tenant already active, but a direct
         # call must not read across tenants.
-        TenantContext.set_tenant(tenant_id)
+        set_request_tenant(tenant_id)
 
         ws_uuid = UUID(str(workspace_id))
         rows = list(
@@ -496,6 +518,17 @@ def _fetch_verification_coverage(
             exc_info=True,
         )
         return VerificationCoverageResult()
+    finally:
+        if tenant_was_set and previous is not None:
+            try:
+                set_request_tenant(previous)
+            except Exception:
+                logger.warning(
+                    "MetricsAggregator: verification coverage could not restore tenant context",
+                    exc_info=True,
+                )
+        else:
+            clear_request_tenant()
 
 
 # ---------------------------------------------------------------------------
