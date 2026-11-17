@@ -157,8 +157,15 @@ class TestParseTimeframeDays:
         assert _parse_timeframe_days("P1Y") == 30
 
 
+@pytest.mark.django_db
 class TestMetricsAggregator:
-    """MetricsAggregator integration tests with mocked sources."""
+    """MetricsAggregator integration tests with mocked sources.
+
+    Class-level django_db marker (S0.2): ``MetricsAggregator.compute()`` now
+    arms the RLS session GUC via ``set_request_tenant``/``clear_request_tenant``
+    which issues SQL SET/RESET. Although all ``_fetch_*`` sources are mocked,
+    DB access must be enabled so the tenant GUC commands can run.
+    """
 
     @pytest.fixture(autouse=True)
     def _tenant_context(self):
@@ -463,14 +470,16 @@ class TestResolveRequirementTitles:
         assert entries[0].title == str(foreign_req.id)[:8]
 
     def test_bulk_query_no_n_plus_1(self, db, tenant, django_assert_num_queries):
-        """All ids are resolved with exactly one query, regardless of count."""
+        """All ids resolve in a single SELECT regardless of count (no N+1)."""
         reqs = [self._make_requirement(tenant, title=f"Req {i}") for i in range(5)]
         entries = [
             VolatileRequirement(requirement_id=str(r.id), change_count=i)
             for i, r in enumerate(reqs)
         ]
 
-        with django_assert_num_queries(1):
+        # RLS GUC set/reset adds two fixed session commands (SET/RESET
+        # app.current_tenant); the SELECT count stays constant with id count.
+        with django_assert_num_queries(3):
             _resolve_requirement_titles(entries, tenant.id)
 
         titles = {e.title for e in entries}

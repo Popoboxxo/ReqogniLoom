@@ -23,8 +23,12 @@ Architecture:
 Version history note:
   The persistence layer stores AuditLogEntry rows with a ``payload`` JSONField
   that contains entity data at the time of write. VersionReconstructor queries
-  AuditLogEntry WHERE object_id = <item_id> AND payload->>version = <version>,
-  returning title/description/content from the payload dict.
+  AuditLogEntry WHERE object_id = <item_id> AND tenant_id = <tenant>
+  (AND object_type = <concrete entity class> when the caller knows it) AND
+  payload->>version = <version>, returning title/description/content from the
+  payload dict. The optional ``object_type`` predicate is the leading column
+  of ``idx_audit_object = (object_type, object_id)`` and prevents a same-id
+  entry of a different entity type from satisfying the legacy fallback.
 
   The delta-index ``version`` is ``Artifact.version``; it does NOT increment
   when a subtype row (Requirement, ArchitectureElement, …) is edited
@@ -170,7 +174,12 @@ class VersionReconstructor:
         self._cache = cache if cache is not None else LruPayloadCache()
 
     def get_item_at_baseline(
-        self, baseline_id: uuid.UUID, item_id: str, tenant_id: uuid.UUID
+        self,
+        baseline_id: uuid.UUID,
+        item_id: str,
+        tenant_id: uuid.UUID,
+        *,
+        object_type: str | None = None,
     ) -> ItemPayload:
         """Return the item payload as it was at baseline creation time.
 
@@ -186,6 +195,15 @@ class VersionReconstructor:
                 item_id only reaches them after being proven, via a
                 tenant-scoped lookup_item_version, to belong to a baseline
                 owned by this tenant.
+            object_type: Concrete audit entity class (e.g. ``"Requirement"``)
+                used as an additional ``object_type`` predicate on the legacy
+                audit-log fallback (L1-006). When the caller resolved the
+                concrete entity it can supply this so a same-id entry of a
+                different entity type cannot satisfy the reconstruction. The
+                delta index only records the generic ``"item"`` kind and a
+                legacy entry has a NULL captured state, so this concrete class
+                is otherwise not derivable inside this call chain (see the
+                follow-up note in :meth:`_load_from_audit_log`).
 
         Returns:
             ItemPayload with title, description, content as captured at
@@ -235,7 +253,17 @@ class VersionReconstructor:
             # itself supplies the entity's own version.
             payload = self._try_live_entity(item_id, version)
             if payload is None:
-                payload = self._load_from_audit_log(item_id, version)
+                # L1-006: thread the caller-supplied entity class into the
+                # unscoped audit query so a same-id entry of a different
+                # object_type cannot satisfy the fallback. Pass the argument
+                # only when actually known: direct callers of the legacy
+                # fallback (and its unit tests) rely on the 3-arg signature.
+                if object_type is not None:
+                    payload = self._load_from_audit_log(
+                        item_id, version, tenant_id, object_type=object_type
+                    )
+                else:
+                    payload = self._load_from_audit_log(item_id, version, tenant_id)
             if payload is None:
                 raise VersionNotFoundError()
 
@@ -389,7 +417,12 @@ class VersionReconstructor:
         return None
 
     def _load_from_audit_log(
-        self, item_id: str, version: int
+        self,
+        item_id: str,
+        version: int,
+        tenant_id: uuid.UUID,
+        *,
+        object_type: str | None = None,
     ) -> ItemPayload | None:
         """Query AuditLogEntry for the entity payload at the specified version.
 
@@ -403,10 +436,32 @@ class VersionReconstructor:
 
         Returns None if no matching entry is found (caller raises VersionNotFoundError).
 
+        Args:
+            item_id: String UUID of the item whose history is searched.
+            version: Entity version the payload must carry.
+            tenant_id: Owning tenant. Parsed defensively alongside ``item_id``
+                and applied as an explicit ``tenant_id`` predicate on the
+                ``unscoped`` audit query — ``unscoped`` escapes the ORM tenant
+                manager but not this explicit anchor, so a legacy
+                reconstruction can never read another tenant's audit payload.
+            object_type: Concrete audit entity class (e.g. ``"Requirement"``).
+                When supplied, applied as an explicit ``object_type`` predicate
+                so a same-id entry of a different entity type cannot satisfy
+                the fallback and the leading column of ``idx_audit_object`` is
+                used. When ``None`` the query falls back to the tenant-anchored
+                ``(object_id, tenant_id)`` lookup only — FOLLOW-UP: the concrete
+                class is not derivable here because the delta index stores only
+                the generic ``"item"`` kind (not the domain class) and a legacy
+                entry's captured state is NULL, while the production caller
+                (:func:`baseline.services.get_item_at_baseline`) does not pass a
+                type. Broadening that caller/delta index to carry the concrete
+                audit class would let this predicate be made unconditional.
+
         IF-BL-EXT-IN-004 (AuditLog/VersionHistory access).
         """
         try:
             item_uuid = uuid.UUID(item_id)
+            tenant_uuid = uuid.UUID(str(tenant_id))
         except (ValueError, AttributeError):
             return None
 
@@ -415,9 +470,20 @@ class VersionReconstructor:
 
             # Query audit log entries for this entity, ordered by id DESC
             # (most recent first) to find the entry whose payload.version matches.
-            entries = AuditLogEntry.unscoped.filter(
-                object_id=item_uuid
-            ).order_by("-id")
+            # The explicit tenant predicate is mandatory: a superuser test
+            # connection (or a misconfigured worker) otherwise bypasses RLS on
+            # this ``unscoped`` queryset and could return a foreign payload.
+            # L1-006: the object_type predicate (when the concrete class is
+            # known) additionally excludes a same-id entry of another entity
+            # type and exercises the leading column of idx_audit_object
+            # (object_type, object_id).
+            filters: dict[str, object] = {
+                "object_id": item_uuid,
+                "tenant_id": tenant_uuid,
+            }
+            if object_type is not None:
+                filters["object_type"] = object_type
+            entries = AuditLogEntry.unscoped.filter(**filters).order_by("-id")
 
             for entry in entries:
                 payload_data = entry.payload or {}

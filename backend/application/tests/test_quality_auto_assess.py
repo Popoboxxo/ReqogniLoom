@@ -378,3 +378,76 @@ def test_the_sweep_is_disabled_with_the_flag(settings, tenant) -> None:
 
     assert counts["disabled"] is True
     assert counts["assessed"] == 0
+
+
+# ---------------------------------------------------------------------------
+# APP-001 — the sweep must arm the *database* tenant variable too
+# ---------------------------------------------------------------------------
+
+
+def test_sweep_arms_and_clears_request_tenant(settings, tenant) -> None:
+    """A bare ``TenantContext.set_tenant`` is invisible to PostgreSQL RLS.
+
+    The middleware helpers wrap both layers; the sweep must use them (spies
+    call through so the assertions observe real arm/clear behaviour).
+    """
+    import persistence.middleware as middleware
+    from application.quality_auto_assess import run_sweep
+
+    settings.QUALITY_AUTO_ASSESS_ENABLED = True
+    settings.QUALITY_AUTO_ASSESS_SWEEP_BATCH = 0
+
+    TenantContext.clear_tenant()
+    real_set = middleware.set_request_tenant
+    real_clear = middleware.clear_request_tenant
+    with (
+        patch.object(middleware, "set_request_tenant", side_effect=real_set) as set_spy,
+        patch.object(
+            middleware, "clear_request_tenant", side_effect=real_clear
+        ) as clear_spy,
+        patch(
+            "application.quality_auto_assess.QualityAutoAssessor.run_for",
+            return_value="assessed",
+        ),
+    ):
+        run_sweep(tenant.id)
+
+    assert set_spy.call_count == 1
+    assert str(set_spy.call_args.args[0]) == str(tenant.id)
+    assert clear_spy.call_count == 1
+    assert not TenantContext.is_set()
+
+
+def test_sweep_restores_an_outer_tenant(settings, tenant) -> None:
+    """An already-armed caller must get its tenant back, not a cleared context."""
+    import persistence.middleware as middleware
+    from application.quality_auto_assess import run_sweep
+
+    settings.QUALITY_AUTO_ASSESS_ENABLED = True
+    settings.QUALITY_AUTO_ASSESS_SWEEP_BATCH = 0
+
+    outer_tenant_id = uuid.uuid4()
+    real_set = middleware.set_request_tenant
+    real_clear = middleware.clear_request_tenant
+    real_set(outer_tenant_id)
+    TenantContext.set_tenant(outer_tenant_id)
+    try:
+        with (
+            patch.object(middleware, "set_request_tenant", side_effect=real_set) as set_spy,
+            patch.object(
+                middleware, "clear_request_tenant", side_effect=real_clear
+            ) as clear_spy,
+            patch(
+                "application.quality_auto_assess.QualityAutoAssessor.run_for",
+                return_value="assessed",
+            ),
+        ):
+            run_sweep(tenant.id)
+
+        assert set_spy.call_count == 2
+        assert str(set_spy.call_args_list[0].args[0]) == str(tenant.id)
+        assert str(set_spy.call_args_list[1].args[0]) == str(outer_tenant_id)
+        assert clear_spy.call_count == 0
+        assert TenantContext.get_tenant() == outer_tenant_id
+    finally:
+        real_clear()
