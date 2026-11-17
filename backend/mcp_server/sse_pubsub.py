@@ -103,7 +103,9 @@ def store_session_api_key(
         encrypted = encrypt_secret(api_key)
         r.set(_session_auth_key(session_id), encrypted, ex=ttl)
     except Exception:
-        logger.exception(f"Failed to store session api key for {session_id}")
+        # The session id is a credential (API-002): never interpolate it into a
+        # log record, where it would become a replayable secret in log storage.
+        logger.exception("Failed to store session api key")
         raise
 
 def get_session_api_key(session_id: str) -> str | None:
@@ -121,15 +123,15 @@ def get_session_api_key(session_id: str) -> str | None:
         # rather than falling back to "use it as-is" (which decrypt_secret
         # otherwise does for un-prefixed input).
         if not encrypted.startswith(ENCRYPTED_PREFIX):
-            logger.warning(f"Invalid session api key ciphertext for {session_id}")
+            logger.warning("Invalid session api key ciphertext")
             return None
         try:
             return decrypt_secret(encrypted)
         except InvalidToken:
-            logger.warning(f"Invalid session api key ciphertext for {session_id}")
+            logger.warning("Invalid session api key ciphertext")
             return None
     except Exception:
-        logger.exception(f"Failed to read session api key for {session_id}")
+        logger.exception("Failed to read session api key")
         return None
 
 def delete_session_api_key(session_id: str) -> None:
@@ -142,7 +144,7 @@ def delete_session_api_key(session_id: str) -> None:
     try:
         _get_redis_client().delete(_session_auth_key(session_id))
     except Exception:
-        logger.exception(f"Failed to delete session api key for {session_id}")
+        logger.exception("Failed to delete session api key")
 
 def publish_mcp_message(session_id: str, message: dict[str, Any]) -> None:
     """Publish a JSON-RPC message to a specific SSE session.
@@ -174,7 +176,7 @@ def publish_mcp_message(session_id: str, message: dict[str, Any]) -> None:
 
         r.publish(channel, envelope)
     except Exception:
-        logger.exception(f"Failed to publish MCP message to session {session_id}")
+        logger.exception("Failed to publish MCP message to session")
 
 def get_buffered_events(
     session_id: str, after_event_id: int | None = None
@@ -189,7 +191,7 @@ def get_buffered_events(
         r = _get_redis_client()
         raw_items = r.lrange(_event_buffer_key(session_id), 0, -1)
     except Exception:
-        logger.exception(f"Failed to read replay buffer for session {session_id}")
+        logger.exception("Failed to read replay buffer for session")
         return []
 
     events: list[dict[str, Any]] = []
@@ -239,9 +241,9 @@ async def async_sse_generator(
             try:
                 raw_items = await r.lrange(_event_buffer_key(session_id), 0, -1)
             except Exception:
-                logger.exception(
-                    f"Failed to replay buffer for session {session_id}"
-                )
+                # API-002: never interpolate the session id — it is a
+                # replayable credential (would become a secret in log storage).
+                logger.exception("Failed to replay buffer for session")
                 raw_items = []
             for item in raw_items:
                 raw = item.decode("utf-8") if isinstance(item, bytes) else str(item)
@@ -273,7 +275,7 @@ async def async_sse_generator(
     except asyncio.CancelledError:
         pass
     except Exception:
-        logger.exception(f"Error in SSE generator for session {session_id}")
+        logger.exception("Error in SSE generator")
     finally:
         await pubsub.unsubscribe(channel)
         await r.aclose()

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -256,6 +257,76 @@ def test_raw_names_equal_published_names_in_production_registry() -> None:
     published = [tool["name"] for tool in build_manifest()["tools"]]
     assert set(raw_names) == set(published)
     assert len(raw_names) == len(published) == 301
+
+
+# ---------------------------------------------------------------------------
+# R2A-004 — description ratchet (grammar + minimum information density)
+# ---------------------------------------------------------------------------
+
+#: Broken English produced by the old ``"Delete a {prefix} entity"`` template.
+#: ``"an ADR"`` is grammatical and deliberately does not match.
+_BAD_ARTICLE_RE = re.compile(r"\ba (?:adr|issue|risk|glossary|change_request|work_item|icd)\b")
+
+_MIN_DESCRIPTION_LENGTH = 40
+
+#: Frozen legacy short descriptions owned by tool-group modules outside this
+#: change's write set. The ratchet direction is one-way: this set may only
+#: shrink as those groups are updated; a new short description fails.
+_SHORT_DESCRIPTION_BASELINE: frozenset[str] = frozenset({
+    "comment.create",
+    "comment.resolve",
+    "diagram.query",
+    "goal.read",
+    "needs.create",
+    "needs.query",
+    "needs.read",
+    "requirement.create",
+    "requirement.decompose",
+    "requirement.derive",
+    "requirement.get",
+    "test.run_create",
+    "test.run_get",
+})
+
+
+def test_committed_manifest_descriptions_meet_ratchet() -> None:
+    """Every committed description is grammatical and informative enough.
+
+    A tool description is the primary signal an agent uses to pick a tool;
+    the old generic factory shipped strings such as ``"Delete a adr entity
+    (write)."`` and 22 tools had under 40 characters. The generic CRUD group
+    now emits per-prefix descriptions (grammatical, >= 40 chars, with
+    hard-delete vs. soft-delete semantics); this gate keeps it that way.
+    """
+    assert MANIFEST_PATH is not None, (
+        f"{_MANIFEST_SUFFIX} is unreachable; mount docs/ or set "
+        f"${_MANIFEST_PATH_ENV} so the description ratchet can run."
+    )
+    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    descriptions = {
+        tool["name"]: tool.get("description", "") for tool in manifest["tools"]
+    }
+
+    bad_articles = sorted(
+        name for name, description in descriptions.items()
+        if _BAD_ARTICLE_RE.search(description)
+    )
+    assert not bad_articles, (
+        f"{len(bad_articles)} description(s) contain a broken article "
+        f"('a adr'/'a issue'/'a risk'): {bad_articles}. Use a per-prefix "
+        "label and 'the <label>' phrasing."
+    )
+
+    short = {
+        name for name, description in descriptions.items()
+        if len(description) < _MIN_DESCRIPTION_LENGTH
+    }
+    assert short <= _SHORT_DESCRIPTION_BASELINE, (
+        f"{len(short - _SHORT_DESCRIPTION_BASELINE)} new description(s) under "
+        f"{_MIN_DESCRIPTION_LENGTH} chars: "
+        f"{sorted(short - _SHORT_DESCRIPTION_BASELINE)}. "
+        "Every new description must be >= 40 characters."
+    )
 
 
 def test_build_manifest_raises_on_duplicate_tool_names(monkeypatch) -> None:

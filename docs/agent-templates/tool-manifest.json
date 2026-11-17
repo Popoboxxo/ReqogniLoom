@@ -79,7 +79,7 @@
       "name": "adr.create",
       "prefix": "adr",
       "is_write": true,
-      "description": "Create a new adr entity (write). Fields are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object.",
+      "description": "Create a new ADR (write). Pass workspace_id plus the architectural decision record fields flat at the top level of params — this tool does NOT take a nested `data` object.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -157,7 +157,7 @@
       "name": "adr.delete",
       "prefix": "adr",
       "is_write": true,
-      "description": "Delete a adr entity (write).",
+      "description": "Permanently delete the ADR through its backing service (hard delete — the row is removed and cannot be restored). For a reversible workflow removal use adr.outdate (soft-delete) and adr.reactivate (restore).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -175,7 +175,7 @@
       "name": "adr.outdate",
       "prefix": "adr",
       "is_write": true,
-      "description": "Soft-delete a adr entity via the workflow engine's outdate escape hatch (write).",
+      "description": "Soft-delete the ADR through the workflow engine's outdate escape hatch (write). The record stays visible to adr.query with include_outdated=true and can be restored via adr.reactivate.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -197,7 +197,7 @@
       "name": "adr.query",
       "prefix": "adr",
       "is_write": false,
-      "description": "List adr entities in a workspace (read-only).",
+      "description": "List ADRs in a workspace (read-only). Supports status/search filters and pagination; set include_outdated to include soft-deleted ADRs.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -239,7 +239,7 @@
       "name": "adr.reactivate",
       "prefix": "adr",
       "is_write": true,
-      "description": "Restore an outdated adr entity to its previous state (write).",
+      "description": "Restore an outdated ADR to its previous workflow state (write). This reverses the soft-delete performed by adr.outdate; a hard-deleted record cannot be restored.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -257,7 +257,7 @@
       "name": "adr.read",
       "prefix": "adr",
       "is_write": false,
-      "description": "Fetch a single adr entity by ID.",
+      "description": "Fetch a single ADR by UUID (read-only). The ADR is an architectural decision record; use adr.query to discover IDs first.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -275,7 +275,7 @@
       "name": "adr.update",
       "prefix": "adr",
       "is_write": true,
-      "description": "Update a adr entity (write). Only the fields you send are changed; they are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object. `status` is workflow-managed: use adr.outdate / adr.reactivate or the REST workflow transitions endpoint.",
+      "description": "Update the ADR (write). Only the fields you send are changed; they are passed flat at the top level of `params` — this tool does NOT take a nested `data` object. `status` is workflow-managed: use adr.outdate / adr.reactivate or the REST workflow transitions endpoint instead.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2358,7 +2358,7 @@
       "name": "change_request.create",
       "prefix": "change_request",
       "is_write": true,
-      "description": "Create a new change_request entity (write). Fields are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object.",
+      "description": "Create a new Change Request (write). Pass workspace_id plus the change-control record fields flat at the top level of params — this tool does NOT take a nested `data` object.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2430,7 +2430,7 @@
       "name": "change_request.delete",
       "prefix": "change_request",
       "is_write": true,
-      "description": "Delete a change_request entity (write).",
+      "description": "Permanently delete the Change Request through its backing service (hard delete — the row is removed and cannot be restored). For a reversible workflow removal use change_request.outdate (soft-delete) and change_request.reactivate (restore).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2448,7 +2448,7 @@
       "name": "change_request.outdate",
       "prefix": "change_request",
       "is_write": true,
-      "description": "Soft-delete a change_request entity via the workflow engine's outdate escape hatch (write).",
+      "description": "Soft-delete the Change Request through the workflow engine's outdate escape hatch (write). The record stays visible to change_request.query with include_outdated=true and can be restored via change_request.reactivate.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2470,7 +2470,7 @@
       "name": "change_request.query",
       "prefix": "change_request",
       "is_write": false,
-      "description": "List change_request entities in a workspace (read-only).",
+      "description": "List Change Requests in a workspace (read-only). Supports status/search filters and pagination; set include_outdated to include soft-deleted Change Requests.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2512,7 +2512,7 @@
       "name": "change_request.reactivate",
       "prefix": "change_request",
       "is_write": true,
-      "description": "Restore an outdated change_request entity to its previous state (write).",
+      "description": "Restore an outdated Change Request to its previous workflow state (write). This reverses the soft-delete performed by change_request.outdate; a hard-deleted record cannot be restored.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2530,7 +2530,7 @@
       "name": "change_request.read",
       "prefix": "change_request",
       "is_write": false,
-      "description": "Fetch a single change_request entity by ID.",
+      "description": "Fetch a single Change Request by UUID (read-only). The Change Request is a change-control record; use change_request.query to discover IDs first.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2548,7 +2548,7 @@
       "name": "change_request.update",
       "prefix": "change_request",
       "is_write": true,
-      "description": "Update a change_request entity (write). Only the fields you send are changed; they are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object. `status` is workflow-managed: use change_request.outdate / change_request.reactivate or the REST workflow transitions endpoint.",
+      "description": "Update the Change Request (write). Only the fields you send are changed; they are passed flat at the top level of `params` — this tool does NOT take a nested `data` object. `status` is workflow-managed: use change_request.outdate / change_request.reactivate or the REST workflow transitions endpoint instead.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3564,7 +3564,7 @@
       "name": "glossary.create",
       "prefix": "glossary",
       "is_write": true,
-      "description": "Create a new glossary entity (write). Fields are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object.",
+      "description": "Create a new Glossary Term (write). Pass workspace_id plus the terminology catalogue entry fields flat at the top level of params — this tool does NOT take a nested `data` object.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3624,7 +3624,7 @@
       "name": "glossary.delete",
       "prefix": "glossary",
       "is_write": true,
-      "description": "Delete a glossary entity (write).",
+      "description": "Permanently delete the Glossary Term through its backing service (hard delete — the row is removed and cannot be restored). For a reversible workflow removal use glossary.outdate (soft-delete) and glossary.reactivate (restore).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3642,7 +3642,7 @@
       "name": "glossary.outdate",
       "prefix": "glossary",
       "is_write": true,
-      "description": "Soft-delete a glossary entity via the workflow engine's outdate escape hatch (write).",
+      "description": "Soft-delete the Glossary Term through the workflow engine's outdate escape hatch (write). The record stays visible to glossary.query with include_outdated=true and can be restored via glossary.reactivate.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3664,7 +3664,7 @@
       "name": "glossary.query",
       "prefix": "glossary",
       "is_write": false,
-      "description": "List glossary entities in a workspace (read-only).",
+      "description": "List Glossary Terms in a workspace (read-only). Supports status/search filters and pagination; set include_outdated to include soft-deleted Glossary Terms.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3706,7 +3706,7 @@
       "name": "glossary.reactivate",
       "prefix": "glossary",
       "is_write": true,
-      "description": "Restore an outdated glossary entity to its previous state (write).",
+      "description": "Restore an outdated Glossary Term to its previous workflow state (write). This reverses the soft-delete performed by glossary.outdate; a hard-deleted record cannot be restored.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3724,7 +3724,7 @@
       "name": "glossary.read",
       "prefix": "glossary",
       "is_write": false,
-      "description": "Fetch a single glossary entity by ID.",
+      "description": "Fetch a single Glossary Term by UUID (read-only). The Glossary Term is a terminology catalogue entry; use glossary.query to discover IDs first.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3742,7 +3742,7 @@
       "name": "glossary.update",
       "prefix": "glossary",
       "is_write": true,
-      "description": "Update a glossary entity (write). Only the fields you send are changed; they are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object. `status` is workflow-managed: use glossary.outdate / glossary.reactivate or the REST workflow transitions endpoint.",
+      "description": "Update the Glossary Term (write). Only the fields you send are changed; they are passed flat at the top level of `params` — this tool does NOT take a nested `data` object. `status` is workflow-managed: use glossary.outdate / glossary.reactivate or the REST workflow transitions endpoint instead.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4705,7 +4705,7 @@
       "name": "issue.create",
       "prefix": "issue",
       "is_write": true,
-      "description": "Create a new issue entity (write). Fields are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object.",
+      "description": "Create a new Issue (write). Pass workspace_id plus the tracked work item fields flat at the top level of params — this tool does NOT take a nested `data` object.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4801,7 +4801,7 @@
       "name": "issue.delete",
       "prefix": "issue",
       "is_write": true,
-      "description": "Delete a issue entity (write).",
+      "description": "Permanently delete the Issue through its backing service (hard delete — the row is removed and cannot be restored). For a reversible workflow removal use issue.outdate (soft-delete) and issue.reactivate (restore).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4819,7 +4819,7 @@
       "name": "issue.outdate",
       "prefix": "issue",
       "is_write": true,
-      "description": "Soft-delete a issue entity via the workflow engine's outdate escape hatch (write).",
+      "description": "Soft-delete the Issue through the workflow engine's outdate escape hatch (write). The record stays visible to issue.query with include_outdated=true and can be restored via issue.reactivate.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4841,7 +4841,7 @@
       "name": "issue.query",
       "prefix": "issue",
       "is_write": false,
-      "description": "List issue entities in a workspace (read-only).",
+      "description": "List Issues in a workspace (read-only). Supports status/search filters and pagination; set include_outdated to include soft-deleted Issues.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4883,7 +4883,7 @@
       "name": "issue.reactivate",
       "prefix": "issue",
       "is_write": true,
-      "description": "Restore an outdated issue entity to its previous state (write).",
+      "description": "Restore an outdated Issue to its previous workflow state (write). This reverses the soft-delete performed by issue.outdate; a hard-deleted record cannot be restored.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4901,7 +4901,7 @@
       "name": "issue.read",
       "prefix": "issue",
       "is_write": false,
-      "description": "Fetch a single issue entity by ID.",
+      "description": "Fetch a single Issue by UUID (read-only). The Issue is a tracked work item; use issue.query to discover IDs first.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4919,7 +4919,7 @@
       "name": "issue.update",
       "prefix": "issue",
       "is_write": true,
-      "description": "Update a issue entity (write). Only the fields you send are changed; they are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object. `status` is workflow-managed: use issue.outdate / issue.reactivate or the REST workflow transitions endpoint.",
+      "description": "Update the Issue (write). Only the fields you send are changed; they are passed flat at the top level of `params` — this tool does NOT take a nested `data` object. `status` is workflow-managed: use issue.outdate / issue.reactivate or the REST workflow transitions endpoint instead.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7344,7 +7344,7 @@
       "name": "risk.create",
       "prefix": "risk",
       "is_write": true,
-      "description": "Create a new risk entity (write). Fields are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object.",
+      "description": "Create a new Risk (write). Pass workspace_id plus the project risk register entry fields flat at the top level of params — this tool does NOT take a nested `data` object.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7453,7 +7453,7 @@
       "name": "risk.delete",
       "prefix": "risk",
       "is_write": true,
-      "description": "Delete a risk entity (write).",
+      "description": "Permanently delete the Risk through its backing service (hard delete — the row is removed and cannot be restored). For a reversible workflow removal use risk.outdate (soft-delete) and risk.reactivate (restore).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7471,7 +7471,7 @@
       "name": "risk.outdate",
       "prefix": "risk",
       "is_write": true,
-      "description": "Soft-delete a risk entity via the workflow engine's outdate escape hatch (write).",
+      "description": "Soft-delete the Risk through the workflow engine's outdate escape hatch (write). The record stays visible to risk.query with include_outdated=true and can be restored via risk.reactivate.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7493,7 +7493,7 @@
       "name": "risk.query",
       "prefix": "risk",
       "is_write": false,
-      "description": "List risk entities in a workspace (read-only).",
+      "description": "List Risks in a workspace (read-only). Supports status/search filters and pagination; set include_outdated to include soft-deleted Risks.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7535,7 +7535,7 @@
       "name": "risk.reactivate",
       "prefix": "risk",
       "is_write": true,
-      "description": "Restore an outdated risk entity to its previous state (write).",
+      "description": "Restore an outdated Risk to its previous workflow state (write). This reverses the soft-delete performed by risk.outdate; a hard-deleted record cannot be restored.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7553,7 +7553,7 @@
       "name": "risk.read",
       "prefix": "risk",
       "is_write": false,
-      "description": "Fetch a single risk entity by ID.",
+      "description": "Fetch a single Risk by UUID (read-only). The Risk is a project risk register entry; use risk.query to discover IDs first.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7571,7 +7571,7 @@
       "name": "risk.update",
       "prefix": "risk",
       "is_write": true,
-      "description": "Update a risk entity (write). Only the fields you send are changed; they are passed flat at the top level of `params` — this tool group does NOT take a nested `data` object. `status` is workflow-managed: use risk.outdate / risk.reactivate or the REST workflow transitions endpoint.",
+      "description": "Update the Risk (write). Only the fields you send are changed; they are passed flat at the top level of `params` — this tool does NOT take a nested `data` object. `status` is workflow-managed: use risk.outdate / risk.reactivate or the REST workflow transitions endpoint instead.",
       "inputSchema": {
         "type": "object",
         "properties": {

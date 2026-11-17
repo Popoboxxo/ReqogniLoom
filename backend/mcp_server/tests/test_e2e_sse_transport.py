@@ -92,6 +92,7 @@ pytestmark = pytest.mark.e2e
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.django_db
 def test_sse_get_without_api_key_returns_401() -> None:
     """[REQ-085] GET /mcp/sse/ without API key returns 401.
 
@@ -106,6 +107,7 @@ def test_sse_get_without_api_key_returns_401() -> None:
     )
 
 
+@pytest.mark.django_db
 def test_sse_options_returns_cors_headers() -> None:
     """[REQ-085] OPTIONS /mcp/sse/ returns CORS headers for preflight.
 
@@ -123,6 +125,7 @@ def test_sse_options_returns_cors_headers() -> None:
     )
 
 
+@pytest.mark.django_db
 def test_sse_options_non_allowlisted_origin_omits_cors_header() -> None:
     """[REQ-081] OPTIONS /mcp/sse/ with a non-allowlisted Origin must not
     carry Access-Control-Allow-Origin at all.
@@ -141,6 +144,7 @@ def test_sse_options_non_allowlisted_origin_omits_cors_header() -> None:
     )
 
 
+@pytest.mark.django_db
 def test_sse_post_returns_405_method_not_allowed() -> None:
     """[REQ-085] POST /mcp/sse/ returns 405 (old API is gone).
 
@@ -199,6 +203,63 @@ def _dispatch_message(
     assert response.status_code == 202, response.content
     assert len(published) == 1, f"Expected exactly one published frame, got {published}"
     return published[0][1]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_sse_message_via_session_header_dispatches_with_bound_key(
+    e2e_workspace,
+    e2e_user_admin,
+    e2e_api_key_admin: str,
+    e2e_userrole_admin,
+) -> None:
+    """[API-002] ``Mcp-Session-Id`` is the primary SSE credential channel.
+
+    The header-only POST is accepted (202) without the deprecated
+    ``?session_id=`` form, dispatches through the real ProtocolHandler stack
+    with the session-bound key, and carries no deprecation signal.
+    """
+    session_id = str(uuid4())
+    body = make_jsonrpc_request(
+        "workspace.get_context", {"workspace_id": str(e2e_workspace.id)}, request_id=41
+    )
+    request = RequestFactory().post(
+        "/mcp/messages/",
+        data=body,
+        content_type="application/json",
+        HTTP_MCP_SESSION_ID=session_id,
+    )
+
+    published: list[tuple[str, dict[str, Any]]] = []
+    forwarded_headers: dict[str, str] = {}
+
+    def _capture(sid: str, message: dict[str, Any]) -> None:
+        published.append((sid, message))
+
+    fake_handler = mock.Mock()
+
+    def _handle(body: bytes, headers: dict) -> dict:
+        forwarded_headers.update(headers)
+        return {"jsonrpc": "2.0", "id": 41, "result": {"workspace_context": {}}}
+
+    fake_handler.handle_http_request.side_effect = _handle
+    with mock.patch(
+        "mcp_server.sse_pubsub.get_session_api_key", return_value=e2e_api_key_admin
+    ) as get_key, mock.patch(
+        "mcp_server.sse_pubsub.publish_mcp_message", side_effect=_capture
+    ), mock.patch(
+        "mcp_server.views._get_handler", return_value=fake_handler
+    ), mock.patch(
+        "mcp_server.views._message_executor"
+    ) as executor:
+        executor.submit.side_effect = lambda fn, *a, **kw: fn(*a, **kw)
+        response = McpMessagesView().post(request)
+
+    assert response.status_code == 202
+    assert "Deprecation" not in response
+    get_key.assert_called_once_with(session_id)
+    assert forwarded_headers["HTTP_X_API_KEY"] == e2e_api_key_admin
+    assert len(published) == 1
+    assert published[0][0] == session_id
 
 
 @pytest.mark.django_db(transaction=True)

@@ -16,6 +16,7 @@ from mcp_server.tools.base import (
     BaseToolGroup,
     ToolResult,
     parse_pagination,
+    reject_unknown_params,
     require_uuid,
     resolve_engine_status,
     resolve_status_map,
@@ -78,6 +79,109 @@ _ENUM_FIELDS_BY_PREFIX: dict[str, dict[str, str]] = {
     },
     "issue": {"severity": "Severity", "category": "Category"},
 }
+
+
+# ---------------------------------------------------------------------------
+# Per-prefix descriptions (R2A-004)
+#
+# A bare ``"Delete a {prefix} entity (write)."`` template produces broken
+# English ("Delete a adr entity"), says nothing about what the entity *is*, and
+# hides the fact that ``delete`` is a hard delete while ``outdate``/``reactivate``
+# are the workflow soft-delete/restore pair. The table below supplies a label,
+# a plural and a one-clause semantic gloss per entity; the sentences are built
+# with "the <label>" so they stay grammatical for every prefix. Every generated
+# description is >= 40 characters and carries the lifecycle semantics.
+# ---------------------------------------------------------------------------
+_ENTITY_DESCRIPTIONS: dict[str, dict[str, str]] = {
+    "adr": {
+        "label": "ADR",
+        "plural": "ADRs",
+        "meaning": "architectural decision record",
+    },
+    "risk": {
+        "label": "Risk",
+        "plural": "Risks",
+        "meaning": "project risk register entry",
+    },
+    "issue": {
+        "label": "Issue",
+        "plural": "Issues",
+        "meaning": "tracked work item",
+    },
+    "glossary": {
+        "label": "Glossary Term",
+        "plural": "Glossary Terms",
+        "meaning": "terminology catalogue entry",
+    },
+    "change_request": {
+        "label": "Change Request",
+        "plural": "Change Requests",
+        "meaning": "change-control record",
+    },
+}
+
+
+def _indefinite_article(word: str) -> str:
+    """Return ``"a"``/``"an"`` for *word*'s first letter (grammar ratchet)."""
+    return "an" if word[:1].lower() in "aeiou" else "a"
+
+
+def _entity_description(prefix: str, action: str) -> str:
+    """Return a grammatical, meaningful description for a generic tool.
+
+    Falls back to a title-cased prefix for an entity added without a table
+    entry, so a new generic group can never emit the old placeholder text.
+    """
+    info = _ENTITY_DESCRIPTIONS.get(prefix, {})
+    label = info.get("label", prefix.replace("_", " ").title())
+    plural = info.get("plural", f"{label}s")
+    meaning = info.get("meaning", f"{label.lower()} entity")
+    if action == "fetch":
+        return (
+            f"Fetch a single {label} by UUID (read-only). The {label} is "
+            f"{_indefinite_article(meaning)} {meaning}; use {prefix}.query to "
+            "discover IDs first."
+        )
+    if action == "create":
+        return (
+            f"Create a new {label} (write). Pass workspace_id plus the "
+            f"{meaning} fields flat at the top level of params — this tool "
+            "does NOT take a nested `data` object."
+        )
+    if action == "update":
+        return (
+            f"Update the {label} (write). Only the fields you send are changed; "
+            "they are passed flat at the top level of `params` — this tool "
+            "does NOT take a nested `data` object. `status` is workflow-managed: "
+            f"use {prefix}.outdate / {prefix}.reactivate or the REST workflow "
+            "transitions endpoint instead."
+        )
+    if action == "delete":
+        return (
+            f"Permanently delete the {label} through its backing service "
+            "(hard delete — the row is removed and cannot be restored). For a "
+            f"reversible workflow removal use {prefix}.outdate (soft-delete) "
+            f"and {prefix}.reactivate (restore)."
+        )
+    if action == "outdate":
+        return (
+            f"Soft-delete the {label} through the workflow engine's outdate "
+            f"escape hatch (write). The record stays visible to {prefix}.query "
+            f"with include_outdated=true and can be restored via {prefix}.reactivate."
+        )
+    if action == "reactivate":
+        return (
+            f"Restore an outdated {label} to its previous workflow state (write). "
+            f"This reverses the soft-delete performed by {prefix}.outdate; a "
+            "hard-deleted record cannot be restored."
+        )
+    if action == "list":
+        return (
+            f"List {plural} in a workspace (read-only). Supports status/search "
+            "filters and pagination; set include_outdated to include soft-deleted "
+            f"{plural}."
+        )
+    raise ValueError(f"Unknown generic tool action: {action}")
 
 
 def _annotation_text(annotation: Any) -> str:
@@ -292,7 +396,7 @@ class GenericCrudToolGroup(BaseToolGroup):
         self._TOOL_SCHEMAS = [
             {
                 "name": f"{prefix}.read",
-                "description": f"Fetch a single {prefix} entity by ID.",
+                "description": _entity_description(prefix, "fetch"),
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -303,11 +407,7 @@ class GenericCrudToolGroup(BaseToolGroup):
             },
             {
                 "name": f"{prefix}.create",
-                "description": (
-                    f"Create a new {prefix} entity (write). Fields are passed "
-                    "flat at the top level of `params` — this tool group does "
-                    "NOT take a nested `data` object."
-                ),
+                "description": _entity_description(prefix, "create"),
                 "inputSchema": {
                     "type": "object",
                     "properties": create_props,
@@ -317,14 +417,7 @@ class GenericCrudToolGroup(BaseToolGroup):
             },
             {
                 "name": f"{prefix}.update",
-                "description": (
-                    f"Update a {prefix} entity (write). Only the fields you "
-                    "send are changed; they are passed flat at the top level "
-                    "of `params` — this tool group does NOT take a nested "
-                    f"`data` object. `status` is workflow-managed: use "
-                    f"{prefix}.outdate / {prefix}.reactivate or the REST "
-                    "workflow transitions endpoint."
-                ),
+                "description": _entity_description(prefix, "update"),
                 "inputSchema": {
                     "type": "object",
                     "properties": update_props,
@@ -334,7 +427,7 @@ class GenericCrudToolGroup(BaseToolGroup):
             },
             {
                 "name": f"{prefix}.delete",
-                "description": f"Delete a {prefix} entity (write).",
+                "description": _entity_description(prefix, "delete"),
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -345,7 +438,7 @@ class GenericCrudToolGroup(BaseToolGroup):
             },
             {
                 "name": f"{prefix}.outdate",
-                "description": f"Soft-delete a {prefix} entity via the workflow engine's outdate escape hatch (write).",
+                "description": _entity_description(prefix, "outdate"),
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -357,7 +450,7 @@ class GenericCrudToolGroup(BaseToolGroup):
             },
             {
                 "name": f"{prefix}.reactivate",
-                "description": f"Restore an outdated {prefix} entity to its previous state (write).",
+                "description": _entity_description(prefix, "reactivate"),
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -368,7 +461,7 @@ class GenericCrudToolGroup(BaseToolGroup):
             },
             {
                 "name": f"{prefix}.query",
-                "description": f"List {prefix} entities in a workspace (read-only).",
+                "description": _entity_description(prefix, "list"),
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -499,6 +592,9 @@ class GenericCrudToolGroup(BaseToolGroup):
         return system_field_values(params)
 
     def _handle_read(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+        allowed = self.schema_param_names(f"{self.prefix}.read")
+        if allowed:
+            reject_unknown_params(params, allowed, f"{self.prefix}.read")
         obj_id = require_uuid(params, "id")
         try:
             obj = self._read_method(ctx=auth_context, **{self._read_id_param: obj_id})
@@ -507,6 +603,9 @@ class GenericCrudToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
 
     def _handle_create(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+        allowed = self.schema_param_names(f"{self.prefix}.create")
+        if allowed:
+            reject_unknown_params(params, allowed, f"{self.prefix}.create")
         workspace_id = require_uuid(params, "workspace_id")
         split_names = SYSTEM_FIELD_NAMES if self._system_fields_on else ()
         kwargs = {
@@ -544,6 +643,13 @@ class GenericCrudToolGroup(BaseToolGroup):
             )
 
     def _handle_update(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+        # `status` is allowed through the strict check so the explicit
+        # workflow-managed error below keeps its actionable message.
+        allowed = self.schema_param_names(f"{self.prefix}.update")
+        if allowed:
+            reject_unknown_params(
+                params, [*allowed, "status"], f"{self.prefix}.update"
+            )
         obj_id = require_uuid(params, "id")
         split_names = SYSTEM_FIELD_NAMES if self._system_fields_on else ()
         kwargs = {
@@ -611,6 +717,9 @@ class GenericCrudToolGroup(BaseToolGroup):
             )
 
     def _handle_delete(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+        allowed = self.schema_param_names(f"{self.prefix}.delete")
+        if allowed:
+            reject_unknown_params(params, allowed, f"{self.prefix}.delete")
         obj_id = require_uuid(params, "id")
         # Domain errors (NotFound/Validation/OptimisticLock/Integrity) are
         # mapped centrally by BaseToolGroup.execute_tool (#1663, N2-N4).
@@ -626,6 +735,9 @@ class GenericCrudToolGroup(BaseToolGroup):
         return obj.workspace_id
 
     def _handle_outdate(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+        allowed = self.schema_param_names(f"{self.prefix}.outdate")
+        if allowed:
+            reject_unknown_params(params, allowed, f"{self.prefix}.outdate")
         obj_id = require_uuid(params, "id")
         reason = params.get("reason", "")
         from workflow.services import outdate
@@ -642,6 +754,9 @@ class GenericCrudToolGroup(BaseToolGroup):
         return ToolResult.ok({"id": str(obj_id), "status": "outdated"})
 
     def _handle_reactivate(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+        allowed = self.schema_param_names(f"{self.prefix}.reactivate")
+        if allowed:
+            reject_unknown_params(params, allowed, f"{self.prefix}.reactivate")
         obj_id = require_uuid(params, "id")
         from workflow.services import reactivate
 
@@ -664,6 +779,9 @@ class GenericCrudToolGroup(BaseToolGroup):
         return ToolResult.ok({"id": str(obj_id), "status": result.new_state})
 
     def _handle_query(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
+        allowed = self.schema_param_names(f"{self.prefix}.query")
+        if allowed:
+            reject_unknown_params(params, allowed, f"{self.prefix}.query")
         workspace_id = require_uuid(params, "workspace_id")
         include_outdated = bool(params.get("include_outdated", False))
         status = params.get("status") or None

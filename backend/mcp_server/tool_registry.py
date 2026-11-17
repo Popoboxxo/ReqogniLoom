@@ -1114,6 +1114,47 @@ class ToolRegistry:
                 tools.extend(group.get_tool_schemas())
         return tools
 
+    def hidden_tool_aliases(self) -> dict[str, dict[str, Any]]:
+        """Return the R2A-003 hidden legacy-verb aliases for the catalogue.
+
+        For each published ``*.get``/``*.read`` the alternative ``*.read``/
+        ``*.get`` spelling is declared as a deprecated alias, and likewise for
+        ``*.list``/``*.query``. ``replacedBy`` always names a tool that is
+        actually published, so an agent reading the metadata can migrate with
+        a direct rename.
+
+        Aliases are metadata **only**: they are not added to
+        :meth:`all_tool_schemas`/``tools/list`` (the catalogue stays at 301)
+        and they are not routable — the #1376 "no shadow tools" ratchet keys
+        off ``_TOOL_MAP`` and must keep holding. They document the legacy
+        spelling for one release; remove them once clients have migrated.
+        """
+        # Lazy import: tool groups import ``mcp_server.protocol_handler`` and
+        # some are themselves imported lazily by ``_ensure_groups``.
+        from mcp_server.tools.base import FETCH_VERBS, LIST_VERBS, verb_operation
+
+        self._ensure_groups()
+        published = {
+            schema.get("name")
+            for schema in self.all_tool_schemas()
+            if schema.get("name")
+        }
+        aliases: dict[str, dict[str, Any]] = {}
+        for name in sorted(published):
+            operation = verb_operation(name)
+            if operation is None:
+                continue
+            prefix, verb = name.rsplit(".", 1)
+            alternatives = (FETCH_VERBS if operation == "fetch" else LIST_VERBS) - {verb}
+            for alternative in sorted(alternatives):
+                alias = f"{prefix}.{alternative}"
+                # A prefix that publishes both spellings (e.g. memory.get and
+                # memory.query) has no alias for the published one.
+                if alias in published:
+                    continue
+                aliases[alias] = {"deprecated": True, "replacedBy": name}
+        return aliases
+
     def _ensure_groups(self) -> None:
         """Lazy-initialise default tool groups if none registered."""
         if self._router is not None:
