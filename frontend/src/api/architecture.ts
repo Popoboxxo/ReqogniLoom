@@ -8,7 +8,7 @@
  * NOTE: Backend route is /api/v1/architecture/ (not /architecture-elements/).
  */
 
-import { apiClient, getList } from "./client";
+import { apiClient, getAllPages, getList } from "./client";
 import type { ArchitectureElement, PaginatedResponse, UUID, ArtifactDiffResult, ArtifactVersion } from "../types";
 
 export const architectureApi = {
@@ -24,44 +24,14 @@ export const architectureApi = {
    * the paginator's `next` URL until exhaustion and returns the full
    * de-duplicated list of elements for the workspace.
    */
-  async listAll(workspaceId: UUID, includeDeleted = false): Promise<ArchitectureElement[]> {
-    const seen = new Set<UUID>();
-    const all: ArchitectureElement[] = [];
-    let resp = await getList<ArchitectureElement>("/architecture/", {
+  listAll(workspaceId: UUID, includeDeleted = false): Promise<ArchitectureElement[]> {
+    // R2A-005: use the central walker so this helper gets the same de-duplication
+    // and 100-page truncation warning as every other full-pagination caller.
+    // `getAllPages` supplies `page_size=100` when the caller does not set it.
+    return getAllPages<ArchitectureElement>("/architecture/", {
       workspace_id: workspaceId,
-      page_size: "100",
       ...(includeDeleted ? { include_deleted: "true" } : {}),
     });
-    for (const el of resp.results) {
-      if (!seen.has(el.id)) {
-        seen.add(el.id);
-        all.push(el);
-      }
-    }
-    // Follow pagination links. The `next` field is either null or a full
-    // absolute URL pointing at the next page.
-    let nextUrl: string | null = resp.next;
-    let pageCount = 0;
-     
-    while (nextUrl && pageCount < 100) {
-      pageCount += 1;
-      // The backend may return `next` as an absolute URL, a path starting
-      // with /api/v1, or a path relative to /api/v1. apiClient.get prepends
-      // /api/v1, so we always need the path relative to that prefix.
-      const m = nextUrl.match(/^(https?:\/\/[^/]+)?(\/api\/v1)?(\/.*)$/);
-      const pathWithQuery = m ? m[3] : nextUrl;
-      const nextResp = await apiClient.get<PaginatedResponse<ArchitectureElement>>(
-        pathWithQuery.startsWith("/") ? pathWithQuery : `/${pathWithQuery}`
-      );
-      for (const el of nextResp.results) {
-        if (!seen.has(el.id)) {
-          seen.add(el.id);
-          all.push(el);
-        }
-      }
-      nextUrl = nextResp.next;
-    }
-    return all;
   },
 
   get(id: UUID): Promise<ArchitectureElement> {

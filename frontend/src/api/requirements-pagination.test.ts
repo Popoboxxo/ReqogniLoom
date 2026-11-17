@@ -1,32 +1,31 @@
 /**
- * B1 — the review queue only ever saw the backend's first page.
+ * B1 / R2A-005 — the review queue only ever saw the backend's first page.
  *
  * ``GET /api/v1/requirements/?status=in_review`` answers the standard DRF
  * pagination envelope with ``PAGE_SIZE=25`` (settings.py) and ``page_size``
  * capped at 100. ``requirementsApi.list()`` used to issue exactly one request
  * and hand back that single page, so a workspace with 28 ``in_review``
- * requirements silently hid the newest three from the reviewer — the item was
- * created and transitioned, yet never appeared in the queue.
+ * requirements silently hid the newest three from the reviewer.
  *
- * These tests pin the two halves of the fix: an adequate ``page_size`` on the
- * first request, and a walk over the paginator's ``next`` link until
- * exhaustion. They fail against the pre-fix implementation (which neither sent
- * ``page_size`` nor followed ``next``) and pass afterwards.
+ * The pagination walk itself now lives in `client.ts::getAllPagesWithCount`
+ * (pinned in `pagination-walkers.test.ts`). This file pins the contract at the
+ * `requirementsApi` seam: every list entry point must delegate to that helper
+ * with the right filters, and must pass its `{ count, results }` through
+ * unchanged — including the envelope shape callers rely on.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const mockGetList = vi.fn();
-const mockClientGet = vi.fn();
+const mockGetAllPagesWithCount = vi.fn();
 
 vi.mock("./client", () => ({
   apiClient: {
-    get: (...a: unknown[]) => mockClientGet(...a),
+    get: vi.fn(),
     post: vi.fn(),
     patch: vi.fn(),
     delete: vi.fn(),
   },
-  getList: (...a: unknown[]) => mockGetList(...a),
+  getAllPagesWithCount: (...a: unknown[]) => mockGetAllPagesWithCount(...a),
   extractErrorMessage: (err: unknown) => String(err),
 }));
 
@@ -42,137 +41,93 @@ function requirement(n: number) {
   };
 }
 
-describe("requirementsApi.list full pagination (B1)", () => {
+describe("requirementsApi.list full pagination (B1 / R2A-005)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetAllPagesWithCount.mockResolvedValue({
+      count: 0,
+      results: [],
+    });
   });
 
-  it("asks for an adequate page_size and keeps the status filter", async () => {
-    mockGetList.mockResolvedValue({
+  it("delegates the whole walk to getAllPagesWithCount with the status filter", async () => {
+    const results = [requirement(1)];
+    mockGetAllPagesWithCount.mockResolvedValue({ count: 1, results });
+
+    const resp = await requirementsApi.list(WORKSPACE, "in_review");
+
+    // The walker adds page_size=100 and does the actual page walk; the wrapper
+    // only owns the request filters.
+    expect(mockGetAllPagesWithCount).toHaveBeenCalledWith("/requirements/", {
+      workspace_id: WORKSPACE,
+      status: "in_review",
+    });
+    expect(resp).toEqual({
       count: 1,
       next: null,
       previous: null,
-      results: [requirement(1)],
+      results,
     });
-
-    const resp = await requirementsApi.list(WORKSPACE, "in_review");
-
-    expect(mockGetList).toHaveBeenCalledWith("/requirements/", {
-      workspace_id: WORKSPACE,
-      status: "in_review",
-      page_size: "100",
-    });
-    expect(resp.results).toHaveLength(1);
   });
 
-  it("follows next and returns more than a single page worth of items", async () => {
-    // Page 1 carries the backend default (25) and a next link; page 2 carries
-    // the three items that used to be invisible to the queue.
-    const page1 = Array.from({ length: 25 }, (_, i) => requirement(i + 1));
-    const page2 = Array.from({ length: 3 }, (_, i) => requirement(i + 26));
-
-    mockGetList.mockResolvedValue({
-      count: 28,
-      next: "http://localhost:8001/api/v1/requirements/?page=2&page_size=100&status=in_review",
-      previous: null,
-      results: page1,
-    });
-    mockClientGet.mockResolvedValue({
-      count: 28,
-      next: null,
-      previous: "http://localhost:8001/api/v1/requirements/?page=1&page_size=100&status=in_review",
-      results: page2,
-    });
-
-    const resp = await requirementsApi.list(WORKSPACE, "in_review");
-
-    // >25 items across pages — the assertion the pre-fix implementation fails.
-    expect(resp.results).toHaveLength(28);
-    expect(resp.count).toBe(28);
-    // Everything has been merged, so no dangling next link remains.
-    expect(resp.next).toBeNull();
-    // `next` is fetched through apiClient.get with the /api/v1 prefix stripped,
-    // matching how the rest of the codebase walks pagination.
-    expect(mockClientGet).toHaveBeenCalledTimes(1);
-    expect(mockClientGet).toHaveBeenCalledWith(
-      "/requirements/?page=2&page_size=100&status=in_review"
-    );
-  });
-
-  it("does not request a second page when the first page is the only one", async () => {
-    mockGetList.mockResolvedValue({
-      count: 2,
-      next: null,
-      previous: null,
-      results: [requirement(1), requirement(2)],
-    });
+  it("passes every merged page through, not just the first 25", async () => {
+    const results = Array.from({ length: 28 }, (_, i) => requirement(i + 1));
+    mockGetAllPagesWithCount.mockResolvedValue({ count: 28, results });
 
     const resp = await requirementsApi.list(WORKSPACE);
 
-    expect(resp.results).toHaveLength(2);
-    expect(mockClientGet).not.toHaveBeenCalled();
+    expect(resp.results).toHaveLength(28);
+    expect(resp.count).toBe(28);
+    expect(resp.next).toBeNull();
+  });
+
+  it("does not add a second request of its own", async () => {
+    await requirementsApi.list(WORKSPACE);
+
+    expect(mockGetAllPagesWithCount).toHaveBeenCalledTimes(1);
   });
 
   // F2: `list` used to read only its positional `status` and silently ignore
-  // `options.status`, so `list(ws, undefined, { status: "in_review" })`
-  // returned unfiltered results. These pin both the honor and the precedence.
+  // `options.status`; the positional argument still wins on conflict.
   it("honors options.status when no positional status is given (F2)", async () => {
-    mockGetList.mockResolvedValue({
-      count: 0,
-      next: null,
-      previous: null,
-      results: [],
-    });
-
     await requirementsApi.list(WORKSPACE, undefined, { status: "in_review" });
 
-    expect(mockGetList).toHaveBeenCalledWith("/requirements/", {
+    expect(mockGetAllPagesWithCount).toHaveBeenCalledWith("/requirements/", {
       workspace_id: WORKSPACE,
       status: "in_review",
-      page_size: "100",
     });
   });
 
   it("lets the positional status win over options.status (F2)", async () => {
-    mockGetList.mockResolvedValue({
-      count: 0,
-      next: null,
-      previous: null,
-      results: [],
-    });
-
     await requirementsApi.list(WORKSPACE, "approved", { status: "in_review" });
 
-    expect(mockGetList).toHaveBeenCalledWith("/requirements/", {
+    expect(mockGetAllPagesWithCount).toHaveBeenCalledWith("/requirements/", {
       workspace_id: WORKSPACE,
       status: "approved",
-      page_size: "100",
     });
   });
 
-  // F3: hitting the intentional 100-page cap used to exit silently. Parity with
-  // client.ts::getAllPages means a truncated list is surfaced via console.warn.
-  it("warns when the 100-page cap is reached (F3)", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    mockGetList.mockResolvedValue({
-      count: 1,
-      next: "/requirements/?page=2",
-      previous: null,
-      results: [requirement(1)],
-    });
-    mockClientGet.mockResolvedValue({
-      count: 1,
-      // Always non-null, so the walk is bounded only by the 100-page cap.
-      next: "/requirements/?page=next",
-      previous: null,
-      results: [],
+  it("threads listAll's filters through the same helper", async () => {
+    const results = [requirement(1)];
+    mockGetAllPagesWithCount.mockResolvedValue({ count: 1, results });
+
+    const all = await requirementsApi.listAll(WORKSPACE, {
+      status: "approved",
+      includeDeleted: true,
+      allocated: false,
+      level: 2,
     });
 
-    await requirementsApi.list(WORKSPACE, "in_review");
-
-    expect(mockClientGet).toHaveBeenCalledTimes(100);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toContain("cap reached");
-    warn.mockRestore();
+    expect(all).toEqual(results);
+    expect(mockGetAllPagesWithCount).toHaveBeenCalledWith("/requirements/", {
+      workspace_id: WORKSPACE,
+      status: "approved",
+      include_deleted: "true",
+      allocated: "false",
+      level: "2",
+    });
   });
+
+  // F3 is now covered in pagination-walkers.test.ts (the cap warning lives in
+  // the central walker, shared by every listAll caller).
 });

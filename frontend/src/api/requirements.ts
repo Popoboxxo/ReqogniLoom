@@ -7,7 +7,7 @@
  * Wraps /api/v1/requirements/ endpoints.
  */
 
-import { apiClient, getList } from "./client";
+import { apiClient, getAllPagesWithCount } from "./client";
 import type {
   Requirement,
   PaginatedResponse,
@@ -111,55 +111,10 @@ export interface RequirementListOptions {
 async function fetchAllRequirementPages(
   params: Record<string, string>
 ): Promise<{ count: number; results: Requirement[] }> {
-  const seen = new Set<UUID>();
-  const all: Requirement[] = [];
-  const collect = (page: PaginatedResponse<Requirement>): void => {
-    for (const r of page.results) {
-      if (!seen.has(r.id)) {
-        seen.add(r.id);
-        all.push(r);
-      }
-    }
-  };
-
-  const firstPage = await getList<Requirement>("/requirements/", {
-    ...params,
-    page_size: params.page_size ?? "100",
-  });
-  const total = firstPage.count;
-  collect(firstPage);
-
-  let nextUrl: string | null = firstPage.next;
-  let pageCount = 0;
-
-  while (nextUrl && pageCount < 100) {
-    pageCount += 1;
-    // The backend may return `next` as an absolute URL, a path starting
-    // with /api/v1, or a path relative to /api/v1. apiClient.get prepends
-    // /api/v1, so we always need the path relative to that prefix.
-    const m = nextUrl.match(/^(https?:\/\/[^/]+)?(\/api\/v1)?(\/.*)$/);
-    const pathWithQuery = m ? m[3] : nextUrl;
-    const nextResp = await apiClient.get<PaginatedResponse<Requirement>>(
-      pathWithQuery.startsWith("/") ? pathWithQuery : `/${pathWithQuery}`
-    );
-    collect(nextResp);
-    nextUrl = nextResp.next;
-  }
-
-  // F3: the 100-page cap above is intentional, but exiting the loop while
-  // `nextUrl` is still non-null means more pages existed and were silently
-  // dropped. Surface that in the console (same parity as
-  // `client.ts::getAllPages`) so a truncated list is visible/debuggable
-  // instead of being mistaken for "this is the complete list".
-  if (nextUrl && pageCount >= 100) {
-    console.warn(
-      `fetchAllRequirementPages(${JSON.stringify(params)}): stopped after ` +
-        `${pageCount} pages (cap reached) — further pages exist but were not ` +
-        "fetched; the returned list is incomplete."
-    );
-  }
-
-  return { count: total, results: all };
+  // R2A-005: the pagination walk (page-size default, de-duplication, 100-page
+  // cap + warning, absolute-`next` normalisation) now lives in the central
+  // client helper. Both `list()` (needs `count`) and `listAll()` go through here.
+  return getAllPagesWithCount<Requirement>("/requirements/", params);
 }
 
 /**

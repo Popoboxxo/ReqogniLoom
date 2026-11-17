@@ -82,14 +82,16 @@ describe("artifact list wrappers expose include_deleted (D6)", () => {
   });
 
   it("architectureApi.listAll forwards include_deleted only when asked", async () => {
+    // R2A-005: listAll now uses the central getAllPages walker (same as the
+    // other listAll wrappers above), which supplies page_size=100 itself.
     await architectureApi.listAll(WORKSPACE, true);
-    expect(mockGetList.mock.calls[0][0]).toBe("/architecture/");
-    expect(mockGetList.mock.calls[0][1]).toMatchObject({
+    expect(mockGetAllPages.mock.calls[0][0]).toBe("/architecture/");
+    expect(mockGetAllPages.mock.calls[0][1]).toMatchObject({
       workspace_id: WORKSPACE,
       include_deleted: "true",
     });
 
     await architectureApi.listAll(WORKSPACE);
-    expect(mockGetList.mock.calls[1][1]).not.toHaveProperty("include_deleted");
+    expect(mockGetAllPages.mock.calls[1][1]).not.toHaveProperty("include_deleted");
   });
 });

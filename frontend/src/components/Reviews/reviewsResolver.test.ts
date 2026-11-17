@@ -26,6 +26,45 @@ vi.mock("../../api/client", () => ({
     delete: vi.fn(),
   },
   getList: (...a: unknown[]) => mockGetList(...a),
+  // R2A-005: requirements.ts delegates the walk to this helper. Mirror the
+  // real helper here: first page via getList, following pages via apiClient.get
+  // (with the URL normalised), so the B1 pagination assertion stays meaningful.
+  getAllPagesWithCount: async (
+    path: string,
+    params: Record<string, string>
+  ) => {
+    type MockPage = {
+      count: number;
+      next: string | null;
+      results: Array<{ id: string }>;
+    };
+    const seen = new Set<string>();
+    const all: Array<{ id: string }> = [];
+    const collect = (p: MockPage) => {
+      for (const item of p.results) {
+        if (!seen.has(item.id)) {
+          seen.add(item.id);
+          all.push(item);
+        }
+      }
+    };
+    const first: MockPage = await mockGetList(path, {
+      ...params,
+      page_size: params.page_size ?? "100",
+    });
+    const count = first.count;
+    collect(first);
+    let next: string | null = first.next;
+    while (next) {
+      const relative = next.replace(/^(https?:\/\/[^/]+)?(\/api\/v1)?/, "");
+      const page: MockPage = await mockClientGet(
+        relative.startsWith("/") ? relative : `/${relative}`
+      );
+      collect(page);
+      next = page.next;
+    }
+    return { count, results: all };
+  },
   extractErrorMessage: (err: unknown) => String(err),
 }));
 

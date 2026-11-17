@@ -16,7 +16,7 @@ import {
   setUnauthorizedHandler,
   RequestTimeoutError,
 } from "./client";
-import { ForbiddenError } from "./errors";
+import { ApiRequestError, ForbiddenError, UnprocessableEntityError } from "./errors";
 
 function mockResponse(status: number, body: unknown = {}): Response {
   return {
@@ -545,6 +545,117 @@ describe("apiClient.patchKeepalive — writes that outlive the document", () => 
       apiClient.patchKeepalive("/users/me/preference-values/", { values: {} })
     ).rejects.toMatchObject({ error: { code: "AUTHENTICATION_REQUIRED" } });
     expect(unauthorizedHandler).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R2A-006 — typed errors for every non-2xx status.
+//
+// The backend now emits a stable `error.{code,message,details}` envelope plus
+// a `request_id` on every error. The client must surface all four fields on a
+// common `ApiRequestError` base regardless of status, while keeping the
+// existing `ForbiddenError` / `UnprocessableEntityError` subclasses (and their
+// constructors) intact so no caller's `instanceof` check changes behaviour.
+// ---------------------------------------------------------------------------
+
+describe("apiClient — typed error envelope for every status (R2A-006)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    advanceAuthSessionGeneration();
+    resetUnauthorizedGuard();
+    document.documentElement.lang = "en";
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const statuses = [
+    { status: 400, code: "VALIDATION_ERROR" },
+    { status: 403, code: "PERMISSION_DENIED" },
+    { status: 404, code: "NOT_FOUND" },
+    { status: 422, code: "UNPROCESSABLE_ENTITY" },
+    { status: 500, code: "INTERNAL_SERVER_ERROR" },
+  ];
+
+  for (const { status, code } of statuses) {
+    it(`exposes status/code/details/requestId on ${status}`, async () => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        mockResponse(status, {
+          error: {
+            code,
+            message: `failure ${status}`,
+            details: [{ field: "title", errors: ["is required"] }],
+          },
+          request_id: `req-${status}`,
+          ...(status === 422 ? { findings: [{ rule: "I1" }] } : {}),
+        })
+      );
+
+      let caught: unknown;
+      try {
+        await apiClient.get("/things/");
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(ApiRequestError);
+      const typed = caught as ApiRequestError;
+      expect(typed.status).toBe(status);
+      expect(typed.code).toBe(code);
+      expect(typed.details).toEqual([{ field: "title", errors: ["is required"] }]);
+      expect(typed.requestId).toBe(`req-${status}`);
+      // The message extractor prefers the field-level detail from the base.
+      expect(extractApiErrorMessage(typed)).toBe("title: is required");
+      // The legacy raw envelope stays readable for existing callers.
+      expect(typed.error.code).toBe(code);
+    });
+  }
+
+  it("keeps 403 as a ForbiddenError (and an ApiRequestError)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      mockResponse(403, {
+        detail: "CSRF Failed: Origin checking failed.",
+        request_id: "req-403",
+      })
+    );
+
+    let caught: unknown;
+    try {
+      await apiClient.get("/things/");
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(ForbiddenError);
+    expect(caught).toBeInstanceOf(ApiRequestError);
+    expect((caught as ForbiddenError).status).toBe(403);
+    expect((caught as ForbiddenError).requestId).toBe("req-403");
+  });
+
+  it("keeps 422 as an UnprocessableEntityError and preserves findings", async () => {
+    const findings = [{ rule: "I1", message: "cycle detected" }];
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      mockResponse(422, {
+        error: { code: "AUDIT_REMEDIATION_FAILED", message: "audit failed", details: [] },
+        findings,
+        request_id: "req-422",
+      })
+    );
+
+    let caught: unknown;
+    try {
+      await apiClient.post("/architecture/1/decompose/commit/", {});
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(UnprocessableEntityError);
+    expect(caught).toBeInstanceOf(ApiRequestError);
+    const typed = caught as UnprocessableEntityError;
+    expect(typed.findings).toEqual(findings);
+    expect(typed.requestId).toBe("req-422");
+    expect(typed.status).toBe(422);
   });
 });
 
