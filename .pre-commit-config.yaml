@@ -1,8 +1,21 @@
-# Pre-commit hook configuration for ReqogniLoom (SECTRACK-03).
+# Pre-commit hooks for ReqogniLoom (SECTRACK-03, S0.1/R4).
 #
-# Reproducible secret-scan gate for the incident pattern `reqlo_<40 alnum>`.
-# The scanner is pinned to gitleaks v8.30.1 (the same sha256-pinned binary is
-# installed by the CI backstop step in .github/workflows/ci.yml).
+# TWO local gitleaks hooks, both pinned to gitleaks v8.30.1 (the same
+# sha256-pinned binary is installed by the CI backstop step in
+# .github/workflows/ci.yml):
+#
+#   1. `gitleaks`        - the two deterministic custom rules
+#                          (reqlo-api-key, env-secret-assignment), scanned with
+#                          .gitleaks-dedicated.toml (useDefault = false, NO
+#                          global allowlists).
+#   2. `gitleaks-default`- the FULL default ruleset (AWS/GitHub/PEM/generic
+#                          keys) with the narrow, reviewed [[allowlists]] in
+#                          .gitleaks.toml -- the same config as the fourth,
+#                          authoritative CI gate.
+#
+# CI remains authoritative: it additionally scans full history, the PR diff
+# and proves every rule id with canaries. Pre-commit only guards the staged
+# diff, but it now fails locally for the same rule families CI enforces.
 #
 # Local, non-global install of the pinned binary (no system-wide changes):
 #   Windows: https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_windows_x64.zip
@@ -11,21 +24,23 @@
 #            linux   = 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
 # Unzip/untar `gitleaks` (8.30.1) onto PATH, then run `pre-commit install` once.
 #
-# The hook scans the STAGED index only (`gitleaks git --staged`) and is scoped
-# to the deterministic incident rule via `--enable-rule reqlo-api-key`; see
-# .gitleaks.toml for why the default heuristics are not part of the blocking
-# gate. Any match blocks the commit (hard 0 tolerance).
-#
-# Note: the upstream `gitleaks-system` hook entry uses `--pre-commit`, which
-# diffs the working tree against the index. Because pre-commit stashes unstaged
-# changes first, that diff is empty and staged secrets are missed. `--staged`
-# is therefore used explicitly.
+# Both hooks scan the STAGED index only (`gitleaks git --staged`). The upstream
+# `gitleaks-system` hook entry uses `--pre-commit`, which diffs the working tree
+# against the index. Because pre-commit stashes unstaged changes first, that
+# diff is empty and staged secrets are missed. `--staged` is used explicitly.
+# Any match blocks the commit (hard 0 tolerance).
 repos:
   - repo: local
     hooks:
       - id: gitleaks
-        name: gitleaks (reqlo_ API key, hard 0)
-        description: Block commits that introduce a reqlo_<40 alnum> API key.
-        entry: gitleaks git --staged --redact --config .gitleaks.toml --enable-rule reqlo-api-key
+        name: gitleaks (custom rules, hard 0)
+        description: Block commits that introduce a reqlo_<40 alnum> API key or a literal env secret.
+        entry: gitleaks git --staged --redact --config .gitleaks-dedicated.toml --enable-rule reqlo-api-key
+        language: system
+        pass_filenames: false
+      - id: gitleaks-default
+        name: gitleaks default rules (allowlisted, hard 0)
+        description: Block commits that introduce a default-rule secret (AWS/GitHub/PEM/generic key) not covered by a reviewed allowlist.
+        entry: gitleaks git --staged --redact --config .gitleaks.toml
         language: system
         pass_filenames: false

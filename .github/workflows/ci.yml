@@ -430,6 +430,7 @@ jobs:
           scripts/test_offhost_backup_check.py
           scripts/test_check_env_example_keys.py
           scripts/test_bump_version.py
+          scripts/tests/test_security_scan_config_guard.py
 
       - name: Check .env.example covers every compose/settings key
         # #1737: a key used by Compose or read by settings.py must be documented
@@ -440,7 +441,10 @@ jobs:
         # Catches YAML anchor/merge mistakes (e.g. the TZ anchor) before a
         # deployment does. A throwaway .env satisfies the required secrets.
         run: |
-          printf 'SECRET_KEY=ci\nDB_PASSWORD=ci\nREQOGNILOOM_VERSION=0.0.0\n' > .env
+          # HONCHO_DB_PASSWORD is a required (`:?`) variable in the base
+          # Compose file; supply a throwaway value so config -q succeeds even
+          # though the honcho profile is inactive (interpolation runs first).
+          printf 'SECRET_KEY=ci\nDB_PASSWORD=ci\nREQOGNILOOM_VERSION=0.0.0\nHONCHO_DB_PASSWORD=ci\n' > .env
           docker compose -f deploy/docker-compose.yml --project-directory . config -q
           docker compose -f deploy/docker-compose.minimal.yml --project-directory . config -q
           docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.tls.example.yml --project-directory . config -q
@@ -1134,14 +1138,26 @@ jobs:
         run: |
           docker rm -f nginx-headers nginx-headers-negative 2>/dev/null || true
 
-  # SECTRACK-03: reproducible secret-scan backstop for the incident pattern
-  # `reqlo_<40 alnum>`. gitleaks 8.30.1 (pinned, sha256-verified) runs twice:
-  # once over the checked-out working tree (`dir`) and once over the full git
-  # history (`git`). The gate is scoped to the deterministic incident rule via
-  # `--enable-rule reqlo-api-key`; see .gitleaks.toml for why the default
-  # heuristics are not part of the blocking gate (they fire on intentional test
-  # fixtures and the documented 44-character README example, which must not be
-  # reported). 0 findings is a hard requirement (--exit-code 1).
+  # SECTRACK-03 + OPS-003/SEC-006 + S0.1/R1: reproducible secret-scan backstop.
+  # gitleaks 8.30.1 (pinned, sha256-verified) runs FOUR blocking scans:
+  #   1. working tree (`dir`)  --enable-rule reqlo-api-key
+  #   2. full git history (`git`) --enable-rule reqlo-api-key
+  #   3. PR diff (`git --log-opts`) --enable-rule env-secret-assignment
+  #   4. DEFAULT rule set (no --enable-rule) over BOTH full history and the
+  #      working tree -- this is the OPS-003 fix: with only --enable-rule every
+  #      built-in detector (AWS/GitHub/PEM/...) was silently disabled.
+  #
+  # Scans 1-3 are DEDICATED custom-rule gates and use .gitleaks-dedicated.toml
+  # (useDefault = false, NO global allowlists). Scan 4 uses the allowlisted
+  # .gitleaks.toml. The split is required by review finding R1: gitleaks applies
+  # global allowlists to custom rules too, so sharing one config let the
+  # default-rule exemptions hollow scans 1-3. Local evidence (counts/rule ids/
+  # paths only, fully redacted): docs/audit/2026-11-17-s01-gitleaks-evidence.md.
+  #
+  # The canary step proves every rule id and the default detectors stay live;
+  # a separate expiry step (S0.1/R2) fails after 2026-12-01 if the TEMP SEC-001
+  # allowlist is still present. 0 findings is a hard requirement for every scan
+  # (--exit-code 1).
   secret-scan:
     name: "Secret Scan (gitleaks 8.30.1)"
     runs-on: ubuntu-latest
@@ -1194,7 +1210,11 @@ jobs:
             printf '%s\n' "${value}" > "${scan}/canary.txt"
 
             rc=0
-            gitleaks dir "${scan}" --config .gitleaks.toml \
+            # R1: prove the rule under the SAME config the dedicated gates use.
+            # .gitleaks-dedicated.toml has no global allowlists, so the canary
+            # must resolve and report even in an allowlisted path (asserted in
+            # the R1 regression canary below).
+            gitleaks dir "${scan}" --config .gitleaks-dedicated.toml \
               --enable-rule "${rule}" --exit-code 1 --redact --no-banner \
               --report-format json --report-path "${report}" || rc=$?
 
@@ -1237,11 +1257,95 @@ jobs:
           env_secret_value="Zx9Qm2Lp7Rt4Wv8N"
           canary "${ENV_SECRET_RULE}" "${env_secret_var}=${env_secret_value}"
 
+          # R1 regression (negative test for the config split): place the same
+          # live-shaped token in a path that .gitleaks.toml GLOBALLY allowlists
+          # (docs/*.md, entry #3). The dedicated config has no global
+          # allowlists, so it MUST still report it. If this flips, the gates are
+          # no longer split and the original hollowing bug has returned.
+          # (The complementary assertion -- that the allowlisted config DOES
+          # suppress this fixture -- is pinned by the offline guard test and
+          # the redacted evidence under docs/audit/.)
+          r1_dir="${work}/r1-allowlisted-path"
+          r1_report="${work}/r1-report.json"
+          mkdir -p "${r1_dir}/docs"
+          printf 'doc example: %s\n' "${api_key_canary}" > "${r1_dir}/docs/canary.md"
+
+          rc=0
+          gitleaks dir "${r1_dir}" --config .gitleaks-dedicated.toml \
+            --enable-rule "${REQLO_API_KEY_RULE}" --exit-code 1 --redact --no-banner \
+            --report-format json --report-path "${r1_report}" || rc=$?
+          if [ "${rc}" -eq 0 ]; then
+            echo "::error::R1 regression: reqlo token in an allowlisted path was NOT reported by the dedicated config"
+            exit 1
+          fi
+          if ! python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if any(f.get("RuleID")==sys.argv[2] for f in d) else 1)' "${r1_report}" "${REQLO_API_KEY_RULE}"; then
+            echo "::error::R1 regression: dedicated config did not report the reqlo-api-key RuleID"
+            exit 1
+          fi
+
+          echo "R1 regression OK: reqlo in an allowlisted path is still reported by the dedicated config"
+
+          # OPS-003 / SEC-006: the two canaries above only prove the custom ids
+          # work UNDER --enable-rule; they say nothing about the built-in
+          # detectors that the fourth gate relies on. Feed a default-rule scan
+          # a non-`reqlo` secret (a GitHub PAT and a PEM private-key header)
+          # plus the two custom shapes, run with NO --enable-rule, and assert
+          # that ALL FOUR rule ids are reported. A built-in detector that has
+          # been disabled by a config regression therefore fails the canary.
+          # The high-entropy values are assembled at run time; the PEM header
+          # is a public, well-known marker (not a credential). The historical
+          # canary/fixture lines in this path are covered by the narrow
+          # .github/workflows/ allowlist entry in .gitleaks.toml.
+          default_scan="${work}/default-scan"
+          default_report="${work}/default-report.json"
+          mkdir -p "${default_scan}"
+          {
+            printf 'reqlo_%s\n' "$(printf 'Zx9Qm2Lp7Rt4Wv8N%.0s' $(seq 1 3) | cut -c1-40)"
+            printf '%s=%s\n' "${env_secret_var}" "${env_secret_value}"
+            printf 'ghp_%s\n' 'Ab12Cd34Ef56Gh78Ij90Kl12Mn34Op56Qr78'
+            printf '%s\n' '-----BEGIN RSA PRIVATE KEY-----'
+            printf '%s\n' 'MIIEowIBAAKCAQEAtestkeymaterialforthecanary-----END RSA PRIVATE KEY-----'
+          } > "${default_scan}/canary.txt"
+
+          rc=0
+          gitleaks dir "${default_scan}" --config .gitleaks.toml \
+            --exit-code 1 --redact --no-banner \
+            --report-format json --report-path "${default_report}" || rc=$?
+          if [ "${rc}" -eq 0 ]; then
+            echo "::error::Default-rule scan did not report any canary (exit 0) -- built-in detectors inert (fail-open)"
+            exit 1
+          fi
+          if ! python3 - "${default_report}" <<'PY'
+          import json
+          import sys
+
+          try:
+              findings = json.load(open(sys.argv[1]))
+          except (OSError, ValueError):
+              sys.exit(1)
+          # Built-in default rules must fire on the non-reqlo canaries; the
+          # two custom rules must still be present in the default rule set.
+          required = {"reqlo-api-key", "env-secret-assignment", "github-pat", "private-key"}
+          reported = {f.get("RuleID") for f in findings}
+          missing = required - reported
+          if missing:
+              print("missing default-rule canary findings: " + ",".join(sorted(missing)))
+              sys.exit(1)
+          PY
+          then
+            echo "::error::Default-rule scan did not report all required canary rule ids -- a detector is inert"
+            exit 1
+          fi
+          echo "Default-rule canary OK: built-in (github-pat, private-key) and custom (reqlo-api-key, env-secret-assignment) detectors reported"
+
       - name: Scan working tree (gitleaks dir)
-        run: gitleaks dir . --config .gitleaks.toml --enable-rule "$REQLO_API_KEY_RULE" --redact --exit-code 1
+        # R1: dedicated gates use the no-allowlist config so a reqlo token in
+        # any path (docs, tests, ...) is still reported.
+        run: gitleaks dir . --config .gitleaks-dedicated.toml --enable-rule "$REQLO_API_KEY_RULE" --redact --exit-code 1
 
       - name: Scan full git history (gitleaks git)
-        run: gitleaks git . --config .gitleaks.toml --enable-rule "$REQLO_API_KEY_RULE" --redact --exit-code 1
+        # R1: dedicated gates use the no-allowlist config.
+        run: gitleaks git . --config .gitleaks-dedicated.toml --enable-rule "$REQLO_API_KEY_RULE" --redact --exit-code 1
 
       - name: Scan PR diff for env secrets
         # Plan D / D2.6 (QR-S03, KA-D-03): third, BLOCKING gate. The two steps
@@ -1271,10 +1375,53 @@ jobs:
             RANGE="HEAD"
           fi
           echo "Scanning ${RANGE} for literal env-secret assignments"
-          gitleaks git . --config .gitleaks.toml \
+          # R1: dedicated config (no global allowlists) for all custom gates.
+          gitleaks git . --config .gitleaks-dedicated.toml \
             --enable-rule "${ENV_SECRET_RULE}" \
             --log-opts="${RANGE}" \
             --redact --exit-code 1
+
+      - name: "Scan default rules - full history + working tree (OPS-003)"
+        # OPS-003 / SEC-006: the three scans above are all scoped with
+        # --enable-rule, which restricts gitleaks to ONLY that rule and
+        # disables every built-in detector (AWS/GitHub/PEM/generic keys).
+        # This fourth BLOCKING step runs the default rule set (no
+        # --enable-rule) over BOTH the full git history and the working tree,
+        # so a committed AWS key or PEM private key can no longer pass CI
+        # green. Known fixtures are exempted by narrow, reasoned [[allowlists]]
+        # in .gitleaks.toml (this file is used ONLY by this gate and the
+        # default-rule canary; the dedicated gates use .gitleaks-dedicated.toml
+        # and are unaffected by these allowlists). The canary step re-proves
+        # the detectors at CI time. Runs on every ref (incl. tags) -- 0
+        # findings is a hard gate. Redacted local evidence (counts / rule ids /
+        # paths, no secret values): docs/audit/2026-11-17-s01-gitleaks-evidence.md.
+        run: |
+          set -euo pipefail
+          echo "Default-rule scan: working tree (gitleaks dir)"
+          gitleaks dir . --config .gitleaks.toml --redact --exit-code 1
+          echo "Default-rule scan: full git history (gitleaks git)"
+          gitleaks git . --config .gitleaks.toml --redact --exit-code 1
+
+      - name: "SEC-001 temp allowlist expiry guard (remove by 2026-12-01)"
+        # S0.1/R2: the TEMP SEC-001 [[allowlists]] entry in .gitleaks.toml
+        # suppresses the historical committed-.env findings until the
+        # user-blocked rotation + history rewrite land. It must not become
+        # permanent. From REMOVAL_DATE onward this step fails the gate while
+        # the entry still exists, forcing both the rotation and the deletion
+        # of the allowlist. Remove this step together with that entry.
+        env:
+          REMOVAL_DATE: '2026-12-01'
+        run: |
+          set -euo pipefail
+          today="$(date -u +%F)"
+          marker='description = "TEMP SEC-001 committed .env - owner: devops-engineer'
+          if [ "${today}" \> "${REMOVAL_DATE}" ]; then
+            if grep -Fq "${marker}" .gitleaks.toml; then
+              echo "::error::SEC-001 temporary gitleaks allowlist expired on ${REMOVAL_DATE} (today ${today}) -- rotation + history rewrite must land and the allowlist must be removed" >&2
+              exit 1
+            fi
+          fi
+          echo "SEC-001 temp allowlist expiry OK (removal deadline ${REMOVAL_DATE}, today ${today})"
 
   # OPS-002: the E2E suite must be part of the CI gate. Before this job,
   # docker-publish.yml's `needs: ci` did not include Playwright at all (it was
