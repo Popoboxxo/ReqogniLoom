@@ -49,6 +49,18 @@ function apiErrorMessage(err: unknown): string {
   );
 }
 
+/** Case-insensitive de-duplication, first spelling wins (backend uniqueness rule). */
+function collectTags(baselines: readonly Baseline[]): string[] {
+  const byKey = new Map<string, string>();
+  for (const baseline of baselines) {
+    for (const tag of baseline.tags ?? []) {
+      const key = tag.toLowerCase();
+      if (!byKey.has(key)) byKey.set(key, tag);
+    }
+  }
+  return [...byKey.values()];
+}
+
 export interface CreateBaselinePayload {
   scope: BaselineScope;
   artifactId: string | null;
@@ -86,6 +98,13 @@ export interface BaselinesData {
    * tag does not collapse the menu to that single entry.
    */
   allTags: string[];
+  /**
+   * R2F-006: the tag filter actually applied to the list query. A requested
+   * label that is no longer offered by the unfiltered list falls back to
+   * "all"; the container renders this value in the <select> so the UI and the
+   * query can never disagree (no second correcting effect needed).
+   */
+  activeTagFilter: string;
   artifacts: Artifact[];
   isLoading: boolean;
   error: string | null;
@@ -107,46 +126,61 @@ export function useBaselinesData(
   params: UseBaselinesDataParams,
 ): BaselinesData {
   const { showForm, formScope, formArtifactId, selectedId } = params;
-  const tagFilter = params.tagFilter?.trim() ?? "";
+  const requestedTag = params.tagFilter?.trim() ?? "";
   const { activeWorkspace } = useWorkspace();
   const workspaceId = activeWorkspace?.id;
   const queryClient = useQueryClient();
 
-  const baselinesQuery = useQuery({
-    queryKey: baselineKeys.list(workspaceId ?? "", tagFilter),
-    queryFn: async () =>
-      (
-        await baselinesApi.list({
-          workspace_id: workspaceId as string,
-          ...(tagFilter ? { tag: tagFilter } : {}),
-        })
-      ).results,
-    enabled: !!workspaceId,
-  });
-
-  // F4.3: only needed while a filter is active — with no filter this key is
-  // identical to `baselinesQuery`'s and TanStack Query de-duplicates it.
+  // F4.3: the unfiltered list is the source of truth for which tags exist. Its
+  // key is identical to the unfiltered baselinesQuery, so the data cached
+  // before a filter was chosen is available immediately when the filter turns
+  // on — there is no loading window in which the label looks "unavailable".
   const tagOptionsQuery = useQuery({
     queryKey: baselineKeys.list(workspaceId ?? "", ""),
     queryFn: async () =>
       (await baselinesApi.list({ workspace_id: workspaceId as string }))
         .results,
-    enabled: !!workspaceId && !!tagFilter,
+    enabled: !!workspaceId && !!requestedTag,
   });
 
-  const allTags = useMemo(() => {
-    const source = (tagFilter ? tagOptionsQuery.data : baselinesQuery.data) ?? [];
-    // Case-insensitive de-duplication, first spelling wins — the backend's own
-    // uniqueness rule — then sorted for a stable option order.
-    const byKey = new Map<string, string>();
-    for (const baseline of source) {
-      for (const tag of baseline.tags ?? []) {
-        const key = tag.toLowerCase();
-        if (!byKey.has(key)) byKey.set(key, tag);
-      }
-    }
-    return [...byKey.values()].sort((a, b) => a.localeCompare(b));
-  }, [tagFilter, tagOptionsQuery.data, baselinesQuery.data]);
+  const tagUniverse = useMemo(
+    () => collectTags(tagOptionsQuery.data ?? []),
+    [tagOptionsQuery.data],
+  );
+
+  // R2F-006: a requested label that is no longer offered has no <option> in
+  // the filter and would leave an unexplained empty list. Fall back to "all"
+  // *before* building the list query so no stale tagged request is fired —
+  // the old second useEffect only corrected after the fact. While the
+  // unfiltered list is still loading, keep the requested label instead.
+  const activeTagFilter =
+    requestedTag &&
+    !tagOptionsQuery.isLoading &&
+    !tagUniverse.some(
+      (tag) => tag.toLowerCase() === requestedTag.toLowerCase(),
+    )
+      ? ""
+      : requestedTag;
+
+  const baselinesQuery = useQuery({
+    queryKey: baselineKeys.list(workspaceId ?? "", activeTagFilter),
+    queryFn: async () =>
+      (
+        await baselinesApi.list({
+          workspace_id: workspaceId as string,
+          ...(activeTagFilter ? { tag: activeTagFilter } : {}),
+        })
+      ).results,
+    enabled: !!workspaceId,
+  });
+
+  const allTags = useMemo(
+    () =>
+      collectTags(
+        (activeTagFilter ? tagOptionsQuery.data : baselinesQuery.data) ?? [],
+      ).sort((a, b) => a.localeCompare(b)),
+    [activeTagFilter, tagOptionsQuery.data, baselinesQuery.data],
+  );
 
   const artifactsQuery = useQuery({
     queryKey: baselineKeys.artifacts(workspaceId ?? ""),
@@ -249,6 +283,7 @@ export function useBaselinesData(
   return {
     baselines: baselinesQuery.data ?? [],
     allTags,
+    activeTagFilter,
     artifacts: artifactsQuery.data ?? [],
     isLoading:
       !!workspaceId &&

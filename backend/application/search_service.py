@@ -1890,16 +1890,18 @@ class SearchService(ServiceBase):
         #     cross-type queries. A single workspace-scoped ``query_entities``
         #     call per workspace (requesting every type at once) would collapse
         #     it -- ``query_entities`` already accepts a list of ``entity_types``.
-        #   * Duplicate hydration INSIDE this method for the types it serves:
-        #     ``query_entities`` already resolves the ORM row under
-        #     ``_hydrate_rows`` (ids + workspace fence + item-level READ +
-        #     ``OUTDATED``), and its result is then handed to
-        #     ``_semantic_search_hits``, which re-fetches the SAME rows by id to
-        #     build the title/description DTO. So every cross-type hit costs two
-        #     ORM round-trips and a second READ-check pass. (``query_entities``
-        #     never returns Requirement/TraceLink/Icd in this branch: they are
-        #     excluded from ``requested`` above because they are ``_EMBEDDABLE_TYPES``;
-        #     an earlier version of this note claimed the opposite.)
+        #   * Hydration is already single-pass in this method: ``query_entities``
+        #     resolves the ORM row under ``_hydrate_rows`` (ids + workspace fence
+        #     + item-level READ + ``OUTDATED``) and returns ``TypedVectorHit``
+        #     values that already carry title/description/workspace, so the loop
+        #     below builds the ``SearchHit`` DTOs straight from them -- there is
+        #     no second re-fetch here. (An earlier version of this note claimed
+        #     cross-type results were re-fetched via ``_semantic_search_hits``;
+        #     they are not.) The id-and-distance re-fetch in
+        #     ``_semantic_search_hits`` belongs to the SINGLE-type embeddable
+        #     path (Requirement/TraceLink/Icd): ``query_similar`` returns only
+        #     ids + cosine distances, so those rows must be reloaded to build
+        #     the DTO -- a necessary, separate step, not duplicate work here.
         #   * SECURITY ASYMMETRY in the lexical/full-text legs: they apply no
         #     item-level ``none`` filter for Requirement/ArchitectureElement/
         #     TestCase/StakeholderNeed (``_apply_row_visibility`` only covers

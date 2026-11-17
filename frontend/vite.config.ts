@@ -5,6 +5,7 @@ import { resolve } from "path";
 import {
   PWA_NAVIGATION_DENYLIST,
   PWA_PRECACHE_GLOBS,
+  shouldKeepPrecacheEntry,
 } from "./src/config/pwa-config";
 
 // https://vitejs.dev/config/
@@ -20,6 +21,16 @@ export default defineConfig({
       manifest: false,
       workbox: {
         globPatterns: [...PWA_PRECACHE_GLOBS],
+        // The glob widens to every assets/*.js so the initial modulepreload
+        // chunks exist in the manifest; this build-time transform then drops
+        // the heavy lazy chunks by size (see shouldKeepPrecacheEntry). The
+        // entry bundle and all small chunks survive, so the first offline
+        // reload can boot the entire initial ESM graph.
+        manifestTransforms: [
+          (entries) => ({
+            manifest: entries.filter((entry) => shouldKeepPrecacheEntry(entry)),
+          }),
+        ],
         navigateFallback: "/index.html",
         navigateFallbackDenylist: PWA_NAVIGATION_DENYLIST,
         cleanupOutdatedCaches: true,
@@ -34,6 +45,11 @@ export default defineConfig({
             handler: "NetworkOnly",
           },
           {
+            // PERF-007: heavy lazy chunks (Mermaid/fabric/elk/CodeMirror, ...)
+            // are filtered out of the install-time precache by the size
+            // transform above; they enter ``reqlo-assets`` on their first real
+            // use and are then served from cache offline. Code splitting stays
+            // effective while the initial modulepreload graph is precached.
             urlPattern: ({ url }: { url: URL }) => url.pathname.startsWith("/assets/"),
             handler: "CacheFirst",
             options: {

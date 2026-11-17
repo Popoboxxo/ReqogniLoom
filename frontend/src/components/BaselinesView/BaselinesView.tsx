@@ -159,11 +159,30 @@ export default function BaselinesView(): JSX.Element {
     },
   });
 
+  // R2F-006: the tag filter is workspace-scoped state. Reset it *during
+  // render* when the workspace changes (React's "adjust state when a prop
+  // changes" pattern), not in a useEffect — an effect runs only after React
+  // Query has already registered `["baselines","list", newWs, oldTag]` and the
+  // tag-options query, i.e. two wasted requests plus a stale render.
+  // `activeWorkspaceId` is read before the data hook so the very same render
+  // passes the cleared value down; `previousWorkspaceId` uses state so React
+  // re-renders immediately and converges.
+  const { activeWorkspace } = useWorkspace();
+  const activeWorkspaceId = activeWorkspace?.id;
+  const [previousWorkspaceId, setPreviousWorkspaceId] = useState(activeWorkspaceId);
+  const workspaceChanged = activeWorkspaceId !== previousWorkspaceId;
+  if (workspaceChanged) {
+    setPreviousWorkspaceId(activeWorkspaceId);
+    setTagFilter("");
+  }
+  const tagFilterForQuery = workspaceChanged ? "" : tagFilter;
+
   // All data-fetching (lists, scope preview, detail, create/delete/compare)
   // lives in useBaselinesData (TanStack Query — REQ-049/REQ-050).
   const {
     baselines,
     allTags,
+    activeTagFilter,
     artifacts,
     isLoading,
     error,
@@ -177,33 +196,22 @@ export default function BaselinesView(): JSX.Element {
     createBaseline,
     deleteBaseline,
     setTags,
-  } = useBaselinesData({ showForm, formScope, formArtifactId, selectedId, tagFilter });
-
-
+  } = useBaselinesData({
+    showForm,
+    formScope,
+    formArtifactId,
+    selectedId,
+    tagFilter: tagFilterForQuery,
+  });
 
   // The render still reads a `state`-shaped object (kept for parity with the
   // pre-decomposition markup).
   const state = { baselines, artifacts, isLoading, error };
 
-  // F7 (ui-review): the tag filter is workspace-scoped state, so a workspace
-  // switch must not carry the previous workspace's label into the list call.
-  const activeWorkspaceId = useWorkspace().activeWorkspace?.id;
-  useEffect(() => {
-    setTagFilter("");
-  }, [activeWorkspaceId]);
-
-  // F7 (ui-review): a filter whose label is no longer offered by `allTags`
-  // (renamed/removed on every baseline, or left over from a switch) has no
-  // matching <option> while the query keeps filtering — an unexplained empty
-  // list. Falling back to "all tags" makes the empty state explicable and
-  // re-runs the list query without the filter.
-  useEffect(() => {
-    if (!tagFilter) return;
-    const available = allTags.some(
-      (tag) => tag.toLowerCase() === tagFilter.toLowerCase(),
-    );
-    if (!available) setTagFilter("");
-  }, [tagFilter, allTags]);
+  // R2F-006: the "requested label no longer available" fallback now lives in
+  // useBaselinesData as a derived value (`activeTagFilter`). The container
+  // renders that same value so the dropdown and the list query stay in sync
+  // without a second correcting effect.
 
   // When the form opens, default to the first available artifact.
   useEffect(() => {
@@ -311,7 +319,9 @@ export default function BaselinesView(): JSX.Element {
   const selectedBaseline =
     state.baselines.find((bl) => bl.id === selectedId) ?? null;
 
-  const hasActiveListControls = Boolean(listSearch || scopeFilter || tagFilter);
+  const hasActiveListControls = Boolean(
+    listSearch || scopeFilter || activeTagFilter,
+  );
   const resetListFilters = (): void => {
     setListSearch("");
     setScopeFilter("");
@@ -362,7 +372,7 @@ export default function BaselinesView(): JSX.Element {
           <select
             id="baseline-tag-filter"
             data-testid="baseline-tag-filter"
-            value={tagFilter}
+            value={activeTagFilter}
             onChange={(e) => setTagFilter(e.target.value)}
             className={styles.tagFilterSelect}
           >
