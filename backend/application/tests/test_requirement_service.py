@@ -171,45 +171,49 @@ class TestCreateRequirement:
                 svc.create_requirement(workspace_id=WS_ID, title="T", ctx=ctx)
 
     def test_create_success_returns_requirement(self):
-        """create_requirement returns the ORM Requirement instance."""
-        svc = RequirementService()
-        ctx = _make_ctx()
-        mock_req = _make_requirement()
-        mock_artifact = MagicMock()
+        """create_requirement persists the Requirement and emits REQUIREMENT_CREATED."""
+        from application.models import DomainEventOutbox
+        from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
 
-        with (
-            patch("application.requirement_service.ServiceBase._set_tenant_context"),
-            patch(
-                "application.requirement_service.ServiceBase._assert_write_permission"
-            ),
-            patch(
-                "application.requirement_service.Tenant",
-                **{"objects.filter.return_value.first.return_value": MagicMock()},
-            ),
-            patch(
-                "application.requirement_service.Workspace",
-                **{"objects.filter.return_value.first.return_value": MagicMock()},
-            ),
-            patch(
-                "application.requirement_service.Artifact.objects.create",
-                return_value=mock_artifact,
-            ),
-            patch(
-                "application.requirement_service.Requirement.objects.create",
-                return_value=mock_req,
-            ),
-            # Issue #1178: create_requirement runs a tenant-scoped title lookup
-            # for the non-blocking duplicate warning. This unit test mocks
-            # ``_set_tenant_context`` away (so no tenant manager is active) and
-            # asserts the return value / audit entry, not the warning — stub the
-            # lookup out instead of provisioning a real tenant context.
-            patch.object(svc, "_duplicate_title_warning", return_value=None),
-            patch.object(svc, "_audit"),
-            patch.object(svc, "_emit_event"),
-        ):
-            result = svc.create_requirement(workspace_id=WS_ID, title="T", ctx=ctx)
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            svc = RequirementService()
 
-        assert result is mock_req
+            with patch.object(svc, "_emit_event") as mock_emit:
+                created = svc.create_requirement(
+                    workspace_id=ws.id,
+                    title="Persisted Requirement",
+                    description="body",
+                    ctx=ctx,
+                )
+                event = mock_emit.call_args.args[0]
+
+                # "  persisted requirement  " normalises to the same title —
+                # the create is non-blocking and carries a duplicate warning.
+                duplicate = svc.create_requirement(
+                    workspace_id=ws.id,
+                    title="  persisted requirement  ",
+                    ctx=ctx,
+                )
+
+            created.refresh_from_db()
+
+            assert created.title == "Persisted Requirement"
+            assert created.description == "body"
+            assert created.workspace_id == ws.id
+            assert created.artifact.workspace_id == ws.id
+            assert created.artifact.artifact_type == "Requirement"
+            assert created.level == 1
+
+            assert event.event_type == DomainEventOutbox.EventType.REQUIREMENT_CREATED
+            assert event.entity_id == created.id
+            assert event.workspace_id == ws.id
+            assert event.payload["title"] == "Persisted Requirement"
+            assert event.payload["artifact_id"] == str(created.artifact_id)
+
+            assert duplicate.id != created.id
+            assert duplicate.duplicate_title_warning
 
     def test_audit_entry_on_create(self):
         """_audit is called with operation='create' on successful create."""
@@ -480,40 +484,37 @@ class TestUpdateRequirement:
                 )
 
     def test_change_reason_not_required_allows_update(self):
-        """Update succeeds when preset does not require change_reason."""
-        svc = RequirementService()
-        ctx = _make_ctx()
-        mock_req = _make_requirement()
+        """Update succeeds on a real row when preset does not require change_reason."""
+        from persistence.tests.factories import (
+            active_tenant,
+            editor_ctx,
+            make_requirement,
+            make_workspace,
+        )
 
-        mock_policy = MagicMock()
-        mock_policy.is_change_reason_required.return_value = False
-        svc._preset_policy = mock_policy
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            created = make_requirement(ws, title="Old Title", description="d")
+            artifact_id = created.artifact_id
+            workspace_id = created.workspace_id
 
-        with (
-            patch("application.requirement_service.ServiceBase._set_tenant_context"),
-            patch(
-                "application.requirement_service.ServiceBase._assert_write_permission"
-            ),
-            patch(
-                "application.requirement_service.Requirement.objects.select_related",
-                return_value=MagicMock(
-                    filter=MagicMock(
-                        return_value=MagicMock(
-                            first=MagicMock(return_value=mock_req)
-                        )
-                    )
-                ),
-            ),
-            patch("application.requirement_service.Requirement.objects.filter"),
-            patch.object(svc, "_audit"),
-            patch.object(svc, "_emit_event"),
-        ):
-            result = svc.update_requirement(
-                requirement_id=REQ_ID, ctx=ctx, title="New Title"
-            )
+            svc = RequirementService()
+            mock_policy = MagicMock()
+            mock_policy.is_change_reason_required.return_value = False
+            svc._preset_policy = mock_policy
 
-        assert mock_req.title == "New Title"
-        assert result is mock_req
+            with patch.object(svc, "_emit_event"):
+                result = svc.update_requirement(
+                    requirement_id=created.id, ctx=ctx, title="New Title"
+                )
+
+            result.refresh_from_db()
+
+            assert result.title == "New Title"
+            assert result.description == "d"
+            assert result.workspace_id == workspace_id
+            assert result.artifact_id == artifact_id
 
     def test_audit_entry_on_update(self):
         """_audit is invoked with operation='update' on each write."""
@@ -768,27 +769,27 @@ class TestDeleteRequirement:
 
 class TestGetRequirement:
     def test_get_returns_requirement(self):
-        """get_requirement returns the ORM instance."""
-        svc = RequirementService()
-        ctx = _make_ctx()
-        mock_req = _make_requirement()
+        """get_requirement returns the persisted ORM instance."""
+        from persistence.tests.factories import (
+            active_tenant,
+            editor_ctx,
+            make_requirement,
+            make_workspace,
+        )
 
-        with (
-            patch("application.requirement_service.ServiceBase._set_tenant_context"),
-            patch(
-                "application.requirement_service.Requirement.objects.select_related",
-                return_value=MagicMock(
-                    filter=MagicMock(
-                        return_value=MagicMock(
-                            first=MagicMock(return_value=mock_req)
-                        )
-                    )
-                ),
-            ),
-        ):
-            result = svc.get_requirement(REQ_ID, ctx)
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            created = make_requirement(ws, title="Get Me", description="body")
 
-        assert result is mock_req
+            result = RequirementService().get_requirement(created.id, ctx)
+
+            assert result.id == created.id
+            assert result.title == "Get Me"
+            assert result.description == "body"
+            assert result.workspace_id == ws.id
+            assert result.artifact_id == created.artifact_id
+            assert result.artifact.workspace_id == ws.id
 
     def test_get_not_found_raises(self):
         """NotFoundError when requirement absent."""
@@ -810,33 +811,31 @@ class TestGetRequirement:
                 svc.get_requirement(REQ_ID, ctx)
 
     def test_get_returns_outdated_requirement(self):
-        """GH-443: get_requirement resolves soft-deleted requirements instead of 404ing.
+        """GH-443: a soft-deleted requirement is returned, not reported as 404.
 
-        Inverted from the previous expectation: hiding the row made DELETE
-        indistinguishable from a hard delete over the API, and disagreed with
-        every sibling service (get_test_case/get_adr/get_issue/get_risk).
+        The soft-delete marker lives on Artifact.lifecycle_status — Requirement
+        has no status column — so the detail read surfaces it via the artifact.
         """
-        svc = RequirementService()
-        ctx = _make_ctx()
-        mock_req = _make_requirement(status="outdated")
+        from persistence.models import Artifact
+        from persistence.tests.factories import (
+            active_tenant,
+            editor_ctx,
+            make_requirement,
+            make_workspace,
+        )
 
-        with (
-            patch("application.requirement_service.ServiceBase._set_tenant_context"),
-            patch(
-                "application.requirement_service.Requirement.objects.select_related",
-                return_value=MagicMock(
-                    filter=MagicMock(
-                        return_value=MagicMock(
-                            first=MagicMock(return_value=mock_req)
-                        )
-                    )
-                ),
-            ),
-        ):
-            result = svc.get_requirement(REQ_ID, ctx)
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            created = make_requirement(ws, title="Outdated Requirement", description="d")
+            Artifact.objects.filter(pk=created.artifact_id).update(
+                lifecycle_status="outdated"
+            )
 
-        assert result is mock_req
-        assert result.status == "outdated"
+            result = RequirementService().get_requirement(created.id, ctx)
+
+            assert result.title == "Outdated Requirement"
+            assert result.artifact.lifecycle_status == "outdated"
 
     def test_list_requirements_returns_list(self):
         """list_requirements returns a list of ORM instances, excluding soft-deleted (REQ-006)."""

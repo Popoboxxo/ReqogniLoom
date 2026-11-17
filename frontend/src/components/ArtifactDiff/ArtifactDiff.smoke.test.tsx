@@ -102,8 +102,11 @@ describe("ArtifactDiff (REQ-053 smoke tests)", () => {
       />
     );
 
-    // Component mounts — versionsFetcher is called with the entity ID
+    // Wiring AND a concrete rendered state: the diff shell with both version
+    // selectors is present even when the fetch resolves to an empty list.
     expect(versionsFetcher).toHaveBeenCalledWith(ENTITY_ID);
+    expect(await screen.findByTestId("artifact-diff-view")).toBeInTheDocument();
+    expect(screen.getByTestId("diff-version-selectors")).toBeInTheDocument();
   });
 
   it("[REQ-053] shows close button that calls onClose when clicked", async () => {

@@ -124,11 +124,11 @@ describe("useMetricsQuery", () => {
     vi.mocked(metricsApi.list).mockRejectedValueOnce(new Error("offline"));
     await act(async () => {
       await result.current.refetch();
-      // query-core notifies subscribers on a `setTimeout(0)` (notifyManager
-      // scheduler); flush that macrotask inside `act`.
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
+    // Concrete signal instead of a fixed `setTimeout(0)`: query-core schedules
+    // subscriber notification on a macrotask, so wait for the observable
+    // error state itself (real-timer polling, no fake-timer/waitFor deadlock).
     await waitFor(() => expect(result.current.isError).toBe(true));
     // The last successful payload stays available — that is what the
     // dashboard's stale banner renders.

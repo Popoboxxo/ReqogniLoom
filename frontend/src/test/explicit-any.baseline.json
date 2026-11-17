@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "recordedAt": "2026-11-17",
+  "gate": "S4.3 R2T-003",
+  "asAnyCasts": 262,
+  "note": "One-way ceiling for `as any` type assertions in src/**/*.test.{ts,tsx}. Measured 2026-11-17 on base main 8a89ac. The gate brief stated 263; a naive `grep 'as any'` also matched the prose 'has any' in ui-ratchet.test.ts:1018, so the exact AST-equivalent token count is 262. NEVER raise this number: fix new casts, then lower it in the same change."
+}

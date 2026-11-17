@@ -19,7 +19,7 @@
  * `queries/preferences.test.ts` — the hydrator itself is rendered for real.
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -158,8 +158,11 @@ describe("PreferencesHydrator (T-C2-7)", () => {
 
     renderHydrator();
 
-    // Give a prematurely enabled query a chance to fire before claiming it did not.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Concrete signal, no wall-clock sleep: `render` flushes mount effects
+    // inside act, and the probe's rendered readable id proves the tree (with
+    // its hydrator) is mounted before we claim no request was made.
+    await act(async () => {});
+    expect(screen.getByTestId("probe-value")).toHaveTextContent(UID);
 
     expect(preferenceValuesApi.effective).not.toHaveBeenCalled();
     expect(getReadableIdsVisible()).toBe(true);

@@ -12,6 +12,49 @@ import { localRulesPlugin } from './eslint-rules/index.js';
 import { LEGACY_INLINE_STYLE_HEX_FILES } from './eslint-rules/legacy-inline-style-hex-files.js';
 import { LEGACY_STATIC_INLINE_STYLE_FILES } from './eslint-rules/legacy-static-inline-style-files.js';
 
+/**
+ * S4.3 / R2T-003: test files that already carried `any` when the one-way
+ * ceiling was baselined (262 `as any` casts across 31 files, 2026-11-17).
+ *
+ * These stay at 'warn' so their existing `eslint-disable` directives remain
+ * "used" under `--report-unused-disable-directives`; the authoritative count
+ * is watched by `src/test/explicit-any-ratchet.test.ts`. Every other test file
+ * gets the rule at 'error'. Never add a path here to silence a new cast.
+ */
+const LEGACY_TEST_ANY_FILES = [
+  'src/__tests__/fabric-contract.test.ts',
+  'src/components/AdrEditors/AdrSupersedePanel.test.tsx',
+  'src/components/AdrEditors/useAdrData.test.tsx',
+  'src/components/ArchitectureEditors/useArchitectureData.test.tsx',
+  'src/components/BaselinesView/BaselinesView.container.test.tsx',
+  'src/components/BaselinesView/BaselinesView.header.test.tsx',
+  'src/components/BaselinesView/BaselinesView.override-513.test.tsx',
+  'src/components/DashboardViews/useDashboardData.test.tsx',
+  'src/components/DiagramView/DiagramView.i18n.test.tsx',
+  'src/components/DiagramView/DiagramView.smoke.test.tsx',
+  'src/components/IcdView/IcdView.i18n.test.tsx',
+  'src/components/IcdView/IcdView.smoke.test.tsx',
+  'src/components/ImpactView/ImpactView.test.tsx',
+  'src/components/InterviewEditors/InterviewEditors.test.tsx',
+  'src/components/IssueEditors/useIssueData.test.tsx',
+  'src/components/NeedsEditors/useNeedData.test.tsx',
+  'src/components/Reviews/ReviewsView.bulkconfirm.test.tsx',
+  'src/components/Reviews/ReviewsView.queue-refresh.test.tsx',
+  'src/components/Reviews/ReviewsView.test.tsx',
+  'src/components/RiskEditors/useRiskData.test.tsx',
+  'src/components/TestRuns/TestRunsList.test.tsx',
+  'src/components/TraceabilityView/TraceabilityView.smoke.test.tsx',
+  'src/components/canvas/CanvasEditor.tools.test.tsx',
+  'src/components/shared/ArtifactInspector/TracePanel.test.tsx',
+  'src/components/shared/CreateTraceLinkDialog/create-trace-link-dialog.test.tsx',
+  'src/test/AdrEditors.test.tsx',
+  'src/test/ArchitectureEditors.test.tsx',
+  'src/test/IssueEditors.test.tsx',
+  'src/test/RequirementEditors.test.tsx',
+  'src/test/RiskEditors.test.tsx',
+  'src/test/TestCaseEditors.test.tsx',
+];
+
 export default [
   js.configs.recommended,
   {
@@ -162,12 +205,29 @@ export default [
         },
       ]
     : []),
+  // --- S4.3 / R2T-003: one-way `as any` ceiling in tests --------------------
+  // The gate brief cites 263; the measured count is 262 (a naive grep also
+  // matched "has any" in ui-ratchet.test.ts:1018). The authoritative number
+  // lives in src/test/explicit-any.baseline.json and is enforced by
+  // src/test/explicit-any-ratchet.test.ts: new casts fail, and the recorded
+  // ceiling may only decrease.
   {
     files: ['src/**/*.test.{ts,tsx}', 'src/test/**/*.{ts,tsx}'],
     rules: {
       // Test doubles/mocks routinely need loose typing; keep signal for
       // production code (still 'error' there) without blocking CI on tests.
       '@typescript-eslint/no-explicit-any': 'warn',
+    },
+  },
+  // New/clean test files fail the build immediately. Legacy carriers keep the
+  // 'warn' level above (turning it 'off' would flag their existing
+  // eslint-disable directives as unused under --report-unused-disable-directives)
+  // and are covered by the numeric test-side ratchet instead.
+  {
+    files: ['src/**/*.test.{ts,tsx}', 'src/test/**/*.{ts,tsx}'],
+    ignores: LEGACY_TEST_ANY_FILES,
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'error',
     },
   },
   {

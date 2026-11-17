@@ -47,12 +47,12 @@ describe("AttributeTable", () => {
     render(
       <AttributeTable attributes={ATTRIBUTES} selected={null} onSelect={vi.fn()} />
     );
-    expect(screen.getByTestId("attribute-table-row-alpha")).toBeTruthy();
-    expect(screen.getByTestId("attribute-table-row-beta")).toBeTruthy();
+    expect(screen.getByTestId("attribute-table-row-alpha")).toBeInTheDocument();
+    expect(screen.getByTestId("attribute-table-row-beta")).toBeInTheDocument();
     for (const column of [
       "name", "type", "section", "required", "visible", "audience", "origin",
     ]) {
-      expect(screen.getByTestId(`attribute-table-sort-${column}`)).toBeTruthy();
+      expect(screen.getByTestId(`attribute-table-sort-${column}`)).toBeInTheDocument();
     }
   });
 
@@ -125,7 +125,7 @@ describe("AttributeTable", () => {
     render(
       <AttributeTable attributes={ATTRIBUTES} selected={null} onSelect={vi.fn()} />
     );
-    expect(screen.getByTestId("attribute-table-row-alpha-type-icon")).toBeTruthy();
-    expect(screen.getByTestId("attribute-table-row-beta-type-icon")).toBeTruthy();
+    expect(screen.getByTestId("attribute-table-row-alpha-type-icon")).toBeInTheDocument();
+    expect(screen.getByTestId("attribute-table-row-beta-type-icon")).toBeInTheDocument();
   });
 });
