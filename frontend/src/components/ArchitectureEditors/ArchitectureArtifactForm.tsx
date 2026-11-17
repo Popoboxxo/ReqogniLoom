@@ -17,6 +17,7 @@
 
 import { architectureApi } from "../../api/architecture";
 import { workflowTransitionsApi } from "../../api/workflow-transitions";
+import { useWorkspace } from "../../context/WorkspaceContext";
 import { useInitialFormValues } from "../../hooks/useInitialFormValues";
 import type { ArchitectureElement } from "../../types";
 import { ArtifactForm, type ArtifactFormValues } from "../shared/ArtifactForm";
@@ -88,6 +89,7 @@ export function ArchitectureArtifactForm({
   onDeleted,
   onDirtyChange,
 }: ArchitectureArtifactFormProps): JSX.Element {
+  const { activeWorkspace } = useWorkspace();
   const initialValues = useInitialFormValues(element, architectureToFormValues);
 
   return (
@@ -102,6 +104,7 @@ export function ArchitectureArtifactForm({
       // WorkflowStatusEditor/workflow-transitions.ts and the deleted
       // ArchitectureForm's own `artifactType="architecture"`).
       workflowArtifactType="architecture"
+      requiresChangeReason={activeWorkspace?.preset === "extended"}
       onDirtyChange={onDirtyChange}
       onSave={async (values) => {
         const saved = await architectureApi.update(

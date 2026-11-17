@@ -161,30 +161,19 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
     expect(panelText.length).toBeGreaterThanOrEqual(0);
   });
 
-  // PRODUCT FINDING (S0.4 / PRODUCT-FINDING-S04-ARCH-CHANGE-REASON) — the
-  // feature asserted here does not exist in the UI, so the assertion can never
-  // pass without a production fix (outside this spec's write scope).
-  // Evidence:
-  //  - `ArchitectureArtifactForm.tsx` renders the shared `ArtifactForm` but,
-  //    unlike `RequirementArtifactForm.tsx` (which passes
-  //    `requiresChangeReason={activeWorkspace?.preset === "extended"}`), never
-  //    passes `requiresChangeReason`. It defaults to `false` in
-  //    `ArtifactForm`/`useArtifactFormState`, so `changeReasonNeeded` is always
-  //    false and the form-level change-reason input is NEVER rendered —
-  //    regardless of preset, edit mode or status transition.
-  //  - The testid `arch-change-reason-input` does not exist anywhere in the
-  //    frontend; the shared field's real testid is `artifact-form-change-reason`
-  //    (shared/ArtifactForm/ArtifactFormActions.tsx), and even that is gated off.
-  //  - `ArchitectureEditors.tsx` always mounts `ArchitectureArtifactForm`; there
-  //    is no alternate edit-mode component that would surface the field.
-  // Impact: under the extended preset the backend requires `change_reason` on
-  // update/delete (see REQ-L0-011 / hermes-bugfix-campaign.spec.ts REQ-135), but
-  // the architecture editor offers no field to supply it — extended-preset
-  // architecture edits are blocked client-side. Needs a product fix: wire
-  // `requiresChangeReason` into `ArchitectureArtifactForm` (and give the field a
-  // stable testid), then remove this `.fixme`. Tracked as
-  // PRODUCT-FINDING-S04-ARCH-CHANGE-REASON — coordinator to file the ticket.
-  test.fixme('[REQ-L2-RF-005] architecture editor change_reason input is present (extended preset)', async ({ page }) => {
+  // IMPL-001 — architecture change_reason UI capability parity.
+  // `ArchitectureArtifactForm` now forwards
+  // `requiresChangeReason={activeWorkspace?.preset === "extended"}` to the
+  // shared `ArtifactForm`, exactly like `RequirementArtifactForm`. Under the
+  // extended preset the shared renderer therefore shows the form-level
+  // change-reason input (stable testid `artifact-form-change-reason`) — this
+  // test asserts that UI capability parity with Requirement.
+  // Correction to the earlier finding: the backend does NOT gate architecture
+  // update/delete on `change_reason` (only Requirement/StakeholderNeed updates
+  // and workflow transitions do). The prior "extended-preset architecture edits
+  // are blocked client-side" claim was inaccurate; this is a UI-parity fix, not
+  // an unblock of server-side-rejected edits.
+  test('[REQ-L2-RF-005] architecture editor change_reason input is present (extended preset)', async ({ page }) => {
     // change_reason is extended-preset-only: create the isolated workspace at
     // extended (the helper otherwise defaults to standard) so the precondition
     // is real and a missing input fails the test.
@@ -192,7 +181,7 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 
-    // Use the real shared-field testid once the product fix above lands.
+    // Uses the real shared-field testid now that the product fix has landed.
     const changeReason = page.locator('[data-testid="artifact-form-change-reason"]');
     await expect(changeReason).toBeVisible({ timeout: 5000 });
   });
