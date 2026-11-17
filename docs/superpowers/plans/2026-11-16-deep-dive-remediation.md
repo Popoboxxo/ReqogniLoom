@@ -595,7 +595,7 @@ Kritischer Pfad: S0.1 → S0.2 → S0.3 → S4.2 (Struktur) ≈ 15 Tage.
 | E2 | RLS-Enforcement produktiv | (a) sofort enforced, (b) gestaffelt mit Flag + Coverage-Gate | S0.2 |
 | E3 | `views.py`-Split | (a) mechanisch je Domäne, (b) nur neue Endpunkte auslagern, Altbestand einfrieren | S4.2 |
 | E4 | Legacy-SplitView | (a) migrieren + löschen, (b) Adapter behalten | S3.2 |
-| E5 | `docs/REQUIREMENTS.md` | (a) als autoritativ deklarieren, (b) REQs in SE-Kaskade überführen | S6.1 |
+| E5 | `docs/REQUIREMENTS.md` | (a) REQs in SE-Kaskade überführen, (b) als autoritativ deklarieren — **entschieden: (a) SE-Kaskade** (User-Entscheidung „Option a", S6.1 umgesetzt; historische Zeigertabelle in REQUIREMENTS.md) | S6.1 — erledigt |
 | E6 | MPL-2.0-Abhängigkeit | (a) ersetzen, (b) mit Rechtsprüfung behalten | S5.1 |
 | E7 | Prompt-Sprache der Agent-Assets | (a) Englisch, (b) Deutsch intern, Englisch extern | S1.5 |
 
