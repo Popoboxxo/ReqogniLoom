@@ -157,8 +157,15 @@ class TestParseTimeframeDays:
         assert _parse_timeframe_days("P1Y") == 30
 
 
+@pytest.mark.django_db
 class TestMetricsAggregator:
-    """MetricsAggregator integration tests with mocked sources."""
+    """MetricsAggregator integration tests with mocked sources.
+
+    Class-level django_db marker (S0.2): ``MetricsAggregator.compute()`` now
+    arms the RLS session GUC via ``set_request_tenant``/``clear_request_tenant``
+    which issues SQL SET/RESET. Although all ``_fetch_*`` sources are mocked,
+    DB access must be enabled so the tenant GUC commands can run.
+    """
 
     @pytest.fixture(autouse=True)
     def _tenant_context(self):
