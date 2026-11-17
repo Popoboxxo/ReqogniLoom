@@ -72,8 +72,11 @@ def test_reviews_collection_root_delegates_to_the_pending_view() -> None:
     ``test_review_pending_1089.py::test_collection_root_answers_like_the_flat_pending_route``.
     """
     client = APIClient()
-    root = client.get("/api/v1/reviews/")
-    pending = client.get("/api/v1/reviews/pending/")
+    # R2A-001: pin X-Request-ID on both calls so the byte-for-byte body
+    # comparison below stays strict (the id is per-request by default).
+    rid = "11111111-1111-1111-1111-111111111111"
+    root = client.get("/api/v1/reviews/", HTTP_X_REQUEST_ID=rid)
+    pending = client.get("/api/v1/reviews/pending/", HTTP_X_REQUEST_ID=rid)
 
     assert root.status_code != 404, root.content
     assert root.status_code == pending.status_code, (root.status_code, pending.status_code)

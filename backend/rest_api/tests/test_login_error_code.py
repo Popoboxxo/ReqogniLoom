@@ -13,9 +13,12 @@ wrong password and inactive user must all produce a *byte-identical* response,
 so an attacker cannot use the login endpoint to discover which usernames exist.
 
 Shape note (systemaudit 2026-08-27, P1 item 13): the auth error body is now the
-project-wide envelope ``{"error": {"code", "message", "details"}}``, so the code
-is read from ``response.data["error"]["code"]`` rather than ``["error"]``. The
-codes themselves are unchanged — this file is about *which* code is returned.
+project-wide envelope ``{"error": {"code", "message", "details", "request_id"}}``,
+so the code is read from ``response.data["error"]["code"]`` rather than
+``["error"]``. The codes themselves are unchanged — this file is about *which*
+code is returned. ``request_id`` (ADR-014 §1) is a per-request correlation id;
+the byte-identical anti-enumeration tests below pin the same value on both
+calls so the comparison stays strict.
 """
 from __future__ import annotations
 
@@ -46,9 +49,9 @@ def _user(tenant, username: str, password: str, *, is_active: bool = True) -> Us
     return user
 
 
-def _login(username, password):
+def _login(username, password, **kwargs):
     return APIClient().post(
-        LOGIN_URL, {"username": username, "password": password}, format="json"
+        LOGIN_URL, {"username": username, "password": password}, format="json", **kwargs
     )
 
 
@@ -116,8 +119,11 @@ def test_unknown_user_and_wrong_password_are_byte_identical(tenant):
     """
     _user(tenant, "realuser", "correct-horse")
 
-    wrong_password = _login("realuser", "definitely-wrong")
-    unknown_user = _login("definitely-no-such-user", "definitely-wrong")
+    # R2A-001: pin X-Request-ID on both calls so the byte-for-byte comparison
+    # stays strict (the id is per-request unless the client supplies one).
+    rid = {"HTTP_X_REQUEST_ID": "11111111-1111-1111-1111-111111111111"}
+    wrong_password = _login("realuser", "definitely-wrong", **rid)
+    unknown_user = _login("definitely-no-such-user", "definitely-wrong", **rid)
 
     assert wrong_password.status_code == unknown_user.status_code == 401
     wrong_password.render()
@@ -129,8 +135,10 @@ def test_inactive_user_is_indistinguishable_from_the_others(tenant):
     _user(tenant, "realuser2", "correct-horse")
     _user(tenant, "inactive2", "correct-horse", is_active=False)
 
-    wrong_password = _login("realuser2", "definitely-wrong")
-    inactive = _login("inactive2", "correct-horse")
+    # R2A-001: same pinned correlation id so the byte-for-byte comparison holds.
+    rid = {"HTTP_X_REQUEST_ID": "11111111-1111-1111-1111-111111111111"}
+    wrong_password = _login("realuser2", "definitely-wrong", **rid)
+    inactive = _login("inactive2", "correct-horse", **rid)
 
     assert wrong_password.status_code == inactive.status_code == 401
     wrong_password.render()

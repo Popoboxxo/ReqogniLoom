@@ -70,11 +70,17 @@ def is_db_saturation_error(exc: BaseException) -> bool:
 
 
 def db_unavailable_payload() -> dict:
-    """Return the existing ``{"error": {code, message, details}}`` envelope body.
+    """Return the base ``{"error": {code, message, details}}`` envelope body.
 
-    Mirrors ``rest_api.serializers.build_error_response`` (REQ-L2-RA-009) so a
-    client sees the exact same shape it already handles for every other API
-    error.
+    This is the three-field core shared with
+    ``rest_api.serializers.build_error_response`` (REQ-L2-RA-009): a client
+    sees the same ``code``/``message``/``details`` shape it already handles for
+    every other API error. The fourth field, ``request_id`` (ADR-014 §1), is
+    deliberately *not* set here — it is injected by the caller
+    (``rest_api.error_envelope.reqogniloom_exception_handler`` or
+    ``reqogniloom.middleware.DatabaseUnavailableMiddleware.process_exception``)
+    only when a request context is active. Keeping this module request-agnostic
+    lets the readiness probe reuse it outside any HTTP request.
     """
     return {
         "error": {

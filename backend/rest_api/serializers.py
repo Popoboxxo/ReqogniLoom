@@ -564,13 +564,22 @@ def build_error_response(
 ) -> dict[str, Any]:
     """Construct the standardized error response body (REQ-L2-RA-009).
 
-    Format: {"error": {"code": "...", "message": "...", "details": [...]}}
+    Format: {"error": {"code": "...", "message": "...", "details": [...],
+    "request_id": "..."}}
+
+    R2A-001: ``request_id`` mirrors the ``X-Request-ID`` header (ADR-014 §1)
+    for every error, not only for the views that call ``_with_request_id``.
+    Outside a request context it is ``None`` — the published schema already
+    allows null — so callers never see a fabricated correlation id.
     """
+    from reqogniloom.middleware import get_request_id
+
     return {
         "error": {
             "code": code,
             "message": message or get_error_message(code, lang),
             "details": details or [],
+            "request_id": get_request_id(),
         }
     }
 

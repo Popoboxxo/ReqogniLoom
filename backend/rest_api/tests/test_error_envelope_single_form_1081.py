@@ -96,7 +96,14 @@ def _assert_canonical_envelope(payload: object, *, what: str) -> dict:
         f"{what}: `error` is {type(error).__name__}, not the nested object — "
         f"this is the flat form #1081 removed: {payload!r}"
     )
-    assert set(error) == {"code", "message", "details"}, f"{what}: {error!r}"
+    # R2A-001: ``request_id`` is an additive correlation id nested inside
+    # ``error``. The handler emits it only for real requests, while
+    # ``build_error_response`` always emits it (null without a request), so both
+    # the historical three-field body and the four-field body are valid here.
+    assert set(error) in (
+        {"code", "message", "details"},
+        {"code", "message", "details", "request_id"},
+    ), f"{what}: {error!r}"
     assert isinstance(error["code"], str) and error["code"], f"{what}: {error!r}"
     assert not error["code"].isdigit(), (
         f"{what}: code {error['code']!r} is the raw HTTP status; clients match "
@@ -200,6 +207,8 @@ def test_unauthenticated_response_uses_the_named_code() -> None:
         response.json(), what="401 requirements"
     )
     assert error["code"] == "AUTHENTICATION_REQUIRED"
+    # R2A-001: the handler mirrors X-Request-ID into the nested error object.
+    assert error["request_id"] == response.headers["X-Request-ID"]
 
 
 @override_settings(
@@ -213,7 +222,14 @@ def test_build_error_response_stays_the_single_builder() -> None:
     error = _assert_canonical_envelope(
         build_error_response("NOT_FOUND", "en"), what="build_error_response"
     )
-    assert error == {"code": "NOT_FOUND", "message": error["message"], "details": []}
+    # R2A-001: the builder always emits the additive correlation id; outside a
+    # request context it is None, so the full body is still asserted exactly.
+    assert error == {
+        "code": "NOT_FOUND",
+        "message": error["message"],
+        "details": [],
+        "request_id": None,
+    }
 
 
 # ---------------------------------------------------------------------------

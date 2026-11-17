@@ -27,11 +27,14 @@ pytestmark = pytest.mark.django_db
 
 
 def _envelope(response) -> dict:
-    """Return the parsed ``{"code", "message", "details"}`` error body."""
+    """Return the parsed ``{"code", "message", "details", "request_id"}`` error body."""
     body = response.json()
     assert set(body) == {"error"}, body
     error = body["error"]
-    assert set(error) == {"code", "message", "details"}, error
+    assert set(error) == {"code", "message", "details", "request_id"}, error
+    # R2A-001: the body's correlation id mirrors the X-Request-ID header set
+    # by RequestIdMiddleware on every real HTTP response.
+    assert error["request_id"] == response.headers["X-Request-ID"], error
     return error
 
 

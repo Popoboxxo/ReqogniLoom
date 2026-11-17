@@ -21,7 +21,7 @@ Empirical proof of the runtime behaviour (measured with the tests below,
 
 | Request                                             | Preset   | Status | Body (measured, excerpt)                                                     |
 |-----------------------------------------------------|----------|--------|------------------------------------------------------------------------------|
-| ``GET /api/v1/baselines/?workspace_id=<minimal>``    | minimal  | 404    | ``{"error": {"code": "NOT_FOUND", "message": "The requested API endpoint does not exist.", "details": []}}`` |
+| ``GET /api/v1/baselines/?workspace_id=<minimal>``    | minimal  | 404    | ``{"error": {"code": "NOT_FOUND", "message": "The requested API endpoint does not exist.", "details": [], "request_id": "<uuid>"}}`` |
 | ``GET /api/v1/baselines/`` (no ``workspace_id``)     | minimal  | 404    | same envelope, byte-identical                                                |
 | ``GET /api/v1/baselines/`` (no ``workspace_id``)     | standard | 404    | same envelope, byte-identical                                                |
 | ``GET /api/v1/baselines/`` (no ``workspace_id``)     | extended | 404    | same envelope, byte-identical                                                |
@@ -30,6 +30,12 @@ Empirical proof of the runtime behaviour (measured with the tests below,
 | ``POST /api/v1/baselines/`` (enabled workspace)      | extended | 201    | ``{"id": "...", "workspace_id": "...", "scope": "project", "version": 1, ...}`` + ``ETag`` |
 | ``GET /api/v1/baselines/{id}/`` (enabled workspace)  | extended | 200    | baseline detail incl. ``entries``                                            |
 | ``POST /api/v1/baselines/`` (no ``workspace_id``)    | any      | 404    | same opaque envelope, answered before serializer validation                  |
+
+``request_id`` is an additive correlation id (R2A-001) mirroring the
+``X-Request-ID`` header; it holds a fresh UUID per request, so "same envelope,
+byte-identical" above compares only code, message and details — the
+``request_id`` value varies. Outside a request context the same envelope carries
+``null`` instead.
 
 The 404 status, the ``NOT_FOUND`` error code and the envelope shape are shared
 with the body ``handler404`` renders for an unrouted path

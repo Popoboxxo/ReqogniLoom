@@ -79,7 +79,11 @@ def _assert_canonical(payload: object, *, what: str) -> dict:
         f"{what}: `error` is {type(error).__name__}, not the nested object — "
         f"this is the flat form #1081 removed: {payload!r}"
     )
-    assert set(error) == {"code", "message", "details"}, f"{what}: {error!r}"
+    # R2A-001: ``request_id`` is an additive correlation id nested in ``error``.
+    # These views are called directly with mock requests (no middleware), so
+    # there is no active request context and the id is ``None``.
+    assert set(error) == {"code", "message", "details", "request_id"}, f"{what}: {error!r}"
+    assert error["request_id"] is None, f"{what}: {error!r}"
     assert isinstance(error["code"], str) and error["code"], f"{what}: {error!r}"
     assert not error["code"].isdigit(), f"{what}: raw HTTP status used as code"
     assert isinstance(error["message"], str) and error["message"], f"{what}: {error!r}"
