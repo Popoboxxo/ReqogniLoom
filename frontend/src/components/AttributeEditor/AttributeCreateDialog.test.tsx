@@ -49,7 +49,9 @@ describe("AttributeCreateDialog", () => {
     fireEvent.click(screen.getByTestId("attribute-create-dialog-submit"));
 
     await waitFor(() =>
-      expect(screen.getByTestId("attribute-create-dialog-error")).toBeTruthy()
+      expect(screen.getByTestId("attribute-create-dialog-error")).toHaveTextContent(
+        "attributes.create.errorNameExists"
+      )
     );
     expect(onCreate).not.toHaveBeenCalled();
   });
@@ -71,7 +73,9 @@ describe("AttributeCreateDialog", () => {
     fireEvent.click(screen.getByTestId("attribute-create-dialog-submit"));
 
     await waitFor(() =>
-      expect(screen.getByTestId("attribute-create-dialog-error")).toBeTruthy()
+      expect(screen.getByTestId("attribute-create-dialog-error")).toHaveTextContent(
+        "attributes.create.errorInvalidName"
+      )
     );
     expect(onCreate).not.toHaveBeenCalled();
   });
@@ -123,7 +127,9 @@ describe("AttributeCreateDialog", () => {
     fireEvent.click(screen.getByTestId("attribute-create-dialog-submit"));
 
     await waitFor(() =>
-      expect(screen.getByTestId("attribute-create-dialog-error")).toBeTruthy()
+      expect(screen.getByTestId("attribute-create-dialog-error")).toHaveTextContent(
+        "attributes.create.errorOptionsRequired"
+      )
     );
     expect(onCreate).not.toHaveBeenCalled();
   });
@@ -174,7 +180,7 @@ describe("AttributeCreateDialog", () => {
         onClose={vi.fn()}
       />
     );
-    expect(screen.getByTestId("attribute-create-dialog-workspace-hint")).toBeTruthy();
+    expect(screen.getByTestId("attribute-create-dialog-workspace-hint")).toBeInTheDocument();
   });
 
   it('does not show the workspace-only hint when scope="global"', () => {
@@ -223,8 +229,8 @@ describe("AttributeCreateDialog", () => {
     fireEvent.click(screen.getByTestId("attribute-create-dialog-submit"));
 
     await waitFor(() =>
-      expect(screen.getByTestId("attribute-create-dialog-error").textContent).toContain(
-        "already exists"
+      expect(screen.getByTestId("attribute-create-dialog-error")).toHaveTextContent(
+        /already exists/i
       )
     );
     expect(onClose).not.toHaveBeenCalled();

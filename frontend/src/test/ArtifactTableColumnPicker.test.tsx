@@ -184,7 +184,9 @@ describe("useTableViewState", () => {
       await Promise.resolve();
     });
     expect(result.current.state.columns).toEqual([{ field: "x", order: 0 }]);
-    expect(result.current.error).toBeTruthy();
+    // The hook surfaces the rejected PUT's message verbatim — assert the
+    // content, not merely that *some* truthy value landed in `error`.
+    expect(result.current.error).toContain("nope");
   });
 
   it("loads the state of the newly selected item type", async () => {

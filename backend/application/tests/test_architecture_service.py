@@ -130,49 +130,38 @@ class TestCreateArchitectureElement:
                 )
 
     def test_create_returns_element_with_version_1(self):
-        """ArchitectureElement is created with version=1."""
-        svc = ArchitectureService()
-        ctx = _make_ctx()
-        mock_el = _make_arch_el(version=1)
-        mock_artifact = MagicMock()
+        """create_architecture_element persists version=1 and emits the created event."""
+        from application.models import DomainEventOutbox
+        from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
 
-        with (
-            patch("application.architecture_service.ServiceBase._set_tenant_context"),
-            patch(
-                "application.architecture_service.ServiceBase._assert_write_permission"
-            ),
-            patch(
-                "application.architecture_service.Tenant",
-                **{"objects.filter.return_value.first.return_value": MagicMock()},
-            ),
-            patch(
-                "application.architecture_service.Workspace",
-                **{"objects.filter.return_value.first.return_value": MagicMock()},
-            ),
-            patch(
-                "application.architecture_service.Artifact.objects.create",
-                return_value=mock_artifact,
-            ),
-            patch(
-                "application.architecture_service.ArchitectureElement.objects.create",
-                return_value=mock_el,
-            ),
-            # SysEng 2.0 I5: create now validates the single-root invariant for
-            # roots too; stub the root scan so this stays a pure unit test.
-            patch.object(
-                ArchitectureElementInvariantValidator,
-                "_get_existing_root",
-                return_value=None,
-            ),
-            patch.object(svc, "_audit"),
-            patch.object(svc, "_emit_event"),
-        ):
-            result = svc.create_architecture_element(
-                workspace_id=WS_ID, title="C", ctx=ctx
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            svc = ArchitectureService()
+
+            with patch.object(svc, "_emit_event") as mock_emit:
+                created = svc.create_architecture_element(
+                    workspace_id=ws.id, title="Component A", ctx=ctx
+                )
+                event = mock_emit.call_args.args[0]
+
+            created.refresh_from_db()
+
+            assert created.version == 1
+            assert created.title == "Component A"
+            assert created.workspace_id == ws.id
+            assert created.artifact_id is not None
+            assert created.artifact.workspace_id == ws.id
+            assert created.artifact.artifact_type == "ArchitectureElement"
+
+            assert (
+                event.event_type
+                == DomainEventOutbox.EventType.ARCHITECTURE_ELEMENT_CREATED
             )
-
-        assert result is mock_el
-        assert result.version == 1
+            assert event.entity_id == created.id
+            assert event.workspace_id == ws.id
+            assert event.payload["title"] == "Component A"
+            assert event.payload["element_type"] == "component"
 
     def test_audit_called_on_create(self):
         """_audit is called with operation='create' on success."""
@@ -534,28 +523,25 @@ class TestDeleteArchitectureElement:
 
 class TestGetArchitectureElement:
     def test_get_returns_element(self):
-        """get_architecture_element returns the ORM instance."""
-        svc = ArchitectureService()
-        ctx = _make_ctx()
-        mock_el = _make_arch_el()
+        """get_architecture_element returns the persisted ORM instance."""
+        from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
 
-        with (
-            patch("application.architecture_service.ServiceBase._set_tenant_context"),
-            patch(
-                "application.architecture_service.ArchitectureElement.objects.select_related",
-                return_value=MagicMock(
-                    filter=MagicMock(
-                        return_value=MagicMock(
-                            first=MagicMock(return_value=mock_el)
-                        )
-                    )
-                ),
-            ),
-            patch("workflow.services.outdated_item_ids", return_value=[]),
-        ):
-            result = svc.get_architecture_element(ARCH_EL_ID, ctx)
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            svc = ArchitectureService()
+            created = svc.create_architecture_element(
+                workspace_id=ws.id, title="Component A", ctx=ctx
+            )
 
-        assert result is mock_el
+            result = svc.get_architecture_element(created.id, ctx)
+
+            assert result.id == created.id
+            assert result.title == "Component A"
+            assert result.version == 1
+            assert result.workspace_id == ws.id
+            assert result.artifact_id == created.artifact_id
+            assert result.artifact.workspace_id == ws.id
 
     def test_get_not_found_raises(self):
         """NotFoundError when element is absent."""
@@ -577,27 +563,29 @@ class TestGetArchitectureElement:
                 svc.get_architecture_element(ARCH_EL_ID, ctx)
 
     def test_get_returns_outdated_element(self):
-        """#1381: a soft-deleted element is returned, not reported as 404."""
-        svc = ArchitectureService()
-        ctx = _make_ctx()
-        mock_el = _make_arch_el()
+        """#1381: a soft-deleted element is returned, not reported as 404.
 
-        with (
-            patch("application.architecture_service.ServiceBase._set_tenant_context"),
-            patch(
-                "application.architecture_service.ArchitectureElement.objects.select_related",
-                return_value=MagicMock(
-                    filter=MagicMock(
-                        return_value=MagicMock(
-                            first=MagicMock(return_value=mock_el)
-                        )
-                    )
-                ),
-            ),
-        ):
-            result = svc.get_architecture_element(ARCH_EL_ID, ctx)
+        The soft-delete marker lives on Artifact.lifecycle_status; the detail
+        read surfaces it through the select_related artifact.
+        """
+        from persistence.models import Artifact
+        from persistence.tests.factories import active_tenant, editor_ctx, make_workspace
 
-        assert result is mock_el
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            svc = ArchitectureService()
+            created = svc.create_architecture_element(
+                workspace_id=ws.id, title="Component A", ctx=ctx
+            )
+            Artifact.objects.filter(pk=created.artifact_id).update(
+                lifecycle_status="outdated"
+            )
+
+            result = svc.get_architecture_element(created.id, ctx)
+
+            assert result.title == "Component A"
+            assert result.artifact.lifecycle_status == "outdated"
 
     def test_list_returns_all_elements(self):
         """list_architecture_elements returns active elements, excludes deleted (REQ-006)."""

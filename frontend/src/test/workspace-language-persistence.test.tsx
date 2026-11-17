@@ -25,7 +25,7 @@
  * expected to fail before the fix in WorkspaceContext.tsx / SidebarNavigation.tsx).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react";
+import { act, render, screen, waitFor, fireEvent, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider, useAuth } from "../context/AuthContext";
@@ -155,6 +155,24 @@ function renderSidebar(children?: React.ReactNode): ReturnType<typeof render> {
 
 function renderApp(): ReturnType<typeof render> {
   return renderSidebar();
+}
+
+/**
+ * Deterministic effect flush (R2T-005): fake timers + one explicit advance
+ * inside `act`, the pattern used by `useBundleCompressionStatus.test.ts`. The
+ * timer system is restored immediately, so the surrounding `waitFor` calls
+ * keep polling on real timers. Replaces a bare `setTimeout(20)` sleep whose
+ * only purpose was "let the restore effect run".
+ */
+async function flushPendingEffects(delayMs: number): Promise<void> {
+  vi.useFakeTimers();
+  try {
+    await act(async () => {
+      vi.advanceTimersByTime(delayMs);
+    });
+  } finally {
+    vi.useRealTimers();
+  }
 }
 
 /**
@@ -412,8 +430,8 @@ describe("Workspace-load-failure does not force English (F-03)", () => {
       expect(screen.getByText("Dashboard")).toBeInTheDocument();
     });
 
-    // Give the restore effect a chance to run (it must choose not to fire).
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The restore effect must run and choose not to fire; advance deterministically.
+    await flushPendingEffects(20);
     expect(i18n.language).toBe("de");
   });
 
@@ -425,7 +443,7 @@ describe("Workspace-load-failure does not force English (F-03)", () => {
       expect(screen.getByText("Dashboard")).toBeInTheDocument();
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await flushPendingEffects(20);
     expect(i18n.language).toBe("de");
   });
 });

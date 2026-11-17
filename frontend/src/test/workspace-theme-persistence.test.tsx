@@ -190,9 +190,14 @@ describe("Workspace theme decoupling (Theme Presets)", () => {
     await waitFor(() => {
       expect(screen.getByText("Dashboard")).toBeInTheDocument();
     });
-    // Give every effect (including any wrongly-revived seeding effect) a
-    // chance to fire before asserting silence.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Concrete signal instead of a wall-clock sleep: wait until the theme
+    // effect has applied the tenant default to the document root. Every
+    // effect queued by that state update (including a wrongly-revived
+    // workspace-seeding effect) has run by then, so the silence assertion
+    // below checks the settled tree.
+    await waitFor(() => {
+      expect(document.documentElement.dataset.themeMode).toBe("dark");
+    });
 
     // React's act() advisories are test-harness timing noise, not app
     // behavior — everything else must be silent.

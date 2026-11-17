@@ -22,7 +22,7 @@
  * This is a structural/contract check, not a rendering test.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, expectTypeOf } from "vitest";
 
 // The stub under test. Imported via a relative path so it is used directly,
 // independent of the Vitest `fabric` alias.
@@ -99,7 +99,9 @@ describe("fabric mock contract (REQ-097)", () => {
     expectAssignable<(path: string, options?: object) => RealPath>(
       (path, options) => new (null as unknown as typeof RealPath)(path, options)
     );
-    expect(true).toBe(true);
+    // Type-level assertions ARE this test's assertions; no runtime filler.
+    expectTypeOf<RealCanvas>().toMatchTypeOf<UsedCanvasApi>();
+    expectTypeOf<RealPencilBrush>().toMatchTypeOf<UsedPencilBrushApi>();
   });
 
   // -------------------------------------------------------------------------
@@ -109,7 +111,8 @@ describe("fabric mock contract (REQ-097)", () => {
     const el = document.createElement("canvas");
     expectAssignable<UsedCanvasApi>(new MockCanvas(el));
     expectAssignable<UsedPencilBrushApi>(new MockPencilBrush(new MockCanvas(el)));
-    expect(true).toBe(true);
+    expectTypeOf<MockCanvas>().toMatchTypeOf<UsedCanvasApi>();
+    expectTypeOf<MockPencilBrush>().toMatchTypeOf<UsedPencilBrushApi>();
   });
 
   // -------------------------------------------------------------------------

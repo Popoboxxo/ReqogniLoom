@@ -101,11 +101,10 @@ describe("IcdView (REQ-053 smoke tests)", () => {
 
     renderIcdView();
 
-    // Component mounts without throwing
-    await waitFor(() => {
-      // Loading resolves — view or empty state is shown
-      expect(document.body).toBeTruthy();
-    });
+    // Concrete rendered artefact: the empty-state panel replaces the loading
+    // indicator once the (empty) ICD list resolves. A bare `document.body`
+    // check would pass even if the view rendered nothing at all.
+    expect(await screen.findByTestId("icds-empty")).toBeInTheDocument();
   });
 
   it("[REQ-053] shows loading indicator while ICD data is in-flight", () => {

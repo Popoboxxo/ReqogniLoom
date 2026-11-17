@@ -197,14 +197,22 @@ describe("apiClient — silent token refresh on 401 (GitHub #135)", () => {
   it("single-flight: concurrent 401s share exactly one refresh call", async () => {
     let refreshCalls = 0;
     let originalCalls = 0;
+    let releaseRefresh: () => void = () => undefined;
+    const refreshGate = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
       if (isRefreshUrl(url)) {
         refreshCalls += 1;
-        // Delay the refresh so both concurrent 401s are in flight together.
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        // Hold the refresh behind a concrete signal until BOTH original
+        // requests have been issued. A 5 ms sleep could pass with the two
+        // requests sequentially (and fail on a loaded CI runner); the gate
+        // guarantees the overlapping 401s this test is about.
+        await refreshGate;
         return mockResponse(200, {});
       }
       originalCalls += 1;
+      if (originalCalls === 2) releaseRefresh();
       return originalCalls <= 2 ? mockResponse(401) : mockResponse(200, { ok: true });
     });
 

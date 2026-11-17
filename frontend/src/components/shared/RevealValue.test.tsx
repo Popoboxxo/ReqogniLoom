@@ -28,6 +28,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 import { RevealValue, SHORT_MASK_LENGTH } from "./RevealValue";
+import styles from "./RevealValue.module.css";
 
 const UUID = "12345678-1234-4abc-8def-1234567890ab";
 
@@ -169,10 +170,13 @@ describe("RevealValue", () => {
 
   it("applies the mono class for display_format=mono", () => {
     const { rerender } = render(<RevealValue value="x" testId="rv" />);
-    expect(screen.getByTestId("rv-value").classList.length).toBe(1);
+    // Assert the semantic class itself, not an incidental class-list length:
+    // an extra wrapper class must not break this contract (and a dropped mono
+    // class must not pass it).
+    expect(screen.getByTestId("rv-value")).not.toHaveClass(styles.mono);
 
     rerender(<RevealValue value="x" displayFormat="mono" testId="rv" />);
-    expect(screen.getByTestId("rv-value").classList.length).toBe(2);
+    expect(screen.getByTestId("rv-value")).toHaveClass(styles.mono);
   });
 
   it("suppresses the copy affordance in readOnly mode", () => {

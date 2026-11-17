@@ -16,6 +16,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 
 import { BADGE_BASE_STYLE } from "../../utils/badgeBase";
+import { getBadgeVariantStyle } from "../../utils/statusBadge";
 import { Badge } from "./Badge";
 import { LevelBadge } from "./LevelBadge";
 import { StatusBadge } from "./StatusBadge";
@@ -65,8 +66,14 @@ describe("<Badge> (issue #675)", () => {
     const badge = screen.getByTestId("b");
     expect(badge).toHaveTextContent("Blocked");
     expect(badge).toHaveAttribute("title", "tip");
-    expect(badge.style.background).toBe("var(--color-badge-danger-bg)");
-    expect(badge.style.color).toBe("var(--color-badge-danger-text)");
+    // Compare against the shared mapping, not a locally duplicated token pair:
+    // a re-colour in the one source of truth must move this assertion with it.
+    // jsdom resolves the `background` shorthand away in getComputedStyle, so
+    // that one property is read from the inline style; `color` goes through
+    // toHaveStyle. Both expected values come from the shared helper.
+    const dangerStyle = getBadgeVariantStyle("danger");
+    expect(badge.style.background).toBe(dangerStyle.background);
+    expect(badge).toHaveStyle({ color: dangerStyle.color });
   });
 
   it("defaults to the neutral variant rather than colour-coding by accident", () => {
