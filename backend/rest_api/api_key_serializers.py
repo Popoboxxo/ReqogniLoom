@@ -608,9 +608,11 @@ class ApiKeyValidationErrorSerializer(serializers.Serializer):
 
     Structurally a superset of the canonical envelope body
     (:class:`rest_api.openapi.ErrorBodySerializer`: ``code``, ``message``,
-    ``details``, ``request_id``); the runtime body of this route carries no
-    ``request_id`` — ``build_error_response`` does not add one — so the
-    property is optional and nullable, exactly like the canonical declaration.
+    ``details``, ``request_id``). R2A-001: this route builds its body with
+    ``build_error_response``, which now injects ``request_id`` (mirroring the
+    ``X-Request-ID`` header); the old claim that it omitted the field is
+    stale. The property stays optional and nullable like the canonical
+    declaration, so clients are unaffected when no request context is active.
     """
 
     code = serializers.CharField(help_text="Always 'VALIDATION_ERROR'.")
@@ -632,7 +634,8 @@ class ApiKeyValidationErrorSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Correlation id mirrored from the X-Request-ID header "
-            "(ADR-014 §1); omitted by this route's error body."
+            "(ADR-014 §1); injected by build_error_response (R2A-001), null "
+            "when no request context is active."
         ),
     )
 

@@ -187,6 +187,8 @@ def test_get_conflicted_workspace_definition_returns_409(
                 "Reconcile the customization or explicitly reset it."
             ),
             "details": [],
+            # R2A-001: the error envelope mirrors the X-Request-ID header.
+            "request_id": response.headers["X-Request-ID"],
         }
     }
     row = store.get(tenant_fixture.id, workspace_fixture.id, "Risk")
@@ -411,6 +413,8 @@ def test_export_conflicted_workspace_definition_returns_409(
                 "Reconcile the customization or explicitly reset it."
             ),
             "details": [],
+            # R2A-001: the error envelope mirrors the X-Request-ID header.
+            "request_id": response.headers["X-Request-ID"],
         }
     }
     row = store.get(tenant_fixture.id, workspace_fixture.id, "Risk")

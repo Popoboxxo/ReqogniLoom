@@ -450,7 +450,11 @@ def build_error_body(
     Emits the single project-wide REST error envelope
     (``rest_api.serializers.build_error_response``, REQ-L2-RA-009)::
 
-        {"error": {"code": ..., "message": ..., "details": [{...}]}}
+        {"error": {"code": ..., "message": ..., "details": [{...}],
+                   "request_id": ...}}
+
+    ``request_id`` (ADR-014 §1 / REQ-071) mirrors the ``X-Request-ID`` header
+    inside a request and is ``null`` for a direct, request-less call.
 
     **Shape change (systemaudit 2026-08-27, P1 item 13).** This function used
     to return a third, competing shape — a flat ``{"error": "<code>",

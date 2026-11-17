@@ -743,7 +743,9 @@ def _assert_permissions_403(response, *, what: str) -> None:
 
     payload = response.json()
     assert set(payload) == {"error"}, payload
-    assert set(payload["error"]) == {"code", "message", "details"}, payload
+    assert set(payload["error"]) == {"code", "message", "details", "request_id"}, payload
+    # R2A-001: the permission-fence 403 mirrors the X-Request-ID header.
+    assert payload["error"]["request_id"] == response.headers["X-Request-ID"], payload
     assert payload["error"]["code"] == "PERMISSION_DENIED", payload
     assert payload["error"]["message"], payload
 
@@ -783,10 +785,17 @@ def test_permissions_fence_does_not_hinge_on_user_id() -> None:
     _tenant, user, _own, _neighbour, alien = _permissions_fence_env()
     client = _login_client(user)
 
+    # R2A-001: pin X-Request-ID on both calls so the byte-for-byte comparison
+    # below stays meaningful — the id is per-request unless the client supplies
+    # one, and these two error bodies must be indistinguishable.
+    rid = "11111111-1111-1111-1111-111111111111"
     with_param = client.get(
-        f"/api/v1/workspaces/{alien.id}/permissions/?user_id={uuid.uuid4()}"
+        f"/api/v1/workspaces/{alien.id}/permissions/?user_id={uuid.uuid4()}",
+        HTTP_X_REQUEST_ID=rid,
     )
-    without_param = client.get(f"/api/v1/workspaces/{alien.id}/permissions/")
+    without_param = client.get(
+        f"/api/v1/workspaces/{alien.id}/permissions/", HTTP_X_REQUEST_ID=rid
+    )
 
     _assert_permissions_403(with_param, what="foreign permissions with user_id")
     _assert_permissions_403(without_param, what="foreign permissions without user_id")
@@ -804,11 +813,16 @@ def test_permissions_unknown_workspace_is_indistinguishable_from_foreign() -> No
     client = _login_client(user)
     subject = uuid.uuid4()
 
+    # R2A-001: same pinned correlation id on both calls so the byte-for-byte
+    # "no existence oracle" comparison below stays strict.
+    rid = "11111111-1111-1111-1111-111111111111"
     foreign = client.get(
-        f"/api/v1/workspaces/{alien.id}/permissions/?user_id={subject}"
+        f"/api/v1/workspaces/{alien.id}/permissions/?user_id={subject}",
+        HTTP_X_REQUEST_ID=rid,
     )
     unknown = client.get(
-        f"/api/v1/workspaces/{uuid.uuid4()}/permissions/?user_id={subject}"
+        f"/api/v1/workspaces/{uuid.uuid4()}/permissions/?user_id={subject}",
+        HTTP_X_REQUEST_ID=rid,
     )
 
     assert foreign.status_code == unknown.status_code == 403

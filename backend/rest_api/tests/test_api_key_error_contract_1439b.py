@@ -133,6 +133,9 @@ def test_lone_unknown_field_body_is_byte_identical(env):
     resp = _post(_client(), {"name": "ok", "agent_identity": "x"})
 
     assert resp.status_code == 400, resp.content
+    # R2A-001: the handler adds the additive correlation id inside ``error`` on
+    # real requests, mirroring X-Request-ID. Keep the byte-identical full-body
+    # assertion by pinning that value rather than falling back to a partial match.
     assert resp.json() == {
         "error": {
             "code": "VALIDATION_ERROR",
@@ -143,6 +146,7 @@ def test_lone_unknown_field_body_is_byte_identical(env):
                     "errors": ["Unknown field 'agent_identity'."],
                 }
             ],
+            "request_id": resp.headers["X-Request-ID"],
         }
     }
 

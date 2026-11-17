@@ -3,7 +3,7 @@
 Normalises every DRF-handled error to the same envelope the API already uses
 for explicit errors (``build_error_response``, REQ-L2-RA-009)::
 
-    {"error": {"code": ..., "message": ..., "details": ...}}
+    {"error": {"code": ..., "message": ..., "details": ..., "request_id": ...}}
 
 Wired via ``REST_FRAMEWORK['EXCEPTION_HANDLER']`` so REST responses stay
 consistent with the MCP-server error format.
@@ -49,13 +49,29 @@ _STATUS_TO_CODE: dict[int, str] = {
 
 
 def reqogniloom_exception_handler(exc: Exception, context: dict[str, Any]) -> Any:
-    """Normalise all DRF errors to ``{"error": {"code", "message", "details"}}``."""
+    """Normalise all DRF errors to the single canonical error envelope.
+
+    R2A-001: an envelope produced while serving a request carries ``request_id``
+    from the request context (ADR-014 §1), mirroring the ``X-Request-ID``
+    response header. The import is lazy so this module stays importable before
+    a request context exists. Direct, request-less handler calls (unit tests)
+    keep the historical three-field body — there is no correlation id to
+    mirror — while ``build_error_response`` always emits the field (null when
+    no request is active). Real HTTP responses therefore always carry the id.
+    """
+    from reqogniloom.middleware import get_request_id
+
+    request_id = get_request_id()
+
     # #1166: PostgreSQL connection-slot exhaustion is not a DRF exception, so
     # DRF's own handler returns None and Django would render an HTML 500. Map it
     # explicitly to HTTP 503 + the SAME envelope before delegating.
     if is_db_saturation_error(exc):
+        payload = db_unavailable_payload()
+        if request_id is not None:
+            payload["error"]["request_id"] = request_id
         return Response(
-            db_unavailable_payload(),
+            payload,
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
             headers={"Retry-After": "1"},
         )
@@ -67,6 +83,8 @@ def reqogniloom_exception_handler(exc: Exception, context: dict[str, Any]) -> An
     data = response.data
     # Already normalised (e.g. by build_error_response or a prior handler call).
     if isinstance(data, dict) and "error" in data:
+        if request_id is not None and isinstance(data["error"], dict):
+            data["error"].setdefault("request_id", request_id)
         return response
 
     code = _get_code(response.status_code, data)
@@ -76,6 +94,8 @@ def reqogniloom_exception_handler(exc: Exception, context: dict[str, Any]) -> An
             "code": code,
             "message": message,
             "details": data,
+            # Only within a request is there a correlation id to mirror.
+            **({"request_id": request_id} if request_id is not None else {}),
         }
     }
     return response

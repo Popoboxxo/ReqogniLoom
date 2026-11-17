@@ -62,6 +62,21 @@ class TestCommonErrorResponses:
         from rest_api.openapi import COMMON_ERROR_RESPONSES
         assert 500 in COMMON_ERROR_RESPONSES
 
+    def test_405_and_415_are_universally_declared(self) -> None:
+        """API-006: 405/415 are the only extra statuses safe to declare globally.
+
+        They are injected into every operation with the canonical envelope.
+        Statuses such as 409/412/429/503 are deliberately NOT here: each is
+        declared per-operation (see CONDITIONAL_REQUEST_OPERATIONS / #1397),
+        and adding one globally would lie about hundreds of routes.
+        """
+        from rest_api.openapi import COMMON_ERROR_RESPONSES
+
+        assert {405, 415}.issubset(set(COMMON_ERROR_RESPONSES))
+        for status_code in (405, 415):
+            response = COMMON_ERROR_RESPONSES[status_code]
+            assert response.response is not None
+
 
 class TestSettingsBearerAuthScheme:
     """REQ-L3-RA005-001: SPECTACULAR_SETTINGS has BearerAuth security scheme."""
@@ -549,3 +564,124 @@ class TestAllocationCoverageContract:
             report["properties"]["unallocated_requirements"]["items"],
         )
         assert set(row["properties"]) == {"id", "uid", "title"}
+
+
+# ---------------------------------------------------------------------------
+# API-006 — the common-error docstring must not claim DRF emits the envelope
+# ---------------------------------------------------------------------------
+
+
+def test_common_error_docstring_corrected(openapi_schema: dict) -> None:
+    """API-006: 405/415 are declared on every operation; 409/412/429/503 are not.
+
+    The old check merely scanned a docstring for corrected wording. The real
+    contract is structural: the postprocessing hook must put 405/415 on every
+    operation (uniform canonical body), while operation-specific statuses
+    (409/412/429/503 — see CONDITIONAL_REQUEST_OPERATIONS / #1397) must never
+    be injected globally. The exact 412 allowlist is verified separately by
+    ``test_412_declared_only_on_conditional_operations``.
+    """
+    operations = [
+        operation
+        for path_item in openapi_schema.get("paths", {}).values()
+        for method, operation in path_item.items()
+        if method in _HTTP_METHODS
+        and isinstance(operation, dict)
+        and "responses" in operation
+    ]
+    assert operations, "generated schema exposes no operations"
+
+    # 405/415 are safe to declare on every operation (uniform error body).
+    for status in ("405", "415"):
+        missing = sum(1 for op in operations if status not in op["responses"])
+        assert missing == 0, f"{status} missing on {missing} operations"
+
+    # 409/412/429/503 carry operation-specific meaning: never global. Each may
+    # appear on a subset (412 on the conditional-request allowlist), but not on
+    # every operation — a global injection would advertise impossible failures.
+    total = len(operations)
+    for status in ("409", "412", "429", "503"):
+        declaring = sum(1 for op in operations if status in op["responses"])
+        assert declaring < total, (
+            f"{status} globally injected: declared on all {total} operations"
+        )
+
+
+# ---------------------------------------------------------------------------
+# R2A-001 — ErrorBody.details accepts both the array and object shapes
+# ---------------------------------------------------------------------------
+
+
+def test_error_body_details_is_one_of(openapi_schema: dict) -> None:
+    """``details`` is a oneOf: field-detail array (legacy) or generic object.
+
+    The array branch keeps every existing client valid; the object branch lets
+    producers that emit a structured detail object stay within the contract.
+    """
+    body = openapi_schema["components"]["schemas"]["ErrorBody"]
+    details = body["properties"]["details"]
+    assert "oneOf" in details, details
+    branches = details["oneOf"]
+    assert len(branches) == 2, branches
+
+    array_branch = next(b for b in branches if b.get("type") == "array")
+    object_branch = next(b for b in branches if b.get("type") == "object")
+    assert array_branch["items"]["$ref"].endswith("/ErrorDetail")
+    assert object_branch["additionalProperties"] is True
+    # The referenced component must still be published, not a dangling ref.
+    assert "ErrorDetail" in openapi_schema["components"]["schemas"]
+
+
+# ---------------------------------------------------------------------------
+# API-006 / #1397 — a global 412 would break the conditional-request gate
+# ---------------------------------------------------------------------------
+
+_HTTP_METHODS = {"get", "post", "put", "patch", "delete", "head", "options", "trace"}
+
+
+def test_412_declared_only_on_conditional_operations(openapi_schema: dict) -> None:
+    """412 must appear on exactly the allowlisted operations, nowhere else.
+
+    This is the guard against 'simulating' API-006 by adding 412 (or 409/429)
+    to COMMON_ERROR_RESPONSES: the postprocessing hook injects those into every
+    operation, which would put a 412 on hundreds of routes and break the #1397
+    gate. Only 400/401/403/404/405/415/500 may be global.
+    """
+    from rest_api.conditional_requests import CONDITIONAL_REQUEST_OPERATIONS
+
+    declared_412: set[tuple[str, str]] = set()
+    for path, path_item in openapi_schema.get("paths", {}).items():
+        for method, operation in path_item.items():
+            if method not in _HTTP_METHODS or not isinstance(operation, dict):
+                continue
+            if "412" in operation.get("responses", {}):
+                declared_412.add((path, method))
+
+    assert declared_412 == set(CONDITIONAL_REQUEST_OPERATIONS), (
+        f"412 drift: unexpected={declared_412 - set(CONDITIONAL_REQUEST_OPERATIONS)} "
+        f"missing={set(CONDITIONAL_REQUEST_OPERATIONS) - declared_412}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# R2A-002 — the published schema version is the live application version
+# ---------------------------------------------------------------------------
+
+
+def test_schema_info_version_matches_app_version(openapi_schema: dict) -> None:
+    """schema.info.version == get_app_version() == GET /api/v1/version/.
+
+    The hard-coded SPECTACULAR_SETTINGS fallback ('0.1.0') must be overwritten
+    by the postprocessing hook with the single source of truth in
+    reqogniloom.version, so clients never see two different versions.
+    """
+    from rest_framework.test import APIClient
+
+    from reqogniloom.version import get_app_version
+
+    expected = get_app_version()
+    assert openapi_schema["info"]["version"] == expected
+
+    response = APIClient().get("/api/v1/version/")
+    assert response.status_code == 200
+    assert response.json()["app_version"] == expected

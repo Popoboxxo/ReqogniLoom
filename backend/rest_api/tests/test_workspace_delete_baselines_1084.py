@@ -147,7 +147,9 @@ def test_delete_with_baselines_answers_4xx_not_500() -> None:
     assert response.status_code == 409, response.content
     body = response.json()
     assert set(body) == {"error"}, body
-    assert set(body["error"]) == {"code", "message", "details"}, body
+    assert set(body["error"]) == {"code", "message", "details", "request_id"}, body
+    # R2A-001: the 409 envelope mirrors the X-Request-ID header.
+    assert body["error"]["request_id"] == response.headers["X-Request-ID"], body
     assert body["error"]["code"] == "CONFLICT", body
     assert "immutable" in body["error"]["message"].lower(), body
     assert body["error"]["details"] == [{"code": "baselines_immutable"}], body

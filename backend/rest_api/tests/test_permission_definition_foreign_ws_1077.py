@@ -154,7 +154,9 @@ def _assert_canonical_403(response, *, what: str) -> None:
 
     payload = response.json()
     assert set(payload) == {"error"}, payload
-    assert set(payload["error"]) == {"code", "message", "details"}, payload
+    assert set(payload["error"]) == {"code", "message", "details", "request_id"}, payload
+    # R2A-001: the permission-definition 403 mirrors the X-Request-ID header.
+    assert payload["error"]["request_id"] == response.headers["X-Request-ID"], payload
     assert payload["error"]["code"] == "PERMISSION_DENIED", payload
     assert payload["error"]["message"], payload
 
@@ -263,11 +265,17 @@ def test_unknown_workspace_id_is_indistinguishable_from_a_foreign_one(
     """
     client = _client(permdef_env["admin"])
 
+    # R2A-001: pin X-Request-ID on both calls so the byte-for-byte "no
+    # existence oracle" comparison below stays strict (the id is per-request
+    # unless the client supplies one).
+    rid = "11111111-1111-1111-1111-111111111111"
     foreign = client.get(
-        f"/api/v1/workspaces/{permdef_env['alien_ws'].id}/permission-definition/"
+        f"/api/v1/workspaces/{permdef_env['alien_ws'].id}/permission-definition/",
+        HTTP_X_REQUEST_ID=rid,
     )
     unknown = client.get(
-        f"/api/v1/workspaces/{uuid.uuid4()}/permission-definition/"
+        f"/api/v1/workspaces/{uuid.uuid4()}/permission-definition/",
+        HTTP_X_REQUEST_ID=rid,
     )
 
     assert foreign.status_code == unknown.status_code == 403
@@ -333,7 +341,9 @@ def test_neighbouring_audit_route_keeps_its_non_disclosure_404(permdef_env) -> N
     assert response.status_code == 404, response.content
     body = response.json()
     assert set(body) == {"error"}, body
-    assert set(body["error"]) == {"code", "message", "details"}, body
+    assert set(body["error"]) == {"code", "message", "details", "request_id"}, body
+    # R2A-001: the non-disclosure 404 mirrors the X-Request-ID header.
+    assert body["error"]["request_id"] == response.headers["X-Request-ID"], body
     assert body["error"]["code"] == "NOT_FOUND", body
     assert body["error"]["message"] == (
         f"Workspace '{alien_id}' was not found in the caller's tenant."

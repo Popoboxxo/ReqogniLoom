@@ -21,6 +21,14 @@ Design:
   - Swagger-UI is accessible without authentication (REQ-L3-RA005-002 AC).
   - Security scheme (Bearer Token) is defined in SPECTACULAR_SETTINGS.
   - This module wires custom drf-spectacular hooks for standardized error schemas.
+  - 405 and 415 are declared explicitly in :data:`COMMON_ERROR_RESPONSES`:
+    DRF may raise both, but it does not emit the canonical error envelope on
+    its own — ``reqogniloom_exception_handler`` does (API-006). Statuses with
+    operation-specific meaning (409/412/429/503) are never declared globally;
+    they stay per-operation (see ``rest_api.conditional_requests`` / #1397).
+  - :func:`enforce_common_error_responses` also publishes the live application
+    version (``reqogniloom.version.get_app_version``) as ``info.version``,
+    overriding the hard-coded fallback in settings (R2A-002).
 
 INT-06 (systemaudit 2026-09, findings 075/077/090):
   - ``ErrorBodySerializer`` documents ``request_id`` (ADR-014 §1, REQ-071).
@@ -83,6 +91,41 @@ class ErrorBodySerializer(serializers.Serializer):
     )
 
 
+class ErrorBodyDetailsOneOfExtension(OpenApiSerializerExtension):
+    """Publish ``details`` as ``oneOf`` (array of field details | object).
+
+    The canonical builder emits an array of ``{field, errors}`` entries
+    (ADR-014 §1), while some producers emit a single structured object. Both
+    are legitimate response bodies, so the contract must accept either. The
+    array branch is kept unchanged — dropping it would be a breaking change for
+    every existing client. The ``ErrorDetail`` serializer stays referenced by
+    the field, so its component remains in the document for the ``$ref``.
+    """
+
+    target_class = ErrorBodySerializer
+
+    def map_serializer(self, auto_schema: Any, direction: Any) -> dict[str, Any]:
+        schema = super().map_serializer(auto_schema, direction)
+        properties = schema.get("properties", {})
+        array_details = properties.get("details")
+        if array_details is not None:
+            properties["details"] = {
+                "oneOf": [
+                    array_details,
+                    {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "description": "Structured detail object (object variant).",
+                    },
+                ],
+                "description": (
+                    "Field-level details: an array of {field, errors} entries "
+                    "(canonical) or a structured object."
+                ),
+            }
+        return schema
+
+
 class ErrorResponseSerializer(serializers.Serializer):
     """Standard error response shape (REQ-L2-RA-009).
 
@@ -102,9 +145,18 @@ class ErrorResponseSerializer(serializers.Serializer):
 #: published contract is complete (finding 075). ``401`` is included even
 #: though a handful of public endpoints (login/refresh/banners) genuinely
 #: answer anonymously: DRF still answers a present-but-invalid credential on
-#: those routes with 401, and the response *body* shape is identical. ``405``
-#: and ``415`` complete the set DRF raises on its own with the canonical
-#: envelope (``rest_api/error_envelope._STATUS_TO_CODE``).
+#: those routes with 401, and the response *body* shape is identical.
+#:
+#: ``405`` (Method Not Allowed) and ``415`` (Unsupported Media Type) are
+#: declared explicitly here (API-006). DRF can raise both, but it does not
+#: emit the canonical error envelope on its own — ``reqogniloom_exception_handler``
+#: normalises the body via ``_STATUS_TO_CODE``. A generated client therefore
+#: only learns the shape from a declaration like this one. The remaining
+#: statuses with operation-specific meaning (409 CONFLICT, 412
+#: PRECONDITION_FAILED, 429 RATE_LIMITED, 503 SERVICE_UNAVAILABLE) are NOT
+#: global: each is declared only on the operations that can actually return
+#: it, so the contract never advertises a failure a route cannot produce
+#: (see ``rest_api.conditional_requests`` / #1397).
 COMMON_ERROR_RESPONSES = {
     400: OpenApiResponse(
         response=ErrorResponseSerializer,
@@ -134,6 +186,14 @@ COMMON_ERROR_RESPONSES = {
     404: OpenApiResponse(
         response=ErrorResponseSerializer,
         description="Resource not found.",
+    ),
+    405: OpenApiResponse(
+        response=ErrorResponseSerializer,
+        description="Method not allowed.",
+    ),
+    415: OpenApiResponse(
+        response=ErrorResponseSerializer,
+        description="Unsupported media type.",
     ),
     500: OpenApiResponse(
         response=ErrorResponseSerializer,
@@ -165,7 +225,18 @@ def enforce_common_error_responses(
     (finding 090): the scheme is auto-generated from ``SessionAuthentication``
     but referenced by no operation, so the contract would otherwise advertise
     an auth route that does not exist.
+
+    R2A-002: the same hook overwrites ``info.version`` with the live application
+    version so the document and ``GET /api/v1/version/`` can never disagree.
+    The hard-coded value in ``SPECTACULAR_SETTINGS`` is only a fallback that
+    this line replaces on every generated document.
     """
+    # Imported lazily: reqogniloom.version imports drf-spectacular/DRF at module
+    # load, and this hook is itself wired from settings via an import string.
+    from reqogniloom.version import get_app_version
+
+    result.setdefault("info", {})["version"] = get_app_version()
+
     for path_item in result.get("paths", {}).values():
         for operation in path_item.values():
             if not isinstance(operation, dict) or "responses" not in operation:

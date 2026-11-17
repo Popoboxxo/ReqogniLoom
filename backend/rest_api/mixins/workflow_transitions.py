@@ -130,13 +130,16 @@ def resolve_workflow_version(
     which is a legitimate answer for a definition-less workspace and must not be
     confused with revision 0.
 
-    Read through ``unscoped`` deliberately: ``item_id``/``workspace_id`` were
-    already resolved by ``_resolve_workflow_target`` under the caller's
-    authorization, so no tenant predicate is needed for correctness here — and
-    the thread-local tenant is NOT reliably set at this point in a view (it is
-    derived from the token, not set on the thread), so the scoped manager would
-    raise ``TenantContextNotSetError`` on a perfectly authorized request. Same
-    reasoning as the ``unscoped`` read in ``StateLifecycleManager``.
+    API-001 (comment corrected, query deliberately unchanged): the former
+    rationale for this ``unscoped`` read claimed the thread-local tenant is
+    not set at this point in a view. That is factually wrong — authentication
+    activation arms BOTH the thread-local ``TenantContext`` and the
+    row-level-security GUC before the view executes, so the scoped manager is
+    safe here and would not raise ``TenantContextNotSetError`` on an authorized
+    request. The ``unscoped`` query is kept as-is (changing it is out of scope
+    for this fix); its previous justification is retracted, not asserted.
+    ``item_id``/``workspace_id`` were in any case resolved by
+    ``_resolve_workflow_target`` under the caller's authorization.
     """
     from workflow.models import WorkflowItemState
 

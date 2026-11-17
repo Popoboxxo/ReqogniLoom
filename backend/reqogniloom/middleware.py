@@ -129,7 +129,17 @@ class DatabaseUnavailableMiddleware:
             request.path,
             exception,
         )
-        response = JsonResponse(db_unavailable_payload(), status=503)
+        # REV-02 / R2A-001: the plain-Django /api/ error path must mirror the
+        # X-Request-ID header set by RequestIdMiddleware in the body too, just
+        # like the DRF exception handler does. get_request_id() reads the
+        # ContextVar that RequestIdMiddleware armed for this request; outside a
+        # request there is no id to mirror, so the three-field base payload is
+        # returned unchanged.
+        payload = db_unavailable_payload()
+        request_id = get_request_id()
+        if request_id is not None:
+            payload["error"]["request_id"] = request_id
+        response = JsonResponse(payload, status=503)
         response["Retry-After"] = "1"
         return response
 

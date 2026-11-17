@@ -6,9 +6,11 @@ no leakage of sensitive data, fixed error-code set.
 
 Shape note (systemaudit 2026-08-27, P1 item 13): ``build_error_body`` now emits
 the single project-wide envelope
-``{"error": {"code", "message", "details"}}`` instead of its former flat
-``{"error": "<code>", "message", "doc_url"}``. ``doc_url`` (and ``required_role``
-on a 403) moved into ``details[0]``.
+``{"error": {"code", "message", "details", "request_id"}}`` instead of its
+former flat ``{"error": "<code>", "message", "doc_url"}``. ``doc_url`` (and
+``required_role`` on a 403) moved into ``details[0]``. ``request_id``
+(ADR-014 §1 / REQ-071) is the correlation id; a direct, request-less builder
+call like the ones below leaves it ``None``.
 """
 from __future__ import annotations
 
@@ -24,7 +26,9 @@ from auth_tenancy.errors import (
 def test_error_body_uses_the_project_wide_envelope():
     body = build_error_body("token_expired")
     assert set(body) == {"error"}
-    assert set(body["error"]) == {"code", "message", "details"}
+    assert set(body["error"]) == {"code", "message", "details", "request_id"}
+    # Direct builder call outside a request: no correlation id to mirror.
+    assert body["error"]["request_id"] is None
     assert body["error"]["code"] == "token_expired"
     assert body["error"]["message"]
 
