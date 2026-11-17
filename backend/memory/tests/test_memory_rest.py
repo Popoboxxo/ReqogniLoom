@@ -1278,8 +1278,15 @@ class TestWorkspaceMemoryEntryRest:
                 f"{_WS_SEARCH.format(ws=foreign.id)}?q=dark&scope=workspace&source=facts"
             )
 
-            assert derived.status_code == 403
-            assert derived.data == facts.data
+            assert derived.status_code == facts.status_code == 403
+            # R2A-001: every envelope carries a per-request correlation id.
+            # It necessarily differs between the two requests, so compare the
+            # remaining contract strictly and pin each id to its own header.
+            for response in (derived, facts):
+                assert response.data["error"]["request_id"] == response["X-Request-ID"]
+            derived_body = {k: v for k, v in derived.data["error"].items() if k != "request_id"}
+            facts_body = {k: v for k, v in facts.data["error"].items() if k != "request_id"}
+            assert derived_body == facts_body
 
     def test_degraded_is_reported_when_backend_unhealthy(self, monkeypatch):
         monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
