@@ -1,18 +1,18 @@
-# Plan Index
+# Plan-Index
 
-This index lists every plan document in `docs/plans/` and `docs/plans/Archive/` and its implementation status,
-audited against `origin/main` on 2026-11-04 and refreshed against `main` on 2026-11-17. It mirrors `docs/superpowers/plans/index.md`.
-**Stand:** `1.9.0-beta.2` (the `VERSION` at HEAD) · **Last check:** 2026-11-17. Every top-level `*.md` in this directory is linked here; `scripts/tests/test_doc_index_freshness.py` guards that in CI.
+Dieser Index listet jedes Plan-Dokument in `docs/plans/` und `docs/plans/Archive/` samt Implementierungsstatus,
+geprüft gegen `origin/main` am 2026-11-04 und aktualisiert gegen `main` am 2026-11-17. Er spiegelt `docs/superpowers/plans/index.md`.
+**Stand:** `1.9.0-beta.2` (die `VERSION` am HEAD) · **Letzte Prüfung:** 2026-11-17. Jede `*.md` der obersten Ebene ist hier verlinkt; `scripts/tests/test_doc_index_freshness.py` überwacht das in CI.
 
-Evidence level: the backlog plans A-G were verified at PR/commit level (commit subject on `origin/main` plus
-existence of the named deliverable), not line by line. Items that could not be proven from the repository are
-marked UNVERIFIED. GitHub issues named below were NOT closed by this archiving step.
+Evidenzgrad: Die Backlog-Pläne A–G wurden auf PR-/Commit-Ebene verifiziert (Commit-Subject auf `origin/main` plus
+Existenz des benannten Ergebnisses), nicht Zeile für Zeile. Punkte ohne Nachweis im Repository sind
+als UNVERIFIED markiert. Die unten genannten GitHub-Issues wurden durch diesen Archivierungsschritt NICHT geschlossen.
 
-- **`Archive/`** — plans whose own scope has been implemented. Kept for historical reference; no more code work expected
-  (open housekeeping issues are listed per entry).
-- **This directory (top level)** — plans with real open work, plus live coordination and decision documents.
+- **`Archive/`** — Pläne, deren eigener Umfang umgesetzt ist. Zur historischen Referenz behalten; kein weiterer Code-Aufwand erwartet
+  (offene Housekeeping-Issues sind pro Eintrag gelistet).
+- **Dieses Verzeichnis (oberste Ebene)** — Pläne mit echter offener Arbeit sowie laufende Koordinations- und Entscheidungsdokumente.
 
-## Top level — open work
+## Oberste Ebene — offene Arbeiten
 
 ## [mobile-baseline-2026-11.md](mobile-baseline-2026-11.md)
 **Supporting baseline (M0) — code-derived findings, no rendered measurements.** The M4–M8 checklist behind the mobile/PWA plan; M6–M9 is merged (`4aa5f956`, `fbb95e86`, `fe9ae303`; docs `c27d172a`), structural gates are green and rendered device evidence is still outstanding. Plan: [`../superpowers/plans/2026-11-16-mobile-pwa.md`](../superpowers/plans/2026-11-16-mobile-pwa.md).
@@ -53,7 +53,7 @@ marked UNVERIFIED. GitHub issues named below were NOT closed by this archiving s
 ## [2026-10-21-plan-g-qa-haertung.md](2026-10-21-plan-g-qa-haertung.md)
 **Open, mostly delivered.** QA hardening for uid/workspace-FK integrity, deterministic list ordering and index, quiet outbox/compose behaviour, base-image digest pins, required/length/24px form fixes and the katex override are merged (about 17 of 20 PRs, verified at PR/commit level). Still missing are the NotFound page and dialog focus-return (G5.2) and confirmation of the doc clarifications (G5.3, UNVERIFIED); PR 10 (async create embedding) is conditional and unconfirmed. 14 QA issues remain open (e.g. #1381, #1386, #1399-#1403, #1404, #1406-#1412) and need check-and-close or follow-up.
 
-## Top level — live coordination and decision documents (not plans)
+## Oberste Ebene — laufende Koordination und Entscheidungsdokumente (keine Pläne)
 
 These three files are NOT implementation plans. They stay at top level because the plans that reference them are still open.
 
@@ -66,7 +66,7 @@ These three files are NOT implementation plans. They stay at top level because t
 ## [2026-10-21-korrekturauftraege.md](2026-10-21-korrekturauftraege.md)
 **One-shot work order, exhausted; kept next to the plans it corrected.** Stage-2 work order listing the 112 plan-specific and 11 shared correction orders (KA-*) derived from the technical and security cross-reviews of plans A-G. All were applied to the plans before implementation; the document has no remaining function beyond history and no live task.
 
-## Archive/ — implemented
+## Archive/ — umgesetzt
 
 ## [Archive/2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md](Archive/2026-10-06-adr-019-umsetzungsplan-vorschlags-schleife.md)
 All planned features are implemented. ADR-019 is accepted and WP1-WP7 exist on main: Suggestion entity with RLS migrations, service and adapter registry, `suggestion.*` MCP tools and manifest entries, REST endpoints, the `suggest_links` producer, and the Reviews inbox UI. Deferred by design: other producers, retention, TraceLink field deprecation.

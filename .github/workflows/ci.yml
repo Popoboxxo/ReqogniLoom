@@ -433,6 +433,7 @@ jobs:
           scripts/tests/test_security_scan_config_guard.py
           scripts/tests/test_npm_audit_waivers.py
           scripts/tests/test_doc_index_freshness.py
+          scripts/tests/test_internal_doc_language.py
           scripts/tests/test_doc_number_drift.py
           scripts/tests/test_se_mobile_requirements.py
           scripts/tests/test_se_frontmatter_coverage.py

@@ -1,14 +1,14 @@
-<!-- Requirements Index — Historical Frontend and System Audit Requirements (2026-07-12 onwards)
+<!-- Requirements-Index — Historische Frontend- und System-Audit-Anforderungen (ab 2026-07-12)
 
-**Note:** This file contains legacy frontend requirements and system audit findings from early 2026. 
-The authoritative SE Cascade (L0–L3) is maintained separately in docs/se/. 
-This index serves as a historical record and partial traceability map; new requirements should be added to the SE Cascade instead.
+**Hinweis:** Diese Datei enthält Legacy-Frontend-Anforderungen und System-Audit-Befunde aus dem frühen Jahr 2026.
+Die autoritative SE-Kaskade (L0–L3) wird separat in docs/se/ gepflegt.
+Dieser Index dient als historisches Archiv und partielle Traceability-Map; neue Anforderungen gehören in die SE-Kaskade.
 
-**ID Schemas in Use:**
-- `REQ-NNN` — Legacy frontend/audit requirement IDs (2026-07 era)
-- `REQ-L0/L1/L2/L3-NNN` — SE Cascade IDs (formal systems engineering hierarchy, L0=Stakeholder Needs → L3=Components)
+**Verwendete ID-Schemata:**
+- `REQ-NNN` — Legacy-Frontend-/Audit-Anforderungs-IDs (Ära 2026-07)
+- `REQ-L0/L1/L2/L3-NNN` — SE-Kaskaden-IDs (formale Systems-Engineering-Hierarchie, L0=Stakeholder Needs → L3=Komponenten)
 
-The mapping between these schemas and rationalization of the 188 legacy requirements is tracked in the SE-Audit notes (docs/archive/audits/SYSTEMAUDIT_2026-08-27.md §4.5).
+Die Zuordnung zwischen diesen Schemata und die Konsolidierung der 188 Legacy-Anforderungen sind in den SE-Audit-Notizen dokumentiert (docs/archive/audits/SYSTEMAUDIT_2026-08-27.md §4.5).
 -->
 
 ## Frontend Requirements — Cluster A (2026-07-12)

@@ -5,7 +5,7 @@ status: draft
 date: 2026-07-09
 author_agent: se-migration
 ---
-# ReqFlow — Product Strategy & Project Knowledge
+# ReqFlow — Produktstrategie & Projektwissen
 
 > **Status:** Konsolidiert (Zusammenführung aus VISION.md, STRATEGY.md und PROJECT_KNOWLEDGE.md)
 > **Letzte Aktualisierung:** 2026-07-09
@@ -14,7 +14,7 @@ Dieses Dokument ist die "Single Source of Truth" für die strategische Ausrichtu
 
 ---
 
-## 1. Executive Summary & Vision
+## 1. Zusammenfassung & Vision
 
 **ReqFlow** ist ein AI-natives Requirements-Management- und Systems-Engineering-Tool. Es verbindet die Leichtigkeit moderner Agile-Tools mit der Strenge regulierter Systems-Engineering-Prozesse (Traceability, Baselines, Audit-Trails).
 
@@ -32,7 +32,7 @@ ReqFlow bedient primär zwei gleichwertige Zielgruppen, die durch **Configurable
 | **Systems Engineers (Mid-Market)** | Engineers in regulierten Domänen (Medizintechnik-Startups, Automotive-Zulieferer 2. Reihe). | Formale Artefakt-Hierarchien, Baselines, Approval-Workflows. |
 | **SE + AI-Bridge** | Engineers, die SE-Methodik mit modernen AI-Werkzeugen kombinieren wollen. | Hybrid-Prozesse. |
 
-### Out-of-Scope (v1)
+### Nicht im Umfang (v1)
 - Teams ohne jegliche Requirements-Disziplin (Issue-Tracking-only) → Jira/Linear
 - Hochregulierte Programme mit Zertifizierungspflicht (DO-178C Level A, ISO 26262 ASIL-D) → Mögliches v2-Ziel
 - Primäres Dokument-Management → Confluence/SharePoint
