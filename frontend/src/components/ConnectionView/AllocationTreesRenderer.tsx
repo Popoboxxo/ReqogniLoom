@@ -59,16 +59,20 @@ import {
   type DragEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronRight, Lock, X } from "lucide-react";
 
 import type { AllocationRow } from "../../api/allocation-view";
-import { isRowLocked, lockStateName } from "../../utils/allocation";
+import { isRowLocked } from "../../utils/allocation";
 import { toAllocationError } from "../AllocationGraph/errors";
 import {
   buildAllocationEdges,
   buildRequirementTree,
   type AllocationRequirementNode,
 } from "./allocation-trees";
+import {
+  EmphasisElementRow,
+  EmphasisRequirementRow,
+  type Emphasise,
+} from "./EmphasisTreeRow";
 import { buildEdgePaths, type RowRect } from "./edge-geometry";
 import type { AllocationSelection } from "./useAllocationSelection";
 import styles from "./AllocationTreesRenderer.module.css";
@@ -216,13 +220,16 @@ export function AllocationTreesRenderer({
     return targetId ? new Set<string>([targetId]) : new Set<string>();
   }, [emphasis, requirements, elementIdByArtifact]);
 
-  const emphasise = (kind: "requirement" | "element", id: string): void => {
+  // Stable across emphasis changes: rows call `emphasise(kind, rowId)` from a
+  // handler created inside the memoized row, so this reference never changes
+  // and React.memo can skip rows whose own `emphasized` boolean stayed equal.
+  const emphasise = useCallback<Emphasise>((kind, id): void => {
     setEmphasis((previous) =>
       previous && previous.kind === kind && previous.id === id
         ? previous
         : { kind, id }
     );
-  };
+  }, []);
 
   const measure = useCallback((): void => {
     if (!showEdges) {
@@ -320,7 +327,10 @@ export function AllocationTreesRenderer({
     []
   );
 
-  const run = async (action: () => Promise<void>): Promise<void> => {
+  // Every callback handed to a memoized row must keep its identity across an
+  // emphasis-only re-render (emphasis is internal state, so none of these
+  // dependencies change when a row is hovered).
+  const run = useCallback(async (action: () => Promise<void>): Promise<void> => {
     setError(null);
     try {
       await action();
@@ -328,86 +338,83 @@ export function AllocationTreesRenderer({
       const info = toAllocationError(err);
       setError({ code: info.code, message: info.message });
     }
-  };
+  }, []);
 
-  const toggleCollapsed = (id: string): void => {
+  const toggleCollapsed = useCallback((id: string): void => {
     setCollapsedIds((previous) => {
       const next = new Set(previous);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
+  }, []);
 
-  const handleDragStart = (
-    row: AllocationRow,
-    event: DragEvent<HTMLElement>
-  ): void => {
-    if (!canEdit || isRowLocked(row.locked)) {
-      event.preventDefault();
-      return;
-    }
-    // `text/plain` is the row's **entity** id, the value the bulk endpoint
-    // expects (`requirement_id`), matching the other renderers.
-    event.dataTransfer?.setData("text/plain", row.id);
-    if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-    setDraggingRequirementId(row.id);
-  };
+  const handleDragStart = useCallback(
+    (row: AllocationRow, event: DragEvent<HTMLElement>): void => {
+      if (!canEdit || isRowLocked(row.locked)) {
+        event.preventDefault();
+        return;
+      }
+      // `text/plain` is the row's **entity** id, the value the bulk endpoint
+      // expects (`requirement_id`), matching the other renderers.
+      event.dataTransfer?.setData("text/plain", row.id);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+      setDraggingRequirementId(row.id);
+    },
+    [canEdit]
+  );
 
-  const handleDropOnElement = (
-    elementId: string,
-    event: DragEvent<HTMLElement>
-  ): void => {
-    event.preventDefault();
-    const requirementId =
-      event.dataTransfer?.getData("text/plain") || draggingRequirementId;
+  const handleDragEnd = useCallback((): void => {
     setDraggingRequirementId(null);
+  }, []);
+
+  const handleDropOnElement = useCallback(
+    (elementId: string, event: DragEvent<HTMLElement>): void => {
+      event.preventDefault();
+      const requirementId =
+        event.dataTransfer?.getData("text/plain") || draggingRequirementId;
+      setDraggingRequirementId(null);
+      setDropTargetId(null);
+      if (!canEdit || !requirementId) return;
+      const requirement = requirements.find((row) => row.id === requirementId);
+      if (!requirement || isRowLocked(requirement.locked)) return;
+      void run(() => onAllocate(requirementId, elementId));
+    },
+    [canEdit, draggingRequirementId, requirements, run, onAllocate]
+  );
+
+  const handleDragOverElement = useCallback(
+    (elementId: string, event: DragEvent<HTMLElement>): void => {
+      if (!canEdit) return;
+      event.preventDefault();
+      if (draggingRequirementId) setDropTargetId(elementId);
+    },
+    [canEdit, draggingRequirementId]
+  );
+
+  const handleDragLeaveElement = useCallback((): void => {
     setDropTargetId(null);
-    if (!canEdit || !requirementId) return;
-    const requirement = requirements.find((row) => row.id === requirementId);
-    if (!requirement || isRowLocked(requirement.locked)) return;
-    void run(() => onAllocate(requirementId, elementId));
-  };
+  }, []);
 
-  const renderRowChrome = (
-    row: AllocationRow,
-    expanded: boolean,
-    hasChildren: boolean,
-    subtreeId: string,
-    labelId: string
-  ): JSX.Element => {
-    if (!hasChildren) {
-      // Same inline size as the toggle so titles line up across levels.
-      return <span className={styles.expanderSpacer} aria-hidden="true" />;
-    }
-    return (
-      <button
-        type="button"
-        className={`btn-ghost ${styles.expander}`}
-        aria-expanded={expanded}
-        aria-controls={subtreeId}
-        aria-labelledby={labelId}
-        data-testid={`alloc-expand-${row.id}`}
-        onClick={() => toggleCollapsed(row.id)}
-      >
-        <ChevronRight
-          aria-hidden="true"
-          size={14}
-          className={expanded ? styles.iconOpen : styles.icon}
-        />
-      </button>
-    );
-  };
+  const deallocateRow = useCallback(
+    (id: string): void => {
+      void run(() => onDeallocate(id));
+    },
+    [run, onDeallocate]
+  );
 
+  /**
+   * Build one memoized requirement row. The `<ul>` subtree is assembled here
+   * so the row component stays presentational; nested rows are themselves
+   * memoized, so an unrelated subtree performs no DOM work even though its
+   * wrapper element object is recreated on a parent render.
+   */
   const renderRequirementNode = (
     node: AllocationRequirementNode
   ): JSX.Element => {
     const row = node.row;
-    const locked = isRowLocked(row.locked);
-    const lockedState = lockStateName(row.locked);
     const expanded = !collapsedIds.has(row.id);
     const hasChildren = node.children.length > 0;
-    const selected = selection.isSelected(row.id);
     const labelId = `alloc-label-${row.id}`;
     const subtreeId = `alloc-subtree-${row.id}`;
     const targetTitle = row.allocated_to
@@ -418,215 +425,78 @@ export function AllocationTreesRenderer({
     // "unallocated" (design §5.3/§5.6).
     const targetExternal = Boolean(row.allocated_to) && targetTitle === null;
 
-    return (
-      <li
-        key={row.id}
-        data-testid={`alloc-req-${row.id}`}
-        data-locked={locked ? "true" : "false"}
-        data-selected={selected ? "true" : "false"}
-        data-emphasized={emphasisedRequirementIds.has(row.id) ? "true" : "false"}
-        className={[
-          styles.node,
-          selected ? styles.nodeSelected : "",
-          emphasisedRequirementIds.has(row.id) ? styles.nodeEmphasized : "",
-          locked ? styles.nodeLocked : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-        draggable={canEdit && !locked}
-        onDragStart={(event) => handleDragStart(row, event)}
-        onDragEnd={() => setDraggingRequirementId(null)}
+    const children = hasChildren ? (
+      <ul
+        id={subtreeId}
+        role="group"
+        aria-labelledby={labelId}
+        className={styles.subtree}
+        hidden={!expanded}
       >
-        {/*
-         * The measured line, not the <li>: the <li> also contains the
-         * subtree, so its box would centre an edge on the middle of the whole
-         * branch instead of on the row itself.
-         */}
-        <div
-          className={styles.rowLine}
-          data-alloc-row={row.id}
-          data-alloc-kind="requirement"
-          // Emphasis is a visual read help, not an action: hovering and
-          // focusing are the two equivalent triggers, neither changes data
-          // (spec §5.3 "Hervorheben"). The highlight stays after leave, so a
-          // click on the row keeps it.
-          onMouseEnter={() => emphasise("requirement", row.id)}
-          onFocus={() => emphasise("requirement", row.id)}
-        >
-          {renderRowChrome(row, expanded, hasChildren, subtreeId, labelId)}
-          {!row.allocated_to && (
-            <span
-              className={styles.unallocatedMarker}
-              data-testid={`unallocated-marker-${row.id}`}
-              title={t("connectionView.unallocated")}
-              aria-hidden="true"
-            />
-          )}
-          <input
-            type="checkbox"
-            id={`alloc-check-${row.id}`}
-            data-testid={`alloc-select-${row.id}`}
-            checked={selected}
-            disabled={locked || !canEdit}
-            onChange={() => selection.toggle(row.id)}
-          />
-          <label
-            htmlFor={`alloc-check-${row.id}`}
-            id={labelId}
-            className={styles.rowTitle}
-            title={row.title}
-          >
-            {row.title}
-          </label>
-          {row.tier_name && (
-            <span className={styles.badge} data-testid={`alloc-tier-${row.id}`}>
-              {row.tier_name}
-            </span>
-          )}
-          {locked && (
-            <span
-              className={styles.lock}
-              data-testid={`alloc-locked-${row.id}`}
-              title={lockedState ?? t("connectionView.locked")}
-              aria-label={t("connectionView.lockedTooltip", {
-                state: lockedState ?? t("connectionView.locked"),
-              })}
-            >
-              <Lock aria-hidden="true" size={12} />
-            </span>
-          )}
-          {canEdit && row.allocation_trace_link_id && (
-            <button
-              type="button"
-              className={`btn-ghost ${styles.rowAction}`}
-              data-testid={`alloc-deallocate-${row.id}`}
-              aria-label={t("connectionView.trees.deallocate", {
-                title: row.title,
-              })}
-              onClick={() =>
-                void run(() =>
-                  onDeallocate(row.allocation_trace_link_id as string)
-                )
-              }
-            >
-              <X aria-hidden="true" size={12} />
-            </button>
-          )}
-          {/* Last in the row: the target text is the column that sits next to
-              the corridor, so the eye can follow the edge back to the row. */}
-          <span
-            className={`${styles.target} ${targetExternal ? styles.targetExternal : ""}`}
-            data-testid={
-              targetExternal
-                ? `alloc-target-external-${row.id}`
-                : `alloc-target-${row.id}`
-            }
-            data-external={targetExternal ? "true" : "false"}
-            title={
-              targetExternal
-                ? t("connectionView.targetExternal")
-                : targetTitle ?? t("connectionView.unallocated")
-            }
-          >
-            {targetExternal
-              ? t("connectionView.targetExternal")
-              : targetTitle ?? t("connectionView.unallocated")}
-          </span>
-        </div>
-        {hasChildren && (
-          <ul
-            id={subtreeId}
-            role="group"
-            aria-labelledby={labelId}
-            className={styles.subtree}
-            hidden={!expanded}
-          >
-            {node.children.map(renderRequirementNode)}
-          </ul>
-        )}
-      </li>
+        {node.children.map(renderRequirementNode)}
+      </ul>
+    ) : null;
+
+    return (
+      <EmphasisRequirementRow
+        key={row.id}
+        rowId={row.id}
+        emphasise={emphasise}
+        emphasized={emphasisedRequirementIds.has(row.id)}
+        row={row}
+        expanded={expanded}
+        hasChildren={hasChildren}
+        selected={selection.isSelected(row.id)}
+        targetTitle={targetTitle}
+        targetExternal={targetExternal}
+        canEdit={canEdit}
+        onToggle={toggleCollapsed}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onSelectToggle={selection.toggle}
+        onDeallocateRow={deallocateRow}
+      >
+        {children}
+      </EmphasisRequirementRow>
     );
   };
 
   const renderElementNode = (node: AllocationRequirementNode): JSX.Element => {
     const row = node.row;
-    const locked = isRowLocked(row.locked);
     const expanded = !collapsedIds.has(row.id);
     const hasChildren = node.children.length > 0;
-    const isDropTarget = dropTargetId === row.id;
     const labelId = `alloc-label-${row.id}`;
     const subtreeId = `alloc-subtree-${row.id}`;
 
-    return (
-      <li
-        key={row.id}
-        data-testid={`alloc-el-${row.id}`}
-        data-drop-target={isDropTarget ? "true" : "false"}
-        data-emphasized={emphasisedElementIds.has(row.id) ? "true" : "false"}
-        className={
-          isDropTarget
-            ? styles.nodeDropTarget
-            : [
-                styles.node,
-                emphasisedElementIds.has(row.id) ? styles.nodeEmphasized : "",
-              ]
-                .filter(Boolean)
-                .join(" ")
-        }
-        onDragOver={(event) => {
-          if (!canEdit) return;
-          event.preventDefault();
-          if (draggingRequirementId) setDropTargetId(row.id);
-        }}
-        onDragLeave={() => setDropTargetId(null)}
-        onDrop={(event) => handleDropOnElement(row.id, event)}
+    const children = hasChildren ? (
+      <ul
+        id={subtreeId}
+        role="group"
+        aria-labelledby={labelId}
+        className={styles.subtree}
+        hidden={!expanded}
       >
-        {/* Measured line only — see the requirement row's comment. */}
-        <div
-          className={styles.rowLine}
-          data-alloc-row={row.id}
-          data-alloc-kind="element"
-          onMouseEnter={() => emphasise("element", row.id)}
-          onFocus={() => emphasise("element", row.id)}
-        >
-          {renderRowChrome(row, expanded, hasChildren, subtreeId, labelId)}
-          <span
-            id={labelId}
-            className={`${styles.rowTitle} ${styles.elementTitle}`}
-            title={row.title}
-          >
-            {row.title}
-          </span>
-          {row.type && <span className={styles.badge}>{row.type}</span>}
-          {locked && (
-            <span
-              className={styles.lock}
-              data-testid={`alloc-el-locked-${row.id}`}
-              title={lockStateName(row.locked) ?? t("connectionView.locked")}
-              aria-label={t("connectionView.lockedTooltip", {
-                state: lockStateName(row.locked) ?? t("connectionView.locked"),
-              })}
-            >
-              <Lock aria-hidden="true" size={12} />
-            </span>
-          )}
-          {/* The element column has no right-aligned column of its own, so the
-              type badge stays next to the title instead of drifting to the far
-              edge of the 50%-wide column. */}
-          <span className={styles.fill} aria-hidden="true" />
-        </div>
-        {hasChildren && (
-          <ul
-            id={subtreeId}
-            role="group"
-            aria-labelledby={labelId}
-            className={styles.subtree}
-            hidden={!expanded}
-          >
-            {node.children.map(renderElementNode)}
-          </ul>
-        )}
-      </li>
+        {node.children.map(renderElementNode)}
+      </ul>
+    ) : null;
+
+    return (
+      <EmphasisElementRow
+        key={row.id}
+        rowId={row.id}
+        emphasise={emphasise}
+        emphasized={emphasisedElementIds.has(row.id)}
+        row={row}
+        expanded={expanded}
+        hasChildren={hasChildren}
+        isDropTarget={dropTargetId === row.id}
+        onToggle={toggleCollapsed}
+        onDragOverElement={handleDragOverElement}
+        onDragLeaveElement={handleDragLeaveElement}
+        dropOnElement={handleDropOnElement}
+      >
+        {children}
+      </EmphasisElementRow>
     );
   };
 

@@ -103,7 +103,11 @@ const renderBaselinesView = () => {
   const view = render(buildTree());
   // Re-rendered through the same QueryClient so a workspace switch (F7) is a
   // context change on a mounted tree, not a fresh mount.
-  return { view, rerender: () => view.rerender(buildTree()) };
+  return {
+    view,
+    rerender: () => view.rerender(buildTree()),
+    queryClient,
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -206,30 +210,99 @@ describe("BaselinesView container (REQ-053 smoke tests)", () => {
     expect(screen.getAllByTestId("baseline-tag-remove-btn")[0]).toBeDisabled();
   });
 
-  // F7 (ui-review): the tag filter is workspace-scoped state; switching the
-  // workspace used to keep the previous workspace's filter in the query.
-  it("resets the tag filter when the workspace changes (F7)", async () => {
-    vi.mocked(baselinesModule.baselinesApi.list).mockResolvedValue({
-      results: MOCK_BASELINES,
-    } as never);
+  // F7 (ui-review) / R2F-006: the tag filter is workspace-scoped state;
+  // switching the workspace must not carry the old label into the new
+  // workspace's list call. A post-render `useEffect` reset was too late: React
+  // Query already fired `["baselines","list", newWs, oldTag]` plus the
+  // tag-options query before the effect cleared the filter — two wasted
+  // requests and a stale render.
+  it("resets the tag filter when the workspace changes (F7 / R2F-006)", async () => {
+    const listSpy = vi.mocked(baselinesModule.baselinesApi.list);
+    listSpy.mockResolvedValue({ results: MOCK_BASELINES } as never);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const user = userEvent.setup();
 
-    const { rerender } = renderBaselinesView();
+    try {
+      const { rerender } = renderBaselinesView();
+
+      await waitFor(() => {
+        expect(screen.getByText("Mission CDR Baseline")).toBeInTheDocument();
+      });
+      await user.selectOptions(screen.getByTestId("baseline-tag-filter"), "Release");
+      expect(screen.getByTestId("baseline-tag-filter")).toHaveValue("Release");
+      await waitFor(() => {
+        expect(listSpy).toHaveBeenCalledWith({
+          workspace_id: "ws-bl-001",
+          tag: "Release",
+        });
+      });
+
+      vi.mocked(workspaceContext.useWorkspace).mockReturnValue({
+        activeWorkspace: { ...MOCK_WORKSPACE, id: "ws-bl-002" },
+      } as never);
+      rerender();
+
+      await waitFor(() => {
+        expect(screen.getByTestId("baseline-tag-filter")).toHaveValue("");
+      });
+      // Give any late/stale query a chance to fire before checking the calls.
+      await waitFor(() => {
+        expect(listSpy).toHaveBeenCalledWith({ workspace_id: "ws-bl-002" });
+      });
+
+      // The stale (workspace, old tag) combination must never reach the API,
+      // and the new workspace is fetched exactly once — no duplicate request
+      // from a correcting effect and no stale tagged render.
+      expect(listSpy).not.toHaveBeenCalledWith({
+        workspace_id: "ws-bl-002",
+        tag: "Release",
+      });
+      const ws2Calls = listSpy.mock.calls
+        .map((call) => call[0])
+        .filter((params) => params?.workspace_id === "ws-bl-002");
+      expect(ws2Calls).toEqual([{ workspace_id: "ws-bl-002" }]);
+
+      // No React warning about duplicate/stale state updates during render.
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  // R2F-006: the "requested label is no longer available" correction used to
+  // be a second useEffect; it is now a derived value in useBaselinesData. The
+  // dropdown must fall back to "all" (and the unfiltered list must render)
+  // when the label disappears from every baseline.
+  it("falls back to all tags when the selected label is no longer available (R2F-006)", async () => {
+    let payload = MOCK_BASELINES;
+    vi.mocked(baselinesModule.baselinesApi.list).mockImplementation(
+      async () => ({ results: payload }) as never,
+    );
+    const user = userEvent.setup();
+
+    const { queryClient } = renderBaselinesView();
 
     await waitFor(() => {
       expect(screen.getByText("Mission CDR Baseline")).toBeInTheDocument();
     });
     await user.selectOptions(screen.getByTestId("baseline-tag-filter"), "Release");
+    await waitFor(() => {
+      expect(baselinesModule.baselinesApi.list).toHaveBeenCalledWith({
+        workspace_id: "ws-bl-001",
+        tag: "Release",
+      });
+    });
     expect(screen.getByTestId("baseline-tag-filter")).toHaveValue("Release");
 
-    vi.mocked(workspaceContext.useWorkspace).mockReturnValue({
-      activeWorkspace: { ...MOCK_WORKSPACE, id: "ws-bl-002" },
-    } as never);
-    rerender();
+    // The label is removed everywhere and the lists are refreshed.
+    payload = MOCK_BASELINES.map((bl) => ({ ...bl, tags: [] }));
+    await queryClient.invalidateQueries();
 
     await waitFor(() => {
       expect(screen.getByTestId("baseline-tag-filter")).toHaveValue("");
     });
+    // The unfiltered list is back — no unexplained empty state.
+    expect(screen.getByText("Mission CDR Baseline")).toBeInTheDocument();
   });
 
   // F5 (ui-review): the create dialog's shared TagInput knows nothing about

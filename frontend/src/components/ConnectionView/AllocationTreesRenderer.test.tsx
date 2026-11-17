@@ -21,6 +21,26 @@ import type { AllocationRow } from "../../api/allocation-view";
 import { AllocationTreesRenderer } from "./AllocationTreesRenderer";
 import { useAllocationSelection } from "./useAllocationSelection";
 
+// UI-009: observe how often the memoized row VIEW actually renders. Wrapping
+// the unmemoized implementation in `memo` preserves the real bail-out
+// semantics, so a recorded call means DOM work happened for that row.
+const { requirementRowSpy, elementRowSpy } = vi.hoisted(() => ({
+  requirementRowSpy: vi.fn(),
+  elementRowSpy: vi.fn(),
+}));
+
+vi.mock("./EmphasisTreeRow", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./EmphasisTreeRow")>();
+  const { memo } = await import("react");
+  requirementRowSpy.mockImplementation(actual.EmphasisRequirementRowView);
+  elementRowSpy.mockImplementation(actual.EmphasisElementRowView);
+  return {
+    ...actual,
+    EmphasisRequirementRow: memo(requirementRowSpy),
+    EmphasisElementRow: memo(elementRowSpy),
+  };
+});
+
 vi.mock("react-i18next", () => {
   function lookup(key: string): string | undefined {
     const value = key
@@ -490,6 +510,49 @@ describe("AllocationTreesRenderer — emphasis (V.5, spec §5.8.4)", () => {
       "false"
     );
     expect(screen.getByTestId("alloc-el-e2")).toHaveAttribute(
+      "data-emphasized",
+      "false"
+    );
+  });
+
+  it("hovering_one_row_does_not_rerender_an_unrelated_row", () => {
+    requirementRowSpy.mockClear();
+    elementRowSpy.mockClear();
+    renderTrees();
+
+    const rendersOf = (spy: ReturnType<typeof vi.fn>, rowId: string): number =>
+      spy.mock.calls.filter(([props]) => props?.rowId === rowId).length;
+
+    const r1Before = rendersOf(requirementRowSpy, "r1");
+    const r2Before = rendersOf(requirementRowSpy, "r2");
+    const e1Before = rendersOf(elementRowSpy, "e1");
+    expect(r1Before).toBeGreaterThan(0);
+    expect(r2Before).toBeGreaterThan(0);
+    expect(e1Before).toBeGreaterThan(0);
+
+    // Hover r1's measured row line (the target cell bubbles up to it).
+    fireEvent.mouseEnter(
+      screen.getByTestId("alloc-target-r1").parentElement as HTMLElement
+    );
+
+    // The hovered row and its target DO re-render: their primitive boolean
+    // prop flips, so React.memo lets them through.
+    expect(rendersOf(requirementRowSpy, "r1")).toBeGreaterThan(r1Before);
+    expect(rendersOf(elementRowSpy, "e1")).toBeGreaterThan(e1Before);
+    // An unrelated leaf's memoized view is never invoked again — this is the
+    // O(N) -> O(affected) regression guard for INP.
+    expect(rendersOf(requirementRowSpy, "r2")).toBe(r2Before);
+
+    // ...and the visible emphasis is still correct.
+    expect(screen.getByTestId("alloc-req-r1")).toHaveAttribute(
+      "data-emphasized",
+      "true"
+    );
+    expect(screen.getByTestId("alloc-el-e1")).toHaveAttribute(
+      "data-emphasized",
+      "true"
+    );
+    expect(screen.getByTestId("alloc-req-r2")).toHaveAttribute(
       "data-emphasized",
       "false"
     );
