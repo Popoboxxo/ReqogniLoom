@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: l3-comp-icd-001-icdmanager-requirements
+status: draft
+date: 2026-06-21
+author_agent: se-migration
+open_adrs: []
+---
 # L3 COMP-ICD-001_IcdManager Requirements
 
 > **Level:** L3 (Component-Anforderungen)

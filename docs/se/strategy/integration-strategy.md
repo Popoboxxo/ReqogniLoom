@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: integration-strategy
+status: draft
+date: 2026-07-01
+author_agent: se-migration
+---
 # ReqFlow — Integrationsstrategie
 
 > **Status:** KONSOLIDIERT + PHASE 7 EXECUTING | **Datum:** 2026-07-01

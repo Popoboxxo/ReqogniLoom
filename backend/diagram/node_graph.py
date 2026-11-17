@@ -24,7 +24,7 @@ Design notes:
   reused for the shared, already-frozen ``ValidationResult`` return type
   (no new error-surfacing plumbing, per the Task 1 brief).
 
-Design decisions (ADR-DS-02):
+Design decisions (ADR-029):
   - Positions are stored IN the payload (frontend: useGraphPayload.flowToPayload()),
     not in localStorage. This ensures position data survives browser restart and is
     shareable across team members. See REQ-L1-100 for the payload format spec.

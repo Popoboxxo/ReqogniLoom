@@ -8,7 +8,7 @@ This index serves as a historical record and partial traceability map; new requi
 - `REQ-NNN` — Legacy frontend/audit requirement IDs (2026-07 era)
 - `REQ-L0/L1/L2/L3-NNN` — SE Cascade IDs (formal systems engineering hierarchy, L0=Stakeholder Needs → L3=Components)
 
-The mapping between these schemas and rationalization of the 188 legacy requirements is tracked in the SE-Audit notes (docs/SYSTEMAUDIT_2026-08-27.md §4.5).
+The mapping between these schemas and rationalization of the 188 legacy requirements is tracked in the SE-Audit notes (docs/archive/audits/SYSTEMAUDIT_2026-08-27.md §4.5).
 -->
 
 ## Frontend Requirements — Cluster A (2026-07-12)

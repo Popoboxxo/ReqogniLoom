@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: l2-reqifservicesystem-requirements
+status: draft
+date: 2026-06-27
+author_agent: se-migration
+open_adrs: []
+---
 # L2 ReqIFService Requirements
 
 > **Level:** L2 (Subsystem-Anforderungen)

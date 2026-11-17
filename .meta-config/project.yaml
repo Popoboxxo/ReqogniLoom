@@ -76,7 +76,7 @@ systems-engineering:
   test_strategy: docs/se/strategy/test-strategy.md
   integration_strategy: docs/se/strategy/integration-strategy.md
   reports_dir: docs/se/reports
-  current_phase: 'SE-Kaskade aktiv unter docs/se: ADR/ (28 ADRs inkl. ADR-DS-02),
+  current_phase: 'SE-Kaskade aktiv unter docs/se: ADR/ (28 ADRs inkl. ADR-029),
     L0/ (Stakeholder Needs), L1/Gesamtsystem/ (L1_Gesamtsystem_{Requirements,Architecture}.md
     plus L2/<System>System/-Zellen), VV/VV_Strategy_new_needs_v6.md, strategy/ (PRODUCT_STRATEGY,
     test-strategy, integration-strategy), requirements/, reviews/, traceability-matrix.md,

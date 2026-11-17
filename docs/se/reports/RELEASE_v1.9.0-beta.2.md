@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: release-v1-9-0-beta-2
+status: draft
+date: 2026-11-16
+author_agent: se-migration
+---
 # Release-Bericht v1.9.0-beta.2
 
 > **Status: interner Bugfix-Beta-Cut. Keine Produktions-, Staging- oder

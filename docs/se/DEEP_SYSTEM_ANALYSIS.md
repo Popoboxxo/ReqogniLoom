@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: deep-system-analysis
+status: draft
+date: 2026-07-14
+author_agent: se-migration
+---
 # Tiefe Systemanalyse — ReqFlow
 
 > Erstellt: 2026-07-14

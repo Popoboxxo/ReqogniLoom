@@ -1,3 +1,10 @@
+---
+type: ARCH
+scope: l2-icdmanagementsystem-architecture
+status: draft
+date: 2026-06-21
+author_agent: se-migration
+---
 # L2 IcdManagement Architecture
 
 > **Level:** L2 (Subsystem white-box)

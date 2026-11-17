@@ -67,7 +67,7 @@ Arbeitseinheit **AP-B5.4** (`docs/plans/2026-10-05-bugfix-hub-integrationen.md`)
 `backend/application/architecture_decompose_service.py:21-24`; `backend/application/audit_service.py:992-1014`.
 
 **Vermerk zur Ablage:** `docs/se/ADR/` ist die *gelebte* Konvention (19 ADRs, ADR-001…018 +
-ADR-DS-02). Der SE-Kaskaden-Schalter ist widersprüchlich: `.agent-meta/.meta-config/project.yaml`
+ADR-029). Der SE-Kaskaden-Schalter ist widersprüchlich: `.agent-meta/.meta-config/project.yaml`
 setzt `overrides.se-cascade.enabled=false`, die Root-`.meta-config/project.yaml` hat keinen
 entsprechenden Schlüssel. Dieses ADR folgt der gelebten Konvention `docs/se/ADR/` und
 dokumentiert den Widerspruch als **Annahme** (Kontext Punkt 6).

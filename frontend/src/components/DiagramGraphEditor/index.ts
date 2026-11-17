@@ -1,7 +1,7 @@
 /**
  * GH-353 Task 8 — DiagramGraphEditor barrel export (named exports only).
  *
- * Design decisions (ADR-DS-02):
+ * Design decisions (ADR-029):
  *   - Node positions are persisted in the node_graph JSON payload, not localStorage.
  *     See useGraphPayload.ts:flowToPayload() for the serialization boundary.
  *     This ensures positions survive browser restart and are shareable across team members.

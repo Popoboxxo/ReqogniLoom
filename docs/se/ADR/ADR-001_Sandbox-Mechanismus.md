@@ -26,7 +26,7 @@ drei konkurrierende Mechanismen identifiziert, die im Folgenden verglichen werde
 
 ---
 
-## Entscheidungsalternativen
+## Alternativen
 
 ### Option A: Git-interner Branching-Mechanismus (Datenbankzeilen als Git-Objekte)
 
@@ -102,14 +102,24 @@ automatisch an. Konflikte werden als Liste zurückgegeben (User-Resolution).
 3. Geringster Risikofaktor bei vertretbarem Speicher-Overhead
 4. Option A (Git) kann als späteres Upgrade evaluiert werden, wenn Sub-Branching benötigt wird
 
-**Konsequenzen:**
+**Review-Datum:** Vor Implementierungsbeginn (ADR-Review durch 2 Architekten)
+
+## Konsequenzen
+
+**Positiv:**
+- Implementierbar auf Basis des bestehenden Django ORM; klare Datentrennung ohne Eingriff in Haupt-Tabellen (Option C)
+- Baseline-Kompatibilität gewährleistet; Proof-of-Concept in 1-2 Sprints realisierbar (Option C)
+
+**Negativ:**
+- Keine vollständige Versionshistorie innerhalb des Sandbox (nur End-Diff); kein Sub-Branching (Option C)
+- Speicher-Overhead bei großen Workspaces (Vollkopie) (Option C)
+
+**Implementierungs-Folgen (aus der Entscheidung):**
 - Neue Tabelle sandbox_artefacts (spiegelt equirements, rchitecture_elements, 	est_cases)
 - Neue Tabelle sandboxes (Metadaten: owner, scope, status: open/merged/discarded)
 - Neue Django-Service-Klasse SandboxService
 - Merge-Algorithmus: 3-Field-Diff + Conflict-Report-Datenstruktur
 - Speicher-Limit-Warnung bei Sandbox > 10.000 Artefakten (UX-Guideline)
-
-**Review-Datum:** Vor Implementierungsbeginn (ADR-Review durch 2 Architekten)
 
 ---
 

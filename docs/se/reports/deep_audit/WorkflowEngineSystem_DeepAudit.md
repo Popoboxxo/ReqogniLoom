@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: workflowenginesystem-deepaudit
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # WorkflowEngineSystem - Deep Test-Coverage Audit
 
 ## Überblick

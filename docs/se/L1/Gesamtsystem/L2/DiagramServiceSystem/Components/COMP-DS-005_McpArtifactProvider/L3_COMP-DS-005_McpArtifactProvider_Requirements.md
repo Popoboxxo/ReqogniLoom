@@ -5,6 +5,7 @@ iteration: 1
 status: done
 timestamp: "2026-06-21T23:15:00Z"
 schema_version: "1.0.0"
+open_adrs: []
 ---
 # L3 McpArtifactProvider Requirements
 

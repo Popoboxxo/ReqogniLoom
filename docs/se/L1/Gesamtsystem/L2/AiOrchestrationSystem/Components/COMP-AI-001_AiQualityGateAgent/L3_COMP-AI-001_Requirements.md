@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: l3-comp-ai-001-requirements
+status: draft
+date: 2026-07-03
+author_agent: se-migration
+open_adrs: []
+---
 # L3 AiQualityGateAgent Requirements
 
 > **Level:** L3 (Komponenten-Anforderungen)

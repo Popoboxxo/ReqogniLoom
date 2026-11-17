@@ -40,7 +40,7 @@ direkte ORM-ANN-Sites: `backend/application/search_service.py:608/631/661`,
 Optional-Service-Muster: `deploy/docker-compose.yml:1137` (`profiles: ["honcho"]`),
 `:1453` (`profiles: ["bluepencil"]`).
 
-**Vermerk zur Ablage:** `docs/se/ADR/` ist die *gelebte* Konvention (ADR-001…019 + ADR-DS-02).
+**Vermerk zur Ablage:** `docs/se/ADR/` ist die *gelebte* Konvention (ADR-001…019 + ADR-029).
 Dieses ADR folgt ihr (vgl. ADR-019). Es ändert **keine** REQ-Datei und **keine** Kaskaden-Datei.
 
 ---

@@ -2,9 +2,11 @@
 review_id: RVW-2026-11-02-002
 target_spec: docs/superpowers/specs/Archive/2026-11-02-f3-workitem-design.md
 iteration: 1
-status: open
+status: closed
 date: 2026-11-02
 reviewer: concept-reviewer
+closed_date: 2026-11-17
+closed_by: documenter
 ---
 
 # Review-Protokoll RVW-2026-11-02-002 — F3-Spec (WorkItem)
@@ -25,9 +27,13 @@ als unmittelbare Vorgänger.
 `rest_api/tests/test_artifact_backing_linkability_matrix_1374.py`.
 **Iteration:** 1 (erste Review-Iteration zu dieser Fassung).
 
-**Hinweis zum Status:** `status: open`, weil Minor-/Info-Befunde erfasst sind. Das Verdict
-`approved` bedeutet: kein Befund blockiert den Merge; die als „eingearbeitet" markierten Punkte
-sind in dieser Fassung bereits korrigiert, die übrigen sind Präzisierungen für F3-T2/T4/T8.
+**Hinweis zum Status:** `status: closed` nach der Response-Iteration vom
+2026-11-17. Die frühere Formulierung („`open`, weil Minor-/Info-Befunde erfasst
+sind") war falsch: der Protokoll-Standard verlangt keinen befundfreien Abschluss.
+Alle acht Befunde sind eingearbeitet oder mit Owner/Datum versehen (siehe
+Spalte „Status"); gemäß Präzedenz RVW-2026-10-30-001 (ADR-004) ist ein Abschluss
+mit dokumentierten Befunden zulässig. Das Verdict `approved` bedeutet: kein
+Befund blockiert den Merge.
 
 ## Prüfmatrix
 
@@ -57,15 +63,31 @@ sind in dieser Fassung bereits korrigiert, die übrigen sind Präzisierungen fü
 | `RVW-2026-11-02-002-03` | minor | Präzision | `DOC-P5` war als „> X Tage" formuliert — nicht prüfbar, und ein Literal im Regel-Code wäre gegen die Preset-Konfigurierbarkeit. | Default 7 Tage + Preset-Schlüssel `work_item_stale_after_days` benennen; Umsetzung F3-T8. | eingearbeitet (Spec §11) |
 | `RVW-2026-11-02-002-04` | minor | Semantik | `last_actor`/`approved_by` als `CharField` weichen von der Haus-Actor-FK-Konvention ab; ohne Begründung wirkt das wie ein Modellierungsfehler. | Begründung ergänzen: Agenten haben keinen `User`; Freigabe-Semantik prüft der Service (F3-T4). | eingearbeitet (Spec §3.2) |
 | `RVW-2026-11-02-002-05` | minor | Delete-Semantik | `document`-`PROTECT` war als „Dokument wird nicht gelöscht" formuliert; der reguläre Pfad ist aber Soft-Delete über `Artifact.lifecycle_status`, sodass `PROTECT` nur harte Deletes trifft. Die Formulierung konnte als Konflikt mit G1.5 gelesen werden. | §3.1 präzisieren: `PROTECT` greift nur bei hartem Delete; Soft-Delete lässt Items unangetastet. | eingearbeitet (Spec §3.1) |
-| `RVW-2026-11-02-002-06` | minor | Test-Strategie | Die Linkability-Matrix braucht je Registry-Typ eine Factory; der `WorkItemService` existiert erst in F3-T4. Eine test-lokale ORM-Factory ist ein bewusstes Provisorium. | Wie F2 (R2): Factory im Test begründen und in F3-T4 durch den Service ersetzen. | akzeptiert (Spec §17 R2) |
-| `RVW-2026-11-02-002-07` | info | Härtung über Plan hinaus | `ck_work_item_progress_range` steht nicht in Plan F; er ist eine additive DB-Absicherung des 0–100-Vertrags. | Beibehalten, im Spec-Text als additiv kennzeichnen (bereits §3.3). | akzeptiert |
+| `RVW-2026-11-02-002-06` | minor | Test-Strategie | Die Linkability-Matrix braucht je Registry-Typ eine Factory; der `WorkItemService` existiert erst in F3-T4. Eine test-lokale ORM-Factory ist ein bewusstes Provisorium. | Wie F2 (R2): Factory im Test begründen und in F3-T4 durch den Service ersetzen. | vertagt (akzeptiert, Spec §17 R2) — Owner: `se-developer` (F3-T4), Ziel: 2026-12-08; bewusstes Provisorium bis der Service existiert |
+| `RVW-2026-11-02-002-07` | info | Härtung über Plan hinaus | `ck_work_item_progress_range` steht nicht in Plan F; er ist eine additive DB-Absicherung des 0–100-Vertrags. | Beibehalten, im Spec-Text als additiv kennzeichnen (bereits §3.3). | geschlossen — bewusste Härtung, als additiv gekennzeichnet (verifiziert 2026-11-17); keine Aktion |
 | `RVW-2026-11-02-002-08` | minor | Schnittstelle F3-T1 ↔ F2-Gate | `workflow/precondition_rules._document_item_gate_violations` (F2-T4) liest für G-2 ein `informational`-Flag am Item, das in der F3-T1-Feldliste des Plans nicht vorkommt. Mit dem Modell wird G-2 fail-closed für jedes Item ohne Kante. | Als offenen Modellpunkt in §5 festhalten: Ausnahme kommt mit F3-T3/T4; bis dahin ist der Pfad nur über den noch fehlenden Service erreichbar. | eingearbeitet (Spec §5) |
+
+## Response-Iteration (2026-11-17)
+
+**Responder:** `documenter` (S6.2 — Review-Lifecycle-Closure).
+**Ergebnis:** Befunde 01–05 und 08 sind in der Fassung eingearbeitet (verifiziert
+2026-11-17), Befund 07 ist als bewusste Härtung geschlossen. Befund 06 (test-lokale
+ORM-Factory) bleibt ein dokumentiertes Provisorium und ist mit Owner (`se-developer`,
+F3-T4) und Ziel 2026-12-08 vertagt. Kein Befund blockiert den Abschluss; gemäß
+Präzedenz RVW-2026-10-30-001 (ADR-004) ist ein Abschluss mit vertagten Befunden
+zulässig.
+
+## Status-Change Log
+
+| Datum | Von | Nach | Grund | Responder |
+|---|---|---|---|---|
+| 2026-11-17 | open | closed | Befunde 01–05/08 eingearbeitet, 07 geschlossen, 06 vertagt (Owner `se-developer`, Ziel 2026-12-08); Review-Protokoll abgeschlossen. | `documenter` (S6.2) |
+| 2026-11-17 | proposed | proposed (retained) | F3-T0 legt kein ADR an (Plan F §WP F3: nur Spec + Review); **status proposed retained, awaiting user decision** — kein Statuswechsel, keine `open_adrs`-Änderung. | `documenter` (S6.2) |
 
 ## Verdict
 
-**APPROVED** — 0 critical / 0 major / 6 minor / 2 info. Kein Befund blockiert den Merge von F3-T0
-oder F3-T1. Die Befunde 01–05 und 08 sind in dieser Fassung eingearbeitet; 06 (test-lokale
-Factory) ist ein dokumentiertes Provisorium bis F3-T4, 07 eine bewusste Härtung.
+**APPROVED / CLOSED** — 0 critical / 0 major / 6 minor (5 geschlossen, 1 vertagt) /
+2 info (beide geschlossen). Kein Befund blockiert den Merge von F3-T0 oder F3-T1.
 
 Die Spec ändert weder ADR-026 noch den F2-Vertrag; sie setzt ihn fort. Der Status bleibt
 `proposed` im Sinne der SE-Kaskade — ein Statuswechsel ist hier nicht vorgesehen, weil F3-T0 kein

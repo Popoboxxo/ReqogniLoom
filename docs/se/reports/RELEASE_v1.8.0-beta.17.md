@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: release-v1-8-0-beta-17
+status: draft
+date: 2026-09-27
+author_agent: se-migration
+---
 # Release-Bericht v1.8.0-beta.17
 
 > **Status: interner Pre-Release-Cut. Keine Produktions-, Staging- oder

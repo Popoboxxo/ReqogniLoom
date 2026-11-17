@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: l3-comp-ds-007-requirements
+status: draft
+date: 2026-07-12
+author_agent: se-migration
+open_adrs: []
+---
 # L3 MermaidLiveRenderer Requirements
 
 > **Level:** L3 (Komponenten-Anforderungen)

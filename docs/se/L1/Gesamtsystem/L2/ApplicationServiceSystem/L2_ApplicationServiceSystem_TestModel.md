@@ -1,3 +1,10 @@
+---
+type: VV-DOC
+scope: l2-applicationservicesystem-testmodel
+status: draft
+date: 2026-06-22
+author_agent: se-migration
+---
 # L2 ApplicationServiceSystem TestModel
 
 > **Level:** L2 (Subsystem white-box)

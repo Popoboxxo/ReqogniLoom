@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: llmadaptersystem-deepaudit
+status: draft
+date: 2026-07-09
+author_agent: se-migration
+---
 # Deep Test-Coverage Audit: LlmAdapterSystem
 
 **Datum:** 2026-07-09

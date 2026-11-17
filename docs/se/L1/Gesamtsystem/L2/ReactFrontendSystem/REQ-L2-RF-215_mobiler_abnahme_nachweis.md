@@ -9,6 +9,7 @@ sources:
   - docs/superpowers/specs/2026-11-16-mobile-pwa-design.md
   - docs/plans/mobile-baseline-2026-11.md
   - docs/features/mobile-and-pwa.md
+open_adrs: []
 ---
 
 # REQ-L2-RF-215: Mobiler Abnahme-Nachweis über Geräteprofile (M0/M9, ex REQ-215)

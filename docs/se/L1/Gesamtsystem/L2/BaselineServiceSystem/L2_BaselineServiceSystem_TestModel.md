@@ -1,3 +1,10 @@
+---
+type: VV-DOC
+scope: l2-baselineservicesystem-testmodel
+status: draft
+date: 2026-06-22
+author_agent: se-migration
+---
 # L2 BaselineServiceSystem Test-Strategie (Test-Model)
 
 > **Level:** L2 (Subsystem white-box)

@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: baselineservicesystem-deepaudit
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # Deep Audit Report: BaselineServiceSystem (ARCH-L1-006)
 
 ## 1. Executive Summary

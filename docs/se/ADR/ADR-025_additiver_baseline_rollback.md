@@ -15,6 +15,11 @@ author_agent: documenter
 
 **Status:** proposed (Entwurf 2026-10-31) — der Statuswechsel auf `accepted` ist
 Nutzerentscheidung, nicht Teil dieses Dokuments.
+**Lifecycle-Log:** 2026-11-17 — `proposed` unverändert (**status proposed retained —
+awaiting user decision**). Grund: Das Review-Protokoll RVW-2026-10-31-001 wurde in
+S6.2 geschlossen (Befunde gelöst/vertagt); der Wechsel auf `accepted` bleibt eine
+Nutzerentscheidung (vgl. ADR:16–17) und ist nicht Teil dieses Schnitts. Keine
+`open_adrs`-Änderung.
 **Datum:** 2026-10-31
 **Entscheider:** `user`; **Text:** `documenter` (Rollen gemäß Plan F §F4.0).
 **Betroffene REQs:** REQ-L2-BL-001, REQ-L2-BL-002 (Immutability der Baseline-Tabellen),

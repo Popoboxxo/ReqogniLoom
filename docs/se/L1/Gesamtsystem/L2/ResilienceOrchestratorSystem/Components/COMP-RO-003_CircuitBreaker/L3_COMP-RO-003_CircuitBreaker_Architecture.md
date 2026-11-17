@@ -1,3 +1,10 @@
+---
+type: ARCH
+scope: l3-comp-ro-003-circuitbreaker-architecture
+status: draft
+date: 2026-06-21
+author_agent: se-migration
+---
 # L3 COMP-RO-003_CircuitBreaker Architecture
 
 > **Level:** L3 (Terminal Component White-Box)

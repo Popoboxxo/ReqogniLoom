@@ -9,6 +9,7 @@ sources:
   - docs/superpowers/specs/2026-11-16-mobile-pwa-design.md
   - docs/plans/mobile-baseline-2026-11.md
   - docs/features/mobile-and-pwa.md
+open_adrs: []
 ---
 
 # REQ-L2-RF-212: Schwere Ansichten — lesbar mobil, Bearbeiten am Desktop (M8, ex REQ-212)

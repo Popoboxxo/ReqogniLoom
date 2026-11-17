@@ -1,3 +1,10 @@
+---
+type: ARCH
+scope: l2-vectorsearchservicesystem-architecture
+status: draft
+date: 2026-07-12
+author_agent: se-migration
+---
 # L2 VectorSearchService Architecture
 
 > **Level:** L2 (Subsystem white-box)

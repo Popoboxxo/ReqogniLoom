@@ -1,3 +1,10 @@
+---
+type: VV-DOC
+scope: l2-traceabilityenginesystem-testmodel
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # L2_TraceabilityEngineSystem_TestModel
 
 ## 1. Einleitung und Zielsetzung

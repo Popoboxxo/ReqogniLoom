@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: v-and-v-strategy
+status: draft
+date: 2026-06-28
+author_agent: se-migration
+---
 # Verification & Validation (V&V) Strategy
 
 > **System:** ReqFlow

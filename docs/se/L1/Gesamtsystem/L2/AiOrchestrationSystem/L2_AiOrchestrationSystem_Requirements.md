@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: l2-aiorchestrationsystem-requirements
+status: draft
+date: 2026-07-03
+author_agent: se-migration
+open_adrs: []
+---
 # L2 AiOrchestration Requirements
 
 > **Level:** L2 (Subsystem-Anforderungen)

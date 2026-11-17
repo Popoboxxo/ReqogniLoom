@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: l2-restapiadaptersystem-requirements
+status: draft
+date: 2026-06-20
+author_agent: se-migration
+open_adrs: []
+---
 # L2 RestApiAdapter Requirements
 
 > **Level:** L2 (Subsystem-Anforderungen)

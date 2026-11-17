@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: mcpserversystem-deepaudit
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # McpServerSystem - Deep Test Coverage Audit
 
 > Automatisch generierter Deep-Audit-Report der Testabdeckung.

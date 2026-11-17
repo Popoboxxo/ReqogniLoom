@@ -1,3 +1,10 @@
+---
+type: ARCH
+scope: l3-comp-icd-002-contractvalidator-architecture
+status: draft
+date: 2026-06-21
+author_agent: se-migration
+---
 # L3 COMP-ICD-002_ContractValidator Architecture
 
 > **Level:** L3 (Component internal design)

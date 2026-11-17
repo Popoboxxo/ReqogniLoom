@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: restapiadaptersystem-deepaudit
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # Deep Test Coverage Audit: RestApiAdapterSystem
 
 Dieses Dokument liefert einen detaillierten Audit der Testabdeckung für das `RestApiAdapterSystem`. Es basiert auf den L2-Anforderungen (`L2_RestApiAdapterSystem_Requirements.md`) und einer zeilengenauen Analyse aller Testdateien im Verzeichnis `backend/rest_api/tests/`.

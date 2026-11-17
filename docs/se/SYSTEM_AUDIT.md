@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: system-audit
+status: draft
+date: 2026-07-13
+author_agent: se-migration
+---
 # System Audit — ReqFlow
 
 ## 1. Executive Summary

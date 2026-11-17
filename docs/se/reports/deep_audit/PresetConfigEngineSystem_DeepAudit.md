@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: presetconfigenginesystem-deepaudit
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # PresetConfigEngineSystem Test Coverage Deep Audit
 
 Dieser Audit-Bericht vergleicht die Anforderungen (`REQ-L2-PC-*`) des `PresetConfigEngineSystem` mit der aktuellen Testimplementierung in `backend/presets/tests/`. 

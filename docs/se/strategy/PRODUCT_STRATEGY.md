@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: product-strategy
+status: draft
+date: 2026-07-09
+author_agent: se-migration
+---
 # ReqFlow — Product Strategy & Project Knowledge
 
 > **Status:** Konsolidiert (Zusammenführung aus VISION.md, STRATEGY.md und PROJECT_KNOWLEDGE.md)

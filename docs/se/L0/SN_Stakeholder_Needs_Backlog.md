@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: sn-stakeholder-needs-backlog
+status: draft
+date: 2026-06-26
+author_agent: se-migration
+open_adrs: []
+---
 # L0 Stakeholder Needs — Backlog (Zukünftige Anforderungen)
 
 > **Level:** L0 (Stakeholder Needs)

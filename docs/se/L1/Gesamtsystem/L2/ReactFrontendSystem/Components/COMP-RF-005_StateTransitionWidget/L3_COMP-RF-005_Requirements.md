@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: l3-comp-rf-005-requirements
+status: draft
+date: 2026-07-03
+author_agent: se-migration
+open_adrs: []
+---
 # L3 StateTransitionWidget Requirements
 
 > **Level:** L3 (Komponenten-Anforderungen)

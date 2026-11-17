@@ -1,3 +1,10 @@
+---
+type: ARCH
+scope: l2-reactfrontendsystem-architecture
+status: draft
+date: 2026-06-20
+author_agent: se-migration
+---
 # L2 ReactFrontend Architecture
 
 > **Level:** L2 (Subsystem white-box)

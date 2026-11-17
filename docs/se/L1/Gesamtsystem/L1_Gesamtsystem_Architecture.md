@@ -1,3 +1,10 @@
+---
+type: ARCH
+scope: l1-gesamtsystem-architecture
+status: draft
+date: 2026-06-21
+author_agent: se-migration
+---
 # ReqFlow — L1 Architecture (Gesamtsystem)
 
 > Status: ERWEITERT 2026-06-21 (REQ-L1-027..032) | Vorheriger Stand KONSOLIDIERT 2026-06-20 | Erstellt: 2026-06-17 | Autor: se-architect-Agent (SE-Kaskade)

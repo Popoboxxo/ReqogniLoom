@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: interface-registry
+status: draft
+date: 2026-07-01
+author_agent: se-migration
+---
 # ReqFlow — Interface Registry
 
 > **Status:** KONSOLIDIERT | **Datum:** 2026-07-01

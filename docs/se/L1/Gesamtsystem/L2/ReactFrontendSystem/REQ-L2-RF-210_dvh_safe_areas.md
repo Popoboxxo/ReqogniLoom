@@ -9,6 +9,7 @@ sources:
   - docs/superpowers/specs/2026-11-16-mobile-pwa-design.md
   - docs/plans/mobile-baseline-2026-11.md
   - docs/features/mobile-and-pwa.md
+open_adrs: []
 ---
 
 # REQ-L2-RF-210: Shell und Editoren rechnen mit dvh und Safe-Areas (M4, ex REQ-210)

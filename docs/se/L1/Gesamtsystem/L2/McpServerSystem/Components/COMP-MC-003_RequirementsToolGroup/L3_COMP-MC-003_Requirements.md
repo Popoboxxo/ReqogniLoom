@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: l3-comp-mc-003-requirements
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+open_adrs: []
+---
 # L3 RequirementsToolGroup Requirements
 
 > **Level:** L3 (Komponenten-Anforderungen)

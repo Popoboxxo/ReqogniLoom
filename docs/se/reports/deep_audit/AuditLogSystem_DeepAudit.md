@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: auditlogsystem-deepaudit
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # Deep Audit Report: AuditLogSystem
 
 ## Ziel und Umfang
