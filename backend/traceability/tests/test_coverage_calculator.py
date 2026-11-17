@@ -381,6 +381,133 @@ class TestGetCoverageData:
         entry = next(e for e in data.entries if e.requirement_id == str(req.id))
         assert entry.test_cases[0]["result"] == "Passed"
 
+    # -----------------------------------------------------------------------
+    # PERF-010: DB-side latest TestRunResult selection (unbounded load fix)
+    # -----------------------------------------------------------------------
+
+    def test_latest_testrun_status_uses_single_window_query(
+        self, calc, tenant_a, workspace_a
+    ):
+        """The top-1-per-TestCase selection happens in SQL, not Python.
+
+        Pre-fix the method issued one query but loaded *every* run result into
+        memory before keeping the first row per test case. The fixed query
+        must carry ROW_NUMBER() (or DISTINCT ON) so the database returns only
+        the latest row per partition.
+        """
+        from datetime import timedelta
+
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        from django.utils import timezone
+
+        from persistence.models import TestRun, TestRunResult
+
+        with active_tenant(tenant_a):
+            tc_art, tc = make_test_case(tenant_a, workspace_a, "TC-window")
+            run = TestRun.objects.create(
+                tenant=tenant_a, workspace=workspace_a, name="run-window"
+            )
+            now = timezone.now()
+            for offset, status in (
+                (3, "failed"), (2, "passed"), (1, "blocked")
+            ):
+                TestRunResult.objects.create(
+                    tenant=tenant_a, test_run=run, test_case=tc,
+                    test_case_title="TC-window", status=status,
+                    executed_at=now - timedelta(hours=offset),
+                )
+
+            tc_art_ids = {str(tc_art.id)}
+            with CaptureQueriesContext(connection) as ctx:
+                result = calc._latest_testrun_status(tc_art_ids)
+
+        run_queries = [
+            q["sql"] for q in ctx.captured_queries if "pl_test_run_result" in q["sql"]
+        ]
+        assert len(run_queries) == 1, (
+            f"expected exactly one TestRunResult query, got {len(run_queries)}"
+        )
+        sql_upper = run_queries[0].upper()
+        assert "ROW_NUMBER()" in sql_upper or "DISTINCT ON" in sql_upper, (
+            "latest-run selection must be pushed into the query:\n" + run_queries[0]
+        )
+        assert result == {str(tc_art.id): "Blocked"}
+
+    def test_latest_testrun_status_matches_reference_including_nulls_and_ties(
+        self, calc, tenant_a, workspace_a
+    ):
+        """Functional equivalence with the old Python-side selection.
+
+        Covers: NULL executed_at (ranks last), executed_at DESC ordering, and
+        the ``-id`` UUID tie-break when executed_at values are equal.
+        """
+        from datetime import timedelta
+
+        from django.db.models import F
+        from django.utils import timezone
+
+        from persistence.models import TestRun, TestRunResult
+
+        with active_tenant(tenant_a):
+            tc_art_a, tc_a = make_test_case(tenant_a, workspace_a, "TC-A")
+            tc_art_b, tc_b = make_test_case(tenant_a, workspace_a, "TC-B")
+            run = TestRun.objects.create(
+                tenant=tenant_a, workspace=workspace_a, name="run-equivalence"
+            )
+
+            # TC-A: older passed, newer failed, plus a never-executed blocked.
+            TestRunResult.objects.create(
+                tenant=tenant_a, test_run=run, test_case=tc_a,
+                test_case_title="TC-A", status="passed",
+                executed_at=timezone.now() - timedelta(hours=2),
+            )
+            newer = TestRunResult.objects.create(
+                tenant=tenant_a, test_run=run, test_case=tc_a,
+                test_case_title="TC-A", status="failed",
+                executed_at=timezone.now(),
+            )
+            TestRunResult.objects.create(
+                tenant=tenant_a, test_run=run, test_case=tc_a,
+                test_case_title="TC-A", status="blocked", executed_at=None,
+            )
+
+            # TC-B: two rows with identical executed_at -> higher UUID wins.
+            low = TestRunResult(id=uuid.UUID(int=1), tenant=tenant_a, test_run=run,
+                                test_case=tc_b, test_case_title="TC-B",
+                                status="passed", executed_at=newer.executed_at)
+            high = TestRunResult(id=uuid.UUID(int=2), tenant=tenant_a, test_run=run,
+                                 test_case=tc_b, test_case_title="TC-B",
+                                 status="failed", executed_at=newer.executed_at)
+            low.save()
+            high.save()
+
+            tc_art_ids = {str(tc_art_a.id), str(tc_art_b.id)}
+
+            # Independent oracle: the original Python-side algorithm.
+            labels = dict(TestRunResult._meta.get_field("status").choices)
+            reference: dict[str, str] = {}
+            old_rows = (
+                TestRunResult.objects.filter(test_case__artifact_id__in=tc_art_ids)
+                .order_by("test_case__artifact_id", F("executed_at").desc(nulls_last=True), "-id")
+                .values("test_case__artifact_id", "status")
+            )
+            for row in old_rows:
+                key = str(row["test_case__artifact_id"])
+                if key in reference:
+                    continue
+                reference[key] = labels.get(row["status"], "Not Run")
+
+            actual = calc._latest_testrun_status(tc_art_ids)
+
+        assert actual == reference
+        assert actual[str(tc_art_a.id)] == "Failed"  # newest executed_at wins
+        assert actual[str(tc_art_b.id)] == "Failed"  # higher UUID wins the tie
+
+    def test_latest_testrun_status_empty_input(self, calc):
+        """An empty id set returns an empty map without hitting the DB."""
+        assert calc._latest_testrun_status(set()) == {}
+
     def test_get_coverage_data_excludes_outdated_requirements_when_requested(
         self, calc, tenant_a, workspace_a
     ):

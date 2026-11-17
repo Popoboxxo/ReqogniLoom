@@ -92,16 +92,27 @@ class VCRMReportGenerator:
         if not coverage_data.entries:
             return VCRMMatrix(rows=[])
 
-        # Load component links for each requirement via QueryEngine (IF-TE-INT-005)
-        # We query downstream from each requirement artifact for its allocations
+        # PERF-002: resolve the requirement->artifact mapping and the
+        # allocation links in TWO queries for the whole matrix. The old code
+        # called ``_get_component_ids_for_requirement`` once per requirement
+        # (2 raw queries each → 2R queries for R requirements).
+        req_ids = [str(entry.requirement_id) for entry in coverage_data.entries]
+        unique_req_ids = list(dict.fromkeys(req_ids))  # dedupe, keep order
+        req_artifact_by_id = self._fetch_requirement_artifact_ids(unique_req_ids)
+        req_artifact_ids = list(dict.fromkeys(req_artifact_by_id.values()))
+        components_by_artifact = self._fetch_allocated_component_ids(
+            req_artifact_ids
+        )
 
         rows: list[VCRMRow] = []
         for entry in coverage_data.entries:
-            req_id = entry.requirement_id
-
-            # Find requirement artifact ID to query components
-            # (requirement_id is the Requirement PK; we need artifact_id)
-            component_ids = self._get_component_ids_for_requirement(req_id)
+            req_id = str(entry.requirement_id)
+            req_artifact_id = req_artifact_by_id.get(req_id)
+            component_ids = (
+                components_by_artifact.get(req_artifact_id, [])
+                if req_artifact_id
+                else []
+            )
 
             if not component_ids:
                 component_ids = [""]  # ensure at least one row per requirement
@@ -184,47 +195,94 @@ class VCRMReportGenerator:
     # PDF helpers
     # -----------------------------------------------------------------------
 
-    def _get_component_ids_for_requirement(self, requirement_id: str) -> list[str]:
-        """Find the ArchitectureElement IDs a requirement is allocated to.
+    @staticmethod
+    def _fetch_requirement_artifact_ids(
+        requirement_ids: list[str],
+    ) -> dict[str, str]:
+        """Map Requirement PK -> ``artifact_id`` for *requirement_ids*.
 
-        Uses the ORM directly (IF-TE-EXT-OUT-001) to avoid cross-component
-        coupling beyond the registered interfaces.
+        PERF-002: one query for the whole matrix instead of one per
+        requirement. The caller deduplicates ids before binding them to
+        ``ANY(%s)``; UUID objects are required because PostgreSQL cannot
+        compare a ``uuid`` column against a ``text[]`` bind.
         """
         from django.db import connection
 
+        if not requirement_ids:
+            return {}
+
+        # Dedupe before the ANY(%s) bind: the same requirement may appear in
+        # several coverage entries, and repeating ids only enlarges the bind.
+        unique_ids = list(dict.fromkeys(str(r) for r in requirement_ids))
         tenant_id = TenantContext.get_tenant()
-
-        # requirement_id is the Requirement PK; find its artifact_id first
-        sql_req_art = """
-            SELECT artifact_id FROM pl_requirement
-            WHERE id = %s AND tenant_id = %s
-        """
-        with connection.cursor() as cur:
-            cur.execute(sql_req_art, [str(requirement_id), str(tenant_id)])
-            row = cur.fetchone()
-        if not row:
-            return []
-
-        req_artifact_id = str(row[0])
-
-        # Components a requirement is allocated to. Before the link-type
-        # consolidation this read the two retired ArchitectureElement ->
-        # Requirement satisfaction keys — so a Requirement was never the
-        # source and this column came back empty for SE-conform data.
-        # allocated-to genuinely runs Requirement -> ArchitectureElement.
         sql = """
-            SELECT DISTINCT tl.target_id
-            FROM pl_tracelink tl
-            JOIN pl_artifact a ON a.id = tl.target_id
-            WHERE tl.source_id = %s
-              AND tl.link_type = 'allocated-to'
-              AND tl.tenant_id = %s
+            SELECT id, artifact_id FROM pl_requirement
+            WHERE id = ANY(%s) AND tenant_id = %s
         """
+        params = [[uuid.UUID(r) for r in unique_ids], str(tenant_id)]
         with connection.cursor() as cur:
-            cur.execute(sql, [req_artifact_id, str(tenant_id)])
+            cur.execute(sql, params)
             rows = cur.fetchall()
 
-        return [str(r[0]) for r in rows]
+        return {str(row[0]): str(row[1]) for row in rows}
+
+    @staticmethod
+    def _fetch_allocated_component_ids(
+        req_artifact_ids: list[str],
+    ) -> dict[str, list[str]]:
+        """Map requirement artifact id -> allocated component artifact ids.
+
+        PERF-002: one query for the whole matrix instead of one per
+        requirement. The original per-requirement contract is preserved:
+
+        * the inner ``JOIN pl_artifact`` drops targets with no artifact row;
+        * ``DISTINCT`` removes duplicate edges;
+        * the tenant filter is explicit (in addition to RLS);
+        * ``ORDER BY source_id, target_id`` keeps per-requirement target
+          ordering deterministic — the CSV/PDF positional contract (#878).
+        """
+        from django.db import connection
+
+        if not req_artifact_ids:
+            return {}
+
+        unique_ids = list(dict.fromkeys(str(a) for a in req_artifact_ids))
+        tenant_id = TenantContext.get_tenant()
+        sql = """
+            SELECT DISTINCT tl.source_id, tl.target_id
+            FROM pl_tracelink tl
+            JOIN pl_artifact a ON a.id = tl.target_id
+            WHERE tl.source_id = ANY(%s)
+              AND tl.link_type = 'allocated-to'
+              AND tl.tenant_id = %s
+            ORDER BY tl.source_id, tl.target_id
+        """
+        params = [[uuid.UUID(a) for a in unique_ids], str(tenant_id)]
+        with connection.cursor() as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+
+        result: dict[str, list[str]] = {str(a): [] for a in unique_ids}
+        for source_id, target_id in rows:
+            result.setdefault(str(source_id), []).append(str(target_id))
+        return result
+
+    def _get_component_ids_for_requirement(self, requirement_id: str) -> list[str]:
+        """Find the ArchitectureElement IDs a requirement is allocated to.
+
+        Retained for single-requirement callers (e.g. the link-type consumer
+        tests). ``generate_vcrm`` uses the two batched helpers above so it
+        issues two queries for the entire matrix, not two per requirement.
+        """
+        req_artifact_by_id = self._fetch_requirement_artifact_ids(
+            [str(requirement_id)]
+        )
+        req_artifact_id = req_artifact_by_id.get(str(requirement_id))
+        if not req_artifact_id:
+            return []
+        return self._fetch_allocated_component_ids([req_artifact_id]).get(
+            req_artifact_id, []
+        )
 
 
 # -----------------------------------------------------------------------

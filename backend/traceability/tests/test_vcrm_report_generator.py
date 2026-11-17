@@ -539,3 +539,293 @@ class TestVCRMPDFExport:
 
         # Should indicate VCRM or matrix
         assert "VCRM" in text or "Matrix" in text or len(text) > 500
+
+
+# ---------------------------------------------------------------------------
+# PERF-002: batched allocation lookups (N+1 elimination)
+# ---------------------------------------------------------------------------
+
+
+def _vcrm_row_key(row) -> tuple[str, str, str, str, str]:
+    """Comparable tuple for a VCRMRow (independent of row ordering)."""
+    return (
+        str(row.requirement_id),
+        str(row.component_id),
+        str(row.test_case_id),
+        str(row.test_result),
+        str(row.verification_method),
+    )
+
+
+class TestVCRMBatchedAllocationQueries:
+    """PERF-002: allocation lookups are two queries, not two per requirement."""
+
+    @staticmethod
+    def _seed_allocated_requirements(tenant, workspace, count: int) -> dict[str, str]:
+        """Create ``count`` requirements, each allocated to one component."""
+        from persistence.models import ArchitectureElement
+
+        comp_by_req: dict[str, str] = {}
+        with active_tenant(tenant):
+            for i in range(count):
+                req_art, req = make_requirement(tenant, workspace, f"PERF-REQ-{i}")
+                comp_art = make_artifact(tenant, workspace, "architecture_element")
+                ArchitectureElement.objects.create(
+                    tenant=tenant, artifact=comp_art, title=f"PERF-COMP-{i}"
+                )
+                make_trace_link(req_art, comp_art, tenant, "allocated-to")
+                comp_by_req[str(req.id)] = str(comp_art.id)
+        return comp_by_req
+
+    def test_generate_vcrm_uses_two_allocation_queries(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """25 allocated requirements → exactly one link scan + one req-artifact query.
+
+        Pre-fix this issued 2 queries *per requirement* (50 allocation
+        queries). The allocation link scan is identified by the
+        ``allocated-to`` literal; the requirement-artifact lookup by the
+        ``pl_requirement`` + ``ANY`` pattern.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        self._seed_allocated_requirements(tenant_a, workspace_a, 25)
+
+        with active_tenant(tenant_a):
+            with CaptureQueriesContext(connection) as ctx:
+                matrix = vcrm_gen.generate_vcrm(workspace_a.id)
+
+        sqls = [q["sql"] for q in ctx.captured_queries]
+        link_scans = [s for s in sqls if "allocated-to" in s]
+        assert len(link_scans) == 1, (
+            f"expected exactly 1 allocation link scan, got {len(link_scans)}: {link_scans}"
+        )
+        req_artifact_lookups = [
+            s for s in sqls if "pl_requirement" in s and "ANY" in s.upper()
+        ]
+        assert len(req_artifact_lookups) == 1, (
+            "expected exactly 1 batched requirement-artifact query, got "
+            f"{len(req_artifact_lookups)}: {req_artifact_lookups}"
+        )
+        # Preserved per-requirement contract of the old per-req query:
+        # inner JOIN drops targets without an artifact row, DISTINCT removes
+        # duplicate edges, tenant filter is explicit, ordering deterministic.
+        scan_upper = link_scans[0].upper()
+        assert "JOIN PL_ARTIFACT" in scan_upper
+        assert "DISTINCT" in scan_upper
+        assert "TENANT_ID" in scan_upper
+        assert "ORDER BY" in scan_upper
+        assert matrix.rows, "expected a non-empty matrix for 25 allocations"
+
+    def test_batched_rows_match_per_requirement_reference(
+        self, vcrm_gen, tenant_a, workspace_a, tenant_b
+    ):
+        """Batched rows are functionally identical to the old per-req algorithm.
+
+        Seeded edge cases: multiple allocations, no allocation and a
+        cross-tenant link (dropped by the explicit tenant filter). The
+        inner-JOIN contract is asserted structurally in the query-count test;
+        a target without an ``pl_artifact`` row cannot exist behind the FK.
+        """
+        from django.db import connection
+
+        from persistence.models import ArchitectureElement, TestRun, TestRunResult
+
+        with active_tenant(tenant_a):
+            r_multi_art, r_multi = make_requirement(tenant_a, workspace_a, "R-multi")
+            r_none_art, r_none = make_requirement(tenant_a, workspace_a, "R-none")
+            r_orphan_art, r_orphan = make_requirement(tenant_a, workspace_a, "R-orphan")
+
+            comp_arts = []
+            for i in range(3):
+                art = make_artifact(tenant_a, workspace_a, "architecture_element")
+                ArchitectureElement.objects.create(
+                    tenant=tenant_a, artifact=art, title=f"C-{i}"
+                )
+                comp_arts.append(art)
+            for comp in comp_arts:
+                make_trace_link(r_multi_art, comp, tenant_a, "allocated-to")
+
+            # A verifying TestCase so the matrix has a non-"Not Run" path too.
+            tc_art, tc = make_test_case(tenant_a, workspace_a, "TC-multi")
+            make_trace_link(tc_art, r_multi_art, tenant_a, "verifies")
+            run = TestRun.objects.create(
+                tenant=tenant_a, workspace=workspace_a, name="run-multi"
+            )
+            TestRunResult.objects.create(
+                tenant=tenant_a, test_run=run, test_case=tc,
+                test_case_title="TC-multi", status="passed",
+            )
+
+        # Cross-tenant link: source is tenant_a's requirement, but the link
+        # itself belongs to tenant_b — the tenant filter must drop it.
+        with active_tenant(tenant_b):
+            b_comp = make_artifact(tenant_b, workspace_a, "architecture_element")
+            with connection.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO pl_tracelink "
+                    "(id, source_id, target_id, link_type, tenant_id, rationale, "
+                    "created_at, modified_at, version) "
+                    "VALUES (%s, %s, %s, %s, %s, '', now(), now(), 1)",
+                    [
+                        str(uuid.uuid4()), str(r_orphan_art.id), str(b_comp.id),
+                        "allocated-to", str(tenant_b.id),
+                    ],
+                )
+
+        with active_tenant(tenant_a):
+            # Reference: the ORIGINAL per-requirement algorithm (raw SQL, no
+            # batching) — an independent oracle for the new implementation.
+            from traceability.coverage_calculator import CoverageCalculator
+
+            entries = CoverageCalculator().get_coverage_data(
+                workspace_a.id, include_outdated=True
+            ).entries
+            ref_rows = []
+            with connection.cursor() as cur:
+                for entry in entries:
+                    cur.execute(
+                        "SELECT artifact_id FROM pl_requirement "
+                        "WHERE id = %s AND tenant_id = %s",
+                        [str(entry.requirement_id), str(tenant_a.id)],
+                    )
+                    row = cur.fetchone()
+                    if not row:
+                        continue
+                    cur.execute(
+                        "SELECT DISTINCT tl.target_id FROM pl_tracelink tl "
+                        "JOIN pl_artifact a ON a.id = tl.target_id "
+                        "WHERE tl.source_id = %s AND tl.link_type = 'allocated-to' "
+                        "AND tl.tenant_id = %s",
+                        [str(row[0]), str(tenant_a.id)],
+                    )
+                    comps = [str(r[0]) for r in cur.fetchall()] or [""]
+                    for comp in comps:
+                        if not entry.test_cases:
+                            ref_rows.append((
+                                str(entry.requirement_id), comp, "", "Not Run",
+                                entry.verification_method or "",
+                            ))
+                        else:
+                            for tc_info in entry.test_cases:
+                                ref_rows.append((
+                                    str(entry.requirement_id), comp,
+                                    tc_info.get("id", ""),
+                                    tc_info.get("result", "Not Run"),
+                                    entry.verification_method or "",
+                                ))
+
+            new_rows = [
+                _vcrm_row_key(r)
+                for r in vcrm_gen.generate_vcrm(workspace_a.id).rows
+            ]
+
+        assert sorted(new_rows) == sorted(ref_rows), (
+            "batched rows differ from the per-requirement reference"
+        )
+        # Orphan-only requirement must keep exactly one blank-component row.
+        orphan_rows = [r for r in new_rows if r[0] == str(r_orphan.id)]
+        assert len(orphan_rows) == 1
+        assert orphan_rows[0][1] == ""
+        # Multi-allocated requirement: deterministic per-requirement target order.
+        multi_rows = [r for r in new_rows if r[0] == str(r_multi.id)]
+        comp_seq = [r[1] for r in multi_rows]
+        assert comp_seq == sorted(comp_seq)
+        assert len(comp_seq) == 3
+
+    def test_requirement_artifact_ids_are_deduplicated(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """Duplicate requirement ids are deduped before the ANY(%s) bind."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        comp_by_req = self._seed_allocated_requirements(tenant_a, workspace_a, 3)
+        req_ids = list(comp_by_req)
+        duplicated = req_ids + [req_ids[0], req_ids[1]]
+
+        with active_tenant(tenant_a):
+            with CaptureQueriesContext(connection) as ctx:
+                artifact_map = vcrm_gen._fetch_requirement_artifact_ids(duplicated)
+
+        import re
+
+        assert set(artifact_map) == set(req_ids)
+        q = [x for x in ctx.captured_queries if "pl_requirement" in x["sql"]]
+        assert len(q) == 1
+        # psycopg interpolates params client-side, so inspect the bound
+        # ARRAY literal: 3 deduplicated ids, not the 5 originally supplied.
+        arr = re.search(r"ARRAY\[(.*?)\]", q[0]["sql"])
+        assert arr is not None, q[0]["sql"]
+        assert len(re.findall(r"[0-9a-f]{8}-[0-9a-f-]{27}", arr.group(1))) == 3
+
+    @pytest.mark.slow
+    def test_explain_uses_composite_index(self, vcrm_gen, tenant_a, workspace_a):
+        """EXPLAIN shows the new (source_id, link_type, tenant_id) index.
+
+        The planner is steered with ``enable_seqscan=off`` (the seeded table is
+        small) and the data includes competing link types on the same sources
+        so ``link_type`` is discriminating — without that the narrower
+        single-column ``source_id`` index wins. Enough rows are seeded for the
+        planner to prefer the composite index; only a handful of source ids
+        are probed, mirroring the real batched query for one workspace.
+        """
+        import uuid as uuid_lib
+
+        from django.db import connection
+
+        from persistence.models import (
+            ArchitectureElement,
+            Requirement,
+            TraceLink,
+        )
+
+        with active_tenant(tenant_a):
+            targets = []
+            for i in range(60):
+                art = make_artifact(tenant_a, workspace_a, "architecture_element")
+                ArchitectureElement.objects.create(
+                    tenant=tenant_a, artifact=art, title=f"EXPLAIN-C-{i}"
+                )
+                targets.append(art)
+
+            sources = []
+            for i in range(120):
+                art = make_artifact(tenant_a, workspace_a, "requirement")
+                Requirement.objects.create(
+                    tenant=tenant_a, artifact=art, title=f"EXPLAIN-R-{i}"
+                )
+                sources.append(art)
+
+            # Competing link types on the same sources force the planner to
+            # use the full (source_id, link_type, tenant_id) prefix.
+            links = [
+                TraceLink(
+                    tenant=tenant_a, source=src, target=tgt, link_type=link_type
+                )
+                for src in sources
+                for tgt in targets
+                for link_type in ("allocated-to", "references", "satisfies")
+            ]
+            TraceLink.objects.bulk_create(links, batch_size=1000)
+
+            sample = [uuid_lib.UUID(str(a.id)) for a in sources[:5]]
+            with connection.cursor() as cur:
+                cur.execute("ANALYZE pl_tracelink")
+                cur.execute("SET enable_seqscan = off")
+                try:
+                    cur.execute(
+                        "EXPLAIN SELECT DISTINCT tl.source_id, tl.target_id "
+                        "FROM pl_tracelink tl JOIN pl_artifact a ON a.id = tl.target_id "
+                        "WHERE tl.source_id = ANY(%s) AND tl.link_type = 'allocated-to' "
+                        "AND tl.tenant_id = %s ORDER BY tl.source_id, tl.target_id",
+                        [sample, str(tenant_a.id)],
+                    )
+                    plan = "\n".join(row[0] for row in cur.fetchall())
+                finally:
+                    cur.execute("RESET enable_seqscan")
+
+        assert "idx_tracelink_source_linktype_tenant" in plan, (
+            f"new composite index not used in plan:\n{plan}"
+        )
