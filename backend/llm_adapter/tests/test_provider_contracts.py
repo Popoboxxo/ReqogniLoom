@@ -389,9 +389,10 @@ def test_anthropic_provider_forwards_configured_base_url() -> None:
     assert captured["kwargs"]["base_url"] == "https://custom-anthropic-proxy.example.com"
 
 
-def test_anthropic_provider_falls_back_to_sdk_default_when_base_url_unset() -> None:
-    """[Issue #212] An unset/empty api_base_url must not pass a literal empty
-    string to the SDK - it must pass None so the SDK's own default applies."""
+def test_anthropic_provider_uses_explicit_default_when_base_url_unset() -> None:
+    """[Issue #212 + S14-A1] An empty api_base_url must pass the explicit
+    public default, never None (which would let the SDK read ANTHROPIC_BASE_URL
+    from the deployment environment and bypass the SSRF validator)."""
     captured: dict = {}
     fake_anthropic = _fake_anthropic_module(captured)
     config = ProviderConfig(
@@ -400,7 +401,7 @@ def test_anthropic_provider_falls_back_to_sdk_default_when_base_url_unset() -> N
     provider = AnthropicProvider(config)
     with patch.dict(sys.modules, {"anthropic": fake_anthropic}):
         provider._chat("hello")
-    assert captured["kwargs"]["base_url"] is None
+    assert captured["kwargs"]["base_url"] == "https://api.anthropic.com"
 
 
 def test_openai_provider_forwards_configured_base_url() -> None:
@@ -418,9 +419,10 @@ def test_openai_provider_forwards_configured_base_url() -> None:
     assert captured["kwargs"]["base_url"] == "https://custom-openai-proxy.example.com"
 
 
-def test_openai_provider_falls_back_to_sdk_default_when_base_url_unset() -> None:
-    """[Issue #212] An unset/empty api_base_url must not pass a literal empty
-    string to the SDK - it must pass None so the SDK's own default applies."""
+def test_openai_provider_uses_explicit_default_when_base_url_unset() -> None:
+    """[Issue #212 + S14-A1] An empty api_base_url must pass the explicit
+    public default, never None (which would let the SDK read OPENAI_BASE_URL
+    from the deployment environment and bypass the SSRF validator)."""
     captured: dict = {}
     fake_openai = _fake_openai_module(captured)
     config = ProviderConfig(
@@ -429,7 +431,7 @@ def test_openai_provider_falls_back_to_sdk_default_when_base_url_unset() -> None
     provider = OpenAiProvider(config)
     with patch.dict(sys.modules, {"openai": fake_openai}):
         provider._chat("hello")
-    assert captured["kwargs"]["base_url"] is None
+    assert captured["kwargs"]["base_url"] == "https://api.openai.com/v1"
 
 
 # ---------------------------------------------------------------------------
