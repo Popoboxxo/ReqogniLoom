@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: attribut-modell-3-stufen
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # Attribut-Report: 3-Stufen-Modell — Vorschlag, Begründungen, Challenge gegen den Bestand
 
 **Version:** 2.0 (challenged) · 11.09.2026 · Basis **v1.8.0-beta.10** (`b4c3a91`)

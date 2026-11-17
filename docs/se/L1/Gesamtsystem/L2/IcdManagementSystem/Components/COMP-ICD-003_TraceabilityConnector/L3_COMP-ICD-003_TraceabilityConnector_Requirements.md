@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: l3-comp-icd-003-traceabilityconnector-requirements
+status: draft
+date: 2026-06-21
+author_agent: se-migration
+open_adrs: []
+---
 # L3 COMP-ICD-003_TraceabilityConnector Requirements
 
 > **Level:** L3 (Component-Anforderungen)

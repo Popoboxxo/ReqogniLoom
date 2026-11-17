@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: reactfrontendsystem-deepaudit
+status: draft
+date: 2026-07-09
+author_agent: se-migration
+---
 # ReactFrontendSystem - Deep Test Coverage Audit
 
 **Datum:** 2026-07-09

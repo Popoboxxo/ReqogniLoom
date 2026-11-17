@@ -435,6 +435,10 @@ jobs:
           scripts/tests/test_doc_index_freshness.py
           scripts/tests/test_doc_number_drift.py
           scripts/tests/test_se_mobile_requirements.py
+          scripts/tests/test_se_frontmatter_coverage.py
+          scripts/tests/test_se_review_lifecycle.py
+          scripts/tests/test_normative_path_refs.py
+          scripts/tests/test_adr_naming.py
 
       - name: Check .env.example covers every compose/settings key
         # #1737: a key used by Compose or read by settings.py must be documented

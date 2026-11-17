@@ -27,7 +27,7 @@ unterscheiden.
 
 ---
 
-## Entscheidungsalternativen
+## Alternativen
 
 ### Option A: Separate Django-Modell-Tabelle GlossaryTerm (EMPFOHLEN)
 
@@ -103,15 +103,24 @@ Workspace-Modell gespeichert. Struktur: { "terms": [{ "id": "...", "term": "..."
 4. Saubere Versionierung pro Term (REQ-L2-AS-033 AC2)
 5. Baseline-Integration ohne Sonderbehandlung (AC3)
 
-**Konsequenzen:**
+**Review-Datum:** Vor Implementierungsbeginn (1 Reviewer ausreichend, kein Board nötig)
+
+## Konsequenzen
+
+**Positiv:**
+- Konsistent mit bestehendem Requirement/RequirementVersion-Muster; Volltext-Suche via PostgreSQL GIN-Index (Option A)
+- Stabile Term-IDs für TraceLinks; saubere Versionierung pro Term; Baseline-Integration ohne Sonderbehandlung (Option A)
+
+**Negativ:**
+- Zwei neue Tabellen (Migration erforderlich); leicht mehr Entwicklungsaufwand als Option B (Option A)
+
+**Implementierungs-Folgen (aus der Entscheidung):**
 - Neue Django-Migration: GlossaryTerm + GlossaryTermVersion
 - Unique-Constraint: (workspace_id, term) — Duplikate auf DB-Ebene verhindert
 - GIN-Index auf GlossaryTerm.term und GlossaryTerm.definition für Suche
 - Baseline.snapshot() erweitert um GlossaryTerm-Queryset
 - Neuer TraceLink-Typ uses-term in TraceLink.link_type-Enum registrieren
 - Neue Serializer: GlossaryTermSerializer, GlossaryTermVersionSerializer
-
-**Review-Datum:** Vor Implementierungsbeginn (1 Reviewer ausreichend, kein Board nötig)
 
 ---
 

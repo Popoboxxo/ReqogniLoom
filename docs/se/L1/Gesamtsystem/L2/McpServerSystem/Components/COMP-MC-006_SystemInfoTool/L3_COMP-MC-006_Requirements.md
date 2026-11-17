@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: l3-comp-mc-006-requirements
+status: draft
+date: 2026-07-04
+author_agent: se-migration
+open_adrs: []
+---
 # L3 SystemInfoTool Requirements
 
 > **Level:** L3 (Komponenten-Anforderungen)

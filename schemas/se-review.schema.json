@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "schemas/se-review.schema.json",
+  "title": "SE review protocol frontmatter",
+  "description": "Frontmatter shape for SE review protocols as documented in AGENTS.md.",
+  "type": "object",
+  "properties": {
+    "review_id": {
+      "type": "string",
+      "pattern": "^RVW-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{3}$",
+      "description": "Stable review identifier, monotonically increasing per day."
+    },
+    "target_req": {
+      "type": "string",
+      "pattern": "^REQ-L[0-4]-",
+      "description": "Requirement ID this review iteration targets (L0-L4 prefix)."
+    },
+    "iteration": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["open", "response", "closed"]
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "reviewer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^RVW-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{3}-[0-9]{2}$"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["major", "minor", "info"]
+          },
+          "category": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 },
+          "suggested_fix": { "type": "string", "minLength": 1 }
+        },
+        "required": [
+          "id",
+          "severity",
+          "category",
+          "description",
+          "suggested_fix"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "type": { "const": "REVIEW" },
+    "scope": { "type": "string" },
+    "author_agent": { "type": "string" }
+  },
+  "required": [
+    "review_id",
+    "target_req",
+    "iteration",
+    "status",
+    "date",
+    "reviewer",
+    "findings"
+  ],
+  "additionalProperties": true
+}

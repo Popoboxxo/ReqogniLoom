@@ -1,3 +1,10 @@
+---
+type: ARCH
+scope: l2-authandtenancysystem-architecture
+status: draft
+date: 2026-06-20
+author_agent: se-migration
+---
 # L2 AuthAndTenancy Architecture
 
 > **Level:** L2 (Subsystem white-box)

@@ -27,7 +27,7 @@ definierten Event-Bus.
 
 ---
 
-## Entscheidungsalternativen
+## Alternativen
 
 ### Option A: Django Signals (Synchron, In-Process)
 
@@ -100,15 +100,25 @@ Prozessen aus.
 3. Django-native Integration via django-celery-results
 4. Latenz-Anforderung (< 2 s für AT-Test-016 AC1) mit Celery erfüllbar bei normalem Load
 
-**Konsequenzen:**
+**Review-Datum:** Vor Implementierungsbeginn
+
+## Konsequenzen
+
+**Positiv:**
+- API-Response-Zeit unberührt (Fire-and-Forget); Retry-Logik konfigurierbar; Monitoring via Celery (Option B)
+- Redis ohnehin für Caching geplant → kein zusätzlicher Infrastruktur-Service (Option B)
+
+**Negativ:**
+- Zusätzliche Abhängigkeit (celery, redis); Suspect-Status erst nach Worker-Ausführung sichtbar (1-5 s Latenz) (Option B)
+- Lokale Entwicklung benötigt Redis-Instanz (docker-compose-Erweiterung) (Option B)
+
+**Implementierungs-Folgen (aus der Entscheidung):**
 - docker-compose.yml erhält Redis-Service und Celery-Worker-Service
 - equirements.txt erhält celery, edis, django-celery-results
 - Neue Celery-App in ackend/core/celery.py
 - Tasks: propagate_suspect_links(requirement_id), update_embedding(artefact_id)
 - Django Signals als Trigger: post_save → enqueue Celery-Task
 - Monitoring: Celery Flower als optionaler Service in docker-compose.dev.yml
-
-**Review-Datum:** Vor Implementierungsbeginn
 
 ---
 

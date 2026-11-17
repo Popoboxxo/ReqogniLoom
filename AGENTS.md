@@ -134,7 +134,7 @@ blockiert (fail closed); die Meldung nennt Submodul, Ziel und Ausweg (ohne
 ## Bekannte Grenzen
 
 Erkennung per Tokenizer, kein Shell-Parser — Indirektion (`eval`, `$(...)`, `xargs`) bleibt unerkannt.
-Lücken-Liste (#551/#592/#809), Guard-Einstufung: `docs/concepts/branch-guard-known-limits.md`.
+Lücken-Liste (#551/#592/#809), Guard-Einstufung: `AGENTS.md#bekannte-grenzen`.
 
 
 
@@ -171,7 +171,7 @@ Format: `<type>: <beschreibung>` (Bsp: `feat: ...`)
 # Repo-Containment („Gefängnis-Modus")
 
 Repo-Containment ist AKTIV: Schreibzugriffe sind auf die Projekt-Wurzel beschränkt; einziger sanktionierter Ausnahmebereich ist `.tmp/`.
-Durchsetzung: PreToolUse-Hook = **Convention boundary** (keine Security Boundary, nur gegen akzidentellen Missbrauch; Definition: `.claude/rules/branch-guard.md#guard-terminologie-convention-boundary-vs-security-boundary`). Grenzen/Details: `docs/concepts/repo-containment-prison-mode.md`.
+Durchsetzung: PreToolUse-Hook = **Convention boundary** (keine Security Boundary, nur gegen akzidentellen Missbrauch; Definition: `AGENTS.md#guard-terminologie-convention-boundary-vs-security-boundary`). Grenzen/Details: `AGENTS.md#repo-containment-gefängnis-modus`.
 
 
 

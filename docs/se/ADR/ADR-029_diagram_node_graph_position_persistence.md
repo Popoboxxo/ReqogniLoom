@@ -1,5 +1,5 @@
 ---
-adr_id: ADR-DS-02
+adr_id: ADR-029
 title: "Node Graph Diagram Position Persistence & SVG Rendering Policy"
 status: accepted
 date: 2026-08-07
@@ -8,7 +8,9 @@ affected_reqs: [REQ-L1-100, REQ-L1-101, REQ-L1-027]
 superseded_by: null
 ---
 
-# ADR-DS-02: Node Graph Diagram Position Persistence & SVG Rendering Policy
+# ADR-029: Node Graph Diagram Position Persistence & SVG Rendering Policy
+
+> Redirect: formerly ADR-DS-02 (renamed under DOC-009; kept for traceability).
 
 **Status:** accepted  
 **Datum:** 2026-08-07  
@@ -24,7 +26,7 @@ GitHub-Issue #353 fordert ein strukturiertes Node-Graph-Diagrammformat (unabhän
 
 ---
 
-## Entscheidungsalternativen
+## Alternativen
 
 ### A. Position Persistence: localStorage vs. Payload
 
@@ -142,7 +144,15 @@ GitHub-Issue #353 fordert ein strukturiertes Node-Graph-Diagrammformat (unabhän
 
 ---
 
-## Auswirkungen
+## Konsequenzen
+
+**Positiv:**
+- Persistenz über Sitzungen hinweg, team-weites einheitliches Layout und Backend-Konsistenz für Exports (Option A2)
+- Geringe Backend-Last auf dem Read-Path; SVG-Export nur bei explizitem Bedarf (Option B2)
+
+**Negativ:**
+- Größere JSON-Payload und ein Network-Request pro Positions-Änderung (Option A2)
+- Mögliche optische Divergenz zwischen React-Flow-Canvas und Backend-SVG-Export (Option B2)
 
 ### Architektur-Ebene
 - **Frontend:** `DiagramGraphEditor` muss flowToPayload() nutzen, alle Position-Changes ins Payload schreiben
@@ -165,7 +175,7 @@ GitHub-Issue #353 fordert ein strukturiertes Node-Graph-Diagrammformat (unabhän
 
 ---
 
-## Verwandte ADRs & Decisions
+### Verwandte ADRs & Decisions
 
 - **ADR-DS-01 (künftig):** Pure-Funktions-Boundary für node_graph.py (keine DB-Imports)
 - **REQ-L1-100:** Node Graph Payload Format Spezifikation
@@ -173,7 +183,7 @@ GitHub-Issue #353 fordert ein strukturiertes Node-Graph-Diagrammformat (unabhän
 
 ---
 
-## Review Checklist
+### Review Checklist
 
 - [x] Beide Entscheidungen sind implementiert (Tasks 1-9 verifiziert)
 - [x] Konsequenzen sind in Arch-Impact dokumentiert

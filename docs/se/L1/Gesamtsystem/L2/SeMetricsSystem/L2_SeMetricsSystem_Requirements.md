@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: l2-semetricssystem-requirements
+status: draft
+date: 2026-06-21
+author_agent: se-migration
+open_adrs: []
+---
 # L2 SeMetrics Requirements
 
 > **Level:** L2 (Subsystem-Anforderungen)

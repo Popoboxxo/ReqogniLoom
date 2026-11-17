@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: l2-vectorsearchservicesystem-requirements
+status: draft
+date: 2026-06-27
+author_agent: se-migration
+open_adrs: []
+---
 # L2 VectorSearchService Requirements
 
 > **Level:** L2 (Subsystem-Anforderungen)

@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: attribut-verifikationsprotokoll
+status: draft
+date: 2026-09-27
+author_agent: se-migration
+---
 # Verifikationsprotokoll — Attribut-Analyse (3-Stufen-Modell)
 
 **Stand:** 11.09.2026 · Basis **v1.8.0-beta.10** (`b4c3a910`) · QS `172.20.5.120`

@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: readme
+status: draft
+date: 2026-09-11
+author_agent: se-migration
+---
 # Attribut-Modell (3 Stufen) — Konzept, Migrationssystematik, Verifikation
 
 Einstiegspunkt für das **3-Stufen-Attributmodell** über alle 11 Artefakt-Typen, die zugehörige

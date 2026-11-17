@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: reqflow-ontology-analysis
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # ReqFlow: Vertiefte Artefakt-Ontologie & Systems Engineering Analyse
 
 Diese erweiterte Analyse taucht tiefer in die Artefakt-Ontologie von ReqFlow ein, referenziert alle maßgeblichen Anforderungen (REQ-IDs) direkt an den Entitäten und Kanten und unterzieht das Modell einem kritischen "Challenge"-Prozess aus Sicht der Systems-Engineering-Disziplin. Abschließend wird eine Gap-Analyse auf Stakeholder-Ebene (L0) durchgeführt.

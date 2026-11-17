@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: authandtenancysystem-deepaudit
+status: draft
+date: 2026-07-09
+author_agent: se-migration
+---
 # AuthAndTenancySystem Deep-Audit Report
 
 **Datum:** 2026-07-09

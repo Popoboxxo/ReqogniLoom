@@ -1,3 +1,10 @@
+---
+type: ARCH
+scope: l3-comp-icd-001-icdmanager-architecture
+status: draft
+date: 2026-06-21
+author_agent: se-migration
+---
 # L3 COMP-ICD-001_IcdManager Architecture
 
 > **Level:** L3 (Component internal design)

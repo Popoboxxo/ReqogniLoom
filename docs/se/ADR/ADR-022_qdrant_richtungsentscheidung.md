@@ -81,7 +81,7 @@ offengelegt):
    expliziter `mode`-Parameter (`vector|keyword|hybrid`) fehlt; eine Recall-Messung fehlt.
    → #1316 ist **umzuformulieren/präzisieren**, bevor daraus Umsetzung wird.
 
-**Vermerk zur Ablage:** `docs/se/ADR/` ist die gelebte Konvention (ADR-001…021 + ADR-DS-02).
+**Vermerk zur Ablage:** `docs/se/ADR/` ist die gelebte Konvention (ADR-001…021 + ADR-029).
 Dieses ADR folgt ihr (vgl. ADR-020/021). Es ändert keine REQ-Datei, keine Kaskaden-Datei und
 keinen Code.
 

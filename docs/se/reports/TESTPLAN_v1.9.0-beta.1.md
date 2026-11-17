@@ -1,3 +1,10 @@
+---
+type: VV-DOC
+scope: testplan-v1-9-0-beta-1
+status: draft
+date: 2026-11-15
+author_agent: se-migration
+---
 # Testplan v1.9.0-beta.1
 
 > **Geltungsbereich: interner Pre-Release.** Dieser Testplan prüft den Schnitt,

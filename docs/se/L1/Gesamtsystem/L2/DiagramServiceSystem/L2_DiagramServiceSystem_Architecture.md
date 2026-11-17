@@ -1,3 +1,10 @@
+---
+type: ARCH
+scope: l2-diagramservicesystem-architecture
+status: draft
+date: 2026-06-21
+author_agent: se-migration
+---
 # L2 DiagramService Architecture
 
 > **Level:** L2 (Subsystem white-box)
@@ -146,7 +153,7 @@ flowchart TD
 *Rationale:* Validierung stellt die strukturelle Integrität sicher, bevor Daten überhaupt versioniert gespeichert werden, während Rendering erst bei Abruf für das UI erfolgt. Diese Trennung erlaubt, dass fehlerhafte Diagramme von vornherein abgelehnt werden, ohne Rendering-Logik zu belasten. Dies stellt sicher, dass REQ-L2-DS-002 und REQ-L2-DS-003 separat getestet und skaliert werden können.
 *Verworfene Alternative:* Ein gemeinsamer Parser für Validierung und Rendering — abgelehnt, da sie auf unterschiedlichen Zeitpunkten des Lebenszyklus (Write vs. Read) arbeiten.
 
-**ADR-DS-02 — Canvas und Mermaid als Komponenten IN DiagramService (keine neuen L2-Subsysteme)**
+**ADR-029 — Canvas und Mermaid als Komponenten IN DiagramService (keine neuen L2-Subsysteme)**
 *Entscheidung:* COMP-DS-006 (CanvasEditor) und COMP-DS-007 (MermaidLiveRenderer) werden als neue Komponenten in das bestehende DiagramServiceSystem integriert.
 *Rationale:* (1) Beide Capabilities teilen die bestehende Infrastruktur (Versionierung, Traceability, MCP-Integration). (2) Ein neues L2-Subsystem würde Duplikation der Versionierungs- und Traceability-Logik erzeugen. (3) Alle Diagramm-bezogenen Capabilities bleiben in einem System (hohe Kohäsion). (4) Die bestehenden Komponenten DiagramManager, DiagramValidator und DiagramRenderer werden um neue Payload-Typen erweitert.
 *Verworfene Alternative:* Zwei neue L2-Subsysteme (CanvasServiceSystem, MermaidServiceSystem) — abgelehnt wegen Duplikation der Versionierungs-, Traceability- und MCP-Infrastruktur.
@@ -165,7 +172,7 @@ flowchart TD
 *Entscheidung:* IF-L1-058 (Canvas Auto-Save Push) und IF-L1-059 (Mermaid Source Update) dürfen direkt vom ReactFrontend (ARCH-L1-001) an den DiagramService (ARCH-L1-013) geroutet werden, ohne den ApplicationService (ARCH-L1-004) zu traversieren.
 *Rationale:* Auto-Save für Canvas (max. 5s-Intervall, REQ-L1-056 AC8) und Mermaid-Live-Preview (500ms-Debounce, REQ-L1-057 AC1) erfordern Latenzen <200ms Roundtrip. Eine zusätzliche A004-Traversierung (~5-10ms In-Process) wäre verkraftbar, aber die wesentliche Begründung ist: Die REST-Endpunkte für Auto-Save und Live-Preview sind reine Datenübergabepfade ohne Geschäftslogik (keine Workflow-Transitions, keine Berechtigungsprüfung über TenantContext hinaus, keine Baseline-Interaktionen). Sie erben die Tenant-Isolation via Authenticated-Request-Context. Eine A004-Traversierung würde Code-Duplizierung in A004 erzwingen (reine Durchreiche-Methoden), ohne messbaren Sicherheitsgewinn.
 *Ausnahme von:* ADR-01 (Single-Entry-Point Rule)
-*Verworfene Alternative:* Vollständige A004-Traversierung — abgelehnt, da sie entweder 4 reine Durchreiche-Methoden in A004 erfordert oder die Canvas/Mermaid-Logik in A004 migrieren würde, was Separation of Concerns verletzt (ADR-DS-02).
+*Verworfene Alternative:* Vollständige A004-Traversierung — abgelehnt, da sie entweder 4 reine Durchreiche-Methoden in A004 erfordert oder die Canvas/Mermaid-Logik in A004 migrieren würde, was Separation of Concerns verletzt (ADR-029).
 *Geltungsbereich:* Ausschließlich IF-L1-058 und IF-L1-059. Alle anderen DiagramService-Operationen (create_diagram, update_diagram, get_diagram, list_versions, get_mcp_artifact) bleiben unter A004-Traversierung.
 
 ---

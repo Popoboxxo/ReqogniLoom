@@ -1,3 +1,10 @@
+---
+type: VV-DOC
+scope: testplan-v1-9-0-beta-2
+status: draft
+date: 2025-06-18
+author_agent: se-migration
+---
 # Testplan v1.9.0-beta.2
 
 > **Geltungsbereich: interner Bugfix-Beta.** Kein Produktions-, Staging- oder

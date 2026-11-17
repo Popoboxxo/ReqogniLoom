@@ -1,3 +1,10 @@
+---
+type: VV-DOC
+scope: l2-resilienceorchestratorsystem-testmodel
+status: draft
+date: 2026-06-22
+author_agent: se-migration
+---
 # L2 ResilienceOrchestratorSystem — MBSE Test Model
 
 > **Level:** L2 Integration Test Model

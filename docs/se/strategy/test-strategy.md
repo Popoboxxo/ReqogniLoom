@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: test-strategy
+status: draft
+date: 2026-06-20
+author_agent: se-migration
+---
 # ReqFlow — Teststrategie & Testmodelle
 
 > **Status:** KONSOLIDIERT | **Datum:** 2026-06-20

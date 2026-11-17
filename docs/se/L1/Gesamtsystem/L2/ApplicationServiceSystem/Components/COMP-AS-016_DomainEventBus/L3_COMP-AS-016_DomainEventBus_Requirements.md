@@ -5,6 +5,7 @@ iteration: 1
 status: done
 timestamp: "2026-06-22T14:30:00Z"
 schema_version: "1.0.0"
+open_adrs: []
 ---
 # L3 DomainEventBus Requirements
 

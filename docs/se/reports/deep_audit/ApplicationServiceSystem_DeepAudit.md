@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: applicationservicesystem-deepaudit
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # Deep Audit: ApplicationServiceSystem Test Coverage
 
 Dieser Report analysiert alle Tests im ApplicationServiceSystem auf Shallow-Testing und listet konkrete Refactoring-Maßnahmen auf.

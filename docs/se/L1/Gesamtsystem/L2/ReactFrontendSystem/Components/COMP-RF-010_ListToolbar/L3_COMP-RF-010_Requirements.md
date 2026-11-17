@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: l3-comp-rf-010-requirements
+status: draft
+date: 2026-07-04
+author_agent: se-migration
+open_adrs: []
+---
 # L3 ListToolbar Requirements
 
 > **Level:** L3 (Komponenten-Anforderungen)

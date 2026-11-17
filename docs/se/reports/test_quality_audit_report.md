@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: test-quality-audit-report
+status: draft
+date: 2026-07-09
+author_agent: se-migration
+---
 # SE-Kaskade Test-Quality Audit Report
 
 > **Datum:** 2026-07-09

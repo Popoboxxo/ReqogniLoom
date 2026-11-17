@@ -1,3 +1,10 @@
+---
+type: ARCH
+scope: l3-comp-ro-001-asyncdispatcher-architecture
+status: draft
+date: 2026-06-21
+author_agent: se-migration
+---
 # L3 COMP-RO-001_AsyncDispatcher Architecture
 
 > **Level:** L3 (Terminal Component White-Box)

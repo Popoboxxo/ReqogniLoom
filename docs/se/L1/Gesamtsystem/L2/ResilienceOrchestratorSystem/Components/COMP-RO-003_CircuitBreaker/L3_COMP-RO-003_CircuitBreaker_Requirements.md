@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: l3-comp-ro-003-circuitbreaker-requirements
+status: draft
+date: 2026-06-21
+author_agent: se-migration
+open_adrs: []
+---
 # L3 COMP-RO-003_CircuitBreaker Requirements
 
 > **Level:** L3 (Component-Anforderungen)

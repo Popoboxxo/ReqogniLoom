@@ -1,4 +1,11 @@
-﻿# V&V Strategie — Neue Needs v6 (SN-30 bis SN-35)
+---
+type: VV-DOC
+scope: vv-strategy-new-needs-v6
+status: draft
+date: 2026-06-28
+author_agent: se-migration
+---
+# V&V Strategie — Neue Needs v6 (SN-30 bis SN-35)
 
 > **Level:** System V&V (L1 Akzeptanz + L2 Integration + Ln Unit)
 > **Scope:** REQ-L0-030, REQ-L0-032 bis REQ-L0-035 -> REQ-L1-043 bis REQ-L1-048

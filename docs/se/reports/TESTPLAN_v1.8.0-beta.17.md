@@ -1,3 +1,10 @@
+---
+type: VV-DOC
+scope: testplan-v1-8-0-beta-17
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # Testplan v1.8.0-beta.17
 
 > **Geltungsbereich: interner Pre-Release.** Dieser Testplan prüft den

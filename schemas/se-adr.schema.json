@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "schemas/se-adr.schema.json",
+  "title": "SE ADR frontmatter",
+  "description": "Frontmatter shape for SE Architecture Decision Records as documented in AGENTS.md.",
+  "type": "object",
+  "properties": {
+    "adr_id": {
+      "type": "string",
+      "pattern": "^ADR-[0-9]{3}$",
+      "description": "Stable ADR identifier, monotonically increasing, never reused."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Short title of the decision."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["proposed", "review", "accepted", "deprecated", "superseded"]
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "deciders": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1
+    },
+    "affected_reqs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^REQ-L[0-4]-",
+        "description": "REQ ID with an L0-L4 level prefix (subsystem codes such as BL/RF/DS are allowed)."
+      },
+      "minItems": 1
+    },
+    "superseded_by": {
+      "description": "Successor ADR when status is superseded; otherwise null.",
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^ADR-[0-9]{3}$" }
+      ]
+    },
+    "type": { "const": "ADR" },
+    "scope": { "type": "string" },
+    "author_agent": { "type": "string" }
+  },
+  "required": [
+    "adr_id",
+    "title",
+    "status",
+    "date",
+    "deciders",
+    "affected_reqs",
+    "superseded_by"
+  ],
+  "additionalProperties": true
+}

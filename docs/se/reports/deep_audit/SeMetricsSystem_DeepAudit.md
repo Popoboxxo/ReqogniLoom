@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: semetricssystem-deepaudit
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # Deep Audit: Test Coverage für SeMetricsSystem
 
 Dieses Dokument ist ein detaillierter Audit der Testabdeckung für das `SeMetricsSystem` im Projekt ReqFlow. Es vergleicht die Implementierung in `backend/se_metrics/tests/` Zeile für Zeile mit den Anforderungen aus `L2_SeMetricsSystem_Requirements.md`.

@@ -238,7 +238,7 @@ test.describe('[GH-353 Task 8] DiagramGraphEditor (node_graph)', () => {
     const nodeSelector = '[data-testid="graph-canvas"] [data-testid^="graph-node-"]';
     // React Flow writes each node's GRAPH-SPACE position onto its wrapper as a
     // `transform: translate(Xpx, Ypx)`, independent of the viewport's own
-    // pan/zoom. That is the value ADR-DS-02 promises round-trips through the
+    // pan/zoom. That is the value ADR-029 promises round-trips through the
     // saved payload, so assert it directly — a screen bounding box alone
     // cannot tell "the position was lost" apart from "the viewport was
     // re-framed", and conflating the two is what made this test's original

@@ -1,3 +1,10 @@
+---
+type: ARCH
+scope: l3-comp-ro-004-degradationmanager-architecture
+status: draft
+date: 2026-06-21
+author_agent: se-migration
+---
 # L3 COMP-RO-004_DegradationManager Architecture
 
 > **Level:** L3 (Terminal Component White-Box)

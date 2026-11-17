@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: sn-stakeholder-needs
+status: draft
+date: 2026-06-18
+author_agent: se-migration
+open_adrs: []
+---
 # L0 Stakeholder Needs
 
 > **Level:** L0 (Stakeholder Needs)

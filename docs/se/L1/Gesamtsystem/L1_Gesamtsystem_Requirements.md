@@ -1,3 +1,11 @@
+---
+type: REQ
+scope: l1-gesamtsystem-requirements
+status: draft
+date: 2026-06-18
+author_agent: se-migration
+open_adrs: []
+---
 # L1 Gesamtsystem Requirements
 
 > **Level:** L1 (System-Anforderungen)

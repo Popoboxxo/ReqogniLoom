@@ -9,6 +9,7 @@ sources:
   - docs/superpowers/specs/2026-11-16-mobile-pwa-design.md
   - docs/plans/mobile-baseline-2026-11.md
   - docs/features/mobile-and-pwa.md
+open_adrs: []
 ---
 
 # REQ-L2-RF-209: Mobil-IA — Detail ersetzt Liste mit Zurück-Schritt (M5, ex REQ-209)

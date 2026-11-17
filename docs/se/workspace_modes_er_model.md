@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: workspace-modes-er-model
+status: draft
+date: 2026-07-07
+author_agent: se-migration
+---
 # Workspace-Modi: ER-Modell & SE-Konformitätsprüfung
 
 > Basiert auf `reqflow_ontology_analysis.md` und dem realen Datenmodell

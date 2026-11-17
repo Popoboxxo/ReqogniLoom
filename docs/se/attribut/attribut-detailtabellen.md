@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: attribut-detailtabellen
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # Attribut-Modell für die Artefakt-Masken — 3-Stufen-Vorschlag
 
 **Stand:** 11.09.2026 · Basis **v1.8.0-beta.10** (`b4c3a91`) · Autor: SE/RE/Test-Expertenanalyse

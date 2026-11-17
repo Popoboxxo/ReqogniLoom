@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: attribut-umsetzungsspezifikation
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # Attribut-System v3 — Umsetzungsspezifikation
 
 **Status:** Draft (zur Freigabe) · 12.09.2026

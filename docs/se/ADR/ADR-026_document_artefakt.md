@@ -15,6 +15,11 @@ author_agent: documenter
 
 **Status:** proposed (Entwurf 2026-11-02). Der Wechsel auf `accepted` ist eine
 Nutzerentscheidung und nicht Teil dieses Dokuments.
+**Lifecycle-Log:** 2026-11-17 — `proposed` unverändert (**status proposed retained —
+awaiting user decision**). Grund: Das Review-Protokoll RVW-2026-11-02-001 wurde in
+S6.2 geschlossen; Befund 01 (Document-REQ, z. B. `REQ-L2-DOC-001`) ist als
+Vorbedingung für den späteren User-Entscheid mit Owner `requirements` und Ziel
+2026-12-01 vertagt. Keine `open_adrs`-Änderung.
 **Entscheider:** `user`; **Text:** `documenter` (Rollen laut ENT-X4 = A).
 **Betroffene REQs:** REQ-L2-PL-004 (Entitäten/Schema), REQ-L2-PL-005 (Auditfelder),
 REQ-L2-PL-009 (on_delete-Regeln), REQ-L2-PL-010 (RLS), REQ-L2-TE-001 (TraceLink-Verwaltung).

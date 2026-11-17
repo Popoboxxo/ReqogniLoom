@@ -1,3 +1,10 @@
+---
+type: TRACE
+scope: traceability-matrix
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # ReqogniLoom Traceability Matrix
 
 > **AUTOGENERIERT — NICHT MANUELL EDITIEREN.**

@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: attribut-matrix-3-stufen
+status: draft
+date: 2026-09-27
+author_agent: se-migration
+---
 # Attribut-Matrix — alle Artefakte × alle Attribute × 3 Stufen
 
 **Teil der** `attribut-umsetzungsspezifikation.md`

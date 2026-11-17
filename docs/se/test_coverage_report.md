@@ -1,3 +1,10 @@
+---
+type: STRATEGY
+scope: test-coverage-report
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # Requirement Test Coverage Report
 
 > **Scope:** Stakeholder Needs (REQ-L0) sind aus diesem Coverage-Report ausgenommen —

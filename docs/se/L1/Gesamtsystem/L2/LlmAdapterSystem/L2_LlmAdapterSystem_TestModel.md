@@ -1,3 +1,10 @@
+---
+type: VV-DOC
+scope: l2-llmadaptersystem-testmodel
+status: draft
+date: 2026-11-17
+author_agent: se-migration
+---
 # L2 LlmAdapterSystem Test Model
 
 > **Level:** L2 (Subsystem)
