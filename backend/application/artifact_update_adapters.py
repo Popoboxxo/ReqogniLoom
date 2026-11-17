@@ -133,8 +133,15 @@ def _stakeholder_need(
 
 
 def _architecture_element(
-    ctx: AuthContext, entity_id: UUID, fields: Mapping[str, Any], expected_version, change_reason
+    ctx: AuthContext, entity_id: UUID, fields: Mapping[str, Any], expected_version, _change_reason
 ) -> tuple[UUID, int]:
+    """R2C-007d: the 5th seam argument is intentionally unused.
+
+    ``ArchitectureService.update_architecture_element`` has no ``change_reason``
+    parameter; forwarding one was never possible. The name is underscored so
+    the signature states that honestly while keeping the uniform
+    :data:`UpdateCallable` arity required by the seam.
+    """
     from application.architecture_service import ArchitectureService
 
     result = ArchitectureService().update_architecture_element(
@@ -204,8 +211,14 @@ def _issue(
 
 
 def _glossary_term(
-    ctx: AuthContext, entity_id: UUID, fields: Mapping[str, Any], expected_version, change_reason
+    ctx: AuthContext, entity_id: UUID, fields: Mapping[str, Any], expected_version, _change_reason
 ) -> tuple[UUID, int]:
+    """R2C-007d: the 5th seam argument is intentionally unused.
+
+    ``GlossaryService.update`` has no ``change_reason`` parameter; the old name
+    suggested an audit reason was recorded when it never was. Underscored to
+    keep the uniform :data:`UpdateCallable` arity without the false promise.
+    """
     from application.glossary_service import GlossaryService
 
     result = GlossaryService().update(

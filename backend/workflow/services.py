@@ -629,7 +629,10 @@ def outdate(
         item_type:    Entity type (e.g. "Requirement").
         workspace_id: Workspace UUID.
         ctx:          AuthContext (``user_id`` is recorded as the actor).
-        reason:       Optional audit reason for the history entry.
+        reason:       Unused since Phase 4 — kept for signature compatibility.
+            No ``WorkflowHistoryEntry`` is written anymore because no workflow
+            transition happens; the soft-delete itself is recorded by the
+            calling service's ``AuditEntry``.
         allow_lazy_init: When ``False``, skip the self-healing above and raise
             :class:`WorkflowItemNotFoundError` instead of creating a state row
             for an item that was never registered with the workflow engine
@@ -641,11 +644,6 @@ def outdate(
             a registered state, so "no state" there means the caller passed
             an ``item_id`` that was never real to begin with, not a
             legitimate pre-workflow-engine item.
-
-        reason:       Unused since Phase 4 — kept for signature compatibility.
-            No ``WorkflowHistoryEntry`` is written anymore because no workflow
-            transition happens; the soft-delete itself is recorded by the
-            calling service's ``AuditEntry``.
 
     Returns:
         TransitionResult describing the **lifecycle** transition that actually

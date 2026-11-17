@@ -45,10 +45,15 @@ from persistence.models import Artifact, Tenant, Workspace
 from persistence.transactions import atomic_transaction
 from workflow import state_reader
 
+# Sentinel: "parameter omitted" vs "clear custom_fields to {}" (shared, see
+# application.sentinels; R2C-002).
+from application.sentinels import UNSET as _UNSET
+
+
+
 logger = logging.getLogger(__name__)
 
 #: Sentinel distinguishing "custom_fields omitted" from "clear to {}".
-_UNSET = object()
 
 #: SA-16 analogue (AUD-2026-09-281): how often ``create_version`` re-reads the
 #: next sequence_number after losing the ``uq_goal_lineage_sequence`` race.

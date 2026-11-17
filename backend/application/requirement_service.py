@@ -56,6 +56,7 @@ from application.optimistic_lock import (
     lock_for_version_check,
 )
 from application.requirement_filters import allocated_q, level_q
+from application.requirement_update import RequirementUpdate
 from application.vector_port import (
     COLLECTION_REQUIREMENT,
     QdrantBackendUnavailableError,
@@ -78,10 +79,13 @@ from persistence.transactions import TransactionContextManager, atomic_transacti
 from traceability.types import LinkType
 from workflow import state_reader
 
-logger = logging.getLogger(__name__)
+# Sentinel: "parameter omitted" vs "clear custom_fields to {}" (shared, see
+# application.sentinels; R2C-002).
+from application.sentinels import UNSET as _UNSET
 
-# Sentinel to distinguish "not provided" from "set to None" in update calls.
-_UNSET = object()
+
+
+logger = logging.getLogger(__name__)
 
 # #45 (IEEE 29148 §5.2.4): "and"/"or" conjunctions in a requirement title
 # usually indicate it bundles more than one testable statement. Word-boundary
@@ -130,6 +134,18 @@ def normalized_title(title: str) -> str:
     accept, and vice versa.
     """
     return str(title or "").strip().casefold()
+
+
+def _dto_value(value: object) -> Any:
+    """Resolve a command field to the legacy service-local value.
+
+    ``UNSET`` means "the caller did not send this field" and becomes ``None``
+    at the service boundary, which the existing ``is not None`` /
+    ``is not _UNSET`` checks already interpret correctly. Every other value —
+    including an explicit ``None`` — is passed through unchanged, so the
+    nullable-field "clear to NULL" path keeps its distinct meaning.
+    """
+    return None if value is _UNSET else value
 
 
 class PgVectorUnavailableError(RuntimeError):
@@ -775,6 +791,8 @@ class RequirementService(ServiceBase):
         allocation_intent: str | None = None,
         custom_fields: object = _UNSET,
         expected_version: int | None = None,
+        *,
+        command: RequirementUpdate | None = None,
     ) -> Requirement:
         """Update a Requirement, enforcing change_reason policy.
 
@@ -812,7 +830,66 @@ class RequirementService(ServiceBase):
         refused with ``OptimisticLockError`` (409 CONFLICT) instead of silently
         overwriting a concurrent edit. Omitting it keeps the previous
         last-writer-wins behaviour, so existing clients are unaffected.
+
+        R2C-003: new callers should pass an immutable :class:`RequirementUpdate`
+        via ``command``. The explicit legacy keyword parameters above are a
+        one-release compatibility wrapper; they remain individually named (no
+        ``**kwargs``) so an unsupported keyword such as ``status`` or ``level``
+        keeps raising ``TypeError``.
         """
+        if command is None:
+            command = RequirementUpdate.from_legacy_kwargs(
+                {
+                    "title": title,
+                    "description": description,
+                    "acceptance_criteria": acceptance_criteria,
+                    "rationale": rationale,
+                    "source": source,
+                    "category": category,
+                    "change_reason": change_reason,
+                    "type": type,
+                    "complexity_fibonacci": complexity_fibonacci,
+                    "verification_method": verification_method,
+                    "parent_id": parent_id,
+                    "uid": uid,
+                    "suspect": suspect,
+                    "allocation_intent": allocation_intent,
+                    "custom_fields": custom_fields,
+                    "expected_version": expected_version,
+                }
+            )
+        return self._apply_requirement_update(requirement_id, ctx, command)
+
+    def _apply_requirement_update(
+        self, requirement_id: UUID, ctx: AuthContext, command: RequirementUpdate
+    ) -> Requirement:
+        """DTO-driven implementation of :meth:`update_requirement`.
+
+        Resolves the command into the same locals the legacy body used, so the
+        write logic below is unchanged. Fields that historically used ``None``
+        as "unchanged" go through :func:`_dto_value` (``UNSET`` and ``None``
+        both become ``None``); the nullable SE/hierarchy fields keep their
+        ``UNSET`` sentinel so an explicit ``None`` still clears them.
+        """
+        title = _dto_value(command.title)
+        description = _dto_value(command.description)
+        acceptance_criteria = _dto_value(command.acceptance_criteria)
+        rationale = _dto_value(command.rationale)
+        source = _dto_value(command.source)
+        category = _dto_value(command.category)
+        change_reason = _dto_value(command.change_reason)
+        type = _dto_value(command.type)
+        suspect = _dto_value(command.suspect)
+        allocation_intent = _dto_value(command.allocation_intent)
+        expected_version = _dto_value(command.expected_version)
+        # These keep UNSET: their ``is not _UNSET`` branches are the load-bearing
+        # partial-PATCH distinction between "omitted" and "clear to NULL".
+        complexity_fibonacci = command.complexity_fibonacci
+        verification_method = command.verification_method
+        parent_id = command.parent_id
+        uid = command.uid
+        custom_fields = command.custom_fields
+
         requirement = self._load_requirement_for_update(
             requirement_id, ctx, expected_version
         )

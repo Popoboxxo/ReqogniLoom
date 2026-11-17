@@ -73,10 +73,15 @@ from persistence.models import Artifact, Document, Tenant, Workspace
 from persistence.transactions import atomic_transaction
 from workflow import state_reader
 
+# Sentinel: "parameter omitted" vs "clear custom_fields to {}" (shared, see
+# application.sentinels; R2C-002).
+from application.sentinels import UNSET as _UNSET
+
+
+
 logger = logging.getLogger(__name__)
 
 #: Sentinel distinguishing "argument omitted" from "clear to None / {}".
-_UNSET = object()
 
 #: The workflow item type this service owns.
 DOCUMENT_ITEM_TYPE = "Document"

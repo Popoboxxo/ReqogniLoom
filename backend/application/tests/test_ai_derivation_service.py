@@ -2047,3 +2047,53 @@ def test_persist_methods_reject_a_malformed_preview(auth_context, workspace):
     assert "'policy' must be one of ('manual', 'auto'), got 'bogus'." in str(
         exc_info.value
     )
+
+
+# ---------------------------------------------------------------------------
+# R2C-008 — unified _get_or_404 lookup seam
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "helper_name,label,artifact_backed",
+    [
+        ("_get_requirement", "Requirement", True),
+        ("_get_stakeholder_need", "StakeholderNeed", True),
+        ("_get_architecture_element", "ArchitectureElement", True),
+        ("_get_workspace", "Workspace", False),
+    ],
+)
+def test_get_lookup_helpers_share_not_found_message_and_artifact_select(
+    auth_context, helper_name, label, artifact_backed
+):
+    """All four _get_* wrappers delegate to one _get_or_404 seam (R2C-008).
+
+    They must produce the identical ``f"{label} {id} not found"`` message and
+    eager-load ``artifact`` only for the three artifact-backed models;
+    ``Workspace`` has no such relation and must not join it. The assertion
+    inspects the generated SQL of the lookup query itself, which Django emits
+    even when no row matches.
+    """
+    from uuid import uuid4
+
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from persistence.tenancy import TenantContext
+
+    missing_id = uuid4()
+    TenantContext.set_tenant(auth_context.tenant_id)
+    helper = getattr(AiDerivationService(), helper_name)
+
+    with pytest.raises(NotFoundError) as exc_info:
+        with CaptureQueriesContext(connection) as captured:
+            helper(missing_id)
+
+    assert str(exc_info.value) == f"{label} {missing_id} not found"
+
+    lookup_sql = next(
+        q["sql"]
+        for q in reversed(captured.captured_queries)
+        if q["sql"].lstrip().upper().startswith("SELECT")
+    )
+    assert ('"pl_artifact"' in lookup_sql) is artifact_backed, lookup_sql
