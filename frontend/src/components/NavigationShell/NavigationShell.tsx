@@ -130,6 +130,16 @@ function AppShell(): JSX.Element {
   // focus across browsers, and `tabIndex={-1}` on <main> makes it a valid
   // programmatic focus target without adding it to the tab order.
   const mainRef = useRef<HTMLElement>(null);
+  // One t()-resolved label set shared by both boundaries: the narrow one
+  // inside <main> (route failures) and the shell-level one around sidebar +
+  // main + interview widget (R2F-008). Both are mandatory on ErrorBoundary.
+  const boundaryLabels = {
+    errorTitle: t("errors.generic"),
+    reloadLabel: t("actions.reload"),
+    backLabel: t("actions.back"),
+    hintLabel: t("errors.boundaryHint"),
+    referenceLabel: t("errors.reference"),
+  };
 
   return (
     <div className={styles.shell}>
@@ -145,6 +155,11 @@ function AppShell(): JSX.Element {
         {t("a11y.skipToContent")}
       </a>
       <BannerStack />
+      {/* R2F-008: an error in the sidebar, the widget or the shell layout
+          itself must not blank the whole app. Keep the route-level boundary
+          inside <main> so a single route failure still leaves navigation
+          usable — this outer one is the last line of defence. */}
+      <ErrorBoundary {...boundaryLabels}>
       <div className={styles.contentRow}>
       <SidebarNavigation />
       <main
@@ -154,13 +169,7 @@ function AppShell(): JSX.Element {
         className={styles.main}
         role="main"
       >
-        <ErrorBoundary
-          errorTitle={t("errors.generic")}
-          reloadLabel={t("actions.reload")}
-          backLabel={t("actions.back")}
-          hintLabel={t("errors.boundaryHint")}
-          referenceLabel={t("errors.reference")}
-        >
+        <ErrorBoundary {...boundaryLabels}>
           <Suspense fallback={<div role="status" data-testid="route-suspense-fallback">{t("loading")}</div>}>
             <Routes>
               <Route path="/" element={<DashboardViews />} />
@@ -257,6 +266,7 @@ function AppShell(): JSX.Element {
           not just one page, so it lives here rather than inside a <Route>. */}
       <InterviewWidget />
       </div>
+      </ErrorBoundary>
     </div>
   );
 }

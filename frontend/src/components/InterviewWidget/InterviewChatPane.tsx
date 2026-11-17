@@ -18,7 +18,6 @@ import { Link } from "react-router-dom";
 import {
   interviewsApi,
   type InterviewState,
-  type MultiFormalizeResult,
   type ProposalItem,
 } from "../../api/interviews";
 import { getArtifactRoute } from "../../utils/artifactRoutes";
@@ -102,15 +101,21 @@ export function InterviewChatPane({
     setCreating(true);
     setError(null);
     try {
-      // Declared return type predates multi-mode; at runtime a multi-kind
-      // formalize() responds with MultiFormalizeResult (see api/interviews.ts).
-      const result = (await interviewsApi.formalize(
+      const result = await interviewsApi.formalize(
         interview.id,
         pendingProposal
-      )) as unknown as MultiFormalizeResult;
-      setCreatedArtifacts(result.created);
+      );
+      if ("created" in result) {
+        setCreatedArtifacts(result.created);
+        setPendingProposal(null);
+        onFormalized?.(result.created);
+        return;
+      }
+      // A single-kind response to a confirmed multi proposal is anomalous.
+      // Never read `.created` off it (undefined) or hand `undefined` to
+      // `onFormalized` — surface the generic error and clear the stale card.
       setPendingProposal(null);
-      onFormalized?.(result.created);
+      setError(t("errors.generic"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create artifacts.");
     } finally {

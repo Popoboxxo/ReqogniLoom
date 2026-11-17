@@ -16,16 +16,18 @@ import styles from "./ErrorBoundary.module.css";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
+  // All labels are REQUIRED. The boundary must never fall back to hardcoded
+  // English copy — every caller supplies t()-resolved strings (R2F-001).
   /** Label for "Reload" action — passed from parent with i18n */
-  reloadLabel?: string;
+  reloadLabel: string;
   /** Label for "Back" action */
-  backLabel?: string;
+  backLabel: string;
   /** Label for error title */
-  errorTitle?: string;
+  errorTitle: string;
   /** Neutral guidance shown instead of the raw error message. */
-  hintLabel?: string;
+  hintLabel: string;
   /** Label in front of the reference id ("Referenz" / "Reference"). */
-  referenceLabel?: string;
+  referenceLabel: string;
 }
 
 interface ErrorBoundaryState {
@@ -89,11 +91,11 @@ export class ErrorBoundary extends Component<
     }
 
     const {
-      reloadLabel = "Reload",
-      backLabel = "Back",
-      errorTitle = "An unexpected error occurred.",
-      hintLabel = "Please reload the page. If the error persists, give support the reference.",
-      referenceLabel = "Reference",
+      reloadLabel,
+      backLabel,
+      errorTitle,
+      hintLabel,
+      referenceLabel,
     } = this.props;
 
     return (
