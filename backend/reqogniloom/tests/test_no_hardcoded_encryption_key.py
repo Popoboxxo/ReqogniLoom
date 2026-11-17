@@ -122,18 +122,73 @@ def test_no_tracked_file_contains_a_fernet_key_literal():
     )
 
 
+# `on.workflow_call.secrets` declarations in the reusable workflows (added by
+# the OPS-004 fix) use a bare `FIELD_ENCRYPTION_KEY:` mapping, with the value
+# (e.g. `required: true`) on the following indented lines. That declares an
+# incoming secret rather than pinning a key literal, so accept it — but only
+# when the line truly has no value (an optional trailing YAML comment is fine).
+_WORKFLOW_CALL_SECRET_DECLARATION = re.compile(r"^FIELD_ENCRYPTION_KEY:\s*(?:#.*)?$")
+_EMBEDDED_SCRIPT_TEXT = re.compile(r"(?:[rbfu]{0,2})(['\"])(.*)\1,?\s*")
+
+
+def _is_workflow_call_secret_declaration(line: str) -> bool:
+    """True for a bare ``FIELD_ENCRYPTION_KEY:`` workflow_call secret mapping."""
+    return bool(_WORKFLOW_CALL_SECRET_DECLARATION.match(line.strip()))
+
+
+def _is_embedded_script_text(line: str) -> bool:
+    """True when the token appears only inside a quoted Python string literal."""
+    match = _EMBEDDED_SCRIPT_TEXT.fullmatch(line.strip())
+    return bool(
+        match
+        and "FIELD_ENCRYPTION_KEY" in match.group(2)
+        and '":' not in match.group(2)
+    )
+
+
+def _is_allowed_encryption_key_line(line: str) -> bool:
+    """True when a FIELD_ENCRYPTION_KEY line references a secret or declares it."""
+    stripped = line.strip()
+    return (
+        "secrets." in line
+        or "$" in line
+        or stripped.endswith('FIELD_ENCRYPTION_KEY=$KEY" >> "$GITHUB_ENV"')
+        or _is_workflow_call_secret_declaration(line)
+        or _is_embedded_script_text(line)
+    )
+
+
 @pytest.mark.parametrize("workflow", ["ci.yml", "playwright.yml"])
 def test_workflows_do_not_pin_a_key_literal(workflow):
     text = (REPO_ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
     for line in text.splitlines():
         if "FIELD_ENCRYPTION_KEY" not in line or line.strip().startswith("#"):
             continue
-        # Only a secret reference, a shell expansion or an env export is allowed.
-        assert (
-            "secrets." in line
-            or "$" in line
-            or line.strip().endswith("FIELD_ENCRYPTION_KEY=$KEY\" >> \"$GITHUB_ENV\"")
-        ), f"{workflow} pins FIELD_ENCRYPTION_KEY to a literal: {line.strip()}"
+        # Secret references, shell expansions, env exports, bare workflow_call
+        # declarations and quoted validation-script text are allowed — never a
+        # literal key value.
+        assert _is_allowed_encryption_key_line(line), (
+            f"{workflow} pins FIELD_ENCRYPTION_KEY to a literal: {line.strip()}"
+        )
+
+
+def test_workflow_call_declaration_helper_rejects_literal_values():
+    """A bare workflow_call declaration passes, but a same-line literal fails."""
+    assert _is_workflow_call_secret_declaration("      FIELD_ENCRYPTION_KEY:")
+    assert _is_allowed_encryption_key_line("      FIELD_ENCRYPTION_KEY:")
+    with_comment = "      FIELD_ENCRYPTION_KEY:  # required below"
+    assert _is_workflow_call_secret_declaration(with_comment)
+    assert _is_allowed_encryption_key_line(with_comment)
+
+    literal = f"      FIELD_ENCRYPTION_KEY: {LEAKED_KEY}"
+    assert not _is_workflow_call_secret_declaration(literal)
+    assert not _is_allowed_encryption_key_line(literal)
+    other_literal = "      FIELD_ENCRYPTION_KEY: hunter2"
+    assert not _is_workflow_call_secret_declaration(other_literal)
+    assert not _is_allowed_encryption_key_line(other_literal)
+    assert not _is_embedded_script_text(
+        'FIELD_ENCRYPTION_KEY: "KzOBYC05wXl_7i1FedEC0dPI8E61uRMmXwhSVd40fis="'
+    )
 
 
 def test_settings_test_generates_a_usable_key(monkeypatch):

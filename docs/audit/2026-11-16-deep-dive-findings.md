@@ -20,6 +20,8 @@
 | L1-001 | fixed in `7d6593a3` | State-first-Recovery + `baseline_id` im Cache-Key; Legacy-Pfad bewusst beibehalten |
 | OPS-001 | closed as not a problem (2026-11-16) | Laufzeit-Repro am exakten Digest `nginx:1.31-alpine@sha256:785835ea…`: `/usr/bin/curl` vorhanden, Healthcheck exit 0; False Positive |
 | DEP-002 | ANPASSEN (Fix-Design korrigiert) | „Floors aus requirements.txt ableiten" wäre tautologisch; unabhängige CVE-Floor-Source nötig |
+| IMPL-001 | NEW (während S0.4) | Extended-Preset: Architektur-Editor bietet kein `change_reason` — `ArchitectureArtifactForm.tsx` reicht `requiresChangeReason` nicht an `ArtifactForm` weiter, Backend verlangt es aber → Architektur-Edits im Extended-Preset blockiert. Testid `arch-change-reason-input` existiert nicht. E2E mit `test.fixme` + Ticket-Ref markiert; Fix in S4/S6 routebar. |
+
 
 Gate-Protokoll: `docs/audit/gates/2026-11-16/mvp-gates.md`. Review: database-engineer APPROVE nach 10 behobenen Review-Punkten.
 

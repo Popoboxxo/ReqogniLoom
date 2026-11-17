@@ -275,11 +275,16 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     expect(req2Resp.ok()).toBeTruthy();
     const req2 = await req2Resp.json();
 
-    // Create the TraceLink
+    // Create the TraceLink.
+    // `TraceLinkSerializer` declares only {source_id, target_id, link_type,
+    // rationale} plus read-only fields — there is NO `workspace_id` field, and
+    // `UnknownFieldRejectionMixin` (#851) rejects undeclared keys with 400
+    // "workspace_id: Unknown field." The workspace is derived from the source
+    // artifact's own row (`validate_link_pair(source.workspace_id, ...)`), never
+    // from the request body. Mirrors testcases.spec.ts / system-proof-journey.spec.ts.
     const linkResp = await request.post(`${BACKEND_URL}/api/v1/tracelinks/`, {
       headers,
       data: {
-        workspace_id: SEEDED_WORKSPACE_ID,
         source_id: req1.artifact_id ?? req1.id,
         target_id: req2.artifact_id ?? req2.id,
         link_type: 'derives-from',
