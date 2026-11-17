@@ -159,7 +159,9 @@ export function useWorkspacePreferences({
         if (override !== undefined) return override;
       }
       const preset: WorkspacePreset = activeWorkspace?.preset ?? "standard";
-      return PRESET_VISIBILITY[preset][feature] ?? true;
+      // Defensive: an unknown preset (e.g. injected via setActiveWorkspace by
+      // a caller that bypassed normalization) must not throw here (R2F-005).
+      return PRESET_VISIBILITY[preset]?.[feature] ?? true;
     },
     [activeWorkspace, userOverrides, hideAllOptional]
   );

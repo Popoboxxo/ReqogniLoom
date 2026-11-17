@@ -15,7 +15,17 @@
  */
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { resolveLocaleKey } from "./test/i18n-test-helpers";
 import { CsrfCookieWarning } from "./App";
+
+vi.mock("react-i18next", () => ({
+  // Transitive imports (SidebarNavigation -> i18n/index) call i18n.use() on it.
+  initReactI18next: { type: "3rdParty", init: () => undefined },
+  useTranslation: () => ({
+    t: (key: string) => resolveLocaleKey(key) ?? key,
+    i18n: { language: "de" },
+  }),
+}));
 
 vi.mock("./context/AuthContext", () => ({
   useAuth: () => ({ status: "authenticated", user: { id: "1" }, roles: ["editor"] }),

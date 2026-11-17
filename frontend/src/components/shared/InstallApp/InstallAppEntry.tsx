@@ -43,8 +43,13 @@ export function InstallAppEntry(): JSX.Element | null {
       setHintOpen(true);
       return;
     }
-    const outcome = await promptInstall();
-    if (outcome === "dismissed") dismiss();
+    try {
+      const outcome = await promptInstall();
+      if (outcome === "dismissed") dismiss();
+    } catch {
+      // promptInstall() resolves "unavailable" on rejection; this guard keeps
+      // the click handler safe if a future implementation rethrows.
+    }
   };
 
   return (

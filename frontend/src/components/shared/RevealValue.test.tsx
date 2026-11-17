@@ -114,6 +114,32 @@ describe("RevealValue", () => {
     expect(screen.getByTestId("rv-revealed")).toBeInTheDocument();
   });
 
+  it("keeps a user-revealed value when the parent changes reveal (uncontrolled)", () => {
+    const { rerender } = render(
+      <RevealValue value="geheim" reveal="click" testId="rv" />
+    );
+    fireEvent.click(screen.getByTestId("rv-reveal"));
+    expect(screen.getByTestId("rv-value")).toHaveTextContent("geheim");
+
+    // R2F-007: the old state-mirroring effect reset the value on this parent
+    // update. `reveal` seeds state once; callers opt into a reset via key.
+    rerender(<RevealValue value="geheim" reveal="shortcut" testId="rv" />);
+    expect(screen.getByTestId("rv-value")).toHaveTextContent("geheim");
+  });
+
+  it("resets the reveal state when the caller supplies a new key", () => {
+    const { rerender } = render(
+      <RevealValue key="click" value="geheim" reveal="click" testId="rv" />
+    );
+    fireEvent.click(screen.getByTestId("rv-reveal"));
+    expect(screen.getByTestId("rv-value")).toHaveTextContent("geheim");
+
+    rerender(
+      <RevealValue key="shortcut" value="geheim" reveal="shortcut" testId="rv" />
+    );
+    expect(screen.queryByTestId("rv-value")).not.toBeInTheDocument();
+  });
+
   it("hides the value until the shortcut is pressed with reveal=shortcut", () => {
     render(<RevealValue value="geheim" reveal="shortcut" testId="rv" />);
     expect(screen.queryByTestId("rv-value")).not.toBeInTheDocument();

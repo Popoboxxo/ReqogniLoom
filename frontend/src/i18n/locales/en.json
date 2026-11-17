@@ -232,6 +232,9 @@
     "numberInteger": "Enter a whole number of 0 or more.",
     "percentRange": "Enter a whole number between 0 and 100."
   },
+  "csrf": {
+    "httpWarning": "This instance is reachable without TLS; write operations are blocked. Admin: set AUTH_COOKIE_SECURE=false or enable TLS."
+  },
   "errors": {
     "generic": "An unexpected error occurred.",
     "not_found": "Resource not found.",

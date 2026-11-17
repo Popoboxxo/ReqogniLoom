@@ -30,6 +30,7 @@
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { BrowserRouter, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./queries/queryClient";
 import { readCookie } from "./api/client";
@@ -66,6 +67,7 @@ const csrfWarningStyle: CSSProperties = {
 };
 
 export function CsrfCookieWarning(): JSX.Element | null {
+  const { t } = useTranslation();
   const { status } = useAuth();
   const [csrfWarning, setCsrfWarning] = useState(false);
 
@@ -80,8 +82,7 @@ export function CsrfCookieWarning(): JSX.Element | null {
 
   return (
     <div role="alert" style={csrfWarningStyle}>
-      Diese Instanz ist ohne TLS erreichbar, Schreibzugriffe sind blockiert.
-      Admin: AUTH_COOKIE_SECURE=false setzen oder TLS aktivieren.
+      {t("csrf.httpWarning")}
     </div>
   );
 }

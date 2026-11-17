@@ -50,6 +50,7 @@ export interface RevealValueProps {
   /** The *full* value copied by the copy affordance, if it differs from the
    * (possibly masked) label. */
   copyValue?: string | null;
+  /** Initial reveal mode only. To reset on a mode change, pass `key={reveal}`. */
   reveal?: AttributeReveal;
   mask?: AttributeMask;
   copyable?: boolean;
@@ -104,13 +105,14 @@ export function RevealValue({
   testId = "reveal-value",
 }: RevealValueProps): JSX.Element | null {
   const { t } = useTranslation();
+  // Uncontrolled by design: `reveal` seeds the initial state only, so a user
+  // reveal survives an unrelated parent re-render / `reveal` prop change.
+  // Callers that WANT a reset on mode change must pass `key={reveal}` (React
+  // remounts the component, re-running this initialiser). No state-mirroring
+  // effect — see R2F-007.
   const [revealed, setRevealed] = useState(reveal === "always");
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    setRevealed(reveal === "always");
-  }, [reveal]);
 
   // A pending confirmation timer must not fire after unmount (React StrictMode
   // double-mounts in development — same guard the pre-WS3 ArtifactId used).

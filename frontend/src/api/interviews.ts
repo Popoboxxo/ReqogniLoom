@@ -132,10 +132,9 @@ export interface SingleFormalizeResult {
 
 /**
  * `formalize()` response for a multi-kind session (backend `_formalize_multi`):
- * every confirmed proposal item becomes one artifact. Not yet the declared
- * return type of {@link interviewsApi.formalize} (its current return type
- * predates multi-mode and no frontend caller consumes this shape yet) --
- * exported so the multi-mode contract is typed and ready for Task 10+'s UI.
+ * every confirmed proposal item becomes one artifact. Exported so the
+ * multi-mode contract is typed; `formalize()` declares the union for its
+ * confirmed-proposal overload so consumers must narrow on `"created"`.
  */
 export interface MultiFormalizeResult {
   created: { artifact_id: string; artifact_type: string }[];
@@ -145,6 +144,32 @@ export interface MultiFormalizeResult {
 // ---------------------------------------------------------------------------
 // Client
 // ---------------------------------------------------------------------------
+
+/**
+ * Overloads keep the single-argument caller (`InterviewArtifactPane`) typed as
+ * `SingleFormalizeResult`, while a confirmed multi-proposal exposes the union
+ * so `InterviewChatPane` must narrow on `"created"` instead of casting.
+ * Declared at module scope because TypeScript does not allow overload
+ * signatures as object-literal members.
+ */
+// Overload signatures are intentional (see the JSDoc above); ESLint's core
+// `no-redeclare` does not model TypeScript declaration merging.
+/* eslint-disable no-redeclare -- TypeScript overload declarations merge intentionally */
+function formalizeInterview(id: UUID): Promise<SingleFormalizeResult>;
+function formalizeInterview(
+  id: UUID,
+  confirmedProposal: ProposalItem[]
+): Promise<SingleFormalizeResult | MultiFormalizeResult>;
+function formalizeInterview(
+  id: UUID,
+  confirmedProposal?: ProposalItem[]
+): Promise<SingleFormalizeResult | MultiFormalizeResult> {
+  return apiClient.post<SingleFormalizeResult | MultiFormalizeResult>(
+    `/interviews/${id}/formalize/`,
+    confirmedProposal ? { confirmed_proposal: confirmedProposal } : {}
+  );
+}
+/* eslint-enable no-redeclare */
 
 export const interviewsApi = {
   /**
@@ -213,15 +238,7 @@ export const interviewsApi = {
    * atomically (backend `_formalize_multi`) -- that response carries the
    * {@link MultiFormalizeResult} shape at runtime.
    */
-  formalize(
-    id: UUID,
-    confirmedProposal?: ProposalItem[]
-  ): Promise<SingleFormalizeResult> {
-    return apiClient.post<SingleFormalizeResult>(
-      `/interviews/${id}/formalize/`,
-      confirmedProposal ? { confirmed_proposal: confirmedProposal } : {}
-    );
-  },
+  formalize: formalizeInterview,
 
   /**
    * Provenance lookup for one artifact (multi-artifact-interview plan

@@ -59,10 +59,20 @@ export function useInstallPrompt(): InstallPromptState {
 
   const promptInstall = useCallback(async (): Promise<"accepted" | "dismissed" | "unavailable"> => {
     if (!event) return "unavailable";
-    await event.prompt();
-    const { outcome } = await event.userChoice;
-    setEvent(null);
-    return outcome;
+    try {
+      await event.prompt();
+      const { outcome } = await event.userChoice;
+      return outcome;
+    } catch {
+      // Chromium can reject prompt() (insecure context, another prompt
+      // already open, user cancelled). Treat it like "no install available"
+      // instead of leaking an unhandled rejection into the click handler.
+      return "unavailable";
+    } finally {
+      // Clear the captured event on every path — success, rejection or
+      // dismissal. A stale event would offer a dead install action forever.
+      setEvent(null);
+    }
   }, [event]);
 
   return {

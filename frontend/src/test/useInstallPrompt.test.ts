@@ -47,4 +47,28 @@ describe("useInstallPrompt", () => {
     const { result } = renderHook(() => useInstallPrompt());
     expect(await result.current.promptInstall()).toBe("unavailable");
   });
+
+  it("resolves unavailable and clears the event when prompt() rejects", async () => {
+    vi.stubGlobal("navigator", { userAgent: "Android", onLine: true });
+    const { result } = renderHook(() => useInstallPrompt());
+
+    const rejectingPrompt = vi.fn().mockRejectedValue(new Error("prompt blocked"));
+    const event = Object.assign(new Event("beforeinstallprompt"), {
+      preventDefault: vi.fn(),
+      prompt: rejectingPrompt,
+      userChoice: Promise.resolve({ outcome: "accepted" }),
+    });
+    act(() => {
+      window.dispatchEvent(event);
+    });
+    expect(result.current.canInstall).toBe(true);
+
+    // A rejected prompt() must resolve to "unavailable" (no unhandled
+    // rejection) and the finally block must drop the captured event.
+    await act(async () => {
+      await expect(result.current.promptInstall()).resolves.toBe("unavailable");
+    });
+    expect(rejectingPrompt).toHaveBeenCalledTimes(1);
+    expect(result.current.canInstall).toBe(false);
+  });
 });

@@ -57,19 +57,43 @@ import { useWorkspacePreferences } from "../hooks/useWorkspacePreferences";
 // user preference > tenant default > fallback. Workspace.theme stays a
 // backend field but is functionally superseded (see design spec).
 
+const WORKSPACE_PRESETS: readonly WorkspacePreset[] = [
+  "minimal",
+  "standard",
+  "extended",
+];
+
+/**
+ * R2F-005: runtime guard for the backend-supplied preset. The API may return
+ * any string here (older rows, future tiers, typos); casting it to
+ * `WorkspacePreset` used to let an unknown value reach `PRESET_VISIBILITY`
+ * and throw on `PRESET_VISIBILITY[preset][feature]`.
+ */
+export function isWorkspacePreset(v: unknown): v is WorkspacePreset {
+  return (
+    typeof v === "string" &&
+    (WORKSPACE_PRESETS as readonly string[]).includes(v)
+  );
+}
+
 // Normalize preset field: backend may return {name: "extended"}, {tier: "minimal", language, terminology_profile}, or "extended"
 function normalizePreset(ws: Workspace): Workspace {
   const raw = ws.preset as unknown;
   if (typeof raw === "object" && raw !== null) {
     const blob = raw as Record<string, unknown>;
-    if (typeof blob.name === "string") {
-      return { ...ws, preset: blob.name as WorkspacePreset };
+    if (isWorkspacePreset(blob.name)) {
+      return { ...ws, preset: blob.name };
     }
-    if (typeof blob.tier === "string") {
-      const p = raw as { tier: string; language?: string; terminology_profile?: string; decomposition_link_type?: string };
+    if (isWorkspacePreset(blob.tier)) {
+      const p = raw as {
+        tier: WorkspacePreset;
+        language?: string;
+        terminology_profile?: string;
+        decomposition_link_type?: string;
+      };
       return {
         ...ws,
-        preset: p.tier as WorkspacePreset,
+        preset: p.tier,
         language: ws.language ?? p.language,
         terminology_profile: ws.terminology_profile ?? (p.terminology_profile as import("../types").TerminologyProfile | undefined),
         decomposition_link_type: ws.decomposition_link_type ?? p.decomposition_link_type,
@@ -81,12 +105,25 @@ function normalizePreset(ws: Workspace): Workspace {
     // `workspace.preset` as a React child and an object is not a valid child.
     return { ...ws, preset: "standard" };
   }
+  // Plain string from the backend: an unknown tier is normalised instead of
+  // being passed through as an invalid WorkspacePreset (R2F-005).
+  if (!isWorkspacePreset(raw)) {
+    return { ...ws, preset: "standard" };
+  }
   return ws;
 }
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/** Result of a workspace fetch, before any React state is touched. */
+interface LoadedWorkspaces {
+  list: Workspace[];
+  selected: Workspace;
+  /** Only a real (non-placeholder) selection is persisted to sessionStorage. */
+  persistSelection: boolean;
+}
 
 export interface WorkspaceState {
   activeWorkspace: Workspace | null;
@@ -191,10 +228,12 @@ export function WorkspaceProvider({
     [clearLanguageOverride]
   );
 
-  // Reusable loader so callers can refresh workspaces (e.g. after create).
-  const reloadWorkspaces = useCallback(
-    async (selectId?: string): Promise<void> => {
-      setIsLoadingWorkspace(true);
+  // Pure fetch: no React state is written here. Splitting the network/normalise
+  // step from the state application lets the bootstrap effect drop a stale
+  // response on logout (FE-002) while explicit `reloadWorkspaces()` callers
+  // keep the exact previous behaviour.
+  const fetchWorkspaces = useCallback(
+    async (selectId?: string): Promise<LoadedWorkspaces> => {
       try {
         // Code-review GESAMTTEST_BERICHT §10.2 (Critical): `list()` only
         // returns page 1 (default page size 25) — a tenant with more
@@ -203,26 +242,41 @@ export function WorkspaceProvider({
         // `next` across all pages via the shared `getAllPages` helper.
         const all = await workspacesApi.listAll();
         const list = all.map(normalizePreset);
-        setWorkspaces(list);
         if (list.length > 0) {
           const storedId = safeSessionStorage.getItem("reqflow_workspace_id");
           const preferredId = selectId ?? storedId;
           const selected =
             (preferredId && list.find((w) => w.id === preferredId)) || list[0];
-          setActiveWorkspaceState(selected);
-          safeSessionStorage.setItem("reqflow_workspace_id", selected.id);
-        } else {
-          setActiveWorkspaceState(DEFAULT_WORKSPACE);
+          return { list, selected, persistSelection: true };
         }
+        return { list, selected: DEFAULT_WORKSPACE, persistSelection: false };
       } catch {
-        setWorkspaces([]);
-        setActiveWorkspaceState(DEFAULT_WORKSPACE);
-      } finally {
-        setIsLoadingWorkspace(false);
-        setIsWorkspaceReady(true);
+        return { list: [], selected: DEFAULT_WORKSPACE, persistSelection: false };
       }
     },
     []
+  );
+
+  const applyLoadedWorkspaces = useCallback(
+    ({ list, selected, persistSelection }: LoadedWorkspaces): void => {
+      setWorkspaces(list);
+      setActiveWorkspaceState(selected);
+      if (persistSelection) {
+        safeSessionStorage.setItem("reqflow_workspace_id", selected.id);
+      }
+      setIsLoadingWorkspace(false);
+      setIsWorkspaceReady(true);
+    },
+    []
+  );
+
+  // Reusable loader so callers can refresh workspaces (e.g. after create).
+  const reloadWorkspaces = useCallback(
+    async (selectId?: string): Promise<void> => {
+      setIsLoadingWorkspace(true);
+      applyLoadedWorkspaces(await fetchWorkspaces(selectId));
+    },
+    [fetchWorkspaces, applyLoadedWorkspaces]
   );
 
   // Bootstrap workspaces after authentication (REQ-L2-RF-012)
@@ -250,13 +304,20 @@ export function WorkspaceProvider({
     }
     let cancelled = false;
     void (async () => {
-      await reloadWorkspaces();
+      setIsLoadingWorkspace(true);
+      const loaded = await fetchWorkspaces();
+      // FE-002: state is applied only while this effect is live. The old
+      // `if (cancelled) return` sat after `await reloadWorkspaces()`, when
+      // the loader had already written state — a late response repopulated
+      // the provider after logout. StrictMode's mount→cleanup→mount also
+      // relies on this: only the second run's response is applied.
       if (cancelled) return;
+      applyLoadedWorkspaces(loaded);
     })();
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, authStatus, reloadWorkspaces, clearLanguageOverride]);
+  }, [isAuthenticated, authStatus, fetchWorkspaces, applyLoadedWorkspaces, clearLanguageOverride]);
 
   // Theme Presets: the workspace-default-theme restore effect was removed —
   // ThemeContext now owns theme resolution end to end (server-side user

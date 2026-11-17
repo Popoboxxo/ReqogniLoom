@@ -1,9 +1,15 @@
 /**
- * Minimal Fabric.js v6 type stub for TypeScript resolution.
+ * Minimal Fabric.js type stub for TypeScript resolution.
  *
  * fabric is dynamically imported in CanvasEditor (REQ-L2-DS-006).
- * The full type package ships with fabric@6 — this stub is only needed
- * until `npm install` is run inside the Docker container.
+ *
+ * TODO(FE-006, tracked follow-up): the installed fabric@7.4.0 DOES ship its own
+ * typings, but they cannot replace this stub yet — removing it makes
+ * `tsc -p tsconfig.build.json --noEmit` fail with 18 errors in CanvasEditor.tsx
+ * (`getPointer`/`findTarget` no longer exist in v7, `TMat2D`/`TPointerEvent`
+ * and object option types are stricter). Migrate CanvasEditor to the fabric 7
+ * API first, then delete this file and verify tsc. Keeping the stub preserves
+ * a green build; it is not a missing-dependency workaround.
  */
 
 declare module "fabric" {

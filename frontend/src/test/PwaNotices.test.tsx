@@ -1,9 +1,13 @@
 /** Visible offline/update notices (plan M2, REQ-214). */
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PwaNotices } from "../components/shared/PwaNotices/PwaNotices";
 import { registerPwa } from "../pwa/register";
-import { triggerNeedRefresh } from "./mocks/pwa-register";
+import {
+  resetPwaRegisterMock,
+  setApplyUpdate,
+  triggerNeedRefresh,
+} from "./mocks/pwa-register";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (_key: string, fallback?: string) => fallback ?? _key }),
@@ -11,6 +15,7 @@ vi.mock("react-i18next", () => ({
 
 describe("PwaNotices", () => {
   beforeEach(() => {
+    resetPwaRegisterMock();
     registerPwa();
   });
 
@@ -35,5 +40,36 @@ describe("PwaNotices", () => {
     });
     expect(screen.getByTestId("pwa-update-banner")).toBeTruthy();
     expect(screen.getByTestId("pwa-update-apply")).toBeTruthy();
+  });
+
+  it("keeps the update banner visible when applying the update fails", async () => {
+    setApplyUpdate(vi.fn().mockRejectedValue(new Error("worker activation failed")));
+    render(<PwaNotices />);
+    act(() => {
+      triggerNeedRefresh();
+    });
+    expect(screen.getByTestId("pwa-update-banner")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("pwa-update-apply"));
+    });
+
+    // The failed apply must not acknowledge the update: the banner stays so
+    // the user can retry (FE-007).
+    expect(screen.getByTestId("pwa-update-banner")).toBeTruthy();
+  });
+
+  it("dismisses the update banner after a successful apply", async () => {
+    setApplyUpdate(vi.fn().mockResolvedValue(undefined));
+    render(<PwaNotices />);
+    act(() => {
+      triggerNeedRefresh();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("pwa-update-apply"));
+    });
+
+    expect(screen.queryByTestId("pwa-update-banner")).toBeNull();
   });
 });

@@ -28,9 +28,18 @@ export function onPwaUpdateAvailable(listener: Listener): () => void {
 
 /** Install the waiting worker and reload the page (explicit user action). */
 export async function pwaApplyUpdate(): Promise<void> {
+  try {
+    await applyUpdate?.(true);
+  } catch {
+    // The worker refused to activate. Keep the banner visible so the user can
+    // retry; clearing it here would silently leave a stale worker in place.
+    needsRefresh = true;
+    updateListeners.forEach((listener) => listener());
+    return;
+  }
+  // Only acknowledge the update after it actually succeeded.
   needsRefresh = false;
   updateListeners.forEach((listener) => listener());
-  await applyUpdate?.(true);
 }
 
 /** Register the generated worker once, at app start. */

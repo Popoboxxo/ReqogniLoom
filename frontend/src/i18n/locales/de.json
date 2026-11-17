@@ -232,6 +232,9 @@
     "numberInteger": "Bitte eine ganze Zahl ab 0 eingeben.",
     "percentRange": "Bitte eine ganze Zahl zwischen 0 und 100 eingeben."
   },
+  "csrf": {
+    "httpWarning": "Diese Instanz ist ohne TLS erreichbar, Schreibzugriffe sind blockiert. Admin: AUTH_COOKIE_SECURE=false setzen oder TLS aktivieren."
+  },
   "errors": {
     "generic": "Ein unerwarteter Fehler ist aufgetreten.",
     "not_found": "Ressource nicht gefunden.",

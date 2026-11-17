@@ -16,11 +16,20 @@ if (typeof globalThis.ResizeObserver === "undefined") {
   };
 }
 
-// jsdom does not implement HTMLFormElement.prototype.requestSubmit
+// jsdom does not implement HTMLFormElement.prototype.requestSubmit. Dispatch a
+// SubmitEvent when available so handlers can read `event.submitter`; fall back
+// to a plain Event on runtimes that lack the constructor (FE-008).
 if (typeof HTMLFormElement !== "undefined" && !HTMLFormElement.prototype.requestSubmit) {
-  HTMLFormElement.prototype.requestSubmit = function () {
-    if (this.reportValidity()) {
-      this.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-    }
+  HTMLFormElement.prototype.requestSubmit = function (
+    this: HTMLFormElement,
+    submitter?: HTMLElement | null
+  ): void {
+    if (!this.reportValidity()) return;
+    const init = { bubbles: true, cancelable: true };
+    const event =
+      typeof SubmitEvent !== "undefined"
+        ? new SubmitEvent("submit", { ...init, submitter: submitter ?? null })
+        : Object.assign(new Event("submit", init), { submitter: submitter ?? null });
+    this.dispatchEvent(event);
   };
 }
