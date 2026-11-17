@@ -1,0 +1,10 @@
+{
+  "_comment": "Narrow, expiring, per-advisory npm audit waivers. Each entry suppresses ONE GHSA advisory and MUST carry reason, owner and an expiry strictly in the future; an expired entry fails the gate until renewed or removed. This mirrors the pip-audit --ignore-vuln policy: a waiver is a reviewed exception recorded in the diff, never a global gate relaxation. Do NOT add --audit-level=critical, --omit=dev/--production or `|| true` to the CI step as a substitute for a waiver here.",
+  "waivers": {
+    "GHSA-fc5q-39xc-vjpf": {
+      "reason": "dev-only transitive tooling (vite/vitest/workbox); advisory has no fixed version (range '*'); no production runtime path",
+      "owner": "security-auditor",
+      "expires": "2026-12-15"
+    }
+  }
+}
