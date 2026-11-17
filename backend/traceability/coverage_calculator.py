@@ -516,11 +516,21 @@ class CoverageCalculator:
 
         "Latest" is the result with the most recent ``executed_at`` (NULLs —
         never-executed rows — rank last), tie-broken by insertion id.
+
+        PERF-010: the top-1-per-TestCase selection is done in the database via
+        ``ROW_NUMBER() OVER (PARTITION BY ...)``. The previous implementation
+        loaded *every* ``TestRunResult`` for the requested TestCases into
+        Python and only then kept the first row of each ordered group — an
+        unbounded load once a TestCase accumulated many runs. The window
+        ordering mirrors the old ``order_by`` exactly, so results are
+        unchanged. Tenant fencing is inherited from the scoped ``objects``
+        manager (RLS remains the backstop).
         """
         if not testcase_artifact_ids:
             return {}
 
-        from django.db.models import F
+        from django.db.models import F, Window
+        from django.db.models.functions import RowNumber
 
         from persistence.models import TestRunResult
 
@@ -532,19 +542,24 @@ class CoverageCalculator:
             TestRunResult.objects.filter(
                 test_case__artifact_id__in=testcase_artifact_ids
             )
-            .order_by(
-                "test_case__artifact_id",
-                F("executed_at").desc(nulls_last=True),
-                "-id",
+            .annotate(
+                _latest_rank=Window(
+                    expression=RowNumber(),
+                    partition_by=[F("test_case__artifact_id")],
+                    order_by=[
+                        F("test_case__artifact_id").asc(),
+                        F("executed_at").desc(nulls_last=True),
+                        F("id").desc(),
+                    ],
+                )
             )
+            .filter(_latest_rank=1)
             .values("test_case__artifact_id", "status")
         )
 
         latest: dict[str, str] = {}
         for row in rows:
             tc_art_id = str(row["test_case__artifact_id"])
-            if tc_art_id in latest:
-                continue  # first row per TestCase is the latest (ordering)
             latest[tc_art_id] = status_labels.get(row["status"], "Not Run")
         return latest
 
