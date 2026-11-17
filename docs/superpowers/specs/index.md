@@ -1,15 +1,15 @@
-# Spec Index
+# Spezifikations-Index
 
-This index lists every design/spec document in this directory tree and its implementation status,
-proven against the source code (not against the spec's own claims). Mirrors the structure of
-`docs/superpowers/plans/index.md` — a spec and its corresponding implementation plan(s) are tracked
-independently since a spec can be superseded/decided-against without its later plan doc changing, and
-vice versa.
+Dieser Index listet jedes Design-/Spezifikationsdokument in diesem Verzeichnisbaum samt Implementierungsstatus,
+belegt gegen den Quellcode (nicht gegen die Eigenangaben der Spezifikation). Spiegelt die Struktur von
+`docs/superpowers/plans/index.md` — eine Spezifikation und ihre zugehörigen Umsetzungspläne werden
+unabhängig verfolgt, da eine Spezifikation ersetzt/entschieden werden kann, ohne dass sich ihr späteres Plan-Dokument ändert, und
+umgekehrt ebenso.
 
-- **`Archive/`** — specs whose full scope has been implemented and verified. Kept for historical
-- **This directory (top level)** — specs with real open work, or explicitly deferred/partly superseded. Statuses re-checked against `origin/main` on 2026-11-04.
+- **`Archive/`** — Spezifikationen, deren voller Umfang umgesetzt und verifiziert ist. Zur historischen Referenz
+- **Dieses Verzeichnis (oberste Ebene)** — Spezifikationen mit echter offener Arbeit oder explizit zurückgestellt/teilweise ersetzt. Status erneut geprüft gegen `origin/main` am 2026-11-04.
 
-## Top level — open work
+## Oberste Ebene — offene Arbeiten
 
 ## [2026-11-16-vergleichswerkzeug-gap-analyse-design.md](2026-11-16-vergleichswerkzeug-gap-analyse-design.md)
 **Draft — analysis and improvement proposals, nothing implemented.** Functional comparison against an external requirements tool (abbreviated VWZ): capability matrix, exact semantics from its source, proposals V1–V14, concept need K1 (execution status of the `verifies` link as a configurable sub-workflow), decisions E1–E11. Open decisions are tracked in the plan [`../plans/2026-11-16-vergleichswerkzeug-nachweis-und-vertraege-draft.md`](../plans/2026-11-16-vergleichswerkzeug-nachweis-und-vertraege-draft.md). Updates the deferred concept [`../plans/2026-08-08-vwz-interop-and-inspiration-concept.md`](../plans/2026-08-08-vwz-interop-and-inspiration-concept.md).
@@ -52,7 +52,7 @@ vice versa.
 ## [2026-09-03-rollenbasierte-sichten-design.md](2026-09-03-rollenbasierte-sichten-design.md)
 **Open — not implemented apart from the `audience: basic | expert` attribute flag and its editor toggle.** Navigation role gating is still the hardcoded `NAV_ITEMS.requires` array, there are no `NavigationVisibility` tables or editor, and the form does not collapse expert sections or offer an expert mode. The reference to issue #848 is stale (closed, different title).
 
-## Archive/ — fully implemented
+## Archive/ — vollständig umgesetzt
 
 ## [Archive/2026-07-12-frontend-feedback-strategie-design.md](Archive/2026-07-12-frontend-feedback-strategie-design.md)
 All planned features are implemented.

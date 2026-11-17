@@ -1,14 +1,14 @@
-# Plan Index
+# Plan-Index
 
-This index lists every plan/scoping document in this directory tree and its implementation status,
-proven against the source code (not against the plan's own claims).
+Dieser Index listet jedes Plan-/Scoping-Dokument in diesem Verzeichnisbaum samt Implementierungsstatus,
+belegt gegen den Quellcode (nicht gegen die Eigenangaben des Plans).
 
-- **`Archive/`** — plans whose full scope has been implemented and verified. Kept for historical reference
-  (design rationale, rejected alternatives, task-by-task execution record); no more action expected.
-- **This directory (top level)** — plans with real open work, or explicitly deferred/superseded. Statuses re-checked against `origin/main` on 2026-11-04.
+- **`Archive/`** — Pläne, deren voller Umfang umgesetzt und verifiziert ist. Zur historischen Referenz behalten
+  (Design-Begründung, verworfene Alternativen, Aufgabe-für-Aufgabe-Ausführungsprotokoll); keine weiteren Maßnahmen erwartet.
+- **Dieses Verzeichnis (oberste Ebene)** — Pläne mit echter offener Arbeit oder explizit zurückgestellt/ersetzt. Status erneut geprüft gegen `origin/main` am 2026-11-04.
 
 
-## Top level — open work
+## Oberste Ebene — offene Arbeiten
 
 ## [2026-11-16-deep-dive-remediation.md](2026-11-16-deep-dive-remediation.md)
 **Open — plan written 2026-11-16, no slice started.** Every slice starts with a mandatory **problem-analysis gate** (reproduce/verify the finding and check the fix against the relevant best-practice reference before any code). Turns the **186 findings** of the two-pass audit [`docs/audit/2026-11-16-deep-dive-findings.md`](../../audit/2026-11-16-deep-dive-findings.md) into **25 mergeable slices S0.1–S6.3** across six waves: (0) secret incident + rate-limit/MFA baseline, tenant/RLS correctness, data integrity (audit retention, migration reverse, baseline reconstruction, graph lock, fail-open service gates) and release gates; (1) REST/MCP contracts, AI safety (memory poisoning, budget bypass, SSRF) and prompt/agent assets; (2) backend/DB/frontend performance; (3) frontend correctness (retry/race/i18n/PWA), component contracts, WCAG and UI design debt; (4) Clean Code/SOLID, god modules/cycles/layer breaches, test quality; (5) supply chain, CI/Compose hardening and the meta-review's five missing operational dimensions; (6) documentation truth, SE/ADR lifecycle and language hygiene. Every finding is mapped to exactly one slice in §12 (186/186 covered). ≈66 person-days; critical path S0.1→S0.2→S0.3→S4.2 ≈15 days; MVP = S0.1–S0.4 + S1.1/S1.2 + S3.1 ≈15 days. Seven open decisions (history rewrite, RLS rollout, `views.py` split, SplitView migration, REQUIREMENTS authority, MPL-2.0, prompt language) are listed in §11.
@@ -73,7 +73,7 @@ Update 2026-11-04: PR #1073 (the W2 slice) was merged on 2026-09-26, so the "PR 
 ## [2026-08-13-hermes-ide-plugin-requirements-mvp.md](2026-08-13-hermes-ide-plugin-requirements-mvp.md)
 **Superseded — nothing left to action.** Plan for a REST-backed requirements CRUD panel in the Hermes IDE plugin. The plugin on main implements the MCP-backed interview approach instead (see the archived interview-management plugin plan), and the planned CI workflow was never added.
 
-## Archive/ — fully implemented
+## Archive/ — vollständig umgesetzt
 
 ## [Archive/2026-07-23-phase0-status-unification.md](Archive/2026-07-23-phase0-status-unification.md)
 All planned features are implemented. Checked `backend/workflow/definition_store.py` for `get_state_meta`, `backend/workflow/services.py` for `outdate`/`reactivate`, and `backend/application/requirement_service.py` to confirm rewired deletes routing through `outdate()`.
