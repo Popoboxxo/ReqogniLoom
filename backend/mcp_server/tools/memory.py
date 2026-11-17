@@ -81,6 +81,7 @@ from memory.backends import (
 )
 from memory.health import envelope
 from memory.policy import MemoryPolicy
+from memory.prompts import MAX_INTERACTION_TEXT_CHARS, validate_interaction_text
 from memory.ratelimit import MemoryWriteRateLimitExceeded
 
 
@@ -312,13 +313,24 @@ class MemoryToolGroup(BaseToolGroup):
             "description": (
                 "Enqueue the memory consolidation pipeline for one interaction "
                 "text (write): an active worker runs LLM fact extraction + "
-                "duplicate/contradiction handling, so this is NOT a raw write."
+                "duplicate/contradiction handling, so this is NOT a raw write. "
+                "Throttle/capability note: this triggers a guarded LLM "
+                "extraction call (per-purpose timeout, tenant daily token "
+                "budget with graceful skip + audit on exhaustion) and the "
+                "interaction is bounded by MAX_INTERACTION_TEXT_CHARS; "
+                "extracted facts are hard-capped in count and size."
             ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "workspace_id": {"type": "string", "format": "uuid"},
-                    "interaction_text": {"type": "string"},
+                    "interaction_text": {
+                        "type": "string",
+                        # AI-001: advertised cap; mirrored by the runtime
+                        # validate_interaction_text() check in the handler and
+                        # the Celery task wrapper.
+                        "maxLength": MAX_INTERACTION_TEXT_CHARS,
+                    },
                     "artifact_id": {"type": "string", "format": "uuid"},
                     "entity_type": {"type": "string"},
                 },
@@ -649,6 +661,13 @@ class MemoryToolGroup(BaseToolGroup):
         """
         workspace_id = require_uuid(params, "workspace_id")
         interaction_text = require_param(params, "interaction_text")
+        # AI-001: enforce the advertised hard cap here, before enqueue, so an
+        # unbounded payload never reaches a worker. ValueError -> ParameterError
+        # -> JSON-RPC VALIDATION_ERROR via _service_call.
+        try:
+            interaction_text = validate_interaction_text(interaction_text)
+        except ValueError as exc:
+            raise ParameterError(str(exc)) from exc
         artifact_id = optional_uuid(params, "artifact_id")
         entity_type = str(params.get("entity_type") or "")
 

@@ -28,7 +28,9 @@ formalize logic runs.
 from __future__ import annotations
 
 import contextlib
+import uuid
 from collections.abc import Iterator
+from unittest.mock import patch
 
 import pytest
 
@@ -367,3 +369,149 @@ class TestProposalLinksHardening:
         # Rejected pre-transaction: nothing was created.
         with _active(tenant):
             assert InterviewSessionArtifact.objects.filter(session=session).count() == 0
+
+
+# ---------------------------------------------------------------------------
+# AI-005: model-output validation in the write path.
+# ---------------------------------------------------------------------------
+
+#: Every production create_X() the multi adapters delegate to. Patching all of
+#: them lets us prove a rejected proposal reaches NONE of them ("before any
+#: create_* spy call"). Patched module-level class attributes are shared with
+#: the adapter instances, so the spies observe the real call path.
+_CREATE_PATCH_TARGETS = (
+    "application.interview_artifact_adapters.RequirementService.create_requirement",
+    "application.interview_artifact_adapters.StakeholderNeedService.create",
+    "application.interview_artifact_adapters.ArchitectureService.create_architecture_element",
+    "application.interview_artifact_adapters.RiskService.create_risk",
+    "application.interview_artifact_adapters.TestService.create_test_case",
+    "application.interview_artifact_adapters.AdrService.create_adr",
+    "application.interview_artifact_adapters.IssueService.create_issue",
+    "application.interview_artifact_adapters.GoalService.create_version",
+    "application.interview_artifact_adapters.GlossaryService.create",
+)
+
+#: Minimal valid fields per artifact type (GlossaryTerm is hand-built and uses
+#: `term`, not `title`; Risk needs probability+impact; Adr needs description).
+_BASE_FIELDS = {
+    "Requirement": {"title": "R"},
+    "StakeholderNeed": {"title": "N"},
+    "ArchitectureElement": {"title": "A"},
+    "Risk": {"title": "K", "probability": "high", "impact": "high"},
+    "TestCase": {"title": "T"},
+    "Adr": {"title": "D", "description": "ctx"},
+    "Issue": {"title": "I"},
+    "Goal": {"title": "G"},
+    "GlossaryTerm": {"term": "X"},
+}
+
+
+class TestProposalFieldValidation:
+    """AI-005: reserved/unknown/oversized proposal fields are refused in the
+    service layer before any create_X() is invoked."""
+
+    @pytest.mark.parametrize("artifact_type", list(_BASE_FIELDS))
+    @pytest.mark.parametrize("reserved_field", ["status", "owner"])
+    def test_reserved_field_rejected_before_any_create_call(
+        self, tenant, workspace, editor_ctx, artifact_type, reserved_field
+    ):
+        # `status` is a real StakeholderNeed.create kwarg and `owner` a real
+        # Risk.create_risk kwarg: the reserved BLOCKLIST must still refuse them
+        # for ALL nine types, independent of the derived signature allowlist.
+        session = _multi_session(tenant, workspace)
+        proposal = [
+            {
+                "type": artifact_type,
+                "fields": {**_BASE_FIELDS[artifact_type], reserved_field: "smuggled"},
+                "links": [],
+            }
+        ]
+        with contextlib.ExitStack() as stack:
+            spies = [stack.enter_context(patch(t)) for t in _CREATE_PATCH_TARGETS]
+            with pytest.raises(ValidationError) as excinfo:
+                InterviewService().formalize(editor_ctx, session.id, confirmed_proposal=proposal)
+        assert reserved_field in str(excinfo.value)
+        assert "server-owned" in str(excinfo.value)
+        for spy in spies:
+            spy.assert_not_called()
+        with _active(tenant):
+            assert InterviewSessionArtifact.objects.filter(session=session).count() == 0
+
+    @pytest.mark.parametrize("artifact_type", list(_BASE_FIELDS))
+    def test_oversized_title_rejected_before_any_create_call(
+        self, tenant, workspace, editor_ctx, artifact_type
+    ):
+        session = _multi_session(tenant, workspace)
+        title_key = "term" if artifact_type == "GlossaryTerm" else "title"
+        proposal = [
+            {
+                "type": artifact_type,
+                "fields": {**_BASE_FIELDS[artifact_type], title_key: "x" * 10_000},
+                "links": [],
+            }
+        ]
+        with contextlib.ExitStack() as stack:
+            spies = [stack.enter_context(patch(t)) for t in _CREATE_PATCH_TARGETS]
+            with pytest.raises(ValidationError) as excinfo:
+                InterviewService().formalize(editor_ctx, session.id, confirmed_proposal=proposal)
+        assert "limit" in str(excinfo.value)
+        for spy in spies:
+            spy.assert_not_called()
+        with _active(tenant):
+            assert InterviewSessionArtifact.objects.filter(session=session).count() == 0
+
+    def test_unknown_field_rejected_before_any_create_call(
+        self, tenant, workspace, editor_ctx
+    ):
+        session = _multi_session(tenant, workspace)
+        proposal = [
+            {
+                "type": "Requirement",
+                "fields": {"title": "R", "not_a_real_field": "x"},
+                "links": [],
+            }
+        ]
+        with patch(
+            "application.interview_artifact_adapters.RequirementService.create_requirement"
+        ) as spy:
+            with pytest.raises(ValidationError) as excinfo:
+                InterviewService().formalize(editor_ctx, session.id, confirmed_proposal=proposal)
+        assert "not an allowed field" in str(excinfo.value)
+        spy.assert_not_called()
+
+    def test_tenant_defined_custom_attribute_field_still_passes(
+        self, tenant, workspace, editor_ctx
+    ):
+        # Allowed names are derived from the workspace's attribute definition,
+        # so a tenant-defined custom attribute is NOT rejected by the gate.
+        session = _multi_session(tenant, workspace)
+        proposal = [
+            {
+                "type": "Requirement",
+                "fields": {"title": "Custom", "custom_project_id": "P-42"},
+                "links": [],
+            }
+        ]
+        with patch(
+            "application.attribute_definition_service.AttributeDefinitionService.resolve",
+            return_value={
+                "attributes": [
+                    {"name": "title"},
+                    {"name": "custom_project_id"},
+                ]
+            },
+        ):
+            with patch(
+                "application.interview_artifact_adapters.RequirementService.create_requirement"
+            ) as create_spy:
+                create_spy.return_value.artifact_id = uuid.uuid4()
+                create_spy.return_value.id = uuid.uuid4()
+                # The create_* spy never writes a real Artifact row, so skip the
+                # provenance FK insert (its artifact_id would not resolve).
+                with patch.object(InterviewSessionArtifact.objects, "create"):
+                    result = InterviewService().formalize(
+                        editor_ctx, session.id, confirmed_proposal=proposal
+                    )
+        assert result["status"] == "completed"
+        create_spy.assert_called_once()
+        assert create_spy.call_args.kwargs["custom_project_id"] == "P-42"

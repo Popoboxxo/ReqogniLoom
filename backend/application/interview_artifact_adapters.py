@@ -18,6 +18,7 @@ adapter reject every proposal with a ValidationError.
 """
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -248,3 +249,52 @@ ARTIFACT_CREATION_ADAPTERS: dict[str, Callable[[dict, AuthContext, Any], Created
     "Goal": _goal,
     "GlossaryTerm": _glossary_term,
 }
+
+
+# The production create_X() each adapter delegates to. Single source of truth
+# for the interview WRITE allowlist: InterviewService.formalize() derives the
+# permitted proposal field names from these signatures instead of hardcoding a
+# parallel list that would drift the moment a create_X() gains a field.
+_CREATE_METHODS: dict[str, Callable[..., Any]] = {
+    "Requirement": RequirementService.create_requirement,
+    "StakeholderNeed": StakeholderNeedService.create,
+    "ArchitectureElement": ArchitectureService.create_architecture_element,
+    "Risk": RiskService.create_risk,
+    "TestCase": TestService.create_test_case,
+    "Adr": AdrService.create_adr,
+    "Issue": IssueService.create_issue,
+    "Goal": GoalService.create_version,
+    "GlossaryTerm": GlossaryService.create,
+}
+
+# Infrastructure parameters, never artifact data a model/caller supplies.
+_CREATE_INTERNAL_PARAMS: frozenset[str] = frozenset({"self", "ctx", "workspace_id"})
+
+
+def _signature_field_names(method: Callable[..., Any]) -> frozenset[str]:
+    """Writable kwargs of one create_X(), excluding infrastructure params."""
+    return frozenset(
+        name
+        for name in inspect.signature(method).parameters
+        if name not in _CREATE_INTERNAL_PARAMS
+    )
+
+
+# Computed once at import so validation stays stable even if a test patches a
+# create_X() with a Mock (a patched MagicMock's signature is `(*args, **kwargs)`
+# and would otherwise collapse the allowlist to nothing).
+_ALLOWED_FIELDS_BY_TYPE: dict[str, frozenset[str]] = {
+    artifact_type: _signature_field_names(method)
+    for artifact_type, method in _CREATE_METHODS.items()
+}
+
+
+def allowed_fields_for(artifact_type: str) -> frozenset[str]:
+    """Return the derived writable field names for *artifact_type*.
+
+    Derived from the live create_X() signature (the single write contract every
+    create transport uses), not a hardcoded field list. Tenant-defined custom
+    attributes are added on top by ``InterviewService`` from the resolved
+    attribute definition. An unknown type has no allowlist here.
+    """
+    return _ALLOWED_FIELDS_BY_TYPE.get(artifact_type, frozenset())
