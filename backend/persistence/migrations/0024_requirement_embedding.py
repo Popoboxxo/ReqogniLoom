@@ -16,17 +16,25 @@ building a fresh ``test_<db>`` — it would fail with::
 
     ProgrammingError: permission denied to create extension "vector"
 
-The statement below is therefore only safe because the extension is
-pre-installed as superuser into ``template1`` (and ``$POSTGRES_DB``) by
-``docker/postgres/initdb/10-pgvector.sh``: PostgreSQL short-circuits
-``IF NOT EXISTS`` on the existence check BEFORE the superuser privilege check,
-so an already-present extension reduces this to a ``NOTICE``. Databases created
-after that init hook inherit the extension automatically, because
-``CREATE DATABASE`` clones ``template1``. For a Postgres volume initialised
-before the hook existed, run ``scripts/enable_pgvector.sh`` once. CI is
-unaffected: its pytest job connects as the Postgres superuser.
+The ``migrate`` service connects as a superuser (``DB_USER`` in
+``deploy/.env``), so ``CREATE EXTENSION IF NOT EXISTS vector`` runs here
+directly on a fresh database. The pgvector image itself
+(``pgvector/pgvector:pg16``) is still provisioned by devops.
+
+There is no ``docker/postgres/initdb/10-pgvector.sh`` init hook any more — the
+older reference was stale. ``scripts/enable_pgvector.sh`` is a **retrofit** for
+a database volume that was initialised before the extension was provisioned;
+it is not part of the normal migration path. Anyone deliberately running
+``migrate`` as the least-privilege ``DB_APP_USER`` must run that retrofit once
+first. CI is unaffected: its pytest job connects as the Postgres superuser.
+
 The HNSW index is declared in Requirement.Meta.indexes and materialised here
 via AddIndex so ORM state and DB schema stay in sync.
+
+The reverse is deliberately ``RunSQL.noop``: once this (or a later) migration
+has created a ``VectorField`` column, ``DROP EXTENSION vector`` fails with
+``dependent objects still exist``. Enabling the extension is infrastructure
+owned; rolling back the schema does not roll back the database image.
 """
 from __future__ import annotations
 
@@ -43,7 +51,10 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             sql="CREATE EXTENSION IF NOT EXISTS vector;",
-            reverse_sql="DROP EXTENSION IF EXISTS vector;",
+            # Extension lifecycle is infrastructure-owned. Dropping it here
+            # would fail while any VectorField column depends on it (this
+            # migration adds one, and memory/traceability add more later).
+            reverse_sql=migrations.RunSQL.noop,
         ),
         migrations.AddField(
             model_name='requirement',

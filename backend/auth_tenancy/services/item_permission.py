@@ -23,6 +23,7 @@ Architecture: docs/se/L1/Gesamtsystem/L2/AuthAndTenancySystem/
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -358,6 +359,99 @@ class ItemPermissionService:
             decision=decision,
         )
         return decision
+
+    def check_permissions_batch(
+        self,
+        *,
+        user_id: UUID,
+        workspace_id: UUID,
+        artifact_ids: Sequence[UUID],
+    ) -> dict[UUID, PermissionDecision]:
+        """Resolve many artifact ids in one tenant-scoped query (PERF-006).
+
+        The returned mapping has one entry per *distinct* id in ``artifact_ids``,
+        computed with exactly the same precedence and cache semantics as
+        :meth:`check_permission` (artifact-scoped rule wins, then the
+        workspace-wide rule, then the closed-world deny). Decisions are read
+        from and written back to the per-key :class:`PermissionCache`, so this
+        path is behaviourally identical to calling ``check_permission`` once
+        per id — but it costs ONE query instead of two per uncached id.
+
+        One ``SELECT`` fetches every requested artifact-scoped rule plus the
+        single workspace-wide fallback rule; the rows are then grouped in
+        memory and resolved through :meth:`_decision_for_rule` /
+        :data:`_DENY_DEFAULT`. The default manager keeps the query tenant-scoped
+        (an active ``TenantContext`` is required, same as ``check_permission``).
+
+        Args:
+            user_id: Subject user (identical for every id).
+            workspace_id: Workspace scope (identical for every id).
+            artifact_ids: Concrete artifact ids to resolve. Duplicates are
+                collapsed; an empty sequence yields an empty mapping and no
+                query.
+
+        Returns:
+            Mapping ``artifact_id -> PermissionDecision`` for every distinct
+            input id.
+        """
+        unique_ids = list(dict.fromkeys(artifact_ids))
+        if not unique_ids:
+            return {}
+
+        decisions: dict[UUID, PermissionDecision] = {}
+        unresolved: list[UUID] = []
+
+        # 1. Serve per-key cache hits; collect misses for the single query.
+        for artifact_id in unique_ids:
+            cached = self._cache.get(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                artifact_id=artifact_id,
+            )
+            if cached is not None:
+                decisions[artifact_id] = cached
+            else:
+                unresolved.append(artifact_id)
+
+        if unresolved:
+            # 2. ONE tenant-scoped query: all artifact-scoped rules for the
+            #    misses plus the workspace-wide fallback rule.
+            rules = ItemPermission.objects.filter(
+                user_id=user_id,
+                workspace_id=workspace_id,
+            ).filter(Q(artifact_id__in=unresolved) | Q(artifact__isnull=True))
+
+            artifact_rules: dict[UUID, ItemPermission] = {}
+            workspace_rule: ItemPermission | None = None
+            for rule in rules:
+                if rule.artifact_id is None:
+                    workspace_rule = rule
+                else:
+                    artifact_rules[rule.artifact_id] = rule
+
+            # 3. Resolve in memory with check_permission's exact precedence,
+            #    then warm the per-key cache for subsequent checks.
+            for artifact_id in unresolved:
+                artifact_rule = artifact_rules.get(artifact_id)
+                if artifact_rule is not None:
+                    decision = self._decision_for_rule(
+                        artifact_rule, scope="artifact-scoped"
+                    )
+                elif workspace_rule is not None:
+                    decision = self._decision_for_rule(
+                        workspace_rule, scope="workspace-wide"
+                    )
+                else:
+                    decision = _DENY_DEFAULT
+                decisions[artifact_id] = decision
+                self._cache.set(
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    artifact_id=artifact_id,
+                    decision=decision,
+                )
+
+        return decisions
 
     # -- Helpers ----------------------------------------------------------
 

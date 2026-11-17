@@ -7,7 +7,6 @@ import uuid
 
 import pytest
 
-from application.test_steps import normalize_steps
 from persistence.management.commands.normalize_testcase_steps import classify
 from persistence.models import Artifact, Tenant, TestCase, Workspace
 
@@ -18,7 +17,25 @@ migration = importlib.import_module(
 )
 
 LEGACY = [{"step": "Open the page", "expected_result": "The page is visible"}]
-TYPED = normalize_steps(LEGACY, testcase_id=str(uuid.uuid4()))
+
+# Literal typed fixture, used ONLY by test_classify_distinguishes_the_four_shapes.
+# It deliberately does NOT call the live ``normalize_steps`` helper: the migration
+# oracles below (:64/:65) assert literal step_type/id/text values and stay
+# independent of the helper the frozen migration 0144 itself imports. If this
+# fixture were derived from that helper, a helper regression could mask a broken
+# migration oracle — the two must be able to fail independently.
+TYPED = [
+    {
+        "id": "00000000-0000-4000-8000-000000000001",
+        "step_type": "when",
+        "text": "Open the page",
+    },
+    {
+        "id": "00000000-0000-4000-8000-000000000002",
+        "step_type": "then",
+        "text": "The page is visible",
+    },
+]
 
 
 class _Editor:
