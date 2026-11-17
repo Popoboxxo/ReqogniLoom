@@ -43,6 +43,7 @@ from mcp_server.protocol_handler import (
     ERROR_CODE_MAP,
     ERROR_CODES,
     SUPPORTED_PROTOCOL_VERSIONS,
+    TRANSPORT_ERROR_CODE_MAP,
     ProtocolHandler,
 )
 from mcp_server.sse_pubsub import (
@@ -57,6 +58,7 @@ from mcp_server.throttling import (
     rate_limited_jsonrpc_response,
     rate_limited_plain_response,
     service_unavailable_jsonrpc_response,
+    service_unavailable_plain_response,
 )
 from mcp_server.tool_registry import ToolRegistry
 from reqogniloom.health import sunset_header_value
@@ -68,6 +70,18 @@ logger = logging.getLogger(__name__)
 # string "error_code" (REQ-047). Reverse the map to recover the string name
 # for HTTP-status mapping below.
 _NUMERIC_TO_ERROR_CODE: dict[int, str] = {v: k for k, v in ERROR_CODE_MAP.items()}
+
+
+def _transport_error_code(error_code: str) -> int:
+    """Numeric ``error.code`` for a transport-level rejection (API-004).
+
+    Transport rejections happen before a JSON-RPC handler runs, so they cannot
+    go through ``ErrorFormatter.format_error``. The explicit alias map keeps
+    their integer ``code`` in lockstep with the string ``error_code`` alias
+    without touching the handler-side ``ERROR_CODE_MAP``.
+    """
+    return TRANSPORT_ERROR_CODE_MAP.get(error_code, -32603)
+
 
 # ---------------------------------------------------------------------------
 # Canonical MCP path vs deprecated alias (issue #1292)
@@ -183,6 +197,7 @@ def _reject_ambient_cookie_auth(
             "jsonrpc": "2.0",
             "id": None,
             "error": {
+                "code": _transport_error_code("UNAUTHORIZED"),
                 "error_code": "UNAUTHORIZED",
                 "message": (
                     "The MCP transport authenticates from headers only. Send "
@@ -431,6 +446,7 @@ class McpHttpTransportView(CorsMixin, View):
                 "jsonrpc": "2.0",
                 "id": _jsonrpc_request_id(request.body),
                 "error": {
+                    "code": _transport_error_code("INVALID_REQUEST"),
                     "error_code": "INVALID_REQUEST",
                     "message": (
                         f"Unsupported MCP-Protocol-Version '{declared_version}'. "
@@ -472,6 +488,7 @@ class McpHttpTransportView(CorsMixin, View):
                 "jsonrpc": "2.0",
                 "id": None,
                 "error": {
+                    "code": _transport_error_code("INVALID_REQUEST"),
                     "error_code": "INVALID_REQUEST",
                     "message": "Batch requests are not supported.",
                 },
@@ -507,6 +524,7 @@ class McpHttpTransportView(CorsMixin, View):
                 "jsonrpc": "2.0",
                 "id": None,
                 "error": {
+                    "code": _transport_error_code("INTERNAL_ERROR"),
                     "error_code": "INTERNAL_ERROR",
                     "message": "Internal server error.",
                 },
@@ -576,6 +594,7 @@ class McpHttpTransportView(CorsMixin, View):
                 "jsonrpc": "2.0",
                 "id": response_frame.get("id") if isinstance(response_frame, dict) else None,
                 "error": {
+                    "code": _transport_error_code("INTERNAL_ERROR"),
                     "error_code": "INTERNAL_ERROR",
                     "message": "Internal server error.",
                 },
@@ -755,12 +774,17 @@ class McpMessagesView(CorsMixin, View):
         """Build a JSON-RPC error envelope for a transport-level rejection.
 
         Mirrors the envelope shape used by :class:`McpHttpTransportView`
-        (string ``error_code`` per REQ-047) so a client can branch on one
-        machine-readable field regardless of which MCP endpoint rejected it —
-        previously this view answered with a bare ``text/plain`` sentence that
-        nothing could parse.
+        (string ``error_code`` per REQ-047, plus the integer ``error.code``
+        alias from API-004) so a client can branch on one machine-readable
+        field regardless of which MCP endpoint rejected it — previously this
+        view answered with a bare ``text/plain`` sentence that nothing could
+        parse.
         """
-        error: dict[str, object] = {"error_code": error_code, "message": message}
+        error: dict[str, object] = {
+            "code": _transport_error_code(error_code),
+            "error_code": error_code,
+            "message": message,
+        }
         if data:
             error["data"] = data
         return HttpResponse(
@@ -904,7 +928,11 @@ class McpMessagesView(CorsMixin, View):
                 publish_mcp_message(session_id, {
                     "jsonrpc": "2.0",
                     "id": None,
-                    "error": {"error_code": "INTERNAL_ERROR", "message": "Internal server error."}
+                    "error": {
+                        "code": _transport_error_code("INTERNAL_ERROR"),
+                        "error_code": "INTERNAL_ERROR",
+                        "message": "Internal server error.",
+                    },
                 })
             finally:
                 close_old_connections()
@@ -1035,7 +1063,18 @@ class McpSseTransportView(View):
         # unverified key. Done via sync_to_async because the cache backend is
         # synchronous, matching how this async view already calls
         # validate_api_key / get_session_api_key.
-        retry_after = await sync_to_async(check_mcp_ip_rate_limit)(request)
+        try:
+            retry_after = await sync_to_async(check_mcp_ip_rate_limit)(request)
+        except ImproperlyConfigured:
+            # API-007: a malformed rate is an operator error, not a client bug.
+            # The sync transport answers 503 for the same misconfiguration;
+            # without this guard only the SSE path fell through to a 500.
+            logger.exception("MCP IP throttle is misconfigured (SSE handshake)")
+            return _apply_cors_headers(
+                request,
+                service_unavailable_plain_response(),
+                methods=self._CORS_METHODS,
+            )
         if retry_after is not None:
             return _apply_cors_headers(
                 request,
@@ -1062,7 +1101,17 @@ class McpSseTransportView(View):
         # Per-credential budget, charged only after the key authenticated
         # (RES-02 / finding 221, N6). An invalid handshake key never creates a
         # ``throttle_mcp_key_*`` cache entry.
-        retry_after = await sync_to_async(check_mcp_key_rate_limit)(request, api_key)
+        try:
+            retry_after = await sync_to_async(check_mcp_key_rate_limit)(request, api_key)
+        except ImproperlyConfigured:
+            # API-007: same plain 503 as the misconfigured IP backstop above,
+            # keeping the SSE handshake's single flat error shape.
+            logger.exception("MCP key throttle is misconfigured (SSE handshake)")
+            return _apply_cors_headers(
+                request,
+                service_unavailable_plain_response(),
+                methods=self._CORS_METHODS,
+            )
         if retry_after is not None:
             return _apply_cors_headers(
                 request,

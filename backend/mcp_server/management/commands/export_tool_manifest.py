@@ -2,6 +2,7 @@
 agent-template/plugin generator downstream reads from, instead of each
 maintaining its own copy of the tool list by hand."""
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,33 @@ REPO_ROOT = _find_repo_root()
 DEFAULT_OUT = REPO_ROOT / _MANIFEST_SUFFIX
 
 
+def collect_raw_tool_schemas(
+    registry: ToolRegistry | None = None,
+) -> list[dict[str, Any]]:
+    """Collect every group's tool schemas *before* any name-based dedup.
+
+    Keeping this step separate is what makes the drift gate able to see a
+    collision: comparing the committed manifest against a builder that silently
+    drops duplicates leaves both sides agreeing on a loss (API-005). A group
+    object registered under more than one prefix is still visited once, which
+    is group identity dedup — not tool-name dedup.
+    """
+    if registry is None:
+        registry = ToolRegistry()
+        registry._ensure_groups()  # populates registry._groups; no DB access, pure schema build
+
+    schemas: list[dict[str, Any]] = []
+    seen_group_ids: set[int] = set()
+    for group in registry._groups.values():
+        if id(group) in seen_group_ids:
+            continue
+        seen_group_ids.add(id(group))
+        if not hasattr(group, "get_tool_schemas"):
+            continue
+        schemas.extend(group.get_tool_schemas())
+    return schemas
+
+
 def build_manifest() -> dict[str, Any]:
     import os
     # Try to read VERSION file first; fall back to APP_VERSION env var (set at Docker build time)
@@ -52,31 +80,34 @@ def build_manifest() -> dict[str, Any]:
         version = os.environ.get("APP_VERSION", "unknown")
 
     registry = ToolRegistry()
-    registry._ensure_groups()  # populates registry._groups; no DB access, pure schema build
+    registry._ensure_groups()
+    raw_schemas = collect_raw_tool_schemas(registry)
+
+    # API-005: fail loudly on a collision instead of silently shadowing a tool.
+    # ToolGroupRouter.route() returns the first prefix match, so a duplicate
+    # name would be unreachable at runtime while this gate stayed green.
+    counts = Counter(schema.get("name", "") for schema in raw_schemas)
+    duplicates = sorted(name for name, count in counts.items() if count > 1)
+    if duplicates:
+        raise ValueError(
+            "Duplicate MCP tool name(s) emitted by more than one group: "
+            + ", ".join(duplicates)
+            + ". Shadowed tools are unreachable at runtime; fix the registry "
+            "instead of deduplicating them in the manifest."
+        )
 
     tools: list[dict[str, Any]] = []
-    seen_group_ids: set[int] = set()
-    seen_names: set[str] = set()
-    for prefix, group in registry._groups.items():
-        if id(group) in seen_group_ids:
-            continue
-        seen_group_ids.add(id(group))
-        if not hasattr(group, "get_tool_schemas"):
-            continue
-        for schema in group.get_tool_schemas():
-            name = schema.get("name", "")
-            if name in seen_names:
-                continue
-            seen_names.add(name)
-            tools.append(
-                {
-                    "name": name,
-                    "prefix": name.split(".", 1)[0] if "." in name else name,
-                    "is_write": registry._is_write_tool(name),
-                    "description": schema.get("description", ""),
-                    "inputSchema": schema.get("inputSchema", {}),
-                }
-            )
+    for schema in raw_schemas:
+        name = schema.get("name", "")
+        tools.append(
+            {
+                "name": name,
+                "prefix": name.split(".", 1)[0] if "." in name else name,
+                "is_write": registry._is_write_tool(name),
+                "description": schema.get("description", ""),
+                "inputSchema": schema.get("inputSchema", {}),
+            }
+        )
 
     tools.sort(key=lambda t: t["name"])
     return {

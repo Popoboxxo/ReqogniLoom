@@ -30,6 +30,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 import pytest
 
@@ -218,3 +219,58 @@ def test_committed_manifest_matches_live_registry() -> None:
         f"tool_count drifted: committed {committed['tool_count']} vs live "
         f"{live['tool_count']} — regenerate and commit."
     )
+
+
+# ---------------------------------------------------------------------------
+# API-005 — name collisions must raise, never be silently deduplicated
+# ---------------------------------------------------------------------------
+
+
+def _raw_schema_names() -> list[str]:
+    """Collect raw (pre-dedup) tool names from every registered tool group.
+
+    Deliberately independent of :func:`build_manifest`: the defect this guards
+    was a drift test comparing the committed manifest against the very builder
+    that silently dropped the duplicate, so both sides agreed on a loss.
+    """
+    from mcp_server.tool_registry import ToolRegistry
+
+    registry = ToolRegistry()
+    registry._ensure_groups()
+    names: list[str] = []
+    seen_group_ids: set[int] = set()
+    for group in registry._groups.values():
+        if id(group) in seen_group_ids:
+            continue
+        seen_group_ids.add(id(group))
+        if not hasattr(group, "get_tool_schemas"):
+            continue
+        names.extend(schema.get("name", "") for schema in group.get_tool_schemas())
+    return names
+
+
+def test_raw_names_equal_published_names_in_production_registry() -> None:
+    """Against the real registry: raw names == published names == 301."""
+    raw_names = _raw_schema_names()
+    assert len(raw_names) == len(set(raw_names)), "raw tool schemas contain a duplicate"
+    published = [tool["name"] for tool in build_manifest()["tools"]]
+    assert set(raw_names) == set(published)
+    assert len(raw_names) == len(published) == 301
+
+
+def test_build_manifest_raises_on_duplicate_tool_names(monkeypatch) -> None:
+    """Two groups emitting one name must raise, not silently shadow one tool."""
+    from mcp_server.management.commands import export_tool_manifest as command_module
+
+    collision = {"name": "duplicate.tool", "description": "", "inputSchema": {}}
+    group_a = mock.Mock()
+    group_a.get_tool_schemas.return_value = [collision]
+    group_b = mock.Mock()
+    group_b.get_tool_schemas.return_value = [collision]
+    fake_registry = mock.Mock()
+    fake_registry._groups = {"a": group_a, "b": group_b}
+    fake_registry._is_write_tool.return_value = False
+    monkeypatch.setattr(command_module, "ToolRegistry", lambda: fake_registry)
+
+    with pytest.raises(ValueError, match="duplicate.tool"):
+        build_manifest()
