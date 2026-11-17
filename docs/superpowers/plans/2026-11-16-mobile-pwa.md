@@ -22,9 +22,13 @@ Diagramm/Canvas, Filter-Sheet <640 px, allgemeine klebende Sammelleiste, Inspect
 Chrome-Install-Prompt, Lighthouse und der manuelle Android-Installationsnachweis — benötigen
 einen laufenden Stack / echte Geräte und stehen aus.
 
-**Belege (Stand bei Schnitt, nicht erneut verifiziert):** Commits `a9dd6a49`, `dc03bb19`,
-`1dba30c4`; die M6–M9-Folge steht als *pending commit* aus. Strukturelle Gates und
-statische/gemockte Tests sind grün; eine gerenderte Geräteabnahme liegt nicht vor.
+**Belege:** Die M6–M9-Folge ist in `main` **gemergt** — `4aa5f956`
+(feat(mobile): finish responsive shell and installable PWA), `fbb95e86`
+(fix(mobile): make mobile entry list-first and repair CI gates), `fe9ae303`
+(test(mobile): skip empty seeded list routes in E2E smoke); Docs-Merge `c27d172a`.
+Die früheren Belege `a9dd6a49`, `dc03bb19`, `1dba30c4` markieren den Ausgangspunkt.
+Strukturelle Gates und statische/gemockte Tests sind grün; eine **gerenderte Geräteabnahme
+liegt weiterhin nicht vor** (Stand bei Schnitt, nicht erneut verifiziert).
 
 **Goal:** Die SPA auf Telefonbreite (360–430 px) bedienbar machen und als installierbare PWA
 auf Android ausliefern — in zehn einzeln lieferbaren Schnitten. Nach **M1** ist die App
@@ -387,9 +391,10 @@ sinnvoll ist, sagt die Oberfläche das, statt es halb zu können.
       mit REQ-209 … REQ-215; Status REQ-209/210/213/214 `Done`, REQ-211/212/215 `Teilweise`
       (offene Reste im Beschreibungstext, Status nur in der Status-Spalte).
 - [x] `docs/superpowers/specs/index.md` und `docs/superpowers/plans/index.md`: Status
-      „mostly implemented / largely implemented" mit Belegen — Commits `a9dd6a49`, `dc03bb19`,
-      `1dba30c4`, M6–M9-Folge = *pending commit*. Keine PR-Nummern und keine gerenderte
-      Geräteabnahme belegt; residual limits bleiben ausgewiesen.
+      „mostly implemented / largely implemented" mit Belegen — M6–M9-Folge **gemergt** in
+      `4aa5f956`, `fbb95e86`, `fe9ae303`; Docs-Merge `c27d172a` (frühere Belege
+      `a9dd6a49`, `dc03bb19`, `1dba30c4`). Keine gerenderte Geräteabnahme belegt;
+      residual limits bleiben ausgewiesen. Strukturelle Gates grün, gerenderte Nachweise offen.
 - [x] CI: mobile Shard in `.github/workflows/playwright.yml`, `check-nginx-headers.sh`-Job um
       Manifest/SW erweitert, `pwa-manifest.test.ts` in der normalen Vitest-Suite.
 - [x] Druckansicht prüfen (`e2e/tests/document-reading-view.spec.ts` und Print-CSS): die neuen

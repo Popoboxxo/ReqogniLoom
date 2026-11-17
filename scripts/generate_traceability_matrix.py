@@ -11,9 +11,11 @@ Sources (read-only, never modified):
   * ``docs/se/L1/**/L1_*_Requirements.md``            -> REQ-L1
   * ``docs/se/L1/**/L2_*_Requirements.md``            -> REQ-L2 (per L2 system)
   * ``docs/se/L1/**/L3_*_Requirements.md``            -> REQ-L3 (per component)
+  * ``docs/se/L1/**/REQ-L*_*.md``                     -> standalone REQs (one H1 each)
   * ``docs/se/L1/**/L2_*_Architecture.md``            -> COMP-* and REQ-L2 -> COMP
 
-Parsed per requirement block (``### <REQ-ID><sep><title>``):
+Parsed per requirement block (``### <REQ-ID><sep><title>`` in the legacy docs,
+``# <REQ-ID>: <title>`` in standalone REQ files):
   * ``**Implementation State:**`` marker
   * ``**Test Status:**`` marker
   * ``**Traceability:**`` parent links, including ``(mitwirkend)`` annotations
@@ -52,7 +54,11 @@ SCRIPT_REL = "scripts/generate_traceability_matrix.py"
 
 # `### REQ-L2-AT-011: Credential Verification` / `### REQ-L0-001 - SN-01: ...`
 # The ID is greedy over hyphen-separated segments so `REQ-L3-RO-002-004` stays whole.
-_HEADING_RE = re.compile(r"^### +(REQ-L(\d)(?:-[A-Za-z0-9]+)+)(.*)$", re.MULTILINE)
+# A single `# REQ-L2-RF-209: ...` H1 is also accepted: standalone REQ files follow
+# the SE taxonomy (one H1 title per file). H2 is deliberately excluded because
+# the corpus has section headings like `## REQ-L1-Abdeckung fuer ARCH-L1-001`
+# that are not requirement IDs.
+_HEADING_RE = re.compile(r"^(#|###) +(REQ-L(\d)(?:-[A-Za-z0-9]+)+)(.*)$", re.MULTILINE)
 # Separators seen in the corpus: ":", em dash, en dash and one U+FFFD artifact.
 _TITLE_SEP_RE = re.compile(r"^[\s:\u2013\u2014\u2012\ufffd-]+")
 _FIELD_RE = re.compile(r"^\*\*([A-Za-z][A-Za-z .()-]*?):\*\*[ \t]*(.*)$", re.MULTILINE)
@@ -64,6 +70,9 @@ _ASSIGNED_SECTION_RE = re.compile(r"^## +\d+\. +Zugeordnete REQ-L2\b", re.MULTIL
 _L3_ASSIGNED_SECTION_RE = re.compile(r"^## +Zugeordnete L2-Anforderungen\b", re.MULTILINE)
 _COMPONENT_SECTION_RE = re.compile(r"^### +Komponenten\b", re.MULTILINE)
 _ANY_HEADING_RE = re.compile(r"^#{1,6} ", re.MULTILINE)
+# Standalone ``# REQ-...`` files: only a sibling H1 ends the block; their H2
+# ``Beschreibung`` / ``Akzeptanzkriterien`` sections belong to the requirement.
+_H1_HEADING_RE = re.compile(r"^# ", re.MULTILINE)
 
 # Implementation-State buckets. Anything else is folded into "Sonstige (Freitext)".
 KNOWN_IMPL_STATES = (
@@ -182,18 +191,24 @@ def parse_traceability(value: str) -> tuple[list[str], list[str]]:
 
 
 def split_blocks(text: str) -> list[tuple[str, int, str, str]]:
-    """Yield ``(req_id, level, title, body)`` for every ``### REQ-...`` heading."""
+    """Yield ``(req_id, level, title, body)`` for every ``#/### REQ-...`` heading."""
     matches = list(_HEADING_RE.finditer(text))
     blocks: list[tuple[str, int, str, str]] = []
     for index, match in enumerate(matches):
+        hashes = match.group(1)
         end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
         body = text[match.end() : end]
-        # Stop at the next heading of any level so sibling sections don't leak in.
-        next_heading = _ANY_HEADING_RE.search(body)
+        # Legacy ``###`` blocks end at the next heading of any level so sibling
+        # sections don't leak in. A standalone ``# REQ-...`` file keeps its
+        # ``## Beschreibung`` / ``## Akzeptanzkriterien`` sections inside the block
+        # so the ``**Implementation State:**`` / ``**Test Status:**`` /
+        # ``**Traceability:**`` markers remain visible to ``_FIELD_RE``.
+        cut_re = _ANY_HEADING_RE if hashes == "###" else _H1_HEADING_RE
+        next_heading = cut_re.search(body)
         if next_heading:
             body = body[: next_heading.start()]
-        title = _TITLE_SEP_RE.sub("", match.group(3)).strip()
-        blocks.append((match.group(1), int(match.group(2)), title, body))
+        title = _TITLE_SEP_RE.sub("", match.group(4)).strip()
+        blocks.append((match.group(2), int(match.group(3)), title, body))
     return blocks
 
 
@@ -426,6 +441,16 @@ def _register(corpus: Corpus, requirements: list[Requirement]) -> None:
         existing.contributing_parents.sort(key=natural_key)
 
 
+def _standalone_system(path: Path) -> str:
+    """Owning cell of a standalone ``REQ-L*.md`` file, used as matrix system."""
+    for parent in path.parents:
+        if parent.name == "Gesamtsystem":
+            return "Gesamtsystem"
+        if parent.parent.name == "L2" and parent.name.endswith("System"):
+            return parent.name
+    return "Gesamtsystem"
+
+
 def collect() -> Corpus:
     corpus = Corpus()
 
@@ -435,6 +460,13 @@ def collect() -> Corpus:
 
     for path in sorted(L1_ROOT.rglob("L1_*_Requirements.md")):
         _register(corpus, parse_requirement_doc(path, "Gesamtsystem", None))
+        corpus.req_doc_count += 1
+
+    # Standalone REQ files (``REQ-L{n}-..._<slug>.md``) follow the SE taxonomy
+    # with one H1 requirement per file. They were migrated out of the historical
+    # docs/REQUIREMENTS.md (S6.1) and live in the owning L1/L2 cell.
+    for path in sorted(L1_ROOT.rglob("REQ-L*_*.md")):
+        _register(corpus, parse_requirement_doc(path, _standalone_system(path), None))
         corpus.req_doc_count += 1
 
     l2_root = L1_ROOT / "Gesamtsystem/L2"
@@ -1004,6 +1036,7 @@ def render(corpus: Corpus, timestamp: str) -> str:
         "> - `docs/se/L1/**/L1_*_Requirements.md` (REQ-L1)",
         "> - `docs/se/L1/**/L2_*_Requirements.md` (REQ-L2)",
         "> - `docs/se/L1/**/L3_*_Requirements.md` (REQ-L3)",
+        "> - `docs/se/L1/**/REQ-L*_*.md` (standalone REQs, eine H1 pro Datei)",
         "> - `docs/se/L1/**/L2_*_Architecture.md` (COMP-* und REQ-L2 → Component)",
         ">",
         "> **Notation:** `—` = im Quelldokument nicht verknuepft / nicht zutreffend.",

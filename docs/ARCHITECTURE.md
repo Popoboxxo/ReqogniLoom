@@ -4,9 +4,11 @@
 > `docs/se/`. Diese Datei hält querschnittliche Konventionen fest, die nicht an
 > eine einzelne Komponente gebunden sind.
 >
-> **Stand:** `1.9.0-beta.1` · **Letzte Aktualisierung:** 2026-11-15 ·
-> **Datenquelle:** eigener Checkout von `origin/main` (`VERSION` 1.8.0-beta.29),
-> Belege sind die im Text genannten Dateien — keine Aussage ohne gelesenen Code.
+> **Stand:** `1.9.0-beta.2` · **Letzte Aktualisierung:** 2026-11-17 ·
+> **Datenquelle:** eigener Checkout von `main` — Messung: `git rev-parse HEAD` =
+> `aac32bb2…`, `git show -s --format='%ci' HEAD` = 2026-11-17, `cat VERSION` =
+> `1.9.0-beta.2`. Belege sind die im Text genannten Dateien — keine Aussage ohne
+> gelesenen Code.
 
 ## Transaktionsgrenzen (REQ-073, BE-17)
 
@@ -71,7 +73,7 @@ erzeugen, ohne die Semantik zu verändern.
 `trace_link_service.query_trace_links` und andere reine Read-Pfade laufen
 bewusst ohne Transaktions-Wrapper (ADR-L3-AS005-02).
 
-### Schreibpfade der Dokumentansicht (ADR-026, Stand 1.9.0-beta.1)
+### Schreibpfade der Dokumentansicht (ADR-026, Stand 1.9.0-beta.2)
 
 Die bearbeitbare Dokumentansicht führt **keinen zweiten Schreibpfad** ein. Sie
 zerlegt die Fläche in genau drei Layer-2-Bausteine:

@@ -356,7 +356,7 @@ router.register(r"notifications", NotificationViewSet, basename="notification")
 
 urlpatterns = [
     # Password login (REQ-L1-010) — public token exchange + authenticated bootstrap.
-    # auth/login/ is PUBLIC (AllowAny, no auth); auth/me/ requires a Bearer token.
+    # auth/login/ is PUBLIC (AllowAny, no auth); auth/me/ is authenticated via the httpOnly access cookie.
     path("auth/login/", LoginView.as_view(), name="api-v1-auth-login"),
     # Second step of the two-step login (#1308, WP E3.4) — public, same
     # throttles as `auth/login/`; exchanges the signed challenge + TOTP/recovery

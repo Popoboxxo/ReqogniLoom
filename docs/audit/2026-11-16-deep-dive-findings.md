@@ -12,18 +12,30 @@
 
 ## Umsetzungsstatus (fortlaufend)
 
-| Finding | Status | Nachweis |
-|---|---|---|
-| L0-002 | fixed in `7d6593a3` | 0141-Reverse = `migrations.RunSQL.noop`; Guard-Test; Forward-SQL-Checksum unverändert |
-| L0-001 | fixed in `7d6593a3` | `audit_ops.purge_entries_before` (SECURITY DEFINER, 30-Tage-Floor, Batch-DELETE, Trigger bleibt aktiv) |
-| L1-002 | fixed in `7d6593a3` | tenant-scoped Advisory Locks vor allen Graph-Reads; PG16-Zwei-Thread-Test grün |
-| L1-001 | fixed in `7d6593a3` | State-first-Recovery + `baseline_id` im Cache-Key; Legacy-Pfad bewusst beibehalten |
-| OPS-001 | closed as not a problem (2026-11-16) | Laufzeit-Repro am exakten Digest `nginx:1.31-alpine@sha256:785835ea…`: `/usr/bin/curl` vorhanden, Healthcheck exit 0; False Positive |
-| DEP-002 | ANPASSEN (Fix-Design korrigiert) | „Floors aus requirements.txt ableiten" wäre tautologisch; unabhängige CVE-Floor-Source nötig |
-| IMPL-001 | NEW (während S0.4) | Extended-Preset: Architektur-Editor bietet kein `change_reason` — `ArchitectureArtifactForm.tsx` reicht `requiresChangeReason` nicht an `ArtifactForm` weiter, Backend verlangt es aber → Architektur-Edits im Extended-Preset blockiert. Testid `arch-change-reason-input` existiert nicht. E2E mit `test.fixme` + Ticket-Ref markiert; Fix in S4/S6 routebar. |
+| Schnitt | PR | Merge | Findings & Gate-Status | Nachweis |
+|---|---|---|---|---|
+| S0.1 | #1895 | `bf479573` | SEC-001…007, OPS-003 — **SEC-001 USER-BLOCKED** (Rotation + History-Rewrite, Frist 2026-12-01; nicht „fixed"); **SEC-004 ANPASSEN** (nur Auth-Scopes fail-closed, generischer Throttle bleibt fail-open); SEC-003/005/006/007 + OPS-003 BESTÄTIGT. npm-Advisory-Waiver läuft 2026-12-15 ab. | `docs/audit/gates/2026-11-16/mvp-gates.md` |
+| S0.2 | #1896 | `5778f97f` | APP-001, SEC-002, EXT-001, L1-006 — BESTÄTIGT (RLS-Korrektur ohne „conditional on rollout"); **EXT-006 ANPASSEN** (`set_request_tenant` + Restore statt nur Tenant-Filter). | `docs/audit/gates/2026-11-16/mvp-gates.md` |
+| S0.3 | #1893 | `cecde079` | L0-001/002/003, L1-001…005, L1-007/008 — L0-001/002 und L1-001/002/003/004/005/008 BESTÄTIGT (L0-001/002 + L1-001/002 zuerst in `7d6593a3`: `RunSQL.noop`-Reverse, `audit_ops`-Purge-Funktion, Advisory Locks, State-first + `baseline_id`-Cache-Key); **L0-003 ANPASSEN** (nur Governance-Call-Sites `fail_closed=True`), **L1-007 ANPASSEN** (nur `coverage_relevant=True`-Typen). 4 Findings waren bereits im Audit-Dokument erfasst. | `docs/audit/gates/2026-11-16/mvp-gates.md` |
+| S0.4 | #1894 | `a9c27777` | OPS-001/002/004, DEP-001/002/004 — **OPS-001 KEIN PROBLEM** (False Positive, Laufzeit-Repro am Digest `nginx:1.31-alpine@sha256:785835ea…`, `/usr/bin/curl` vorhanden, Healthcheck exit 0; bereits dokumentiert), OPS-002/004 + DEP-001/004 BESTÄTIGT, **DEP-002 ANPASSEN** (unabhängige CVE-Floor-Single-Source statt tautologischer Ableitung aus `requirements.txt`). OPS-001/DEP-002 bereits im Audit-Dokument erfasst. | `docs/audit/gates/2026-11-16/mvp-gates.md` |
+| S1.1 REST | #1899 | `5f853933` | **API-001 KEIN PROBLEM** (`auth_tenancy/rest.py:247-248` aktiviert den Tenant vor `request.auth_context`; der geplante `.unscoped`-Fix wäre eine ADR-03-Regression); R2A-001/002/006/007/008 BESTÄTIGT; **API-006 ANPASSEN** (nur 405/415 universell), **R2A-005 ANPASSEN** (separate `getAllPagesWithCount()` statt Return-Type-Change). | `docs/audit/gates/2026-11-17/wave1-gates.md` |
+| S1.1 Client | #1900 | `d71bea7e` | R2A-005/006 (Client-Seite) — **R2A-005 ANPASSEN**, R2A-006 BESTÄTIGT. | `docs/audit/gates/2026-11-17/wave1-gates.md` |
+| S1.2 MCP | #1898 | `4a9babbd` | API-002…005, API-007/008, R2A-003/004 — API-003/004/005/007 + R2A-003/004 BESTÄTIGT; **API-002 ANPASSEN** (Query-Fallback eine Release-Version behalten), **API-008 ANPASSEN** (Ratchet expliziter Schemas statt zentraler `inputSchema`-Validierung). | `docs/audit/gates/2026-11-17/wave1-gates.md` |
+| S1.3 | #1902 | `3900e3de` | APP-002…006, EXT-004/005/007/008 — BESTÄTIGT. | `docs/audit/gates/2026-11-17/wave1-gates.md` |
+| S1.4 | #1903 | `0f79d5d8` | AI-001…006 — BESTÄTIGT; AI-007 extern bereits in `2420d6ad` behoben (nicht Teil dieses Schnitts). | `docs/audit/gates/2026-11-17/wave1-gates.md` |
+| S2.1 | #1905 | `275bf706` | PERF-002/010 erledigt; **PERF-001/003/011 bewusst zurückgestellt** (Redesign nötig — nicht als „fixed" ausweisen). | — |
+| S2.2 | #1906 | `1a4ca590` | PERF-005/006/009, R2D-002…006 — BESTÄTIGT; **PERF-008 BEWUSST AKZEPTIERT**, **R2D-008 KEIN PROBLEM**. | — |
+| S2.3 | #1907 | `8a89ac68` | PERF-007, UI-009, R2F-006 — BESTÄTIGT; **PERF-004 False Positive / KEIN PROBLEM**, **R2F-004 zurückgestellt**. | — |
+| S3.1 | #1901 | `797b08f6` | FE-001…008, R2F-001/003/005/007/008 — BESTÄTIGT. | — |
+| S4.3 | #1908 | `aac32bb2` | TEST/R2T — Pakete D+E umgesetzt; **E2E-Pakete A/B/C bleiben Follow-ups**; npm-Advisory-Waiver eng auf 2026-12-15 befristet. | — |
+| IMPL-001 | #1897 | `15c1aec1` | **BESTÄTIGT** (Impact-Korrektur: `ArchitectureArtifactForm.tsx` reicht `requiresChangeReason` nicht weiter, aber das Backend verlangt kein `change_reason` für Architektur-Update/Delete — die E2E-Begründung „edits blocked client-side" ist falsch); bereits im Audit-Dokument erfasst. | `docs/audit/gates/2026-11-17/wave1-gates.md` |
+
+**Nicht gemergt — nicht als behoben ausweisen:** S1.5, S3.2, S3.3, S3.4, S4.1, S4.2, S5.1, S5.2, S5.3, S6.1, S6.2, S6.3.
 
 
-Gate-Protokoll: `docs/audit/gates/2026-11-16/mvp-gates.md`. Review: database-engineer APPROVE nach 10 behobenen Review-Punkten.
+Gate-Protokolle: `docs/audit/gates/2026-11-16/mvp-gates.md` (S0.x) und
+`docs/audit/gates/2026-11-17/wave1-gates.md` (Welle 1). Review: database-engineer APPROVE nach
+10 behobenen Review-Punkten.
 
 ## 1. Executive Summary
 

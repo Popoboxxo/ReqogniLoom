@@ -1,7 +1,7 @@
 # ReqogniLoom Traceability Matrix
 
 > **AUTOGENERIERT — NICHT MANUELL EDITIEREN.**
-> Generiert von `scripts/generate_traceability_matrix.py` am 2026-10-03T06:49:48+00:00 aus 120 Requirement-Dokumenten und 18 Architektur-Dokumenten.
+> Generiert von `scripts/generate_traceability_matrix.py` am 2026-11-17T19:04:20+00:00 aus 127 Requirement-Dokumenten und 18 Architektur-Dokumenten.
 > Neu erzeugen: `python3 scripts/generate_traceability_matrix.py` — Aenderungen gehoeren in die
 > Quelldokumente unter `docs/se/L0/` und `docs/se/L1/`, nicht in diese Datei.
 >
@@ -13,6 +13,7 @@
 > - `docs/se/L1/**/L1_*_Requirements.md` (REQ-L1)
 > - `docs/se/L1/**/L2_*_Requirements.md` (REQ-L2)
 > - `docs/se/L1/**/L3_*_Requirements.md` (REQ-L3)
+> - `docs/se/L1/**/REQ-L*_*.md` (standalone REQs, eine H1 pro Datei)
 > - `docs/se/L1/**/L2_*_Architecture.md` (COMP-* und REQ-L2 → Component)
 >
 > **Notation:** `—` = im Quelldokument nicht verknuepft / nicht zutreffend.
@@ -111,9 +112,9 @@
 | REQ-L1-013 | LLM-Capabilities als konfigurierbare, optionale Features | Implemented | ApplicationServiceSystem, LlmAdapterSystem, PersistenceLayerSystem | REQ-L2-AS-013, REQ-L2-AS-024, REQ-L2-LA-001, REQ-L2-LA-002, REQ-L2-LA-003, REQ-L2-LA-004, REQ-L2-LA-005, REQ-L2-LA-007, REQ-L2-LA-008, REQ-L2-LA-009, REQ-L2-LA-010, REQ-L2-PL-004 | 3 |
 | REQ-L1-014 | Konfigurierbare Terminologie-Profile (Dev-Modus / SE-Modus) | Implemented | ApplicationServiceSystem, PersistenceLayerSystem, PresetConfigEngineSystem, ReactFrontendSystem | REQ-L2-AS-007, REQ-L2-PC-009, REQ-L2-PC-010, REQ-L2-PL-004, REQ-L2-RF-008 | 3 |
 | REQ-L1-015 | Mandantenfähigkeit ohne spätere Datenmigration | Implemented | ApplicationServiceSystem, AuditLogSystem, AuthAndTenancySystem, PersistenceLayerSystem, RestApiAdapterSystem, TraceabilityEngineSystem, WorkflowEngineSystem | REQ-L2-AL-006, REQ-L2-AS-022, REQ-L2-AT-008, REQ-L2-PL-001, REQ-L2-PL-004, REQ-L2-PL-010, REQ-L2-RA-011, REQ-L2-TE-011, REQ-L2-WE-006 | 4 |
-| REQ-L1-016 | Zweisprachige Benutzeroberfläche (Deutsch und Englisch) | Implemented | ReactFrontendSystem, RestApiAdapterSystem | REQ-L2-RA-004, REQ-L2-RF-001, REQ-L2-RF-011 | 2 |
-| REQ-L1-017 | Grafische Benutzeroberfläche (GUI) für manuelle Workflows | Implemented | ReactFrontendSystem | REQ-L2-RF-002, REQ-L2-RF-003, REQ-L2-RF-004, REQ-L2-RF-005, REQ-L2-RF-006, REQ-L2-RF-010, REQ-L2-RF-011, REQ-L2-RF-012 | — |
-| REQ-L1-018 | Eigenständiges Deployment für Self-Hosted-Betrieb | Implemented | PersistenceLayerSystem | REQ-L2-PL-006 | 1 |
+| REQ-L1-016 | Zweisprachige Benutzeroberfläche (Deutsch und Englisch) | Implemented | ReactFrontendSystem, RestApiAdapterSystem | REQ-L2-RA-004, REQ-L2-RF-001, REQ-L2-RF-011 | 3 |
+| REQ-L1-017 | Grafische Benutzeroberfläche (GUI) für manuelle Workflows | Implemented | ReactFrontendSystem | REQ-L2-RF-002, REQ-L2-RF-003, REQ-L2-RF-004, REQ-L2-RF-005, REQ-L2-RF-006, REQ-L2-RF-010, REQ-L2-RF-011, REQ-L2-RF-012, REQ-L2-RF-209, REQ-L2-RF-210, REQ-L2-RF-212 | 4 |
+| REQ-L1-018 | Eigenständiges Deployment für Self-Hosted-Betrieb | Implemented | PersistenceLayerSystem, ReactFrontendSystem | REQ-L2-PL-006, REQ-L2-RF-213, REQ-L2-RF-214 | 1 |
 | REQ-L1-019 | Export in JSON und CSV für alle Entitäten | Implemented | ApplicationServiceSystem | REQ-L2-AS-006, REQ-L2-AS-007 | — |
 | REQ-L1-020 | Volltextsuche über alle Artefakttypen | Implemented | ApplicationServiceSystem | REQ-L2-AS-008, REQ-L2-AS-009 | 3 |
 | REQ-L1-021 | CSV-Bulk-Import für Requirements und Artefakte | Implemented | ApplicationServiceSystem | REQ-L2-AS-014 | — |
@@ -122,7 +123,7 @@
 | REQ-L1-024 | Webhook-Support für Anforderungsänderungen | Implemented | ApplicationServiceSystem | REQ-L2-AS-017 | — |
 | REQ-L1-025 | Transaktionale Konsistenz (ACID) | Implemented | ApplicationServiceSystem, AuditLogSystem, PersistenceLayerSystem | REQ-L2-AL-004, REQ-L2-AS-018, REQ-L2-PL-002, REQ-L2-PL-009 | 6 |
 | REQ-L1-026 | Übergreifende Performance-Anforderung | Implemented | ApplicationServiceSystem, AuditLogSystem, BaselineServiceSystem, McpServerSystem, PersistenceLayerSystem, PresetConfigEngineSystem, ReactFrontendSystem, RestApiAdapterSystem, SeMetricsSystem, TraceabilityEngineSystem, WorkflowEngineSystem | REQ-L2-AL-007, REQ-L2-AL-008, REQ-L2-AS-023, REQ-L2-AS-029, REQ-L2-BL-008, REQ-L2-MC-010, REQ-L2-PC-013, REQ-L2-PL-003, REQ-L2-PL-007, REQ-L2-PL-008, REQ-L2-RA-003, REQ-L2-RA-013, REQ-L2-RF-009, REQ-L2-SM-013, REQ-L2-TE-012, REQ-L2-WE-008 | 11 |
-| REQ-L1-027 | Integrierte Diagramm- und Grafik-Verwaltung | Implemented | DiagramServiceSystem | REQ-L2-DS-001, REQ-L2-DS-002, REQ-L2-DS-003, REQ-L2-DS-004, REQ-L2-DS-005 | — |
+| REQ-L1-027 | Integrierte Diagramm- und Grafik-Verwaltung | Implemented | DiagramServiceSystem | REQ-L2-DS-001, REQ-L2-DS-002, REQ-L2-DS-003, REQ-L2-DS-004, REQ-L2-DS-005 | 1 |
 | REQ-L1-028 | ICD-Verwaltung mit Versionierung und Design-by-Contract | Implemented | IcdManagementSystem | REQ-L2-ICD-001, REQ-L2-ICD-002, REQ-L2-ICD-003, REQ-L2-ICD-004, REQ-L2-ICD-005, REQ-L2-ICD-006 | — |
 | REQ-L1-029 | ADR-, Risiko- und Issue-Verwaltung mit Artefakt-Verknüpfung | Implemented | ApplicationServiceSystem | REQ-L2-AS-026, REQ-L2-AS-027, REQ-L2-AS-028 | 1 |
 | REQ-L1-030 | Projektübergreifende Traceability (Cross-Projekt-Links) | Implemented | TraceabilityEngineSystem | REQ-L2-TE-014, REQ-L2-TE-015 | — |
@@ -152,13 +153,13 @@
 | REQ-L1-061 | RequirementService.decompose() Extension mit target_elements | Backlog | ApplicationServiceSystem | REQ-L2-AS-035 | — |
 | REQ-L1-062 | Invarianten-Validator (I1-I4) rigor-gated | Backlog | ApplicationServiceSystem | REQ-L2-AS-036 | — |
 | REQ-L1-063 | Frontend Level-View (Requirements Hierarchy) | Backlog | — | — | — |
-| REQ-L1-064 | Einheitliche, skalierbare Listen-Komponente (UI) | Backlog | — | — | — |
+| REQ-L1-064 | Einheitliche, skalierbare Listen-Komponente (UI) | Backlog | ReactFrontendSystem | REQ-L2-RF-211 | — |
 | REQ-L1-065 | Lazy Loading / Server-Side Pagination | Backlog | — | — | — |
-| REQ-L1-066 | Serverseitige Such-, Filter- und Sortierfunktionen | Backlog | — | — | — |
+| REQ-L1-066 | Serverseitige Such-, Filter- und Sortierfunktionen | Backlog | ReactFrontendSystem | REQ-L2-RF-211 | — |
 | REQ-L1-067 | Hierarchische Darstellung in Primärlisten | Backlog | — | — | — |
 | REQ-L1-068 | Graph-Datenbank als Backend-Kern | Deferred | — | — | — |
 | REQ-L1-069 | AI Orchestration Layer & Semantic Router | Backlog | — | — | — |
-| REQ-L1-070 | WebGL / Canvas Graph Rendering | Backlog | — | — | — |
+| REQ-L1-070 | WebGL / Canvas Graph Rendering | Backlog | ReactFrontendSystem | — | 1 |
 | REQ-L1-071 | Spezifische Traceability-Ontologie | Backlog | — | — | — |
 | REQ-L1-072 | Statische vs. Dynamische TraceLinks | Backlog | — | — | — |
 | REQ-L1-073 | Rules Engine für Anti-Patterns | Backlog | — | — | — |
@@ -172,7 +173,7 @@
 | REQ-L1-081 | Personal Access Token (PAT) Management | Sonstige (Freitext) | — | — | — |
 | REQ-L1-082 | Global System Announcement | Not Implemented | — | — | — |
 | REQ-L1-083 | Navigation in hierarchischer Baumstruktur | Not Implemented | — | — | — |
-| REQ-L1-084 | Konsistente Split-View-Maskenarchitektur | Not Implemented | — | — | — |
+| REQ-L1-084 | Konsistente Split-View-Maskenarchitektur | Not Implemented | ReactFrontendSystem | REQ-L2-RF-209 | — |
 | REQ-L1-085 | Erweiterte Listenoperationen | Not Implemented | — | — | — |
 | REQ-L1-086 | Glossary Mentions & Persistence | Backlog | ApplicationServiceSystem | REQ-L2-AS-037 | — |
 | REQ-L1-087 | Strikte Trennung von Workspace Administration und User Preferences | In Progress | — | — | — |
@@ -181,7 +182,7 @@
 | REQ-L1-090 | VersionPanel inside ArtifactInspector | Not Implemented | ReactFrontendSystem | REQ-L2-RF-035 | — |
 | REQ-L1-091 | DiffPanel inside ArtifactInspector (field-level diff) | Not Implemented | ReactFrontendSystem | REQ-L2-RF-036 | — |
 | REQ-L1-092 | TracePanel inside ArtifactInspector (inbound/outbound links, type filter) | Not Implemented | ReactFrontendSystem | REQ-L2-RF-037 | — |
-| REQ-L1-093 | Accessibility baseline for ArtifactInspector | Not Implemented | ReactFrontendSystem | REQ-L2-RF-034, REQ-L2-RF-036 | — |
+| REQ-L1-093 | Accessibility baseline for ArtifactInspector | Not Implemented | ReactFrontendSystem | REQ-L2-RF-034, REQ-L2-RF-036, REQ-L2-RF-215 | — |
 | REQ-L1-094 | i18n key naming convention for ArtifactInspector (DE/EN) | Not Implemented | ReactFrontendSystem | REQ-L2-RF-034, REQ-L2-RF-035, REQ-L2-RF-036, REQ-L2-RF-037 | — |
 | REQ-L1-095 | Adoption of ArtifactInspector on all 10 artifact types | Not Implemented | — | — | — |
 | REQ-L1-096 | API Security & Secret Management | Planned | — | — | — |
@@ -461,7 +462,7 @@
 | REQ-L2-PC-013 | Preset-Query-Performance | COMP-PC-003 | Implemented | Covered |
 | REQ-L2-PC-014 | Benutzerdefinierte Presets (Extended-Modus) | COMP-PC-001 | Implemented | Covered |
 
-### 3.13 ReactFrontendSystem (35 REQ-L2 → 10 Komponenten, 24 REQ-L3)
+### 3.13 ReactFrontendSystem (42 REQ-L2 → 10 Komponenten, 24 REQ-L3)
 
 *Komponenten:* COMP-RF-001 (NavigationShell), COMP-RF-002 (DashboardViews), COMP-RF-003 (RequirementEditors), COMP-RF-004 (ArchitectureEditors), COMP-RF-005 (TraceabilityViews), COMP-RF-006 (I18nService), COMP-RF-007 (SystemAnnouncementBanner) ⚠ nur Verzeichnis, COMP-RF-008 (HierarchyTreeView) ⚠ nur Verzeichnis, COMP-RF-009 (SplitViewLayout) ⚠ nur Verzeichnis, COMP-RF-010 (ListToolbar) ⚠ nur Verzeichnis
 
@@ -502,6 +503,13 @@
 | REQ-L2-RF-035 | VersionPanel Component | — | Not Implemented | Missing |
 | REQ-L2-RF-036 | DiffPanel Component (field-level diff) | — | Not Implemented | Missing |
 | REQ-L2-RF-037 | TracePanel Component (inbound/outbound links, type filter) | — | Not Implemented | Missing |
+| REQ-L2-RF-209 | Mobil-IA — Detail ersetzt Liste mit Zurück-Schritt (M5, ex REQ-209) | — | Teilweise Implementiert | Sonstige (Freitext) |
+| REQ-L2-RF-210 | Shell und Editoren rechnen mit dvh und Safe-Areas (M4, ex REQ-210) | — | Implemented | Covered |
+| REQ-L2-RF-211 | Listen, Filter und Zeilenaktionen ohne Hover (M6, ex REQ-211) | — | Teilweise Implementiert | Sonstige (Freitext) |
+| REQ-L2-RF-212 | Schwere Ansichten — lesbar mobil, Bearbeiten am Desktop (M8, ex REQ-212) | — | Teilweise Implementiert | Sonstige (Freitext) |
+| REQ-L2-RF-213 | Installierbare PWA mit Manifest, Icons und Installationsweg (M1/M3, ex REQ-213) | — | Teilweise Implementiert | Sonstige (Freitext) |
+| REQ-L2-RF-214 | Service Worker cached keine Fachdaten und wird beim Logout geleert (M2, ex REQ-214) | — | Implemented | Covered |
+| REQ-L2-RF-215 | Mobiler Abnahme-Nachweis über Geräteprofile (M0/M9, ex REQ-215) | — | Teilweise Implementiert | Sonstige (Freitext) |
 
 ### 3.14 ReqIFServiceSystem (2 REQ-L2 → 2 Komponenten, 0 REQ-L3)
 
@@ -649,8 +657,8 @@
 | Ebene | Gesamt | mit Parent-Link | zerlegt (Kind-Links) | Zerlegungsgrad |
 |-------|--------|-----------------|----------------------|----------------|
 | REQ-L0 (Stakeholder Needs) | 58 | — | 53 | 91% |
-| REQ-L1 (System) | 94 | 86 | 59 | 63% |
-| REQ-L2 (Subsystem) | 290 | 232 | 34 | 12% |
+| REQ-L1 (System) | 94 | 86 | 63 | 67% |
+| REQ-L2 (Subsystem) | 297 | 239 | 34 | 11% |
 | REQ-L3 (Komponente) | 369 | 116 | — | — |
 | Components (COMP-*) | 116 | 106 | — | 91% |
 
@@ -660,7 +668,7 @@
 |---|---|---|---|---|---|---|---|---|---|---|
 | REQ-L0 (Stakeholder Needs) | 28 | 27 | 0 | 0 | 0 | 2 | 0 | 1 | 0 | 58 |
 | REQ-L1 (System) | 40 | 23 | 4 | 23 | 1 | 0 | 2 | 1 | 0 | 94 |
-| REQ-L2 (Subsystem) | 181 | 61 | 19 | 15 | 0 | 0 | 1 | 0 | 13 | 290 |
+| REQ-L2 (Subsystem) | 183 | 61 | 19 | 15 | 0 | 5 | 1 | 0 | 13 | 297 |
 | REQ-L3 (Komponente) | 221 | 114 | 22 | 0 | 0 | 0 | 0 | 2 | 10 | 369 |
 
 > Die Marker werden **unveraendert** aus den Requirement-Dokumenten uebernommen. Ob ein Marker den tatsaechlichen Code-Stand trifft, prueft dieses Skript nicht.
@@ -671,7 +679,7 @@
 |---|---|---|---|---|---|---|
 | REQ-L0 (Stakeholder Needs) | 24 | 32 | 0 | 2 | 0 | 58 |
 | REQ-L1 (System) | 30 | 60 | 4 | 0 | 0 | 94 |
-| REQ-L2 (Subsystem) | 152 | 88 | 27 | 0 | 23 | 290 |
+| REQ-L2 (Subsystem) | 154 | 88 | 27 | 5 | 23 | 297 |
 | REQ-L3 (Komponente) | 146 | 168 | 22 | 0 | 33 | 369 |
 
 ### 4.3 System-Zusammenfassung
@@ -690,7 +698,7 @@
 | McpServerSystem | 21 | 7 | 24 | 3 | 3 |
 | PersistenceLayerSystem | 15 | 6 | 20 | 9 | 8 |
 | PresetConfigEngineSystem | 14 | 3 | 11 | 14 | 14 |
-| ReactFrontendSystem | 35 | 10 | 24 | 14 | 11 |
+| ReactFrontendSystem | 42 | 10 | 24 | 16 | 13 |
 | ReqIFServiceSystem | 2 | 2 | 0 | 0 | 0 |
 | ResilienceOrchestratorSystem | 6 | 5 | 16 | 6 | 6 |
 | RestApiAdapterSystem | 27 | 8 | 27 | 13 | 10 |
@@ -698,7 +706,7 @@
 | TraceabilityEngineSystem | 20 | 4 | 13 | 14 | 13 |
 | VectorSearchServiceSystem | 4 | 3 | 0 | 0 | 0 |
 | WorkflowEngineSystem | 9 | 4 | 13 | 9 | 9 |
-| **Gesamt** | **290** | **116** | **369** | **181** | **152** |
+| **Gesamt** | **297** | **116** | **369** | **183** | **154** |
 
 ---
 
@@ -711,10 +719,10 @@
 |--------|--------|-----|
 | REQ-L0 ohne REQ-L1-Zerlegung | 5 | REQ-L0-050, REQ-L0-051, REQ-L0-052, REQ-L0-053, REQ-L0-054 |
 | REQ-L1 ohne REQ-L0-Parent | 8 | REQ-L1-048, REQ-L1-081, REQ-L1-082, REQ-L1-083, REQ-L1-084, REQ-L1-096, REQ-L1-097, REQ-L1-098 |
-| REQ-L1 ohne REQ-L2-Zerlegung | 35 | REQ-L1-042, REQ-L1-044, REQ-L1-048, REQ-L1-058, REQ-L1-063, REQ-L1-064, REQ-L1-065, REQ-L1-066, REQ-L1-067, REQ-L1-068, REQ-L1-069, REQ-L1-070, REQ-L1-071, REQ-L1-072, REQ-L1-073, REQ-L1-074, REQ-L1-075, REQ-L1-076, REQ-L1-077, REQ-L1-078, REQ-L1-079, REQ-L1-080, REQ-L1-081, REQ-L1-082, REQ-L1-083, REQ-L1-084, REQ-L1-085, REQ-L1-087, REQ-L1-095, REQ-L1-096, REQ-L1-097, REQ-L1-098, REQ-L1-099, REQ-L1-100, REQ-L1-101 |
+| REQ-L1 ohne REQ-L2-Zerlegung | 31 | REQ-L1-042, REQ-L1-044, REQ-L1-048, REQ-L1-058, REQ-L1-063, REQ-L1-065, REQ-L1-067, REQ-L1-068, REQ-L1-069, REQ-L1-071, REQ-L1-072, REQ-L1-073, REQ-L1-074, REQ-L1-075, REQ-L1-076, REQ-L1-077, REQ-L1-078, REQ-L1-079, REQ-L1-080, REQ-L1-081, REQ-L1-082, REQ-L1-083, REQ-L1-085, REQ-L1-087, REQ-L1-095, REQ-L1-096, REQ-L1-097, REQ-L1-098, REQ-L1-099, REQ-L1-100, REQ-L1-101 |
 | REQ-L2 ohne REQ-L1-Parent | 58 | REQ-L2-AI-001, REQ-L2-AI-002, REQ-L2-AI-003, REQ-L2-AI-004, REQ-L2-AI-005, REQ-L2-AI-006, REQ-L2-AI-007, REQ-L2-AI-008, REQ-L2-AS-040, REQ-L2-AS-041, REQ-L2-AS-042, REQ-L2-AS-043, REQ-L2-AS-044, REQ-L2-AT-020, REQ-L2-MC-014, REQ-L2-MC-015, REQ-L2-MC-016, REQ-L2-MC-017, REQ-L2-MC-018, REQ-L2-MC-019, REQ-L2-MC-020, REQ-L2-MC-021, REQ-L2-PL-011, REQ-L2-PL-012, REQ-L2-PL-013, REQ-L2-PL-014, REQ-L2-PL-015, REQ-L2-RA-014, REQ-L2-RA-015, REQ-L2-RA-016, REQ-L2-RA-017, REQ-L2-RA-018, REQ-L2-RA-019, REQ-L2-RA-020, REQ-L2-RA-022, REQ-L2-RA-023, REQ-L2-RA-024, REQ-L2-RA-025, REQ-L2-RA-026, REQ-L2-RA-027, … (+18) |
-| REQ-L2 ohne Zuordnung im Architektur-Dokument | 87 | REQ-L2-AS-018, REQ-L2-AS-019, REQ-L2-AS-021, REQ-L2-AS-022, REQ-L2-AS-023, REQ-L2-AS-027, REQ-L2-AS-028, REQ-L2-AS-029, REQ-L2-AS-030, REQ-L2-AS-031, REQ-L2-AS-032, REQ-L2-AS-033, REQ-L2-AS-034, REQ-L2-AS-035, REQ-L2-AS-036, REQ-L2-AS-037, REQ-L2-AS-038, REQ-L2-AS-040, REQ-L2-AS-041, REQ-L2-AS-042, REQ-L2-AS-043, REQ-L2-AS-044, REQ-L2-AT-017, REQ-L2-AT-018, REQ-L2-AT-019, REQ-L2-AT-020, REQ-L2-BL-010, REQ-L2-BL-011, REQ-L2-CM-001, REQ-L2-CM-002, REQ-L2-CM-003, REQ-L2-MC-010, REQ-L2-MC-013, REQ-L2-MC-014, REQ-L2-MC-015, REQ-L2-MC-016, REQ-L2-MC-017, REQ-L2-MC-018, REQ-L2-MC-019, REQ-L2-MC-020, … (+47) |
-| REQ-L2 ohne Komponente (auch nach L3-Ableitung) | 74 | REQ-L2-AS-018, REQ-L2-AS-019, REQ-L2-AS-021, REQ-L2-AS-022, REQ-L2-AS-023, REQ-L2-AS-027, REQ-L2-AS-028, REQ-L2-AS-029, REQ-L2-AS-030, REQ-L2-AS-031, REQ-L2-AS-032, REQ-L2-AS-033, REQ-L2-AS-034, REQ-L2-AS-035, REQ-L2-AS-036, REQ-L2-AS-037, REQ-L2-AS-038, REQ-L2-AS-040, REQ-L2-AS-041, REQ-L2-AS-042, REQ-L2-AS-043, REQ-L2-AS-044, REQ-L2-AT-017, REQ-L2-AT-018, REQ-L2-AT-019, REQ-L2-BL-010, REQ-L2-BL-011, REQ-L2-CM-001, REQ-L2-CM-002, REQ-L2-CM-003, REQ-L2-MC-013, REQ-L2-MC-014, REQ-L2-MC-015, REQ-L2-MC-017, REQ-L2-MC-018, REQ-L2-MC-019, REQ-L2-MC-020, REQ-L2-MC-021, REQ-L2-PL-011, REQ-L2-PL-012, … (+34) |
+| REQ-L2 ohne Zuordnung im Architektur-Dokument | 94 | REQ-L2-AS-018, REQ-L2-AS-019, REQ-L2-AS-021, REQ-L2-AS-022, REQ-L2-AS-023, REQ-L2-AS-027, REQ-L2-AS-028, REQ-L2-AS-029, REQ-L2-AS-030, REQ-L2-AS-031, REQ-L2-AS-032, REQ-L2-AS-033, REQ-L2-AS-034, REQ-L2-AS-035, REQ-L2-AS-036, REQ-L2-AS-037, REQ-L2-AS-038, REQ-L2-AS-040, REQ-L2-AS-041, REQ-L2-AS-042, REQ-L2-AS-043, REQ-L2-AS-044, REQ-L2-AT-017, REQ-L2-AT-018, REQ-L2-AT-019, REQ-L2-AT-020, REQ-L2-BL-010, REQ-L2-BL-011, REQ-L2-CM-001, REQ-L2-CM-002, REQ-L2-CM-003, REQ-L2-MC-010, REQ-L2-MC-013, REQ-L2-MC-014, REQ-L2-MC-015, REQ-L2-MC-016, REQ-L2-MC-017, REQ-L2-MC-018, REQ-L2-MC-019, REQ-L2-MC-020, … (+54) |
+| REQ-L2 ohne Komponente (auch nach L3-Ableitung) | 81 | REQ-L2-AS-018, REQ-L2-AS-019, REQ-L2-AS-021, REQ-L2-AS-022, REQ-L2-AS-023, REQ-L2-AS-027, REQ-L2-AS-028, REQ-L2-AS-029, REQ-L2-AS-030, REQ-L2-AS-031, REQ-L2-AS-032, REQ-L2-AS-033, REQ-L2-AS-034, REQ-L2-AS-035, REQ-L2-AS-036, REQ-L2-AS-037, REQ-L2-AS-038, REQ-L2-AS-040, REQ-L2-AS-041, REQ-L2-AS-042, REQ-L2-AS-043, REQ-L2-AS-044, REQ-L2-AT-017, REQ-L2-AT-018, REQ-L2-AT-019, REQ-L2-BL-010, REQ-L2-BL-011, REQ-L2-CM-001, REQ-L2-CM-002, REQ-L2-CM-003, REQ-L2-MC-013, REQ-L2-MC-014, REQ-L2-MC-015, REQ-L2-MC-017, REQ-L2-MC-018, REQ-L2-MC-019, REQ-L2-MC-020, REQ-L2-MC-021, REQ-L2-PL-011, REQ-L2-PL-012, … (+41) |
 | Komponenten ohne REQ-L2-Zuordnung | 10 | COMP-AS-017, COMP-AS-018, COMP-AS-019, COMP-AT-005, COMP-CM-001, COMP-CM-002, COMP-CM-003, COMP-MC-007, COMP-RQ-001, COMP-RQ-002 |
 | Komponenten ohne Zeile im Architektur-Dokument | 16 | COMP-AS-017, COMP-AS-018, COMP-AS-019, COMP-AT-005, COMP-AT-006, COMP-CM-001, COMP-CM-002, COMP-CM-003, COMP-RA-007, COMP-RA-008, COMP-RF-007, COMP-RF-008, COMP-RF-009, COMP-RF-010, COMP-RQ-001, COMP-RQ-002 |
 | Zugeordnete, aber voellig unbekannte Komponenten | 0 | — |

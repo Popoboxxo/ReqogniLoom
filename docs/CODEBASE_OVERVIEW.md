@@ -10,7 +10,7 @@
 
 ## Übersicht
 
-ReqFlow ist ein Requirements-Management-Tool mit AI- und Systems-Engineering-Support. Die Implementierung folgt einer SE-Kaskade (L0 → L1 → L2 → L3 → L4) mit 16 L2-Systemen auf dem Backend (Django-Apps), einer React-SPA im Frontend, und einer PostgreSQL-Datenbank mit Tenant-Isolation.
+ReqFlow ist ein Requirements-Management-Tool mit AI- und Systems-Engineering-Support. Die Implementierung folgt einer SE-Kaskade (L0 → L1 → L2 → L3 → L4) mit 20 Django-Apps (`REQFLOW_APPS`) auf dem Backend, einer React-SPA im Frontend, und einer PostgreSQL-Datenbank mit Tenant-Isolation.
 
 **SE-Kaskade:** 9 L1-REQs aus dem v2-Backlog in SE-Phasen 1–6 vollständig zerlegt (15 L2-REQs, 11 Komponenten). 6 REQs als leaf terminiert (Pipeline B), 3 als continue (Pipeline C — ReqIF, Comments, RAG).
 
@@ -552,7 +552,7 @@ darauf (ADR-026, Nachtrag 2026-11-15).
 #### `rest_api/` (ARCH-L1-002)
 **Modell:** Django REST Framework ViewSets + Serializers gegen ApplicationService. OpenAPI über `drf-spectacular`.
 
-**Exportierte API (16 ViewSets + 5 APIViews):**
+**Exportierte API (30 ViewSets / 35 Router-Registrierungen):**
 ```python
 # In rest_api/views/
 class ArtifactViewSet(viewsets.ModelViewSet):
@@ -686,13 +686,15 @@ class ArtifactBulkUpdateView(APIView):
 
 **Auth-Endpoints:**
 ```python
-POST /api/v1/auth/login              # (new Wave 7) email + password → JWT
-GET  /api/v1/auth/me                 # Current user details (from Bearer token)
-POST /api/v1/auth/logout             # Optional (stateless, JWT in localStorage)
+POST /api/v1/auth/login              # email + password → httpOnly access cookie (reqogniloom_access)
+GET  /api/v1/auth/me                 # Current user details via httpOnly access cookie (GET, CSRF-safe)
+POST /api/v1/auth/logout             # clears httpOnly access + refresh cookies; requires auth + CSRF
+POST /api/v1/auth/refresh/           # PUBLIC: refresh cookie → new access cookie (single-flight silent refresh)
 ```
+Kein Token im Gerätespeicher: der httpOnly-Cookie `reqogniloom_access` wird vom Browser automatisch mitgesendet, unsichere Methoden tragen `X-CSRFToken` aus dem `csrftoken`-Cookie; bei 401 folgt ein single-flight Silent-Refresh über `/auth/refresh/` mit einmaligem Retry. Logout löscht SW-Caches, behält Registrierung (PWA-Install bleibt erhalten).
 
 **Komponenten:**
-- `views.py` — 16 ViewSets + 2 APIViews (alle CRUD-Operationen)
+- `views.py` — 30 ViewSets / 35 Router-Registrierungen (alle CRUD-Operationen)
 - `api_key_views.py` — ApiKeyViewSet (Key-Lifecycle: list/create/revoke)
 - `auth_views.py` — LoginView, MeView
 - `diagram_views.py` — DiagramViewSet
@@ -855,7 +857,7 @@ frontend/
     index.tsx                     # React Entry-Point (ReactDOM.render)
     App.tsx                       # Root Component
       api/
-      client.ts                   # Axios-Client mit auto-Bearer-Token-Injection
+      client.ts                   # Fetch-Client: httpOnly-Cookie + CSRF, Single-Flight-Refresh
       requirements.ts             # API-Wrapper für Requirements
       architecture.ts             # API-Wrapper für Architecture
       artifacts.ts                # API-Wrapper für Artifacts
@@ -961,7 +963,7 @@ frontend/
 - `useAllocationSelection(requirements)` — Auswahl-/Sperr-Zustand der Verbindungsansicht (eine Wahrheit für beide Bäume)
 - `useDocumentDrafts(reading, …)` — ungespeicherte Feld-Entwürfe der Dokumentansicht, zwei Speichermodi: `saveField` (ein `PATCH /documents/{id}/` mit `If-Match`) und `saveAll` (ein `PATCH /artifacts/bulk-update/`), Status `clean|dirty|saving|conflict|error`
 
-**Präferenz-Schreibpfad:** Nutzer-Präferenzen (u. a. `ui.connection_view.show_edges`, `ui.connection_view.filters_expanded`, `ui.connection_view.saved_views`) laufen über `api/preference-values.ts` und werden per `PATCH` mit `keepalive: true` (`api/client.ts`) geschrieben, damit ein Reload den Klick nicht verliert; Schreibvorgänge serialisiert `api/preference-write-queue.ts` (Last-Click-Wins). Kein localStorage-Fallback.
+**Präferenz-Schreibpfad:** Nutzer-Präferenzen (u. a. `ui.connection_view.show_edges`, `ui.connection_view.filters_expanded`, `ui.connection_view.saved_views`) laufen über `api/preference-values.ts` und werden per `PATCH` mit `keepalive: true` (`api/client.ts`) geschrieben, damit ein Reload den Klick nicht verliert; Schreibvorgänge serialisiert `api/preference-write-queue.ts` (Last-Click-Wins). Kein Client-Speicher-Fallback.
 
 **i18n:** DE/EN via react-i18next (Übersetzungen in `locales/de.json`, `locales/en.json`)
 

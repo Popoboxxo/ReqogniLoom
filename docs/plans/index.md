@@ -1,7 +1,8 @@
 # Plan Index
 
 This index lists every plan document in `docs/plans/` and `docs/plans/Archive/` and its implementation status,
-checked against `origin/main` (audit of 2026-11-04). It mirrors `docs/superpowers/plans/index.md`.
+audited against `origin/main` on 2026-11-04 and refreshed against `main` on 2026-11-17. It mirrors `docs/superpowers/plans/index.md`.
+**Stand:** `1.9.0-beta.2` (the `VERSION` at HEAD) · **Last check:** 2026-11-17. Every top-level `*.md` in this directory is linked here; `scripts/tests/test_doc_index_freshness.py` guards that in CI.
 
 Evidence level: the backlog plans A-G were verified at PR/commit level (commit subject on `origin/main` plus
 existence of the named deliverable), not line by line. Items that could not be proven from the repository are
@@ -12,6 +13,18 @@ marked UNVERIFIED. GitHub issues named below were NOT closed by this archiving s
 - **This directory (top level)** — plans with real open work, plus live coordination and decision documents.
 
 ## Top level — open work
+
+## [mobile-baseline-2026-11.md](mobile-baseline-2026-11.md)
+**Supporting baseline (M0) — code-derived findings, no rendered measurements.** The M4–M8 checklist behind the mobile/PWA plan; M6–M9 is merged (`4aa5f956`, `fbb95e86`, `fe9ae303`; docs `c27d172a`), structural gates are green and rendered device evidence is still outstanding. Plan: [`../superpowers/plans/2026-11-16-mobile-pwa.md`](../superpowers/plans/2026-11-16-mobile-pwa.md).
+
+## [2026-11-15-draft-spec-triage.md](2026-11-15-draft-spec-triage.md)
+**Triage record (2026-11-15) — status recommendations only, no code changes.** Checks four `draft`/`proposed` specs against `origin/main` `dea467b4` and recommends `umgesetzt`/`teilweise umgesetzt`/`überholt`/`offen` per spec.
+
+## [2026-11-10-proposals-triage.md](2026-11-10-proposals-triage.md)
+**Triage record (2026-11-14) — investigation only, no implementation, no issues.** Assesses proposals V4 (admin memory status page) and V6 (allocation/level filter) against `origin/main` `0d8bdbc4`; findings only.
+
+## [2026-11-03-bugfix-cluster-plan.md](2026-11-03-bugfix-cluster-plan.md)
+**In-progress bugfix cluster plan (2026-11-03, frontmatter `status: in_progress`).** 20 issues in 10 clusters plus 14 new findings, based on `origin/main` `f64b31e3` (`v1.8.0-beta.25`).
 
 ## [2026-11-08-bugfix-cluster-beta29.md](2026-11-08-bugfix-cluster-beta29.md)
 **Open — plan written, nothing implemented.** Bugfix release for `1.8.0-beta.28` → `1.8.0-beta.29`. Four core clusters (four PRs): **C1** deploy/prod hardening (#1735, #1736, #1737, #1738, #1740, #1742, #1743, #1744 plus the minimal-compose drift and the new compose-config/`.env.example`/bump gates), **C2** auth and permissions (#1739 password change with session revocation, password policy on user creation, #1716 ItemPermission on write paths, #1731 confirmed by design and closed), **C3** API/UI contracts (#1707 risk severity as a writable enum with an `automation` edit policy as the computed-fields precursor, #1709 ICD detail crash, #1732 submit validation instead of disabled buttons across 18 forms/files, #1668 remaining UI filter, #1406 accessibility), **C4** verification/closing/release (11 issues fixed on `main` need evidence-backed closure, plus CI gates for typecheck/`manage.py check`/migrations and dead-stub removal). Two independent PRs that also ship in `beta.29`: **C5** performance/data (#1401 embeddings off the request path, #1412 normalisation, #1399/#1411 measurement-only) and **C6** clients/OpenCode 2 (#1702 `/mcp/` instead of SSE, #1705 CI leg, #1706 legacy setting). `#1247`, `#1669/#1670`, `#1703/#1704` and feature issues are explicitly out of scope. The plan carries the consolidated review protocol in §13 (three rounds, final verdict **APPROVED with minor fixes**; all findings are applied).

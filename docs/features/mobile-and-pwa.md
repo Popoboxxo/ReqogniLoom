@@ -3,16 +3,21 @@
 **Stand:** 2026-11-16 · Schnitte **M0–M9** aus
 [`docs/superpowers/plans/2026-11-16-mobile-pwa.md`](../superpowers/plans/2026-11-16-mobile-pwa.md)
 weitgehend umgesetzt — die unten unter „Bekannte Grenzen" genannten Reste bleiben offen.
-Grundlage: Spec
+Vollständiger Plan- und Spec-Status im [Plan-Index](../superpowers/plans/index.md) (M0–M9 dort
+als „built" geführt, M6–M9 gemergt). Grundlage: Spec
 [`2026-11-16-mobile-pwa-design.md`](../superpowers/specs/2026-11-16-mobile-pwa-design.md),
 REQ-209 … REQ-215. Build-Basis: `origin/main` `fe34e583`.
 
-**Belege (Stand bei Schnitt, nicht erneut verifiziert):** Commits `a9dd6a49`, `dc03bb19`,
-`1dba30c4`; die M6–M9-Folge steht als *pending commit* aus. Grün sind die **strukturellen**
-Gates (Manifest, Icons, MIME/Cache, SW-Richtlinie) sowie statische/gemockte Tests. Offen:
-Touch-Pan/Zoom, Filter-Sheet <640 px, allgemeine klebende Sammelleiste, Inspector-Sheet erst
-<640 px, iOS nur in Emulation, keine gerenderten E2E-Screenshots / kein Lighthouse, manueller
-Android-Installationsnachweis.
+**Belege:** Die M6–M9-Folge ist in `main` **gemergt** — `4aa5f956`
+(feat(mobile): finish responsive shell and installable PWA), `fbb95e86`
+(fix(mobile): make mobile entry list-first and repair CI gates), `fe9ae303`
+(test(mobile): skip empty seeded list routes in E2E smoke); Docs-Merge `c27d172a`.
+Die früheren Belege `a9dd6a49`, `dc03bb19`, `1dba30c4` markieren den Ausgangspunkt. Grün sind
+die **strukturellen** Gates (Manifest, Icons, MIME/Cache, SW-Richtlinie) sowie
+statische/gemockte Tests; **gerenderte Nachweise stehen weiter aus** (Stand bei Schnitt,
+nicht erneut verifiziert). Offen: Touch-Pan/Zoom, Filter-Sheet <640 px, allgemeine klebende
+Sammelleiste, Inspector-Sheet erst <640 px, iOS nur in Emulation, keine gerenderten
+E2E-Screenshots / kein Lighthouse, manueller Android-Installationsnachweis.
 
 ## Was jetzt da ist
 

@@ -43,8 +43,10 @@
 
 ## 4. Abschlussvermerk (2026-11-16)
 
-M0–M9 sind **weitgehend** implementiert (Commits `a9dd6a49`, `dc03bb19`, `1dba30c4`; die
-M6–M9-Folge steht als *pending commit* aus). Die **strukturellen** Nachweise sind grün:
+M0–M9 sind **weitgehend** implementiert: Die M6–M9-Folge ist in `main` **gemergt**
+(`4aa5f956`, `fbb95e86`, `fe9ae303`; Docs-Merge `c27d172a`). Die früheren Belege `a9dd6a49`,
+`dc03bb19`, `1dba30c4` markieren den Ausgangspunkt. Die **strukturellen** Nachweise sind grün
+(Stand bei Schnitt, nicht erneut verifiziert):
 `tsc --noEmit`, `npm run build` mit `dist/sw.js`, `nginx -t` und `check-nginx-headers.sh`
 gegen einen nginx-Testcontainer sowie statische/gemockte Frontend-Tests. Testzahlen driften
 und werden hier nicht als aktuell behauptet (Stand bei Schnitt, nicht erneut verifiziert:
