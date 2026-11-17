@@ -1336,23 +1336,14 @@ class ArtifactSummaryService(ServiceBase):
 
     @staticmethod
     def _resolve_provider() -> tuple[Any | None, str, Exception | None]:
-        """Resolve the effective provider (per-tenant overlay applied).
+        """Resolve the effective provider via the shared S4.1 WP-1 core.
 
-        Mirrors ``SearchSummaryService._resolve_provider``: resolved *before*
-        the cache lookup so its name can be part of the key.
+        Kept as the patchable seam tests use; the executable core now lives in
+        :func:`application.llm_provider_resolution.resolve_provider`.
         """
-        from llm_adapter.providers import (
-            LlmNotConfiguredError,
-            LlmProviderUnknownError,
-            get_provider,
-        )
+        from application.llm_provider_resolution import resolve_provider
 
-        try:
-            provider = get_provider()
-        except (LlmNotConfiguredError, LlmProviderUnknownError) as error:
-            return None, MOCK_PROVIDER_NAME, error
-
-        return provider, str(getattr(provider, "PROVIDER_NAME", "unknown")), None
+        return resolve_provider()
 
     @staticmethod
     def _complete(
@@ -1362,38 +1353,29 @@ class ArtifactSummaryService(ServiceBase):
         resolve_error: Exception | None,
     ) -> tuple[str | None, str | None]:
         """Call the provider; return ``(text, degraded_reason)``, never raise."""
-        from llm_adapter.providers import MockLlmProvider
-        from llm_adapter.token_tracking import is_over_daily_limit
+        from application.llm_provider_resolution import complete_summary
 
-        if provider is None:
-            logger.warning(
-                "artifact_summary: no LLM provider (%s); returning degraded",
-                resolve_error,
-            )
-            return None, DEGRADED_PROVIDER_UNAVAILABLE
+        def _degraded(kind: str | None) -> str | None:
+            if kind is None:
+                return None
+            if kind == "budget":
+                return DEGRADED_BUDGET_EXHAUSTED
+            return DEGRADED_PROVIDER_UNAVAILABLE
 
-        if provider_name == MOCK_PROVIDER_NAME or isinstance(provider, MockLlmProvider):
-            # A placeholder is not a summary: do not cache it, and never present
-            # mock text as an AI result (spec §5.8).
-            logger.warning("artifact_summary: mock provider configured; degraded")
-            return None, DEGRADED_PROVIDER_UNAVAILABLE
+        def _call(p: str) -> str:
+            timeout = float(getattr(settings, "SUMMARY_SYNC_TIMEOUT_SECONDS", 20))
+            return provider.complete(p, purpose=PROMPT_TEMPLATE_NAME, timeout=timeout)
 
-        if is_over_daily_limit():
-            logger.warning("artifact_summary: daily token budget exhausted; degraded")
-            return None, DEGRADED_BUDGET_EXHAUSTED
-
-        timeout = float(getattr(settings, "SUMMARY_SYNC_TIMEOUT_SECONDS", 20))
-        try:
-            text = provider.complete(
-                prompt, purpose=PROMPT_TEMPLATE_NAME, timeout=timeout
-            )
-        except Exception:  # noqa: BLE001 - degrade, never fail the request
-            logger.exception("artifact_summary: provider call failed")
-            return None, DEGRADED_PROVIDER_UNAVAILABLE
-
-        if not isinstance(text, str) or not text.strip():
-            return None, DEGRADED_PROVIDER_UNAVAILABLE
-        return text.strip(), None
+        return complete_summary(
+            prompt,
+            provider,
+            provider_name,
+            resolve_error,
+            degraded_reason_factory=_degraded,
+            call_provider=_call,
+            log=logger,
+            log_prefix="artifact_summary",
+        )
 
 
 def _provider_model(provider: Any | None) -> str:

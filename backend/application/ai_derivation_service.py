@@ -87,11 +87,12 @@ import logging
 import re
 import socket
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypeVar
 from uuid import UUID
 
 from django.core.cache import cache
 from django.db import transaction
+from django.db.models import Model
 
 from application.ai_proposal_service import (
     proposal_report,
@@ -120,6 +121,10 @@ from persistence.transactions import atomic_transaction
 from traceability.types import LinkType
 
 logger = logging.getLogger(__name__)
+
+# Type variable for the shared lookup seam (R2C-008). Bound to ``Model`` so the
+# four typed ``_get_*`` wrappers keep their concrete return types for callers.
+_ModelT = TypeVar("_ModelT", bound=Model)
 
 # Prefix stamped onto completions that were served by the mock provider after a
 # real provider failed (REQ-078). Callers can test for it to warn the user that
@@ -1679,64 +1684,61 @@ class AiDerivationService(ServiceBase):
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _get_or_404(
+        self,
+        model: type[_ModelT],
+        object_id: UUID | str,
+        label: str,
+        *,
+        select_artifact: bool = False,
+    ) -> _ModelT:
+        """Return the tenant-scoped *model* row with *object_id* or raise.
+
+        Single lookup seam shared by the four ``_get_*`` wrappers below
+        (R2C-008). Tenant isolation is enforced by the ORM's row-level
+        security, so no explicit tenant filter is needed here. *label* is used
+        verbatim in the ``NotFoundError`` message so the public wording stays
+        identical to the former per-type helpers. Set *select_artifact* for the
+        artifact-backed models whose callers read ``.artifact`` off the result;
+        ``Workspace`` has no such relation.
+        """
+        queryset = model.objects.all()
+        if select_artifact:
+            queryset = queryset.select_related("artifact")
+        obj = queryset.filter(id=object_id).first()
+        if obj is None:
+            raise NotFoundError(f"{label} {object_id} not found")
+        return obj
+
     def _get_requirement(self, requirement_id: UUID | str) -> Requirement:
         """Return a tenant-scoped Requirement or raise NotFoundError."""
-        req = (
-            Requirement.objects.select_related("artifact")
-            .filter(id=requirement_id)
-            .first()
-        )
-        if req is None:
-            raise NotFoundError(f"Requirement {requirement_id} not found")
-        return req
+        return self._get_or_404(Requirement, requirement_id, "Requirement", select_artifact=True)
 
     def _get_stakeholder_need(
         self, stakeholder_need_id: UUID | str
     ) -> StakeholderNeed:
-        """Return a tenant-scoped StakeholderNeed or raise NotFoundError.
-
-        Mirrors :meth:`_get_requirement`; used by the write-mode path (Phase
-        3) to resolve the source need's workspace before persisting a
-        derived Requirement.
-        """
-        need = (
-            StakeholderNeed.objects.select_related("artifact")
-            .filter(id=stakeholder_need_id)
-            .first()
+        """Return a tenant-scoped StakeholderNeed or raise NotFoundError."""
+        return self._get_or_404(
+            StakeholderNeed,
+            stakeholder_need_id,
+            "StakeholderNeed",
+            select_artifact=True,
         )
-        if need is None:
-            raise NotFoundError(f"StakeholderNeed {stakeholder_need_id} not found")
-        return need
 
     def _get_architecture_element(
         self, architecture_element_id: UUID | str
     ) -> ArchitectureElement:
-        """Return a tenant-scoped ArchitectureElement or raise NotFoundError.
-
-        Mirrors :meth:`_get_requirement` / :meth:`_get_stakeholder_need`; used
-        by :meth:`derive_risks_from_architecture` (Phase 3).
-        """
-        ae = (
-            ArchitectureElement.objects.select_related("artifact")
-            .filter(id=architecture_element_id)
-            .first()
+        """Return a tenant-scoped ArchitectureElement or raise NotFoundError."""
+        return self._get_or_404(
+            ArchitectureElement,
+            architecture_element_id,
+            "ArchitectureElement",
+            select_artifact=True,
         )
-        if ae is None:
-            raise NotFoundError(
-                f"ArchitectureElement {architecture_element_id} not found"
-            )
-        return ae
 
     def _get_workspace(self, workspace_id: UUID | str) -> Workspace:
-        """Return a tenant-scoped Workspace or raise NotFoundError.
-
-        Mirrors :meth:`_get_requirement` / :meth:`_get_architecture_element`;
-        used by :meth:`derive_glossary_from_workspace` (Phase 3, Task 4).
-        """
-        workspace = Workspace.objects.filter(id=workspace_id).first()
-        if workspace is None:
-            raise NotFoundError(f"Workspace {workspace_id} not found")
-        return workspace
+        """Return a tenant-scoped Workspace or raise NotFoundError."""
+        return self._get_or_404(Workspace, workspace_id, "Workspace")
 
     @staticmethod
     def _clamp_choice(value: Any, valid_values: list[str], default: str) -> str:

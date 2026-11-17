@@ -45,12 +45,13 @@ from persistence.transactions import atomic_transaction
 from traceability.types import LinkType
 from workflow import state_reader
 
-logger = logging.getLogger(__name__)
+# Sentinel: "parameter omitted" vs "clear custom_fields to {}" (shared, see
+# application.sentinels; R2C-002).
+from application.sentinels import UNSET as _UNSET
 
-# Sentinel distinguishing "parameter omitted" from "clear custom_fields to {}"
-# (mirrors application.artifact_service._UNSET, same per-module pattern as
-# requirement_service/stakeholder_need_service/test_service).
-_UNSET = object()
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------

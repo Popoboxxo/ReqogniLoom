@@ -284,6 +284,343 @@ class ImportResult:
         }
 
 
+# ---------------------------------------------------------------------------
+# Insert-path design contract
+# ---------------------------------------------------------------------------
+# This used to be the 40-line docstring of ``ImportService._insert_rows``. It
+# is kept verbatim at module scope so the design rationale stays discoverable
+# without inflating the orchestration method that now consumes it. See
+# :data:`_INSERT_ROWS_CONTRACT` and the short docstring on ``_insert_rows``.
+_INSERT_ROWS_CONTRACT = """
+Insert all rows as Artifact + entity pairs. Must run inside atomic().
+
+IF-AS-EXT-OUT-007: persistence / application ORM writes.
+
+Round-trip fidelity (COMP-AS-008 → COMP-AS-009): when a row carries the
+identity/audit columns produced by ExportService (``id``, ``artifact_id``,
+``version``, ``created_at`` and the model's modified timestamp), those values
+are preserved so ``export -> import`` reproduces the original record exactly.
+Rows without those columns (e.g. a hand-authored CSV) keep the previous
+behaviour: fresh UUIDs, version 1 and current timestamps.
+
+Collision-safe identity (ADR-014 §3, issue #1194): a preserved ``id`` /
+``artifact_id`` is adopted **only while it is still free** in the database.
+Re-importing an export into another workspace — or anywhere the source row
+still exists — otherwise reuses the source primary keys and violates the
+global ``pl_artifact_pkey`` / entity PK, aborting the whole atomic batch. The
+exported identity is therefore a hint, not an authority: a taken id falls back
+to a freshly allocated UUID so the file works as a migration path. ``version``
+and the audit timestamps are data (not keys) and are always carried over.
+
+``auto_now`` / ``auto_now_add`` on ``created_at``/``modified_at``/
+``updated_at`` are bypassed with a follow-up ``QuerySet.update()`` (which does
+not touch auto timestamps), the only way to write caller-supplied audit
+timestamps.
+
+Supported entity types: StakeholderNeed, Requirement, ArchitectureElement,
+TestCase (persistence app) and Adr, Risk, Issue (application app).
+
+Status / WorkflowItemState (REQ-143, issue #113): ``status`` is never written
+as a plain content column — it mirrors reqif_import_service so imported rows
+land in the same state-mirror as ReqIF imports (workflow-alive and
+baseline-capable): the raw ``status`` cell is mapped onto the workspace's
+``WorkflowEngineDefinition`` states (if one exists) via ``_map_status``, and a
+matching ``WorkflowItemState`` row is created. Adr/Risk/Issue use their own
+free-text status vocabularies; ``_map_status`` is passed *this workspace's own*
+definition states, so it validates against the right vocabulary. Task 12
+dropped the ``status`` column from all six types, so without a definition the
+imported status has nowhere to be persisted and is discarded — a documented,
+reviewed data-loss tradeoff (Task 12 report Finding 2).
+
+Returns count of inserted rows.
+""".lstrip()
+
+
+# ---------------------------------------------------------------------------
+# Insert-path collaborators (R2C-006: split the 333-line _insert_rows body)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _ImportModelRegistry:
+    """Django model classes used by the CSV insert path.
+
+    Injected at service construction (see :class:`ImportService.__init__`) so
+    the ORM classes no longer need six function-local imports in
+    ``_insert_rows``. The default instance is assembled lazily by
+    :func:`_build_default_model_registry` to preserve the import discipline of
+    the sibling services (no module-level model imports).
+    """
+
+    artifact: Any
+    workspace: Any
+    lifecycle_status: Any
+    definition_model: Any
+    persistence_models: Mapping[str, Any]
+    app_models: Mapping[str, Any]
+
+    def entity_model(self, entity_type: str) -> Any:
+        """Return the concrete entity model for *entity_type*."""
+        models = (
+            self.persistence_models
+            if entity_type in _PERSISTENCE_ENTITY_TYPES
+            else self.app_models
+        )
+        return models[entity_type]
+
+
+def _build_default_model_registry() -> _ImportModelRegistry:
+    """Import Django models lazily and assemble the insert-path registry."""
+    from application.models import Adr, Issue, Risk
+    from persistence.models import (
+        ArchitectureElement,
+        Artifact,
+        LifecycleStatus,
+        Requirement,
+        StakeholderNeed,
+        TestCase,
+        Workspace,
+    )
+    from workflow.models import WorkflowEngineDefinition
+
+    return _ImportModelRegistry(
+        artifact=Artifact,
+        workspace=Workspace,
+        lifecycle_status=LifecycleStatus,
+        definition_model=WorkflowEngineDefinition,
+        persistence_models={
+            "StakeholderNeed": StakeholderNeed,
+            "Requirement": Requirement,
+            "ArchitectureElement": ArchitectureElement,
+            "TestCase": TestCase,
+        },
+        app_models={"Adr": Adr, "Risk": Risk, "Issue": Issue},
+    )
+
+
+@dataclass(frozen=True)
+class _ImportRow:
+    """One CSV row projected onto the inputs of the entity-pair create.
+
+    ``identity`` holds the specially-handled audit/identity columns,
+    ``content`` the plain model columns (``status`` and ``lifecycle_status``
+    already removed, ``test_type`` already normalized). ``mapped_status`` and
+    ``lifecycle_status_value`` are the workflow / soft-delete projections.
+    """
+
+    identity: dict[str, Any]
+    content: dict[str, Any]
+    mapped_status: str | None
+    lifecycle_status_value: Any
+
+
+@dataclass(frozen=True)
+class _ImportContext:
+    """Immutable per-import configuration plus the mutable collision sets."""
+
+    entity_type: str
+    spec: Sequence[tuple[str, str]]
+    workspace: Any
+    tenant: Any
+    artifact_type_tag: str
+    definition: Any
+    valid_states: list[str] | None
+    has_status_column: bool
+    has_lifecycle_status_column: bool
+    entity_model: Any
+    lifecycle_status_model: Any
+    models: _ImportModelRegistry
+    # A preserved id is adopted only while free; these sets are mutated as
+    # rows are inserted so a duplicated id in the same file cannot be reused.
+    taken_artifact_ids: set[str]
+    taken_entity_ids: set[str]
+
+
+def _resolve_import_identity(
+    rows: Sequence[tuple[int, Mapping[str, str]]],
+    spec: Sequence[tuple[str, str]],
+    *,
+    artifact_model: Any,
+    entity_model: Any,
+) -> tuple[set[str], set[str]]:
+    """Return ``(taken_artifact_ids, taken_entity_ids)`` for preserved PKs.
+
+    Collision-safe identity (ADR-014 §3, issue #1194): exported identity
+    columns are a *hint*. In two batched queries this resolves which of them
+    are still free; a taken id falls through to a fresh UUID on insert. A
+    same-workspace hit never reaches here — the natural-key dedupe already
+    turned it into a ``DUPLICATE`` skip.
+    """
+    preserved_artifact_ids: list[Any] = []
+    preserved_entity_ids: list[Any] = []
+    identity_columns = {
+        col: kind for col, kind in spec if col in _IDENTITY_COLUMNS
+    }
+    for _row_num, row in rows:
+        for col, kind in identity_columns.items():
+            if col not in row:
+                continue
+            value = _import_value(row.get(col), kind)
+            if value is None:
+                continue
+            if col == "artifact_id":
+                preserved_artifact_ids.append(value)
+            elif col == "id":
+                preserved_entity_ids.append(value)
+
+    taken_artifact_ids = (
+        {
+            str(pk)
+            for pk in artifact_model.unscoped.filter(
+                id__in=preserved_artifact_ids
+            ).values_list("id", flat=True)
+        }
+        if preserved_artifact_ids
+        else set()
+    )
+    taken_entity_ids = (
+        {
+            str(pk)
+            for pk in entity_model.unscoped.filter(
+                id__in=preserved_entity_ids
+            ).values_list("id", flat=True)
+        }
+        if preserved_entity_ids
+        else set()
+    )
+    return taken_artifact_ids, taken_entity_ids
+
+
+def _parse_import_row(
+    row: Mapping[str, str], *, ic: _ImportContext
+) -> _ImportRow:
+    """Parse one CSV row into identity, content and workflow projections."""
+    identity: dict[str, Any] = {}
+    content: dict[str, Any] = {}
+    for col, kind in ic.spec:
+        if col not in row:
+            continue
+        value = _import_value(row.get(col), kind)
+        if col in _IDENTITY_COLUMNS:
+            identity[col] = value
+        elif value is None and kind not in ("bool", "json"):
+            # Empty optional value -> fall back to the model default.
+            continue
+        else:
+            content[col] = value
+
+    # Status is a workflow mirror, not a plain field (REQ-143). Task 12:
+    # never put "status" back into *content* — the column is dropped.
+    mapped_status = None
+    if ic.has_status_column:
+        status_raw = content.pop("status", None)
+        mapped_status = _map_status(status_raw or "", ic.valid_states)
+
+    lifecycle_status_value = None
+    if ic.has_lifecycle_status_column:
+        lifecycle_status_raw = content.pop("lifecycle_status", None)
+        lifecycle_status_value = (
+            lifecycle_status_raw
+            if lifecycle_status_raw in ic.lifecycle_status_model.values
+            else ic.lifecycle_status_model.ACTIVE
+        )
+
+    # TestCase type normalisation (#816, #953): fold the CSV cell onto the
+    # canonical lowercase vocabulary; drop a retired alias rather than abort.
+    if ic.entity_type == "TestCase":
+        raw_test_type = content.get("test_type")
+        if raw_test_type is not None:
+            canonical_test_type = canonical_test_type_or_none(raw_test_type)
+            if canonical_test_type is None:
+                content.pop("test_type", None)
+            else:
+                content["test_type"] = canonical_test_type
+
+    return _ImportRow(
+        identity=identity,
+        content=content,
+        mapped_status=mapped_status,
+        lifecycle_status_value=lifecycle_status_value,
+    )
+
+
+def _create_entity_pair(
+    parsed: _ImportRow, *, ic: _ImportContext, ctx: AuthContext
+) -> Any:
+    """Create the backing Artifact and its specialised entity, return entity.
+
+    Collision-safe identity is applied here (adopt a preserved id only while
+    free) and caller-supplied audit timestamps are written with a follow-up
+    ``QuerySet.update()`` to bypass ``auto_now``/``auto_now_add``.
+    """
+    identity = parsed.identity
+    preserved_id = identity.get("id")
+    preserved_artifact_id = identity.get("artifact_id")
+    version = identity.get("version")
+    created_at = identity.get("created_at")
+    modified_at = identity.get("modified_at") or identity.get("updated_at")
+
+    # ---- Backing Artifact (every entity type has one) ----
+    artifact_kwargs: dict[str, Any] = dict(
+        tenant=ic.tenant,
+        workspace=ic.workspace,
+        artifact_type=ic.artifact_type_tag,
+    )
+    if (
+        preserved_artifact_id is not None
+        and str(preserved_artifact_id) not in ic.taken_artifact_ids
+    ):
+        artifact_kwargs["id"] = preserved_artifact_id
+        ic.taken_artifact_ids.add(str(preserved_artifact_id))
+    if parsed.lifecycle_status_value is not None:
+        artifact_kwargs["lifecycle_status"] = parsed.lifecycle_status_value
+    artifact = ic.models.artifact.objects.create(**artifact_kwargs)
+
+    # ---- Entity row ----
+    if ic.entity_type in _PERSISTENCE_ENTITY_TYPES:
+        model = ic.entity_model
+        create_kwargs: dict[str, Any] = dict(
+            tenant=ic.tenant, artifact=artifact, **parsed.content
+        )
+        # #133/#1402: carry the denormalized workspace FK (backs the
+        # (workspace, uid) partial UniqueConstraint); content must not decide it.
+        create_kwargs["workspace"] = ic.workspace
+        mod_field = "modified_at"
+    else:  # Adr / Risk / Issue
+        model = ic.entity_model
+        create_kwargs = dict(
+            artifact=artifact,
+            workspace_id=ic.workspace.id,
+            tenant_id=ic.tenant.id,
+            **parsed.content,
+        )
+        # Preserve exported author, else attribute to the importing user.
+        created_by = identity.get("created_by_name")
+        create_kwargs["created_by_name"] = (
+            created_by if created_by else str(ctx.user_id)
+        )
+        mod_field = "updated_at"
+
+    if preserved_id is not None and str(preserved_id) not in ic.taken_entity_ids:
+        create_kwargs["id"] = preserved_id
+        ic.taken_entity_ids.add(str(preserved_id))
+    if version is not None:
+        create_kwargs["version"] = version
+
+    obj = model.objects.create(**create_kwargs)
+
+    # ---- Preserve audit timestamps (bypass auto_now/auto_now_add) ----
+    ts_updates: dict[str, Any] = {}
+    if created_at is not None:
+        ts_updates["created_at"] = created_at
+    if modified_at is not None:
+        ts_updates[mod_field] = modified_at
+    if ts_updates:
+        model.objects.filter(pk=obj.pk).update(**ts_updates)
+
+    return obj
+
+
 # ---------- Service ----------
 
 
@@ -305,6 +642,22 @@ class ImportService(ServiceBase):
         if not result.success:
             print(result.errors)
     """
+
+    def __init__(self, models: _ImportModelRegistry | None = None) -> None:
+        """Create the importer, optionally injecting the ORM model registry.
+
+        ``models`` is the seam that keeps the six Django-model imports out of
+        the hot insert path (R2C-006). It is lazy by default so plain
+        ``ImportService()`` construction stays identical for all callers.
+        """
+        self._models = models
+
+    @property
+    def _model_registry(self) -> _ImportModelRegistry:
+        """Return the injected registry, building the default one on first use."""
+        if self._models is None:
+            self._models = _build_default_model_registry()
+        return self._models
 
     def import_csv(
         self,
@@ -1244,8 +1597,8 @@ class ImportService(ServiceBase):
                 )
         return errors
 
-    @staticmethod
     def _insert_rows(
+        self,
         rows: list[tuple[int, dict[str, str]]],
         entity_type: str,
         workspace_id: UUID,
@@ -1254,64 +1607,44 @@ class ImportService(ServiceBase):
     ) -> int:
         """Insert all rows as Artifact + entity pairs. Must run inside atomic().
 
-        IF-AS-EXT-OUT-007: persistence / application ORM writes.
-
-        Round-trip fidelity (COMP-AS-008 → COMP-AS-009): when a row carries the
-        identity/audit columns produced by :class:`~application.export_service.ExportService`
-        (``id``, ``artifact_id``, ``version``, ``created_at`` and the model's
-        modified timestamp), those values are preserved so ``export -> import``
-        reproduces the original record exactly. Rows without those columns (e.g.
-        a hand-authored CSV) keep the previous behaviour: fresh UUIDs, version 1
-        and current timestamps.
-
-        Collision-safe identity (ADR-014 §3, issue #1194): a preserved
-        ``id``/``artifact_id`` is adopted **only while it is still free** in the
-        database. Re-importing an export into another workspace — or anywhere
-        the source row still exists — otherwise reuses the source primary keys
-        and violates the global ``pl_artifact_pkey`` / entity PK, aborting the
-        whole atomic batch. The exported identity is therefore a hint, not an
-        authority: a taken id falls back to a freshly allocated UUID so the file
-        works as a migration path. ``version`` and the audit timestamps are data
-        (not keys) and are always carried over.
-
-        ``auto_now`` / ``auto_now_add`` on ``created_at``/``modified_at``/
-        ``updated_at`` are bypassed with a follow-up ``QuerySet.update()`` (which
-        does not touch auto timestamps), the only way to write caller-supplied
-        audit timestamps.
-
-        Supported entity types: StakeholderNeed, Requirement, ArchitectureElement,
-        TestCase (persistence app) and Adr, Risk, Issue (application app).
-
-        Status / WorkflowItemState (REQ-143, issue #113): ``status`` is never
-        written as a plain content column — mirrors
-        ``reqif_import_service._apply_status`` so imported rows land in the
-        same state-mirror as ReqIF imports (and are therefore workflow-alive
-        and baseline-capable): the raw ``status`` cell is mapped onto the
-        workspace's ``WorkflowEngineDefinition`` states (if one exists) via
-        ``_map_status``, and a matching ``WorkflowItemState`` row is created.
-
-        Returns count of inserted rows.
+        The full design contract (round-trip fidelity, collision-safe identity,
+        ``auto_now`` bypass, workflow mirror) lives in
+        :data:`_INSERT_ROWS_CONTRACT` at module scope. Work is split across
+        :func:`_resolve_import_identity`, :func:`_parse_import_row`,
+        :func:`_create_entity_pair` and the shared ReqIF helper
+        :func:`~application.reqif_import_service._apply_imported_workflow_state`;
+        this method is only the orchestration loop.
         """
-        from application.models import Adr, Issue, Risk
-        from persistence.models import (
-            ArchitectureElement,
-            Artifact,
-            Requirement,
-            StakeholderNeed,
-            TestCase,
-            Workspace,
+        ic = self._prepare_import_context(
+            rows, entity_type, workspace_id, artifact_type_tag
         )
-        from workflow.models import WorkflowEngineDefinition
+        inserted = 0
+        for _row_num, row in rows:
+            parsed = _parse_import_row(row, ic=ic)
+            obj = _create_entity_pair(parsed, ic=ic, ctx=ctx)
+            if ic.definition is not None:
+                _apply_imported_workflow_state(
+                    entity_id=obj.id,
+                    item_type=entity_type,
+                    workspace_id=workspace_id,
+                    tenant=ic.tenant,
+                    definition=ic.definition,
+                    mapped_state=parsed.mapped_status,
+                    source="CSV",
+                )
+            inserted += 1
+        return inserted
 
-        persistence_models = {
-            "StakeholderNeed": StakeholderNeed,
-            "Requirement": Requirement,
-            "ArchitectureElement": ArchitectureElement,
-            "TestCase": TestCase,
-        }
-        app_models = {"Adr": Adr, "Risk": Risk, "Issue": Issue}
-
-        workspace = Workspace.objects.get(id=workspace_id)
+    def _prepare_import_context(
+        self,
+        rows: list[tuple[int, dict[str, str]]],
+        entity_type: str,
+        workspace_id: UUID,
+        artifact_type_tag: str,
+    ) -> _ImportContext:
+        """Resolve workspace, workflow definition and collision sets once."""
+        models = self._model_registry
+        workspace = models.workspace.objects.get(id=workspace_id)
         tenant = workspace.tenant
         spec = ENTITY_FIELD_SPECS[entity_type]
 
@@ -1323,37 +1656,17 @@ class ImportService(ServiceBase):
         # Requirement, TestCase, Adr, Risk, Issue — ArchitectureElement has no
         # status column at all, only the unrelated "lifecycle_status"
         # soft-delete flag). Adr/Risk/Issue use their own free-text status
-        # vocabularies (e.g. "Open", "Approved", "Identified"), not the
-        # Requirement-style {draft, in_review, approved, deprecated, done}
-        # set -- ``_map_status`` is passed *this workspace's own*
-        # ``adr_default``/``risk_default``/``issue_default`` definition
-        # states (never a Requirement definition's), so it validates against
-        # the right vocabulary rather than corrupting it.
-        #
-        # Task 12: the ``status`` column is dropped from all six types, so a
-        # raw imported value can no longer be a ``model.objects.create()``
-        # kwarg (invalid keyword argument) -- it is always popped out of
-        # *content* below and, when a WorkflowEngineDefinition exists for
-        # this workspace/item_type, seeded into WorkflowItemState instead
-        # (extended here to Adr/Risk/Issue too, closing a pre-existing gap:
-        # CSV import bypasses AdrService/RiskService/IssueService's own
-        # ``initialize_workflow_states`` call, so before this fix these rows
-        # got no engine tracking at all). Without a definition, the imported
-        # status has nowhere left to be persisted and is discarded --
-        # documented, reviewed data-loss tradeoff, see the Task 12 report
-        # Finding 2.
+        # vocabularies; _map_status is passed *this workspace's own*
+        # definition states (never a Requirement definition's), so it
+        # validates against the right vocabulary rather than corrupting it.
         has_status_column = any(col == "status" for col, _kind in spec)
-        # Datenmodell-Konsolidierung Task 24: `lifecycle_status` (declared for
-        # StakeholderNeed/Requirement/ArchitectureElement) is no longer a
-        # plain content column on those models either -- it moved onto the
-        # backing Artifact (Decision D-3). Same treatment as `status` above:
-        # popped out of *content* so it never reaches `model.objects.create()`
-        # as an invalid keyword argument, and applied to the Artifact instead.
+        # Datenmodell-Konsolidierung Task 24: lifecycle_status moved onto the
+        # backing Artifact (Decision D-3), so it is popped out of content.
         has_lifecycle_status_column = any(
             col == "lifecycle_status" for col, _kind in spec
         )
         definition = (
-            WorkflowEngineDefinition.objects.filter(
+            models.definition_model.objects.filter(
                 workspace_id=str(workspace_id), item_type=entity_type
             ).first()
             if has_status_column
@@ -1364,220 +1677,29 @@ class ImportService(ServiceBase):
             if definition is not None
             else None
         )
-
-        # ---- Collision-safe identity (ADR-014 §3, issue #1194) ----
-        # Resolve, in two batched queries, which exported identity columns are
-        # still free. An ``export -> import`` reuses the source primary keys;
-        # adopting a taken one violates the global ``pl_artifact_pkey`` (or the
-        # entity table's own PK) and aborts the whole atomic batch. Only a free
-        # id is preserved; a taken id falls through to a fresh UUID, so the
-        # import works as a migration path. A same-workspace hit never reaches
-        # this point — the natural-key dedupe above already turned it into a
-        # ``DUPLICATE`` skip.
-        entity_model = (
-            persistence_models[entity_type]
-            if entity_type in _PERSISTENCE_ENTITY_TYPES
-            else app_models[entity_type]
+        entity_model = models.entity_model(entity_type)
+        taken_artifact_ids, taken_entity_ids = _resolve_import_identity(
+            rows,
+            spec,
+            artifact_model=models.artifact,
+            entity_model=entity_model,
         )
-        preserved_artifact_ids: list[Any] = []
-        preserved_entity_ids: list[Any] = []
-        identity_columns = {
-            col: kind for col, kind in spec if col in _IDENTITY_COLUMNS
-        }
-        for _row_num, row in rows:
-            for col, kind in identity_columns.items():
-                if col not in row:
-                    continue
-                value = _import_value(row.get(col), kind)
-                if value is None:
-                    continue
-                if col == "artifact_id":
-                    preserved_artifact_ids.append(value)
-                elif col == "id":
-                    preserved_entity_ids.append(value)
-
-        taken_artifact_ids = (
-            {
-                str(pk)
-                for pk in Artifact.unscoped.filter(
-                    id__in=preserved_artifact_ids
-                ).values_list("id", flat=True)
-            }
-            if preserved_artifact_ids
-            else set()
+        return _ImportContext(
+            entity_type=entity_type,
+            spec=spec,
+            workspace=workspace,
+            tenant=tenant,
+            artifact_type_tag=artifact_type_tag,
+            definition=definition,
+            valid_states=valid_states,
+            has_status_column=has_status_column,
+            has_lifecycle_status_column=has_lifecycle_status_column,
+            entity_model=entity_model,
+            lifecycle_status_model=models.lifecycle_status,
+            models=models,
+            taken_artifact_ids=taken_artifact_ids,
+            taken_entity_ids=taken_entity_ids,
         )
-        taken_entity_ids = (
-            {
-                str(pk)
-                for pk in entity_model.unscoped.filter(
-                    id__in=preserved_entity_ids
-                ).values_list("id", flat=True)
-            }
-            if preserved_entity_ids
-            else set()
-        )
-
-        inserted = 0
-        for _row_num, row in rows:
-            # ---- Parse row per field spec, splitting identity from content ----
-            identity: dict[str, Any] = {}
-            content: dict[str, Any] = {}
-            for col, kind in spec:
-                if col not in row:
-                    continue
-                value = _import_value(row.get(col), kind)
-                if col in _IDENTITY_COLUMNS:
-                    identity[col] = value
-                elif value is None and kind not in ("bool", "json"):
-                    # Empty optional value -> fall back to the model default.
-                    continue
-                else:
-                    content[col] = value
-
-            # ---- Status is a workflow mirror, not a plain field (REQ-143) ----
-            # Only entity types whose field spec declares "status" go through
-            # the mirror; e.g. ArchitectureElement has no status column at all
-            # (it only has the unrelated "lifecycle_status" soft-delete flag).
-            # Task 12: never put "status" back into *content* -- the column is
-            # dropped, so it can no longer be a ``model.objects.create()``
-            # kwarg.
-            mapped_status = None
-            if has_status_column:
-                status_raw = content.pop("status", None)
-                mapped_status = _map_status(status_raw or "", valid_states)
-
-            lifecycle_status_value = None
-            if has_lifecycle_status_column:
-                from persistence.models import LifecycleStatus
-
-                lifecycle_status_raw = content.pop("lifecycle_status", None)
-                lifecycle_status_value = (
-                    lifecycle_status_raw
-                    if lifecycle_status_raw in LifecycleStatus.values
-                    else LifecycleStatus.ACTIVE
-                )
-
-            preserved_id = identity.get("id")
-            preserved_artifact_id = identity.get("artifact_id")
-            version = identity.get("version")
-            created_at = identity.get("created_at")
-            modified_at = identity.get("modified_at") or identity.get("updated_at")
-
-            # ---- TestCase type normalisation (#816, #953) ----
-            # ``TestCase.test_type`` (first-class column) is the single
-            # representation of a test case's type; the backing Artifact is
-            # always the plain ``"TestCase"`` type. This block used to *also*
-            # tag each row's artifact with a ``"TestCase:{test_type}"``
-            # sub-type suffix per row (issue #768), which made the same fact
-            # live in two columns with two vocabularies. It now only folds the
-            # CSV cell onto the canonical lowercase vocabulary — the historical
-            # Title-case exports ("Unit", "System") keep importing, and a
-            # retired alias (e.g. "Acceptance", which has no ``TestCaseType``
-            # counterpart) is dropped rather than aborting the whole batch, so
-            # the column keeps its documented "NULL when not derivable" value.
-            if entity_type == "TestCase":
-                raw_test_type = content.get("test_type")
-                if raw_test_type is not None:
-                    canonical_test_type = canonical_test_type_or_none(
-                        raw_test_type
-                    )
-                    if canonical_test_type is None:
-                        content.pop("test_type", None)
-                    else:
-                        content["test_type"] = canonical_test_type
-
-            # ---- Backing Artifact (every entity type has one) ----
-            artifact_kwargs: dict[str, Any] = dict(
-                tenant=tenant,
-                workspace=workspace,
-                artifact_type=artifact_type_tag,
-            )
-            if (
-                preserved_artifact_id is not None
-                and str(preserved_artifact_id) not in taken_artifact_ids
-            ):
-                artifact_kwargs["id"] = preserved_artifact_id
-                taken_artifact_ids.add(str(preserved_artifact_id))
-            if lifecycle_status_value is not None:
-                artifact_kwargs["lifecycle_status"] = lifecycle_status_value
-            artifact = Artifact.objects.create(**artifact_kwargs)
-
-            # ---- Entity row ----
-            if entity_type in _PERSISTENCE_ENTITY_TYPES:
-                model = persistence_models[entity_type]
-                create_kwargs: dict[str, Any] = dict(
-                    tenant=tenant, artifact=artifact, **content
-                )
-                # #133/#1402: every Artifact-backed type carries a denormalized
-                # ``workspace`` FK that backs its (workspace, uid) partial
-                # UniqueConstraint. Leaving it NULL on this generic create path
-                # exempted imported rows from that constraint entirely.
-                # ``content`` comes from the CSV and must not decide it.
-                create_kwargs["workspace"] = workspace
-                mod_field = "modified_at"
-            else:  # Adr / Risk / Issue
-                model = app_models[entity_type]
-                create_kwargs = dict(
-                    artifact=artifact,
-                    workspace_id=workspace.id,
-                    tenant_id=tenant.id,
-                    **content,
-                )
-                # Preserve exported author, else attribute to the importing user.
-                created_by = identity.get("created_by_name")
-                create_kwargs["created_by_name"] = (
-                    created_by if created_by else str(ctx.user_id)
-                )
-                mod_field = "updated_at"
-
-            if (
-                preserved_id is not None
-                and str(preserved_id) not in taken_entity_ids
-            ):
-                create_kwargs["id"] = preserved_id
-                taken_entity_ids.add(str(preserved_id))
-            if version is not None:
-                create_kwargs["version"] = version
-
-            obj = model.objects.create(**create_kwargs)
-
-            # ---- Preserve audit timestamps (bypass auto_now/auto_now_add) ----
-            ts_updates: dict[str, Any] = {}
-            if created_at is not None:
-                ts_updates["created_at"] = created_at
-            if modified_at is not None:
-                ts_updates[mod_field] = modified_at
-            if ts_updates:
-                model.objects.filter(pk=obj.pk).update(**ts_updates)
-
-            # ---- WorkflowItemState (REQ-143, issue #113) ----
-            # Mirrors reqif_import_service._apply_status: only created when a
-            # WorkflowEngineDefinition exists for this workspace/item_type (its
-            # FK to the definition is PROTECT and requires one). Task 12:
-            # without a definition there is no column left to fall back to --
-            # the imported status is simply not persisted anywhere for that
-            # row (documented, reviewed data-loss tradeoff, see the Task 12
-            # report Finding 2).
-            #
-            # AUD-2026-09-167: a non-initial imported status used to be written
-            # straight into a freshly created WorkflowItemState (no version
-            # bump, no history). The shared CAS writer starts the row at the
-            # definition's initial state and moves it to the imported value
-            # atomically, bumping ``version`` and appending a history entry.
-            if definition is not None:
-                _apply_imported_workflow_state(
-                    entity_id=obj.id,
-                    item_type=entity_type,
-                    workspace_id=workspace_id,
-                    tenant=tenant,
-                    definition=definition,
-                    mapped_state=mapped_status,
-                    source="CSV",
-                )
-
-            inserted += 1
-
-        return inserted
 
 
 __all__ = [

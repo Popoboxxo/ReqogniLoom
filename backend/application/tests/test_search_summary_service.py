@@ -270,3 +270,72 @@ def test_ai_language_override_changes_the_prompt_and_the_cache_key(
     assert provider.calls == 2
     assert "Respond in German" in provider.last_prompt
     assert "Respond in English" not in provider.last_prompt
+
+
+# ---------------------------------------------------------------------------
+# S4.1 WP-1 (R2C-001) — provider-resolution equivalence across ANPASSEN scope
+# ---------------------------------------------------------------------------
+
+
+class TestProviderResolutionEquivalence:
+    """All four summary/compression/grounding services resolve identically.
+
+    Regression guard for the S4.1 WP-1 extraction of the shared
+    ``resolve_provider`` core. This test is pinned against the AS-IS code first
+    (the four copies are executable-identical), then re-run unchanged after the
+    migration. A divergent re-introduction in any one service makes it fail.
+
+    The three deliberately divergent ``_complete`` ladders (ai_review,
+    traceability_suggest, ai_derivation -- SA-27) are explicitly out of scope.
+    """
+
+    @staticmethod
+    def _resolvers():
+        from application.artifact_summary_service import ArtifactSummaryService
+        from application.bundle_compression_service import BundleCompressionService
+        from application.interview_service import InterviewService
+
+        return [
+            ("search_summary", SearchSummaryService._resolve_provider),
+            ("artifact_summary", ArtifactSummaryService._resolve_provider),
+            ("bundle_compression", BundleCompressionService._resolve_provider),
+            ("interview", InterviewService._resolve_provider),
+        ]
+
+    @pytest.mark.parametrize("scenario", ["unconfigured", "mock", "real"])
+    def test_all_four_resolvers_return_identical_tuples(self, scenario: str) -> None:
+        from llm_adapter.providers import LlmNotConfiguredError, MockLlmProvider
+
+        class _RealProvider:
+            PROVIDER_NAME = "anthropic"
+
+        if scenario == "unconfigured":
+            outcome: object = LlmNotConfiguredError("no provider")
+        elif scenario == "mock":
+            outcome = MockLlmProvider()
+        else:
+            outcome = _RealProvider()
+
+        patch_kwargs = (
+            {"side_effect": outcome}
+            if scenario == "unconfigured"
+            else {"return_value": outcome}
+        )
+        with patch("llm_adapter.providers.get_provider", **patch_kwargs):
+            results = [resolve() for _name, resolve in self._resolvers()]
+
+        first = results[0]
+        assert all(result == first for result in results), results
+
+        if scenario == "unconfigured":
+            assert first[0] is None
+            assert first[1] == "mock"
+            assert first[2] is outcome
+        elif scenario == "mock":
+            assert first[0] is outcome
+            assert first[1] == "mock"
+            assert first[2] is None
+        else:
+            assert first[0] is outcome
+            assert first[1] == "anthropic"
+            assert first[2] is None

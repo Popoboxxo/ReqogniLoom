@@ -849,16 +849,15 @@ class InterviewService(ServiceBase):
     def _resolve_provider() -> tuple[Any | None, str, Exception | None]:
         """Resolve the effective LLM provider for AI-assisted grounding.
 
-        Mirrors ``BundleCompressionService._resolve_provider`` exactly (see
-        ``bundle_compression_service.py:488-520`` for the annotated original)
-        -- same ``get_provider()`` call, same two caught exception types, same
-        ``(provider, provider_name, resolve_error)`` return shape. Grounding
+        The executable core is shared with the other three ANPASSEN-scope
+        services (S4.1 WP-1) via
+        :func:`application.llm_provider_resolution.resolve_provider`. Grounding
         has no cache key to namespace the way bundle compression does, so
-        here the split only exists to let ``grounding_context`` decide
-        up front, explicitly, whether to attempt AI ranking at all (spec §6:
-        the AI layer activates only when a real provider is configured) --
-        rather than relying on ``_rank_candidates_with_ai`` to notice a mock
-        provider after the fact.
+        this method only exists as the patchable seam that lets
+        ``grounding_context`` decide up front, explicitly, whether to attempt
+        AI ranking at all (spec §6: the AI layer activates only when a real
+        provider is configured) -- rather than relying on
+        ``_rank_candidates_with_ai`` to notice a mock provider after the fact.
 
         Returns:
             ``(provider, provider_name, resolve_error)``. On a resolution
@@ -869,19 +868,9 @@ class InterviewService(ServiceBase):
             though grounding does not call the mock in that case (see
             ``_rank_candidates_with_ai``).
         """
-        from application.bundle_compression_service import MOCK_PROVIDER_NAME
-        from llm_adapter.providers import (
-            LlmNotConfiguredError,
-            LlmProviderUnknownError,
-            get_provider,
-        )
+        from application.llm_provider_resolution import resolve_provider
 
-        try:
-            provider = get_provider()
-        except (LlmNotConfiguredError, LlmProviderUnknownError) as error:
-            return None, MOCK_PROVIDER_NAME, error
-
-        return provider, str(getattr(provider, "PROVIDER_NAME", "unknown")), None
+        return resolve_provider()
 
     def _rank_candidates_with_ai(
         self,

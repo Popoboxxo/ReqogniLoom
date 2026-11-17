@@ -99,10 +99,15 @@ from persistence.models import Artifact, Document, Tenant, TraceLink, WorkItem, 
 from persistence.transactions import atomic_transaction
 from workflow import state_reader
 
+# Sentinel: "parameter omitted" vs "clear custom_fields to {}" (shared, see
+# application.sentinels; R2C-002).
+from application.sentinels import UNSET as _UNSET
+
+
+
 logger = logging.getLogger(__name__)
 
 #: Sentinel distinguishing "argument omitted" from "clear to None / {}".
-_UNSET = object()
 
 #: The workflow item type this service owns.
 WORK_ITEM_ITEM_TYPE = "WorkItem"
@@ -226,7 +231,6 @@ def _work_item_snapshot(item: WorkItem) -> dict[str, Any]:
     if due_date is not None:
         payload["due_date"] = due_date.isoformat()
     return payload
-
 
 
 # ---------------------------------------------------------------------------
