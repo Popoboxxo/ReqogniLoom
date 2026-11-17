@@ -760,3 +760,47 @@ class TestQueryRisksBySeverity:
         calls = mock_mgr.filter.call_args_list
         assert calls[0].kwargs["tenant_id"] == tenant_a
         assert calls[1].kwargs["tenant_id"] == tenant_b
+
+
+# ---------------------------------------------------------------------------
+# APP-006 — deterministic score ordering (unique -id tie-breaker)
+# ---------------------------------------------------------------------------
+
+
+class TestScoreOrderingTieBreaker:
+    """Every risk_score-ordered query must include ``-id`` so tied scores
+    (a small-range product, #1390/F2) yield a stable order across pages."""
+
+    def test_list_risks_by_status_uses_id_tie_breaker(self):
+        svc = RiskService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        with (
+            patch("application.risk_service.Risk.objects") as mock_mgr,
+            patch("application.risk_service.RiskService._set_tenant_context"),
+            patch("workflow.services.item_ids_with_status", return_value=[]),
+        ):
+            mock_mgr.filter.return_value.order_by.return_value = []
+            svc.list_risks_by_status(WS_ID, "Identified", ctx)
+        mock_mgr.filter.return_value.order_by.assert_called_once_with("-risk_score", "-id")
+
+    def test_query_risks_by_severity_uses_id_tie_breaker(self):
+        svc = RiskService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        with (
+            patch("application.risk_service.Risk.objects") as mock_mgr,
+            patch("application.risk_service.RiskService._set_tenant_context"),
+        ):
+            mock_mgr.filter.return_value.order_by.return_value = []
+            svc.query_risks_by_severity(WS_ID, "high", ctx)
+        mock_mgr.filter.return_value.order_by.assert_called_once_with("-risk_score", "-id")
+
+    def test_query_risks_by_score_range_uses_id_tie_breaker(self):
+        svc = RiskService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        with (
+            patch("application.risk_service.Risk.objects") as mock_mgr,
+            patch("application.risk_service.RiskService._set_tenant_context"),
+        ):
+            mock_mgr.filter.return_value.order_by.return_value = []
+            svc.query_risks_by_score_range(WS_ID, 1, 25, ctx)
+        mock_mgr.filter.return_value.order_by.assert_called_once_with("-risk_score", "-id")

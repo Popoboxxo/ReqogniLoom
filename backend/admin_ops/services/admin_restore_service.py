@@ -7,14 +7,34 @@ typed confirmation text (``RESTORE``) and the ``admin`` role. The body
 runs inside a single ``transaction.atomic()`` block — any failure
 rolls back the entire restore.
 
+RESTORE SEMANTICS — NON-DESTRUCTIVE OVERLAY (EXT-004)
+-----------------------------------------------------
+A restore is *not* a destructive rollback. The service does NOT truncate
+tables, drop/recreate the schema, or delete rows created after the backup.
+``loaddata`` replays the dumpdata payload by primary key: rows that exist
+both in the backup and in the live DB are patched back to their snapshot
+values (upsert), while rows created after the backup are left untouched and
+remain visible. This is deliberate: under tenant Row-Level Security and the
+append-only audit triggers, a truncate/drop "true rollback" would destroy
+live data and audit history that the backup cannot reconstruct.
+
+Consequently ``RestoreResult.restored_tables`` / ``rows_per_table`` describe
+the *contents of the fixture file* (what the overlay will write), not a count
+of tables or rows that were deleted/replaced. They are derived from the
+serialized payload itself, so they are honest even when a row was already in
+sync and no visible change occurred.
+
 See ``backend/admin_ops/services/INTERFACES.md`` §4 for the full
 restore-safety contract and §5 for the audit log mapping.
 """
 from __future__ import annotations
 
+import gzip
+import json
 import logging
 import os
 import uuid
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID
@@ -44,10 +64,12 @@ class RestoreResult:
         backup_id: The :class:`BackupMetadata` id that was restored.
         started_at: Wall-clock time the restore body began executing.
         completed_at: Wall-clock time the restore body returned.
-        restored_tables: ``app_label.ModelName`` strings for each model
-            touched by the ``loaddata`` step (best-effort; populated
-            when the dumpdata payload advertises a per-app summary).
-        rows_per_table: ``{table: count}``; same caveat as above.
+        restored_tables: Sorted ``app_label.model`` labels present in the
+            backup's serialized payload — the tables the overlay will write.
+            Empty when the fixture could not be summarized (the restore
+            itself still succeeds; the summary is informational only).
+        rows_per_table: ``{app_label.model: count}`` derived from the same
+            payload — how many serialized rows exist per model.
     """
 
     backup_id: UUID
@@ -55,6 +77,47 @@ class RestoreResult:
     completed_at: datetime
     restored_tables: list[str] = field(default_factory=list)
     rows_per_table: dict[str, int] = field(default_factory=dict)
+
+
+def _summarize_fixture(abs_path: str) -> tuple[list[str], dict[str, int]]:
+    """Return ``(sorted model labels, per-model counts)`` for a dumpdata file.
+
+    The backup format is ``dumpdata --format=json``, optionally gzip-compressed
+    (``BackupService.create_backup`` since issue #823). Each top-level object
+    carries a ``model`` key of the form ``app_label.modelname``; counting those
+    keys gives an honest per-table row count for the overlay that ``loaddata``
+    is about to apply.
+
+    Best-effort by contract: an unreadable, malformed or non-dumpdata file
+    yields an empty summary plus a warning rather than failing the restore —
+    these fields are diagnostic metadata, not a precondition for loading.
+
+    Args:
+        abs_path: Absolute path of the on-disk fixture.
+
+    Returns:
+        Tuple of (sorted distinct model labels, {model label: row count}).
+    """
+    try:
+        with open(abs_path, "rb") as fh:
+            raw = fh.read()
+        # gzip magic bytes — BackupService writes `<id>.json.gz` since #823.
+        if raw[:2] == b"\x1f\x8b":
+            raw = gzip.decompress(raw)
+        payload = json.loads(raw.decode("utf-8"))
+        counts: Counter[str] = Counter(
+            obj["model"]
+            for obj in payload
+            if isinstance(obj, dict) and obj.get("model")
+        )
+        return sorted(counts), dict(counts)
+    except Exception:  # noqa: BLE001 — diagnostic only, never block a restore
+        logger.warning(
+            "AdminRestoreService: could not summarize fixture %s",
+            abs_path,
+            exc_info=True,
+        )
+        return [], {}
 
 
 class AdminRestoreService:
@@ -156,9 +219,13 @@ class AdminRestoreService:
                         f"Backup file {abs_path} is missing on disk."
                     )
 
-                # 7. Run loaddata. The data file was produced by
-                #    ``dumpdata`` (see BackupService.create_backup),
-                #    so the format is guaranteed to be compatible.
+                # 7. Summarize the serialized payload BEFORE loading it,
+                #    then run loaddata. The file was produced by ``dumpdata``
+                #    (see BackupService.create_backup), possibly gzipped, so
+                #    the format is guaranteed to be compatible. The summary
+                #    is honest about the file's contents and is informational
+                #    only — a failure to summarize never blocks the restore.
+                restored_tables, rows_per_table = _summarize_fixture(abs_path)
                 call_command("loaddata", abs_path, verbosity=0)
 
                 completed_at = datetime.now(UTC)
@@ -166,6 +233,8 @@ class AdminRestoreService:
                     backup_id=backup_id,
                     started_at=started_at,
                     completed_at=completed_at,
+                    restored_tables=restored_tables,
+                    rows_per_table=rows_per_table,
                 )
 
                 # 8. Audit 'complete' inside the same transaction.

@@ -1,9 +1,12 @@
 """P4: workflow-driven freeze for move and allocation."""
 from __future__ import annotations
 
+import logging
+from unittest.mock import patch
+
 import pytest
 
-from application.artifact_freeze import is_frozen
+from application.artifact_freeze import ArtifactFreezeLookupError, is_frozen
 from application.artifact_service import ArtifactService
 from application.base import WorkflowFrozenError
 from application.trace_link_service import TraceLinkService
@@ -148,5 +151,43 @@ def test_unfrozen_requirement_is_writable():
     TenantContext.set_tenant(tenant.id)
     try:
         assert is_frozen(req.artifact) is None
+    finally:
+        TenantContext.clear_tenant()
+
+
+def test_lookup_error_fails_closed_and_is_logged(caplog):
+    """APP-002: a genuine lookup failure must block the write.
+
+    The freeze gate used to swallow every exception and answer ``None``
+    (writable). Inject a ``RuntimeError`` into ``state_reader.current_states``
+    and assert both callers now see a raised typed error and the original
+    exception is present in the log.
+    """
+    tenant, workspace, ctx = _env("freeze-lookup-error")
+    req = _requirement(tenant, workspace)
+    element = _element(tenant, workspace)
+
+    from persistence.tenancy import TenantContext
+
+    TenantContext.set_tenant(tenant.id)
+    try:
+        with (
+            patch(
+                "workflow.state_reader.current_states",
+                side_effect=RuntimeError("state reader unavailable"),
+            ),
+            caplog.at_level(logging.ERROR, logger="application.artifact_freeze"),
+        ):
+            with pytest.raises(ArtifactFreezeLookupError):
+                ArtifactService().move(
+                    artifact_id=req.artifact_id, new_parent_id=None, ctx=ctx
+                )
+            with pytest.raises(ArtifactFreezeLookupError):
+                TraceLinkService().allocate(
+                    requirement_id=req.id,
+                    architecture_element_id=element.id,
+                    ctx=ctx,
+                )
+        assert "state reader unavailable" in caplog.text
     finally:
         TenantContext.clear_tenant()

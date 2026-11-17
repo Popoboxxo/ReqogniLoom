@@ -32,3 +32,8 @@ class ContextGraphConfig(AppConfig):
         from context_graph.projector import register_projector_on_event_bus
 
         register_projector_on_event_bus()
+
+        # EXT-008: keep the projector's cached settings snapshot coherent
+        # across all workers whenever a settings row is written/deleted.
+        # Importing the module connects the post_save/post_delete receivers.
+        from context_graph import signals  # noqa: F401

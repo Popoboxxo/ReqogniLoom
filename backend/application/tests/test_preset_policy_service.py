@@ -6,7 +6,8 @@ req_id  : REQ-L2-AS-020 (Preset Policy Enforcement)
 
 Coverage:
   - is_change_reason_required: mandatory → True, optional → False,
-    presets.services failure → fail-open (False)
+    presets.services failure → fail-closed (True, APP-003),
+    CrossTenantWorkspaceError → re-raised unchanged (tenant guard preserved)
   - is_scope_allowed: delegates to presets.services.is_scope_allowed,
     failure → fail-open (False)
   - validate_transition_roles: no approval_workflows feature → allow;
@@ -22,6 +23,7 @@ Coverage:
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from unittest.mock import MagicMock, call, patch
 
@@ -31,6 +33,7 @@ from application.preset_policy_service import (
     PresetPolicyService,
     get_preset_policy_service,
 )
+from presets.exceptions import CrossTenantWorkspaceError
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -93,17 +96,37 @@ class TestIsChangeReasonRequired:
 
         assert result is False
 
-    def test_failure_returns_false_fail_open(self):
-        """Returns False (fail-open) when _get_preset raises an exception."""
+    def test_failure_returns_true_fail_closed(self, caplog):
+        """APP-003: returns True (fail-closed) on a lookup failure and logs
+        the workspace id at WARNING."""
         svc = PresetPolicyService()
 
-        with patch(
-            "application.preset_policy_service.PresetPolicyService._get_preset",
-            side_effect=RuntimeError("presets unavailable"),
+        with (
+            patch(
+                "application.preset_policy_service.PresetPolicyService._get_preset",
+                side_effect=RuntimeError("presets unavailable"),
+            ),
+            caplog.at_level(logging.WARNING, logger="application.preset_policy_service"),
         ):
             result = svc.is_change_reason_required(WS_ID)
 
-        assert result is False
+        assert result is True
+        assert WS_ID in caplog.text
+        assert "fail-closed" in caplog.text.lower()
+
+    def test_cross_tenant_error_is_reraised(self):
+        """APP-003: a CrossTenantWorkspaceError must propagate unchanged so
+        the tenant guard is not diluted into a harmless boolean."""
+        svc = PresetPolicyService()
+
+        with (
+            patch(
+                "application.preset_policy_service.PresetPolicyService._get_preset",
+                side_effect=CrossTenantWorkspaceError(),
+            ),
+            pytest.raises(CrossTenantWorkspaceError),
+        ):
+            svc.is_change_reason_required(WS_ID)
 
 
 # ---------------------------------------------------------------------------

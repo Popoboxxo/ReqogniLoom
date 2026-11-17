@@ -5,6 +5,9 @@ Real-DB, following the same seeding convention as
 """
 from __future__ import annotations
 
+import uuid
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from context_graph.tests.conftest import (
@@ -320,3 +323,26 @@ class TestOpenRisksAndIssuesReadTheEngine:
             _clear()
 
         assert result == []
+
+
+class TestSoftEdgeDeterminism:
+    """APP-004: deterministic top-N for equal-confidence soft edges."""
+
+    def test_equal_confidence_edges_use_id_as_unique_tie_breaker(self):
+        from application import context_service
+
+        artifact_id = uuid.uuid4()
+        tenant_id = uuid.uuid4()
+        with (
+            patch("context_graph.models.ContextEdge.objects") as mock_mgr,
+            patch.object(context_service, "_enrich_artifact_ids", return_value={}),
+        ):
+            qs = MagicMock()
+            qs.filter.return_value = qs
+            qs.order_by.return_value = qs
+            qs.__getitem__.return_value = qs
+            qs.values.return_value = []
+            mock_mgr.filter.return_value = qs
+            context_service._soft_edges_for_artifact(artifact_id, tenant_id, limit=5)
+
+        qs.order_by.assert_called_once_with("-confidence", "id")

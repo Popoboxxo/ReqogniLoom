@@ -268,7 +268,10 @@ def _soft_edges_for_artifact(
         qs = qs.filter(edge_kind__in=edge_kinds)
     if min_confidence:
         qs = qs.filter(confidence__gte=min_confidence)
-    qs = qs.order_by("-confidence")[:limit]
+    # APP-004: confidence is not unique (deterministic generators emit 1.0 for
+    # many edges), so ``id`` is the unique tie-breaker that keeps the top-N
+    # window stable across pages/repeated calls.
+    qs = qs.order_by("-confidence", "id")[:limit]
 
     rows = list(qs.values("source_id", "target_id", "edge_kind", "origin", "confidence", "evidence"))
     other_ids = [
@@ -472,6 +475,10 @@ def update_settings(
         row.enabled = enabled
         row.enabled_generators = generators
         row.save(update_fields=["enabled", "enabled_generators", "modified_at"])
+
+    # EXT-008: invalidation is owned by the context_graph app's post_save /
+    # post_delete signal (see context_graph/signals.py) — the projector's cache
+    # is a plain key, so a generation bump here would have no reader.
 
     if enabled and not was_enabled:
         from context_graph.tasks import rebuild_workspace_graph_task
