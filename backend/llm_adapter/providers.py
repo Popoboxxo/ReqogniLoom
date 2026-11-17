@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import secrets
 import time
 import warnings
 from collections.abc import Callable
@@ -258,6 +259,34 @@ def _apply_db_settings(cfg: ProviderConfig) -> ProviderConfig:
         return cfg
 
 
+def _validate_provider_config_url(cfg: ProviderConfig) -> None:
+    """Run the SSRF guard over the resolved ``api_base_url`` (AI-003).
+
+    Config can come from three places — the process environment, a persisted
+    ``LlmSettings`` row, or an explicit ``ProviderConfig`` handed to
+    :func:`get_provider`. Only the persisted path used to call
+    :func:`~llm_adapter.url_guard.validate_outbound_url` (in the settings
+    serializer). Env and explicit-config sources therefore flowed straight into
+    the provider HTTP clients (``requests.post`` / the SDKs), so a hostile or
+    mistyped ``LLM_BASE_URL=http://169.254.169.254`` turned the adapter into an
+    SSRF proxy. Validating the *resolved* config here covers every source in
+    one place, before any provider is instantiated or any request issued.
+
+    A blank URL is a no-op (the guard treats it as "no override"). The break-
+    glass ``LLM_ALLOW_PRIVATE_BASE_URL`` / ``LLM_BASE_URL_ALLOWED_HOSTS``
+    switches remain honoured by the guard, so self-hosted Ollama still works.
+    DNS rebinding stays a documented residual risk — see ``url_guard.py``.
+    """
+    url = (cfg.api_base_url or "").strip()
+    if not url:
+        return
+    # Lazy import: url_guard touches django.conf.settings at call time only,
+    # and providers.py stays importable in non-Django contexts.
+    from llm_adapter.url_guard import validate_outbound_url  # noqa: PLC0415
+
+    validate_outbound_url(url)
+
+
 def _read_config() -> ProviderConfig:
     """Resolve the effective ProviderConfig (DB settings over env fallback).
 
@@ -265,7 +294,11 @@ def _read_config() -> ProviderConfig:
     values are used; otherwise the configuration is read from environment
     variables (the pre-existing behaviour).
     """
-    return _apply_db_settings(_read_env_config())
+    cfg = _apply_db_settings(_read_env_config())
+    # AI-003: validate the *resolved* URL (env + DB + overlay) in one place so
+    # no source can bypass the SSRF guard before a request is issued.
+    _validate_provider_config_url(cfg)
+    return cfg
 
 
 def resolve_provider_config() -> ProviderConfig:
@@ -285,21 +318,33 @@ def resolve_provider_config() -> ProviderConfig:
 
 
 # ---------------------------------------------------------------------------
-# Prompt content embedding helpers (REQ-046)
+# Prompt content embedding helpers (REQ-046 / AI-004)
 # ---------------------------------------------------------------------------
-# Security: user content is delimited to reduce prompt injection surface
-# (REQ-080). Artifact titles, descriptions and requirement text are user-
-# controlled; wrapping them in an unambiguous delimiter keeps them from being
-# interpreted as model instructions.
+# Security: untrusted artifact/requirement text is separated from trusted
+# instructions on two independent axes (AI-004):
+#   1. a *random per-call* delimiter fence that is verified absent from the
+#      data (a static ``###`` fence could be closed by attacker text), and
+#   2. a role split — instructions travel in a trusted ``system`` message,
+#      untrusted data only in the ``user`` message — wherever the provider API
+#      supports roles (all six HTTP providers; the mock has no transport).
 
+#: Kept for backward compatibility /-neutralisation only. ``###`` was the old
+#: *static* fence; text containing it is neutralised so legacy data cannot
+#: impersonate a fence. New fences are random — see :func:`_new_delimiter`.
+# S14-A1: never let an SDK fall back to OPENAI_BASE_URL /
+# ANTHROPIC_BASE_URL from the deployment env — those URLs bypass the
+# central outbound-URL validator.
+_DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
+_DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
 _USER_CONTENT_DELIMITER = "###"
+_FENCE_PREFIX = "REQLO-UNTRUSTED-"
 
-# Maximum number of characters of artifact/requirement content embedded into a
-# single prompt (REQ-046). Descriptions can be arbitrarily long free text;
-# without a bound a single oversized artifact would blow up prompt size,
-# token cost, and — for some providers — the request itself. Content beyond
-# the limit is truncated and marked with an ellipsis so the model (and any
-# human reviewing the prompt) can tell the text was cut short.
+#: Maximum number of characters of artifact/requirement content embedded into a
+#: single prompt (REQ-046). Descriptions can be arbitrarily long free text;
+#: without a bound a single oversized artifact would blow up prompt size,
+#: token cost, and — for some providers — the request itself. Content beyond
+#: the limit is truncated and marked with an ellipsis so the model (and any
+#: human reviewing the prompt) can tell the text was cut short.
 MAX_PROMPT_CONTENT_CHARS = 4000
 
 _TRUNCATION_MARKER = "... [truncated]"
@@ -312,8 +357,9 @@ def truncate_prompt_content(
 
     Applied to every piece of user-controlled content embedded into a prompt
     (artifact descriptions, requirement text, architecture element
-    descriptions) so a single oversized field cannot dominate the prompt.
-    Text that already fits within *limit* is returned unchanged.
+    descriptions, and — since AI-004 — artifact titles) so a single oversized
+    field cannot dominate the prompt. Text that already fits within *limit* is
+    returned unchanged.
 
     Args:
         text: The candidate text to bound.
@@ -331,66 +377,69 @@ def truncate_prompt_content(
     return text[:limit] + _TRUNCATION_MARKER
 
 
-def _delimit_user_content(content: str) -> str:
-    """Wrap user-controlled content in delimiters (REQ-080).
+def _new_delimiter(*data_blocks: str) -> str:
+    """Return a random fence token guaranteed absent from *data_blocks*.
 
-    The returned block clearly separates untrusted artifact/requirement text
-    from the surrounding instructions so the model treats it as data, not as
-    commands. This reduces the prompt-injection surface without changing the
-    embedded text itself.
-
-    Args:
-        content: The user-controlled text to delimit.
-
-    Returns:
-        The content fenced between ``###`` delimiter lines.
+    An attacker cannot predict or embed the fence, so they cannot close it and
+    promote their data into the instruction channel. Regenerating until the
+    token is absent (rather than escaping only known lookalikes) makes the
+    guarantee hold for *any* data, including text that happens to contain an
+    older fence value.
     """
-    return f"{_USER_CONTENT_DELIMITER}\n{content}\n{_USER_CONTENT_DELIMITER}"
+    while True:
+        candidate = f"{_FENCE_PREFIX}{secrets.token_hex(16)}"
+        if all(candidate not in block for block in data_blocks if block):
+            return candidate
+
+
+def _escape_delimiter(text: str, delimiter: str) -> str:
+    """Neutralise fence lookalikes inside untrusted *text* (AI-004).
+
+    Fullwidth characters replace the ASCII ``#``/token characters so the text
+    still reads the same to a human but can never be parsed as a fence. The
+    legacy static ``###`` fence is always neutralised; the current random
+    *delimiter* is too (defence in depth — :func:`_new_delimiter` already makes
+    its occurrence impossible).
+    """
+    escaped = text.replace(_USER_CONTENT_DELIMITER, "＃＃＃")
+    return escaped.replace(delimiter, delimiter.replace("#", "＃"))
+
+
+def _delimit_user_content(content: str, delimiter: str | None = None) -> str:
+    """Wrap user-controlled *content* in a random delimiter fence (AI-004).
+
+    When no *delimiter* is supplied a fresh one is generated that cannot occur
+    inside *content*, so callers can never accidentally build a closable fence.
+    """
+    fence = delimiter or _new_delimiter(content)
+    return f"{fence}\n{content}\n{fence}"
 
 
 def _format_artifact_context(
     title: str | None, content: str | None
 ) -> str:
-    """Render an artifact's title/content as a prompt-embeddable block (REQ-046).
+    """Render an artifact's title/content as raw, bounded prompt data (REQ-046).
 
-    Providers previously interpolated only the opaque artifact UUID, forcing the
-    model to hallucinate. This helper turns the real text supplied by the
-    application layer into a labelled block appended to the prompt.
-
-    Returns an empty string when neither title nor content is supplied, so
-    id-only prompts stay byte-for-byte backward compatible.
-
-    Args:
-        title: Optional artifact title.
-        content: Optional artifact body/description.
-
-    Returns:
-        A leading-newline block such as ``"\\n\\nTitle: ...\\nContent:\\n..."`` or
-        ``""`` when nothing was provided.
+    Returns the labelled text (``"Title: ...\nContent:\n..."``) WITHOUT a
+    delimiter fence: :func:`build_prompt` applies one random fence per call and
+    performs the role split. Both title and content are truncated to
+    :data:`MAX_PROMPT_CONTENT_CHARS` (AI-004 — the title previously escaped the
+    size bound entirely). Returns ``""`` when neither field is supplied.
     """
     parts: list[str] = []
     if title:
-        parts.append(f"Title: {title}")
+        parts.append(f"Title: {truncate_prompt_content(title)}")
     if content:
         parts.append(f"Content:\n{truncate_prompt_content(content)}")
-    if not parts:
-        return ""
-    # Security: delimit user-controlled content (REQ-080).
-    return "\n\n" + _delimit_user_content("\n".join(parts))
+    return "\n".join(parts)
 
 
 def _format_artifacts_list(artifacts: list[dict] | None) -> str:
-    """Render a list of artifact summaries as a prompt-embeddable block (REQ-046).
+    """Render artifact summaries as raw, bounded prompt data (REQ-046).
 
-    Each entry is expected to be a ``{"id", "title", "content"}`` dict. Returns
-    an empty string for an empty/None list so id-only prompts stay backward
-    compatible.
-
-    Args:
-        artifacts: Optional list of artifact summary dicts.
-
-    Returns:
-        A leading-newline block enumerating the artifacts, or ``""`` when empty.
+    Each entry is a ``{"id", "title", "content"}`` dict. Titles and content are
+    truncated; the whole block is later fenced and role-split by
+    :func:`build_prompt`. Returns ``""`` for an empty/None list.
     """
     if not artifacts:
         return ""
@@ -399,12 +448,153 @@ def _format_artifacts_list(artifacts: list[dict] | None) -> str:
         if not isinstance(entry, dict):
             continue
         identifier = entry.get("id", "")
-        title = entry.get("title", "")
+        title = truncate_prompt_content(entry.get("title", "") or "")
         content = truncate_prompt_content(entry.get("content", "") or "")
         lines.append(f"- [{identifier}] {title}: {content}")
-    # Security: delimit user-controlled content (REQ-080). The "Artifacts:"
-    # label stays outside the fence; the enumerated user text stays inside.
-    return "\n\nArtifacts:\n" + _delimit_user_content("\n".join(lines))
+    return "\n".join(lines)
+
+
+class PromptPayload(str):
+    """A prompt string carrying a trusted ``system`` instruction (AI-004).
+
+    Subclasses :class:`str` so every existing ``_chat(prompt)`` transport and
+    test double that treats *prompt* as a plain string keeps working unchanged:
+    the string value is the full, backward-compatible prompt (instructions +
+    data). Real providers detect the type and emit a role-split request using
+    :attr:`system` (trusted) and :attr:`user` (delimited, escaped, truncated
+    untrusted data) instead of putting everything in one ``user`` message.
+    """
+
+    def __new__(
+        cls,
+        full: str,
+        *,
+        system: str,
+        user: str,
+        delimiter: str,
+    ) -> "PromptPayload":
+        obj = super().__new__(cls, full)
+        obj.system = system
+        obj.user = user
+        obj.delimiter = delimiter
+        return obj
+
+
+def build_prompt(instructions: str, *data_blocks: str) -> PromptPayload:
+    """Build a role-split prompt from trusted instructions + untrusted blocks.
+
+    Every data block is truncated (by its producer), escaped, and fenced with
+    one shared random delimiter that is guaranteed absent from all blocks. The
+    instructions stay in the trusted ``system`` channel; only the fenced data
+    reaches the ``user`` channel.
+
+    Args:
+        instructions: Trusted task/schema description for the model.
+        *data_blocks: Untrusted text (artifact id, title, content, …).
+
+    Returns:
+        A :class:`PromptPayload` whose string value is the full backward-
+        compatible prompt and whose ``system``/``user`` attributes carry the
+        role-split channels.
+    """
+    blocks = [block for block in data_blocks if block]
+    delimiter = _new_delimiter(*blocks)
+    fenced = [
+        _delimit_user_content(_escape_delimiter(block, delimiter), delimiter)
+        for block in blocks
+    ]
+    user = "\n\n".join(fenced)
+    full = f"{instructions}\n\n{user}" if user else instructions
+    return PromptPayload(full, system=instructions, user=user, delimiter=delimiter)
+
+
+def _validate_prompt(
+    artifact_id: str, title: str | None, content: str | None
+) -> PromptPayload:
+    """Role-split prompt for artifact validation (AI-004)."""
+    return build_prompt(
+        "Validate the following artifact. "
+        "Return JSON: {score, suggestions}. "
+        "Return score as a decimal between 0.0 and 1.0.",
+        f"Artifact id: {artifact_id}",
+        _format_artifact_context(title, content),
+    )
+
+
+def _decompose_prompt(
+    requirement_id: str, title: str | None, content: str | None
+) -> PromptPayload:
+    """Role-split prompt for requirement decomposition (AI-004)."""
+    return build_prompt(
+        "Decompose the following requirement into sub-requirements. "
+        "Return JSON: {score, suggestions, children: [{id, title, type}]}",
+        f"Requirement id: {requirement_id}",
+        _format_artifact_context(title, content),
+    )
+
+
+def _consistency_prompt(
+    workspace_id: str, artifacts: list[dict] | None
+) -> PromptPayload:
+    """Role-split prompt for workspace consistency checks (AI-004)."""
+    return build_prompt(
+        "Check consistency across the artifacts in the workspace. "
+        "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
+        f"Workspace id: {workspace_id}",
+        _format_artifacts_list(artifacts),
+    )
+
+
+def _derive_prompt(need_id: str) -> PromptPayload:
+    """Role-split prompt for stakeholder-need derivation (AI-004)."""
+    return build_prompt(
+        "Derive System Requirements from the Stakeholder Need. "
+        "Return JSON: {score, suggestions, "
+        "children: [{title, description, type}]}",
+        f"Stakeholder Need id: {need_id}",
+    )
+
+
+def _split_prompt(prompt: str | PromptPayload) -> tuple[str, str]:
+    """Return ``(system, user)`` channels for *prompt*.
+
+    A :class:`PromptPayload` yields its split channels; a plain string (legacy
+    callers / direct ``_chat`` use) stays entirely in the ``user`` channel.
+    """
+    if isinstance(prompt, PromptPayload) and prompt.system:
+        return prompt.system, prompt.user
+    return "", str(prompt)
+
+
+def _messages_for_prompt(prompt: str | PromptPayload) -> list[dict[str, str]]:
+    """Build an OpenAI-compatible ``messages`` list with the role split."""
+    system, user = _split_prompt(prompt)
+    messages: list[dict[str, str]] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": user})
+    return messages
+
+
+def _user_content(prompt: str | PromptPayload) -> str:
+    """Return only the untrusted ``user`` channel of *prompt*."""
+    return _split_prompt(prompt)[1]
+
+
+def _anthropic_system_kwargs(prompt: str | PromptPayload) -> dict[str, str]:
+    """Return the top-level ``system=`` kwarg Anthropic's Messages API expects.
+
+    Anthropic does not accept a ``system`` *role* inside ``messages``; the
+    trusted instruction goes in this dedicated request field instead.
+    """
+    system = _split_prompt(prompt)[0]
+    return {"system": system} if system else {}
+
+
+def _ollama_system_field(prompt: str | PromptPayload) -> dict[str, str]:
+    """Return Ollama's ``system`` JSON field when a system channel exists."""
+    system = _split_prompt(prompt)[0]
+    return {"system": system} if system else {}
 
 
 # ---------------------------------------------------------------------------
@@ -1165,6 +1355,60 @@ class _BaseHttpProvider(LlmCapabilityInterface):
             )
         return content
 
+    def _extract_anthropic_text(self, message: Any) -> str:
+        """Return the concatenated text blocks of an Anthropic message (AI-006).
+
+        Anthropic's ``message.content`` is a list of typed blocks. Four call
+        sites used ``message.content[0].text``, which breaks in two ways:
+
+        * a ``thinking`` or ``tool_use`` block first in the list has no
+          ``.text`` attribute -> ``AttributeError`` *after* the resilience
+          policy already reported success (an unclassified failure that can be
+          mistaken for a provider outage and silently degrade to mock);
+        * a legitimate thinking-then-text response has its answer in block 1.
+
+        Mirroring :meth:`_extract_choice_text`: empty/missing content is a
+        valid empty completion (``""``), a structurally invalid response with
+        only non-text blocks raises :class:`LlmTransportError` so it is mapped
+        to a provider error rather than retried/fallen back, and every text
+        block is concatenated. Blocks without a string ``type`` (legacy test
+        doubles such as ``MagicMock(text=...)``) are treated as text when they
+        carry a string ``.text``.
+        """
+        from llm_adapter.resilient_transport import LlmTransportError  # noqa: PLC0415
+
+        content = getattr(message, "content", None)
+        if not content:
+            return ""
+        if isinstance(content, str):
+            return content
+
+        text_parts: list[str] = []
+        has_non_text = False
+        for block in content:
+            block_type = getattr(block, "type", None)
+            if isinstance(block_type, str):
+                is_text = block_type == "text"
+            else:
+                # Legacy/duck-typed blocks (e.g. MagicMock): a string .text
+                # identifies a text block.
+                is_text = isinstance(getattr(block, "text", None), str)
+            if is_text:
+                text = getattr(block, "text", None)
+                if isinstance(text, str) and text:
+                    text_parts.append(text)
+            else:
+                has_non_text = True
+
+        if text_parts:
+            return "".join(text_parts)
+        if has_non_text:
+            raise LlmTransportError(
+                f"LLM provider '{self.PROVIDER_NAME}' returned no text content "
+                "block (only thinking/tool blocks) — malformed response."
+            )
+        return ""
+
     def complete(
         self,
         prompt: str,
@@ -1329,9 +1573,28 @@ def _score_or_default(value: Any, default: float = 0.0) -> float:
     derivation) — intact.
     """
     try:
-        return float(value)
+        score = float(value)
     except (TypeError, ValueError):
         return default
+    # AI-004: a model emitting an out-of-range score (e.g. 1.5 or -3) must not
+    # survive into a 0..1 confidence field. Clamp rather than default so the
+    # in-range magnitude information is preserved. NaN/Inf are non-finite and
+    # collapse to the safe default.
+    if score != score or score in (float("inf"), float("-inf")):
+        return default
+    return min(1.0, max(0.0, score))
+
+
+def _suggestions_or_default(value: Any) -> list[str]:
+    """Coerce a provider-supplied ``suggestions`` value to a list of strings.
+
+    AI-004: a model can emit a plain string, ``null``, or a list containing
+    non-strings; downstream code assumes ``list[str]``. Keep only the string
+    entries so the interface contract holds regardless of model output.
+    """
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 def _anthropic_token_usage(message: Any) -> int | None:
@@ -1391,7 +1654,7 @@ class AnthropicProvider(_BaseHttpProvider):
         effective_timeout = self._effective_timeout(timeout)
         client = anthropic.Anthropic(
             api_key=self._config.api_key,
-            base_url=self._config.api_base_url or None,
+            base_url=self._config.api_base_url or _DEFAULT_ANTHROPIC_BASE_URL,
             # INT-03 (finding 055): the SDK's own retry loop would otherwise
             # multiply the PolicyEngine's retry budget (4 attempts x 3 SDK
             # retries = up to 12 HTTP requests per logical call). All retrying
@@ -1403,11 +1666,12 @@ class AnthropicProvider(_BaseHttpProvider):
                 model=self.model_name,
                 max_tokens=4096,
                 timeout=effective_timeout,
-                messages=[{"role": "user", "content": prompt}],
+                **_anthropic_system_kwargs(prompt),
+                messages=[{"role": "user", "content": _user_content(prompt)}],
             ),
             timeout_seconds=effective_timeout,
         )
-        text = message.content[0].text
+        text = self._extract_anthropic_text(message)
         token_usage = _anthropic_token_usage(message)
         return text, token_usage
 
@@ -1426,23 +1690,21 @@ class AnthropicProvider(_BaseHttpProvider):
             effective_timeout = self._effective_timeout(timeout)
             client = anthropic.Anthropic(
                 api_key=self._config.api_key,
-                base_url=self._config.api_base_url or None,
+                base_url=self._config.api_base_url or _DEFAULT_ANTHROPIC_BASE_URL,
                 # INT-03 (finding 055): see AnthropicProvider._chat.
                 max_retries=0,
             )
+            prompt_payload = _validate_prompt(artifact_id, title, content)
             message = self._resilient(
                 lambda: client.messages.create(
                     model=self.model_name,
                     max_tokens=1024,
                     timeout=effective_timeout,
+                    **_anthropic_system_kwargs(prompt_payload),
                     messages=[
                         {
                             "role": "user",
-                            "content": (
-                                f"Validate the following artifact (id: {artifact_id})."
-                                f"{_format_artifact_context(title, content)}\n\n"
-                                "Return a JSON object with keys: score (0-1), suggestions (list of strings)."
-                            ),
+                            "content": _user_content(prompt_payload),
                         }
                     ],
                 ),
@@ -1450,12 +1712,12 @@ class AnthropicProvider(_BaseHttpProvider):
             )
             import json
 
-            raw = message.content[0].text
+            raw = self._extract_anthropic_text(message)
             data = _parse_validation_response(raw)
             token_usage = _anthropic_token_usage(message)
             return LlmResult(
                 score=_score_or_default(data.get("score"), 0.0),
-                suggestions=data.get("suggestions", []),
+                suggestions=_suggestions_or_default(data.get("suggestions")),
                 provider=self.PROVIDER_NAME,
                 model=self.model_name,
                 token_usage=token_usage,
@@ -1480,34 +1742,32 @@ class AnthropicProvider(_BaseHttpProvider):
             effective_timeout = self._effective_timeout(timeout)
             client = anthropic.Anthropic(
                 api_key=self._config.api_key,
-                base_url=self._config.api_base_url or None,
+                base_url=self._config.api_base_url or _DEFAULT_ANTHROPIC_BASE_URL,
                 # INT-03 (finding 055): see AnthropicProvider._chat.
                 max_retries=0,
             )
+            prompt_payload = _decompose_prompt(requirement_id, title, content)
             message = self._resilient(
                 lambda: client.messages.create(
                     model=self.model_name,
                     max_tokens=4096,
                     timeout=effective_timeout,
+                    **_anthropic_system_kwargs(prompt_payload),
                     messages=[
                         {
                             "role": "user",
-                            "content": (
-                                f"Decompose the following requirement (id: {requirement_id}) "
-                                f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
-                                "Return JSON: {score, suggestions, children: [{id, title, type}]}"
-                            ),
+                            "content": _user_content(prompt_payload),
                         }
                     ],
                 ),
                 timeout_seconds=effective_timeout,
             )
-            raw = message.content[0].text
+            raw = self._extract_anthropic_text(message)
             data = _parse_derivation_response(raw)
             token_usage = _anthropic_token_usage(message)
             return LlmDecompositionResult(
                 score=_score_or_default(data.get("score"), 0.0),
-                suggestions=data.get("suggestions", []),
+                suggestions=_suggestions_or_default(data.get("suggestions")),
                 provider=self.PROVIDER_NAME,
                 model=self.model_name,
                 token_usage=token_usage,
@@ -1532,34 +1792,32 @@ class AnthropicProvider(_BaseHttpProvider):
             effective_timeout = self._effective_timeout(timeout)
             client = anthropic.Anthropic(
                 api_key=self._config.api_key,
-                base_url=self._config.api_base_url or None,
+                base_url=self._config.api_base_url or _DEFAULT_ANTHROPIC_BASE_URL,
                 # INT-03 (finding 055): see AnthropicProvider._chat.
                 max_retries=0,
             )
+            prompt_payload = _consistency_prompt(workspace_id, artifacts)
             message = self._resilient(
                 lambda: client.messages.create(
                     model=self.model_name,
                     max_tokens=4096,
                     timeout=effective_timeout,
+                    **_anthropic_system_kwargs(prompt_payload),
                     messages=[
                         {
                             "role": "user",
-                            "content": (
-                                f"Check consistency across the artifacts in workspace "
-                                f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
-                                "Return JSON: {score, suggestions, issues: [{id, severity, description}]}"
-                            ),
+                            "content": _user_content(prompt_payload),
                         }
                     ],
                 ),
                 timeout_seconds=effective_timeout,
             )
-            raw = message.content[0].text
+            raw = self._extract_anthropic_text(message)
             data = _parse_consistency_response(raw)
             token_usage = _anthropic_token_usage(message)
             return LlmConsistencyResult(
                 score=_score_or_default(data.get("score"), 0.0),
-                suggestions=data.get("suggestions", []),
+                suggestions=_suggestions_or_default(data.get("suggestions")),
                 provider=self.PROVIDER_NAME,
                 model=self.model_name,
                 token_usage=token_usage,
@@ -1585,16 +1843,14 @@ class AnthropicProvider(_BaseHttpProvider):
         full artifact content is injected by that layer in REQ-046.
         """
         text = self.complete(
-            f"Derive System Requirements from Stakeholder Need {need_id}. "
-            "Return JSON: {score, suggestions, "
-            "children: [{title, description, type}]}",
+            _derive_prompt(need_id),
             purpose="derive_requirements",
             timeout=timeout,
         )
         data = _parse_derivation_response(text)
         return LlmDecompositionResult(
             score=_score_or_default(data.get("score"), 1.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
             token_usage=None,
@@ -1633,7 +1889,7 @@ class OpenAiProvider(_BaseHttpProvider):
         effective_timeout = self._effective_timeout(timeout)
         client = OpenAI(
             api_key=self._config.api_key,
-            base_url=self._config.api_base_url or None,
+            base_url=self._config.api_base_url or _DEFAULT_OPENAI_BASE_URL,
             timeout=effective_timeout,
             # INT-03 (finding 055): SDK retries must not multiply the
             # PolicyEngine budget — see AnthropicProvider._chat.
@@ -1642,7 +1898,7 @@ class OpenAiProvider(_BaseHttpProvider):
         response = self._resilient(
             lambda: client.chat.completions.create(
                 model=self.model_name,
-                messages=[{"role": "user", "content": prompt}],
+                messages=_messages_for_prompt(prompt),
             ),
             timeout_seconds=effective_timeout,
         )
@@ -1663,16 +1919,12 @@ class OpenAiProvider(_BaseHttpProvider):
         import json
 
         text, token_usage = self._invoke_chat(
-            f"Validate the following artifact (id: {artifact_id})."
-            f"{_format_artifact_context(title, content)}\n\n"
-            "Return JSON: {score, suggestions}. "
-            "Return score as a decimal between 0.0 and 1.0.",
-            timeout,
+            _validate_prompt(artifact_id, title, content), timeout
         )
         data = _parse_validation_response(text)
         return LlmResult(
             score=_score_or_default(data.get("score"), 0.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
             token_usage=token_usage,
@@ -1687,17 +1939,14 @@ class OpenAiProvider(_BaseHttpProvider):
         timeout: float | None = None,
     ) -> LlmDecompositionResult:
         text, token_usage = self._invoke_chat(
-            f"Decompose the following requirement (id: {requirement_id}) "
-            f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
-            "Return JSON: {score, suggestions, children: [{id, title, type}]}",
-            timeout,
+            _decompose_prompt(requirement_id, title, content), timeout
         )
         # INT-03 (finding 057): route through the resilient parser instead of
         # a bare json.loads() whose raw JSONDecodeError leaked to the client.
         data = _parse_derivation_response(text)
         return LlmDecompositionResult(
             score=_score_or_default(data.get("score"), 0.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
             token_usage=token_usage,
@@ -1716,13 +1965,7 @@ class OpenAiProvider(_BaseHttpProvider):
         # keeps this Layer-3 provider free of direct persistence access (REQ-048).
         import json
 
-        prompt_text = (
-            f"Derive System Requirements from Stakeholder Need {need_id}. "
-            "Return JSON: {score, suggestions, "
-            "children: [{title, description, type}]}"
-        )
-
-        text, token_usage = self._invoke_chat(prompt_text, timeout)
+        text, token_usage = self._invoke_chat(_derive_prompt(need_id), timeout)
 
         try:
             # Some models wrap JSON in markdown fences; strip them before parsing.
@@ -1737,7 +1980,7 @@ class OpenAiProvider(_BaseHttpProvider):
 
         return LlmDecompositionResult(
             score=_score_or_default(data.get("score"), 1.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
             token_usage=token_usage,
@@ -1752,15 +1995,12 @@ class OpenAiProvider(_BaseHttpProvider):
         timeout: float | None = None,
     ) -> LlmConsistencyResult:
         text, token_usage = self._invoke_chat(
-            f"Check consistency across the artifacts in workspace "
-            f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
-            "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
-            timeout,
+            _consistency_prompt(workspace_id, artifacts), timeout
         )
         data = _parse_consistency_response(text)
         return LlmConsistencyResult(
             score=_score_or_default(data.get("score"), 0.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
             token_usage=token_usage,
@@ -1836,7 +2076,12 @@ class OllamaProvider(_BaseHttpProvider):
             # classified (and retried) by status code (REQ-082).
             response = requests.post(
                 url,
-                json={"model": self.model_name, "prompt": prompt, "stream": False},
+                json={
+                    "model": self.model_name,
+                    "prompt": prompt,
+                    "stream": False,
+                    **_ollama_system_field(prompt),
+                },
                 timeout=effective_timeout,
             )
             response.raise_for_status()
@@ -1866,16 +2111,12 @@ class OllamaProvider(_BaseHttpProvider):
         import json
 
         text, token_usage = self._invoke_chat(
-            f"Validate the following artifact (id: {artifact_id})."
-            f"{_format_artifact_context(title, content)}\n\n"
-            "Return JSON: {score, suggestions}. "
-            "Return score as a decimal between 0.0 and 1.0.",
-            timeout,
+            _validate_prompt(artifact_id, title, content), timeout
         )
         data = _parse_validation_response(text)
         return LlmResult(
             score=_score_or_default(data.get("score"), 0.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
             token_usage=token_usage,
@@ -1890,16 +2131,13 @@ class OllamaProvider(_BaseHttpProvider):
         timeout: float | None = None,
     ) -> LlmDecompositionResult:
         text, token_usage = self._invoke_chat(
-            f"Decompose the following requirement (id: {requirement_id}) "
-            f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
-            "Return JSON: {score, suggestions, children: [{id, title, type}]}",
-            timeout,
+            _decompose_prompt(requirement_id, title, content), timeout
         )
         # INT-03 (finding 057): resilient parser instead of bare json.loads().
         data = _parse_derivation_response(text)
         return LlmDecompositionResult(
             score=_score_or_default(data.get("score"), 0.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
             token_usage=token_usage,
@@ -1914,15 +2152,12 @@ class OllamaProvider(_BaseHttpProvider):
         timeout: float | None = None,
     ) -> LlmConsistencyResult:
         text, token_usage = self._invoke_chat(
-            f"Check consistency across the artifacts in workspace "
-            f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
-            "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
-            timeout,
+            _consistency_prompt(workspace_id, artifacts), timeout
         )
         data = _parse_consistency_response(text)
         return LlmConsistencyResult(
             score=_score_or_default(data.get("score"), 0.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
             token_usage=token_usage,
@@ -1942,16 +2177,14 @@ class OllamaProvider(_BaseHttpProvider):
         the full artifact content is injected by that layer in REQ-046.
         """
         text = self.complete(
-            f"Derive System Requirements from Stakeholder Need {need_id}. "
-            "Return JSON: {score, suggestions, "
-            "children: [{title, description, type}]}",
+            _derive_prompt(need_id),
             purpose="derive_requirements",
             timeout=timeout,
         )
         data = _parse_derivation_response(text)
         return LlmDecompositionResult(
             score=_score_or_default(data.get("score"), 1.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
             token_usage=None,
@@ -2004,7 +2237,7 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         response = self._resilient(
             lambda: client.chat.completions.create(
                 model=self._config.azure_deployment or self.model_name,
-                messages=[{"role": "user", "content": prompt}],
+                messages=_messages_for_prompt(prompt),
             ),
             timeout_seconds=effective_timeout,
         )
@@ -2023,16 +2256,12 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         import json
 
         text, token_usage = self._invoke_chat(
-            f"Validate the following artifact (id: {artifact_id})."
-            f"{_format_artifact_context(title, content)}\n\n"
-            "Return JSON: {score, suggestions}. "
-            "Return score as a decimal between 0.0 and 1.0.",
-            timeout,
+            _validate_prompt(artifact_id, title, content), timeout
         )
         data = _parse_validation_response(text)
         return LlmResult(
             score=_score_or_default(data.get("score"), 0.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self._config.azure_deployment or self.model_name,
             token_usage=token_usage,
@@ -2047,16 +2276,13 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         timeout: float | None = None,
     ) -> LlmDecompositionResult:
         text, token_usage = self._invoke_chat(
-            f"Decompose the following requirement (id: {requirement_id}) "
-            f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
-            "Return JSON: {score, suggestions, children: [{id, title, type}]}",
-            timeout,
+            _decompose_prompt(requirement_id, title, content), timeout
         )
         # INT-03 (finding 057): resilient parser instead of bare json.loads().
         data = _parse_derivation_response(text)
         return LlmDecompositionResult(
             score=_score_or_default(data.get("score"), 0.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self._config.azure_deployment or self.model_name,
             token_usage=token_usage,
@@ -2071,15 +2297,12 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         timeout: float | None = None,
     ) -> LlmConsistencyResult:
         text, token_usage = self._invoke_chat(
-            f"Check consistency across the artifacts in workspace "
-            f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
-            "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
-            timeout,
+            _consistency_prompt(workspace_id, artifacts), timeout
         )
         data = _parse_consistency_response(text)
         return LlmConsistencyResult(
             score=_score_or_default(data.get("score"), 0.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self._config.azure_deployment or self.model_name,
             token_usage=token_usage,
@@ -2099,16 +2322,14 @@ class AzureOpenAiProvider(_BaseHttpProvider):
         the full artifact content is injected by that layer in REQ-046.
         """
         text = self.complete(
-            f"Derive System Requirements from Stakeholder Need {need_id}. "
-            "Return JSON: {score, suggestions, "
-            "children: [{title, description, type}]}",
+            _derive_prompt(need_id),
             purpose="derive_requirements",
             timeout=timeout,
         )
         data = _parse_derivation_response(text)
         return LlmDecompositionResult(
             score=_score_or_default(data.get("score"), 1.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self._config.azure_deployment or self.model_name,
             token_usage=None,
@@ -2198,7 +2419,7 @@ class OpencodeGoProvider(_BaseHttpProvider):
         response = self._resilient(
             lambda: client.chat.completions.create(
                 model=self.model_name,
-                messages=[{"role": "user", "content": prompt}],
+                messages=_messages_for_prompt(prompt),
             ),
             timeout_seconds=effective_timeout,
         )
@@ -2217,16 +2438,12 @@ class OpencodeGoProvider(_BaseHttpProvider):
         import json
 
         text, token_usage = self._invoke_chat(
-            f"Validate the following artifact (id: {artifact_id})."
-            f"{_format_artifact_context(title, content)}\n\n"
-            "Return JSON: {score, suggestions}. "
-            "Return score as a decimal between 0.0 and 1.0.",
-            timeout,
+            _validate_prompt(artifact_id, title, content), timeout
         )
         data = _parse_validation_response(text)
         return LlmResult(
             score=_score_or_default(data.get("score"), 0.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
             token_usage=token_usage,
@@ -2241,16 +2458,13 @@ class OpencodeGoProvider(_BaseHttpProvider):
         timeout: float | None = None,
     ) -> LlmDecompositionResult:
         text, token_usage = self._invoke_chat(
-            f"Decompose the following requirement (id: {requirement_id}) "
-            f"into sub-requirements.{_format_artifact_context(title, content)}\n\n"
-            "Return JSON: {score, suggestions, children: [{id, title, type}]}",
-            timeout,
+            _decompose_prompt(requirement_id, title, content), timeout
         )
         # INT-03 (finding 057): resilient parser instead of bare json.loads().
         data = _parse_derivation_response(text)
         return LlmDecompositionResult(
             score=_score_or_default(data.get("score"), 0.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
             token_usage=token_usage,
@@ -2265,15 +2479,12 @@ class OpencodeGoProvider(_BaseHttpProvider):
         timeout: float | None = None,
     ) -> LlmConsistencyResult:
         text, token_usage = self._invoke_chat(
-            f"Check consistency across the artifacts in workspace "
-            f"{workspace_id}.{_format_artifacts_list(artifacts)}\n\n"
-            "Return JSON: {score, suggestions, issues: [{id, severity, description}]}",
-            timeout,
+            _consistency_prompt(workspace_id, artifacts), timeout
         )
         data = _parse_consistency_response(text)
         return LlmConsistencyResult(
             score=_score_or_default(data.get("score"), 0.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
             token_usage=token_usage,
@@ -2293,16 +2504,14 @@ class OpencodeGoProvider(_BaseHttpProvider):
         the full artifact content is injected by that layer in REQ-046.
         """
         text = self.complete(
-            f"Derive System Requirements from Stakeholder Need {need_id}. "
-            "Return JSON: {score, suggestions, "
-            "children: [{title, description, type}]}",
+            _derive_prompt(need_id),
             purpose="derive_requirements",
             timeout=timeout,
         )
         data = _parse_derivation_response(text)
         return LlmDecompositionResult(
             score=_score_or_default(data.get("score"), 1.0),
-            suggestions=data.get("suggestions", []),
+            suggestions=_suggestions_or_default(data.get("suggestions")),
             provider=self.PROVIDER_NAME,
             model=self.model_name,
             token_usage=None,
@@ -2366,6 +2575,10 @@ def get_provider(config: ProviderConfig | None = None) -> LlmCapabilityInterface
         LlmNotConfiguredError: If LLM_PROVIDER is not set.
         LlmProviderUnknownError: If LLM_PROVIDER names an unregistered provider.
     """
+    if config is not None:
+        # AI-003: an explicitly supplied config bypasses _read_config(), so it
+        # must be validated here as well before any provider is instantiated.
+        _validate_provider_config_url(config)
     cfg = config or _read_config()
 
     if not cfg.provider_name:

@@ -34,6 +34,44 @@ _MULTI_PROTOCOL_SLOT = "interview.protocol.multi"
 
 _JSON_BLOCK_RE = re.compile(r"```json\s*(\[.*?\])\s*```", re.DOTALL)
 
+# AI-005 proposal-size limits at the PARSE boundary: a model reply is untrusted
+# input, so cap its size before it can reach the formalize write path. Values
+# mirror the service-layer ceilings in interview_service.py; malformed or
+# oversized payloads return None (same contract as no-fence/malformed JSON).
+MAX_RAW_LLM_OUTPUT_LENGTH = 200_000
+MAX_PROPOSAL_ITEMS = 50
+MAX_PROPOSAL_FIELDS_PER_ITEM = 50
+MAX_PROPOSAL_LINKS_PER_ITEM = 50
+MAX_PROPOSAL_STRING_LENGTH = 5_000
+
+
+def _proposal_within_limits(parsed: list[dict]) -> bool:
+    """Check the size/shape ceilings on a parsed proposal list.
+
+    Deliberately shallow: the authoritative field allowlist + type/length gate
+    lives in the service layer (interview_service.validate_confirmed_proposal_
+    fields). This only stops an absurdly large model reply from ever becoming a
+    pending proposal.
+    """
+    if not parsed or len(parsed) > MAX_PROPOSAL_ITEMS:
+        return False
+    for item in parsed:
+        if not isinstance(item, dict):
+            return False
+        fields = item.get("fields")
+        if not isinstance(fields, dict) or len(fields) > MAX_PROPOSAL_FIELDS_PER_ITEM:
+            return False
+        for key, value in fields.items():
+            if not isinstance(key, str) or len(key) > 200:
+                return False
+            if isinstance(value, str) and len(value) > MAX_PROPOSAL_STRING_LENGTH:
+                return False
+        links = item.get("links")
+        if links is not None:
+            if not isinstance(links, list) or len(links) > MAX_PROPOSAL_LINKS_PER_ITEM:
+                return False
+    return True
+
 _MULTI_PROTOCOL_FACTORY_DEFAULT = """\
 You are helping a user figure out which requirements-engineering artifacts \
 they need, from a plain description of their problem. Artifact types \
@@ -104,10 +142,14 @@ def parse_multi_proposal(raw_llm_output: str) -> list[dict] | None:
     """Extract the fenced ```json list from an LLM reply.
 
     Returns the parsed list of artifact-proposal dicts, or ``None`` when the
-    output has no JSON fence, malformed JSON, or a non-list payload -- the
-    caller decides how to surface that ("LLM liefert keinen parsbaren
-    Vorschlag").
+    output has no JSON fence, malformed JSON, a non-list payload, or a payload
+    exceeding the AI-005 proposal-size ceilings (item/field/link counts and
+    string lengths) -- the caller decides how to surface that ("LLM liefert
+    keinen parsbaren Vorschlag"). Field-name allowlisting and per-value
+    type/length validation happen later, in the service write path.
     """
+    if len(raw_llm_output) > MAX_RAW_LLM_OUTPUT_LENGTH:
+        return None
     match = _JSON_BLOCK_RE.search(raw_llm_output)
     if not match:
         return None
@@ -116,5 +158,7 @@ def parse_multi_proposal(raw_llm_output: str) -> list[dict] | None:
     except json.JSONDecodeError:
         return None
     if not isinstance(parsed, list):
+        return None
+    if not _proposal_within_limits(parsed):
         return None
     return parsed

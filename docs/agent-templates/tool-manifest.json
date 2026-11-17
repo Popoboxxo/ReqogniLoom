@@ -1,5 +1,5 @@
 {
-  "generated_from": "reqogniloom==unknown",
+  "generated_from": "reqogniloom==1.9.0-beta.2",
   "tool_count": 301,
   "tools": [
     {
@@ -5525,7 +5525,7 @@
       "name": "memory.remember_interaction",
       "prefix": "memory",
       "is_write": true,
-      "description": "Enqueue the memory consolidation pipeline for one interaction text (write): an active worker runs LLM fact extraction + duplicate/contradiction handling, so this is NOT a raw write. Conversation memory ('what was said', Honcho) is not Loom work state ('where the work stands', work_item.*/documents, explicit and queryable); Loom work state is not duplicated here.",
+      "description": "Enqueue the memory consolidation pipeline for one interaction text (write): an active worker runs LLM fact extraction + duplicate/contradiction handling, so this is NOT a raw write. Throttle/capability note: this triggers a guarded LLM extraction call (per-purpose timeout, tenant daily token budget with graceful skip + audit on exhaustion) and the interaction is bounded by MAX_INTERACTION_TEXT_CHARS; extracted facts are hard-capped in count and size. Conversation memory ('what was said', Honcho) is not Loom work state ('where the work stands', work_item.*/documents, explicit and queryable); Loom work state is not duplicated here.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -5534,7 +5534,8 @@
             "format": "uuid"
           },
           "interaction_text": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 10000
           },
           "artifact_id": {
             "type": "string",

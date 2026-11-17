@@ -1109,10 +1109,12 @@ LLM_API_KEY: str = config("LLM_API_KEY", default="")
 LLM_BASE_URL: str = config("LLM_BASE_URL", default="")
 LLM_MODEL: str = config("LLM_MODEL", default="")
 
-# SA-33 (SYSTEMAUDIT-2026-08-27 §4.6 F9) — SSRF guard on the admin-configurable
-# ``LlmSettings.base_url``. The backend issues server-side requests to that URL,
-# so an internal address there turns the LLM adapter into a proxy into the
-# private network (cloud metadata at 169.254.169.254, the DB/Redis containers…).
+# SA-33 (SYSTEMAUDIT-2026-08-27 §4.6 F9) / AI-003 — SSRF guard on every LLM
+# base_url. The validator is invoked centrally for ALL config sources (env
+# ``LLM_BASE_URL`` / ``LLM_API_BASE_URL``, persisted ``LlmSettings.base_url``,
+# and explicit provider configs), before any server-side request is issued. An
+# internal address turns the LLM adapter into a proxy into the private network
+# (cloud metadata at 169.254.169.254, the DB/Redis containers…).
 #
 # The default is environment-dependent on purpose. A self-hosted Ollama at
 # ``http://ollama:11434`` is a supported, documented configuration and lives on

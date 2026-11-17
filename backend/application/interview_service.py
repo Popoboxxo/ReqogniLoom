@@ -57,6 +57,41 @@ GROUNDING_RANK_PROMPT_TEMPLATE_NAME = "interview.grounding_rank"
 # the diagram reconciler, never hand-authored -- see _formalize_multi.
 _DIAGRAM_REF_LINK_TYPE = "diagram-ref"
 
+# AI-005 write-path hardening: a multi-mode ``confirmed_proposal`` arrives from
+# an LLM's parsed JSON *or* straight from a caller (REST body / MCP AUTHOR key).
+# Its ``fields`` dict is splatted into a production create_X() via
+# ARTIFACT_CREATION_ADAPTERS, so without a gate a model/caller could set
+# server-owned fields or smuggle oversized strings into a domain write. This
+# module is the service layer -- the single choke point REST, UI and MCP all
+# pass through -- so the validation lives here and no transport can bypass it.
+#
+# Reserved field names: status is workflow-owned; owner/reporter/priority are
+# Artifact-level system fields written through their own gateway; the rest are
+# internal identity/audit columns. This small BLOCKLIST is applied on top of
+# the derived allowlist so a create_X() that happens to accept `status`
+# (StakeholderNeed) or `owner` (Risk) still cannot be driven by model output.
+# Deliberately narrow: legitimate classification fields such as Issue.severity
+# or Risk.probability are NOT reserved and keep working.
+_RESERVED_PROPOSAL_FIELDS: frozenset[str] = frozenset({
+    "status", "owner", "reporter", "priority",
+    "id", "tenant", "tenant_id", "workspace", "workspace_id",
+    "artifact", "artifact_id", "created_by", "created_at", "modified_at",
+    "version", "ctx",
+})
+
+# Conservative string ceilings. 5000 matches the largest free-text column
+# max_length on the in-scope models (e.g. Adr.context/decision), so legitimate
+# long answers survive while a 10k-char payload is refused. Short name fields
+# (title/term/name) use the largest model CharField max_length across the nine
+# serializers (Requirement/StakeholderNeed/ArchitectureElement/TestCase = 500).
+MAX_PROPOSAL_STRING_LENGTH = 5000
+MAX_PROPOSAL_TITLE_LENGTH = 500
+_SHORT_STRING_FIELDS: frozenset[str] = frozenset({"title", "term", "name"})
+
+# Bound structured values (steps/tags/synonyms/custom_fields) so a huge nested
+# payload cannot reach a domain write either.
+MAX_PROPOSAL_CONTAINER_ITEMS = 200
+
 
 def _validate_confirmed_proposal(confirmed_proposal: list[dict]) -> None:
     """Structure-validate a multi-mode proposal (pre-transaction, fail fast).
@@ -142,6 +177,147 @@ def _validate_confirmed_proposal_link(
             f"proposal item {item_type!r}, link #{link_index}: "
             f"'type' must be a string, got {link.get('type')!r}"
         )
+
+
+def _tenant_custom_attribute_names(ctx, workspace_id, artifact_type: str) -> frozenset[str]:
+    """Tenant-defined attribute names for *artifact_type* in *workspace_id*.
+
+    Read from the same resolved attribute definition every create/update
+    transport uses, so a workspace-custom attribute stays writable through an
+    interview. A workspace that has not run ``bootstrap_attribute_definitions``
+    has no definition: return an empty set and let the create-signature
+    allowlist carry the standard fields (production self_init always bootstraps,
+    so this is only the fresh-workspace/test-fixture case).
+    """
+    from application.attribute_definition_service import AttributeDefinitionService
+
+    try:
+        definition = AttributeDefinitionService().resolve(ctx, artifact_type, workspace_id)
+    except Exception:  # noqa: BLE001 — a config read must not turn a write into a 500
+        logger.warning(
+            "Could not resolve attribute definitions for %s in workspace %s; "
+            "using create-signature allowlist only",
+            artifact_type,
+            workspace_id,
+            exc_info=True,
+        )
+        return frozenset()
+    return frozenset(
+        attribute["name"]
+        for attribute in definition.get("attributes", [])
+        if isinstance(attribute, dict) and isinstance(attribute.get("name"), str)
+    )
+
+
+def _validate_proposal_field_value(item_type: str, key: str, value: Any) -> None:
+    """Type + length validation of one proposal field value (AI-005)."""
+    if isinstance(value, str):
+        limit = (
+            MAX_PROPOSAL_TITLE_LENGTH
+            if key in _SHORT_STRING_FIELDS
+            else MAX_PROPOSAL_STRING_LENGTH
+        )
+        if len(value) > limit:
+            raise ValidationError(
+                f"proposal item {item_type!r}: field {key!r} exceeds the "
+                f"{limit}-character limit"
+            )
+        return
+    if value is None or isinstance(value, (int, float, bool)):
+        return
+    if isinstance(value, (list, dict)):
+        # Structured values (steps/tags/synonyms/custom_fields) are legal, but
+        # still bounded recursively so no oversized string hides inside them.
+        pending: list[Any] = [value]
+        visited = 0
+        while pending:
+            node = pending.pop()
+            visited += 1
+            if visited > MAX_PROPOSAL_CONTAINER_ITEMS:
+                raise ValidationError(
+                    f"proposal item {item_type!r}: field {key!r} is too large "
+                    f"(more than {MAX_PROPOSAL_CONTAINER_ITEMS} nested values)"
+                )
+            if isinstance(node, str):
+                if len(node) > MAX_PROPOSAL_STRING_LENGTH:
+                    raise ValidationError(
+                        f"proposal item {item_type!r}: field {key!r} contains a "
+                        f"string exceeding the {MAX_PROPOSAL_STRING_LENGTH}-character limit"
+                    )
+            elif isinstance(node, dict):
+                for sub_key, sub_value in node.items():
+                    if not isinstance(sub_key, str):
+                        raise ValidationError(
+                            f"proposal item {item_type!r}: field {key!r} has a "
+                            "non-string nested key"
+                        )
+                    pending.append(sub_value)
+            elif isinstance(node, list):
+                pending.extend(node)
+            elif node is None or isinstance(node, (int, float, bool)):
+                continue
+            else:
+                raise ValidationError(
+                    f"proposal item {item_type!r}: field {key!r} has an unsupported "
+                    f"value type {type(node).__name__}"
+                )
+        return
+    raise ValidationError(
+        f"proposal item {item_type!r}: field {key!r} has an unsupported value "
+        f"type {type(value).__name__}"
+    )
+
+
+def validate_confirmed_proposal_fields(
+    ctx, workspace_id, confirmed_proposal: list[dict]
+) -> None:
+    """Allowlist + type/length gate on every proposal item's ``fields`` (AI-005).
+
+    Runs in the SERVICE layer (``InterviewService._formalize_multi``), so REST,
+    UI and MCP callers -- including an AUTHOR-scoped MCP key that supplies
+    ``confirmed_proposal`` directly -- are all protected by the same check.
+    Policy is REJECT (fail closed): a reserved, unknown or oversized field
+    raises ``ValidationError`` BEFORE any ``create_X()`` is called.
+
+    Allowed names are DERIVED, not hardcoded: the writable kwargs of the
+    artifact type's production ``create_X()`` (``allowed_fields_for``) plus the
+    workspace's tenant-defined attribute names. The small reserved blocklist
+    above is subtracted. Unknown artifact types are intentionally skipped here
+    so ``_create_proposal_items`` keeps reporting its canonical "unknown
+    artifact type" error; they still reach no ``create_X()``.
+    """
+    from application.interview_artifact_adapters import (
+        ARTIFACT_CREATION_ADAPTERS,
+        allowed_fields_for,
+    )
+
+    allowed_cache: dict[str, frozenset[str]] = {}
+    for item_index, item in enumerate(confirmed_proposal):
+        item_type = item["type"]  # already structure-validated
+        if item_type not in ARTIFACT_CREATION_ADAPTERS:
+            continue
+        allowed = allowed_cache.get(item_type)
+        if allowed is None:
+            allowed = allowed_fields_for(item_type) | _tenant_custom_attribute_names(
+                ctx, workspace_id, item_type
+            )
+            allowed_cache[item_type] = allowed
+        for key, value in item["fields"].items():
+            if not isinstance(key, str):
+                raise ValidationError(
+                    f"proposal item #{item_index}: field names must be strings"
+                )
+            if key in _RESERVED_PROPOSAL_FIELDS:
+                raise ValidationError(
+                    f"proposal item {item_type!r}: field {key!r} is server-owned "
+                    "and cannot be set by an interview proposal"
+                )
+            if key not in allowed:
+                raise ValidationError(
+                    f"proposal item {item_type!r}: field {key!r} is not an allowed "
+                    f"field for this artifact type"
+                )
+            _validate_proposal_field_value(item_type, key, value)
 
 
 class InterviewService(ServiceBase):
@@ -1471,6 +1647,15 @@ class InterviewService(ServiceBase):
         the next node_graph save -- creating them here can only produce
         unexplained data loss later.
 
+        AI-005: ``validate_confirmed_proposal_fields`` also runs before the
+        block and REJECTS (fail closed) any proposal field that is
+        server-owned (``status``/``owner``/...), not an allowed field for the
+        type, or an oversized string. Allowed names are derived from the
+        production create_X() signatures plus the workspace's tenant-defined
+        attribute definitions, so custom attributes keep working. Because the
+        gate lives here in the service layer, an AUTHOR MCP caller supplying
+        ``confirmed_proposal`` directly cannot bypass it.
+
         Staged into ``_reject_diagram_ref_links`` (pre-transaction gate),
         ``_create_proposal_items`` / ``_create_proposal_trace_links`` (the
         batch writes), ``_complete_multi_formalization_workflow`` (engine
@@ -1482,7 +1667,11 @@ class InterviewService(ServiceBase):
             raise ValidationError("confirmed_proposal is required for a multi-mode interview")
 
         # Fail fast on malformed caller input BEFORE the transaction opens.
+        # AI-005: field allowlist + type/length validation runs here, in the
+        # service layer, so every transport (REST, UI, MCP) is protected and no
+        # create_X() is reached with a reserved or oversized field.
         _validate_confirmed_proposal(confirmed_proposal)
+        validate_confirmed_proposal_fields(ctx, session.workspace_id, confirmed_proposal)
         self._reject_diagram_ref_links(confirmed_proposal)
 
         with transaction.atomic():

@@ -280,6 +280,48 @@ class TestMemoryRememberInteraction:
         assert result.success is False
         assert result.error_code == "VALIDATION_ERROR"
 
+    def test_interaction_text_schema_declares_max_length(self):
+        """AI-001: the JSON schema advertises the same hard cap the validator enforces."""
+        from memory.prompts import MAX_INTERACTION_TEXT_CHARS
+
+        schema = next(
+            schema
+            for schema in MemoryToolGroup().get_tool_schemas()
+            if schema["name"] == "memory.remember_interaction"
+        )
+        field = schema["inputSchema"]["properties"]["interaction_text"]
+        assert field["type"] == "string"
+        assert field["maxLength"] == MAX_INTERACTION_TEXT_CHARS
+
+    @pytest.mark.django_db
+    def test_oversize_interaction_text_is_rejected_before_enqueue(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        from memory import prompts as memory_prompts
+        from memory.tasks import consolidate_interaction_task
+
+        dispatched: list[dict] = []
+        monkeypatch.setattr(
+            consolidate_interaction_task,
+            "delay",
+            lambda **kwargs: dispatched.append(kwargs) or SimpleNamespace(id="never"),
+        )
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = editor_ctx(tenant, ws)
+            result = MemoryToolGroup().execute_tool(
+                "memory.remember_interaction",
+                {
+                    "workspace_id": str(ws.id),
+                    "interaction_text": "x" * (memory_prompts.MAX_INTERACTION_TEXT_CHARS + 1),
+                },
+                ctx,
+                None,
+            )
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        assert dispatched == []
+
 
 @pytest.mark.django_db
 class TestMemoryAdminTools:

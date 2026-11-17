@@ -160,3 +160,74 @@ def test_host_allowlist_is_the_narrow_escape_hatch(no_dns):
 
     with pytest.raises(UnsafeOutboundUrlError):
         validate_outbound_url("http://169.254.169.254/")
+
+
+# ---------------------------------------------------------------------------
+# AI-003 — env-sourced base_url must pass the SAME guard as DB writes
+# ---------------------------------------------------------------------------
+
+
+class TestEnvBaseUrlIsValidatedCentrally:
+    """AI-003: ``LLM_API_BASE_URL`` / ``LLM_BASE_URL`` flow straight into the
+    provider HTTP clients, but the SSRF guard was only invoked on persisted
+    ``LlmSettings.base_url`` writes. Config resolution must validate *every*
+    source before a provider can issue a request.
+    """
+
+    @override_settings(LLM_ALLOW_PRIVATE_BASE_URL=False, LLM_BASE_URL_ALLOWED_HOSTS="")
+    @pytest.mark.parametrize(
+        "bad_url",
+        [
+            "http://169.254.169.254/latest/meta-data/",  # cloud metadata
+            "http://127.0.0.1:11434",  # loopback
+            "file:///etc/passwd",  # non-HTTP scheme
+        ],
+    )
+    def test_env_base_url_is_rejected_before_any_request(self, monkeypatch, bad_url):
+        from unittest.mock import patch
+
+        from llm_adapter.providers import get_provider
+
+        monkeypatch.setenv("LLM_PROVIDER", "ollama")
+        monkeypatch.setenv("LLM_BASE_URL", bad_url)
+        monkeypatch.delenv("LLM_API_BASE_URL", raising=False)
+
+        with patch("requests.post") as mock_post:
+            with pytest.raises(UnsafeOutboundUrlError):
+                get_provider()
+            mock_post.assert_not_called()
+
+    @override_settings(LLM_ALLOW_PRIVATE_BASE_URL=False, LLM_BASE_URL_ALLOWED_HOSTS="")
+    def test_resolve_provider_config_rejects_private_env_base_url(self, monkeypatch):
+        from llm_adapter.providers import resolve_provider_config
+
+        monkeypatch.setenv("LLM_PROVIDER", "ollama")
+        monkeypatch.setenv("LLM_API_BASE_URL", "http://10.0.0.5:8080")
+        monkeypatch.delenv("LLM_BASE_URL", raising=False)
+
+        with pytest.raises(UnsafeOutboundUrlError):
+            resolve_provider_config()
+
+    @override_settings(LLM_ALLOW_PRIVATE_BASE_URL=False, LLM_BASE_URL_ALLOWED_HOSTS="")
+    def test_explicit_config_passed_to_get_provider_is_rejected(self, monkeypatch):
+        from llm_adapter.providers import ProviderConfig, get_provider
+
+        monkeypatch.delenv("LLM_API_BASE_URL", raising=False)
+        cfg = ProviderConfig(
+            provider_name="ollama", api_base_url="http://169.254.169.254/"
+        )
+        with pytest.raises(UnsafeOutboundUrlError):
+            get_provider(cfg)
+
+    @override_settings(
+        LLM_ALLOW_PRIVATE_BASE_URL=False, LLM_BASE_URL_ALLOWED_HOSTS="ollama"
+    )
+    def test_allowlisted_env_base_url_is_permitted(self, monkeypatch):
+        from llm_adapter.providers import get_provider
+
+        monkeypatch.setenv("LLM_PROVIDER", "ollama")
+        monkeypatch.setenv("LLM_BASE_URL", "http://ollama:11434")
+        monkeypatch.delenv("LLM_API_BASE_URL", raising=False)
+
+        provider = get_provider()
+        assert provider.PROVIDER_NAME == "ollama"

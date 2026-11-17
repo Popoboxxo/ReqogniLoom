@@ -82,18 +82,22 @@ from memory.consolidation_config import (
 )
 from memory.metrics import increment_consolidation
 from memory.models import MemoryEntry
+from memory.prompts import (
+    MAX_EXTRACTED_FACTS,
+    MAX_FACT_CONTENT_CHARS,
+    validate_interaction_text,
+    wrap_interaction_block,
+)
 
 logger = logging.getLogger(__name__)
 
-_VALID_SCOPES = ("workspace", "user", "artifact")
-
-#: Scope an extracted fact is filed under when the LLM extractor omits the
-#: ``scope`` field (or returns an unrecognised value). Issue #1248: the write
-#: scope comes from the LLM while the read scope comes from the caller, so a
-#: missing scope used to DROP the fact silently -- making a fact extracted from
-#: an ``interview.chat`` turn unfindable through ``memory.list``/``memory.query``
-#: with the same ``workspace_id``. Defaulting to the interaction's owning
-#: (workspace) scope keeps every extracted fact reachable via a workspace read.
+#: Scope an extracted fact is filed under whenever the server cannot derive a
+#: narrower one from context. Issue #1248: a missing/unrecognised ``scope`` used
+#: to DROP the fact silently -- making a fact extracted from an
+#: ``interview.chat`` turn unfindable through ``memory.list``/``memory.query``
+#: with the same ``workspace_id``. AI-001 tightened this further: the write
+#: scope is now derived SERVER-SIDE (never from the model), so this is also the
+#: ceiling for model-supplied ``"user"`` requests.
 _DEFAULT_FACT_SCOPE = "workspace"
 
 #: Cosine-distance threshold below which an existing entry with DIFFERENT
@@ -124,12 +128,103 @@ _CONSOLIDATION_METRIC_SOURCE = "periodic_dream"
 _CONSOLIDATION_RESULT_DETAIL_LIMIT = 20
 
 
-def _call_llm(prompt: str) -> str:
-    """Thin wrapper around the configured LLM provider, isolated for test mocking."""
-    from llm_adapter.providers import get_provider
+#: Purpose string used for the extraction call. Also the capability label in
+#: the LLM audit entry and the token-usage record (REQ-106). Kept as a constant
+#: so audit, metrics and timeout resolution cannot drift apart.
+_MEMORY_EXTRACTION_PURPOSE = "memory_extraction"
 
-    provider = get_provider()
-    return provider.complete(prompt, purpose="memory_extraction")
+#: Metric source for a graceful budget-refusal skip. Distinct from the real
+#: trigger sources so "why was this interaction not consolidated?" is answerable
+#: from ``memory.metrics.consolidation_counts()``.
+_MEMORY_BUDGET_SKIP_SOURCE = "memory_extraction_budget_exceeded"
+
+
+def _call_llm(prompt: str) -> str:
+    """Guarded LLM call, isolated for test mocking (AI-002).
+
+    Mirrors the protected free-form path in
+    :meth:`application.ai_derivation_service.AiDerivationService._complete`:
+    a fail-open daily-budget check BEFORE the provider, one audit entry after
+    the call, best-effort token accounting from client-side estimates, and a
+    purpose-specific timeout so a bounded interaction cannot hang forever.
+
+    On budget exhaustion this returns ``""`` (which :func:`_parse_facts`
+    turns into an empty result): the interview chat/projector flow never sees
+    an exception, and the skip is observable via audit + metric. The mock seam
+    is intact -- callers/tests patch this whole function and bypass the guards.
+    """
+    from django.conf import settings
+
+    from llm_adapter.audit_logger import LlmAuditLogger
+    from llm_adapter.providers import get_provider
+    from llm_adapter.timeouts import resolve_timeout_seconds
+    from llm_adapter.token_tracking import (
+        approximate_token_count,
+        is_over_daily_limit,
+        record_token_usage,
+    )
+
+    provider_name = getattr(settings, "LLM_PROVIDER", "unknown")
+    audit_logger = LlmAuditLogger()
+
+    # REQ-106: is_over_daily_limit() is fail-open (never raises); only a real
+    # limit hit blocks the call. Graceful degradation -- never raise here.
+    if is_over_daily_limit():
+        audit_logger.log_llm_call(
+            provider=provider_name,
+            capability=_MEMORY_EXTRACTION_PURPOSE,
+            artifact_id=None,
+            token_usage=None,
+            success=False,
+            error="LLM_TOKEN_LIMIT_EXCEEDED",
+        )
+        try:
+            increment_consolidation(_MEMORY_BUDGET_SKIP_SOURCE)
+        except Exception:  # noqa: BLE001, S110 - metrics must never break the flow
+            logger.debug("memory extraction: budget-skip metric unavailable", exc_info=True)
+        logger.warning(
+            "memory extraction: daily LLM token limit exceeded; skipping this interaction"
+        )
+        return ""
+
+    # REQ-084 / issue #342: resolve the timeout by purpose. ``memory_extraction``
+    # falls into the single-artifact (sync) bucket by default, so no extra
+    # registration in ``llm_adapter.timeouts`` is required.
+    timeout = resolve_timeout_seconds(_MEMORY_EXTRACTION_PURPOSE)
+    try:
+        response = get_provider().complete(
+            prompt, purpose=_MEMORY_EXTRACTION_PURPOSE, timeout=timeout
+        )
+    except Exception as exc:  # noqa: BLE001 - audit the failure, then re-raise
+        # S14-A2: keep the audit trail complete on provider failures too.
+        # Log only the exception class, never a message that could carry data.
+        audit_logger.log_llm_call(
+            provider=provider_name,
+            capability=_MEMORY_EXTRACTION_PURPOSE,
+            artifact_id=None,
+            token_usage=None,
+            success=False,
+            error=type(exc).__name__,
+        )
+        raise
+
+    audit_logger.log_llm_call(
+        provider=provider_name,
+        capability=_MEMORY_EXTRACTION_PURPOSE,
+        artifact_id=None,
+        token_usage=None,
+        success=True,
+        error=None,
+    )
+    # The budget aggregates TokenUsageRecord rows (REQ-106); log an estimated
+    # count from the prompt and the raw response so this path is not blind.
+    record_token_usage(
+        provider=provider_name,
+        capability=_MEMORY_EXTRACTION_PURPOSE,
+        input_tokens=approximate_token_count(prompt),
+        output_tokens=approximate_token_count(response),
+    )
+    return response
 
 
 def _parse_facts(raw_llm_output: str) -> list[dict] | None:
@@ -162,6 +257,20 @@ def _as_uuid(value: object) -> UUID | None:
         return UUID(str(value))
     except (TypeError, ValueError, AttributeError):
         return None
+
+
+def _resolve_fact_scope(requested_scope: str, has_artifact: bool) -> str:
+    """Derive the write scope from server context, never from model output (AI-001).
+
+    The extractor's ``scope`` is advisory at best: ``"user"`` is never accepted
+    (a tenant-wide personal slice must only be written through the explicit
+    ``memory.write`` tool, which is RBAC-gated), and ``"artifact"`` is allowed
+    only when this interaction actually carried a resolvable artifact id.
+    Everything else falls back to the interaction's owning workspace scope.
+    """
+    if has_artifact and requested_scope == "artifact":
+        return "artifact"
+    return _DEFAULT_FACT_SCOPE
 
 
 def _resolve_workspace_language(workspace_id: UUID) -> str:
@@ -236,7 +345,13 @@ def consolidate_interaction(
         ``{"artifact_facts_stored": <int>, "workspace_facts_stored": <int>,
         "user_facts_stored": <int>, "facts_rejected_language": <int>}``.
     """
-    if not interaction_text or not interaction_text.strip():
+    # AI-001: bound the text at the pure-function boundary too (defence in
+    # depth for direct callers that bypass both the MCP tool and the Celery
+    # wrapper). Oversize text is rejected before any prompt is built.
+    try:
+        interaction_text = validate_interaction_text(interaction_text)
+    except ValueError as exc:
+        logger.warning("memory consolidation: rejecting interaction (%s)", exc)
         return _empty_result()
 
     artifact_uuid = _as_uuid(artifact_id)
@@ -254,7 +369,9 @@ def consolidate_interaction(
             "memory.extract",
             AuthContext.system(tenant_id=tenant_id),
             workspace_id,
-            interaction_text=interaction_text,
+            # AI-001: the interaction is untrusted DATA, fenced and escaped by
+            # wrap_interaction_block before it ever reaches the prompt.
+            interaction_text=wrap_interaction_block(interaction_text),
             artifact_context=_artifact_context(artifact_uuid, entity_type),
             language=workspace_language,
         )
@@ -262,6 +379,14 @@ def consolidate_interaction(
         facts = _parse_facts(raw_response)
         if facts is None:
             return _empty_result()
+        # AI-001: hard cap on extracted facts before any write work.
+        if len(facts) > MAX_EXTRACTED_FACTS:
+            logger.warning(
+                "memory consolidation: extractor returned %d facts, keeping %d",
+                len(facts),
+                MAX_EXTRACTED_FACTS,
+            )
+            facts = facts[:MAX_EXTRACTED_FACTS]
 
         backend = get_memory_backend()
         counts: dict[str, int] = {
@@ -276,28 +401,35 @@ def consolidate_interaction(
             content = str(fact.get("content") or "").strip()
             if not content:
                 continue
+            # AI-001: a single extracted fact cannot smuggle an unbounded blob
+            # into the vector store. Drop (do not truncate) oversize content.
+            if len(content) > MAX_FACT_CONTENT_CHARS:
+                logger.warning(
+                    "memory consolidation: dropping oversize fact (%d chars, cap %d)",
+                    len(content),
+                    MAX_FACT_CONTENT_CHARS,
+                )
+                continue
             raw_scope = fact.get("scope")
-            scope = str(raw_scope).strip().lower() if raw_scope else ""
-            if scope not in _VALID_SCOPES:
-                # Issue #1248: the extractor owns the write scope, but an
-                # omitted/unrecognised scope must NOT silently drop the fact --
-                # that made facts extracted from ``interview.chat`` unfindable
-                # via a workspace read. Default to the interaction's owning
-                # (workspace) scope so the fact stays reachable; a non-empty but
-                # unknown value is logged so the prompt drift stays visible.
-                if scope:
-                    logger.warning(
-                        "memory consolidation: unknown fact scope %r, "
-                        "defaulting to %r",
-                        raw_scope,
-                        _DEFAULT_FACT_SCOPE,
-                    )
-                scope = _DEFAULT_FACT_SCOPE
+            requested_scope = str(raw_scope).strip().lower() if raw_scope else ""
             # An artifact-scoped fact without a resolvable artifact is
             # unrepresentable in the unified store (the owner FK would be
             # NULL) -- drop it rather than mis-file it under another scope.
-            if scope == "artifact" and artifact_uuid is None:
+            if requested_scope == "artifact" and artifact_uuid is None:
                 continue
+            # AI-001: the server owns the write scope. "user" is NEVER accepted
+            # from model output; "artifact" only with a real artifact_id; all
+            # other values fall back to the interaction's workspace scope.
+            if requested_scope not in ("", "workspace", "artifact") or (
+                requested_scope == "user"
+            ):
+                logger.warning(
+                    "memory consolidation: extractor requested unsupported scope %r; "
+                    "deriving %r from context",
+                    requested_scope,
+                    _DEFAULT_FACT_SCOPE,
+                )
+            scope = _resolve_fact_scope(requested_scope, artifact_uuid is not None)
 
             fact_language = str(fact.get("language") or "").strip().lower()
             if workspace_language and fact_language and fact_language != workspace_language:
@@ -370,7 +502,19 @@ def consolidate_interaction_task(
     artifact_id: str | None = None,
     entity_type: str = "",
 ) -> dict[str, Any]:
-    """Celery entry point -- deserialises string ids, delegates to the pure function."""
+    """Celery entry point -- deserialises string ids, delegates to the pure function.
+
+    AI-001: this is the projector boundary (``memory.projector`` dispatches
+    chat turns here). Validate the interaction text BEFORE delegating so an
+    unbounded payload cannot reach the prompt builder or the LLM even when the
+    MCP tool is bypassed. Degrades to an empty result (no task failure) -- the
+    interview chat flow must never be broken by a memory-side guard.
+    """
+    try:
+        validate_interaction_text(interaction_text)
+    except ValueError as exc:
+        logger.warning("memory.consolidate_interaction: %s; skipping", exc)
+        return _empty_result()
     return consolidate_interaction(
         UUID(str(tenant_id)),
         UUID(str(workspace_id)),
