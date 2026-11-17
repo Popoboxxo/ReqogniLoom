@@ -1,0 +1,62 @@
+# Dedicated custom-rule gitleaks config for ReqogniLoom (S0.1 review R1).
+#
+# This config runs ONLY the two ReqogniLoom-specific rules. It inherits no
+# built-in rules and, critically, carries NO global allowlists:
+#
+#   [extend] useDefault = false   -> gitleaks' default ruleset (and its own
+#                                    global allowlist) is not loaded.
+#   no [[allowlists]]              -> the reviewed false-positive exemptions in
+#                                    .gitleaks.toml cannot suppress
+#                                    `reqlo-api-key` or `env-secret-assignment`.
+#
+# Why a separate file exists (finding R1): the three original blocking scans
+# used .gitleaks.toml, which declares `useDefault = true` and five global
+# [[allowlists]]. Gitleaks applies global allowlists to EVERY rule, including
+# custom ones, so those exemptions silently hollowed the original gates. A
+# `reqlo_<40 alnum>` token placed in an allowlisted path (docs/, tests/, .md,
+# .env.example, ...) was NOT reported. Scanning these gates with this file
+# restores the intended strict, reqlo-only behavior regardless of path, commit
+# or rule. The default-rule gate keeps the allowlisted .gitleaks.toml.
+#
+# The rule-level allowlist under `env-secret-assignment` is part of that rule's
+# definition (it keeps placeholder docs/fixtures out of the PR-diff gate); it
+# is NOT a global allowlist and has no effect on `reqlo-api-key`.
+title = "ReqogniLoom dedicated custom-rule gitleaks config"
+
+[extend]
+useDefault = false
+
+# Incident rule: boundary-anchored to EXACTLY 40 alphanumeric characters after
+# the `reqlo_` prefix. No path/regex/commit allowlist exists here, so a live
+# token is reported in ANY file, including the paths allowlisted in the
+# default-rule config.
+[[rules]]
+id = "reqlo-api-key"
+description = "ReqogniLoom API key (reqlo_ prefix + 40 alphanumeric characters)"
+regex = '''reqlo_[A-Za-z0-9]{40}\b'''
+keywords = ["reqlo_"]
+
+# Plan D / D2.6 (QR-S03): literal env-secret assignment. Kept identical to the
+# definition in .gitleaks.toml so both configs agree on what the gate means.
+[[rules]]
+id = "env-secret-assignment"
+description = "Literal assignment of a secret-shaped environment variable to a non-placeholder value"
+regex = '''(?m)^[ \t]*(?:export[ \t]+)?(?:SECRET_KEY|AUTH_JWT_SECRET|FIELD_ENCRYPTION_KEY|[A-Z_]*API_KEY|[A-Z_]*PASSWORD|[A-Z_]*_SECRET|[A-Z_]*_TOKEN)=(?P<secret>\S{12,})'''
+keywords = ["SECRET", "TOKEN", "API_KEY", "PASSWORD", "FIELD_ENCRYPTION_KEY"]
+
+  [rules.allowlist]
+  paths = [
+    '''\.example$''',
+    '''(^|/)tests?/''',
+    '''(^|/)test_[^/]*\.py$''',
+    '''^e2e/''',
+  ]
+  stopwords = [
+    "CHANGE-ME",
+    "change-me",
+    "<strong-password>",
+    "<neues-passwort>",
+    "my_secure_password",
+    "<generate-with-python-secrets>",
+    "<generate-with-python-cryptography-fernet>",
+  ]

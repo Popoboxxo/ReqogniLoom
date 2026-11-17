@@ -83,7 +83,7 @@ x-tz-env: &tz-env
 
 x-honcho-env: &honcho-env
   TZ: ${TZ:-Europe/Berlin}
-  DB_CONNECTION_URI: postgresql+psycopg://honcho:${HONCHO_DB_PASSWORD:-honcho-dev-password}@honcho-postgres:5432/honcho
+  DB_CONNECTION_URI: postgresql+psycopg://honcho:${HONCHO_DB_PASSWORD:?set HONCHO_DB_PASSWORD}@honcho-postgres:5432/honcho
   REDIS_URL: redis://honcho-redis:6379
   # Dev-only. Flip to true + set an API key before using this beyond a
   # single-developer local stack (see HONCHO_API_KEY in .env.example).
@@ -1258,7 +1258,7 @@ services:
     environment:
       <<: *tz-env
       POSTGRES_USER: honcho
-      POSTGRES_PASSWORD: ${HONCHO_DB_PASSWORD:-honcho-dev-password}
+      POSTGRES_PASSWORD: ${HONCHO_DB_PASSWORD:?set HONCHO_DB_PASSWORD}
       POSTGRES_DB: honcho
     volumes:
       - honcho_postgres_data:/var/lib/postgresql/data
@@ -1304,7 +1304,7 @@ services:
         condition: service_healthy
     environment:
       <<: *tz-env
-      DB_CONNECTION_URI: postgresql+psycopg://honcho:${HONCHO_DB_PASSWORD:-honcho-dev-password}@honcho-postgres:5432/honcho
+      DB_CONNECTION_URI: postgresql+psycopg://honcho:${HONCHO_DB_PASSWORD:?set HONCHO_DB_PASSWORD}@honcho-postgres:5432/honcho
       # Embedding config is parameterized (HONCHO_EMBEDDING_*, see .env.example)
       # and MUST resolve to the SAME values here and on `honcho` BEFORE the first
       # migration against a fresh volume -- see the PITFALL note on the `honcho`
