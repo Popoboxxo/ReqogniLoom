@@ -22,7 +22,6 @@ from unittest.mock import patch
 import pytest
 from django.core.cache import cache
 from django.test import override_settings
-from freezegun import freeze_time
 
 from application import ai_derivation_service as ds
 from application.ai_derivation_service import invalidate_derivation_cache
@@ -39,7 +38,7 @@ _CACHE_OVERRIDE = override_settings(
 
 @pytest.fixture(autouse=True)
 def _isolated_cache():
-    """Fresh, Redis-free cache per test; time is controlled by freezegun."""
+    """Fresh, Redis-free cache per test (no wall-clock travel needed)."""
     with _CACHE_OVERRIDE:
         cache.clear()
         try:
@@ -70,34 +69,31 @@ def test_version_ttl_is_longer_than_result_ttl() -> None:
 
 
 def test_repeated_reads_renew_the_version_ttl() -> None:
-    """A read at 18h pushes expiry past the counter's original 24h deadline."""
-    with freeze_time("2026-01-01 00:00:00"):
+    """Every existing-counter read renews expiry via cache.touch (no time travel)."""
+    with patch.object(ds, "cache") as mocked:
+        mocked.get.return_value = 1
+        assert ds._derivation_version("art-ttl-2") == 1
         assert ds._derivation_version("art-ttl-2") == 1
 
-    with freeze_time("2026-01-01 18:00:00"):
-        assert ds._derivation_version("art-ttl-2") == 1
-
-    # Original expiry was 2026-01-02 00:00; the 18:00 read moved it to 18:00
-    # the next day, so the counter is still alive here.
-    with freeze_time("2026-01-02 12:00:00"):
-        assert ds._derivation_version("art-ttl-2") == 1
+    assert mocked.touch.call_count == 2
+    for call in mocked.touch.call_args_list:
+        assert call.args == ("llm_derivation_ver:art-ttl-2", ds.DERIVATION_VERSION_TTL_SECONDS)
+    mocked.set.assert_not_called()
 
 
 def test_invalidate_renews_ttl_and_orphans_the_old_result_key() -> None:
     """After invalidation the old result key is unreachable via a new key."""
-    with freeze_time("2026-01-01 23:30:00"):
-        old_key = ds._derivation_cache_key("mock", "need_to_sysreq", "art-ttl-3", "prompt")
-        cache.set(old_key, "stale-result", ds.DERIVATION_CACHE_TTL_SECONDS)
-        assert cache.get(old_key) == "stale-result"
+    old_key = ds._derivation_cache_key("mock", "need_to_sysreq", "art-ttl-3", "prompt")
+    cache.set(old_key, "stale-result", ds.DERIVATION_CACHE_TTL_SECONDS)
+    assert cache.get(old_key) == "stale-result"
 
-        invalidate_derivation_cache("art-ttl-3")
+    invalidate_derivation_cache("art-ttl-3")
 
-    # The counter written at 23:30 would have expired at 00:30 on 01-02 if the
-    # invalidation had used no TTL, or had not renewed it. It is still there.
-    with freeze_time("2026-01-02 12:00:00"):
-        new_key = ds._derivation_cache_key("mock", "need_to_sysreq", "art-ttl-3", "prompt")
-        assert new_key != old_key
-        assert cache.get(new_key) is None, "stale result must be unreachable"
+    new_key = ds._derivation_cache_key("mock", "need_to_sysreq", "art-ttl-3", "prompt")
+    assert new_key != old_key
+    assert cache.get(new_key) is None, "stale result must be unreachable"
+    # The version counter itself is finite and readable after invalidation.
+    assert ds._derivation_version("art-ttl-3") >= 2
 
 
 def test_invalidate_sets_counter_with_a_finite_ttl() -> None:
