@@ -325,10 +325,62 @@ def _extract_django_headers(request: HttpRequest) -> dict:
 #: the HTTP_-prefix canonicalisation, so the literal spelling is enough here.
 _SESSION_HEADER = "Mcp-Session-Id"
 
+#: Default removal date for the deprecated ``?session_id=`` fallback on
+#: ``/mcp/messages/`` (API-002). The header is the primary credential channel;
+#: the query form is kept for one release so existing SSE clients — and this
+#: server's own ``endpoint`` event, which still advertises it — keep working.
+#: Overridable via ``MCP_QUERY_SESSION_ID_SUNSET`` for an operator who needs a
+#: different transition window. Never hard-coded into a response.
+_QUERY_SESSION_ID_SUNSET = "2027-04-01"
+
 
 def _incoming_session_id(request: HttpRequest) -> str:
     """Return the caller's ``Mcp-Session-Id``, or ``""`` when absent."""
     return request.headers.get(_SESSION_HEADER, "").strip()
+
+
+def _incoming_sse_session_id(request: HttpRequest) -> tuple[str, bool]:
+    """Resolve the SSE message-endpoint session id (API-002).
+
+    ``Mcp-Session-Id`` is the **primary** channel: a header keeps the session
+    credential out of proxy/access logs, browser history and ``Referer``
+    headers, where the legacy ``?session_id=`` form could leak it. The query
+    parameter stays as a documented, deprecated fallback for one release so
+    existing SSE clients and the server's own ``endpoint`` event keep working.
+
+    An explicit header always wins — a caller cannot downgrade the secure
+    channel by also sending the legacy query parameter.
+
+    Returns:
+        ``(session_id, used_legacy_query)``. The flag drives the RFC 9745
+        deprecation signal on the response without breaking the legacy path.
+    """
+    header_session = _incoming_session_id(request)
+    if header_session:
+        return header_session, False
+    legacy_session = request.GET.get("session_id", "").strip()
+    return legacy_session, bool(legacy_session)
+
+
+def _apply_query_session_deprecation(
+    request: HttpRequest, response: HttpResponse
+) -> HttpResponse:
+    """Mark a response that used the deprecated ``?session_id=`` fallback.
+
+    RFC 9745 ``Deprecation: true`` plus RFC 8594 ``Sunset`` tells a client (or a
+    reverse proxy) to move to the ``Mcp-Session-Id`` header before the fallback
+    is removed. The request still succeeds — the signal is informational only,
+    so no legacy client breaks during the transition release (API-002).
+    """
+    _session_id, used_legacy_query = _incoming_sse_session_id(request)
+    if used_legacy_query:
+        response["Deprecation"] = "true"
+        response["Sunset"] = sunset_header_value(
+            getattr(
+                settings, "MCP_QUERY_SESSION_ID_SUNSET", _QUERY_SESSION_ID_SUNSET
+            )
+        )
+    return response
 
 
 def _jsonrpc_request_id(body: bytes) -> object | None:
@@ -367,7 +419,9 @@ def _apply_cors_headers(request, response, *, methods: str = "POST, GET, OPTIONS
     # entirely rather than echoing an arbitrary allowlist entry, which would
     # be misleading metadata for an origin that was never actually allowed.
     response["Access-Control-Allow-Methods"] = methods
-    response["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-API-Key"
+    response["Access-Control-Allow-Headers"] = (
+        "Content-Type, Authorization, X-API-Key, Mcp-Session-Id"
+    )
     # Every MCP transport response funnels through here, so this is the single
     # place that can mark the deprecated /api/v1/mcp/ alias (issue #1292)
     # without each view having to remember it.
@@ -682,12 +736,27 @@ class McpHttpTransportView(CorsMixin, View):
         response[_SESSION_HEADER] = new_session_id
 
     def delete(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
-        """Terminate a Streamable-HTTP session (MCP 2025-06-18)."""
+        """Terminate a Streamable-HTTP session (MCP 2025-06-18).
+
+        API-002: a session id alone is not enough to tear a session down. The
+        caller must present the API key that was bound to the session at
+        ``initialize``; otherwise anyone who merely observed the session id
+        (e.g. in a proxy log from the legacy SSE query form) could revoke an
+        established session. Proof of the bound key is checked in constant time
+        before anything is deleted.
+        """
         session_id = _incoming_session_id(request)
         if not session_id:
             return HttpResponse(status=400)
-        if get_session_api_key(session_id) is None:
+        bound_key = get_session_api_key(session_id)
+        if bound_key is None:
             return HttpResponse(status=404)
+        presented_key = api_key_from_request(request)
+        # A missing or mismatched key is never proof of the binding. Compare in
+        # constant time: the bound key is a long-lived secret, the same class of
+        # value every other credential compare in this codebase protects.
+        if not presented_key or not hmac.compare_digest(presented_key, bound_key):
+            return HttpResponse(status=403)
         delete_session_api_key(session_id)
         return HttpResponse(status=204)
 
@@ -794,14 +863,28 @@ class McpMessagesView(CorsMixin, View):
         )
 
     def post(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
-        """Accept a JSON-RPC message for an established SSE session."""
+        """Accept a JSON-RPC message for an established SSE session.
+
+        The query-fallback deprecation signal is applied here — not only in
+        ``dispatch`` — so a direct handler call (as used throughout the test
+        suite) observes the same response contract as a real HTTP request.
+        Every return branch is covered without touching each one.
+        """
+        response = self._handle_post(request, *args, **kwargs)
+        return _apply_query_session_deprecation(request, response)
+
+    def _handle_post(self, request: HttpRequest, *args, **kwargs) -> HttpResponse:
+        """Process the message POST (implementation behind :meth:`post`)."""
         # Read the body once: `request.body` is cached by Django, but the
         # background closure below must not touch the request after this
         # handler returns.
         body = request.body
         request_id = self._request_id(body)
 
-        session_id = request.GET.get("session_id")
+        # API-002: the ``Mcp-Session-Id`` header is the primary credential
+        # channel; ``?session_id=`` is a deprecated, one-release fallback. The
+        # resolver's legacy flag drives the signal via :meth:`post`.
+        session_id, _ = _incoming_sse_session_id(request)
 
         # SA-36: enforce the premise of the csrf_exempt above. The credential on
         # this endpoint is the session id, not a header key, so it is passed in
@@ -826,8 +909,10 @@ class McpMessagesView(CorsMixin, View):
                 status=400,
                 error_code="INVALID_REQUEST",
                 message=(
-                    "Missing required query parameter 'session_id'. POST to the "
-                    "endpoint URL delivered by the SSE 'endpoint' event."
+                    "Missing session id. Send it in the 'Mcp-Session-Id' header "
+                    "(preferred), or via the deprecated '?session_id=' query "
+                    "parameter. POST to the endpoint URL delivered by the SSE "
+                    "'endpoint' event."
                 ),
                 request_id=request_id,
             )

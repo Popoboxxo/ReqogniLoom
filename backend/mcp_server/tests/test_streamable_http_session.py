@@ -84,10 +84,14 @@ def test_session_id_supplies_the_api_key_when_header_absent():
 
 @pytest.mark.django_db
 def test_delete_terminates_a_known_session():
+    # API-002: a session id alone is no longer proof — the bound key must be
+    # presented as well, otherwise the session cannot be revoked.
     with patch(
         "mcp_server.views.get_session_api_key", return_value="reqlo_dummy"
     ), patch("mcp_server.views.delete_session_api_key") as delete:
-        response = Client().delete("/mcp/", HTTP_MCP_SESSION_ID="sess-1")
+        response = Client().delete(
+            "/mcp/", HTTP_MCP_SESSION_ID="sess-1", HTTP_X_API_KEY="reqlo_dummy"
+        )
     assert response.status_code == 204
     delete.assert_called_once_with("sess-1")
 

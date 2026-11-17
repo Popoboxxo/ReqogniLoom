@@ -94,6 +94,60 @@ def parse_pagination(
     return limit, offset
 
 
+# ---------------------------------------------------------------------------
+# CRUD verb vocabulary + hidden aliases (R2A-003)
+# ---------------------------------------------------------------------------
+#
+# Five entity prefixes are served by ``GenericCrudToolGroup`` and publish
+# ``.read``/``.query``, while the hand-written groups publish ``.get``/``.list``
+# for the same two operations. The catalogue therefore carries two verb
+# families for "fetch one" and "list many".
+#
+# We do NOT rename published tools here: ``workspace_scope._TOOL_TARGETS`` and
+# the #1376 shadow ratchet key off the published names, so a rename would be a
+# cross-cutting change (and would break the "one prefix, one fetch/list verb"
+# invariant only if done partially). Instead every prefix keeps exactly one
+# published verb per operation, and the *alternative* verb spellings are
+# declared as hidden aliases with ``deprecated`` + ``replacedBy`` metadata.
+# Aliases are metadata only: they add no tools, so ``tools/list`` stays at 301,
+# and they are never routed (see :meth:`ToolRegistry.hidden_tool_aliases`).
+#
+# Canonical verbs document the target vocabulary for new groups. A new group
+# must use them; existing prefixes are ratcheted by
+# ``test_tool_naming_and_descriptions.py``.
+CANONICAL_FETCH_VERB = "get"
+CANONICAL_LIST_VERB = "list"
+
+#: The two accepted spellings of each operation, used by the lint ratchet to
+#: count "one fetch / one list verb per prefix" independently of which family
+#: a legacy group publishes.
+FETCH_VERBS: frozenset[str] = frozenset({"get", "read"})
+LIST_VERBS: frozenset[str] = frozenset({"list", "query"})
+
+
+def tool_verb(tool_name: str) -> str:
+    """Return the verb segment of *tool_name* (immediately after the prefix).
+
+    Nested tools such as ``requirement.acceptance_criteria.get`` are not CRUD
+    verbs of the ``requirement`` prefix — their second segment is the nested
+    namespace (``acceptance_criteria``), which is not in :data:`FETCH_VERBS`.
+    Counting the final segment instead would falsely report a second fetch
+    verb on that prefix.
+    """
+    parts = tool_name.split(".")
+    return parts[1] if len(parts) > 1 else parts[0]
+
+
+def verb_operation(tool_name: str) -> str | None:
+    """Classify *tool_name* as ``"fetch"``/``"list"`` or ``None``."""
+    verb = tool_verb(tool_name)
+    if verb in FETCH_VERBS:
+        return "fetch"
+    if verb in LIST_VERBS:
+        return "list"
+    return None
+
+
 #: Canonical ``required`` head of every workspace-scoped ``*.query`` tool
 #: (issue #1615). ``requirement.query`` used to advertise ``workspace_id`` as
 #: optional while its siblings required it, so a client could not tell from
@@ -554,27 +608,30 @@ class BaseToolGroup(ABC):
     capability_only: bool = False
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
-        """Return the MCP JSON schemas for all tools in this group."""
+        """Return the MCP JSON schemas for all tools in this group.
+
+        API-008 ratchet: the old ``{"kwargs": {...}}`` fallback advertised a
+        contract that accepted literally anything while the handler silently
+        ignored unknown keys. Every production group must now publish explicit
+        schemas (``_TOOL_SCHEMAS``, built dynamically in ``__init__`` where the
+        prefix is only known then, or through an override such as the
+        attribute groups). Capability groups return an empty list — they are
+        not tools and never appear in ``tools/list``.
+
+        A group with no explicit schemas fails closed at construction of the
+        catalogue instead of shipping a useless contract. This is deliberately
+        *not* a central ``inputSchema`` validator: the design decision at
+        :func:`reject_unknown_params` (opt-in, per-handler) stays in force.
+        """
         if self._TOOL_SCHEMAS:
             return self._TOOL_SCHEMAS
-        
-        # Fallback for groups without explicit schemas
-        return [
-            {
-                "name": name,
-                "description": f"Execute {name}",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "kwargs": {
-                            "type": "object",
-                            "description": "Additional parameters for the tool."
-                        }
-                    }
-                }
-            }
-            for name in self._TOOL_MAP.keys()
-        ]
+        if self.capability_only:
+            return []
+        raise RuntimeError(
+            f"{type(self).__name__} publishes no explicit _TOOL_SCHEMAS. "
+            "Publish a schema per mapped tool (the 'kwargs' fallback is "
+            "forbidden by the API-008 ratchet)."
+        )
 
     def schema_param_names(self, tool_name: str) -> list[str]:
         """Return the declared ``inputSchema`` property names of *tool_name*.
@@ -587,9 +644,15 @@ class BaseToolGroup(ABC):
 
         Returns an empty list for an unknown tool name or a group that has no
         explicit ``_TOOL_SCHEMAS`` — callers should treat that as "no strict
-        validation possible" rather than "nothing is allowed".
+        validation possible" rather than "nothing is allowed". A group built
+        without ``__init__`` (unit-test double) therefore stays permissive;
+        production groups always have a schema and stay strict.
         """
-        for schema in self.get_tool_schemas():
+        try:
+            schemas = self.get_tool_schemas()
+        except RuntimeError:
+            return []
+        for schema in schemas:
             if schema.get("name") == tool_name:
                 properties = schema.get("inputSchema", {}).get("properties", {})
                 return list(properties.keys())
@@ -643,6 +706,10 @@ class BaseToolGroup(ABC):
 
 __all__ = [
     "BaseToolGroup",
+    "CANONICAL_FETCH_VERB",
+    "CANONICAL_LIST_VERB",
+    "FETCH_VERBS",
+    "LIST_VERBS",
     "McpAuditWriteError",
     "ParameterError",
     "artifact_custom_fields",
@@ -656,7 +723,9 @@ __all__ = [
     "require_uuid",
     "resolve_engine_status",
     "resolve_status_map",
+    "tool_verb",
     "validate_artifact_write",
+    "verb_operation",
     "workspace_query_required",
     "write_mcp_audit",
 ]
