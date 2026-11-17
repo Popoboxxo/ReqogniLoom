@@ -593,6 +593,12 @@ class GenericCrudToolGroup(BaseToolGroup):
 
     def _handle_read(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         allowed = self.schema_param_names(f"{self.prefix}.read")
+        if self._system_fields_on:
+            # ADR-006 system fields (e.g. goal_id) are transported through the
+            # read tools by the identity/carrier-field contracts. They are not
+            # part of the service method signature, so add them to the strict
+            # allowlist explicitly — previously unknown params were ignored.
+            allowed = list(dict.fromkeys([*allowed, *SYSTEM_FIELD_NAMES, "goal_id"]))
         if allowed:
             reject_unknown_params(params, allowed, f"{self.prefix}.read")
         obj_id = require_uuid(params, "id")
