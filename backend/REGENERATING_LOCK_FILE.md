@@ -16,7 +16,7 @@ Regenerate `requirements.lock` whenever you modify `requirements.txt`:
 
 ### Prerequisites
 
-- Docker (the resolution runs inside a `python:3.12-slim` container)
+- Docker (the resolution runs inside a `python:3.15-slim` container, pinned by digest to match `backend/Dockerfile`)
 - Network access to PyPI
 
 **Do not run `pip-compile` on your host.** Dependency resolution is
@@ -24,11 +24,11 @@ platform-dependent — `torch` (pulled in by `sentence-transformers`) declares i
 `nvidia-*` and `triton` wheels behind Linux environment markers only. A lock
 generated on Windows or macOS silently omits ~20 packages and therefore does not
 describe the image that is actually deployed. The container also pins CPython to
-3.12, matching `backend/Dockerfile`.
+3.15.2 (pinned by digest), matching `backend/Dockerfile`.
 
 `git` has to be installed into that container for as long as `requirements.txt`
 carries the temporary `django-celery-beat @ git+https://...` VCS pin (see the
-comment on that line). `python:3.12-slim` ships no git, and without it
+comment on that line). `python:3.15-slim` ships no git, and without it
 pip-compile aborts on the URL with `Cannot find command 'git'`. The same applies
 to `backend/Dockerfile`'s builder stage. Both can drop git again once that pin
 returns to a plain PyPI range.
@@ -39,8 +39,8 @@ returns to a plain PyPI range.
 # 1. Navigate to backend directory
 cd backend
 
-# 2. Regenerate the lock file from requirements.txt (linux/amd64, CPython 3.12)
-docker run --rm -v "$PWD:/w" -w /w python:3.12-slim sh -c \
+# 2. Regenerate the lock file from requirements.txt (linux/amd64, CPython 3.15.2, pinned to match backend/Dockerfile FROM)
+docker run --rm -v "$PWD:/w" -w /w python:3.15-slim@sha256:94d3426f1def7db4a106a232ac121bfd975393e5dfd40a619b955fae45fe7913 sh -c \
   'apt-get update -qq && apt-get install -y -qq --no-install-recommends git && \
    pip install -q --upgrade pip pip-tools && \
    pip-compile requirements.txt --output-file requirements.lock \

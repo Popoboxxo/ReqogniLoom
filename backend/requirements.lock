@@ -3,8 +3,8 @@
 #
 # Source      : requirements.txt
 # Generator   : pip-compile (pip-tools)
-# Platform    : linux/amd64, CPython 3.12  (must match backend/Dockerfile)
-# Regenerated : 2026-10-31
+# Platform    : linux/amd64, CPython 3.15.2  (python:3.15-slim@sha256:94d3426f1def7db4a106a232ac121bfd975393e5dfd40a619b955fae45fe7913 — must match backend/Dockerfile FROM, lines 8 and 63)
+# Regenerated : 2026-11-17
 #
 # This file is NOT installed by anything: backend/Dockerfile and every CI job
 # install from requirements.txt directly. It exists only to document the full
@@ -13,7 +13,7 @@
 #
 # Reproduce exactly (see backend/REGENERATING_LOCK_FILE.md):
 #
-#   docker run --rm -v "$PWD:/w" -w /w python:3.12-slim sh -c \
+#   docker run --rm -v "$PWD:/w" -w /w python:3.15-slim@sha256:94d3426f1def7db4a106a232ac121bfd975393e5dfd40a619b955fae45fe7913 sh -c \
 #     'apt-get update -qq && apt-get install -y -qq --no-install-recommends git && \
 #      pip install -q --upgrade pip pip-tools && \
 #      pip-compile requirements.txt --output-file requirements.lock \
@@ -22,35 +22,35 @@
 # The container is not optional. Resolution is platform-dependent: torch pulls
 # the nvidia-*/triton wheels only under Linux markers, so running pip-compile
 # on Windows or macOS produces a closure that does not describe the deployed
-# image. The `git` install is likewise not optional while requirements.txt
-# carries the temporary `django-celery-beat @ git+https://...` VCS pin —
-# python:3.12-slim ships no git and pip-compile cannot resolve the URL without
-# it. Drop it again when that pin returns to PyPI.
+# image. The image is pinned by digest to the exact interpreter the Dockerfile
+# builds/runs on, so the header, repro command and resolved versions stay in
+# sync with backend/Dockerfile. The `git` install is likewise not optional
+# while requirements.txt carries the temporary `django-celery-beat @
+# git+https://...` VCS pin — python:3.15-slim ships no git and pip-compile
+# cannot resolve the URL without it. Drop it again when that pin returns to PyPI.
 #
-amqp==5.4.1
-annotated-doc==0.0.5
+amqp==5.4.2
+annotated-doc==0.0.6
 annotated-types==0.8.0
-anthropic==2.3.0
-anyio==4.15.1
+anthropic==2.9.0
+anyio==4.16.0
 asgiref==3.13.0
 attrs==26.1.0
-billiard==4.3.1
+billiard==4.3.2
 brotli==1.2.1
-celery==5.6.3
+celery==5.7.0
 certifi==2026.10.23
 cffi==2.1.1
 charset-normalizer==3.5.2
-click==8.5.0
+click==8.5.1
 click-didyoumean==0.3.1
 click-plugins==1.1.1.2
 click-repl==0.4.1
 cloudpickle==3.1.2
 cron-descriptor==2.2.1
 cryptography==50.0.2
-cuda-bindings==13.4.4
-cuda-pathfinder==1.8.5
 cuda-toolkit==13.2.2
-django==6.1.2
+django==6.1.3
 django-celery-beat @ git+https://github.com/celery/django-celery-beat.git@6767df6f6f723a96ebd38269a073a11cde124850
 django-timezone-field==7.2.2
 djangorestframework==3.18.3
@@ -58,41 +58,42 @@ docstring-parser==0.18.0
 drf-spectacular==0.30.0
 elementpath==5.1.4
 et-xmlfile==2.0.0
-filelock==4.2.5
+execnet==2.1.2
+filelock==4.2.10
 fsspec==2026.9.0
 grpcio==1.85.1
-gunicorn==26.2.0
+gunicorn==27.0.1
 h11==0.16.0
 h2==4.4.1
 hf-xet==1.8.0
 honcho-ai==2.8.0
 hpack==4.2.0
 httpcore==1.0.9
-httpcore2==2.16.0
+httpcore2==2.16.2
 httptools==0.9.0
 httpx==0.28.1
-httpx2==2.16.0
+httpx2==2.16.2
 huggingface-hub==2.4.0
 hyperframe==6.1.0
 idna==3.20
 inflection==0.5.1
 iniconfig==2.3.1
 jinja2==3.1.6
-jiter==0.18.0
+jiter==0.19.0
 joblib==1.6.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
-kombu==5.6.2
+kombu==5.7.0
 lxml==6.1.3
-markdown-it-py==4.2.0
+markdown-it-py==4.3.0
 markupsafe==3.0.4
 mdurl==0.1.2
 mpmath==1.3.0
 narwhals==2.28.0
 networkx==3.7
-numpy==2.5.4
+numpy==2.5.5
 nvidia-cublas==13.4.1.3
-nvidia-cuda-cccl==13.3.4.3.1
+nvidia-cuda-cccl==13.3.5.0.6
 nvidia-cuda-cupti==13.2.86
 nvidia-cuda-nvrtc==13.2.86
 nvidia-cuda-runtime==13.2.86
@@ -103,10 +104,10 @@ nvidia-cusolver==12.2.0.11
 nvidia-cusparse==12.7.10.12
 nvidia-cusparselt-cu13==0.8.1
 nvidia-nccl-cu13==2.30.7
-nvidia-nvjitlink==13.4.92
+nvidia-nvjitlink==13.5.37
 nvidia-nvshmem-cu13==3.7.2
 nvidia-nvtx==13.2.86
-openai==3.42.0
+openai==3.52.0
 openpyxl==3.1.5
 opentelemetry-api==1.45.2
 packaging==26.3
@@ -118,15 +119,16 @@ prompt-toolkit==3.0.53
 protobuf==7.36.2
 psycopg2-binary==2.9.13
 pycparser==3.12
-pydantic==2.14.2
-pydantic-core==2.50.2
+pydantic==2.14.3
+pydantic-core==2.50.4
 pygments==2.21.0
 pyotp==2.10.0
-pypdf==6.21.4
+pypdf==7.1.0
 pytest==9.2.0
 pytest-django==4.14.0
+pytest-xdist==3.8.0
 python-crontab==3.4.0
-python-dateutil==3.0.0
+python-dateutil==2.9.0.post0
 python-decouple==3.8
 python-dotenv==1.2.4
 python-json-logger==4.2.0
@@ -134,31 +136,31 @@ pyyaml==6.0.3
 qdrant-client==1.20.0
 redis==8.1.0
 referencing==0.37.0
-regex==2026.9.29
+regex==2026.11.15
 reportlab==5.1.0
-reqif==0.1.0
+reqif==0.1.1
 requests==2.34.2
 rich==15.0.0
 rpds-py==2026.9.1
 safetensors==0.8.0
 scikit-learn==1.9.1
 scipy==1.18.1
-sentence-transformers==6.2.0
+sentence-transformers==6.3.0
 shellingham==1.5.4
 six==1.17.0
 sniffio==1.3.1
-sqlparse==0.6.0
+sqlparse==0.6.1
 sympy==1.14.0
-threadpoolctl==3.7.0
+threadpoolctl==3.8.0
 tokenizers==0.23.3
 torch==2.15.0
 tqdm==4.70.1
-transformers==5.22.1
+transformers==5.23.0
 triton==3.9.0
 truststore==0.10.5
-typer==0.27.3
+typer==0.29.1
 typing-extensions==4.16.0
-typing-inspection==0.4.4
+typing-inspection==0.4.5
 tzdata==2026.6
 tzlocal==5.4.5
 uritemplate==4.2.0

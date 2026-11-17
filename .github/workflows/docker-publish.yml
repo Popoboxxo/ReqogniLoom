@@ -47,14 +47,18 @@ permissions:
   security-events: write
 
 jobs:
-  # SEC-08 / AUD-2026-09-137: publish may not start before CI succeeds. Calling
-  # the full CI pipeline as a reusable workflow makes "CI green" a hard
-  # precondition of this very run; `secrets: inherit` forwards the optional
-  # FIELD_ENCRYPTION_KEY the backend tests read.
+  # SEC-08 / AUD-2026-09-137 / OPS-002: publish may not start before CI
+  # succeeds. Calling the full CI pipeline as a reusable workflow makes
+  # "CI green" a hard precondition of this very run; ci.yml now also calls the
+  # Playwright suite, so a red E2E run blocks the release.
+  # OPS-004: map only the secret the backend tests actually read. Blanket
+  # inheritance would expose every repository/organization secret to this
+  # pipeline; ci.yml declares FIELD_ENCRYPTION_KEY as required.
   ci:
     name: "CI gate"
     uses: ./.github/workflows/ci.yml
-    secrets: inherit
+    secrets:
+      FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
 
   # Issue #1349 / #1353: release consistency gates run on the TAG before any
   # image is built, so drift fails at the tag instead of reaching a user. The

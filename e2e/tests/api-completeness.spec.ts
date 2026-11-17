@@ -275,11 +275,16 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     expect(req2Resp.ok()).toBeTruthy();
     const req2 = await req2Resp.json();
 
-    // Create the TraceLink
+    // Create the TraceLink.
+    // `TraceLinkSerializer` declares only {source_id, target_id, link_type,
+    // rationale} plus read-only fields — there is NO `workspace_id` field, and
+    // `UnknownFieldRejectionMixin` (#851) rejects undeclared keys with 400
+    // "workspace_id: Unknown field." The workspace is derived from the source
+    // artifact's own row (`validate_link_pair(source.workspace_id, ...)`), never
+    // from the request body. Mirrors testcases.spec.ts / system-proof-journey.spec.ts.
     const linkResp = await request.post(`${BACKEND_URL}/api/v1/tracelinks/`, {
       headers,
       data: {
-        workspace_id: SEEDED_WORKSPACE_ID,
         source_id: req1.artifact_id ?? req1.id,
         target_id: req2.artifact_id ?? req2.id,
         link_type: 'derives-from',
@@ -287,13 +292,18 @@ test.describe('[REQ-L0-012] REST API Completeness', () => {
     });
 
     if (!linkResp.ok()) {
-      // Some backends require artifact UUIDs not requirement UUIDs — skip gracefully
       const errText = await linkResp.text();
-      test.skip(true, `TraceLink creation failed (${linkResp.status()}): ${errText.slice(0, 200)}`);
-      // Cleanup reqs anyway (extended preset requires change_reason, #604)
+      // Clean up first so a failing assertion cannot leak artifacts
+      // (extended preset requires change_reason, #604).
       await request.delete(`${BACKEND_URL}/api/v1/requirements/${req1.id}/`, { headers, data: { change_reason: 'e2e cleanup' } });
       await request.delete(`${BACKEND_URL}/api/v1/requirements/${req2.id}/`, { headers, data: { change_reason: 'e2e cleanup' } });
-      return;
+      // A failed TraceLink POST is a real regression, not a skippable
+      // environment condition. Fail loudly with the backend diagnostic instead
+      // of reporting a false-green run (TEST-001/002/005).
+      expect(
+        linkResp.ok(),
+        `TraceLink creation failed (${linkResp.status()}): ${errText.slice(0, 200)}`
+      ).toBeTruthy();
     }
 
     const link = await linkResp.json();

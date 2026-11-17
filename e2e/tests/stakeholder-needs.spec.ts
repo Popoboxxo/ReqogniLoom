@@ -308,12 +308,9 @@ test.describe('[REQ-L0-009] Bilingual UI — language switch', () => {
       page.locator('button', { hasText: /^(DE|EN)$/i })
     ).first();
 
-    const found = await langSwitch.count();
-    if (found === 0) {
-      test.skip(true, 'Language switcher not found — feature not yet implemented in UI');
-      return;
-    }
-
+    // REQ-L0-009 is implemented (SidebarNavigation data-testid="lang-switch").
+    // Require the control to be visible instead of skipping when it is absent —
+    // a missing switcher is a real regression that must turn the gate red.
     await expect(langSwitch).toBeVisible({ timeout: 5000 });
     const bodyBefore = await page.locator('body').innerText();
 

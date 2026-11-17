@@ -5,8 +5,11 @@ import {
   loginAsAdmin,
   getAuthToken,
   setWorkspaceId,
+  setWorkspacePreset,
+  getWorkspaceId,
   createIsolatedWorkspace,
   SEEDED_WORKSPACE_ID,
+  type WorkspacePresetName,
 } from '../helpers/auth';
 import { collapseInspector } from '../helpers/inspector';
 
@@ -45,9 +48,9 @@ async function createArchElementViaQuickForm(page: Page, title = 'E2E Arch Eleme
 // setWorkspaceId only registers an init script (applied on next navigation),
 // so calling it again here — after the describe-level beforeEach already set
 // SEEDED_WORKSPACE_ID — correctly overrides it for the page.goto() that follows.
-async function useIsolatedArchWorkspace(page: Page): Promise<void> {
+async function useIsolatedArchWorkspace(page: Page, preset?: WorkspacePresetName): Promise<void> {
   const token = await getAuthToken();
-  const workspaceId = await createIsolatedWorkspace(token);
+  const workspaceId = await createIsolatedWorkspace(token, undefined, preset);
   await setWorkspaceId(page, workspaceId);
 }
 
@@ -101,32 +104,25 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   // REQ-L0-011 / REQ-L2-RF-004 — change_reason field conditionally visible (extended preset)
   // -------------------------------------------------------------------------
   test('[REQ-L0-011] change_reason field is present in requirement editor for extended preset', async ({ page }) => {
+    // Deterministic precondition: change_reason is gated by the rigor preset.
+    // Pin the seeded workspace to extended (the tenant-wide default state)
+    // before opening the editor instead of skipping when the field is absent.
+    await setWorkspacePreset('extended');
     await page.goto(`${FRONTEND_URL}/requirements`);
     await createRequirementViaQuickForm(page);
 
     const changeReasonInput = page.locator('[data-testid="artifact-form-change-reason"]');
-    const count = await changeReasonInput.count();
-
-    if (count === 0) {
-      test.skip(true, 'change_reason input not found — may be hidden for non-extended preset');
-      return;
-    }
     await expect(changeReasonInput).toBeVisible({ timeout: 5000 });
   });
 
   test('[REQ-L2-RF-004] requirement editor shows change_reason when workspace preset is extended', async ({ page }) => {
-    // The SEEDED_WORKSPACE_ID is the extended preset workspace
+    // Pin the preset explicitly: relying on "the seeded workspace is extended"
+    // made this test skip (false green) whenever an earlier test left it lower.
+    await setWorkspacePreset('extended');
     await page.goto(`${FRONTEND_URL}/requirements`);
     await createRequirementViaQuickForm(page);
 
     const changeReason = page.locator('[data-testid="artifact-form-change-reason"]');
-    const count = await changeReason.count();
-
-    if (count === 0) {
-      test.skip(true, 'change_reason not rendered for this workspace — check preset or implementation');
-      return;
-    }
-
     await expect(changeReason).toBeVisible({ timeout: 5000 });
     await changeReason.fill('SE workflow E2E test change');
     await expect(changeReason).toHaveValue('SE workflow E2E test change');
@@ -165,18 +161,39 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
     expect(panelText.length).toBeGreaterThanOrEqual(0);
   });
 
-  test('[REQ-L2-RF-005] architecture editor change_reason input is present (extended preset)', async ({ page }) => {
-    await useIsolatedArchWorkspace(page);
+  // PRODUCT FINDING (S0.4 / PRODUCT-FINDING-S04-ARCH-CHANGE-REASON) — the
+  // feature asserted here does not exist in the UI, so the assertion can never
+  // pass without a production fix (outside this spec's write scope).
+  // Evidence:
+  //  - `ArchitectureArtifactForm.tsx` renders the shared `ArtifactForm` but,
+  //    unlike `RequirementArtifactForm.tsx` (which passes
+  //    `requiresChangeReason={activeWorkspace?.preset === "extended"}`), never
+  //    passes `requiresChangeReason`. It defaults to `false` in
+  //    `ArtifactForm`/`useArtifactFormState`, so `changeReasonNeeded` is always
+  //    false and the form-level change-reason input is NEVER rendered —
+  //    regardless of preset, edit mode or status transition.
+  //  - The testid `arch-change-reason-input` does not exist anywhere in the
+  //    frontend; the shared field's real testid is `artifact-form-change-reason`
+  //    (shared/ArtifactForm/ArtifactFormActions.tsx), and even that is gated off.
+  //  - `ArchitectureEditors.tsx` always mounts `ArchitectureArtifactForm`; there
+  //    is no alternate edit-mode component that would surface the field.
+  // Impact: under the extended preset the backend requires `change_reason` on
+  // update/delete (see REQ-L0-011 / hermes-bugfix-campaign.spec.ts REQ-135), but
+  // the architecture editor offers no field to supply it — extended-preset
+  // architecture edits are blocked client-side. Needs a product fix: wire
+  // `requiresChangeReason` into `ArchitectureArtifactForm` (and give the field a
+  // stable testid), then remove this `.fixme`. Tracked as
+  // PRODUCT-FINDING-S04-ARCH-CHANGE-REASON — coordinator to file the ticket.
+  test.fixme('[REQ-L2-RF-005] architecture editor change_reason input is present (extended preset)', async ({ page }) => {
+    // change_reason is extended-preset-only: create the isolated workspace at
+    // extended (the helper otherwise defaults to standard) so the precondition
+    // is real and a missing input fails the test.
+    await useIsolatedArchWorkspace(page, 'extended');
     await page.goto(`${FRONTEND_URL}/architecture`);
     await createArchElementViaQuickForm(page);
 
-    const changeReason = page.locator('[data-testid="arch-change-reason-input"]');
-    const count = await changeReason.count();
-
-    if (count === 0) {
-      test.skip(true, 'arch-change-reason-input not found — may be hidden for non-extended preset');
-      return;
-    }
+    // Use the real shared-field testid once the product fix above lands.
+    const changeReason = page.locator('[data-testid="artifact-form-change-reason"]');
     await expect(changeReason).toBeVisible({ timeout: 5000 });
   });
 
@@ -184,6 +201,9 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
   // REQ-L2-RF-007 — Nav shows Baselines link for extended preset workspace
   // -------------------------------------------------------------------------
   test('[REQ-L2-RF-007] navigation shows Baselines link for extended preset workspace', async ({ page }) => {
+    // The baselines nav item is preset-gated — pin to extended before loading
+    // the shell so a missing link is a real failure, not a skip.
+    await setWorkspacePreset('extended');
     await page.goto(`${FRONTEND_URL}/requirements`);
     await page.waitForLoadState('networkidle');
 
@@ -191,12 +211,6 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
     const baselinesLink = page.locator('a[href*="baselines"]').or(
       page.locator('nav').locator('text=/baselines/i')
     ).first();
-
-    const count = await baselinesLink.count();
-    if (count === 0) {
-      test.skip(true, 'Baselines link not found in nav — check preset-based nav rendering');
-      return;
-    }
     await expect(baselinesLink).toBeVisible({ timeout: 5000 });
   });
 
@@ -224,12 +238,14 @@ test.describe('[COMP-RF-SE] SE Workflow Visibility', () => {
     const workspaces: Record<string, unknown>[] = Array.isArray(body) ? body : body.results ?? [];
     expect(workspaces.length).toBeGreaterThan(0);
 
-    // Find the seeded workspace and verify it has a preset/terminology field
-    const seeded = workspaces.find((w) => w.id === SEEDED_WORKSPACE_ID);
-    if (!seeded) {
-      test.skip(true, 'Seeded workspace not found in /api/v1/workspaces/ response');
-      return;
-    }
+    // getWorkspaceId walks every page and throws a diagnostic if the seeded
+    // workspace is absent — assert its presence instead of a false-green skip.
+    expect(await getWorkspaceId(token)).toBe(SEEDED_WORKSPACE_ID);
+    const detail = await request.get(`${BACKEND_URL}/api/v1/workspaces/${SEEDED_WORKSPACE_ID}/`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(detail.status()).toBe(200);
+    const seeded = await detail.json();
     const hasTermField =
       'preset' in seeded ||
       'terminology_profile' in seeded ||

@@ -7,10 +7,16 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # OPS-002: ci.yml calls this workflow as a reusable job, so a red E2E run is
+  # part of the CI gate and therefore blocks `docker-publish.yml` (which
+  # already declares `needs: ci`). The push/PR triggers above are unchanged.
+  workflow_call:
+    secrets:
+      # Optional: the job falls back to an ephemeral Fernet key when absent.
+      # Passed through from ci.yml so called runs behave like direct runs.
+      FIELD_ENCRYPTION_KEY:
+        description: "Optional Fernet key shared by migrate and the backend server"
+        required: false
 
 permissions:
   contents: read
@@ -61,6 +67,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Reject unexpected unconditional E2E skips (OPS-002)
+        # Fail fast, before the expensive setup: test.skip(true, ...) turns a
+        # broken assertion into a green run, which would make the release gate
+        # worthless. Only skips with a documented marker/allowlist entry pass.
+        working-directory: e2e
+        run: npm run check:unexpected-skips
 
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7

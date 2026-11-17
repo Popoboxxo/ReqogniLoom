@@ -8,6 +8,7 @@
     "test:e2e:api": "node node_modules/@playwright/test/cli.js test tests/api/",
     "test:e2e:ai": "playwright test --reporter=line",
     "test:e2e:ai-mass": "playwright test --reporter=dot",
+    "check:unexpected-skips": "node scripts/check-unexpected-skips.mjs",
     "mcp:playwright": "npx -y @playwright/mcp@latest"
   },
   "devDependencies": {
