@@ -7,7 +7,7 @@ req_id  : REQ-L1-018, REQ-L1-019, REQ-L1-020, REQ-L1-021,
           REQ-L1-023, REQ-L1-024
 
 This module bundles the Step-2 services and registers them in the
-application-service registry (application.services._registry).
+neutral application-service registry (application.service_registry._registry).
 
 Downstream consumers import from here OR from application.services
 (after the one-line re-export added to that file).
@@ -61,8 +61,8 @@ from application.search_service import (  # noqa: F401
     SearchService,
 )
 
-# ---------- Registry hook (services.py extension pattern) ----------
-from application.services import _registry  # noqa: E402
+# ---------- Registry hook (neutral registry, no facade back-import) ----------
+from application.service_registry import _registry  # noqa: E402
 
 # COMP-AS-011
 from application.webhook_dispatcher import (  # noqa: F401

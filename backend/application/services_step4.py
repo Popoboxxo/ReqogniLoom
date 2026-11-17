@@ -27,8 +27,8 @@ from application.change_request_service import (  # noqa: F401
     ChangeRequestValidator,
 )
 
-# ---------- Registry hook (services.py extension pattern) ----------
-from application.services import _registry  # noqa: E402
+# ---------- Registry hook (neutral registry, no facade back-import) ----------
+from application.service_registry import _registry  # noqa: E402
 
 # COMP-AS-017
 from application.test_run_service import VALID_RESULT_STATUSES, TestRunService  # noqa: F401

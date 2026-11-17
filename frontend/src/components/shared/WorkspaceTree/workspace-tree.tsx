@@ -63,6 +63,11 @@ import {
   type TreeStepDirection,
 } from './tree-reorder';
 import { useTreeVirtualization } from './tree-virtualization';
+import {
+  buildInternalTree,
+  describeMoveTarget,
+  flattenVisible,
+} from './workspace-tree.logic';
 import styles from './workspace-tree.module.css';
 
 // ---------------------------------------------------------------------------
@@ -452,96 +457,8 @@ export interface WorkspaceTreeProps {
 }
 
 // ---------------------------------------------------------------------------
-// Internal tree model
-// ---------------------------------------------------------------------------
-
-interface InternalNode {
-  node: WorkspaceTreeNode;
-  children: InternalNode[];
-  depth: number;
-}
-
-function buildInternalTree(nodes: WorkspaceTreeNode[]): InternalNode[] {
-  const byId = new Map<string, WorkspaceTreeNode>();
-  for (const n of nodes) byId.set(n.id, n);
-
-  const childrenByParent = new Map<string | null, WorkspaceTreeNode[]>();
-  for (const n of nodes) {
-    const parentKey =
-      n.parentId && byId.has(n.parentId) ? n.parentId : null;
-    const bucket = childrenByParent.get(parentKey);
-    if (bucket) bucket.push(n);
-    else childrenByParent.set(parentKey, [n]);
-  }
-
-  const toInternal = (
-    n: WorkspaceTreeNode,
-    depth: number,
-    seen: Set<string>,
-  ): InternalNode => {
-    seen.add(n.id);
-    const kids = (childrenByParent.get(n.id) ?? []).filter(
-      (c) => !seen.has(c.id),
-    );
-    return {
-      node: n,
-      depth,
-      children: kids.map((c) => toInternal(c, depth + 1, seen)),
-    };
-  };
-
-  const seen = new Set<string>();
-  return (childrenByParent.get(null) ?? []).map((root) =>
-    toInternal(root, 0, seen),
-  );
-}
-
-interface FlatRow {
-  internal: InternalNode;
-  hasChildren: boolean;
-  isExpanded: boolean;
-}
-
-function flattenVisible(
-  roots: InternalNode[],
-  expanded: Set<string>,
-  visibleIds: Set<string> | null,
-  out: FlatRow[] = [],
-): FlatRow[] {
-  for (const internal of roots) {
-    if (visibleIds !== null && !visibleIds.has(internal.node.id)) continue;
-    const visibleChildren =
-      visibleIds === null
-        ? internal.children
-        : internal.children.filter((c) => visibleIds.has(c.node.id));
-    const hasChildren = visibleChildren.length > 0;
-    // While searching, matched subtrees are force-expanded.
-    const isExpanded = visibleIds !== null ? true : expanded.has(internal.node.id);
-    out.push({ internal, hasChildren, isExpanded });
-    if (hasChildren && isExpanded) {
-      flattenVisible(internal.children, expanded, visibleIds, out);
-    }
-  }
-  return out;
-}
-
-// ---------------------------------------------------------------------------
 // WorkspaceTree
 // ---------------------------------------------------------------------------
-
-/**
- * Human-readable name of a reparenting endpoint for the move announcement
- * (H-1 / F-01). Mirrors the "identifier · name" form the move dialog's own
- * options render, and falls back to the dialog's root label when there is no
- * parent node (moving to top level).
- */
-function describeMoveTarget(
-  node: WorkspaceTreeNode | null | undefined,
-  rootLabel: string,
-): string {
-  if (!node) return rootLabel;
-  return node.identifier ? `${node.identifier} · ${node.name}` : node.name;
-}
 
 export function WorkspaceTree({
   nodes,

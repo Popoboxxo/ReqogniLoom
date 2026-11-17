@@ -5,7 +5,7 @@ leaf_id : COMP-AS-013, COMP-AS-014, COMP-AS-015
 req_id  : REQ-L1-029
 
 This module bundles the Step-3 services and registers them in the
-application-service registry (application.services._registry).
+neutral application-service registry (application.service_registry._registry).
 
 Downstream consumers import from here OR from application.services
 (after the one-line re-export added to that file).
@@ -44,8 +44,8 @@ from application.issue_service import IssueDTO, IssueService  # noqa: F401
 # COMP-AS-014
 from application.risk_service import RiskDTO, RiskService  # noqa: F401
 
-# ---------- Registry hook (services.py extension pattern) ----------
-from application.services import _registry  # noqa: E402
+# ---------- Registry hook (neutral registry, no facade back-import) ----------
+from application.service_registry import _registry  # noqa: E402
 
 _registry["AdrService"] = AdrService
 _registry["RiskService"] = RiskService

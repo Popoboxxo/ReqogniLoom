@@ -44,6 +44,11 @@ from llm_adapter.interface import (
     LlmDecompositionResult,
     LlmResult,
 )
+from llm_adapter.json_output import (
+    JsonOutputError,
+    decode_json_value,
+    extract_json_block,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1462,12 +1467,9 @@ def _parse_derivation_response(text: str) -> dict:
     Returns:
         A dict with (at least) a ``children`` key.
     """
-    import json
-
-    cleaned = (text or "").replace("```json", "").replace("```", "").strip()
     try:
-        parsed = json.loads(cleaned)
-    except json.JSONDecodeError:
+        parsed = decode_json_value(text or "", mode="strict")
+    except JsonOutputError:
         parsed = None
     if isinstance(parsed, dict):
         return parsed
@@ -1497,12 +1499,9 @@ def _parse_validation_response(text: str) -> dict:
     Returns:
         A dict with (at least) ``score`` and ``suggestions`` keys.
     """
-    import json
-
     try:
-        cleaned = text.replace("```json", "").replace("```", "").strip()
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
+        return decode_json_value(text, mode="strict")
+    except JsonOutputError:
         logger.warning(
             "Provider returned invalid JSON for validate_artifact: %s", text
         )
@@ -1535,22 +1534,10 @@ def _parse_consistency_response(text: str) -> dict:
     Returns:
         A dict with (at least) ``score``, ``suggestions`` and ``issues`` keys.
     """
-    import json
-
-    cleaned = text.replace("```json", "").replace("```", "").strip()
     try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        pass
-
-    start, end = cleaned.find("{"), cleaned.rfind("}")
-    if start != -1 and end > start:
-        try:
-            return json.loads(cleaned[start : end + 1])
-        except json.JSONDecodeError:
-            pass
-
-    logger.warning("Provider returned invalid JSON for check_consistency: %s", text)
+        return decode_json_value(text, mode="strict_braces")
+    except JsonOutputError:
+        logger.warning("Provider returned invalid JSON for check_consistency: %s", text)
     return {
         "score": 0.0,
         "suggestions": [
@@ -1963,15 +1950,15 @@ class OpenAiProvider(_BaseHttpProvider):
         # StakeholderNeed and rendering configured prompt templates is the
         # responsibility of the application layer (AiDerivationService), which
         # keeps this Layer-3 provider free of direct persistence access (REQ-048).
-        import json
-
         text, token_usage = self._invoke_chat(_derive_prompt(need_id), timeout)
 
+        # Some models wrap JSON in markdown fences; strip them before parsing.
+        # Reassigned deliberately: the fallback below reports the *cleaned*
+        # text, exactly as before the parser was centralized (R2S-008).
+        text = extract_json_block(text, mode="strict")
         try:
-            # Some models wrap JSON in markdown fences; strip them before parsing.
-            text = text.replace("```json", "").replace("```", "").strip()
-            data = json.loads(text)
-        except json.JSONDecodeError:
+            data = decode_json_value(text, mode="strict")
+        except JsonOutputError:
             logger.warning(
                 "OpenAI provider returned invalid JSON for derive_requirements: %s",
                 text,

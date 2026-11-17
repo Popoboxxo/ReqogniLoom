@@ -21,7 +21,7 @@ Extension pattern for Steps 2+3 (DO NOT modify this file):
   2. Define your service class (subclass ServiceBase if writing).
   3. At the bottom of that file add:
 
-       from application.services import _registry
+       from application.service_registry import _registry
        _registry["MyNewService"] = MyNewService
 
      OR simply import and re-export in a thin wrapper:
@@ -123,21 +123,14 @@ from application.trace_link_service import (  # noqa: F401
 )
 
 # ---------------------------------------------------------------------------
-# Service registry (for Steps 2+3 to hook into without modifying this file)
+# Service registry (neutral module — no back-import into this facade)
 # ---------------------------------------------------------------------------
-# Steps 2+3 may call:
-#   from application.services import _registry
-#   _registry["MyNewService"] = MyNewService
-# This allows discovery without changing any existing import path.
+# The registry now lives in application.service_registry so the Step-2/3/4
+# shims never have to import this facade. Re-exporting the same object here
+# preserves the historic ``from application.services import _registry``
+# surface, including the Step-1-first insertion order.
 
-_registry: dict = {
-    "ArtifactService": ArtifactService,
-    "RequirementService": RequirementService,
-    "ArchitectureService": ArchitectureService,
-    "TestService": TestService,
-    "TraceLinkService": TraceLinkService,
-    "PresetPolicyService": PresetPolicyService,
-}
+from application.service_registry import _registry  # noqa: F401,E402
 
 # ---------------------------------------------------------------------------
 # Public surface declaration
@@ -189,17 +182,47 @@ from application.reqif_import_service import (  # noqa: F401,E402
     ReqifImportService,
     ReqifParseError,
 )
-from application.services_step2 import *  # noqa: F401,F403,E402
+from application.services_step2 import (  # noqa: F401,E402
+    BaselineFacade,
+    BaselineTagValidationError,
+    ExportResult,
+    ExportService,
+    ImportResult,
+    ImportRowError,
+    ImportService,
+    QueryParser,
+    SUBSCRIBED_EVENT_TYPES,
+    SearchHit,
+    SearchResult,
+    SearchService,
+    WebhookDispatcher,
+    WorkflowFacade,
+    WorkspaceService,
+    get_webhook_dispatcher,
+)
 
 # ---------------------------------------------------------------------------
 # Step-3 re-export (COMP-AS-013..015) — DO NOT modify above this line
 # ---------------------------------------------------------------------------
-from application.services_step3 import *  # noqa: F401,F403,E402
+from application.services_step3 import (  # noqa: F401,E402
+    AdrDTO,
+    AdrService,
+    IssueDTO,
+    IssueService,
+    RiskDTO,
+    RiskService,
+)
 
 # ---------------------------------------------------------------------------
 # Step-4 re-export (COMP-AS-017..018) — DO NOT modify above this line
 # ---------------------------------------------------------------------------
-from application.services_step4 import *  # noqa: F401,F403,E402
+from application.services_step4 import (  # noqa: F401,E402
+    ChangeRequestDTO,
+    ChangeRequestService,
+    ChangeRequestValidator,
+    TestRunService,
+    VALID_RESULT_STATUSES,
+)
 
 # ---------------------------------------------------------------------------
 # ADR-019 — generic proposal lifecycle facade (WP2)

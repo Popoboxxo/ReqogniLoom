@@ -591,13 +591,13 @@ Kritischer Pfad: S0.1 → S0.2 → S0.3 → S4.2 (Struktur) ≈ 15 Tage.
 
 | # | Entscheidung | Optionen | blockiert |
 |---|---|---|---|
-| E1 | History-Rewrite jetzt oder Rotation zuerst? | (a) Rotation + Rewrite im Fenster, (b) Rotation jetzt, Rewrite später | S0.1 |
-| E2 | RLS-Enforcement produktiv | (a) sofort enforced, (b) gestaffelt mit Flag + Coverage-Gate | S0.2 |
-| E3 | `views.py`-Split | (a) mechanisch je Domäne, (b) nur neue Endpunkte auslagern, Altbestand einfrieren | S4.2 |
-| E4 | Legacy-SplitView | (a) migrieren + löschen, (b) Adapter behalten | S3.2 |
-| E5 | `docs/REQUIREMENTS.md` | (a) REQs in SE-Kaskade überführen, (b) als autoritativ deklarieren — **entschieden: (a) SE-Kaskade** (User-Entscheidung „Option a", S6.1 umgesetzt; historische Zeigertabelle in REQUIREMENTS.md) | S6.1 — erledigt |
-| E6 | MPL-2.0-Abhängigkeit | (a) ersetzen, (b) mit Rechtsprüfung behalten | S5.1 |
-| E7 | Prompt-Sprache der Agent-Assets | (a) Englisch, (b) Deutsch intern, Englisch extern | S1.5 |
+| E1 | History-Rewrite jetzt oder Rotation zuerst? | (a) Rotation + Rewrite im Fenster, (b) Rotation jetzt, Rewrite später — **entschieden: (b) Rotation jetzt, Rewrite später** (User, 2026-11-17; SEC-001 Rotation vor Frist 2026-12-01, Rewrite in eigenes Fenster; gitleaks-Allowlist bis 2026-12-01 befristet) | S0.1 — Rotation offen |
+| E2 | RLS-Enforcement produktiv | (a) sofort enforced, (b) gestaffelt mit Flag + Coverage-Gate — **umgesetzt: (b)** (S0.2 gemergt) | S0.2 — erledigt |
+| E3 | `views.py`-Split | (a) mechanisch je Domäne, (b) nur neue Endpunkte auslagern — **entschieden: inhaltlich sinnvoll zerlegen, kein Zeilenlimit-Zwang** (User, 2026-11-17: „Zeilenlimit ist Quatsch, es soll inhaltlich sinnvoll sein"). Weder (a) noch (b) wörtlich: fachliche Kohäsion entscheidet; das DoD-Kriterium „< 3k Zeilen" wird im Audit als bewusst nicht angestrebt dokumentiert. | S4.2 |
+| E4 | Legacy-SplitView | (a) migrieren + löschen, (b) Adapter behalten — **entschieden: (a) migrieren + löschen** (User, 2026-11-17) | S3.2 |
+| E5 | `docs/REQUIREMENTS.md` | (a) REQs in SE-Kaskade überführen, (b) als autoritativ deklarieren — **entschieden: (a) SE-Kaskade** (User, S6.1 umgesetzt; historische Zeigertabelle in REQUIREMENTS.md) | S6.1 — erledigt |
+| E6 | MPL-2.0-Abhängigkeit | (a) ersetzen, (b) mit Rechtsprüfung behalten — **entschieden: (b) mit Rechtsprüfung behalten** (User, 2026-11-17; Rechtsprüfung in S5.1 dokumentieren) | S5.1 |
+| E7 | Prompt-Sprache der Agent-Assets | (a) Englisch, (b) Deutsch intern/Englisch extern — **entschieden: konfigurierbar im System** (User, 2026-11-17; neuer Config-Key analog `speech-mode`, von agent-meta bereitzustellen — separate Meta-Feedback-Issue, nicht in S1.5 implementieren) | S1.5 / agent-meta |
 
 ## 12. Traceability (Finding → Schnitt)
 
