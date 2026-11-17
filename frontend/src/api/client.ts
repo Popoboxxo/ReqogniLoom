@@ -18,8 +18,13 @@
  * - Accepts/sends JSON; sends Accept-Language from i18n.
  */
 
-import type { ApiError, PaginatedResponse } from "../types";
-import { ForbiddenError, UnprocessableEntityError } from "./errors";
+import type { ApiError, ApiErrorDetail, PaginatedResponse } from "../types";
+import {
+  ApiRequestError,
+  ForbiddenError,
+  UnprocessableEntityError,
+  parseApiErrorBody,
+} from "./errors";
 
 // ---------------------------------------------------------------------------
 // CSRF helpers (REQ-052)
@@ -240,14 +245,23 @@ export function asList<T>(value: unknown): T[] {
   return [];
 }
 
-function authenticationRequiredError(): ApiError {
-  return {
-    error: {
-      code: "AUTHENTICATION_REQUIRED",
-      message: "Authentication required",
-      details: [],
-    },
-  };
+/** Read an error body once; a missing/non-JSON body is not itself an error. */
+async function readErrorBody(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return undefined;
+  }
+}
+
+function authenticationRequiredError(requestId?: string): ApiRequestError {
+  return new ApiRequestError({
+    status: 401,
+    code: "AUTHENTICATION_REQUIRED",
+    message: "Authentication required",
+    details: [],
+    requestId,
+  });
 }
 
 async function apiFetch<T>(
@@ -327,8 +341,11 @@ async function apiFetch<T>(
   // the caller if the refresh also fails, or if this call already IS a retry
   // or an auth endpoint (avoids infinite loops / retrying login).
   if (response.status === 401) {
+    // Parse once for the correlation id; the 401 message/code stay fixed so
+    // existing callers (which branch on AUTHENTICATION_REQUIRED) are unaffected.
+    const parsed = parseApiErrorBody(await readErrorBody(response));
     if (authSessionGeneration !== _authSessionGeneration) {
-      throw authenticationRequiredError();
+      throw authenticationRequiredError(parsed.requestId);
     }
     const canTryRefresh =
       !_isRetryAfterRefresh && !_NO_REFRESH_PATHS.includes(path);
@@ -339,32 +356,27 @@ async function apiFetch<T>(
       }
     }
     if (authSessionGeneration !== _authSessionGeneration) {
-      throw authenticationRequiredError();
+      throw authenticationRequiredError(parsed.requestId);
     }
     // Refresh unavailable/failed (or not attempted) → clear auth state and
     // let the caller redirect to /login (REQ-L2-RF-010).
     if (!options.suppressUnauthorizedNotification) {
       notifyUnauthorized(authSessionGeneration);
     }
-    throw authenticationRequiredError();
+    throw authenticationRequiredError(parsed.requestId);
   }
 
   // 403 → authenticated but lacking permission: surface the error without
-  // logging the user out (REQ-051).
+  // logging the user out (REQ-051). The server-provided detail (e.g. a CSRF
+  // failure reason) still wins over the generic permission text (REQ-138).
   if (response.status === 403) {
-    // Pass through the server-provided detail (e.g. a CSRF failure reason)
-    // instead of masking every 403 with a generic permission text (REQ-138).
-    let detail: string | undefined;
-    try {
-      const body = await response.json();
-      detail =
-        (typeof body?.detail === "string" && body.detail) ||
-        (typeof body?.error?.message === "string" && body.error.message) ||
-        undefined;
-    } catch {
-      // Non-JSON body → fall back to the default message.
-    }
-    throw new ForbiddenError(detail);
+    const parsed = parseApiErrorBody(await readErrorBody(response));
+    throw new ForbiddenError(
+      parsed.detail ?? parsed.message,
+      parsed.code,
+      parsed.details,
+      parsed.requestId
+    );
   }
 
   // 422 → understood but not applicable (e.g. SE-Auditor remediate without
@@ -372,39 +384,28 @@ async function apiFetch<T>(
   // from a plain 400 and switch into a manual "Modify" state instead of
   // showing a generic validation error (UMSETZUNGSPLAN_SYSENG_2.0.md §4).
   if (response.status === 422) {
-    let detail: string | undefined;
-    // UI-40: `findings` (e.g. DecompositionAuditError.findings — the
-    // per-violation SE-Auditor/invariant detail behind an architecture
-    // decompose commit rollback) used to be discarded here, leaving callers
-    // with only the flat `message` string to render.
-    let findings: Array<Record<string, unknown>> | undefined;
-    try {
-      const body = await response.json();
-      detail =
-        (typeof body?.error?.message === "string" && body.error.message) ||
-        (typeof body?.detail === "string" && body.detail) ||
-        undefined;
-      if (Array.isArray(body?.findings)) findings = body.findings;
-    } catch {
-      // Non-JSON body → fall back to the default message.
-    }
-    throw new UnprocessableEntityError(detail, findings);
+    const parsed = parseApiErrorBody(await readErrorBody(response));
+    throw new UnprocessableEntityError(
+      parsed.message ?? parsed.detail,
+      parsed.findings,
+      parsed.code,
+      parsed.details,
+      parsed.requestId
+    );
   }
 
+  // Every other non-2xx status (400/404/409/412/429/500/…) gets the same
+  // typed envelope. Callers that used to receive the raw `{ error }` object
+  // keep reading it via the `error` property on ApiRequestError.
   if (!response.ok) {
-    let body: ApiError;
-    try {
-      body = await response.json();
-    } catch {
-      body = {
-        error: {
-          code: "INTERNAL_SERVER_ERROR",
-          message: `HTTP ${response.status}`,
-          details: [],
-        },
-      };
-    }
-    throw body;
+    const parsed = parseApiErrorBody(await readErrorBody(response));
+    throw new ApiRequestError({
+      status: response.status,
+      code: parsed.code,
+      message: parsed.message ?? parsed.detail ?? `HTTP ${response.status}`,
+      details: parsed.details,
+      requestId: parsed.requestId,
+    });
   }
 
   if (response.status === 204) {
@@ -545,9 +546,40 @@ export const apiClient = {
  * setCreateError(extractApiErrorMessage(err) ?? t("req.createFailed"));
  * ```
  */
-export function extractApiErrorMessage(err: unknown): string | null {
+/** Structured view of a thrown API error — typed base first, legacy envelope second. */
+export interface ApiErrorMeta {
+  status?: number;
+  code?: string;
+  details: ApiErrorDetail[];
+  requestId?: string;
+  message?: string;
+}
+
+/** Read `status`/`code`/`details`/`requestId` from the typed base when present. */
+export function getApiErrorMeta(err: unknown): ApiErrorMeta {
+  if (err instanceof ApiRequestError) {
+    return {
+      status: err.status,
+      code: err.code,
+      details: err.details,
+      requestId: err.requestId,
+      message: err.message || err.error?.message,
+    };
+  }
   const apiErr = err as Partial<ApiError> | null;
-  const detail = apiErr?.error?.details?.[0];
+  return {
+    code: apiErr?.error?.code,
+    details: apiErr?.error?.details ?? [],
+    message: apiErr?.error?.message,
+  };
+}
+
+export function extractApiErrorMessage(err: unknown): string | null {
+  // R2A-006: the structured fields of the typed base win over the legacy raw
+  // `{ error }` envelope, which stays as a fallback for hand-built objects and
+  // mocks so existing callers see identical messages.
+  const { details, message } = getApiErrorMeta(err);
+  const detail = details[0];
   const detailMsg = detail?.errors?.[0];
   // Qualify with the field the server named. Field-level messages are written
   // to be read next to their field ("is required", "does not match ..."), but
@@ -556,7 +588,7 @@ export function extractApiErrorMessage(err: unknown): string | null {
   // The server already sends `details[0].field`; dropping it was the whole
   // defect.
   if (detailMsg) return detail?.field ? `${detail.field}: ${detailMsg}` : detailMsg;
-  if (apiErr?.error?.message) return apiErr.error.message;
+  if (message) return message;
   if (err instanceof Error && err.message) return err.message;
   return null;
 }
@@ -587,17 +619,39 @@ export async function getList<T>(
 }
 
 // ---------------------------------------------------------------------------
-// Full-pagination list helper (issue C — the backend's default page size of
+// Full-pagination list helpers (issue C — the backend's default page size of
 // 25 silently truncated workspace entity lists that only fetched page 1).
 // Follows the paginator's `next` link until exhaustion and returns the
-// de-duplicated full result set. Mirrors the listAll() pattern already used
-// by requirementsApi.listAll / architectureApi.listAll.
+// de-duplicated full result set. `getAllPages` keeps its original `T[]`
+// return type; `getAllPagesWithCount` additionally exposes the backend's
+// `count` for callers that need the envelope (R2A-005).
 // ---------------------------------------------------------------------------
 
-export async function getAllPages<T extends { id: string }>(
+/**
+ * Turn a paginator `next` link into the path `apiClient.get` expects.
+ *
+ * The backend may return `next` as an absolute URL (sometimes with a host
+ * different from the SPA's), as a path starting with /api/v1, or as a path
+ * relative to /api/v1. `apiClient.get` prepends /api/v1, so we always strip
+ * down to the path relative to that prefix. This is the single copy of that
+ * rule — the API wrappers must not re-implement it (R2A-008).
+ */
+export function normalizeApiUrl(url: string): string {
+  const m = url.match(/^(https?:\/\/[^/]+)?(\/api\/v1)?(\/.*)$/);
+  const pathWithQuery = m ? m[3] : url;
+  return pathWithQuery.startsWith("/") ? pathWithQuery : `/${pathWithQuery}`;
+}
+
+/** Result of a full pagination walk: the merged rows plus the backend count. */
+export interface PaginatedAllResult<T> {
+  count: number;
+  results: T[];
+}
+
+async function walkAllPages<T extends { id: string }>(
   path: string,
-  params: Record<string, string> = {}
-): Promise<T[]> {
+  params: Record<string, string>
+): Promise<PaginatedAllResult<T>> {
   const seen = new Set<string>();
   const all: T[] = [];
   const collect = (page: PaginatedResponse<T>): void => {
@@ -613,6 +667,7 @@ export async function getAllPages<T extends { id: string }>(
     ...params,
     page_size: params.page_size ?? "100",
   });
+  const count = resp.count;
   collect(resp);
 
   let nextUrl: string | null = resp.next;
@@ -620,13 +675,8 @@ export async function getAllPages<T extends { id: string }>(
 
   while (nextUrl && pageCount < 100) {
     pageCount += 1;
-    // The backend may return `next` as an absolute URL, a path starting
-    // with /api/v1, or a path relative to /api/v1. apiClient.get prepends
-    // /api/v1, so we always need the path relative to that prefix.
-    const m = nextUrl.match(/^(https?:\/\/[^/]+)?(\/api\/v1)?(\/.*)$/);
-    const pathWithQuery = m ? m[3] : nextUrl;
     const nextResp = await apiClient.get<PaginatedResponse<T>>(
-      pathWithQuery.startsWith("/") ? pathWithQuery : `/${pathWithQuery}`
+      normalizeApiUrl(nextUrl)
     );
     collect(nextResp);
     nextUrl = nextResp.next;
@@ -644,5 +694,21 @@ export async function getAllPages<T extends { id: string }>(
     );
   }
 
-  return all;
+  return { count, results: all };
+}
+
+/** Walk every page and resolve to a plain array (original, non-breaking API). */
+export async function getAllPages<T extends { id: string }>(
+  path: string,
+  params: Record<string, string> = {}
+): Promise<T[]> {
+  return (await walkAllPages<T>(path, params)).results;
+}
+
+/** Walk every page and resolve to `{ count, results }` (R2A-005). */
+export async function getAllPagesWithCount<T extends { id: string }>(
+  path: string,
+  params: Record<string, string> = {}
+): Promise<PaginatedAllResult<T>> {
+  return walkAllPages<T>(path, params);
 }

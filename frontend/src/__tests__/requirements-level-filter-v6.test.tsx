@@ -42,6 +42,18 @@ vi.mock("../api/client", () => ({
     delete: vi.fn(),
   },
   getList: (...a: unknown[]) => mockGetList(...a),
+  // R2A-005: requirements.ts delegates the walk to this helper; back it with
+  // mockGetList (plus the helper's page_size default) to keep these assertions.
+  getAllPagesWithCount: async (
+    path: string,
+    params: Record<string, string>
+  ) => {
+    const page = await mockGetList(path, {
+      ...params,
+      page_size: params.page_size ?? "100",
+    });
+    return { count: page.count, results: page.results };
+  },
   extractErrorMessage: (err: unknown) => String(err),
 }));
 
