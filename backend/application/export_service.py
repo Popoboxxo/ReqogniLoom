@@ -502,7 +502,9 @@ class ExportService(ServiceBase):
                 others → traceability_matrix).
             workspace_id: Workspace UUID.
             ctx: AuthContext for tenant scoping.
-            artifact_id: Optional — ignored for workspace-level PDF.
+            artifact_id: Optional and currently unused — kept for keyword-call
+                compatibility; workspace-level PDFs always cover the whole
+                workspace and therefore ignore it.
 
         Returns:
             ExportResult with media_type="application/pdf".

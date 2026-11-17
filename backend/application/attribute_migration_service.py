@@ -51,7 +51,6 @@ from __future__ import annotations
 import copy
 import logging
 from collections.abc import Callable, Iterable
-from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
@@ -61,6 +60,33 @@ from django.db.models import F
 from django.utils import timezone
 
 from application.attribute_definition_service import AttributeDefinitionService
+from application.attribute_migration_helpers import (  # noqa: F401 - facade re-export shim
+    _ARTIFACT_ACTOR_FIELDS,
+    _EMPTY,
+    _INTERNAL_FAILURE_MESSAGE,
+    _ITEM_MODEL_CANDIDATES,
+    _PARTIALLY_ROLLED_BACK,
+    _REMOVE,
+    _ROLLED_BACK,
+    _RUN_APPLY,
+    _RUN_DRY_RUN,
+    _SAMPLE_FIELD_PREFIX_DEFINITION,
+    _STATUS_CHANGED,
+    _STATUS_FAILED,
+    _STATUS_SKIPPED,
+    _STATUS_UNCHANGED,
+    _UNSET,
+    ExpressionRenderer,
+    RunContext,
+    StepContext,
+    _ArtifactBatch,
+    _facts,
+    _is_blank,
+    _json_safe,
+    _SafeFormat,
+    _Sentinel,
+    _StepAbort,
+)
 from application.base import ServiceBase
 from attribute_definitions.migration_plan import (
     DEFINITION_OPS,
@@ -121,50 +147,9 @@ from persistence.models import Artifact
 
 logger = logging.getLogger(__name__)
 
-#: Static per-row failure message (#697, CWE-209). The migration report is
-#: returned verbatim in the HTTP 200 body, so the raw exception text — which on
-#: this path is a driver/ORM error — must not travel in it; the cause is logged.
-_INTERNAL_FAILURE_MESSAGE = "An internal error occurred while applying this change."
-
-#: `item_type` -> ordered `(app_label, model_name)` candidates. Mirrors the
-#: bootstrap command's mapping; `Icd` lives in its own app.
-_ITEM_MODEL_CANDIDATES: dict[str, tuple[tuple[str, str], ...]] = {
-    "Requirement": (("persistence", "Requirement"),),
-    "StakeholderNeed": (("persistence", "StakeholderNeed"),),
-    "ArchitectureElement": (("persistence", "ArchitectureElement"),),
-    "TestCase": (("persistence", "TestCase"),),
-    "GlossaryTerm": (("persistence", "GlossaryTerm"),),
-    "Icd": (("icd", "Icd"),),
-    "Adr": (("persistence", "Adr"), ("application", "Adr")),
-    "Risk": (("persistence", "Risk"), ("application", "Risk")),
-    "Issue": (("persistence", "Issue"), ("application", "Issue")),
-    "Goal": (("persistence", "Goal"), ("application", "Goal")),
-    "ChangeRequest": (("persistence", "ChangeRequest"),),
-}
-
-_STATUS_CHANGED = "changed"
-_STATUS_UNCHANGED = "unchanged"
-_STATUS_SKIPPED = "skipped"
-_STATUS_FAILED = "failed"
-
-#: Artifact-level FK fields whose value is an ``Actor`` rather than a scalar.
-#: The engine resolves them through ``ActorService`` (spec §8: legacy
-#: owner/created_by values move onto the Actor carrier) instead of writing the
-#: raw wire value into the FK column.
-_ARTIFACT_ACTOR_FIELDS: frozenset[str] = frozenset({"owner", "reporter"})
-
-_RUN_APPLY = "apply"
-_RUN_DRY_RUN = "dry_run"
-
-#: Rollback statuses (#1082). ``_PARTIALLY_ROLLED_BACK`` is what a rollback
-#: answers when a changed target had no before-image to restore from.
-_ROLLED_BACK = "rolled_back"
-_PARTIALLY_ROLLED_BACK = "partially_rolled_back"
-
-#: ``field`` prefix of a definition change sample, which is what tells the
-#: rollback's coverage check whether a reported change is an artifact write or a
-#: definition write (and therefore which snapshot table must cover it).
-_SAMPLE_FIELD_PREFIX_DEFINITION = "definition:"
+# Pure value helpers, sentinels, status constants and the immutable
+# RunContext/StepContext objects live in ``attribute_migration_helpers``
+# and are re-exported above so the facade's import surface is unchanged.
 
 
 class AttributeMigrationNotFound(NotFoundError):
@@ -173,101 +158,6 @@ class AttributeMigrationNotFound(NotFoundError):
 
 class AttributeMigrationConflict(ValueError):
     """A plan with the same id was already applied with a different hash."""
-
-
-class _StepAbort(RuntimeError):
-    """Internal: a row/step failed; carries a human-readable message."""
-
-    def __init__(self, message: str) -> None:
-        self.message = message
-        super().__init__(message)
-
-
-class _Sentinel:
-    """Sentinel for 'no value' / 'remove key' (never a valid field value)."""
-
-    def __init__(self, name: str) -> None:
-        self._name = name
-
-    def __repr__(self) -> str:  # pragma: no cover - debug helper
-        return f"<{self._name}>"
-
-
-_EMPTY = _Sentinel("EMPTY")
-_REMOVE = _Sentinel("REMOVE")
-_UNSET = _Sentinel("UNSET")
-
-
-class _ArtifactBatch:
-    """Field changes staged for one artifact within one step.
-
-    Every handler accumulates a row's changes here and flushes them in a single
-    :meth:`AttributeMigrationService._persist` call: one atomic update and
-    exactly one ``AuditEntry`` per changed artifact (spec §6), no matter how
-    many fields the step touches on that row.
-    """
-
-    __slots__ = ("changes", "staged")
-
-    def __init__(self) -> None:
-        #: ``field name -> (is_custom, persisted value)``.
-        self.changes: dict[str, tuple[bool, Any]] = {}
-        #: ``(ref, report_before, report_after)`` per changed field, in order.
-        self.staged: list[tuple[dict[str, str], Any, Any]] = []
-
-    def __bool__(self) -> bool:
-        return bool(self.staged)
-
-
-def _json_safe(value: Any) -> Any:
-    """Best-effort JSON projection for a report sample (never raises)."""
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return value
-    if isinstance(value, (datetime, date)):
-        return value.isoformat()
-    if isinstance(value, UUID):
-        return str(value)
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe(item) for item in value]
-    return str(value)
-
-
-def _is_blank(value: Any) -> bool:
-    if value is None:
-        return True
-    if isinstance(value, str):
-        return not value.strip()
-    if isinstance(value, (list, tuple, dict, set)):
-        return not value
-    return False
-
-
-def _facts(source_value: Any, target_value: Any) -> dict[str, bool]:
-    source_has = not _is_blank(source_value)
-    target_has = not _is_blank(target_value)
-    return {
-        "always": True,
-        "source_is_empty": not source_has,
-        "source_has_text": source_has,
-        "target_is_empty": not target_has,
-        "target_has_text": target_has,
-        "to_is_empty": not target_has,
-        "to_has_text": target_has,
-    }
-
-
-class _SafeFormat(dict):
-    """``str.format_map`` mapping that leaves unknown placeholders untouched.
-
-    ``{unknown}`` renders back as ``{unknown}`` instead of raising, so one
-    missing optional field does not fail the whole row; a genuinely malformed
-    expression still surfaces through ``ValueError``.
-    """
-
-    def __missing__(self, key: str) -> str:
-        return "{" + key + "}"
 
 
 class AttributeMigrationService(ServiceBase):
@@ -704,22 +594,28 @@ class AttributeMigrationService(ServiceBase):
         # Consume the ``audit`` plan option (WS6/WS7 review #939/#940
         # Medium/Low 4): the run's own create/rollback entries are always
         # written; this only controls the per-changed-artifact ``AuditEntry``.
-        self._audit_artifacts = bool(plan["options"].get("audit", True))
+        run_context = RunContext(
+            write=write,
+            audit_artifacts=bool(plan["options"].get("audit", True)),
+            snapshot_ids=snapshot_ids,
+        )
+        # Compatibility mirror for legacy private callers of ``_persist``;
+        # the authoritative per-run state is the immutable ``run_context``.
+        self._audit_artifacts = run_context.audit_artifacts
         try:
             for index, step in enumerate(plan["steps"]):
                 if step["op"] == OP_VERIFY:
                     outcome = self._step_verify(step, steps)
                 else:
-                    outcome = self._execute_step(
-                        ctx,
-                        run,
-                        step,
-                        plan,
-                        item_type,
-                        workspaces,
-                        write=write,
-                        snapshot_ids=snapshot_ids,
+                    step_context = StepContext(
+                        ctx=ctx,
+                        run=run,
+                        plan=plan,
+                        item_type=item_type,
+                        workspaces=workspaces,
+                        run_context=run_context,
                     )
+                    outcome = self._execute_step(step, step_context)
                 step_scope = self._step_target_scope(plan, step["op"])
                 outcome["index"] = index
                 outcome["op"] = step["op"]
@@ -1150,18 +1046,20 @@ class AttributeMigrationService(ServiceBase):
     # ------------------------------------------------------------------
 
     def _execute_step(
-        self,
-        ctx: AuthContext,
-        run: Any,
-        step: dict[str, Any],
-        plan: dict[str, Any],
-        item_type: str,
-        workspaces: list[dict[str, Any]],
-        *,
-        write: bool,
-        snapshot_ids: list[str],
+        self, step: dict[str, Any], context: StepContext
     ) -> dict[str, Any]:
-        handlers: dict[str, Callable[..., dict[str, Any]]] = {
+        """Dispatch one step to its handler with an immutable :class:`StepContext`.
+
+        The handler dict is the OCP seam (``TransformRegistry`` + this mapping):
+        adding an op means adding one handler and one entry, never editing a
+        chain of conditionals.  R2C-005 reduced the handler signature from eight
+        positional/keyword arguments to ``(step, context)``; all 21 dead
+        parameters are gone because a handler reads only the context fields it
+        actually needs.
+        """
+        handlers: dict[
+            str, Callable[[dict[str, Any], StepContext], dict[str, Any]]
+        ] = {
             OP_MIGRATE_VALUE: self._step_migrate_value,
             OP_MAP_VALUE: self._step_map_value,
             OP_BACKFILL_VALUE: self._step_backfill_value,
@@ -1177,16 +1075,7 @@ class AttributeMigrationService(ServiceBase):
             OP_EXPORT_SCOPE: self._step_export_scope,
             OP_IMPORT_SCOPE: self._step_import_scope,
         }
-        return handlers[step["op"]](
-            ctx,
-            run,
-            step,
-            plan,
-            item_type,
-            workspaces,
-            write=write,
-            snapshot_ids=snapshot_ids,
-        )
+        return handlers[step["op"]](step, context)
 
     @staticmethod
     def _step_target_scope(plan: dict[str, Any], op: str) -> str:
@@ -1220,9 +1109,10 @@ class AttributeMigrationService(ServiceBase):
     # Value steps
     # ------------------------------------------------------------------
 
-    def _step_migrate_value(
-        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
-    ):
+    def _step_migrate_value(self, step: dict[str, Any], context: StepContext) -> dict[str, Any]:
+        ctx, run = context.ctx, context.run
+        item_type, workspaces = context.item_type, context.workspaces
+        write, snapshot_ids = context.write, context.snapshot_ids
         outcome = self._empty_outcome()
         source_ref, target_ref = step["from"], step["to"]
         move = step["mode"] == MOVE
@@ -1263,12 +1153,16 @@ class AttributeMigrationService(ServiceBase):
                 self._stage(
                     outcome, row, source_ref, None, current_source, batch, clear=True
                 )
-            self._flush(ctx, run, row, batch, write, outcome, snapshot_ids)
+            self._flush(
+                ctx, run, row, batch, write, outcome, snapshot_ids,
+                run_context=context.run_context,
+            )
         return outcome
 
-    def _step_map_value(
-        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
-    ):
+    def _step_map_value(self, step: dict[str, Any], context: StepContext) -> dict[str, Any]:
+        ctx, run = context.ctx, context.run
+        item_type, workspaces = context.item_type, context.workspaces
+        write, snapshot_ids = context.write, context.snapshot_ids
         outcome = self._empty_outcome()
         target_ref = step["target"]
         for row in self._rows(item_type, [w["id"] for w in workspaces]):
@@ -1294,12 +1188,16 @@ class AttributeMigrationService(ServiceBase):
                 continue
             batch = _ArtifactBatch()
             self._stage(outcome, row, target_ref, result.value, current, batch)
-            self._flush(ctx, run, row, batch, write, outcome, snapshot_ids)
+            self._flush(
+                ctx, run, row, batch, write, outcome, snapshot_ids,
+                run_context=context.run_context,
+            )
         return outcome
 
-    def _step_backfill_value(
-        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
-    ):
+    def _step_backfill_value(self, step: dict[str, Any], context: StepContext) -> dict[str, Any]:
+        ctx, run = context.ctx, context.run
+        item_type, workspaces = context.item_type, context.workspaces
+        write, snapshot_ids = context.write, context.snapshot_ids
         outcome = self._empty_outcome()
         target_ref = step["target"]
         for row in self._rows(item_type, [w["id"] for w in workspaces]):
@@ -1319,12 +1217,16 @@ class AttributeMigrationService(ServiceBase):
                 continue
             batch = _ArtifactBatch()
             self._stage(outcome, row, target_ref, new_value, current, batch)
-            self._flush(ctx, run, row, batch, write, outcome, snapshot_ids)
+            self._flush(
+                ctx, run, row, batch, write, outcome, snapshot_ids,
+                run_context=context.run_context,
+            )
         return outcome
 
-    def _step_derive_value(
-        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
-    ):
+    def _step_derive_value(self, step: dict[str, Any], context: StepContext) -> dict[str, Any]:
+        ctx, run = context.ctx, context.run
+        item_type, workspaces = context.item_type, context.workspaces
+        write, snapshot_ids = context.write, context.snapshot_ids
         outcome = self._empty_outcome()
         target_ref = step["target"]
         for row in self._rows(item_type, [w["id"] for w in workspaces]):
@@ -1345,12 +1247,16 @@ class AttributeMigrationService(ServiceBase):
                 continue
             batch = _ArtifactBatch()
             self._stage(outcome, row, target_ref, new_value, current, batch)
-            self._flush(ctx, run, row, batch, write, outcome, snapshot_ids)
+            self._flush(
+                ctx, run, row, batch, write, outcome, snapshot_ids,
+                run_context=context.run_context,
+            )
         return outcome
 
-    def _step_split_attribute(
-        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
-    ):
+    def _step_split_attribute(self, step: dict[str, Any], context: StepContext) -> dict[str, Any]:
+        ctx, run = context.ctx, context.run
+        item_type, workspaces = context.item_type, context.workspaces
+        write, snapshot_ids = context.write, context.snapshot_ids
         outcome = self._empty_outcome()
         source_ref = step["from"]
         targets = step["targets"]
@@ -1384,12 +1290,16 @@ class AttributeMigrationService(ServiceBase):
                     )
                     continue
                 self._stage(outcome, row, target["to"], result.value, current, batch)
-            self._flush(ctx, run, row, batch, write, outcome, snapshot_ids)
+            self._flush(
+                ctx, run, row, batch, write, outcome, snapshot_ids,
+                run_context=context.run_context,
+            )
         return outcome
 
-    def _step_merge_attribute(
-        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
-    ):
+    def _step_merge_attribute(self, step: dict[str, Any], context: StepContext) -> dict[str, Any]:
+        ctx, run = context.ctx, context.run
+        item_type, workspaces = context.item_type, context.workspaces
+        write, snapshot_ids = context.write, context.snapshot_ids
         outcome = self._empty_outcome()
         target_ref = step["to"]
         for row in self._rows(item_type, [w["id"] for w in workspaces]):
@@ -1418,7 +1328,10 @@ class AttributeMigrationService(ServiceBase):
             current = self._read_value(row, target_ref)
             batch = _ArtifactBatch()
             self._stage(outcome, row, target_ref, result.value, current, batch)
-            self._flush(ctx, run, row, batch, write, outcome, snapshot_ids)
+            self._flush(
+                ctx, run, row, batch, write, outcome, snapshot_ids,
+                run_context=context.run_context,
+            )
         return outcome
 
     # ------------------------------------------------------------------
@@ -1640,9 +1553,10 @@ class AttributeMigrationService(ServiceBase):
         if target_kind == "workspace" and workspace_id is not None:
             invalidate_workspace_caches(str(workspace_id))
 
-    def _step_define_attribute(
-        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
-    ):
+    def _step_define_attribute(self, step: dict[str, Any], context: StepContext) -> dict[str, Any]:
+        ctx, run = context.ctx, context.run
+        plan, item_type = context.plan, context.item_type
+        write, snapshot_ids = context.write, context.snapshot_ids
         outcome = self._empty_outcome()
         try:
             raw_block = dict(step["attribute"])
@@ -1692,31 +1606,24 @@ class AttributeMigrationService(ServiceBase):
                 self._record_failure(outcome, None, field, _INTERNAL_FAILURE_MESSAGE)
         return outcome
 
-    def _step_rename_attribute(
-        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
-    ):
-        return self._definition_value_transform(
-            ctx, run, step, plan, item_type, workspaces,
-            write=write, snapshot_ids=snapshot_ids, action="rename",
-        )
+    def _step_rename_attribute(self, step: dict[str, Any], context: StepContext) -> dict[str, Any]:
+        return self._definition_value_transform(step, context, action="rename")
 
-    def _step_retype_attribute(
-        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
-    ):
-        return self._definition_value_transform(
-            ctx, run, step, plan, item_type, workspaces,
-            write=write, snapshot_ids=snapshot_ids, action="retype",
-        )
+    def _step_retype_attribute(self, step: dict[str, Any], context: StepContext) -> dict[str, Any]:
+        return self._definition_value_transform(step, context, action="retype")
 
     def _definition_value_transform(
-        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids, action
-    ):
+        self, step: dict[str, Any], context: StepContext, *, action: str
+    ) -> dict[str, Any]:
         """Rename/retype an *extended* attribute in every definition + its values.
 
         Core attributes are refused: their identity is fixed by the Django model
         (``validate_meta_only_change``), so renaming/retyping one is a schema
         migration, not a value migration.
         """
+        ctx, run = context.ctx, context.run
+        plan, item_type, workspaces = context.plan, context.item_type, context.workspaces
+        write, snapshot_ids = context.write, context.snapshot_ids
         if action == "rename":
             old_name = step["from"]["name"]
             new_name = step["to"]["name"]
@@ -1790,12 +1697,16 @@ class AttributeMigrationService(ServiceBase):
                     self._stage(
                         outcome, row, source_ref, None, value, batch, clear=True
                     )
-                self._flush(ctx, run, row, batch, write, outcome, snapshot_ids)
+                self._flush(
+                    ctx, run, row, batch, write, outcome, snapshot_ids,
+                    run_context=context.run_context,
+                )
         return outcome
 
-    def _step_drop_attribute(
-        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
-    ):
+    def _step_drop_attribute(self, step: dict[str, Any], context: StepContext) -> dict[str, Any]:
+        ctx, run = context.ctx, context.run
+        plan, item_type, workspaces = context.plan, context.item_type, context.workspaces
+        write, snapshot_ids = context.write, context.snapshot_ids
         outcome = self._empty_outcome()
         name = step["name"]
 
@@ -1851,7 +1762,10 @@ class AttributeMigrationService(ServiceBase):
             outcome["counts"]["matched"] += 1
             batch = _ArtifactBatch()
             self._stage(outcome, row, ref, None, current, batch, clear=True)
-            self._flush(ctx, run, row, batch, write, outcome, snapshot_ids)
+            self._flush(
+                ctx, run, row, batch, write, outcome, snapshot_ids,
+                run_context=context.run_context,
+            )
         return outcome
 
     @staticmethod
@@ -1861,9 +1775,7 @@ class AttributeMigrationService(ServiceBase):
             return {"workspace_id": ref["value"]}
         return {"preset": ref["value"]}
 
-    def _step_deprecate_attribute(
-        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
-    ):
+    def _step_deprecate_attribute(self, step: dict[str, Any], context: StepContext) -> dict[str, Any]:
         """Flag an attribute as deprecated — governance, not deletion (#930).
 
         The model field and every stored value stay exactly as they are; only
@@ -1871,6 +1783,9 @@ class AttributeMigrationService(ServiceBase):
         UI can stop offering it. ``drop_attribute`` (a separate, ordered step)
         is what actually removes it later.
         """
+        ctx, run = context.ctx, context.run
+        plan, item_type = context.plan, context.item_type
+        write, snapshot_ids = context.write, context.snapshot_ids
         outcome = self._empty_outcome()
         name = step["name"]
         reason = step["reason"]
@@ -1924,9 +1839,7 @@ class AttributeMigrationService(ServiceBase):
                 self._record_failure(outcome, None, field, _INTERNAL_FAILURE_MESSAGE)
         return outcome
 
-    def _step_export_scope(
-        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
-    ):
+    def _step_export_scope(self, step: dict[str, Any], context: StepContext) -> dict[str, Any]:
         """Serialize a definition scope into the step report (spec §4, L3).
 
         No file is written: the document lands in ``outcome["document"]``, so
@@ -1934,6 +1847,7 @@ class AttributeMigrationService(ServiceBase):
         later ``import_scope`` step can consume it. Read-only, so ``dry_run``
         returns the same document ``apply`` does.
         """
+        ctx, item_type = context.ctx, context.item_type
         outcome = self._empty_outcome()
         source = step["source"]
         field = f"definition:{source['kind']}:{source['value']}"
@@ -1966,9 +1880,7 @@ class AttributeMigrationService(ServiceBase):
         )
         return outcome
 
-    def _step_import_scope(
-        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
-    ):
+    def _step_import_scope(self, step: dict[str, Any], context: StepContext) -> dict[str, Any]:
         """Import a definition document into a scope (spec §4, L3).
 
         Routes through ``AttributeDefinitionService.import_definition`` so the
@@ -1980,6 +1892,9 @@ class AttributeMigrationService(ServiceBase):
         target, so without a before-image the rollback would leave the imported
         document in place and still answer ``rolled_back``.
         """
+        ctx, run = context.ctx, context.run
+        item_type = context.item_type
+        write, snapshot_ids = context.write, context.snapshot_ids
         outcome = self._empty_outcome()
         target = step["target"]
         field = f"definition:{target['kind']}:{target['value']}"
@@ -2034,9 +1949,7 @@ class AttributeMigrationService(ServiceBase):
             return {"kind": "global", "preset": ref["value"]}
         return {"kind": "workspace", "id": ref["value"], "preset": ""}
 
-    def _step_requeue_definition(
-        self, ctx, run, step, plan, item_type, workspaces, *, write, snapshot_ids
-    ):
+    def _step_requeue_definition(self, step: dict[str, Any], context: StepContext) -> dict[str, Any]:
         """Re-materialize global definitions into non-customized workspace rows.
 
         Spec §8.4's hard rule: a customized workspace row is never overwritten
@@ -2049,6 +1962,9 @@ class AttributeMigrationService(ServiceBase):
         run failure. The re-materialization that actually has work to do — a
         stale non-customized row — still runs and is snapshot-covered.
         """
+        ctx, run = context.ctx, context.run
+        plan, item_type = context.plan, context.item_type
+        write, snapshot_ids = context.write, context.snapshot_ids
         outcome = self._empty_outcome()
         presets = set(step["preset"])
         from attribute_definitions.models import WorkspaceAttributeDefinition
@@ -2209,13 +2125,17 @@ WorkspaceAttributeDefinitionStore.reset` now refuses with a conflict —
         write: bool,
         outcome: dict[str, Any],
         snapshot_ids: list[str],
+        *,
+        run_context: RunContext | None = None,
     ) -> None:
         """Persist (or report) every change staged for one artifact exactly once."""
         if not batch:
             return
         if write:
             try:
-                self._persist(ctx, run, row, batch.changes, snapshot_ids)
+                self._persist(
+                    ctx, run, row, batch.changes, snapshot_ids, run_context=run_context
+                )
             except Exception:  # noqa: BLE001 - one failed row must not kill the run
                 # The whole artifact write is atomic (see _persist): nothing of
                 # this batch was left behind, so report the row as failed.
@@ -2244,6 +2164,8 @@ WorkspaceAttributeDefinitionStore.reset` now refuses with a conflict —
         row: Any,
         changes: dict[str, tuple[bool, Any]],
         snapshot_ids: list[str],
+        *,
+        run_context: RunContext | None = None,
     ) -> None:
         """Snapshot then write one artifact's staged fields with a lock guard.
 
@@ -2340,7 +2262,12 @@ WorkspaceAttributeDefinitionStore.reset` now refuses with a conflict —
                 self._assert_locked(updated, row)
                 row.version += 1
 
-            if self._audit_artifacts:
+            audit_artifacts = (
+                run_context.audit_artifacts
+                if run_context is not None
+                else self._audit_artifacts
+            )
+            if audit_artifacts:
                 self._audit(
                     ctx,
                     operation=AuditEntry.OP_ATTRIBUTE_MIGRATION_APPLY,
@@ -2582,29 +2509,12 @@ WorkspaceAttributeDefinitionStore.reset` now refuses with a conflict —
         raise _StepAbort(f"unknown value_strategy {strategy!r}")
 
     def _render_expression(self, row: Any, expression: str) -> Any:
-        """Render a ``{field}`` template against the row's values (no ``eval``)."""
-        values: dict[str, Any] = dict(row.artifact.custom_fields or {})
-        for field in type(row)._meta.get_fields():
-            name = getattr(field, "name", None)
-            if name and not field.is_relation:
-                try:
-                    values.setdefault(name, getattr(row, name))
-                except Exception:  # noqa: BLE001 — field probe  # pragma: no cover - defensive
-                    continue
-        for field in Artifact._meta.get_fields():
-            name = getattr(field, "name", None)
-            if name and not field.is_relation:
-                try:
-                    values.setdefault(name, getattr(row.artifact, name))
-                except Exception:  # noqa: BLE001 — field probe  # pragma: no cover - defensive
-                    continue
-        try:
-            return expression.format_map(_SafeFormat(values))
-        except (KeyError, IndexError, ValueError) as exc:
-            raise _StepAbort(
-                f"expression {expression!r} could not be rendered: {exc}"
-            ) from exc
+        """Render a ``{field}`` template against the row's values (no ``eval``).
 
+        Delegates to the extracted :class:`ExpressionRenderer`; the signature
+        stays on the facade so existing private callers and tests are intact.
+        """
+        return ExpressionRenderer(artifact_model=Artifact).render(row, expression)
 
 __all__ = [
     "AttributeMigrationConflict",

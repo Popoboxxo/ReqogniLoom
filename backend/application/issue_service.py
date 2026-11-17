@@ -44,6 +44,12 @@ from auth_tenancy.context import AuthContext
 from persistence.transactions import atomic_transaction
 from workflow import state_reader
 
+# Sentinel: "parameter omitted" vs "clear custom_fields to {}" (shared, see
+# application.sentinels; R2C-002).
+from application.sentinels import UNSET as _UNSET
+
+
+
 logger = logging.getLogger(__name__)
 
 #: Task 20 review finding F-2: ``update_issue``'s ``due_date`` default used to
@@ -54,7 +60,6 @@ logger = logging.getLogger(__name__)
 #: never cleared. Same sentinel pattern already used for this exact class of
 #: bug in architecture_service.py/artifact_service.py/requirement_service.py/
 #: stakeholder_need_service.py (see also Issue #409 in rest_api/views.py).
-_UNSET = object()
 
 
 # ---------------------------------------------------------------------------

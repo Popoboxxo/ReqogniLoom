@@ -149,6 +149,7 @@ from application.requirement_bundle_service import (
     RequirementBundleQueryService,
     describe_attribute_schema,
 )
+from application.requirement_update import RequirementUpdate
 from application.services import (
     AdrService,
     ArchitectureService,
@@ -2194,62 +2195,31 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         data = ser.validated_data
-        # REQ-L2-AS-037: only forward custom_fields when the client actually
-        # sent it, so an unrelated PATCH does not wipe existing custom_fields.
-        #
-        # Issue #409: complexity_fibonacci/verification_method are nullable SE
-        # fields whose absence from a partial PATCH payload must mean "leave
-        # unchanged", not "clear to NULL". update_requirement()
-        # already distinguishes the two cases via the ``_UNSET`` sentinel
-        # (default), but this view used to always pass ``data.get(...)`` —
-        # which is None both when the client omitted the field AND when the
-        # client explicitly sent null — collapsing "unchanged" into "clear"
-        # and silently wiping the stored value on every unrelated PATCH.
-        # Forward these fields only when actually present in the payload, the
-        # same way custom_fields already is, so the sentinel default takes
-        # over ("leave unchanged") whenever the client didn't send them.
-        #
-        # ADR-005: ``level`` was in this list and no longer is — it is derived
-        # and read-only, and the guard above refuses a differing value. The
-        # ``parent_id`` entry is new for the same ADR: the serializer always
-        # declared it, and discarding it is the AUC break this wave fixes.
-        extra_kwargs = self._build_requirement_patch_extra_kwargs(data)
+        # R2C-003: the "only forward when present" rule now lives in the
+        # RequirementUpdate command (issue #409, ADR-005, REQ-L2-AS-037):
+        # absent nullable fields stay UNSET ("leave unchanged"), an explicit
+        # null is forwarded as None ("clear to NULL").
         try:
             ctx = get_auth_context(request)
             # REQ-143: `status` is intentionally NOT forwarded. The serializer
             # marks it read-only, so a client-sent status is ignored here and the
             # lifecycle state can only change via the transitions endpoint.
-            item = self._svc().update_requirement(
-                requirement_id=UUID(pk),
-                ctx=ctx,
-                title=data.get("title"),
-                description=data.get("description"),
-                acceptance_criteria=data.get("acceptance_criteria"),
-                rationale=data.get("rationale"),
-                source=data.get("source"),
-                category=data.get("category"),
-                change_reason=data.get("change_reason"),
-                type=data.get("type"),
-                allocation_intent=data.get("allocation_intent"),
-                # Optimistic locking (SYSTEMAUDIT_2026-08-29, REST finding 1):
-                # stale expected_version → OptimisticLockError → 409 CONFLICT.
-                #
-                # GH-868: an If-Match header takes precedence and resolves to
-                # that asserted version, so the standard HTTP precondition is
-                # enforced by the same in-transaction compare (and answers 412
-                # below rather than 409).
-                #
-                # GH-1396: the loader is only called for the header shapes that
-                # need a real ETag comparison (a tag list, a non-numeric tag);
-                # a single strong integer tag stays read-free and race-free.
+            command = RequirementUpdate.from_validated_data(
+                data,
+                # Optimistic locking (SYSTEMAUDIT_2026-08-29 REST finding 1):
+                # stale expected_version → OptimisticLockError → 409; GH-868
+                # If-Match takes precedence; GH-1396 skips the loader for a
+                # single strong integer tag.
                 expected_version=self.resolve_expected_version(
                     request,
                     data,
                     current=lambda: self._svc().get_requirement(UUID(pk), ctx),
                 ),
-                # uid is read-only via REST: never forward from PATCH data
-                # (would overwrite stored uid with None). Set only via service/MCP.
-                **extra_kwargs,
+            )
+            item = self._svc().update_requirement(
+                requirement_id=UUID(pk),
+                ctx=ctx,
+                command=command,
             )
             # Attribut v3 WS2 (#936): owner/reporter/priority live on Artifact.
             self._apply_artifact_system_fields(request, "Requirement", item, ctx)
@@ -2338,30 +2308,6 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             item.id, ctx, criteria, change_reason=change_reason
         )
         return self._svc().get_requirement(item.id, ctx)
-
-    @staticmethod
-    def _build_requirement_patch_extra_kwargs(data: dict[str, Any]) -> dict[str, Any]:
-        """Collect the optional PATCH fields the service must receive.
-
-        REQ-L2-AS-037: only forward custom_fields when the client actually sent
-        it, so an unrelated PATCH does not wipe existing custom_fields.
-
-        Issue #409: complexity_fibonacci/verification_method are nullable SE
-        fields whose absence from a partial PATCH payload must mean "leave
-        unchanged", not "clear to NULL". update_requirement() distinguishes
-        the two cases via the ``_UNSET`` sentinel (default), so forwarding
-        these fields only when actually present keeps the sentinel default.
-
-        ADR-005: ``level`` is deliberately absent — derived and read-only, the
-        guard already refused a differing value. ``parent_id`` is applied:
-        the serializer always declared it, and discarding it is the AUC break
-        this wave fixes.
-        """
-        extra: dict[str, Any] = {}
-        for key in ("custom_fields", "complexity_fibonacci", "verification_method", "parent_id"):
-            if key in data:
-                extra[key] = data[key]
-        return extra
 
     @extend_schema(
         operation_id="requirements_acceptance_criteria_list",

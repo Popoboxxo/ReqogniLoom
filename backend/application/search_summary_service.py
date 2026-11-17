@@ -192,23 +192,14 @@ class SearchSummaryService(ServiceBase):
 
     @staticmethod
     def _resolve_provider() -> tuple[Any | None, str, Exception | None]:
-        """Resolve the effective provider (per-tenant overlay applied).
+        """Resolve the effective provider via the shared S4.1 WP-1 core.
 
-        Mirrors ``BundleCompressionService._resolve_provider``: the provider is
-        resolved before the cache lookup so its name can be part of the key.
+        Kept as the patchable seam tests use; the executable core now lives in
+        :func:`application.llm_provider_resolution.resolve_provider`.
         """
-        from llm_adapter.providers import (
-            LlmNotConfiguredError,
-            LlmProviderUnknownError,
-            get_provider,
-        )
+        from application.llm_provider_resolution import resolve_provider
 
-        try:
-            provider = get_provider()
-        except (LlmNotConfiguredError, LlmProviderUnknownError) as error:
-            return None, MOCK_PROVIDER_NAME, error
-
-        return provider, str(getattr(provider, "PROVIDER_NAME", "unknown")), None
+        return resolve_provider()
 
     @staticmethod
     def _complete(
@@ -217,38 +208,26 @@ class SearchSummaryService(ServiceBase):
         provider_name: str,
         resolve_error: Exception | None,
     ) -> tuple[str | None, bool]:
-        """Call the provider; return ``(text, degraded)`` and never raise."""
-        from llm_adapter.providers import MockLlmProvider
-        from llm_adapter.token_tracking import is_over_daily_limit
+        """Call the provider; return ``(text, degraded: bool)``, never raise."""
+        from application.llm_provider_resolution import complete_summary
 
-        if provider is None:
-            logger.warning(
-                "search_summary: no LLM provider (%s); returning degraded", resolve_error
-            )
-            return None, True
+        def _degraded(kind: str | None) -> bool:
+            # Search summary has one degraded flag: every reason maps to True.
+            return kind is not None
 
-        if provider_name == MOCK_PROVIDER_NAME or isinstance(provider, MockLlmProvider):
-            # A placeholder is not a summary. Do not cache it, and tell the
-            # caller the answer is degraded rather than presenting mock text as
-            # an AI result.
-            logger.warning(
-                "search_summary: mock provider configured; returning degraded"
-            )
-            return None, True
+        def _call(p: str) -> str:
+            return provider.complete(p, purpose=PROMPT_TEMPLATE_NAME)
 
-        if is_over_daily_limit():
-            logger.warning("search_summary: daily token budget exhausted; degraded")
-            return None, True
-
-        try:
-            text = provider.complete(prompt, purpose=PROMPT_TEMPLATE_NAME)
-        except Exception:  # noqa: BLE001 - degrade, never fail the search
-            logger.exception("search_summary: provider call failed")
-            return None, True
-
-        if not isinstance(text, str) or not text.strip():
-            return None, True
-        return text.strip(), False
+        return complete_summary(
+            prompt,
+            provider,
+            provider_name,
+            resolve_error,
+            degraded_reason_factory=_degraded,
+            call_provider=_call,
+            log=logger,
+            log_prefix="search_summary",
+        )
 
 
 def _workspace_uuid(hit: SearchHit) -> UUID | None:

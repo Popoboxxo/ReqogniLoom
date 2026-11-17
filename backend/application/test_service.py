@@ -62,10 +62,15 @@ from persistence.models import (
 )
 from persistence.transactions import atomic_transaction
 
+# Sentinel: "parameter omitted" vs "clear custom_fields to {}" (shared, see
+# application.sentinels; R2C-002).
+from application.sentinels import UNSET as _UNSET
+
+
+
 logger = logging.getLogger(__name__)
 
 # Sentinel distinguishing "parameter omitted" from "clear custom_fields to {}".
-_UNSET = object()
 
 # Allowed execution status values (REQ-L2-AS-005)
 VALID_EXECUTION_STATUSES = frozenset({"Passed", "Failed", "Not Run"})

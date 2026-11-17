@@ -1,0 +1,1383 @@
+{
+  "apply": {
+    "backfill_value": {
+      "calls": [
+        [
+          "persist",
+          1,
+          [
+            "fresh"
+          ]
+        ],
+        [
+          "persist",
+          2,
+          [
+            "fresh"
+          ]
+        ]
+      ],
+      "outcome": {
+        "changes": [
+          {
+            "after": "filled",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": null,
+            "field": "custom_fields.fresh",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "filled",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": null,
+            "field": "custom_fields.fresh",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          }
+        ],
+        "counts": {
+          "changed": 2,
+          "failed": 0,
+          "matched": 2,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "define_attribute": {
+      "calls": [
+        [
+          "snapshot",
+          "Requirement",
+          "global",
+          "standard"
+        ],
+        [
+          "save_definition",
+          "Requirement",
+          "global",
+          [
+            "new_attr",
+            "rationale",
+            "source"
+          ]
+        ]
+      ],
+      "outcome": {
+        "changes": [
+          {
+            "after": "defined",
+            "artifact_id": null,
+            "before": null,
+            "definition_target": "global:Requirement:standard",
+            "field": "definition:global:standard:new_attr",
+            "reason": "define_attribute",
+            "status": "changed",
+            "workspace_id": null
+          }
+        ],
+        "counts": {
+          "changed": 1,
+          "failed": 0,
+          "matched": 1,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": [
+        "snap-fixed"
+      ]
+    },
+    "deprecate_attribute": {
+      "calls": [
+        [
+          "snapshot",
+          "Requirement",
+          "global",
+          "standard"
+        ],
+        [
+          "save_definition",
+          "Requirement",
+          "global",
+          [
+            "rationale",
+            "source"
+          ]
+        ]
+      ],
+      "outcome": {
+        "changes": [
+          {
+            "after": "deprecated",
+            "artifact_id": null,
+            "before": null,
+            "definition_target": "global:Requirement:standard",
+            "field": "definition:global:standard:rationale",
+            "reason": "deprecate_attribute",
+            "status": "changed",
+            "workspace_id": null
+          }
+        ],
+        "counts": {
+          "changed": 1,
+          "failed": 0,
+          "matched": 1,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": [
+        "snap-fixed"
+      ]
+    },
+    "derive_value": {
+      "calls": [
+        [
+          "persist",
+          1,
+          [
+            "title"
+          ]
+        ],
+        [
+          "persist",
+          2,
+          [
+            "title"
+          ]
+        ]
+      ],
+      "outcome": {
+        "changes": [
+          {
+            "after": "alpha-1-REQ-001",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": "title-1",
+            "field": "custom_fields.title",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "alpha-2-REQ-002",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": "title-2",
+            "field": "custom_fields.title",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          }
+        ],
+        "counts": {
+          "changed": 2,
+          "failed": 0,
+          "matched": 2,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "drop_attribute": {
+      "calls": [
+        [
+          "snapshot",
+          "Requirement",
+          "global",
+          "standard"
+        ],
+        [
+          "save_definition",
+          "Requirement",
+          "global",
+          [
+            "source"
+          ]
+        ]
+      ],
+      "outcome": {
+        "changes": [
+          {
+            "after": null,
+            "artifact_id": null,
+            "before": "present",
+            "definition_target": "global:Requirement:standard",
+            "field": "definition:global:standard:rationale",
+            "reason": "drop_attribute",
+            "status": "changed",
+            "workspace_id": null
+          }
+        ],
+        "counts": {
+          "changed": 1,
+          "failed": 0,
+          "matched": 1,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": [
+        "snap-fixed"
+      ]
+    },
+    "export_scope": {
+      "calls": [],
+      "outcome": {
+        "changes": [
+          {
+            "after": "exported",
+            "artifact_id": null,
+            "before": null,
+            "field": "definition:preset:standard",
+            "reason": "export_scope",
+            "status": "changed",
+            "workspace_id": null
+          }
+        ],
+        "counts": {
+          "changed": 1,
+          "failed": 0,
+          "matched": 1,
+          "skipped": 0
+        },
+        "document": {
+          "attributes": [],
+          "item_type": "Requirement",
+          "schema_version": 1
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "import_scope": {
+      "calls": [
+        [
+          "snapshot",
+          "Requirement",
+          "global",
+          "standard"
+        ]
+      ],
+      "outcome": {
+        "changes": [
+          {
+            "after": "imported",
+            "artifact_id": null,
+            "before": null,
+            "definition_target": "global:Requirement:standard",
+            "field": "definition:preset:standard",
+            "reason": "import_scope",
+            "status": "changed",
+            "workspace_id": null
+          }
+        ],
+        "counts": {
+          "changed": 1,
+          "failed": 0,
+          "matched": 1,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": [
+        "snap-fixed"
+      ]
+    },
+    "map_value": {
+      "calls": [
+        [
+          "persist",
+          1,
+          [
+            "title"
+          ]
+        ],
+        [
+          "persist",
+          2,
+          [
+            "title"
+          ]
+        ]
+      ],
+      "outcome": {
+        "changes": [
+          {
+            "after": "one",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": "title-1",
+            "field": "custom_fields.title",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "two",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": "title-2",
+            "field": "custom_fields.title",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          }
+        ],
+        "counts": {
+          "changed": 2,
+          "failed": 0,
+          "matched": 2,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 2,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "merge_attribute": {
+      "calls": [
+        [
+          "persist",
+          1,
+          [
+            "priority"
+          ]
+        ],
+        [
+          "persist",
+          2,
+          [
+            "priority"
+          ]
+        ]
+      ],
+      "outcome": {
+        "changes": [
+          {
+            "after": "alpha-1",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": "prio-1",
+            "field": "custom_fields.priority",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "alpha-2",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": "prio-2",
+            "field": "custom_fields.priority",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          }
+        ],
+        "counts": {
+          "changed": 2,
+          "failed": 0,
+          "matched": 2,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 2,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "migrate_value": {
+      "calls": [
+        [
+          "persist",
+          1,
+          [
+            "title"
+          ]
+        ],
+        [
+          "persist",
+          2,
+          [
+            "title"
+          ]
+        ]
+      ],
+      "outcome": {
+        "changes": [
+          {
+            "after": "alpha-1",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": "alpha-1",
+            "field": "custom_fields.title",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "alpha-2",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": "alpha-2",
+            "field": "custom_fields.title",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          }
+        ],
+        "counts": {
+          "changed": 2,
+          "failed": 0,
+          "matched": 2,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 2,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "rename_attribute": {
+      "calls": [
+        [
+          "snapshot",
+          "Requirement",
+          "global",
+          "standard"
+        ],
+        [
+          "save_definition",
+          "Requirement",
+          "global",
+          [
+            "rationale",
+            "renamed"
+          ]
+        ],
+        [
+          "persist",
+          1,
+          [
+            "renamed",
+            "source"
+          ]
+        ],
+        [
+          "persist",
+          2,
+          [
+            "renamed",
+            "source"
+          ]
+        ]
+      ],
+      "outcome": {
+        "changes": [
+          {
+            "after": "renamed",
+            "artifact_id": null,
+            "before": "source",
+            "definition_target": "global:Requirement:standard",
+            "field": "definition:global:standard:source",
+            "reason": "rename",
+            "status": "changed",
+            "workspace_id": null
+          },
+          {
+            "after": "alpha-1",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": null,
+            "field": "custom_fields.renamed",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": null,
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": "alpha-1",
+            "field": "custom_fields.source",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "alpha-2",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": null,
+            "field": "custom_fields.renamed",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          },
+          {
+            "after": null,
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": "alpha-2",
+            "field": "custom_fields.source",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          }
+        ],
+        "counts": {
+          "changed": 5,
+          "failed": 0,
+          "matched": 1,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": [
+        "snap-fixed"
+      ]
+    },
+    "requeue_definition": {
+      "calls": [
+        [
+          "snapshot",
+          "Requirement",
+          "workspace",
+          "standard"
+        ],
+        [
+          "snapshot",
+          "Requirement",
+          "workspace",
+          "standard"
+        ],
+        [
+          "snapshot",
+          "Requirement",
+          "workspace",
+          "standard"
+        ],
+        [
+          "snapshot",
+          "Requirement",
+          "workspace",
+          "standard"
+        ]
+      ],
+      "outcome": {
+        "changes": [
+          {
+            "after": "re-materialized",
+            "artifact_id": null,
+            "before": "stale",
+            "definition_target": "workspace:11111111-1111-4111-8111-111111111111:Requirement",
+            "field": "definition:workspace:standard:Requirement",
+            "reason": "requeue_definition",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          },
+          {
+            "after": "re-materialized",
+            "artifact_id": null,
+            "before": "stale",
+            "definition_target": "workspace:11111111-1111-4111-8111-111111111111:Requirement",
+            "field": "definition:workspace:standard:Requirement",
+            "reason": "requeue_definition",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          },
+          {
+            "after": "re-materialized",
+            "artifact_id": null,
+            "before": "stale",
+            "definition_target": "workspace:22222222-2222-4222-8222-222222222222:Requirement",
+            "field": "definition:workspace:standard:Requirement",
+            "reason": "requeue_definition",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "re-materialized",
+            "artifact_id": null,
+            "before": "stale",
+            "definition_target": "workspace:22222222-2222-4222-8222-222222222222:Requirement",
+            "field": "definition:workspace:standard:Requirement",
+            "reason": "requeue_definition",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          }
+        ],
+        "counts": {
+          "changed": 4,
+          "failed": 0,
+          "matched": 4,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": [
+        "snap-fixed",
+        "snap-fixed",
+        "snap-fixed",
+        "snap-fixed"
+      ]
+    },
+    "retype_attribute": {
+      "calls": [
+        [
+          "snapshot",
+          "Requirement",
+          "global",
+          "standard"
+        ],
+        [
+          "save_definition",
+          "Requirement",
+          "global",
+          [
+            "rationale",
+            "source"
+          ]
+        ]
+      ],
+      "outcome": {
+        "changes": [
+          {
+            "after": "rationale",
+            "artifact_id": null,
+            "before": "rationale",
+            "definition_target": "global:Requirement:standard",
+            "field": "definition:global:standard:rationale",
+            "reason": "retype",
+            "status": "changed",
+            "workspace_id": null
+          }
+        ],
+        "counts": {
+          "changed": 1,
+          "failed": 0,
+          "matched": 1,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": [
+        "snap-fixed"
+      ]
+    },
+    "split_attribute": {
+      "calls": [
+        [
+          "persist",
+          1,
+          [
+            "priority",
+            "title"
+          ]
+        ],
+        [
+          "persist",
+          2,
+          [
+            "priority",
+            "title"
+          ]
+        ]
+      ],
+      "outcome": {
+        "changes": [
+          {
+            "after": "alpha",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": "title-1",
+            "field": "custom_fields.title",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "1",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": "prio-1",
+            "field": "custom_fields.priority",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "alpha",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": "title-2",
+            "field": "custom_fields.title",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          },
+          {
+            "after": "2",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": "prio-2",
+            "field": "custom_fields.priority",
+            "reason": "applied",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          }
+        ],
+        "counts": {
+          "changed": 4,
+          "failed": 0,
+          "matched": 2,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 4,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    }
+  },
+  "dry_run": {
+    "backfill_value": {
+      "calls": [],
+      "outcome": {
+        "changes": [
+          {
+            "after": "filled",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": null,
+            "field": "custom_fields.fresh",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "filled",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": null,
+            "field": "custom_fields.fresh",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          }
+        ],
+        "counts": {
+          "changed": 2,
+          "failed": 0,
+          "matched": 2,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "define_attribute": {
+      "calls": [],
+      "outcome": {
+        "changes": [
+          {
+            "after": "defined",
+            "artifact_id": null,
+            "before": null,
+            "definition_target": "global:Requirement:standard",
+            "field": "definition:global:standard:new_attr",
+            "reason": "define_attribute",
+            "status": "changed",
+            "workspace_id": null
+          }
+        ],
+        "counts": {
+          "changed": 1,
+          "failed": 0,
+          "matched": 1,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "deprecate_attribute": {
+      "calls": [],
+      "outcome": {
+        "changes": [
+          {
+            "after": "deprecated",
+            "artifact_id": null,
+            "before": null,
+            "definition_target": "global:Requirement:standard",
+            "field": "definition:global:standard:rationale",
+            "reason": "deprecate_attribute",
+            "status": "changed",
+            "workspace_id": null
+          }
+        ],
+        "counts": {
+          "changed": 1,
+          "failed": 0,
+          "matched": 1,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "derive_value": {
+      "calls": [],
+      "outcome": {
+        "changes": [
+          {
+            "after": "alpha-1-REQ-001",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": "title-1",
+            "field": "custom_fields.title",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "alpha-2-REQ-002",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": "title-2",
+            "field": "custom_fields.title",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          }
+        ],
+        "counts": {
+          "changed": 2,
+          "failed": 0,
+          "matched": 2,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "drop_attribute": {
+      "calls": [],
+      "outcome": {
+        "changes": [
+          {
+            "after": null,
+            "artifact_id": null,
+            "before": "present",
+            "definition_target": "global:Requirement:standard",
+            "field": "definition:global:standard:rationale",
+            "reason": "drop_attribute",
+            "status": "changed",
+            "workspace_id": null
+          }
+        ],
+        "counts": {
+          "changed": 1,
+          "failed": 0,
+          "matched": 1,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "export_scope": {
+      "calls": [],
+      "outcome": {
+        "changes": [
+          {
+            "after": "exported",
+            "artifact_id": null,
+            "before": null,
+            "field": "definition:preset:standard",
+            "reason": "export_scope",
+            "status": "changed",
+            "workspace_id": null
+          }
+        ],
+        "counts": {
+          "changed": 1,
+          "failed": 0,
+          "matched": 1,
+          "skipped": 0
+        },
+        "document": {
+          "attributes": [],
+          "item_type": "Requirement",
+          "schema_version": 1
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "import_scope": {
+      "calls": [],
+      "outcome": {
+        "changes": [
+          {
+            "after": "imported",
+            "artifact_id": null,
+            "before": null,
+            "definition_target": "global:Requirement:standard",
+            "field": "definition:preset:standard",
+            "reason": "import_scope",
+            "status": "changed",
+            "workspace_id": null
+          }
+        ],
+        "counts": {
+          "changed": 1,
+          "failed": 0,
+          "matched": 1,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "map_value": {
+      "calls": [],
+      "outcome": {
+        "changes": [
+          {
+            "after": "one",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": "title-1",
+            "field": "custom_fields.title",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "two",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": "title-2",
+            "field": "custom_fields.title",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          }
+        ],
+        "counts": {
+          "changed": 2,
+          "failed": 0,
+          "matched": 2,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 2,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "merge_attribute": {
+      "calls": [],
+      "outcome": {
+        "changes": [
+          {
+            "after": "alpha-1",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": "prio-1",
+            "field": "custom_fields.priority",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "alpha-2",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": "prio-2",
+            "field": "custom_fields.priority",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          }
+        ],
+        "counts": {
+          "changed": 2,
+          "failed": 0,
+          "matched": 2,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 2,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "migrate_value": {
+      "calls": [],
+      "outcome": {
+        "changes": [
+          {
+            "after": "alpha-1",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": "alpha-1",
+            "field": "custom_fields.title",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "alpha-2",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": "alpha-2",
+            "field": "custom_fields.title",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          }
+        ],
+        "counts": {
+          "changed": 2,
+          "failed": 0,
+          "matched": 2,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 2,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "rename_attribute": {
+      "calls": [],
+      "outcome": {
+        "changes": [
+          {
+            "after": "renamed",
+            "artifact_id": null,
+            "before": "source",
+            "definition_target": "global:Requirement:standard",
+            "field": "definition:global:standard:source",
+            "reason": "rename",
+            "status": "changed",
+            "workspace_id": null
+          },
+          {
+            "after": "alpha-1",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": null,
+            "field": "custom_fields.renamed",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": null,
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": "alpha-1",
+            "field": "custom_fields.source",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "alpha-2",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": null,
+            "field": "custom_fields.renamed",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          },
+          {
+            "after": null,
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": "alpha-2",
+            "field": "custom_fields.source",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          }
+        ],
+        "counts": {
+          "changed": 5,
+          "failed": 0,
+          "matched": 1,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "requeue_definition": {
+      "calls": [],
+      "outcome": {
+        "changes": [
+          {
+            "after": "re-materialized",
+            "artifact_id": null,
+            "before": "stale",
+            "definition_target": "workspace:11111111-1111-4111-8111-111111111111:Requirement",
+            "field": "definition:workspace:standard:Requirement",
+            "reason": "requeue_definition",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          },
+          {
+            "after": "re-materialized",
+            "artifact_id": null,
+            "before": "stale",
+            "definition_target": "workspace:11111111-1111-4111-8111-111111111111:Requirement",
+            "field": "definition:workspace:standard:Requirement",
+            "reason": "requeue_definition",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          },
+          {
+            "after": "re-materialized",
+            "artifact_id": null,
+            "before": "stale",
+            "definition_target": "workspace:22222222-2222-4222-8222-222222222222:Requirement",
+            "field": "definition:workspace:standard:Requirement",
+            "reason": "requeue_definition",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "re-materialized",
+            "artifact_id": null,
+            "before": "stale",
+            "definition_target": "workspace:22222222-2222-4222-8222-222222222222:Requirement",
+            "field": "definition:workspace:standard:Requirement",
+            "reason": "requeue_definition",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          }
+        ],
+        "counts": {
+          "changed": 4,
+          "failed": 0,
+          "matched": 4,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "retype_attribute": {
+      "calls": [],
+      "outcome": {
+        "changes": [
+          {
+            "after": "rationale",
+            "artifact_id": null,
+            "before": "rationale",
+            "definition_target": "global:Requirement:standard",
+            "field": "definition:global:standard:rationale",
+            "reason": "retype",
+            "status": "changed",
+            "workspace_id": null
+          }
+        ],
+        "counts": {
+          "changed": 1,
+          "failed": 0,
+          "matched": 1,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 0,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    },
+    "split_attribute": {
+      "calls": [],
+      "outcome": {
+        "changes": [
+          {
+            "after": "alpha",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": "title-1",
+            "field": "custom_fields.title",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "1",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000000",
+            "before": "prio-1",
+            "field": "custom_fields.priority",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "22222222-2222-4222-8222-222222222222"
+          },
+          {
+            "after": "alpha",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": "title-2",
+            "field": "custom_fields.title",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          },
+          {
+            "after": "2",
+            "artifact_id": "dddddddd-dddd-4ddd-8ddd-000000000001",
+            "before": "prio-2",
+            "field": "custom_fields.priority",
+            "reason": "dry run",
+            "status": "changed",
+            "workspace_id": "11111111-1111-4111-8111-111111111111"
+          }
+        ],
+        "counts": {
+          "changed": 4,
+          "failed": 0,
+          "matched": 2,
+          "skipped": 0
+        },
+        "errors": [],
+        "message": "",
+        "transform_counts": {
+          "applied": 4,
+          "failed": 0,
+          "skipped": 0
+        }
+      },
+      "snapshot_ids": []
+    }
+  }
+}

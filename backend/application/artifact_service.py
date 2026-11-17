@@ -53,10 +53,15 @@ from persistence.tenancy import TenantContextNotSetError
 from persistence.transactions import atomic_transaction
 from traceability.audit.hierarchy import recompute_requirement_levels
 
+# Sentinel: "parameter omitted" vs "clear custom_fields to {}" (shared, see
+# application.sentinels; R2C-002).
+from application.sentinels import UNSET as _UNSET
+
+
+
 logger = logging.getLogger(__name__)
 
 # Sentinel distinguishing "parameter omitted" from "clear custom_fields to {}".
-_UNSET = object()
 #: Public alias for transport adapters (REST/MCP) that must pass the same
 #: sentinel object through for "after_id omitted".
 UNSET = _UNSET

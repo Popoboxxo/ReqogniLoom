@@ -507,10 +507,10 @@ class BundleCompressionService(ServiceBase):
     def _resolve_provider() -> tuple[Any | None, str, Exception | None]:
         """Resolve the effective LLM provider once, before any cache lookup.
 
-        Split out of :meth:`_call_provider` (issue #445) because the cache key
-        must be namespaced by the provider that will actually serve the call,
-        and that is only knowable after ``get_provider()`` has applied the
-        per-tenant ``LlmSettings`` overlay on top of ``settings.LLM_PROVIDER``.
+        Kept as the patchable seam and as the namespace source for the cache
+        key (issue #445). The executable core now lives in
+        :func:`application.llm_provider_resolution.resolve_provider` and is
+        shared with the other three ANPASSEN-scope services (S4.1 WP-1).
 
         Returns:
             ``(provider, provider_name, resolve_error)``. On a resolution
@@ -520,22 +520,9 @@ class BundleCompressionService(ServiceBase):
             the request via the graceful-degradation path (ADR-02), so the
             cache key stays truthful about who produced the text.
         """
-        from llm_adapter.providers import (
-            LlmNotConfiguredError,
-            LlmProviderUnknownError,
-            get_provider,
-        )
+        from application.llm_provider_resolution import resolve_provider
 
-        try:
-            provider = get_provider()
-        except (LlmNotConfiguredError, LlmProviderUnknownError) as error:
-            return None, MOCK_PROVIDER_NAME, error
-
-        # ``str()`` because ``register_provider`` accepts third-party provider
-        # classes: a plugin that omits (or mistypes) PROVIDER_NAME must not be
-        # able to push a non-string into the cache key, the LlmAuditLog or the
-        # TokenUsageRecord.provider column.
-        return provider, str(getattr(provider, "PROVIDER_NAME", "unknown")), None
+        return resolve_provider()
 
     @staticmethod
     def _call_provider(

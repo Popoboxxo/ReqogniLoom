@@ -44,10 +44,15 @@ from persistence.models import (
 )
 from persistence.transactions import atomic_transaction
 
+# Sentinel: "parameter omitted" vs "clear custom_fields to {}" (shared, see
+# application.sentinels; R2C-002).
+from application.sentinels import UNSET as _UNSET
+
+
+
 logger = logging.getLogger(__name__)
 
 # Sentinel distinguishing "parameter omitted" from "set parent to None (root)"
-_UNSET = object()
 
 
 class ArchitectureService(ServiceBase):
@@ -461,6 +466,7 @@ class ArchitectureService(ServiceBase):
         ``include_deleted`` is kept for callers that ask for the row regardless
         of its lifecycle state; it no longer turns a soft-deleted element into a
         404. The serializer/status projection reports ``"outdated"``.
+        Note: ``include_deleted`` has no effect on detail reads (#1381).
         """
         self._set_tenant_context(ctx)
         arch_el = ArchitectureElement.objects.select_related("artifact").filter(
