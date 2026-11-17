@@ -299,6 +299,27 @@ ERROR_CODE_MAP = {
 }
 
 
+#: Explicit JSON-RPC numeric codes for *transport-level* error envelopes.
+#:
+#: ``ErrorFormatter.format_error`` uses :data:`ERROR_CODE_MAP` for frames the
+#: handler produced. Transport rejections (views.py / throttling.py) happen
+#: before a handler runs and historically carried only a string ``error_code``.
+#: This map gives those envelopes the same integer ``error.code`` a client
+#: already reads on handler errors (API-004). It is deliberately a separate,
+#: explicit table: ``UNAUTHORIZED`` is a transport-only code with no
+#: ``ERROR_CODE_MAP`` entry, and an accidental widening of the handler map
+#: must not silently change the wire contract of a transport rejection.
+TRANSPORT_ERROR_CODE_MAP: dict[str, int] = {
+    "UNAUTHORIZED": -32000,
+    "AUTH_FAILED": -32000,
+    "SERVICE_UNAVAILABLE": -32020,
+    "INVALID_REQUEST": -32600,
+    "RATE_LIMITED": -32007,
+    "SESSION_EXPIRED": -32005,
+    "INTERNAL_ERROR": -32603,
+}
+
+
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
@@ -365,9 +386,11 @@ class JsonRpcValidator:
             return "INVALID_REQUEST"
         if not isinstance(frame.get("method"), str) or not frame["method"]:
             return "INVALID_REQUEST"
-        # notifications don't have an id, but for our simple implementation we accept them
-        # if method is notifications/initialized, id is not required
-        if frame["method"] != "notifications/initialized" and "id" not in frame:
+        # JSON-RPC 2.0 §6: a Request without "id" is a notification, and every
+        # ``notifications/*`` method is one — not just the literal
+        # ``notifications/initialized``. The dispatcher treats the whole prefix
+        # as no-response, so validation must exempt the whole prefix too (API-003).
+        if not frame["method"].startswith("notifications/") and "id" not in frame:
             return "INVALID_REQUEST"
         return None
 

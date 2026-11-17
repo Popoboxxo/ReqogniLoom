@@ -66,7 +66,10 @@ from typing import Any
 from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpRequest, HttpResponse, JsonResponse
 
-from mcp_server.protocol_handler import ERROR_CODES
+from mcp_server.protocol_handler import (
+    ERROR_CODES,
+    TRANSPORT_ERROR_CODE_MAP,
+)
 from rest_api.throttling import DynamicRateThrottle
 
 __all__ = [
@@ -78,12 +81,19 @@ __all__ = [
     "rate_limited_jsonrpc_response",
     "rate_limited_plain_response",
     "service_unavailable_jsonrpc_response",
+    "service_unavailable_plain_response",
 ]
 
 #: Error code surfaced to the client on refusal. Defined in
 #: :mod:`mcp_server.protocol_handler` so the message stays in the one map that
 #: is the single source of truth for MCP error wording.
 RATE_LIMITED = "RATE_LIMITED"
+
+#: Single source of truth for the operator-misconfiguration wording, shared by
+#: the JSON-RPC 503 (sync transports) and the plain 503 (SSE handshake).
+SERVICE_UNAVAILABLE_MESSAGE = (
+    "The MCP endpoint is misconfigured and cannot serve requests."
+)
 
 
 def api_key_from_request(request: HttpRequest) -> str:
@@ -237,6 +247,7 @@ def rate_limited_jsonrpc_response(
         "jsonrpc": "2.0",
         "id": request_id,
         "error": {
+            "code": TRANSPORT_ERROR_CODE_MAP[RATE_LIMITED],
             "error_code": RATE_LIMITED,
             "message": ERROR_CODES[RATE_LIMITED],
             "data": {"retry_after_seconds": seconds, "retryable": True},
@@ -265,8 +276,9 @@ def service_unavailable_jsonrpc_response(
         "jsonrpc": "2.0",
         "id": request_id,
         "error": {
+            "code": TRANSPORT_ERROR_CODE_MAP["SERVICE_UNAVAILABLE"],
             "error_code": "SERVICE_UNAVAILABLE",
-            "message": "The MCP endpoint is misconfigured and cannot serve requests.",
+            "message": SERVICE_UNAVAILABLE_MESSAGE,
             "data": {"retry_after_seconds": retry_after, "retryable": True},
         },
     }
@@ -289,4 +301,18 @@ def rate_limited_plain_response(retry_after: float) -> JsonResponse:
     seconds = _retry_after_seconds(retry_after)
     response = JsonResponse({"error": ERROR_CODES[RATE_LIMITED]}, status=429)
     response["Retry-After"] = str(seconds)
+    return response
+
+
+def service_unavailable_plain_response(retry_after: int = 60) -> JsonResponse:
+    """503 in the SSE handshake's flat error shape for a misconfigured server.
+
+    The synchronous transports answer a malformed throttle rate with the
+    JSON-RPC 503 from :func:`service_unavailable_jsonrpc_response`. The SSE
+    handshake is not a JSON-RPC call, so it gets the same status, the same
+    ``Retry-After`` contract and the same message in its existing flat shape
+    (API-007) — never an unhandled 500 from ``ImproperlyConfigured``.
+    """
+    response = JsonResponse({"error": SERVICE_UNAVAILABLE_MESSAGE}, status=503)
+    response["Retry-After"] = str(retry_after)
     return response
