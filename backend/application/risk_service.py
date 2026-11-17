@@ -672,7 +672,7 @@ class RiskService(ServiceBase):
                 workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
                 id__in=item_ids_with_status("Risk", status, tenant_id=ctx.tenant_id),
-            ).order_by("-risk_score")
+            ).order_by("-risk_score", "-id")
         )
 
     def query_risks_by_severity(
@@ -711,7 +711,7 @@ class RiskService(ServiceBase):
                 workspace_id=workspace_id,
                 tenant_id=ctx.tenant_id,
                 severity=severity,
-            ).order_by("-risk_score")
+            ).order_by("-risk_score", "-id")
         )
 
     def query_risks_by_score_range(
@@ -735,7 +735,7 @@ class RiskService(ServiceBase):
                 tenant_id=ctx.tenant_id,
                 risk_score__gte=min_score,
                 risk_score__lte=max_score,
-            ).order_by("-risk_score")
+            ).order_by("-risk_score", "-id")
         )
 
     # ---------- Status Transition (REQ-L3-RISK-005, IF-AS-INT-003) ----------

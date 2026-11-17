@@ -261,7 +261,18 @@ def test_repair_hash_indent_apply_creates_one_new_version(tmp_path):
     finally:
         clear_request_tenant()
 
-    output = _run(tmp_path, repair_hash_indent=True, apply=True)
+    # APP-003: change-reason policy now fails closed on cross-tenant lookups.
+    # The command operates on this workspace, so arm its tenant explicitly.
+    # ``presets.gate`` memoises workspace→tenant per process; seed_demo reuses
+    # workspace ids across tests, so drop that stale memo before the lookup.
+    from presets.gate import _workspace_tenant_cache
+
+    _workspace_tenant_cache.clear()
+    set_request_tenant(workspace.tenant_id)
+    try:
+        output = _run(tmp_path, repair_hash_indent=True, apply=True)
+    finally:
+        clear_request_tenant()
 
     assert "candidates=1 repaired=1" in output
     assert "no data was written" not in output

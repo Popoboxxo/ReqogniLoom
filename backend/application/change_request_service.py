@@ -1096,7 +1096,9 @@ class ChangeRequestService(ServiceBase):
                     f"{cr.workspace_id}"
                 )
         else:
-            snapshot = qs.order_by("-created_at").first()
+            # APP-005: ``-id`` is the unique tie-breaker so two snapshots with
+            # an identical ``created_at`` yield a deterministic default pick.
+            snapshot = qs.order_by("-created_at", "-id").first()
             if snapshot is None:
                 logger.debug(
                     "ChangeRequestService: no baseline exists in ws=%s — "

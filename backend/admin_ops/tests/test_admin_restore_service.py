@@ -103,6 +103,31 @@ def completed_backup(
 # ---------------------------------------------------------------------------
 
 
+def test_summarize_fixture_reads_gzipped_dumpdata(tmp_path) -> None:
+    """EXT-004: counts come from the real (gzipped) backup format (#823)."""
+    import gzip
+    import json
+
+    from admin_ops.services.admin_restore_service import _summarize_fixture
+
+    payload = [
+        {"model": "persistence.glossaryterm", "pk": str(uuid4()), "fields": {}},
+        {"model": "persistence.requirement", "pk": str(uuid4()), "fields": {}},
+        {"model": "persistence.glossaryterm", "pk": str(uuid4()), "fields": {}},
+    ]
+    path = tmp_path / "backup.json.gz"
+    with gzip.open(path, "wt", encoding="utf-8") as fh:
+        json.dump(payload, fh)
+
+    tables, rows = _summarize_fixture(str(path))
+
+    assert tables == ["persistence.glossaryterm", "persistence.requirement"]
+    assert rows == {
+        "persistence.glossaryterm": 2,
+        "persistence.requirement": 1,
+    }
+
+
 def test_restore_rejects_editor(restore_svc, regular_ctx, uuid4_call=None):
     """An editor caller is denied at the gate before any DB read."""
     with pytest.raises(PermissionDeniedError):
@@ -376,6 +401,93 @@ def test_restore_failure_writes_fail_audit(
         if r.change_reason.startswith("restore.start")
     ]
     assert len(start_rows) == 0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_restore_is_a_non_destructive_overlay_with_honest_counts(
+    restore_svc, admin_ctx, admin_user, tenant_a, tmp_backups_dir
+):
+    """EXT-004: restore overlays backup rows; post-backup rows survive.
+
+    The service deliberately does NOT truncate tables or drop/recreate the
+    schema (destructive rollback would be catastrophic under RLS + append-only
+    audit triggers). ``loaddata`` upserts the backed-up rows by primary key and
+    leaves everything created after the backup untouched. The result's
+    ``restored_tables`` / ``rows_per_table`` are derived from the serialized
+    fixture, so they describe what the file actually contains — not an
+    estimate.
+    """
+    import json
+
+    from admin_ops.services.paths import backup_root
+    from persistence.models import GlossaryTerm
+
+    with active_tenant(tenant_a):
+        backed_up = GlossaryTerm.objects.create(
+            tenant=tenant_a,
+            term="BackupTerm",
+            definition="Original definition",
+        )
+        fixture = [
+            {
+                "model": "persistence.glossaryterm",
+                "pk": str(backed_up.id),
+                "fields": {
+                    "tenant": str(tenant_a.id),
+                    "term": "BackupTerm",
+                    "definition": "Original definition",
+                    # loaddata uses raw saves, so auto_now_add fields must be
+                    # present in a hand-written dumpdata fixture.
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "modified_at": "2026-01-01T00:00:00Z",
+                },
+            }
+        ]
+        payload = json.dumps(fixture)
+        rel_path = f"{uuid4()}.json"
+        os.makedirs(backup_root(), exist_ok=True)
+        abs_path = os.path.join(backup_root(), rel_path)
+        with open(abs_path, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+        backup = BackupMetadata.objects.create(
+            status=BackupStatus.COMPLETED,
+            backup_type=BackupType.FULL,
+            file_path=rel_path,
+            file_size_bytes=len(payload),
+            checksum_sha256="0" * 64,
+            created_by=admin_user,
+        )
+
+        # Drift: the backed-up row changed after the backup was taken.
+        GlossaryTerm.objects.filter(pk=backed_up.pk).update(
+            definition="Drifted definition"
+        )
+        # A row created AFTER the backup — must survive the overlay restore.
+        post_backup = GlossaryTerm.objects.create(
+            tenant=tenant_a,
+            term="PostBackupTerm",
+            definition="Created after backup",
+        )
+
+        result = restore_svc.restore(
+            admin_ctx,
+            backup_id=backup.id,
+            confirmation_text=RESTORE_CAPTCHA,
+        )
+
+        # The backed-up row is patched back to its snapshot value.
+        backed_up.refresh_from_db()
+        assert backed_up.definition == "Original definition"
+
+        # The overlay contract: post-backup rows are NOT deleted.
+        assert GlossaryTerm.objects.filter(pk=post_backup.pk).exists()
+        assert GlossaryTerm.objects.filter(term="PostBackupTerm").count() == 1
+
+        # Result fields honestly describe the serialized fixture.
+        assert result.backup_id == backup.id
+        assert result.restored_tables == ["persistence.glossaryterm"]
+        assert result.rows_per_table == {"persistence.glossaryterm": 1}
+        assert result.started_at <= result.completed_at
 
 
 @pytest.mark.django_db

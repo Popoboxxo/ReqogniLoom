@@ -218,8 +218,10 @@ def _fetch_incomplete_states(workspace_id: str, tenant_id: UUID) -> list[Incompl
     WorkflowItemState and WorkflowHistoryEntry.
 
     Logic: For each WorkflowItemState in the workspace, check if the item
-    has visited all mandatory states in its WorkflowEngineDefinition.
-    Items that have never had a history entry for a mandatory state are gaps.
+    has visited all mandatory waypoint states in its WorkflowEngineDefinition.
+    Terminal states (``is_outdated_equivalent`` or graph sinks with no outgoing
+    transition) are destinations, not waypoints, and are excluded. Items that
+    have never had a history entry for a mandatory waypoint are gaps.
 
     Returns list of IncompleteState or empty list on error/no definition.
     Tenant isolation (fix #405) is established for this worker thread's own
@@ -227,6 +229,7 @@ def _fetch_incomplete_states(workspace_id: str, tenant_id: UUID) -> list[Incompl
     """
     set_request_tenant(tenant_id)
     try:
+        from workflow.definition_store import get_state_meta
         from workflow.models import (
             WorkflowEngineDefinition,
             WorkflowHistoryEntry,
@@ -242,15 +245,37 @@ def _fetch_incomplete_states(workspace_id: str, tenant_id: UUID) -> list[Incompl
         if not definitions:
             return []
 
-        # Build set of mandatory states per item_type from workflow JSON
-        # Treat all states in the definition as potentially mandatory
-        # (WorkflowEngine does not have an explicit "mandatory" flag yet;
-        # we consider all defined states as mandatory for gap detection)
-        mandatory_states_by_type: dict = {}
+        # Build the set of mandatory *waypoint* states per item_type.
+        #
+        # EXT-005: the old implementation treated every declared state as
+        # mandatory, which flagged a healthy ``approved`` item for never
+        # having visited ``rejected`` — a terminal dead end it must never
+        # enter. Terminal states are destinations, not waypoints, so they
+        # are excluded here using the existing workflow vocabulary (no new
+        # "mandatory" flag, no migration):
+        #   * ``state_meta[state].is_outdated_equivalent`` marks preset dead
+        #     ends (rejected / deprecated / wontfix / ...);
+        #   * a state with no outgoing transition is a graph sink (approved /
+        #     done / verified / ...).
+        # Only states that have an outgoing transition and are not flagged as
+        # outdated-equivalent remain mandatory.
+        mandatory_states_by_type: dict[str, set[str]] = {}
         for defn in definitions:
             wf_json = defn.workflow_json or {}
-            states = wf_json.get("states", [])
-            mandatory_states_by_type[defn.item_type] = set(states)
+            states = set(wf_json.get("states", []))
+            outgoing = {
+                transition.get("from_state")
+                for transition in wf_json.get("transitions", [])
+                if isinstance(transition, dict) and transition.get("from_state")
+            }
+            mandatory_states_by_type[defn.item_type] = {
+                state
+                for state in states
+                if state in outgoing
+                and not get_state_meta(wf_json, str(state)).get(
+                    "is_outdated_equivalent"
+                )
+            }
 
         # Get all items in this workspace
         item_states = list(

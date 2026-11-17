@@ -817,3 +817,29 @@ class TestCcbStates:
         from workflow import state_reader
 
         assert state_reader.initial_state("ChangeRequest") == "draft"
+
+
+class TestBaselineLinkDeterminism:
+    """APP-005: tie-broken 'most recent baseline' selection."""
+
+    def test_equal_created_at_uses_id_tie_breaker(self):
+        """With two snapshots sharing ``created_at`` the default pick must be
+        ordered by ``-id`` as well, so the choice is deterministic."""
+        svc = ChangeRequestService()
+        ctx = _make_ctx(tenant_id=TENANT_ID)
+        cr = _make_cr()
+        cr.baseline_id = None  # otherwise the early-return at the gate fires
+
+        with (
+            patch(
+                "application.change_request_service.get_preset_policy_service"
+            ) as mock_get_policy,
+            patch("baseline.models.BaselineSnapshot.unscoped") as mock_unscoped,
+        ):
+            mock_get_policy.return_value.is_feature_enabled.return_value = True
+            qs = MagicMock()
+            qs.order_by.return_value.first.return_value = None  # no snapshots
+            mock_unscoped.filter.return_value = qs
+            svc._link_baseline_if_enabled(cr=cr, ctx=ctx)
+
+        qs.order_by.assert_called_once_with("-created_at", "-id")

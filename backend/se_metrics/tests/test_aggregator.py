@@ -31,6 +31,7 @@ from persistence.tenancy import TenantContext
 from se_metrics.aggregator import (
     DEFAULT_TIMEFRAME,
     MetricsAggregator,
+    _fetch_incomplete_states,
     _fetch_risks,
     _parse_timeframe_days,
     _resolve_requirement_titles,
@@ -497,6 +498,79 @@ class TestResolveRequirementTitles:
         _resolve_requirement_titles(entries, tenant.id)
 
         assert entries[0].title == "not-a-uuid"[:8]
+
+
+class TestTerminalStatesAreNotMandatory:
+    """EXT-005: dead-end workflow states must not be reported as gaps.
+
+    ``_fetch_incomplete_states`` used to treat every state declared in a
+    workflow definition as a mandatory waypoint. That flags a perfectly
+    healthy ``approved`` item for never having visited ``rejected`` — a
+    terminal, ``is_outdated_equivalent`` dead end it should never enter.
+    """
+
+    @pytest.mark.django_db
+    def test_approved_item_has_no_gap_for_flagged_rejected_dead_end(self):
+        from persistence.models import Tenant, Workspace
+        from workflow.models import (
+            WorkflowEngineDefinition,
+            WorkflowHistoryEntry,
+            WorkflowItemState,
+        )
+
+        tenant = Tenant.objects.create(
+            name="Gap Tenant", slug=f"gap-tenant-{uuid.uuid4().hex[:8]}"
+        )
+        TenantContext.set_tenant(tenant.id)
+        try:
+            workspace = Workspace.objects.create(tenant=tenant, name="Gap WS")
+            definition = WorkflowEngineDefinition.unscoped.create(
+                tenant=tenant,
+                workspace_id=workspace.id,
+                item_type="Requirement",
+                preset="standard",
+                workflow_json={
+                    "states": ["proposed", "review", "approved", "rejected"],
+                    "transitions": [
+                        {"from_state": "proposed", "to_state": "review"},
+                        {"from_state": "review", "to_state": "approved"},
+                        {"from_state": "review", "to_state": "rejected"},
+                    ],
+                    # "rejected" is a terminal dead end — never a waypoint.
+                    "state_meta": {"rejected": {"is_outdated_equivalent": True}},
+                },
+            )
+            item_id = uuid.uuid4()
+            item_state = WorkflowItemState.unscoped.create(
+                tenant=tenant,
+                item_id=item_id,
+                item_type="Requirement",
+                workspace_id=workspace.id,
+                definition=definition,
+                current_state="approved",
+            )
+            for from_state, to_state in (
+                ("proposed", "review"),
+                ("review", "approved"),
+            ):
+                WorkflowHistoryEntry.unscoped.create(
+                    tenant=tenant,
+                    item_state=item_state,
+                    from_state=from_state,
+                    to_state=to_state,
+                    transitioned_by="test",
+                    transitioned_at=datetime.now(timezone.utc),
+                    workspace_id=workspace.id,
+                )
+
+            gaps = _fetch_incomplete_states(str(workspace.id), tenant.id)
+
+            assert gaps == [], (
+                "An approved item must not be flagged for missing the "
+                "rejected dead-end state (nor the approved sink)."
+            )
+        finally:
+            TenantContext.clear_tenant()
 
 
 class TestComputeIncludesResolvedTitles:

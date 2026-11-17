@@ -25,6 +25,8 @@ import logging
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from django.db import transaction
+
 from audit.models import AuditEntry
 from audit.services import log_write
 
@@ -120,21 +122,38 @@ def _safe_write(
     The forwarding is best-effort and non-blocking with respect to correctness:
     if the AuditLog write fails, we log a warning locally instead of propagating,
     so resilience callers (CircuitBreaker, DegradationManager) are never impacted.
+
+    When an atomic block is active (the normal case — ``CircuitBreaker`` calls
+    ``log_state_change`` from inside its own ``transaction.atomic()``), the write
+    is deferred with ``transaction.on_commit``. A DB-level failure in the audit
+    backend would otherwise mark the *enclosing business transaction* as needing
+    rollback and turn the breaker's own commit into a ``TransactionManagementError``
+    — a best-effort side effect must never take down the operation it observes.
+    Outside an atomic block the write runs directly (the on-commit fallback for
+    callers with no DB transaction), with the same error swallowing.
     """
-    try:
-        log_write(
-            actor=_ACTOR,
-            actor_type=_ACTOR_TYPE,
-            operation=_RESILIENCE_OP,
-            entity_type=_ENTITY_TYPE,
-            entity_id=_stable_entity_id(target_subsystem),
-            change_reason=change_reason,
-            ctx={"source": "resilience", **ctx},
-        )
-    except Exception:  # noqa: BLE001 — best-effort audit must never break callers
-        logger.warning(
-            "ResilienceAuditLogger failed to forward event for target=%s reason=%s",
-            target_subsystem,
-            change_reason,
-            exc_info=True,
-        )
+    def _write() -> None:
+        try:
+            log_write(
+                actor=_ACTOR,
+                actor_type=_ACTOR_TYPE,
+                operation=_RESILIENCE_OP,
+                entity_type=_ENTITY_TYPE,
+                entity_id=_stable_entity_id(target_subsystem),
+                change_reason=change_reason,
+                ctx={"source": "resilience", **ctx},
+            )
+        except Exception:  # noqa: BLE001 — best-effort audit must never break callers
+            logger.warning(
+                "ResilienceAuditLogger failed to forward event for target=%s reason=%s",
+                target_subsystem,
+                change_reason,
+                exc_info=True,
+            )
+
+    if transaction.get_connection().in_atomic_block:
+        # Defer past the breaker's commit: audit failures cannot poison it.
+        transaction.on_commit(_write)
+    else:
+        # No active transaction (e.g. a plain in-process caller) — write now.
+        _write()

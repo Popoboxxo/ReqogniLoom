@@ -122,6 +122,56 @@ class TestDisabledWorkspace:
             _clear()
 
 
+class TestSettingsChangeInvalidatesCache:
+    """EXT-008: a settings write must invalidate the projector's cached snapshot."""
+
+    def test_orm_update_disables_projection_before_ttl_expires(self):
+        from application.event_bus import DomainEvent
+        from context_graph.models import ContextEdge
+        from context_graph.projector import ContextGraphProjector
+        from persistence.tenancy import TenantContext
+
+        tenant, workspace, ctx = seed_workspace("cg-signal")
+        settings_row = seed_context_settings(
+            tenant, workspace, enabled_generators=["glossary"]
+        )
+        term = seed_glossary_term(tenant, workspace, term="Autopilot")
+        req_a = seed_requirement(
+            tenant, workspace, title="Autopilot shall engage", uid="REQ-SIG-A"
+        )
+        req_b = seed_requirement(
+            tenant, workspace, title="Autopilot shall disengage", uid="REQ-SIG-B"
+        )
+        event = DomainEvent(
+            event_type="RequirementCreated",
+            entity_id=req_a.id,
+            workspace_id=workspace.id,
+            payload={"artifact_id": str(req_a.artifact_id)},
+        )
+
+        try:
+            projector = ContextGraphProjector()
+            # First event warms the settings cache with enabled=True and
+            # materialises the edge.
+            projector.handle_event(event)
+            TenantContext.set_tenant(tenant.id)
+            assert ContextEdge.objects.filter(origin="derived-glossary").count() == 1
+
+            # Settings change via ORM (the settings-write path). The signal
+            # must drop the cached snapshot right away, not after 30 s.
+            settings_row.enabled = False
+            settings_row.save(update_fields=["enabled"])
+
+            ContextEdge.objects.filter(origin="derived-glossary").delete()
+
+            # A subsequent event must observe enabled=False from the DB.
+            projector.handle_event(event)
+            TenantContext.set_tenant(tenant.id)
+            assert ContextEdge.objects.filter(origin="derived-glossary").count() == 0
+        finally:
+            _clear()
+
+
 class TestIdempotencyAndCleanup:
     def _seed_pair_sharing_a_term(self, label):
         tenant, workspace, ctx = seed_workspace(label)

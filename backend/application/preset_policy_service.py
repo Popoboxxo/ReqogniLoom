@@ -33,6 +33,7 @@ from typing import Any
 from uuid import UUID
 
 from auth_tenancy.context import AuthContext
+from presets.exceptions import CrossTenantWorkspaceError
 
 logger = logging.getLogger(__name__)
 
@@ -103,16 +104,27 @@ class PresetPolicyService:
 
         IF-AS-INT-008. REQ-L3-PPL-002.
         Extended/Enhanced presets require a change_reason on every update.
+
+        APP-003 fail-closed: a legitimate cross-tenant access attempt
+        (:class:`CrossTenantWorkspaceError`) is re-raised unchanged so the
+        tenant guard (SA-15) is not diluted. Any other lookup failure is
+        logged at WARNING with the workspace id and answered ``True`` — the
+        guarded write degrades to the stricter tier instead of silently
+        skipping the change-reason check. All seven call sites are unchanged.
         """
         try:
             preset = self._get_preset(workspace_id)
             return preset.change_reason == "mandatory"
-        except Exception:
-            logger.exception(
-                "PresetPolicyService: failed to check change_reason for ws=%s",
+        except CrossTenantWorkspaceError:
+            raise
+        except Exception:  # fail closed (APP-003); BLE001 allowed — logged + value returned
+            logger.warning(
+                "PresetPolicyService: failed to check change_reason for ws=%s "
+                "— requiring change_reason (fail-closed)",
                 workspace_id,
+                exc_info=True,
             )
-            return False
+            return True
 
     def is_feature_enabled(self, workspace_id: str, feature_key: str) -> bool:
         """Return True if *feature_key* is enabled by the workspace's preset.
