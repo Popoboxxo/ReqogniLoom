@@ -1054,6 +1054,69 @@ def _may_read_artifact(
     return allowed
 
 
+def _prepopulate_decision_cache(
+    pairs: list[tuple[Any, Any]],
+    ctx: AuthContext | None,
+    roles_cache: dict[str, tuple[str, ...]],
+    decision_cache: dict[tuple[str, str | None], bool],
+) -> None:
+    """Precompute READ decisions for many (workspace, artifact) pairs in bulk.
+
+    PERF-006. Without this, every hit pays its own item-permission lookup (up
+    to two queries) through :func:`_may_read_artifact`. Here all pairs are
+    resolved with ONE item-level query per workspace via
+    :meth:`EffectivePermissionService.resolve_effective_permissions_batch`, so
+    the query count tracks the number of distinct workspaces, not hits.
+
+    Workspaces outside the API key's fence are denied directly, exactly as the
+    per-hit check would, and roles are resolved once per workspace into the
+    shared ``roles_cache``. Any failure is swallowed: the signature-unchanged
+    :func:`_may_read_artifact` fallback then decides every still-uncached pair
+    fail-closed, so a batching problem can never widen visibility.
+    """
+    if ctx is None or not pairs:
+        return
+
+    from application.effective_permission_service import EffectivePermissionService
+    from auth_tenancy.resource_scope import workspace_fence_denial
+    from auth_tenancy.services.authorization import AuthorizationService
+
+    try:
+        fence = getattr(ctx, "api_key_workspace_ids", ())
+        by_workspace: dict[UUID, list[UUID]] = {}
+        for workspace_id, artifact_id in pairs:
+            ws_uuid = _as_uuid(workspace_id)
+            artifact_uuid = _as_uuid(artifact_id) if artifact_id is not None else None
+            if ws_uuid is None or artifact_uuid is None:
+                continue  # let the per-hit fallback resolve unparseable ids
+            if workspace_fence_denial(fence, ws_uuid) is not None:
+                decision_cache[(str(ws_uuid), str(artifact_uuid))] = False
+                continue
+            by_workspace.setdefault(ws_uuid, []).append(artifact_uuid)
+
+        for ws_uuid, artifact_ids in by_workspace.items():
+            ws_key = str(ws_uuid)
+            if ws_key not in roles_cache:
+                roles_cache[ws_key] = AuthorizationService().active_roles_for(
+                    user_id=ctx.user_id, workspace_id=ws_uuid
+                )
+            effective = EffectivePermissionService().resolve_effective_permissions_batch(
+                active_roles=roles_cache[ws_key],
+                user_id=ctx.user_id,
+                workspace_id=ws_uuid,
+                artifact_ids=artifact_ids,
+                level="read",
+            )
+            for artifact_id, decision in effective.items():
+                decision_cache[(ws_key, str(artifact_id))] = decision.is_allowed
+    except Exception:  # noqa: BLE001 — fall back to the fail-closed per-hit path
+        logger.debug(
+            "SearchService: batched visibility lookup failed; "
+            "falling back to per-hit checks",
+            exc_info=True,
+        )
+
+
 def _filter_icd_hits(hits: list[SearchHit], ctx: AuthContext | None) -> list[SearchHit]:
     """Drop ICD hits the caller may not READ or whose Artifact is outdated.
 
@@ -1082,6 +1145,18 @@ def _filter_icd_hits(hits: list[SearchHit], ctx: AuthContext | None) -> list[Sea
 
     roles_cache: dict[str, tuple[str, ...]] = {}
     decision_cache: dict[tuple[str, str | None], bool] = {}
+    # PERF-006: resolve every candidate artifact in one batched lookup before
+    # the loop, so the permission query count does not scale with hit count.
+    _prepopulate_decision_cache(
+        [
+            (row.workspace_id, row.artifact_id)
+            for row in by_id.values()
+            if row.artifact_id is not None
+        ],
+        ctx,
+        roles_cache,
+        decision_cache,
+    )
     kept: list[SearchHit] = []
     for hit in hits:
         row = by_id.get(_as_uuid(hit.id))
@@ -1136,6 +1211,17 @@ def _filter_tracelink_hits(
 
     roles_cache: dict[str, tuple[str, ...]] = {}
     decision_cache: dict[tuple[str, str | None], bool] = {}
+    # PERF-006: one batched lookup for every source/target endpoint. Endpoints
+    # with a dangling FK are skipped here and left to the fail-closed per-hit
+    # fallback (the original loop never touched outdated endpoints either).
+    pairs: list[tuple[Any, Any]] = []
+    for link in links.values():
+        try:
+            pairs.append((link.source.workspace_id, link.source_id))
+            pairs.append((link.target.workspace_id, link.target_id))
+        except Exception:  # noqa: BLE001 — dangling endpoint, let fallback deny
+            continue
+    _prepopulate_decision_cache(pairs, ctx, roles_cache, decision_cache)
     kept: list[SearchHit] = []
     for hit in hits:
         link = links.get(_as_uuid(hit.id))

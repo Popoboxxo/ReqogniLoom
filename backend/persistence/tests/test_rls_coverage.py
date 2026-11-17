@@ -18,6 +18,13 @@ A second, PostgreSQL-only test asserts the same expectation against
 ``pg_policies`` on the live test database, so a migration that declares a
 policy for a misspelled table name is caught too.
 
+A third, equally static guard (R2D-003) checks *uniformity*: every ``CREATE
+POLICY`` in the graph that is not staged must carry the canonical tenant
+predicate in BOTH its ``USING`` and its ``WITH CHECK`` clause. It reads the
+frozen migrations as text only — no live helper is imported into them, so the
+guard cannot be satisfied by refactoring the very statements it is meant to
+police.
+
 Adding a new ``TenantScopedModel``? Ship an RLS migration alongside it (copy the
 shape from ``persistence/0067_rls_remaining_pl_tables.py``). Only add a table to
 :data:`RLS_EXEMPT_TABLES` if it genuinely cannot carry the standard policy, and
@@ -276,6 +283,20 @@ _CREATE_POLICY_RE = re.compile(
     r"CREATE\s+POLICY\s+\S+\s+ON\s+([A-Za-z0-9_]+)", re.IGNORECASE
 )
 
+#: The one predicate shape every non-staged tenant policy must use. Frozen as a
+#: literal here on purpose: importing a live helper would let a helper edit
+#: silently redefine what "uniform" means (R2D-003).
+CANONICAL_TENANT_PREDICATE = (
+    "tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid"
+)
+
+# Whole statement, including both clauses, with the table name captured so a
+# staged table can be skipped. Quoted identifiers (``ON "as_x"``) are accepted.
+_CREATE_POLICY_STATEMENT_RE = re.compile(
+    r"CREATE\s+POLICY\s+\S+\s+ON\s+(?P<table>\"?[A-Za-z0-9_]+\"?)(?P<body>.*?);",
+    re.IGNORECASE | re.DOTALL,
+)
+
 
 def _sql_fragments(sql: object) -> list[str]:
     """Return every SQL string carried by a ``RunSQL`` ``sql``/``reverse_sql``.
@@ -377,6 +398,46 @@ def _CREATE_POLICY_FOR_TABLE_RE(table: str) -> re.Pattern[str]:
     return re.compile(
         rf"CREATE\s+POLICY\s+\S+\s+ON\s+{re.escape(table)}\b.*?;",
         re.IGNORECASE | re.DOTALL,
+    )
+
+
+def _all_policy_statements() -> list[tuple[str, str, str]]:
+    """Every ``CREATE POLICY`` statement in the graph as (migration, table, SQL).
+
+    Only the forward ``sql`` half of a ``RunSQL`` is scanned — that is the
+    statement that ships. ``reverse_sql`` may legitimately restore an older
+    shape and is not the policy a running database carries.
+    """
+    loader = MigrationLoader(None, ignore_no_migrations=True)
+    found: list[tuple[str, str, str]] = []
+    for key, migration in loader.disk_migrations.items():
+        for operation in migration.operations:
+            if not isinstance(operation, RunSQL):
+                continue
+            for fragment in _sql_fragments(operation.sql):
+                for match in _CREATE_POLICY_STATEMENT_RE.finditer(fragment):
+                    table = match.group("table").strip('"')
+                    found.append((f"{key[0]}.{key[1]}", table, match.group(0)))
+    return found
+
+
+def _policy_uses_canonical_predicate(statement: str) -> bool:
+    """True when both clauses of *statement* carry the canonical predicate.
+
+    ``WITH CHECK`` is split first (so the ``USING`` half never absorbs it), then
+    ``USING`` is required to be present. Both halves must contain the exact
+    literal — a mutated GUC name, a missing ``::uuid`` cast or a NULLIF removed
+    on either side fails this check.
+    """
+    parts = re.split(r"\bWITH\s+CHECK\b", statement, maxsplit=1, flags=re.IGNORECASE)
+    if len(parts) != 2:
+        return False
+    using_clause, with_check_clause = parts
+    if not re.search(r"\bUSING\b", using_clause, re.IGNORECASE):
+        return False
+    return (
+        CANONICAL_TENANT_PREDICATE in using_clause
+        and CANONICAL_TENANT_PREDICATE in with_check_clause
     )
 
 
@@ -564,3 +625,66 @@ def test_rls_policies_exist_on_the_live_schema():
         "staged table(s) unexpectedly have FORCE ROW LEVEL SECURITY: "
         f"{sorted(set(RLS_STAGED_TABLES) & forced)}"
     )
+
+
+def test_every_non_staged_policy_uses_the_canonical_tenant_predicate():
+    """R2D-003: one tenant predicate shape across every shipped policy.
+
+    Staged policies (:data:`RLS_STAGED_TABLES`) are excluded — they intentionally
+    prepend a permissive ``GUC IS DISTINCT FROM 'on' OR`` guard and are held to
+    their own contract by ``test_staged_policy_uses_its_declared_guc``. Every
+    other policy must carry the canonical predicate in BOTH clauses; a single
+    hand-edited frozen migration with a drifted GUC, cast or NULLIF is a CI
+    error. Purely static — no database and no live helper involved.
+    """
+    statements = _all_policy_statements()
+    offenders: list[str] = []
+    checked = 0
+    for migration_key, table, statement in statements:
+        if table in RLS_STAGED_TABLES or table in RLS_EXEMPT_TABLES:
+            continue
+        checked += 1
+        if not _policy_uses_canonical_predicate(statement):
+            offenders.append(f"{migration_key} (table {table}): {statement[:240]!r}")
+
+    assert checked > 0, (
+        "no non-staged CREATE POLICY statements were found in the migration "
+        "graph — the uniformity guard would be blind; check the parser regex."
+    )
+    assert not offenders, (
+        "non-staged RLS policies that do not use the canonical tenant predicate "
+        f"({CANONICAL_TENANT_PREDICATE}) in BOTH USING and WITH CHECK:\n"
+        + "\n".join(offenders)
+    )
+
+
+def test_canonical_predicate_guard_rejects_a_mutated_predicate():
+    """Sensitivity check: the uniformity guard must fail on a mutated predicate.
+
+    Runs entirely on an in-memory statement so it proves the guard's strictness
+    without editing any of the ~50 frozen migrations.
+    """
+    statement = (
+        "CREATE POLICY tenant_isolation ON pl_example\n"
+        f"    USING ({CANONICAL_TENANT_PREDICATE})\n"
+        f"    WITH CHECK ({CANONICAL_TENANT_PREDICATE});"
+    )
+    assert _policy_uses_canonical_predicate(statement)
+
+    mutants = [
+        # Wrong GUC name.
+        statement.replace("app.current_tenant", "app.other_tenant"),
+        # Cast dropped in the USING half only.
+        statement.replace("::uuid", "::text", 1),
+        # NULLIF guard removed everywhere (empty GUC would no longer fail closed).
+        statement.replace(
+            "NULLIF(current_setting('app.current_tenant', true), '')",
+            "current_setting('app.current_tenant', true)",
+        ),
+        # WITH CHECK clause renamed away.
+        statement.replace("WITH CHECK", "CHECK"),
+    ]
+    for mutant in mutants:
+        assert not _policy_uses_canonical_predicate(mutant), (
+            f"the uniformity guard accepted a mutated policy predicate: {mutant!r}"
+        )

@@ -169,17 +169,9 @@ class EffectivePermissionService:
             artifact_id=artifact_id,
         )
 
-        # Structured discriminator (issue #722): the item level only takes part
-        # in the merge when an actual rule row was evaluated. It may restrict,
-        # never broaden, so the merge picks the more restrictive level.
-        if item_decision.has_explicit_rule:
-            effective_level = more_restrictive_level(rbac_level, item_decision.level)
-            if effective_level == item_decision.level:
-                effective_reason = item_decision.reason
-            else:
-                effective_reason = rbac_reason
-        else:
-            effective_level, effective_reason = rbac_level, rbac_reason
+        effective_level, effective_reason = self._merge_effective(
+            rbac_level, rbac_reason, item_decision
+        )
 
         return EffectivePermission(
             level=effective_level,
@@ -188,7 +180,104 @@ class EffectivePermissionService:
             queried_level=queried_level,
         )
 
+    def resolve_effective_permissions_batch(
+        self,
+        *,
+        active_roles: Sequence[str],
+        user_id: UUID,
+        workspace_id: UUID,
+        artifact_ids: Sequence[UUID | None],
+        level: str,
+    ) -> dict[UUID | None, EffectivePermission]:
+        """Resolve the effective permission for many artifacts in one workspace.
+
+        PERF-006: the RBAC level is computed once from ``active_roles`` and all
+        item-level decisions are fetched with a single batched query via
+        :meth:`ItemPermissionService.check_permissions_batch`. The merge applied
+        to each id is the exact same :meth:`_merge_effective` the single-item
+        :meth:`resolve_effective_permission` uses, so the two paths cannot
+        diverge.
+
+        Args:
+            active_roles: The caller's (already workspace-resolved) roles.
+            user_id: Subject user of the item-level lookup.
+            workspace_id: Workspace the question is scoped to.
+            artifact_ids: Artifact ids to resolve. ``None`` (workspace-wide
+                question) is supported and resolved via the single-item path.
+            level: Queried level — ``"read"`` or ``"write"``.
+
+        Returns:
+            Mapping keyed by the same ids passed in (``None`` included when
+            present).
+
+        Raises:
+            ValidationError: ``level`` is neither ``"read"`` nor ``"write"``.
+        """
+        queried_level = level.strip().lower() if isinstance(level, str) else ""
+        if queried_level not in QUERYABLE_LEVELS:
+            raise ValidationError(
+                f"Invalid permission level: {level!r}. "
+                f"Expected one of {list(QUERYABLE_LEVELS)}."
+            )
+
+        rbac_level, rbac_reason = self._resolve_rbac_level(active_roles)
+
+        concrete_ids = [
+            artifact_id for artifact_id in artifact_ids if artifact_id is not None
+        ]
+        decisions = self._item_permissions.check_permissions_batch(
+            user_id=user_id,
+            workspace_id=workspace_id,
+            artifact_ids=concrete_ids,
+        )
+
+        result: dict[UUID | None, EffectivePermission] = {}
+        for artifact_id in artifact_ids:
+            if artifact_id is None:
+                item_decision: PermissionDecision = (
+                    self._item_permissions.check_permission(
+                        user_id=user_id,
+                        workspace_id=workspace_id,
+                        artifact_id=None,
+                    )
+                )
+            else:
+                item_decision = decisions[artifact_id]
+            effective_level, effective_reason = self._merge_effective(
+                rbac_level, rbac_reason, item_decision
+            )
+            result[artifact_id] = EffectivePermission(
+                level=effective_level,
+                reason=effective_reason,
+                is_allowed=level_satisfies_level(effective_level, queried_level),
+                queried_level=queried_level,
+            )
+        return result
+
     # -- Helpers ----------------------------------------------------------
+
+    @staticmethod
+    def _merge_effective(
+        rbac_level: str,
+        rbac_reason: str,
+        item_decision: PermissionDecision,
+    ) -> tuple[str, str]:
+        """Combine the RBAC level with one item-level decision.
+
+        Shared verbatim by the single-item and batch resolvers (PERF-006) so the
+        merge cannot drift. Structured discriminator (issue #722): the item
+        level only takes part when an actual rule row was evaluated; it may
+        restrict, never broaden, so the merge picks the more restrictive level.
+        """
+        if item_decision.has_explicit_rule:
+            effective_level = more_restrictive_level(rbac_level, item_decision.level)
+            if effective_level == item_decision.level:
+                effective_reason = item_decision.reason
+            else:
+                effective_reason = rbac_reason
+        else:
+            effective_level, effective_reason = rbac_level, rbac_reason
+        return effective_level, effective_reason
 
     def _resolve_rbac_level(self, active_roles: Sequence[str]) -> tuple[str, str]:
         """Collapse the RBAC matrix into the caller's strongest granted level.

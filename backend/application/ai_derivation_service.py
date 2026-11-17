@@ -539,6 +539,15 @@ PROMPT_TEMPLATE_DEFAULTS: dict[str, str] = {
 # Cache time-to-live for a derivation result, in seconds (1 hour).
 DERIVATION_CACHE_TTL_SECONDS = 3600
 
+# TTL of the per-artifact cache-generation counter (PERF-009). It MUST stay
+# clearly longer than the result TTL: otherwise the counter can expire while a
+# result it namespaces is still live, a fresh read recreates it at the default
+# generation (1) and that stale result becomes reachable again. Redis runs with
+# ``noeviction``, so a counter without *any* TTL would also accumulate one key
+# per artifact forever. 24h vs. 1h leaves a wide margin, and the counter is
+# renewed on every read and on every invalidation below.
+DERIVATION_VERSION_TTL_SECONDS = 24 * 60 * 60
+
 # Shared-cache key namespace for cached derivation results.
 _DERIVATION_CACHE_PREFIX = "llm_derivation"
 
@@ -602,16 +611,37 @@ def _derivation_version(artifact_id: str) -> int:
 
     The counter is folded into the cache key so bumping it (on artifact update)
     orphans every previously cached derivation for that artifact in O(1); the
-    orphaned entries then expire naturally via their TTL. This pattern is used
-    because the built-in ``RedisCache`` backend offers no pattern deletion.
+    orphaned entries then expire naturally via their own shorter TTL. This
+    pattern is used because the built-in ``RedisCache`` backend offers no
+    pattern deletion.
+
+    PERF-009: the counter carries a TTL longer than a result's TTL and that TTL
+    is renewed on *every* read (not only on creation). A counter expiring while
+    a result it namespaced were still live would reset to generation 1 and
+    resurrect that stale result; renewing here keeps the counter alive for as
+    long as the artifact is being read.
+
+    S2.2-01 (TOCTOU): renewal uses :meth:`django.core.cache.BaseCache.touch`,
+    which changes only the expiry, never the value. Re-writing the observed
+    value with ``set()`` on a read races :func:`invalidate_derivation_cache`:
+    a reader that observed v1 could overwrite a concurrent invalidate's v2 and
+    resurrect v1 results. ``set()`` is used only when no counter exists yet.
     """
     version_key = f"{_DERIVATION_VERSION_PREFIX}:{artifact_id}"
     version = cache.get(version_key)
     if version is None:
-        version = 1
-        # No expiry: the counter must outlive the results it namespaces.
-        cache.set(version_key, version, None)
-    return int(version)
+        # No counter yet: create generation 1 with a bounded TTL. There is no
+        # existing value that a concurrent invalidate could have bumped.
+        cache.set(version_key, 1, DERIVATION_VERSION_TTL_SECONDS)
+        return 1
+    version = int(version)
+    # Renew only the expiry. touch() cannot change the value, so a concurrent
+    # invalidate() bump is never overwritten by this read. Some backends report
+    # a missing/expired key by returning False; recreate it then, but still
+    # never with a value observed before a possible invalidate.
+    if not cache.touch(version_key, DERIVATION_VERSION_TTL_SECONDS):
+        cache.set(version_key, version, DERIVATION_VERSION_TTL_SECONDS)
+    return version
 
 
 def _derivation_cache_key(
@@ -770,6 +800,12 @@ def invalidate_derivation_cache(artifact_id: UUID | str | None) -> None:
     entries become unreachable. Never raises: invalidation must not break the
     write that triggered it.
 
+    S2.2-01: ``incr()`` is the only value write on the existing-counter path.
+    Writing its return value back with ``set()`` would let two interleaved
+    invalidations land out of order and leave the *lower* counter, undoing the
+    newer invalidation. ``touch()`` renews the expiry without touching the
+    value; ``set()`` is reserved for the absent-counter fallback below.
+
     Args:
         artifact_id: Source artifact primary key (UUID or string). ``None`` is
             a no-op.
@@ -778,11 +814,20 @@ def invalidate_derivation_cache(artifact_id: UUID | str | None) -> None:
         return
     version_key = f"{_DERIVATION_VERSION_PREFIX}:{artifact_id}"
     try:
-        cache.incr(version_key)
-    except ValueError:
-        # Counter absent (nothing cached yet) — start past the default
-        # generation so any concurrently written entry is superseded.
-        cache.set(version_key, 2, None)
+        try:
+            cache.incr(version_key)
+        except ValueError:
+            # Counter absent (nothing cached yet) — start past the default
+            # generation so any concurrently written entry is superseded.
+            # No concurrent value exists here that could be rolled back.
+            cache.set(version_key, 2, DERIVATION_VERSION_TTL_SECONDS)
+        else:
+            # Redis INCR preserves an existing TTL, but an explicit touch()
+            # renews it and also covers backends whose incr() drops the
+            # expiry. Never write the incr() result back: two concurrent
+            # invalidations could otherwise land out of order and leave the
+            # lower value, resurrecting stale results (S2.2-01).
+            cache.touch(version_key, DERIVATION_VERSION_TTL_SECONDS)
     except Exception:  # pragma: no cover - defensive; cache backend down
         logger.warning(
             "Failed to invalidate derivation cache for artifact %s",

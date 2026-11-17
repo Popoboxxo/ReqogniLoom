@@ -693,3 +693,153 @@ def test_unique_constraint_blocks_duplicate_triple(
                     permission_level=ITEM_PERMISSION_WRITE,
                     granted_by_id=user_a.id,
                 )
+
+
+# ---------------------------------------------------------------------------
+# PERF-006 — check_permissions_batch (S2.2 part B)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_check_permissions_batch_matches_single_checks(
+    admin_ctx, tenant_a, user_a, workspace_a, artifact_a
+):
+    """Batch decisions are byte-identical to per-id check_permission results.
+
+    The matrix covers the three resolution branches (artifact rule, workspace
+    wide fallback, closed-world default) plus explicit deny — the batch helper
+    must not change who is allowed to read what.
+    """
+    from persistence.models import Artifact
+
+    svc = ItemPermissionService()
+    with active_tenant(tenant_a):
+        artifact_denied = Artifact.objects.create(
+            tenant=tenant_a, workspace=workspace_a, artifact_type="requirement"
+        )
+        artifact_default = Artifact.objects.create(
+            tenant=tenant_a, workspace=workspace_a, artifact_type="requirement"
+        )
+        svc.grant_permission(
+            admin_ctx,
+            user_id=user_a.id,
+            workspace_id=workspace_a.id,
+            artifact_id=artifact_a.id,
+            level=ITEM_PERMISSION_READ,
+            granted_by_user_id=user_a.id,
+        )
+        svc.grant_permission(
+            admin_ctx,
+            user_id=user_a.id,
+            workspace_id=workspace_a.id,
+            artifact_id=artifact_denied.id,
+            level=ITEM_PERMISSION_NONE,
+            granted_by_user_id=user_a.id,
+        )
+        svc.grant_permission(
+            admin_ctx,
+            user_id=user_a.id,
+            workspace_id=workspace_a.id,
+            artifact_id=None,  # workspace-wide fallback
+            level=ITEM_PERMISSION_WRITE,
+            granted_by_user_id=user_a.id,
+        )
+
+        ids = [artifact_a.id, artifact_denied.id, artifact_default.id]
+
+        PermissionCache.clear_thread()
+        batched = svc.check_permissions_batch(
+            user_id=user_a.id, workspace_id=workspace_a.id, artifact_ids=ids
+        )
+        PermissionCache.clear_thread()
+        singles = {
+            artifact_id: svc.check_permission(
+                user_id=user_a.id,
+                workspace_id=workspace_a.id,
+                artifact_id=artifact_id,
+            )
+            for artifact_id in ids
+        }
+
+    assert batched == singles
+    assert batched[artifact_a.id].level == ITEM_PERMISSION_READ
+    assert batched[artifact_denied.id].level == "deny"
+    assert batched[artifact_denied.id].has_explicit_rule is True
+    assert batched[artifact_default.id].level == ITEM_PERMISSION_WRITE
+    assert "workspace-wide" in batched[artifact_default.id].reason
+
+
+@pytest.mark.django_db
+def test_check_permissions_batch_issues_single_query(
+    admin_ctx, tenant_a, user_a, workspace_a
+):
+    """One SELECT covers any number of artifacts, independent of hit count."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    svc = ItemPermissionService()
+    with active_tenant(tenant_a):
+        PermissionCache.clear_thread()
+        with CaptureQueriesContext(connection) as captured:
+            svc.check_permissions_batch(
+                user_id=user_a.id,
+                workspace_id=workspace_a.id,
+                artifact_ids=[uuid4() for _ in range(20)],
+            )
+    assert len(captured) == 1
+
+
+@pytest.mark.django_db
+def test_check_permissions_batch_honors_per_key_cache(
+    admin_ctx, tenant_a, user_a, workspace_a, artifact_a
+):
+    """A per-key cache hit is served without adding that key to the query,
+    and the batch result is written back for subsequent single checks."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    svc = ItemPermissionService()
+    with active_tenant(tenant_a):
+        PermissionCache.clear_thread()
+        # Warm the cache for artifact_a via the single-item path.
+        svc.check_permission(
+            user_id=user_a.id,
+            workspace_id=workspace_a.id,
+            artifact_id=artifact_a.id,
+        )
+        other_id = uuid4()
+        with CaptureQueriesContext(connection) as captured:
+            batched = svc.check_permissions_batch(
+                user_id=user_a.id,
+                workspace_id=workspace_a.id,
+                artifact_ids=[artifact_a.id, other_id],
+            )
+        assert len(captured) == 1  # only the uncached key needed a query
+        assert batched[artifact_a.id] == svc._cache.get(
+            user_id=user_a.id,
+            workspace_id=workspace_a.id,
+            artifact_id=artifact_a.id,
+        )
+        assert batched[other_id] == svc._cache.get(
+            user_id=user_a.id,
+            workspace_id=workspace_a.id,
+            artifact_id=other_id,
+        )
+
+
+@pytest.mark.django_db
+def test_check_permissions_batch_empty_ids_no_query(
+    admin_ctx, tenant_a, user_a, workspace_a
+):
+    """An empty id list returns {} and issues no query."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    svc = ItemPermissionService()
+    with active_tenant(tenant_a):
+        with CaptureQueriesContext(connection) as captured:
+            result = svc.check_permissions_batch(
+                user_id=user_a.id, workspace_id=workspace_a.id, artifact_ids=[]
+            )
+    assert result == {}
+    assert len(captured) == 0
