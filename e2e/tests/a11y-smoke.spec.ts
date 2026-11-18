@@ -487,6 +487,17 @@ test.describe('[REQ-056] Automated axe gate (Phase 6.8) @a11y', () => {
     const count = await focusables.count();
     expect(count).toBeGreaterThanOrEqual(2);
 
+    // Test ids of every control in the dialog, in DOM order. The close button
+    // carries tabIndex={-1} (issue #800): it is programmatically focusable but
+    // deliberately excluded from the trap's Tab cycle, so "first focusable in
+    // the DOM" is not necessarily "first stop in the trap". Do not assume a
+    // specific id/order — assert membership instead.
+    const focusableTestIds = await focusables.evaluateAll((els) =>
+      els
+        .map((el) => el.getAttribute('data-testid'))
+        .filter((id): id is string => Boolean(id)),
+    );
+
     const activeInfo = () =>
       page.evaluate(() => {
         const el = document.activeElement as HTMLElement | null;
@@ -509,7 +520,22 @@ test.describe('[REQ-056] Automated axe gate (Phase 6.8) @a11y', () => {
     await page.keyboard.press('Shift+Tab');
     const back = await activeInfo();
     expect(back.inDialog).toBe(true);
-    expect(back.testid).toBe(first.testid);
+    // The close button carries tabIndex={-1} (issue #800): it is
+    // programmatically focusable but deliberately excluded from the focus
+    // trap's Tab cycle. Starting from it, Tab -> refresh and Shift+Tab
+    // therefore wraps to the trap's last stop (done) instead of returning to
+    // the close button. That is correct WCAG behaviour — the requirement is
+    // that focus stays inside the dialog on a real control, not that it lands
+    // on a hard-coded id. Assert membership rather than a fixed order.
+    expect(focusableTestIds).toContain(back.testid);
+    // Reversibility without assuming a DOM order: inside the trap Tab and
+    // Shift+Tab are inverse operations, so pressing Tab again must land back
+    // on the element reached by the first Tab. This holds whether the trap
+    // wraps or moves natively among its stops.
+    await page.keyboard.press('Tab');
+    const secondAgain = await activeInfo();
+    expect(secondAgain.inDialog).toBe(true);
+    expect(secondAgain.testid).toBe(second.testid);
 
     // Trap: cycling one extra Tab beyond the focusable count must not escape.
     const seen: Array<string | null> = [];
@@ -521,7 +547,11 @@ test.describe('[REQ-056] Automated axe gate (Phase 6.8) @a11y', () => {
     }
 
     await testInfo.attach('dialog-keyboard', {
-      body: JSON.stringify({ count, first, second, back, tabCycle: seen }, null, 2),
+      body: JSON.stringify(
+        { count, focusableTestIds, first, second, back, secondAgain, tabCycle: seen },
+        null,
+        2,
+      ),
       contentType: 'application/json',
     });
 
