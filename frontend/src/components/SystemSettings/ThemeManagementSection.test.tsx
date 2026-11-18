@@ -149,6 +149,22 @@ describe("ThemeManagementSection", () => {
       expect(screen.getByTestId("tenant-default-picker")).toBeInTheDocument();
     });
 
+    it("gives both tenant-default selects an accessible name (axe select-name)", async () => {
+      render(<ThemeManagementSection />);
+      await screen.findByTestId("theme-row-default");
+
+      // axe `select-name` (critical): the visible "Tenant-Standard:" caption is
+      // a <span>, so neither native <select> had an accessible name. The
+      // per-control aria-label is now the name — assert via the role query so
+      // a regression back to an unnamed combobox fails here.
+      expect(
+        screen.getByRole("combobox", { name: "Tenant-Standard-Palette" })
+      ).toBe(screen.getByTestId("tenant-default-palette-select"));
+      expect(
+        screen.getByRole("combobox", { name: "Tenant-Standard-Modus" })
+      ).toBe(screen.getByTestId("tenant-default-mode-select"));
+    });
+
     it("saves a new tenant default when changed", async () => {
       render(<ThemeManagementSection />);
       await screen.findByTestId("theme-row-default");

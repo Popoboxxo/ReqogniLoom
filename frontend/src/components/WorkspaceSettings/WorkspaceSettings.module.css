@@ -87,7 +87,13 @@
 
 .tab[aria-selected="true"] {
   border-bottom-color: var(--color-primary);
-  color: var(--color-text);
+  /* A11Y-002 (WCAG 1.4.3, axe color-contrast on #settings-tab-general): the
+     active tab keeps the global `.btn-tab[aria-selected="true"]` fill of
+     --color-primary, so its label must be the text colour designed for THAT
+     fill (--color-on-primary), not --color-text. Painting --color-text on the
+     primary fill measured 2.84:1 (light), 4.26:1 (nordic) and 2.26:1 (sepia),
+     all below AA; --color-on-primary clears AA in every theme. */
+  color: var(--color-on-primary);
   font-weight: var(--weight-semibold);
 }
 

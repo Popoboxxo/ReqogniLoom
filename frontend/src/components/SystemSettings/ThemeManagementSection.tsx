@@ -275,6 +275,7 @@ export function ThemeManagementSection(): JSX.Element {
         <select
           data-testid="tenant-default-palette-select"
           className="field-select"
+          aria-label={t("systemSettings.themes.tenantDefaultPaletteSelectLabel")}
           value={tenantDefaultKey}
           onChange={(e) => selectTenantDefaultKey(e.target.value)}
         >
@@ -287,6 +288,7 @@ export function ThemeManagementSection(): JSX.Element {
         <select
           data-testid="tenant-default-mode-select"
           className="field-select"
+          aria-label={t("systemSettings.themes.tenantDefaultModeSelectLabel")}
           value={tenantDefaultMode}
           onChange={(e) => selectTenantDefaultMode(e.target.value as ThemeMode)}
         >

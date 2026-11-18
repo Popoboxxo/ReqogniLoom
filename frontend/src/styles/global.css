@@ -49,6 +49,15 @@ a:hover {
   color: var(--color-link-hover);
 }
 
+/* A11Y-003 / WCAG 2.1 SC 1.4.1 (Use of Color): hover and keyboard focus must
+ * also carry a non-colour signal. The base `a` rule above strips the
+ * underline, so both interaction states restore it here. The `:focus-visible`
+ * rule further down adds the outline ring; this underline complements it. */
+a:hover,
+a:focus-visible {
+  text-decoration: underline;
+}
+
 button {
   cursor: pointer;
   font-family: var(--font-sans);

@@ -28,7 +28,11 @@ import {
 } from "@xyflow/react";
 import { AlertCircle, Pencil, Workflow } from "lucide-react";
 import type { WorkflowEntityType, WorkflowGraph } from "../../api/workflows";
-import { layoutWorkflow } from "./layout";
+import {
+  layoutWorkflow,
+  MIN_CANVAS_ZOOM,
+  resolveEdgeLabelOffsets,
+} from "./layout";
 import type { StateFlowNode, TransitionFlowEdge } from "./layout";
 import { StateNode } from "./StateNode";
 import { TransitionEdge } from "./TransitionEdge";
@@ -122,14 +126,20 @@ function CanvasInner({
     [base.nodes, selection, positions, editMode, onRenameState]
   );
 
-  const edges: TransitionFlowEdge[] = useMemo(
-    () =>
-      base.edges.map((e) => ({
-        ...e,
-        selected: selection.kind === "transition" && selection.id === e.id,
-      })),
-    [base.edges, selection]
-  );
+  const edges: TransitionFlowEdge[] = useMemo(() => {
+    const selected = base.edges.map((e) => ({
+      ...e,
+      selected: selection.kind === "transition" && selection.id === e.id,
+    }));
+    // Run on the FINAL node positions (persisted layouts included) so every
+    // label target keeps its 24px clearance from its neighbours and from the
+    // state node boxes — axe's `target-size` spacing exception (layout.ts).
+    const offsets = resolveEdgeLabelOffsets(selected, nodes);
+    return selected.map((e) => ({
+      ...e,
+      data: { ...e.data!, labelOffset: offsets.get(e.id) ?? { x: 0, y: 0 } },
+    }));
+  }, [base.edges, selection, nodes]);
 
   // Re-fit whenever the machine (node set) changes.
   useEffect(() => {
@@ -236,7 +246,10 @@ function CanvasInner({
         onNodeDragStop={handleNodeDragStop}
         fitView
         fitViewOptions={{ padding: 0.2 }}
-        minZoom={0.2}
+        // WCAG 2.2 SC 2.5.8: the 24px CSS floors on .edgeLabel/.stateNode are
+        // flow pixels — React Flow's viewport scale(z) shrinks them on screen.
+        // A zoom floor of 1 keeps them >=24 rendered px (see MIN_CANVAS_ZOOM).
+        minZoom={MIN_CANVAS_ZOOM}
         maxZoom={2}
         nodesDraggable={editMode}
         nodesConnectable={editMode}

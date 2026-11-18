@@ -30,6 +30,17 @@
   overflow-wrap: anywhere;
 }
 
+/* A11Y-003 / WCAG 2.1 SC 1.4.1 (Use of Color): the global `a` rule removes
+ * text-decoration, so react-markdown links in both the edit preview and the
+ * read-only document view would otherwise be distinguished from prose by
+ * colour alone. Underline them here — a non-colour signal in the resting
+ * state, not just on hover/focus. */
+.previewBox a,
+.readOnlyBody a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .readOnlyBody > :first-child {
   margin-top: 0;
 }

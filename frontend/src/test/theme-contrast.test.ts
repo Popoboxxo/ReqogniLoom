@@ -45,6 +45,15 @@ const TOKENS_FILE = join(resolve(__dirname, ".."), "styles", "tokens.css");
 /** WCAG 2.1 AA minimum for normal-size text. */
 const AA_MIN_RATIO = 4.5;
 
+/**
+ * WCAG 2.1 SC 1.4.11 minimum for non-text UI components / graphical objects,
+ * including the keyboard focus indicator (axe does NOT audit this, so an
+ * axe-green suite can still hide a real AA violation). Kept deliberately
+ * separate from `AA_MIN_RATIO` — a focus ring is not text and must never be
+ * held to (or excused by) the 4.5:1 text floor.
+ */
+const NON_TEXT_MIN_RATIO = 3;
+
 /** Every theme id the app ships (`dark` lives on the bare `:root` block). */
 const THEME_IDS = ["dark", "light", "bauhaus", "nordic", "sepia"] as const;
 type ThemeId = (typeof THEME_IDS)[number];
@@ -478,6 +487,32 @@ describe("WCAG AA contrast per theme (theming phase 3, Task 3, #568)", () => {
 });
 
 /* ==========================================================================
+ * A11Y-004 / WCAG 2.1 SC 1.4.11 — keyboard focus-ring non-text contrast.
+ *
+ * `global.css` paints the focus ring as `outline: 2px solid var(--color-focus)`.
+ * SC 1.4.11 requires that indicator to clear 3:1 against the adjacent
+ * background. axe does not check this, so the 4.5:1 text-pair suite above can
+ * be fully green while this is broken — hence a dedicated non-text floor.
+ * Both backdrops are asserted: the ring is drawn on the page surface and
+ * inside cards/rails on `--color-surface-raised`.
+ * ========================================================================== */
+describe("focus-ring non-text contrast (WCAG 2.1 SC 1.4.11, A11Y-004)", () => {
+  it.each(THEME_IDS)("theme '%s': --color-focus clears 3:1 on every focus backdrop", (themeId) => {
+    const onSurface = measure(themeId, "--color-focus", "--color-surface");
+    expect(
+      onSurface,
+      `theme '${themeId}': --color-focus on --color-surface measures ${onSurface}:1, below the SC 1.4.11 non-text minimum of ${NON_TEXT_MIN_RATIO}:1`,
+    ).toBeGreaterThanOrEqual(NON_TEXT_MIN_RATIO);
+
+    const onRaised = measure(themeId, "--color-focus", "--color-surface-raised");
+    expect(
+      onRaised,
+      `theme '${themeId}': --color-focus on --color-surface-raised measures ${onRaised}:1, below the SC 1.4.11 non-text minimum of ${NON_TEXT_MIN_RATIO}:1`,
+    ).toBeGreaterThanOrEqual(NON_TEXT_MIN_RATIO);
+  });
+});
+
+/* ==========================================================================
  * #1280 — primary-as-text readability ratchet
  *
  * The token half of the fix lives in `CONTRAST_PAIRS` above; this suite is
@@ -704,5 +739,101 @@ describe.each(["bauhaus", "nordic", "sepia"])("%s light mode contrast", (palette
         parseColor(tokens["--color-primary"])
       )
     ).toBeGreaterThanOrEqual(AA_MIN_RATIO);
+  });
+});
+
+/* ==========================================================================
+ * A11Y-002 (S3.3 gate expansion) — call-site ratchets for the five live axe
+ * color-contrast findings. The token-pair half already lives in CONTRAST_PAIRS
+ * / the primary-text ratchet above; these pin the CALL SITES the gate named,
+ * so a later edit cannot silently put a fill colour back as text.
+ *
+ * jsdom cannot measure rendered contrast; the measured-ratio assertions below
+ * use the real tokens.css values (same resolver as the rest of this file),
+ * which is the strongest check available without a browser paint.
+ * ========================================================================== */
+const COMPONENTS_DIR = join(resolve(__dirname, ".."), "components");
+
+/** Regex-escape every metacharacter so attribute selectors (`[x="y"]`) match
+ *  literally — the older `rulesFor` helper only escapes dots. */
+function cssBlock(source: string, selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{([^}]*)\\}`).exec(source);
+  if (match === null) throw new Error(`no CSS rule for ${selector}`);
+  return match[1];
+}
+
+describe("A11Y-002 /settings active tab contrast (axe #settings-tab-general)", () => {
+  const css = readFileSync(
+    join(COMPONENTS_DIR, "WorkspaceSettings", "WorkspaceSettings.module.css"),
+    "utf-8",
+  );
+  const activeTab = cssBlock(css, '.tab[aria-selected="true"]');
+
+  it("paints the active tab label with --color-on-primary, not --color-text", () => {
+    expect(activeTab).toMatch(/color:\s*var\(--color-on-primary\)/);
+    expect(activeTab).not.toMatch(/(?:^|;)\s*color:\s*var\(--color-text\)\s*;/);
+  });
+
+  it("--color-on-primary clears AA on the primary fill in every theme", () => {
+    for (const themeId of THEME_IDS) {
+      const ratio = measure(themeId, "--color-on-primary", "--color-primary");
+      expect(
+        ratio,
+        `theme '${themeId}': --color-on-primary on --color-primary measures ${ratio}:1`,
+      ).toBeGreaterThanOrEqual(AA_MIN_RATIO);
+    }
+  });
+});
+
+describe("A11Y-002 /settings token link contrast (axe ._tokenLink_*)", () => {
+  const source = readFileSync(
+    join(COMPONENTS_DIR, "WorkspaceSettings", "McpConnectionSection.tsx"),
+    "utf-8",
+  );
+  const linkStyle = /const linkStyle[\s\S]*?\n};/.exec(source)?.[0] ?? "";
+
+  it("paints the personal-access-token link with --color-primary-text, not --color-primary", () => {
+    expect(linkStyle).toMatch(/color:\s*"var\(--color-primary-text\)"/);
+    expect(linkStyle).not.toMatch(/color:\s*"var\(--color-primary\)"/);
+  });
+
+  it("--color-primary-text clears AA on the page surface in every theme", () => {
+    for (const themeId of THEME_IDS) {
+      const ratio = measure(themeId, "--color-primary-text", "--color-surface");
+      expect(
+        ratio,
+        `theme '${themeId}': --color-primary-text on --color-surface measures ${ratio}:1`,
+      ).toBeGreaterThanOrEqual(AA_MIN_RATIO);
+    }
+  });
+});
+
+describe("A11Y-002 /workflows entity count contrast (axe .entityItemActive > .entityItemCount)", () => {
+  const css = readFileSync(
+    join(COMPONENTS_DIR, "WorkflowEditor", "WorkflowEditor.module.css"),
+    "utf-8",
+  );
+  const count = cssBlock(css, ".entityItemCount");
+
+  it("paints the count with --color-text, not --color-text-muted", () => {
+    expect(count).toMatch(/color:\s*var\(--color-text\)/);
+    expect(count).not.toMatch(/(?:^|;)\s*color:\s*var\(--color-text-muted\)\s*;/);
+  });
+
+  it("clears AA on the active-item fill over the panel surface in every theme", () => {
+    for (const themeId of THEME_IDS) {
+      const ratio = measure(
+        themeId,
+        "--color-text",
+        "--color-card-active-bg",
+        "--color-surface-raised",
+      );
+      expect(
+        ratio,
+        `theme '${themeId}': --color-text on --color-card-active-bg over ` +
+          `--color-surface-raised measures ${ratio}:1`,
+      ).toBeGreaterThanOrEqual(AA_MIN_RATIO);
+    }
   });
 });
