@@ -440,6 +440,8 @@ jobs:
           scripts/tests/test_se_review_lifecycle.py
           scripts/tests/test_normative_path_refs.py
           scripts/tests/test_adr_naming.py
+          scripts/tests/test_deploy_image_pins.py
+          scripts/tests/test_compose_resource_limits.py
 
       - name: Check .env.example covers every compose/settings key
         # #1737: a key used by Compose or read by settings.py must be documented

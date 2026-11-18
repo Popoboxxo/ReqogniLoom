@@ -40,11 +40,11 @@ concurrency:
   group: docker-publish-${{ github.ref }}
   cancel-in-progress: false
 
+# OPS-009 (S5.2 WP-2): least privilege at workflow level. Elevated scopes are
+# granted ONLY to `build-and-push` below (SBOM/attestation/cosign/upload-sarif).
+# The read-only jobs must not inherit `packages: write` / `security-events: write`.
 permissions:
   contents: read
-  packages: write
-  # H2: upload-sarif needs security-events:write
-  security-events: write
 
 jobs:
   # SEC-08 / AUD-2026-09-137 / OPS-002: publish may not start before CI
@@ -56,6 +56,12 @@ jobs:
   # pipeline; ci.yml declares FIELD_ENCRYPTION_KEY as required.
   ci:
     name: "CI gate"
+    # OPS-009: a reusable-workflow caller may cap, but never elevate, the
+    # permissions of the called workflow. ci.yml itself declares `contents:
+    # read` at workflow level and for every job, so this is a true least-
+    # privilege cap with no functional change to the CI gate.
+    permissions:
+      contents: read
     uses: ./.github/workflows/ci.yml
     secrets:
       FIELD_ENCRYPTION_KEY: ${{ secrets.FIELD_ENCRYPTION_KEY }}
@@ -70,11 +76,82 @@ jobs:
     name: "Release consistency gates"
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # OPS-009: this job only reads the checkout and the checked-in manifests.
+    # Explicit read-only scope; no packages/security-events write inherited.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
+
+      # OPS-009 / OPS-007: static self-guard for the invariants introduced by
+      # S5.2 WP-2. It reads the checked-out workflow file (no new deps, Python
+      # stdlib only) and fails the release before any build/publish if the
+      # least-privilege scopes or the staging preflight regress.
+      - name: Invariant guard - least privilege + staging preflight
+        run: |
+          python3 - <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          path = Path(".github/workflows/docker-publish.yml")
+          if not path.is_file():
+              print("GUARD FAIL: workflow file not found", file=sys.stderr)
+              sys.exit(1)
+          text = path.read_text(encoding="utf-8")
+          failures = []
+
+          # 1) Workflow-level scope must be read-only.
+          block = re.search(r"(?ms)^permissions:[ \t]*\r?\n(?P<body>.*?)(?=^jobs:|\Z)", text)
+          if not block:
+              failures.append("no workflow-level permissions block")
+          else:
+              body = block.group("body")
+              if "contents: read" not in body:
+                  failures.append("workflow-level permissions missing contents: read")
+              for forbidden in ("packages: write", "security-events: write"):
+                  if re.search(r"(?m)^[ \t]*" + re.escape(forbidden) + r"[ \t]*$", body):
+                      failures.append("workflow-level permissions still grant " + forbidden)
+
+          def job_block(name):
+              m = re.search(r"(?ms)^  " + re.escape(name) + r":[ \t]*\r?\n(?P<body>.*?)(?=^  [A-Za-z_][\w-]*:|\Z)", text)
+              return m.group("body") if m else None
+
+          # 2) Each read-only job carries an explicit contents: read.
+          for job in ("ci", "release-gates", "staging-gate"):
+              jb = job_block(job)
+              if jb is None:
+                  failures.append("job " + job + " not found")
+                  continue
+              pm = re.search(r"(?ms)^    permissions:[ \t]*\r?\n(?P<body>.*?)(?=^    [A-Za-z_][\w-]*:|\Z)", jb)
+              if not pm:
+                  failures.append("job " + job + " has no explicit permissions block")
+              elif not re.search(r"(?m)^[ \t]*contents: read[ \t]*$", pm.group("body")):
+                  failures.append("job " + job + " permissions missing contents: read")
+
+          # 3) staging-gate preflight step must check required_reviewers.
+          sg = job_block("staging-gate") or ""
+          pre = re.search(r"(?ms)^      - name:[^\n]*[Pp]reflight[^\n]*\r?\n(?P<body>.*?)(?=^      - name:|^    [A-Za-z_]|\Z)", sg)
+          if not pre:
+              failures.append("staging-gate has no preflight step")
+          elif "required_reviewers" not in pre.group("body"):
+              failures.append("staging-gate preflight step does not reference required_reviewers")
+
+          # 4) build-and-push must keep its elevated scopes (no regression).
+          bp = job_block("build-and-push") or ""
+          for needed in ("packages: write", "security-events: write", "id-token: write", "attestations: write"):
+              if not re.search(r"(?m)^[ \t]*" + re.escape(needed) + r"[ \t]*$", bp):
+                  failures.append("build-and-push lost " + needed)
+
+          if failures:
+              for failure in failures:
+                  print("GUARD FAIL: " + failure, file=sys.stderr)
+              sys.exit(1)
+          print("GUARD OK: least privilege + staging preflight invariants hold")
+          PY
 
       - name: Install renderer dependency
         run: pip install --disable-pip-version-check pyyaml
@@ -105,19 +182,47 @@ jobs:
       - name: Client artifacts render check (#1353)
         run: python scripts/clients/render.py --check
 
-  # SEC-08 / AUD-2026-09-149: approval gate between CI and the production
-  # publish. This job must be protected by a `staging` environment with required
-  # reviewers (Repository Settings -> Environments -> staging). Until reviewers
-  # are configured GitHub auto-approves, so the gate is a no-op; the environment
-  # reference and the required-reviewer configuration together are the gate.
+  # SEC-08 / AUD-2026-09-149 / OPS-007 (S5.2 WP-2): approval gate between CI and
+  # the production publish. `environment: staging` alone is NOT a gate: environment
+  # protection is configured in Repository Settings (not versioned in git), and a
+  # fresh fork/clone has no reviewers, so GitHub auto-approves. The preflight step
+  # below therefore FAILS CLOSED unless the `staging` environment really carries a
+  # `required_reviewers` protection rule.
+  # Required repo setting: Settings > Environments > staging > Required reviewers
+  # (at least one user or team). If this is missing, publishing is blocked.
+  # No production environment is declared here (that is WP-3's scope).
   staging-gate:
     name: "Staging approval gate"
     needs: [ci, release-gates]
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # OPS-009: read-only scopes only. `actions: read` is required by
+    # GET /repos/{owner}/{repo}/environments/{environment_name} (fine-grained
+    # "Actions: read"); GITHUB_TOKEN with only `contents: read` gets 403 on a
+    # private repo. `secrets.GITHUB_TOKEN` is used for the preflight below, with
+    # no elevated scope granted.
+    permissions:
+      contents: read
+      actions: read
     environment:
       name: staging
     steps:
+      # OPS-007 preflight: fail closed when the environment is unprotected.
+      # GH_TOKEN is picked up by the preinstalled `gh` CLI; no extra dependency.
+      - name: Preflight - staging requires reviewers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          protected="$(gh api "/repos/${GITHUB_REPOSITORY}/environments/staging" \
+            --jq '.protection_rules // [] | any(.type == "required_reviewers")')"
+          if [[ "$protected" != "true" ]]; then
+            echo "ERROR: 'staging' environment has no required_reviewers protection rule." >&2
+            echo "Configure: Repository Settings > Environments > staging > Required reviewers." >&2
+            echo "Failing closed: publishing without a configured approval gate is not allowed." >&2
+            exit 1
+          fi
+          echo "[staging-preflight] required_reviewers present - approval gate configured."
       - name: Staging gate approved
         run: echo "Staging gate approved — proceeding to release build and publish."
 
