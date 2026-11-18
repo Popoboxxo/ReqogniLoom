@@ -407,6 +407,14 @@ services:
   #    calls, so the gate gets a real non-zero exit code.
   postgres-backup:
     image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
+    deploy:
+      resources:
+        limits:
+          # pg_dump streams to a plain .sql file before gzip; 256M is well
+          # above its real working set, but caps a runaway dump so the sidecar
+          # cannot OOM the capped `postgres` it reads from (OPS-011).
+          memory: ${POSTGRES_BACKUP_MEM_LIMIT:-256M}
+          cpus: 0.50
     restart: unless-stopped
     environment:
       <<: *tz-env
@@ -1253,6 +1261,12 @@ services:
   honcho-postgres:
     image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
     shm_size: ${POSTGRES_SHM_SIZE:-256mb}
+    deploy:
+      resources:
+        limits:
+          # Same floor as the primary `postgres` (HNSW needs real memory).
+          memory: ${HONCHO_POSTGRES_MEM_LIMIT:-384M}
+          cpus: 1.0
     profiles: ["honcho"]
     restart: unless-stopped
     environment:
@@ -1275,6 +1289,12 @@ services:
 
   honcho-redis:
     image: redis:8-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
+    deploy:
+      resources:
+        limits:
+          # Lighter than the primary broker: no AOF rewrite headroom needed.
+          memory: ${HONCHO_REDIS_MEM_LIMIT:-256M}
+          cpus: 0.50
     profiles: ["honcho"]
     restart: unless-stopped
     environment: *tz-env
@@ -1298,6 +1318,13 @@ services:
   # fresh volume). Mirrors this project's own `migrate` service pattern.
   honcho-migrate:
     image: ghcr.io/plastic-labs/honcho:v3.5.0@sha256:23ff96bf62ab2ca14928e6766db1a30a7729f5b7c9e2285af0cd4a179c0d393d
+    deploy:
+      resources:
+        limits:
+          # One-shot alembic + configure_embeddings.py; same budget as this
+          # project's own `migrate` service.
+          memory: ${HONCHO_MIGRATE_MEM_LIMIT:-1024M}
+          cpus: 1.0
     profiles: ["honcho"]
     depends_on:
       honcho-postgres:
@@ -1370,6 +1397,12 @@ services:
   # `environment:` block, purely because it is no longer nested in a service.
   honcho:
     image: ghcr.io/plastic-labs/honcho:v3.5.0@sha256:23ff96bf62ab2ca14928e6766db1a30a7729f5b7c9e2285af0cd4a179c0d393d
+    deploy:
+      resources:
+        limits:
+          # FastAPI + in-process LLM/embedding clients: same budget as `backend`.
+          memory: ${HONCHO_MEM_LIMIT:-1536M}
+          cpus: 2.0
     profiles: ["honcho"]
     restart: unless-stopped
     depends_on:
@@ -1498,6 +1531,13 @@ services:
   # off (the default) and nothing listens.
   honcho-deriver:
     image: ghcr.io/plastic-labs/honcho:v3.5.0@sha256:23ff96bf62ab2ca14928e6766db1a30a7729f5b7c9e2285af0cd4a179c0d393d
+    deploy:
+      resources:
+        limits:
+          # Queue worker runs deriver + summary + dream schedulers: same
+          # budget as the `honcho` API it mirrors.
+          memory: ${HONCHO_DERIVER_MEM_LIMIT:-1536M}
+          cpus: 2.0
     profiles: ["honcho"]
     restart: unless-stopped
     depends_on:
@@ -1610,6 +1650,13 @@ services:
   # ---------------------------------------------------------------------
   qdrant:
     image: qdrant/qdrant:v1.20.0@sha256:9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2
+    deploy:
+      resources:
+        limits:
+          # HNSW index build is the peak; 512M keeps it from crowding the
+          # capped pgvector Postgres that remains the canonical store.
+          memory: ${QDRANT_MEM_LIMIT:-512M}
+          cpus: 1.0
     profiles: ["qdrant"]
     restart: unless-stopped
     # Shared server-side config (API key, telemetry); see `x-qdrant-env` above.

@@ -1,0 +1,564 @@
+name: Deploy Staging & Promote Production
+
+# OPS-010 + OPS-007 (production half) — staging rehearsal + same-digest promotion.
+#
+# WHAT WAS MISSING: docker-publish.yml ends at cosign sign/verify (lines ~409-470).
+# It has a `staging` *approval* environment, but no `docker compose up`, no staging
+# host, no restore rehearsal, no HTTP smoke and no `production` environment. A
+# destructive migration therefore reaches a customer database on the first
+# `up -d` with no staging rehearsal. This workflow closes that gap without
+# touching the existing release path (WP-1/WP-2 boundaries are untouched).
+#
+# INVARIANTS (enforced by the `guard` job below):
+#   INV-1  `environment: production` is declared on the production deploy job.
+#   INV-2  both deploy jobs exist.
+#   INV-3  no `docker build` / `buildx build` / `compose build` / `build:` /
+#          `--build` in either deploy job — nothing is rebuilt between staging
+#          and production.
+#   INV-4  both deploy jobs consume the digests from the single `resolve` job;
+#          production never re-resolves a (potentially moved) tag.
+#
+# S5.3 will add a dedicated Migration-Safety-Runbook. This workflow only points
+# to it via docs/deploy/STAGING_PROMOTION.md — it does not write that runbook.
+#
+# Least privilege: contents:read + packages:read only. No id-token, no
+# attestations:write, no contents:write. No new dependencies (all actions are
+# the same pinned versions already used by docker-publish.yml).
+
+on:
+  # Primary trigger: a successful publish run. workflow_run executes from the
+  # default branch, so this file must be merged to main before it can fire.
+  workflow_run:
+    workflows: ["Docker Publish (GHCR)"]
+    types: [completed]
+  # Secondary trigger: explicit promotion with signed digest(s) supplied by the
+  # publisher or used for a rollback to a previously signed digest.
+  repository_dispatch:
+    types: [deploy-staging]
+
+# One deployment at a time; never cancel an in-flight promotion.
+concurrency:
+  group: reqogniloom-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # Static self-guard: this workflow audits its own source before anything is
+  # deployed. Run the same logic locally (see STAGING_PROMOTION.md) to validate
+  # changes in a feature branch.
+  # ─────────────────────────────────────────────────────────────
+  guard:
+    name: "Promotion invariant guard"
+    if: >-
+      github.event_name == 'repository_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 1
+      - name: Assert promotion invariants
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, re, sys
+
+          path = pathlib.Path(".github/workflows/deploy-staging.yml")
+          text = path.read_text(encoding="utf-8")
+          lines = text.splitlines()
+          errors = []
+
+          # INV-1: production must be an explicit, reviewer-gated environment.
+          if not re.search(r"^\s{4}environment:\s*production\s*$", text, re.M):
+              errors.append("INV-1: missing job-level `environment: production`")
+
+          # INV-1b (S52-01): environment declaration alone is not a gate — the
+          # deploy-production job must fail closed on a missing required_reviewers
+          # rule, mirroring the staging-gate preflight.
+          prod_start = next(
+              (i for i, l in enumerate(lines) if l.strip() == "deploy-production:"),
+              None,
+          )
+          if prod_start is not None:
+              prod_tail = lines[prod_start:]
+              # Locate the preflight STEP (not its explanatory comments) and
+              # require the reviewer check in that step's body only.
+              step_idx = next(
+                  (i for i, l in enumerate(prod_tail)
+                   if "Preflight - production requires reviewers" in l),
+                  None,
+              )
+              step_body = (
+                  "\n".join(prod_tail[step_idx:step_idx + 20])
+                  if step_idx is not None else ""
+              )
+              if (
+                  step_idx is None
+                  or "required_reviewers" not in step_body
+                  or "environments/production" not in step_body
+              ):
+                  errors.append(
+                      "INV-1b: deploy-production has no fail-closed required_reviewers preflight step"
+                  )
+
+          # Job bodies = 2-space-indented keys directly under `jobs:`.
+          starts = [
+              (i, m.group(1))
+              for i, line in enumerate(lines)
+              if (m := re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line))
+          ]
+          spans = {}
+          for idx, (line_no, name) in enumerate(starts):
+              end = starts[idx + 1][0] if idx + 1 < len(starts) else len(lines)
+              spans[name] = (line_no, end)
+
+          # INV-2: both deploy jobs must be present.
+          for required in ("deploy-staging", "deploy-production"):
+              if required not in spans:
+                  errors.append(f"INV-2: missing job `{required}`")
+
+          # INV-3: no rebuild construct in either deploy job. Tokens are built
+          # at runtime so the guard never matches its own source text.
+          forbidden = [
+              "docker" + " build",
+              "buildx" + " build",
+              "compose" + " build",
+              " " + "--build",
+              "build" + ":",
+          ]
+          for name in ("deploy-staging", "deploy-production"):
+              if name not in spans:
+                  continue
+              lo, hi = spans[name]
+              body = "\n".join(lines[lo:hi])
+              code = "\n".join(part.split("#", 1)[0] for part in body.splitlines())
+              for token in forbidden:
+                  if token in code:
+                      errors.append(f"INV-3: `{name}` contains forbidden rebuild token {token!r}")
+
+          # INV-4: identical digest source for both jobs.
+          for name in ("deploy-staging", "deploy-production"):
+              if name not in spans:
+                  continue
+              lo, hi = spans[name]
+              body = "\n".join(lines[lo:hi])
+              for output in (
+                  "needs.resolve.outputs.backend_digest",
+                  "needs.resolve.outputs.frontend_digest",
+              ):
+                  if output not in body:
+                      errors.append(f"INV-4: `{name}` does not consume {output}")
+
+          if errors:
+              print("PROMOTION INVARIANT GUARD FAILED:", file=sys.stderr)
+              for error in errors:
+                  print(f"  - {error}", file=sys.stderr)
+              sys.exit(1)
+          print("PROMOTION INVARIANT GUARD OK")
+          PY
+
+  # ─────────────────────────────────────────────────────────────
+  # Resolve the immutable digests ONCE and verify their keyless signatures.
+  # Everything downstream uses these outputs; no tag is ever re-resolved.
+  # ─────────────────────────────────────────────────────────────
+  resolve:
+    name: "Resolve & verify signed digests"
+    needs: [guard]
+    if: >-
+      github.event_name == 'repository_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      backend_digest: ${{ steps.digests.outputs.backend_digest }}
+      frontend_digest: ${{ steps.digests.outputs.frontend_digest }}
+      version: ${{ steps.digests.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - name: Log in to GHCR (read-only token)
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install cosign
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - name: Resolve and verify
+        id: digests
+        env:
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          DISPATCH_BACKEND: ${{ github.event.client_payload.backend_digest }}
+          DISPATCH_FRONTEND: ${{ github.event.client_payload.frontend_digest }}
+          DISPATCH_VERSION: ${{ github.event.client_payload.version }}
+        run: |
+          set -euo pipefail
+          OWNER_LC="${OWNER,,}"
+
+          if [ -n "${DISPATCH_BACKEND:-}" ] || [ -n "${DISPATCH_FRONTEND:-}" ]; then
+            # Explicit signed digest pair (publisher hand-off or rollback).
+            if [ -z "${DISPATCH_BACKEND:-}" ] || [ -z "${DISPATCH_FRONTEND:-}" ]; then
+              echo "ERROR: repository_dispatch requires BOTH backend_digest and frontend_digest" >&2
+              exit 1
+            fi
+            BACKEND_DIGEST="$DISPATCH_BACKEND"
+            FRONTEND_DIGEST="$DISPATCH_FRONTEND"
+            VERSION="${DISPATCH_VERSION:-dispatch}"
+            echo "[resolve] using explicit signed digests from client_payload"
+          else
+            # workflow_run: find the exact release tag the publish run built.
+            VERSION="${DISPATCH_VERSION:-}"
+            if [ -z "$VERSION" ]; then
+              for tag in $(git tag --points-at "$HEAD_SHA"); do
+                if [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+                  VERSION="$tag"
+                  break
+                fi
+              done
+            fi
+            if [ -z "$VERSION" ]; then
+              # workflow_dispatch publishes a `manual-<short-sha>` tag.
+              VERSION="manual-$(git rev-parse --short=7 "$HEAD_SHA")"
+            fi
+            IMAGE_TAG="${VERSION#v}"
+            echo "[resolve] version=${VERSION} image_tag=${IMAGE_TAG}"
+
+            BACKEND_REF="ghcr.io/${OWNER_LC}/reqogniloom-backend:${IMAGE_TAG}"
+            FRONTEND_REF="ghcr.io/${OWNER_LC}/reqogniloom-frontend:${IMAGE_TAG}"
+            BACKEND_DIGEST="$(docker buildx imagetools inspect "$BACKEND_REF" --format '{{.Manifest.Digest}}')"
+            FRONTEND_DIGEST="$(docker buildx imagetools inspect "$FRONTEND_REF" --format '{{.Manifest.Digest}}')"
+          fi
+
+          for digest in "$BACKEND_DIGEST" "$FRONTEND_DIGEST"; do
+            if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "ERROR: invalid immutable digest: '$digest'" >&2
+              exit 1
+            fi
+          done
+
+          # Re-verify the keyless signature of the RESOLVED digest — the same
+          # identity the publish workflow signs with. Fail closed.
+          WORKFLOW_IDENTITY="https://github.com/${REPO}/.github/workflows/docker-publish.yml"
+          for pair in "backend:${BACKEND_DIGEST}" "frontend:${FRONTEND_DIGEST}"; do
+            image_name="${pair%%:*}"
+            image_digest="${pair#*:}"
+            IMAGE="ghcr.io/${OWNER_LC}/reqogniloom-${image_name}"
+            echo "[verify] cosign verify ${IMAGE}@${image_digest}"
+            cosign verify \
+              --certificate-identity-regexp "${WORKFLOW_IDENTITY}@.*" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+              "${IMAGE}@${image_digest}"
+          done
+
+          echo "backend_digest=$BACKEND_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "frontend_digest=$FRONTEND_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "[resolve] backend=${BACKEND_DIGEST}"
+          echo "[resolve] frontend=${FRONTEND_DIGEST}"
+
+  # ─────────────────────────────────────────────────────────────
+  # Staging: isolated host, Compose model (not K8s). One-shot migration relies
+  # on the existing depends_on ordering in deploy/docker-compose.yml (postgres
+  # service_healthy -> migrate; backend/celery/beat wait on migrate success).
+  # S5.3 will add the Migration-Safety-Runbook; the restore rehearsal below is
+  # the interim gate (see docs/deploy/STAGING_PROMOTION.md).
+  # ─────────────────────────────────────────────────────────────
+  deploy-staging:
+    name: "Deploy staging (same signed digest)"
+    needs: [resolve]
+    if: >-
+      github.event_name == 'repository_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Generate digest-pinned Compose override
+        env:
+          OWNER: ${{ github.repository_owner }}
+          BACKEND_DIGEST: ${{ needs.resolve.outputs.backend_digest }}
+          FRONTEND_DIGEST: ${{ needs.resolve.outputs.frontend_digest }}
+        run: |
+          set -euo pipefail
+          OWNER_LC="${OWNER,,}"
+          cat > digest.override.yml <<YAML
+          # Generated by deploy-staging.yml — DO NOT EDIT.
+          # Pins EXACTLY the digests verified in the resolve job. No build here.
+          services:
+            backend:
+              image: ghcr.io/${OWNER_LC}/reqogniloom-backend@${BACKEND_DIGEST}
+            llm-preflight:
+              image: ghcr.io/${OWNER_LC}/reqogniloom-backend@${BACKEND_DIGEST}
+            migrate:
+              image: ghcr.io/${OWNER_LC}/reqogniloom-backend@${BACKEND_DIGEST}
+            celery:
+              image: ghcr.io/${OWNER_LC}/reqogniloom-backend@${BACKEND_DIGEST}
+            celery-beat:
+              image: ghcr.io/${OWNER_LC}/reqogniloom-backend@${BACKEND_DIGEST}
+            frontend:
+              image: ghcr.io/${OWNER_LC}/reqogniloom-frontend@${FRONTEND_DIGEST}
+          YAML
+          cat digest.override.yml
+
+      - name: Configure staging SSH
+        env:
+          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.STAGING_KNOWN_HOSTS }}
+          HOST: ${{ vars.STAGING_HOST }}
+          USER: ${{ vars.STAGING_USER }}
+        run: |
+          set -euo pipefail
+          [ -n "$SSH_KEY" ] || { echo "ERROR: STAGING_SSH_KEY not configured" >&2; exit 1; }
+          [ -n "$KNOWN_HOSTS" ] || { echo "ERROR: STAGING_KNOWN_HOSTS not configured" >&2; exit 1; }
+          [ -n "$HOST" ] || { echo "ERROR: STAGING_HOST not configured" >&2; exit 1; }
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 644 "$HOME/.ssh/known_hosts"
+          {
+            echo "Host reqlo-staging"
+            echo "  HostName $HOST"
+            echo "  User ${USER:-deploy}"
+            echo "  IdentitiesOnly yes"
+            echo "  IdentityFile $HOME/.ssh/id_ed25519"
+            echo "  BatchMode yes"
+            echo "  StrictHostKeyChecking yes"
+          } > "$HOME/.ssh/config"
+          chmod 600 "$HOME/.ssh/config"
+
+      - name: Apply to staging (Compose, no rebuild)
+        env:
+          REMOTE_DIR: ${{ vars.REMOTE_DEPLOY_DIR }}
+          APP_VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          [ -n "$REMOTE_DIR" ] || { echo "ERROR: REMOTE_DEPLOY_DIR not configured" >&2; exit 1; }
+          scp -F "$HOME/.ssh/config" deploy/docker-compose.yml digest.override.yml \
+            reqlo-staging:"${REMOTE_DIR}/"
+          ssh -F "$HOME/.ssh/config" reqlo-staging \
+            bash -s -- "$REMOTE_DIR" "$APP_VERSION" <<'REMOTE'
+          set -euo pipefail
+          REMOTE_DIR="$1"
+          APP_VERSION="$2"
+          cd "$REMOTE_DIR"
+          compose() { docker compose -f docker-compose.yml -f digest.override.yml "$@"; }
+
+          # Pull the pinned digests (never build).
+          compose pull
+
+          # Phase 1: dependencies only. `migrate` waits for postgres to be
+          # healthy via the existing depends_on (deploy/docker-compose.yml:925).
+          compose up -d postgres redis
+
+          # Phase 2: one-shot migration. Rely on that ordering; wait for the
+          # container to exit and fail the deploy on a non-zero status.
+          compose up -d migrate
+          MIGRATE_ID="$(compose ps -aq migrate)"
+          if [ -z "$MIGRATE_ID" ]; then
+            echo "ERROR: migrate container was not created" >&2
+            exit 1
+          fi
+          MIGRATE_RC="$(docker wait "$MIGRATE_ID")"
+          if [ "$MIGRATE_RC" -ne 0 ]; then
+            compose logs migrate >&2
+            echo "ERROR: migrate failed with exit code $MIGRATE_RC" >&2
+            exit 1
+          fi
+          echo "[migrate] one-shot completed successfully"
+
+          # Phase 3: rest of the stack (backend/celery/beat wait on migrate).
+          compose up -d
+          compose ps
+          echo "[deploy] staging applied for ${APP_VERSION}"
+          REMOTE
+
+      - name: Restore rehearsal (throwaway DBs, live DB untouched)
+        run: |
+          set -euo pipefail
+          # deploy/verify-restore.sh is present in this repo. It extracts the
+          # real postgres-backup block, restores into throwaway containers and
+          # asserts row-count/vector parity. S5.3 adds the full runbook.
+          bash deploy/verify-restore.sh
+
+      - name: HTTP smoke (staging)
+        env:
+          BASE_URL: ${{ vars.STAGING_BASE_URL }}
+        run: |
+          set -euo pipefail
+          [ -n "$BASE_URL" ] || { echo "ERROR: STAGING_BASE_URL not configured" >&2; exit 1; }
+          for path in /health/live /health/ready; do
+            echo "[smoke] GET ${BASE_URL%/}${path}"
+            curl -fsS --retry 12 --retry-connrefused --retry-delay 5 --max-time 20 \
+              "${BASE_URL%/}${path}" > /dev/null
+          done
+          echo "[smoke] staging health endpoints OK"
+
+  # ─────────────────────────────────────────────────────────────
+  # Production: reviewer-gated by `environment: production` (reviewers are
+  # configured out-of-band in GitHub Settings -> Environments). Promotes the
+  # IDENTICAL digest outputs from `resolve` — no tag re-resolution, no build.
+  # ─────────────────────────────────────────────────────────────
+  deploy-production:
+    name: "Promote identical digest to production"
+    needs: [deploy-staging, resolve]
+    # S52-01: `environment: production` alone is NOT a gate — environment
+    # protection lives in repo settings (not versioned), and a fresh clone/fork
+    # auto-approves an unprotected or non-existent environment. A repository_dispatch
+    # could otherwise bypass the staging gate entirely. Fail closed unless the
+    # production environment really carries a required_reviewers rule.
+    # Required repo setting: Settings > Environments > production > Required
+    # reviewers (at least one user or team), ideally "Prevent self-review".
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # actions: read is required by GET /repos/{owner}/{repo}/environments/{name}.
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      # S52-01: fail closed when the production environment is unprotected.
+      - name: Preflight - production requires reviewers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          protected="$(gh api "/repos/${GITHUB_REPOSITORY}/environments/production" \
+            --jq '.protection_rules // [] | any(.type == "required_reviewers")')"
+          if [[ "$protected" != "true" ]]; then
+            echo "ERROR: 'production' environment has no required_reviewers protection rule." >&2
+            exit 1
+          fi
+          echo "OK: production environment requires reviewers."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Generate digest-pinned Compose override (IDENTICAL digests)
+        env:
+          OWNER: ${{ github.repository_owner }}
+          BACKEND_DIGEST: ${{ needs.resolve.outputs.backend_digest }}
+          FRONTEND_DIGEST: ${{ needs.resolve.outputs.frontend_digest }}
+        run: |
+          set -euo pipefail
+          OWNER_LC="${OWNER,,}"
+          cat > digest.override.yml <<YAML
+          # Generated by deploy-staging.yml — DO NOT EDIT.
+          # SAME digests as staging (needs.resolve outputs). No build here.
+          services:
+            backend:
+              image: ghcr.io/${OWNER_LC}/reqogniloom-backend@${BACKEND_DIGEST}
+            llm-preflight:
+              image: ghcr.io/${OWNER_LC}/reqogniloom-backend@${BACKEND_DIGEST}
+            migrate:
+              image: ghcr.io/${OWNER_LC}/reqogniloom-backend@${BACKEND_DIGEST}
+            celery:
+              image: ghcr.io/${OWNER_LC}/reqogniloom-backend@${BACKEND_DIGEST}
+            celery-beat:
+              image: ghcr.io/${OWNER_LC}/reqogniloom-backend@${BACKEND_DIGEST}
+            frontend:
+              image: ghcr.io/${OWNER_LC}/reqogniloom-frontend@${FRONTEND_DIGEST}
+          YAML
+          cat digest.override.yml
+
+      - name: Configure production SSH
+        env:
+          SSH_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.PRODUCTION_KNOWN_HOSTS }}
+          HOST: ${{ vars.PRODUCTION_HOST }}
+          USER: ${{ vars.PRODUCTION_USER }}
+        run: |
+          set -euo pipefail
+          [ -n "$SSH_KEY" ] || { echo "ERROR: PRODUCTION_SSH_KEY not configured" >&2; exit 1; }
+          [ -n "$KNOWN_HOSTS" ] || { echo "ERROR: PRODUCTION_KNOWN_HOSTS not configured" >&2; exit 1; }
+          [ -n "$HOST" ] || { echo "ERROR: PRODUCTION_HOST not configured" >&2; exit 1; }
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/id_ed25519"
+          chmod 600 "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 644 "$HOME/.ssh/known_hosts"
+          {
+            echo "Host reqlo-production"
+            echo "  HostName $HOST"
+            echo "  User ${USER:-deploy}"
+            echo "  IdentitiesOnly yes"
+            echo "  IdentityFile $HOME/.ssh/id_ed25519"
+            echo "  BatchMode yes"
+            echo "  StrictHostKeyChecking yes"
+          } > "$HOME/.ssh/config"
+          chmod 600 "$HOME/.ssh/config"
+
+      - name: Apply to production (Compose, no rebuild)
+        env:
+          REMOTE_DIR: ${{ vars.REMOTE_DEPLOY_DIR }}
+          APP_VERSION: ${{ needs.resolve.outputs.version }}
+          BACKEND_DIGEST: ${{ needs.resolve.outputs.backend_digest }}
+        run: |
+          set -euo pipefail
+          [ -n "$REMOTE_DIR" ] || { echo "ERROR: REMOTE_DEPLOY_DIR not configured" >&2; exit 1; }
+          scp -F "$HOME/.ssh/config" deploy/docker-compose.yml digest.override.yml \
+            reqlo-production:"${REMOTE_DIR}/"
+          ssh -F "$HOME/.ssh/config" reqlo-production \
+            bash -s -- "$REMOTE_DIR" "$APP_VERSION" "$BACKEND_DIGEST" <<'REMOTE'
+          set -euo pipefail
+          REMOTE_DIR="$1"
+          APP_VERSION="$2"
+          EXPECTED_DIGEST="$3"
+          cd "$REMOTE_DIR"
+          compose() { docker compose -f docker-compose.yml -f digest.override.yml "$@"; }
+
+          # Pull the pinned digests (never build).
+          compose pull
+
+          # One-shot migration with the same depends_on ordering as staging.
+          compose up -d postgres redis
+          compose up -d migrate
+          MIGRATE_ID="$(compose ps -aq migrate)"
+          if [ -z "$MIGRATE_ID" ]; then
+            echo "ERROR: migrate container was not created" >&2
+            exit 1
+          fi
+          MIGRATE_RC="$(docker wait "$MIGRATE_ID")"
+          if [ "$MIGRATE_RC" -ne 0 ]; then
+            compose logs migrate >&2
+            echo "ERROR: production migrate failed with exit code $MIGRATE_RC" >&2
+            exit 1
+          fi
+          echo "[migrate] production one-shot completed successfully"
+
+          compose up -d
+          compose ps
+          echo "[deploy] production promoted for ${APP_VERSION} (${EXPECTED_DIGEST})"
+          REMOTE
+
+      - name: HTTP smoke (production)
+        env:
+          BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+        run: |
+          set -euo pipefail
+          [ -n "$BASE_URL" ] || { echo "ERROR: PRODUCTION_BASE_URL not configured" >&2; exit 1; }
+          for path in /health/live /health/ready; do
+            echo "[smoke] GET ${BASE_URL%/}${path}"
+            curl -fsS --retry 12 --retry-connrefused --retry-delay 5 --max-time 20 \
+              "${BASE_URL%/}${path}" > /dev/null
+          done
+          echo "[smoke] production health endpoints OK"

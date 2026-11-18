@@ -67,6 +67,77 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - name: Guard compose invocations (no test overlay, explicit project)
+        # Inline self-guard (pattern: ci.yml release-gate-wiring). Asserts this
+        # workflow never loads the standalone test stack as an overlay and that
+        # every compose CLI call pins one shared, run-scoped project via -p.
+        # Search tokens are assembled from fragments / regexes so this guard's
+        # own source cannot trip its own assertions.
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          import sys
+
+          path = '.github/workflows/client-smoke.yml'
+          with open(path, encoding='utf-8') as fh:
+              lines = fh.read().splitlines()
+          content = '\n'.join(lines)
+
+          errors = []
+
+          # (1) The standalone test stack must never be loaded as an overlay
+          # here. Assembled from fragments so this guard's own source cannot
+          # trip its own assertion.
+          forbidden = 'testing/docker-compose' + '.test' + '.yml'
+          if forbidden in content:
+              errors.append(
+                  'workflow loads the standalone test overlay '
+                  f'({forbidden}) - use the base compose file only'
+              )
+
+          # (2) Every compose CLI call must pin one shared, run-scoped project.
+          # The regex carries \s so this source line is not itself seen as a
+          # call.
+          start_re = re.compile(r'docker\s+compose')
+          flag_re = re.compile(r'(?<![\w-])-p(?:\s+|$)')
+          prefix = 'reqlo-client-smoke-'
+
+          commands = []
+          i = 0
+          while i < len(lines):
+              if start_re.search(lines[i]):
+                  parts = [lines[i].rstrip()]
+                  while parts[-1].endswith('\\') and i + 1 < len(lines):
+                      i += 1
+                      parts.append(lines[i].rstrip())
+                  cleaned = [p.rstrip('\\').strip() for p in parts]
+                  commands.append(' '.join(p for p in cleaned if p))
+              i += 1
+
+          if not commands:
+              errors.append('no compose CLI invocations found')
+
+          for n, cmd in enumerate(commands, 1):
+              if not flag_re.search(cmd):
+                  errors.append(f'compose invocation #{n} has no explicit -p: {cmd}')
+              elif prefix not in cmd:
+                  errors.append(
+                      f'compose invocation #{n} does not pin '
+                      f'{prefix}<run_id>: {cmd}'
+                  )
+
+          if errors:
+              print('CLIENT SMOKE COMPOSE GUARD FAILED:', file=sys.stderr)
+              for err in errors:
+                  print(f'  {err}', file=sys.stderr)
+              sys.exit(1)
+          print(
+              f'OK: no test overlay; {len(commands)} compose invocations '
+              f'all pin -p {prefix}<run_id>'
+          )
+          PY
+
       - name: Set up Node (OpenCode CLI runtime)
         if: startsWith(matrix.client, 'opencode')
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -110,8 +181,8 @@ jobs:
         run: |
           set -euo pipefail
           docker compose \
+            -p reqlo-client-smoke-${{ github.run_id }} \
             -f deploy/docker-compose.yml \
-            -f testing/docker-compose.test.yml \
             up -d postgres redis
 
       - name: Apply migrations and run self-init
@@ -120,16 +191,16 @@ jobs:
         run: |
           set -euo pipefail
           docker compose \
+            -p reqlo-client-smoke-${{ github.run_id }} \
             -f deploy/docker-compose.yml \
-            -f testing/docker-compose.test.yml \
             run --rm migrate
 
       - name: Start the backend
         run: |
           set -euo pipefail
           docker compose \
+            -p reqlo-client-smoke-${{ github.run_id }} \
             -f deploy/docker-compose.yml \
-            -f testing/docker-compose.test.yml \
             up -d backend
 
       - name: Wait for the backend health endpoint (host port 8001)
@@ -143,7 +214,10 @@ jobs:
             sleep 2
           done
           echo "ERROR: backend did not become healthy in time" >&2
-          docker compose -f deploy/docker-compose.yml logs --tail=100 backend >&2 || true
+          docker compose \
+            -p reqlo-client-smoke-${{ github.run_id }} \
+            -f deploy/docker-compose.yml \
+            logs --tail=100 backend >&2 || true
           exit 1
 
       - name: Bootstrap admin and read-only key
@@ -199,4 +273,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          docker compose -f deploy/docker-compose.yml -f testing/docker-compose.test.yml down -v || true
+          docker compose \
+            -p reqlo-client-smoke-${{ github.run_id }} \
+            -f deploy/docker-compose.yml \
+            down -v || true
