@@ -709,7 +709,17 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
 #: would not see a single one of their classes, which is precisely the
 #: silent-drop path #851 exists to close.
 _SERIALIZER_MODULES: tuple[str, ...] = (
+    # S4.2: serializers.py is now a re-export shim; the classes are *defined*
+    # in the domain modules below. Discovery intentionally follows the split
+    # (it skips re-imports via ``obj.__module__ != module_name``), so the new
+    # defining modules must be listed here or every guarded serializer looks
+    # "stale" and every new one would slip through unclassified.
     "rest_api.serializers",
+    "rest_api.serializers_common",
+    "rest_api.serializers_entity",
+    "rest_api.serializers_governance",
+    "rest_api.serializers_io",
+    "rest_api.serializers_trace_baseline",
     "rest_api.serializers_diagram",
     "rest_api.settings_views",
     "rest_api.preference_views",

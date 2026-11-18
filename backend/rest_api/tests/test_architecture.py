@@ -140,8 +140,11 @@ MODEL_IMPORT_ALLOWLIST: set[str] = {
 # that pre-date this guard. NEVER raise a value here; only lower it as
 # call-sites are migrated into application/ services.
 MCP_TOOLS_MAX_ORM_LINES: dict[str, int] = {
-    "cross_cutting.py": 4,
-    "users.py": 8,
+    # S4.2 branch: cross_cutting.py no longer contains direct ORM access.
+    # The ratchet only ever lowers, so pin the ceiling to the real count (0).
+    "cross_cutting.py": 0,
+    # S4.2 branch: users.py now has 2 matched lines (docstring references only).
+    "users.py": 2,
 }
 
 # Issue #124 follow-up: frozen baseline for the transport/dispatch modules

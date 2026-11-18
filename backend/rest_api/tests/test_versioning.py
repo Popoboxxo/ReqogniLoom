@@ -135,9 +135,9 @@ class TestIssueViewSetDiff:
         view = IssueViewSet()
         view.kwargs = {}
 
-        with patch("rest_api.views.get_auth_context", return_value=req.auth_context):
+        with patch("rest_api.views_governance.get_auth_context", return_value=req.auth_context):
             with patch.object(view, "_svc", return_value=svc_mock):
-                with patch("rest_api.views.ArtifactDiffService", return_value=diff_svc_mock):
+                with patch("rest_api.views_governance.ArtifactDiffService", return_value=diff_svc_mock):
                     response = view.diff(req, pk=str(issue_mock.id))
 
         # Must have called get_issue, never get_test_case
@@ -168,9 +168,9 @@ class TestIssueViewSetDiff:
         view = IssueViewSet()
         view.kwargs = {}
 
-        with patch("rest_api.views.get_auth_context", return_value=req.auth_context):
+        with patch("rest_api.views_governance.get_auth_context", return_value=req.auth_context):
             with patch.object(view, "_svc", return_value=svc_mock):
-                with patch("rest_api.views.ArtifactDiffService", return_value=diff_svc_mock):
+                with patch("rest_api.views_governance.ArtifactDiffService", return_value=diff_svc_mock):
                     view.diff(req, pk=str(issue_mock.id))
 
         call_kwargs = diff_svc_mock.diff_for_entity.call_args
@@ -198,7 +198,7 @@ class TestIssueViewSetDestroy:
         view = IssueViewSet()
         view.kwargs = {}
 
-        with patch("rest_api.views.get_auth_context", return_value=req.auth_context):
+        with patch("rest_api.views_governance.get_auth_context", return_value=req.auth_context):
             with patch.object(view, "_svc", return_value=svc_mock):
                 response = view.destroy(req, pk=pk)
 

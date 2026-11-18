@@ -202,9 +202,9 @@ class TestPaginateQuerysetSlicing:
                 "rest_api.views.RequirementViewSet._svc",
                 return_value=self._svc_mock_with_n(60),
             ),
-            patch("rest_api.views.RequirementSerializer", _FakeSerializer),
+            patch("rest_api.views_entity_core.RequirementSerializer", _FakeSerializer),
             patch(
-                "rest_api.views._dto_from_orm",
+                "rest_api.views_entity_core._dto_from_orm",
                 wraps=views_mod._dto_from_orm,
             ) as dto,
         ):
@@ -231,9 +231,9 @@ class TestPaginateQuerysetSlicing:
                 "rest_api.views.RequirementViewSet._svc",
                 return_value=self._svc_mock_with_n(60),
             ),
-            patch("rest_api.views.RequirementSerializer", _FakeSerializer),
+            patch("rest_api.views_entity_core.RequirementSerializer", _FakeSerializer),
             patch(
-                "rest_api.views._dto_from_orm",
+                "rest_api.views_entity_core._dto_from_orm",
                 wraps=views_mod._dto_from_orm,
             ) as dto,
         ):
@@ -1160,7 +1160,7 @@ class TestRequirementHistoryView:
         svc_mock = MagicMock()
         svc_mock.get_requirement.return_value = MagicMock()
 
-        with patch("rest_api.views.RequirementService", return_value=svc_mock), \
+        with patch("rest_api.views_entity_core.RequirementService", return_value=svc_mock), \
              patch("rest_api.views.AuditLogQuery.query", return_value=mock_result) as query_mock:
             response = RequirementHistoryView.as_view()(req, pk=str(pk))
 
@@ -1189,7 +1189,7 @@ class TestRequirementHistoryView:
         svc_mock = MagicMock()
         svc_mock.get_requirement.side_effect = NotFoundError("not found")
 
-        with patch("rest_api.views.RequirementService", return_value=svc_mock):
+        with patch("rest_api.views_entity_core.RequirementService", return_value=svc_mock):
             response = RequirementHistoryView.as_view()(req, pk=str(pk))
 
         assert response.status_code == 404
@@ -1211,7 +1211,7 @@ class TestRequirementHistoryView:
         svc_mock = MagicMock()
         svc_mock.get_requirement.return_value = MagicMock()
 
-        with patch("rest_api.views.RequirementService", return_value=svc_mock), \
+        with patch("rest_api.views_entity_core.RequirementService", return_value=svc_mock), \
              patch("rest_api.views.AuditLogQuery.query", return_value=mock_result) as query_mock:
             response = RequirementHistoryView.as_view()(req, pk=str(pk))
 
@@ -1239,7 +1239,7 @@ class TestRequirementHistoryView:
         svc_mock = MagicMock()
         svc_mock.get_requirement.return_value = MagicMock()
 
-        with patch("rest_api.views.RequirementService", return_value=svc_mock), \
+        with patch("rest_api.views_entity_core.RequirementService", return_value=svc_mock), \
              patch("rest_api.views.AuditLogQuery.query", return_value=mock_result) as query_mock:
             response = RequirementHistoryView.as_view()(req, pk=str(pk))
 
