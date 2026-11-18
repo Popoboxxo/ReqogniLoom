@@ -44,6 +44,18 @@ def test_missing_settings_key_is_reported(tmp_path: Path) -> None:
     assert checker.collect_issues(root)["missing"] == ["SETTINGS_ONLY"]
 
 
+def test_multiline_settings_call_is_enumerated(tmp_path: Path) -> None:
+    # settings.py uses multi-line config(...) calls (e.g. MFA_STAFF_ENFORCEMENT);
+    # the \s* in _SETTINGS_KEY must keep spanning newlines or ~20 real keys vanish.
+    root = _fixture(
+        tmp_path,
+        compose="services: {}\n",
+        settings='X = config(\n    "MULTILINE_KEY",\n    default="x",\n)\n',
+        env="",
+    )
+    assert checker.collect_issues(root)["missing"] == ["MULTILINE_KEY"]
+
+
 def test_commented_env_entry_counts_as_documented(tmp_path: Path) -> None:
     root = _fixture(
         tmp_path,
