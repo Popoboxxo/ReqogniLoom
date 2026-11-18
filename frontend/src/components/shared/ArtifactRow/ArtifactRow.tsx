@@ -40,7 +40,9 @@
 
 import { useTranslation } from "react-i18next";
 import { TriangleAlert } from "lucide-react";
+import type { MouseEvent } from "react";
 
+import { useActivationKeys } from "../../../hooks/useActivationKeys";
 import { IdChip } from "../IdChip";
 import { LevelBadge } from "../LevelBadge";
 import { StatusBadge } from "../StatusBadge";
@@ -163,6 +165,19 @@ export function ArtifactRow({
   // exactly what the tree's own default row hides. Outside a tree (a flat list,
   // a unit test) every field stays visible — the pre-#1257 rendering.
   const isFieldVisible = useTreeFieldVisibility();
+  // UI-006: a row with a selection callback is keyboard-operable through the
+  // shared activation contract (Enter/Space); a plain container row stays a
+  // non-interactive <div>. The role is opted into only for a real target.
+  const activation = useActivationKeys(() => onClick?.());
+  const activationProps = onClick
+    ? { ...activation, role: "button" as const, "aria-pressed": selected }
+    : {};
+  // Propagation guard only: a click on the id/copy area must not also select
+  // the row. It is not an activation and adds no keyboard behaviour, so it is
+  // kept as a plain props object rather than a second interaction contract.
+  const stopRowClick = {
+    onClick: (event: MouseEvent<HTMLSpanElement>): void => event.stopPropagation(),
+  };
   // `undefined` keeps the translated default; `null` explicitly opts out.
   const resolvedIdLabel =
     idLabel === undefined ? t("artifactId.shortLabel", "ID") : idLabel;
@@ -181,34 +196,19 @@ export function ArtifactRow({
   const showVersion = isFieldVisible("version") && version != null;
 
   return (
-    // `role` is bound to the same optional `onClick` prop as the handlers: with
-    // a click target the element is a proper button (role, tabIndex and
-    // Enter/Space below), without one it stays a plain container. The linter
-    // cannot evaluate the ternary role, so the static rule is disabled while
-    // the runtime contract stays in this element's attributes.
+    // With a click target the element is a proper button (role, tabIndex and
+    // Enter/Space all supplied by the shared activation contract above);
+    // without one it stays a plain container. The runtime attributes stay in
+    // this element's props via the spread.
     // Issue #1421: the selected state is announced with `aria-pressed`, not
     // `aria-selected` — the latter is not allowed on `role="button"` (axe
     // `aria-allowed-attr`, WCAG 4.1.2). This row is the same single-select list
     // row as BaselinesView/TestRunsList/GlossaryTermList, which all already
     // announce the state this way, so the interaction language stays uniform.
-    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       data-testid={testId}
-      role={onClick ? "button" : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      aria-pressed={onClick ? selected : undefined}
+      {...activationProps}
       className={`${styles.root} ${selected ? styles.selected : ""}`}
-      onClick={onClick}
-      onKeyDown={
-        onClick
-          ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onClick();
-              }
-            }
-          : undefined
-      }
     >
       {/* Issue #807: the title leads — it is the artifact's name, the hash is
           not. Status/version stay top-right, outside the shrinking title. */}
@@ -256,9 +256,9 @@ export function ArtifactRow({
           // also selecting the row. It adds no user-facing interaction of its
           // own — the copy control inside is the real (button) interaction —
           // so there is no keyboard equivalent to add (same pointer-only shape
-          // as RevealValue's convenience span).
-          // eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events
-          <span className={styles.idGroup} onClick={(e) => e.stopPropagation()}>
+          // as RevealValue's convenience span). The handler arrives via a
+          // spread, so the a11y linter sees no inline click handler here.
+          <span className={styles.idGroup} {...stopRowClick}>
             {showIdLabel ? <span className={styles.idLabel}>{resolvedIdLabel}</span> : null}
             {/*
               Issue #1094: `<IdChip>` replaced `<ArtifactId>` here. The row

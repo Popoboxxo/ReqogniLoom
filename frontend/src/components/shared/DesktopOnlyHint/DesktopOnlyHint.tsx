@@ -7,6 +7,7 @@
  * library supports touch. The hint is hidden on desktop.
  */
 import { useTranslation } from "react-i18next";
+import { maxWidthQuery } from "../../../hooks/useBreakpoint";
 import { useMediaQuery } from "../../../hooks/useMediaQuery";
 import styles from "./DesktopOnlyHint.module.css";
 
@@ -24,7 +25,9 @@ const FEATURE_LABEL_KEYS: Record<string, string> = {
 
 export function DesktopOnlyHint({ feature }: { feature: string }): JSX.Element | null {
   const { t } = useTranslation();
-  const isMobile = useMediaQuery("(max-width: 768px)");
+  // --bp-md (768px) from styles/tokens.css — the same mobile boundary the
+  // rest of the shell uses; no hand-copied pixel literal (S3.2 WP-2).
+  const isMobile = useMediaQuery(maxWidthQuery("md"));
   if (!isMobile) return null;
 
   const featureLabel = t(FEATURE_LABEL_KEYS[feature] ?? "mobile.featureCanvas");

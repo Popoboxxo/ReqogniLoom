@@ -1,18 +1,18 @@
 /**
- * #1406 — SplitView divider: pointer target and separator semantics.
+ * SplitView — accessibility baseline for the single concept contract.
  *
- * WCAG 2.2 SC 2.5.8 (Target Size, Minimum) requires a pointer target of at
- * least 24×24 CSS px. The divider used to advertise a 12px box in its comment
- * while the rendered element already grew to 24px; this test pins the real
- * geometry so a future "make it look thinner" edit cannot shrink the target
- * again. It also pins the ARIA window-splitter triple: a separator with
- * `aria-valuenow`/`aria-valuemin`/`aria-valuemax` is announced as an
- * adjustable control; with only two of the three, assistive technology cannot
- * describe the range.
+ * The old divider tests (ARIA window-splitter triple, 24px pointer target)
+ * belonged to the deleted legacy `leftPanel`/`rightPanel` drag contract and
+ * were removed with it in UI-001 / S3.2 WP-1. The concept contract has no
+ * draggable separator; its accessibility baseline is instead the mobile
+ * list/detail/back flow: a real button, a translated accessible name, focus
+ * following the visible pane, and both panes staying mounted.
+ *
+ * This is a build-time baseline only — the binding WCAG verdict stays with
+ * `accessibility-specialist`.
  */
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-import React from "react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SplitView } from "./SplitView";
 
@@ -20,51 +20,67 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string, fallback?: string) => fallback ?? key }),
 }));
 
-function renderLegacy(leftMaxWidthPercent?: number) {
+const ORIGINAL_WIDTH = window.innerWidth;
+
+beforeEach(() => {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: 390,
+  });
+});
+
+afterEach(() => {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: ORIGINAL_WIDTH,
+  });
+});
+
+function renderMobile() {
   return render(
     <SplitView
-      leftPanel={<div data-testid="left">List</div>}
-      rightPanel={<div data-testid="right">Detail</div>}
-      leftMaxWidthPercent={leftMaxWidthPercent}
-    />,
+      list={<div role="treeitem" aria-selected={false} tabIndex={0} data-testid="row">Zeile</div>}
+      detail={<div data-testid="detail-body">Detail</div>}
+    />
   );
 }
 
-describe("SplitView divider accessibility (#1406)", () => {
-  it("is a vertical separator with a >= 24px pointer target", () => {
-    renderLegacy();
-
-    const divider = screen.getByTestId("splitview-divider");
-    expect(divider).toHaveAttribute("role", "separator");
-    expect(divider).toHaveAttribute("aria-orientation", "vertical");
-
-    // `flex: 0 0 24px` is the hit area; the visible line stays 2px because the
-    // gradient only paints the middle band.
-    const basis = divider.style.flexBasis || divider.style.flex;
-    expect(basis).toBe("24px");
-    expect(divider.style.background).toContain("linear-gradient");
+describe("SplitView accessibility baseline", () => {
+  it("has no draggable separator — the fixed-ratio contract owns no window-splitter role", () => {
+    const { container } = renderMobile();
+    expect(container.querySelector('[role="separator"]')).toBeNull();
+    expect(container.querySelector('[data-testid="splitview-divider"]')).toBeNull();
   });
 
-  it("announces the full adjustment range", () => {
-    renderLegacy(60);
+  it("exposes the back step as a real button with a type and an accessible name", () => {
+    renderMobile();
+    fireEvent.click(screen.getByTestId("row"));
 
-    const divider = screen.getByTestId("splitview-divider");
-    const now = Number(divider.getAttribute("aria-valuenow"));
-    const min = Number(divider.getAttribute("aria-valuemin"));
-    const max = Number(divider.getAttribute("aria-valuemax"));
-
-    expect(Number.isFinite(now)).toBe(true);
-    expect(Number.isFinite(min)).toBe(true);
-    expect(Number.isFinite(max)).toBe(true);
-    expect(min).toBeLessThan(max);
-    expect(now).toBeGreaterThanOrEqual(min);
-    expect(now).toBeLessThanOrEqual(max);
+    const back = screen.getByTestId("splitview-back");
+    expect(back.tagName).toBe("BUTTON");
+    expect(back).toHaveAttribute("type", "button");
+    expect(back.textContent?.trim()).not.toBe("");
   });
 
-  it("is keyboard reachable", () => {
-    renderLegacy();
+  it("moves focus to the back button and restores it to the originating row", () => {
+    renderMobile();
+    const row = screen.getByTestId("row");
+    fireEvent.click(row);
+    expect(document.activeElement?.getAttribute("data-testid")).toBe("splitview-back");
 
-    const divider = screen.getByTestId("splitview-divider");
-    expect(divider).toHaveAttribute("tabindex", "0");
+    fireEvent.click(screen.getByTestId("splitview-back"));
+    expect(document.activeElement?.getAttribute("data-testid")).toBe("row");
+  });
+
+  it("keeps both panes mounted while the detail visually replaces the list", () => {
+    renderMobile();
+    fireEvent.click(screen.getByTestId("row"));
+
+    expect(screen.getByTestId("splitview-list")).toBeInTheDocument();
+    expect(screen.getByTestId("splitview-detail")).toBeInTheDocument();
+    expect(screen.getByTestId("splitview-list").style.display).toBe("none");
+    expect(screen.getByTestId("splitview-detail").style.display).not.toBe("none");
   });
 });

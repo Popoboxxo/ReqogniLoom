@@ -559,7 +559,7 @@ export default function GlossaryView(): JSX.Element {
       {createDialog}
 
       <div className={styles.splitViewWrap}>
-        <SplitView leftPanel={listPanel} rightPanel={detailPane} initialLeftWidth={380} moduleType="glossary" />
+        <SplitView list={listPanel} detail={detailPane} />
       </div>
     </div>
   );

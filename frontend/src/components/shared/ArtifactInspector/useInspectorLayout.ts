@@ -11,8 +11,9 @@
  *  - the **panel width** the user dragged, persisted per kind (spec §4.2).
  *
  * The mapping itself lives in `inspectorContract.ts` so the test can pin it
- * without mounting anything; this hook only wires that mapping to `resize`
- * events, storage and React state.
+ * without mounting anything; the viewport subscription lives in the shared
+ * `useViewportWidth()` hook (S3.2 WP-2 / R2S-006) so no second `resize`
+ * listener exists. This hook only wires those to storage and React state.
  *
  * The open/closed decision is deliberately **not** persisted: the region
  * default is the answer every time a route mounts, so a collapsed inspector on
@@ -32,6 +33,7 @@ import {
   type InspectorForm,
   type InspectorRegion,
 } from "./inspectorContract";
+import { useViewportWidth } from "../../../hooks/useViewportWidth";
 import { safeLocalStorage, safeSessionStorage } from "../../../utils/safeStorage";
 import type { ArtifactKind } from "./types";
 
@@ -51,11 +53,6 @@ export interface InspectorLayout {
   canResize: boolean;
 }
 
-function currentViewportWidth(): number {
-  if (typeof window === "undefined") return 1440;
-  return window.innerWidth;
-}
-
 function readStoredWidth(kind: ArtifactKind, fallback: number): number {
   const raw = safeLocalStorage.getItem(inspectorWidthStorageKey(kind));
   if (raw === null) return clampInspectorWidth(fallback);
@@ -64,7 +61,7 @@ function readStoredWidth(kind: ArtifactKind, fallback: number): number {
 }
 
 export function useInspectorLayout(kind: ArtifactKind): InspectorLayout {
-  const [viewportWidth, setViewportWidth] = useState<number>(currentViewportWidth);
+  const viewportWidth = useViewportWidth();
 
   const region = useMemo<InspectorRegion>(
     () => inspectorRegionFor(viewportWidth),
@@ -85,7 +82,7 @@ export function useInspectorLayout(kind: ArtifactKind): InspectorLayout {
   );
 
   const [widthPx, setWidthState] = useState<number>(() =>
-    readStoredWidth(kind, inspectorDefaultWidth(inspectorRegionFor(currentViewportWidth()))),
+    readStoredWidth(kind, inspectorDefaultWidth(inspectorRegionFor(viewportWidth))),
   );
 
   // A region change moves the *default* width with it (360 in R1, 320 in R2)
@@ -110,14 +107,6 @@ export function useInspectorLayout(kind: ArtifactKind): InspectorLayout {
     },
     [kind],
   );
-
-  useEffect(() => {
-    function onResize(): void {
-      setViewportWidth(currentViewportWidth());
-    }
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
 
   const form = inspectorFormFor(region, open);
 

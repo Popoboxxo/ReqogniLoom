@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { AttributeOrigin, AttributeSpec } from "../../api/attribute-definitions";
+import { useActivationKeys } from "../../hooks/useActivationKeys";
 import styles from "./AttributeEditor.module.css";
 import { ATTRIBUTE_TYPE_ICONS } from "./attribute-type-icons";
 
@@ -47,6 +48,68 @@ function sortValue(
     default:
       return attribute[key];
   }
+}
+
+interface AttributeTableRowProps {
+  attribute: AttributeSpec;
+  origin: AttributeOrigin;
+  selected: boolean;
+  onSelect: (name: string) => void;
+}
+
+/**
+ * A row is a native table row — it keeps its table semantics and is made
+ * keyboard-operable by the shared activation contract. Previously this row
+ * carried a bare `onClick` with no `tabIndex`/`onKeyDown` at all (UI-006), so
+ * the whole hit area was unreachable without a pointer.
+ */
+function AttributeTableRow({
+  attribute,
+  origin,
+  selected,
+  onSelect,
+}: AttributeTableRowProps): JSX.Element {
+  const { t } = useTranslation();
+  const activation = useActivationKeys(() => onSelect(attribute.name));
+  const TypeIcon = ATTRIBUTE_TYPE_ICONS[attribute.type];
+  const originModifier = ORIGIN_BADGE_CLASS[origin];
+
+  return (
+    <tr
+      key={attribute.name}
+      data-testid={`attribute-table-row-${attribute.name}`}
+      className={selected ? styles.rowSelected : ""}
+      {...activation}
+    >
+      <td>{attribute.name}</td>
+      <td>
+        <TypeIcon
+          aria-hidden="true"
+          size={14}
+          className={styles.typeIcon}
+          data-testid={`attribute-table-row-${attribute.name}-type-icon`}
+        />
+        {t(`attributes.types.${attribute.type}`, { defaultValue: attribute.type })}
+      </td>
+      <td>{attribute.section}</td>
+      <td>
+        <input type="checkbox" checked={attribute.required} readOnly />
+      </td>
+      <td>
+        <input type="checkbox" checked={attribute.visible} readOnly />
+      </td>
+      <td>{attribute.audience}</td>
+      <td>
+        <span
+          className={`${styles.originBadge} ${
+            originModifier ? styles[originModifier] : ""
+          }`}
+        >
+          {t(`attributes.table.origin.${origin}`)}
+        </span>
+      </td>
+    </tr>
+  );
 }
 
 export function AttributeTable({
@@ -90,59 +153,37 @@ export function AttributeTable({
       <thead>
         <tr>
           {COLUMNS.map((column) => (
-            <th
-              key={column}
-              scope="col"
-              data-testid={`attribute-table-sort-${column}`}
-              onClick={() => handleSort(column)}
-            >
-              {t(column === "origin" ? "attributes.table.originHeader" : `attributes.table.${column}`)}
-              {sortKey === column ? (ascending ? " ▲" : " ▼") : ""}
+            <th key={column} scope="col">
+              {/* UI-006: a sortable header is a real button (native Enter/Space
+                  activation, announced as a control) inside the native header
+                  cell,
+                  mirroring shared/ArtifactTable's sort-header pattern. The
+                  design-system ratchet no longer needs a row-part exemption.
+                  The stable test id moves to the control so existing click
+                  assertions keep hitting the activated element. */}
+              <button
+                type="button"
+                className="btn-ghost btn-sm"
+                data-testid={`attribute-table-sort-${column}`}
+                onClick={() => handleSort(column)}
+              >
+                {t(column === "origin" ? "attributes.table.originHeader" : `attributes.table.${column}`)}
+                {sortKey === column ? (ascending ? " ▲" : " ▼") : ""}
+              </button>
             </th>
           ))}
         </tr>
       </thead>
       <tbody>
-        {sorted.map(({ attribute, origin }) => {
-          const TypeIcon = ATTRIBUTE_TYPE_ICONS[attribute.type];
-          const originModifier = ORIGIN_BADGE_CLASS[origin];
-          return (
-            <tr
-              key={attribute.name}
-              data-testid={`attribute-table-row-${attribute.name}`}
-              className={selected === attribute.name ? styles.rowSelected : ""}
-              onClick={() => onSelect(attribute.name)}
-            >
-              <td>{attribute.name}</td>
-              <td>
-                <TypeIcon
-                  aria-hidden="true"
-                  size={14}
-                  className={styles.typeIcon}
-                  data-testid={`attribute-table-row-${attribute.name}-type-icon`}
-                />
-                {t(`attributes.types.${attribute.type}`, { defaultValue: attribute.type })}
-              </td>
-              <td>{attribute.section}</td>
-              <td>
-                <input type="checkbox" checked={attribute.required} readOnly />
-              </td>
-              <td>
-                <input type="checkbox" checked={attribute.visible} readOnly />
-              </td>
-              <td>{attribute.audience}</td>
-              <td>
-                <span
-                  className={`${styles.originBadge} ${
-                    originModifier ? styles[originModifier] : ""
-                  }`}
-                >
-                  {t(`attributes.table.origin.${origin}`)}
-                </span>
-              </td>
-            </tr>
-          );
-        })}
+        {sorted.map(({ attribute, origin }) => (
+          <AttributeTableRow
+            key={attribute.name}
+            attribute={attribute}
+            origin={origin}
+            selected={selected === attribute.name}
+            onSelect={onSelect}
+          />
+        ))}
       </tbody>
     </table>
   );

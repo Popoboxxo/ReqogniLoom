@@ -1,15 +1,14 @@
 /**
  * SplitView — concept contract tests (UI_KONZEPT.md ch. 12.6)
  *
- * Covers the acceptance criteria of Task 1.1 (additive `list`/`detail`/
- * `spine`/`ratio`/`minWidths` props). The legacy `leftPanel`/`rightPanel`
- * contract is covered by backward-compatibility smoke tests across the
- * twelve existing call sites (see task-1.1-report.md) plus
- * `src/test/SplitPaneResize.test.tsx`, which exercises an independent mock
- * and is unaffected by this change.
+ * The component has exactly one contract: `list` / `detail` / `spine` /
+ * `ratio` / `minWidths`. The legacy `leftPanel` / `rightPanel` drag-divider
+ * contract was removed in UI-001 / S3.2 WP-1 — its tests went with it.
+ * Mobile pane behaviour lives in `SplitView.mobile.test.tsx` and the
+ * extracted `useSplitViewMobileState` hook.
  */
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 
 import { SplitView } from "./SplitView";
@@ -131,77 +130,6 @@ describe("SplitView — concept contract", () => {
     }
   });
 
-  it("AC3b: legacy contract scroll surfaces also carry the shared scroll model", () => {
-    render(
-      <SplitView
-        leftPanel={<div>Left</div>}
-        rightPanel={<div>Right</div>}
-        responsiveMode={false}
-      />
-    );
-
-    const divider = screen.getByTestId("splitview-divider");
-    const left = divider.previousElementSibling as HTMLElement;
-    const right = divider.nextElementSibling as HTMLElement;
-
-    for (const surface of [left, right]) {
-      const computed = window.getComputedStyle(surface);
-      expect(computed.overscrollBehavior).toBe("contain");
-      expect(computed.scrollbarGutter).toBe("stable");
-    }
-  });
-
-  it("#1252: the artifact-list panel scrolls on Y only, so a wide row cannot add a horizontal scrollbar", () => {
-    render(
-      <SplitView
-        leftPanel={<div>Left</div>}
-        rightPanel={<div>Right</div>}
-        responsiveMode={false}
-      />
-    );
-
-    const divider = screen.getByTestId("splitview-divider");
-    const left = divider.previousElementSibling as HTMLElement;
-
-    const computed = window.getComputedStyle(left);
-    expect(computed.overflowX).toBe("hidden");
-    expect(computed.overflowY).toBe("auto");
-    expect(computed.overscrollBehavior).toBe("contain");
-    expect(computed.scrollbarGutter).toBe("stable");
-  });
-
-  it("C9/#1406: the divider hitbox is at least 24px", () => {
-    render(
-      <SplitView
-        leftPanel={<div>Left</div>}
-        rightPanel={<div>Right</div>}
-        responsiveMode={false}
-      />
-    );
-
-    const divider = screen.getByTestId("splitview-divider");
-    expect(divider.style.flex).toBe("0 0 24px");
-  });
-
-  it("#1252: the detail panel keeps both-axis scrolling and can shrink (min-width: 0)", () => {
-    render(
-      <SplitView
-        leftPanel={<div>Left</div>}
-        rightPanel={<div>Right</div>}
-        responsiveMode={false}
-      />
-    );
-
-    const divider = screen.getByTestId("splitview-divider");
-    const right = divider.nextElementSibling as HTMLElement;
-
-    const computed = window.getComputedStyle(right);
-    expect(computed.overflow).toBe("auto");
-    expect(computed.overflowX).not.toBe("hidden");
-    expect(computed.overflowY).not.toBe("hidden");
-    expect(right.style.minWidth).toBe("0px");
-  });
-
   it("#1252: the concept-contract list panel also scrolls on Y only", () => {
     render(
       <SplitView
@@ -214,6 +142,13 @@ describe("SplitView — concept contract", () => {
     const computed = window.getComputedStyle(list);
     expect(computed.overflowX).toBe("hidden");
     expect(computed.overflowY).toBe("auto");
+  });
+
+  it("UI-001: no drag divider is rendered — the fixed-ratio contract is the only one", () => {
+    const { container } = render(
+      <SplitView list={<div>List</div>} detail={<div>Detail</div>} />
+    );
+    expect(container.querySelector('[data-testid="splitview-divider"]')).toBeNull();
   });
 
   it("applies the configured ratio and minWidths to list/detail when both are present", () => {
@@ -233,28 +168,10 @@ describe("SplitView — concept contract", () => {
     expect(detail).toHaveStyle({ minWidth: "400px" });
   });
 
-  it("renders both leftPanel and rightPanel unchanged when list is not passed (legacy contract)", () => {
-    render(
-      <SplitView
-        leftPanel={<div data-testid="legacy-left">Left</div>}
-        rightPanel={<div data-testid="legacy-right">Right</div>}
-        responsiveMode={false}
-      />
-    );
-
-    expect(screen.getByTestId("legacy-left")).toBeInTheDocument();
-    expect(screen.getByTestId("legacy-right")).toBeInTheDocument();
-    expect(screen.getByTestId("splitview-divider")).toBeInTheDocument();
-    expect(screen.queryByTestId("splitview-list")).not.toBeInTheDocument();
-  });
-
-  it("#1421: concept position memory finds the aria-pressed row when the detail closes", () => {
-    // Scope: the concept `list`/`detail` contract only — no production view
-    // mounts it yet (they all use the legacy `leftPanel`/`rightPanel` panels),
-    // so this guards the contract itself, not a live view. It still fails
-    // under the old `[aria-selected="true"]`-only selector, because the
-    // current row of a `role="button"` list is marked `aria-pressed="true"`
-    // (ArtifactRow since #1421) — `aria-selected` is invalid on buttons.
+  it("#1421: position memory finds the aria-pressed row when the detail closes", () => {
+    // The current row of a `role="button"` list is marked
+    // `aria-pressed="true"` (ArtifactRow since #1421) — `aria-selected` is
+    // invalid on buttons. Both conventions are covered by the hook.
     const scrollIntoView = vi.fn();
     Object.defineProperty(Element.prototype, "scrollIntoView", {
       configurable: true,
@@ -280,6 +197,34 @@ describe("SplitView — concept contract", () => {
       expect(scrollIntoView.mock.instances[0]).toBe(screen.getByTestId("row-b"));
     } finally {
       delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
+  it("does not follow a new inline detail identity after the user pressed back", () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", {
+      writable: true,
+      configurable: true,
+      value: 390,
+    });
+
+    try {
+      const row = <div role="treeitem" aria-selected={false} data-testid="row">Zeile</div>;
+      const { rerender } = render(<SplitView list={row} detail={<div>Detail</div>} />);
+      fireEvent.click(screen.getByTestId("row"));
+      expect(screen.getByTestId("splitview-detail").style.display).not.toBe("none");
+      fireEvent.click(screen.getByTestId("splitview-back"));
+      expect(screen.getByTestId("splitview-detail").style.display).toBe("none");
+
+      // Parent rerenders with a fresh inline detail element — must stay closed.
+      rerender(<SplitView list={row} detail={<div>Detail</div>} />);
+      expect(screen.getByTestId("splitview-detail").style.display).toBe("none");
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        writable: true,
+        configurable: true,
+        value: originalWidth,
+      });
     }
   });
 });

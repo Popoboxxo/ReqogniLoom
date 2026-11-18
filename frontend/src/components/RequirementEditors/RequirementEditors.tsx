@@ -43,8 +43,7 @@ import { useRequirementCreateForm } from './use-requirement-create-form';
 import { useRequirementRouteActions } from './use-requirement-route-actions';
 import { useHasRole } from '../../hooks/useHasRole';
 import { usePersistedListState } from '../../hooks/usePersistedListState';
-import { useCreateRequirement, useDeleteRequirement } from '../../queries/requirements';
-import { artifactsApi } from '../../api/artifacts';
+import { useCreateRequirement } from '../../queries/requirements';
 import { extractApiErrorMessage } from '../../api/client';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { SplitView } from '../SplitView/SplitView';
@@ -75,16 +74,17 @@ import { DeriveTestCasePanel } from '../TestCaseEditors/DeriveTestCasePanel';
 import { Dialog } from '../shared/Dialog';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
-import { useFormDirty } from '../../hooks/use-form-dirty';
-import { useEntityReset } from '../../hooks/use-entity-reset';
 import { InspectorShell } from '../shared/ArtifactInspector';
-import type { VersionRef } from '../shared/ArtifactInspector';
-import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
-import type { ChainArtifact } from '../shared/TraceSpine';
+import { TraceSpine } from '../shared/TraceSpine';
 import { BaselineDriftBadge } from '../shared/BaselineDriftBadge/BaselineDriftBadge';
-import { getArtifactRoute } from '../../utils/artifactRoutes';
 import styles from './RequirementEditors.module.css';
 import { RequirementCreateFallbackForm } from './RequirementCreateFallbackForm';
+import {
+  buildAiActions,
+} from './requirement-editors.logic';
+import { useRequirementInspector } from './use-requirement-inspector';
+import { useRequirementListActions } from './use-requirement-list-actions';
+import { useRequirementSelection } from './use-requirement-selection';
 
 /**
  * RequirementEditors — main view with SplitView (list | detail)
@@ -131,12 +131,6 @@ export default function RequirementEditors(): JSX.Element {
     'all',
     { validate: isRequirementLevelFilter },
   );
-  // Issue #672: does the currently-open RequirementArtifactForm have unsaved
-  // local edits? Reported by the form itself via onDirtyChange. `pendingId`
-  // holds a tree-node click that arrived while dirty, so it can be confirmed
-  // or discarded instead of silently overwriting the open edit.
-  const [formDirty, setFormDirty] = useState(false);
-  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
   const {
     requirements,
     requirement,
@@ -144,6 +138,32 @@ export default function RequirementEditors(): JSX.Element {
     error,
     refresh,
   } = useRequirementData(selectedId, { includeDeleted, allocation, level });
+
+  // ---- Cohesion hooks (S3.2 WP-5) ----
+  // The unsaved-changes guard (form + custom fields), the list-level writes
+  // (reparent/delete + their shared error banner) and the trace-spine/inspector
+  // focus contract each own one decision.
+  const {
+    setIsFormDirty,
+    pendingSelectId,
+    setPendingSelectId,
+    customFieldsDraft,
+    setCustomFieldsDraft,
+    selectRequirement,
+    confirmPendingSelect,
+    handleSaved,
+  } = useRequirementSelection({ selectedId, requirement, refresh });
+  const {
+    actionError,
+    setActionError,
+    handleReorder,
+    handleDelete,
+  } = useRequirementListActions({
+    requirements,
+    workspaceId: activeWorkspace?.id,
+    refresh,
+    t,
+  });
 
   // P6 Task 6.3: visual groups. Loaded here (not in RequirementList) so the
   // list itself stays free of group API state and its focused unit tests keep
@@ -166,69 +186,7 @@ export default function RequirementEditors(): JSX.Element {
     ? requirements.find((req) => req.id === addToGroupId)
     : undefined;
 
-  /**
-   * P1 Task 1.7: the tree addresses nodes by Requirement id, the move route by
-   * backing Artifact id. Both id spaces exist side by side here (the very
-   * confusion the plan's risk R1 names), so the mapping is explicit rather than
-   * a cast: a node whose artifact_id has not been loaded falls back to its own
-   * id, which is what the pre-P1 reparent call effectively used.
-   */
-  const artifactIdByRequirementId = useMemo(
-    () =>
-      new Map<string, string>(
-        requirements.map((req) => [req.id, req.artifact_id ?? req.id]),
-      ),
-    [requirements],
-  );
-
-  const handleReorder = useCallback(
-    async (
-      id: string,
-      newParentId: string | null,
-      afterId: string | null | undefined,
-    ): Promise<void> => {
-      const toArtifactId = (nodeId: string | null): string | null =>
-        nodeId === null
-          ? null
-          : (artifactIdByRequirementId.get(nodeId) ?? nodeId);
-      const artifactId = toArtifactId(id);
-      if (artifactId === null) return;
-      await artifactsApi.move(artifactId, {
-        parent_id: toArtifactId(newParentId),
-        ...(afterId === undefined
-          ? {}
-          : { after_id: toArtifactId(afterId) }),
-      });
-      refresh();
-    },
-    [artifactIdByRequirementId, refresh],
-  );
-
-  // Task 25: custom_fields is a free-form JSON blob the definition-driven
-  // RequirementArtifactForm cannot render (no `kind: "extended"` attribute
-  // exists for Requirement), so the CustomFieldsEditor lives here as a
-  // sibling — same scope boundary as TestCaseEditors'/NeedsEditors'
-  // customFieldsDraft (Tasks 22/23). Reset on requirement switch, not on
-  // every refetch of the same one.
-  const [customFieldsDraft, setCustomFieldsDraft] = useState<Record<string, unknown>>({});
-  // customFieldsDraft must feed the same dirty gate isFormDirty does, or
-  // editing only a custom field and switching to another requirement
-  // silently discards the edit with no unsaved-changes dialog — the
-  // CustomFieldsEditor is a sibling of RequirementArtifactForm, not wired
-  // into its own useFormDirty/onDirtyChange at all.
-  const { isDirty: customFieldsDirty, markClean: markCustomFieldsClean } = useFormDirty(
-    customFieldsDraft,
-    requirement?.custom_fields ?? {},
-  );
-  useEntityReset(requirement?.id ?? '__none__', () => {
-    const baseline = requirement?.custom_fields ?? {};
-    setCustomFieldsDraft(baseline);
-    markCustomFieldsClean(baseline);
-  });
-  const isFormDirty = formDirty || customFieldsDirty;
-
   const createRequirement = useCreateRequirement();
-  const deleteRequirement = useDeleteRequirement();
 
   // Create form state
   // BUG-11: `description`/`category` are ordinary create() fields the backend
@@ -249,10 +207,6 @@ export default function RequirementEditors(): JSX.Element {
     toggleCreateForm,
     closeCreateForm,
   } = useRequirementCreateForm();
-  // #340: same for the list-level actions that have no form of their own
-  // (delete, PDF export) — rendered as a banner under the page header.
-  const [actionError, setActionError] = useState<string | null>(null);
-
   const {
     isExportingPdf,
     showDeriveTestcasePanel,
@@ -358,76 +312,6 @@ export default function RequirementEditors(): JSX.Element {
   }, []);
 
   /**
-   * Issue #672: navigating the tree used to call `navigate()` directly,
-   * which swaps the URL — and therefore the `requirement` prop the open
-   * RequirementForm is bound to — immediately, discarding any unsaved edit
-   * with no warning. Unsaved edits now gate the navigation behind a
-   * confirmation instead of running it straight away.
-   */
-  const selectRequirement = useCallback(
-    (id: string): void => {
-      if (isFormDirty && id !== selectedId) {
-        setPendingSelectId(id);
-        return;
-      }
-      navigate(`/requirements/${id}`);
-    },
-    [isFormDirty, navigate, selectedId]
-  );
-
-  const confirmPendingSelect = useCallback((): void => {
-    if (!pendingSelectId) return;
-    const target = pendingSelectId;
-    setPendingSelectId(null);
-    setFormDirty(false);
-    // Discarding: re-anchor the custom-fields baseline to whatever is
-    // currently drafted so isFormDirty drops immediately, not just once the
-    // target requirement's own useEntityReset callback fires after
-    // navigation (same fix TestCaseEditors/NeedsEditors already needed).
-    markCustomFieldsClean(customFieldsDraft);
-    navigate(`/requirements/${target}`);
-  }, [pendingSelectId, navigate, customFieldsDraft, markCustomFieldsClean]);
-
-  // F-2-class fix (Task 23 fix round 4 / Task 22): a save that touched
-  // customFieldsDraft would otherwise leave customFieldsDirty stuck `true`
-  // forever — markCustomFieldsClean was only ever called from
-  // useEntityReset/confirmPendingSelect, never after a successful save, so
-  // the very next requirement switch showed a false unsaved-changes dialog.
-  const handleSaved = useCallback((): void => {
-    markCustomFieldsClean(customFieldsDraft);
-    refresh();
-  }, [customFieldsDraft, markCustomFieldsClean, refresh]);
-
-  /**
-   * Handle delete requirement with confirmation.
-   *
-   * Issue #811: returns whether the delete actually succeeded so the caller
-   * (the confirm dialog in RequirementList) knows whether it may close
-   * itself. It used to be `void`-returning and fire-and-forget, so the
-   * dialog closed unconditionally the moment the user clicked "Löschen" —
-   * including on a 400 (e.g. the extended preset's mandatory `change_reason`)
-   * — leaving the requirement undeleted but the UI looking like it had
-   * succeeded.
-   */
-  const handleDelete = useCallback(
-    async (id: string, changeReason?: string): Promise<boolean> => {
-      if (!activeWorkspace) return false;
-      setActionError(null);
-      try {
-        await deleteRequirement.mutateAsync({ id, workspaceId: activeWorkspace.id, changeReason });
-        navigate('/requirements');
-        return true;
-      } catch (err: unknown) {
-        // #340: a refused delete (permission, workflow gate) must not look
-        // like the row simply stayed where it was.
-        setActionError(extractApiErrorMessage(err) ?? t('req.deleteFailed'));
-        return false;
-      }
-    },
-    [activeWorkspace, deleteRequirement, navigate, t]
-  );
-
-  /**
    * Issue #1092: the route's complete AI-action set, in one list. Each entry
    * keeps its own label, hint and test id from before the move; the shared
    * `<AiActionSection>` adds the common AI icon and the button variant, so
@@ -439,80 +323,19 @@ export default function RequirementEditors(): JSX.Element {
    * the triggers are genuinely absent from the DOM, not merely disabled.
    */
   const canUseAi = hasRole('editor');
-  const aiActions = useMemo<AiActionDescriptor[]>(() => {
-    if (!canUseAi) return [];
-    return [
-      {
-        label: t('actions.deriveAi', 'KI-Ableitung'),
-        busyLabel: t('actions.derivingAi', 'KI-Ableitung läuft…'),
-        hint: t(
-          'actions.deriveAiHint',
-          'Die KI erzeugt Entwürfe zur Prüfung – gespeichert wird erst nach deiner Bestätigung'
-        ),
-        onClick: () => void handleAiDerive(),
-        disabled: isAiDeriving,
-        testId: 'req-ai-derive-btn',
-      },
-      {
-        // SysEng 2.0 N5: AI-generate a TestCase draft for this requirement.
-        label: t('actions.deriveAiTestcase', 'KI-Testfall'),
-        busyLabel: t('actions.derivingAiTestcase', 'KI-Testfall wird erzeugt…'),
-        hint: t(
-          'actions.deriveAiTestcaseHint',
-          'Die KI erzeugt einen Testfall-Entwurf zur Prüfung – gespeichert wird erst nach deiner Bestätigung'
-        ),
-        onClick: openDeriveTestcasePanel,
-        testId: 'req-derive-testcase-btn',
-      },
-    ];
-  }, [canUseAi, t, handleAiDerive, isAiDeriving]);
-
-  const currentVersion: VersionRef | undefined = useMemo(() => {
-    if (!requirement) return undefined;
-    return {
-      version: requirement.version,
-      label: `v${requirement.version}`,
-      createdAt: requirement.updated_at ?? requirement.created_at,
-      baselineIds: [],
-    };
-  }, [requirement]);
-
-  // Trace spine (Task 3.3 — UI concept ch. 5). Uses the resolve-endpoint
-  // backed isOpenable/resolveEntry from the hook itself; unlike Architecture
-  // (Task 3.2's pilot, which predates the resolve endpoint) this page has no
-  // cheaper local id mapping to fall back on.
-  const derivationChain = useDerivationChain(
-    requirement?.artifact_id ?? requirement?.id ?? null,
-    'Requirement',
-    null,
-    { enabled: !!requirement },
+  const aiActions = useMemo<AiActionDescriptor[]>(
+    () => buildAiActions(canUseAi, t, handleAiDerive, isAiDeriving, openDeriveTestcasePanel),
+    [canUseAi, t, handleAiDerive, isAiDeriving, openDeriveTestcasePanel],
   );
 
-  const handleOpenChainArtifact = useCallback(
-    (artifact: ChainArtifact): void => {
-      const entry = derivationChain.resolveEntry(artifact);
-      if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
-    },
-    [derivationChain, navigate],
-  );
-
-  // #1762 (M1): the inspector's programmatic focus targets. Both live here in
-  // the route, not in the shell, because the shell must not know the detail
-  // area's DOM (it only receives `coveredRef` for the `inert` bracket).
-  const detailScrollRef = useRef<HTMLDivElement | null>(null);
-
-  const focusInspectorHeading = useCallback((): void => {
-    document.getElementById('inspector-heading')?.focus();
-  }, []);
-
-  // Spec §2.3 rule 1: the Links tab's summary line jumps into the spine. The
-  // spine is a separate flex zone now, so this is the one place that knows
-  // its first station.
-  const focusSpine = useCallback((): void => {
-    document
-      .querySelector<HTMLElement>('[data-testid="trace-spine-station-button"]')
-      ?.focus();
-  }, []);
+  const {
+    currentVersion,
+    derivationChain,
+    handleOpenChainArtifact,
+    detailScrollRef,
+    focusInspectorHeading,
+    focusSpine,
+  } = useRequirementInspector({ requirement });
 
   // Loading state
   if (isLoading) {
@@ -761,7 +584,7 @@ export default function RequirementEditors(): JSX.Element {
           refresh();
           navigate('/requirements');
         }}
-        onDirtyChange={setFormDirty}
+        onDirtyChange={setIsFormDirty}
         customFields={customFieldsDraft}
       />
 

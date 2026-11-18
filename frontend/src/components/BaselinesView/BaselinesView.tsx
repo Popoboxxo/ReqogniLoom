@@ -359,9 +359,8 @@ export default function BaselinesView(): JSX.Element {
 
       <div className={styles.content}>
       <SplitView
-        moduleType="baselines"
-        leftMinWidth={280}
-        leftPanel={
+        minWidths={[280, 520]}
+        list={
           <>
         {/* F4.3: tag filter. Server-side (`?tag=…`) — the options come from
             the unfiltered list so picking one does not collapse the menu. */}
@@ -462,7 +461,7 @@ export default function BaselinesView(): JSX.Element {
         )}
           </>
         }
-        rightPanel={
+        detail={
           showCompare ? (
             <BaselineComparePanel
               baselines={state.baselines}

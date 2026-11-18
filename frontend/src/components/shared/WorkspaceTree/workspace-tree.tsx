@@ -35,6 +35,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { Lock } from 'lucide-react';
 import { extractApiErrorMessage } from '../../../api/client';
+import { useActivationKeys } from '../../../hooks/useActivationKeys';
 import { Badge } from '../Badge';
 import { LevelBadge } from '../LevelBadge';
 import { useToast } from '../Toast/useToast';
@@ -1600,6 +1601,19 @@ function TreeRow({
   const isLocked = Boolean(node.locked);
   const canReorderNode = Boolean(canReorder) && !isLocked;
 
+  // UI-006: the row keeps its native treeitem role and the tree's roving
+  // tabIndex; the shared contract supplies pointer + Enter/Space activation.
+  // The tree-specific Arrow key handling below composes with this handler
+  // instead of replacing it.
+  const activation = useActivationKeys(() => {
+    if (isGroupFolder) {
+      if (hasChildren) onToggle(node.id);
+      return;
+    }
+    onSelect(artifactNodeId(node));
+    onFocusRow(node.id);
+  });
+
   const isDragging = dragProps?.draggingId === node.id;
   const isDropTarget = Boolean(dragProps) && dragProps!.dropTargetId === node.id;
   // P1 Task 1.7: the pointer position on the hovered row decides whether the
@@ -1646,6 +1660,7 @@ function TreeRow({
 
   return (
     <li
+      {...activation}
       ref={(el) => onRowRef(node.id, el)}
       role="treeitem"
       aria-selected={isSelected}
@@ -1690,6 +1705,9 @@ function TreeRow({
       }
       onDrop={dragProps ? (e) => dragProps.onDropRow(e, node.id) : undefined}
       onKeyDown={(e) => {
+        // APG button activation (Enter/Space) from the shared contract; the
+        // tree-specific arrow navigation below stays intact.
+        activation.onKeyDown(e);
         if (e.key === 'ArrowRight' && hasChildren && !isExpanded) {
           e.preventDefault();
           e.stopPropagation();
@@ -1700,15 +1718,6 @@ function TreeRow({
           e.stopPropagation();
           onToggle(node.id);
         }
-      }}
-      onClick={() => {
-        // P6: a group folder is not selectable — clicking it opens/closes it.
-        if (isGroupFolder) {
-          if (hasChildren) onToggle(node.id);
-          return;
-        }
-        onSelect(artifactNodeId(node));
-        onFocusRow(node.id);
       }}
       style={dynamicRowStyle}
     >

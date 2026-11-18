@@ -234,9 +234,8 @@ export function TestRunsList(): JSX.Element {
 
       <div className={styles.content}>
       <SplitView
-        moduleType="testruns"
-        leftMinWidth={260}
-        leftPanel={
+        minWidths={[260, 520]}
+        list={
           <>
         {/* REQ-175: search + status filter */}
         <ListToolbar
@@ -533,7 +532,7 @@ export function TestRunsList(): JSX.Element {
         )}
           </>
         }
-        rightPanel={
+        detail={
           selectedRun ? (
           <TestRunDetailEditor
             key={selectedRun.id}

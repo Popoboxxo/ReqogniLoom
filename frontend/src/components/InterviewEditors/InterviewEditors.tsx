@@ -122,7 +122,7 @@ export default function InterviewEditors(): JSX.Element {
 
       <div className={styles.splitWrapper}>
         <SplitView
-          leftPanel={
+          list={
             <InterviewList
               items={items}
               selectedId={selectedId}
@@ -130,9 +130,7 @@ export default function InterviewEditors(): JSX.Element {
               workspaceId={activeWorkspace?.id ?? null}
             />
           }
-          rightPanel={<InterviewDetail interview={item} artifactType={selectedSummary?.artifact_type} onChanged={refresh} />}
-          initialLeftWidth={350}
-          moduleType="interviews"
+          detail={<InterviewDetail interview={item} artifactType={selectedSummary?.artifact_type} onChanged={refresh} />}
         />
       </div>
 

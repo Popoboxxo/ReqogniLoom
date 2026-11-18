@@ -1240,7 +1240,7 @@ export default function ReviewsView({
               : undefined,
         }}
       />
-      <SplitView leftPanel={listPanel} rightPanel={detailPanel} moduleType="reviews" />
+      <SplitView list={listPanel} detail={detailPanel} />
     </div>
   );
 }

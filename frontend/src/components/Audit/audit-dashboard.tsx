@@ -76,31 +76,21 @@
  * "Load more" advances with the server's `report.next_offset` cursor.
  */
 
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate } from "react-router-dom";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import { auditApi } from "../../api/audit";
 import type {
   AuditCounts,
   AuditFinding,
   AuditRuleInfo,
   AuditScopeKind,
-  WaiveRequest,
 } from "../../api/audit";
-import { ForbiddenError, UnprocessableEntityError } from "../../api/errors";
-import type { ApiError, Artifact } from "../../types";
 import { Badge } from "../shared/Badge";
 import { PageHeader } from "../shared/PageHeader";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { Dialog } from "../shared/Dialog";
-import { useRequiredValidation } from "../shared/useRequiredValidation";
-import { primaryTarget, useFindingTargets } from "./use-finding-targets";
-import {
-  findingIdentity,
-  resolveErrorMessage,
-  useAuditRun,
-} from "./use-audit-run";
+import { primaryTarget } from "./use-finding-targets";
+import { findingIdentity, useAuditRun } from "./use-audit-run";
 import type { ActionState, ActionStateMap } from "./use-audit-run";
 import { useAuditFilters } from "./use-audit-filters";
 import {
@@ -109,79 +99,19 @@ import {
   useScopeArtifacts,
 } from "./use-audit-context";
 import type { FindingTarget, FindingTargetMap } from "./use-finding-targets";
+import {
+  ARTIFACT_TYPE_OPTIONS,
+  SCOPES,
+  artifactLabel,
+  buildRuleOptions,
+  computeCounts,
+  filterFindings,
+  formatExpiry,
+  groupFindingsByRule,
+} from "./audit-dashboard.logic";
+import { useAuditActions } from "./use-audit-actions";
+import { useAuditScope } from "./use-audit-scope";
 import styles from "./audit-dashboard.module.css";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const SCOPES: AuditScopeKind[] = ["project", "document", "global"];
-
-/**
- * #1262: artifact types offered by the server-side `artifact_type` filter. The
- * backend resolves the type to the workspace's Artifact ids, so only types that
- * can carry SE-Auditor findings are listed.
- */
-const ARTIFACT_TYPE_OPTIONS = [
-  "Requirement",
-  "ArchitectureElement",
-  "Icd",
-  "TestCase",
-  "StakeholderNeed",
-  "Goal",
-] as const;
-
-/** Defensive label for an /artifacts/ row — the payload exposes no title/name
- * field today (same caveat as BaselinesView's document-scope picker), so we
- * read them optimistically and fall back to a truncated id. */
-function artifactLabel(a: Artifact): string {
-  const named = a as Artifact & { title?: string; name?: string };
-  const label = named.title ?? named.name ?? `${a.id.slice(0, 8)}…`;
-  return `${a.artifact_type} — ${label}`;
-}
-
-/**
- * #569: the stable `error.code` of a thrown API error, if any.
- *
- * Two different shapes reach a caller: the non-2xx path of `apiFetch` throws
- * the parsed `{error: {code, message, details}}` body (so the code lives on
- * the object rather than on an `Error` subclass), but `apiFetch` intercepts
- * **403 before** that generic path and throws `ForbiddenError` — a plain
- * `Error` subclass that carries **no** `.error` property (client.ts:287-301).
- * Reading only `apiErr.error.code` therefore made the `PERMISSION_DENIED`
- * branch dead on REST: a real 403 (no Admin/Approver role, or an AUTHOR-tier
- * API key) resolved to `null` and the dedicated forbidden message was
- * unreachable. `ForbiddenError` is mapped back onto its stable code here so
- * both transports land on the same branch.
- *
- * Callers must branch on this code — not on the HTTP status, and never on 422
- * (which the waive paths deliberately never emit; see spec E18).
- */
-function waiverErrorCode(err: unknown): string | null {
-  if (err instanceof ForbiddenError) return "PERMISSION_DENIED";
-  const apiErr = err as Partial<ApiError> | null;
-  return apiErr?.error?.code ?? null;
-}
-
-/** Render an ISO-8601 expiry for display; invalid input degrades to the raw string. */
-function formatExpiry(iso: string): string {
-  const parsed = new Date(iso);
-  return Number.isNaN(parsed.getTime()) ? iso : parsed.toLocaleDateString();
-}
-
-/** All-zero counts — the value before the first report arrives. */
-const EMPTY_COUNTS: AuditCounts = {
-  total: 0,
-  blockers: 0,
-  warnings: 0,
-  suppressed: 0,
-  suppressed_blockers: 0,
-};
-
-/** Counts never go below zero, even if a local action outruns the snapshot. */
-function decrement(value: number, by: number): number {
-  return Math.max(0, value - by);
-}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -189,11 +119,7 @@ function decrement(value: number, by: number): number {
 
 export function AuditDashboard(): JSX.Element {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const { activeWorkspace } = useWorkspace();
-
-  const [scope, setScope] = useState<AuditScopeKind>("project");
-  const [scopeArtifactId, setScopeArtifactId] = useState<string>("");
 
   // ---- Data context (#598 S2) ----
   // Artifacts back the document-scope picker; the rule catalogue backs the
@@ -205,13 +131,10 @@ export function AuditDashboard(): JSX.Element {
     t
   );
 
-  // Auto-pick the first artifact when the user switches to document scope
-  // without one selected yet (mirrors BaselinesView's create-form behaviour).
-  useEffect(() => {
-    if (scope === "document" && !scopeArtifactId && artifacts.length > 0) {
-      setScopeArtifactId(artifacts[0].id);
-    }
-  }, [scope, scopeArtifactId, artifacts]);
+  // Scope selection + document-scope auto-pick (own module, S3.2 WP-5).
+  const { scope, setScope, scopeArtifactId, setScopeArtifactId } = useAuditScope({
+    artifacts,
+  });
 
   // #1262/#569: severity, rule, artifact-type and suppressed filters
   // (own module, #598 S2).
@@ -225,32 +148,6 @@ export function AuditDashboard(): JSX.Element {
     showSuppressed,
     setShowSuppressed,
   } = useAuditFilters();
-  const [toast, setToast] = useState<string | null>(null);
-  // UI-57: Adopt applies an automatic correction with no undo — interpose a
-  // confirmation instead of firing the remediation call straight from the
-  // row button.
-  const [pendingAdopt, setPendingAdopt] = useState<AuditFinding | null>(null);
-  // #569: the Waive action opens a dialog that requires a justification before
-  // it can be confirmed — a suppression without a reason must not be possible.
-  const [pendingWaive, setPendingWaive] = useState<AuditFinding | null>(null);
-  const [waiveReason, setWaiveReason] = useState<string>("");
-  const [waiveExpiresAt, setWaiveExpiresAt] = useState<string>("");
-  const [waiveError, setWaiveError] = useState<string | null>(null);
-  // #1732: the mandatory justification is validated on click and marked at the
-  // textarea; the Waive button is only disabled while a request is in flight.
-  const {
-    errors: requiredErrors,
-    validate,
-    focusFirstInvalid,
-    clearError,
-    fieldProps,
-    errorId,
-  } = useRequiredValidation();
-  const [isWaiving, setIsWaiving] = useState<boolean>(false);
-  // UI-569-03: a successful waive unmounts the row's Waive trigger, so the
-  // dialog's focus trap cannot restore focus to it. This carries the index of
-  // the row that should take focus instead.
-  const [focusFindingIndex, setFocusFindingIndex] = useState<number | null>(null);
 
   // ---- Run state (#598 S2) ----
   // The hook owns one run: the bounded first window and "Load more" cursor
@@ -284,267 +181,49 @@ export function AuditDashboard(): JSX.Element {
     t,
   });
 
-  // Auto-dismiss the success toast.
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 4000);
-    return () => clearTimeout(timer);
-  }, [toast]);
-
-  // UI-569-03: after a successful waive the finding flips to `suppressed` and
-  // its Waive trigger unmounts — so the dialog's focus trap skips the restore
-  // (`previouslyFocused.isConnected` is false) and keyboard focus falls to
-  // `<body>`. Move it explicitly onto the still-mounted finding row
-  // (`tabIndex={-1}`, so it stays out of the Tab cycle), which keeps the user's
-  // place in the list after the decision.
-  useEffect(() => {
-    if (focusFindingIndex === null) return;
-    const row = document.querySelector<HTMLElement>(
-      `[data-testid="audit-finding-${focusFindingIndex}"]`
-    );
-    if (!row) return;
-    row.focus();
-    setFocusFindingIndex(null);
-  }, [focusFindingIndex, findings]);
-
-  // ---- Adopt workflow ----
-  const handleAdopt = useCallback(
-    async (finding: AuditFinding): Promise<void> => {
-      if (!activeWorkspace) return;
-      // NFA-2: every local bookkeeping entry is addressed by the
-      // run-independent identity. `index` is only the row's position in the
-      // run that produced *its* window, so a shifted window can reuse the
-      // index of a row that is already mounted.
-      const identity = findingIdentity(finding);
-      setActionState((prev) => ({ ...prev, [identity]: { status: "pending" } }));
-      try {
-        await auditApi.remediate(activeWorkspace.id, {
-          rule_id: finding.rule_id,
-          artifact_ids: finding.artifact_ids,
-          scope,
-          scope_artifact_id: scope === "document" ? scopeArtifactId : undefined,
-        });
-        setFindings((prev) => prev.filter((f) => findingIdentity(f) !== identity));
-        // #1383: the report's counts are a snapshot from the last run — record
-        // the local resolution so the badges can still shrink (see `counts`).
-        setAdoptedSinceRun((prev) => [...prev, finding]);
-        // NF-A/NFA-1: an Adopt removes one row from the run, so every finding
-        // behind it shifts down by one position. `nextOffset` is a server
-        // cursor and is honoured verbatim otherwise, but this LOCAL mutation
-        // invalidates it: paging from the old cursor would skip the finding
-        // that moved into the adopted row's slot. The adopted row is always a
-        // *mounted* row that the cursor already covers, so every successful
-        // Adopt moves the cursor by exactly one and no index comparison is
-        // needed — `finding.index` is a position in the stale snapshot and is
-        // not comparable with a cursor that an earlier adopt already
-        // decremented (that comparison under-decremented from the second
-        // adopt on the same page and skipped a finding permanently).
-        setNextOffset((prev) => (prev === null ? prev : Math.max(0, prev - 1)));
-        setActionState((prev) => {
-          const next = { ...prev };
-          delete next[identity];
-          return next;
-        });
-        setToast(t("audit.adoptSuccess", "Resolved — the correction was applied."));
-      } catch (err) {
-        if (err instanceof UnprocessableEntityError) {
-          // Not automatically fixable (anymore) — flip this finding into the
-          // manual "Modify" state in-place instead of leaving a dead button.
-          setFindings((prev) =>
-            prev.map((f) =>
-              findingIdentity(f) === identity
-                ? { ...f, remediation: { ...f.remediation, automatic: false, reason: err.message } }
-                : f
-            )
-          );
-          setActionState((prev) => ({
-            ...prev,
-            [identity]: { status: "error", message: err.message },
-          }));
-        } else {
-          setActionState((prev) => ({
-            ...prev,
-            [identity]: {
-              status: "error",
-              message: resolveErrorMessage(err, t("audit.actionError")),
-            },
-          }));
-        }
-      }
-    },
-    [
-      activeWorkspace,
-      scope,
-      scopeArtifactId,
-      t,
-      setActionState,
-      setAdoptedSinceRun,
-      setFindings,
-      setNextOffset,
-    ]
-  );
-
-  // UI-57: Adopt has no undo (it PATCHes/creates trace links straight away) —
-  // the row button opens the confirmation, the confirmation fires the actual
-  // mutation. Mirrors UserManagement's request/confirm split.
-  const requestAdopt = useCallback((finding: AuditFinding): void => {
-    setPendingAdopt(finding);
-  }, []);
-
-  const confirmAdopt = useCallback((): void => {
-    if (!pendingAdopt) return;
-    const finding = pendingAdopt;
-    setPendingAdopt(null);
-    void handleAdopt(finding);
-  }, [pendingAdopt, handleAdopt]);
-
-  // ---- Modify workflow (GitHub #451) ----
-  // A finding is cleared by correcting the artifact it points at, so "Modify"
-  // is a navigation, not a mutation — there is no finding to PATCH.
-  const targets = useFindingTargets(findings);
-
-  const handleModify = useCallback(
-    (target: FindingTarget): void => {
-      navigate(target.route);
-    },
-    [navigate]
-  );
-
-  // ---- Waive workflow (#569) ----
-  // The third action: record a justified suppression for a reported BLOCKER
-  // finding. Unlike Adopt it removes nothing — the finding stays in the list,
-  // marked as suppressed, so the decision stays visible.
-  const waiveErrorMessage = useCallback(
-    (err: unknown): string => {
-      // The stable `error.code` decides the message. A rejected justification
-      // must be reason-specific, and a waive failure must NEVER fall through
-      // into the Adopt/Modify flip (that flip belongs to a 422 from
-      // `remediate` alone — the waive paths never emit 422, spec E18).
-      switch (waiverErrorCode(err)) {
-        case "WAIVER_REASON_REJECTED":
-          return t(
-            "audit.waiveReasonRejected",
-            "The justification does not satisfy the policy."
-          );
-        case "WAIVER_FINDING_NOT_BLOCKING":
-          return t("audit.waiveNotBlocking", "This finding is not a blocker right now.");
-        case "SUPPRESSION_EXPIRED":
-          return t(
-            "audit.waiveExpired",
-            "An expired suppression already exists for this finding."
-          );
-        case "PERMISSION_DENIED":
-          return t("audit.waiveForbidden", "You are not allowed to suppress findings.");
-        default:
-          // VALIDATION_ERROR (field-level feedback) and anything else: prefer
-          // the server's concrete message over a generic one.
-          return resolveErrorMessage(err, t("audit.actionError"));
-      }
-    },
-    [t]
-  );
-
-  const requestWaive = useCallback((finding: AuditFinding): void => {
-    setPendingWaive(finding);
-    setWaiveReason("");
-    setWaiveExpiresAt("");
-    setWaiveError(null);
-  }, []);
-
-  const cancelWaive = useCallback((): void => {
-    if (isWaiving) return;
-    setPendingWaive(null);
-    setWaiveError(null);
-  }, [isWaiving]);
-
-  const confirmWaive = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace || !pendingWaive) return;
-    const finding = pendingWaive;
-    const reason = waiveReason.trim();
-    // "No silent suppression": a justification is mandatory in the UI too.
-    const fields = [
-      {
-        name: "waiveReason",
-        value: waiveReason,
-        inputId: "audit-waive-reason-input",
-        message: t("audit.waiveReasonRequired", "Please provide a justification."),
-      },
-    ];
-    const invalid = validate(fields);
-    if (invalid.length > 0) {
-      focusFirstInvalid(fields, invalid);
-      setWaiveError(t("audit.waiveReasonRequired", "Please provide a justification."));
-      return;
-    }
-    setIsWaiving(true);
-    setWaiveError(null);
-    try {
-      const body: WaiveRequest = {
-        rule_id: finding.rule_id,
-        artifact_ids: finding.artifact_ids,
-        reason,
-      };
-      // C1: the engine scope of the clicked row must travel with the request
-      // so the existence check runs over the same scope the finding was
-      // reported in — a document-scoped finding is otherwise unreachable.
-      if (finding.scope) body.scope = finding.scope;
-      if (finding.scope === "document" && finding.scope_artifact_id) {
-        body.scope_artifact_id = finding.scope_artifact_id;
-      }
-      if (waiveExpiresAt) {
-        // <input type="datetime-local"> yields a *naive* local value; the
-        // backend rejects naive timestamps, so normalise to UTC ISO-8601.
-        body.expires_at = new Date(waiveExpiresAt).toISOString();
-      }
-      const view = await auditApi.waive(activeWorkspace.id, body);
-      // Mark the finding in-place as suppressed — it is NOT removed, so the
-      // suppression stays visible (Nachvollziehbarkeit statt Verstecken).
-      // NFA-2: matched by identity, not by `index` — after a shifted window a
-      // second, *different* row can carry the same numeric index, and keying on
-      // it would mark both as suppressed.
-      const identity = findingIdentity(finding);
-      setFindings((prev) =>
-        prev.map((f) =>
-          findingIdentity(f) === identity
-            ? {
-                ...f,
-                suppressed: true,
-                suppressed_until: view.expires_at,
-                suppression_reason: view.reason,
-                suppression_id: view.waiver_id,
-              }
-            : f
-        )
-      );
-      setPendingWaive(null);
-      // #1383: the snapshot predates this waiver, so the suppressed badges
-      // would otherwise stay at their pre-waive value.
-      setWaivedSinceRun((prev) => [...prev, finding]);
-      setToast(t("audit.waiveSuccess", "Suppression saved."));
-      // UI-569-03: the trigger that opened the dialog is about to unmount.
-      setFocusFindingIndex(finding.index);
-      void loadWaivers();
-    } catch (err) {
-      // Deliberately NOT `instanceof UnprocessableEntityError`: the waive
-      // paths never emit 422, and routing a failure here into the Modify
-      // flip would misreport a rejected reason as an Adopt conflict.
-      setWaiveError(waiveErrorMessage(err));
-    } finally {
-      setIsWaiving(false);
-    }
-  }, [
-    activeWorkspace,
+  // ---- Finding actions (#569/UI-57/#451, S3.2 WP-5) ----
+  // The action module owns the Adopt/Modify/Waive decisions, their dialogs,
+  // the success toast and the post-waive focus hand-off. It mutates the run
+  // through the setters above; everything it renders stays here.
+  const {
+    toast,
+    targets,
+    pendingAdopt,
+    requestAdopt,
+    cancelAdopt,
+    confirmAdopt,
+    handleModify,
     pendingWaive,
     waiveReason,
+    setWaiveReason,
     waiveExpiresAt,
-    t,
-    waiveErrorMessage,
+    setWaiveExpiresAt,
+    waiveError,
+    isWaiving,
+    requestWaive,
+    cancelWaive,
+    confirmWaive,
+    validation,
+  } = useAuditActions({
+    workspaceId: activeWorkspace?.id,
+    scope,
+    scopeArtifactId,
+    findings,
     loadWaivers,
-    validate,
-    focusFirstInvalid,
     setFindings,
+    setActionState,
+    setAdoptedSinceRun,
     setWaivedSinceRun,
-  ]);
+    setNextOffset,
+  });
+  // Keep the dialog markup (and its testids/ARIA) byte-identical to before the
+  // extraction: only the source of these helpers moved, not the JSX.
+  const {
+    errors: requiredErrors,
+    clearError,
+    fieldProps,
+    errorId,
+  } = validation;
 
   // ---- Derived state ----
   // GitHub #952: whether the last run FAILED is a flag, not "is the message
@@ -553,26 +232,13 @@ export function AuditDashboard(): JSX.Element {
   // failed run must never be able to render as the green "No findings" state.
   const loadFailed = loadError !== null;
 
-  const filteredFindings = useMemo(() => {
-    let list =
-      severityFilter === "all"
-        ? findings
-        : findings.filter((f) => f.severity === severityFilter);
-    // #1262: rule filter (client-side) — the rule-id select shows per-rule
-    // counters derived from the currently loaded findings.
-    if (ruleFilter !== "all") list = list.filter((f) => f.rule_id === ruleFilter);
-    // #569: the "show suppressed" filter (default on) hides suppressed rows
-    // client-side only — the report keeps them marked, never silently.
-    if (!showSuppressed) list = list.filter((f) => !f.suppressed);
-    return list;
-  }, [findings, severityFilter, ruleFilter, showSuppressed]);
+  const filteredFindings = useMemo(
+    () => filterFindings(findings, severityFilter, ruleFilter, showSuppressed),
+    [findings, severityFilter, ruleFilter, showSuppressed]
+  );
 
   /** #1262: per-rule counters for the rule filter, ordered by rule id. */
-  const ruleOptions = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const f of findings) counts.set(f.rule_id, (counts.get(f.rule_id) ?? 0) + 1);
-    return Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b));
-  }, [findings]);
+  const ruleOptions = useMemo(() => buildRuleOptions(findings), [findings]);
 
   // ---- Counts (#1382/#1383) ----
   // The badges read the report's `counts`, which is the ground truth over the
@@ -596,41 +262,15 @@ export function AuditDashboard(): JSX.Element {
   // waive must decrement it exactly like an Adopt does. Suppression stays
   // counted additively in `suppressed`/`suppressed_blockers` — the waived
   // finding is not hidden, it is visible there.
-  const counts = useMemo<AuditCounts>(() => {
-    if (!reportCounts) return EMPTY_COUNTS;
-    const adoptedBlockers = adoptedSinceRun.filter((f) => f.severity === "blocker").length;
-    const adoptedSuppressed = adoptedSinceRun.filter((f) => f.suppressed).length;
-    const adoptedSuppressedBlockers = adoptedSinceRun.filter(
-      (f) => f.suppressed && f.severity === "blocker"
-    ).length;
-    const waivedBlockers = waivedSinceRun.filter((f) => f.severity === "blocker").length;
-    return {
-      total: decrement(reportCounts.total, adoptedSinceRun.length),
-      // A waived blocker is excluded from the effective count too (#1150).
-      blockers: decrement(reportCounts.blockers, adoptedBlockers + waivedBlockers),
-      // Every adopted finding removed exactly one row from the run, so the
-      // warnings are the adopted findings that were not blockers.
-      warnings: decrement(reportCounts.warnings, adoptedSinceRun.length - adoptedBlockers),
-      suppressed: Math.max(
-        0,
-        reportCounts.suppressed + waivedSinceRun.length - adoptedSuppressed
-      ),
-      suppressed_blockers: Math.max(
-        0,
-        reportCounts.suppressed_blockers + waivedBlockers - adoptedSuppressedBlockers
-      ),
-    };
-  }, [reportCounts, adoptedSinceRun, waivedSinceRun]);
+  const counts = useMemo<AuditCounts>(
+    () => computeCounts(reportCounts, adoptedSinceRun, waivedSinceRun),
+    [reportCounts, adoptedSinceRun, waivedSinceRun]
+  );
 
-  const grouped = useMemo(() => {
-    const groups = new Map<string, AuditFinding[]>();
-    for (const f of filteredFindings) {
-      const list = groups.get(f.rule_id) ?? [];
-      list.push(f);
-      groups.set(f.rule_id, list);
-    }
-    return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
-  }, [filteredFindings]);
+  const grouped = useMemo(
+    () => groupFindingsByRule(filteredFindings),
+    [filteredFindings]
+  );
 
   if (!activeWorkspace) {
     return (
@@ -995,7 +635,7 @@ export function AuditDashboard(): JSX.Element {
           )}
           confirmLabel={t("audit.adopt", "Adopt")}
           onConfirm={confirmAdopt}
-          onCancel={() => setPendingAdopt(null)}
+          onCancel={cancelAdopt}
           testId="audit-adopt-confirm"
         />
       )}
