@@ -28,7 +28,11 @@ import {
 } from "@xyflow/react";
 import { AlertCircle, Pencil, Workflow } from "lucide-react";
 import type { WorkflowEntityType, WorkflowGraph } from "../../api/workflows";
-import { layoutWorkflow, resolveEdgeLabelOffsets } from "./layout";
+import {
+  layoutWorkflow,
+  MIN_CANVAS_ZOOM,
+  resolveEdgeLabelOffsets,
+} from "./layout";
 import type { StateFlowNode, TransitionFlowEdge } from "./layout";
 import { StateNode } from "./StateNode";
 import { TransitionEdge } from "./TransitionEdge";
@@ -242,7 +246,10 @@ function CanvasInner({
         onNodeDragStop={handleNodeDragStop}
         fitView
         fitViewOptions={{ padding: 0.2 }}
-        minZoom={0.2}
+        // WCAG 2.2 SC 2.5.8: the 24px CSS floors on .edgeLabel/.stateNode are
+        // flow pixels — React Flow's viewport scale(z) shrinks them on screen.
+        // A zoom floor of 1 keeps them >=24 rendered px (see MIN_CANVAS_ZOOM).
+        minZoom={MIN_CANVAS_ZOOM}
         maxZoom={2}
         nodesDraggable={editMode}
         nodesConnectable={editMode}

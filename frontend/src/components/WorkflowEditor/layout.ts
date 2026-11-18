@@ -50,6 +50,27 @@ const NODE_HEIGHT = 64;
 /** WCAG 2.2 SC 2.5.8 minimum target size (CSS px); axe's `target-offset` check
  *  uses a 24px-diameter circle, i.e. a 12px radius around the target centre. */
 export const TARGET_SIZE_MIN = 24;
+
+/**
+ * Minimum React Flow viewport zoom for the workflow canvas (WCAG 2.2 SC 2.5.8).
+ *
+ * React Flow renders nodes AND the `EdgeLabelRenderer` portal inside a single
+ * `.react-flow__viewport` div whose CSS transform is `scale(zoom)`. The 24px
+ * `min-width`/`min-height` on `.edgeLabel`/`.stateNode` (and the 28px label
+ * offsets computed below) are therefore *flow* pixels: at zoom < 1 they shrink
+ * on screen. axe measures *rendered* CSS pixels, so a zoom of e.g. 0.44 renders
+ * a 24px target as ~10.6px and a 28px clearance as ~12.4px — failing BOTH halves
+ * of the `target-size` rule (`target-size` >=24px OR `target-offset` >=24px).
+ *
+ * The extended workflow graph is ~480x1212 flow px (dagre TB, 9 states, 12
+ * transitions). `fitView({ padding: 0.2 })` is height-constrained and picks
+ * zoom ~= 0.44 in a ~640px-tall canvas — well below 1. Clamping the zoom floor
+ * to 1 guarantees `24px * zoom >= 24px` rendered, so the CSS/geometry invariants
+ * above hold in the browser exactly as they do in the unit tests. Users can
+ * still pan and zoom in (up to maxZoom); they simply cannot shrink targets
+ * below the AA minimum. See `workflow-editor-target-size.test.ts`.
+ */
+export const MIN_CANVAS_ZOOM = 1;
 /** Centre-to-centre clearance between two labels — a little above the AA
  *  minimum so sub-pixel rounding can never re-introduce an overlap. */
 const LABEL_CLEARANCE = TARGET_SIZE_MIN + 4;

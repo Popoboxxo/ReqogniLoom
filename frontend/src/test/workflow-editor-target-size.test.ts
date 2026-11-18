@@ -14,11 +14,18 @@
  *   2. Pure-function assertions for the deterministic label-offset relaxation
  *      in `layout.ts` — every label centre >=24px from every other label and
  *      >=12px (the axe circle radius) outside every state node box.
+ *   3. The RENDERED-size invariant: React Flow scales nodes + the edge-label
+ *      portal by the viewport zoom, so fitView's sub-1 zoom on the tall real
+ *      graph shrinks a 24px CSS target below axe's rendered-px threshold. The
+ *      canvas therefore pins `minZoom` to MIN_CANVAS_ZOOM (=1), making
+ *      `TARGET_SIZE_MIN * zoom >= 24` hold in the browser.
  *
- * Limitation: jsdom does not lay out elements, so the CSS assertions are source
- * assertions, not measurements of the rendered target. The spacing tests run
- * the REAL layout helpers (`layoutWorkflow`, `getBezierPath` and the resolver)
- * in flow coordinates; the final live axe run remains the gate's job.
+ * Limitation: jsdom does not lay out elements or apply the viewport transform,
+ * so the CSS assertions are source assertions and the zoom arithmetic mirrors
+ * React Flow's `getViewportForBounds`; neither is a rendered-pixel measurement.
+ * The spacing tests run the REAL layout helpers (`layoutWorkflow`,
+ * `getBezierPath` and the resolver) in flow coordinates; the final live axe run
+ * remains the gate's job.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -27,6 +34,7 @@ import type { WorkflowState, WorkflowTransition } from "../api/workflows";
 import {
   computeEdgeLabelCenter,
   layoutWorkflow,
+  MIN_CANVAS_ZOOM,
   resolveEdgeLabelOffsets,
   TARGET_SIZE_MIN,
   type StateFlowNode,
@@ -245,5 +253,73 @@ describe("WorkflowEditor touch targets — clearance (SC 2.5.8 spacing exception
     for (const offset of offsets.values()) {
       expect(offset).toEqual({ x: 0, y: 0 });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3. Rendered-size invariant — the half jsdom CANNOT measure.
+// ---------------------------------------------------------------------------
+
+/** Bounding box of the laid-out nodes, in flow coordinates (200x64 boxes). */
+function nodesBounds(nodes: readonly StateFlowNode[]): { width: number; height: number } {
+  const NODE_W = 200;
+  const NODE_H = 64;
+  const minX = Math.min(...nodes.map((n) => n.position.x));
+  const minY = Math.min(...nodes.map((n) => n.position.y));
+  const maxX = Math.max(...nodes.map((n) => n.position.x + NODE_W));
+  const maxY = Math.max(...nodes.map((n) => n.position.y + NODE_H));
+  return { width: maxX - minX, height: maxY - minY };
+}
+
+/** Mirror of React Flow's `getViewportForBounds` zoom (padding 0.2, no clamp). */
+function fitZoom(
+  bounds: { width: number; height: number },
+  width: number,
+  height: number,
+  padding = 0.2
+): number {
+  const padX = Math.floor((width - width / (1 + padding)) * 0.5) * 2;
+  const padY = Math.floor((height - height / (1 + padding)) * 0.5) * 2;
+  return Math.min((width - padX) / bounds.width, (height - padY) / bounds.height);
+}
+
+describe("WorkflowEditor touch targets — rendered size at the zoom floor (SC 2.5.8)", () => {
+  it("renders a 24px CSS target at >=24px at the minimum allowed zoom", () => {
+    // React Flow's viewport applies scale(zoom) to BOTH the nodes and the
+    // EdgeLabelRenderer portal; axe measures rendered CSS px. The invariant
+    // `TARGET_SIZE_MIN * minZoom >= 24` is what keeps the CSS floors real.
+    expect(TARGET_SIZE_MIN * MIN_CANVAS_ZOOM).toBeGreaterThanOrEqual(24);
+  });
+
+  it("clamps fitView's sub-1 zoom up to the floor for the real multi-transition graph", () => {
+    const { nodes, edges } = graphFrom(EXTENDED_STATES, EXTENDED_PAIRS);
+    const bounds = nodesBounds(nodes);
+    // The dagre TB graph is ~480x1212 flow px: height-constrained, so it is the
+    // canvas HEIGHT (not width) that drives fitView below 1 in a11y CI.
+    expect(bounds.height).toBeGreaterThan(bounds.width);
+    for (const [width, height] of [
+      [1280, 640],
+      [1000, 700],
+      [800, 600],
+    ]) {
+      const raw = fitZoom(bounds, width, height);
+      expect(raw).toBeLessThan(1);
+      const clamped = Math.max(raw, MIN_CANVAS_ZOOM);
+      expect(clamped).toBeGreaterThanOrEqual(1);
+      // Rendered target size at the worst-case (clamped) zoom.
+      expect(TARGET_SIZE_MIN * clamped).toBeGreaterThanOrEqual(24);
+    }
+    // Guard the fixture itself so the test cannot silently stop representing
+    // the multi-transition graph that failed the live gate.
+    expect(edges.length).toBeGreaterThanOrEqual(12);
+  });
+
+  it("WorkflowCanvas pins ReactFlow minZoom to the AA floor", () => {
+    const src = readFileSync(
+      join(SRC, "components/WorkflowEditor/WorkflowCanvas.tsx"),
+      "utf-8"
+    );
+    expect(src).toContain("minZoom={MIN_CANVAS_ZOOM}");
+    expect(src).not.toContain("minZoom={0.2}");
   });
 });
