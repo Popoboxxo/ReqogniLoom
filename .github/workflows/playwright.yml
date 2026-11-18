@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     # GH-682: this is a *safety net*, not the test budget. The test budget is
     # `globalTimeout` in e2e/playwright.config.ts (10 min for shards 1-5); the
-    # dedicated a11y shard 6 overrides it to 15 min on its own CLI step. That
+    # dedicated a11y shards 6-7 override it to 15 min on their CLI steps. That
     # lets Playwright stop itself and still write its report. Hitting the job
     # cap instead means GitHub cancels the job, which also skips the report
     # upload below — leaving no evidence of what failed. Setup (~5-8 min) +
@@ -38,12 +38,20 @@ jobs:
       fail-fast: false
       matrix:
         # Shards 1-4: desktop. Shard 5: the @mobile smoke suite on two device
-        # profiles (plan M0). Shard 6: the dedicated @a11y matrix (S3.3 /
+        # profiles (plan M0). Shards 6-7: the dedicated @a11y matrix (S3.3 /
         # A11Y-002) — 24 curated routes x 5 themes plus the 3 interactive
-        # states, 320px reflow and keyboard checks. The desktop shards stay at
-        # 1/4..4/4 so adding coverage does not reshuffle their partition; they
-        # exclude @a11y via --grep-invert, and shard 6 selects it via --grep.
-        shard: [1, 2, 3, 4, 5, 6]
+        # states, 320px reflow and keyboard checks. The 10 @a11y tests are
+        # partitioned by a grep on the sweep test titles: shard 6 runs the
+        # 5 shared checks + the dark/light/bauhaus sweeps (8 tests), shard 7
+        # runs the nordic/sepia sweeps (2 tests). Every theme/route is still
+        # scanned exactly once with unchanged waits/assertions — no coverage
+        # lost. Native `--shard` cannot split a single serial spec file (all
+        # 10 tests share one Playwright test group; shard 2/2 would run 0),
+        # hence the explicit grep split. Each job gets its own backend + DB
+        # snapshot and 15-min budget. The desktop shards stay at 1/4..4/4 so
+        # adding coverage does not reshuffle their partition; they exclude
+        # @a11y via --grep-invert, and shards 6-7 select it via --grep.
+        shard: [1, 2, 3, 4, 5, 6, 7]
 
     services:
       postgres:
@@ -384,7 +392,7 @@ jobs:
         run: docker build -f frontend/Dockerfile --target production frontend --no-cache -t reqflow-frontend:${{ github.sha }}
 
       - name: Run Playwright E2E tests (desktop, shards 1-4)
-        # A11Y-002: the expanded a11y matrix lives in shard 6. Excluding it here
+        # A11Y-002: the expanded a11y matrix lives in shards 6-7. Excluding it here
         # keeps the four desktop shards on their original ~10-minute budget;
         # CLI --grep-invert composes with the chromium project's own
         # grepInvert: /@mobile/ (verified via `playwright test --list`: 0
@@ -407,26 +415,41 @@ jobs:
           BACKEND_URL: http://localhost:8000
         run: npm run test:e2e -- --project=mobile-chrome --project=mobile-safari --grep=@mobile
 
-      - name: Run expanded a11y matrix (shard 6)
+      - name: Run expanded a11y matrix — part 1 of 2 — shared + dark/light/bauhaus (shard 6)
         # S3.3 / A11Y-002: 10 tests — 3 interactive states, 5 x 24-route theme
         # sweeps, 320px reflow and the keyboard-order check. This is the ONLY
         # place @a11y runs; the desktop shards exclude it. It gets its own
         # runner so the 120 axe scans cannot time out shards 1-4.
         #
-        # Chosen design over "fold into an existing shard": a dedicated shard
-        # keeps the four desktop partitions and their 10-minute globalTimeout
-        # untouched. This step overrides globalTimeout to 15 min because the
-        # matrix is larger than the old 3-state smoke gate; the job-level cap
-        # above was raised to 30 min to keep the report-upload step reachable.
-        # If the matrix grows past ~15 min, split this shard into two CLI
-        # shards (--shard=1/2, --shard=2/2) rather than raising the ceiling.
+        # The first live run of a single 15-min shard was killed mid-run: 24
+        # routes x 5 themes x (~3s networkidle + axe analyze) overran the
+        # globalTimeout. The matrix is now split across two CI jobs so each
+        # gets its own 15-min budget and DB snapshot; every axe wait and
+        # assertion is unchanged, so coverage is not traded for speed.
+        # Shard 6 takes the 5 shared checks + the dark/light/bauhaus sweeps;
+        # shard 7 takes nordic/sepia. We filter by the sweep test TITLE rather
+        # than `--shard`: all 10 tests live in one serial spec file, which
+        # Playwright treats as a single test group — `--shard=2/2` would run
+        # 0 tests (verified via `playwright test --list`).
         if: matrix.shard == 6
         working-directory: e2e
         env:
           FRONTEND_URL: http://localhost:5173
           BACKEND_URL: http://localhost:8000
           E2E_MFA_PASSWORD: e2e-mfa-password
-        run: npm run test:e2e -- --project=chromium --grep=@a11y --global-timeout=900000
+        run: npm run test:e2e -- --project=chromium --grep=@a11y --grep-invert='theme=(nordic|sepia)' --global-timeout=900000
+
+      - name: Run expanded a11y matrix — part 2 of 2 — nordic/sepia sweeps (shard 7)
+        # Counterpart of the shard-6 step: the remaining two 24-route theme
+        # sweeps (nordic, sepia). Identical env/timeouts; only the grep differs.
+        # Together the two jobs cover all 10 @a11y tests exactly once.
+        if: matrix.shard == 7
+        working-directory: e2e
+        env:
+          FRONTEND_URL: http://localhost:5173
+          BACKEND_URL: http://localhost:8000
+          E2E_MFA_PASSWORD: e2e-mfa-password
+        run: npm run test:e2e -- --project=chromium --grep='theme=(nordic|sepia)' --global-timeout=900000
 
       - name: Upload Playwright report
         # Failure only: uploading a report for a green run burned time and once

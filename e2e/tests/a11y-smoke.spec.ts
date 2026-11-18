@@ -134,8 +134,18 @@ const THEMES: ThemeDef[] = [
   { id: 'sepia', palette: 'sepia', mode: 'light', dataTheme: 'sepia' },
 ];
 
+/**
+ * Write the per-user preference through the real REST endpoint.
+ *
+ * `palette_key` is NOT NULL in the DB (`admin_ops/models.py:344`) even though
+ * GET returns null for "no row yet" and the PUT serializer accepts null — a
+ * null write therefore raises IntegrityError -> HTTP 500. The argument is
+ * deliberately typed `string` (not `string | null`) so no caller can feed null
+ * to the endpoint; callers with no prior value must use the built-in fallback
+ * palette ("default"), which is what the frontend resolves to anyway.
+ */
 async function putThemePreference(
-  paletteKey: string | null,
+  paletteKey: string,
   mode: 'dark' | 'light'
 ): Promise<void> {
   const token = await getAuthToken();
@@ -289,10 +299,21 @@ test.describe('[REQ-056] Automated axe gate (Phase 6.8) @a11y', () => {
 
   test.afterAll(async () => {
     if (!originalPref) return;
-    await putThemePreference(
-      originalPref.palette_key ?? null,
-      originalPref.mode === 'light' ? 'light' : 'dark'
-    );
+    // `palette_key` is NOT NULL (admin_ops/models.py:344). When no preference
+    // row existed before the sweep, GET returned `{palette_key: null, mode:
+    // null}` and writing that null back produced HTTP 500 (IntegrityError),
+    // which threw here, closed the browser context and cascaded into
+    // "Target page, context or browser has been closed" failures across the
+    // shard. There is no DELETE endpoint on UserThemePreferenceView (GET/PUT
+    // only), so the cleanest achievable restore of a previously-absent row is
+    // the built-in fallback "default"/dark — exactly what the frontend
+    // resolves to when no preference exists. A real prior preference is
+    // restored verbatim.
+    const palette =
+      typeof originalPref.palette_key === 'string' && originalPref.palette_key.length > 0
+        ? originalPref.palette_key
+        : 'default';
+    await putThemePreference(palette, originalPref.mode === 'light' ? 'light' : 'dark');
   });
 
   test.beforeEach(async ({ page }) => {
