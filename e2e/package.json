@@ -14,7 +14,7 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
     "@playwright/mcp": "0.0.85",
-    "@playwright/test": "^1.44.0",
+    "@playwright/test": "^1.65.1",
     "@types/node": "^20.0.0"
   }
 }
