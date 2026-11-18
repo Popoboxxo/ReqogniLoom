@@ -1551,6 +1551,14 @@ CACHES = {
 # ---------------------------------------------------------------------------
 IMPORT_CONTRACT_V2: bool = config("IMPORT_CONTRACT_V2", default=True, cast=bool)
 IMPORT_CONTRACT_SUNSET: str = config("IMPORT_CONTRACT_SUNSET", default="2026-12-31")
+
+# S4.2 / R2S-003 — MCP tool queries go through the Layer-2 facade
+# (application.user_query_service / change_impact_service) instead of touching
+# persistence.models directly. True (default): service-backed path; False: the
+# legacy in-tool query path (kept for one release, rollback escape hatch).
+MCP_SERVICE_BACKED_QUERIES: bool = config(
+    "MCP_SERVICE_BACKED_QUERIES", default=True, cast=bool
+)
 IMPORT_IDEMPOTENCY_TTL_HOURS: int = config(
     "IMPORT_IDEMPOTENCY_TTL_HOURS", default=24, cast=int
 )

@@ -294,8 +294,9 @@ def test_create_test_case_producer_set_is_frozen():
     ``manual`` service default.
     """
     assert _productive_create_test_case_call_sites() == {
-        # P1 REST TestCaseViewSet.create
-        "rest_api/views.py": 1,
+        # P1 REST TestCaseViewSet.create — S4.2 moved the class (and its
+        # create_test_case call site) from views.py into views_entity_core.py.
+        "rest_api/views_entity_core.py": 1,
         # P3 MCP test.derive_from_requirement (write mode)
         # P2 MCP test.create
         "mcp_server/tools/tests.py": 2,

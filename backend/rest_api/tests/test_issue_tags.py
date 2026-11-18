@@ -160,8 +160,10 @@ class TestIssueViewSetTagsPartialUpdate:
         ser_mock.errors = {}
 
         with (
-            patch("rest_api.views.get_auth_context", return_value=ctx_mock),
-            patch("rest_api.views.IssueSerializer", return_value=ser_mock),
+            # S4.2: IssueViewSet is defined in views_governance; module-global
+            # collaborators must be patched where they are looked up at call time.
+            patch("rest_api.views_governance.get_auth_context", return_value=ctx_mock),
+            patch("rest_api.views_governance.IssueSerializer", return_value=ser_mock),
             patch.object(view, "_svc", return_value=MagicMock(
                 update_issue=MagicMock(return_value=issue_mock)
             )) as svc_mock_method,

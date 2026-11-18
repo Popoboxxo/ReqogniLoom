@@ -146,6 +146,20 @@ from application.base import (
     PermissionDeniedError,
     ValidationError,
 )
+from application.user_query_service import (  # R2S-003: Layer 2 façade only
+    User,  # noqa: F401 — compat alias (OC 2): old import path kept one release;
+    # also the patch target of the tool-group tests. It is the *same* class
+    # object the service queries use, so patching its `objects` manager still
+    # instruments the relocated queries on both flag paths.
+    UserData,
+    UserDoesNotExist,
+    UserQueryService,
+    legacy_caller_is_superuser,
+    legacy_get_user,
+    legacy_list_user_rows,
+    legacy_member_has_active_role,
+    service_backed_queries_enabled,
+)
 from auth_tenancy.context import AuthContext
 from auth_tenancy.errors import PermissionDenied as AuthTenancyPermissionDenied
 from auth_tenancy.models import (
@@ -153,7 +167,8 @@ from auth_tenancy.models import (
     ROLE_APPROVER,
     ROLE_EDITOR,
     ROLE_VIEWER,
-    UserRole,
+    UserRole,  # noqa: F401 — patch target of the tool-group tests (OC 2);
+    # the query itself lives in application.user_query_service (R2S-003).
 )
 from auth_tenancy.services import AuthorizationService
 from auth_tenancy.services.authorization import LastAdminError
@@ -167,7 +182,6 @@ from mcp_server.tools.base import (
     require_uuid,
     write_mcp_audit,
 )
-from persistence.models import User
 
 logger = logging.getLogger(__name__)
 
@@ -194,11 +208,13 @@ _PASSWORD_MIN_LENGTH: int = 8
 # ---------------------------------------------------------------------------
 
 
-def _user_to_dict(user: User) -> dict[str, Any]:
-    """Serialise a User ORM object to a JSON-safe dict.
+def _user_to_dict(user: UserData) -> dict[str, Any]:
+    """Serialise a :class:`UserData` DTO to a JSON-safe dict.
 
     Never includes the password hash; the MCP response must not leak
-    credential material even to the admin caller.
+    credential material even to the admin caller. The DTO mirrors the ORM
+    field names, so this serializer is byte-identical to the pre-R2S-003
+    version that accepted a ``persistence.models.User`` directly.
     """
     return {
         "id": str(user.id),
@@ -413,6 +429,7 @@ class UsersToolGroup(BaseToolGroup):
     ) -> None:
         self._authz_service = authz_service or AuthorizationService()
         self._accounts = UserAccountService()
+        self._users = UserQueryService()
 
     # ------------------------------------------------------------------
     # Common admin gate
@@ -437,19 +454,18 @@ class UsersToolGroup(BaseToolGroup):
             f"user has {auth_context.active_roles}",
         )
 
-    @staticmethod
-    def _caller_is_superuser(user_id: UUID) -> bool:
+    def _caller_is_superuser(self, user_id: UUID) -> bool:
         """Return whether the calling user is a Django superuser.
 
         Used to allow a platform-level admin to create users in any
         tenant by passing an explicit ``tenant_id`` instead of having it
-        auto-injected from the auth context.
+        auto-injected from the auth context. R2S-003: the query lives in
+        Layer 2; the flag selects the façade or the relocated legacy query.
+        Both fail closed (``False``) on a database error.
         """
-        try:
-            user = User.objects.filter(id=user_id).first()
-        except Exception:  # noqa: BLE001 — probe fails closed (False)
-            return False
-        return bool(user and user.is_superuser)
+        if service_backed_queries_enabled():
+            return self._users.caller_is_superuser(user_id)
+        return legacy_caller_is_superuser(user_id)
 
     # ------------------------------------------------------------------
     # user.create (write, audited)
@@ -787,11 +803,14 @@ class UsersToolGroup(BaseToolGroup):
         # they have at least one active (non-suspended) role in that
         # workspace. This matches the convention used by the rest of
         # the codebase: any active role assignment implies membership.
-        target_is_member = UserRole.objects.filter(
-            user_id=target_user_id,
-            workspace_id=workspace_id,
-            suspended_at__isnull=True,
-        ).exists()
+        if service_backed_queries_enabled():
+            target_is_member = self._users.member_has_active_role(
+                target_user_id, workspace_id
+            )
+        else:
+            target_is_member = legacy_member_has_active_role(
+                target_user_id, workspace_id
+            )
 
         try:
             user_role = self._authz_service.assign_role(
@@ -926,19 +945,23 @@ class UsersToolGroup(BaseToolGroup):
 
     def _fetch_user_rows(
         self, *, tenant_id: UUID, is_active: bool | None, limit: int
-    ) -> list[User] | ToolResult:
+    ) -> list[UserData] | ToolResult:
         """Load one ordered page of users for the resolved tenant.
 
         Narrow error mapping as before: the query is wrapped so a DB
         failure is logged and answered with ``INTERNAL_ERROR`` — the
         exception detail never reaches the caller. Rows are ordered by
-        ``username`` and cut to the page size.
+        ``username`` and cut to the page size. R2S-003 moved the query to
+        Layer 2; this method keeps the error mapping byte-identical.
         """
         try:
-            qs = User.objects.filter(tenant_id=tenant_id)
-            if is_active is not None:
-                qs = qs.filter(is_active=is_active)
-            return list(qs.order_by("username")[:limit])
+            if service_backed_queries_enabled():
+                return self._users.list_user_rows(
+                    tenant_id=tenant_id, is_active=is_active, limit=limit
+                )
+            return legacy_list_user_rows(
+                tenant_id=tenant_id, is_active=is_active, limit=limit
+            )
         except Exception:
             logger.exception("user.list: DB error")
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
@@ -1042,7 +1065,10 @@ class UsersToolGroup(BaseToolGroup):
         )
 
         try:
-            pre_user = User.objects.filter(id=target_user_id).first()
+            if service_backed_queries_enabled():
+                pre_user = self._users.get_user(target_user_id)
+            else:
+                pre_user = legacy_get_user(target_user_id)
         except Exception:  # noqa: BLE001 — audit probe best-effort; None means unknown
             pre_user = None
         was_active = pre_user.is_active if pre_user is not None else None
@@ -1060,13 +1086,16 @@ class UsersToolGroup(BaseToolGroup):
             )
         except LastAdminError as exc:
             return ToolResult.error("LAST_ADMIN", str(exc))
-        except User.DoesNotExist:
+        except UserDoesNotExist:
             return ToolResult.error(
                 "NOT_FOUND",
                 f"User with id {target_user_id!r} not found.",
             )
 
-        user = User.objects.filter(id=target_user_id).first()
+        if service_backed_queries_enabled():
+            user = self._users.get_user(target_user_id)
+        else:
+            user = legacy_get_user(target_user_id)
         if user is None:
             return ToolResult.error(
                 "NOT_FOUND",
@@ -1124,13 +1153,16 @@ class UsersToolGroup(BaseToolGroup):
                 "PERMISSION_DENIED",
                 "Permission denied: tenant-admin role required.",
             )
-        except User.DoesNotExist:
+        except UserDoesNotExist:
             return ToolResult.error(
                 "NOT_FOUND",
                 f"User with id {target_user_id!r} not found.",
             )
 
-        user = User.objects.filter(id=target_user_id).first()
+        if service_backed_queries_enabled():
+            user = self._users.get_user(target_user_id)
+        else:
+            user = legacy_get_user(target_user_id)
         if user is None:
             # Defensive: activate() already confirmed the row exists, but
             # a concurrent hard-delete between the update and this
@@ -1303,7 +1335,7 @@ class UsersToolGroup(BaseToolGroup):
                 "PERMISSION_DENIED",
                 "Permission denied: tenant-admin role required.",
             )
-        except User.DoesNotExist:
+        except UserDoesNotExist:
             return ToolResult.error(
                 "NOT_FOUND",
                 f"User with id {target_user_id!r} not found.",

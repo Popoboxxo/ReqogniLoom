@@ -63,9 +63,9 @@ class TestGlossaryTermViewSetVersions:
         svc_mock = MagicMock()
         svc_mock.get.return_value = _make_term_dto()
 
-        with patch("rest_api.views.get_auth_context", return_value=req.auth_context):
+        with patch("rest_api.views_catalog.get_auth_context", return_value=req.auth_context):
             with patch.object(view, "_svc", return_value=svc_mock):
-                with patch("rest_api.views.ArtifactDiffService") as svc_cls:
+                with patch("rest_api.views_catalog.ArtifactDiffService") as svc_cls:
                     svc_cls.return_value.list_versions.return_value = expected
                     response = view.versions(req, pk=str(TERM_ID))
 
@@ -86,7 +86,7 @@ class TestGlossaryTermViewSetVersions:
         svc_mock = MagicMock()
         svc_mock.get.side_effect = NotFoundError("GlossaryTerm not found")
 
-        with patch("rest_api.views.get_auth_context", return_value=req.auth_context):
+        with patch("rest_api.views_catalog.get_auth_context", return_value=req.auth_context):
             with patch.object(view, "_svc", return_value=svc_mock):
                 response = view.versions(req, pk=str(TERM_ID))
 
@@ -119,9 +119,9 @@ class TestGlossaryTermViewSetDiff:
         svc_mock = MagicMock()
         svc_mock.get.return_value = term_dto
 
-        with patch("rest_api.views.get_auth_context", return_value=req.auth_context):
+        with patch("rest_api.views_catalog.get_auth_context", return_value=req.auth_context):
             with patch.object(view, "_svc", return_value=svc_mock):
-                with patch("rest_api.views.ArtifactDiffService") as diff_svc_cls:
+                with patch("rest_api.views_catalog.ArtifactDiffService") as diff_svc_cls:
                     diff_svc_cls.return_value.diff.return_value = diff_result
                     response = view.diff(req, pk=str(TERM_ID))
 
@@ -146,7 +146,7 @@ class TestGlossaryTermViewSetDiff:
         svc_mock = MagicMock()
         svc_mock.get.side_effect = NotFoundError("GlossaryTerm not found")
 
-        with patch("rest_api.views.get_auth_context", return_value=req.auth_context):
+        with patch("rest_api.views_catalog.get_auth_context", return_value=req.auth_context):
             with patch.object(view, "_svc", return_value=svc_mock):
                 response = view.diff(req, pk=str(TERM_ID))
 
@@ -166,7 +166,7 @@ class TestGlossaryTermViewSetDiff:
         view = GlossaryTermViewSet()
         view.kwargs = {}
 
-        with patch("rest_api.views.get_auth_context", return_value=req.auth_context):
+        with patch("rest_api.views_catalog.get_auth_context", return_value=req.auth_context):
             with patch.object(view, "_svc", return_value=svc_mock):
                 response = view.diff(req, pk=str(TERM_ID))
 

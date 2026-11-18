@@ -211,710 +211,675 @@ def filter_tool_catalogue(
 
 
 # ---------------------------------------------------------------------------
-# Historical write-operation catalogue (REQ-L2-MC-007).
+# Tool policy metadata — single source of truth (R2C-009 / ANPASSEN).
 #
-# No longer the runtime source of truth for _is_write_tool() (see
-# _READ_ONLY_TOOL_NAMES / _is_write_tool below for the fail-closed gate) —
-# kept as a documented catalogue of known write tools and for the structural
-# regression test (test_generic_crud_write_tools_all_covered_by_write_prefixes)
-# that checks every GenericCrudToolGroup write tool is accounted for here.
+# A tool group's security classification used to be declared in eight separate
+# module-level collections spread over ~700 lines, while its schemas lived in
+# the group class and its construction in a 227-line ``_ensure_groups``. Adding
+# one group therefore required >=5 coordinated edits and a reviewer could not
+# read a tool's effective tier from a single place.
+#
+# Each group is now declared exactly once as a :class:`_GroupSpec`: its prefix,
+# the factory key that builds it, and all policy metadata for its tools. The
+# eight historical collections below are *derived* from those specs at import
+# time and kept as module-level aliases so the ~17 tests and the manifest
+# drift gate that import them keep working unchanged. Values are algebraically
+# identical to the pre-consolidation literals (pinned by
+# ``mcp_server/tests/test_tool_registry_policy_consolidation.py``).
+#
+# Security invariants preserved verbatim:
+#   * FAIL-CLOSED default — ``_is_write_tool()`` treats every unknown tool name
+#     as WRITE (RBAC-gated). It consults the derived ``_READ_ONLY_TOOL_NAMES``
+#     and ``_READ_ONLY_TOOL_SUFFIXES`` only as explicit read exemptions;
+#     ``_WRITE_TOOL_PREFIXES`` stays a documented catalogue / test oracle.
+#   * ``_GOVERNANCE_*`` narrow the AUTHOR->ADMIN capability tier,
+#     ``_INSTANCE_LEVEL_TOOLS`` skip workspace-scoped role narrowing,
+#     ``_ALWAYS_VISIBLE_TOOLS`` survive the ApiKey.tool_groups filter, and
+#     ``_TENANT_ADMIN_ELEVATED_USER_TOOLS`` bypass the coarse write-RBAC gate
+#     only for handlers that re-check tenant-admin themselves.
 # ---------------------------------------------------------------------------
 
-_WRITE_TOOL_PREFIXES: tuple[str, ...] = (
-    "requirement.create",
-    "requirement.update",
-    "requirement.decompose",
-    "requirement.validate",
-    "requirement.derive",
-    "requirement.outdate",
-    "requirement.reactivate",
-    "architecture.create",
-    "architecture.update",
-    "architecture.link",
-    "architecture.decompose_commit",
-    # Fix #121: generic TraceLink creation (CrossCuttingToolGroup).
-    "traceability.create_link",
-    # P1: reparent/reorder via ArtifactService.move (CrossCuttingToolGroup).
-    "artifact.move",
-    # R3.2 (document view): the batch write behind the editable document/table
-    # view — one transaction over several artifacts (CrossCuttingToolGroup).
-    "artifact.bulk_update",
-    # Slice 2 (Tabellenansicht): the bulk workflow transition — partial success,
-    # every id through the facade (CrossCuttingToolGroup).
-    "artifact.bulk_transition",
-    "group.create",
-    "group.add_member",
-    "group.remove_member",
-    "group.move_member",
-    "architecture.outdate",
-    "architecture.reactivate",
-    "test.create",
-    "test.update",
-    "test.link",
-    "test.run_create",
-    "test.run_report_results",
-    "test.run_complete",
-    "test.derive_from_requirement",
-    # #424: the only write path for TestCase.reviewed.
-    "test.mark_reviewed",
-    "test.outdate",
-    "test.reactivate",
-    "workspace.close",
-    "workspace.reactivate",
-    "workspace.delete",
-    "permissions.set_rule",
-    "permissions.revoke",
-    "admin.backup_create",
-    "admin.restore",
-    "events.dlq_replay",
-    "user.create",
-    "user.assign_role",
-    "user.deactivate",
-    "user.activate",
-    "user.suspend_role",
-    "user.reactivate_role",
-    "user.assign_tenant_admin",
-    "user.revoke_tenant_admin",
-    "needs.create",
-    "needs.update",
-    "needs.delete",
-    "needs.outdate",
-    "needs.reactivate",
-    "adr.create",
-    "adr.update",
-    "adr.delete",
-    "adr.outdate",
-    "adr.reactivate",
-    "risk.create",
-    "risk.update",
-    "risk.delete",
-    "risk.outdate",
-    "risk.reactivate",
-    "issue.create",
-    "issue.update",
-    "issue.delete",
-    "issue.outdate",
-    "issue.reactivate",
-    "glossary.create",
-    "glossary.update",
-    "glossary.delete",
-    "glossary.outdate",
-    "glossary.reactivate",
-    "change_request.create",
-    "change_request.update",
-    "change_request.delete",
-    "change_request.outdate",
-    "change_request.reactivate",
-    # Epic #934 WS1: Icd MCP tool group (Transport-Parität). create/update are
-    # the only mutating tools — icd.read/icd.query are read-only via the
-    # ".read"/".query" suffix below.
-    "icd.create",
-    "icd.update",
-    "prompt_template.create",
-    "prompt_template.update",
-    "prompt_template.delete",
-    "prompt_variable.set",
-    "prompt_variable.clear",
-    "diagram.create",
-    "diagram.update",
-    "diagram.outdate",
-    "diagram.reactivate",
-    # Plan F F2-T6 (ADR-026): the Document artifact's mutating tools.
-    # document.read/query/versions/diff are read-only (see
-    # _READ_ONLY_TOOL_NAMES below); the rest stay fail-closed write-gated.
-    "document.create",
-    "document.update",
-    "document.transition",
-    "document.outdate",
-    "document.reactivate",
-    # Phase G / #1374 S3: adoption changes ownership and the projection mode.
-    "document.adopt",
-    # Plan F F3-T6 (#1374): the WorkItem artifact's mutating tools.
-    # work_item.read/query/resume are read-only (see _READ_ONLY_TOOL_NAMES);
-    # the rest stay fail-closed write-gated.
-    "work_item.create",
-    "work_item.update",
-    "work_item.transition",
-    "work_item.set_progress",
-    "work_item.checkpoint",
-    # Plan B B6-T2 (#879): the Milestone planning surface. get/list are
-    # read-only (see _READ_ONLY_TOOL_NAMES); the four mutating tools stay
-    # fail-closed write-gated. Deletion is REST-only by design.
-    "milestone.create",
-    "milestone.update",
-    "milestone.bind_baseline",
-    "milestone.record_audit",
-    # Issue #114: BaselineToolGroup — baseline.create is the only mutating tool.
-    "baseline.create",
-    "baseline.set_tags",
-    # Plan F F4.4: opening a rollback change request and executing an approved
-    # one are both writes (baseline.rollback_preview is a read, see below).
-    "baseline.rollback_request",
-    "baseline.rollback_apply",
-    # REQ-L2-AI-003 (Phase 3): mode="write" makes these previously
-    # preview-only tools capable of mutation, so they now require Editor+
-    # (the RBAC gate is name-based, not mode-aware — mode="preview" calls by
-    # these tool names are gated too; see mcp_server/tools/ai_derivation.py).
-    "ai_derivation.derive_requirements_from_need",
-    "ai_derivation.suggest_architecture_for_requirement",
-    "ai_derivation.decompose_requirement_next_level",
-    "ai_derivation.derive_risks_from_architecture",
-    "ai_derivation.derive_glossary_from_workspace",
-    "ai_derivation.derive_adr_from_decision",
-    # REQ-L2-RV-001 (Phase 5): review.list_pending is read-only.
-    "review.approve",
-    "review.reject",
-    "review.request_changes",
-    # Interview-Management-Engine Task 4: interview.start creates a new
-    # InterviewSession, interview.answer mutates its collected_fields.
-    # interview.get_state/list/get are reads (see _READ_ONLY_TOOL_NAMES).
-    # Task 7: interview.formalize creates/updates the resulting Requirement
-    # and completes the session -- a write.
-    "interview.start",
-    "interview.answer",
-    "interview.formalize",
-    # Post-hoc fix (final-review batch): interview.grounding_context was
-    # exempted here as read-only in Task 5 when it was pure structural
-    # matching, but Task 6 added a real LLM provider call inside it without
-    # revisiting this gate. Every other LLM-invoking MCP tool (e.g.
-    # ai_derivation.*) is deliberately write-gated so a Viewer-role API key
-    # cannot drive LLM spend -- interview.grounding_context must be too.
-    "interview.grounding_context",
-    # REQ-192 / #1154: memory.ask delegates to a generative LLM call
-    # (Honcho ``peer.chat``), so it belongs to the same LLM-spend class as
-    # interview.grounding_context above. It is deliberately NOT in
-    # _READ_ONLY_TOOL_NAMES: a read_only key must not be able to drive LLM
-    # spend just because the tool's name reads like a query.
-    "memory.ask",
-    # Issue #540: interview.set_target writes InterviewSession.target_artifact_id
-    # -- gated the same way as interview.start/answer/formalize above.
-    "interview.set_target",
-    # 2026-08-20 UI-visibility fix: interview.abandon writes a workflow
-    # transition (in_progress -> abandoned) -- same write gate as formalize.
-    "interview.abandon",
-    # Issue #1164: interview.chat appends the user/assistant turn to
-    # InterviewSession.transcript AND drives a real LLM call, so it belongs to
-    # both the write and the LLM-spend classes -- same gate as
-    # interview.grounding_context.
-    "interview.chat",
-    # Task 7 of the AI-memory spec: memory.forget deletes a MemoryEntry row --
-    # memory.query/memory.list/memory.get are read-only (see
-    # _READ_ONLY_TOOL_NAMES below).
-    # RFC #1002 PR B: memory.write persists a new entry and is likewise
-    # fail-closed write-gated.
-    "memory.forget",
-    "memory.write",
-    # Wave-7 memory-MCP stream (#1301/#1302/#1300): the remaining mutating
-    # memory tools. memory.promote writes a workspace copy and
-    # memory.remember_interaction drives an LLM (consolidation) -- both are
-    # AUTHOR-tier content writes. The five System-Admin tools
-    # (overview/projection/export/settings/delete_workspace) are also
-    # write-classified (a read_only/AUTHOR key must not reach the tenant-wide
-    # admin surface) AND lifted to the ADMIN tier via _GOVERNANCE_TOOL_NAMES.
-    "memory.promote",
-    "memory.remember_interaction",
-    "memory.overview",
-    "memory.projection",
-    "memory.export",
-    "memory.settings",
-    "memory.delete_workspace",
-    # Attribut v3 WS5 (#942): central attribute catalog. create/update/
-    # deprecate/add_to_definition/import are writes; list/search/export are
-    # read-only via _READ_ONLY_TOOL_NAMES below. Listed here as the documented
-    # write catalogue (the actual gate is the fail-closed default).
-    "attribute_catalog.create",
-    "attribute_catalog.update",
-    "attribute_catalog.deprecate",
-    "attribute_catalog.add_to_definition",
-    "attribute_catalog.import",
-    # Feature #1260: atomic section+position move of one attribute in a global
-    # or workspace definition. A write (it persists the definition row), so it
-    # is listed here and stays fail-closed WRITE-gated; the ADMIN tier follows
-    # from the ``attribute_catalog`` namespace in
-    # _GOVERNANCE_TOOL_NAMESPACES above.
-    "attribute_catalog.reorder",
-    # Attribut v3 WS7 (#940): AWMS value migrations. apply/rollback mutate
-    # artifacts; dry_run writes the run row but no artifact/definition
-    # (still fail-closed write so a Viewer key cannot drive a migration).
-    "attribute_migration.apply",
-    "attribute_migration.rollback",
-    "attribute_migration.dry_run",
-    # Menschen-im-System spec §4: comment.create/comment.resolve mutate the
-    # artifact's comment thread. comment.list is read-only (see
-    # _READ_ONLY_TOOL_NAMES below); comment.delete is deliberately not an MCP
-    # tool at all -- spec §4 keeps deletion author-or-admin only.
-    "comment.create",
-    "comment.resolve",
-    # #569: granting a per-finding SE-Auditor suppression writes a
-    # BaselineGateWaiver row (and its audit entry) — a governance write.
-    # audit.waivers (the read-only list) lives in _READ_ONLY_TOOL_NAMES below.
-    "audit.waive_finding",
-    # Issue #1793 (S6): the manual summary run spends one provider call per
-    # scope, so it is a write tool on both counts (RBAC and cost).
-    "summary.refresh",
+
+class _GroupSpec(NamedTuple):
+    """One tool group's construction recipe plus its security policy.
+
+    Attributes:
+        prefix: Published tool-name namespace (part before the first ``.``).
+        group_key: Key into the factory map in :meth:`ToolRegistry._ensure_groups`;
+            groups sharing a key share one instance (REQ-129).
+        write_tools: Fully-qualified write-tool names. Concatenated, in spec
+            order, into the historical ``_WRITE_TOOL_PREFIXES`` catalogue.
+        read_only: Explicit read-exempt tool names (the fail-closed gate's
+            allowlist; suffixes handle the rest).
+        governance_namespace: Whether this whole namespace is ADMIN-tier.
+        governance_tools: Individual ADMIN-tier tools in a mixed namespace.
+        instance_level: Tools whose authority is instance/tenant-wide, not
+            workspace-scoped.
+        always_visible: Tools surviving the ApiKey.tool_groups filter.
+        tenant_admin_elevated: user.* tools with a tenant-admin-aware handler.
+    """
+
+    prefix: str
+    group_key: str
+    write_tools: tuple[str, ...] = ()
+    read_only: frozenset[str] = frozenset()
+    governance_namespace: bool = False
+    governance_tools: frozenset[str] = frozenset()
+    instance_level: frozenset[str] = frozenset()
+    always_visible: frozenset[str] = frozenset()
+    tenant_admin_elevated: frozenset[str] = frozenset()
+
+
+#: Declarative registry of every default tool group and its policy (R2C-009).
+#: Order follows the historical ``_ensure_groups`` registration; a shared
+#: ``group_key`` (cross_cutting, audit) is what makes several prefixes reuse a
+#: single group instance. TOOL MAP: policy fields are the single source for the
+#: derived aliases below.
+GROUP_SPECS: tuple[_GroupSpec, ...] = (
+    _GroupSpec(
+        prefix="requirement", group_key="requirement",
+        write_tools=(
+            "requirement.create",
+            "requirement.decompose",
+            "requirement.derive",
+            "requirement.outdate",
+            "requirement.reactivate",
+            "requirement.update",
+            "requirement.validate",
+        ),
+        read_only=frozenset({
+            "requirement.acceptance_criteria.get",
+            "requirement.check_consistency",
+            "requirement.get",
+            "requirement.query",
+        }),
+    ),
+    _GroupSpec(
+        prefix="needs", group_key="needs",
+        write_tools=(
+            "needs.create",
+            "needs.delete",
+            "needs.outdate",
+            "needs.reactivate",
+            "needs.update",
+        ),
+        read_only=frozenset({
+            "needs.get_traces",
+            "needs.query",
+            "needs.read",
+        }),
+    ),
+    _GroupSpec(
+        prefix="architecture", group_key="architecture",
+        write_tools=(
+            "architecture.create",
+            "architecture.decompose_commit",
+            "architecture.link",
+            "architecture.outdate",
+            "architecture.reactivate",
+            "architecture.update",
+        ),
+        read_only=frozenset({
+            "architecture.get",
+            "architecture.query",
+        }),
+    ),
+    _GroupSpec(
+        prefix="test", group_key="test",
+        write_tools=(
+            "test.create",
+            "test.derive_from_requirement",
+            "test.link",
+            "test.mark_reviewed",
+            "test.outdate",
+            "test.reactivate",
+            "test.run_complete",
+            "test.run_create",
+            "test.run_report_results",
+            "test.update",
+        ),
+        read_only=frozenset({
+            "test.get",
+            "test.query",
+            "test.run_get",
+            "test.run_list",
+        }),
+    ),
+    _GroupSpec(
+        prefix="traceability", group_key="cross_cutting",
+        write_tools=("traceability.create_link",),
+        read_only=frozenset({
+            "traceability.query",
+            "traceability.query_links",
+            "traceability.suggest_links_status",
+        }),
+    ),
+    _GroupSpec(
+        prefix="artifact", group_key="cross_cutting",
+        write_tools=(
+            "artifact.bulk_transition",
+            "artifact.bulk_update",
+            "artifact.move",
+        ),
+        read_only=frozenset({
+            "artifact.get_tree",
+            "artifact.search",
+            "artifact.summary",
+        }),
+    ),
+    _GroupSpec(
+        prefix="context", group_key="cross_cutting",
+        write_tools=(
+            "group.add_member",
+            "group.create",
+            "group.move_member",
+            "group.remove_member",
+        ),
+        read_only=frozenset({
+            "allocation.query",
+            "context.change_impact",
+            "context.test_coverage",
+            "group.list",
+            "group.members",
+        }),
+    ),
+    _GroupSpec(
+        prefix="workspace", group_key="workspace",
+        write_tools=(
+            "workspace.close",
+            "workspace.delete",
+            "workspace.reactivate",
+        ),
+        read_only=frozenset({
+            "workspace.get_context",
+            "workspace.get_preferences",
+            "workspace.list",
+            "workspace.llm_system_prompt",
+            "workspace.resolve_references",
+        }),
+        governance_namespace=True,
+    ),
+    _GroupSpec(
+        prefix="permissions", group_key="permissions",
+        write_tools=(
+            "permissions.revoke",
+            "permissions.set_rule",
+        ),
+        read_only=frozenset({
+            "permissions.check",
+            "permissions.list",
+        }),
+        governance_namespace=True,
+    ),
+    _GroupSpec(
+        prefix="admin", group_key="admin",
+        write_tools=(
+            "admin.backup_create",
+            "admin.restore",
+        ),
+        read_only=frozenset({
+            "admin.backup_list",
+        }),
+        instance_level=frozenset({
+            "admin.backup_create",
+            "admin.backup_list",
+            "admin.restore",
+        }),
+        governance_namespace=True,
+    ),
+    _GroupSpec(
+        prefix="audit", group_key="audit",
+        write_tools=("audit.waive_finding",),
+        read_only=frozenset({
+            "audit.ai_review",
+            "audit.query",
+            "audit.waivers",
+        }),
+        governance_tools=frozenset({
+            "audit.waive_finding",
+        }),
+    ),
+    _GroupSpec(
+        prefix="events", group_key="audit",
+        write_tools=("events.dlq_replay",),
+        read_only=frozenset({
+            "events.dlq_list",
+        }),
+        governance_namespace=True,
+    ),
+    _GroupSpec(
+        prefix="user", group_key="user",
+        write_tools=(
+            "user.activate",
+            "user.assign_role",
+            "user.assign_tenant_admin",
+            "user.create",
+            "user.deactivate",
+            "user.reactivate_role",
+            "user.revoke_tenant_admin",
+            "user.suspend_role",
+        ),
+        read_only=frozenset({
+            "user.list",
+        }),
+        tenant_admin_elevated=frozenset({
+            "user.activate",
+            "user.assign_role",
+            "user.assign_tenant_admin",
+            "user.create",
+            "user.deactivate",
+            "user.reactivate_role",
+            "user.revoke_tenant_admin",
+            "user.suspend_role",
+        }),
+        governance_namespace=True,
+    ),
+    _GroupSpec(
+        prefix="adr", group_key="adr",
+        write_tools=(
+            "adr.create",
+            "adr.delete",
+            "adr.outdate",
+            "adr.reactivate",
+            "adr.update",
+        ),
+    ),
+    _GroupSpec(
+        prefix="risk", group_key="risk",
+        write_tools=(
+            "risk.create",
+            "risk.delete",
+            "risk.outdate",
+            "risk.reactivate",
+            "risk.update",
+        ),
+    ),
+    _GroupSpec(
+        prefix="issue", group_key="issue",
+        write_tools=(
+            "issue.create",
+            "issue.delete",
+            "issue.outdate",
+            "issue.reactivate",
+            "issue.update",
+        ),
+    ),
+    _GroupSpec(
+        prefix="glossary", group_key="glossary",
+        write_tools=(
+            "glossary.create",
+            "glossary.delete",
+            "glossary.outdate",
+            "glossary.reactivate",
+            "glossary.update",
+        ),
+    ),
+    _GroupSpec(
+        prefix="change_request", group_key="change_request",
+        write_tools=(
+            "change_request.create",
+            "change_request.delete",
+            "change_request.outdate",
+            "change_request.reactivate",
+            "change_request.update",
+        ),
+    ),
+    _GroupSpec(
+        prefix="prompt_template", group_key="prompt_template",
+        write_tools=(
+            "prompt_template.create",
+            "prompt_template.delete",
+            "prompt_template.update",
+        ),
+        read_only=frozenset({
+            "prompt_template.get",
+            "prompt_template.list",
+        }),
+        governance_namespace=True,
+    ),
+    _GroupSpec(
+        prefix="prompt_variable", group_key="prompt_variable",
+        write_tools=(
+            "prompt_variable.clear",
+            "prompt_variable.set",
+        ),
+        read_only=frozenset({
+            "prompt_variable.get",
+            "prompt_variable.list",
+        }),
+        governance_namespace=True,
+    ),
+    _GroupSpec(
+        prefix="ai_derivation", group_key="ai_derivation",
+        write_tools=(
+            "ai_derivation.decompose_requirement_next_level",
+            "ai_derivation.derive_adr_from_decision",
+            "ai_derivation.derive_glossary_from_workspace",
+            "ai_derivation.derive_requirements_from_need",
+            "ai_derivation.derive_risks_from_architecture",
+            "ai_derivation.suggest_architecture_for_requirement",
+        ),
+    ),
+    _GroupSpec(
+        prefix="diagram", group_key="diagram",
+        write_tools=(
+            "diagram.create",
+            "diagram.outdate",
+            "diagram.reactivate",
+            "diagram.update",
+        ),
+        read_only=frozenset({
+            "diagram.get",
+            "diagram.query",
+        }),
+    ),
+    _GroupSpec(
+        prefix="document", group_key="document",
+        write_tools=(
+            "document.adopt",
+            "document.create",
+            "document.outdate",
+            "document.reactivate",
+            "document.transition",
+            "document.update",
+        ),
+        read_only=frozenset({
+            "document.diff",
+            "document.project",
+            "document.projection_status",
+            "document.versions",
+        }),
+    ),
+    _GroupSpec(
+        prefix="work_item", group_key="work_item",
+        write_tools=(
+            "work_item.checkpoint",
+            "work_item.create",
+            "work_item.set_progress",
+            "work_item.transition",
+            "work_item.update",
+        ),
+        read_only=frozenset({
+            "work_item.resume",
+        }),
+    ),
+    _GroupSpec(
+        prefix="milestone", group_key="milestone",
+        write_tools=(
+            "milestone.bind_baseline",
+            "milestone.create",
+            "milestone.record_audit",
+            "milestone.update",
+        ),
+        read_only=frozenset({
+            "milestone.get",
+            "milestone.list",
+        }),
+    ),
+    _GroupSpec(
+        prefix="review", group_key="review",
+        write_tools=(
+            "review.approve",
+            "review.reject",
+            "review.request_changes",
+        ),
+        read_only=frozenset({
+            "review.list_pending",
+        }),
+    ),
+    _GroupSpec(
+        prefix="suggestion", group_key="suggestion",
+        read_only=frozenset({
+            "suggestion.list",
+        }),
+    ),
+    _GroupSpec(
+        prefix="baseline", group_key="baseline",
+        write_tools=(
+            "baseline.create",
+            "baseline.rollback_apply",
+            "baseline.rollback_request",
+            "baseline.set_tags",
+        ),
+        read_only=frozenset({
+            "baseline.compare",
+            "baseline.get",
+            "baseline.list",
+            "baseline.rollback_preview",
+        }),
+        governance_namespace=True,
+    ),
+    _GroupSpec(
+        prefix="goal", group_key="goal",
+        read_only=frozenset({
+            "goal.list_versions",
+        }),
+    ),
+    _GroupSpec(
+        prefix="main_goal", group_key="main_goal",
+        read_only=frozenset({
+            "main_goal.list_versions",
+            "main_goal.query",
+        }),
+    ),
+    _GroupSpec(
+        prefix="requirement_bundle", group_key="requirement_bundle",
+        read_only=frozenset({
+            "requirement_bundle.attribute_schema",
+            "requirement_bundle.compression_status",
+            "requirement_bundle.export",
+        }),
+    ),
+    _GroupSpec(
+        prefix="interview", group_key="interview",
+        write_tools=(
+            "interview.abandon",
+            "interview.answer",
+            "interview.chat",
+            "interview.formalize",
+            "interview.grounding_context",
+            "interview.set_target",
+            "interview.start",
+        ),
+        read_only=frozenset({
+            "interview.get",
+            "interview.get_state",
+            "interview.list",
+            "interview.propose",
+        }),
+    ),
+    _GroupSpec(
+        prefix="memory", group_key="memory",
+        write_tools=(
+            "memory.ask",
+            "memory.delete_workspace",
+            "memory.export",
+            "memory.forget",
+            "memory.overview",
+            "memory.projection",
+            "memory.promote",
+            "memory.remember_interaction",
+            "memory.settings",
+            "memory.write",
+        ),
+        read_only=frozenset({
+            "memory.digest",
+            "memory.get",
+            "memory.list",
+            "memory.query",
+            "memory.session_summaries",
+        }),
+        governance_tools=frozenset({
+            "memory.delete_workspace",
+            "memory.export",
+            "memory.overview",
+            "memory.projection",
+            "memory.settings",
+        }),
+    ),
+    _GroupSpec(
+        prefix="link_type", group_key="link_type",
+        read_only=frozenset({
+            "link_type.get",
+            "link_type.list",
+        }),
+        governance_namespace=True,
+    ),
+    _GroupSpec(
+        prefix="attribute_definition", group_key="attribute_definition",
+        read_only=frozenset({
+            "attribute_definition.get",
+            "attribute_definition.list",
+        }),
+        governance_namespace=True,
+    ),
+    _GroupSpec(
+        prefix="attribute_catalog", group_key="attribute_catalog",
+        write_tools=(
+            "attribute_catalog.add_to_definition",
+            "attribute_catalog.create",
+            "attribute_catalog.deprecate",
+            "attribute_catalog.import",
+            "attribute_catalog.reorder",
+            "attribute_catalog.update",
+        ),
+        read_only=frozenset({
+            "attribute_catalog.export",
+            "attribute_catalog.list",
+            "attribute_catalog.search",
+        }),
+        governance_namespace=True,
+    ),
+    _GroupSpec(
+        prefix="attribute_migration", group_key="attribute_migration",
+        write_tools=(
+            "attribute_migration.apply",
+            "attribute_migration.dry_run",
+            "attribute_migration.rollback",
+        ),
+        read_only=frozenset({
+            "attribute_migration.get_run",
+            "attribute_migration.list_runs",
+            "attribute_migration.plan",
+        }),
+        governance_namespace=True,
+    ),
+    _GroupSpec(
+        prefix="icd", group_key="icd",
+        write_tools=(
+            "icd.create",
+            "icd.update",
+        ),
+    ),
+    _GroupSpec(
+        prefix="comment", group_key="comment",
+        write_tools=(
+            "comment.create",
+            "comment.resolve",
+        ),
+        read_only=frozenset({
+            "comment.list",
+        }),
+    ),
+    _GroupSpec(
+        prefix="metrics", group_key="metrics",
+        read_only=frozenset({
+            "metrics.catalog",
+            "metrics.get",
+        }),
+    ),
+    _GroupSpec(
+        prefix="tree_display_config", group_key="tree_display_config",
+        read_only=frozenset({
+            "tree_display_config.get",
+        }),
+    ),
+    _GroupSpec(
+        prefix="create_form_definition", group_key="create_form_definition",
+        read_only=frozenset({
+            "create_form_definition.export",
+            "create_form_definition.get",
+        }),
+    ),
+    _GroupSpec(
+        prefix="preference", group_key="preference",
+        read_only=frozenset({
+            "preference.get",
+            "preference.registry",
+        }),
+        governance_tools=frozenset({
+            "preference.set_default",
+        }),
+    ),
+    _GroupSpec(
+        prefix="quality", group_key="quality",
+    ),
+    _GroupSpec(
+        prefix="summary", group_key="summary",
+        write_tools=("summary.refresh",),
+        read_only=frozenset({
+            "summary.get",
+        }),
+    ),
+    _GroupSpec(
+        prefix="resource", group_key="resource",
+        read_only=frozenset({
+            "resource.list",
+            "resource.read",
+            "resource.templates_list",
+        }),
+    ),
+    _GroupSpec(
+        prefix="prompt", group_key="prompt",
+        read_only=frozenset({
+            "prompt.get",
+            "prompt.list",
+        }),
+    ),
+    _GroupSpec(
+        prefix="tool", group_key="tool",
+        read_only=frozenset({
+            "tool.list_groups",
+        }),
+        always_visible=frozenset({
+            "tool.list_groups",
+        }),
+    ),
+    _GroupSpec(
+        prefix="saved_view", group_key="saved_view",
+        read_only=frozenset({
+            "saved_view.apply",
+            "saved_view.list",
+        }),
+    ),
 )
 
-# ---------------------------------------------------------------------------
-# Explicit read-only tool inventory (REQ-L2-MC-007, fail-closed default,
-# Systemaudit 2026-07-28 #99)
-# ---------------------------------------------------------------------------
-#
-# _is_write_tool() used to be allowlist-based: only names matching
-# _WRITE_TOOL_PREFIXES above were RBAC-checked, so any *new* write tool
-# silently bypassed the gate until someone remembered to extend the prefix
-# list (this already happened once for change_request.delete, see the
-# regression test below, and again for the whole diagram.* group, cf.
-# Systemaudit #102). That is fail-open.
-#
-# The gate is now inverted: every tool name is treated as WRITE (RBAC
-# checked) unless it is explicitly listed here as read-only, or ends in one
-# of the two suffixes dynamically-generated tool groups use for reads
-# (``GenericCrudToolGroup`` emits "{prefix}.read"/"{prefix}.query" for every
-# entity it wraps, so new entities registered there stay read-exempt without
-# a code change here). Any tool name this module has never seen — including
-# ones added later without touching this file — defaults to write-protected.
+
+# Derived aliases — the historical module-level collections, now computed once
+# from :data:`GROUP_SPECS`. Set-valued aliases are order-independent; the
+# ``_WRITE_TOOL_PREFIXES`` tuple is used only for membership/prefix tests, so
+# its element order carries no semantics.
+_WRITE_TOOL_PREFIXES: tuple[str, ...] = tuple(
+    name for spec in GROUP_SPECS for name in spec.write_tools
+)
 _READ_ONLY_TOOL_NAMES: frozenset[str] = frozenset(
-    {
-        "requirement.get",
-        "requirement.query",
-        "requirement.check_consistency",
-        # #1288: reading the structured acceptance criteria is a pure read (it
-        # does not end on ".read"/".query", so it is listed explicitly).
-        "requirement.acceptance_criteria.get",
-        "needs.read",
-        "needs.query",
-        "needs.get_traces",
-        "architecture.get",
-        "architecture.query",
-        "test.get",
-        "test.query",
-        "test.run_get",
-        # #1080: the workspace's TestRuns, so the run lifecycle is observable
-        # without holding an id. workspace_id is required in the schema, which
-        # is what scopes the dispatcher gate to that workspace.
-        "test.run_list",
-        "traceability.query",
-        # #1098: workspace-wide TraceLink enumeration. It does not end on
-        # ".read"/".query" ("query_links" suffix differs), so it must be listed
-        # explicitly or it would fail closed to WRITE-gated.
-        "traceability.query_links",
-        # ADR-019 WP5: ``traceability.suggest_links`` now PERSISTS a
-        # ``Suggestion`` receipt per eligible finding, so it is a write tool
-        # and is deliberately NOT read-exempt any more. Only the status poll
-        # below stays read-only.
-        # #1197: status polling only reads a Celery task result via the
-        # tenant-ownership cache mapping — mirrors
-        # requirement_bundle.compression_status and BundleCompressionStatusView.
-        "traceability.suggest_links_status",
-        "artifact.search",
-        "artifact.get_tree",
-        # Issue #1792 (S3): a summary is a read (no persistence), even though it
-        # may cost one LLM call. It does not end on ".read"/".query", so it must
-        # be listed explicitly or it would fail closed to WRITE-gated and a
-        # Viewer key could not read a summary. The LLM spend ceiling is the
-        # `artifact_summary` rate scope, not the RBAC tier.
-        "artifact.summary",
-        # Issue #1793 (S6): reading a stored summary is free and persists
-        # nothing, so it is a read for RBAC purposes. Its required
-        # ``workspace_id`` is what scopes the dispatcher gate. summary.refresh
-        # is deliberately absent — it spends a provider call.
-        "summary.get",
-        "allocation.query",
-        "group.list",
-        "group.members",
-        "context.change_impact",
-        "context.test_coverage",
-        "workspace.get_context",
-        "workspace.get_preferences",
-        "workspace.list",
-        "workspace.llm_system_prompt",
-        # Issue #17: uid -> entity batch resolution. Pure lookup against the
-        # workspace the required ``workspace_id`` names (which is what scopes
-        # the dispatcher gate to that workspace); nothing is persisted.
-        "workspace.resolve_references",
-        "permissions.check",
-        "permissions.list",
-        "audit.query",
-        "audit.ai_review",
-        "events.dlq_list",
-        "user.list",
-        "prompt_template.get",
-        "prompt_template.list",
-        "prompt_variable.list",
-        "prompt_variable.get",
-        "diagram.get",
-        "diagram.query",
-        # Plan F F2-T6 (ADR-026): document.read/document.query are already
-        # exempt via the shared ".read"/".query" suffix convention; versions
-        # and diff do not end on either, so they are listed explicitly.
-        "document.versions",
-        "document.diff",
-        # Phase G / #1374 S3: rendering and hash comparison persist nothing.
-        "document.project",
-        "document.projection_status",
-        # Plan F F3-T6 (#1374): work_item.read/work_item.query are already
-        # exempt via the shared ".read"/".query" suffix convention; resume does
-        # not end on either, so it is listed explicitly.
-        "work_item.resume",
-        # Plan B B6-T2 (#879): milestone.get/milestone.list read the planned
-        # reviews of one workspace — plain reads, nothing persisted. The four
-        # mutating tools stay fail-closed WRITE-gated above.
-        "milestone.get",
-        "milestone.list",
-        # Tabellenansicht slice 3 (Task 3.4): both saved_view tools are reads —
-        # apply runs the stored filter DSL as a SELECT, list enumerates the views
-        # the caller may see. They do not end on ".read"/".query", so they are
-        # listed explicitly; there is no saved_view write tool at all.
-        "saved_view.list",
-        "saved_view.apply",
-        "admin.backup_list",
-        "review.list_pending",
-        # ADR-019 WP3: the proposal inbox read; accept/reject are write-gated.
-        "suggestion.list",
-        # Issue #114: BaselineToolGroup read-only tools (baseline.create is
-        # the only mutating one — deliberately absent from this set so it
-        # stays fail-closed WRITE-gated).
-        "baseline.list",
-        "baseline.get",
-        "baseline.compare",
-        # Plan F F4.4: previewing a rollback writes nothing and opens no change
-        # request, so it is readable by any workspace member (agents included).
-        "baseline.rollback_preview",
-        # Task 7 of feat/ziele-hauptziel-design: goal.read/main_goal.read are
-        # already exempt via the ".read" suffix below and deliberately not
-        # duplicated here.
-        "goal.list_versions",
-        "main_goal.list_versions",
-        # GitHub #1097: workspace-wide MainGoal enumeration. It ends on
-        # ".query" (already exempt via the shared suffix convention below), but
-        # the explicit entry pins it against a future refactor of that
-        # convention rather than relying on it implicitly.
-        "main_goal.query",
-        # Requirement Bundle Export, Plan 1 Task 6: both tools are read-only
-        # exports/discovery, no persistence — same class as artifact.search.
-        "requirement_bundle.export",
-        "requirement_bundle.attribute_schema",
-        # Requirement Bundle Export, Plan 2 Task 5: status polling only reads
-        # a Celery task result (via the tenant-ownership cache mapping) —
-        # mirrors BundleCompressionStatusView (REST), which is a plain GET
-        # with no write-role requirement. Same class as admin.backup_list.
-        "requirement_bundle.compression_status",
-        # Interview-Management-Engine Task 4: interview.get_state/list/get
-        # are plain reads of InterviewSession state, same class as
-        # needs.get_traces/architecture.get — interview.start/answer stay
-        # fail-closed WRITE-gated via _WRITE_TOOL_PREFIXES above.
-        "interview.get_state",
-        "interview.list",
-        "interview.get",
-        # Multi-artifact plan Task 6: interview.propose only reads
-        # grounding_snapshot["pending_proposal"] — same read-only class as
-        # interview.get_state above.
-        "interview.propose",
-        # interview.grounding_context moved to _WRITE_TOOL_PREFIXES above
-        # (post-hoc fix, final-review batch) once it started making real LLM
-        # calls -- no longer exempt here.
-        # Task 7 of the AI-memory spec: memory.query/memory.list are plain
-        # reads over MemoryBackend -- memory.forget/memory.write stay
-        # fail-closed WRITE-gated via _WRITE_TOOL_PREFIXES above.
-        # RFC #1002 PR B adds memory.get as a plain read.
-        # RFC #1002 F6 adds memory.digest: the consolidated read of one scope
-        # over MemoryBackend.digest -- same read-only class as memory.list.
-        # REQ-192 / #1154 adds memory.ask. It is NOT listed here: although it
-        # reads no local table, it invokes a generative LLM call
-        # (Honcho ``peer.chat``), so it is deliberately WRITE-gated for the
-        # same LLM-spend reason as interview.grounding_context (see
-        # _WRITE_TOOL_PREFIXES above) -- a read_only/Viewer key must not be
-        # able to drive spend.
-        "memory.query",
-        "memory.list",
-        "memory.get",
-        "memory.digest",
-        # Plan A T-A4-5: reading one session's engine summaries is a plain
-        # read over MemoryBackend.session_summaries (nothing persisted, no
-        # LLM spend); it does not end on ".read"/".query", so it is listed
-        # explicitly.
-        "memory.session_summaries",
-        # Task 21 of the traceability-semantik plan: link_type.list/get are
-        # plain catalog reads -- link_type.create/update/reset stay
-        # fail-closed WRITE-gated (admin-only, enforced again inside
-        # LinkTypeFacade._require_admin).
-        "link_type.list",
-        "link_type.get",
-        # Attribute-Definition spec section 5, Task 12: attribute_definition.list
-        # (admin-gated in the service, tenant-wide) and attribute_definition.get
-        # (workspace_id required in its inputSchema, same class as
-        # requirement.get) are both plain reads over attribute_definitions rows
-        # -- attribute_definition.update/.reset stay fail-closed WRITE-gated.
-        "attribute_definition.list",
-        "attribute_definition.get",
-        # Attribut v3 WS5 (#942): attribute_catalog.list/search/export are plain
-        # reads over the tenant's catalog -- create/update/deprecate/
-        # add_to_definition/import stay fail-closed WRITE-gated. The service
-        # asserts admin on every operation either way.
-        "attribute_catalog.list",
-        "attribute_catalog.search",
-        "attribute_catalog.export",
-        # Attribut v3 WS7 (#940): attribute_migration.plan is a pure schema
-        # validation + hash and list_runs/get_run are plain run-history reads.
-        # apply/rollback/dry_run stay fail-closed WRITE-gated (see
-        # _WRITE_TOOL_PREFIXES above).
-        "attribute_migration.plan",
-        "attribute_migration.list_runs",
-        "attribute_migration.get_run",
-        # Menschen-im-System spec §4: comment.list is a plain read over the
-        # artifact's comments (CommentService.list_for_artifact asserts no
-        # write permission; the REST ArtifactCommentsView GET is equally
-        # ungated). comment.create/comment.resolve stay fail-closed
-        # WRITE-gated via _WRITE_TOOL_PREFIXES above.
-        "comment.list",
-        # #569: audit.waivers lists the workspace's suppressions — a plain
-        # read at the scope gate (it does not end on ".read"/".query", so it
-        # must be listed explicitly). NOTE: the handler additionally evaluates
-        # the shared approval-authority choke point and answers
-        # PERMISSION_DENIED for a caller without it, exactly like the REST twin
-        # GET .../audit/waivers/ (spec E12). The READ tier here only says "no
-        # ADMIN capability tier is required to reach the handler"; it is NOT a
-        # weaker door than REST.
-        "audit.waivers",
-        # #1265: the central statistics surface. ``metrics.catalog`` is pure
-        # registry metadata (no DB access, no workspace) and ``metrics.get``
-        # reads the cached computation for its required ``workspace_id``.
-        # Neither ends on ".read"/".query", so both are listed explicitly.
-        "metrics.catalog",
-        "metrics.get",
-        # #1257: the navigation tree's configurable field selection. ``.get``
-        # is a read of the caller's own / tenant-wide / workspace configuration
-        # (it does not end on ".read"/".query"); ``.set`` stays fail-closed
-        # WRITE-gated by default.
-        "tree_display_config.get",
-        # #1263: the create dialog's configurable form definition — same shape,
-        # same read/write split; ``.set`` and ``.import`` stay fail-closed
-        # WRITE-gated, ``.export`` is a read of the same level ``.get`` reads.
-        "create_form_definition.get",
-        "create_form_definition.export",
-        # Plan C / Q1 (#T-C2-4): the three-level preference surface.
-        # preference.registry is pure catalogue metadata and preference.get
-        # reads the caller's own values / one level (or one workspace's level
-        # when a workspace_id is supplied, which the dispatcher gates). Neither
-        # ends on ".read"/".query", so both are listed explicitly;
-        # preference.set / preference.set_default stay fail-closed WRITE-gated
-        # (the latter additionally lifted to the ADMIN tier below).
-        "preference.registry",
-        "preference.get",
-        # MCP-Modernisierung Task 6/7: the resources/* and prompts/* MCP
-        # capabilities are pure read paths. Listed explicitly because the
-        # fail-closed default (#99) would otherwise RBAC-gate them as write
-        # tools; ``resource.*``/``prompt.*`` are internal pseudo-tools that
-        # never appear in tools/list (their groups return no schemas).
-        "resource.list",
-        "resource.read",
-        "resource.templates_list",
-        # prompts/* is the read/use path for the PromptTemplate system;
-        # prompt_template.create/update remain the admin-gated write path.
-        "prompt.list",
-        "prompt.get",
-        # MCP-Modernisierung Task 13: pure catalogue metadata (group names and
-        # counts), no tenant data, no persistence.
-        "tool.list_groups",
-    }
+    name for spec in GROUP_SPECS for name in spec.read_only
 )
-
 _READ_ONLY_TOOL_SUFFIXES: tuple[str, ...] = (".read", ".query")
-
-# ---------------------------------------------------------------------------
-# Governance tool namespaces (#865)
-#
-# The API-key capability tiers (see ``auth_tenancy.services.authorization``)
-# distinguish ordinary content writes (AUTHOR) from governance operations
-# (ADMIN). On the MCP surface the split follows the tool *namespace*, chosen so
-# that it mirrors the REST rule exactly: REST views that declare one of the
-# admin-/approver-reserved operations (``WORKSPACE_CONFIG``, ``ASSIGN_ROLE``,
-# ``WORKFLOW_APPROVAL``) are ADMIN-tier, and these are the namespaces whose
-# tools are gated by exactly those operations — admin_ops disaster recovery,
-# user/role management, item-permission rules, workspace lifecycle/preset
-# config, DLQ replay, and baselines (whose gate override/waiver is an
-# approval-authority act, see ``BaselineFacade``). Key management is the
-# seventh governance path named by the issue and lives on REST only
-# (``ApiKeyViewSet``); MCP exposes no key-management tool.
-#
-# Classification is by namespace prefix and applies to WRITE tools only: every
-# read tool (``admin.backup_list``, ``user.list``, ``baseline.get``,
-# ``events.dlq_list``, ``workspace.get_context``, ``permissions.check``) stays
-# READ-tier, exactly as before.
-#
-# Follow-up to #865 (security review of that change): six more namespaces are
-# ADMIN-tier here, closing the *drift hole* between the transports. Their tools
-# are protected on REST by ``rest_api.settings_views`` (LLM settings, prompt
-# templates, review policy, context-graph configuration) and, inside their
-# services, by an admin-role assertion — but an admin-*role* check does not
-# narrow an AUTHOR-tier key whose owner legitimately holds that role. Prompt
-# templates are the canonical persistent prompt-injection vector (REQ-043):
-# whoever controls their content controls every future LLM derivation, so an
-# AUTHOR key must not reach them, symmetrically on both transports.
-#   attribute_definition / attribute_catalog / attribute_migration — tenant-wide
-#     schema metadata; every write re-shapes what later derivations may emit,
-#   link_type   — the tenant-extensible trace-link catalog,
-#   prompt_template / prompt_variable — LLM prompt content and its variables.
-# The service-level admin re-checks stay in place unchanged; the tier gate can
-# only ever narrow further.
-#
-# This narrows the scope gate only for the new AUTHOR tier; the RBAC matrix and
-# the per-service admin re-checks remain untouched, and legacy ``write`` keys
-# (= ADMIN tier) are unaffected.
-# ---------------------------------------------------------------------------
-
 _GOVERNANCE_TOOL_NAMESPACES: frozenset[str] = frozenset(
-    {
-        "admin",  # admin_ops: backup / restore (instance-level)
-        "user",  # user + role management
-        "permissions",  # item-level permission rules
-        "workspace",  # workspace lifecycle + config
-        "events",  # dead-letter-queue replay
-        "baseline",  # immutable baselines incl. gate override/waiver
-        # #865 follow-up: governance surfaces previously only author-tier
-        # because their protection was a service-internal admin-role check.
-        "prompt_template",  # LLM prompt content (REQ-043 injection vector)
-        "prompt_variable",  # variables substituted into prompt content
-        "link_type",  # tenant-extensible trace-link catalog
-        "attribute_definition",  # tenant-wide attribute schema
-        "attribute_catalog",  # attribute-schema catalog
-        "attribute_migration",  # attribute-schema migrations
-    }
+    spec.prefix for spec in GROUP_SPECS if spec.governance_namespace
 )
-
-# ---------------------------------------------------------------------------
-# Governance tool names (#569, spec M1)
-#
-# Tool-level counterpart of :data:`_GOVERNANCE_TOOL_NAMESPACES`, for the one
-# case where a governance tool lives inside a namespace that must stay mixed:
-# ``audit``. ``audit.se_audit`` is a workspace-scoped, read-only SE-Auditor run
-# that any workspace member may call (documented non-admin exception, issue
-# #410) and is fail-closed WRITE-gated — adding ``"audit"`` to
-# ``_GOVERNANCE_TOOL_NAMESPACES`` would silently lift it to ADMIN tier and take
-# access away from an AUTHOR-tier key. So the governance act is named at tool
-# level instead: only ``audit.waive_finding`` (granting a per-finding
-# suppression, #569) requires the ADMIN tier, exactly mirroring the REST rule
-# where the waiver surface evaluates the approval-authority choke point.
-#
-# Checked *before* the namespace set in :meth:`ToolRegistry.
-# _required_scope_operation`, so a future tool in a governance namespace can
-# still be narrowed individually if it ever needs the opposite.
-# ---------------------------------------------------------------------------
-
 _GOVERNANCE_TOOL_NAMES: frozenset[str] = frozenset(
-    {
-        # #569: granting a suppression accepts a known SE-Auditor deviation —
-        # an approval-authority act (Operation.WORKFLOW_APPROVAL), not an
-        # ordinary content write. The facade re-checks the same SSOT choke
-        # point; this tier gate can only ever narrow further.
-        "audit.waive_finding",
-        # Wave-7 memory-MCP stream (#1302): the System-Admin memory surface.
-        # The "memory" namespace must stay mixed -- memory.write / forget /
-        # promote / ask / remember_interaction are ordinary AUTHOR-tier content
-        # operations -- so the five tenant-wide admin tools are named
-        # individually, exactly like audit.waive_finding above. They mirror the
-        # REST System-Admin bar (MemoryAdminService._assert_system_admin,
-        # memory_rest._is_system_admin); the service-level re-check stays, and
-        # this tier gate can only ever narrow further.
-        "memory.overview",
-        "memory.projection",
-        "memory.export",
-        "memory.settings",
-        "memory.delete_workspace",
-        # Plan C / Q1 (#T-C2-4): a workspace- or tenant-wide preference default
-        # is governance configuration (ENT-C3 = B), so it must not be reachable
-        # with an AUTHOR-tier key whose owner happens to hold the admin role —
-        # the same R6 class of hole the tool split exists to close. The
-        # "preference" namespace stays mixed: preference.set is the caller's own
-        # user-level self-service write and remains AUTHOR-tier. The service
-        # re-asserts the per-level rule (workspace config / admin role); this
-        # tier gate can only ever narrow further.
-        "preference.set_default",
-    }
+    name for spec in GROUP_SPECS for name in spec.governance_tools
 )
-
-# ---------------------------------------------------------------------------
-# Instance-level tools exempt from workspace-scoped role narrowing
-# (GitHub #37, same bug class as #103 but inverted: #103 narrowed roles to
-# the target workspace to STOP cross-workspace escalation; this narrowing is
-# wrong for tools whose target is not a workspace at all).
-#
-# ``BackupMetadata`` (admin_ops) is instance-level — not even tenant-scoped,
-# let alone workspace-scoped (see admin_ops/rest.py). A caller's admin
-# authority for these tools must therefore be evaluated tenant-wide
-# (``active_roles_across_workspaces``), never against a single workspace.
-#
-# Without this exemption, a request that happens to carry an incidental
-# ``workspace_id`` param (e.g. a UI/MCP client that always attaches the
-# "currently active workspace" to every call) would narrow the caller's
-# roles to that one workspace via ``_resolve_roles``. A tenant admin who
-# holds the Admin role in a *different* workspace (or in none at all, if
-# they were provisioned as a superuser) is then wrongly denied
-# PERMISSION_DENIED for an operation that has nothing to do with workspaces.
-# ---------------------------------------------------------------------------
-
 _INSTANCE_LEVEL_TOOLS: frozenset[str] = frozenset(
-    {
-        "admin.backup_create",
-        "admin.backup_list",
-        "admin.restore",
-    }
+    name for spec in GROUP_SPECS for name in spec.instance_level
 )
-
-# ---------------------------------------------------------------------------
-# Tools exempt from the ApiKey.tool_groups catalogue filter (spec section 6.2).
-#
-# tool.list_groups is how a client discovers which groups exist in the first
-# place, so filtering it out of a narrowed manifest would strand the caller:
-# they would see a short menu and have no way to learn what else they could
-# ask for. It is pure metadata (group names + counts), carries no tenant data
-# and is read-only, so leaving it always visible costs nothing.
-#
-# Module-level (not a class attribute): the introspection tool's own tests
-# import it directly, and it is a property of the catalogue, not of one
-# registry instance.
-# ---------------------------------------------------------------------------
-
-_ALWAYS_VISIBLE_TOOLS: frozenset[str] = frozenset({"tool.list_groups"})
-
-# ---------------------------------------------------------------------------
-# Tenant-admin-elevated user.* tools (multi-user management design spec §3).
-#
-# Step 3's blanket write-RBAC gate (``_check_rbac``) below decides purely
-# from ``ctx.active_roles`` — which is resolved WORKSPACE-scoped (via
-# ``_resolve_roles``) whenever the call carries a ``workspace_id`` param, or
-# tenant-wide-but-still-``UserRole``-only (``_resolve_global_roles``)
-# otherwise. Neither path ever looks at ``TenantRole``, so a pure
-# tenant-admin (a caller holding only ``TenantRole(admin)``, zero
-# workspace-level ``UserRole`` anywhere) resolves to ``active_roles=()`` and
-# was denied here BEFORE the request ever reached a tool group — even for
-# tools whose own handler (and the ``AuthorizationService`` method it calls)
-# already has a tenant-admin elevation branch built in. This is the
-# registry-level twin of the ``UsersToolGroup._check_admin`` gap fixed in
-# the same change (see that class's docstring) — mirrors how the REST layer
-# dropped its own coarse ``HasOperationPermission`` pre-gate for these exact
-# actions (``rest_api.user_management_views.UserViewSet``,
-# ``auth_tenancy.rest_workspace_members.WorkspaceMemberRoleTransitionView``)
-# and let the service layer's own admin/tenant-admin re-check be the sole
-# authority instead.
-#
-# Every tool listed here performs its OWN tenant-admin-aware authorization
-# inside its handler (``UsersToolGroup``) or the ``AuthorizationService``
-# method it delegates to — bypassing this coarse gate for a genuine
-# tenant-admin loses no defense, it only removes a false negative. A caller
-# who is NOT a tenant-admin still falls through to the normal
-# ``_check_rbac`` check below unchanged.
+_ALWAYS_VISIBLE_TOOLS: frozenset[str] = frozenset(
+    name for spec in GROUP_SPECS for name in spec.always_visible
+)
 _TENANT_ADMIN_ELEVATED_USER_TOOLS: frozenset[str] = frozenset(
-    {
-        "user.create",
-        "user.deactivate",
-        "user.activate",
-        "user.assign_role",
-        "user.suspend_role",
-        "user.reactivate_role",
-        "user.assign_tenant_admin",
-        "user.revoke_tenant_admin",
-    }
+    name for spec in GROUP_SPECS for name in spec.tenant_admin_elevated
 )
 
 # ---------------------------------------------------------------------------
@@ -933,6 +898,7 @@ _TOOL_FEATURE_MAP: dict[str, str] = {
     "traceability.query_links": "traceability",
     "artifact.get_tree": "artifact_tree",
 }
+
 
 class McpAuthenticationError(Exception):
     """Raised by :meth:`ToolRegistry.list_tools` when the credential is
@@ -1156,7 +1122,13 @@ class ToolRegistry:
         return aliases
 
     def _ensure_groups(self) -> None:
-        """Lazy-initialise default tool groups if none registered."""
+        """Lazy-initialise default tool groups from :data:`GROUP_SPECS`.
+
+        The group imports stay local (circular-import safe, ADR-L3-MC002-03),
+        but construction is now a small loop over the declarative spec table:
+        one place declares each prefix, which physical group instance it maps
+        to (``group_key``), and its whole security policy (R2C-009).
+        """
         if self._router is not None:
             return
         from application.adr_service import AdrService
@@ -1165,27 +1137,6 @@ class ToolRegistry:
         from application.issue_service import IssueService
         from application.risk_service import RiskService
         from mcp_server.tools.admin import AdminToolGroup
-
-        # ADR-L3-MC007-02: the ``workspace`` prefix is owned by AdminToolGroup,
-        # which falls through non-lifecycle workspace.* tools (e.g.
-        # workspace.get_context) to a wrapped CrossCuttingToolGroup.
-        # The ``permissions`` prefix is owned by PermissionsToolGroup
-        # (COMP-MC-008, REQ-L1-039).
-        # The ``admin`` prefix is owned by BackupToolGroup
-        # (COMP-MC-009, REQ-L1-046) — Disaster Recovery tools. The
-        # workspace-lifecycle AdminToolGroup keeps the ``workspace.``
-        # namespace; the two groups do not share a prefix.
-        # The ``audit`` and ``events`` prefixes are owned by AuditToolGroup
-        # (COMP-MC-010, REQ-L1-046 admin observability) — audit-log query
-        # and Domain-Event Dead-Letter Queue (list + replay). One
-        # instance is shared so callers see a single AuditToolGroup no
-        # matter which prefix they hit.
-        # The ``user`` prefix is owned by UsersToolGroup
-        # (COMP-MC-011, REQ-L1-046 admin user-management) — user
-        # create / assign_role / list / deactivate. The wrapper
-        # delegates role assignment to AuthorizationService
-        # (COMP-AT-002) so the RBAC matrix remains the single
-        # source of truth.
         from mcp_server.tools.ai_derivation import AiDerivationToolGroup
         from mcp_server.tools.architecture import ArchitectureToolGroup
         from mcp_server.tools.attribute_catalog import AttributeCatalogToolGroup
@@ -1227,161 +1178,67 @@ class ToolRegistry:
         from mcp_server.tools.users import UsersToolGroup
         from mcp_server.tools.work_items import WorkItemToolGroup
 
-        # REQ-129: share ONE instance across prefixes that belong to the same
-        # tool group. CrossCuttingToolGroup owns both the ``traceability`` and
-        # ``artifact`` namespaces; AuditToolGroup owns both ``audit`` and
-        # ``events``. Registering distinct instances per prefix duplicated the
-        # group's schemas in tools/list.
-        audit_tool_group = AuditToolGroup()
-        cross_cutting_tool_group = CrossCuttingToolGroup()
-        self.register_groups({
-            "requirement": RequirementsToolGroup(),
-            "needs": StakeholderNeedsToolGroup(),
-            "architecture": ArchitectureToolGroup(),
-            "test": TestToolGroup(),
-            "traceability": cross_cutting_tool_group,
-            "artifact": cross_cutting_tool_group,
-            "context": cross_cutting_tool_group,
-            "workspace": AdminToolGroup(),
-            "permissions": PermissionsToolGroup(),
-            "admin": BackupToolGroup(),
-            "audit": audit_tool_group,
-            "events": audit_tool_group,
-            "user": UsersToolGroup(),
-            "adr": GenericCrudToolGroup("adr", AdrService),
-            "risk": GenericCrudToolGroup("risk", RiskService),
-            "issue": GenericCrudToolGroup("issue", IssueService),
-            "glossary": GenericCrudToolGroup("glossary", GlossaryService, item_type="GlossaryTerm"),
-            "change_request": GenericCrudToolGroup(
+        # group_key -> zero-arg factory. Shared keys (cross_cutting, audit)
+        # intentionally map to one instance reused by several prefixes (REQ-129).
+        factories: dict[str, Callable[[], Any]] = {
+            "requirement": RequirementsToolGroup,
+            "needs": StakeholderNeedsToolGroup,
+            "architecture": ArchitectureToolGroup,
+            "test": TestToolGroup,
+            "cross_cutting": CrossCuttingToolGroup,
+            "workspace": AdminToolGroup,
+            "permissions": PermissionsToolGroup,
+            "admin": BackupToolGroup,
+            "audit": AuditToolGroup,
+            "user": UsersToolGroup,
+            "adr": lambda: GenericCrudToolGroup("adr", AdrService),
+            "risk": lambda: GenericCrudToolGroup("risk", RiskService),
+            "issue": lambda: GenericCrudToolGroup("issue", IssueService),
+            "glossary": lambda: GenericCrudToolGroup(
+                "glossary", GlossaryService, item_type="GlossaryTerm"
+            ),
+            "change_request": lambda: GenericCrudToolGroup(
                 "change_request", ChangeRequestService, item_type="ChangeRequest"
             ),
-            "prompt_template": PromptTemplateToolGroup(),
-            # Prompt variable catalog (spec §3.1): the config layer the
-            # prompt_template group's bodies reference via {placeholders}.
-            "prompt_variable": PromptVariableToolGroup(),
-            "ai_derivation": AiDerivationToolGroup(),
-            "diagram": DiagramToolGroup(),
-            # Plan F F2-T6 (ADR-026): the Document artifact's MCP surface —
-            # the counterpart of DocumentViewSet (F2-T5). Reads are
-            # document.read/query/versions/diff (see _READ_ONLY_TOOL_NAMES);
-            # create/update/transition/outdate/reactivate stay fail-closed
-            # write-gated.
-            "document": DocumentToolGroup(),
-            # Plan F F3-T6 (#1374): the WorkItem artifact's MCP surface — the
-            # counterpart of WorkItemViewSet (F3-T5). Reads are
-            # work_item.read/query/resume (see _READ_ONLY_TOOL_NAMES);
-            # create/update/transition/set_progress/checkpoint stay fail-closed
-            # write-gated.
-            "work_item": WorkItemToolGroup(),
-            # Plan B B6-T2 (#879): planned review milestones — the MCP
-            # counterpart of MilestoneViewSet. Reads are milestone.get/list (see
-            # _READ_ONLY_TOOL_NAMES); create/update/bind_baseline/record_audit
-            # stay fail-closed write-gated.
-            "milestone": MilestoneToolGroup(),
-            "review": ReviewToolGroup(),
-            # ADR-019 WP3: the durable proposal inbox (list/accept/reject).
-            # suggestion.list is read-exempt below; accept/reject stay
-            # fail-closed write-gated via _is_write_tool.
-            "suggestion": SuggestionToolGroup(),
-            # Issue #114: BaselineFacade was REST/UI-only — wraps it for MCP.
-            "baseline": BaselineToolGroup(),
-            # Task 7 of feat/ziele-hauptziel-design: Goal/MainGoal MCP tools.
-            "goal": GoalToolGroup(),
-            "main_goal": MainGoalToolGroup(),
-            # Requirement Bundle Export, Plan 1 Task 6: raw (non-AI) bundle
-            # export + attribute discovery, both read-only.
-            "requirement_bundle": RequirementBundleToolGroup(),
-            # Interview-Management-Engine Task 4: cross-host structured
-            # interviews (start/get_state/answer/list/get). Grounding and
-            # formalize land on the same prefix in Tasks 6-7.
-            "interview": InterviewToolGroup(),
-            # Task 7 of the AI-memory spec: memory.query/memory.list/memory.forget
-            # over the Task 3 MemoryBackend abstraction. Standalone prefix (no
-            # sharing, unlike e.g. "traceability"/"artifact"/"context").
-            "memory": MemoryToolGroup(),
-            # Task 21 of the traceability-semantik plan: read/write access to
-            # the per-tenant/per-workspace link-type catalog (Task 19's
-            # LinkTypeFacade). link_type.list/get are read-exempt below.
-            "link_type": LinkTypeToolGroup(),
-            # Attribute-Definition spec section 5, Task 12: manages
-            # attribute_definitions rows themselves (list/get/update/reset) --
-            # NOT to be confused with validate_artifact_fields, which is
-            # wired into the artifact ViewSets (Task 11), MCP artifact writes
-            # (mcp_server/tools/base.py::validate_artifact_write), and the CSV
-            # bulk importer (ImportService._validate_attribute_definitions).
-            "attribute_definition": AttributeDefinitionToolGroup(),
-            # Attribut v3 WS5 (#942, spec section 8): the central
-            # item-type-independent attribute-catalog template library. list/
-            # search/export are read-exempt; the five mutating tools are
-            # fail-closed write-gated and the service re-asserts admin.
-            "attribute_catalog": AttributeCatalogToolGroup(),
-            # Attribut v3 WS7 (#940, spec section 7): AWMS value migrations.
-            # plan/list_runs/get_run are read-exempt; dry_run/apply/rollback are
-            # fail-closed write-gated and the service re-asserts admin.
-            "attribute_migration": AttributeMigrationToolGroup(),
-            # Epic #934 WS1: ICD CRUD parity on MCP (previously REST-only).
-            # Writes run the shared validate_artifact_write gate.
-            "icd": IcdToolGroup(),
-            # Menschen-im-System spec §4: comments are the one collaboration
-            # feature agents do use (notifications deliberately have no group).
-            # comment.list is read-exempt below; create/resolve stay
-            # write-gated (the service re-asserts write permission too).
-            "comment": CommentToolGroup(),
-            # Issue #1265: central, user-configurable statistics surface.
-            # metrics.catalog (registry metadata) + metrics.get (cached values
-            # per workspace) — both read-exempt below; identical to the REST
-            # /api/v1/metrics/catalog/ and /api/v1/metrics/?keys=… endpoints.
-            "metrics": MetricsToolGroup(),
-            # Issue #1257: the navigation tree's configurable field selection
-            # (Baumfelder), three-level with precedence user > workspace >
-            # global. tree_display_config.get is read-exempt below (it does not
-            # end on ".read"/".query"); set is fail-closed write-gated, and the
-            # service re-asserts the role boundary per level (workspace config —
-            # an admin act, Operation.WORKSPACE_CONFIG — for a workspace
-            # override, admin role for the tenant-wide default; Plan C T-C2-10).
-            "tree_display_config": TreeDisplayConfigToolGroup(),
-            # Issue #1263: the create dialog's configurable form definition
-            # (which fields are visible, order, required, default), three-level
-            # with precedence user > workspace > global. create_form_definition.get
-            # is read-exempt below (it does not end on ".read"/".query"); set and
-            # import are fail-closed write-gated, and the service re-asserts the
-            # role boundary per level (workspace config for the workspace level,
-            # admin role for the tenant-wide default; Plan C T-C2-10).
-            "create_form_definition": CreateFormConfigToolGroup(),
-            # Plan C / Q1 (#T-C2-4): the generic three-level preference service
-            # (user > workspace > global). preference.registry/.get are
-            # read-exempt below; preference.set is the caller's own self-service
-            # write (AUTHOR tier) and preference.set_default is the governance
-            # write (named in _GOVERNANCE_TOOL_NAMES, ADMIN tier). The service
-            # re-asserts the RBAC rule per level.
-            "preference": PreferenceToolGroup(),
-            # Plan B B5-T3 (#378): the advisory quality assessment. assess is a
-            # fail-closed write tool (Editor+, one paid LLM call); query is
-            # read-exempt via the ".query" suffix. Workspace binding happens in
-            # the service, which filters the entity lookup by the addressed
-            # workspace — a fenced key on a foreign workspace answers -32001.
-            "quality": QualityToolGroup(),
-            # Issue #1793 (S6): the persisted per-scope AI summaries.
-            # summary.get is read-exempt below; summary.refresh is the paid
-            # manual run and stays fail-closed WRITE-gated (Editor+ plus the
-            # shared ``artifact_summary`` rate scope).
-            "summary": SummaryToolGroup(),
-            # MCP-Modernisierung Task 6/7: internal pseudo-tools backing the
-            # resources/* and prompts/* capabilities. Their get_tool_schemas()
-            # returns [] so the prefixes are routable but invisible in
-            # tools/list. ``prompt`` is distinct from ``prompt_template``/
-            # ``prompt_variable`` (the router matches on ``prefix + "."``).
-            "resource": ResourcesToolGroup(),
-            "prompt": PromptsToolGroup(),
-            # MCP-Modernisierung Task 13: always-visible introspection so a
-            # client with narrowed tool_groups can still discover what exists.
-            "tool": IntrospectionToolGroup(),
-            # Tabellenansicht slice 3 (Task 3.4): saved table views. Both tools
-            # are reads (saved_view.list / saved_view.apply are listed in
-            # _READ_ONLY_TOOL_NAMES below); creating or editing a view stays a
-            # UI act owned by a human.
-            "saved_view": SavedViewToolGroup(),
-        })
+            "prompt_template": PromptTemplateToolGroup,
+            "prompt_variable": PromptVariableToolGroup,
+            "ai_derivation": AiDerivationToolGroup,
+            "diagram": DiagramToolGroup,
+            "document": DocumentToolGroup,
+            "work_item": WorkItemToolGroup,
+            "milestone": MilestoneToolGroup,
+            "review": ReviewToolGroup,
+            "suggestion": SuggestionToolGroup,
+            "baseline": BaselineToolGroup,
+            "goal": GoalToolGroup,
+            "main_goal": MainGoalToolGroup,
+            "requirement_bundle": RequirementBundleToolGroup,
+            "interview": InterviewToolGroup,
+            "memory": MemoryToolGroup,
+            "link_type": LinkTypeToolGroup,
+            "attribute_definition": AttributeDefinitionToolGroup,
+            "attribute_catalog": AttributeCatalogToolGroup,
+            "attribute_migration": AttributeMigrationToolGroup,
+            "icd": IcdToolGroup,
+            "comment": CommentToolGroup,
+            "metrics": MetricsToolGroup,
+            "tree_display_config": TreeDisplayConfigToolGroup,
+            "create_form_definition": CreateFormConfigToolGroup,
+            "preference": PreferenceToolGroup,
+            "quality": QualityToolGroup,
+            "summary": SummaryToolGroup,
+            "resource": ResourcesToolGroup,
+            "prompt": PromptsToolGroup,
+            "tool": IntrospectionToolGroup,
+            "saved_view": SavedViewToolGroup,
+        }
+        instances: dict[str, Any] = {}
+        groups: dict[str, Any] = {}
+        for spec in GROUP_SPECS:
+            if spec.group_key not in instances:
+                instances[spec.group_key] = factories[spec.group_key]()
+            groups[spec.prefix] = instances[spec.group_key]
+        self.register_groups(groups)
 
     def list_tools(
         self, api_key: str, workspace_id: str | None = None

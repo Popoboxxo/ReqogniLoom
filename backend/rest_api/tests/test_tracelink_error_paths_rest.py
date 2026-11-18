@@ -139,14 +139,17 @@ def test_list_with_an_unresolvable_artifact_id_is_logged_not_silent(
     """#264: a bad artifact id must be distinguishable from "no links"."""
     _, user, workspace = _scenario()
 
-    with caplog.at_level("DEBUG", logger="rest_api.views"):
+    # S4.2: the ViewSet moved to rest_api.views_trace_baseline; the log message
+    # was reworded to "TraceLink <direction> query failed for artifact=..." but
+    # the #264 guarantee (a bad id is logged, not silently "no links") holds.
+    with caplog.at_level("DEBUG", logger="rest_api.views_trace_baseline"):
         resp = _client(user).get(
             f"/api/v1/tracelinks/?workspace_id={workspace.id}&artifact_id={uuid.uuid4()}"
         )
 
     assert resp.status_code == 200, resp.content
     assert resp.json()["count"] == 0
-    assert "TraceLink upstream query failed" in caplog.text
+    assert "query failed for artifact=" in caplog.text
 
 
 @pytest.mark.parametrize(

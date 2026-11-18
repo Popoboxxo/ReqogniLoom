@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import UTC
 
 import pytest
+from django.test import override_settings
 
 from auth_tenancy.context import AuthContext
 from link_types.workspace_store import provision_workspace_link_types
@@ -1544,3 +1545,97 @@ def test_traceability_create_link_rejects_diagram_ref(tenant_workspace_ctx):
         target_id=req_b.artifact_id,
         link_type=LinkType.DIAGRAM_REF,
     ).exists()
+
+
+# ---------------------------------------------------------------------------
+# R2S-003 — context.change_impact flag on/off equivalence (real DB)
+# ---------------------------------------------------------------------------
+
+
+def _impact_snapshot(result) -> str:
+    """Deterministic JSON snapshot of a change-impact ``ToolResult``."""
+    import json
+
+    return json.dumps(
+        {
+            "success": result.success,
+            "data": result.data,
+            "error_code": result.error_code,
+            "message": result.message,
+        },
+        sort_keys=True,
+        default=str,
+    )
+
+
+@pytest.mark.django_db
+def test_change_impact_flag_equivalence_trace_neighbours(
+    entity_with_traces, auth_ctx
+):
+    """Both flag paths return an identical payload for a TraceLink anchor."""
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    entity_id, entity_type, _workspace_id = entity_with_traces
+    group = CrossCuttingToolGroup()
+    params = {
+        "entity_id": str(entity_id),
+        "entity_type": entity_type,
+        "change_description": "Renaming this field to improve clarity",
+    }
+
+    with override_settings(MCP_SERVICE_BACKED_QUERIES=False):
+        legacy = _impact_snapshot(
+            group.execute_tool(
+                "context.change_impact",
+                params=params,
+                auth_context=auth_ctx,
+                api_key="",
+            )
+        )
+    with override_settings(MCP_SERVICE_BACKED_QUERIES=True):
+        backed = _impact_snapshot(
+            group.execute_tool(
+                "context.change_impact",
+                params=params,
+                auth_context=auth_ctx,
+                api_key="",
+            )
+        )
+    assert legacy == backed
+    assert "Verifying Test" in legacy
+
+
+@pytest.mark.django_db
+def test_change_impact_flag_equivalence_architecture_children(
+    architecture_parent_with_child, auth_ctx
+):
+    """Both flag paths return an identical payload for the FK child walk."""
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    parent_id, _child_id, _workspace_id = architecture_parent_with_child
+    group = CrossCuttingToolGroup()
+    params = {
+        "entity_id": str(parent_id),
+        "entity_type": "ArchitectureElement",
+    }
+
+    with override_settings(MCP_SERVICE_BACKED_QUERIES=False):
+        legacy = _impact_snapshot(
+            group.execute_tool(
+                "context.change_impact",
+                params=params,
+                auth_context=auth_ctx,
+                api_key="",
+            )
+        )
+    with override_settings(MCP_SERVICE_BACKED_QUERIES=True):
+        backed = _impact_snapshot(
+            group.execute_tool(
+                "context.change_impact",
+                params=params,
+                auth_context=auth_ctx,
+                api_key="",
+            )
+        )
+    assert legacy == backed
+    assert "Child Element" in legacy

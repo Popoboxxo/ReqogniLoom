@@ -41,6 +41,7 @@ from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
+from django.test import override_settings
 
 from application.base import (
     NotFoundError,
@@ -2196,3 +2197,296 @@ class TestE2ERealLastAdminGuard:
         )
         assert "error" in response, response
         assert response["error"]["code"] == ERROR_CODE_MAP["LAST_ADMIN"]
+
+
+# ---------------------------------------------------------------------------
+# R2S-003 — flag on/off byte-identical ToolResult payloads
+# ---------------------------------------------------------------------------
+
+
+def _result_snapshot(result) -> str:
+    """Deterministic JSON snapshot of a ``ToolResult`` for byte comparison."""
+    return json.dumps(
+        {
+            "success": result.success,
+            "data": result.data,
+            "error_code": result.error_code,
+            "message": result.message,
+            "details": result.details,
+        },
+        sort_keys=True,
+        default=str,
+    )
+
+
+class TestMcpServiceBackedQueriesFlagEquivalence:
+    """The moved queries must produce identical payloads on both flag paths.
+
+    Each test invokes the *same* tool twice against identically configured
+    mocks, toggling only ``MCP_SERVICE_BACKED_QUERIES``. This is the
+    rollout gate from the R2S-003 remediation: flipping the flag can never
+    change the MCP wire response.
+    """
+
+    @staticmethod
+    def _filter_side_effect(caller, rows):
+        """Return a fresh queryset mock per ``User.objects.filter`` call."""
+
+        def _filter(*args, **kwargs):
+            qs = MagicMock()
+            if "id" in kwargs:
+                qs.first.return_value = caller
+            else:
+                qs.order_by.return_value.__getitem__.return_value = rows
+            return qs
+
+        return _filter
+
+    @patch("mcp_server.tools.users.write_mcp_audit")
+    @patch("mcp_server.tools.users.User.objects")
+    def test_user_list_payload_identical(self, mock_objects, _audit) -> None:
+        group, _, _ = _group()
+        caller = MagicMock()
+        caller.is_superuser = False
+        rows = [
+            _mock_user(username="alice", email="a@t.local"),
+            _mock_user(username="bob", email="b@t.local"),
+        ]
+        mock_objects.filter.side_effect = self._filter_side_effect(caller, rows)
+
+        def invoke() -> str:
+            result = group.execute_tool(
+                "user.list",
+                params={"limit": 2},
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+            return _result_snapshot(result)
+
+        with override_settings(MCP_SERVICE_BACKED_QUERIES=False):
+            legacy = invoke()
+        with override_settings(MCP_SERVICE_BACKED_QUERIES=True):
+            backed = invoke()
+        assert legacy == backed
+        assert '"count": 2' in legacy
+
+    @patch("mcp_server.tools.users.write_mcp_audit")
+    @patch("mcp_server.tools.users.User.objects")
+    def test_user_list_db_error_mapping_identical(self, mock_objects, _audit) -> None:
+        """``INTERNAL_ERROR`` on a DB failure must survive the move."""
+        group, _, _ = _group()
+
+        def invoke() -> str:
+            result = group.execute_tool(
+                "user.list",
+                params={},
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+            return _result_snapshot(result)
+
+        with override_settings(MCP_SERVICE_BACKED_QUERIES=False):
+            mock_objects.filter.side_effect = RuntimeError("db down")
+            legacy = invoke()
+        with override_settings(MCP_SERVICE_BACKED_QUERIES=True):
+            mock_objects.filter.side_effect = RuntimeError("db down")
+            backed = invoke()
+        assert legacy == backed
+        assert "INTERNAL_ERROR" in legacy
+
+    @patch("mcp_server.tools.users.write_mcp_audit")
+    @patch("mcp_server.tools.users.User.objects")
+    def test_user_create_superuser_probe_identical(self, mock_objects, _audit) -> None:
+        """The superuser probe behind a ``tenant_id`` override is unchanged."""
+        group, _, _ = _group()
+        group._accounts.create = MagicMock(return_value=_mock_user())
+        caller = MagicMock()
+        caller.is_superuser = True
+        mock_objects.filter.side_effect = self._filter_side_effect(caller, [])
+
+        other_tenant = UUID("00000000-0000-0000-0000-0000000000ff")
+        params = {
+            "username": "alice",
+            "email": "alice@test.local",
+            "password": "s3cret-pass",
+            "tenant_id": str(other_tenant),
+        }
+
+        def invoke() -> str:
+            result = group.execute_tool(
+                "user.create",
+                params=params,
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+            return _result_snapshot(result)
+
+        with override_settings(MCP_SERVICE_BACKED_QUERIES=False):
+            legacy = invoke()
+        with override_settings(MCP_SERVICE_BACKED_QUERIES=True):
+            backed = invoke()
+        assert legacy == backed
+
+    @patch("mcp_server.tools.users.write_mcp_audit")
+    @patch("mcp_server.tools.users.User.objects")
+    def test_user_activate_readback_and_not_found_identical(
+        self, mock_objects, _audit
+    ) -> None:
+        """Read-back DTO and NOT_FOUND mapping are byte-identical."""
+        group, _, _ = _group()
+        target = _mock_user(id_val=TARGET_USER_ID)
+        group._accounts.activate = MagicMock()
+
+        def invoke() -> str:
+            result = group.execute_tool(
+                "user.activate",
+                params={"user_id": str(TARGET_USER_ID)},
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+            return _result_snapshot(result)
+
+        # Present row → identical success payloads.
+        with override_settings(MCP_SERVICE_BACKED_QUERIES=False):
+            mock_objects.filter.return_value.first.return_value = target
+            legacy_ok = invoke()
+        with override_settings(MCP_SERVICE_BACKED_QUERIES=True):
+            mock_objects.filter.return_value.first.return_value = target
+            backed_ok = invoke()
+        assert legacy_ok == backed_ok
+        assert '"activated": true' in legacy_ok
+
+        # Missing row → identical NOT_FOUND payloads.
+        def raise_does_not_exist(*args, **kwargs):
+            raise User.DoesNotExist()
+
+        group._accounts.activate = MagicMock(side_effect=raise_does_not_exist)
+        with override_settings(MCP_SERVICE_BACKED_QUERIES=False):
+            legacy_missing = invoke()
+        with override_settings(MCP_SERVICE_BACKED_QUERIES=True):
+            backed_missing = invoke()
+        assert legacy_missing == backed_missing
+        assert "NOT_FOUND" in legacy_missing
+
+
+    @patch("mcp_server.tools.users.write_mcp_audit")
+    @patch("mcp_server.tools.users.UserRole.objects")
+    def test_user_assign_role_member_check_identical(
+        self, mock_role_objects, _audit
+    ) -> None:
+        """The ``target_is_member`` UserRole query is byte-identical."""
+        group, svc, _ = _group()
+        svc.is_tenant_admin.return_value = False
+        user_role = MagicMock()
+        user_role.id = uuid4()
+        svc.assign_role.return_value = user_role
+        mock_role_objects.filter.return_value.exists.return_value = True
+        params = {
+            "user_id": str(TARGET_USER_ID),
+            "workspace_id": str(WORKSPACE_ID),
+            "role": "viewer",
+            "preset": "standard",
+        }
+
+        def invoke() -> str:
+            result = group.execute_tool(
+                "user.assign_role",
+                params=params,
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+            return _result_snapshot(result)
+
+        with override_settings(MCP_SERVICE_BACKED_QUERIES=False):
+            legacy = invoke()
+        with override_settings(MCP_SERVICE_BACKED_QUERIES=True):
+            backed = invoke()
+        assert legacy == backed
+        # Both paths issue the exact same membership filter.
+        assert mock_role_objects.filter.call_args_list == [
+            (
+                (),
+                {
+                    "user_id": TARGET_USER_ID,
+                    "workspace_id": WORKSPACE_ID,
+                    "suspended_at__isnull": True,
+                },
+            )
+        ] * 2
+
+    @patch("mcp_server.tools.users.write_mcp_audit")
+    @patch("mcp_server.tools.users.User.objects")
+    def test_user_deactivate_readback_and_not_found_identical(
+        self, mock_objects, mock_audit
+    ) -> None:
+        """Deactivate's audit probe + read-back DTO + NOT_FOUND are identical."""
+        group, _, _ = _group()
+        group._accounts.deactivate = MagicMock()
+        target = _mock_user(id_val=TARGET_USER_ID, is_active=True)
+
+        def invoke() -> tuple[str, str]:
+            result = group.execute_tool(
+                "user.deactivate",
+                params={"user_id": str(TARGET_USER_ID)},
+                auth_context=ADMIN_CTX,
+                api_key=VALID_API_KEY,
+            )
+            audit = json.dumps(
+                mock_audit.call_args.kwargs, sort_keys=True, default=str
+            )
+            return _result_snapshot(result), audit
+
+        with override_settings(MCP_SERVICE_BACKED_QUERIES=False):
+            mock_objects.filter.return_value.first.return_value = target
+            legacy_ok = invoke()
+        with override_settings(MCP_SERVICE_BACKED_QUERIES=True):
+            mock_objects.filter.return_value.first.return_value = target
+            backed_ok = invoke()
+        assert legacy_ok == backed_ok
+        assert '"deactivated": true' in legacy_ok[0]
+
+        def raise_does_not_exist(*args, **kwargs):
+            raise User.DoesNotExist()
+
+        group._accounts.deactivate = MagicMock(side_effect=raise_does_not_exist)
+        with override_settings(MCP_SERVICE_BACKED_QUERIES=False):
+            legacy_missing = invoke()
+        with override_settings(MCP_SERVICE_BACKED_QUERIES=True):
+            backed_missing = invoke()
+        assert legacy_missing == backed_missing
+        assert "NOT_FOUND" in legacy_missing[0]
+
+
+def test_migrated_mcp_tools_do_not_import_persistence_models() -> None:
+    """R2S-003 ratchet for the two tool modules migrated in this work item.
+
+    ``users.py`` and ``cross_cutting.py`` must reach Layer 0 only through
+    the Layer 2 application façade. Both top-level and function-local
+    imports are checked because the original violation used function-local
+    imports in ``cross_cutting.py``.
+
+    Scope note: other ``mcp_server/tools/*.py`` modules carry pre-existing
+    ``persistence.models`` imports that are outside this work item's write
+    set; a repo-wide contract is a separate remediation item.
+    """
+    import ast
+    from pathlib import Path
+
+    tools_dir = Path(__file__).resolve().parents[1] / "tools"
+    offenders: list[str] = []
+    for name in ("users.py", "cross_cutting.py"):
+        path = tools_dir / name
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and (
+                node.module or ""
+            ).startswith("persistence.models"):
+                offenders.append(f"{path.name}:{node.lineno}")
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.startswith("persistence.models"):
+                        offenders.append(f"{path.name}:{node.lineno}")
+    assert offenders == [], (
+        "Migrated MCP tools must not import persistence.models directly; "
+        f"found: {offenders}"
+    )

@@ -430,11 +430,12 @@ class TestRuntimeParity:
     """
 
     def test_requirement_patch_invokes_the_seam(self) -> None:
-        from rest_api import views
+        from rest_api import views, views_entity_core
 
         view = views.RequirementViewSet()
         with (
-            mock.patch.object(views, "get_auth_context", return_value=object()),
+            # S4.2: RequirementViewSet lives in views_entity_core.
+            mock.patch.object(views_entity_core, "get_auth_context", return_value=object()),
             mock.patch.object(
                 views.RequirementViewSet,
                 "_validate_patch_payload",
@@ -451,11 +452,11 @@ class TestRuntimeParity:
         seam.assert_called_once()
 
     def test_test_case_patch_invokes_the_seam(self) -> None:
-        from rest_api import views
+        from rest_api import views, views_entity_core
 
         view = views.TestCaseViewSet()
         with (
-            mock.patch.object(views, "get_auth_context", return_value=object()),
+            mock.patch.object(views_entity_core, "get_auth_context", return_value=object()),
             mock.patch.object(
                 views.TestCaseViewSet, "_validate_patch_payload", return_value=None
             ),
@@ -470,11 +471,11 @@ class TestRuntimeParity:
         seam.assert_called_once()
 
     def test_workspace_patch_invokes_the_seam(self) -> None:
-        from rest_api import views
+        from rest_api import views, views_governance
 
         view = views.WorkspaceViewSet()
         with (
-            mock.patch.object(views, "get_auth_context", return_value=object()),
+            mock.patch.object(views_governance, "get_auth_context", return_value=object()),
             mock.patch.object(views.WorkspaceViewSet, "_svc") as svc,
             mock.patch.object(
                 ETagMixin, "resolve_expected_version", autospec=True, return_value=None
@@ -488,11 +489,11 @@ class TestRuntimeParity:
         seam.assert_called_once()
 
     def test_baseline_patch_invokes_the_seam(self) -> None:
-        from rest_api import views
+        from rest_api import views, views_trace_baseline
 
         view = views.BaselineViewSet()
         with (
-            mock.patch.object(views, "get_auth_context", return_value=object()),
+            mock.patch.object(views_trace_baseline, "get_auth_context", return_value=object()),
             mock.patch.object(views.BaselineViewSet, "_svc") as svc,
             mock.patch.object(
                 ETagMixin, "check_if_match", autospec=True, return_value=None
@@ -505,11 +506,11 @@ class TestRuntimeParity:
 
     def test_unsupported_family_patch_never_invokes_the_seam(self) -> None:
         """A ``PATCH`` on a non-conditional family ignores the header entirely."""
-        from rest_api import views
+        from rest_api import views, views_governance
 
         view = views.AdrViewSet()
         with (
-            mock.patch.object(views, "get_auth_context", return_value=object()),
+            mock.patch.object(views_governance, "get_auth_context", return_value=object()),
             mock.patch.object(
                 views.AdrViewSet, "_validate_patch_payload", return_value=None
             ),

@@ -55,6 +55,13 @@ from uuid import UUID
 from application import workspace_context_service
 from application.artifact_summary_service import ArtifactSummaryService
 from application.base import ProducerContextRequiredError
+from application.change_impact_service import (  # R2S-003: Layer 2 façade only
+    ChangeImpactService,
+    legacy_decomposition_children,
+    legacy_get_anchor,
+    legacy_resolve_architecture_neighbors,
+    legacy_resolve_mirrored_neighbors,
+)
 
 # R3.2: the batch size is the service's constant, so the advertised MCP schema
 # and the enforced limit cannot drift apart.
@@ -73,6 +80,7 @@ from application.traceability_suggest_service import (
     SuggestLinksResponseError,
     TraceabilitySuggestService,
 )
+from application.user_query_service import service_backed_queries_enabled
 from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
@@ -1381,6 +1389,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
         self._trace_service = trace_service or TraceLinkService()
         self._trace_suggest_service = trace_suggest_service or TraceabilitySuggestService()
         self._summary_service = summary_service or ArtifactSummaryService()
+        self._change_impact = ChangeImpactService()
 
     # ------------------------------------------------------------------
     # traceability.query
@@ -2881,21 +2890,19 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 f"{sorted(self._CHANGE_IMPACT_ENTITY_TYPES)}.",
             )
 
-        from persistence.models import ArchitectureElement, Requirement, StakeholderNeed, TestCase
-        from persistence.tenancy import TenantContext
-
-        entity_models: dict[str, Any] = {
-            "Requirement": Requirement,
-            "ArchitectureElement": ArchitectureElement,
-            "TestCase": TestCase,
-            "StakeholderNeed": StakeholderNeed,
-        }
-        model = entity_models[entity_type]
-
-        TenantContext.set_tenant(auth_context.tenant_id)
-        try:
-            entity = model.objects.get(id=entity_id, tenant_id=auth_context.tenant_id)
-        except model.DoesNotExist:
+        # R2S-003: the persistence query and the TenantContext arming now
+        # live in Layer 2 (application.change_impact_service). Both flag
+        # paths use the same tenant-scoped query; a missing anchor keeps the
+        # exact former NOT_FOUND mapping.
+        if service_backed_queries_enabled():
+            entity = self._change_impact.get_anchor(
+                entity_type, entity_id, tenant_id=auth_context.tenant_id
+            )
+        else:
+            entity = legacy_get_anchor(
+                entity_type, entity_id, tenant_id=auth_context.tenant_id
+            )
+        if entity is None:
             return ToolResult.error(
                 "NOT_FOUND", f"{entity_type} {entity_id} not found"
             )
@@ -2944,7 +2951,6 @@ class CrossCuttingToolGroup(BaseToolGroup):
         something this handler special-cases.
         """
         from link_types.catalog import normalize_artifact_type
-        from persistence.models import ArchitectureElement
         from traceability.services import query as te_query
 
         raw_neighbors: list[dict[str, Any]] = []
@@ -2966,15 +2972,17 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 })
 
         if entity_type == "ArchitectureElement":
-            for child in ArchitectureElement.objects.filter(
-                parent_id=entity.id, tenant_id=tenant_id
-            ):
-                raw_neighbors.append({
-                    "artifact_id": child.artifact_id,
-                    "entity_type": "ArchitectureElement",
-                    "link_type": "decomposes",
-                    "relation": "child",
-                })
+            # R2S-003: FK-children query moved to Layer 2; both flag paths
+            # produce the identical synthetic ``decomposes`` neighbour DTOs.
+            if service_backed_queries_enabled():
+                child_neighbors = self._change_impact.decomposition_children(
+                    entity.id, tenant_id=tenant_id
+                )
+            else:
+                child_neighbors = legacy_decomposition_children(
+                    entity.id, tenant_id=tenant_id
+                )
+            raw_neighbors.extend(child_neighbors)
 
         return raw_neighbors
 
@@ -3001,36 +3009,44 @@ class CrossCuttingToolGroup(BaseToolGroup):
         artifact id as ``id``, ``title=None`` and ``outdated=False`` — so the
         trace graph is never silently truncated.
         """
-        from persistence.models import Requirement, StakeholderNeed, TestCase
-
         by_type: dict[str, list[dict[str, Any]]] = {}
         for neighbor in raw_neighbors:
             by_type.setdefault(neighbor["entity_type"], []).append(neighbor)
 
         resolved: list[dict[str, Any]] = []
 
-        mirrored_models = {
-            "Requirement": Requirement,
-            "TestCase": TestCase,
-            "StakeholderNeed": StakeholderNeed,
-        }
-        for type_name, model in mirrored_models.items():
+        # R2S-003: mirrored-type resolution queries moved to Layer 2. The
+        # tuple preserves the former dict insertion order (Requirement,
+        # TestCase, StakeholderNeed) so the emitted list order is unchanged.
+        for type_name in ("Requirement", "TestCase", "StakeholderNeed"):
             neighbors = by_type.pop(type_name, [])
             if not neighbors:
                 continue
-            resolved.extend(
-                self._resolve_mirrored_change_impact_neighbors(
-                    neighbors, type_name, model
+            if service_backed_queries_enabled():
+                resolved.extend(
+                    self._change_impact.resolve_mirrored_neighbors(
+                        neighbors, type_name
+                    )
                 )
-            )
+            else:
+                resolved.extend(
+                    legacy_resolve_mirrored_neighbors(neighbors, type_name)
+                )
 
         arch_neighbors = by_type.pop("ArchitectureElement", [])
         if arch_neighbors:
-            resolved.extend(
-                self._resolve_architecture_change_impact_neighbors(
-                    arch_neighbors, tenant_id=tenant_id
+            if service_backed_queries_enabled():
+                resolved.extend(
+                    self._change_impact.resolve_architecture_neighbors(
+                        arch_neighbors, tenant_id=tenant_id
+                    )
                 )
-            )
+            else:
+                resolved.extend(
+                    legacy_resolve_architecture_neighbors(
+                        arch_neighbors, tenant_id=tenant_id
+                    )
+                )
 
         for type_name, neighbors in by_type.items():
             for neighbor in neighbors:
@@ -3045,89 +3061,11 @@ class CrossCuttingToolGroup(BaseToolGroup):
 
         return resolved
 
-    def _resolve_mirrored_change_impact_neighbors(
-        self, neighbors: list[dict[str, Any]], type_name: str, model: Any
-    ) -> list[dict[str, Any]]:
-        """Resolve business id/title/outdated flag for mirrored-type neighbours.
-
-        Requirement/TestCase/StakeholderNeed rows are resolved through
-        ``WorkflowItemState`` (``workflow.state_reader.current_states``),
-        falling back to the (now write-once, frozen-at-creation) ``status``
-        column only for Requirement/TestCase/StakeholderNeed rows never wired
-        into one.
-
-        Task 12: the ``status`` column is dropped from the ``.values()``
-        projection — a row never wired into a WorkflowItemState falls back to
-        *type_name*'s preset initial state instead (documented, reviewed
-        data-loss tradeoff, see Task 12 report Finding 2).
-        """
-        from workflow import state_reader
-
-        artifact_ids = [n["artifact_id"] for n in neighbors]
-        rows_by_artifact = {
-            row["artifact_id"]: row
-            for row in model.objects.filter(
-                artifact_id__in=artifact_ids
-            ).values("id", "artifact_id", "title")
-        }
-        states = state_reader.current_states(
-            type_name, (row["id"] for row in rows_by_artifact.values())
-        )
-        type_initial_state = state_reader.initial_state(type_name)
-
-        resolved: list[dict[str, Any]] = []
-        for neighbor in neighbors:
-            row = rows_by_artifact.get(neighbor["artifact_id"])
-            if row is None:
-                continue
-            resolved_status = states.get(str(row["id"])) or type_initial_state
-            resolved.append({
-                "id": str(row["id"]),
-                "entity_type": type_name,
-                "title": row["title"],
-                "link_type": neighbor["link_type"],
-                "relation": neighbor["relation"],
-                "outdated": resolved_status == "outdated",
-            })
-        return resolved
-
-    def _resolve_architecture_change_impact_neighbors(
-        self, neighbors: list[dict[str, Any]], *, tenant_id: UUID
-    ) -> list[dict[str, Any]]:
-        """Resolve business id/title/outdated flag for ArchitectureElement neighbours.
-
-        ArchitectureElement never had a ``status`` column, so the outdated flag
-        comes solely from ``WorkflowItemState`` via
-        ``workflow.services.outdated_item_ids``.
-        """
-        from persistence.models import ArchitectureElement
-        from workflow.services import outdated_item_ids
-
-        artifact_ids = [n["artifact_id"] for n in neighbors]
-        outdated_ids = set(
-            outdated_item_ids("ArchitectureElement", tenant_id=tenant_id)
-        )
-        rows_by_artifact = {
-            row["artifact_id"]: row
-            for row in ArchitectureElement.objects.filter(
-                artifact_id__in=artifact_ids
-            ).values("id", "artifact_id", "title")
-        }
-
-        resolved: list[dict[str, Any]] = []
-        for neighbor in neighbors:
-            row = rows_by_artifact.get(neighbor["artifact_id"])
-            if row is None:
-                continue
-            resolved.append({
-                "id": str(row["id"]),
-                "entity_type": "ArchitectureElement",
-                "title": row["title"],
-                "link_type": neighbor["link_type"],
-                "relation": neighbor["relation"],
-                "outdated": row["id"] in outdated_ids,
-            })
-        return resolved
+    # R2S-003: ``_resolve_mirrored_change_impact_neighbors`` and
+    # ``_resolve_architecture_change_impact_neighbors`` moved to Layer 2
+    # (application.change_impact_service). Their former persistence queries
+    # and DTO assembly are now owned by that service; the two flag paths
+    # above call it directly.
 
     def _rank_change_impact_candidates(
         self, candidates: list[dict[str, Any]], change_description: str
