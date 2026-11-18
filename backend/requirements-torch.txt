@@ -1,0 +1,26 @@
+# CPU-only PyTorch wheel for the backend Docker image (DEP-005).
+#
+# This file is installed ONLY by backend/Dockerfile, in the same pip resolution
+# pass as requirements.txt. It is deliberately kept out of requirements.txt:
+# CI installs that file with Python 3.12 (`uv pip install -r requirements.txt`),
+# while the image is built on python:3.15-slim, so a cp315 wheel URL there would
+# break every 3.12 job. Keeping it here also keeps pip-audit's requirements.txt
+# resolution on a single index.
+#
+# DEP-005: the Dockerfile previously added the PyTorch CPU wheel index as a
+# secondary index, which makes pip consider BOTH PyPI and that index for
+# *every* package name and take the highest version from either (dependency
+# confusion: a namesquatted package on one index can shadow the other). Pinning
+# the wheel by exact PEP-508 URL removes the second index entirely while still
+# avoiding the multi-GB CUDA/nvidia-* wheels that sentence-transformers' default
+# PyPI `torch` would pull into this GPU-less deployment (ADR-08).
+#
+# --hash is verified by pip for this requirement even without pip's global
+# hash-required mode (which is impossible here: requirements.txt has 145
+# non-pinned packages and a django-celery-beat VCS pin, all incompatible with
+# that mode).
+# Target: cp315, CPython 3.15, manylinux_2_28 x86_64 (matches the image's
+# python:3.15-slim base and the CI/build runner architecture). Regenerate URL and
+# hash together from https://download.pytorch.org/whl/cpu/torch/ when the base
+# image's Python or the target architecture changes.
+torch @ https://download.pytorch.org/whl/cpu/torch-2.15.0%2Bcpu-cp315-cp315-manylinux_2_28_x86_64.whl --hash=sha256:3552930ba3d358d3ff0b6fee19cb296e199767443c0c86be2a715471036d9233
