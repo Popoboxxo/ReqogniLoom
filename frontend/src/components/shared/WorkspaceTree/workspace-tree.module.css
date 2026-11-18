@@ -265,6 +265,10 @@
 .toggle {
   width: 16px;
   height: 16px;
+  /* WCAG 2.2 SC 2.5.8: the 16px glyph stays, but the pointer hit area must be
+     at least 24px (`--space-6`) in both axes — same pattern as .groupToggle. */
+  min-width: var(--space-6);
+  min-height: var(--space-6);
   padding: 0;
   border: none;
   background: transparent;

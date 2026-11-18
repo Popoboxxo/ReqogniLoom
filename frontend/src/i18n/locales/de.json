@@ -3774,6 +3774,7 @@
     "emptyCell": "—",
     "selectAll": "Alle auswählen",
     "selectRow": "Zeile auswählen",
+    "selectRowNamed": "Zeile auswählen: {{title}}",
     "sortBy": "Nach {{column}} sortieren",
     "changeStatus": "Status ändern",
     "changeStatusUnavailable": "Für diesen Typ ist kein Workflow verfügbar.",

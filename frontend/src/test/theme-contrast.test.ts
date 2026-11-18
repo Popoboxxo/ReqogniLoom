@@ -45,6 +45,15 @@ const TOKENS_FILE = join(resolve(__dirname, ".."), "styles", "tokens.css");
 /** WCAG 2.1 AA minimum for normal-size text. */
 const AA_MIN_RATIO = 4.5;
 
+/**
+ * WCAG 2.1 SC 1.4.11 minimum for non-text UI components / graphical objects,
+ * including the keyboard focus indicator (axe does NOT audit this, so an
+ * axe-green suite can still hide a real AA violation). Kept deliberately
+ * separate from `AA_MIN_RATIO` — a focus ring is not text and must never be
+ * held to (or excused by) the 4.5:1 text floor.
+ */
+const NON_TEXT_MIN_RATIO = 3;
+
 /** Every theme id the app ships (`dark` lives on the bare `:root` block). */
 const THEME_IDS = ["dark", "light", "bauhaus", "nordic", "sepia"] as const;
 type ThemeId = (typeof THEME_IDS)[number];
@@ -474,6 +483,32 @@ describe("WCAG AA contrast per theme (theming phase 3, Task 3, #568)", () => {
     );
     console.table(rows);
     expect(rows).toHaveLength(THEME_IDS.length * CONTRAST_PAIRS.length);
+  });
+});
+
+/* ==========================================================================
+ * A11Y-004 / WCAG 2.1 SC 1.4.11 — keyboard focus-ring non-text contrast.
+ *
+ * `global.css` paints the focus ring as `outline: 2px solid var(--color-focus)`.
+ * SC 1.4.11 requires that indicator to clear 3:1 against the adjacent
+ * background. axe does not check this, so the 4.5:1 text-pair suite above can
+ * be fully green while this is broken — hence a dedicated non-text floor.
+ * Both backdrops are asserted: the ring is drawn on the page surface and
+ * inside cards/rails on `--color-surface-raised`.
+ * ========================================================================== */
+describe("focus-ring non-text contrast (WCAG 2.1 SC 1.4.11, A11Y-004)", () => {
+  it.each(THEME_IDS)("theme '%s': --color-focus clears 3:1 on every focus backdrop", (themeId) => {
+    const onSurface = measure(themeId, "--color-focus", "--color-surface");
+    expect(
+      onSurface,
+      `theme '${themeId}': --color-focus on --color-surface measures ${onSurface}:1, below the SC 1.4.11 non-text minimum of ${NON_TEXT_MIN_RATIO}:1`,
+    ).toBeGreaterThanOrEqual(NON_TEXT_MIN_RATIO);
+
+    const onRaised = measure(themeId, "--color-focus", "--color-surface-raised");
+    expect(
+      onRaised,
+      `theme '${themeId}': --color-focus on --color-surface-raised measures ${onRaised}:1, below the SC 1.4.11 non-text minimum of ${NON_TEXT_MIN_RATIO}:1`,
+    ).toBeGreaterThanOrEqual(NON_TEXT_MIN_RATIO);
   });
 });
 

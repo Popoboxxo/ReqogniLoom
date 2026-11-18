@@ -1,10 +1,10 @@
 /**
  * Task 4.3 — ArtifactTable grid (plan 2026-11-04-tabellenansicht-s4).
  */
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import "../i18n/index";
+import { i18n } from "../i18n/index";
 
 import {
   ArtifactTable,
@@ -128,6 +128,32 @@ describe("ArtifactTable", () => {
     renderTable([row(1, { locked: { state: "Freigegeben" } })], { renderCellEditor });
     expect(screen.getByTestId("row-lock-row-1")).toBeInTheDocument();
     expect(renderCellEditor).not.toHaveBeenCalled();
+  });
+
+  afterAll(async () => {
+    await i18n.changeLanguage("en");
+  });
+
+  it("exposes the lock marker as a named image for screen readers", async () => {
+    await i18n.changeLanguage("de");
+    renderTable([row(1, { locked: { state: "Freigegeben" } })]);
+    expect(screen.getByRole("img", { name: "Gesperrt: Freigegeben" })).toContainElement(
+      screen.getByTestId("row-lock-row-1")
+    );
+  });
+
+  it("gives each row checkbox a distinct name derived from its title", async () => {
+    await i18n.changeLanguage("de");
+    renderTable([row(1), row(2)]);
+    expect(
+      screen.getByRole("checkbox", { name: "Zeile auswählen: Title 1" })
+    ).toBe(screen.getByTestId("row-select-row-1"));
+    expect(
+      screen.getByRole("checkbox", { name: "Zeile auswählen: Title 2" })
+    ).toBe(screen.getByTestId("row-select-row-2"));
+    expect(
+      screen.queryByRole("checkbox", { name: "Zeile auswählen" })
+    ).not.toBeInTheDocument();
   });
 
   it("is keyboard-sortable via Enter on the header button", async () => {

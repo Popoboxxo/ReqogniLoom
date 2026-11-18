@@ -18,7 +18,9 @@ const path = require('path');
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const OUT_DIR = path.resolve(__dirname, '..', 'docs', 'test-reports', 'design-audit-screenshots');
 const AXE_SCRIPT = path.resolve(__dirname, 'node_modules', 'axe-core', 'axe.min.js');
-const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21aa'];
+// A11Y-002: keep the manual sweep comparable with the CI gate — wcag22aa was
+// the one tag missing here while a11y-smoke.spec.ts already carried it.
+const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa'];
 
 function ensureDir(p) {
   fs.mkdirSync(p, { recursive: true });

@@ -293,17 +293,20 @@ export function ArtifactTable({
                   <input
                     type="checkbox"
                     data-testid={`row-select-${row.id}`}
-                    aria-label={t("table.selectRow")}
+                    aria-label={t("table.selectRowNamed", {
+                      title: row.values.title ?? row.artifact_id ?? row.id,
+                    })}
                     checked={selectedIds.has(row.id)}
                     onChange={() => toggleRow(row.id)}
                   />
                   {row.locked && (
-                    <Lock
-                      size={14}
-                      aria-hidden="true"
-                      data-testid={`row-lock-${row.id}`}
+                    <span
+                      role="img"
                       aria-label={t("table.lockedRow", { state: row.locked.state })}
-                    />
+                      data-testid={`row-lock-${row.id}`}
+                    >
+                      <Lock size={14} aria-hidden="true" />
+                    </span>
                   )}
                 </td>
                 {columns.map((column) => (

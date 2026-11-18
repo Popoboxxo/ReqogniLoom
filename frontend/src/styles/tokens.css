@@ -1233,7 +1233,7 @@
   --color-nav-overlay-hover-border: rgba(255, 255, 255, 0.2);
   --color-nav-overlay-shadow: rgba(0, 0, 0, 0.4);
 
-  --color-focus: var(--palette-bauhaus-mustard-600);
+  --color-focus: var(--palette-bauhaus-mustard-700);
 
   /* Level badge ramp + AI-derive gradient — frozen, identical to `dark`. */
   --color-level-l0: var(--palette-sky-800);

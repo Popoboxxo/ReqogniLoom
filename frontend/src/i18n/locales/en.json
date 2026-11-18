@@ -3774,6 +3774,7 @@
     "emptyCell": "—",
     "selectAll": "Select all",
     "selectRow": "Select row",
+    "selectRowNamed": "Select row: {{title}}",
     "sortBy": "Sort by {{column}}",
     "changeStatus": "Change status",
     "changeStatusUnavailable": "No workflow is available for this type.",
