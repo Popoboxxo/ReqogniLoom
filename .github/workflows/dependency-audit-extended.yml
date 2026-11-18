@@ -1,0 +1,304 @@
+name: Dependency Audit - Extended (npm)
+
+# DEP-006 / S5.1 WP-3: ci.yml's `dependency-audit` job only scans the frontend
+# lockfile. e2e/, the repository root and promptfoo/ also commit a
+# package-lock.json but were in no update or scan scope. This workflow closes
+# that gap for the three trees. It deliberately does NOT touch ci.yml (another
+# slice owns that file) and does NOT introduce a second waiver file or a looser
+# gate: the Python step below is the ci.yml gate, run once per prefix against
+# the single shared .github/npm-audit-waivers.json.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  # A lockfile can become vulnerable without a commit; re-audit weekly.
+  schedule:
+    - cron: "17 4 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-audit-extended:
+    name: "Dependency Audit - Extended (${{ matrix.label }})"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Normalise the root tree to "." so `npm audit --prefix .` reads the
+          # repository-root package-lock.json. Keep in sync with dependabot.yml
+          # and scripts/tests/test_dependency_audit_scope.py.
+          - label: e2e
+            directory: e2e
+          - label: root
+            directory: .
+          - label: promptfoo
+            directory: promptfoo
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '22'
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+
+      - name: "${{ matrix.label }} - npm audit (fails on high/critical)"
+        run: |
+          set -euo pipefail
+          # Identical contract to ci.yml's frontend gate: `status` is
+          # informational because an ACTIVE waiver must let a step pass even
+          # while npm still exits 1. The Python gate below is authoritative
+          # and fails closed on parse/registry errors, expired waivers and any
+          # unwaived high/critical advisory. Never add `|| true` here.
+          status=0
+          npm audit --audit-level=high --prefix "${{ matrix.directory }}" \
+            --json > "${RUNNER_TEMP}/npm-audit.json" || status=$?
+
+          python_status=0
+          python3 - "${RUNNER_TEMP}/npm-audit.json" \
+            "${GITHUB_WORKSPACE}/.github/npm-audit-waivers.json" \
+            "${status}" \
+            "${{ matrix.label }}" \
+            <<'PY' >> "${GITHUB_STEP_SUMMARY}" || python_status=$?
+          """npm audit gate: fail closed on errors, waive only active GHSA ids."""
+          import datetime as dt
+          import json
+          import pathlib
+          import re
+          import sys
+
+          GHSA_RE = re.compile(r"GHSA-[0-9A-Za-z]{4}-[0-9A-Za-z]{4}-[0-9A-Za-z]{4}")
+          HIGH = {"high", "critical"}
+
+          report_path = pathlib.Path(sys.argv[1])
+          waivers_path = pathlib.Path(
+              sys.argv[2] if len(sys.argv) > 2 else ".github/npm-audit-waivers.json"
+          )
+          npm_status = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+          label = sys.argv[4] if len(sys.argv) > 4 else "npm"
+          header = f"### npm audit - {label}"
+
+
+          def fail(msg):
+              print(f"{header}\n\n**Gate error:** {msg}")
+              print(f"npm audit gate error ({label}): {msg}", file=sys.stderr)
+              raise SystemExit(1)
+
+
+          try:
+              raw_report = report_path.read_text(encoding="utf-8")
+          except OSError as exc:
+              fail(f"No npm audit report at {report_path}: {exc}")
+          if not raw_report.strip():
+              fail(f"Empty npm audit report at {report_path} — audit did not run")
+
+          try:
+              data = json.loads(raw_report)
+          except ValueError as exc:
+              fail(f"No parsable npm audit report at {report_path}: {exc}")
+          if not isinstance(data, dict) or "metadata" not in data:
+              fail("npm audit report has no metadata — refusing to treat as clean")
+
+          if "error" in data:
+              fail(f"npm registry error: {data['error']}")
+
+          # WAI-01: npm's exit code must never be discarded. A failed audit with
+          # no advisories in the report (timeout/kill/OOM) is NOT a clean gate.
+          if npm_status != 0 and not data.get("vulnerabilities"):
+              fail(
+                  f"npm audit exited {npm_status} but the report lists no "
+                  "vulnerabilities — refusing to treat the gate as clean"
+              )
+
+          try:
+              doc = json.loads(waivers_path.read_text(encoding="utf-8"))
+          except (OSError, ValueError) as exc:
+              fail(f"No parsable waiver file at {waivers_path}: {exc}")
+
+          waivers = doc.get("waivers", {})
+          if not isinstance(waivers, dict):
+              fail("waiver file: 'waivers' must be an object")
+
+          today = dt.date.today()
+          active, expired = {}, {}
+          for wid, waiver in sorted(waivers.items()):
+              for field in ("reason", "owner", "expires"):
+                  if not isinstance(waiver, dict) or not str(waiver.get(field, "")).strip():
+                      fail(f"waiver {wid}: missing or empty '{field}'")
+              if not GHSA_RE.fullmatch(wid):
+                  fail(f"waiver {wid}: not a GHSA-shaped advisory id")
+              try:
+                  expiry = dt.date.fromisoformat(str(waiver["expires"])[:10])
+              except ValueError as exc:
+                  fail(f"waiver {wid}: invalid 'expires' date: {exc}")
+              if expiry > today:
+                  active[wid.lower()] = waiver
+              else:
+                  expired[wid] = expiry
+
+          if expired:
+              detail = ", ".join(f"{wid} (expired {exp})" for wid, exp in expired.items())
+              fail(
+                  f"expired waiver(s): {detail}. Renew or remove them in "
+                  f"{waivers_path.name}; a waiver must have an expiry in the future."
+              )
+
+          vulns = data.get("vulnerabilities", {})
+          if not isinstance(vulns, dict):
+              fail("audit report: 'vulnerabilities' must be an object")
+
+          advisories = {}
+          unidentified = set()
+          for pkg, entry in sorted(vulns.items()):
+              for via in entry.get("via", []):
+                  if not isinstance(via, dict):
+                      continue
+                  match = GHSA_RE.search(str(via.get("url", ""))) or GHSA_RE.search(
+                      str(via.get("source", ""))
+                  )
+                  if not match:
+                      if str(via.get("severity", "")).lower() in HIGH:
+                          unidentified.add(f"{pkg}:{via.get('source')}")
+                      continue
+                  wid = match.group(0).upper()
+                  rec = advisories.setdefault(
+                      wid.lower(),
+                      {
+                          "severity": str(via.get("severity", "")).lower(),
+                          "title": via.get("title", ""),
+                          "packages": set(),
+                      },
+                  )
+                  rec["packages"].add(pkg)
+                  if str(via.get("severity", "")).lower() in HIGH:
+                      rec["severity"] = "high"
+
+          if unidentified:
+              fail(
+                  "high/critical finding without a GHSA id cannot be waived: "
+                  + ", ".join(sorted(unidentified))
+              )
+
+          blocking = {wid for wid, rec in advisories.items() if rec["severity"] in HIGH}
+          unwaived = sorted(blocking - set(active))
+
+          meta = data.get("metadata", {})
+          counts = meta.get("vulnerabilities", {})
+          deps = meta.get("dependencies", {})
+
+          print(header)
+          print()
+          print(
+              "Gate: high/critical advisories block unless covered by an active waiver in "
+              f"`{waivers_path.name}`. Expired waivers always fail. Never `|| true`."
+          )
+          print()
+          print(
+              f"Packages: {deps.get('total', 0)} (prod {deps.get('prod', 0)}, "
+              f"dev {deps.get('dev', 0)}, optional {deps.get('optional', 0)})"
+          )
+          print()
+          print("| severity | count | effect |")
+          print("|---|---|---|")
+          for sev in ("critical", "high", "moderate", "low", "info"):
+              count = counts.get(sev, 0)
+              effect = "**fails unless waived**" if sev in HIGH and count else "warn only"
+              print(f"| {sev} | {count} | {effect} |")
+          print()
+          print(
+              f"Distinct advisories: **{len(advisories)}** "
+              f"({sum(1 for r in advisories.values() if r['severity'] in HIGH)} high/critical, "
+              f"{len(active)} active waiver(s), {len(expired)} expired). "
+              f"Unwaived high/critical: **{len(unwaived)}**."
+          )
+
+
+          def ids_for(pkg, seen=None):
+              seen = (seen or set()) | {pkg}
+              out = set()
+              for via in vulns.get(pkg, {}).get("via", []):
+                  if isinstance(via, str):
+                      if via not in seen:
+                          out |= ids_for(via, seen)
+                  elif isinstance(via, dict):
+                      m = GHSA_RE.search(str(via.get("url", ""))) or GHSA_RE.search(
+                          str(via.get("source", ""))
+                      )
+                      if m:
+                          out.add(m.group(0).upper())
+              return out
+
+
+          print()
+          print("| package | severity | direct | advisory | waived |")
+          print("|---|---|---|---|---|")
+          for pkg, entry in sorted(vulns.items()):
+              ids = sorted(ids_for(pkg))
+              if not ids:
+                  adv, waived = "—", "n/a"
+              else:
+                  parts, wparts = [], []
+                  for wid in ids:
+                      key = wid.lower()
+                      rec = advisories.get(key, {})
+                      parts.append(f"`{wid}`" + ("" if rec.get("severity") in HIGH else " (moderate)"))
+                      if rec.get("severity") not in HIGH:
+                          wparts.append("n/a (moderate)")
+                      elif key in active:
+                          w = active[key]
+                          wparts.append(f"yes — {w['owner']}, {w['expires']}")
+                      else:
+                          wparts.append("**NO — blocking**")
+                  adv, waived = "<br>".join(parts), "<br>".join(wparts)
+              direct = "yes" if entry.get("isDirect") else "no"
+              print(f"| `{pkg}` | {entry.get('severity','?')} | {direct} | {adv} | {waived} |")
+
+          if active:
+              print()
+              print("Active waivers (narrow, expiring, per-advisory):")
+              print()
+              print("| advisory | owner | expires | reason |")
+              print("|---|---|---|---|")
+              for wid, waiver in sorted(active.items()):
+                  print(f"| `{wid.upper()}` | {waiver['owner']} | {waiver['expires']} | {waiver['reason']} |")
+
+          if unwaived:
+              print()
+              print(
+                  "**Gate result: FAIL.** Unwaived high/critical advisory IDs: "
+                  + ", ".join(f"`{w.upper()}`" for w in unwaived)
+              )
+              raise SystemExit(1)
+
+          print()
+          print("**Gate result: PASS** — no unwaived high/critical advisories.")
+          PY
+
+          exit "${python_status}"
+
+      - name: Upload the audit report
+        # Audit trail: keep the raw report attached even when the gate is red.
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: dependency-audit-extended-${{ matrix.label }}
+          path: ${{ runner.temp }}/npm-audit.json

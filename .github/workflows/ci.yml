@@ -118,7 +118,7 @@ jobs:
 
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
         # Ephemeral CI database: keep PGDATA in RAM (53 transaction=True tests
         # TRUNCATE 100+ tables each; measured >300 s on a slow store vs 3.6 s
         # on tmpfs). Keep rationale comments OUTSIDE the `options: >-` string:
@@ -138,7 +138,7 @@ jobs:
           - 5432:5432
 
       redis:
-        image: redis:7-alpine
+        image: redis:7-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -998,7 +998,7 @@ jobs:
 
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
         env:
           POSTGRES_DB: reqflow_test
           POSTGRES_USER: reqflow

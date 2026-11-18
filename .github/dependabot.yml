@@ -16,6 +16,33 @@ updates:
       - "dependencies"
       - "javascript"
 
+  # DEP-006: every committed package-lock.json needs an update entry, otherwise
+  # its pins rot silently. The three trees below were in no scan/update scope.
+  # Keep this list in sync with scripts/tests/test_dependency_audit_scope.py.
+  - package-ecosystem: "npm"
+    directory: "/e2e"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "javascript"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "javascript"
+
+  - package-ecosystem: "npm"
+    directory: "/promptfoo"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "javascript"
+
   # Dependabot resolves every entry against the files that ecosystem's fetcher
   # knows, and the two Docker ecosystems are not interchangeable: `docker`
   # scans `Dockerfile` (v1), `docker-compose` scans `docker-compose*.yml` /
