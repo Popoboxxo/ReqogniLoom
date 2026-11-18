@@ -66,10 +66,17 @@ export function TransitionEdge({
   };
 
   // Same reasoning: the label pill's transform is computed from
-  // `getBezierPath`'s `labelX`/`labelY`, so it is a per-instance runtime value
-  // and stays a hoisted identifier.
+  // `getBezierPath`'s `labelX`/`labelY` plus the deterministic collision-avoidance
+  // offset injected by the canvas, so it is a per-instance runtime value and
+  // stays a hoisted identifier. Without the offset, reciprocal transitions
+  // (A->B and B->A) share the exact same bezier midpoint and their two 24px
+  // targets overlap — axe's `target-size` spacing check fails even though each
+  // pill individually meets the 24px floor (see layout.ts).
+  const labelOffset = data?.labelOffset ?? { x: 0, y: 0 };
   const labelStyle: CSSProperties = {
-    transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+    transform: `translate(-50%, -50%) translate(${
+      labelX + labelOffset.x
+    }px, ${labelY + labelOffset.y}px)`,
   };
 
   return (

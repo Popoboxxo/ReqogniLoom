@@ -28,7 +28,7 @@ import {
 } from "@xyflow/react";
 import { AlertCircle, Pencil, Workflow } from "lucide-react";
 import type { WorkflowEntityType, WorkflowGraph } from "../../api/workflows";
-import { layoutWorkflow } from "./layout";
+import { layoutWorkflow, resolveEdgeLabelOffsets } from "./layout";
 import type { StateFlowNode, TransitionFlowEdge } from "./layout";
 import { StateNode } from "./StateNode";
 import { TransitionEdge } from "./TransitionEdge";
@@ -122,14 +122,20 @@ function CanvasInner({
     [base.nodes, selection, positions, editMode, onRenameState]
   );
 
-  const edges: TransitionFlowEdge[] = useMemo(
-    () =>
-      base.edges.map((e) => ({
-        ...e,
-        selected: selection.kind === "transition" && selection.id === e.id,
-      })),
-    [base.edges, selection]
-  );
+  const edges: TransitionFlowEdge[] = useMemo(() => {
+    const selected = base.edges.map((e) => ({
+      ...e,
+      selected: selection.kind === "transition" && selection.id === e.id,
+    }));
+    // Run on the FINAL node positions (persisted layouts included) so every
+    // label target keeps its 24px clearance from its neighbours and from the
+    // state node boxes — axe's `target-size` spacing exception (layout.ts).
+    const offsets = resolveEdgeLabelOffsets(selected, nodes);
+    return selected.map((e) => ({
+      ...e,
+      data: { ...e.data!, labelOffset: offsets.get(e.id) ?? { x: 0, y: 0 } },
+    }));
+  }, [base.edges, selection, nodes]);
 
   // Re-fit whenever the machine (node set) changes.
   useEffect(() => {
