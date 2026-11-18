@@ -135,27 +135,29 @@ the manual cleanup procedure: **[`docs/AI-SUMMARIES-OPERATIONS.md`](../docs/AI-S
 
 Every third-party base image used by the Dockerfiles and the Compose files documented in the table
 below is referenced as `IMAGE:TAG@sha256:<manifest-list-digest>`. The tag stays human-readable; the
-digest makes the reference immutable, so a re-push of a moving tag (`python:3.12-slim`,
-`redis:7-alpine`, `pg16`, …) can no longer change what we build or run without a commit.
+digest makes the reference immutable, so a re-push of a moving tag (`python:3.15-slim`,
+`redis:8-alpine`, `pg16`, …) can no longer change what we build or run without a commit.
 
 | File | Reference |
 |---|---|
-| `backend/Dockerfile` (builder + runtime) | `python:3.12-slim@sha256:cb33f7f7…` |
-| `frontend/Dockerfile` | `node:22.17.0-slim@sha256:b04ce4ae…`, `nginx:1.27-alpine@sha256:65645c7b…` |
-| `deploy/docker-compose.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…` (×3), `redis:7-alpine@sha256:892022f9…` (×2) |
-| `deploy/docker-compose.yml` (optional profiles) | `ghcr.io/plastic-labs/honcho:v3.3.0@sha256:5bb8cf7a…` (×3), `qdrant/qdrant:v1.19.2@sha256:b7b0444c…` |
-| `deploy/docker-compose.minimal.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…`, `redis:7-alpine@sha256:892022f9…` |
-| `testing/docker-compose.test.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…`, `redis:7-alpine@sha256:892022f9…` |
+| `backend/Dockerfile` (builder + runtime) | `python:3.15-slim@sha256:94d3426f…` |
+| `frontend/Dockerfile` | `node:26.13.0-slim@sha256:e4db4c91…`, `nginx:1.31-alpine@sha256:785835ea…` |
+| `deploy/docker-compose.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…` (×3), `redis:8-alpine@sha256:21090af9…` (×2) |
+| `deploy/docker-compose.yml` (first-party) | `ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION}@sha256:9e88a0dc…` (×5), `ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION}@sha256:2568fcd7…` |
+| `deploy/docker-compose.yml` (optional profiles) | `ghcr.io/plastic-labs/honcho:v3.5.0@sha256:23ff96bf…` (×3), `qdrant/qdrant:v1.20.0@sha256:9bfc89f9…` |
+| `deploy/docker-compose.minimal.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…`, `redis:8-alpine@sha256:21090af9…`, first-party backend (×2)/frontend with the same tag+digest pairs as above |
+| `testing/docker-compose.test.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…`, `redis:8-alpine@sha256:21090af9…` |
+| `.github/workflows/ci.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…` (`:121`, `:1003`), `redis:7-alpine@sha256:7f7d30b7…` (`:141`) |
 
-Deliberately **not** digest-pinned: the `ghcr.io/popoboxxo/reqogniloom-{backend,frontend}` images,
-which follow the release version-tag convention (`${REQOGNILOOM_VERSION}`) so a deployment can pick a
-release by tag. The optional Honcho and Qdrant images are pinned too — see their own sections.
+First-party GHCR images are pinned too: the human-readable `${REQOGNILOOM_VERSION}` tag selects the
+release while the appended `@sha256:…` digest fixes the exact build (S5.1, enforced by
+`scripts/tests/test_deploy_image_pins.py`). Bump tag and digest together — the tag alone is never
+authority. The optional Honcho and Qdrant images follow the same tag + digest rule.
 
 **Not covered yet (follow-up).** The claim above is scoped to the table. These still reference moving
-tags and are **not** pinned by #1391:
+tags and are **not** pinned:
 
-- `.github/workflows/ci.yml:71,85`
-- `.github/workflows/playwright.yml:27,40`
+- `.github/workflows/playwright.yml:45,59` (pgvector, redis)
 
 The two shell-based operational helpers are pinned outside the tables above:
 `deploy/verify-restore.sh:50` and `deploy/verify-backup-command.sh:45` run
