@@ -1107,11 +1107,7 @@ export default function TraceabilityView(): JSX.Element {
       />
 
       <div className={styles.splitHost}>
-        <SplitView
-          moduleType="traceability"
-          leftPanel={listPanel}
-          rightPanel={detailPanel}
-        />
+        <SplitView list={listPanel} detail={detailPanel} />
       </div>
 
       {/* REQ-005: unified CreateTraceLinkDialog (global mode — no fixed sourceId) */}

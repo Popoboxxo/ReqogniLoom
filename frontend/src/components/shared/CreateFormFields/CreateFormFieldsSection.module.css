@@ -60,6 +60,11 @@
   align-items: start;
 }
 
+/* Registered breakpoint exception (UI-003 / S3.2 WP-2): this form-internal
+   density threshold keeps its historical 900px value instead of a --bp-*
+   token, so the breakpoint convergence changes no behaviour at a boundary.
+   Reason mirrored in the tokens.css vocabulary; the exception is allow-listed
+   (and its documentation required) by breakpoint-token-gate.test.ts. */
 @media (max-width: 900px) {
   .columns {
     grid-template-columns: minmax(0, 1fr);

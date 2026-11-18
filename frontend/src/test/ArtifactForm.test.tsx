@@ -69,6 +69,7 @@ import {
   stripNonEditableValues,
 } from "../components/shared/ArtifactForm";
 import type { AttributeSpec, LayoutToken, SectionSpec } from "../api/attribute-definitions";
+import type { ActionState } from "../components/shared/ArtifactForm/action-state";
 
 function spec(over: Partial<AttributeSpec>): AttributeSpec {
   return {
@@ -1768,5 +1769,107 @@ describe("ArtifactForm gate-required marking (#1192)", () => {
     expect(control).toHaveAttribute("aria-required", "false");
     const label = document.querySelector('label[for="artifact-field-title"]');
     expect(label?.className ?? "").not.toContain("required");
+  });
+});
+
+/**
+ * R2F-002 — the action area's 23 flat props (8 of them booleans) became ONE
+ * structured `ActionState`. A discriminated `mode` union was explicitly ruled
+ * out by the gate: `changeReasonNeeded && confirmDeprecate` is reachable.
+ */
+describe("ActionState contract (R2F-002)", () => {
+  it("requires every nested group at compile time", () => {
+    const complete: ActionState = {
+      common: { isReadOnly: false, saving: false, missingCreateValue: false },
+      create: {
+        artifactId: "r-1",
+        saveTestId: "artifact-form-save",
+        missingCreateLabels: [],
+      },
+      changeReason: {
+        needed: true,
+        value: "",
+        invalid: false,
+        ref: { current: null },
+        errorId: "artifact-form-change-reason-error",
+        onChange: () => undefined,
+      },
+      deprecate: {
+        needed: true,
+        missing: true,
+        confirm: false,
+        value: "",
+        transition: undefined,
+        onRequest: () => undefined,
+        onCancel: () => undefined,
+        onChangeReason: () => undefined,
+        onConfirm: () => Promise.resolve(),
+      },
+    };
+    expect(complete.common.isReadOnly).toBe(false);
+
+    // @ts-expect-error omitting the `deprecate` group must not compile
+    const withoutDeprecate: ActionState = {
+      common: complete.common,
+      create: complete.create,
+      changeReason: complete.changeReason,
+    };
+    // The value exists at runtime (types erase); the contract is compile-time.
+    // Removing a group from ActionState makes the directive above unused and
+    // fails `tsc`. The same probe also lives in `action-state.ts` so the
+    // production build (`tsconfig.build.json`) enforces it.
+    expect(withoutDeprecate).toBeDefined();
+  });
+
+  it("renders a refused change-reason alert and a blocked deprecate dialog concurrently", async () => {
+    mockDefinition([spec({ name: "title" })]);
+    vi.mocked(workflowTransitionsApi.getTransitions).mockResolvedValue({
+      current_state: "draft",
+      states: ["draft", "deprecated"],
+      allowed_transitions: [
+        {
+          target_state: "deprecated",
+          requires_change_reason: true,
+          signature_gate: false,
+        },
+      ],
+      proposed_by: null,
+    });
+
+    render(
+      <ArtifactForm
+        itemType="Risk"
+        artifactId="r-1"
+        initialValues={{ title: "T" }}
+        onSave={vi.fn().mockResolvedValue(undefined)}
+        onDeprecate={vi.fn().mockResolvedValue(undefined)}
+        workflowArtifactType="risk"
+        requiresChangeReason
+      />
+    );
+
+    const changeReasonField = await screen.findByTestId("artifact-form-change-reason");
+
+    // (1) Edit mode + mandatory change reason: refusing a save with an empty
+    // reason marks the field invalid and shows its own role="alert" message.
+    await userEvent.click(screen.getByTestId("artifact-form-save"));
+    expect(changeReasonField).toHaveAttribute("aria-invalid", "true");
+    const fieldAlert = document.getElementById("artifact-form-change-reason-error");
+    expect(fieldAlert).not.toBeNull();
+    expect(fieldAlert).toHaveAttribute("role", "alert");
+
+    // (2) While that alert is still displayed, open the deprecate dialog. Its
+    // own reason is also empty, so its confirm button must stay disabled.
+    await userEvent.click(await screen.findByTestId("artifact-form-deprecate"));
+    expect(await screen.findByTestId("artifact-form-deprecate-dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("artifact-form-deprecate-confirm")).toBeDisabled();
+
+    // Both flags are true at the same time — the state a `mode` union would
+    // have made unrepresentable.
+    expect(document.getElementById("artifact-form-change-reason-error")).toHaveAttribute(
+      "role",
+      "alert"
+    );
+    expect(screen.getByTestId("artifact-form-deprecate-confirm")).toBeDisabled();
   });
 });

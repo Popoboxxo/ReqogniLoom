@@ -330,9 +330,8 @@ export default function IcdView(): JSX.Element {
 
       <div className={styles.splitHost}>
       <SplitView
-        moduleType="icds"
-        leftMinWidth={280}
-        leftPanel={
+        minWidths={[280, 520]}
+        list={
           <IcdList
             items={icds}
             selectedId={!showCreate ? routeId : undefined}
@@ -340,7 +339,7 @@ export default function IcdView(): JSX.Element {
             onCreateNew={openCreateForm}
           />
         }
-        rightPanel={
+        detail={
           showCreate ? (
           // F-08 (Dialog migration): wrapped in the shared Dialog primitive
           // (GESAMTTEST_BERICHT 2026-08-21 §5 finding 8); form markup unchanged.

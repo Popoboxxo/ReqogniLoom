@@ -26,6 +26,7 @@
  */
 
 import type { ArtifactKind } from "./types";
+import { BREAKPOINTS } from "../../../hooks/useBreakpoint";
 
 // ---------------------------------------------------------------------------
 // Tabs
@@ -244,13 +245,21 @@ export const INSPECTOR_RESIZE_STEP_PX = 16;
 /**
  * Viewport breakpoints of the five width states (spec §4.2).
  * `sheetOpen` is the width from which the R3 sheet starts open.
+ *
+ * S3.2 WP-2 / R2S-006: no literals live here any more. Every value is an alias
+ * of a `--bp-*` custom property in `styles/tokens.css`, mirrored once in JS by
+ * `BREAKPOINTS`. 1440 and 1280 are therefore registered tokens
+ * (`--bp-default`, `--bp-sheetOpen`) instead of being dropped — reducing this
+ * table to the four original layout tokens would move the R2/R3 and sheet-open
+ * boundaries. `breakpoint-token-gate.test.ts` pins the alias mapping and
+ * freezes the resulting `inspectorRegionFor` boundaries.
  */
 export const INSPECTOR_BREAKPOINTS = {
-  wide: 1600,
-  default: 1440,
-  sheetOpen: 1280,
-  sheet: 1024,
-  rail: 768,
+  wide: BREAKPOINTS.xl,
+  default: BREAKPOINTS.default,
+  sheetOpen: BREAKPOINTS.sheetOpen,
+  sheet: BREAKPOINTS.lg,
+  rail: BREAKPOINTS.md,
 } as const;
 
 export type InspectorRegion = "R1" | "R2" | "R3" | "R4" | "R5";

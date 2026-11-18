@@ -14,13 +14,12 @@
  *   IF-RF-EXT-OUT-001 → CRUD on /api/v1/architecture/
  */
 
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useArchitectureData } from "./useArchitectureData";
 import { SplitView } from "../SplitView/SplitView";
 import { WorkspaceTree } from "../shared/WorkspaceTree";
-import type { WorkspaceTreeNode } from "../shared/WorkspaceTree";
 import { useWorkspaceLocks } from "../shared/WorkspaceTree/useWorkspaceLocks";
 import { EmptyState } from "../shared/EmptyState";
 import { PageHeader } from "../shared/PageHeader";
@@ -29,8 +28,7 @@ import { StatusBadge } from "../shared/StatusBadge";
 import { useInterviewStartCta } from "../shared/useInterviewStartCta";
 import { IncludeDeletedToggle } from "../shared/IncludeDeletedToggle/IncludeDeletedToggle";
 import { ListToolbar } from "../shared/ListToolbar";
-import { TraceSpine, useDerivationChain } from "../shared/TraceSpine";
-import type { ChainArtifact } from "../shared/TraceSpine";
+import { TraceSpine } from "../shared/TraceSpine";
 import { ArchitectureArtifactForm } from "./ArchitectureArtifactForm";
 import { ArchitectureLegend } from "./ArchitectureLegend";
 import { Dialog } from "../shared/Dialog";
@@ -44,20 +42,23 @@ import { AiActionSection, type AiActionDescriptor } from "../shared/AiActions";
 import { AiDerivationDialog } from "../shared/AiDerivationDialog";
 import { RequirementBundleExportPanel } from "../RequirementBundleExport/RequirementBundleExportPanel";
 import { InspectorShell } from "../shared/ArtifactInspector";
-import type { VersionRef } from "../shared/ArtifactInspector";
 import { EntityTypeProvider } from "../../context/EntityTypeContext";
-import { architectureApi } from "../../api/architecture";
 import { useRiskDerivation } from "./use-risk-derivation";
 import { useArchitectureListFilters } from "./use-architecture-list-filters";
 import { useArchitectureCreate } from "./use-architecture-create";
 import { useArchitectureDerive } from "./use-architecture-derive";
 import { useArchitectureDecompose } from "./use-architecture-decompose";
-import { artifactsApi } from "../../api/artifacts";
-import { extractApiErrorMessage } from "../../api/client";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import type {
-  ArchitectureElement,
-} from "../../types";
+import {
+  ARCH_LIFECYCLE_STATUSES,
+  buildAiActions,
+  buildArchSummary,
+  buildTreeNodes,
+  filterElements,
+} from "./architecture-editors.logic";
+import { useArchitectureInspector } from "./use-architecture-inspector";
+import { useArchitectureListActions } from "./use-architecture-list-actions";
+import { useArchitectureSelection } from "./use-architecture-selection";
 import styles from "./ArchitectureEditors.module.css";
 // F-04 (code review, 2026-08-19): shared create-form field styles.
 import fieldHints from "../shared/FieldHints.module.css";
@@ -65,11 +66,6 @@ import { FormField } from "../shared/FormField";
 import { useFieldContract } from "../../hooks/useFieldContract";
 
 // (Style helpers and dialog moved to ArchitectureForm component)
-
-// REQ-175: ArchitectureElement.lifecycle_status values (see types/index.ts).
-// 'deleted' is intentionally omitted — deleted elements are hidden in
-// normal views (REQ-006).
-const ARCH_LIFECYCLE_STATUSES = ['active', 'outdated', 'deprecated'] as const;
 
 // ---------------------------------------------------------------------------
 // ArchitectureEditors — main view with SplitView integration
@@ -110,42 +106,35 @@ export default function ArchitectureEditors(): JSX.Element {
   // markers"; the backend still rejects a move of a frozen element with 409.
   const locks = useWorkspaceLocks(activeWorkspace?.id ?? null, "architecture");
 
-  // Feed the ArtifactInspector with the current version
-  // (REQ-L2-RF-035). The full /versions/ list is fetched inside
-  // VersionPanel; we only hand it the current row to anchor the
-  // diff baseline (UI standards §4.1).
-  const currentVersion: VersionRef | undefined = useMemo(() => {
-    if (!element) return undefined;
-    return {
-      version: element.version,
-      label: `v${element.version}`,
-      createdAt: element.updated_at ?? element.created_at,
-      baselineIds: [],
-    };
-  }, [element]);
+  // ---- Cohesion hooks (S3.2 WP-5) ----
+  // List-level writes (reparent/delete + their shared error banner and
+  // confirmation target), the unsaved-changes selection guard and the
+  // trace-spine/inspector focus contract each own one decision.
+  const {
+    listActionError,
+    setListActionError,
+    deleteTarget,
+    setDeleteTarget,
+    handleReorder,
+    handleDelete,
+  } = useArchitectureListActions({ elements, refresh, t });
+  const {
+    setIsFormDirty,
+    pendingSelectId,
+    setPendingSelectId,
+    selectElement,
+    confirmPendingSelect,
+  } = useArchitectureSelection({ selectedId });
+  const {
+    currentVersion,
+    derivationChain,
+    isChainArtifactOpenable,
+    handleOpenChainArtifact,
+    detailScrollRef,
+    focusInspectorHeading,
+    focusSpine,
+  } = useArchitectureInspector({ element, elements });
 
-  // Inline create + search state
-  // BUG-11 (Systemaudit 2026-08-18, §4): `description` is an ordinary
-  // architectureApi.create() field the backend already accepts — it had no
-  // editor in this quick-create form.
-  // REQ-175: lifecycle-status filter. ArchitectureElement has no denormalized
-  // workflow status, so we filter on the available lifecycle_status field —
-  // sourced from the backing Artifact since the Datenmodell-Konsolidierung.
-
-  // Delete-confirmation target from list context menu
-  const [deleteTarget, setDeleteTarget] = useState<ArchitectureElement | null>(null);
-
-  // Issue #672: does the currently-open ArchitectureForm have unsaved local
-  // edits? Reported by the form itself via onDirtyChange. `pendingSelectId`
-  // holds a tree-node click that arrived while dirty, so it can be
-  // confirmed or discarded instead of silently overwriting the open edit.
-  const [isFormDirty, setIsFormDirty] = useState(false);
-  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
-
-  // #340: rejected create/delete calls used to end in a bare console.error,
-  // leaving the list unchanged and the user without any reason. One banner in
-  // the list panel serves both — they are the only two list-level writes.
-  const [listActionError, setListActionError] = useState<string | null>(null);
   // GitHub #1392: per-field half of a rejected create (`details[].field`).
   // #1732: replaces the #1595 "disabled + hint" decision. The Create button
   // stays active, a click validates, the field is marked and focused.
@@ -238,24 +227,10 @@ export default function ArchitectureEditors(): JSX.Element {
    * UI entry before this) joins the same section — it is the element-scoped
    * derivation, so the element route is its natural home.
    */
-  const aiActions = useMemo<AiActionDescriptor[]>(() => {
-    if (!element) return [];
-    return [
-      {
-        label: t("archDecompose.trigger"),
-        hint: t("archDecompose.triggerHint"),
-        onClick: openDecomposePanel,
-        testId: "arch-decompose-btn",
-      },
-      {
-        label: t("aiDerivation.riskAction"),
-        hint: t("aiActions.hint"),
-        onClick: () => void openRiskDialog(),
-        disabled: riskLoading,
-        testId: "arch-derive-risks-btn",
-      },
-    ];
-  }, [element, t, openRiskDialog, riskLoading]);
+  const aiActions = useMemo<AiActionDescriptor[]>(
+    () => buildAiActions(element, t, openDecomposePanel, openRiskDialog, riskLoading),
+    [element, t, openDecomposePanel, openRiskDialog, riskLoading],
+  );
 
   // Requirement Bundle Export panel state
   const [showBundleExportPanel, setShowBundleExportPanel] = useState(false);
@@ -272,220 +247,23 @@ export default function ArchitectureEditors(): JSX.Element {
   // this explicit trigger ref to return focus on close (see useFocusTrap).
   const createTriggerRef = useRef<HTMLButtonElement | null>(null);
 
-  /**
-   * Drag & drop reordering/reparenting from the tree (P1 Task 1.7).
-   *
-   * WorkspaceTree reports only the move (drop, Alt+↑/↓ or the "Move…"
-   * dialog); the tree applies it optimistically and rolls back on rejection.
-   * It refuses cycle-forming moves itself (self, current parent, own subtree)
-   * using the same `collectSelfAndDescendantIds` helper that keeps descendants
-   * out of `ArchitectureForm`'s parent dropdown, so both ways of changing a
-   * parent forbid exactly the same set. That guard is deliberate rather than
-   * redundant: server-side invariant I1 (circular parent reference) only runs
-   * at Standard/Extended rigor (`RIGOR_INVARIANT_PRESETS`,
-   * backend/application/validators.py) while a workspace defaults to Minimal,
-   * where a cycle would be persisted and would take the whole subtree out of
-   * the tree view.
-   *
-   * Residual risk, unchanged by this: the guard is browser-side only. A REST
-   * or MCP client calling the move endpoint on a Minimal-rigor workspace can
-   * still create a cycle. Closing that needs I1 enabled for every tier
-   * server-side.
-   *
-   * The move endpoint keys on the backing Artifact id, while the tree's nodes
-   * carry the ArchitectureElement id (`el.id`, used by the route/selection),
-   * so every id in the triple is translated here. The rejection path is the
-   * tree's toast, which is why this handler lets the error propagate.
-   */
-  const artifactIdByElementId = useMemo(
-    () =>
-      new Map<string, string>(
-        elements.map((el) => [el.id, el.artifact_id ?? el.id]),
-      ),
-    [elements],
-  );
-
-  const handleReorder = useCallback(
-    async (
-      id: string,
-      newParentId: string | null,
-      afterId: string | null | undefined,
-    ): Promise<void> => {
-      setListActionError(null);
-      const toArtifactId = (nodeId: string | null): string | null =>
-        nodeId === null
-          ? null
-          : (artifactIdByElementId.get(nodeId) ?? nodeId);
-      const artifactId = toArtifactId(id);
-      if (artifactId === null) return;
-      try {
-        await artifactsApi.move(artifactId, {
-          parent_id: toArtifactId(newParentId),
-          ...(afterId === undefined
-            ? {}
-            : { after_id: toArtifactId(afterId) }),
-        });
-        refresh();
-      } catch (err: unknown) {
-        // Keep the inline banner (#340) for a refused move while the tree
-        // rolls its optimistic order back; rethrow so the tree also surfaces
-        // the failure.
-        setListActionError(
-          extractApiErrorMessage(err) ?? t("arch.reparentFailed"),
-        );
-        throw err;
-      }
-    },
-    [artifactIdByElementId, refresh, t],
-  );
-
-  const handleDelete = useCallback(
-    async (id: string): Promise<void> => {
-      setListActionError(null);
-      try {
-        await architectureApi.delete(id);
-        refresh();
-        navigate("/architecture");
-      } catch (err: unknown) {
-        // #340: a refused delete used to leave the element in the tree with
-        // no explanation. Shares the list-panel banner with create.
-        setListActionError(extractApiErrorMessage(err) ?? t("arch.deleteFailed"));
-      }
-    },
-    [refresh, navigate, t]
-  );
-
-  /**
-   * Issue #672: the tree's onSelect used to call `navigate()` directly,
-   * which swaps the URL — and therefore the `element` prop the open
-   * ArchitectureForm is bound to — immediately, discarding any unsaved edit
-   * with no warning. Unsaved edits now gate the navigation behind a
-   * confirmation instead.
-   */
-  const selectElement = useCallback(
-    (id: string): void => {
-      if (isFormDirty && id !== selectedId) {
-        setPendingSelectId(id);
-        return;
-      }
-      navigate(`/architecture/${id}`);
-    },
-    [isFormDirty, navigate, selectedId]
-  );
-
-  const confirmPendingSelect = useCallback((): void => {
-    if (!pendingSelectId) return;
-    const target = pendingSelectId;
-    setPendingSelectId(null);
-    setIsFormDirty(false);
-    navigate(`/architecture/${target}`);
-  }, [pendingSelectId, navigate]);
-
   // Filter elements by search and convert to WorkspaceTreeNode[] (REQ-003).
   // Must be declared before any early return for stable hook order.
-  const filteredElements = useMemo(() => {
-    const q = listSearch.trim().toLowerCase();
-    return elements.filter((el) => {
-      if (statusFilter && (el.lifecycle_status ?? 'active') !== statusFilter) {
-        return false;
-      }
-      if (!q) return true;
-      return (
-        el.title.toLowerCase().includes(q) ||
-        Boolean(el.uid && el.uid.toLowerCase().includes(q))
-      );
-    });
-  }, [elements, listSearch, statusFilter]);
-
-  const archTreeNodes = useMemo((): WorkspaceTreeNode[] =>
-    filteredElements.map((el) => ({
-      id: el.id,
-      name: el.title || t('editor.untitled'),
-      // Issue #932: show the readable local uid in the tree, not just in search.
-      identifier: el.uid,
-      parentId: el.parent_id ?? null,
-      level: el.level != null ? `L${el.level}` : 'L0',
-      outdated:
-        el.lifecycle_status === 'outdated' || el.lifecycle_status === 'deprecated',
-      // P4.4: workflow lock — disables drag, Alt+↑/↓ and "Move…" for this row.
-      locked: locks[el.id] ? { state: locks[el.id] } : null,
-    })),
-  [filteredElements, locks, t]);
-
-  // UI concept ch. 12.1: always-visible summary. `lifecycle_status` defaults
-  // to 'active' server-side, so an absent value counts as active here too.
-  const archSummary = useMemo(() => {
-    const active = elements.filter(
-      (el) => (el.lifecycle_status ?? 'active') === 'active',
-    ).length;
-    return [
-      t('arch.summary', { count: elements.length, defaultValue: `${elements.length}` }),
-      t('arch.activeSuffix', { count: active, defaultValue: `${active} active` }),
-    ].join(' · ');
-  }, [elements, t]);
-
-  // Trace spine (ch. 5, ch. 12.10). The chain is composed client-side from
-  // the existing /tracelinks/impact/ neighbourhood query — no new backend
-  // endpoint. `elements` is already loaded exhaustively by
-  // useArchitectureData, so architecture station depths resolve without an
-  // extra round trip.
-  const derivationChain = useDerivationChain(
-    element?.artifact_id ?? element?.id ?? null,
-    'ArchitectureElement',
-    element?.level ?? 0,
-    { architectureElements: elements, enabled: !!element },
+  const filteredElements = useMemo(
+    () => filterElements(elements, listSearch, statusFilter),
+    [elements, listSearch, statusFilter],
   );
 
-  // The trace graph is keyed by Artifact id, the detail routes take the
-  // domain-entity id. For architecture the mapping is available locally
-  // (the exhaustive element list carries both). For requirements, needs and
-  // test cases there is no client-side mapping and no endpoint that resolves
-  // an Artifact id to its entity — so those entries are shown but not
-  // navigable. See the PR description: closing this needs a backend
-  // resolver, which this change deliberately does not add.
-  const archElementByArtifactId = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const el of elements) {
-      if (el.artifact_id) map.set(el.artifact_id, el.id);
-      map.set(el.id, el.id);
-    }
-    return map;
-  }, [elements]);
-
-  const isChainArtifactOpenable = useCallback(
-    (artifact: ChainArtifact): boolean =>
-      artifact.artifactType === 'ArchitectureElement' &&
-      archElementByArtifactId.has(artifact.id),
-    [archElementByArtifactId],
+  const archTreeNodes = useMemo(
+    () => buildTreeNodes(filteredElements, locks, t),
+    [filteredElements, locks, t],
   );
 
-  const handleOpenChainArtifact = useCallback(
-    (artifact: ChainArtifact): void => {
-      const elementId = archElementByArtifactId.get(artifact.id);
-      if (artifact.artifactType === 'ArchitectureElement' && elementId) {
-        navigate(`/architecture/${elementId}`);
-      }
-    },
-    [archElementByArtifactId, navigate],
+  // UI concept ch. 12.1: always-visible summary.
+  const archSummary = useMemo(
+    () => buildArchSummary(elements, t),
+    [elements, t],
   );
-
-  // #1762 (M3, mirrors M2): the inspector's programmatic focus targets live in
-  // the route, not in the shell — the shell must not know the detail area's DOM
-  // (it only receives `coveredRef` for the `inert` bracket).
-  const detailScrollRef = useRef<HTMLDivElement | null>(null);
-
-  const focusInspectorHeading = useCallback((): void => {
-    document.getElementById('inspector-heading')?.focus();
-  }, []);
-
-  // Spec §2.3 rule 1: the Links tab's summary line jumps into the spine. The
-  // spine is a separate flex zone now, so this is the one place that knows its
-  // first station.
-  const focusSpine = useCallback((): void => {
-    document
-      .querySelector<HTMLElement>('[data-testid="trace-spine-station-button"]')
-      ?.focus();
-  }, []);
 
   if (isLoading) {
     return (

@@ -35,6 +35,7 @@ import { findOutdatedTransition } from "../../../utils/outdatedStates";
 import { useFormDirty } from "../../../hooks/use-form-dirty";
 import { useSaveShortcut } from "../../../hooks/useSaveShortcut";
 import { useCreateFormFields } from "../../../hooks/useCreateFormFields";
+import type { ArtifactFormActionState } from "./action-state";
 import { fieldErrorsFromException } from "./field-errors";
 import { attributeLabel } from "./fields";
 import {
@@ -69,6 +70,8 @@ export interface UseArtifactFormStateArgs {
   requiresChangeReason?: boolean;
   attributeOverrides?: Record<string, Partial<AttributeSpec>>;
   fieldTestIds?: Record<string, string>;
+  /** Test id of the Save/Create button, forwarded into `actions.create`. */
+  saveTestId?: string;
 }
 
 export interface ArtifactFormState {
@@ -118,6 +121,8 @@ export interface ArtifactFormState {
   onCancelDeprecate: () => void;
   onChangeDeprecateReason: (value: string) => void;
   handleDeprecate: () => Promise<void>;
+  /** Structured state for `<ArtifactFormActions>` (R2F-002). */
+  actions: ArtifactFormActionState;
 }
 
 export function useArtifactFormState({
@@ -132,6 +137,7 @@ export function useArtifactFormState({
   requiresChangeReason = false,
   attributeOverrides,
   fieldTestIds,
+  saveTestId = "artifact-form-save",
 }: UseArtifactFormStateArgs): ArtifactFormState {
   const { t, i18n } = useTranslation();
   const { definition: resolvedDefinition, loading, error: loadError } =
@@ -731,6 +737,39 @@ export function useArtifactFormState({
     formErrorRef.current?.focus();
   }, [focusRequest, fieldTestIds, definition]);
 
+  // R2F-002: one structured object for the action area. All four groups are
+  // always present; dependent flags sit together and concurrent states (e.g.
+  // a refused change reason while the deprecate dialog is open) stay valid.
+  // The flat fields above remain in the return for the section renderer and
+  // for existing callers — this is additive, not a behavioural rewrite.
+  const actions: ArtifactFormActionState = {
+    common: { isReadOnly, saving, missingCreateValue },
+    create: { artifactId, saveTestId, missingCreateLabels },
+    changeReason: {
+      needed: changeReasonNeeded,
+      value: changeReason,
+      invalid: changeReasonInvalid,
+      ref: changeReasonRef,
+      errorId: changeReasonErrorId,
+      onChange: onChangeChangeReason,
+    },
+    deprecate: {
+      needed: deprecateReasonNeeded,
+      missing: deprecateReasonMissing,
+      confirm: confirmDeprecate,
+      value: deprecateReason,
+      transition: deprecateTransition,
+      onDeprecate,
+      onRequest: () => setConfirmDeprecate(true),
+      onCancel: () => {
+        setConfirmDeprecate(false);
+        setDeprecateReason("");
+      },
+      onChangeReason: (value: string) => setDeprecateReason(value),
+      onConfirm: handleDeprecate,
+    },
+  };
+
   return {
     loading,
     loadError,
@@ -771,5 +810,6 @@ export function useArtifactFormState({
     },
     onChangeDeprecateReason: (value: string) => setDeprecateReason(value),
     handleDeprecate,
+    actions,
   };
 }

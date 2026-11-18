@@ -151,7 +151,11 @@
 }
 
 /* R5 (< 360 px): two rows instead of a horizontal scroll — the tab strip
-   would otherwise be the page's only sideways scroll surface (spec §4.2). */
+   would otherwise be the page's only sideways scroll surface (spec §4.2).
+   359px = --inspector-w-wide (360px, declared on .shell above) − 1. It is the
+   `max-width` form of the R5 boundary, derived from the inspector width scale
+   rather than a --bp-* layout token — documented in the tokens.css vocabulary
+   and allow-listed by breakpoint-token-gate.test.ts (UI-003). */
 @media (max-width: 359px) {
   .tabList {
     flex-wrap: wrap;
@@ -245,7 +249,10 @@
   overscroll-behavior: contain;
 }
 
-/* R4: the sheet takes the whole detail width (spec §4.2). */
+/* R4: the sheet takes the whole detail width (spec §4.2).
+   1023px = --bp-lg (1024px) − 1 — the `max-width` form of the shared lg token,
+   one pixel below the R3 boundary. Documented in the tokens.css vocabulary and
+   allow-listed by breakpoint-token-gate.test.ts (UI-003). */
 @media (max-width: 1023px) {
   .sheet {
     width: 100%;

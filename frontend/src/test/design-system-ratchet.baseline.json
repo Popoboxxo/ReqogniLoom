@@ -29,15 +29,6 @@
     }
   },
   "exemptions": {
-    "button-missing-design-system-class::components/AttributeEditor/AttributeList.tsx::div[data-testid=attribute-row-${attribute.name}]": {
-      "reason": "Clickable layout row/region, not a button: the whole row is the hit area and owns its own row chrome, so btn-* button chrome would fight the list/table layout (#1099)."
-    },
-    "button-missing-design-system-class::components/AttributeEditor/AttributeTable.tsx::th[data-testid=attribute-table-sort-${column}]": {
-      "reason": "Sortable table header cell, not a button: it is part of the table grid and carries the column chrome; a btn-* class would break the header layout (#1099)."
-    },
-    "button-missing-design-system-class::components/AttributeEditor/AttributeTable.tsx::tr[data-testid=attribute-table-row-${attribute.name}]": {
-      "reason": "Clickable layout row/region, not a button: the whole row is the hit area and owns its own row chrome, so btn-* button chrome would fight the list/table layout (#1099)."
-    },
     "button-missing-design-system-class::components/CsvImport/CsvImport.tsx::div[data-testid=csv-drop-zone]": {
       "reason": "Drag-and-drop zone / native file input, not a button: button chrome does not apply to a file-picker container or an <input type=file> (#1099)."
     },
@@ -50,20 +41,11 @@
     "button-missing-design-system-class::components/CsvImport/CsvImport.tsx::input[data-testid=reqif-file-input]": {
       "reason": "Drag-and-drop zone / native file input, not a button: button chrome does not apply to a file-picker container or an <input type=file> (#1099)."
     },
-    "button-missing-design-system-class::components/DashboardViews/WorkspaceCard.tsx::div[data-testid=workspace-card-clickable-region]": {
-      "reason": "Clickable layout row/region, not a button: the whole row is the hit area and owns its own row chrome, so btn-* button chrome would fight the list/table layout (#1099)."
-    },
     "button-missing-design-system-class::components/DiagramGraphEditor/GraphEdge.tsx::div[data-testid=graph-edge-${edge.id}]": {
       "reason": "React-Flow node/edge wrapper, not a button: selection and dragging are owned by the graph library's own node/edge chrome, so a btn-* class would be wrong (#1099)."
     },
     "button-missing-design-system-class::components/DiagramGraphEditor/GraphNode.tsx::div[data-testid=graph-node-${node.id}]": {
       "reason": "React-Flow node/edge wrapper, not a button: selection and dragging are owned by the graph library's own node/edge chrome, so a btn-* class would be wrong (#1099)."
-    },
-    "button-missing-design-system-class::components/GlossaryView/GlossaryTermList.tsx::div[data-testid=glossary-row-${term.id}]": {
-      "reason": "Clickable layout row/region, not a button: the whole row is the hit area and owns its own row chrome, so btn-* button chrome would fight the list/table layout (#1099)."
-    },
-    "button-missing-design-system-class::components/IcdView/IcdDetailPane.tsx::li[data-testid=similar-icd-${icd.id}]": {
-      "reason": "Clickable layout row/region, not a button: the whole row is the hit area and owns its own row chrome, so btn-* button chrome would fight the list/table layout (#1099)."
     },
     "button-missing-design-system-class::components/NavigationShell/SidebarNavigation.tsx::div[data-testid=sidebar-overlay]": {
       "reason": "Backdrop/overlay dismiss target, not a button: it is intentionally unstyled chrome layered behind the panel, with no button fill or label (#1099)."
@@ -74,9 +56,6 @@
     "button-missing-design-system-class::components/Reviews/ReviewsView.tsx::input[data-testid=review-select-${r.id}]": {
       "reason": "Native checkbox input, not a button: it is a form control with its own built-in affordance and accessible role (#1099)."
     },
-    "button-missing-design-system-class::components/SplitView/SplitView.tsx::div[data-testid=splitview-divider]": {
-      "reason": "Pointer drag/resize handle, not a button: the interaction is a direct-manipulation gesture with separator semantics, so button chrome does not apply (#1099)."
-    },
     "button-missing-design-system-class::components/WorkflowEditor/InspectorPanel.tsx::div[data-testid=workflow-inspector-resize]": {
       "reason": "Pointer drag/resize handle, not a button: the interaction is a direct-manipulation gesture with separator semantics, so button chrome does not apply (#1099)."
     },
@@ -86,12 +65,6 @@
     "button-missing-design-system-class::components/WorkflowEditor/TransitionEdge.tsx::div[data-testid=workflow-transition-edge-${transition.id}]": {
       "reason": "React-Flow node/edge wrapper, not a button: selection and dragging are owned by the graph library's own node/edge chrome, so a btn-* class would be wrong (#1099)."
     },
-    "button-missing-design-system-class::components/shared/ArtifactRow/ArtifactRow.tsx::div": {
-      "reason": "Clickable layout row/region, not a button: the whole row is the hit area and owns its own row chrome, so btn-* button chrome would fight the list/table layout (#1099)."
-    },
-    "button-missing-design-system-class::components/shared/ArtifactRow/ArtifactRow.tsx::span": {
-      "reason": "Clickable row part, not a button: it sits inside the row's hit area and carries row text chrome, not a standalone button label (#1099)."
-    },
     "button-missing-design-system-class::components/shared/CreateTraceLinkDialog/link-type-listbox.tsx::li[data-testid=${optionTestIdPrefix}-option-${option.key}]": {
       "reason": "Listbox option row, not a button: selection and keyboard handling are owned by the listbox role, not by a button label (#1099)."
     },
@@ -100,9 +73,6 @@
     },
     "button-missing-design-system-class::components/shared/RevealValue.tsx::span[data-testid=${testId}-value]": {
       "reason": "Click-to-copy inline text value, not a button: the affordance is a copy interaction on a text node; the sibling button elements carry the button chrome (#1099)."
-    },
-    "button-missing-design-system-class::components/shared/WorkspaceTree/workspace-tree.tsx::li[data-testid=${testIdPrefix}-node-${node.id}]": {
-      "reason": "Clickable layout row/region, not a button: the whole row is the hit area and owns its own row chrome, so btn-* button chrome would fight the list/table layout (#1099)."
     },
     "button-missing-design-system-class::components/shared/tag-input.tsx::div[data-testid=${testId}-input]": {
       "reason": "Tag-input container, not a button: it is a text field hosting removable chips; the interactive controls inside are the chip remove buttons (#1099)."

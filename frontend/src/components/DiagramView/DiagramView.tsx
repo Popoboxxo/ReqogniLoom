@@ -95,9 +95,8 @@ export default function DiagramView(): JSX.Element {
 
       <div className={styles.splitHost}>
       <SplitView
-        moduleType="diagrams"
-        leftMinWidth={280}
-        leftPanel={
+        minWidths={[280, 520]}
+        list={
           <DiagramList
             items={items}
             selectedId={!showCreate ? id : undefined}
@@ -109,7 +108,7 @@ export default function DiagramView(): JSX.Element {
             onDelete={(diagramId) => setPendingDeleteId(diagramId)}
           />
         }
-        rightPanel={
+        detail={
           showCreate ? (
           // F-08 (Dialog migration): wrapped in the shared Dialog primitive
           // (GESAMTTEST_BERICHT 2026-08-21 §5 finding 8); form markup unchanged.

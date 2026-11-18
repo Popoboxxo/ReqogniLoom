@@ -17,6 +17,7 @@ import type {
   SectionLayout,
   SectionSpec,
 } from "../../api/attribute-definitions";
+import { useActivationKeys } from "../../hooks/useActivationKeys";
 import styles from "./AttributeEditor.module.css";
 import { sectionNames } from "./attribute-edits";
 import { ATTRIBUTE_TYPE_ICONS } from "./attribute-type-icons";
@@ -53,6 +54,189 @@ export interface AttributeListProps {
   onToggleSectionVisible: (name: string) => void;
   onSetSectionLayout: (name: string, layout: SectionLayout) => void;
   readOnly: boolean;
+}
+
+interface AttributeRowProps {
+  attribute: AttributeSpec;
+  index: number;
+  rowCount: number;
+  section: string;
+  allSections: string[];
+  selected: boolean;
+  origins?: Record<string, AttributeOrigin>;
+  readOnly: boolean;
+  dragging: string | null;
+  onSelect: (name: string) => void;
+  onMove: (name: string, toSection: string, toIndex: number) => void;
+  onDeleteAttribute: (name: string) => void;
+  onDragStart: (name: string) => void;
+  onDragEnd: () => void;
+}
+
+/**
+ * One reorderable row. Extracted so the shared activation hook is called at a
+ * component top level (not inside the section `.map()`); the rendered markup,
+ * classes and test ids are unchanged. The row is a non-semantic container, so it
+ * opts into the APG button role via the hook.
+ */
+function AttributeRow({
+  attribute,
+  index,
+  rowCount,
+  section,
+  allSections,
+  selected,
+  origins,
+  readOnly,
+  dragging,
+  onSelect,
+  onMove,
+  onDeleteAttribute,
+  onDragStart,
+  onDragEnd,
+}: AttributeRowProps): JSX.Element {
+  const { t } = useTranslation();
+  const activation = useActivationKeys(() => onSelect(attribute.name), {
+    role: "button",
+  });
+
+  return (
+    // The APG button role/tabIndex/keydown arrive via the shared activation
+    // spread, which this static a11y rule cannot resolve; the runtime element
+    // is a fully keyboard-operable role="button" row.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
+    <div
+      data-testid={`attribute-row-${attribute.name}`}
+      className={`${styles.row} ${
+        selected ? styles.rowSelected : ""
+      } ${attribute.locked ? styles.rowLocked : ""}`}
+      draggable={!readOnly}
+      onDragStart={() => onDragStart(attribute.name)}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.stopPropagation();
+        if (dragging && !readOnly) onMove(dragging, section, index);
+        onDragEnd();
+      }}
+      {...activation}
+    >
+      <span className={styles.badges}>
+        {(() => {
+          const TypeIcon = ATTRIBUTE_TYPE_ICONS[attribute.type];
+          return (
+            <TypeIcon
+              aria-hidden="true"
+              size={14}
+              className={styles.typeIcon}
+              data-testid={`attribute-row-${attribute.name}-type-icon`}
+            />
+          );
+        })()}
+        <span>{attribute.label.en || attribute.name}</span>
+        {(() => {
+          const origin = origins?.[attribute.name] ?? "global";
+          const modifier = ORIGIN_BADGE_CLASS[origin];
+          return (
+            <span
+              className={`${styles.originBadge} ${modifier ? styles[modifier] : ""}`}
+              data-testid={`attribute-row-${attribute.name}-origin`}
+            >
+              {t(`attributes.table.origin.${origin}`)}
+            </span>
+          );
+        })()}
+      </span>
+      <span className={styles.badges}>
+        {attribute.locked ? (
+          <Lock
+            aria-hidden="true"
+            size={14}
+            data-testid={`attribute-row-${attribute.name}-lock`}
+          />
+        ) : (
+          <>
+            <input
+              type="checkbox"
+              data-testid={`attribute-row-${attribute.name}-visible`}
+              checked={attribute.visible}
+              readOnly
+              aria-label={t("attributes.visible")}
+            />
+            <input
+              type="checkbox"
+              data-testid={`attribute-row-${attribute.name}-required`}
+              checked={attribute.required}
+              readOnly
+              aria-label={t("attributes.required")}
+            />
+          </>
+        )}
+        <button
+          type="button"
+          className="btn-icon"
+          disabled={readOnly || index === 0}
+          aria-label={t("attributes.moveUp")}
+          data-testid={`attribute-row-${attribute.name}-up`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onMove(attribute.name, section, index - 1);
+          }}
+        >
+          <ChevronUp aria-hidden="true" size={14} />
+        </button>
+        <button
+          type="button"
+          className="btn-icon"
+          disabled={readOnly || index === rowCount - 1}
+          aria-label={t("attributes.moveDown")}
+          data-testid={`attribute-row-${attribute.name}-down`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onMove(attribute.name, section, index + 1);
+          }}
+        >
+          <ChevronDown aria-hidden="true" size={14} />
+        </button>
+        {/* Feature #1260: the keyboard path for a CROSS-section move.
+            Up/down only walk within a section, so without this a keyboard-only
+            user could never reach another section — drag & drop alone is not
+            accessible (WCAG 2.1). Moving to another section appends at its end;
+            up/down then refine the position. No onClick handler on purpose: it
+            would make the ratchet see a second "button" and the row's own click
+            (selecting the row) is harmless here. */}
+        <select
+          data-testid={`attribute-row-${attribute.name}-section`}
+          value={attribute.section}
+          disabled={readOnly}
+          aria-label={t("attributes.moveToSection")}
+          onChange={(event) =>
+            onMove(attribute.name, event.target.value, Number.MAX_SAFE_INTEGER)
+          }
+        >
+          {allSections.map((candidate) => (
+            <option key={candidate} value={candidate}>
+              {t(`sections.${candidate}`, { defaultValue: candidate })}
+            </option>
+          ))}
+        </select>
+        {attribute.kind === "extended" ? (
+          <button
+            type="button"
+            className="btn-icon"
+            disabled={readOnly}
+            aria-label={t("attributes.deleteAttribute.action")}
+            data-testid={`attribute-row-${attribute.name}-delete`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDeleteAttribute(attribute.name);
+            }}
+          >
+            <Trash2 aria-hidden="true" size={14} />
+          </button>
+        ) : null}
+      </span>
+    </div>
+  );
 }
 
 export function AttributeList({
@@ -206,147 +390,23 @@ export function AttributeList({
               </span>
             </div>
             {rows.map((attribute, index) => (
-              <div
+              <AttributeRow
                 key={attribute.name}
-                role="button"
-                tabIndex={0}
-                data-testid={`attribute-row-${attribute.name}`}
-                className={`${styles.row} ${
-                  selected === attribute.name ? styles.rowSelected : ""
-                } ${attribute.locked ? styles.rowLocked : ""}`}
-                draggable={!readOnly}
-                onDragStart={() => setDragging(attribute.name)}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  event.stopPropagation();
-                  if (dragging && !readOnly) onMove(dragging, section, index);
-                  setDragging(null);
-                }}
-                onClick={() => onSelect(attribute.name)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    onSelect(attribute.name);
-                  }
-                }}
-              >
-                <span className={styles.badges}>
-                  {(() => {
-                    const TypeIcon = ATTRIBUTE_TYPE_ICONS[attribute.type];
-                    return (
-                      <TypeIcon
-                        aria-hidden="true"
-                        size={14}
-                        className={styles.typeIcon}
-                        data-testid={`attribute-row-${attribute.name}-type-icon`}
-                      />
-                    );
-                  })()}
-                  <span>{attribute.label.en || attribute.name}</span>
-                  {(() => {
-                    const origin = origins?.[attribute.name] ?? "global";
-                    const modifier = ORIGIN_BADGE_CLASS[origin];
-                    return (
-                      <span
-                        className={`${styles.originBadge} ${modifier ? styles[modifier] : ""}`}
-                        data-testid={`attribute-row-${attribute.name}-origin`}
-                      >
-                        {t(`attributes.table.origin.${origin}`)}
-                      </span>
-                    );
-                  })()}
-                </span>
-                <span className={styles.badges}>
-                  {attribute.locked ? (
-                    <Lock
-                      aria-hidden="true"
-                      size={14}
-                      data-testid={`attribute-row-${attribute.name}-lock`}
-                    />
-                  ) : (
-                    <>
-                      <input
-                        type="checkbox"
-                        data-testid={`attribute-row-${attribute.name}-visible`}
-                        checked={attribute.visible}
-                        readOnly
-                        aria-label={t("attributes.visible")}
-                      />
-                      <input
-                        type="checkbox"
-                        data-testid={`attribute-row-${attribute.name}-required`}
-                        checked={attribute.required}
-                        readOnly
-                        aria-label={t("attributes.required")}
-                      />
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    className="btn-icon"
-                    disabled={readOnly || index === 0}
-                    aria-label={t("attributes.moveUp")}
-                    data-testid={`attribute-row-${attribute.name}-up`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onMove(attribute.name, section, index - 1);
-                    }}
-                  >
-                    <ChevronUp aria-hidden="true" size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-icon"
-                    disabled={readOnly || index === rows.length - 1}
-                    aria-label={t("attributes.moveDown")}
-                    data-testid={`attribute-row-${attribute.name}-down`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onMove(attribute.name, section, index + 1);
-                    }}
-                  >
-                    <ChevronDown aria-hidden="true" size={14} />
-                  </button>
-                  {/* Feature #1260: the keyboard path for a CROSS-section move.
-                      Up/down only walk within a section, so without this a
-                      keyboard-only user could never reach another section —
-                      drag & drop alone is not accessible (WCAG 2.1). Moving to
-                      another section appends at its end; up/down then refine
-                      the position. No onClick handler on purpose: it would make
-                      the ratchet see a second "button" and the row's own click
-                      (selecting the row) is harmless here. */}
-                  <select
-                    data-testid={`attribute-row-${attribute.name}-section`}
-                    value={attribute.section}
-                    disabled={readOnly}
-                    aria-label={t("attributes.moveToSection")}
-                    onChange={(event) =>
-                      onMove(attribute.name, event.target.value, Number.MAX_SAFE_INTEGER)
-                    }
-                  >
-                    {allSections.map((candidate) => (
-                      <option key={candidate} value={candidate}>
-                        {t(`sections.${candidate}`, { defaultValue: candidate })}
-                      </option>
-                    ))}
-                  </select>
-                  {attribute.kind === "extended" ? (
-                    <button
-                      type="button"
-                      className="btn-icon"
-                      disabled={readOnly}
-                      aria-label={t("attributes.deleteAttribute.action")}
-                      data-testid={`attribute-row-${attribute.name}-delete`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onDeleteAttribute(attribute.name);
-                      }}
-                    >
-                      <Trash2 aria-hidden="true" size={14} />
-                    </button>
-                  ) : null}
-                </span>
-              </div>
+                attribute={attribute}
+                index={index}
+                rowCount={rows.length}
+                section={section}
+                allSections={allSections}
+                selected={selected === attribute.name}
+                origins={origins}
+                readOnly={readOnly}
+                dragging={dragging}
+                onSelect={onSelect}
+                onMove={onMove}
+                onDeleteAttribute={onDeleteAttribute}
+                onDragStart={setDragging}
+                onDragEnd={() => setDragging(null)}
+              />
             ))}
           </section>
         );

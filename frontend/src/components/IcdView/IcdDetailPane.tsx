@@ -14,6 +14,7 @@
 import { memo, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { Icd, IcdDetail } from "../../api/icds";
+import { useActivationKeys } from "../../hooks/useActivationKeys";
 import { VersionBadge } from "../shared/VersionBadge";
 import { InspectorShell } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
@@ -479,6 +480,41 @@ interface SimilarIcdsPanelProps {
   onSelect: (icdId: string) => void;
 }
 
+interface SimilarIcdRowProps {
+  icd: Icd;
+  score: number;
+  onSelect: (icdId: string) => void;
+}
+
+/**
+ * One similar-interface row. Extracted so the shared activation hook runs at a
+ * component top level; the native list item keeps its semantics and only
+ * gains focusability + Enter/Space activation (no `role="button"`).
+ */
+function SimilarIcdRow({ icd, score, onSelect }: SimilarIcdRowProps): JSX.Element {
+  const activation = useActivationKeys(() => onSelect(icd.id));
+
+  return (
+    <li
+      data-testid={`similar-icd-${icd.id}`}
+      {...activation}
+      className={styles.similarItem}
+    >
+      <div className={styles.similarItemRow}>
+        <span className={styles.similarItemName}>
+          {icd.name}
+        </span>
+        <span
+          data-testid={`similarity-score-${icd.id}`}
+          className={styles.similarItemScore}
+        >
+          {Math.round(score * 100)}%
+        </span>
+      </div>
+    </li>
+  );
+}
+
 function SimilarIcdsPanel({
   currentICD,
   allICDs,
@@ -509,37 +545,7 @@ function SimilarIcdsPanel({
       </h4>
       <ul className={styles.similarList}>
         {similarICDs.map(({ icd, score }) => (
-          <li
-            key={icd.id}
-            data-testid={`similar-icd-${icd.id}`}
-            // Keyboard-operable row (same pattern as the WorkspaceTree rows and
-            // ArtifactRow): role/tabIndex/onKeyDown make the click target
-            // reachable and activatable without a pointer. The design-system
-            // ratchet exemption for this element keys on the tag + testid
-            // (`li[data-testid=…]`), so it stays valid.
-            role="button"
-            tabIndex={0}
-            onClick={() => onSelect(icd.id)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                onSelect(icd.id);
-              }
-            }}
-            className={styles.similarItem}
-          >
-            <div className={styles.similarItemRow}>
-              <span className={styles.similarItemName}>
-                {icd.name}
-              </span>
-              <span
-                data-testid={`similarity-score-${icd.id}`}
-                className={styles.similarItemScore}
-              >
-                {Math.round(score * 100)}%
-              </span>
-            </div>
-          </li>
+          <SimilarIcdRow key={icd.id} icd={icd} score={score} onSelect={onSelect} />
         ))}
       </ul>
     </div>

@@ -896,22 +896,46 @@
   --sheet-keyboard-inset: 0px;
 
   /*
-   * Layout breakpoints (issue #160, UI concept ch. 6.3). CSS custom
-   * properties cannot be referenced inside `@media` conditions (no browser
-   * support), so these are the documented single source of truth — every
-   * `@media` query in the codebase MUST use these exact pixel values
-   * instead of inventing new ones:
-   *   --bp-lg: 1024px  (sidebar collapses to an off-canvas drawer,
-   *                     trace spine turns horizontal)
-   *   --bp-md:  768px  (split-view stacks to a single column)
-   *   --bp-xl: 1600px  (SE-metrics KPI row fits five tiles side by side,
-   *                     #809; below it the five tiles lay out 3+2)
-   *   --bp-sm:  640px  (DENSITY only, not a layout breakpoint: touch targets,
-   *                     bottom sheets and compact padding — plan M4/E8)
+   * Layout breakpoints (issue #160, UI concept ch. 6.3; extended by S3.2 WP-2
+   * / UI-003 / R2S-006). CSS custom properties cannot be referenced inside
+   * `@media` conditions (no browser support), so these are the documented
+   * single source of truth — every `@media` query in the codebase MUST use
+   * these exact pixel values instead of inventing new ones:
+   *   --bp-sm:        640px  (DENSITY only, not a layout breakpoint: touch
+   *                          targets, bottom sheets, compact padding — M4/E8)
+   *   --bp-md:        768px  (split-view stacks to a single column;
+   *                          ArtifactInspector R4)
+   *   --bp-lg:       1024px  (sidebar collapses to an off-canvas drawer,
+   *                          trace spine turns horizontal; inspector R3)
+   *   --bp-sheetOpen:1280px  (R3 inspector sheet starts open — spec §4.2)
+   *   --bp-default:  1440px  (inspector R2 threshold — spec §4.2)
+   *   --bp-xl:       1600px  (SE-metrics KPI row fits five tiles side by side,
+   *                          #809; below it the five tiles lay out 3+2)
+   *
+   * Why --bp-default / --bp-sheetOpen are tokens: the inspector's R1–R5 region
+   * table (spec §4.2) genuinely needs 1440 and 1280. Reducing it to the four
+   * original tokens would MOVE the R2/R3 and sheet-open boundaries, so the two
+   * values are registered here instead. `breakpoint-token-gate.test.ts` pins
+   * the JS constants (`BREAKPOINTS`, `INSPECTOR_BREAKPOINTS`) to these
+   * declarations and freezes every boundary against silent drift.
+   *
+   * Derived thresholds — the `max-width` form of a `min-width` token, one
+   * pixel below it. They are intentionally NOT custom properties:
+   *   1023px = --bp-lg (1024px) − 1
+   *            -> InspectorShell R4 sheet takes the whole detail width.
+   *   359px  = --inspector-w-wide (360px, declared in InspectorShell.module.css
+   *            from spec §4.2) − 1 -> R5 two-row tab strip. Derived from the
+   *            *inspector width scale*, not a --bp-* layout breakpoint.
+   * Registered exception:
+   *   900px  = CreateFormFieldsSection two-column collapse — a form-internal
+   *            density threshold kept at its historical value so the S3.2
+   *            breakpoint convergence changes no behaviour at a boundary.
    */
   --bp-sm: 640px;
   --bp-md: 768px;
   --bp-lg: 1024px;
+  --bp-sheetOpen: 1280px;
+  --bp-default: 1440px;
   --bp-xl: 1600px;
 
 }

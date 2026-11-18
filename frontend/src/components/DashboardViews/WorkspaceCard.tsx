@@ -11,6 +11,7 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { WorkspaceWithMetrics } from "../../types";
 import { useWorkspace } from "../../context/WorkspaceContext";
+import { useActivationKeys } from "../../hooks/useActivationKeys";
 import styles from "./WorkspaceCard.module.css";
 
 interface WorkspaceCardProps {
@@ -40,6 +41,13 @@ export function WorkspaceCard({
   // than a duplicated aria-label, keeping the name in sync with the visible
   // text and with the terminology profile.
   const titleId = useId();
+  // UI-006: the card body is a non-semantic container that acts as a button, so it
+  // needs the explicit APG button role/tabIndex plus Enter/Space activation.
+  // The shared hook supplies all four props in one contract; the badge below
+  // stays a real sibling <button> (no nested interactive elements).
+  const activation = useActivationKeys(() => onSelect(workspace), {
+    role: "button",
+  });
 
   // Use terminology-profile-aware label (REQ-L3-RF002-002)
   const reqLabel = terminologyLabel("requirements");
@@ -65,21 +73,14 @@ export function WorkspaceCard({
       data-active={isActive ? "true" : "false"}
       className={styles.cardWrapper}
     >
+      {/* The APG button role/tabIndex/keydown arrive via the shared activation
+          spread, which this static a11y rule cannot resolve; the runtime element
+          is a fully keyboard-operable role="button" region. */}
+      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions */}
       <div
         data-testid="workspace-card-clickable-region"
-        role="button"
-        tabIndex={0}
         aria-labelledby={titleId}
-        onClick={() => onSelect(workspace)}
-        onKeyDown={(e) => {
-          // WCAG 2.1.1 (Keyboard): a role="button" element must respond to
-          // both activation keys, not just Enter — Space is the native
-          // <button> activation key too.
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onSelect(workspace);
-          }
-        }}
+        {...activation}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         className={

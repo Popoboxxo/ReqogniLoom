@@ -67,16 +67,8 @@ export function ArtifactForm({
     saving,
     isReadOnly,
     isCreateMode,
-    missingCreateValue,
-    missingCreateLabels,
     formRef,
     formErrorRef,
-    changeReasonRef,
-    changeReasonErrorId,
-    changeReasonNeeded,
-    changeReason,
-    changeReasonInvalid,
-    onChangeChangeReason,
     handleSave,
     sectionEntries,
     sectionMeta,
@@ -85,15 +77,8 @@ export function ArtifactForm({
     isSectionOpen,
     onToggleSection,
     update,
-    deprecateTransition,
-    deprecateReasonNeeded,
-    deprecateReasonMissing,
-    deprecateReason,
-    confirmDeprecate,
-    onRequestDeprecate,
-    onCancelDeprecate,
-    onChangeDeprecateReason,
-    handleDeprecate,
+    // R2F-002: the action area's whole state arrives as ONE structured object.
+    actions,
   } = useArtifactFormState({
     itemType,
     artifactId,
@@ -106,6 +91,7 @@ export function ArtifactForm({
     requiresChangeReason,
     attributeOverrides,
     fieldTestIds,
+    saveTestId,
   });
 
   if (loading) {
@@ -217,31 +203,7 @@ export function ArtifactForm({
         update={update}
       />
 
-      <ArtifactFormActions
-        isReadOnly={isReadOnly}
-        saving={saving}
-        artifactId={artifactId}
-        saveTestId={saveTestId}
-        missingCreateValue={missingCreateValue}
-        missingCreateLabels={missingCreateLabels}
-        onCancel={onCancel}
-        changeReasonNeeded={changeReasonNeeded}
-        changeReason={changeReason}
-        changeReasonInvalid={changeReasonInvalid}
-        changeReasonRef={changeReasonRef}
-        changeReasonErrorId={changeReasonErrorId}
-        onChangeChangeReason={onChangeChangeReason}
-        onDeprecate={onDeprecate}
-        deprecateTransition={deprecateTransition}
-        deprecateReasonNeeded={deprecateReasonNeeded}
-        deprecateReasonMissing={deprecateReasonMissing}
-        deprecateReason={deprecateReason}
-        confirmDeprecate={confirmDeprecate}
-        onRequestDeprecate={onRequestDeprecate}
-        onCancelDeprecate={onCancelDeprecate}
-        onChangeDeprecateReason={onChangeDeprecateReason}
-        onConfirmDeprecate={handleDeprecate}
-      />
+      <ArtifactFormActions actions={actions} onCancel={onCancel} />
     </form>
   );
 }

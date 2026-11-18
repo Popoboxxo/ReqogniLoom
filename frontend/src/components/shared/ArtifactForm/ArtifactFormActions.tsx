@@ -4,14 +4,16 @@
  *
  * Extracted from `ArtifactForm.tsx` (Phase 5b decomposition, FE-01 / F-01).
  * Renders inside the same `<form>` and produces the identical DOM (a component
- * boundary adds no element). All state and handlers come from
- * `useArtifactFormState`; this file is the presentation of the action area.
+ * boundary adds no element). All state arrives in ONE structured `actions`
+ * prop (R2F-002): the four nested groups (`common`, `create`, `changeReason`,
+ * `deprecate`) are always present, so dependent flags travel together and
+ * concurrent states such as "change reason invalid AND deprecate dialog open"
+ * stay representable.
  */
 
-import type { RefObject } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { WorkflowAllowedTransition } from "../../../api/workflow-transitions";
+import type { ArtifactFormActionState } from "./action-state";
 import { SAVE_SHORTCUT_ARIA } from "../../../hooks/useSaveShortcut";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { RequiredMark } from "../FormField";
@@ -27,65 +29,22 @@ import styles from "./ArtifactForm.module.css";
 const CREATE_HINT_ID = "artifact-form-create-hint";
 
 export interface ArtifactFormActionsProps {
-  isReadOnly: boolean;
-  saving: boolean;
-  artifactId: string | null;
-  saveTestId: string;
-  missingCreateValue: boolean;
-  /**
-   * #1595: labels of the required fields still empty in create mode. Rendered
-   * in the hint above the action row; empty in edit mode.
-   */
-  missingCreateLabels: readonly string[];
+  /** Structured state of the whole action area — see `action-state.ts`. */
+  actions: ArtifactFormActionState;
+  /** Form-level cancel, owned by the caller (absent when no cancel is offered). */
   onCancel?: () => void;
-  changeReasonNeeded: boolean;
-  changeReason: string;
-  changeReasonInvalid: boolean;
-  changeReasonRef: RefObject<HTMLInputElement | null>;
-  changeReasonErrorId: string;
-  onChangeChangeReason: (value: string) => void;
-  onDeprecate?: (targetState: string, changeReason?: string) => Promise<void>;
-  deprecateTransition: WorkflowAllowedTransition | undefined;
-  deprecateReasonNeeded: boolean;
-  deprecateReasonMissing: boolean;
-  deprecateReason: string;
-  confirmDeprecate: boolean;
-  onRequestDeprecate: () => void;
-  onCancelDeprecate: () => void;
-  onChangeDeprecateReason: (value: string) => void;
-  onConfirmDeprecate: () => Promise<void>;
 }
 
 export function ArtifactFormActions({
-  isReadOnly,
-  saving,
-  artifactId,
-  saveTestId,
-  missingCreateValue,
-  missingCreateLabels,
+  actions,
   onCancel,
-  changeReasonNeeded,
-  changeReason,
-  changeReasonInvalid,
-  changeReasonRef,
-  changeReasonErrorId,
-  onChangeChangeReason,
-  onDeprecate,
-  deprecateTransition,
-  deprecateReasonNeeded,
-  deprecateReasonMissing,
-  deprecateReason,
-  confirmDeprecate,
-  onRequestDeprecate,
-  onCancelDeprecate,
-  onChangeDeprecateReason,
-  onConfirmDeprecate,
 }: ArtifactFormActionsProps): JSX.Element {
   const { t } = useTranslation();
+  const { common, create, changeReason, deprecate } = actions;
 
   return (
     <>
-      {changeReasonNeeded ? (
+      {changeReason.needed ? (
         <label className={styles.field}>
           {/* #1393: the marker is a DOM node (`RequiredMark`), not the CSS
               `::after` this label used to rely on — a pseudo-element is
@@ -102,24 +61,24 @@ export function ArtifactFormActions({
               the enclosing form is `noValidate`, so the #977 inline-error flow
               still owns the actual refusal. */}
           <input
-            className={`${styles.control} ${changeReasonInvalid ? styles.controlInvalid : ""}`}
+            className={`${styles.control} ${changeReason.invalid ? styles.controlInvalid : ""}`}
             data-testid="artifact-form-change-reason"
             type="text"
-            value={changeReason}
-            ref={changeReasonRef}
+            value={changeReason.value}
+            ref={changeReason.ref}
             required
             aria-required="true"
-            aria-invalid={changeReasonInvalid || undefined}
-            aria-describedby={changeReasonInvalid ? changeReasonErrorId : undefined}
-            onChange={(event) => onChangeChangeReason(event.target.value)}
+            aria-invalid={changeReason.invalid || undefined}
+            aria-describedby={changeReason.invalid ? changeReason.errorId : undefined}
+            onChange={(event) => changeReason.onChange(event.target.value)}
           />
-          {changeReasonInvalid ? (
+          {changeReason.invalid ? (
             // Issue #977 (proof-journey finding): the save was refused, but the
             // reason appeared only in the banner at the very top of the form
             // while this field sits below every section. A user who clicked
             // Save saw nothing happen where they were looking. The message now
             // also sits at the field, and focus moves there on refusal.
-            <span className={styles.errors} id={changeReasonErrorId} role="alert">
+            <span className={styles.errors} id={changeReason.errorId} role="alert">
               {t("artifactForm.changeReasonRequired")}
             </span>
           ) : null}
@@ -129,7 +88,7 @@ export function ArtifactFormActions({
       {/* #1595, updated by #1732: an empty required field no longer disables
           the create action — the click explains itself at each field. This
           hint stays as a proactive summary of what is still missing. */}
-      {!isReadOnly && artifactId === null && missingCreateValue && missingCreateLabels.length > 0 ? (
+      {!common.isReadOnly && create.artifactId === null && common.missingCreateValue && create.missingCreateLabels.length > 0 ? (
         <p
           id={CREATE_HINT_ID}
           data-testid={CREATE_HINT_ID}
@@ -137,38 +96,38 @@ export function ArtifactFormActions({
           className={styles.createHint}
         >
           {t("artifactForm.createRequiredHint", {
-            fields: missingCreateLabels.join(", "),
+            fields: create.missingCreateLabels.join(", "),
             defaultValue: "Required fields are still empty: {{fields}}",
           })}
         </p>
       ) : null}
 
-      {!isReadOnly ? (
+      {!common.isReadOnly ? (
         <div className={styles.actions}>
-          {onDeprecate && deprecateTransition ? (
+          {deprecate.onDeprecate && deprecate.transition ? (
             <button
               type="button"
               className="btn-secondary"
               data-testid="artifact-form-deprecate"
-              disabled={saving}
-              onClick={onRequestDeprecate}
+              disabled={common.saving}
+              onClick={deprecate.onRequest}
             >
               {t("artifactForm.deprecate")}
             </button>
           ) : null}
           {onCancel ? (
-            <button type="button" className="btn-secondary" data-testid="artifact-form-cancel" disabled={saving} onClick={onCancel}>
+            <button type="button" className="btn-secondary" data-testid="artifact-form-cancel" disabled={common.saving} onClick={onCancel}>
               {t("actions.cancel")}
             </button>
           ) : null}
           <button
             type="submit"
             className="btn-primary"
-            data-testid={saveTestId}
+            data-testid={create.saveTestId}
             // #1732: only an in-flight save disables the action. An empty
             // required field is reported on click (field-level role="alert" +
             // focus), never by a silent disabled state.
-            disabled={saving}
+            disabled={common.saving}
             // Issue #1087: the shortcut has to be discoverable on the control
             // that also performs it. `aria-keyshortcuts` is the machine-
             // readable form (WAI-ARIA 1.2) and the only one assistive tech can
@@ -179,28 +138,28 @@ export function ArtifactFormActions({
             aria-keyshortcuts={SAVE_SHORTCUT_ARIA}
             title={t("artifactForm.saveShortcutHint", "Speichern (Strg/Cmd+S)")}
           >
-            {saving ? t("actions.saving") : t(artifactId === null ? "actions.create" : "actions.save")}
+            {common.saving ? t("actions.saving") : t(create.artifactId === null ? "actions.create" : "actions.save")}
           </button>
         </div>
       ) : null}
 
-      {confirmDeprecate && deprecateTransition ? (
+      {deprecate.confirm && deprecate.transition ? (
         <ConfirmDialog
           title={t("artifactForm.deprecateTitle")}
           message={t("artifactForm.deprecateConfirm", {
-            target: deprecateTransition.target_state,
+            target: deprecate.transition.target_state,
           })}
           confirmLabel={t("artifactForm.deprecate")}
           cancelLabel={t("actions.cancel")}
           testId="artifact-form-deprecate-dialog"
           confirmTestId="artifact-form-deprecate-confirm"
           cancelTestId="artifact-form-deprecate-cancel"
-          isSubmitting={saving}
-          confirmDisabled={deprecateReasonMissing}
-          onConfirm={() => void onConfirmDeprecate()}
-          onCancel={onCancelDeprecate}
+          isSubmitting={common.saving}
+          confirmDisabled={deprecate.missing}
+          onConfirm={() => void deprecate.onConfirm()}
+          onCancel={deprecate.onCancel}
         >
-          {deprecateReasonNeeded ? (
+          {deprecate.needed ? (
             <label className={styles.field}>
               <span className={styles.label}>
                 {t("artifactForm.deprecateReason")}
@@ -209,13 +168,13 @@ export function ArtifactFormActions({
               <textarea
                 className={styles.control}
                 data-testid="artifact-form-deprecate-reason"
-                value={deprecateReason}
+                value={deprecate.value}
                 // Same contract as the change-reason input above: the marker
                 // alone is not machine-readable, so `required` + `aria-required`
                 // both carry the flag.
                 required
                 aria-required="true"
-                onChange={(event) => onChangeDeprecateReason(event.target.value)}
+                onChange={(event) => deprecate.onChangeReason(event.target.value)}
               />
             </label>
           ) : null}

@@ -20,6 +20,7 @@ import { APP_NAME } from "../../config/app-name";
 import { useWorkspace, DEFAULT_WORKSPACE } from "../../context/WorkspaceContext";
 import { useAuth } from "../../context/AuthContext";
 import { useHasRole } from "../../hooks/useHasRole";
+import { maxWidthQuery } from "../../hooks/useBreakpoint";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useFocusTrap } from "../shared/Dialog";
 import { useTheme } from "../../context/ThemeContext";
@@ -168,11 +169,12 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/user-management", labelKey: "nav.userManagement", feature: "dashboard", group: "admin" },
 ];
 
-// The drawer's breakpoint. CSS cannot share the literal with JS, so this is
-// kept in sync by hand with `@media (max-width: 1024px)` in
-// SidebarNavigation.module.css (issue #160). Only below it does the sidebar
-// become an off-canvas drawer that must behave modally (M-1).
-const MOBILE_DRAWER_QUERY = "(max-width: 1024px)";
+// The drawer's breakpoint is `--bp-lg` from styles/tokens.css. Building the
+// query through the shared token-backed helper removes the "sync by hand"
+// drift with `@media (max-width: 1024px)` in SidebarNavigation.module.css
+// (issue #160, R2S-006). Only below it does the sidebar become an off-canvas
+// drawer that must behave modally (M-1); breakpoint-token-gate.test.ts pins it.
+const MOBILE_DRAWER_QUERY = maxWidthQuery("lg");
 
 export function SidebarNavigation(): JSX.Element {
   const { t } = useTranslation();
@@ -210,8 +212,8 @@ export function SidebarNavigation(): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
   const [isSwitcherOpen, setIsSwitcherOpen] = React.useState<boolean>(false);
-  // Off-canvas drawer state, only relevant below the --breakpoint-tablet
-  // (1024px) media query defined in SidebarNavigation.module.css (issue #160).
+  // Off-canvas drawer state, only relevant below --bp-lg (1024px), the
+  // media query defined in SidebarNavigation.module.css (issue #160).
   const [isMobileNavOpen, setIsMobileNavOpen] = React.useState<boolean>(false);
   const switcherRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -549,7 +551,7 @@ export function SidebarNavigation(): JSX.Element {
 
   return (
     <>
-    {/* Burger toggle — only rendered visibly below --breakpoint-tablet
+    {/* Burger toggle — only rendered visibly below --bp-lg
         (1024px, see SidebarNavigation.module.css). Opens the off-canvas
         drawer (issue #160). */}
     <button
