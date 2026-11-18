@@ -1317,7 +1317,7 @@ services:
   # missing ... Run alembic upgrade head first.` (verified against a real
   # fresh volume). Mirrors this project's own `migrate` service pattern.
   honcho-migrate:
-    image: ghcr.io/plastic-labs/honcho:v3.5.0@sha256:23ff96bf62ab2ca14928e6766db1a30a7729f5b7c9e2285af0cd4a179c0d393d
+    image: ghcr.io/plastic-labs/honcho:v3.6.1@sha256:2ced1a958f14c128ddb05e68deb549f9281681e44595a7a3c34adebf5b432b16
     deploy:
       resources:
         limits:
@@ -1396,7 +1396,7 @@ services:
   # is indented to 2 spaces here, one level less than a service-level
   # `environment:` block, purely because it is no longer nested in a service.
   honcho:
-    image: ghcr.io/plastic-labs/honcho:v3.5.0@sha256:23ff96bf62ab2ca14928e6766db1a30a7729f5b7c9e2285af0cd4a179c0d393d
+    image: ghcr.io/plastic-labs/honcho:v3.6.1@sha256:2ced1a958f14c128ddb05e68deb549f9281681e44595a7a3c34adebf5b432b16
     deploy:
       resources:
         limits:
@@ -1530,7 +1530,7 @@ services:
   # Prometheus exporter on :9090 only when `METRICS_ENABLED` is set; leave it
   # off (the default) and nothing listens.
   honcho-deriver:
-    image: ghcr.io/plastic-labs/honcho:v3.5.0@sha256:23ff96bf62ab2ca14928e6766db1a30a7729f5b7c9e2285af0cd4a179c0d393d
+    image: ghcr.io/plastic-labs/honcho:v3.6.1@sha256:2ced1a958f14c128ddb05e68deb549f9281681e44595a7a3c34adebf5b432b16
     deploy:
       resources:
         limits:
