@@ -555,9 +555,9 @@
  * equal specificity, and the later rule in the cascade wins inside `@media
  * print` exactly as it does on screen.
  *
- * Colours stay token references (`--palette-white` / `--palette-black` are the
- * primitive layer's absolute endpoints, not a theme) so the print sheet is
- * independent of the active palette. No shadows, no backgrounds, no images.
+ * Colours use the dedicated `--color-print-surface` / `--color-print-text`
+ * semantic tokens (white paper / black ink in every theme) so the print sheet
+ * is independent of the active palette. No shadows, no backgrounds, no images.
  * ========================================================================== */
 
 @media print {
@@ -594,8 +594,8 @@
    * surface: the canvas behind (and between) the content is the paper.
    */
   :global(body) {
-    background: var(--palette-white);
-    color: var(--palette-black);
+    background: var(--color-print-surface);
+    color: var(--color-print-text);
   }
 
   /* Black on white, no page chrome around the text. The split container and
@@ -608,8 +608,8 @@
     height: auto;
     overflow: visible;
     padding: 0;
-    background: var(--palette-white);
-    color: var(--palette-black);
+    background: var(--color-print-surface);
+    color: var(--color-print-text);
   }
 
   .splitRoot {
@@ -622,7 +622,7 @@
     display: block !important;
     overflow: visible !important;
     padding: 0 !important;
-    background: var(--palette-white) !important;
+    background: var(--color-print-surface) !important;
   }
 
   .detail {
@@ -638,7 +638,7 @@
   .chapterNumber,
   .meta,
   .sectionLabel {
-    color: var(--palette-black);
+    color: var(--color-print-text);
   }
 
   /* The reading layout is the only column that prints: drop the TOC grid. */
@@ -680,7 +680,7 @@
   .chapterBody th,
   .chapterBody td,
   .chapterBody blockquote {
-    border-color: var(--palette-black);
+    border-color: var(--color-print-text);
   }
 }
 

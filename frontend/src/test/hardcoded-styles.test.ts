@@ -121,6 +121,14 @@ type BaselineEntry = {
  * that token. The four canvas entries stay, plus a later paydown
  * (2026-11-15, `chore/remove-asil-colour-helpers`) retired the `asilUtils.ts`
  * entry entirely by deleting its two unconsumed colour helpers (18 literals).
+ *
+ * A later paydown (S3.4, branch `fix/s3-4-design-debt`) tokenised the two
+ * remaining workflow-editor alphas via new `--palette-slate-400-a30` and
+ * `--palette-red-500-a15` rungs, lowering its BASELINE entry 3 -> 1. The live
+ * ceiling is now 23 literals across 8 files (was 25 across 8); the
+ * workflow-editor's sole remainder (`rgba(2,6,23,0.6)`) is a documented
+ * one-off because the equivalent slate-950 is not in the primitive palette
+ * pool (E3 forced tokenisation).
  */
 const BASELINE: Readonly<Record<string, BaselineEntry>> = {
   // Fabric.js draws into a <canvas> and only accepts real colour strings, so
@@ -156,11 +164,14 @@ const BASELINE: Readonly<Record<string, BaselineEntry>> = {
     count: 1,
     reason: 'Dashed ghost-node backdrop tint (slate-400 at 6%); no alpha token at this step.',
   },
+  // Modal backdrop tint: the only remaining workflow-editor literal. Its
+  // equivalent (slate-950) is not in the primitive palette pool, so per the
+  // E3 forced-tokenisation principle it stays a documented one-off.
   'components/WorkflowEditor/WorkflowEditor.module.css': {
-    count: 3,
+    count: 1,
     reason:
-      'Terminal-state outline (slate-400 at 30%), error glow (red at 15%) and the ' +
-      'canvas backdrop (slate-950 at 60%) — single call sites, no alpha token at these steps.',
+      'Canvas backdrop (slate-950 at 60%) — documented one-off; slate-950 is not ' +
+      'in the palette pool (E3 forced tokenisation).',
   },
   'components/shared/Dialog/Dialog.module.css': {
     count: 1,

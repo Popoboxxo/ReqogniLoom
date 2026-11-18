@@ -489,14 +489,14 @@
 .typeTerminal {
   --wf-accent: var(--color-text-muted);
   --wf-glow: transparent;
-  outline: 2px solid rgba(148, 163, 184, 0.3);
+  outline: 2px solid var(--palette-slate-400-a30);
   outline-offset: 3px;
 }
 
 .typeError {
   --wf-accent: var(--color-danger);
   --wf-glow: var(--palette-red-500-a20);
-  box-shadow: var(--shadow-card), 0 0 8px rgba(239, 68, 68, 0.15);
+  box-shadow: var(--shadow-card), 0 0 8px var(--palette-red-500-a15);
 }
 
 .stateNodeHeader {
@@ -1104,6 +1104,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Documented one-off: the equivalent slate-950 is not in the primitive
+     palette pool (E3 forced-tokenisation principle), so this stays literal. */
   background: rgba(2, 6, 23, 0.6);
   backdrop-filter: blur(2px);
   padding: var(--space-4);
