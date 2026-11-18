@@ -741,3 +741,99 @@ describe.each(["bauhaus", "nordic", "sepia"])("%s light mode contrast", (palette
     ).toBeGreaterThanOrEqual(AA_MIN_RATIO);
   });
 });
+
+/* ==========================================================================
+ * A11Y-002 (S3.3 gate expansion) — call-site ratchets for the five live axe
+ * color-contrast findings. The token-pair half already lives in CONTRAST_PAIRS
+ * / the primary-text ratchet above; these pin the CALL SITES the gate named,
+ * so a later edit cannot silently put a fill colour back as text.
+ *
+ * jsdom cannot measure rendered contrast; the measured-ratio assertions below
+ * use the real tokens.css values (same resolver as the rest of this file),
+ * which is the strongest check available without a browser paint.
+ * ========================================================================== */
+const COMPONENTS_DIR = join(resolve(__dirname, ".."), "components");
+
+/** Regex-escape every metacharacter so attribute selectors (`[x="y"]`) match
+ *  literally — the older `rulesFor` helper only escapes dots. */
+function cssBlock(source: string, selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{([^}]*)\\}`).exec(source);
+  if (match === null) throw new Error(`no CSS rule for ${selector}`);
+  return match[1];
+}
+
+describe("A11Y-002 /settings active tab contrast (axe #settings-tab-general)", () => {
+  const css = readFileSync(
+    join(COMPONENTS_DIR, "WorkspaceSettings", "WorkspaceSettings.module.css"),
+    "utf-8",
+  );
+  const activeTab = cssBlock(css, '.tab[aria-selected="true"]');
+
+  it("paints the active tab label with --color-on-primary, not --color-text", () => {
+    expect(activeTab).toMatch(/color:\s*var\(--color-on-primary\)/);
+    expect(activeTab).not.toMatch(/(?:^|;)\s*color:\s*var\(--color-text\)\s*;/);
+  });
+
+  it("--color-on-primary clears AA on the primary fill in every theme", () => {
+    for (const themeId of THEME_IDS) {
+      const ratio = measure(themeId, "--color-on-primary", "--color-primary");
+      expect(
+        ratio,
+        `theme '${themeId}': --color-on-primary on --color-primary measures ${ratio}:1`,
+      ).toBeGreaterThanOrEqual(AA_MIN_RATIO);
+    }
+  });
+});
+
+describe("A11Y-002 /settings token link contrast (axe ._tokenLink_*)", () => {
+  const source = readFileSync(
+    join(COMPONENTS_DIR, "WorkspaceSettings", "McpConnectionSection.tsx"),
+    "utf-8",
+  );
+  const linkStyle = /const linkStyle[\s\S]*?\n};/.exec(source)?.[0] ?? "";
+
+  it("paints the personal-access-token link with --color-primary-text, not --color-primary", () => {
+    expect(linkStyle).toMatch(/color:\s*"var\(--color-primary-text\)"/);
+    expect(linkStyle).not.toMatch(/color:\s*"var\(--color-primary\)"/);
+  });
+
+  it("--color-primary-text clears AA on the page surface in every theme", () => {
+    for (const themeId of THEME_IDS) {
+      const ratio = measure(themeId, "--color-primary-text", "--color-surface");
+      expect(
+        ratio,
+        `theme '${themeId}': --color-primary-text on --color-surface measures ${ratio}:1`,
+      ).toBeGreaterThanOrEqual(AA_MIN_RATIO);
+    }
+  });
+});
+
+describe("A11Y-002 /workflows entity count contrast (axe .entityItemActive > .entityItemCount)", () => {
+  const css = readFileSync(
+    join(COMPONENTS_DIR, "WorkflowEditor", "WorkflowEditor.module.css"),
+    "utf-8",
+  );
+  const count = cssBlock(css, ".entityItemCount");
+
+  it("paints the count with --color-text, not --color-text-muted", () => {
+    expect(count).toMatch(/color:\s*var\(--color-text\)/);
+    expect(count).not.toMatch(/(?:^|;)\s*color:\s*var\(--color-text-muted\)\s*;/);
+  });
+
+  it("clears AA on the active-item fill over the panel surface in every theme", () => {
+    for (const themeId of THEME_IDS) {
+      const ratio = measure(
+        themeId,
+        "--color-text",
+        "--color-card-active-bg",
+        "--color-surface-raised",
+      );
+      expect(
+        ratio,
+        `theme '${themeId}': --color-text on --color-card-active-bg over ` +
+          `--color-surface-raised measures ${ratio}:1`,
+      ).toBeGreaterThanOrEqual(AA_MIN_RATIO);
+    }
+  });
+});

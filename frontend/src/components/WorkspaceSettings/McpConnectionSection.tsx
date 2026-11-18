@@ -114,7 +114,12 @@ const multilineValueStyle: React.CSSProperties = {
 
 const linkStyle: React.CSSProperties = {
   fontSize: "var(--font-size-sm)",
-  color: "var(--color-primary)",
+  /* A11Y-002 (WCAG 1.4.3, axe color-contrast on ._tokenLink_*): this link
+     paints TEXT on the page surface. --color-primary is a fill colour (white
+     text sits on it) and measures 2.84:1 (dark), 1.69:1 (bauhaus) and 3.01:1
+     (nordic) as text on --color-surface. --color-primary-text is the dedicated
+     readable variant and clears AA in every theme (same fix as #1280). */
+  color: "var(--color-primary-text)",
 };
 
 export interface McpConnectionSectionProps {

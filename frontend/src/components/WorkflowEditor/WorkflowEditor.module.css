@@ -291,7 +291,11 @@
 .entityItemCount {
   display: block;
   font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
+  /* A11Y-002 (WCAG 1.4.3, axe color-contrast on .entityItemActive >
+     .entityItemCount): on the active item's --color-card-active-bg fill (over
+     the panel's --color-surface-raised) --color-text-muted measures 4.12:1 in
+     nordic, below AA. --color-text clears AA on that fill in all five themes. */
+  color: var(--color-text);
   margin-top: 2px;
 }
 
@@ -437,6 +441,10 @@
   position: relative;
   box-sizing: border-box;
   min-width: 160px;
+  /* WCAG 2.2 SC 2.5.8: floor the node's hit area at 24px in both axes. The
+     intrinsic min-width above already exceeds 24px; the min-height pins it
+     for the event the header/subline padding ever shrinks. */
+  min-height: var(--space-6);
   max-width: 220px;
   padding: var(--space-3) var(--space-4);
   background: var(--glass-bg);
@@ -566,6 +574,12 @@
   align-items: center;
   gap: 4px;
   max-width: 160px;
+  /* WCAG 2.2 SC 2.5.8 (axe target-size on ._edgeLabel_*[role="button"]): the
+     pill's 2px vertical padding + xs font left it ~18px tall. Floor the hit
+     area at 24px (`--space-6`) in both axes, same pattern as the workspace
+     tree `.toggle` — the glyph size and horizontal padding are unchanged. */
+  min-width: var(--space-6);
+  min-height: var(--space-6);
   /* GESAMTTEST_BERICHT_2026-08-21.md §6 item "workflow-editor edge-label
    * collision": without `overflow: hidden` here, a long `to_state` name
    * (e.g. "deprecated") was never actually clipped to `max-width` — its

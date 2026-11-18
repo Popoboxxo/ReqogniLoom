@@ -2951,6 +2951,8 @@
     "themes.importLabel": "Palette importieren (JSON):",
     "themes.importButton": "JSON-Datei auswählen",
     "themes.tenantDefaultLabel": "Tenant-Standard:",
+    "themes.tenantDefaultPaletteSelectLabel": "Tenant-Standard-Palette",
+    "themes.tenantDefaultModeSelectLabel": "Tenant-Standard-Modus",
     "themes.tenantDefaultTarget": "Standard: {{target}}",
     "themes.tenantDefaultSave": "Als Standard speichern",
     "themes.tenantDefaultSaveFor": "{{target}} als Standard speichern",

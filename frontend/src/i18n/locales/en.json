@@ -2951,6 +2951,8 @@
     "themes.importLabel": "Import palette (JSON):",
     "themes.importButton": "Choose JSON file",
     "themes.tenantDefaultLabel": "Tenant default:",
+    "themes.tenantDefaultPaletteSelectLabel": "Tenant default palette",
+    "themes.tenantDefaultModeSelectLabel": "Tenant default mode",
     "themes.tenantDefaultTarget": "Default: {{target}}",
     "themes.tenantDefaultSave": "Save as default",
     "themes.tenantDefaultSaveFor": "Save {{target}} as default",
