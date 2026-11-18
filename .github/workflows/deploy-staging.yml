@@ -263,9 +263,11 @@ jobs:
               "${IMAGE}@${image_digest}"
           done
 
-          echo "backend_digest=$BACKEND_DIGEST" >> "$GITHUB_OUTPUT"
-          echo "frontend_digest=$FRONTEND_DIGEST" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          {
+            echo "backend_digest=$BACKEND_DIGEST"
+            echo "frontend_digest=$FRONTEND_DIGEST"
+            echo "version=$VERSION"
+          } >> "$GITHUB_OUTPUT"
           echo "[resolve] backend=${BACKEND_DIGEST}"
           echo "[resolve] frontend=${FRONTEND_DIGEST}"
 
