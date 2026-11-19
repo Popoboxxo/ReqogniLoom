@@ -27,7 +27,7 @@
     "@tanstack/react-query": "^5.104.5",
     "@tanstack/react-virtual": "^3.14.26",
     "@xyflow/react": "^12.12.1",
-    "dompurify": "^3.4.17",
+    "dompurify": "^3.4.18",
     "fabric": "^7.4.0",
     "i18next": "^26.3.6",
     "lucide-react": "^1.61.0",
