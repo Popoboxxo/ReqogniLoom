@@ -13,7 +13,6 @@
  * `arch-bundle-export-*` mirroring `arch-decompose-*`.
  */
 
-import type { CSSProperties } from "react";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
@@ -28,6 +27,8 @@ import type {
 import { extractErrorMessage } from "../../api/client";
 import { useBundleCompressionStatus } from "../../hooks/useBundleCompressionStatus";
 
+import styles from "./RequirementBundleExportPanel.module.css";
+
 export interface RequirementBundleExportPanelProps {
   elementId: string;
   elementTitle: string;
@@ -35,59 +36,6 @@ export interface RequirementBundleExportPanelProps {
 
 type Mode = "raw" | "compressed";
 type Phase = "idle" | "exporting";
-
-const styles: Record<string, CSSProperties> = {
-  panel: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "var(--space-4)",
-    padding: "var(--space-5)",
-    background: "var(--color-surface)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "var(--radius-lg)",
-    color: "var(--color-text)",
-  },
-  controls: {
-    display: "flex",
-    gap: "var(--space-3)",
-    alignItems: "flex-end",
-    flexWrap: "wrap",
-  },
-  field: { display: "flex", flexDirection: "column", gap: "var(--space-1)" },
-  numberInput: { width: "5rem", padding: "var(--space-1) var(--space-2)" },
-  textInput: { padding: "var(--space-1) var(--space-2)", minWidth: "16rem" },
-  banner: {
-    background: "var(--color-badge-warning-bg)",
-    color: "var(--color-badge-warning-text)",
-    borderRadius: "var(--radius-sm)",
-    padding: "var(--space-2) var(--space-3)",
-    fontSize: "var(--font-size-sm)",
-  },
-  info: {
-    background: "var(--color-badge-info-bg)",
-    color: "var(--color-badge-info-text)",
-    borderRadius: "var(--radius-sm)",
-    padding: "var(--space-2) var(--space-3)",
-    fontSize: "var(--font-size-sm)",
-  },
-  error: {
-    background: "var(--color-badge-danger-bg)",
-    color: "var(--color-badge-danger-text)",
-    borderRadius: "var(--radius-sm)",
-    padding: "var(--space-2) var(--space-3)",
-  },
-  result: {
-    border: "1px solid var(--color-border)",
-    borderRadius: "var(--radius-md)",
-    padding: "var(--space-3)",
-    background: "var(--color-surface-raised)",
-    maxHeight: "24rem",
-    overflow: "auto",
-  },
-  actions: { display: "flex", gap: "var(--space-3)", flexWrap: "wrap" },
-  muted: { color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" },
-  modeToggle: { display: "flex", gap: "var(--space-2)" },
-};
 
 const POLL_FAILURE_STATUSES = new Set(["failed", "not_found"]);
 
@@ -188,10 +136,10 @@ export function RequirementBundleExportPanel({
       : null);
 
   return (
-    <section style={styles.panel} data-testid="arch-bundle-export-panel">
-      <div style={styles.controls}>
-        <label style={styles.field}>
-          <span style={styles.muted}>{t("bundleExport.depthLabel", "Depth")}</span>
+    <section className={styles.panel} data-testid="arch-bundle-export-panel">
+      <div className={styles.controls}>
+        <label className={styles.field}>
+          <span className={styles.muted}>{t("bundleExport.depthLabel", "Depth")}</span>
           <input
             type="number"
             min={0}
@@ -200,13 +148,13 @@ export function RequirementBundleExportPanel({
             disabled={busy}
             placeholder={t("bundleExport.depthFullHint", "Leave empty for full hierarchy")}
             onChange={(e) => setDepthInput(e.target.value)}
-            style={styles.numberInput}
+            className={styles.numberInput}
             data-testid="arch-bundle-export-depth"
           />
         </label>
 
-        <label style={styles.field}>
-          <span style={styles.muted}>{t("bundleExport.filterModeLabel", "Filter mode")}</span>
+        <label className={styles.field}>
+          <span className={styles.muted}>{t("bundleExport.filterModeLabel", "Filter mode")}</span>
           <select
             value={filterMode}
             disabled={busy}
@@ -220,23 +168,23 @@ export function RequirementBundleExportPanel({
         </label>
 
         {filterMode === "custom" && (
-          <label style={styles.field}>
-            <span style={styles.muted}>{t("bundleExport.fieldsLabel", "Fields (comma-separated)")}</span>
+          <label className={styles.field}>
+            <span className={styles.muted}>{t("bundleExport.fieldsLabel", "Fields (comma-separated)")}</span>
             <input
               type="text"
               value={fieldsInput}
               disabled={busy}
               placeholder={t("bundleExport.fieldsPlaceholder", "e.g. title, status, priority")}
               onChange={(e) => setFieldsInput(e.target.value)}
-              style={styles.textInput}
+              className={styles.textInput}
               data-testid="arch-bundle-export-fields"
             />
           </label>
         )}
 
         {mode === "raw" && (
-          <label style={styles.field}>
-            <span style={styles.muted}>{t("bundleExport.formatLabel", "Format")}</span>
+          <label className={styles.field}>
+            <span className={styles.muted}>{t("bundleExport.formatLabel", "Format")}</span>
             <select
               value={outputFormat}
               disabled={busy}
@@ -250,9 +198,9 @@ export function RequirementBundleExportPanel({
           </label>
         )}
 
-        <div style={styles.field}>
-          <span style={styles.muted}>{t("bundleExport.modeLabel", "Mode")}</span>
-          <div style={styles.modeToggle}>
+        <div className={styles.field}>
+          <span className={styles.muted}>{t("bundleExport.modeLabel", "Mode")}</span>
+          <div className={styles.modeToggle}>
             <button
               type="button"
               aria-pressed={mode === "raw"}
@@ -277,8 +225,8 @@ export function RequirementBundleExportPanel({
         </div>
 
         {mode === "compressed" && (
-          <label style={styles.field}>
-            <span style={styles.muted}>{t("bundleExport.asyncLabel", "Run in background (async)")}</span>
+          <label className={styles.field}>
+            <span className={styles.muted}>{t("bundleExport.asyncLabel", "Run in background (async)")}</span>
             <input
               type="checkbox"
               checked={asyncMode}
@@ -301,22 +249,22 @@ export function RequirementBundleExportPanel({
       </div>
 
       {polling && (
-        <div style={styles.info} data-testid="arch-bundle-export-polling">
+        <div className={styles.info} data-testid="arch-bundle-export-polling">
           {t("bundleExport.polling", "Compression in progress...")}
         </div>
       )}
 
       {displayError && (
-        <div style={styles.error} role="alert" data-testid="arch-bundle-export-error">
+        <div className={styles.error} role="alert" data-testid="arch-bundle-export-error">
           {displayError}
         </div>
       )}
 
       {rawResult && (
-        <div style={styles.result} data-testid="arch-bundle-export-result">
+        <div className={styles.result} data-testid="arch-bundle-export-result">
           {rawResult.format === "json" &&
             (rawResult.items.length === 0 ? (
-              <p style={styles.muted}>{t("bundleExport.empty", "No requirements found for this element.")}</p>
+              <p className={styles.muted}>{t("bundleExport.empty", "No requirements found for this element.")}</p>
             ) : (
               <pre>{JSON.stringify(rawResult.items, null, 2)}</pre>
             ))}
@@ -326,14 +274,14 @@ export function RequirementBundleExportPanel({
       )}
 
       {compressedResult && (
-        <div style={styles.result} data-testid="arch-bundle-export-result">
+        <div className={styles.result} data-testid="arch-bundle-export-result">
           {compressedResult.is_mock_fallback && (
-            <div style={styles.banner} data-testid="arch-bundle-export-mock-fallback">
+            <div className={styles.banner} data-testid="arch-bundle-export-mock-fallback">
               {t("bundleExport.mockFallback", "Note: deterministic mock output (no real LLM provider configured).")}
             </div>
           )}
           {compressedResult.cache_hit && (
-            <div style={styles.muted} data-testid="arch-bundle-export-cache-hit">
+            <div className={styles.muted} data-testid="arch-bundle-export-cache-hit">
               {t("bundleExport.cacheHit", "Served from cache")}
             </div>
           )}
@@ -342,7 +290,7 @@ export function RequirementBundleExportPanel({
       )}
 
       {taskId && pollStatus === "done" && pollResult && (
-        <div style={styles.result} data-testid="arch-bundle-export-result">
+        <div className={styles.result} data-testid="arch-bundle-export-result">
           <ReactMarkdown>{pollResult}</ReactMarkdown>
         </div>
       )}

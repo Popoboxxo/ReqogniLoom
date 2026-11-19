@@ -63,6 +63,9 @@
   --palette-slate-200: #e2e8f0;
   --palette-slate-300: #cbd5e1;
   --palette-slate-400: #94a3b8;
+  /* Terminal-state outline in WorkflowEditor.module.css (was a raw
+     rgba(148,163,184,0.3) literal). Exact value, frozen. */
+  --palette-slate-400-a30: rgba(148, 163, 184, 0.3);
   --palette-slate-600: #475569;
   --palette-slate-700: #334155;
   --palette-slate-800: #1e293b;
@@ -148,6 +151,7 @@
      Same rationale as --palette-indigo-500-a20/-a25: exact values, frozen,
      each used by two call sites across the two editor modules. */
   --palette-red-500-a10: rgba(239, 68, 68, 0.1);
+  --palette-red-500-a15: rgba(239, 68, 68, 0.15);
   --palette-red-500-a20: rgba(239, 68, 68, 0.2);
   --palette-red-500-a40: rgba(239, 68, 68, 0.4);
   --palette-red-600: #dc2626;
@@ -754,6 +758,11 @@
   --color-link-hover: var(--palette-indigo-400);
   --color-danger-banner-bg: var(--palette-white);
 
+  /* Print surface/text are deliberately theme-independent (white paper, black
+     ink). Declared in every theme block to keep the --color-* key sets equal. */
+  --color-print-surface: var(--palette-white);
+  --color-print-text: var(--palette-black);
+
   /* Shadows - Smooth glowing shadows */
   --shadow-sm: 0 1px 2px var(--palette-black-a30);
   --shadow-md: 0 4px 6px -1px var(--palette-black-a40), 0 2px 4px -1px var(--palette-black-a20);
@@ -1114,6 +1123,11 @@
   --color-link-hover: var(--palette-indigo-400);
   --color-danger-banner-bg: var(--palette-white);
 
+  /* Print surface/text are deliberately theme-independent (white paper, black
+     ink). Declared in every theme block to keep the --color-* key sets equal. */
+  --color-print-surface: var(--palette-white);
+  --color-print-text: var(--palette-black);
+
   --shadow-sm: 0 1px 2px var(--palette-slate-900-a08);
   --shadow-md: 0 4px 6px -1px var(--palette-slate-900-a10), 0 2px 4px -1px var(--palette-slate-900-a06);
   --shadow-card: 0 10px 15px -3px var(--palette-slate-900-a10), 0 4px 6px -2px var(--palette-slate-900-a05);
@@ -1303,6 +1317,11 @@
   --color-link-hover: var(--palette-indigo-400);
   --color-danger-banner-bg: var(--palette-white);
 
+  /* Print surface/text are deliberately theme-independent (white paper, black
+     ink). Declared in every theme block to keep the --color-* key sets equal. */
+  --color-print-surface: var(--palette-white);
+  --color-print-text: var(--palette-black);
+
   /* #568 Phase 3 fix: shadow/gradient/glass — light-style, mode-generic
      shadow/glass values copied verbatim from the `light` block; gradient
      accents mapped onto bauhaus's own mustard/terracotta hue pair
@@ -1474,6 +1493,11 @@
   --color-errorboundary-text: var(--palette-gray-600);
   --color-link-hover: var(--palette-indigo-400);
   --color-danger-banner-bg: var(--palette-white);
+
+  /* Print surface/text are deliberately theme-independent (white paper, black
+     ink). Declared in every theme block to keep the --color-* key sets equal. */
+  --color-print-surface: var(--palette-white);
+  --color-print-text: var(--palette-black);
 
   /* #568 Phase 3 fix: shadow/gradient/glass — dark-style, mode-generic
      shadow/glass values copied verbatim from the `dark` block; gradient
@@ -1653,6 +1677,11 @@
   --color-errorboundary-text: var(--palette-gray-600);
   --color-link-hover: var(--palette-indigo-400);
   --color-danger-banner-bg: var(--palette-white);
+
+  /* Print surface/text are deliberately theme-independent (white paper, black
+     ink). Declared in every theme block to keep the --color-* key sets equal. */
+  --color-print-surface: var(--palette-white);
+  --color-print-text: var(--palette-black);
 
   /* #568 Phase 3 fix: shadow/gradient/glass — light-style, mode-generic
      shadow/glass values copied verbatim from the `light` block; gradient
