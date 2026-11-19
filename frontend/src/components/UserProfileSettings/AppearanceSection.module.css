@@ -1,0 +1,114 @@
+/* AppearanceSection (Task 2) — every value comes from styles/tokens.css;
+   no hardcoded colours or sizes. Geometry mirrors IdentifiersSection so the
+   user-preference blocks on the profile page read as one section family. */
+
+.section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  box-shadow: var(--shadow-card);
+}
+
+.heading {
+  font-size: var(--font-size-xl);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+  margin: 0 0 var(--space-2) 0;
+}
+
+.hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-top: 0;
+  margin-bottom: var(--space-5);
+}
+
+.row {
+  border-top: 1px solid var(--color-border);
+  padding: var(--space-3) 0;
+}
+
+.row:first-of-type {
+  border-top: none;
+}
+
+/* APG switch: a real button keeps native keyboard activation and tab order. */
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--space-6);
+  padding: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* The visual track is decorative; `aria-checked` carries the state for AT. */
+.switchTrack {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--space-8);
+  height: var(--space-5);
+  border-radius: var(--radius-full);
+  background: var(--color-border);
+  transition: background var(--transition-fast);
+}
+
+.switchTrack::after {
+  content: "";
+  position: absolute;
+  top: var(--space-1);
+  left: var(--space-1);
+  width: var(--space-3);
+  height: var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--color-surface);
+  transition: transform var(--transition-fast);
+}
+
+.switchTrack[data-checked="true"] {
+  background-color: var(--color-primary);
+}
+
+.switchTrack[data-checked="true"]::after {
+  transform: translateX(var(--space-3));
+}
+
+.label {
+  color: var(--color-text);
+}
+
+.rowHint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: var(--space-1) 0 0 0;
+}
+
+.accountNote {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin: var(--space-4) 0 0 0;
+}
+
+.error {
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+  margin: var(--space-2) 0 0 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switchTrack,
+  .switchTrack::after {
+    transition: none;
+  }
+}

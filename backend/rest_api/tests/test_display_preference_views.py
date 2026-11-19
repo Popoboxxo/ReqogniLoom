@@ -36,6 +36,11 @@ pytestmark = pytest.mark.django_db
 
 _URL = "/api/v1/users/me/display-preferences/"
 
+#: The two slice-1a toggles are always present in the response payload and
+#: default to True. Every payload assertion below includes them so a silent
+#: drop of either field fails the test.
+_NEW_FLAGS = {"trace_footer_enabled": True, "inspector_enabled": True}
+
 
 @pytest.fixture
 def factory() -> APIRequestFactory:
@@ -103,7 +108,11 @@ def test_get_with_no_row_returns_server_default(factory, ctx) -> None:
     response = _call(_authed_ctx(factory.get(_URL), ctx))
 
     assert response.status_code == 200
-    assert response.data == {"show_readable_ids": True, "visible_metrics": None}
+    assert response.data == {
+        "show_readable_ids": True,
+        "visible_metrics": None,
+        **_NEW_FLAGS,
+    }
     assert not UserDisplayPreference.objects.exists()
 
 
@@ -117,7 +126,11 @@ def test_patch_false_persists_and_creates_a_row(factory, ctx, user) -> None:
     response = _call(request)
 
     assert response.status_code == 200
-    assert response.data == {"show_readable_ids": False, "visible_metrics": None}
+    assert response.data == {
+        "show_readable_ids": False,
+        "visible_metrics": None,
+        **_NEW_FLAGS,
+    }
 
     # T-C2-6 / #1094: the flag now lives in Q1, not the legacy display column.
     row = PreferenceValue.unscoped.get(
@@ -141,7 +154,11 @@ def test_patch_true_re_enables_without_a_duplicate_row(factory, ctx, user) -> No
     )
 
     assert response.status_code == 200
-    assert response.data == {"show_readable_ids": True, "visible_metrics": None}
+    assert response.data == {
+        "show_readable_ids": True,
+        "visible_metrics": None,
+        **_NEW_FLAGS,
+    }
     # T-C2-6 / #1094: still exactly one Q1 row per user+key, now carrying True
     # (a stored True must exist so it can override a global False default).
     rows = PreferenceValue.unscoped.filter(
@@ -170,7 +187,11 @@ def test_toggle_survives_a_new_session(factory, ctx, user, tenant) -> None:
     response = _call(_authed_ctx(factory.get(_URL), fresh_ctx))
 
     assert response.status_code == 200
-    assert response.data == {"show_readable_ids": False, "visible_metrics": None}
+    assert response.data == {
+        "show_readable_ids": False,
+        "visible_metrics": None,
+        **_NEW_FLAGS,
+    }
 
 
 # (e) an unknown key is rejected by the serializer, not silently stored
@@ -208,7 +229,11 @@ def test_patch_with_empty_body_is_a_noop(factory, ctx) -> None:
     response = _call(request)
 
     assert response.status_code == 200
-    assert response.data == {"show_readable_ids": True, "visible_metrics": None}
+    assert response.data == {
+        "show_readable_ids": True,
+        "visible_metrics": None,
+        **_NEW_FLAGS,
+    }
     assert not UserDisplayPreference.objects.exists()
 
 
@@ -254,7 +279,11 @@ def test_no_row_is_content_independent_for_another_account(factory, ctx) -> None
     response = _call(_authed_ctx(factory.get(_URL), other_ctx))
 
     assert response.status_code == 200
-    assert response.data == {"show_readable_ids": True, "visible_metrics": None}
+    assert response.data == {
+        "show_readable_ids": True,
+        "visible_metrics": None,
+        **_NEW_FLAGS,
+    }
     assert not PreferenceValue.unscoped.filter(user_id=other_user.pk).exists()
     TenantContext.clear_tenant()
 
@@ -295,6 +324,7 @@ def test_patch_visible_metrics_persists_the_selection(factory, ctx, user) -> Non
     assert response.data == {
         "show_readable_ids": True,
         "visible_metrics": selection,
+        **_NEW_FLAGS,
     }
     row = UserDisplayPreference.unscoped.get(user_id=user.pk)
     assert row.visible_metrics == selection
@@ -315,7 +345,11 @@ def test_patch_visible_metrics_null_resets_to_default(factory, ctx, user) -> Non
     )
 
     assert response.status_code == 200
-    assert response.data == {"show_readable_ids": True, "visible_metrics": None}
+    assert response.data == {
+        "show_readable_ids": True,
+        "visible_metrics": None,
+        **_NEW_FLAGS,
+    }
     assert UserDisplayPreference.unscoped.get(user_id=user.pk).visible_metrics is None
 
 
@@ -345,3 +379,128 @@ def test_patch_visible_metrics_rejects_a_non_list_value(factory, ctx) -> None:
 
     assert response.status_code == 400
     assert response.data["error"]["code"] == "VALIDATION_ERROR"
+
+
+# ---------------------------------------------------------------------------
+# Trace-spine footer / inspector toggles (slice 1a) — two independent Q1 keys
+# ---------------------------------------------------------------------------
+
+
+def test_get_no_row_returns_both_new_flags_true(factory, ctx) -> None:
+    """Both new toggles default to True and a read materialises no Q1 row."""
+    assert not PreferenceValue.unscoped.filter(user_id=ctx.user_id).exists()
+
+    response = _call(_authed_ctx(factory.get(_URL), ctx))
+
+    assert response.status_code == 200
+    assert response.data["trace_footer_enabled"] is True
+    assert response.data["inspector_enabled"] is True
+    assert not PreferenceValue.unscoped.filter(user_id=ctx.user_id).exists()
+
+
+@pytest.mark.parametrize(
+    "field,q1_key,other_field,other_q1_key",
+    [
+        (
+            "trace_footer_enabled",
+            "ui.trace_footer.enabled",
+            "inspector_enabled",
+            "ui.inspector.enabled",
+        ),
+        (
+            "inspector_enabled",
+            "ui.inspector.enabled",
+            "trace_footer_enabled",
+            "ui.trace_footer.enabled",
+        ),
+    ],
+)
+def test_patch_one_new_flag_leaves_the_other_untouched(
+    factory, ctx, user, field, q1_key, other_field, other_q1_key
+) -> None:
+    """Writing one toggle writes only its own Q1 row (D2 independence)."""
+    response = _call(
+        _authed_ctx(factory.patch(_URL, {field: False}, format="json"), ctx)
+    )
+
+    assert response.status_code == 200
+    assert response.data[field] is False
+    assert response.data[other_field] is True
+    row = PreferenceValue.unscoped.get(user_id=user.pk, scope="user", key=q1_key)
+    assert row.value is False
+    assert not PreferenceValue.unscoped.filter(
+        user_id=user.pk, key=other_q1_key
+    ).exists()
+
+
+@pytest.mark.parametrize("field", ["trace_footer_enabled", "inspector_enabled"])
+def test_patch_new_flag_rejects_a_non_bool(factory, ctx, user, field) -> None:
+    """A non-bool is caller input: 400 VALIDATION_ERROR, nothing written."""
+    response = _call(
+        _authed_ctx(factory.patch(_URL, {field: "maybe"}, format="json"), ctx)
+    )
+
+    assert response.status_code == 400
+    assert response.data["error"]["code"] == "VALIDATION_ERROR"
+    assert not PreferenceValue.unscoped.filter(user_id=user.pk).exists()
+
+
+@pytest.mark.parametrize("field", ["traceFooterEnabled", "inspectorEnabled"])
+def test_patch_rejects_camel_case_field(factory, ctx, field) -> None:
+    """The wire fields are snake_case; camelCase is an unknown key (#851)."""
+    response = _call(
+        _authed_ctx(factory.patch(_URL, {field: False}, format="json"), ctx)
+    )
+
+    assert response.status_code == 400
+    assert response.data["error"]["code"] == "VALIDATION_ERROR"
+    assert response.data["error"]["details"][0]["field"] == field
+
+
+def test_patch_both_new_flags_persists_both_and_other_user_sees_defaults(
+    factory, ctx, user, tenant
+) -> None:
+    """One PATCH carries both toggles; another account still sees defaults."""
+    response = _call(
+        _authed_ctx(
+            factory.patch(
+                _URL,
+                {"trace_footer_enabled": False, "inspector_enabled": False},
+                format="json",
+            ),
+            ctx,
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.data["trace_footer_enabled"] is False
+    assert response.data["inspector_enabled"] is False
+    for key in ("ui.trace_footer.enabled", "ui.inspector.enabled"):
+        assert (
+            PreferenceValue.unscoped.get(user_id=user.pk, scope="user", key=key).value
+            is False
+        )
+
+    other_tenant = Tenant.objects.create(
+        name="DisplayPref Other",
+        slug=f"displaypref-other-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    other_user = User.objects.create(
+        username=f"displaypref-other-{uuid.uuid4().hex[:6]}",
+        email=f"displaypref-other-{uuid.uuid4().hex[:6]}@t.test",
+        tenant=other_tenant,
+    )
+    other_ctx = AuthContext(
+        user_id=other_user.pk,
+        tenant_id=other_tenant.pk,
+        active_roles=("admin",),
+        auth_method=AuthMethod.BEARER_TOKEN,
+    )
+    response = _call(_authed_ctx(factory.get(_URL), other_ctx))
+
+    assert response.status_code == 200
+    assert response.data["trace_footer_enabled"] is True
+    assert response.data["inspector_enabled"] is True
+    assert not PreferenceValue.unscoped.filter(user_id=other_user.pk).exists()
+    TenantContext.clear_tenant()

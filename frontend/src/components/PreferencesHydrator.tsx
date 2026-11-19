@@ -23,24 +23,46 @@
  *   - **redundant writes** → the setter is only called when the resolved value
  *     actually differs from the current store value, so hydration cannot loop.
  *
+ * Task 2 extends the same lifecycle to the two independent display flags
+ * (`trace_footer_enabled`, `inspector_enabled`). They come from the
+ * self-service endpoint, NOT the Q1 effective-values route: their Q1 keys are
+ * backend-internal and never appear in client code. The localStorage stores of
+ * `useTraceFooterVisible` / `useInspectorVisible` paint synchronously on first
+ * render; this component replaces both with the server values once the query
+ * settles, so a fresh device gets the account's choice without visiting
+ * `/profile`.
+ *
  * It draws nothing: this is a lifecycle component, not a UI surface.
  */
 
 import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { useAuth } from "../context/AuthContext";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { useEffectivePreferences } from "../queries/preferences";
+import { displayPreferencesApi } from "../api/display-preferences";
 import {
   getReadableIdsVisible,
   setReadableIdsVisible,
 } from "../hooks/useReadableIdsVisible";
+import {
+  getInspectorVisible,
+  setInspectorVisible,
+} from "../hooks/useInspectorVisible";
+import {
+  getTraceFooterVisible,
+  setTraceFooterVisible,
+} from "../hooks/useTraceFooterVisible";
 
 /**
  * Q1 key backing `UserDisplayPreference.show_readable_ids` (T-C2-6 / #1096).
  * Registered in `auth_tenancy/apps.py` as a three-level `bool`.
  */
 export const SHOW_READABLE_IDS_KEY = "ui.ids.show_readable";
+
+/** Cache key for the self-service display-preferences query (Task 2). */
+export const DISPLAY_PREFERENCES_QUERY_KEY = ["display-preferences", "me"] as const;
 
 /**
  * The actual hydration. Split from the exported component so the query hook is
@@ -65,6 +87,33 @@ function AuthenticatedPreferencesHydrator(): null {
 }
 
 /**
+ * Task 2: hydrate the two independent display flags from the self-service
+ * endpoint. Same degradation policy as above — while loading, on error and for
+ * a missing field the localStorage first-render cache stays authoritative, and
+ * a redundant write is skipped. Only the field the server actually returned is
+ * applied, so one flag can never move the other.
+ */
+function AuthenticatedDisplayPreferencesHydrator(): null {
+  const { data } = useQuery({
+    queryKey: DISPLAY_PREFERENCES_QUERY_KEY,
+    queryFn: () => displayPreferencesApi.get(),
+  });
+
+  useEffect(() => {
+    if (data?.trace_footer_enabled !== undefined &&
+        data.trace_footer_enabled !== getTraceFooterVisible()) {
+      setTraceFooterVisible(data.trace_footer_enabled);
+    }
+    if (data?.inspector_enabled !== undefined &&
+        data.inspector_enabled !== getInspectorVisible()) {
+      setInspectorVisible(data.inspector_enabled);
+    }
+  }, [data]);
+
+  return null;
+}
+
+/**
  * Renders nothing visible: the component exists for its lifecycle effect.
  *
  * The return type is `JSX.Element | null` rather than a literal `null` because
@@ -76,5 +125,10 @@ function AuthenticatedPreferencesHydrator(): null {
 export function PreferencesHydrator(): JSX.Element | null {
   const { status } = useAuth();
   if (status !== "authenticated") return null;
-  return <AuthenticatedPreferencesHydrator />;
+  return (
+    <>
+      <AuthenticatedPreferencesHydrator />
+      <AuthenticatedDisplayPreferencesHydrator />
+    </>
+  );
 }

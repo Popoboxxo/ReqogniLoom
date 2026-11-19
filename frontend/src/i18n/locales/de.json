@@ -2779,6 +2779,17 @@
     "accountLabel": "Ihr Konto",
     "accountUnavailable": "Konto wird geladen…"
   },
+  "appearance": {
+    "title": "Darstellung",
+    "hint": "Diese beiden Anzeigen sind unabhängig voneinander und können gleichzeitig aktiv sein. Sie gehören zu Ihrem Benutzerkonto und gelten in allen Workspaces.",
+    "traceFooter": "Trace-Fußzeile anzeigen",
+    "traceFooterHint": "Zeigt die Ableitungskette als horizontale Leiste über der vollen Inhaltsbreite.",
+    "inspector": "Artefakt-Inspector anzeigen",
+    "inspectorHint": "Zeigt den Inspector mit Details, Versionen und Trace-Links.",
+    "loading": "Einstellungen werden geladen…",
+    "syncFailed": "Die Einstellungen konnten nicht mit dem Server synchronisiert werden.",
+    "accountNote": "Diese Einstellungen gehören zu Ihrem Benutzerkonto und gelten auf allen Geräten."
+  },
   "pageHeader": {
     "more": "Weitere Aktionen",
     "moreLabel": "Weitere Aktionen anzeigen"

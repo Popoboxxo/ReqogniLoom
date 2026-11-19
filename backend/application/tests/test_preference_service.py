@@ -21,7 +21,10 @@ import uuid
 import pytest
 from django.core.exceptions import ImproperlyConfigured
 
-from application.display_preference_service import DisplayPreferenceService
+from application.display_preference_service import (
+    ALL_DISPLAY_PREFERENCES,
+    DisplayPreferenceService,
+)
 from application.preference_registry import (
     PreferenceKey,
     all_preference_keys,
@@ -789,7 +792,12 @@ class TestDisplayPreferenceFacadeOnQ1:
 
         payload = DisplayPreferenceService().get_display_preferences(admin_ctx)
 
-        assert payload == {"show_readable_ids": False, "visible_metrics": None}
+        assert payload == {
+            "show_readable_ids": False,
+            "visible_metrics": None,
+            "trace_footer_enabled": True,
+            "inspector_enabled": True,
+        }
 
     def test_user_level_wins_over_the_global_default(self, service, admin_ctx) -> None:
         """Resolution is user > global > registry default (``override`` mode)."""
@@ -803,3 +811,41 @@ class TestDisplayPreferenceFacadeOnQ1:
         payload = DisplayPreferenceService().get_display_preferences(admin_ctx)
 
         assert payload["show_readable_ids"] is True
+
+    # --- Trace-spine footer / inspector toggles (slice 1a) -------------------
+
+    @pytest.mark.parametrize(
+        "q1_key",
+        ["ui.trace_footer.enabled", "ui.inspector.enabled"],
+    )
+    def test_independent_bool_key_resolves_default_then_user_level(
+        self, service, admin_ctx, q1_key
+    ) -> None:
+        """Each new key resolves to its registry default, then to a user row."""
+        assert resolve_for(
+            tenant_id=admin_ctx.tenant_id,
+            workspace_id=None,
+            user_id=admin_ctx.user_id,
+            key=q1_key,
+        ) == (True, "default")
+
+        service.set_level(admin_ctx, scope="user", values={q1_key: False})
+
+        assert resolve_for(
+            tenant_id=admin_ctx.tenant_id,
+            workspace_id=None,
+            user_id=admin_ctx.user_id,
+            key=q1_key,
+        ) == (False, "user")
+
+    def test_new_bool_fields_are_in_allowlist_and_default_true(
+        self, admin_ctx
+    ) -> None:
+        """Both HTTP fields are accepted and reported True with no rows."""
+        assert "trace_footer_enabled" in ALL_DISPLAY_PREFERENCES
+        assert "inspector_enabled" in ALL_DISPLAY_PREFERENCES
+
+        payload = DisplayPreferenceService().get_display_preferences(admin_ctx)
+
+        assert payload["trace_footer_enabled"] is True
+        assert payload["inspector_enabled"] is True

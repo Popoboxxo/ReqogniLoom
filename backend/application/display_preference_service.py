@@ -32,7 +32,13 @@ copied the pre-existing ``False`` values into Q1, and ``0033`` drops the
 column; its reverse recreates it from Q1, so a rollback keeps every user's
 choice.
 
-Requirements: Issue #1096, Plan C T-C2-6.
+``trace_footer_enabled`` and ``inspector_enabled`` (trace-spine-footer plan,
+slice 1a) follow the same Q1 path as ``show_readable_ids`` but are registered
+user-scope only: they are personal layout switches with no tenant-wide default.
+They are two independent keys — writing one never touches the other — and the
+HTTP wire fields are snake_case, matching the serializer vocabulary.
+
+Requirements: Issue #1096, Plan C T-C2-6; trace-spine-footer plan slice 1a.
 """
 from __future__ import annotations
 
@@ -53,10 +59,34 @@ from persistence.errors import ValidationError
 #: * ``show_readable_ids`` (Issue #1096) — bool.
 #: * ``visible_metrics`` (Issue #1265) — list of metric keys, or ``None`` for
 #:   "no explicit selection" (render the registry default set).
-ALL_DISPLAY_PREFERENCES: tuple[str, ...] = ("show_readable_ids", "visible_metrics")
+#: * ``trace_footer_enabled`` / ``inspector_enabled`` (trace-spine-footer plan,
+#:   slice 1a) — two independent bool layout switches, each backed by its own
+#:   user-scoped Q1 key.
+ALL_DISPLAY_PREFERENCES: tuple[str, ...] = (
+    "show_readable_ids",
+    "visible_metrics",
+    "trace_footer_enabled",
+    "inspector_enabled",
+)
 
 #: Q1 key that now backs ``show_readable_ids`` (Plan C, T-C2-6).
 SHOW_READABLE_IDS_KEY = "ui.ids.show_readable"
+
+#: Q1 keys backing the two independent layout switches (slice 1a). Both are
+#: registered in ``auth_tenancy/apps.py`` with ``default=True`` and user scope
+#: only, so ``resolve_for`` needs no workspace id and never sees a row from a
+#: different user.
+TRACE_FOOTER_ENABLED_KEY = "ui.trace_footer.enabled"
+INSPECTOR_ENABLED_KEY = "ui.inspector.enabled"
+
+#: HTTP field -> Q1 key for every bool display flag. Used both to validate the
+#: type of a PATCH value and to route it to its own ``set_level`` call, which
+#: keeps the three flags independent (one PATCH key writes exactly one row).
+BOOL_Q1_FIELDS: dict[str, str] = {
+    "show_readable_ids": SHOW_READABLE_IDS_KEY,
+    "trace_footer_enabled": TRACE_FOOTER_ENABLED_KEY,
+    "inspector_enabled": INSPECTOR_ENABLED_KEY,
+}
 
 #: Server-side default. Mirrors the frontend fallback (readable ids visible) so
 #: an absent Q1 row never changes the rendered behaviour. The Q1 registry entry
@@ -104,6 +134,10 @@ class DisplayPreferenceService(ServiceBase):
         the whole boundary, and a tenant-wide default now applies to accounts
         that never touched the switch.
 
+        ``trace_footer_enabled`` and ``inspector_enabled`` (slice 1a) use the
+        same user-scoped Q1 path and are fully independent of each other and of
+        ``show_readable_ids``.
+
         ``visible_metrics`` still comes from the ``UserDisplayPreference``
         column. A missing row is *not* an error: every flag falls back to its
         default, so first access returns the same payload as an untouched
@@ -111,15 +145,18 @@ class DisplayPreferenceService(ServiceBase):
         """
         self._set_tenant_context(ctx)
         row = UserDisplayPreference.objects.filter(user_id=ctx.user_id).first()
-        show_readable_ids, _source = resolve_for(
-            tenant_id=ctx.tenant_id,
-            # Account-wide view: Q1's workspace level does not participate.
-            workspace_id=None,
-            user_id=ctx.user_id,
-            key=SHOW_READABLE_IDS_KEY,
-        )
+        resolved = {
+            field: resolve_for(
+                tenant_id=ctx.tenant_id,
+                # Account-wide view: Q1's workspace level does not participate.
+                workspace_id=None,
+                user_id=ctx.user_id,
+                key=q1_key,
+            )[0]
+            for field, q1_key in BOOL_Q1_FIELDS.items()
+        }
         return {
-            "show_readable_ids": show_readable_ids,
+            **resolved,
             "visible_metrics": (
                 row.visible_metrics if row is not None else VISIBLE_METRICS_DEFAULT
             ),
@@ -131,23 +168,23 @@ class DisplayPreferenceService(ServiceBase):
         """Apply a partial display update and return the fresh effective flags.
 
         Only keys in :data:`ALL_DISPLAY_PREFERENCES` are accepted; anything else
-        — an unknown key, a non-``bool`` ``show_readable_ids``, or a
-        ``visible_metrics`` value that is not a known-key list — is caller
+        — an unknown key, a non-``bool`` value for one of the three bool flags,
+        or a ``visible_metrics`` value that is not a known-key list — is caller
         input, not a server fault, and is rejected with
         :class:`ValidationError` (the view maps it to 400). ``None`` is not part
-        of this contract for ``show_readable_ids``: the display toggle has no
-        "inherit" state (reset happens on Q1's own route).
+        of this contract for the bool flags: a display toggle has no "inherit"
+        state (reset happens on Q1's own route).
 
-        Each key is written to its own store (Q1 for ``show_readable_ids``, the
+        Each key is written to its own store (Q1 for the three bool flags, the
         column for ``visible_metrics``) inside one transaction, so a PATCH
-        carrying both is all-or-nothing. An empty *changes* map is a read-only
-        no-op so a PATCH with an empty body still answers with the caller's
-        current flags instead of creating a row.
+        carrying several is all-or-nothing. An empty *changes* map is a
+        read-only no-op so a PATCH with an empty body still answers with the
+        caller's current flags instead of creating a row.
         """
         for key, value in changes.items():
             if key not in ALL_DISPLAY_PREFERENCES:
                 raise ValidationError(f"Unknown display preference: {key!r}")
-            if key == "show_readable_ids" and not isinstance(value, bool):
+            if key in BOOL_Q1_FIELDS and not isinstance(value, bool):
                 raise ValidationError(
                     f"Display preference {key!r} must be a boolean, "
                     f"got {type(value).__name__}"
@@ -160,14 +197,14 @@ class DisplayPreferenceService(ServiceBase):
 
         self._set_tenant_context(ctx)
         with transaction.atomic():
-            if "show_readable_ids" in changes:
-                # Self-service user level: ``ctx.user_id`` is the whole
-                # boundary, exactly as for the legacy column before T-C2-6.
-                PreferenceService().set_level(
-                    ctx,
-                    scope="user",
-                    values={SHOW_READABLE_IDS_KEY: changes["show_readable_ids"]},
-                )
+            for field, q1_key in BOOL_Q1_FIELDS.items():
+                if field in changes:
+                    # Self-service user level: ``ctx.user_id`` is the whole
+                    # boundary. Each flag writes only its own Q1 key, so two
+                    # toggles in one PATCH stay independent.
+                    PreferenceService().set_level(
+                        ctx, scope="user", values={q1_key: changes[field]}
+                    )
             if "visible_metrics" in changes:
                 self._write_visible_metrics(ctx, changes["visible_metrics"])
 
@@ -193,8 +230,11 @@ class DisplayPreferenceService(ServiceBase):
 
 __all__ = [
     "ALL_DISPLAY_PREFERENCES",
+    "BOOL_Q1_FIELDS",
+    "INSPECTOR_ENABLED_KEY",
     "SHOW_READABLE_IDS_DEFAULT",
     "SHOW_READABLE_IDS_KEY",
+    "TRACE_FOOTER_ENABLED_KEY",
     "VISIBLE_METRICS_DEFAULT",
     "DisplayPreferenceService",
 ]

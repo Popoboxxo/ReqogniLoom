@@ -13,6 +13,7 @@
 
 import { useTranslation } from "react-i18next";
 import { ApiKeysSection } from "./ApiKeysSection";
+import { AppearanceSection } from "./AppearanceSection";
 import { IdentifiersSection } from "./IdentifiersSection";
 import { MemorySection } from "./MemorySection";
 import { NotificationsSection } from "./NotificationsSection";
@@ -103,6 +104,11 @@ export default function UserProfileSettings(): JSX.Element {
           — it applies in every workspace. */}
       <IdentifiersSection />
 
+      {/* Task 2: the two INDEPENDENT user-level display switches (trace footer
+          and inspector). User-global like the blocks above — they live here,
+          not in the WorkspaceSettings "Darstellung" tab. */}
+      <AppearanceSection />
+
       {/* Issue #1257: the personal level of the navigation tree's field
           configuration. User-global like the two blocks above — it applies in
           every workspace, on top of the workspace and tenant-wide defaults. */}
@@ -111,8 +117,17 @@ export default function UserProfileSettings(): JSX.Element {
       {/* Plan C / T-C2-5: the personal level of the generic Q1 preference
           values, rendered from the server's key registry. `ui.ids.show_readable`
           is deliberately excluded — IdentifiersSection above owns it on this
-          page (and drives the shared IdChip store). */}
-      <PreferenceLevelSection scope="user" excludeKeys={["ui.ids.show_readable"]} />
+          page (and drives the shared IdChip store). Task 2's two Q1 keys are
+          likewise excluded: they are backend-internal and AppearanceSection
+          above owns their user-facing switches via the HTTP fields. */}
+      <PreferenceLevelSection
+        scope="user"
+        excludeKeys={[
+          "ui.ids.show_readable",
+          "ui.trace_footer.enabled",
+          "ui.inspector.enabled",
+        ]}
+      />
 
       {activeWorkspace && (
         <section className={styles.visibilitySection} data-testid="visibility-section">

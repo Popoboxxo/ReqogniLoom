@@ -21,13 +21,18 @@ Layer 3 only: every read and write goes through ``DisplayPreferenceService``
 (ADR-01); this module contains no ORM access — the ``rest_api/*_views.py``
 ratchet in ``rest_api/tests/test_architecture.py`` enforces that.
 
-Contract (Issues #1096, #1265):
-  GET   -> 200 ``{"show_readable_ids": <bool>, "visible_metrics": [...] | null}``
+``trace_footer_enabled`` and ``inspector_enabled`` (trace-spine-footer plan,
+slice 1a) join the same payload as two independent bool layout switches.
+
+Contract (Issues #1096, #1265; slice 1a):
+  GET   -> 200 ``{"show_readable_ids": <bool>, "visible_metrics": [...] | null,
+                  "trace_footer_enabled": <bool>, "inspector_enabled": <bool>}``
          (server defaults when no row)
-  PATCH <- ``{"show_readable_ids": <bool>, "visible_metrics": [...] | null}``
+  PATCH <- the same shape, every field optional
          -> 200 same shape
         unknown key / wrong type / unknown metric key -> 400 ``VALIDATION_ERROR``
-        (#851)
+        (#851). The two layout switches are snake_case; camelCase is an
+        unknown key and is rejected by ``UnknownFieldRejectionMixin``.
 """
 from __future__ import annotations
 
@@ -56,19 +61,25 @@ class DisplayPreferenceResponseSerializer(serializers.Serializer):
 
     Contract-only: the view returns ``DisplayPreferenceService``'s dict
     unchanged. ``visible_metrics`` is ``null`` when the caller has no selection,
-    which the service reports as "use the registry default set".
+    which the service reports as "use the registry default set". The two layout
+    switches are always present and default to ``True`` with no Q1 row.
     """
 
     show_readable_ids = serializers.BooleanField()
     visible_metrics = serializers.ListField(
         child=serializers.CharField(), allow_null=True
     )
+    # Slice 1a: two independent user-scoped layout switches. Snake_case on the
+    # wire; camelCase variants are rejected by the update serializer below.
+    trace_footer_enabled = serializers.BooleanField()
+    inspector_enabled = serializers.BooleanField()
 
 
 class DisplayPreferenceUpdateSerializer(
     UnknownFieldRejectionMixin, serializers.Serializer
 ):
-    """``{"show_readable_ids": <bool>, "visible_metrics": [<key>, …] | null}``.
+    """``{"show_readable_ids": <bool>, "visible_metrics": [<key>, …] | null,
+    "trace_footer_enabled": <bool>, "inspector_enabled": <bool>}``.
 
     The declared fields *are* the closed vocabulary: ``UnknownFieldRejectionMixin``
     (#851) turns any other key into a 400 instead of the DRF default of silently
@@ -84,6 +95,8 @@ class DisplayPreferenceUpdateSerializer(
     visible_metrics = serializers.ListField(
         child=serializers.CharField(), required=False, allow_null=True
     )
+    trace_footer_enabled = serializers.BooleanField(required=False)
+    inspector_enabled = serializers.BooleanField(required=False)
 
 
 class DisplayPreferenceView(APIView):

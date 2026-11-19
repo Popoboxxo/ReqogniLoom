@@ -79,6 +79,32 @@ def _register_q1_preference_keys() -> None:
             ui_editor="checkbox",
             owner="C2",
         ),
+        # Trace-spine footer visibility (trace-spine-footer plan, slice 1a): a
+        # personal layout switch with no workspace/global default, so only the
+        # user level is allowed — a workspace admin must not hide it for others.
+        # Registered before the facade reads it; an unregistered key would make
+        # ``resolve_for`` raise ValidationError and turn GET into a 500. Both this
+        # and the inspector key below have a dedicated ``UserProfileSettings``
+        # editor (slice 1b), so the generic settings editor skips them
+        # (``ui_editor=None``).
+        PreferenceKey(
+            key="ui.trace_footer.enabled",
+            value_type="bool",
+            default=True,
+            levels=frozenset({PREFERENCE_SCOPE_USER}),
+            mode="override",
+            owner="TraceSpine",
+        ),
+        # Artifact inspector visibility (same plan): deliberately independent
+        # of the footer toggle, and for the same reason user level only.
+        PreferenceKey(
+            key="ui.inspector.enabled",
+            value_type="bool",
+            default=True,
+            levels=frozenset({PREFERENCE_SCOPE_USER}),
+            mode="override",
+            owner="TraceSpine",
+        ),
         # Markdown formatting toolbar (Plan C T-C2-8): "auto" = show once the
         # field has three or more lines.
         PreferenceKey(
