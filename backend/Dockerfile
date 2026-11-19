@@ -5,7 +5,7 @@
 # ─────────────────────────────────────────────────────────
 # Stage 1: builder — install dependencies (with build tools)
 # ─────────────────────────────────────────────────────────
-FROM python:3.15-slim@sha256:94d3426f1def7db4a106a232ac121bfd975393e5dfd40a619b955fae45fe7913 AS builder
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS builder
 
 WORKDIR /app
 
@@ -50,7 +50,7 @@ RUN pip install --no-cache-dir --prefix=/install \
 # ─────────────────────────────────────────────────────────
 # Stage 2: runtime — minimal image with only runtime deps
 # ─────────────────────────────────────────────────────────
-FROM python:3.15-slim@sha256:94d3426f1def7db4a106a232ac121bfd975393e5dfd40a619b955fae45fe7913 AS runtime
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS runtime
 
 # Build metadata stamping — exposed via GET /api/v1/version/ (reqogniloom/version.py).
 # A runtime image built from this Dockerfile ships no repo root / .git directory,
