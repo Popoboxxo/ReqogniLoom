@@ -303,7 +303,7 @@ services:
   # PostgreSQL — ARCH-L1-010 PersistenceLayer
   # ─────────────────────────────────────────────────────────
   postgres:
-    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
+    image: pgvector/pgvector:pg16@sha256:484e838076e04939d27d3e176e91c86eea96236126023be8d3059761122e579f
     shm_size: ${POSTGRES_SHM_SIZE:-256mb}
     deploy:
       resources:
@@ -406,7 +406,7 @@ services:
   #    dump's own status; that is the operator-facing one-shot the runbook gate
   #    calls, so the gate gets a real non-zero exit code.
   postgres-backup:
-    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
+    image: pgvector/pgvector:pg16@sha256:484e838076e04939d27d3e176e91c86eea96236126023be8d3059761122e579f
     deploy:
       resources:
         limits:
@@ -1259,7 +1259,7 @@ services:
   # alembic migrations), not a casual pull: smoke-test memory read/write after.
   # ═════════════════════════════════════════════════════════
   honcho-postgres:
-    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
+    image: pgvector/pgvector:pg16@sha256:484e838076e04939d27d3e176e91c86eea96236126023be8d3059761122e579f
     shm_size: ${POSTGRES_SHM_SIZE:-256mb}
     deploy:
       resources:
