@@ -15,12 +15,13 @@
 # avoiding the multi-GB CUDA/nvidia-* wheels that sentence-transformers' default
 # PyPI `torch` would pull into this GPU-less deployment (ADR-08).
 #
-# --hash is verified by pip for this requirement even without pip's global
-# hash-required mode (which is impossible here: requirements.txt has 145
-# non-pinned packages and a django-celery-beat VCS pin, all incompatible with
-# that mode).
+# The sha256 is a PEP 508 URL fragment (#sha256=<digest>), not a --hash flag:
+# pip still verifies it on download, but URL hashes do NOT activate pip's global
+# hash-required mode. A flag hash would activate that mode and then fail on
+# requirements.txt's ~145 unpinned packages and the django-celery-beat VCS pin
+# (VcsHashUnsupported). Regenerate the digest and URL together; keep %2B encoded.
 # Target: cp315, CPython 3.15, manylinux_2_28 x86_64 (matches the image's
 # python:3.15-slim base and the CI/build runner architecture). Regenerate URL and
 # hash together from https://download.pytorch.org/whl/cpu/torch/ when the base
 # image's Python or the target architecture changes.
-torch @ https://download.pytorch.org/whl/cpu/torch-2.15.0%2Bcpu-cp315-cp315-manylinux_2_28_x86_64.whl --hash=sha256:3552930ba3d358d3ff0b6fee19cb296e199767443c0c86be2a715471036d9233
+torch @ https://download.pytorch.org/whl/cpu/torch-2.15.0%2Bcpu-cp315-cp315-manylinux_2_28_x86_64.whl#sha256=3552930ba3d358d3ff0b6fee19cb296e199767443c0c86be2a715471036d9233

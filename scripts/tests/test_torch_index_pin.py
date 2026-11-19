@@ -27,10 +27,12 @@ VCS_PIN = (
 )
 # Direct-URL requirement: exact CPU wheel + per-requirement hash. The local
 # version (``+cpu``) is percent-encoded as ``%2B`` in the URL, per PEP 508.
+# Hash is a URL fragment so pip verifies it without activating global
+# --require-hashes mode, which the django-celery-beat VCS pin cannot use.
 TORCH_PIN_RE = re.compile(
     r"^torch @ https://download\.pytorch\.org/whl/cpu/"
     r"torch-\d+\.\d+\.\d+%2Bcpu-cp315-cp315-manylinux_2_28_x86_64\.whl"
-    r" --hash=sha256:[0-9a-f]{64}$",
+    r"#sha256=[0-9a-f]{64}$",
     re.MULTILINE,
 )
 
