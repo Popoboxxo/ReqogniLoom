@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0-beta.3] — 2026-11-19
+
+### Added
+- feat(ui): horizontal trace spine footer spanning the full content width outside the navigation — chain glyphs, direction arrows, verification badges and a station popover (`role="dialog"`, ESC and focus return); at ≥5 stations the chain collapses behind `[+N weitere]` while the active station stays visible with `aria-current="step"` (#1943)
+- feat(ui): two independent user display preferences for the footer and the inspector (`trace_footer_enabled` / `inspector_enabled`, Q1 keys `ui.trace_footer.enabled` / `ui.inspector.enabled`) with switches in UserProfileSettings; the derivation-chain RPC fires only while the footer is mounted, so switching it off makes no chain calls (#1943)
+- feat(ui): per-module draggable tree width with persisted layout per ADR-030 — new device-local key `reqflow.splitview.treeWidth.v2.<moduleType>` and an accessible `tree-width-separator` (arrow ±16 px, Shift ±64 px, Home/End, Enter/double-click resets to the module default), restoring REQ-L1-084 / REQ-L3-RF009-001 without reviving the removed legacy contract (#1943)
+- feat(ui): on-demand impact drawer (`impact-drawer`) on `/traceability` replacing the permanently empty impact column and the full-page `window.location.assign("/impact")` — opens on click, closes on ESC with focus return and `aria-modal="true"` (#1943)
+
+### Changed
+- The derivation chain moved out of the `<SplitView>` `spine` slot into a footer sibling; hosts no longer populate the slot, and the three competing breakpoint mechanisms are consolidated so `--bp-lg` now belongs to the inspector only (#1943)
+- With both toggles on, footer and inspector both show links (the status quo since inspector M8); no new suppression logic was added (#1943)
+- `ratio` now supplies the initial tree width and `minWidths` the clamp bounds; after the first drag the persisted `treeWidth` (px) is authoritative, clamped from `minWidths[0]` (380 px) to the measured `effMax` (ADR-030) (#1943)
+
+### Fixed
+- Mobile sheet coordination: footer sheet and inspector sheet may both be enabled but only one expands at a time, a single back button closes the top sheet, focus moves into the opened sheet and `aria-modal` is set only there (#1943)
+- A11Y: stabilized axe sweeps after the footer rollout, kept ≥44 px hit targets and the mobile viewport across reflow; no existing ratchet baseline was raised (#1943)
+- Stations whose chain is unresolved, still resolving or failed render as disabled and open no popover, so the footer produces no dead links (#1943)
+
 ## [1.9.0-beta.2] — 2026-11-16
 
 ### Added
