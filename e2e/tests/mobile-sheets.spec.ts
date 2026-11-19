@@ -254,7 +254,13 @@ test.describe('@mobile sheets — single expanded sheet (plan §3.5)', () => {
         const results: Array<{ theme: string; blocking: string[] }> = [];
         for (const theme of THEMES) {
           await forceTheme(page, theme);
-          await openSheetHost(page);
+          // forceTheme reloads the page. The mobile list/detail machine often
+          // restores the detail pane already; re-running openSheetHost then
+          // clicks a row while the detail is open and never shows splitview-back.
+          // Re-open only when the detail is genuinely absent.
+          if (!(await page.getByTestId('splitview-detail').isVisible())) {
+            await openFirstListItem(page);
+          }
           const railOpen = page.getByTestId(SHEET_TEST_IDS.inspectorRailOpen);
           if (await railOpen.count()) {
             await railOpen.click();

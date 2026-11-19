@@ -400,6 +400,10 @@ test.describe('[REQ-056] Automated axe gate (Phase 6.8) @a11y', () => {
   // -------------------------------------------------------------------------
   for (const theme of THEMES) {
     test(`[A11Y] 24-route axe sweep — theme=${theme.id}`, async ({ page }, testInfo) => {
+      // 24 sequential AxeBuilder.analyze() calls exceed the 60s default once
+      // the trace footer + separator add DOM on every route. More time only —
+      // the blocking-violation assertion below stays exactly as strict.
+      test.setTimeout(180_000);
       await setTheme(page, theme);
 
       const routes: Array<{ slug: string; route: string } & AxeSummary> = [];
