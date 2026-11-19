@@ -68,7 +68,7 @@ services:
   postgres-test:
     # Digest-pinned to the same multi-arch manifest list used in deploy/ so the
     # test stack and the deployed stack run byte-identical images (#1391).
-    image: pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
+    image: pgvector/pgvector:pg16@sha256:484e838076e04939d27d3e176e91c86eea96236126023be8d3059761122e579f
     # Fast-and-loose durability settings, pinned in the container COMMAND so
     # they are part of the declared configuration instead of runtime state.
     # They used to exist only as `ALTER SYSTEM` (== $PGDATA/postgresql.auto.conf)
