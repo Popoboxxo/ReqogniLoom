@@ -57,6 +57,7 @@ import type { VersionRef } from "../shared/ArtifactInspector";
 import { TraceSpineFooter } from "../shared/TraceSpine";
 import { getArtifactRoute } from "../../utils/artifactRoutes";
 import { useTraceFooterVisible } from "../../hooks/useTraceFooterVisible";
+import { useTreeWidth } from "../../hooks/useTreeWidth";
 import { SplitView } from "../SplitView/SplitView";
 import { resolveBadgeVariant } from "../../utils/statusBadge";
 import { ArchiveConfirmDialog } from "./ArchiveConfirmDialog";
@@ -165,6 +166,8 @@ export default function GoalsPage(): JSX.Element {
   // so this page only decides *whether* it is mounted. The MainGoal kind has
   // no trace graph (spec §3), so the footer is gated on a selected Goal.
   const [traceFooterVisible] = useTraceFooterVisible();
+  // Task 9 / ADR-030: per-module persisted tree width (min matches minWidths[0]).
+  const { treeWidth, defaultTreeWidth, setTreeWidth } = useTreeWidth("goals", { min: 350 });
 
   // #1762 (M4, mirrors M1–M3): the inspector's programmatic focus targets live
   // in the route, not in the shell — the shell must not know the detail area's
@@ -482,6 +485,10 @@ export default function GoalsPage(): JSX.Element {
             `mainGoal` has no trace graph at all (spec §3), so the slot stays
             empty for it. */}
         <SplitView
+          moduleType="goals"
+          treeWidth={treeWidth}
+          onTreeWidthChange={setTreeWidth}
+          defaultTreeWidth={defaultTreeWidth}
           list={
             <GoalsTree
               goals={goals}

@@ -78,6 +78,7 @@ import { InspectorShell } from '../shared/ArtifactInspector';
 import { TraceSpineFooter } from '../shared/TraceSpine';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useTraceFooterVisible } from '../../hooks/useTraceFooterVisible';
+import { useTreeWidth } from '../../hooks/useTreeWidth';
 import { BaselineDriftBadge } from '../shared/BaselineDriftBadge/BaselineDriftBadge';
 import styles from './RequirementEditors.module.css';
 import { RequirementCreateFallbackForm } from './RequirementCreateFallbackForm';
@@ -341,6 +342,8 @@ export default function RequirementEditors(): JSX.Element {
   // so this host only decides *whether* it is mounted (and no longer fires
   // chain RPCs on its own).
   const [traceFooterVisible] = useTraceFooterVisible();
+  // Task 9 / ADR-030: per-module persisted tree width (min matches minWidths[0]).
+  const { treeWidth, defaultTreeWidth, setTreeWidth } = useTreeWidth('requirements', { min: 320 });
 
   // Loading state
   if (isLoading) {
@@ -787,6 +790,10 @@ export default function RequirementEditors(): JSX.Element {
           {/* Concept contract (§8 M1-11): the spine gets its own slot between
               list and detail, so it stops scrolling with the form (I-13). */}
           <SplitView
+            moduleType="requirements"
+            treeWidth={treeWidth}
+            onTreeWidthChange={setTreeWidth}
+            defaultTreeWidth={defaultTreeWidth}
             list={leftPanel}
             detail={rightPanel}
             ratio={[40, 60]}

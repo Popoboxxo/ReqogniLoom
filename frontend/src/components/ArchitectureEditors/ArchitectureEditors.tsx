@@ -31,6 +31,7 @@ import { ListToolbar } from "../shared/ListToolbar";
 import { TraceSpineFooter } from "../shared/TraceSpine";
 import { getArtifactRoute } from "../../utils/artifactRoutes";
 import { useTraceFooterVisible } from "../../hooks/useTraceFooterVisible";
+import { useTreeWidth } from "../../hooks/useTreeWidth";
 import { ArchitectureArtifactForm } from "./ArchitectureArtifactForm";
 import { ArchitectureLegend } from "./ArchitectureLegend";
 import { Dialog } from "../shared/Dialog";
@@ -139,6 +140,8 @@ export default function ArchitectureEditors(): JSX.Element {
   // so this host only decides *whether* it is mounted (and no longer fires
   // chain RPCs on its own).
   const [traceFooterVisible] = useTraceFooterVisible();
+  // Task 9 / ADR-030: per-module persisted tree width (min matches minWidths[0]).
+  const { treeWidth, defaultTreeWidth, setTreeWidth } = useTreeWidth("architecture", { min: 250 });
 
   // GitHub #1392: per-field half of a rejected create (`details[].field`).
   // #1732: replaces the #1595 "disabled + hint" decision. The Create button
@@ -826,6 +829,10 @@ export default function ArchitectureEditors(): JSX.Element {
           `spine` with no drag divider. The tree keeps its 250 px floor and the
           detail content keeps the 448 px floor the concept prescribes. */}
       <SplitView
+        moduleType="architecture"
+        treeWidth={treeWidth}
+        onTreeWidthChange={setTreeWidth}
+        defaultTreeWidth={defaultTreeWidth}
         list={listPanel}
         detail={detailPanel}
         ratio={[40, 60]}

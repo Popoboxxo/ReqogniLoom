@@ -20,6 +20,7 @@ import { TraceLinkPanel } from '../shared/TraceLinkPanel';
 import { TraceSpineFooter } from '../shared/TraceSpine';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useTraceFooterVisible } from '../../hooks/useTraceFooterVisible';
+import { useTreeWidth } from '../../hooks/useTreeWidth';
 import { useRiskData } from './useRiskData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { risksApi } from '../../api/risks';
@@ -121,6 +122,8 @@ export default function RiskEditors(): JSX.Element {
   // so this host only decides *whether* it is mounted (and no longer fires
   // chain RPCs on its own).
   const [traceFooterVisible] = useTraceFooterVisible();
+  // Task 9 / ADR-030: per-module persisted tree width (min matches minWidths[0]).
+  const { treeWidth, defaultTreeWidth, setTreeWidth } = useTreeWidth('risks', { min: 320 });
 
   // #1762 (M2, mirrors M1): the inspector's programmatic focus targets live in
   // the route, not in the shell — the shell must not know the detail area's DOM
@@ -186,6 +189,10 @@ export default function RiskEditors(): JSX.Element {
 
       <div className={styles.splitWrapper}>
         <SplitView
+          moduleType="risks"
+          treeWidth={treeWidth}
+          onTreeWidthChange={setTreeWidth}
+          defaultTreeWidth={defaultTreeWidth}
           list={
             <div>
               <IncludeDeletedToggle

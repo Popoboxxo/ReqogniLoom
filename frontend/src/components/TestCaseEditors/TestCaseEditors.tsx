@@ -23,6 +23,7 @@ import { TraceSpineFooter } from '../shared/TraceSpine';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
 import { useTraceFooterVisible } from '../../hooks/useTraceFooterVisible';
+import { useTreeWidth } from '../../hooks/useTreeWidth';
 import { useTestCaseData } from './useTestCaseData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useEntityReset } from '../../hooks/use-entity-reset';
@@ -229,6 +230,8 @@ export default function TestCaseEditors(): JSX.Element {
   // chain RPCs on its own). Test cases are not their own station type in the
   // derivation-chain model — they attach to whatever they verify.
   const [traceFooterVisible] = useTraceFooterVisible();
+  // Task 9 / ADR-030: per-module persisted tree width (min matches minWidths[0]).
+  const { treeWidth, defaultTreeWidth, setTreeWidth } = useTreeWidth('testcases', { min: 320 });
 
   // #1762 (M2, mirrors M1): the inspector's programmatic focus targets live in
   // the route, not in the shell — the shell must not know the detail area's DOM
@@ -307,6 +310,10 @@ export default function TestCaseEditors(): JSX.Element {
 
       <div className={styles.splitWrapper}>
         <SplitView
+          moduleType="testcases"
+          treeWidth={treeWidth}
+          onTreeWidthChange={setTreeWidth}
+          defaultTreeWidth={defaultTreeWidth}
           list={
             <div>
               <IncludeDeletedToggle

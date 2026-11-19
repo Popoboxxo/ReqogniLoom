@@ -279,3 +279,49 @@ describe("trace-spine footer breakpoint cleanup (Schnitt 2c / Task 6)", () => {
     ).not.toMatch(/spine/i);
   });
 });
+
+/**
+ * Schnitt 3b (Task 9) — ADR-030 persistence key. The removed UI-001 width key
+ * family must have ZERO hits under frontend/src (not even in a stale import or
+ * a comment); the only tree-width storage key is the namespaced v2 prefix.
+ * The pattern is assembled from parts so this gate itself contributes no hit.
+ */
+describe("tree-width persistence key gate (Schnitt 3b / Task 9)", () => {
+  const LEGACY_FRAGMENT = ["reqflow", "splitview"].join("_");
+  const V2_PREFIX = ["reqflow", "splitview", "treeWidth", "v2", ""].join(".");
+  const TREE_WIDTH_HOOK_FILE = join(SRC_DIR, "hooks", "useTreeWidth.ts");
+
+  /** Recursively collect every regular file under `dir` (source-level gate). */
+  function collectSourceFiles(dir: string): string[] {
+    const out: string[] = [];
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) out.push(...collectSourceFiles(full));
+      else out.push(full);
+    }
+    return out;
+  }
+
+  it("has zero hits of the removed underscore-prefixed SplitView key in frontend/src", () => {
+    const hits: string[] = [];
+    for (const file of collectSourceFiles(SRC_DIR)) {
+      readFileSync(file, "utf-8")
+        .split("\n")
+        .forEach((line, index) => {
+          if (line.includes(LEGACY_FRAGMENT)) {
+            hits.push(`${relative(SRC_DIR, file)}:${index + 1}`);
+          }
+        });
+    }
+    expect(
+      hits,
+      "ADR-030 forbids reading OR writing the removed UI-001 layout key",
+    ).toEqual([]);
+  });
+
+  it("writes only the namespaced v2 tree-width key", () => {
+    const hook = readFileSync(TREE_WIDTH_HOOK_FILE, "utf-8");
+    expect(hook).toContain(V2_PREFIX);
+    expect(hook).toContain("treeWidthStorageKey");
+  });
+});

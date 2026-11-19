@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -798,6 +798,52 @@ describe("TestCaseEditors — Task 5 trace footer host migration", () => {
   });
   afterEach(() => {
     setTraceFooterVisible(true);
+  });
+
+  it("Task 9: moduleType + treeWidth/onTreeWidthChange/defaultTreeWidth reach SplitView", async () => {
+    const storageKey = ["reqflow", "splitview", "treeWidth", "v2", "testcases"].join(".");
+    const originalInnerWidth = window.innerWidth;
+    window.localStorage.setItem(storageKey, "500");
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      writable: true,
+      value: 1440,
+    });
+    const measured = vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
+      width: 1200,
+      height: 800,
+      top: 0,
+      left: 0,
+      right: 1200,
+      bottom: 800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+    try {
+      setTraceFooterVisible(true);
+      renderEditor(selectedPath);
+      await screen.findByTestId("splitview-detail");
+      const separator = screen.getByTestId("tree-width-separator");
+      // moduleType selects the v2 key; treeWidth is authoritative in SplitView.
+      expect(separator).toHaveAttribute("aria-valuenow", "500");
+      // A resize flows back through onTreeWidthChange into the SAME module key.
+      fireEvent.keyDown(separator, { key: "ArrowRight" });
+      expect(separator).toHaveAttribute("aria-valuenow", "516");
+      expect(window.localStorage.getItem(storageKey)).toBe("516");
+      // Enter resets via defaultTreeWidth and deletes the stored key.
+      fireEvent.keyDown(separator, { key: "Enter" });
+      expect(separator).toHaveAttribute("aria-valuenow", "380");
+      expect(window.localStorage.getItem(storageKey)).toBeNull();
+    } finally {
+      measured.mockRestore();
+      window.localStorage.removeItem(storageKey);
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        writable: true,
+        value: originalInnerWidth,
+      });
+    }
   });
 
   it("mounts exactly one trace-footer as a SplitView sibling; the spine slot is empty", async () => {
