@@ -106,6 +106,15 @@
 /* Header                                                                     */
 /* ------------------------------------------------------------------------- */
 
+/* Mobile sheet / fullscreen close — 44px touch floor (plan §3.5). Scoped to
+   the two mobile forms only; the global .btn-icon default stays untouched. */
+.shell[data-inspector-form="sheet"] .header button,
+.shell[data-inspector-form="fullscreen"] .header button {
+  width: var(--btn-h-lg);
+  min-width: var(--btn-h-lg);
+  min-height: var(--btn-h-lg);
+}
+
 .header {
   display: flex;
   align-items: center;

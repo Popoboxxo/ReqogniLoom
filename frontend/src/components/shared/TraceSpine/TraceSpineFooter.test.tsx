@@ -21,7 +21,7 @@
  * TraceSpine suites use). i18n parity itself is guarded by a separate gate.
  */
 
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("react-i18next", () => ({
@@ -56,6 +56,12 @@ vi.mock("../../../api/traceability", () => ({
 }));
 
 import { TraceSpineFooter } from "./TraceSpineFooter";
+import {
+  getExpandedMobileSheet,
+  releaseMobileSheet,
+  requestMobileSheet,
+  resetMobileSheetCoordinator,
+} from "../mobileSheetCoordinator";
 import { tracelinksApi } from "../../../api/tracelinks";
 import { traceabilityApi } from "../../../api/traceability";
 import type { ArchitectureElement } from "../../../types";
@@ -173,6 +179,7 @@ const SIX_WITH_ACTIVE_AT_6: Descriptor[] = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resetMobileSheetCoordinator();
 });
 
 describe("TraceSpineFooter — Schnitt 2a contract (Task 4)", () => {
@@ -306,5 +313,89 @@ describe("TraceSpineFooter — Schnitt 2a contract (Task 4)", () => {
     expect(container.firstChild).toBeNull();
     expect(tracelinksApi.impact).not.toHaveBeenCalled();
     expect(traceabilityApi.resolve).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 11 (Schnitt 4b) — mobile bottom-sheet + single-expanded-sheet owner.
+// jsdom has no layout engine, so the >=44px box is pinned by the stylesheet
+// ratchet (interactive-hit-targets.test.ts) and the real boundingBox check in
+// e2e/tests/mobile-sheets.spec.ts. These tests pin the behaviour/ARIA/focus.
+// ---------------------------------------------------------------------------
+describe('TraceSpineFooter — mobile bottom sheet (plan §3.5)', () => {
+  function setMobileViewport(): void {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 390,
+    });
+  }
+
+  function renderSingleStation(): void {
+    const descriptors: Descriptor[] = [{ id: 'solo', type: 'Current' }];
+    const current = feedChain(descriptors, 0);
+    renderFooter(current, descriptors);
+  }
+
+  it('renders a non-modal collapsed bar; expanding moves focus into the sheet', async () => {
+    setMobileViewport();
+    renderSingleStation();
+    await waitFor(() => expect(screen.getByTestId('trace-footer-placeholder')).toBeInTheDocument());
+
+    const expand = screen.getByTestId('trace-footer-expand');
+    expect(expand).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('trace-footer-collapse')).not.toBeInTheDocument();
+    // Still region, never a dialog — the non-modal Inspector decision (#1762).
+    expect(screen.getByTestId('trace-footer')).toHaveAttribute('role', 'region');
+    expect(screen.getByTestId('trace-footer')).not.toHaveAttribute('aria-modal');
+
+    fireEvent.click(expand);
+    expect(expand).toHaveAttribute('aria-expanded', 'true');
+    const close = screen.getByTestId('trace-footer-collapse');
+    expect(close).toBeInTheDocument();
+    expect(document.activeElement).toBe(close);
+    expect(getExpandedMobileSheet()).toBe('trace-footer');
+
+    fireEvent.click(close);
+    expect(expand).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('trace-footer-collapse')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(expand);
+    expect(getExpandedMobileSheet()).toBeNull();
+  });
+
+  it('collapses when the inspector takes the single expanded-sheet slot', async () => {
+    setMobileViewport();
+    renderSingleStation();
+    await waitFor(() => expect(screen.getByTestId('trace-footer-placeholder')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('trace-footer-expand'));
+    expect(getExpandedMobileSheet()).toBe('trace-footer');
+
+    act(() => {
+      requestMobileSheet('inspector');
+    });
+    expect(screen.getByTestId('trace-footer-expand')).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('trace-footer-collapse')).not.toBeInTheDocument();
+
+    // Releasing the inspector while the footer is collapsed stays a no-op.
+    act(() => {
+      releaseMobileSheet('inspector');
+    });
+    expect(getExpandedMobileSheet()).toBeNull();
+  });
+
+  it('does not claim the sheet slot on desktop (side-by-side layout)', async () => {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 1440,
+    });
+    renderSingleStation();
+    await waitFor(() => expect(screen.getByTestId('trace-footer-placeholder')).toBeInTheDocument());
+
+    // The bar exists in the DOM but is CSS-hidden on desktop; clicking it must
+    // not claim the mobile slot (the coordinator is mobile-only).
+    fireEvent.click(screen.getByTestId('trace-footer-expand'));
+    expect(getExpandedMobileSheet()).toBeNull();
   });
 });

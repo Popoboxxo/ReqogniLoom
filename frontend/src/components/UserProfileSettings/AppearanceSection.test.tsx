@@ -122,6 +122,13 @@ describe("AppearanceSection (Task 2)", () => {
     expect(inspectorSwitch).toHaveAttribute("aria-checked", "true");
     expect(displayPreferencesApi.update).toHaveBeenCalledTimes(1);
 
+    // The component deliberately serializes saves (a toggle is ignored while
+    // `saving` is set). waitFor above only sees the call, not its resolution —
+    // wait for the switch to leave its disabled/busy state so the second,
+    // independent toggle is never dropped under CI load. This hardens timing
+    // only; every behavioural assertion stays exactly as strict.
+    await waitFor(() => expect(footerSwitch).not.toBeDisabled());
+
     fireEvent.click(inspectorSwitch);
     await waitFor(() => {
       expect(displayPreferencesApi.update).toHaveBeenLastCalledWith({

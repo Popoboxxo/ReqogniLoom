@@ -31,7 +31,7 @@
  *   IF-RF-EXT-OUT-001 → GET  /api/v1/artifacts/?workspace_id=<id> (form options)
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Check, TriangleAlert } from "lucide-react";
@@ -62,6 +62,7 @@ import { PageHeader } from "../shared/PageHeader";
 import { ListToolbar } from "../shared/ListToolbar";
 import { EmptyState } from "../shared/EmptyState";
 import { PendingAiReviewNote } from "./PendingAiReviewNote";
+import { ImpactDrawer } from "./ImpactDrawer";
 import { IMPACT_PRESET_STORAGE_KEY } from "../ImpactView/impact-preset";
 import type { ImpactPreset } from "../ImpactView/impact-preset";
 import {
@@ -856,9 +857,15 @@ export default function TraceabilityView(): JSX.Element {
   // Impact-analysis artifact picker (REQ-L2-TE-019). Issue #184: the actual
   // reachability computation/rendering used to be duplicated here and on
   // the canonical `/impact` route — this panel now only pre-selects a
-  // workspace-scoped artifact and hands it off to `/impact` (see
-  // impact-preset.ts), instead of running its own second impact query.
+  // workspace-scoped artifact; the analysis is shown in the on-demand drawer
+  // (Task 10) instead of navigating to `/impact` (see impact-preset.ts).
   const [impactArtifact, setImpactArtifact] = useState<string>("");
+  // Task 10: the permanent right-hand Impact column is gone. The drawer is
+  // mounted only while open; the preset carries the resolved impact data and
+  // the trigger ref lets the focus trap return focus to the opening button.
+  const [isImpactDrawerOpen, setImpactDrawerOpen] = useState(false);
+  const [impactPreset, setImpactPreset] = useState<ImpactPreset | null>(null);
+  const impactTriggerRef = useRef<HTMLButtonElement>(null);
   // REQ-005/#181: list-panel search + link-type filter (ListToolbar).
   const {
     listSearch,
@@ -912,31 +919,50 @@ export default function TraceabilityView(): JSX.Element {
     return map;
   }, [state.requirements]);
 
-  // #184: hand off to the canonical `/impact` route instead of duplicating
-  // the reachability computation/rendering inline. Pre-resolves the preset
-  // from data already loaded here (titles + artifacts), so ImpactView can
-  // skip its own search step and load the tree directly.
-  function openImpactAnalysis(): void {
-    if (!impactArtifact) return;
-    const artifact = state.artifacts.find((a) => a.id === impactArtifact);
-    const preset: ImpactPreset = {
-      id: impactArtifact,
+  // #184 / Task 10: resolve the preset from data already loaded here (titles
+  // + artifacts). The preset handoff contract (impact-preset.ts) is preserved
+  // so the canonical `/impact` route can still consume it, but opening the
+  // analysis no longer performs a full-page navigation — it mounts the modal
+  // drawer instead.
+  function buildImpactPreset(id: string): ImpactPreset | null {
+    if (!id) return null;
+    const artifact = state.artifacts.find((a) => a.id === id);
+    return {
+      id,
       // #415: the title index is Artifact-id keyed now, so this resolves —
       // it used to always fall through to the shortened UUID, which is what
       // the impact tree then displayed as its root node.
-      title: state.titles[impactArtifact] ?? "",
-      artifactType: artifact?.artifact_type ?? state.types[impactArtifact] ?? "",
+      title: state.titles[id] ?? "",
+      artifactType: artifact?.artifact_type ?? state.types[id] ?? "",
     };
-    // Storage goes through the defensive wrapper (see utils/safeStorage): in a
-    // private-mode lockout the handoff is silently dropped and ImpactView
-    // falls back to its normal search flow — no functionality lost.
+  }
+
+  /** Persist the preset handoff (defensive wrapper absorbs lockout/quota). */
+  function storeImpactPreset(preset: ImpactPreset | null): void {
+    if (!preset) return;
     try {
       safeSessionStorage.setItem(IMPACT_PRESET_STORAGE_KEY, JSON.stringify(preset));
     } catch {
       // `JSON.stringify` is the only remaining throwing surface here (the
       // wrapper absorbs lockout/quota) — same fallback as a lockout.
     }
-    window.location.assign("/impact");
+  }
+
+  /** The single trigger for the impact surface: opens the modal drawer. */
+  function openImpactAnalysis(): void {
+    const id = impactArtifact || state.artifacts[0]?.id || "";
+    if (!impactArtifact && id) setImpactArtifact(id);
+    const preset = buildImpactPreset(id);
+    storeImpactPreset(preset);
+    setImpactPreset(preset);
+    setImpactDrawerOpen(true);
+  }
+
+  /** Refresh the drawer's data after the artifact selection changes. */
+  function runImpactInDrawer(): void {
+    const preset = buildImpactPreset(impactArtifact);
+    storeImpactPreset(preset);
+    setImpactPreset(preset);
   }
 
   // ---------------------------------------------------------------------------
@@ -966,13 +992,9 @@ export default function TraceabilityView(): JSX.Element {
   }
 
   // REQ-L2-RF-006 / ch. 17 step 6: Trace Links is an explicit Split-View
-  // candidate — list on the left (grouped links, ch. 12.3-adjacent), the
-  // Impact-Analysis tool on the right as a persistent "detail" pane. Unlike
-  // an artifact list/detail split, the right pane is not selection-driven
-  // (there is no single "trace link detail" view yet) — it is a standing
-  // analysis panel, so the legacy leftPanel/rightPanel contract (resizable,
-  // no null-detail collapse) fits better than the concept list/detail/spine
-  // contract, which assumes a nullable per-row detail.
+  // candidate. Task 10 removed the standing Impact-Analysis "detail" pane:
+  // it wasted ~40% of the viewport while empty. The list now owns the full
+  // width and the Impact panel is mounted on demand inside the modal drawer.
   const resetListFilters = resetFilters;
 
   const coveragePanel = state.requirements.length > 0 && (
@@ -1070,13 +1092,17 @@ export default function TraceabilityView(): JSX.Element {
 
   const listPanel = showUncoveredOnly ? uncoveredPanel : linkListPanel;
 
-  const detailPanel = (
+  // Existing ImpactDetailPanel content now lives inside the drawer (it used
+  // to occupy the permanent right column). Its button refreshes the data
+  // shown in the drawer; opening the drawer itself is the dedicated trigger
+  // button above the split view.
+  const impactPanelContent = (
     <ImpactDetailPanel
       artifacts={state.artifacts}
       titles={state.titles}
       impactArtifact={impactArtifact}
       onArtifactChange={setImpactArtifact}
-      onOpen={openImpactAnalysis}
+      onOpen={runImpactInDrawer}
       t={t}
     />
   );
@@ -1106,9 +1132,32 @@ export default function TraceabilityView(): JSX.Element {
         ]}
       />
 
-      <div className={styles.splitHost}>
-        <SplitView list={listPanel} detail={detailPanel} />
+      {/* Task 10: the Impact analysis opens on demand — no standing column. */}
+      <div className={styles.impactTriggerBar}>
+        <button
+          ref={impactTriggerRef}
+          type="button"
+          data-testid="impact-open-btn"
+          className={`btn-primary ${styles.impactOpenBtn}`}
+          onClick={openImpactAnalysis}
+        >
+          {t("traceability.impactRun")}
+        </button>
       </div>
+
+      <div className={styles.splitHost}>
+        <SplitView list={listPanel} />
+      </div>
+
+      {isImpactDrawerOpen && (
+        <ImpactDrawer
+          preset={impactPreset}
+          onClose={() => setImpactDrawerOpen(false)}
+          triggerRef={impactTriggerRef}
+        >
+          {impactPanelContent}
+        </ImpactDrawer>
+      )}
 
       {/* REQ-005: unified CreateTraceLinkDialog (global mode — no fixed sourceId) */}
       {activeWorkspace && (

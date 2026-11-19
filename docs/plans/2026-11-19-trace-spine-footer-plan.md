@@ -1,13 +1,13 @@
 ---
 type: PLAN
 title: "TraceSpine-Footer & Baumbreite — Analyse + Umsetzungsplan (Revision 2)"
-status: proposed
+status: approved
 date: 2026-11-19
 author_agent: planner
 language: de
 branch_basis: "origin/main 37e3ee40 (Worktree .tmp/wt-plan, nach S3.4-Merge)"
-review_iteration: 2
-review_state: open
+review_iteration: 4
+review_state: approved
 ---
 
 # TraceSpine-Footer & Baumbreite — Analyse + Umsetzungsplan (Revision 2)
@@ -337,7 +337,7 @@ Gesamtaufwand wird vom **`effort-estimator`** geschätzt (Text-Referenz gemäß 
 - [x] **Revision 2 (dieses Dokument)** adressiert sämtliche Findings (Zuordnung in §12) — `review_iteration: 2`, `review_state: open`.
 - [x] **Re-Review 3 (`planner` + `concept-reviewer`)** — Ursprungsfindings alle RESOLVED; neue Findings lokal behoben: **N-01** Icon-Bar (entfernt, Span `W−220`), **N-02** Snapshot-Assertion (durch Serializer/View-Test ersetzt), **N-03** Chain-RPC (`useDerivationChain` in Footer-Komponente gezogen), **N-04** Task-1/2-Abhängigkeit (parallel, dateidisjunkt), **NEW-01** Icon-Bar (identisch N-01), **MJ-08** Modal-Tab-Order explizit.
 - [x] **Finaler Kurz-Re-Review 4 (`planner` + `concept-reviewer`)** — **beide APPROVE**, keine Blocker, 0 critical/major/minor. `review_iteration: 4`, `review_state: approved`. Plan ist reif zur User-Freigabe.
-- [ ] **User-Freigabe** — ausstehend. Kein automatisches Triggern der `feature-lifecycle`-Pipeline; Orchestrator entscheidet über Ausführung und übergibt `plan_ref`.
+- [x] **User-Freigabe** — erteilt; Umsetzung der vier Schnitte freigegeben und begonnen. Kein automatisches Triggern der `feature-lifecycle`-Pipeline; Orchestrator entscheidet über Ausführung und übergibt `plan_ref`.
 
 **Auflösungsnachweis (Finding → Abschnitt):**
 

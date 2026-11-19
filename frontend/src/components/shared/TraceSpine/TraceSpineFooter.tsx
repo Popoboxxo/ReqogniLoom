@@ -25,18 +25,36 @@
  * The binding WCAG verdict stays with `accessibility-specialist`; this is the
  * component-level baseline only.
  *
+ * On a phone (< --bp-md, plan §3.5) the footer becomes a NON-modal bottom
+ * sheet: a collapsed bar (the always-visible >=44px tap target) expands to the
+ * full chain in a sheet with its own close control. It shares the single
+ * "expanded sheet" slot with the artifact inspector through
+ * `mobileSheetCoordinator` — opening one collapses the other. Both surfaces
+ * stay `role="region"` (no scrim / focus trap); the covered detail area is
+ * `inert` instead. The slot is never claimed on desktop, where footer and
+ * inspector sit side by side.
+ *
  * All colours/geometry come from `styles/tokens.css`; every button carries a
  * `btn-*` design-system chrome class (design-system-ratchet) and geometry comes
  * from the `--btn-h-*`/`--radius-btn` scale (button-geometry ratchet).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useInertBehindSheet } from "../ArtifactInspector/useInertBehindSheet";
 import type { MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { TriangleAlert } from "lucide-react";
 
 import { ArtifactId } from "../ArtifactId";
 import { LevelBadge } from "../LevelBadge";
+import { useViewportWidth } from "../../../hooks/useViewportWidth";
+import { BREAKPOINTS } from "../../../hooks/useBreakpoint";
+import {
+  getExpandedMobileSheet,
+  releaseMobileSheet,
+  requestMobileSheet,
+  subscribeToMobileSheet,
+} from "../mobileSheetCoordinator";
 import type { ArchitectureElement, UUID } from "../../../types";
 import {
   ARTIFACT_TYPE_ARCHITECTURE,
@@ -103,6 +121,15 @@ export function TraceSpineFooter({
   testId = "trace-footer",
 }: TraceSpineFooterProps): JSX.Element | null {
   const { t } = useTranslation();
+  const viewportWidth = useViewportWidth();
+  const isMobile = viewportWidth < BREAKPOINTS.md;
+  // Shared single-expanded-sheet owner (plan §3.5). A stable string/null
+  // snapshot keeps `useSyncExternalStore` from re-rendering on every notify.
+  const expandedSheet = useSyncExternalStore(
+    subscribeToMobileSheet,
+    getExpandedMobileSheet,
+    getExpandedMobileSheet,
+  );
 
   const artifactId = artifact?.artifactId ?? artifact?.id ?? null;
   // The hook owns both RPCs. `enabled` keeps it dormant for an empty selection.
@@ -115,14 +142,83 @@ export function TraceSpineFooter({
 
   const [expanded, setExpanded] = useState(false);
   const [openStationKey, setOpenStationKey] = useState<string | null>(null);
+  // Mobile bottom-sheet state (plan §3.5). Distinct from `expanded`, which is
+  // the desktop station-overflow disclosure and must keep its own semantics.
+  const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverCloseRef = useRef<HTMLButtonElement | null>(null);
+  const mobileExpandRef = useRef<HTMLButtonElement | null>(null);
+  const mobileCloseRef = useRef<HTMLButtonElement | null>(null);
 
-  // A different opened artifact invalidates the local expansion/popover state.
+  // WCAG 2.2 SC 2.4.11: the mobile sheet covers the host-owned SplitView detail
+  // area. Find it by its stable E2E testid (same pattern as hosts' focusSpine)
+  // so no host route needs a new prop; make it inert only while the sheet is open.
+  const coveredRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    coveredRef.current = document.querySelector<HTMLElement>(
+      '[data-testid="splitview-detail"]'
+    );
+  }, [mobileSheetOpen]);
+  useInertBehindSheet(coveredRef, !!isMobile && mobileSheetOpen);
+
+  // A different opened artifact invalidates every local expansion/popover state.
   useEffect(() => {
     setExpanded(false);
     setOpenStationKey(null);
+    setMobileSheetOpen(false);
+    releaseMobileSheet("trace-footer");
   }, [artifactId]);
+
+  const openMobileSheet = (): void => {
+    if (!isMobile) return;
+    setOpenStationKey(null);
+    setMobileSheetOpen(true);
+    requestMobileSheet("trace-footer");
+  };
+
+  const closeMobileSheet = useCallback((): void => {
+    setMobileSheetOpen(false);
+    setOpenStationKey(null);
+    releaseMobileSheet("trace-footer");
+    mobileExpandRef.current?.focus();
+  }, []);
+
+  // Claim the single expanded-sheet slot only while the MOBILE sheet is open.
+  useEffect(() => {
+    if (!isMobile || !mobileSheetOpen) return;
+    requestMobileSheet("trace-footer");
+  }, [isMobile, mobileSheetOpen]);
+
+  // Opening the inspector takes the slot -> collapse the footer sheet (§3.5).
+  useEffect(() => {
+    if (expandedSheet === "inspector" && mobileSheetOpen) {
+      setMobileSheetOpen(false);
+      setOpenStationKey(null);
+      mobileExpandRef.current?.focus();
+    }
+  }, [expandedSheet, mobileSheetOpen]);
+
+  // Leaving mobile or unmounting releases the slot (no stale owner across routes).
+  useEffect(() => {
+    if (!isMobile && mobileSheetOpen) setMobileSheetOpen(false);
+  }, [isMobile, mobileSheetOpen]);
+  useEffect(() => () => releaseMobileSheet("trace-footer"), []);
+
+  // Move focus into the sheet on open, Escape closes it (and returns focus).
+  useEffect(() => {
+    if (mobileSheetOpen) mobileCloseRef.current?.focus();
+  }, [mobileSheetOpen]);
+  useEffect(() => {
+    if (!mobileSheetOpen) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape" && !openStationKey) {
+        event.stopPropagation();
+        closeMobileSheet();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [mobileSheetOpen, openStationKey, closeMobileSheet]);
 
   const effectiveIsOpenable = (item: ChainArtifact): boolean =>
     chain.isOpenable(item) && (isOpenable ? isOpenable(item) : true);
@@ -155,7 +251,11 @@ export function TraceSpineFooter({
 
   const stations = chain.stations;
   const activeIndex = stations.findIndex((station) => station.isCurrent);
-  const collapsed = stations.length >= 5 && !expanded;
+  // The station-overflow disclosure is a desktop affordance only: on mobile the
+  // bottom sheet shows the whole chain, so `more`/`collapse` never render there.
+  const collapsed = stations.length >= 5 && !expanded && !isMobile;
+  const currentStation = stations.find((station) => station.isCurrent);
+  const currentStationLabel = currentStation ? stationLabel(currentStation) : "";
 
   /**
    * Plan §3.3 algorithm: <= 4 -> all; >= 5 -> first three + active station
@@ -219,7 +319,36 @@ export function TraceSpineFooter({
   const regionLabel = t("traceSpine.title", "Ableitungskette");
 
   return (
-    <div className={styles.footer} data-testid={testId} role="region" aria-label={regionLabel}>
+    <div
+      className={`${styles.footer} ${mobileSheetOpen ? styles.mobileSheetOpen : ""}`}
+      data-testid={testId}
+      data-mobile-sheet-open={mobileSheetOpen ? "true" : undefined}
+      role="region"
+      aria-label={regionLabel}
+    >
+      {/* Mobile collapsed bar — the always-visible tap target that expands the
+          sheet (plan §3.5). Hidden from --bp-md up by the stylesheet. */}
+      <button
+        ref={mobileExpandRef}
+        type="button"
+        className={`btn-ghost ${styles.mobileBar}`}
+        data-testid={`${testId}-expand`}
+        aria-expanded={mobileSheetOpen}
+        // A one-station chain renders a placeholder, not the <ol>; a dangling
+        // aria-controls would be a 4.1.2 defect.
+        aria-controls={stations.length >= 2 ? `${testId}-station-list` : undefined}
+        onClick={openMobileSheet}
+      >
+        <span className={styles.mobileBarLabel} aria-hidden="true">◆</span>
+        <span className={styles.mobileBarText}>
+          {regionLabel}
+          {currentStationLabel ? ` · ${currentStationLabel}` : ""}
+        </span>
+        <span className={styles.mobileBarChevron} aria-hidden="true">
+          {mobileSheetOpen ? "▲" : "▼"}
+        </span>
+      </button>
+
       {chain.isLoading && stations.length === 0 && (
         <span className={styles.hint} role="status" data-testid={`${testId}-loading`}>
           {t("traceSpine.loading", "Kette wird geladen...")}
@@ -231,6 +360,7 @@ export function TraceSpineFooter({
         </span>
       )}
 
+      <div className={styles.chainWrap}>
       {stations.length === 0 ? (
         <span className={styles.hint} role="status" data-testid={`${testId}-placeholder`}>
           {t("traceSpine.loading", "Kette wird geladen...")}
@@ -364,7 +494,7 @@ export function TraceSpineFooter({
               </button>
             </li>
           )}
-          {expanded && stations.length >= 5 && (
+          {expanded && stations.length >= 5 && !isMobile && (
             <li className={styles.moreItem}>
               <button
                 type="button"
@@ -380,6 +510,22 @@ export function TraceSpineFooter({
             </li>
           )}
         </ol>
+      )}
+      </div>
+
+      {/* Mobile sheet close/back control — the single visible sheet dismissal
+          while the footer sheet is expanded (plan §3.5). */}
+      {mobileSheetOpen && (
+        <button
+          ref={mobileCloseRef}
+          type="button"
+          className={`btn-ghost ${styles.mobileSheetClose}`}
+          data-testid={`${testId}-collapse`}
+          onClick={closeMobileSheet}
+        >
+          <span aria-hidden="true">▼ </span>
+          {t("traceSpine.close", "Schließen")}
+        </button>
       )}
 
       {activeStation && (

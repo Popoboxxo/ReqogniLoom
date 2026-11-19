@@ -302,3 +302,123 @@
     width: 24rem;
   }
 }
+
+/* ------------------------------------------------------------------------- */
+/* Mobile bottom-sheet (plan §3.5) — collapsed bar + expandable sheet.        */
+/*                                                                           */
+/* Mobile-first: the base rules below are the phone presentation. From        */
+/* --bp-md (768px) up the footer reverts to the inline horizontal chain and   */
+/* the sheet affordances are hidden. All geometry comes from tokens.css; the  */
+/* touch floor uses --btn-h-lg (44px) without touching the global btn defaults.*/
+/* ------------------------------------------------------------------------- */
+
+/* Above the fullscreen inspector (z 900) so the collapsed bar stays tappable
+   while the inspector sheet owns the detail area (plan §3.5). */
+.footer {
+  z-index: 1200;
+}
+
+.mobileBar {
+  flex: 1 1 auto;
+  min-height: var(--btn-h-lg);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-btn);
+  padding: 0 var(--space-3);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  text-align: left;
+}
+
+.mobileBarLabel {
+  color: var(--color-primary-text);
+}
+
+.mobileBarText {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobileBarChevron {
+  color: var(--color-text-muted);
+}
+
+/* Every control inside the mobile sheet meets the 44px touch floor (B2). */
+.stationTrigger,
+.more,
+.popoverItemButton {
+  min-height: var(--btn-h-lg);
+}
+
+.mobileSheetClose {
+  min-height: var(--btn-h-lg);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 0 0 auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-btn);
+  padding: 0 var(--space-3);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+/* The chain sits in a bottom sheet above the bar once expanded. */
+.chainWrap {
+  display: none;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.mobileSheetOpen .chainWrap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + var(--space-1));
+  display: block;
+  max-height: 50vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-raised);
+  box-shadow: var(--shadow-md);
+}
+
+@media (min-width: 768px) {
+  .footer {
+    z-index: 10;
+  }
+
+  .mobileBar,
+  .mobileSheetClose {
+    display: none;
+  }
+
+  /* Desktop keeps the established 32px chip geometry. */
+  .stationTrigger,
+  .more,
+  .popoverItemButton {
+    min-height: var(--btn-h-sm);
+  }
+
+  .chainWrap,
+  .mobileSheetOpen .chainWrap {
+    position: static;
+    display: block;
+    max-height: none;
+    overflow: visible;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
