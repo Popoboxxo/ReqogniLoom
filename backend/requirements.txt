@@ -51,7 +51,7 @@ psycopg2-binary>=2.9.13,<3.0
 pgvector>=0.5.1,<0.6.0
 
 # Async task queue (ARCH-L1-016 ResilienceOrchestrator)
-celery>=5.6.3,<6.0
+celery>=5.7.0,<6.0
 # TEMPORARY VCS PIN — revert to a normal PyPI range once a release ships.
 # The newest published release (2.9.0) declares `Django<6.1,>=2.2`, so with the
 # `Django>=6.1` above pip ends in ResolutionImpossible and the CI
