@@ -204,6 +204,9 @@ export const SplitView = React.forwardRef<HTMLDivElement, SplitViewProps>(
       backButtonRef,
       goBack,
     } = useSplitViewMobileState(detail);
+    // APG window-splitter: aria-controls must point to a REAL element id
+    // (axe aria-valid-attr-value) — data-testid alone is not a valid idref.
+    const listPaneId = React.useId();
 
     // Runtime content width (ADR-030): ResizeObserver when available,
     // window resize + initial measurement as the jsdom/test fallback. The
@@ -396,7 +399,7 @@ export const SplitView = React.forwardRef<HTMLDivElement, SplitViewProps>(
             </button>
           </div>
         )}
-        <div ref={listContainerRef} data-testid="splitview-list" style={listStyle}>
+        <div id={listPaneId} ref={listContainerRef} data-testid="splitview-list" style={listStyle}>
           {list}
         </div>
         {dividerVisible && (
@@ -410,7 +413,7 @@ export const SplitView = React.forwardRef<HTMLDivElement, SplitViewProps>(
             aria-valuemax={effMax}
             aria-valuenow={currentWidth}
             aria-valuetext={`${currentWidth} px`}
-            aria-controls="splitview-list"
+            aria-controls={listPaneId}
             data-testid="tree-width-separator"
             style={DIVIDER_STYLE}
             onKeyDown={handleDividerKeyDown}

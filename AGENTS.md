@@ -21,7 +21,7 @@ backend/reqogniloom/ # Django-Projekt (settings.py, urls.py, wsgi.py, asgi.py, v
 frontend/            # React 19 + TS 5.5+ SPA (Vite 8, Vitest 5, ESLint 10)
                      #   src/api/  src/components/  src/config/  src/constants/  src/context/
                      #   src/hooks/  src/i18n/  src/queries/  src/styles/  src/types/  src/utils/
-e2e/                 # Playwright/Chromium E2E-Tests (73 Spec-Dateien, 4 CI-Shards)
+e2e/                 # Playwright/Chromium E2E-Tests (74 Spec-Dateien, 4 CI-Shards)
 docs/                # Anforderungen, Architektur, SE-Kaskade (docs/se/), Pläne (docs/plans/, docs/superpowers/), Konzepte, Release-Reports
 deploy/              # Deployment: docker-compose.yml (Basis), .override.yml (Dev), .minimal.yml, .env, README.md
 testing/             # docker-compose.test.yml (Standalone-Test-Stack, kein Overlay, kein Deployment-File)

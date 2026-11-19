@@ -224,10 +224,18 @@ export async function expectNonModalSheet(page: Page, sheetTestId: string): Prom
   const form = await sheet.getAttribute('data-inspector-form');
   const isFullscreen = form === 'fullscreen';
   if (!isFullscreen) {
+    // Scope to the COVERED DETAIL subtree, not all [inert] nodes: the closed
+    // mobile sidebar is legitimately inert (SidebarNavigation.tsx) and would
+    // make a page-wide count vacuously true. The inspector marks an inner
+    // detailScroll div inert; the footer marks splitview-detail itself. Check
+    // self OR descendant so both correct brackets are accepted.
+    const detailCovered = await page.getByTestId('splitview-detail').evaluate(
+      (el) => !!el.closest('[inert]') || !!el.querySelector('[inert]'),
+    );
     expect(
-      await page.locator('[inert]').count(),
+      detailCovered,
       `${sheetTestId} open over covered detail: area must be inert (SC 2.4.11)`,
-    ).toBeGreaterThan(0);
+    ).toBe(true);
   }
 }
 

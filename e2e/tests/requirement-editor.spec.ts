@@ -8,6 +8,7 @@ import {
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
 import { collapseInspector } from '../helpers/inspector';
+import { createAdrViaUI } from './wk-helpers';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
@@ -274,8 +275,9 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     await expect(detail.locator('[data-testid="artifact-field-title"]')).toBeVisible();
 
     // Task 6: the old spine slot is gone; the footer is a SIBLING of SplitView.
-    await expect(page.getByTestId('splitview-spine')).toHaveCount(0);
-    await expect(page.getByTestId('splitview-divider')).toHaveCount(0);
+    // Former splitview-spine/-divider pins removed: those components no longer
+    // exist and the #1113 drift gate forbids referencing dead testids. The
+    // positive sibling check below proves the new layout invariant instead.
     const footerHasListSibling = await footer.evaluate(
       (el) => !!el.parentElement?.querySelector('[data-testid="splitview-list"]'),
     );
@@ -351,8 +353,9 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
     ).toBeNull();
 
     // The ADR route reads its OWN default (350) — the two modules never share.
-    await page.goto(`${FRONTEND_URL}/adrs`);
-    await page.getByText('Verwendung von BLE 5.2 statt 5.0').first().click();
+    // Create our OWN ADR (a hardcoded seeded title is not guaranteed in CI)
+    // and open its detail — the divider only mounts with a detail pane.
+    await createAdrViaUI(page, { title: 'ADR-030 module independence probe' });
     await expect(page.getByTestId('tree-width-separator')).toHaveAttribute('aria-valuenow', '350');
     expect(
       await page.evaluate((key) => localStorage.getItem(key), TREE_WIDTH_KEY),
