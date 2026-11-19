@@ -8,12 +8,16 @@ import {
   SEEDED_WORKSPACE_ID,
 } from '../helpers/auth';
 import { collapseInspector } from '../helpers/inspector';
+import { createAdrViaUI } from './wk-helpers';
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 
 // localStorage first-render cache of the readable-id preference (#1096).
 const READABLE_IDS_STORAGE_KEY = 'reqflow-display-readable-ids';
+
+// ADR-030 / Task 9: the ONLY persisted tree-width key (module-scoped, v2).
+const TREE_WIDTH_KEY = 'reqflow.splitview.treeWidth.v2.requirements';
 
 // "+ New" only opens an inline quick-create form (title input + Save/Cancel);
 // the full editor (artifact-field-title etc.) only renders after Save navigates to the
@@ -253,46 +257,127 @@ test.describe('[COMP-RF-003] RequirementEditors', () => {
   });
 
   // -------------------------------------------------------------------------
-  // REQ-L1-040 — split layout of the requirements route
-  //
-  // Until #1762/M1 this route used SplitView's *legacy* contract, so these two
-  // tests drove its drag divider (drag / keyboard / hover styling). The
-  // approved M1 contract moves the route to the *concept* contract
-  // (`list`/`detail`/`spine`, fixed 40:60 ratio, no divider) and the change is
-  // documented as an accepted gap: "the requirements route no longer has a drag
-  // divider because the approved contract has none (REQ-L1-040 needs a
-  // decision)".
-  //
-  // The drag/styling assertions are therefore replaced by a guard on the
-  // contract that is in force: the three zones exist, the divider does not come
-  // back, and the list keeps its own scroll surface. Legacy-contract drag
-  // behaviour stays covered by the SplitView unit tests; the E2E drag coverage
-  // went away with the route that used it (reported with the M1 test findings).
+  // REQ-L1-040 / ADR-030 — one SplitView, per-module user-adjustable tree width.
+  // Schnitt 2c removed the spine slot (the chain lives in the sibling footer);
+  // Schnitt 3b made the divider authoritative and persisted it under a v2 key.
   // -------------------------------------------------------------------------
-  test('[REQ-L1-040] requirements route renders list, spine and detail without a drag divider', async ({ page }) => {
+  test('[REQ-L1-040] requirements route renders list, trace footer and detail — no stale spine', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/requirements`);
     await createRequirementViaQuickForm(page);
 
     const list = page.getByTestId('splitview-list');
-    const spine = page.getByTestId('splitview-spine');
+    const footer = page.getByTestId('trace-footer');
     const detail = page.getByTestId('splitview-detail');
 
     await expect(list).toBeVisible();
-    await expect(spine).toBeVisible();
+    await expect(footer).toBeVisible();
     await expect(detail).toBeVisible();
-    // The detail zone is the requirement form — the reason the split exists.
     await expect(detail.locator('[data-testid="artifact-field-title"]')).toBeVisible();
 
-    // Fixed ratio, no separator: nothing to drag and nothing that may claim
-    // `role="separator"` inside this split again.
-    await expect(page.locator('[data-testid="splitview-divider"]')).toHaveCount(0);
+    // Task 6: the old spine slot is gone; the footer is a SIBLING of SplitView.
+    // Former splitview-spine/-divider pins removed: those components no longer
+    // exist and the #1113 drift gate forbids referencing dead testids. The
+    // positive sibling check below proves the new layout invariant instead.
+    const footerHasListSibling = await footer.evaluate(
+      (el) => !!el.parentElement?.querySelector('[data-testid="splitview-list"]'),
+    );
+    expect(footerHasListSibling).toBe(true);
 
-    // The list stays its own scroll surface with scroll chaining contained
-    // (UI_KONZEPT ch. 7.1) — the property the drag divider used to be tested
-    // for is a property of the pane, not of the divider.
+    // The list keeps its own scroll surface (UI_KONZEPT ch. 7.1).
     await expect
       .poll(async () => list.evaluate((el) => window.getComputedStyle(el).overscrollBehaviorY))
       .toBe('contain');
+
+    // ADR-030 upper clamp: End sets effMax (70% of the measured content width).
+    const separator = page.getByTestId('tree-width-separator');
+    await expect(separator).toBeVisible();
+    await separator.focus();
+    await page.keyboard.press('End');
+    const max = Number(await separator.getAttribute('aria-valuemax'));
+    await expect(separator).toHaveAttribute('aria-valuenow', String(max));
+    // The footer stays sibling + usable at maximum tree width.
+    await expect(footer).toBeVisible();
+    const stations = page.getByTestId('trace-footer-station');
+    if (await stations.count()) {
+      await expect(stations.first()).toBeEnabled();
+    }
+  });
+
+  test('[ADR-030] drag and keyboard resize persist across reload under the v2 key', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/requirements`);
+    await createRequirementViaQuickForm(page);
+    const separator = page.getByTestId('tree-width-separator');
+    await expect(separator).toBeVisible();
+
+    // Reset first: Enter deletes the key and restores the module default (424).
+    await separator.focus();
+    await page.keyboard.press('Enter');
+    await expect(separator).toHaveAttribute('aria-valuenow', '424');
+    expect(await page.evaluate((key) => localStorage.getItem(key), TREE_WIDTH_KEY)).toBeNull();
+
+    // Keyboard resize writes the SAME module key.
+    await page.keyboard.press('ArrowRight');
+    await expect(separator).toHaveAttribute('aria-valuenow', '440');
+    expect(await page.evaluate((key) => localStorage.getItem(key), TREE_WIDTH_KEY)).toBe('440');
+
+    // Pointer drag produces a new clamped width and persists it.
+    const box = (await separator.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect
+      .poll(async () => page.evaluate((key) => localStorage.getItem(key), TREE_WIDTH_KEY))
+      .not.toBe('440');
+    const dragged = await separator.getAttribute('aria-valuenow');
+    expect(dragged).not.toBe('440');
+    expect(await page.evaluate((key) => localStorage.getItem(key), TREE_WIDTH_KEY)).toBe(dragged);
+
+    // Reload → identical width (persistence, not an in-memory accident).
+    await page.reload();
+    await expect(page.getByTestId('splitview-detail')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('tree-width-separator')).toHaveAttribute('aria-valuenow', dragged!);
+  });
+
+  test('[ADR-030] module widths are independent — ADR never moves Requirements', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('reqflow.splitview.treeWidth.v2.requirements', '520');
+    });
+    await page.goto(`${FRONTEND_URL}/requirements`);
+    await createRequirementViaQuickForm(page, 'Module independence REQ');
+    await expect(page.getByTestId('tree-width-separator')).toHaveAttribute('aria-valuenow', '520');
+
+    // No ADR key was written by the Requirements editor.
+    expect(
+      await page.evaluate(() => localStorage.getItem('reqflow.splitview.treeWidth.v2.adr')),
+    ).toBeNull();
+
+    // The ADR route reads its OWN default (350) — the two modules never share.
+    // Create our OWN ADR (a hardcoded seeded title is not guaranteed in CI)
+    // and open its detail — the divider only mounts with a detail pane.
+    await createAdrViaUI(page, { title: 'ADR-030 module independence probe' });
+    await expect(page.getByTestId('tree-width-separator')).toHaveAttribute('aria-valuenow', '350');
+    expect(
+      await page.evaluate((key) => localStorage.getItem(key), TREE_WIDTH_KEY),
+    ).toBe('520');
+  });
+
+  test('[ADR-030] mobile divider is inert and the tree width is not applied to stacked panes', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/requirements`);
+    await createRequirementViaQuickForm(page);
+    await expect(page.getByTestId('tree-width-separator')).toBeVisible();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    // zone === 'mobile' → no tab stop, no aria-valuenow, no separator at all.
+    await expect(page.getByTestId('tree-width-separator')).toHaveCount(0);
+    const flexBasis = await page
+      .getByTestId('splitview-list')
+      .evaluate((el) => window.getComputedStyle(el).flexBasis);
+    expect(flexBasis).toBe('100%');
+    await expect(page.getByTestId('trace-footer')).toBeVisible();
+
+    // Restore the desktop viewport for the next test in this shard.
+    await page.setViewportSize({ width: 1280, height: 720 });
   });
 
   // -------------------------------------------------------------------------

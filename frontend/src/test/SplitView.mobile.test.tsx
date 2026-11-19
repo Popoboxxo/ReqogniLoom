@@ -101,6 +101,42 @@ describe("SplitView mobile — concept contract", () => {
     fireEvent.click(screen.getByTestId("concept-row"));
     expect(screen.getByTestId("splitview-back").textContent).toContain("Zurück zur Liste");
   });
+
+  it("keeps the tree-width divider inert in the mobile zone", () => {
+    const { container } = render(
+      <SplitView list={conceptList} detail={<div data-testid="concept-detail">Detail</div>} />,
+    );
+    expect(screen.queryByTestId("tree-width-separator")).toBeNull();
+    expect(container.querySelector('[role="separator"]')).toBeNull();
+    expect(screen.getByTestId("splitview-list")).toHaveStyle({ flex: "1 1 100%" });
+  });
+
+  it("does not apply treeWidth to the stacked panes", () => {
+    render(
+      <SplitView
+        list={conceptList}
+        detail={<div data-testid="concept-detail">Detail</div>}
+        treeWidth={520}
+        moduleType="requirements"
+      />,
+    );
+    const list = screen.getByTestId("splitview-list");
+    expect(list.style.flex).toBe("1 1 100%");
+    expect(list.style.minWidth).toBe("");
+    expect(screen.queryByTestId("tree-width-separator")).toBeNull();
+  });
+
+  it("keeps the list pane (and its scroll position) mounted across back", () => {
+    render(<SplitView list={conceptList} detail={<div data-testid="concept-detail">Detail</div>} />);
+    const list = screen.getByTestId("splitview-list");
+    list.scrollTop = 123;
+
+    fireEvent.click(screen.getByTestId("concept-row"));
+    fireEvent.click(screen.getByTestId("splitview-back"));
+
+    expect(screen.getByTestId("splitview-list")).toBe(list);
+    expect(list.scrollTop).toBe(123);
+  });
 });
 
 describe("useSplitViewMobileState — extracted state machine", () => {

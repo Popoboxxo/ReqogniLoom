@@ -914,8 +914,9 @@
    *                          targets, bottom sheets, compact padding — M4/E8)
    *   --bp-md:        768px  (split-view stacks to a single column;
    *                          ArtifactInspector R4)
-   *   --bp-lg:       1024px  (sidebar collapses to an off-canvas drawer,
-   *                          trace spine turns horizontal; inspector R3)
+   *   --bp-lg:       1024px  (sidebar collapses to an off-canvas drawer;
+   *                          inspector R4 sheet boundary — R3 at/above,
+   *                          see the 1023px derived threshold below)
    *   --bp-sheetOpen:1280px  (R3 inspector sheet starts open — spec §4.2)
    *   --bp-default:  1440px  (inspector R2 threshold — spec §4.2)
    *   --bp-xl:       1600px  (SE-metrics KPI row fits five tiles side by side,

@@ -3,6 +3,11 @@
 > **Status:** Entwurf zur Abstimmung · **Stand:** 2026-07-31 (fachlich korrigiert)
 > **Grundlage:** Konsistenz-Audit an der laufenden Anwendung (Issues #157–#186)
 > **Sammel-Issue:** #186 · **Geltungsbereich:** `frontend/` gesamt
+> **Umsetzungsstand:** 2026-11-19 — horizontale Trace-Spine, mobile Sheet-Koordination,
+> modulweise Baumbreite und Impact-Drawer sind gemäß
+> [`docs/plans/2026-11-19-trace-spine-footer-plan.md`](plans/2026-11-19-trace-spine-footer-plan.md)
+> und [ADR-030](se/ADR/ADR-030_tree_width_drag_reversal.md) implementiert. Die
+> nachfolgenden Abschnitte beschreiben diesen Stand, nicht eine weitere Absicht.
 
 Dieses Dokument beschreibt das Zielbild der Oberfläche. Es ist bindend für neue
 Komponenten und maßgeblich bei Umbauten. Wo der Ist-Zustand abweicht, ist das ein
@@ -170,6 +175,7 @@ Beschäftigung, kein Fortschritt.
 | **Seitenkopf** | 5 Muster → 1 Komponente |
 | **Bäume** | 3 Implementierungen → 1 Primitive |
 | **Neu** | Trace-Spine als Orientierungselement (dynamische Tiefe, Kapitel 5) |
+| **Trace-Spine-Position** | senkrechte Schiene am Detailrand → horizontaler Footer über die volle Inhaltsbreite ohne Navigation (Kapitel 5/6) |
 | **Neu** | Theming-System — benannte Paletten statt nur Hell/Dunkel (Kapitel 8.6) |
 
 Die gestalterische Freiheit wird also an vier Stellen ausgegeben: **Typografie**, **Spine**,
@@ -190,8 +196,11 @@ Punkt im PR, kein akzeptierter Verlust.
 
 Der eine Teil, an den man sich erinnern soll.
 
-Am linken Rand des Detailbereichs steht eine schmale, senkrechte Leiste: die **Spine**.
-Sie zeigt die Ableitungskette rund um das aktuelle Artefakt und markiert, wo es sitzt.
+Die **Spine** zeigt die Ableitungskette rund um das aktuelle Artefakt und markiert, wo es
+sitzt. Seit der Umsetzung (2026-11-19) ist sie kein senkrechter Streifen mehr am linken
+Detailrand, sondern ein **horizontaler Footer** über die volle Inhaltsbreite mit Ausnahme
+der Navigation: `<TraceSpineFooter>` ist Geschwister des `<SplitView>`, nicht Kind des
+Detail-Scrollbereichs und nicht mehr im `spine`-Slot. Der Footer bleibt beim Scrollen stehen.
 
 **Fachliche Korrektur (2026-07-31):** Die Erstfassung zeigte fünf feste V-Modell-Stationen
 (L0–L4). Das ist am echten Datenmodell falsch und wurde nach Rückmeldung korrigiert — siehe
@@ -225,19 +234,14 @@ Baum an dieser Stelle tatsächlich hat — und hängt Verifikation als **Badge a
 Station**, nicht als eigene Station ans Ende.
 
 ```
-   ╭──────────────────────────────────────────────────────────╮
-   │                                                          │
-   │        ○────  Stakeholder-Bedarf                   2 ↑   │
-   │        │                                                 │
-   │        ●════  System Requirement         ◀ hier     🧪2  │
-   │        │                                                 │
-   │        ○────  Subsystem                             4 ↓  │
-   │        │                                                 │
-   │        ○────  Sub-Subsystem                         3 ↓  │
-   │        │                                                 │
-   │        ◍────  Komponente                       — ⚠  🧪5  │
-   │                                                          │
-   ╰──────────────────────────────────────────────────────────╯
+   ┌──────────────┬──────────────────────────────────────────────┐
+   │ NAVIGATION   │  Artefaktkopf (sticky)                       │
+   │              ├──────────────────────────────────────────────┤
+   │  (bleibt     │  Inhalt (scrollt)                            │
+   │   außen vor) │                                              │
+   │              ├──────────────────────────────────────────────┤
+   │              │ ○ Bedarf ─ ● Req ─ ○ Subsys ─ ◍ Komp ─ [+2] │ ← TRACE-FOOTER
+   └──────────────┴──────────────────────────────────────────────┘
 ```
 
 Zwei Architektur-Ebenen im Beispiel sind kein Zufallswert — die Spine fragt bei jedem
@@ -261,16 +265,28 @@ Bedarf, Requirement und Komponentenblatt.
 
 ### Verhalten
 
-- **Klick auf eine Station** öffnet die verknüpften Artefakte in einem Panel neben der
-  Spine. Der Kontext bleibt stehen — man verlässt die Seite nicht.
-- **Klick auf ein 🧪-Badge** öffnet die verknüpften Testfälle dieser Station, getrennt vom
-  Ableitungspanel — Verifikation ist eine eigene Frage, keine weitere Ableitungsstufe.
-- **Hover** zeigt die Titel der verknüpften Artefakte als Vorschau.
+- **Klick auf eine Station** öffnet die verknüpften Artefakte in einem **nicht-modalen
+  Popover über der Station** (`role="dialog"`, `data-testid="trace-station-popover"`).
+  Der Kontext bleibt stehen — man verlässt die Seite nicht. `Escape` schließt das Popover
+  und gibt den Fokus an die auslösende Station zurück. Ist eine Station nicht auflösbar
+  (`resolved:false`, Resolve läuft oder ist fehlgeschlagen), ist ihr Chip deaktiviert —
+  keine toten Links.
+- **Verifikation** bleibt eine eigene Frage, keine weitere Ableitungsstufe: das `🧪N`-Badge
+  beziffert die Testfälle je Station, die Verknüpfungen stehen im selben Stations-Popover.
 - Die Spine ist **immer** sichtbar, solange ein Artefakt geöffnet ist, und scrollt nicht
-  mit dem Inhalt.
-- Auf schmalen Fenstern (< 1024 px) wandert sie waagerecht unter den Artefaktkopf. Bei mehr
-  als vier Zwischenstationen wird sie horizontal scrollbar statt umzubrechen — die
-  Reihenfolge der Kette bleibt so erkennbar.
+  mit dem Inhalt. Ohne Auswahl wird nichts gemountet — kein reservierter Platz und kein
+  `impact()`/`resolve`-RPC (`useDerivationChain` sitzt in der Footer-Komponente).
+- **Ab fünf Stationen** wird eingeklappt: erste drei + aktive Station + `[+N weitere]`.
+  Die aktive Station trägt `aria-current="step"` / `data-active="true"` und wird nie
+  ausgeblendet; ausgeklappt läuft die Kette horizontal über (Overflow statt Umbruch).
+- **Zwei unabhängige User-Schalter** in `UserProfileSettings` (Q1-Keys
+  `ui.trace_footer.enabled` und `ui.inspector.enabled`, HTTP-Felder
+  `trace_footer_enabled` / `inspector_enabled`, Default `true`): Footer aus = kein
+  Element, kein RPC; Inspector aus = keine Seitenspalte. **Beide an = beide zeigen Links**
+  — bewusst beibehaltener Status quo, keine neue Unterdrückungslogik (`hideTraceLinks`
+  existiert nicht mehr).
+- **Mobil** (< `--bp-md`) wird der Footer zur Bottom-Sheet im gemeinsamen Sheet-Slot;
+  siehe 6.4.
 
 ### Warum das und nicht ein Breadcrumb
 
@@ -289,20 +305,21 @@ Das ist der eine Ort, an dem das Konzept auffällig wird. Alles andere bleibt ru
 
 ### 6.1 Zonen
 
-Drei Zonen, feste Verhältnisse.
+Drei Zonen plus der horizontale Trace-Footer, feste Verhältnisse.
 
 ```
 ┌────────────┬───────────────────────────┬──────────────────────────────────┐
 │            │  Seitenkopf      (sticky) │  Artefaktkopf         (sticky)   │
 │ NAVIGATION ├───────────────────────────┼──────────────────────────────────┤
-│            │  Filterleiste    (sticky) │ │                                │
-│  (scrollt) ├───────────────────────────┤S│                                │
-│            │                           │P│   Inhalt                       │
-│  ────────  │  Liste / Baum             │I│   (scrollt)                    │
-│  Kontext   │  (scrollt)                │N│                                │
-│  Konto     │                           │E│                                │
-│            │                           │ │                                │
-└────────────┴───────────────────────────┴──────────────────────────────────┘
+│            │  Filterleiste    (sticky) │                                  │
+│  (scrollt) ├───────────────────────────┤                                  │
+│            │                           │   Inhalt                         │
+│  ────────  │  Liste / Baum             │   (scrollt)                      │
+│  Kontext   │  (scrollt)                │                                  │
+│  Konto     │                           │                                  │
+│            ├───────────────────────────┴──────────────────────────────────┤
+│            │ ● Bedarf ─ ○ Req ─ ◍ Arch ─ ○ TC        TRACE-FOOTER        │
+└────────────┴───────────────────────────────────────────────────────────────┘
    240 px              40 %                            60 %
                    min 380 px                       min 520 px
 ```
@@ -313,7 +330,16 @@ Drei Zonen, feste Verhältnisse.
   nicht mit dem Inhalt um Platz konkurrieren.
 - **Liste und Detail** teilen sich den Rest im Verhältnis 40 : 60, jeweils mit
   Mindestbreite. Unterschreitet das Fenster die Summe der Mindestbreiten, greift der
-  Umbruch (6.3).
+  Umbruch (6.3). Die Breite ist **pro Modul einstellbar**: nach dem ersten Drag ist die
+  gemessene `treeWidth` (px) autoritativ, `ratio` nur Initialwert, `minWidths` Clamp
+  ([ADR-030](se/ADR/ADR-030_tree_width_drag_reversal.md)). Untergrenze `minWidths[0]`
+  (Default 380 px), Obergrenze die zur Laufzeit gemessene
+  `effMax = min(70 % × Inhaltsbreite, Inhaltsbreite − minWidths[1] − Dividerbreite)` —
+  kein neues `@media`. Der Trenner (`role="separator"`, 24 px Trefferfläche) reagiert auf
+  `←/→` (±16 px), `Shift`+Pfeil (±64 px), `Home`/`End` und `Enter`/Doppelklick (Reset).
+  Persistenz gerätelokal unter `reqflow.splitview.treeWidth.v2.<moduleType>` (siehe 12.6).
+- **Der Trace-Footer** liegt unter Liste und Detail, spannt genau die Inhaltsbreite ohne
+  die Navigation und ist Geschwister des `<SplitView>` (siehe 5 und 12.10).
 - **Ohne gewähltes Element entfällt der Detailbereich.** Die Liste läuft dann über die
   volle Breite. Kein leeres Panel mit „Select an item from the list."
 
@@ -330,16 +356,60 @@ auf einem Laptop trifft denselben Zustand.
 **< 1024 px (`--bp-lg`)**
 - Navigation wird zum Off-Canvas-Panel mit Umschalter im Seitenkopf
 - Liste und Detail behalten die Nebeneinander-Anordnung, Verhältnis 45 : 55
-- Spine wandert waagerecht unter den Artefaktkopf
+- `--bp-lg` ist heute **nur noch** der Haltepunkt für den Inspector; die Spine ist
+  bereits auf großen Fenstern waagerecht (die drei alten Spine-Breakpoint-Mechanismen
+  sind entfernt)
 
 **< 768 px (`--bp-md`)**
 - Liste und Detail stapeln zu einer Spalte
 - Ein Artefakt öffnen ersetzt die Liste; ein Zurück-Schritt im Artefaktkopf führt zurück
 - Filterleiste bricht auf zwei Zeilen um; Filter **schrumpfen nicht** unter ihre lesbare
   Breite
+- Der Trace-Footer wird zur eingeklappten Bottom-Leiste; antippen expandiert die Kette
+  als Sheet. Inspector-Sheet und Trace-Sheet teilen sich **einen** Slot: genau **ein**
+  Sheet ist gleichzeitig expandiert, das Öffnen des einen kollabiert das andere
+  (`mobileSheetCoordinator`, siehe 6.4).
 
-Heute existiert kein einziger Layout-Haltepunkt. Die vier `@media`-Regeln im Projekt
-betreffen ausschließlich `prefers-reduced-motion`.
+Die Haltepunkte liegen als Tokens in `styles/tokens.css` und werden über
+`breakpoint-token-gate.test.ts` geprüft.
+
+### 6.4 Trace-Footer und Inspector — Zustandsmatrix
+
+Zwei **unabhängige** User-Präferenzen bestimmen, was angezeigt wird: der Trace-Footer
+(`ui.trace_footer.enabled`, HTTP-Feld `trace_footer_enabled`) und der Inspector
+(`ui.inspector.enabled`, HTTP-Feld `inspector_enabled`). Beide sind Q1-Keys mit Default
+`true` und `workspace_id = None`, eingeschaltet in `UserProfileSettings/AppearanceSection`.
+Ein Schalter wirkt nie auf den anderen; bei **beiden an** zeigen **beide** ihre Link-
+Ansichten (bewusst beibehaltener Status quo, kein `hideTraceLinks`).
+
+| Footer | Inspector | Detailbreite | Footer (Span / Höhe / z) | Inspector (Span / Höhe / z) |
+|---|---|---|---|---|
+| an | an | −320 px | `Navigation…W` / 64 px (96 px expandiert) / 10 | rechte Spalte 320 px / `H − Footer` / 5 |
+| an | aus | voll | `Navigation…W` / 64 (96) / 10 | — |
+| aus | an | −320 px | **kein Element, 0 px reserviert** | 320 px / `H` / 5 |
+| aus | aus | voll | — | — |
+
+Im **Modal** spannt der Footer die Modal-Body-Breite (56 px, z = Modal + 1); der
+Inspector ist dort ein Overlay-Drawer (320 px, z = Modal + 2). Die Tab-Reihenfolge ist
+Formularfelder → Trace-Footer → Aktions-Footer; der Footer erzeugt **keine** eigene
+Fokus-Falle.
+
+**Mobil (< `--bp-md`)** sind beide Flächen **nicht-modale Bereiche** (`role="region"`),
+keine Dialoge: kein Scrim, keine Fokus-Falle. Die jeweils verdeckte Detailfläche wird
+über `useInertBehindSheet` mit `inert` versehen (WCAG 2.2 SC 2.4.11) und damit aus
+Tab-Reihenfolge und Accessibility-Tree genommen; die Liste bleibt bedienbar.
+`aria-modal="true"` ist ausschließlich dem echten modalen Dialog vorbehalten — dem
+**ImpactDrawer** (12.13).
+
+| Zustand | Footer-Sheet | Inspector-Sheet | Fokus / `inert` |
+|---|---|---|---|
+| beide aus | eingeklappt (Tap-Leiste) | geschlossen | Detail normal |
+| Footer expandiert | expandiert (Kette sichtbar, eigene Schließen-Taste) | kollabiert | Fokus im Footer-Sheet; Detail `inert` |
+| Inspector expandiert | kollabiert (Tap-Leiste bleibt) | expandiert | Fokus im Inspector-Sheet; Detail `inert` |
+
+Genau **ein** Sheet ist expandiert: das Öffnen des einen kollabiert das andere
+(`mobileSheetCoordinator`). Die **eine** Schließen-Taste schließt das oberste Sheet und
+gibt den Fokus an den Auslöser zurück; `Escape` bewirkt dasselbe.
 
 ---
 
@@ -819,14 +889,31 @@ verankert werden.
 <SplitView
   list={<RequirementList />}
   detail={selected ? <RequirementDetail /> : null}
-  spine={selected ? <TraceSpine artifact={selected} /> : null}
   ratio={[40, 60]}
   minWidths={[380, 520]}
+  moduleType="requirements"
+  treeWidth={treeWidth}
+  onTreeWidthChange={setTreeWidth}
 />
 ```
 
 Ohne `detail` läuft `list` über die volle Breite. Beide Bereiche bekommen genau eine
 Scroll-Fläche mit `overscroll-behavior: contain`.
+
+Der `spine`-Slot bleibt in der API erhalten, wird aber von keinem Host mehr mit
+`<TraceSpine>` gefüttert — die Kette sitzt im horizontalen Footer (12.10).
+
+**Baumbreite (ADR-030):** `ratio` ist nur noch der **Initialwert**, `minWidths` die
+**Clamp-Grenzen**; nach dem ersten Drag ist die gemessene `treeWidth` (px) autoritativ.
+Der Trenner (`role="separator"`, `aria-valuenow/min/max`,
+`data-testid="tree-width-separator"`, 24 px Trefferfläche) reagiert auf `←/→` (±16 px),
+`Shift`+Pfeil (±64 px), `Home` (= `minWidths[0]`, Default 380 px), `End` (= `effMax`) sowie
+`Enter`/Doppelklick (Reset auf den Modul-Default). Die Obergrenze wird zur Laufzeit
+gemessen: `effMax = min(70 % × contentWidth, contentWidth − minWidths[1] − Dividerbreite)`
+— kein neues `@media`. Der Wert liegt gerätelokal unter
+`reqflow.splitview.treeWidth.v2.<moduleType>`; die Module sind unabhängig, korrupte oder
+außerhalb des Clamps liegende Werte fallen auf den Default zurück. Auf Mobil ist der
+Trenner inert. Siehe [ADR-030](se/ADR/ADR-030_tree_width_drag_reversal.md).
 
 ### 12.7 `<EmptyState>`
 
@@ -867,6 +954,12 @@ Verbindliche Primitive auf Basis von `RequirementsList/ModalDialogBase.tsx`.
 - Fokus kehrt beim Schließen auf das auslösende Element zurück
 - Titel des Dialogs = Beschriftung des auslösenden Knopfes
 
+**Abgrenzung — nicht-modale Flächen:** Der Stations-Popover der Spine (12.10), das
+Inspector-Sheet und das Trace-Sheet (6.4) sind **keine** modalen Dialoge: sie tragen
+`role="region"` bzw. ein `role="dialog"` ohne `aria-modal`, haben keine Fokus-Falle und
+keinen Scrim; die verdeckte Fläche wird `inert` gesetzt. `aria-modal="true"` bleibt
+ausschließlich dem echten Modal vorbehalten — dem ImpactDrawer (12.13).
+
 ### 12.9 `<StatusEditor>`
 
 Der vorhandene `WorkflowStatusEditor` bleibt. Er sitzt künftig **im Artefaktkopf** neben
@@ -876,20 +969,28 @@ Artefakts, kein Feld unter anderen.
 Nur erlaubte Übergänge werden angeboten. Ein gesperrter Übergang erklärt beim Überfahren,
 warum.
 
-### 12.10 `<TraceSpine>`
+### 12.10 `<TraceSpine>` / `<TraceSpineFooter>`
 
 Siehe Kapitel 5. Die Stationen sind **kein** festes Array — sie werden aus der realen
 Ableitungskette des Artefakts aufgelöst (Baumtiefe je Vorfahre/Nachfahre), Verifikation
 kommt als Badge pro Station, nicht als eigene Station.
 
+Der Footer ist **Geschwister des `<SplitView>`** und spannt die volle Inhaltsbreite ohne
+Navigation. `useDerivationChain` liegt in der Komponente: bei fehlender Auswahl wird
+nichts gemountet (0 px reserviert, keine RPCs). Die Hosts übergeben nur einen
+Artefakt-Descriptor und Callbacks:
+
 ```tsx
-<TraceSpine
+<TraceSpineFooter
   artifact={selected}
-  chain={useDerivationChain(selected)}   // N Stationen, dynamisch aus get_level()
-  onSelectStation={(station) => openLinkedPanel(station)}
-  onSelectVerification={(station) => openTestPanel(station)}
+  onOpenArtifact={(chainArtifact, entry) => openLinkedArtifact(chainArtifact, entry)}
+  architectureElements={elements}
 />
 ```
+
+Sichtbarkeit: zwei unabhängige User-Schalter (`ui.trace_footer.enabled`,
+`ui.inspector.enabled`), **beide an = beide Link-Ansichten** (6.4). Auf Mobil wird der
+Footer zur Bottom-Sheet im gemeinsamen Sheet-Slot.
 
 ### 12.11 Dynamische Artefakt-Attribute
 
@@ -925,6 +1026,20 @@ Fehler — der Nutzer glaubt, gespeichert zu haben.
 Regel: **Jede fehlgeschlagene Aktion erzeugt eine sichtbare Meldung, und das Formular
 bleibt offen.** Der Helfer dafür existiert bereits (`api/client.ts:229`,
 `extractErrorMessage`).
+
+### 12.13 `<ImpactDrawer>`
+
+Die Impact-Analyse auf `/traceability` ist **keine dauerhafte Spalte** mehr und löst
+**keinen Full-Page-Reload** aus (`window.location.assign("/impact")` ist entfernt). Ein
+Trigger in der Listenansicht öffnet einen **On-Demand-Drawer** rechts:
+
+- echter Modal-Dialog: `role="dialog"`, `aria-modal="true"`, `aria-labelledby`, Portal
+  in `document.body`, Fokus-Falle über die gemeinsame `useFocusTrap`-Primitive,
+  `Escape` schließt, Fokus kehrt zum Trigger zurück;
+- Inhalt: das bestehende `ImpactDetailPanel` samt Impact-Preset
+  (`data-testid="impact-drawer"`);
+- `aria-modal="true"` bleibt ausschließlich diesem echten Dialog vorbehalten — die
+  Sheets in 6.4 sind demgegenüber nicht-modal.
 
 ---
 
@@ -1042,6 +1157,12 @@ zwar als Eingangsbedingung.
 | Kontrast 4,5 : 1 in **beiden** Themes | 128 Hex-Literale umgehen das Theme |
 | `prefers-reduced-motion` respektiert | in 4 CSS-Modulen, nicht global |
 | Bedienbar ohne Maus, Ende zu Ende | ungeprüft |
+
+> Die Tabelle ist die Audit-Momentaufnahme vom 2026-07-31. Zum Umsetzungsstand
+> 2026-11-19 ergänzend: modale Dialoge tragen `role="dialog"` + `aria-modal` (12.8);
+> der ImpactDrawer ist ein echter Modal-Dialog (12.13); die mobilen Sheets sind
+> nicht-modale `role="region"` mit `inert` auf der verdeckten Detailfläche
+> (6.4, WCAG 2.2 SC 2.4.11).
 
 ### 15.2 Grundsatz
 
@@ -1347,3 +1468,4 @@ dauerhafter Test aus 16.1.
 |---|---|
 | 2026-07-28 | Erstfassung aus dem Konsistenz-Audit (#157–#186) |
 | 2026-07-31 | Fachliche Korrektur nach Review: Trace-Spine von fünf festen V-Modell-Stationen auf dynamische Ebenenzahl umgestellt (Kapitel 5, gegen `ArchitectureElement.get_level()` geprüft — Baumtiefe, kein Enum); Verifikation von eigener Endstufe zu Badge pro Station (Tests verlinken laut Datenmodell auf jede Ebene, nicht nur auf eine Verifikationsstufe); neues Kapitel 8.6 Theming-System (benannte Paletten über Primitiv-/Semantik-Token-Trennung, best practice nach Material Design 3 / Adobe Spectrum / IBM Carbon); Kapitel 12.11 Dynamische Artefakt-Attribute ergänzt (`CustomFieldDefinition` existiert im Datenmodell, wird nicht angezeigt — Audit #29); funktionale Untergrenze in Kapitel 4 ergänzt; Schritt 0 (Pilot an Goals, Architecture, Needs) vor die Umsetzungsreihenfolge gesetzt. |
+| 2026-11-19 | Umsetzungsstand des Trace-Spine-Footer-Plans eingearbeitet: horizontale Ableitungskette als Footer über voller Inhaltsbreite ohne Navigation mit zwei unabhängigen User-Schaltern (5, 6.1, 6.4, 12.10); mobile Zustandsmatrix mit genau einem expandierten, nicht-modalen Sheet und `inert` auf der verdeckten Detailfläche (6.4, 12.8); modulweise ziehbare Baumbreite mit ADR-030-Clamp und neuem Persistenz-Key (6.2, 12.6); `/traceability`-Impact als On-Demand-Modal-Drawer ohne Spalte und ohne Full-Page-Reload (12.13). Quellen: `docs/plans/2026-11-19-trace-spine-footer-plan.md`, `docs/se/ADR/ADR-030_tree_width_drag_reversal.md`, implementierter Code. |

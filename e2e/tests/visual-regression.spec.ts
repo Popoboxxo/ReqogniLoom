@@ -14,6 +14,30 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8001';
 
 // ---------------------------------------------------------------------------
+// Baseline ownership & churn scope — Task 11 (Schnitt 4b).
+//
+// Owner of every screenshot baseline in this spec: `e2e-tester` (named on each
+// test via the `owner` annotation pushed in beforeEach below).
+//
+// Deliberate churn scope for the trace-footer/tree-width/drawer slices (the
+// ~14 baselines called out in the plan). A baseline is only refreshed after a
+// deliberate review against a running stack — never overwritten blindly:
+//   - 8 editor hosts: needs, requirements, adrs, risks, issues, testcases,
+//     goals, architecture (new horizontal trace footer + per-module tree width)
+//   - modal: dialog-requirement-create (footer in the modal stacking context)
+//   - /traceability + /impact: impact column removed, on-demand drawer instead
+//   - mobile: footer back bar + inspector sheet (mobile-sheets.spec.ts captures
+//     its own screenshots; none are committed without review)
+//   - route-icds (sibling of the architecture/requirements tree views)
+//
+// In this planning worktree no ReqogniLoom stack is running, so the PNGs are
+// intentionally LEFT UNTOUCHED. Regenerate with:
+//   npx playwright test visual-regression --update-snapshots
+// and re-run without the flag before any baseline is accepted.
+// ---------------------------------------------------------------------------
+const VISUAL_BASELINE_OWNER = 'e2e-tester';
+
+// ---------------------------------------------------------------------------
 // All 24 top-level routes from SidebarNavigation.tsx's NAV_ITEMS (kept in the
 // same order/slugs as the pre-existing e2e/design-audit.js ad-hoc audit list,
 // so findings from both tools stay easy to cross-reference).
@@ -74,6 +98,10 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
+  // Name the baseline owner on every screenshot test (Task 11). This is test
+  // metadata only; it does not alter what is captured or compared.
+  test.info().annotations.push({ type: 'owner', description: VISUAL_BASELINE_OWNER });
+
   // Disable CSS animations/transitions + native caret blink before any app
   // script runs, and on every subsequent navigation (addInitScript re-runs
   // per document). Playwright's toHaveScreenshot already freezes CSS

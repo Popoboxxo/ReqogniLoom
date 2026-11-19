@@ -355,3 +355,154 @@
   color: var(--color-text-muted);
   white-space: nowrap;
 }
+
+/* ---------------------------------------------------------------------------
+ * Task 10 (Schnitt 4a) — on-demand Impact drawer.
+ *
+ * The former permanent right column is gone; the trigger button and the
+ * drawer below replace it. Presentational only — the modal ARIA/focus contract
+ * is owned by ImpactDrawer.tsx + the shared useFocusTrap primitive.
+ * ------------------------------------------------------------------------ */
+
+.impactTriggerBar {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.impactOpenBtn {
+  min-height: var(--btn-h-lg);
+  border-radius: var(--radius-btn);
+}
+
+/* Scrim uses the shared palette alpha token (no hardcoded colour literal). */
+.impactDrawerOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  justify-content: flex-end;
+  overflow: hidden;
+  background: var(--palette-black-a50);
+}
+
+.impactDrawer {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 100vh;
+  background: var(--color-surface-raised);
+  border-left: 1px solid var(--color-border);
+  box-shadow: var(--shadow-card);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  outline: none;
+  /* GPU-cheap properties only; duration/easing come from the motion tokens. */
+  animation: impact-drawer-in var(--transition-normal);
+}
+
+.impactDrawer:focus-visible {
+  box-shadow:
+    var(--shadow-card),
+    0 0 0 2px var(--color-focus);
+}
+
+@keyframes impact-drawer-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .impactDrawer {
+    animation: none;
+  }
+}
+
+/* Mobile-first: full-width sheet; fixed-width right drawer from --bp-md up. */
+@media (min-width: 768px) {
+  .impactDrawer {
+    width: min(480px, 100%);
+  }
+}
+
+.impactDrawerHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-6) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.impactDrawerTitle {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  line-height: var(--leading-tight);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.impactDrawerClose {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 44px touch floor (plan §3.5) — the modal drawer's only dismissal control. */
+  width: var(--btn-h-lg);
+  height: var(--btn-h-lg);
+  border: 1px solid transparent;
+  border-radius: var(--radius-btn);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.impactDrawerClose:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.impactDrawerContent {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: var(--space-4) var(--space-6) var(--space-5);
+}
+
+.impactDrawerData {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2) var(--space-3);
+  margin: 0 0 var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: var(--font-size-sm);
+}
+
+.impactDrawerData dt {
+  font-weight: var(--weight-medium);
+  color: var(--color-text-muted);
+}
+
+.impactDrawerData dd {
+  margin: 0;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.impactDrawerEmpty {
+  margin: 0 0 var(--space-5);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

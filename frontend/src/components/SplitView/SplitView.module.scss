@@ -57,32 +57,29 @@
   }
 }
 
+// ADR-030: 24x24 px pointer target for the tree-width separator (the visible
+// hairline is the right border). Kept in sync with `DIVIDER_STYLE` in
+// SplitView.tsx; the component applies it inline so it is observable in tests
+// where CSS Modules are not processed.
 .divider {
-  flex: 0 0 1px;
-  background: var(--color-border);
+  flex: 0 0 24px;
+  width: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  align-self: stretch;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
   cursor: col-resize;
   user-select: none;
-  transition: background 0.2s ease, width 0.2s ease;
+  transition: background var(--transition-fast);
 
   &:hover {
-    // Issue #876 (Etappe 7, batch 3): the `background-color` long-hand keeps
-    // this rule out of the `(f)` primary-fill ratchet in `ui-ratchet.test.ts`
-    // (its pattern only matches the `background:` shorthand). The rendered
-    // result is identical — `background-color` is the one long-hand the
-    // shorthand would have set here (no image/position/repeat). Same
-    // documented precedent as `BaselinesView.module.css` /
-    // `ArchitectureEditors.module.css`.
-    background-color: var(--color-primary);
-    width: 3px;
-    margin-left: -1px;
-    box-shadow: inset 0 0 0 1px var(--color-primary);
+    // Keep the 24px target — only the hairline colour changes on hover.
+    border-right-color: var(--color-primary);
   }
 
   &.dragging {
-    background-color: var(--color-primary);
-    width: 3px;
-    margin-left: -1px;
-    box-shadow: 0 0 8px rgba(0, 0, 0, 0.15);
+    border-right-color: var(--color-primary);
   }
 }
 
@@ -116,11 +113,12 @@
   }
 }
 
-// Narrow breakpoint (--bp-lg in tokens.css, ch. 6.3): list/detail keep the
-// side-by-side layout but shift to a 45:55 ratio; the concept contract
-// (SplitView.tsx `ConceptSplitView`) computes this in JS since custom
-// properties cannot be read inside `@media` conditions. Kept here for the
-// legacy contract's divider/min-width affordances only.
+// Mobile stacking breakpoint (--bp-md, 768px in tokens.css, ch. 6.3). The
+// concept container computes its responsive zones in JS (see
+// `useSplitViewMobileState`) because CSS custom properties cannot be read
+// inside `@media` conditions; these rules only style the importable
+// legacy-equivalent divider/min-width affordances. The old 45:55 narrow-zone
+// ratio was removed in Schnitt 2c together with the horizontal chain layout.
 //
 // CSS custom properties cannot be referenced inside `@media` conditions, so
 // this pixel value MUST stay in sync with `--bp-md` in tokens.css.
@@ -185,5 +183,14 @@
     &.dragging {
       box-shadow: 0 0 12px rgba(255, 255, 255, 0.1);
     }
+  }
+}
+
+// ADR-030 / UI concept ch. 11.3: honour reduced-motion. The app-wide rule in
+// global.css neutralises every transition; this explicit rule keeps the
+// divider contract local and testable without a new width media query.
+@media (prefers-reduced-motion: reduce) {
+  .divider {
+    transition: none;
   }
 }

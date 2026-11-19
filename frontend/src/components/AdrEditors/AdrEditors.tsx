@@ -20,9 +20,10 @@ import { AdrSupersedePanel } from './AdrSupersedePanel';
 import { InspectorShell } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
-import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
-import type { ChainArtifact } from '../shared/TraceSpine';
+import { TraceSpineFooter } from '../shared/TraceSpine';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
+import { useTraceFooterVisible } from '../../hooks/useTraceFooterVisible';
+import { useTreeWidth } from '../../hooks/useTreeWidth';
 import { useAdrData } from './useAdrData';
 import { useAdrDerive } from './use-adr-derive';
 import { useWorkspace } from '../../context/WorkspaceContext';
@@ -147,21 +148,12 @@ export default function AdrEditors(): JSX.Element {
   const handleSaved = (updated?: Adr) => { refresh(updated); };
   const handleDeleted = () => { navigate('/adrs'); refresh(); };
 
-  // Trace spine (Task 3.3 — UI concept ch. 5).
-  const derivationChain = useDerivationChain(
-    item?.artifact_id ?? item?.id ?? null,
-    'Adr',
-    null,
-    { enabled: !!item },
-  );
-
-  const handleOpenChainArtifact = useCallback(
-    (artifact: ChainArtifact): void => {
-      const entry = derivationChain.resolveEntry(artifact);
-      if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
-    },
-    [derivationChain, navigate],
-  );
+  // Task 5 (Schnitt 2b): the derivation chain now lives inside the footer,
+  // so this host only decides *whether* it is mounted (and no longer fires
+  // chain RPCs on its own).
+  const [traceFooterVisible] = useTraceFooterVisible();
+  // Task 9 / ADR-030: per-module persisted tree width (min matches minWidths[0]).
+  const { treeWidth, defaultTreeWidth, setTreeWidth } = useTreeWidth('adr', { min: 320 });
 
   // #1762 (M2, mirrors M1): the inspector's programmatic focus targets live in
   // the route, not in the shell — the shell must not know the detail area's DOM
@@ -177,7 +169,7 @@ export default function AdrEditors(): JSX.Element {
   // first station.
   const focusSpine = useCallback((): void => {
     document
-      .querySelector<HTMLElement>('[data-testid="trace-spine-station-button"]')
+      .querySelector<HTMLElement>('[data-testid="trace-footer-station"]')
       ?.focus();
   }, []);
 
@@ -261,6 +253,10 @@ export default function AdrEditors(): JSX.Element {
 
       <div className={styles.splitWrapper}>
         <SplitView
+          moduleType="adr"
+          treeWidth={treeWidth}
+          onTreeWidthChange={setTreeWidth}
+          defaultTreeWidth={defaultTreeWidth}
           list={
             <div>
               <IncludeDeletedToggle
@@ -354,27 +350,29 @@ export default function AdrEditors(): JSX.Element {
                     artifactPk={item.artifact_id ?? null}
                     currentVersion={ver}
                     coveredRef={detailScrollRef}
-                    onShowInSpine={focusSpine}
+                    onShowInSpine={traceFooterVisible ? focusSpine : undefined}
                   />
                 );
               })()}
             </div>
           }
-          spine={
-            item ? (
-              <TraceSpine
-                stations={derivationChain.stations}
-                isLoading={derivationChain.isLoading}
-                error={derivationChain.error}
-                onOpenArtifact={handleOpenChainArtifact}
-                isOpenable={derivationChain.isOpenable}
-              />
-            ) : null
-          }
           ratio={[40, 60]}
           minWidths={[320, 448]}
           containerClassName={styles.splitWrapper}
         />
+        {traceFooterVisible && item && (
+          <TraceSpineFooter
+            artifact={{
+              artifactId: item.artifact_id,
+              id: item.id,
+              artifactType: 'Adr',
+              level: null,
+            }}
+            onOpenArtifact={(_artifact, entry) => {
+              if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
+            }}
+          />
+        )}
       </div>
 
       <EditorPageShell

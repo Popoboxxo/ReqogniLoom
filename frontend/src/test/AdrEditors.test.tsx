@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -290,6 +290,7 @@ import AdrEditors from "../components/AdrEditors/AdrEditors";
 import { tracelinksApi } from "../api/tracelinks";
 import { architectureApi } from "../api/architecture";
 import { traceabilityApi } from "../api/traceability";
+import { setTraceFooterVisible } from "../hooks/useTraceFooterVisible";
 import { adrsApi } from "../api/adrs";
 import { commentsApi } from "../api/comments";
 import type { Adr } from "../types";
@@ -413,14 +414,15 @@ describe("AdrEditors — inspector shell mount (#1762 M2)", () => {
     expect(screen.getByTestId("adr-detail-status")).toHaveTextContent(ADR.status);
   });
 
-  it("uses the concept split layout with the spine in its own slot (DoD 6)", async () => {
+  it("uses the concept split layout with the trace footer as a sibling (DoD 6)", async () => {
     renderEditor(`/adrs/${ADR.id}`);
 
     await waitFor(() => {
       expect(screen.getByTestId("splitview-list")).toBeInTheDocument();
       expect(screen.getByTestId("splitview-detail")).toBeInTheDocument();
-      expect(screen.getByTestId("splitview-spine")).toBeInTheDocument();
+      expect(screen.getByTestId("trace-footer")).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("splitview-spine")).not.toBeInTheDocument();
     expect(screen.queryByTestId("splitview-divider")).not.toBeInTheDocument();
   });
 });
@@ -731,5 +733,100 @@ describe("AdrEditors — include_deleted reveals outdated ADRs (D6)", () => {
       expect(screen.getByTestId("adr-row-adr-outdated-1")).toBeInTheDocument();
     });
     expect(screen.getByTestId("adr-row-adr-outdated-1-outdated")).toBeInTheDocument();
+  });
+});
+
+// Task 5 (Schnitt 2b): the derivation chain moved into the footer. Pin one
+// footer as a SplitView sibling, an empty spine slot, zero chain RPCs while
+// hidden, and the D2b status quo (footer + inspector both show link views).
+describe("AdrEditors — Task 5 trace footer host migration", () => {
+  const selectedPath = `/adrs/${ADR.id}`;
+
+  afterEach(() => {
+    setTraceFooterVisible(true);
+  });
+
+  it("Task 9: moduleType + treeWidth/onTreeWidthChange/defaultTreeWidth reach SplitView", async () => {
+    const storageKey = ["reqflow", "splitview", "treeWidth", "v2", "adr"].join(".");
+    const originalInnerWidth = window.innerWidth;
+    window.localStorage.setItem(storageKey, "500");
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      writable: true,
+      value: 1440,
+    });
+    const measured = vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
+      width: 1200,
+      height: 800,
+      top: 0,
+      left: 0,
+      right: 1200,
+      bottom: 800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+    try {
+      setTraceFooterVisible(true);
+      renderEditor(selectedPath);
+      await screen.findByTestId("splitview-detail");
+      const separator = screen.getByTestId("tree-width-separator");
+      // moduleType selects the v2 key; treeWidth is authoritative in SplitView.
+      expect(separator).toHaveAttribute("aria-valuenow", "500");
+      // A resize flows back through onTreeWidthChange into the SAME module key.
+      fireEvent.keyDown(separator, { key: "ArrowRight" });
+      expect(separator).toHaveAttribute("aria-valuenow", "516");
+      expect(window.localStorage.getItem(storageKey)).toBe("516");
+      // Enter resets via defaultTreeWidth and deletes the stored key.
+      fireEvent.keyDown(separator, { key: "Enter" });
+      expect(separator).toHaveAttribute("aria-valuenow", "350");
+      expect(window.localStorage.getItem(storageKey)).toBeNull();
+    } finally {
+      measured.mockRestore();
+      window.localStorage.removeItem(storageKey);
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        writable: true,
+        value: originalInnerWidth,
+      });
+    }
+  });
+
+  it("mounts exactly one trace-footer as a SplitView sibling; the spine slot is empty", async () => {
+    setTraceFooterVisible(true);
+    renderEditor(selectedPath);
+    const footer = await screen.findByTestId("trace-footer");
+
+    expect(screen.getAllByTestId("trace-footer")).toHaveLength(1);
+    expect(
+      ["splitview-list", "splitview-detail", "splitview-spine"].some(
+        (id) => footer.closest(`[data-testid="${id}"]`) !== null,
+      ),
+    ).toBe(false);
+    expect(
+      footer.parentElement?.querySelector('[data-testid="splitview-list"]'),
+    ).not.toBeNull();
+    expect(screen.queryByTestId("splitview-spine")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("trace-spine")).not.toBeInTheDocument();
+  });
+
+  it("footer hidden -> no trace-footer in the DOM and zero chain RPCs", async () => {
+    setTraceFooterVisible(false);
+    renderEditor(selectedPath);
+    await screen.findByTestId("splitview-detail");
+
+    expect(screen.queryByTestId("trace-footer")).not.toBeInTheDocument();
+    expect(tracelinksApi.impact).not.toHaveBeenCalled();
+    expect(traceabilityApi.resolve).not.toHaveBeenCalled();
+  });
+
+  it("footer ON + inspector ON -> both link views are visible (D2b)", async () => {
+    setTraceFooterVisible(true);
+    renderEditor(selectedPath);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("trace-footer")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-inspector")).toBeInTheDocument();
+    });
   });
 });

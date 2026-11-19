@@ -14,6 +14,9 @@ als UNVERIFIED markiert. Die unten genannten GitHub-Issues wurden durch diesen A
 
 ## Oberste Ebene — offene Arbeiten
 
+## [2026-11-19-trace-spine-footer-plan.md](2026-11-19-trace-spine-footer-plan.md)
+**Approved plan — all 4 slices implemented (2026-11-19, frontmatter `status: approved`).** Moved the `<TraceSpine>` arrow chain into a full-width horizontal footer with two independent user toggles (footer / inspector), expand past 5 stations while keeping the active station visible, per-module resizable tree (explicit reversal of the UI-001 no-drag decision, ADR-030 accepted), and an on-demand impact-analysis drawer on `/traceability`. Verified against `origin/main 37e3ee40`: 8 real spine mounts, concept-only SplitView contract, `hideTraceLinks` already removed by Inspector redesign M8. 4 slices / 12 tasks with gates; user decisions D1/D2/D2b/D3/D5/D7/D8 in §2; reviews + resolutions in §11. UI/a11y reviews APPROVE per slice; implementation on `docs/trace-spine-footer-plan`, final PR/merge pending.
+
 ## [mobile-baseline-2026-11.md](mobile-baseline-2026-11.md)
 **Supporting baseline (M0) — code-derived findings, no rendered measurements.** The M4–M8 checklist behind the mobile/PWA plan; M6–M9 is merged (`4aa5f956`, `fbb95e86`, `fe9ae303`; docs `c27d172a`), structural gates are green and rendered device evidence is still outstanding. Plan: [`../superpowers/plans/2026-11-16-mobile-pwa.md`](../superpowers/plans/2026-11-16-mobile-pwa.md).
 

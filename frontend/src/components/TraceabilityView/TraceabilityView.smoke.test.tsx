@@ -20,6 +20,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Module mocks (must precede component import)
@@ -424,5 +426,124 @@ describe("TraceabilityView — readable endpoints and coverage (#413)", () => {
 
     const items = await screen.findAllByTestId("uncovered-requirement-item");
     expect(items.map((i) => i.textContent ?? "").join(" ")).toContain("Orphan requirement");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Task 10 (Schnitt 4a) — Impact on-demand drawer
+// ---------------------------------------------------------------------------
+
+const IMPACT_ARTIFACTS = [
+  {
+    id: "art-req-001",
+    title: "Login must be possible",
+    artifact_type: "Requirement",
+    workspace_id: "ws-trace-001",
+  },
+];
+
+describe("TraceabilityView — impact drawer (Task 10)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupDefaultMocks();
+    vi.mocked(artifactsModule.artifactsApi.list).mockResolvedValue({
+      results: IMPACT_ARTIFACTS,
+    } as never);
+  });
+
+  it("[Task 10] no longer navigates to /impact via full-page reload (source-level)", () => {
+    const source = readFileSync(resolve(__dirname, "TraceabilityView.tsx"), "utf-8");
+    expect(source.match(/window\.location\.assign/g) ?? []).toHaveLength(0);
+    expect(source).not.toMatch(/window\.location\s*\.\s*href\s*=/);
+  });
+
+  it("[Task 10] keeps the impact preset handoff contract unchanged", () => {
+    const presetSource = readFileSync(
+      resolve(__dirname, "..", "ImpactView", "impact-preset.ts"),
+      "utf-8"
+    );
+    expect(presetSource).toContain("IMPACT_PRESET_STORAGE_KEY");
+    expect(presetSource).toContain("interface ImpactPreset");
+    expect(presetSource).toContain("artifactType");
+  });
+
+  it("[Task 10] the permanent impact column is gone from the split grid", () => {
+    const source = readFileSync(resolve(__dirname, "TraceabilityView.tsx"), "utf-8");
+    // The Impact panel is no longer passed as the SplitView `detail` slot.
+    expect(source).not.toContain("detail={detailPanel}");
+    expect(source).not.toContain("detailPanel = (");
+    expect(source).toMatch(/<SplitView\s+list=\{listPanel\}\s*\/>/);
+  });
+
+  it("[Task 10] drawer is closed initially and opens only on the trigger click", async () => {
+    const user = userEvent.setup();
+    render(<TraceabilityView />);
+    await waitFor(() => {
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId("impact-drawer")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("impact-open-btn"));
+
+    expect(screen.getByTestId("impact-drawer")).toBeInTheDocument();
+    // The panel content moved into the drawer: no standing impact column.
+    expect(screen.getByTestId("impact-panel")).toBeInTheDocument();
+  });
+
+  it("[Task 10] drawer opens with the correct impact data (auto-selected artifact)", async () => {
+    const user = userEvent.setup();
+    render(<TraceabilityView />);
+    await waitFor(() => {
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("impact-open-btn"));
+
+    // The picker lives inside the drawer now; opening auto-selects the first
+    // workspace artifact so the drawer always shows concrete impact data.
+    expect(screen.getByTestId("impact-artifact-select")).toHaveValue(
+      IMPACT_ARTIFACTS[0].id
+    );
+    const data = screen.getByTestId("impact-drawer-data");
+    expect(data).toHaveTextContent("Requirement");
+    expect(data).toHaveTextContent("art-req-001");
+  });
+
+  it("[Task 10] Escape closes the drawer and returns focus to the trigger", async () => {
+    const user = userEvent.setup();
+    render(<TraceabilityView />);
+    await waitFor(() => {
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+
+    const trigger = screen.getByTestId("impact-open-btn");
+    await user.click(trigger);
+    expect(screen.getByTestId("impact-drawer")).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("impact-drawer")).not.toBeInTheDocument();
+    });
+    expect(trigger).toHaveFocus();
+  });
+
+  it("[Task 10] drawer is a real modal with focus trap (aria-modal, Tab cycle)", async () => {
+    const user = userEvent.setup();
+    render(<TraceabilityView />);
+    await waitFor(() => {
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByTestId("impact-open-btn"));
+    const drawer = screen.getByTestId("impact-drawer");
+    expect(drawer).toHaveAttribute("role", "dialog");
+    expect(drawer).toHaveAttribute("aria-modal", "true");
+
+    for (let i = 0; i < 5; i += 1) {
+      await user.tab();
+      expect(drawer.contains(document.activeElement)).toBe(true);
+    }
   });
 });

@@ -1,177 +1,250 @@
 /**
- * SplitView — concept contract tests (UI_KONZEPT.md ch. 12.6)
+ * SplitView — concept contract + per-module tree-width divider
+ * (UI_KONZEPT.md ch. 12.6, ADR-030).
  *
- * The component has exactly one contract: `list` / `detail` / `spine` /
- * `ratio` / `minWidths`. The legacy `leftPanel` / `rightPanel` drag-divider
- * contract was removed in UI-001 / S3.2 WP-1 — its tests went with it.
- * Mobile pane behaviour lives in `SplitView.mobile.test.tsx` and the
- * extracted `useSplitViewMobileState` hook.
+ * One contract: `list` / `detail` / `ratio` / `minWidths` plus the optional
+ * `moduleType` / `treeWidth` / `onTreeWidthChange` / `defaultTreeWidth` seam.
+ * `ratio` is now the INITIAL width only, `minWidths` are the CLAMP bounds and
+ * the divider is the authoritative width once the user has resized it.
+ * The legacy `leftPanel` / `rightPanel` contract and the `spine` slot are gone;
+ * mobile pane behaviour lives in `useSplitViewMobileState` and is covered in
+ * `SplitView.mobile.test.tsx`.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, it, expect, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SplitView } from "./SplitView";
+import { SplitView, type SplitViewProps } from "./SplitView";
+
+const ORIGINAL_WIDTH = window.innerWidth;
+
+/** Runtime content width for the `effMax` clamp (ADR-030), held constant. */
+const CONTENT_WIDTH = 1200;
+/** `min(0.7 * 1200, 1200 - 520 - 24)` = `min(840, 656)` = 656. */
+const EFF_MAX = 656;
+/** `0.4 * 1200` = 480 — the default `[40, 60]` ratio initial value. */
+const RATIO_INITIAL = 480;
+
+function stubContentWidth(width: number): void {
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
+    width,
+    height: 800,
+    top: 0,
+    left: 0,
+    right: width,
+    bottom: 800,
+    x: 0,
+    y: 0,
+    toJSON: () => ({}),
+  } as DOMRect);
+}
+
+function renderSplit(props: Partial<SplitViewProps> = {}) {
+  return render(
+    <SplitView
+      list={<div data-testid="the-list">List content</div>}
+      detail={<div data-testid="the-detail">Detail content</div>}
+      {...props}
+    />,
+  );
+}
 
 describe("SplitView — concept contract", () => {
-  it("AC1: renders the list full-width without a detail container when detail is null", () => {
-    render(
-      <SplitView
-        list={<div data-testid="the-list">List content</div>}
-        detail={null}
-      />
-    );
+  beforeEach(() => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      writable: true,
+      value: 1440,
+    });
+    stubContentWidth(CONTENT_WIDTH);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      writable: true,
+      value: ORIGINAL_WIDTH,
+    });
+  });
+
+  it("AC1: renders the list full-width without a detail container or divider when detail is null", () => {
+    render(<SplitView list={<div data-testid="the-list">List content</div>} detail={null} />);
 
     expect(screen.getByTestId("the-list")).toBeInTheDocument();
     expect(screen.queryByTestId("splitview-detail")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("tree-width-separator")).not.toBeInTheDocument();
 
     const listContainer = screen.getByTestId("splitview-list");
     const computed = window.getComputedStyle(listContainer);
-    // No width constraint — the list runs the full available width.
     expect(computed.maxWidth).toBe("100%");
     expect(listContainer).not.toHaveStyle({ minWidth: "380px" });
   });
 
-  it("AC2: mounts the spine between list and detail, independent of detail's scroll container", () => {
-    render(
-      <SplitView
-        list={<div data-testid="the-list">List content</div>}
-        detail={<div data-testid="the-detail">Detail content</div>}
-        spine={<div data-testid="the-spine">Spine content</div>}
-      />
-    );
+  it("AC2: renders list, separator and detail as siblings inside one container", () => {
+    renderSplit();
 
     const list = screen.getByTestId("splitview-list");
-    const spine = screen.getByTestId("splitview-spine");
+    const separator = screen.getByTestId("tree-width-separator");
     const detail = screen.getByTestId("splitview-detail");
 
-    // Spine is a sibling of list/detail, not nested inside the detail
-    // scroll container — so scrolling detail cannot move it.
-    expect(spine.parentElement).toBe(detail.parentElement);
-    expect(spine.contains(detail)).toBe(false);
-    expect(detail.contains(spine)).toBe(false);
+    expect(separator.parentElement).toBe(list.parentElement);
+    expect(detail.parentElement).toBe(list.parentElement);
+    expect(list.contains(detail)).toBe(false);
+    expect(detail.contains(list)).toBe(false);
 
-    // DOM order: list, spine, detail (spine sits between the two panes).
-    const container = list.parentElement as HTMLElement;
-    const children = Array.from(container.children);
-    expect(children.indexOf(spine)).toBeGreaterThan(children.indexOf(list));
-    expect(children.indexOf(detail)).toBeGreaterThan(children.indexOf(spine));
+    const children = Array.from(list.parentElement!.children);
+    expect(children.indexOf(separator)).toBeGreaterThan(children.indexOf(list));
+    expect(children.indexOf(detail)).toBeGreaterThan(children.indexOf(separator));
   });
 
-  it("AC2c: in the narrow (--bp-lg) zone, spine wanders horizontal but stays independent of detail's scroll container", () => {
-    const originalWidth = window.innerWidth;
+  it("AC2c: keeps list/separator/detail on one axis in the narrow zone (no horizontal chain bar)", () => {
     Object.defineProperty(window, "innerWidth", {
-      writable: true,
       configurable: true,
-      value: 900, // between fallback --bp-md (768) and --bp-lg (1024)
+      writable: true,
+      value: 900,
     });
 
-    try {
-      render(
-        <SplitView
-          list={<div data-testid="the-list">List content</div>}
-          detail={<div data-testid="the-detail">Detail content</div>}
-          spine={<div data-testid="the-spine">Spine content</div>}
-        />
-      );
+    renderSplit();
 
-      const list = screen.getByTestId("splitview-list");
-      const spine = screen.getByTestId("splitview-spine");
-      const detail = screen.getByTestId("splitview-detail");
-
-      // Still structurally independent of detail's scroll container.
-      expect(spine.contains(detail)).toBe(false);
-      expect(detail.contains(spine)).toBe(false);
-
-      // Spine renders as a sibling of the list/detail row wrapper, above
-      // it in DOM order (ch. 6.3: "Spine wandert waagerecht unter den
-      // Artefaktkopf").
-      const root = spine.parentElement as HTMLElement;
-      const row = list.parentElement as HTMLElement;
-      expect(root.contains(row)).toBe(true);
-      expect(row).not.toBe(root);
-      const rootChildren = Array.from(root.children);
-      expect(rootChildren.indexOf(spine)).toBeLessThan(rootChildren.indexOf(row));
-    } finally {
-      Object.defineProperty(window, "innerWidth", {
-        writable: true,
-        configurable: true,
-        value: originalWidth,
-      });
-    }
-  });
-
-  it("AC2b: omits the spine slot entirely when no spine prop is passed", () => {
-    render(
-      <SplitView
-        list={<div>List</div>}
-        detail={<div>Detail</div>}
-      />
-    );
-
-    expect(screen.queryByTestId("splitview-spine")).not.toBeInTheDocument();
+    const root = screen.getByTestId("splitview-list").parentElement as HTMLElement;
+    expect(root.style.flexDirection).toBe("row");
+    // The authoritative px width comes from the ratio initial value — no narrow override.
+    expect(screen.getByTestId("splitview-list")).toHaveStyle({ flex: "0 0 480px" });
   });
 
   it("AC3: both scroll surfaces carry overscroll-behavior: contain and scrollbar-gutter: stable", () => {
-    render(
-      <SplitView
-        list={<div>List</div>}
-        detail={<div>Detail</div>}
-      />
-    );
+    renderSplit();
 
-    const list = screen.getByTestId("splitview-list");
-    const detail = screen.getByTestId("splitview-detail");
-
-    for (const surface of [list, detail]) {
-      const computed = window.getComputedStyle(surface);
+    for (const testId of ["splitview-list", "splitview-detail"]) {
+      const computed = window.getComputedStyle(screen.getByTestId(testId));
       expect(computed.overscrollBehavior).toBe("contain");
       expect(computed.scrollbarGutter).toBe("stable");
     }
   });
 
-  it("#1252: the concept-contract list panel also scrolls on Y only", () => {
-    render(
-      <SplitView
-        list={<div>List</div>}
-        detail={<div>Detail</div>}
-      />
-    );
-
-    const list = screen.getByTestId("splitview-list");
-    const computed = window.getComputedStyle(list);
+  it("#1252: the concept-contract list panel scrolls on Y only", () => {
+    renderSplit();
+    const computed = window.getComputedStyle(screen.getByTestId("splitview-list"));
     expect(computed.overflowX).toBe("hidden");
     expect(computed.overflowY).toBe("auto");
   });
 
-  it("UI-001: no drag divider is rendered — the fixed-ratio contract is the only one", () => {
-    const { container } = render(
-      <SplitView list={<div>List</div>} detail={<div>Detail</div>} />
-    );
-    expect(container.querySelector('[data-testid="splitview-divider"]')).toBeNull();
+  it("exposes an accessible divider contract (ADR-030)", () => {
+    renderSplit();
+
+    const separator = screen.getByTestId("tree-width-separator");
+    expect(separator).toHaveAttribute("role", "separator");
+    expect(separator).toHaveAttribute("tabindex", "0");
+    expect(separator).toHaveAttribute("aria-label");
+    expect(separator.getAttribute("aria-valuemin")).toBe("380");
+    expect(separator.getAttribute("aria-valuemax")).toBe(String(EFF_MAX));
+    expect(separator.getAttribute("aria-valuenow")).toBe(String(RATIO_INITIAL));
+    // 24x24 px hit target (ADR-030) while the visible hairline spans the row.
+    expect(separator).toHaveStyle({ width: "24px", minHeight: "24px" });
   });
 
-  it("applies the configured ratio and minWidths to list/detail when both are present", () => {
-    render(
-      <SplitView
-        list={<div>List</div>}
-        detail={<div>Detail</div>}
-        ratio={[30, 70]}
-        minWidths={[300, 400]}
-      />
+  it("moves the tree width by +/-16 px and +/-64 px with Shift", () => {
+    renderSplit();
+    const separator = screen.getByTestId("tree-width-separator");
+
+    fireEvent.keyDown(separator, { key: "ArrowRight" });
+    expect(separator.getAttribute("aria-valuenow")).toBe("496");
+    fireEvent.keyDown(separator, { key: "ArrowLeft" });
+    expect(separator.getAttribute("aria-valuenow")).toBe("480");
+
+    fireEvent.keyDown(separator, { key: "ArrowLeft", shiftKey: true });
+    expect(separator.getAttribute("aria-valuenow")).toBe("416");
+    fireEvent.keyDown(separator, { key: "ArrowRight", shiftKey: true });
+    expect(separator.getAttribute("aria-valuenow")).toBe("480");
+  });
+
+  it("clamps Home to minWidths[0] (380) and End to the measured effMax (656)", () => {
+    renderSplit();
+    const separator = screen.getByTestId("tree-width-separator");
+
+    fireEvent.keyDown(separator, { key: "Home" });
+    expect(separator.getAttribute("aria-valuenow")).toBe("380");
+    expect(screen.getByTestId("splitview-list")).toHaveStyle({ flex: "0 0 380px" });
+
+    fireEvent.keyDown(separator, { key: "End" });
+    expect(separator.getAttribute("aria-valuenow")).toBe(String(EFF_MAX));
+    expect(screen.getByTestId("splitview-list")).toHaveStyle({ flex: `0 0 ${EFF_MAX}px` });
+  });
+
+  it("never lets repeated arrow presses cross the clamp bounds", () => {
+    renderSplit();
+    const separator = screen.getByTestId("tree-width-separator");
+
+    for (let i = 0; i < 30; i += 1) {
+      fireEvent.keyDown(separator, { key: "ArrowRight", shiftKey: true });
+    }
+    expect(separator.getAttribute("aria-valuenow")).toBe(String(EFF_MAX));
+
+    for (let i = 0; i < 30; i += 1) {
+      fireEvent.keyDown(separator, { key: "ArrowLeft", shiftKey: true });
+    }
+    expect(separator.getAttribute("aria-valuenow")).toBe("380");
+  });
+
+  it("Enter and double-click reset to the module default", () => {
+    renderSplit({ moduleType: "requirements" });
+    const separator = screen.getByTestId("tree-width-separator");
+
+    fireEvent.keyDown(separator, { key: "ArrowRight" });
+    expect(separator.getAttribute("aria-valuenow")).toBe("496");
+    fireEvent.keyDown(separator, { key: "Enter" });
+    expect(separator.getAttribute("aria-valuenow")).toBe("424");
+
+    fireEvent.keyDown(separator, { key: "ArrowRight" });
+    expect(separator.getAttribute("aria-valuenow")).toBe("440");
+    fireEvent.doubleClick(separator);
+    expect(separator.getAttribute("aria-valuenow")).toBe("424");
+  });
+
+  it("treats ratio as the initial value and minWidths as clamp bounds", () => {
+    renderSplit({ ratio: [10, 90], minWidths: [420, 500] });
+    const separator = screen.getByTestId("tree-width-separator");
+
+    // 10% of 1200 = 120, below the 420 lower clamp — clamp wins.
+    expect(separator.getAttribute("aria-valuenow")).toBe("420");
+    expect(separator.getAttribute("aria-valuemin")).toBe("420");
+    // min(840, 1200 - 500 - 24) = 676
+    expect(separator.getAttribute("aria-valuemax")).toBe("676");
+    expect(screen.getByTestId("splitview-list")).toHaveStyle({
+      flex: "0 0 420px",
+      minWidth: "420px",
+    });
+    expect(screen.getByTestId("splitview-detail")).toHaveStyle({ minWidth: "500px" });
+  });
+
+  it("exposes the controlled treeWidth / onTreeWidthChange seam for Task 9", () => {
+    const onTreeWidthChange = vi.fn();
+    renderSplit({ treeWidth: 500, onTreeWidthChange });
+    const separator = screen.getByTestId("tree-width-separator");
+
+    expect(separator.getAttribute("aria-valuenow")).toBe("500");
+    fireEvent.keyDown(separator, { key: "ArrowRight" });
+    expect(onTreeWidthChange).toHaveBeenCalledWith(516);
+    // Controlled: the parent owns the value, so it stays put until re-rendered.
+    expect(separator.getAttribute("aria-valuenow")).toBe("500");
+  });
+
+  it("keeps the splitview-* E2E testids byte-identical and contains no spine slot", () => {
+    renderSplit();
+
+    expect(screen.getByTestId("splitview-list")).toBeInTheDocument();
+    expect(screen.getByTestId("splitview-detail")).toBeInTheDocument();
+    expect(screen.queryByTestId("splitview-back")).toBeNull();
+    expect(screen.queryByTestId("splitview-spine")).toBeNull();
+    expect(readFileSync(join(__dirname, "SplitView.tsx"), "utf-8")).not.toContain(
+      "splitview-spine",
     );
-
-    const list = screen.getByTestId("splitview-list");
-    const detail = screen.getByTestId("splitview-detail");
-
-    expect(list).toHaveStyle({ flex: "0 0 30%", minWidth: "300px" });
-    expect(detail).toHaveStyle({ minWidth: "400px" });
   });
 
   it("#1421: position memory finds the aria-pressed row when the detail closes", () => {
-    // The current row of a `role="button"` list is marked
-    // `aria-pressed="true"` (ArtifactRow since #1421) — `aria-selected` is
-    // invalid on buttons. Both conventions are covered by the hook.
     const scrollIntoView = vi.fn();
     Object.defineProperty(Element.prototype, "scrollIntoView", {
       configurable: true,
@@ -186,11 +259,7 @@ describe("SplitView — concept contract", () => {
           <div role="button" aria-pressed="true" data-testid="row-b">B</div>
         </div>
       );
-      const { rerender } = render(
-        <SplitView list={list} detail={<div>Detail</div>} />
-      );
-
-      // Detail closes (list visible again) -> scroll the current row into view.
+      const { rerender } = render(<SplitView list={list} detail={<div>Detail</div>} />);
       rerender(<SplitView list={list} detail={null} />);
 
       expect(scrollIntoView).toHaveBeenCalledTimes(1);
@@ -201,10 +270,9 @@ describe("SplitView — concept contract", () => {
   });
 
   it("does not follow a new inline detail identity after the user pressed back", () => {
-    const originalWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", {
-      writable: true,
       configurable: true,
+      writable: true,
       value: 390,
     });
 
@@ -216,14 +284,13 @@ describe("SplitView — concept contract", () => {
       fireEvent.click(screen.getByTestId("splitview-back"));
       expect(screen.getByTestId("splitview-detail").style.display).toBe("none");
 
-      // Parent rerenders with a fresh inline detail element — must stay closed.
       rerender(<SplitView list={row} detail={<div>Detail</div>} />);
       expect(screen.getByTestId("splitview-detail").style.display).toBe("none");
     } finally {
       Object.defineProperty(window, "innerWidth", {
-        writable: true,
         configurable: true,
-        value: originalWidth,
+        writable: true,
+        value: ORIGINAL_WIDTH,
       });
     }
   });

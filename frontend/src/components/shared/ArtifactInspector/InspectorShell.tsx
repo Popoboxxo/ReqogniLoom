@@ -28,11 +28,17 @@
  *    only, never from a route switch (spec §8.2).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 
 import { InterviewProvenanceBadge } from "../InterviewProvenanceBadge";
+import {
+  getExpandedMobileSheet,
+  releaseMobileSheet,
+  requestMobileSheet,
+  subscribeToMobileSheet,
+} from "../mobileSheetCoordinator";
 
 import {
   INSPECTOR_HEADING_ID,
@@ -146,6 +152,15 @@ function InspectorShellBody({
   layout,
 }: InspectorShellBodyProps): JSX.Element {
   const { t } = useTranslation();
+  // Plan §3.5: the inspector and the trace footer share ONE expanded-sheet
+  // slot. The inspector claims it only in its mobile sheet/fullscreen form;
+  // the desktop panel/rail form keeps its independent side-by-side behaviour.
+  const expandedSheet = useSyncExternalStore(
+    subscribeToMobileSheet,
+    getExpandedMobileSheet,
+    getExpandedMobileSheet,
+  );
+  const isSheetForm = layout.form === "sheet" || layout.form === "fullscreen";
   const announcer = useInspectorAnnouncer();
   const countsValue = useInspectorCounts();
   const counts = useMemo(() => countsValue?.counts ?? {}, [countsValue]);
@@ -292,7 +307,27 @@ function InspectorShellBody({
     [layout, storageKey],
   );
 
-  const close = useCallback((): void => layout.setOpen(false), [layout]);
+  const close = useCallback((): void => {
+    releaseMobileSheet("inspector");
+    layout.setOpen(false);
+  }, [layout]);
+
+  // Single expanded-sheet owner (plan §3.5): claim on open, release on close,
+  // and collapse when the trace footer takes the slot. All release calls are
+  // idempotent, so the bidirectional hand-off cannot form a feedback loop.
+  useEffect(() => {
+    if (isSheetForm && layout.open) requestMobileSheet("inspector");
+  }, [isSheetForm, layout.open]);
+
+  useEffect(() => {
+    if (expandedSheet === "trace-footer" && layout.open) layout.setOpen(false);
+  }, [expandedSheet, layout.open, layout.setOpen]);
+
+  useEffect(() => {
+    if (!isSheetForm) releaseMobileSheet("inspector");
+  }, [isSheetForm]);
+
+  useEffect(() => () => releaseMobileSheet("inspector"), []);
 
   // -------------------------------------------------------------------------
   // Keyboard contracts: Alt+I / Alt+Shift+I (spec §5.2)

@@ -21,6 +21,10 @@
  * localStorage value only as a first-render fallback so every `<IdChip>` can
  * paint before a network round trip completes; this wrapper is what makes the
  * choice actually follow the account across browsers and devices.
+ *
+ * Task 2 adds two INDEPENDENT display flags — `trace_footer_enabled` and
+ * `inspector_enabled` — to this same wire shape. Both read/write through the
+ * exact snake_case field names; the Q1 keys behind them are backend-internal.
  */
 
 import { apiClient } from "./client";
@@ -34,6 +38,18 @@ export interface DisplayPreferences {
    * explicit selection": render the registry's `default_keys`.
    */
   visible_metrics: string[] | null;
+  /**
+   * Task 2 — show the horizontal trace-spine footer. The Q1 key behind this
+   * (`ui.trace_footer.enabled`) is backend-internal; the client only sees this
+   * snake_case HTTP field. Independent of `inspector_enabled`.
+   */
+  trace_footer_enabled: boolean;
+  /**
+   * Task 2 — show the artifact inspector. The Q1 key behind this
+   * (`ui.inspector.enabled`) is backend-internal; the client only sees this
+   * snake_case HTTP field. Independent of `trace_footer_enabled`.
+   */
+  inspector_enabled: boolean;
 }
 
 const PATH = "/users/me/display-preferences/";

@@ -116,4 +116,29 @@ describe("interactive hit targets meet WCAG 2.2 SC 2.5.8 (issue #1395)", () => {
     const traceSpine = readSource("components/shared/TraceSpine/TraceSpine.tsx");
     expect(traceSpine).toMatch(/className=\{`btn-ghost \$\{/);
   });
+
+  // Task 11 (Schnitt 4b) — mobile sheet controls. SC 2.5.8 AA is 24px (the
+  // floor pinned above); the mobile *touch* contract of plan §3.5 raises the
+  // sheet controls (trace-footer bar, expand/collapse, inspector sheet close,
+  // impact drawer close) to >=44px. A rendered box cannot be measured in
+  // jsdom, so this suite pins the token that provides the 44px floor and the
+  // E2E spec that performs the real bounding-box measurement. Keeping the two
+  // linked here stops the runtime check from being silently deleted.
+  it("provides a 44px touch-floor token and a mobile E2E >=44px bounding-box check", () => {
+    expect(tokenPx(TOKENS_CSS, "--btn-h-lg")).toBe(44);
+
+    const e2eSpec = readFileSync(
+      join(SRC_DIR, "..", "..", "e2e", "tests", "mobile-sheets.spec.ts"),
+      "utf-8",
+    );
+    const mobileHelper = readFileSync(
+      join(SRC_DIR, "..", "..", "e2e", "helpers", "mobile.ts"),
+      "utf-8",
+    );
+    expect(mobileHelper).toMatch(/TOUCH_TARGET_MIN_PX\s*=\s*44/);
+    expect(mobileHelper).toMatch(/boundingBox\(\)/);
+    // The mobile spec must actually call the measurement helper (not just
+    // import it) so the >=44px check cannot silently disappear from the run.
+    expect(e2eSpec).toMatch(/expectTouchTarget\(/);
+  });
 });

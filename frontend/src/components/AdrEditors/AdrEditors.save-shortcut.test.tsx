@@ -67,6 +67,7 @@ vi.mock("../shared/useInterviewStartCta", () => ({
 }));
 vi.mock("../shared/TraceSpine", () => ({
   TraceSpine: () => null,
+  TraceSpineFooter: () => null,
   useDerivationChain: () => ({
     stations: [],
     isLoading: false,

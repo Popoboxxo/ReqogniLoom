@@ -2779,6 +2779,17 @@
     "accountLabel": "Your account",
     "accountUnavailable": "Loading account…"
   },
+  "appearance": {
+    "title": "Appearance",
+    "hint": "These two display options are independent of each other and can be active at the same time. They belong to your account and apply in every workspace.",
+    "traceFooter": "Show trace footer",
+    "traceFooterHint": "Shows the derivation chain as a horizontal bar across the full content width.",
+    "inspector": "Show artifact inspector",
+    "inspectorHint": "Shows the inspector with details, versions and trace links.",
+    "loading": "Loading settings…",
+    "syncFailed": "The settings could not be synced with the server.",
+    "accountNote": "These settings belong to your account and apply on all devices."
+  },
   "pageHeader": {
     "more": "More actions",
     "moreLabel": "Show more actions"
@@ -2839,7 +2850,14 @@
     "error": "Could not load the derivation chain.",
     "close": "Close",
     "stationCount_one": "{{count}} artifact",
-    "stationCount_other": "{{count}} artifacts"
+    "stationCount_other": "{{count}} artifacts",
+    "footer": {
+      "more": "+{{count}} more",
+      "collapse": "Collapse",
+      "expandLabel": "Show more stations",
+      "singleStation": "This artifact is not linked to any other one yet.",
+      "popoverTitle": "Linked artifacts"
+    }
   },
   "dialog": {
     "close": "Close",

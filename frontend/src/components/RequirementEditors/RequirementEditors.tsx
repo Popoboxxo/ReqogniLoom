@@ -75,7 +75,10 @@ import { Dialog } from '../shared/Dialog';
 import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { InspectorShell } from '../shared/ArtifactInspector';
-import { TraceSpine } from '../shared/TraceSpine';
+import { TraceSpineFooter } from '../shared/TraceSpine';
+import { getArtifactRoute } from '../../utils/artifactRoutes';
+import { useTraceFooterVisible } from '../../hooks/useTraceFooterVisible';
+import { useTreeWidth } from '../../hooks/useTreeWidth';
 import { BaselineDriftBadge } from '../shared/BaselineDriftBadge/BaselineDriftBadge';
 import styles from './RequirementEditors.module.css';
 import { RequirementCreateFallbackForm } from './RequirementCreateFallbackForm';
@@ -330,12 +333,17 @@ export default function RequirementEditors(): JSX.Element {
 
   const {
     currentVersion,
-    derivationChain,
-    handleOpenChainArtifact,
     detailScrollRef,
     focusInspectorHeading,
     focusSpine,
   } = useRequirementInspector({ requirement });
+
+  // Task 5 (Schnitt 2b): the derivation chain now lives inside the footer,
+  // so this host only decides *whether* it is mounted (and no longer fires
+  // chain RPCs on its own).
+  const [traceFooterVisible] = useTraceFooterVisible();
+  // Task 9 / ADR-030: per-module persisted tree width (min matches minWidths[0]).
+  const { treeWidth, defaultTreeWidth, setTreeWidth } = useTreeWidth('requirements', { min: 320 });
 
   // Loading state
   if (isLoading) {
@@ -669,7 +677,7 @@ export default function RequirementEditors(): JSX.Element {
           artifactPk={requirement.artifact_id ?? null}
           currentVersion={currentVersion}
           coveredRef={detailScrollRef}
-          onShowInSpine={focusSpine}
+          onShowInSpine={traceFooterVisible ? focusSpine : undefined}
         />
       )}
     </div>
@@ -782,23 +790,29 @@ export default function RequirementEditors(): JSX.Element {
           {/* Concept contract (§8 M1-11): the spine gets its own slot between
               list and detail, so it stops scrolling with the form (I-13). */}
           <SplitView
+            moduleType="requirements"
+            treeWidth={treeWidth}
+            onTreeWidthChange={setTreeWidth}
+            defaultTreeWidth={defaultTreeWidth}
             list={leftPanel}
             detail={rightPanel}
-            spine={
-              requirement ? (
-                <TraceSpine
-                  stations={derivationChain.stations}
-                  isLoading={derivationChain.isLoading}
-                  error={derivationChain.error}
-                  onOpenArtifact={handleOpenChainArtifact}
-                  isOpenable={derivationChain.isOpenable}
-                />
-              ) : null
-            }
             ratio={[40, 60]}
             minWidths={[320, 448]}
             containerClassName={styles.splitWrapper}
           />
+          {traceFooterVisible && requirement && (
+            <TraceSpineFooter
+              artifact={{
+                artifactId: requirement.artifact_id,
+                id: requirement.id,
+                artifactType: 'Requirement',
+                level: null,
+              }}
+              onOpenArtifact={(_artifact, entry) => {
+                if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
+              }}
+            />
+          )}
         </div>
       </div>
     </>

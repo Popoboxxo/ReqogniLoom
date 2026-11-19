@@ -31,6 +31,14 @@ import {
 const SRC_DIR = resolve(__dirname, "..");
 const TOKENS_FILE = join(SRC_DIR, "styles", "tokens.css");
 const BREAKPOINT_HOOK_FILE = join(SRC_DIR, "hooks", "useBreakpoint.ts");
+const TRACE_SPINE_CSS_FILE = join(
+  SRC_DIR,
+  "components",
+  "shared",
+  "TraceSpine",
+  "TraceSpine.module.css",
+);
+const SPLIT_VIEW_TSX_FILE = join(SRC_DIR, "components", "SplitView", "SplitView.tsx");
 
 /** JS map key → CSS custom property. Deliberately duplicated here: a map that
  *  silently drifts from the hook is exactly what this gate must catch. */
@@ -219,5 +227,101 @@ describe("breakpoint token gate (S3.2 WP-2 / UI-003 / R2S-006)", () => {
   it("freezes the R3 sheet-open boundary at 1280px", () => {
     expect(inspectorDefaultsOpen("R3", 1279)).toBe(false);
     expect(inspectorDefaultsOpen("R3", 1280)).toBe(true);
+  });
+});
+
+/**
+ * Schnitt 2c (Task 6) — removal of the three obsolete spine-breakpoint
+ * mechanisms. The footer component is always horizontal now, no host feeds
+ * the SplitView `spine` slot any more, and `--bp-lg` belongs to the inspector
+ * alone. These gates are intentionally source-level (jsdom has `css: false`).
+ */
+describe("trace-spine footer breakpoint cleanup (Schnitt 2c / Task 6)", () => {
+  const traceSpineCss = readFileSync(TRACE_SPINE_CSS_FILE, "utf-8");
+  const splitViewSrc = readFileSync(SPLIT_VIEW_TSX_FILE, "utf-8");
+  const tokensCssForCleanup = readFileSync(TOKENS_FILE, "utf-8");
+  const tokensForCleanup = parseBreakpointTokens(tokensCssForCleanup);
+
+  it("drops the TraceSpine vertical-to-horizontal footer media query", () => {
+    expect(
+      traceSpineCss,
+      "@media (max-width: 1024px) turned the rail horizontal — obsolete now that <TraceSpineFooter> is always horizontal",
+    ).not.toMatch(/@media[^{}]*\(max-width:\s*1024px\)/);
+    expect(traceSpineCss).not.toMatch(/\.rail\s*\{[^}]*overflow-x:\s*auto/);
+    expect(traceSpineCss).not.toContain("flex-wrap: nowrap");
+  });
+
+  it("removes SplitView's spineIsHorizontal / NARROW_RATIO logic", () => {
+    expect(splitViewSrc).not.toContain("spineIsHorizontal");
+    expect(splitViewSrc).not.toContain("NARROW_RATIO");
+  });
+
+  it("removes the unoccupied spine slot from SplitView entirely", () => {
+    const spineLines = splitViewSrc
+      .split("\n")
+      .filter((line) => /spine/i.test(line));
+    expect(
+      spineLines,
+      "no host passes spine= since Schnitt 2b — the slot, its testid and its styles must be gone",
+    ).toEqual([]);
+  });
+
+  it("keeps --bp-lg registered for the inspector, with no spine in its vocabulary", () => {
+    expect(tokensForCleanup.get("--bp-lg")).toBe(1024);
+    const vocabulary = tokensCssForCleanup.slice(
+      tokensCssForCleanup.indexOf("Layout breakpoints"),
+      tokensCssForCleanup.indexOf("--bp-sm: 640px;"),
+    );
+    expect(vocabulary).toMatch(/inspector/i);
+    expect(
+      vocabulary,
+      "the --bp-lg vocabulary must no longer mention the trace spine",
+    ).not.toMatch(/spine/i);
+  });
+});
+
+/**
+ * Schnitt 3b (Task 9) — ADR-030 persistence key. The removed UI-001 width key
+ * family must have ZERO hits under frontend/src (not even in a stale import or
+ * a comment); the only tree-width storage key is the namespaced v2 prefix.
+ * The pattern is assembled from parts so this gate itself contributes no hit.
+ */
+describe("tree-width persistence key gate (Schnitt 3b / Task 9)", () => {
+  const LEGACY_FRAGMENT = ["reqflow", "splitview"].join("_");
+  const V2_PREFIX = ["reqflow", "splitview", "treeWidth", "v2", ""].join(".");
+  const TREE_WIDTH_HOOK_FILE = join(SRC_DIR, "hooks", "useTreeWidth.ts");
+
+  /** Recursively collect every regular file under `dir` (source-level gate). */
+  function collectSourceFiles(dir: string): string[] {
+    const out: string[] = [];
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) out.push(...collectSourceFiles(full));
+      else out.push(full);
+    }
+    return out;
+  }
+
+  it("has zero hits of the removed underscore-prefixed SplitView key in frontend/src", () => {
+    const hits: string[] = [];
+    for (const file of collectSourceFiles(SRC_DIR)) {
+      readFileSync(file, "utf-8")
+        .split("\n")
+        .forEach((line, index) => {
+          if (line.includes(LEGACY_FRAGMENT)) {
+            hits.push(`${relative(SRC_DIR, file)}:${index + 1}`);
+          }
+        });
+    }
+    expect(
+      hits,
+      "ADR-030 forbids reading OR writing the removed UI-001 layout key",
+    ).toEqual([]);
+  });
+
+  it("writes only the namespaced v2 tree-width key", () => {
+    const hook = readFileSync(TREE_WIDTH_HOOK_FILE, "utf-8");
+    expect(hook).toContain(V2_PREFIX);
+    expect(hook).toContain("treeWidthStorageKey");
   });
 });
