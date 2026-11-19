@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0-beta.4] — 2026-11-19
+
+### Fixed
+- fix(deps): restore the Docker backend image build — the torch CPU-wheel sha256 in `backend/requirements-torch.txt` is now a PEP 508 URL fragment (`#sha256=...`) instead of a `--hash=sha256:` flag, so pip's global `--require-hashes` mode is no longer activated and the `django-celery-beat @ git+...` VCS pin does not fail with `VcsHashUnsupported`; wheel hash verification is retained (DEP-005, #1945)
+
 ## [1.9.0-beta.3] — 2026-11-19
 
 ### Added

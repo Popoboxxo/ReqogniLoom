@@ -61,7 +61,7 @@ npm run build     # -> dist/plugin.js; the postbuild step runs scripts/verify-bu
 - Command `reqogniloom.open` (declared in the manifest's `contributes.commands`) — opens the panel.
 - Requirements views: a filterable, paginated list, a read-only detail (level, tier and suspect are derived server-side) and a create/edit form. A read-only API key can browse; saving then answers 403 in the panel.
 
-- **Version:** `1.9.0-beta.3` (from the repo `VERSION`) — Drift between the installed and shipped plugin is caught by `scripts/check_plugin_packages.py` at release time; the desktop plugin follows the repo `VERSION` (ADR-017 Option A).
+- **Version:** `1.9.0-beta.4` (from the repo `VERSION`) — Drift between the installed and shipped plugin is caught by `scripts/check_plugin_packages.py` at release time; the desktop plugin follows the repo `VERSION` (ADR-017 Option A).
 
 ## 3. Configuration
 

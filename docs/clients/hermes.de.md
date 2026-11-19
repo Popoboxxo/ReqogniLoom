@@ -61,7 +61,7 @@ npm run build     # -> dist/plugin.js; der postbuild-Schritt führt scripts/veri
 - Kommando `reqogniloom.open` (im Manifest `contributes.commands` deklariert) — öffnet das Panel.
 - Requirements-Ansichten: filterbare, paginierte Liste, schreibgeschütztes Detail (Ebene, Stufe und Suspect werden serverseitig abgeleitet) und Anlegen-/Bearbeiten-Formular. Ein Read-Key darf browsen; Speichern antwortet dann mit 403 im Panel.
 
-- **Version:** `1.9.0-beta.3` (aus dem Repo-`VERSION`) — Drift zwischen installiertem und ausgeliefertem Plugin erkennt `scripts/check_plugin_packages.py` beim Release; das Desktop-Plugin folgt dem Repo-`VERSION` (ADR-017 Option A).
+- **Version:** `1.9.0-beta.4` (aus dem Repo-`VERSION`) — Drift zwischen installiertem und ausgeliefertem Plugin erkennt `scripts/check_plugin_packages.py` beim Release; das Desktop-Plugin folgt dem Repo-`VERSION` (ADR-017 Option A).
 
 ## 3. Konfiguration
 
