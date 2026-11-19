@@ -146,7 +146,7 @@ NARROW (optimaler Default je Modul, z. B. 350 px ADR / 424 px Requirements):
                           └ Divider: role="separator", 24px Target
 ```
 
-Divider: `role="separator"`, `aria-valuenow/min/max`, `tabindex=0`; `←/→` ±16 px, `Shift` ±64 px, `Home/End` = min/max, `Enter`/Doppelklick = Modul-Default. Clamp 200 px … 70 % der Inhaltsbreite. **Semantik-Änderung (Review-Punkt):** Der Concept-Vertrag `ratio={[40,60]}` / `minWidths={[380,520]}` beschreibt derzeit ein **fixes** Verhältnis. Mit freiem Drag wird die tatsächliche linke Breite zur **autoritativen** Größe; `ratio` wird zum **Initialwert**, `minWidths` zum **Clamp**. Das ist eine bewusste Umdeutung und wird in Task 7 (ADR) festgehalten.
+Divider: `role="separator"`, `aria-valuenow/min/max`, `tabindex=0`; `←/→` ±16 px, `Shift` ±64 px, `Home/End` = min/max, `Enter`/Doppelklick = Modul-Default. Clamp `minWidths[0]` (380 px, `--list-min`) … `effMax = min(70 % × contentWidth, contentWidth − minWidths[1] − dividerWidth)` (ADR-030 accepted; zur Laufzeit gemessen, kein neues `@media`). **Semantik-Änderung (Review-Punkt):** Der Concept-Vertrag `ratio={[40,60]}` / `minWidths={[380,520]}` beschreibt derzeit ein **fixes** Verhältnis. Mit freiem Drag wird die tatsächliche linke Breite zur **autoritativen** Größe; `ratio` wird zum **Initialwert**, `minWidths` zum **Clamp**. Das ist eine bewusste Umdeutung und wird in Task 7 (ADR) festgehalten.
 
 ## 4. Global Constraints
 
@@ -261,7 +261,7 @@ Divider: `role="separator"`, `aria-valuenow/min/max`, `tabindex=0`; `←/→` ±
 **Agent:** `frontend-component-engineer` · **Depends on:** Task 7
 **Files:** `SplitView.tsx`, `SplitView.module.scss`, `useSplitViewMobileState.ts`, `SplitView.test.tsx`, `SplitView.a11y.test.tsx`
 **Interfaces:** Consumes `moduleType`, Default-Map; Produces `tree-width-separator`, `treeWidth` State.
-- [ ] Step 1 (fail): `SplitView.test.tsx`/`.a11y.test.tsx` — Divider hat `role="separator"`, `aria-valuenow/min/max`, `tabindex=0`; Pfeil ±16 px, Shift ±64 px, `Home/End` = 200 px / 70 %, `Enter`/Doppelklick = Default; 24 px Trefferfläche; `prefers-reduced-motion` respektiert; APG-Tree-Tastatur + `splitview-*`-Testids unverändert.
+- [ ] Step 1 (fail): `SplitView.test.tsx`/`.a11y.test.tsx` — Divider hat `role="separator"`, `aria-valuenow/min/max`, `tabindex=0`; Pfeil ±16 px, Shift ±64 px, `Home` = `minWidths[0]` (380 px), `End` = effMax (ADR-030), `Enter`/Doppelklick = Default; 24 px Trefferfläche; `prefers-reduced-motion` respektiert; APG-Tree-Tastatur + `splitview-*`-Testids unverändert.
 - [ ] Step 2: Divider + `treeWidth`-State + Clamp implementieren; `ratio`/`minWidths`-Semantik gemäß ADR umdeuten.
 - [ ] Step 3 (pass): alle Assertions + `SplitView.a11y.test.tsx` grün.
 - [ ] Step 4: Commit `feat: add accessible per-module tree width divider`.
@@ -271,7 +271,7 @@ Divider: `role="separator"`, `aria-valuenow/min/max`, `tabindex=0`; `←/→` ±
 **Agent:** `developer` · **Depends on:** Task 8
 **Files:** `useTreeWidth.ts` (+ `.test.ts`), 8 Hosts (nur Default/Prop), `e2e/tests/requirement-editor.spec.ts`
 **Interfaces:** Consumes `treeWidth`; Produces persisted Width.
-- [ ] Step 1 (fail): `useTreeWidth.test.ts` — neuer Key `reqflow.splitview.treeWidth.v2.<moduleType>` wird gelesen/geschrieben; der **gelöschte** `reqflow_splitview_*` wird ignoriert (kein Stale-Import); Default je Modul (ADR 350, Requirements 424, …); Clamp 200 px…70 %; Module sind unabhängig; E2E: Drag → Reload → identische Breite.
+- [ ] Step 1 (fail): `useTreeWidth.test.ts` — neuer Key `reqflow.splitview.treeWidth.v2.<moduleType>` wird gelesen/geschrieben; der **gelöschte** `reqflow_splitview_*` wird ignoriert (kein Stale-Import); Default je Modul (ADR 350, Requirements 424, …); Clamp 380 px…effMax (ADR-030 accepted); Module sind unabhängig; E2E: Drag → Reload → identische Breite.
 - [ ] Step 2: Hook + Host-Wiring + Defaults.
 - [ ] Step 3 (pass): Unit + E2E grün; Visual-Baselines für betroffene Views aktualisiert (Owner: `e2e-tester`, Task 11).
 - [ ] Step 4: Commit `feat: persist per-module tree width with new key`.
