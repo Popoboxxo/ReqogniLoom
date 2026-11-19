@@ -250,6 +250,10 @@ test.describe('@mobile sheets — single expanded sheet (plan §3.5)', () => {
 
         // WCAG 1.4.10 reflow at 1280/4 ≈ 320px, no document-level overflow.
         await expectNoOverflowAt400Zoom(page);
+        // The reflow helper restores a 1280px DESKTOP viewport. This is the
+        // mobile-sheet suite — return to a phone viewport, otherwise the
+        // SplitView stays in desktop zone and never renders splitview-back.
+        await page.setViewportSize({ width: 390, height: 844 });
 
         const results: Array<{ theme: string; blocking: string[] }> = [];
         for (const theme of THEMES) {
