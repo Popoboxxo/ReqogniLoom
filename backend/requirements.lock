@@ -3,7 +3,7 @@
 #
 # Source      : requirements.txt
 # Generator   : pip-compile (pip-tools)
-# Platform    : linux/amd64, CPython 3.15.2  (python:3.15-slim@sha256:94d3426f1def7db4a106a232ac121bfd975393e5dfd40a619b955fae45fe7913 — must match backend/Dockerfile FROM, lines 8 and 63)
+# Platform    : linux/amd64, CPython 3.15.2  (python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 — must match backend/Dockerfile FROM, lines 8 and 63)
 # Regenerated : 2026-11-17
 #
 # This file is NOT installed by anything: backend/Dockerfile and every CI job
@@ -13,7 +13,7 @@
 #
 # Reproduce exactly (see backend/REGENERATING_LOCK_FILE.md):
 #
-#   docker run --rm -v "$PWD:/w" -w /w python:3.15-slim@sha256:94d3426f1def7db4a106a232ac121bfd975393e5dfd40a619b955fae45fe7913 sh -c \
+#   docker run --rm -v "$PWD:/w" -w /w python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 sh -c \
 #     'apt-get update -qq && apt-get install -y -qq --no-install-recommends git && \
 #      pip install -q --upgrade pip pip-tools && \
 #      pip-compile requirements.txt --output-file requirements.lock \
@@ -66,7 +66,7 @@ gunicorn==27.0.1
 h11==0.16.0
 h2==4.4.1
 hf-xet==1.8.0
-honcho-ai==2.8.0
+honcho-ai==2.9.0
 hpack==4.2.0
 httpcore==1.0.9
 httpcore2==2.16.2

@@ -40,7 +40,7 @@ returns to a plain PyPI range.
 cd backend
 
 # 2. Regenerate the lock file from requirements.txt (linux/amd64, CPython 3.15.2, pinned to match backend/Dockerfile FROM)
-docker run --rm -v "$PWD:/w" -w /w python:3.15-slim@sha256:94d3426f1def7db4a106a232ac121bfd975393e5dfd40a619b955fae45fe7913 sh -c \
+docker run --rm -v "$PWD:/w" -w /w python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 sh -c \
   'apt-get update -qq && apt-get install -y -qq --no-install-recommends git && \
    pip install -q --upgrade pip pip-tools && \
    pip-compile requirements.txt --output-file requirements.lock \

@@ -140,13 +140,13 @@ digest makes the reference immutable, so a re-push of a moving tag (`python:3.15
 
 | File | Reference |
 |---|---|
-| `backend/Dockerfile` (builder + runtime) | `python:3.15-slim@sha256:94d3426f…` |
-| `frontend/Dockerfile` | `node:26.13.0-slim@sha256:e4db4c91…`, `nginx:1.31-alpine@sha256:785835ea…` |
-| `deploy/docker-compose.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…` (×3), `redis:8-alpine@sha256:21090af9…` (×2) |
+| `backend/Dockerfile` (builder + runtime) | `python:3.15-slim@sha256:65a65fc7…` |
+| `frontend/Dockerfile` | `node:26.13.1-slim@sha256:e6bedef2…`, `nginx:1.31-alpine@sha256:fed7e14b…` |
+| `deploy/docker-compose.yml` | `pgvector/pgvector:pg16@sha256:484e8380…` (×3), `redis:8-alpine@sha256:7958cfbb…` (×2) |
 | `deploy/docker-compose.yml` (first-party) | `ghcr.io/popoboxxo/reqogniloom-backend:${REQOGNILOOM_VERSION}@sha256:9e88a0dc…` (×5), `ghcr.io/popoboxxo/reqogniloom-frontend:${REQOGNILOOM_VERSION}@sha256:2568fcd7…` |
-| `deploy/docker-compose.yml` (optional profiles) | `ghcr.io/plastic-labs/honcho:v3.5.0@sha256:23ff96bf…` (×3), `qdrant/qdrant:v1.20.0@sha256:9bfc89f9…` |
-| `deploy/docker-compose.minimal.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…`, `redis:8-alpine@sha256:21090af9…`, first-party backend (×2)/frontend with the same tag+digest pairs as above |
-| `testing/docker-compose.test.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…`, `redis:8-alpine@sha256:21090af9…` |
+| `deploy/docker-compose.yml` (optional profiles) | `ghcr.io/plastic-labs/honcho:v3.6.1@sha256:2ced1a95…` (×3), `qdrant/qdrant:v1.20.1@sha256:d18c8e50…` |
+| `deploy/docker-compose.minimal.yml` | `pgvector/pgvector:pg16@sha256:484e8380…`, `redis:8-alpine@sha256:7958cfbb…`, first-party backend (×2)/frontend with the same tag+digest pairs as above |
+| `testing/docker-compose.test.yml` | `pgvector/pgvector:pg16@sha256:484e8380…`, `redis:8-alpine@sha256:7958cfbb…` |
 | `.github/workflows/ci.yml` | `pgvector/pgvector:pg16@sha256:7b822b0a…` (`:121`, `:1003`), `redis:7-alpine@sha256:7f7d30b7…` (`:141`) |
 
 First-party GHCR images are pinned too: the human-readable `${REQOGNILOOM_VERSION}` tag selects the
@@ -161,7 +161,7 @@ tags and are **not** pinned:
 
 The two shell-based operational helpers are pinned outside the tables above:
 `deploy/verify-restore.sh:50` and `deploy/verify-backup-command.sh:45` run
-`pgvector/pgvector:pg16@sha256:7b822b0a…` — the same digest the Compose services use, so a restore or
+`pgvector/pgvector:pg16@sha256:484e8380…` — the same digest the Compose services use, so a restore or
 backup self-check can never be validated against a different server build than production runs.
 `verify-restore.sh` keeps its `RESTORE_SMOKE_PG_IMAGE` override; its digest lives in the default.
 

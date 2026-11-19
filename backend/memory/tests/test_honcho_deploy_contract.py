@@ -167,10 +167,10 @@ _DIALECTIC_PREFIX_TEMPLATE = "DIALECTIC_LEVELS__{}__"
 
 #: The released tag the stack is verified against (#1315): a stable anchor,
 #: unlike the moving ``latest``/``staging`` tags.
-_EXPECTED_TAG = "v3.5.0"
+_EXPECTED_TAG = "v3.6.1"
 #: The manifest-list digest of that release (#1153).
 _EXPECTED_DIGEST = (
-    "sha256:23ff96bf62ab2ca14928e6766db1a30a7729f5b7c9e2285af0cd4a179c0d393d"
+    "sha256:2ced1a958f14c128ddb05e68deb549f9281681e44595a7a3c34adebf5b432b16"
 )
 _EXPECTED_IMAGE = (
     f"ghcr.io/plastic-labs/honcho:{_EXPECTED_TAG}@{_EXPECTED_DIGEST}"

@@ -47,7 +47,7 @@ else
   COMPOSE_ARG="${COMPOSE_FILE}"
   REPO_ARG="${REPO_ROOT}"
 fi
-PG_IMAGE="${RESTORE_SMOKE_PG_IMAGE:-pgvector/pgvector:pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a}"
+PG_IMAGE="${RESTORE_SMOKE_PG_IMAGE:-pgvector/pgvector:pg16@sha256:484e838076e04939d27d3e176e91c86eea96236126023be8d3059761122e579f}"
 NET="reqlo-restore-smoke-$$"
 SRC="reqlo-restore-smoke-src-$$"
 TGT="reqlo-restore-smoke-tgt-$$"
