@@ -267,24 +267,21 @@ describe("GoalsPage — inspector shell (#1762 M4)", () => {
     );
   });
 
-  it("puts the Goal chain in the spine slot and keeps it out of the detail (DoD 5/6)", async () => {
+  it("puts the Goal chain in the trace footer sibling and keeps it out of the detail (DoD 5/6)", async () => {
     renderGoals();
     await selectNode("g1");
 
-    await waitFor(() => expect(screen.getByTestId("splitview-spine")).toBeInTheDocument());
-    expect(screen.getByTestId("splitview-spine")).toContainElement(
-      screen.getByTestId("trace-spine"),
-    );
-    // One trace read surface: the spine is not inside the scrolling detail.
-    expect(screen.getByTestId("splitview-detail")).not.toContainElement(
-      screen.getByTestId("trace-spine"),
-    );
+    const footer = await screen.findByTestId("trace-footer");
+    // One trace read surface: the footer is a sibling of the SplitView, not
+    // inside the spine slot or the scrolling detail.
+    expect(screen.queryByTestId("splitview-spine")).not.toBeInTheDocument();
+    expect(screen.getByTestId("splitview-detail")).not.toContainElement(footer);
     expect(screen.queryByTestId("splitview-divider")).not.toBeInTheDocument();
 
     // MainGoal has no trace graph at all (spec §3).
     await selectNode("__main-goal__");
     await waitFor(() =>
-      expect(screen.queryByTestId("splitview-spine")).not.toBeInTheDocument(),
+      expect(screen.queryByTestId("trace-footer")).not.toBeInTheDocument(),
     );
   });
 

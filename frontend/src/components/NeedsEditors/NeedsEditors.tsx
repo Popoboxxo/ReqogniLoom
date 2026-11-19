@@ -5,9 +5,9 @@
  * req_id:  REQ-L1-095 (ArtifactInspector adoption — 10 artifact types),
  *          REQ-L2-RF-034 (ArtifactInspector shell — tabbed since #1762)
  *
- * Layout: SplitView (left = NeedList, detail = NeedArtifactForm, spine slot =
- * TraceSpine). When a detail is selected, the detail pane becomes a flex
- * container that hosts both the editor and the tabbed `InspectorShell`
+ * Layout: SplitView (left = NeedList, detail = NeedArtifactForm) with the
+ * horizontal TraceSpineFooter as its sibling. When a detail is selected, the
+ * detail pane becomes a flex container that hosts both the editor and the tabbed `InspectorShell`
  * (#1762/M2: Version / Diff / Links / Kommentare). The inspector is hidden
  * when the user is browsing the list (no detail).
  *
@@ -40,9 +40,9 @@ import { TraceLinkPanel } from '../shared/TraceLinkPanel';
 import { AiActionSection, type AiActionDescriptor } from '../shared/AiActions';
 import { DeriveRequirementsPanel } from './DeriveRequirementsPanel';
 import { DeriveRequirementForm } from '../shared/DeriveRequirementForm';
-import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
-import type { ChainArtifact } from '../shared/TraceSpine';
+import { TraceSpineFooter } from '../shared/TraceSpine';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
+import { useTraceFooterVisible } from '../../hooks/useTraceFooterVisible';
 import { useEntityReset } from '../../hooks/use-entity-reset';
 import { useFormDirty } from '../../hooks/use-form-dirty';
 import { useNeedData } from './useNeedData';
@@ -246,21 +246,10 @@ export default function NeedsEditors(): JSX.Element {
     navigate(`/needs/${target}`);
   }, [pendingSelectId, navigate, customFieldsDraft, markCustomFieldsClean]);
 
-  // Trace spine (Task 3.3 — UI concept ch. 5).
-  const derivationChain = useDerivationChain(
-    need?.artifact_id ?? need?.id ?? null,
-    'StakeholderNeed',
-    null,
-    { enabled: !!need },
-  );
-
-  const handleOpenChainArtifact = useCallback(
-    (artifact: ChainArtifact): void => {
-      const entry = derivationChain.resolveEntry(artifact);
-      if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
-    },
-    [derivationChain, navigate],
-  );
+  // Task 5 (Schnitt 2b): the derivation chain now lives inside the footer,
+  // so this host only decides *whether* it is mounted (and no longer fires
+  // chain RPCs on its own).
+  const [traceFooterVisible] = useTraceFooterVisible();
 
   // #1762 (M2, mirrors M1): the inspector's programmatic focus targets live in
   // the route, not in the shell — the shell must not know the detail area's DOM
@@ -276,7 +265,7 @@ export default function NeedsEditors(): JSX.Element {
   // first station.
   const focusSpine = useCallback((): void => {
     document
-      .querySelector<HTMLElement>('[data-testid="trace-spine-station-button"]')
+      .querySelector<HTMLElement>('[data-testid="trace-footer-station"]')
       ?.focus();
   }, []);
 
@@ -517,27 +506,29 @@ export default function NeedsEditors(): JSX.Element {
                 artifactPk={need.artifact_id ?? null}
                 currentVersion={needCurrentVersion}
                 coveredRef={detailScrollRef}
-                onShowInSpine={focusSpine}
+                onShowInSpine={traceFooterVisible ? focusSpine : undefined}
               />
             );
           })()}
         </div>
       }
-      spine={
-        need ? (
-          <TraceSpine
-            stations={derivationChain.stations}
-            isLoading={derivationChain.isLoading}
-            error={derivationChain.error}
-            onOpenArtifact={handleOpenChainArtifact}
-            isOpenable={derivationChain.isOpenable}
-          />
-        ) : null
-      }
       ratio={[40, 60]}
       minWidths={[320, 448]}
       containerClassName={styles.splitWrapper}
       />
+      {traceFooterVisible && need && (
+        <TraceSpineFooter
+          artifact={{
+            artifactId: need.artifact_id,
+            id: need.id,
+            artifactType: 'StakeholderNeed',
+            level: null,
+          }}
+          onOpenArtifact={(_artifact, entry) => {
+            if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
+          }}
+        />
+      )}
     </>
   );
 }

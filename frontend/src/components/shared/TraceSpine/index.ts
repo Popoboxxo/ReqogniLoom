@@ -2,6 +2,8 @@
 
 export { TraceSpine } from "./TraceSpine";
 export type { TraceSpineProps } from "./TraceSpine";
+export { TraceSpineFooter } from "./TraceSpineFooter";
+export type { TraceFooterArtifact, TraceSpineFooterProps } from "./TraceSpineFooter";
 export { useDerivationChain } from "./useDerivationChain";
 export type {
   ChainArtifact,

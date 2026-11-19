@@ -2850,7 +2850,14 @@
     "error": "Could not load the derivation chain.",
     "close": "Close",
     "stationCount_one": "{{count}} artifact",
-    "stationCount_other": "{{count}} artifacts"
+    "stationCount_other": "{{count}} artifacts",
+    "footer": {
+      "more": "+{{count}} more",
+      "collapse": "Collapse",
+      "expandLabel": "Show more stations",
+      "singleStation": "This artifact is not linked to any other one yet.",
+      "popoverTitle": "Linked artifacts"
+    }
   },
   "dialog": {
     "close": "Close",

@@ -2850,7 +2850,14 @@
     "error": "Ableitungskette konnte nicht geladen werden.",
     "close": "Schließen",
     "stationCount_one": "{{count}} Artefakt",
-    "stationCount_other": "{{count}} Artefakte"
+    "stationCount_other": "{{count}} Artefakte",
+    "footer": {
+      "more": "+{{count}} weitere",
+      "collapse": "Einklappen",
+      "expandLabel": "Weitere Stationen anzeigen",
+      "singleStation": "Dieses Artefakt ist noch mit keinem anderen verknüpft.",
+      "popoverTitle": "Verknüpfte Artefakte"
+    }
   },
   "dialog": {
     "close": "Schließen",

@@ -290,6 +290,7 @@ import AdrEditors from "../components/AdrEditors/AdrEditors";
 import { tracelinksApi } from "../api/tracelinks";
 import { architectureApi } from "../api/architecture";
 import { traceabilityApi } from "../api/traceability";
+import { setTraceFooterVisible } from "../hooks/useTraceFooterVisible";
 import { adrsApi } from "../api/adrs";
 import { commentsApi } from "../api/comments";
 import type { Adr } from "../types";
@@ -413,14 +414,15 @@ describe("AdrEditors — inspector shell mount (#1762 M2)", () => {
     expect(screen.getByTestId("adr-detail-status")).toHaveTextContent(ADR.status);
   });
 
-  it("uses the concept split layout with the spine in its own slot (DoD 6)", async () => {
+  it("uses the concept split layout with the trace footer as a sibling (DoD 6)", async () => {
     renderEditor(`/adrs/${ADR.id}`);
 
     await waitFor(() => {
       expect(screen.getByTestId("splitview-list")).toBeInTheDocument();
       expect(screen.getByTestId("splitview-detail")).toBeInTheDocument();
-      expect(screen.getByTestId("splitview-spine")).toBeInTheDocument();
+      expect(screen.getByTestId("trace-footer")).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("splitview-spine")).not.toBeInTheDocument();
     expect(screen.queryByTestId("splitview-divider")).not.toBeInTheDocument();
   });
 });
@@ -731,5 +733,54 @@ describe("AdrEditors — include_deleted reveals outdated ADRs (D6)", () => {
       expect(screen.getByTestId("adr-row-adr-outdated-1")).toBeInTheDocument();
     });
     expect(screen.getByTestId("adr-row-adr-outdated-1-outdated")).toBeInTheDocument();
+  });
+});
+
+// Task 5 (Schnitt 2b): the derivation chain moved into the footer. Pin one
+// footer as a SplitView sibling, an empty spine slot, zero chain RPCs while
+// hidden, and the D2b status quo (footer + inspector both show link views).
+describe("AdrEditors — Task 5 trace footer host migration", () => {
+  const selectedPath = `/adrs/${ADR.id}`;
+
+  afterEach(() => {
+    setTraceFooterVisible(true);
+  });
+
+  it("mounts exactly one trace-footer as a SplitView sibling; the spine slot is empty", async () => {
+    setTraceFooterVisible(true);
+    renderEditor(selectedPath);
+    const footer = await screen.findByTestId("trace-footer");
+
+    expect(screen.getAllByTestId("trace-footer")).toHaveLength(1);
+    expect(
+      ["splitview-list", "splitview-detail", "splitview-spine"].some(
+        (id) => footer.closest(`[data-testid="${id}"]`) !== null,
+      ),
+    ).toBe(false);
+    expect(
+      footer.parentElement?.querySelector('[data-testid="splitview-list"]'),
+    ).not.toBeNull();
+    expect(screen.queryByTestId("splitview-spine")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("trace-spine")).not.toBeInTheDocument();
+  });
+
+  it("footer hidden -> no trace-footer in the DOM and zero chain RPCs", async () => {
+    setTraceFooterVisible(false);
+    renderEditor(selectedPath);
+    await screen.findByTestId("splitview-detail");
+
+    expect(screen.queryByTestId("trace-footer")).not.toBeInTheDocument();
+    expect(tracelinksApi.impact).not.toHaveBeenCalled();
+    expect(traceabilityApi.resolve).not.toHaveBeenCalled();
+  });
+
+  it("footer ON + inspector ON -> both link views are visible (D2b)", async () => {
+    setTraceFooterVisible(true);
+    renderEditor(selectedPath);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("trace-footer")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-inspector")).toBeInTheDocument();
+    });
   });
 });

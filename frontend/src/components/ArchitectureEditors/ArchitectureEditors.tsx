@@ -28,7 +28,9 @@ import { StatusBadge } from "../shared/StatusBadge";
 import { useInterviewStartCta } from "../shared/useInterviewStartCta";
 import { IncludeDeletedToggle } from "../shared/IncludeDeletedToggle/IncludeDeletedToggle";
 import { ListToolbar } from "../shared/ListToolbar";
-import { TraceSpine } from "../shared/TraceSpine";
+import { TraceSpineFooter } from "../shared/TraceSpine";
+import { getArtifactRoute } from "../../utils/artifactRoutes";
+import { useTraceFooterVisible } from "../../hooks/useTraceFooterVisible";
 import { ArchitectureArtifactForm } from "./ArchitectureArtifactForm";
 import { ArchitectureLegend } from "./ArchitectureLegend";
 import { Dialog } from "../shared/Dialog";
@@ -127,13 +129,16 @@ export default function ArchitectureEditors(): JSX.Element {
   } = useArchitectureSelection({ selectedId });
   const {
     currentVersion,
-    derivationChain,
     isChainArtifactOpenable,
-    handleOpenChainArtifact,
     detailScrollRef,
     focusInspectorHeading,
     focusSpine,
   } = useArchitectureInspector({ element, elements });
+
+  // Task 5 (Schnitt 2b): the derivation chain now lives inside the footer,
+  // so this host only decides *whether* it is mounted (and no longer fires
+  // chain RPCs on its own).
+  const [traceFooterVisible] = useTraceFooterVisible();
 
   // GitHub #1392: per-field half of a rejected create (`details[].field`).
   // #1732: replaces the #1595 "disabled + hint" decision. The Create button
@@ -642,7 +647,7 @@ export default function ArchitectureEditors(): JSX.Element {
           artifactPk={element.artifact_id ?? null}
           currentVersion={currentVersion}
           coveredRef={detailScrollRef}
-          onShowInSpine={focusSpine}
+          onShowInSpine={traceFooterVisible ? focusSpine : undefined}
         />
       )}
     </div>
@@ -823,21 +828,25 @@ export default function ArchitectureEditors(): JSX.Element {
       <SplitView
         list={listPanel}
         detail={detailPanel}
-        spine={
-          element ? (
-            <TraceSpine
-              stations={derivationChain.stations}
-              isLoading={derivationChain.isLoading}
-              error={derivationChain.error}
-              onOpenArtifact={handleOpenChainArtifact}
-              isOpenable={isChainArtifactOpenable}
-            />
-          ) : null
-        }
         ratio={[40, 60]}
         minWidths={[250, 448]}
         containerClassName={styles.splitWrapper}
       />
+      {traceFooterVisible && element && (
+        <TraceSpineFooter
+          artifact={{
+            artifactId: element.artifact_id,
+            id: element.id,
+            artifactType: 'ArchitectureElement',
+            level: element.level ?? 0,
+          }}
+          architectureElements={elements}
+          isOpenable={isChainArtifactOpenable}
+          onOpenArtifact={(_artifact, entry) => {
+            if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
+          }}
+        />
+      )}
     </>
   );
 }

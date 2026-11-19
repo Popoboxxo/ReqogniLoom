@@ -139,6 +139,7 @@ vi.mock("../components/shared/ArtifactInspector", () => ({
 
 vi.mock("../components/shared/TraceSpine", () => ({
   TraceSpine: () => null,
+  TraceSpineFooter: () => null,
   useDerivationChain: () => ({
     stations: [],
     isLoading: false,

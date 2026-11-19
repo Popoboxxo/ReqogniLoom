@@ -86,10 +86,16 @@ vi.mock("../api/tracelinks", () => ({
     listForArtifact: vi.fn(),
     create: vi.fn(),
     delete: vi.fn(),
-    // <TraceSpine> composes the derivation chain from two neighbourhood
+    // The footer's chain hook composes the chain from two neighbourhood
     // queries (UI concept ch. 5). Empty results are the correct fixture
     // here: this spec is about the editor fields, not about the chain.
     impact: vi.fn().mockResolvedValue([]),
+  },
+}));
+
+vi.mock("../api/traceability", () => ({
+  traceabilityApi: {
+    resolve: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -216,6 +222,8 @@ import ArchitectureEditors from "../components/ArchitectureEditors/ArchitectureE
 import { architectureApi } from "../api/architecture";
 import { artifactsApi } from "../api/artifacts";
 import { tracelinksApi } from "../api/tracelinks";
+import { traceabilityApi } from "../api/traceability";
+import { setTraceFooterVisible } from "../hooks/useTraceFooterVisible";
 import { requirementsApi } from "../api/requirements";
 import { commentsApi } from "../api/comments";
 import { attributeDefinitionsApi } from "../api/attribute-definitions";
@@ -474,14 +482,15 @@ describe("ArchitectureEditors (COMP-RF-004 / REQ-L2-RF-004)", () => {
   // #1762/M3: the route moved from SplitView's legacy contract (left/right
   // panels + drag divider) to the concept contract (`list`/`detail`/`spine`).
   // The approved contract has no divider; the spine is its own flex zone.
-  it("uses the concept split layout with the spine in its own slot (M3, DoD 6)", async () => {
+  it("uses the concept split layout with the trace footer as a sibling (M3, DoD 6)", async () => {
     renderEditor(MOCK_ELEMENT.id);
 
     await waitFor(() => {
       expect(screen.getByTestId("splitview-list")).toBeInTheDocument();
       expect(screen.getByTestId("splitview-detail")).toBeInTheDocument();
-      expect(screen.getByTestId("splitview-spine")).toBeInTheDocument();
+      expect(screen.getByTestId("trace-footer")).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("splitview-spine")).not.toBeInTheDocument();
     expect(screen.queryByTestId("splitview-divider")).not.toBeInTheDocument();
     // The 250 px list floor from M3-3 (the detail floor is 448 px and is
     // applied by the same `minWidths` pair).
@@ -1092,5 +1101,52 @@ describe("ArchitectureEditors — include_deleted reveals outdated elements (D6)
       expect(screen.getByTestId("arch-tree-node-arch-outdated-1")).toBeInTheDocument();
     });
     expect(screen.getByTestId("arch-tree-outdated-arch-outdated-1")).toBeInTheDocument();
+  });
+});
+
+// Task 5 (Schnitt 2b): the derivation chain moved into the footer. Pin one
+// footer as a SplitView sibling, an empty spine slot, zero chain RPCs while
+// hidden, and the D2b status quo (footer + inspector both show link views).
+describe("ArchitectureEditors — Task 5 trace footer host migration", () => {
+  afterEach(() => {
+    setTraceFooterVisible(true);
+  });
+
+  it("mounts exactly one trace-footer as a SplitView sibling; the spine slot is empty", async () => {
+    setTraceFooterVisible(true);
+    renderEditor(MOCK_ELEMENT.id);
+    const footer = await screen.findByTestId("trace-footer");
+
+    expect(screen.getAllByTestId("trace-footer")).toHaveLength(1);
+    expect(
+      ["splitview-list", "splitview-detail", "splitview-spine"].some(
+        (id) => footer.closest(`[data-testid="${id}"]`) !== null,
+      ),
+    ).toBe(false);
+    expect(
+      footer.parentElement?.querySelector('[data-testid="splitview-list"]'),
+    ).not.toBeNull();
+    expect(screen.queryByTestId("splitview-spine")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("trace-spine")).not.toBeInTheDocument();
+  });
+
+  it("footer hidden -> no trace-footer in the DOM and zero chain RPCs", async () => {
+    setTraceFooterVisible(false);
+    renderEditor(MOCK_ELEMENT.id);
+    await screen.findByTestId("splitview-detail");
+
+    expect(screen.queryByTestId("trace-footer")).not.toBeInTheDocument();
+    expect(tracelinksApi.impact).not.toHaveBeenCalled();
+    expect(traceabilityApi.resolve).not.toHaveBeenCalled();
+  });
+
+  it("footer ON + inspector ON -> both link views are visible (D2b)", async () => {
+    setTraceFooterVisible(true);
+    renderEditor(MOCK_ELEMENT.id);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("trace-footer")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-inspector")).toBeInTheDocument();
+    });
   });
 });

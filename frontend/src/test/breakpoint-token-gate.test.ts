@@ -31,6 +31,14 @@ import {
 const SRC_DIR = resolve(__dirname, "..");
 const TOKENS_FILE = join(SRC_DIR, "styles", "tokens.css");
 const BREAKPOINT_HOOK_FILE = join(SRC_DIR, "hooks", "useBreakpoint.ts");
+const TRACE_SPINE_CSS_FILE = join(
+  SRC_DIR,
+  "components",
+  "shared",
+  "TraceSpine",
+  "TraceSpine.module.css",
+);
+const SPLIT_VIEW_TSX_FILE = join(SRC_DIR, "components", "SplitView", "SplitView.tsx");
 
 /** JS map key → CSS custom property. Deliberately duplicated here: a map that
  *  silently drifts from the hook is exactly what this gate must catch. */
@@ -219,5 +227,55 @@ describe("breakpoint token gate (S3.2 WP-2 / UI-003 / R2S-006)", () => {
   it("freezes the R3 sheet-open boundary at 1280px", () => {
     expect(inspectorDefaultsOpen("R3", 1279)).toBe(false);
     expect(inspectorDefaultsOpen("R3", 1280)).toBe(true);
+  });
+});
+
+/**
+ * Schnitt 2c (Task 6) — removal of the three obsolete spine-breakpoint
+ * mechanisms. The footer component is always horizontal now, no host feeds
+ * the SplitView `spine` slot any more, and `--bp-lg` belongs to the inspector
+ * alone. These gates are intentionally source-level (jsdom has `css: false`).
+ */
+describe("trace-spine footer breakpoint cleanup (Schnitt 2c / Task 6)", () => {
+  const traceSpineCss = readFileSync(TRACE_SPINE_CSS_FILE, "utf-8");
+  const splitViewSrc = readFileSync(SPLIT_VIEW_TSX_FILE, "utf-8");
+  const tokensCssForCleanup = readFileSync(TOKENS_FILE, "utf-8");
+  const tokensForCleanup = parseBreakpointTokens(tokensCssForCleanup);
+
+  it("drops the TraceSpine vertical-to-horizontal footer media query", () => {
+    expect(
+      traceSpineCss,
+      "@media (max-width: 1024px) turned the rail horizontal — obsolete now that <TraceSpineFooter> is always horizontal",
+    ).not.toMatch(/@media[^{}]*\(max-width:\s*1024px\)/);
+    expect(traceSpineCss).not.toMatch(/\.rail\s*\{[^}]*overflow-x:\s*auto/);
+    expect(traceSpineCss).not.toContain("flex-wrap: nowrap");
+  });
+
+  it("removes SplitView's spineIsHorizontal / NARROW_RATIO logic", () => {
+    expect(splitViewSrc).not.toContain("spineIsHorizontal");
+    expect(splitViewSrc).not.toContain("NARROW_RATIO");
+  });
+
+  it("removes the unoccupied spine slot from SplitView entirely", () => {
+    const spineLines = splitViewSrc
+      .split("\n")
+      .filter((line) => /spine/i.test(line));
+    expect(
+      spineLines,
+      "no host passes spine= since Schnitt 2b — the slot, its testid and its styles must be gone",
+    ).toEqual([]);
+  });
+
+  it("keeps --bp-lg registered for the inspector, with no spine in its vocabulary", () => {
+    expect(tokensForCleanup.get("--bp-lg")).toBe(1024);
+    const vocabulary = tokensCssForCleanup.slice(
+      tokensCssForCleanup.indexOf("Layout breakpoints"),
+      tokensCssForCleanup.indexOf("--bp-sm: 640px;"),
+    );
+    expect(vocabulary).toMatch(/inspector/i);
+    expect(
+      vocabulary,
+      "the --bp-lg vocabulary must no longer mention the trace spine",
+    ).not.toMatch(/spine/i);
   });
 });

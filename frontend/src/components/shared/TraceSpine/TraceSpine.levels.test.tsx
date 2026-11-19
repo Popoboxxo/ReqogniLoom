@@ -7,13 +7,11 @@
  * nodes in, and each station carries the shared `<LevelBadge>` — no second
  * badge implementation, no local geometry.
  *
- * The horizontal form (below `--bp-lg`) is a CSS-only invariant: jsdom does
- * not load CSS modules (`vite.config` runs with `css: false`), so the last
- * test asserts it against the module source instead of a computed style.
+ * Schnitt 2c removed the old horizontal rail variant (a CSS-only media query
+ * below `--bp-lg`): the derivation chain is now always horizontal in the
+ * sibling `<TraceSpineFooter>`, so this module keeps only the vertical rail
+ * and no longer needs a CSS-source invariant test.
  */
-
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 import { render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -182,16 +180,5 @@ describe("TraceSpine — level badge and verification on architecture stations (
     // derivation levels); any other type shows nothing.
     expect(within(withData!).getByTestId("spine-verification")).toHaveTextContent("·1");
     expect(within(withoutData!).getByTestId("spine-verification")).toBeDisabled();
-  });
-
-  it("keeps the horizontal form scrollable sideways instead of wrapping", () => {
-    // jsdom ignores media queries and CSS modules, so this pins the module
-    // source: below --bp-lg the rail is one no-wrap row inside an
-    // `overflow-x: auto` container (ch. 5 "Verhalten").
-    const css = readFileSync(resolve(__dirname, "TraceSpine.module.css"), "utf-8");
-    const narrowBlock = css.slice(css.indexOf("@media (max-width: 1024px)"));
-    expect(narrowBlock).toContain("overflow-x: auto");
-    expect(narrowBlock).toContain("flex-wrap: nowrap");
-    expect(narrowBlock).toContain("flex: 0 0 auto");
   });
 });

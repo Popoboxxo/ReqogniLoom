@@ -11,9 +11,7 @@
 
 import { useCallback, useMemo, useRef } from "react";
 import type { RefObject } from "react";
-import { useNavigate } from "react-router-dom";
 
-import { useDerivationChain } from "../shared/TraceSpine";
 import type { ChainArtifact } from "../shared/TraceSpine";
 import type { ArchitectureElement } from "../../types";
 import {
@@ -28,9 +26,7 @@ export interface UseArchitectureInspectorOptions {
 
 export interface UseArchitectureInspectorResult {
   currentVersion: ReturnType<typeof buildCurrentVersion>;
-  derivationChain: ReturnType<typeof useDerivationChain>;
   isChainArtifactOpenable: (artifact: ChainArtifact) => boolean;
-  handleOpenChainArtifact: (artifact: ChainArtifact) => void;
   detailScrollRef: RefObject<HTMLDivElement | null>;
   focusInspectorHeading: () => void;
   focusSpine: () => void;
@@ -40,21 +36,13 @@ export function useArchitectureInspector({
   element,
   elements,
 }: UseArchitectureInspectorOptions): UseArchitectureInspectorResult {
-  const navigate = useNavigate();
-
   // Feed the ArtifactInspector with the current version (REQ-L2-RF-035).
   const currentVersion = useMemo(() => buildCurrentVersion(element), [element]);
 
   // The trace graph is keyed by Artifact id, the detail routes take the
   // domain-entity id. For architecture the mapping is available locally
-  // (the exhaustive element list carries both).
-  const derivationChain = useDerivationChain(
-    element?.artifact_id ?? element?.id ?? null,
-    'ArchitectureElement',
-    element?.level ?? 0,
-    { architectureElements: elements, enabled: !!element },
-  );
-
+  // (the exhaustive element list carries both), so the footer receives this
+  // as its host-side `isOpenable` check.
   const archElementByArtifactId = useMemo(
     () => buildElementIdByArtifactId(elements),
     [elements],
@@ -65,16 +53,6 @@ export function useArchitectureInspector({
       artifact.artifactType === 'ArchitectureElement' &&
       archElementByArtifactId.has(artifact.id),
     [archElementByArtifactId],
-  );
-
-  const handleOpenChainArtifact = useCallback(
-    (artifact: ChainArtifact): void => {
-      const elementId = archElementByArtifactId.get(artifact.id);
-      if (artifact.artifactType === 'ArchitectureElement' && elementId) {
-        navigate(`/architecture/${elementId}`);
-      }
-    },
-    [archElementByArtifactId, navigate],
   );
 
   // #1762 (M3, mirrors M2): the inspector's programmatic focus targets live in
@@ -91,15 +69,13 @@ export function useArchitectureInspector({
   // first station.
   const focusSpine = useCallback((): void => {
     document
-      .querySelector<HTMLElement>('[data-testid="trace-spine-station-button"]')
+      .querySelector<HTMLElement>('[data-testid="trace-footer-station"]')
       ?.focus();
   }, []);
 
   return {
     currentVersion,
-    derivationChain,
     isChainArtifactOpenable,
-    handleOpenChainArtifact,
     detailScrollRef,
     focusInspectorHeading,
     focusSpine,

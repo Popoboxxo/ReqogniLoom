@@ -18,7 +18,7 @@
  * reachable at all.
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -26,11 +26,30 @@ import GoalsPage from "./GoalsPage";
 import * as goalsModule from "../../api/goals";
 import * as mainGoalModule from "../../api/main-goal";
 import * as workflowTransitionsModule from "../../api/workflow-transitions";
+import { tracelinksApi } from "../../api/tracelinks";
+import { traceabilityApi } from "../../api/traceability";
+import { setTraceFooterVisible } from "../../hooks/useTraceFooterVisible";
 import type { Goal, MainGoal } from "../../types";
 
 vi.mock("../../api/goals");
 vi.mock("../../api/main-goal");
 vi.mock("../../api/workflow-transitions");
+// Task 5: the footer's chain hook owns these two RPCs; mock them so the
+// "footer hidden" test can assert zero calls.
+vi.mock("../../api/tracelinks", () => ({
+  tracelinksApi: {
+    impact: vi.fn().mockResolvedValue([]),
+    list: vi.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] }),
+    listForArtifact: vi.fn().mockResolvedValue({ count: 0, next: null, previous: null, results: [] }),
+    create: vi.fn(),
+    delete: vi.fn(),
+  },
+}));
+vi.mock("../../api/traceability", () => ({
+  traceabilityApi: {
+    resolve: vi.fn().mockResolvedValue([]),
+  },
+}));
 
 /**
  * Mutable so the "workspace switch" regression test (issue #221 finding 7)
@@ -646,5 +665,63 @@ describe("GoalsPage", () => {
 
     await screen.findByTestId("main-goal-empty");
     expect(screen.queryByTestId("inspector-shell")).not.toBeInTheDocument();
+  });
+});
+
+// Task 5 (Schnitt 2b): the derivation chain moved into the footer. Pin one
+// footer as a SplitView sibling, an empty spine slot, zero chain RPCs while
+// hidden, and the D2b status quo (footer + inspector both show link views).
+describe("GoalsPage — Task 5 trace footer host migration", () => {
+  const mockOneGoal = (): void => {
+    vi.mocked(goalsModule.goalsApi.list).mockResolvedValue([makeGoal()]);
+    vi.mocked(goalsModule.goalsApi.versions).mockResolvedValue([]);
+  };
+
+  afterEach(() => {
+    setTraceFooterVisible(true);
+  });
+
+  it("mounts exactly one trace-footer as a SplitView sibling; the spine slot is empty", async () => {
+    setTraceFooterVisible(true);
+    mockOneGoal();
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>);
+    await selectGoal("g1");
+    const footer = await screen.findByTestId("trace-footer");
+
+    expect(screen.getAllByTestId("trace-footer")).toHaveLength(1);
+    expect(
+      ["splitview-list", "splitview-detail", "splitview-spine"].some(
+        (id) => footer.closest(`[data-testid="${id}"]`) !== null,
+      ),
+    ).toBe(false);
+    expect(
+      footer.parentElement?.querySelector('[data-testid="splitview-list"]'),
+    ).not.toBeNull();
+    expect(screen.queryByTestId("splitview-spine")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("trace-spine")).not.toBeInTheDocument();
+  });
+
+  it("footer hidden -> no trace-footer in the DOM and zero chain RPCs", async () => {
+    setTraceFooterVisible(false);
+    mockOneGoal();
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>);
+    await selectGoal("g1");
+    await screen.findByTestId("inspector-shell");
+
+    expect(screen.queryByTestId("trace-footer")).not.toBeInTheDocument();
+    expect(tracelinksApi.impact).not.toHaveBeenCalled();
+    expect(traceabilityApi.resolve).not.toHaveBeenCalled();
+  });
+
+  it("footer ON + inspector ON -> both link views are visible (D2b)", async () => {
+    setTraceFooterVisible(true);
+    mockOneGoal();
+    render(<MemoryRouter><GoalsPage /></MemoryRouter>);
+    await selectGoal("g1");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("trace-footer")).toBeInTheDocument();
+      expect(screen.getByTestId("inspector-shell")).toBeInTheDocument();
+    });
   });
 });

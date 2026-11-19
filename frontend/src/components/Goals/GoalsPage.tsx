@@ -54,9 +54,9 @@ import { PageHeader } from "../shared/PageHeader";
 import { useInterviewStartCta } from "../shared/useInterviewStartCta";
 import { InspectorShell } from "../shared/ArtifactInspector";
 import type { VersionRef } from "../shared/ArtifactInspector";
-import { TraceSpine, useDerivationChain } from "../shared/TraceSpine";
-import type { ChainArtifact } from "../shared/TraceSpine";
+import { TraceSpineFooter } from "../shared/TraceSpine";
 import { getArtifactRoute } from "../../utils/artifactRoutes";
+import { useTraceFooterVisible } from "../../hooks/useTraceFooterVisible";
 import { SplitView } from "../SplitView/SplitView";
 import { resolveBadgeVariant } from "../../utils/statusBadge";
 import { ArchiveConfirmDialog } from "./ArchiveConfirmDialog";
@@ -161,26 +161,10 @@ export default function GoalsPage(): JSX.Element {
     }
   }, [goals, selectedId]);
 
-  // Trace spine (Task 3.3 — UI concept ch. 5, #1762/M4). Goal is one of the
-  // nine types the `/traceability/resolve/` endpoint covers (Task 3.2a); it
-  // has no special station/level handling of its own in useDerivationChain,
-  // which is fine — it falls back to a single generic "Goal" station. The
-  // MainGoal kind has no trace graph at all (spec §3), so the hook is only
-  // enabled while a Goal is selected.
-  const derivationChain = useDerivationChain(
-    selectedGoal?.artifact_id ?? selectedGoal?.id ?? null,
-    "Goal",
-    null,
-    { enabled: !!selectedGoal },
-  );
-
-  const handleOpenChainArtifact = useCallback(
-    (artifact: ChainArtifact): void => {
-      const entry = derivationChain.resolveEntry(artifact);
-      if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
-    },
-    [derivationChain, navigate],
-  );
+  // Task 5 (Schnitt 2b): the derivation chain now lives inside the footer,
+  // so this page only decides *whether* it is mounted. The MainGoal kind has
+  // no trace graph (spec §3), so the footer is gated on a selected Goal.
+  const [traceFooterVisible] = useTraceFooterVisible();
 
   // #1762 (M4, mirrors M1–M3): the inspector's programmatic focus targets live
   // in the route, not in the shell — the shell must not know the detail area's
@@ -196,7 +180,7 @@ export default function GoalsPage(): JSX.Element {
   // first station.
   const focusSpine = useCallback((): void => {
     document
-      .querySelector<HTMLElement>('[data-testid="trace-spine-station-button"]')
+      .querySelector<HTMLElement>('[data-testid="trace-footer-station"]')
       ?.focus();
   }, []);
 
@@ -460,7 +444,7 @@ export default function GoalsPage(): JSX.Element {
           artifactPk={inspector.artifactPk}
           currentVersion={inspector.version}
           coveredRef={detailScrollRef}
-          onShowInSpine={focusSpine}
+          onShowInSpine={traceFooterVisible ? focusSpine : undefined}
         />
       )}
     </div>
@@ -508,21 +492,23 @@ export default function GoalsPage(): JSX.Element {
             />
           }
           detail={detailPane}
-          spine={
-            selectedGoal ? (
-              <TraceSpine
-                stations={derivationChain.stations}
-                isLoading={derivationChain.isLoading}
-                error={derivationChain.error}
-                onOpenArtifact={handleOpenChainArtifact}
-                isOpenable={derivationChain.isOpenable}
-              />
-            ) : null
-          }
           ratio={[40, 60]}
           minWidths={[350, 448]}
           containerClassName={styles.splitHost}
         />
+        {traceFooterVisible && selectedGoal && (
+          <TraceSpineFooter
+            artifact={{
+              artifactId: selectedGoal.artifact_id,
+              id: selectedGoal.id,
+              artifactType: "Goal",
+              level: null,
+            }}
+            onOpenArtifact={(_artifact, entry) => {
+              if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
+            }}
+          />
+        )}
       </div>
 
       {form && (

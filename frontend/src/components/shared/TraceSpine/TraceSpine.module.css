@@ -217,35 +217,7 @@
   font-size: var(--font-size-sm);
 }
 
-/*
- * ch. 5 "Verhalten" / ch. 6.3: below --bp-lg (1024px) the rail moves
- * horizontally under the artifact header. With more than four intermediate
- * stations it scrolls sideways instead of wrapping, so the order of the
- * chain stays recognisable.
- */
-@media (max-width: 1024px) {
-  .wrapper {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .rail {
-    position: static;
-    width: 100%;
-    border-left: none;
-    border-bottom: 2px solid var(--color-border);
-    overflow-x: auto;
-    overscroll-behavior: contain;
-    scrollbar-gutter: stable;
-  }
-
-  .stations {
-    flex-direction: row;
-    align-items: center;
-    flex-wrap: nowrap;
-  }
-
-  .station {
-    flex: 0 0 auto;
-  }
-}
+/* Breakpoint cleanup (Schnitt 2c): the vertical-to-horizontal rail variant
+ * used to live behind the 1024px layout breakpoint. The derivation chain is
+ * now always horizontal in <TraceSpineFooter>, so this module keeps only the
+ * vertical rail layout and owns no responsive breakpoint logic any more. */

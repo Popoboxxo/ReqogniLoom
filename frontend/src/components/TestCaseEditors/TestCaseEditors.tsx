@@ -19,10 +19,10 @@ import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { BaselineDriftBadge } from '../shared/BaselineDriftBadge/BaselineDriftBadge';
 import { InspectorShell } from '../shared/ArtifactInspector';
 import type { VersionRef } from '../shared/ArtifactInspector';
-import { TraceSpine, useDerivationChain } from '../shared/TraceSpine';
-import type { ChainArtifact } from '../shared/TraceSpine';
+import { TraceSpineFooter } from '../shared/TraceSpine';
 import { TraceLinkPanel } from '../shared/TraceLinkPanel';
 import { getArtifactRoute } from '../../utils/artifactRoutes';
+import { useTraceFooterVisible } from '../../hooks/useTraceFooterVisible';
 import { useTestCaseData } from './useTestCaseData';
 import { useWorkspace } from '../../context/WorkspaceContext';
 import { useEntityReset } from '../../hooks/use-entity-reset';
@@ -224,28 +224,11 @@ export default function TestCaseEditors(): JSX.Element {
     navigate(`/testcases/${target}`);
   }, [pendingSelectId, navigate, customFieldsDraft, markCustomFieldsClean]);
 
-  // Trace spine (Task 3.3 — UI concept ch. 5). Test cases are not their own
-  // station type in the derivation-chain model (useDerivationChain docs) —
-  // they attach to the station of whatever they verify — but the currently
-  // opened test case still gets its own "current" station showing what it
-  // verifies/derives from.
-  const derivationChain = useDerivationChain(
-    // #399: `TestCase.artifact_id` is now exposed by the read path (the drift
-    // badge below binds to it). This spine call keeps the TestCase entity pk —
-    // its existing behaviour, out of scope for the artifact-id fix.
-    item?.id ?? null,
-    'TestCase',
-    null,
-    { enabled: !!item },
-  );
-
-  const handleOpenChainArtifact = useCallback(
-    (artifact: ChainArtifact): void => {
-      const entry = derivationChain.resolveEntry(artifact);
-      if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
-    },
-    [derivationChain, navigate],
-  );
+  // Task 5 (Schnitt 2b): the derivation chain now lives inside the footer,
+  // so this host only decides *whether* it is mounted (and no longer fires
+  // chain RPCs on its own). Test cases are not their own station type in the
+  // derivation-chain model — they attach to whatever they verify.
+  const [traceFooterVisible] = useTraceFooterVisible();
 
   // #1762 (M2, mirrors M1): the inspector's programmatic focus targets live in
   // the route, not in the shell — the shell must not know the detail area's DOM
@@ -261,7 +244,7 @@ export default function TestCaseEditors(): JSX.Element {
   // first station.
   const focusSpine = useCallback((): void => {
     document
-      .querySelector<HTMLElement>('[data-testid="trace-spine-station-button"]')
+      .querySelector<HTMLElement>('[data-testid="trace-footer-station"]')
       ?.focus();
   }, []);
 
@@ -386,8 +369,8 @@ export default function TestCaseEditors(): JSX.Element {
                 )}
                 {/* Plan C T-C3-1 (PR-C10, ENT-C1 = B): the test case detail area
                     gets the same trace-link CRUD list as Risk/ADR/Issue/Need —
-                    the read-only <TraceSpine> in the SplitView's spine slot
-                    cannot delete a link, and the inspector's Links tab is a
+                    the read-only trace footer cannot delete a link, and the
+                    inspector's Links tab is a
                     read surface (one CRUD surface per screen). Bound to the
                     BACKING Artifact id (`artifact_id ?? id`): trace links live
                     in the Artifact id space, exactly like the drift badge right
@@ -446,27 +429,31 @@ export default function TestCaseEditors(): JSX.Element {
                     artifactPk={item.artifact_id ?? null}
                     currentVersion={ver}
                     coveredRef={detailScrollRef}
-                    onShowInSpine={focusSpine}
+                    onShowInSpine={traceFooterVisible ? focusSpine : undefined}
                   />
                 );
               })()}
             </div>
           }
-          spine={
-            item ? (
-              <TraceSpine
-                stations={derivationChain.stations}
-                isLoading={derivationChain.isLoading}
-                error={derivationChain.error}
-                onOpenArtifact={handleOpenChainArtifact}
-                isOpenable={derivationChain.isOpenable}
-              />
-            ) : null
-          }
           ratio={[40, 60]}
           minWidths={[320, 448]}
           containerClassName={styles.splitWrapper}
         />
+        {traceFooterVisible && item && (
+          <TraceSpineFooter
+            artifact={{
+              // Preserve the pre-migration behavior: the chain was keyed on the
+              // TestCase entity pk, not the (now exposed) artifact_id.
+              artifactId: item.id,
+              id: item.id,
+              artifactType: 'TestCase',
+              level: null,
+            }}
+            onOpenArtifact={(_artifact, entry) => {
+              if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
+            }}
+          />
+        )}
       </div>
 
       <EditorPageShell

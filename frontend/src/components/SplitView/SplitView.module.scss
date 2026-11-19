@@ -116,11 +116,12 @@
   }
 }
 
-// Narrow breakpoint (--bp-lg in tokens.css, ch. 6.3): list/detail keep the
-// side-by-side layout but shift to a 45:55 ratio; the concept contract
-// (SplitView.tsx `ConceptSplitView`) computes this in JS since custom
-// properties cannot be read inside `@media` conditions. Kept here for the
-// legacy contract's divider/min-width affordances only.
+// Mobile stacking breakpoint (--bp-md, 768px in tokens.css, ch. 6.3). The
+// concept container computes its responsive zones in JS (see
+// `useSplitViewMobileState`) because CSS custom properties cannot be read
+// inside `@media` conditions; these rules only style the importable
+// legacy-equivalent divider/min-width affordances. The old 45:55 narrow-zone
+// ratio was removed in Schnitt 2c together with the horizontal chain layout.
 //
 // CSS custom properties cannot be referenced inside `@media` conditions, so
 // this pixel value MUST stay in sync with `--bp-md` in tokens.css.

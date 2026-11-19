@@ -16,7 +16,7 @@
  */
 
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
@@ -260,6 +260,8 @@ import RequirementEditors from "../components/RequirementEditors/RequirementEdit
 import { requirementsApi } from "../api/requirements";
 import { commentsApi } from "../api/comments";
 import { tracelinksApi } from "../api/tracelinks";
+import { traceabilityApi } from "../api/traceability";
+import { setTraceFooterVisible } from "../hooks/useTraceFooterVisible";
 import { testcasesApi } from "../api/testcases";
 import { workspacesApi } from "../api/workspaces";
 import { attributeDefinitionsApi } from "../api/attribute-definitions";
@@ -421,14 +423,15 @@ describe("RequirementEditors (COMP-RF-003 / REQ-L2-RF-003)", () => {
   // the form, and the divider gives way to the fixed 40/60 ratio of
   // UI_KONZEPT ch. 12.6. Documented in the M1 report as a REQ-L1-040
   // consequence.
-  it("renders the concept split layout with a dedicated spine slot (#1762 M1-11)", async () => {
+  it("renders the concept split layout with the trace footer as a sibling (#1762 M1-11)", async () => {
     renderEditor(MOCK_REQUIREMENT.id);
 
     await waitFor(() => {
       expect(screen.getByTestId("splitview-list")).toBeInTheDocument();
       expect(screen.getByTestId("splitview-detail")).toBeInTheDocument();
-      expect(screen.getByTestId("splitview-spine")).toBeInTheDocument();
+      expect(screen.getByTestId("trace-footer")).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("splitview-spine")).not.toBeInTheDocument();
     expect(screen.queryByTestId("splitview-divider")).not.toBeInTheDocument();
   });
 
@@ -1629,5 +1632,52 @@ describe("RequirementEditors — create dialog accessible name (issue #955)", ()
     expect(screen.getByTestId("req-new-dialog")).toHaveAccessibleName(
       /new requirement|neue anforderung/i
     );
+  });
+});
+
+// Task 5 (Schnitt 2b): the derivation chain moved into the footer. Pin one
+// footer as a SplitView sibling, an empty spine slot, zero chain RPCs while
+// hidden, and the D2b status quo (footer + inspector both show link views).
+describe("RequirementEditors — Task 5 trace footer host migration", () => {
+  afterEach(() => {
+    setTraceFooterVisible(true);
+  });
+
+  it("mounts exactly one trace-footer as a SplitView sibling; the spine slot is empty", async () => {
+    setTraceFooterVisible(true);
+    renderEditor(MOCK_REQUIREMENT.id);
+    const footer = await screen.findByTestId("trace-footer");
+
+    expect(screen.getAllByTestId("trace-footer")).toHaveLength(1);
+    expect(
+      ["splitview-list", "splitview-detail", "splitview-spine"].some(
+        (id) => footer.closest(`[data-testid="${id}"]`) !== null,
+      ),
+    ).toBe(false);
+    expect(
+      footer.parentElement?.querySelector('[data-testid="splitview-list"]'),
+    ).not.toBeNull();
+    expect(screen.queryByTestId("splitview-spine")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("trace-spine")).not.toBeInTheDocument();
+  });
+
+  it("footer hidden -> no trace-footer in the DOM and zero chain RPCs", async () => {
+    setTraceFooterVisible(false);
+    renderEditor(MOCK_REQUIREMENT.id);
+    await screen.findByTestId("splitview-detail");
+
+    expect(screen.queryByTestId("trace-footer")).not.toBeInTheDocument();
+    expect(tracelinksApi.impact).not.toHaveBeenCalled();
+    expect(traceabilityApi.resolve).not.toHaveBeenCalled();
+  });
+
+  it("footer ON + inspector ON -> both link views are visible (D2b)", async () => {
+    setTraceFooterVisible(true);
+    renderEditor(MOCK_REQUIREMENT.id);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("trace-footer")).toBeInTheDocument();
+      expect(screen.getByTestId("artifact-inspector")).toBeInTheDocument();
+    });
   });
 });

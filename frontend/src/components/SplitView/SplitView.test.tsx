@@ -1,11 +1,13 @@
 /**
  * SplitView — concept contract tests (UI_KONZEPT.md ch. 12.6)
  *
- * The component has exactly one contract: `list` / `detail` / `spine` /
- * `ratio` / `minWidths`. The legacy `leftPanel` / `rightPanel` drag-divider
- * contract was removed in UI-001 / S3.2 WP-1 — its tests went with it.
- * Mobile pane behaviour lives in `SplitView.mobile.test.tsx` and the
- * extracted `useSplitViewMobileState` hook.
+ * The component has exactly one contract: `list` / `detail` / `ratio` /
+ * `minWidths`. The legacy `leftPanel` / `rightPanel` drag-divider contract was
+ * removed in UI-001 / S3.2 WP-1 — its tests went with it. The derivation chain
+ * slot was removed in Schnitt 2c: each host mounts the always-horizontal chain
+ * footer as a sibling of this container instead. Mobile pane behaviour lives
+ * in `SplitView.mobile.test.tsx` and the extracted `useSplitViewMobileState`
+ * hook.
  */
 
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -32,33 +34,28 @@ describe("SplitView — concept contract", () => {
     expect(listContainer).not.toHaveStyle({ minWidth: "380px" });
   });
 
-  it("AC2: mounts the spine between list and detail, independent of detail's scroll container", () => {
+  it("AC2: renders list and detail as sibling panes inside one container", () => {
     render(
       <SplitView
         list={<div data-testid="the-list">List content</div>}
         detail={<div data-testid="the-detail">Detail content</div>}
-        spine={<div data-testid="the-spine">Spine content</div>}
       />
     );
 
     const list = screen.getByTestId("splitview-list");
-    const spine = screen.getByTestId("splitview-spine");
     const detail = screen.getByTestId("splitview-detail");
 
-    // Spine is a sibling of list/detail, not nested inside the detail
-    // scroll container — so scrolling detail cannot move it.
-    expect(spine.parentElement).toBe(detail.parentElement);
-    expect(spine.contains(detail)).toBe(false);
-    expect(detail.contains(spine)).toBe(false);
+    // Both panes share one parent, and neither contains the other.
+    expect(detail.parentElement).toBe(list.parentElement);
+    expect(list.contains(detail)).toBe(false);
+    expect(detail.contains(list)).toBe(false);
 
-    // DOM order: list, spine, detail (spine sits between the two panes).
-    const container = list.parentElement as HTMLElement;
-    const children = Array.from(container.children);
-    expect(children.indexOf(spine)).toBeGreaterThan(children.indexOf(list));
-    expect(children.indexOf(detail)).toBeGreaterThan(children.indexOf(spine));
+    // DOM order stays list, then detail.
+    const children = Array.from(list.parentElement!.children);
+    expect(children.indexOf(detail)).toBeGreaterThan(children.indexOf(list));
   });
 
-  it("AC2c: in the narrow (--bp-lg) zone, spine wanders horizontal but stays independent of detail's scroll container", () => {
+  it("AC2c: keeps the list/detail row on one axis in the narrow zone (no horizontal chain bar)", () => {
     const originalWidth = window.innerWidth;
     Object.defineProperty(window, "innerWidth", {
       writable: true,
@@ -71,27 +68,13 @@ describe("SplitView — concept contract", () => {
         <SplitView
           list={<div data-testid="the-list">List content</div>}
           detail={<div data-testid="the-detail">Detail content</div>}
-          spine={<div data-testid="the-spine">Spine content</div>}
         />
       );
 
-      const list = screen.getByTestId("splitview-list");
-      const spine = screen.getByTestId("splitview-spine");
-      const detail = screen.getByTestId("splitview-detail");
-
-      // Still structurally independent of detail's scroll container.
-      expect(spine.contains(detail)).toBe(false);
-      expect(detail.contains(spine)).toBe(false);
-
-      // Spine renders as a sibling of the list/detail row wrapper, above
-      // it in DOM order (ch. 6.3: "Spine wandert waagerecht unter den
-      // Artefaktkopf").
-      const root = spine.parentElement as HTMLElement;
-      const row = list.parentElement as HTMLElement;
-      expect(root.contains(row)).toBe(true);
-      expect(row).not.toBe(root);
-      const rootChildren = Array.from(root.children);
-      expect(rootChildren.indexOf(spine)).toBeLessThan(rootChildren.indexOf(row));
+      const root = screen.getByTestId("splitview-list").parentElement as HTMLElement;
+      expect(root.style.flexDirection).toBe("row");
+      // The ratio comes from the caller in every zone — no narrow override.
+      expect(screen.getByTestId("splitview-list")).toHaveStyle({ flex: "0 0 40%" });
     } finally {
       Object.defineProperty(window, "innerWidth", {
         writable: true,
@@ -99,17 +82,6 @@ describe("SplitView — concept contract", () => {
         value: originalWidth,
       });
     }
-  });
-
-  it("AC2b: omits the spine slot entirely when no spine prop is passed", () => {
-    render(
-      <SplitView
-        list={<div>List</div>}
-        detail={<div>Detail</div>}
-      />
-    );
-
-    expect(screen.queryByTestId("splitview-spine")).not.toBeInTheDocument();
   });
 
   it("AC3: both scroll surfaces carry overscroll-behavior: contain and scrollbar-gutter: stable", () => {
