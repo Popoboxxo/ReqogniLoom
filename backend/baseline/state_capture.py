@@ -123,39 +123,21 @@ def capture_states(
 # ---------------------------------------------------------------------------
 
 
-def _capture_items(
-    item_ids: list[str], tenant_id: uuid.UUID
-) -> dict[str, dict[str, Any]]:
-    """Capture state for Artifact-backed items via batched queries.
+def _capture_artifact_envelope(
+    uuids: list[uuid.UUID], tenant_id: uuid.UUID
+) -> tuple[
+    dict[str, dict[str, Any]],
+    dict[str, str],
+    dict[str, dict[str, Any]],
+]:
+    """Batched Artifact header, lifecycle and system state for ``uuids``.
 
-    ``item_id`` is the Artifact UUID. The concrete domain entity is discovered
-    by batch-querying each candidate table on ``artifact_id__in``. This is a
-    fixed number of queries (one per candidate table plus one for the Artifact
-    headers) regardless of how many items are captured.
-
-    Issue #398: the captured field set is the *only* thing a baseline diff can
-    ever see, because :mod:`baseline.diff_engine` compares snapshotted values
-    rather than a version counter. A field that is not captured here is a field
-    whose drift is structurally invisible — so every user-editable column of
-    every artifact-backed entity belongs in this map. Before #398 the map was
-    missing ``Requirement.acceptance_criteria`` / ``level``, the workflow
-    ``status`` of TestCases, ``lifecycle_status`` (soft-delete) everywhere, the
-    element re-parenting signal, ``Artifact.custom_fields`` (which is where
-    user-defined attributes such as a "rationale" live) and, most severely, the
-    entire content of ADRs / Risks / Issues / Goals — those fell through to the
-    "bare artifact" branch and were snapshotted as ``{"artifact_type": "Adr"}``.
+    Shared envelope of every artifact-backed entity. Kept in one helper so the
+    two fixed-cost queries (header row shape and system fields) live next to
+    each other instead of inside the long subtype-dispatch function; callers
+    get the three maps unchanged (#refop4_84da7acfcb21d11a47f3).
     """
-    uuids = _to_uuids(item_ids)
-    if not uuids:
-        return {}
-
-    from persistence.models import (
-        ArchitectureElement,
-        Artifact,
-        Requirement,
-        StakeholderNeed,
-        TestCase,
-    )
+    from persistence.models import Artifact
 
     # Artifact headers — the shared envelope of every artifact-backed entity.
     # ``artifact_type`` doubles as a fallback discriminator; ``custom_fields``
@@ -212,6 +194,48 @@ def _capture_items(
             "priority": row["priority"],
             "stakeholder": row["stakeholder"] or [],
         }
+
+    return artifact_header_by_id, artifact_lifecycle, artifact_system_by_id
+
+
+def _capture_items(
+    item_ids: list[str], tenant_id: uuid.UUID
+) -> dict[str, dict[str, Any]]:
+    """Capture state for Artifact-backed items via batched queries.
+
+    ``item_id`` is the Artifact UUID. The concrete domain entity is discovered
+    by batch-querying each candidate table on ``artifact_id__in``. This is a
+    fixed number of queries (one per candidate table plus one for the Artifact
+    headers) regardless of how many items are captured.
+
+    Issue #398: the captured field set is the *only* thing a baseline diff can
+    ever see, because :mod:`baseline.diff_engine` compares snapshotted values
+    rather than a version counter. A field that is not captured here is a field
+    whose drift is structurally invisible — so every user-editable column of
+    every artifact-backed entity belongs in this map. Before #398 the map was
+    missing ``Requirement.acceptance_criteria`` / ``level``, the workflow
+    ``status`` of TestCases, ``lifecycle_status`` (soft-delete) everywhere, the
+    element re-parenting signal, ``Artifact.custom_fields`` (which is where
+    user-defined attributes such as a "rationale" live) and, most severely, the
+    entire content of ADRs / Risks / Issues / Goals — those fell through to the
+    "bare artifact" branch and were snapshotted as ``{"artifact_type": "Adr"}``.
+    """
+    uuids = _to_uuids(item_ids)
+    if not uuids:
+        return {}
+
+    from persistence.models import (
+        ArchitectureElement,
+        Requirement,
+        StakeholderNeed,
+        TestCase,
+    )
+
+    (
+        artifact_header_by_id,
+        artifact_lifecycle,
+        artifact_system_by_id,
+    ) = _capture_artifact_envelope(uuids, tenant_id)
 
     states: dict[str, dict[str, Any]] = {}
 
