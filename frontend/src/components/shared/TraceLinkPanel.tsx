@@ -9,8 +9,8 @@ import { CreateTraceLinkDialog } from "./CreateTraceLinkDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Badge } from "./Badge";
 import { useWorkspace } from "../../context/WorkspaceContext";
-import { extractErrorMessage } from "../../api/client";
 import styles from "./TraceLinkPanel.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 
 interface TraceLinkPanelProps {
@@ -100,7 +100,7 @@ export function TraceLinkPanel({
       setRefsById(merged);
     } catch (err) {
       console.error("Failed to load trace links", err);
-      setError(extractErrorMessage(err) || t("tracelinks.loadFailed", "Trace links could not be loaded."));
+      setError(toUserErrorMessage(err, t) || t("tracelinks.loadFailed", "Trace links could not be loaded."));
     } finally {
       setLoading(false);
     }
@@ -119,7 +119,7 @@ export function TraceLinkPanel({
       loadLinks();
     } catch (err) {
       console.error("Delete tracelink failed:", err);
-      setError(extractErrorMessage(err) || t("tracelinks.deleteFailed", "Trace link could not be deleted."));
+      setError(toUserErrorMessage(err, t) || t("tracelinks.deleteFailed", "Trace link could not be deleted."));
     }
   };
 

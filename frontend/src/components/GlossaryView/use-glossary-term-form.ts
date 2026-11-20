@@ -21,9 +21,9 @@ import type { TFunction } from "i18next";
 
 import { glossaryApi } from "../../api/glossary";
 import type { GlossaryTerm } from "../../types";
-import { extractErrorMessage } from "../../api/client";
 import { fieldErrorsFromException } from "../shared/ArtifactForm/field-errors";
 import type { GlossaryFormData } from "./GlossaryTermForm";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 const EMPTY_FORM: GlossaryFormData = {
   term: "",
@@ -103,7 +103,7 @@ export function useGlossaryTermForm({
       } catch (err: unknown) {
         // Keep the form open on failure (UI standards §12.11) — the user's
         // input must not be lost and the form must not silently close.
-        const message = extractErrorMessage(err) || t("glossary.saveFailed");
+        const message = toUserErrorMessage(err, t, t("glossary.saveFailed"));
         setFormError(message);
         setFormFieldErrors(fieldErrorsFromException(err, message));
       }

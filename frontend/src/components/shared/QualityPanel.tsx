@@ -8,7 +8,6 @@
  */
 import { useTranslation } from "react-i18next";
 
-import { extractErrorMessage } from "../../api/client";
 import { isLlmUnavailableError, type QualityEntityType } from "../../api/quality";
 import { useHasRole } from "../../hooks/useHasRole";
 import {
@@ -19,6 +18,7 @@ import {
 import type { UUID } from "../../types";
 import { formatQualityScore } from "./QualityBadge";
 import styles from "./QualityPanel.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 export interface QualityPanelProps {
   workspaceId: UUID;
@@ -42,7 +42,7 @@ export function QualityPanel({
   const assessError = assess.error
     ? isLlmUnavailableError(assess.error)
       ? t("quality.error.unavailable")
-      : extractErrorMessage(assess.error)
+      : toUserErrorMessage(assess.error, t)
     : null;
 
   return (
@@ -75,7 +75,7 @@ export function QualityPanel({
         <div role="alert" className={styles.error} data-testid="quality-error">{assessError}</div>
       ) : null}
       {history.isError ? (
-        <div role="alert" className={styles.error} data-testid="quality-history-error">{extractErrorMessage(history.error)}</div>
+        <div role="alert" className={styles.error} data-testid="quality-history-error">{toUserErrorMessage(history.error, t)}</div>
       ) : null}
 
       {latest && latest.reasoning.trim() !== "" ? (

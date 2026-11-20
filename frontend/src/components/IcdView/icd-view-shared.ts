@@ -30,7 +30,10 @@ export function joinListField(values: string[] | undefined): string {
 
 export function extractErrorMessage(err: unknown, fallback: string): string {
   const e = err as { error?: { message?: string } };
-  return e?.error?.message ?? (err ? String(err) : fallback);
+  if (e?.error?.message) return e.error.message;
+  // A raw fetch failure must fall back to the caller's localized sentence.
+  if (err instanceof TypeError) return fallback;
+  return err ? String(err) : fallback;
 }
 
 // Similarity algorithm: tokenize ICD names and compute Jaccard similarity

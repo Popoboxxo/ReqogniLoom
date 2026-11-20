@@ -36,11 +36,7 @@ import { DefaultStatusBadge, ResetToDefaultButton } from "./DefaultStatusBadge";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import type { UUID } from "../../types";
 import styles from "./WorkflowPermissionsSection.module.css";
-
-function extractErrorMessage(err: unknown): string {
-  const e = err as { error?: { message?: string }; message?: string };
-  return e?.error?.message ?? e?.message ?? String(err);
-}
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 interface WorkflowRowState {
   isCustomized: boolean;
@@ -99,7 +95,7 @@ export function WorkflowPermissionsSection({
           [type]: {
             ...prev[type],
             loading: false,
-            error: extractErrorMessage(err),
+            error: toUserErrorMessage(err, t),
           },
         }));
       }
@@ -143,7 +139,7 @@ export function WorkflowPermissionsSection({
           [type]: {
             ...prev[type],
             resetting: false,
-            error: extractErrorMessage(err),
+            error: toUserErrorMessage(err, t),
           },
         }));
       }
@@ -176,7 +172,7 @@ export function WorkflowPermissionsSection({
       const def = await permissionDefaultsApi.getWorkspace(workspaceId);
       setPermDef(def);
     } catch (err) {
-      setPermError(extractErrorMessage(err));
+      setPermError(toUserErrorMessage(err, t));
     } finally {
       setPermLoading(false);
     }
@@ -197,7 +193,7 @@ export function WorkflowPermissionsSection({
       setPermDef(def);
       setEditingMatrix(false);
     } catch (err) {
-      setPermError(extractErrorMessage(err));
+      setPermError(toUserErrorMessage(err, t));
     } finally {
       setPermResetting(false);
     }
@@ -217,7 +213,7 @@ export function WorkflowPermissionsSection({
         setMatrixSavedOk(true);
         setEditingMatrix(false);
       } catch (err) {
-        setPermError(extractErrorMessage(err));
+        setPermError(toUserErrorMessage(err, t));
       } finally {
         setSavingMatrix(false);
       }

@@ -27,9 +27,9 @@ import { useTranslation } from "react-i18next";
 import { artifactsApi } from "../../../api/artifacts";
 import type { ArtifactBaselineMembership } from "../../../api/artifacts";
 import { changeRequestsApi } from "../../../api/change-requests";
-import { extractErrorMessage } from "../../../api/client";
 import { Badge } from "../Badge";
 import styles from "./BaselineDriftBadge.module.css";
+import { toUserErrorMessage } from "../../../utils/userErrorMessage";
 
 export interface BaselineDriftSummaryProp {
   drifted: boolean;
@@ -115,7 +115,7 @@ export function BaselineDriftBadge({
       setCreated(true);
       onCreated?.();
     } catch (err) {
-      setCreateError(extractErrorMessage(err) || t("baseline.crFailed"));
+      setCreateError(toUserErrorMessage(err, t) || t("baseline.crFailed"));
     } finally {
       setCreating(false);
     }

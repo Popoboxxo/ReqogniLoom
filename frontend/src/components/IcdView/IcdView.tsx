@@ -42,12 +42,12 @@ import { IcdDetailPane } from "./IcdDetailPane";
 import { IcdList } from "./IcdList";
 import { useIcdData } from "./useIcdData";
 import {
-  extractErrorMessage,
   joinListField,
   parseListField,
   shortId,
 } from "./icd-view-shared";
 import styles from "./IcdView.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 export default function IcdView(): JSX.Element {
   const { t } = useTranslation();
@@ -204,7 +204,7 @@ export default function IcdView(): JSX.Element {
       resetCreateForm();
       navigate(`/icds/${created.id}`);
     } catch (err) {
-      const message = extractErrorMessage(err, t("icds.createFailed"));
+      const message = toUserErrorMessage(err, t, t("icds.createFailed"));
       setFormError(message);
       setFormFieldErrors(fieldErrorsFromException(err, message));
     } finally {
@@ -241,7 +241,7 @@ export default function IcdView(): JSX.Element {
       await createVersion(routeId, payload);
       setShowNewVersion(false);
     } catch (err) {
-      setFormError(extractErrorMessage(err, t("icds.newVersionFailed")));
+      setFormError(toUserErrorMessage(err, t, t("icds.newVersionFailed")));
     } finally {
       setIsSaving(false);
     }

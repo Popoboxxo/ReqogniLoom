@@ -72,7 +72,24 @@ export function extractMessage(err: unknown): string | null {
  * the generic error paths in `PermissionsSection` stay one line.
  */
 export function extractErrorMessage(err: unknown): string {
-  return extractMessage(err) ?? String(err);
+  const message = extractMessage(err);
+  if (message !== null) return message;
+  // A transport failure has no server sentence to echo; "" lets the caller's
+  // localized fallback win (mirrors api/client.extractErrorMessage).
+  if (err instanceof TypeError) return "";
+  if (err instanceof Error) {
+    const lower = err.message.trim().toLowerCase();
+    if (
+      lower === "failed to fetch" ||
+      lower === "load failed" ||
+      lower === "network request failed" ||
+      lower === "the network connection was lost." ||
+      lower === "networkerror when attempting to fetch resource."
+    ) {
+      return "";
+    }
+  }
+  return String(err);
 }
 
 /** Whether this body is the last-admin refusal, in either shape. */

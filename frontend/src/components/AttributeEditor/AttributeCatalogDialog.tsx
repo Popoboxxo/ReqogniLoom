@@ -25,10 +25,10 @@ import {
   type AttributeCatalogEntry,
 } from "../../api/attributeCatalog";
 import type { AttributeItemType, OnCollision } from "../../api/attribute-definitions";
-import { extractErrorMessage } from "../../api/client";
 import { Dialog } from "../shared/Dialog";
 import editorStyles from "./AttributeEditor.module.css";
 import styles from "./AttributeCatalogDialog.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 const CHOICES: OnCollision[] = ["skip", "overwrite", "rename"];
 
@@ -82,7 +82,7 @@ export function AttributeCatalogDialog({
         .catch((exc: unknown) => {
           if (!active) return;
           setEntries([]);
-          setLoadError(extractErrorMessage(exc));
+          setLoadError(toUserErrorMessage(exc, t));
         })
         .finally(() => {
           if (active) setLoading(false);
@@ -107,7 +107,7 @@ export function AttributeCatalogDialog({
       await onAdd(selectedEntry, onCollision);
       onClose();
     } catch (exc: unknown) {
-      setSubmitError(extractErrorMessage(exc));
+      setSubmitError(toUserErrorMessage(exc, t));
     } finally {
       setSubmitting(false);
     }

@@ -31,9 +31,9 @@ import {
   type PromptSlotState,
 } from "../../api/prompt-templates";
 import { promptVariablesApi, type PromptVariableState } from "../../api/prompt-variables";
-import { extractErrorMessage } from "../../api/client";
 import { PromptVariableTable } from "./PromptVariableTable";
 import styles from "./AiPromptsSection.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 interface Props {
   /** Workspace whose overrides are edited when scope is "workspace". */
@@ -136,7 +136,7 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
       setSlots(orderSlots(slotsResult.value.slots));
       setDrafts({});
     } else {
-      setError(extractErrorMessage(slotsResult.reason));
+      setError(toUserErrorMessage(slotsResult.reason, t));
     }
 
     // Best-effort: on failure the variable table simply has nothing to show
@@ -193,7 +193,7 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
       applyUpdated(updated);
       setSavedSlot(slot.name);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setBusySlot(null);
     }
@@ -210,7 +210,7 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
       );
       applyUpdated(updated);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setBusySlot(null);
     }

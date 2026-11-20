@@ -13,13 +13,13 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { InterviewState } from "../../api/interviews";
 import { interviewsApi } from "../../api/interviews";
-import { extractErrorMessage } from "../../api/client";
 import { StatusBadge } from "../shared/StatusBadge";
 import { Spinner } from "../shared/Spinner/Spinner";
 import { getWorkflowStatusLabel } from "../../utils/workflowStatus";
 import { InterviewChatPane } from "../InterviewWidget/InterviewChatPane";
 import { InterviewArtifactPane } from "../InterviewWidget/InterviewArtifactPane";
 import styles from "./InterviewDetail.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 interface InterviewDetailProps {
   interview: InterviewState | null;
@@ -58,7 +58,7 @@ export function InterviewDetail({ interview, artifactType, onChanged }: Intervie
       setConfirmAbandon(false);
       onChanged();
     } catch (err) {
-      setAbandonError(extractErrorMessage(err));
+      setAbandonError(toUserErrorMessage(err, t));
     } finally {
       setIsAbandoning(false);
     }

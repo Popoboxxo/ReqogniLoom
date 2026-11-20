@@ -24,9 +24,9 @@ import {
   contextGraphSettingsApi,
   type ContextGraphSettings,
 } from "../../api/context-graph-settings";
-import { extractErrorMessage } from "../../api/client";
 import type { UUID } from "../../types";
 import styles from "./ContextGraphSettingsSection.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 interface Props {
   workspaceId: UUID;
@@ -47,7 +47,7 @@ export function ContextGraphSettingsSection({ workspaceId }: Props): JSX.Element
     contextGraphSettingsApi
       .get(workspaceId)
       .then(setSettings)
-      .catch((err) => setError(extractErrorMessage(err)))
+      .catch((err) => setError(toUserErrorMessage(err, t)))
       .finally(() => setIsLoading(false));
   }, [workspaceId]);
 
@@ -65,7 +65,7 @@ export function ContextGraphSettingsSection({ workspaceId }: Props): JSX.Element
       setSettings(updated);
       setSavedOk(true);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setIsSaving(false);
     }
@@ -79,7 +79,7 @@ export function ContextGraphSettingsSection({ workspaceId }: Props): JSX.Element
       await contextGraphSettingsApi.rebuild(workspaceId);
       setRebuildQueued(true);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setIsRebuilding(false);
     }

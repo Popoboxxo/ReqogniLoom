@@ -15,11 +15,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "../../context/AuthContext";
 import { SAVE_SHORTCUT_ARIA, useSaveShortcut } from "../../hooks/useSaveShortcut";
 import styles from "./ProfileSection.module.css";
-
-function extractErrorMessage(err: unknown): string {
-  const e = err as { error?: { message?: string }; message?: string };
-  return e?.error?.message ?? e?.message ?? String(err);
-}
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 export function ProfileSection(): JSX.Element {
   const { t } = useTranslation();
@@ -60,7 +56,7 @@ export function ProfileSection(): JSX.Element {
       setIsEditing(false);
       setSaved(true);
     } catch (err: unknown) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       savingRef.current = false;
       setIsSaving(false);

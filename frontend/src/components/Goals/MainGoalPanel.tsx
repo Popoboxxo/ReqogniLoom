@@ -33,7 +33,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { extractErrorMessage } from "../../api/client";
 import { mainGoalApi } from "../../api/main-goal";
 import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import type { WorkflowAllowedTransition } from "../../api/workflow-transitions";
@@ -44,6 +43,7 @@ import { ArchiveConfirmDialog } from "./ArchiveConfirmDialog";
 import { isArchiveTransition, isDraftState } from "./goal-workflow";
 import type { MainGoal, UUID } from "../../types";
 import styles from "./Goals.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 interface MainGoalPanelProps {
   workspaceId: UUID;
@@ -97,7 +97,7 @@ export function MainGoalPanel({
         // normalise undefined to null and let the empty state speak.
         approved = (await mainGoalApi.current(workspaceId)) ?? null;
       } catch (err) {
-        if (!cancelled) setError(extractErrorMessage(err));
+        if (!cancelled) setError(toUserErrorMessage(err, t));
         return;
       }
       if (cancelled) return;
@@ -184,7 +184,7 @@ export function MainGoalPanel({
     try {
       setDraft(await mainGoalApi.generate(workspaceId));
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setGenerating(false);
     }
@@ -197,7 +197,7 @@ export function MainGoalPanel({
       setManualContent("");
       setManualOpen(false);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     }
   };
 
@@ -210,7 +210,7 @@ export function MainGoalPanel({
       setCurrent(approved);
       setDraft(null);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     }
   };
 
@@ -246,7 +246,7 @@ export function MainGoalPanel({
         const refreshed = await mainGoalApi.current(workspaceId);
         setCurrent(refreshed ?? null);
       } catch (err) {
-        setError(extractErrorMessage(err));
+        setError(toUserErrorMessage(err, t));
       }
     },
     [current, t, workspaceId],

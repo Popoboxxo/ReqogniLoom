@@ -34,7 +34,6 @@ import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Trash2 } from "lucide-react";
 
-import { extractErrorMessage } from "../../api/client";
 import { useRequiredValidation } from "../shared/useRequiredValidation";
 import { requirementsApi } from "../../api/requirements";
 import { testcasesApi } from "../../api/testcases";
@@ -42,6 +41,7 @@ import type { LegacyTestCaseStep, TestCase } from "../../api/testcases";
 import { pairsToSteps, stepsToPairs } from "../../utils/testSteps";
 import { AiActionIcon } from "../shared/AiActions";
 import styles from "./DeriveTestCasePanel.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 export interface DeriveTestCasePanelProps {
   workspaceId: string;
@@ -90,7 +90,7 @@ export function DeriveTestCasePanel({
       });
       setPhase("review");
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
       setPhase("idle");
     }
   }, [requirement.id]);
@@ -136,7 +136,7 @@ export function DeriveTestCasePanel({
       setPhase("done");
       onCreated?.(testCase);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
       setPhase("review");
     }
   }, [draft, workspaceId, requirement.id, onCreated, validate, focusFirstInvalid]);

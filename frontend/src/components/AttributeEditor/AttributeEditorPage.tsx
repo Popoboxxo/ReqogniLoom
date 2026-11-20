@@ -42,7 +42,6 @@ import {
   attributeCatalogApi,
   type AttributeCatalogEntry,
 } from "../../api/attributeCatalog";
-import { extractErrorMessage } from "../../api/client";
 import type { WorkspacePreset } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -82,6 +81,7 @@ import {
   setSectionLayout,
   toggleSectionVisible,
 } from "./attribute-edits";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 /** The 10 bootstrapped item types (`AttributeItemType`, see
  * `api/attribute-definitions.ts`) — deliberately its own list, not
@@ -252,7 +252,7 @@ export function AttributeEditorPage({
         setVersion(definition.version);
       }
     } catch (exc: unknown) {
-      setError(extractErrorMessage(exc));
+      setError(toUserErrorMessage(exc, t));
     }
   }, [activeWorkspace?.id, applyDefinition, isGlobal, itemType, preset]);
 
@@ -277,7 +277,7 @@ export function AttributeEditorPage({
       const scope = isGlobal ? preset : "workspace";
       downloadAttributeDefinitionDocument(document, `${itemType}-${scope}-attributes.json`);
     } catch (exc: unknown) {
-      setError(extractErrorMessage(exc));
+      setError(toUserErrorMessage(exc, t));
     }
   }, [activeWorkspace?.id, isGlobal, itemType, preset]);
 
@@ -452,7 +452,7 @@ export function AttributeEditorPage({
       setVersion(result.version);
       return result.version;
     } catch (exc: unknown) {
-      setError(extractErrorMessage(exc));
+      setError(toUserErrorMessage(exc, t));
       return null;
     } finally {
       setSaving(false);
@@ -483,7 +483,7 @@ export function AttributeEditorPage({
       setOrigins(result.origins);
       setVersion(result.version);
     } catch (exc: unknown) {
-      setError(extractErrorMessage(exc));
+      setError(toUserErrorMessage(exc, t));
     }
   }, [activeWorkspace?.id, applyDefinition, itemType]);
 
@@ -606,7 +606,7 @@ export function AttributeEditorPage({
           await load();
           setError(t("attributes.reorderConflict"));
         } else {
-          setError(extractErrorMessage(exc));
+          setError(toUserErrorMessage(exc, t));
         }
       }
     },

@@ -22,11 +22,7 @@ import {
 } from "../../api/admin-ops";
 import { Spinner } from "../shared/Spinner/Spinner";
 import styles from "./BackupRestoreSection.module.css";
-
-function extractErrorMessage(err: unknown): string {
-  const e = err as { error?: { message?: string }; message?: string };
-  return e?.error?.message ?? e?.message ?? String(err);
-}
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -68,7 +64,7 @@ export function BackupRestoreSection(): JSX.Element {
       const rows = await adminOpsApi.listBackups();
       setBackups(rows);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setIsLoading(false);
     }
@@ -89,7 +85,7 @@ export function BackupRestoreSection(): JSX.Element {
       setReason("");
       await load();
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setIsCreating(false);
     }
@@ -110,7 +106,7 @@ export function BackupRestoreSection(): JSX.Element {
       setConfirmationText("");
       await load();
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setIsRestoring(false);
     }

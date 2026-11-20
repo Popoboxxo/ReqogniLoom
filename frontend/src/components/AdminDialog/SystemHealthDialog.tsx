@@ -23,17 +23,13 @@ import {
 import { versionApi, type VersionInfo } from "../../api/version";
 import { Dialog } from "../shared/Dialog";
 import styles from "./SystemHealthDialog.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 export interface SystemHealthDialogProps {
   /** Controls modal visibility. */
   isOpen: boolean;
   /** Called when the user closes the dialog. */
   onClose: () => void;
-}
-
-function extractErrorMessage(err: unknown): string {
-  const e = err as { error?: { message?: string }; message?: string };
-  return e?.error?.message ?? e?.message ?? String(err);
 }
 
 function formatDate(iso: string | null): string {
@@ -86,7 +82,7 @@ export function SystemHealthDialog({
       const data = await adminOpsApi.getSystemHealth();
       setSnapshot(data);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setIsLoading(false);
     }

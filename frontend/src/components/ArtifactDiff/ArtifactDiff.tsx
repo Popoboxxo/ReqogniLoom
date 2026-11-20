@@ -37,8 +37,8 @@ import type {
 import type { ArtifactKind } from "../shared/ArtifactInspector/types";
 import { DIFF_SUPPORTED_KINDS } from "../shared/ArtifactInspector/types";
 import { versionLabel } from "../shared/ArtifactInspector/versionLabel";
-import { extractErrorMessage } from "../../api/client";
 import styles from "./ArtifactDiff.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -319,7 +319,7 @@ export function ArtifactDiff({
         setToVersion(to);
       })
       .catch((err) => {
-        if (!cancelled) setError(extractErrorMessage(err));
+        if (!cancelled) setError(toUserErrorMessage(err, t));
       });
     return () => { cancelled = true; };
   }, [entityId, versionsFetcher, currentVersion, initialFromVersion]);
@@ -374,7 +374,7 @@ export function ArtifactDiff({
       setError(null);
     } catch (err) {
       if (requestId !== diffRequestIdRef.current) return; // superseded — ignore
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       if (requestId === diffRequestIdRef.current) setLoading(false);
     }

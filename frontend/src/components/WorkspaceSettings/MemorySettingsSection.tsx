@@ -29,9 +29,9 @@ import {
   type MemorySettingsUpdate,
   type MemorySlot,
 } from "../../api/memory-settings";
-import { extractErrorMessage } from "../../api/client";
 import type { UUID } from "../../types";
 import styles from "./MemorySettingsSection.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 interface Props {
   workspaceId: UUID;
@@ -79,7 +79,7 @@ export function MemorySettingsSection({ workspaceId }: Props): JSX.Element {
         setAvailableSlots(settings.available_slots ?? []);
       })
       .catch((err) => {
-        if (!cancelled) setLoadError(extractErrorMessage(err));
+        if (!cancelled) setLoadError(toUserErrorMessage(err, t));
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
@@ -115,7 +115,7 @@ export function MemorySettingsSection({ workspaceId }: Props): JSX.Element {
       setSavedOk(true);
     } catch (err) {
       rollback();
-      setSaveError(extractErrorMessage(err));
+      setSaveError(toUserErrorMessage(err, t));
     } finally {
       setIsSaving(false);
     }

@@ -24,7 +24,6 @@ import type {
   ResolvedAttributeDefinition,
   SectionSpec,
 } from "../../../api/attribute-definitions";
-import { extractErrorMessage } from "../../../api/client";
 import type {
   WorkflowAllowedTransition,
   WorkflowArtifactType,
@@ -57,6 +56,7 @@ import type {
   FormSection,
   SectionEntry,
 } from "./artifact-form-types";
+import { toUserErrorMessage } from "../../../utils/userErrorMessage";
 
 export interface UseArtifactFormStateArgs {
   itemType: AttributeItemType;
@@ -619,7 +619,7 @@ export function useArtifactFormState({
       markClean(reconciled);
       setChangeReason("");
     } catch (exc: unknown) {
-      const message = extractErrorMessage(exc);
+      const message = toUserErrorMessage(exc, t);
       const parsed = fieldErrorsFromException(exc, message);
       setFieldErrors(parsed);
       if (!Object.keys(parsed).length) setFormError(message);
@@ -663,7 +663,7 @@ export function useArtifactFormState({
       setDeprecateReason("");
     } catch (exc: unknown) {
       setConfirmDeprecate(false);
-      setFormError(extractErrorMessage(exc));
+      setFormError(toUserErrorMessage(exc, t));
     }
   }, [
     deprecateReason,

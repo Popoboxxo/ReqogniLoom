@@ -14,9 +14,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { bannersApi, type Banner, type BannerLevel } from "../../api/banners";
-import { extractErrorMessage } from "../../api/client";
 import type { UUID } from "../../types";
 import styles from "./WorkspaceBannerSection.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 const LEVELS: BannerLevel[] = ["neutral", "info", "warning", "critical"];
 
@@ -55,7 +55,7 @@ export function WorkspaceBannerSection({ workspaceId }: Props): JSX.Element {
         setDismissible(existing.dismissible);
       })
       .catch((err) => {
-        if (!cancelled) setError(extractErrorMessage(err));
+        if (!cancelled) setError(toUserErrorMessage(err, t));
       })
       .finally(() => {
         if (!cancelled) setIsLoading(false);
@@ -86,7 +86,7 @@ export function WorkspaceBannerSection({ workspaceId }: Props): JSX.Element {
       setBanner(updated);
       setSavedOk(true);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setIsSaving(false);
     }

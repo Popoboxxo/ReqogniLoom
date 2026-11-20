@@ -18,9 +18,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { workspacesApi } from "../../api/workspaces";
-import { extractErrorMessage } from "../../api/client";
 import type { GlossaryReferenceMode, UUID } from "../../types";
 import styles from "./GlossaryReferenceSection.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 interface Props {
   workspaceId: UUID;
@@ -47,7 +47,7 @@ export function GlossaryReferenceSection({ workspaceId, mode, onSaved }: Props):
       await onSaved();
       setSavedOk(true);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setIsSaving(false);
     }

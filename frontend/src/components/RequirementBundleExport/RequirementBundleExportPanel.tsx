@@ -24,10 +24,10 @@ import type {
   FilterMode,
   OutputFormat,
 } from "../../api/requirementBundle";
-import { extractErrorMessage } from "../../api/client";
 import { useBundleCompressionStatus } from "../../hooks/useBundleCompressionStatus";
 
 import styles from "./RequirementBundleExportPanel.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 export interface RequirementBundleExportPanelProps {
   elementId: string;
@@ -115,7 +115,7 @@ export function RequirementBundleExportPanel({
       }
       setPhase("idle");
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
       setPhase("idle");
     }
   }, [elementId, mode, parsedDepth, filterMode, parsedFields, outputFormat, asyncMode]);

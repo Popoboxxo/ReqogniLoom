@@ -29,11 +29,11 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
-import { extractErrorMessage } from "../../api/client";
 import type { Suggestion } from "../../api/suggestions";
 import { isSuggestionKindEnabled } from "../../api/suggestions";
 import { useSuggestionsData } from "./useSuggestionsData";
 import styles from "./SuggestionsInbox.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 /** Stable id pairing the reject textarea with its validation message. */
 const REJECT_ERROR_ID = "suggestion-reject-error";
@@ -108,7 +108,7 @@ export function SuggestionsInbox(): JSX.Element {
       } catch (err: unknown) {
         setActionError({
           id,
-          message: extractErrorMessage(err) ?? t("suggestions.actionError"),
+          message: toUserErrorMessage(err, t) ?? t("suggestions.actionError"),
         });
       } finally {
         actingRef.current = false;
@@ -146,7 +146,7 @@ export function SuggestionsInbox(): JSX.Element {
       closeReject();
       setFocusToken((token) => token + 1);
     } catch (err: unknown) {
-      setRejectError(extractErrorMessage(err) ?? t("suggestions.actionError"));
+      setRejectError(toUserErrorMessage(err, t) ?? t("suggestions.actionError"));
     } finally {
       actingRef.current = false;
     }

@@ -42,7 +42,6 @@ import { Dialog } from "../shared/Dialog";
 import { AiDerivationDialog } from "../shared/AiDerivationDialog";
 import { useHasRole } from "../../hooks/useHasRole";
 import { WorkflowStatusEditor } from "../WorkflowStatusEditor";
-import { extractErrorMessage } from "../../api/client";
 import styles from "./GlossaryView.module.css";
 import { useGlossaryDerive } from "./use-glossary-derive";
 import { useGlossaryFilters } from "./use-glossary-filters";
@@ -59,6 +58,7 @@ import { GlossaryTermList } from "./GlossaryTermList";
 import { GlossaryDetailPanel } from "./GlossaryDetailPanel";
 import { GlossaryTermForm } from "./GlossaryTermForm";
 import { GlossarySynonyms } from "./GlossarySynonyms";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 export default function GlossaryView(): JSX.Element {
   const { t } = useTranslation();
@@ -107,7 +107,7 @@ export default function GlossaryView(): JSX.Element {
       setTerms(data);
     } catch (err) {
       console.error(err);
-      setLoadError(extractErrorMessage(err) || t("glossary.loadFailed"));
+      setLoadError(toUserErrorMessage(err, t) || t("glossary.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -186,7 +186,7 @@ export default function GlossaryView(): JSX.Element {
         loadTerms();
       } catch (err) {
         console.error("Failed to delete term", err);
-        setRowError(extractErrorMessage(err) || t("glossary.deleteFailed"));
+        setRowError(toUserErrorMessage(err, t) || t("glossary.deleteFailed"));
       }
     }
   };

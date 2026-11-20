@@ -41,10 +41,10 @@ import {
   type WorkflowAllowedTransition,
   type WorkflowTransitionsResponse,
 } from "../../api/workflow-transitions";
-import { extractErrorMessage } from "../../api/client";
 import { useRequiredValidation } from "../shared/useRequiredValidation";
 import { getStatusBadgeStyle } from "../../utils/statusBadge";
 import styles from "./WorkflowStatusEditor.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 export interface WorkflowStatusEditorProps {
   /** Artifact type — selects the backend transitions endpoint. */
@@ -187,7 +187,7 @@ export function WorkflowStatusEditor({
         await loadTransitions();
         onTransitionComplete?.(result.new_state);
       } catch (err: unknown) {
-        setError(extractErrorMessage(err));
+        setError(toUserErrorMessage(err, t));
       } finally {
         setBusy(false);
         triggerRef.current?.focus();

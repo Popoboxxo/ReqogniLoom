@@ -21,10 +21,10 @@
 
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { extractErrorMessage } from "../../api/client";
 import { ForbiddenError } from "../../api/errors";
 import { Dialog } from "../shared/Dialog";
 import styles from "./SignatureDialog.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 export interface SignatureDialogProps {
   isOpen: boolean;
@@ -74,7 +74,7 @@ export function SignatureDialog({
         if (err instanceof ForbiddenError) {
           setSubmitError(err.message || t("reviews.forbidden"));
         } else {
-          setSubmitError(extractErrorMessage(err));
+          setSubmitError(toUserErrorMessage(err, t));
         }
       } finally {
         setIsSubmitting(false);

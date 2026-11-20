@@ -23,11 +23,7 @@ import { getMfaStatus } from "../../api/mfa";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { useRequiredValidation } from "../shared/useRequiredValidation";
 import styles from "./ApiKeysSection.module.css";
-
-function extractErrorMessage(err: unknown): string {
-  const e = err as { error?: { message?: string }; message?: string };
-  return e?.error?.message ?? e?.message ?? String(err);
-}
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -59,7 +55,7 @@ export function ApiKeysSection(): JSX.Element {
       const list = await apiKeysApi.list();
       setKeys(list);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setIsLoading(false);
     }
@@ -128,7 +124,7 @@ export function ApiKeysSection(): JSX.Element {
       setExpiresAt("");
       await load();
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setIsCreating(false);
     }
@@ -143,7 +139,7 @@ export function ApiKeysSection(): JSX.Element {
         if (createdKey?.id === id) setCreatedKey(null);
         await load();
       } catch (err) {
-        setError(extractErrorMessage(err));
+        setError(toUserErrorMessage(err, t));
       } finally {
         setRevokingId(null);
       }
