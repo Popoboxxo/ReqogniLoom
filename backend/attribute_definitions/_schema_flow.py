@@ -1,22 +1,14 @@
-"""Attribute-schema vocabulary and validation (spec section 3.1).
-
-Deliberately free of Django imports so it can be used from data migrations,
-from the pure field-validation engine and from tests without a settings module.
-
-The entry contract of ``definition_json["attributes"][i]`` is the published
-interface consumed by the form renderer, the interview protocol, the export
-service and the table view; every key below is part of it.
-"""
+"""Section/attribute flow-token normalization and validation (spec 7)."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from ._schema_vocabulary import (
-    _DEFAULT_ATTRIBUTE_SPAN,
-    _FLOW_TOKEN_KEYS,
     ATTRIBUTE_FLOW_KINDS,
     ATTRIBUTE_SPANS,
+    DEFAULT_ATTRIBUTE_SPAN,
+    FLOW_TOKEN_KEYS,
     SECTION_FLOW_KINDS,
     SPACER_SIZES,
     AttributeSchemaError,
@@ -57,7 +49,7 @@ def normalize_flow_token(
         )
 
     errors: list[str] = []
-    unknown = sorted(set(raw) - _FLOW_TOKEN_KEYS[kind])
+    unknown = sorted(set(raw) - FLOW_TOKEN_KEYS[kind])
     if unknown:
         errors.append(f"flow token has unknown key(s): {', '.join(unknown)}")
 
@@ -69,7 +61,7 @@ def normalize_flow_token(
         else:
             out["name"] = name.strip()
     if kind == "attribute":
-        span = raw.get("span", _DEFAULT_ATTRIBUTE_SPAN)
+        span = raw.get("span", DEFAULT_ATTRIBUTE_SPAN)
         if not isinstance(span, str) or span not in ATTRIBUTE_SPANS:
             errors.append(f"'span' must be one of {sorted(ATTRIBUTE_SPANS)}")
         else:
@@ -132,3 +124,17 @@ def validate_attribute_flow_json(flow: Any) -> list[dict[str, Any]]:
     )
 
 
+
+
+def stored_section_flow(definition_json: Any) -> list[dict[str, Any]]:
+    """Normalize a stored ``definition_json['section_flow']`` list, or ``[]``.
+
+    Mirrors :func:`stored_sections` for the flow side of the same JSONField.
+    An absent ``'section_flow'`` key returns ``[]`` — distinguishing "no flow at
+    all" (derive the default, spec section 7) from "an explicitly stored empty
+    flow" is the caller's job (it checks ``"section_flow" in definition_json``
+    directly).
+    """
+    if not isinstance(definition_json, dict) or "section_flow" not in definition_json:
+        return []
+    return validate_section_flow_json(definition_json["section_flow"])

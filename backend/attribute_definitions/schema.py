@@ -2,17 +2,19 @@
 
 Backwards-compatible facade: implementation lives in the five ``_schema_*``
 modules; the published public surface is re-exported unchanged.
+
+Deliberately free of Django imports so it can be used from data migrations,
+from the pure field-validation engine and from tests without a settings module.
 """
 from ._schema_definition import (
     stored_attributes,
-    stored_section_flow,
-    stored_sections,
     validate_definition_json,
     validate_meta_only_change,
     validate_new_attribute_name,
 )
 from ._schema_flow import (
     normalize_flow_token,
+    stored_section_flow,
     validate_attribute_flow_json,
     validate_section_flow_json,
 )
@@ -30,6 +32,7 @@ from ._schema_sections import (
     prune_attribute_flows,
     prune_section_flow,
     resolve_attribute_span,
+    stored_sections,
     validate_sections_json,
 )
 from ._schema_vocabulary import (

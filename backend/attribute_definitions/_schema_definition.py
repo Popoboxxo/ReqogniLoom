@@ -1,12 +1,4 @@
-"""Attribute-schema vocabulary and validation (spec section 3.1).
-
-Deliberately free of Django imports so it can be used from data migrations,
-from the pure field-validation engine and from tests without a settings module.
-
-The entry contract of ``definition_json["attributes"][i]`` is the published
-interface consumed by the form renderer, the interview protocol, the export
-service and the table view; every key below is part of it.
-"""
+"""Whole-definition validation, stored-state readers and meta-only change rules."""
 
 from __future__ import annotations
 
@@ -17,10 +9,10 @@ from ._schema_flow import validate_section_flow_json
 from ._schema_normalize import normalize_attribute
 from ._schema_sections import validate_sections_json
 from ._schema_vocabulary import (
-    _DEFAULTS,
-    _NEW_ATTRIBUTE_NAME_RE,
+    ATTRIBUTE_DEFAULTS,
     CORE_EDITABLE_META_PROPERTIES,
     LOCKED_IMMUTABLE_PROPERTIES,
+    NEW_ATTRIBUTE_NAME_RE,
     AttributeSchemaError,
 )
 
@@ -112,34 +104,6 @@ def stored_attributes(definition_json: Any) -> list[dict[str, Any]]:
     return validate_definition_json({"attributes": raw})["attributes"]
 
 
-def stored_sections(definition_json: Any) -> list[dict[str, Any]]:
-    """Normalize a stored ``definition_json['sections']`` list, or ``[]``.
-
-    Mirrors :func:`stored_attributes` for the sections side of the same
-    JSONField. An absent ``'sections'`` key returns ``[]`` — distinguishing
-    "no sections key at all" (needs materialization) from "materialized but
-    happens to be empty" is the STORE's job (it checks
-    ``"sections" in definition_json`` directly), not this function's.
-    """
-    if not isinstance(definition_json, dict) or "sections" not in definition_json:
-        return []
-    return validate_sections_json(definition_json["sections"])
-
-
-def stored_section_flow(definition_json: Any) -> list[dict[str, Any]]:
-    """Normalize a stored ``definition_json['section_flow']`` list, or ``[]``.
-
-    Mirrors :func:`stored_sections` for the flow side of the same JSONField.
-    An absent ``'section_flow'`` key returns ``[]`` — distinguishing "no flow at
-    all" (derive the default, spec section 7) from "an explicitly stored empty
-    flow" is the caller's job (it checks ``"section_flow" in definition_json``
-    directly).
-    """
-    if not isinstance(definition_json, dict) or "section_flow" not in definition_json:
-        return []
-    return validate_section_flow_json(definition_json["section_flow"])
-
-
 def _by_name(attributes: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {a["name"]: a for a in attributes}
 
@@ -184,12 +148,12 @@ def validate_meta_only_change(
             continue
         if new["type"] != old["type"]:
             errors.append(f"{name}: a core attribute may not change its 'type'")
-        # CORE_EDITABLE_META_PROPERTIES (schema.py:58-63) is the exhaustive
+        # CORE_EDITABLE_META_PROPERTIES (_schema_vocabulary.py) is the exhaustive
         # whitelist of what a meta-only PUT may touch on a core attribute; it
         # used to be defined and exported but never checked here, so e.g.
         # `fields`/`widget_key`/`validation` could be freely rewritten on a
         # core widget attribute (SDD ledger gap #5).
-        for prop in sorted(set(_DEFAULTS) - CORE_EDITABLE_META_PROPERTIES - {"locked"}):
+        for prop in sorted(set(ATTRIBUTE_DEFAULTS) - CORE_EDITABLE_META_PROPERTIES - {"locked"}):
             if new[prop] != old[prop]:
                 errors.append(
                     f"{name}: '{prop}' is not changeable on a core attribute"
@@ -235,7 +199,7 @@ def validate_new_attribute_name(
             create is already rejected by :func:`validate_meta_only_change`).
     """
     errors: list[str] = []
-    if not isinstance(name, str) or not _NEW_ATTRIBUTE_NAME_RE.fullmatch(name):
+    if not isinstance(name, str) or not NEW_ATTRIBUTE_NAME_RE.fullmatch(name):
         errors.append(
             f"'{name}' must be snake_case (lowercase letters, digits, "
             "underscores, starting with a letter)"

@@ -1,12 +1,4 @@
-"""Attribute-schema vocabulary and validation (spec section 3.1).
-
-Deliberately free of Django imports so it can be used from data migrations,
-from the pure field-validation engine and from tests without a settings module.
-
-The entry contract of ``definition_json["attributes"][i]`` is the published
-interface consumed by the form renderer, the interview protocol, the export
-service and the table view; every key below is part of it.
-"""
+"""Normalization of a single attribute entry and a definition key (spec 3.1)."""
 
 from __future__ import annotations
 
@@ -14,20 +6,20 @@ import re
 from typing import Any
 
 from ._schema_vocabulary import (
-    _DEFAULTS,
-    _ENUM_TYPES,
-    _REQUIRED_KEYS,
-    _VALIDATION_KEYS,
     ALLOWED_KEYS,
+    ATTRIBUTE_DEFAULTS,
     ATTRIBUTE_KINDS,
+    ATTRIBUTE_REQUIRED_KEYS,
     ATTRIBUTE_TYPES,
     AUDIENCE_VALUES,
     DISPLAY_FORMAT_VALUES,
     EDITABLE_VALUES,
+    ENUM_ATTRIBUTE_TYPES,
     ITEM_TYPES,
     MASK_VALUES,
     PRESETS,
     REVEAL_VALUES,
+    VALIDATION_KEYS,
     WIDGET_KEYS,
     AttributeSchemaError,
 )
@@ -112,7 +104,7 @@ def _normalize_validation(raw: Any, errors: list[str]) -> dict[str, Any]:
     if not isinstance(raw, dict):
         errors.append("'validation' must be an object")
         return {}
-    unknown = sorted(set(raw) - _VALIDATION_KEYS)
+    unknown = sorted(set(raw) - VALIDATION_KEYS)
     if unknown:
         errors.append(f"'validation' has unknown rule(s): {', '.join(unknown)}")
 
@@ -164,13 +156,13 @@ def normalize_attribute(raw: dict[str, Any]) -> dict[str, Any]:
     unknown = sorted(set(raw) - ALLOWED_KEYS)
     if unknown:
         errors.append(f"unknown key(s): {', '.join(unknown)}")
-    for key in _REQUIRED_KEYS:
+    for key in ATTRIBUTE_REQUIRED_KEYS:
         if not raw.get(key):
             errors.append(f"'{key}' is required")
     if errors:
         raise AttributeSchemaError(errors)
 
-    out: dict[str, Any] = dict(_DEFAULTS)
+    out: dict[str, Any] = dict(ATTRIBUTE_DEFAULTS)
     out["name"] = str(raw["name"])
     out["kind"] = str(raw["kind"])
     out["type"] = str(raw["type"])
@@ -277,7 +269,7 @@ def normalize_attribute(raw: dict[str, Any]) -> dict[str, Any]:
 
     if "options" in raw:
         out["options"] = _normalize_options(raw["options"], errors)
-    if out["type"] in _ENUM_TYPES and not out["options"]:
+    if out["type"] in ENUM_ATTRIBUTE_TYPES and not out["options"]:
         errors.append(f"type '{out['type']}' requires a non-empty 'options' list")
 
     if "fields" in raw:

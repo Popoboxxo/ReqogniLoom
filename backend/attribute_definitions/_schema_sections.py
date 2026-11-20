@@ -1,12 +1,4 @@
-"""Attribute-schema vocabulary and validation (spec section 3.1).
-
-Deliberately free of Django imports so it can be used from data migrations,
-from the pure field-validation engine and from tests without a settings module.
-
-The entry contract of ``definition_json["attributes"][i]`` is the published
-interface consumed by the form renderer, the interview protocol, the export
-service and the table view; every key below is part of it.
-"""
+"""Section normalization, materialization, flow pruning and span resolution."""
 
 from __future__ import annotations
 
@@ -15,10 +7,10 @@ from typing import Any
 
 from ._schema_flow import validate_attribute_flow_json, validate_section_flow_json
 from ._schema_vocabulary import (
-    _DEFAULT_ATTRIBUTE_SPAN,
-    _SECTION_ALLOWED_KEYS,
-    _SECTION_DEFAULTS,
     ATTRIBUTE_SPANS,
+    DEFAULT_ATTRIBUTE_SPAN,
+    SECTION_ALLOWED_KEYS,
+    SECTION_DEFAULTS,
     SECTION_LAYOUTS,
     AttributeSchemaError,
 )
@@ -46,7 +38,7 @@ def normalize_section(raw: dict[str, Any]) -> dict[str, Any]:
         raise AttributeSchemaError(["section entry must be an object"])
 
     errors: list[str] = []
-    unknown = sorted(set(raw) - _SECTION_ALLOWED_KEYS)
+    unknown = sorted(set(raw) - SECTION_ALLOWED_KEYS)
     if unknown:
         errors.append(f"unknown key(s): {', '.join(unknown)}")
     if not raw.get("name"):
@@ -54,7 +46,7 @@ def normalize_section(raw: dict[str, Any]) -> dict[str, Any]:
     if errors:
         raise AttributeSchemaError(errors)
 
-    out: dict[str, Any] = dict(_SECTION_DEFAULTS)
+    out: dict[str, Any] = dict(SECTION_DEFAULTS)
     out["name"] = str(raw["name"])
 
     if "order" in raw:
@@ -168,7 +160,7 @@ def materialize_attribute_flow(
         {
             "kind": "attribute",
             "name": attribute["name"],
-            "span": _DEFAULT_ATTRIBUTE_SPAN,
+            "span": DEFAULT_ATTRIBUTE_SPAN,
         }
         for attribute in attributes
     ]
@@ -189,9 +181,6 @@ def effective_section_flow(
     if isinstance(definition_json, dict) and "section_flow" in definition_json:
         return validate_section_flow_json(definition_json["section_flow"])
     if sections is None:
-        # Local import breaks the sections <-> definition module cycle.
-        from ._schema_definition import stored_sections
-
         sections = stored_sections(definition_json)
     return materialize_section_flow(sections)
 
@@ -292,6 +281,20 @@ def resolve_attribute_span(
             # back to the default — the same guard normalize_flow_token has.
             if isinstance(span, str) and span in ATTRIBUTE_SPANS:
                 return span
-    return _DEFAULT_ATTRIBUTE_SPAN
+    return DEFAULT_ATTRIBUTE_SPAN
 
 
+
+
+def stored_sections(definition_json: Any) -> list[dict[str, Any]]:
+    """Normalize a stored ``definition_json['sections']`` list, or ``[]``.
+
+    Mirrors :func:`stored_attributes` for the sections side of the same
+    JSONField. An absent ``'sections'`` key returns ``[]`` — distinguishing
+    "no sections key at all" (needs materialization) from "materialized but
+    happens to be empty" is the STORE's job (it checks
+    ``"sections" in definition_json`` directly), not this function's.
+    """
+    if not isinstance(definition_json, dict) or "sections" not in definition_json:
+        return []
+    return validate_sections_json(definition_json["sections"])

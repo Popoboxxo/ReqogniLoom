@@ -1,11 +1,7 @@
-"""Attribute-schema vocabulary and validation (spec section 3.1).
+"""Shared attribute-schema vocabulary, defaults and error types (spec 3.1).
 
-Deliberately free of Django imports so it can be used from data migrations,
-from the pure field-validation engine and from tests without a settings module.
-
-The entry contract of ``definition_json["attributes"][i]`` is the published
-interface consumed by the form renderer, the interview protocol, the export
-service and the table view; every key below is part of it.
+Django-free by design so data migrations, the pure field-validation engine and
+tests can import it without a settings module.
 """
 
 from __future__ import annotations
@@ -232,9 +228,9 @@ LOCKED_IMMUTABLE_PROPERTIES: frozenset[str] = frozenset(
     {"visible", "required", "editable"}
 )
 
-_ENUM_TYPES = frozenset({"enum", "multi-enum"})
+ENUM_ATTRIBUTE_TYPES = frozenset({"enum", "multi-enum"})
 
-_DEFAULTS: dict[str, Any] = {
+ATTRIBUTE_DEFAULTS: dict[str, Any] = {
     "widget_key": None,
     "fields": [],
     "options": [],
@@ -277,13 +273,13 @@ _DEFAULTS: dict[str, Any] = {
     "deprecated_reason": "",
 }
 
-_REQUIRED_KEYS = ("name", "kind", "type")
+ATTRIBUTE_REQUIRED_KEYS = ("name", "kind", "type")
 
-ALLOWED_KEYS: frozenset[str] = frozenset(_REQUIRED_KEYS) | frozenset(_DEFAULTS)
+ALLOWED_KEYS: frozenset[str] = frozenset(ATTRIBUTE_REQUIRED_KEYS) | frozenset(ATTRIBUTE_DEFAULTS)
 
-_VALIDATION_KEYS = frozenset({"regex", "min", "max", "length"})
+VALIDATION_KEYS = frozenset({"regex", "min", "max", "length"})
 
-_NEW_ATTRIBUTE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+NEW_ATTRIBUTE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 
 #: A section's layout in the (future) CSS-Grid renderer (spec section 4.5):
 #: ``"full"`` spans both columns, ``"half"`` shares a row with another
@@ -330,7 +326,7 @@ ATTRIBUTE_FLOW_KINDS: frozenset[str] = frozenset({"attribute", "spacer"})
 
 #: Per-kind key whitelist for a flow token — an unknown key on one kind is a
 #: 400, never silently dropped (spec section 7).
-_FLOW_TOKEN_KEYS: dict[str, frozenset[str]] = {
+FLOW_TOKEN_KEYS: dict[str, frozenset[str]] = {
     "section": frozenset({"kind", "name"}),
     "attribute": frozenset({"kind", "name", "span"}),
     "spacer": frozenset({"kind", "size"}),
@@ -343,11 +339,10 @@ DEFAULT_ATTRIBUTE_SPAN = "full"
 
 #: Legacy private spelling, kept because ``normalize_flow_token`` and
 #: ``materialize_attribute_flow`` below already reference it.
-_DEFAULT_ATTRIBUTE_SPAN = DEFAULT_ATTRIBUTE_SPAN
 
-_SECTION_DEFAULTS: dict[str, Any] = {"order": 0, "visible": True, "layout": "full"}
-_SECTION_ALLOWED_KEYS: frozenset[str] = (
-    frozenset({"name", "attribute_flow"}) | frozenset(_SECTION_DEFAULTS)
+SECTION_DEFAULTS: dict[str, Any] = {"order": 0, "visible": True, "layout": "full"}
+SECTION_ALLOWED_KEYS: frozenset[str] = (
+    frozenset({"name", "attribute_flow"}) | frozenset(SECTION_DEFAULTS)
 )
 
 
