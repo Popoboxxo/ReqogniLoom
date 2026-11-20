@@ -109,7 +109,7 @@
 
 .error {
   font-size: var(--font-size-xs);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .readOnly {

@@ -91,7 +91,7 @@
   background: var(--color-danger-banner-bg);
   border: 1px solid var(--color-danger);
   border-radius: var(--radius-md);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
 }
 
@@ -121,7 +121,7 @@
 }
 
 .statusError {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 /* CodeMirror container styles */

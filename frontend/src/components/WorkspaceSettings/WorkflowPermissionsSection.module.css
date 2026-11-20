@@ -76,16 +76,16 @@
 }
 
 .errorSmall {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-xs);
 }
 
 .errorText {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .errorTextSm {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
 }
 

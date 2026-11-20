@@ -6,7 +6,7 @@
 .score { color: var(--color-text); font-size: var(--font-size-lg); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; }
 .muted { color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .advisory { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs); }
-.error { color: var(--color-danger); font-size: var(--font-size-sm); }
+.error { color: var(--color-danger-text); font-size: var(--font-size-sm); }
 .block { display: flex; flex-direction: column; gap: var(--space-1); }
 .sectionTitle { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); }
 .reasoning { margin: 0; white-space: pre-wrap; }

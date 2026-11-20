@@ -3,7 +3,12 @@ import { act, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { advanceAuthSessionGeneration } from "../api/client";
-import { AuthProvider, useAuth, type AuthState } from "../context/AuthContext";
+import {
+  AuthProvider,
+  LoginRequestError,
+  useAuth,
+  type AuthState,
+} from "../context/AuthContext";
 
 function response(body: unknown, status = 200): Response {
   return {
@@ -85,7 +90,11 @@ describe("AuthContext login timeout", () => {
       await vi.advanceTimersByTimeAsync(30_000);
     });
 
-    await expect(pendingLogin).rejects.toThrow("Login request timed out");
+    // A timeout is a transport failure, not a credential decision (usability
+    // review H1): the typed error carries kind=network so the form can say
+    // "server unreachable" instead of "invalid credentials".
+    await expect(pendingLogin).rejects.toBeInstanceOf(LoginRequestError);
+    await expect(pendingLogin).rejects.toMatchObject({ kind: "network" });
     expect(logoutCalls).toBe(1);
     expect(captured?.status).toBe("anonymous");
   });

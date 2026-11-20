@@ -252,7 +252,7 @@
 }
 
 .savedViewDelete:hover {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 /* --- tree renderer ------------------------------------------------------ */

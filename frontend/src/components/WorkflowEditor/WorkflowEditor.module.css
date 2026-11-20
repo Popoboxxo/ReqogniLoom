@@ -1028,7 +1028,7 @@
 }
 
 .editActionDanger {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   border-color: var(--palette-red-500-a40);
 }
 
@@ -1089,7 +1089,7 @@
 }
 
 .toastIcon {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   flex: 0 0 auto;
 }
 
@@ -1261,7 +1261,7 @@
 
 .modalError {
   font-size: var(--font-size-sm);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   margin: 0;
 }
 

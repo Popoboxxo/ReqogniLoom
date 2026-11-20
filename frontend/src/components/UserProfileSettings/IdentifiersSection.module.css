@@ -86,6 +86,6 @@
 /* A failed load or save (issue #1096) must be visible, not swallowed. */
 .error {
   font-size: var(--font-size-sm);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   margin: var(--space-1) 0 0 0;
 }

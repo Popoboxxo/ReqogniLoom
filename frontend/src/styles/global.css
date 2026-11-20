@@ -212,7 +212,9 @@ input, select, textarea {
 }
 .btn-secondary:hover:not(:disabled) {
   border-color: var(--color-primary);
-  color: var(--color-primary);
+  /* --color-primary is a FILL token (~2.3-2.5:1 as text); the text-safe
+     variant is what a hovered label must use (WCAG 1.4.3, a11y audit). */
+  color: var(--color-primary-text);
 }
 
 /* Outline danger (#1258). The border stays --color-danger (a non-text accent,

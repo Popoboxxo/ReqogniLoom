@@ -50,7 +50,7 @@
 }
 
 .errorText {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
   margin-bottom: var(--space-3);
 }
@@ -142,7 +142,7 @@
   margin-left: auto;
   background: none;
   border: none;
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   cursor: pointer;
   font-size: var(--font-size-base);
   line-height: 1;

@@ -254,6 +254,9 @@
     "passwordRequired": "Please enter a password.",
     "submit": "Sign In",
     "invalidCredentials": "Invalid credentials. Please try again.",
+    "rateLimited": "Too many sign-in attempts. Please wait a moment and try again.",
+    "serverUnavailable": "The sign-in service is currently unavailable (server error). Please try again later.",
+    "networkError": "Cannot reach the server. Please check your network connection.",
     "sessionExpired": "Your session has expired. Please sign in again to continue.",
     "mfa": {
       "title": "Second factor",
@@ -264,7 +267,9 @@
       "invalidCode": "Invalid code.",
       "locked": "Too many attempts. Try again in {{minutes}} min.",
       "expired": "Sign-in expired, please sign in again.",
-      "enrollRequired": "This account requires a second factor."
+      "enrollRequired": "This account requires a second factor.",
+      "enrollGuidance": "The second factor is mandatory but not enrolled yet. Please contact an administrator to finish enrollment.",
+      "backToLogin": "Back to sign-in"
     }
   },
   "mfa": {
@@ -3053,7 +3058,7 @@
     "memorySettings.confirmButton": "Save anyway",
     "memorySettings.loadError": "Failed to load configuration.",
     "memorySettings.saveError": "Failed to save.",
-    "pageSummary": "Tenant-wide configuration: administration, workflow defaults and permission defaults.",
+    "pageSummary": "Tenant-wide configuration: administration, workflow, attribute and permission defaults, display and memory.",
     "tabs": {
       "administration": "Administration",
       "workflowDefaults": "Workflow Defaults",

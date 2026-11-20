@@ -36,6 +36,27 @@ import { mfaApi } from "../api/mfa";
 import { purgePwaCaches } from "../pwa/register";
 const AUTH_TRANSITION_TIMEOUT_MS = 30_000;
 
+/**
+ * Why a login attempt failed, so the form can name the actual cause instead of
+ * telling every user "invalid credentials" (a 502 proxy outage, a 429 lockout
+ * and a wrong password all looked identical before — usability review H1).
+ */
+export type LoginFailureKind =
+  | "invalid"
+  | "rate_limited"
+  | "server"
+  | "network";
+
+export class LoginRequestError extends Error {
+  constructor(
+    readonly kind: LoginFailureKind,
+    readonly status?: number
+  ) {
+    super(kind);
+    this.name = "LoginRequestError";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -274,16 +295,17 @@ export function AuthProvider({
           });
 
           if (!response.ok) {
-            let message = "Invalid credentials";
-            try {
-              const body = await response.json();
-              if (typeof body?.error?.message === "string") message = body.error.message;
-              else if (typeof body?.message === "string") message = body.message;
-              else if (typeof body?.error === "string") message = body.error;
-            } catch {
-              message = "Invalid credentials";
-            }
-            throw new Error(message);
+            // 401 is a credential problem; 429 a lockout; 5xx/anything else a
+            // server problem (the request never reached a credential decision).
+            const kind: LoginFailureKind =
+              response.status === 401
+                ? "invalid"
+                : response.status === 429
+                  ? "rate_limited"
+                  : response.status >= 500
+                    ? "server"
+                    : "invalid";
+            throw new LoginRequestError(kind, response.status);
           }
 
           const data = (await response.json()) as LoginResponse & {
@@ -326,9 +348,13 @@ export function AuthProvider({
                 void 0;
               }
             }
-            const timeoutError = new Error("Login request timed out");
+            const timeoutError = new LoginRequestError("network");
             (timeoutError as Error & { cause?: unknown }).cause = error;
             throw timeoutError;
+          }
+          if (error instanceof TypeError) {
+            // fetch rejected: offline, DNS, proxy down — not a credential.
+            throw new LoginRequestError("network");
           }
           throw error;
         } finally {

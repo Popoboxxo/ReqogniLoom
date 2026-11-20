@@ -166,7 +166,7 @@
 }
 
 .lineDanger {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .linePrimary {
@@ -242,7 +242,7 @@
 }
 
 .removedValue {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: 13px;
   text-decoration: line-through;
 }
@@ -252,7 +252,7 @@
 }
 
 .modifiedFrom {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   text-decoration: line-through;
 }
 

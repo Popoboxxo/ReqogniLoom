@@ -32,7 +32,7 @@
 }
 
 .error {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   padding: 0 var(--space-2);
 }
 

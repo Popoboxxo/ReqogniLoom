@@ -39,7 +39,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-btn);
   background: var(--color-surface);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   cursor: pointer;
   /* #1258: the remove control is a square icon button on the button scale
    * (`--btn-h-sm` = its 32px grid column) instead of `height: 100%`, which

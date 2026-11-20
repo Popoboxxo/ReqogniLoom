@@ -127,7 +127,12 @@ export default function SystemSettings(): JSX.Element {
               id={`system-settings-tab-${tab.id}`}
               data-testid={`system-settings-tab-${tab.id}`}
               aria-selected={isTabActive}
-              aria-controls={`system-settings-panel-${tab.id}`}
+              // Only the active tab has a rendered panel; pointing the other
+              // five at an ID that does not exist is an axe aria-valid-attr-value
+              // violation and makes the tab/panel relation unresolvable.
+              aria-controls={
+                isTabActive ? `system-settings-panel-${tab.id}` : undefined
+              }
               tabIndex={tabRovingTabIndex(tab.id, activeTab)}
               onClick={() => setTab(tab.id)}
               className="btn-tab"

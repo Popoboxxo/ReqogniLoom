@@ -167,7 +167,7 @@
      this class are unaffected. */
   margin: 0;
   font-size: var(--font-size-xs);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 /* #1282: live character counter for a bounded text field. Rendered only once
@@ -181,7 +181,7 @@
 }
 
 .lengthFeedbackAtLimit {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 /* GitHub #1394: this is the CLICKABLE label around a lone checkbox

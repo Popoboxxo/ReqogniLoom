@@ -138,7 +138,7 @@
   padding: 0 var(--space-4);
   min-height: var(--btn-h-md);
   background: transparent;
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   border: 1px solid var(--color-danger);
   border-radius: var(--radius-btn);
   cursor: pointer;
@@ -147,7 +147,7 @@
 }
 
 .saveError {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   margin-bottom: var(--space-3);
 }
 
@@ -162,7 +162,7 @@
 }
 
 .previewError {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   margin: 0;
 }
 

@@ -57,11 +57,11 @@
 .btnOutlineDanger {
   background-color: transparent;
   border: 1px solid var(--color-danger);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .alert {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
   margin-bottom: var(--space-4);
 }
@@ -171,7 +171,7 @@
 }
 
 .iconBtnDanger {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .formHeading {

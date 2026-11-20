@@ -22,7 +22,7 @@
 }
 
 .error {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
 }
 
@@ -119,7 +119,7 @@
   min-height: var(--btn-h-sm);
   flex: 0 0 auto;
   background: transparent;
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-btn);
   padding: 0 var(--space-3);

@@ -27,5 +27,5 @@
 
 .reviewError {
   font-size: var(--font-size-sm);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
