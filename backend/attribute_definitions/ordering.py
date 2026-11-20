@@ -1,7 +1,7 @@
 """Gappy ordering keys for attribute definitions (feature #1260).
 
 The attribute matrix (Attribut v3 #939) already carries one ``order`` integer
-per attribute entry (``schema.py::_DEFAULTS``, sorted by ``(section, order,
+per attribute entry (``_schema_vocabulary.ATTRIBUTE_DEFAULTS``, sorted by ``(section, order,
 name)``). #1260 asks for *direct manipulation* — drag & drop inside and between
 sections — and that is only stable if the ordering key is **sparse**, not a list
 index:

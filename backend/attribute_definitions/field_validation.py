@@ -65,7 +65,6 @@ from typing import Any
 #: Nested key under which ``kind="extended"`` values travel.
 EXTENDED_PAYLOAD_KEY = "custom_fields"
 
-_ENUM_TYPES = frozenset({"enum", "multi-enum"})
 
 #: The only keys a ``criteria-list`` entry may carry (#1288). ``text`` and
 #: ``fulfilled`` are required; ``evidence_ref`` is an optional uuid of the
