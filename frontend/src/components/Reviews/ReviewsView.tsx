@@ -34,6 +34,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { SplitView } from "../SplitView/SplitView";
 import { PageHeader } from "../shared/PageHeader";
@@ -42,6 +43,7 @@ import { ArtifactDiff, type DiffEntityType } from "../ArtifactDiff/ArtifactDiff"
 import { type AllowedTransition } from "../../api/requirements";
 import {
   workflowTransitionsApi,
+  type ReviewListItem,
   type WorkflowArtifactType,
 } from "../../api/workflow-transitions";
 import { extractErrorMessage } from "../../api/client";
@@ -203,6 +205,186 @@ function findTransition(
   return transitions?.find((t) => t.target_state === targetState);
 }
 
+/**
+ * Structural subset shared by the two GET .../transitions/ response types
+ * (`RequirementTransitions` for the detail pane, `WorkflowTransitionsResponse`
+ * for a per-item bulk lookup). Keeping the helpers below on this shape avoids
+ * coupling presentation logic to either API module's concrete interface.
+ */
+type TransitionDetail = {
+  current_state?: string | null;
+  allowed_transitions?: AllowedTransition[];
+} | null | undefined;
+
+/**
+ * #1193 / REQ-144: turn a rejected transition into the message shown inline.
+ *
+ * Pulled out of `runTransition`'s catch block: formatting an error has no
+ * state to touch, so the catch becomes one call and the nesting disappears.
+ */
+function formatReasonError(err: unknown, t: TFunction): string {
+  if (err instanceof ForbiddenError) {
+    return err.message || t("reviews.forbidden");
+  }
+  return extractErrorMessage(err);
+}
+
+/**
+ * #1089: the AI-origin hint above the proposal detail pane. `proposed_by` is
+ * null for every non-proposal item, so this one nullable field is the test.
+ */
+function getProposalOriginHint(
+  queueMode: ReviewQueueMode,
+  transitions: TransitionDetail,
+  proposedBy: string | null | undefined,
+  t: TFunction,
+): string | null {
+  if (queueMode !== "proposals") return null;
+  if (!transitions || transitions.current_state !== PROPOSED_STATE) return null;
+  return proposedBy
+    ? t("workflow.proposal.hint", { agent: proposedBy })
+    : t("workflow.proposal.hintUnknown");
+}
+
+/** Approve/Reject target states for the currently visible queue. */
+function getActionTargets(
+  queueMode: ReviewQueueMode,
+  artifactType: WorkflowArtifactType,
+  transitions: TransitionDetail,
+): { approve: string; reject: string } {
+  if (queueMode !== "proposals") return REVIEW_ACTION_CONFIG[artifactType];
+  const allowed = transitions?.allowed_transitions ?? [];
+  return {
+    approve: allowed.find((candidate) => !candidate.requires_change_reason)
+      ?.target_state ?? "draft",
+    reject: allowed.find((candidate) => candidate.requires_change_reason)
+      ?.target_state ?? "rejected",
+  };
+}
+
+/** Free-text filter over the loaded queue (title or uid, case-insensitive). */
+function filterReviewItems(
+  items: ReviewListItem[],
+  search: string,
+): ReviewListItem[] {
+  const q = search.trim().toLowerCase();
+  if (!q) return items;
+  return items.filter(
+    (r) =>
+      r.title.toLowerCase().includes(q) ||
+      (r.uid ?? "").toLowerCase().includes(q),
+  );
+}
+
+/**
+ * Resolve the confirm move from an item's own transitions (#1193). A missing
+ * move is a hard error so `bulkConfirm` can report *why* the row failed.
+ */
+function findProposalConfirm(
+  detail: TransitionDetail,
+  t: TFunction,
+): AllowedTransition {
+  const confirm = (detail?.allowed_transitions ?? []).find(
+    (candidate) => !candidate.requires_change_reason,
+  );
+  if (!confirm) {
+    throw new Error(t("reviews.transitionUnavailable"));
+  }
+  return confirm;
+}
+
+/**
+ * Resolve and gate one review-queue bulk move (#1196) against the item's own
+ * graph. Both guards fail only the current row — `bulkConfirm` keeps going.
+ */
+function resolveReviewBulkTransition(
+  detail: TransitionDetail,
+  artifactType: WorkflowArtifactType,
+  action: ReviewBulkAction,
+  bulkReason: string,
+  t: TFunction,
+): AllowedTransition {
+  const { approve, reject } = REVIEW_ACTION_CONFIG[artifactType];
+  const target = findTransition(
+    detail?.allowed_transitions,
+    action === "approve" ? approve : reject,
+  );
+  if (!target) {
+    throw new Error(t("reviews.transitionUnavailable"));
+  }
+  if (target.requires_change_reason && !bulkReason.trim()) {
+    throw new Error(t("reviews.changeReasonRequired"));
+  }
+  return target;
+}
+
+/**
+ * The bulk-run sentence. The proposals wording is kept byte-identical; the
+ * review queue names the decision that produced the report (#1196).
+ */
+function bulkReportText(
+  result: { ok: number; failed: number; action?: ReviewBulkAction },
+  queueMode: ReviewQueueMode,
+  t: TFunction,
+): string {
+  const done =
+    queueMode === "proposals"
+      ? t("workflow.proposal.bulkConfirmDone", { count: result.ok })
+      : result.action === "reject"
+        ? t("reviews.bulkRejectDone", { count: result.ok })
+        : t("reviews.bulkApproveDone", { count: result.ok });
+  if (result.failed === 0) return done;
+  const failed =
+    queueMode === "proposals"
+      ? t("workflow.proposal.bulkConfirmFailed", { count: result.failed })
+      : t("reviews.bulkFailed", { count: result.failed });
+  return `${done}${queueMode === "proposals" ? " — " : ", "}${failed}`;
+}
+
+/** Why an Approve/Reject button is disabled, or undefined when it is not. */
+function getDisabledReason(
+  targetState: string,
+  allowed: AllowedTransition | undefined,
+  hasSelection: boolean,
+  transitionsLoading: boolean,
+  transitions: TransitionDetail,
+  t: TFunction,
+): string | undefined {
+  if (!hasSelection) return undefined;
+  if (transitionsLoading) {
+    return t("reviews.disabledLoading", "Loading available actions...");
+  }
+  if (allowed) return undefined;
+  if (transitions && transitions.current_state === targetState) {
+    return t("reviews.disabledAlreadyInState", {
+      state: getWorkflowStatusLabel(targetState),
+      defaultValue: `Already ${getWorkflowStatusLabel(targetState)}.`,
+    });
+  }
+  return t(
+    "reviews.transitionUnavailable",
+    "This transition is not available (role or workflow configuration).",
+  );
+}
+
+/** Detail-pane button labels: generic copy for the default pair, concrete state name otherwise. */
+function getActionLabels(
+  approveTarget: string,
+  rejectTarget: string,
+  t: TFunction,
+): { approveLabel: string; rejectLabel: string } {
+  return {
+    approveLabel:
+      approveTarget === "approved"
+        ? t("reviews.approve", "Approve")
+        : getWorkflowStatusLabel(approveTarget),
+    rejectLabel:
+      rejectTarget === "draft"
+        ? t("reviews.reject", "Reject")
+        : getWorkflowStatusLabel(rejectTarget),
+  };
+}
+
 export interface ReviewsViewProps {
   /**
    * REQ-167: the entity type whose review queue is shown. Defaults to
@@ -298,13 +480,10 @@ export default function ReviewsView({
   const proposedBy = (
     transitions as { proposed_by?: string | null } | null
   )?.proposed_by;
-  const proposalOrigin = useMemo(() => {
-    if (queueMode !== "proposals") return null;
-    if (!transitions || transitions.current_state !== PROPOSED_STATE) return null;
-    return proposedBy
-      ? t("workflow.proposal.hint", { agent: proposedBy })
-      : t("workflow.proposal.hintUnknown");
-  }, [queueMode, transitions, proposedBy, t]);
+  const proposalOrigin = useMemo(
+    () => getProposalOriginHint(queueMode, transitions, proposedBy, t),
+    [queueMode, transitions, proposedBy, t],
+  );
 
   // In proposals mode the confirm target is the graph's own initial state and
   // the discard target its reject state — both come back in
@@ -318,24 +497,15 @@ export default function ReviewsView({
   // `?? "draft"`/`?? "rejected"` fallbacks below are unreachable in a request:
   // with no `transitions`, `approveAllowed`/`rejectAllowed` resolve to
   // undefined and both buttons are disabled.
-  const { approve: APPROVE_TARGET, reject: REJECT_TARGET } = useMemo(() => {
-    if (queueMode !== "proposals") return REVIEW_ACTION_CONFIG[selectedArtifactType];
-    const allowed = transitions?.allowed_transitions ?? [];
-    return {
-      approve: allowed.find((t) => !t.requires_change_reason)?.target_state ?? "draft",
-      reject: allowed.find((t) => t.requires_change_reason)?.target_state ?? "rejected",
-    };
-  }, [queueMode, selectedArtifactType, transitions]);
+  const { approve: APPROVE_TARGET, reject: REJECT_TARGET } = useMemo(
+    () => getActionTargets(queueMode, selectedArtifactType, transitions),
+    [queueMode, selectedArtifactType, transitions],
+  );
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter(
-      (r) =>
-        r.title.toLowerCase().includes(q) ||
-        (r.uid ?? "").toLowerCase().includes(q)
-    );
-  }, [items, search]);
+  const filtered = useMemo(
+    () => filterReviewItems(items, search),
+    [items, search],
+  );
 
   // UI-34: page state for the queue list, reset whenever the filtered set's
   // origin changes (new search term or a different artifact type) so a page
@@ -389,18 +559,9 @@ export default function ReviewsView({
         selectedArtifactType,
         id,
       );
-      // The proposal graph gives `proposed` exactly two moves: confirm (to the
-      // initial state, no change_reason) and discard (to the reject state,
-      // change_reason required). Confirm is the one that needs no reason.
-      const confirm = (detail?.allowed_transitions ?? []).find(
-        (candidate) => !candidate.requires_change_reason,
-      );
-      if (!confirm) {
-        // #1193: a human-readable cause, not a raw `No confirm transition
-        // available for <id>` string — this message is now what the bulk
-        // handler renders inline when a row cannot be confirmed.
-        throw new Error(t("reviews.transitionUnavailable"));
-      }
+      // Resolution (and its human-readable failure cause) lives in
+      // `findProposalConfirm`; the bulk handler receives the thrown message.
+      const confirm = findProposalConfirm(detail, t);
       // #1193: thread the reviewer's reason through. The confirm move does not
       // require one today, but dropping whatever the user typed previously hid
       // the case where a workspace's graph *does* require it — the server then
@@ -412,15 +573,15 @@ export default function ReviewsView({
           confirm.target_state,
           reason,
         );
-      } else {
-        // Keep the no-reason call shape byte-identical to before so existing
-        // callers/tests are unaffected when there is nothing to send.
-        await workflowTransitionsApi.transition(
-          selectedArtifactType,
-          id,
-          confirm.target_state,
-        );
+        return;
       }
+      // Keep the no-reason call shape byte-identical to before so existing
+      // callers/tests are unaffected when there is nothing to send.
+      await workflowTransitionsApi.transition(
+        selectedArtifactType,
+        id,
+        confirm.target_state,
+      );
     },
     [selectedArtifactType, t],
   );
@@ -455,26 +616,20 @@ export default function ReviewsView({
         selectedArtifactType,
         id,
       );
-      const { approve, reject } = REVIEW_ACTION_CONFIG[selectedArtifactType];
-      const target = findTransition(
-        detail?.allowed_transitions,
-        action === "approve" ? approve : reject,
+      // Target lookup and both gates live in `resolveReviewBulkTransition`:
+      // a missing move (role/precondition/graph) or a missing batch reason
+      // fails this row only, and `bulkConfirm` carries on with the rest.
+      const target = resolveReviewBulkTransition(
+        detail,
+        selectedArtifactType,
+        action,
+        bulkReason,
+        t,
       );
-      if (!target) {
-        // Not offered for THIS item: missing approver role, unmet precondition,
-        // or a graph without that move. The item fails on its own; the run
-        // continues (`bulkConfirm` never aborts).
-        throw new Error(t("reviews.transitionUnavailable"));
-      }
       // One reason for the whole batch: there is no batch transition endpoint
       // (transitions are per-item POSTs) and
       // backend/workflow/transition_validator.py validates `change_reason`
-      // per item, so the same string travels with every call. A target that
-      // requires one and got none fails THIS item only — a rejected reason
-      // must not cost the reviewer the rest of the selection.
-      if (target.requires_change_reason && !bulkReason.trim()) {
-        throw new Error(t("reviews.changeReasonRequired"));
-      }
+      // per item, so the same string travels with every call.
       if (bulkReason.trim()) {
         await workflowTransitionsApi.transition(
           selectedArtifactType,
@@ -529,32 +684,34 @@ export default function ReviewsView({
   );
 
   /**
-   * #1196: the sentence inside the existing result element.
+   * #1193: confirm the selected proposals as one sequential run.
    *
-   * The review queue reports its own decisions — "2 freigegeben, 1
-   * fehlgeschlagen" (or "… abgelehnt, …" for a reject run). The proposals
-   * queue keeps the exact wording it always had; branching here instead of
-   * inline in the JSX keeps that `<p>` a single expression, and a partial
-   * failure never drops the count of what did go through.
+   * Extracted from the proposals button's inline async handler so the button
+   * stays a one-line `onClick`. The state reset stays in `finally`: a rejected
+   * `refreshList()` used to throw past `setIsActing(false)` and leave the
+   * button disabled forever (Fix F3).
    */
-  const bulkReportText = (result: {
-    ok: number;
-    failed: number;
-    action?: ReviewBulkAction;
-  }): string => {
-    const done =
-      queueMode === "proposals"
-        ? t("workflow.proposal.bulkConfirmDone", { count: result.ok })
-        : result.action === "reject"
-          ? t("reviews.bulkRejectDone", { count: result.ok })
-          : t("reviews.bulkApproveDone", { count: result.ok });
-    if (result.failed === 0) return done;
-    const failed =
-      queueMode === "proposals"
-        ? t("workflow.proposal.bulkConfirmFailed", { count: result.failed })
-        : t("reviews.bulkFailed", { count: result.failed });
-    return `${done}${queueMode === "proposals" ? " — " : ", "}${failed}`;
-  };
+  const runProposalBulk = useCallback(async (): Promise<void> => {
+    setIsActing(true);
+    setBulkError(null);
+    try {
+      // Collect the cause of every failed confirmation so the reviewer learns
+      // *why* (e.g. a rejected `change_reason`) instead of only that something
+      // failed.
+      const failures: string[] = [];
+      const { confirmed, failed } = await bulkConfirm(
+        selectedIds,
+        (id) => confirmProposal(id, changeReason),
+        (_id, error) => failures.push(extractErrorMessage(error)),
+      );
+      setSelectedIds([]);
+      setBulkResult({ ok: confirmed.length, failed: failed.length });
+      setBulkError(failures.length > 0 ? failures[0] : null);
+      await refreshList();
+    } finally {
+      setIsActing(false);
+    }
+  }, [confirmProposal, selectedIds, changeReason, refreshList]);
 
   const selected = useMemo(
     () => items.find((r) => r.id === selectedId) ?? null,
@@ -609,11 +766,7 @@ export default function ReviewsView({
         setChangeReason("");
         setPendingTransition(null);
       } catch (err: unknown) {
-        if (err instanceof ForbiddenError) {
-          setActionError(err.message || t("reviews.forbidden"));
-        } else {
-          setActionError(extractErrorMessage(err));
-        }
+        setActionError(formatReasonError(err, t));
         throw err;
       } finally {
         setIsActing(false);
@@ -622,9 +775,24 @@ export default function ReviewsView({
     [t, transition]
   );
 
+  // REQ-144: a signature-gated move is parked for SignatureDialog (which calls
+  // back through `submitSignatureDialog`); everything else runs immediately.
+  const resolvePendingTransition = useCallback(
+    (allowed: AllowedTransition, reason: string): void => {
+      if (allowed.signature_gate) {
+        setPendingTransition(allowed);
+        return;
+      }
+      void runTransition(allowed, reason).catch(() => {
+        // Surfaced via actionError above; nothing further to do here.
+      });
+    },
+    [runTransition],
+  );
+
   // REQ-144: Approve/Reject first resolve the transition from the GET
-  // contract (already loaded via useReviewsData). Signature-gated
-  // transitions open SignatureDialog instead of transitioning directly.
+  // contract (already loaded via useReviewsData), then hand it to the
+  // signature/direct dispatcher above.
   const handleAction = useCallback(
     (targetState: string): void => {
       const allowed = findTransition(transitions?.allowed_transitions, targetState);
@@ -633,15 +801,9 @@ export default function ReviewsView({
         return;
       }
       setActionError(null);
-      if (allowed.signature_gate) {
-        setPendingTransition(allowed);
-        return;
-      }
-      void runTransition(allowed, changeReason).catch(() => {
-        // Surfaced via actionError above; nothing further to do here.
-      });
+      resolvePendingTransition(allowed, changeReason);
     },
-    [transitions, runTransition, changeReason, t]
+    [transitions, resolvePendingTransition, changeReason, t]
   );
 
   const submitSignatureDialog = useCallback(
@@ -664,50 +826,31 @@ export default function ReviewsView({
   // workflow view (AdrForm, WorkflowStatusEditor's badge, ...) already uses
   // — so e.g. a Goal's "Freigegeben" target rendered as the raw German word
   // instead of going through the same label pipeline as everywhere else.
-  const approveLabel =
-    APPROVE_TARGET === "approved"
-      ? t("reviews.approve", "Approve")
-      : getWorkflowStatusLabel(APPROVE_TARGET);
-  const rejectLabel =
-    REJECT_TARGET === "draft"
-      ? t("reviews.reject", "Reject")
-      : getWorkflowStatusLabel(REJECT_TARGET);
-
-  // UI-34: the Approve/Reject buttons disabled themselves whenever the
-  // target state was missing from `allowed_transitions` with no indication
-  // why — the GET .../transitions/ contract only lists moves that ARE
-  // allowed, so a disabled button could mean "still loading", "already in
-  // that state", or "role/precondition denied" with no way to tell them
-  // apart from the response alone. This surfaces the one case the frontend
-  // *can* distinguish (already in the target state) and otherwise names the
-  // two remaining possibilities together, rather than leaving the disabled
-  // button unexplained.
-  const buildDisabledReason = useCallback(
-    (targetState: string, allowed: AllowedTransition | undefined): string | undefined => {
-      if (!selected) return undefined;
-      if (transitionsLoading) {
-        return t("reviews.disabledLoading", "Loading available actions...");
-      }
-      if (allowed) return undefined;
-      if (transitions && transitions.current_state === targetState) {
-        return t("reviews.disabledAlreadyInState", {
-          state: getWorkflowStatusLabel(targetState),
-          defaultValue: `Already ${getWorkflowStatusLabel(targetState)}.`,
-        });
-      }
-      // Reuses the existing `transitionUnavailable` copy (already shown as
-      // the action-error banner on a stale click) rather than a near-
-      // duplicate string, since the frontend cannot distinguish "role
-      // missing" from "precondition not met" from the GET response alone.
-      return t(
-        "reviews.transitionUnavailable",
-        "This transition is not available (role or workflow configuration)."
-      );
-    },
-    [selected, transitionsLoading, transitions, t]
+  const { approveLabel, rejectLabel } = getActionLabels(
+    APPROVE_TARGET,
+    REJECT_TARGET,
+    t,
   );
-  const approveDisabledReason = buildDisabledReason(APPROVE_TARGET, approveAllowed);
-  const rejectDisabledReason = buildDisabledReason(REJECT_TARGET, rejectAllowed);
+
+  // UI-34: a disabled button used to give no reason. `getDisabledReason`
+  // surfaces the one distinguishable case (already in the target state) and
+  // otherwise names the two remaining possibilities together.
+  const approveDisabledReason = getDisabledReason(
+    APPROVE_TARGET,
+    approveAllowed,
+    !!selected,
+    transitionsLoading,
+    transitions,
+    t,
+  );
+  const rejectDisabledReason = getDisabledReason(
+    REJECT_TARGET,
+    rejectAllowed,
+    !!selected,
+    transitionsLoading,
+    transitions,
+    t,
+  );
 
   // ADR-019 / WP6: the mode switch is shared by both surfaces so the review
   // queue and the suggestion inbox are always reachable the same way. O6 keeps
@@ -813,30 +956,7 @@ export default function ReviewsView({
           className="btn-primary"
           data-testid="reviews-bulk-confirm-btn"
           disabled={isActing}
-          onClick={async () => {
-            setIsActing(true);
-            setBulkError(null);
-            // Fix F3: the state reset has to be unconditional. Previously a
-            // rejected `refreshList()` threw past `setIsActing(false)`, leaving
-            // the Confirm button disabled forever (nothing re-enables it).
-            try {
-              // #1193: collect the cause of every failed confirmation so the
-              // reviewer learns *why* (e.g. a rejected `change_reason`) instead
-              // of only that something failed.
-              const failures: string[] = [];
-              const { confirmed, failed } = await bulkConfirm(
-                selectedIds,
-                (id) => confirmProposal(id, changeReason),
-                (_id, error) => failures.push(extractErrorMessage(error)),
-              );
-              setSelectedIds([]);
-              setBulkResult({ ok: confirmed.length, failed: failed.length });
-              setBulkError(failures.length > 0 ? failures[0] : null);
-              await refreshList();
-            } finally {
-              setIsActing(false);
-            }
-          }}
+          onClick={() => void runProposalBulk()}
         >
           {t("workflow.proposal.bulkConfirm")} ({selectedIds.length})
         </button>
@@ -889,7 +1009,7 @@ export default function ReviewsView({
       )}
       {bulkResult && (
         <p role="status" data-testid="reviews-bulk-confirm-result">
-          {bulkReportText(bulkResult)}
+          {bulkReportText(bulkResult, queueMode, t)}
         </p>
       )}
       {/* #1193: the cause behind the "N failed" count — previously the
@@ -961,13 +1081,7 @@ export default function ReviewsView({
                 type="checkbox"
                 data-testid={`review-select-${r.id}`}
                 checked={selectedIds.includes(r.id)}
-                onChange={(e) =>
-                  setSelectedIds((prev) =>
-                    e.target.checked
-                      ? [...prev, r.id]
-                      : prev.filter((id) => id !== r.id),
-                  )
-                }
+                onChange={(e) => toggleSelectedId(r.id, e.target.checked)}
                 onClick={(e) => e.stopPropagation()}
               />
             )}
