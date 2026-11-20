@@ -661,6 +661,10 @@ _EXCEPTIONS = {
         "inbound Honcho callback; HMAC signature is the credential, "
         "no auth context or tenant target"
     ),
+    "MemoryProviderWebhookView": (
+        "inbound provider callback; the provider's signature is the "
+        "credential, no auth context or tenant target"
+    ),
     # WP E3.6: self-scoped second-factor management. The target is always the
     # caller's own account (``ctx.user_id`` is the boundary), and the write
     # routes additionally refuse API-key callers; there is no workspace or

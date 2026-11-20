@@ -1182,6 +1182,10 @@
    "post"
   ],
   [
+   "/api/v1/memory/webhooks/{provider}/",
+   "post"
+  ],
+  [
    "/api/v1/metrics/",
    "get"
   ],

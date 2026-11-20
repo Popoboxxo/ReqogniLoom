@@ -145,6 +145,7 @@ from auth_tenancy.services import AuthorizationService
 from memory.backends import (
     VALID_QUERY_SOURCES,
     MemoryBackendUnavailableError,
+    WebhookRejected,
     active_memory_backend_name,
 )
 from memory.health import envelope
@@ -184,15 +185,7 @@ from memory.user_settings import (
     read_user_settings,
     write_user_settings,
 )
-from memory.webhooks import (
-    DISABLED_MESSAGE,
-    SIGNATURE_HEADER,
-    body_size_problem,
-    invalidate_memory_caches,
-    log_rejected_delivery,
-    resolve_webhook_secret,
-    verify_signature,
-)
+from memory.webhooks import body_size_problem, invalidate_memory_caches
 from persistence.models import User
 from persistence.qdrant_config import (
     DEFAULT_QDRANT_COLLECTION_PREFIX,
@@ -394,16 +387,27 @@ class SystemMemorySettingsWriteSerializer(serializers.Serializer):
     embedding_model_name = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=128)
     ollama_base_url = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
     embedding_timeout = serializers.IntegerField(required=False, allow_null=True, min_value=1)
-    # "honcho" is selectable again: memory.honcho_backend now implements the
-    # full MemoryBackend contract against the verified honcho-ai SDK and is
-    # registered at startup via memory.apps.MemoryConfig.ready(), so
-    # get_memory_backend() resolves it instead of raising. It still requires
-    # HONCHO_BASE_URL (or the honcho_base_url override below) to be set —
-    # that is surfaced as a health-check failure, not a save-time error, so an
-    # admin can configure the URL and the backend in either order.
+    # The selectable backends come from MEMORY_BACKEND_REGISTRY, not a literal
+    # list: memory.apps.MemoryConfig.ready() registers every adapter (pgvector,
+    # honcho, qdrant, and any future provider) at startup, so a new adapter is
+    # selectable without editing this module. The field is populated in
+    # __init__ because the registry is only complete once the app registry is
+    # ready; the empty default never validates a value on its own.
+    #
+    # Selecting a backend whose config is incomplete is a health-check failure,
+    # not a save-time error, so an admin can configure URL and backend in
+    # either order.
     memory_backend = serializers.ChoiceField(
-        choices=["pgvector", "honcho", "qdrant"], required=False, allow_null=True
+        choices=(), required=False, allow_null=True
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from memory.backends import MEMORY_BACKEND_REGISTRY
+
+        self.fields["memory_backend"].choices = (
+            sorted(MEMORY_BACKEND_REGISTRY) or ["pgvector"]
+        )
     honcho_base_url = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
     honcho_api_key = serializers.CharField(write_only=True, required=False, allow_blank=True, max_length=512)
     # #1286: the dialectic/peer/scope surface was configurable only via env.
@@ -2742,65 +2746,117 @@ class HonchoWebhookView(APIView):
         },
     )
     def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        # Size first: this decides on the DECLARED length, so an oversized or
-        # length-less delivery is refused before ``request.body`` buffers
-        # anything (and before the HMAC, which has to hash every byte).
-        problem = body_size_problem(request)
-        if problem is not None:
-            too_large = problem == "size"
-            return Response(
-                build_error_response(
-                    "VALIDATION_ERROR",
-                    message=(
-                        "webhook body exceeds the receiver limit"
-                        if too_large
-                        else "webhook POST requires a Content-Length header"
-                    ),
-                ),
-                status=(
-                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+        return _receive_provider_webhook(request, "honcho")
+
+
+def _receive_provider_webhook(request: Request, provider: str) -> Response:
+    """Shared receiver: size guard, provider credential, cache invalidation.
+
+    The transport concerns live here; the provider owns only its credential and
+    event classification (``MemoryBackend.verify_webhook``). Keeping this one
+    function behind both the dedicated Honcho view and the generic
+    ``memory/webhooks/<provider>/`` route means a new provider cannot forget the
+    body-size ceiling or the cache drop.
+    """
+    from memory.backends import MEMORY_BACKEND_REGISTRY
+
+    backend_cls = MEMORY_BACKEND_REGISTRY.get(provider)
+    if backend_cls is None or not backend_cls.capabilities.webhooks:
+        return Response(
+            build_error_response(
+                "NOT_FOUND", message="unknown memory provider"
+            ),
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    # Size first: this decides on the DECLARED length, so an oversized or
+    # length-less delivery is refused before ``request.body`` buffers anything
+    # (and before the HMAC, which has to hash every byte).
+    problem = body_size_problem(request)
+    if problem is not None:
+        too_large = problem == "size"
+        return Response(
+            build_error_response(
+                "VALIDATION_ERROR",
+                message=(
+                    "webhook body exceeds the receiver limit"
                     if too_large
-                    else status.HTTP_400_BAD_REQUEST
+                    else "webhook POST requires a Content-Length header"
                 ),
-            )
+            ),
+            status=(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+                if too_large
+                else status.HTTP_400_BAD_REQUEST
+            ),
+        )
 
-        secret = resolve_webhook_secret()
-        if secret is None:
-            # Nothing to verify against: refuse rather than accept unsigned
-            # deliveries. Checked BEFORE the signature so a disabled receiver
-            # is diagnosable in one request (and never 401-loops a sender whose
-            # configuration is not the problem).
-            return Response(
-                build_error_response("SERVICE_UNAVAILABLE", message=DISABLED_MESSAGE),
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
+    try:
+        events = backend_cls().verify_webhook(request)
+    except WebhookRejected as exc:
+        # The provider owns the status mapping (503 disabled, 401 bad
+        # signature, ...). Constant messages only; never body or secret.
+        return Response(
+            build_error_response(exc.code, message=exc.message), status=exc.status
+        )
 
-        # ``request.body`` (bytes), never ``request.data``: the signature covers
-        # the exact bytes on the wire, and a DRF parse would both consume the
-        # stream and lose the byte identity. The size ceiling is enforced above,
-        # explicitly; Django's ``DATA_UPLOAD_MAX_MEMORY_SIZE`` still backs it up
-        # (raising ``RequestDataTooBig``), but that check only holds for a
-        # request whose length Django can see — the ASGI worker and any request
-        # carrying a ``Content-Length`` — and it surfaces as a bare 500, which is
-        # why it is not relied on as the control.
-        raw_body = request.body
-        if not verify_signature(
-            secret=secret,
-            raw_body=raw_body,
-            provided=request.headers.get(SIGNATURE_HEADER),
-        ):
-            log_rejected_delivery(
-                request.META.get("REMOTE_ADDR"), reason="invalid signature"
-            )
-            return Response(
-                build_error_response(
-                    "AUTHENTICATION_REQUIRED", message="invalid webhook signature"
-                ),
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
+    if not events:
+        return Response(
+            build_error_response("NOT_FOUND", message="unknown memory provider"),
+            status=status.HTTP_404_NOT_FOUND,
+        )
 
-        invalidate_memory_caches()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+    invalidate_memory_caches()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class MemoryProviderWebhookView(APIView):
+    """``POST /api/v1/memory/webhooks/<provider>/`` — generic provider receiver.
+
+    Same security model as the dedicated Honcho view: no JWT
+    (``authentication_classes = []``), the provider's own credential inside
+    ``verify_webhook``, a per-IP throttle, and a declared-body-size guard
+    before any byte is read. A provider opts in by declaring
+    ``capabilities.webhooks`` and implementing ``webhook_route``/
+    ``verify_webhook``; an unknown or non-webhook provider is a 404.
+    """
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+    throttle_classes = [MemoryWebhookRateThrottle]
+    parser_classes = [JSONParser]
+
+    @extend_schema(
+        tags=["memory"],
+        summary="Inbound provider webhook (provider-signed, no JWT)",
+        # No security scheme: the provider signs the body; no caller credential
+        # is accepted or expected.
+        auth=[],
+        description=(
+            "Provider-neutral webhook receiver. The provider's own signature is "
+            "the credential (see the backend's `verify_webhook`), the body is "
+            "never parsed or echoed, and a valid delivery drops the cached "
+            "memory health/digest probes. Unknown or non-webhook providers "
+            "answer 404; a disabled receiver answers 503; a bad signature 401."
+        ),
+        request=OpenApiTypes.OBJECT,
+        responses={
+            204: OpenApiResponse(
+                description="Signature valid; memory caches were dropped."
+            ),
+            400: OpenApiResponse(
+                description="Body-carrying POST without a usable Content-Length."
+            ),
+            401: OpenApiResponse(description="Missing or incorrect signature."),
+            404: OpenApiResponse(description="Unknown or non-webhook provider."),
+            413: OpenApiResponse(description="Declared body exceeds the limit."),
+            503: OpenApiResponse(description="Webhooks are not configured."),
+        },
+    )
+    def post(
+        self, request: Request, provider: str, *args: Any, **kwargs: Any
+    ) -> Response:
+        return _receive_provider_webhook(request, provider)
 
 
 __all__ = [
@@ -2810,6 +2866,7 @@ __all__ = [
     "HonchoWebhookView",
     "MemoryEntryDetailView",
     "MemoryEntryPromoteView",
+    "MemoryProviderWebhookView",
     "MemorySelfServiceSettingsView",
     "MemorySelfServiceView",
     "SystemMemoryEntriesExportView",

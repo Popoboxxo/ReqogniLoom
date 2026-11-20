@@ -311,6 +311,7 @@ from memory.backends import (
     MemoryQuerySource,
     SessionSummary,
     VALID_MEMORY_SCOPES,
+    WebhookRejected,
     VALID_SESSION_SUMMARY_KINDS,
     _cosine_distance,
     _digest_text,
@@ -1039,10 +1040,123 @@ class HonchoMemoryBackend(MemoryBackend):
         consolidation=True,
         scopes=VALID_MEMORY_SCOPES,
         summaries=True,
-        webhooks=False,
+        webhooks=True,
+        external_store=True,
         max_query_chars=2000,
         max_ask_query_chars=10000,
     )
+
+    # -- provider webhook (generic receiver, provider-owned credential) -----
+    def webhook_route(self) -> str | None:
+        """Honcho posts to ``/api/v1/memory/webhooks/honcho/``."""
+        return "honcho"
+
+    def verify_webhook(self, request: Any) -> list[dict[str, Any]] | None:
+        """Verify the Honcho HMAC over the raw body and accept the delivery.
+
+        The shared receiver already enforced the declared body size; this owns
+        the provider credential (``HONCHO_WEBHOOK_SECRET``) and the exact
+        status/error mapping the dedicated view documented. The body stays
+        unparsed: every event type invalidates the same caches.
+        """
+        from memory.webhooks import (
+            DISABLED_MESSAGE,
+            SIGNATURE_HEADER,
+            log_rejected_delivery,
+            resolve_webhook_secret,
+            verify_signature,
+        )
+
+        secret = resolve_webhook_secret()
+        if secret is None:
+            raise WebhookRejected(
+                503, "SERVICE_UNAVAILABLE", DISABLED_MESSAGE
+            )
+        if not verify_signature(
+            secret=secret,
+            raw_body=request.body,
+            provided=request.headers.get(SIGNATURE_HEADER),
+        ):
+            log_rejected_delivery(
+                request.META.get("REMOTE_ADDR"), reason="invalid signature"
+            )
+            raise WebhookRejected(
+                401, "AUTHENTICATION_REQUIRED", "invalid webhook signature"
+            )
+        return [{"provider": "honcho"}]
+
+    # -- reconciliation (provider-owned external scan) ----------------------
+    def reconcile_external(
+        self,
+        tenant_ids: list[UUID],
+        workspace_id: UUID | None,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Conclusions present on Honcho with no matching local mirror row.
+
+        Candidate peers come from the local rows' own ``(scope, scope_id)``
+        pairs -- the engine has no peer-enumeration API, and inventing one would
+        mean listing every peer a deployment has ever seen. Read-only.
+        """
+        from memory.models import MemoryEntry
+
+        orphans: list[dict[str, Any]] = []
+        for tenant_id in tenant_ids:
+            with _tenant_context(tenant_id):
+                qs = MemoryEntry.objects.all()
+                if workspace_id is not None:
+                    qs = qs.filter(workspace_id=workspace_id)
+                rows = list(
+                    qs.values(
+                        "scope",
+                        "workspace_id",
+                        "user_id",
+                        "artifact_id",
+                        "backend_ref",
+                    )
+                )
+
+            peers: dict[tuple[str, UUID], set[str]] = {}
+            for row in rows:
+                scope = row["scope"]
+                scope_id = row.get(f"{scope}_id")
+                if scope_id is None:
+                    continue
+                refs = peers.setdefault((scope, scope_id), set())
+                if row["backend_ref"]:
+                    refs.add(row["backend_ref"])
+
+            for (scope, scope_id), local_refs in peers.items():
+                try:
+                    page = self._conclusions(tenant_id, scope, scope_id).list(
+                        size=_MAX_PAGE_SIZE
+                    )
+                except Exception as exc:  # noqa: BLE001 - report, do not abort
+                    orphans.append(
+                        {
+                            "scope": scope,
+                            "scope_id": str(scope_id),
+                            "error": str(exc),
+                            "severity": "warning",
+                        }
+                    )
+                    continue
+                for conclusion in page.items:
+                    if str(conclusion.id) in local_refs:
+                        continue
+                    orphans.append(
+                        {
+                            "scope": scope,
+                            "scope_id": str(scope_id),
+                            "backend_ref": str(conclusion.id),
+                            "content_preview": (conclusion.content or "")[:120],
+                            "severity": "warning",
+                            "note": (
+                                "honcho conclusion has no matching local "
+                                "mem_memory_entry row"
+                            ),
+                        }
+                    )
+        return orphans, []
 
     def __init__(self) -> None:
         base_url, api_key = self._resolve_config()

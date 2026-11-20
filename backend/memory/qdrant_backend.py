@@ -322,6 +322,49 @@ def resolve_effective_qdrant_config() -> QdrantConfig:
     return resolve_qdrant_config(**overrides)
 
 
+def _reconcile_scan_finding(collection: str | None, exc: Exception) -> dict[str, Any]:
+    """A warning for a collection (or the whole scan) that could not be read.
+
+    A scan that silently skips a collection would make reconciliation look
+    "clean" while orphans hide in the unscanned scope; this keeps the blind
+    spot visible in the report.
+    """
+    return {
+        "collection": collection,
+        "error": f"{type(exc).__name__}: {exc}",
+        "severity": "warning",
+        "note": (
+            "qdrant collection could not be scanned; the orphan report is "
+            "incomplete for this scope (blind spot)"
+        ),
+    }
+
+
+def _reconcile_point_in_workspace(
+    backend: QdrantMemoryBackend,
+    payload: dict[str, Any],
+    tenant_key: str,
+    workspace_id: UUID,
+) -> bool:
+    """Whether a scanned point belongs to *workspace_id* (best-effort).
+
+    ``user``-scope points are not workspace-bound and are excluded; an artifact
+    point is resolved through its owning workspace.
+    """
+    scope = payload.get("scope")
+    scope_id = payload.get("scope_id")
+    if scope == "workspace":
+        return str(scope_id) == str(workspace_id)
+    if scope == "artifact":
+        try:
+            tenant_uuid = UUID(tenant_key)
+            artifact_uuid = UUID(str(scope_id))
+        except (TypeError, ValueError):
+            return False
+        return backend._artifact_workspace_id(tenant_uuid, artifact_uuid) == workspace_id
+    return False
+
+
 @register_memory_backend("qdrant")
 class QdrantMemoryBackend(MemoryBackend):
     """Memory backend indexing vectors in an external Qdrant service.
@@ -331,7 +374,9 @@ class QdrantMemoryBackend(MemoryBackend):
     """
 
     #: Qdrant has no generative/dialectic surface: :meth:`ask` degrades by design.
-    capabilities = MemoryCapabilities(dialectic=False)
+    #: ``external_store`` is True: vectors live in the Qdrant service, so the
+    #: reconcile command must run the provider-owned external scan.
+    capabilities = MemoryCapabilities(dialectic=False, external_store=True)
 
     settings_key = "qdrant"
     settings_schema = (
@@ -1043,6 +1088,72 @@ class QdrantMemoryBackend(MemoryBackend):
                 type(exc).__name__,
             )
             return
+
+    # -- reconciliation (provider-owned external scan) ----------------------
+    def reconcile_external(
+        self,
+        tenant_ids: list[UUID],
+        workspace_id: UUID | None,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Qdrant points present with no matching local ``MemoryEntry`` row.
+
+        Candidate scopes are enumerated from the Qdrant collections themselves
+        (matching the configured prefix), NOT from surviving local rows: a scope
+        whose local rows were all deleted still gets scanned. Any collection
+        that cannot be read yields a ``scan_findings`` warning so an incomplete
+        scan stays visible. Read-only.
+        """
+        tenant_set = {str(t) for t in tenant_ids}
+
+        # Local ids come from ALL rows of the tenant (not workspace-filtered) so
+        # a workspace filter can never turn a real local row into a false orphan.
+        local_ids: dict[str, set[str]] = {}
+        for tenant_id in tenant_ids:
+            with _tenant_context(tenant_id):
+                local_ids[str(tenant_id)] = {
+                    str(entry_id)
+                    for entry_id in MemoryEntry.objects.values_list("id", flat=True)
+                }
+
+        orphans: list[dict[str, Any]] = []
+        scan_findings: list[dict[str, Any]] = []
+        try:
+            collection_names = self.list_collection_names()
+        except Exception as exc:  # noqa: BLE001 - surface the blind spot
+            scan_findings.append(_reconcile_scan_finding(None, exc))
+            return orphans, scan_findings
+
+        for name in collection_names:
+            try:
+                for payload in self.iter_collection_points(name):
+                    tenant_key = str(payload.get("tenant_id") or "")
+                    if tenant_key not in tenant_set:
+                        continue
+                    if workspace_id is not None and not _reconcile_point_in_workspace(
+                        self, payload, tenant_key, workspace_id
+                    ):
+                        continue
+                    entry_id = str(payload.get("entry_id") or "")
+                    if entry_id and entry_id in local_ids.get(tenant_key, set()):
+                        continue
+                    orphans.append(
+                        {
+                            "id": entry_id or None,
+                            "scope": str(payload.get("scope") or ""),
+                            "scope_id": str(payload.get("scope_id") or "") or None,
+                            "tenant_id": tenant_key or None,
+                            "backend_ref": entry_id or None,
+                            "collection": name,
+                            "severity": "warning",
+                            "note": (
+                                "qdrant point has no matching local "
+                                "mem_memory_entry row"
+                            ),
+                        }
+                    )
+            except Exception as exc:  # noqa: BLE001 - per-collection blind spot
+                scan_findings.append(_reconcile_scan_finding(name, exc))
+        return orphans, scan_findings
 
     @staticmethod
     def _scroll_payloads(client: Any, name: str, scroll_filter: Any) -> Iterator[dict]:

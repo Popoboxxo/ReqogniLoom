@@ -77,6 +77,24 @@ Tenant-Scoping, RLS und Degradation laufen über die Service-Fassade.
 **Akzeptanzkriterium:** Schritte 1–4 ändern keine Datei in `application/`,
 `rest_api/` oder `mcp_server/`.
 
+## Umgesetzt (PR #1949)
+
+- **P1/P2:** `memory_backend`-Choices kommen aus `MEMORY_BACKEND_REGISTRY`;
+  `backend_options`/`backend_secrets` sind schema-getrieben und die UI rendert
+  die Felder aus `backends_payload`. Die flachen `honcho_*`/`qdrant_*`-Felder
+  bleiben Kompatibilitäts-Alias für die eingebauten Provider.
+- **P3:** generische Route `/api/v1/memory/webhooks/<provider>/` — Transport
+  (Größen-Guard, Throttle, Cache-Invalidierung) geteilt, Credential im
+  Provider (`verify_webhook`). Honcho behält Pfad und Vertrag.
+- **P4:** `memory_reconcile` ruft `reconcile_external` am Backend auf;
+  `capabilities.external_store` steuert Scan und Severity. Die Honcho-/Qdrant-
+  Scans liegen in ihren Adaptern.
+- **P5:** `provision_tenant` bei Tenant-Erstellung (best-effort);
+  `teardown_tenant` per `post_delete`-Signal auf `transaction.on_commit`.
+- **P6:** `memory/tests/test_provider_plugin_contract.py` registriert einen
+  Dummy-Provider und beweist: wählbar, schema-validiert, im Admin-Payload
+  sichtbar — ohne Core-Änderung.
+
 ## Arbeitspakete (Priorität, additiv)
 
 | # | Paket | Aufwand | Risiko |

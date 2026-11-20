@@ -26,6 +26,7 @@ stable natural key, so repeated runs never duplicate rows.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 
@@ -154,7 +155,29 @@ def _ensure_tenant() -> Tenant:
         slug=DEFAULT_TENANT_SLUG,
         defaults={"name": DEFAULT_TENANT_NAME, "is_active": True},
     )
+    _provision_memory_tenant(tenant)
     return tenant
+
+
+def _provision_memory_tenant(tenant: Tenant) -> None:
+    """Best-effort: let the active memory backend create external tenant state.
+
+    A provider that mirrors rows elsewhere (e.g. a per-tenant workspace in an
+    external engine) implements ``MemoryBackend.provision_tenant``; the default
+    is a no-op. A failure — unconfigured backend, database not migrated yet,
+    network error — must never block tenant provisioning, so it is swallowed
+    and logged at debug level.
+    """
+    try:
+        from memory.backends import get_memory_backend
+
+        get_memory_backend().provision_tenant(tenant.id)
+    except Exception:  # noqa: BLE001 - provisioning is best-effort
+        logging.getLogger(__name__).debug(
+            "memory backend tenant provisioning skipped for tenant=%s",
+            tenant.id,
+            exc_info=True,
+        )
 
 
 def _ensure_admin_user(
