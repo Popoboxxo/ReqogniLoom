@@ -71,6 +71,7 @@ from memory.memory_rest import (
     ArtifactMemoryView,
     HonchoWebhookView,
     MemoryEntryDetailView,
+    MemoryProviderWebhookView,
     MemoryEntryPromoteView,
     MemorySelfServiceSettingsView,
     MemorySelfServiceView,
@@ -857,6 +858,15 @@ urlpatterns = [
         "memory/webhooks/honcho/",
         HonchoWebhookView.as_view(),
         name="memory-webhooks-honcho",
+    ),
+    # Provider-neutral receiver: any registered backend that declares
+    # capabilities.webhooks and implements verify_webhook gets its own segment
+    # without a new URL/route. Honcho keeps the exact path above (same shared
+    # receiver behind it).
+    path(
+        "memory/webhooks/<str:provider>/",
+        MemoryProviderWebhookView.as_view(),
+        name="memory-webhooks-provider",
     ),
     # RFC #1002 PR B: workspace-scoped memory listing/create + semantic search.
     path(

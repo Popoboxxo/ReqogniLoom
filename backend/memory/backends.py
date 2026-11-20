@@ -305,6 +305,28 @@ class MemoryBackendUnavailableError(RuntimeError):
         self.detail = detail
 
 
+class WebhookRejected(Exception):
+    """A provider webhook delivery was refused.
+
+    The generic receiver (``memory.memory_rest.MemoryProviderWebhookView``)
+    turns this into the HTTP answer; a backend's ``verify_webhook`` raises it
+    after checking the provider's signature/enablement. Keeping the decision in
+    the adapter lets each provider own its credential while the transport, body
+    size guard, throttle and cache invalidation stay shared.
+
+    Args:
+        status: HTTP status the receiver must answer (e.g. 401, 503).
+        code: Stable error code for the JSON envelope.
+        message: Constant, non-disclosing message.
+    """
+
+    def __init__(self, status: int, code: str, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.code = code
+        self.message = message
+
+
 @dataclass
 class MemoryDigest:
     """Prompt-ready digest of one scope's memory (RFC #1002 F6, Phase 3).
@@ -466,6 +488,10 @@ class MemoryCapabilities:
     scopes: tuple[str, ...] = VALID_MEMORY_SCOPES
     summaries: bool = False
     webhooks: bool = False
+    #: True when rows are mirrored to an external store (Honcho, Qdrant) rather
+    #: than living only in this database (pgvector). The reconcile command uses
+    #: it for severity and to decide whether an external scan is meaningful.
+    external_store: bool = False
     max_query_chars: int = 2000
     max_ask_query_chars: int = 10000
 
@@ -604,6 +630,19 @@ class MemoryBackend(ABC):
 
     def teardown_tenant(self, tenant_id: UUID) -> None:
         """Remove external tenant state on tenant deletion. Default: no-op."""
+
+    def reconcile_external(
+        self,
+        tenant_ids: list[UUID],
+        workspace_id: UUID | None,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Return ``(orphans, scan_findings)`` from the external store.
+
+        A backend that mirrors rows elsewhere overrides this; the reconcile
+        command calls it for every backend instead of branching on its name.
+        The default (no external store) reports nothing.
+        """
+        return [], []
 
     # -- canonical-store API (RFC #1002) ---------------------------------
 

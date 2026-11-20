@@ -325,7 +325,9 @@ def test_throttled_delivery_never_reaches_signature_verification(
         verified.append(raw_body)
         return False
 
-    monkeypatch.setattr("memory.memory_rest.verify_signature", spy)
+    # The provider owns the credential since P3, so the HMAC helper is resolved
+    # from memory.webhooks (HonchoMemoryBackend.verify_webhook imports it there).
+    monkeypatch.setattr("memory.webhooks.verify_signature", spy)
 
     statuses = [_post(client, signature="0" * 64).status_code for _ in range(4)]
 
