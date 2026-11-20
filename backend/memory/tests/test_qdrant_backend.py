@@ -19,7 +19,6 @@ from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
 
 from memory.backends import MEMORY_BACKEND_REGISTRY
-from memory.management.commands.memory_reconcile import Command
 from memory.models import MemoryEntry
 from memory.qdrant_backend import (
     INDEX_REASON_EMBEDDING_UNAVAILABLE,
@@ -58,10 +57,23 @@ def _backend_with_fake_client(monkeypatch, *, base_url: str = "http://qdrant.inv
 
 
 def _patch_qdrant_backend(monkeypatch, backend) -> None:
-    """Make ``memory_reconcile``'s internal ``QdrantMemoryBackend()`` return *backend*."""
-    monkeypatch.setattr(
-        "memory.qdrant_backend.QdrantMemoryBackend", lambda *args, **kwargs: backend
-    )
+    """Make the registry's ``qdrant`` entry construct *backend*.
+
+    ``memory_reconcile`` resolves the class from ``MEMORY_BACKEND_REGISTRY``
+    (provider-neutral dispatch), so patching only the module attribute is not
+    enough: the registry entry must point at a class whose constructor returns
+    the fake client backend while inheriting the real capabilities.
+    """
+    from memory.backends import MEMORY_BACKEND_REGISTRY
+
+    real_cls = type(backend)
+
+    class _FakeBackendClass(real_cls):
+        def __new__(cls, *args, **kwargs):
+            return backend
+
+    monkeypatch.setattr("memory.qdrant_backend.QdrantMemoryBackend", _FakeBackendClass)
+    monkeypatch.setitem(MEMORY_BACKEND_REGISTRY, "qdrant", _FakeBackendClass)
 
 
 def _queue_orphan_points(backend, tenant_id, *, scope, scope_id, count):
@@ -556,7 +568,7 @@ class TestQdrantReconcileScan:
             _queue_orphan_points(backend, tenant.id, scope="user", scope_id=user.id, count=5)
             _patch_qdrant_backend(monkeypatch, backend)
 
-            orphans, findings = Command._qdrant_orphans([tenant.id], None)
+            orphans, findings = backend.reconcile_external([tenant.id], None)
 
             assert findings == []
             assert len(orphans) == 5
@@ -572,7 +584,7 @@ class TestQdrantReconcileScan:
             )
             _patch_qdrant_backend(monkeypatch, backend)
 
-            orphans, findings = Command._qdrant_orphans([tenant.id], None)
+            orphans, findings = backend.reconcile_external([tenant.id], None)
 
             assert findings == []
             assert len(orphans) == 1
@@ -587,7 +599,7 @@ class TestQdrantReconcileScan:
             backend.write(tenant.id, "user", user.id, "mirrored")
             _patch_qdrant_backend(monkeypatch, backend)
 
-            orphans, findings = Command._qdrant_orphans([tenant.id], None)
+            orphans, findings = backend.reconcile_external([tenant.id], None)
 
             assert findings == []
             assert orphans == []
@@ -608,7 +620,7 @@ class TestQdrantReconcileScan:
             monkeypatch.setattr(backend, "iter_collection_points", _raise)
             _patch_qdrant_backend(monkeypatch, backend)
 
-            orphans, findings = Command._qdrant_orphans([tenant.id], None)
+            orphans, findings = backend.reconcile_external([tenant.id], None)
 
             assert orphans == []
             assert len(findings) == 1

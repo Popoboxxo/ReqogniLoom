@@ -61,6 +61,12 @@ _REST_ROUTES_WITHOUT_MCP_TOOL: dict[str, str] = {
         "agent-facing surface reaches memory through memory.* and the generic "
         "Q1 preference tools"
     ),
+    "memory-webhooks-provider": (
+        "provider-neutral inbound webhook receiver (same reason as "
+        "memory-webhooks-honcho): the provider's signature is the only "
+        "credential, so an MCP caller would always be rejected. The route "
+        "exists so a new provider needs no new URL"
+    ),
     "memory-webhooks-honcho": (
         "inbound Honcho callback (Plan A T-A4-7). It is not a caller capability "
         "at all: the HMAC in X-Honcho-Signature (a deployment secret, never a "

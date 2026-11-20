@@ -374,7 +374,9 @@ class QdrantMemoryBackend(MemoryBackend):
     """
 
     #: Qdrant has no generative/dialectic surface: :meth:`ask` degrades by design.
-    capabilities = MemoryCapabilities(dialectic=False)
+    #: ``external_store`` is True: vectors live in the Qdrant service, so the
+    #: reconcile command must run the provider-owned external scan.
+    capabilities = MemoryCapabilities(dialectic=False, external_store=True)
 
     settings_key = "qdrant"
     settings_schema = (

@@ -2826,6 +2826,33 @@ class MemoryProviderWebhookView(APIView):
     throttle_classes = [MemoryWebhookRateThrottle]
     parser_classes = [JSONParser]
 
+    @extend_schema(
+        tags=["memory"],
+        summary="Inbound provider webhook (provider-signed, no JWT)",
+        # No security scheme: the provider signs the body; no caller credential
+        # is accepted or expected.
+        auth=[],
+        description=(
+            "Provider-neutral webhook receiver. The provider's own signature is "
+            "the credential (see the backend's `verify_webhook`), the body is "
+            "never parsed or echoed, and a valid delivery drops the cached "
+            "memory health/digest probes. Unknown or non-webhook providers "
+            "answer 404; a disabled receiver answers 503; a bad signature 401."
+        ),
+        request=OpenApiTypes.OBJECT,
+        responses={
+            204: OpenApiResponse(
+                description="Signature valid; memory caches were dropped."
+            ),
+            400: OpenApiResponse(
+                description="Body-carrying POST without a usable Content-Length."
+            ),
+            401: OpenApiResponse(description="Missing or incorrect signature."),
+            404: OpenApiResponse(description="Unknown or non-webhook provider."),
+            413: OpenApiResponse(description="Declared body exceeds the limit."),
+            503: OpenApiResponse(description="Webhooks are not configured."),
+        },
+    )
     def post(
         self, request: Request, provider: str, *args: Any, **kwargs: Any
     ) -> Response:
