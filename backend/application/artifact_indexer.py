@@ -48,9 +48,9 @@ from django.core.exceptions import ObjectDoesNotExist
 from application.artifact_vector_store import (  # re-exported for compatibility
     DENSE_VECTOR_NAME,
     SPARSE_VECTOR_NAME,
+    QdrantWriteStore,
 )
 from application.vector_write_store import (
-    QdrantWriteStore,
     VectorRecord,
     VectorWriteStore,
     build_write_store,
@@ -418,7 +418,7 @@ def recreate_artifact_collection(
 
     Drops ``..._artifacts_v2`` and its ``..._artifacts_live`` alias, then
     provisions an empty collection. Only ``--recreate`` reaches this. The
-    mechanics live on :class:`~application.vector_write_store.QdrantWriteStore`;
+    mechanics live on :class:`~application.artifact_vector_store.QdrantWriteStore`;
     this wrapper keeps the historical API used by the command and its tests.
     """
     store = QdrantWriteStore(client, config=config, models_module=models_module)

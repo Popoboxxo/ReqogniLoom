@@ -87,7 +87,6 @@ ORM-shaped) is what lets the Qdrant adapter implement the same interface.
 """
 from __future__ import annotations
 
-import importlib.util
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -104,6 +103,8 @@ from application.vector_backends import (
     QDRANT_ARTIFACT_BACKEND as _QDRANT_ARTIFACT_BACKEND,
     effective_qdrant_config,
     get_vector_backend_plugin,
+    qdrant_client_available,
+    register_search_port_factory,
     resolve_artifact_vector_backend_name,
 )
 from llm_adapter.embedding_service import (
@@ -671,7 +672,7 @@ class PgVectorVectorPort:
 def _qdrant_client_available() -> bool:
     """Whether the optional ``qdrant_client`` package is importable (no import)."""
     try:
-        return importlib.util.find_spec("qdrant_client") is not None
+        return qdrant_client_available()
     except (ImportError, ValueError):
         return False
 
@@ -1382,6 +1383,13 @@ def get_similarity_vector_port(workspace_id: UUID | None) -> VectorPort:
         DEGRADED_NO_WORKSPACE_SCOPE,
     )
     return degraded
+
+
+# Late-bound adapter factories for the backend registry: the registry must not
+# import this module, so this module populates it instead (see
+# ``application.vector_backends``).
+register_search_port_factory("pgvector")(lambda: PgVectorVectorPort())
+register_search_port_factory("qdrant")(lambda: QdrantVectorPort())
 
 
 __all__ = [

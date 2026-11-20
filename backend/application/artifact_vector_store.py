@@ -40,6 +40,8 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from application.vector_backends import register_write_store_factory
+from application.vector_write_store import VectorRecord
 from persistence.qdrant_config import (
     QDRANT_DISTANCE_ATTRS,
     QDRANT_QUANTIZATION_INT8,
@@ -298,3 +300,163 @@ def ensure_artifact_collection(
 
     _point_alias_at(client, models, alias, collection_name)
     return collection_name
+
+class QdrantWriteStore:
+    """Qdrant implementation of the artifact write port.
+
+    Lives here because it shares provisioning with :func:`ensure_artifact_collection`
+    (collection names, the ``..._artifacts_live`` alias, payload indexes). The
+    neutral ``VectorRecord`` comes from :mod:`application.vector_write_store`;
+    this class maps it onto a Qdrant point with a named dense vector plus the
+    server-side ``qdrant/bm25`` sparse vector.
+
+    ``client`` and ``models_module`` are test/seam overrides. The client is
+    built lazily from the effective config when omitted, so importing this
+    module never requires the optional ``qdrant_client`` package.
+    """
+
+    name = "qdrant"
+    available = True
+
+    def __init__(
+        self,
+        client: Any = None,
+        *,
+        config: QdrantConfig | None = None,
+        models_module: Any = None,
+    ) -> None:
+        self._client = client
+        self._config = config
+        self._models_module = models_module
+        self._ensured: set[tuple[str, str]] = set()
+
+    # -- lazy seams ---------------------------------------------------------
+    def _models(self) -> Any:
+        if self._models_module is None:
+            from qdrant_client import models  # lazy: optional dependency
+
+            self._models_module = models
+        return self._models_module
+
+    def _client_or_build(self) -> Any:
+        if self._client is None:
+            from qdrant_client import QdrantClient  # lazy: optional dependency
+
+            config = self._config or resolve_artifact_qdrant_config()
+            self._client = QdrantClient(
+                url=config.base_url,
+                api_key=config.api_key,
+                timeout=config.timeout,
+                prefer_grpc=config.prefer_grpc,
+            )
+        return self._client
+
+    def _config_or_resolve(self) -> QdrantConfig:
+        if self._config is None:
+            self._config = resolve_artifact_qdrant_config()
+        return self._config
+
+    def _collection_name(
+        self, tenant_id: UUID | str, workspace_id: UUID | str
+    ) -> str:
+        config = self._config_or_resolve()
+        return build_collection_name(
+            config.collection_prefix,
+            tenant_id,
+            workspace_id=workspace_id,
+            scope="workspace",
+            artifacts=True,
+            version=ARTIFACT_COLLECTION_VERSION,
+        )
+
+    # -- VectorWriteStore ---------------------------------------------------
+    def ensure_workspace(
+        self, tenant_id: UUID | str, workspace_id: UUID | str, *, dry_run: bool = False
+    ) -> str:
+        config = self._config_or_resolve()
+        handle = self._collection_name(tenant_id, workspace_id)
+        if dry_run:
+            # Provisioning is a Qdrant write: a dry run addresses the name only.
+            return handle
+        key = (str(tenant_id), str(workspace_id))
+        if key not in self._ensured:
+            ensure_artifact_collection(
+                self._client_or_build(),
+                tenant_id,
+                workspace_id,
+                config=config,
+                models_module=self._models(),
+            )
+            self._ensured.add(key)
+        return handle
+
+    def read_signature(self, handle: str, entity_id: UUID) -> dict[str, Any] | None:
+        client = self._client_or_build()
+        if not client.collection_exists(handle):
+            return None
+        records = client.retrieve(collection_name=handle, ids=[str(entity_id)])
+        payload = getattr(records[0], "payload", None) if records else None
+        return payload if isinstance(payload, dict) else None
+
+    def upsert(self, handle: str, record: VectorRecord) -> None:
+        models = self._models()
+        self._client_or_build().upsert(
+            collection_name=handle,
+            points=[
+                models.PointStruct(
+                    id=str(record.entity_id),
+                    vector={
+                        DENSE_VECTOR_NAME: record.dense,
+                        SPARSE_VECTOR_NAME: models.Document(
+                            text=record.text, model="qdrant/bm25"
+                        ),
+                    },
+                    payload=record.payload,
+                )
+            ],
+            wait=True,
+        )
+
+    def delete(self, handle: str, entity_id: UUID) -> None:
+        models = self._models()
+        self._client_or_build().delete(
+            collection_name=handle,
+            points_selector=models.PointIdsList(points=[str(entity_id)]),
+            wait=True,
+        )
+
+    def recreate_workspace(
+        self, tenant_id: UUID | str, workspace_id: UUID | str
+    ) -> str:
+        client = self._client_or_build()
+        config = self._config_or_resolve()
+        models = self._models()
+        collection = self._collection_name(tenant_id, workspace_id)
+        alias = build_collection_alias(
+            config.collection_prefix,
+            tenant_id,
+            workspace_id=workspace_id,
+            scope="workspace",
+        )
+        if client.collection_exists(collection):
+            if alias_target(client, alias) == collection:
+                client.update_collection_aliases(
+                    change_aliases_operations=[
+                        models.DeleteAliasOperation(
+                            delete_alias=models.DeleteAlias(alias_name=alias)
+                        )
+                    ]
+                )
+            client.delete_collection(collection_name=collection)
+        # A rebuilt collection is provisioned on the next ensure; drop the cache
+        # entry so this instance does not believe the old one is still usable.
+        self._ensured.discard((str(tenant_id), str(workspace_id)))
+        return ensure_artifact_collection(
+            client, tenant_id, workspace_id, config=config, models_module=models
+        )
+
+
+@register_write_store_factory("qdrant")
+def _build_qdrant_write_store() -> QdrantWriteStore:
+    """Factory the backend registry resolves for the ``qdrant`` plugin."""
+    return QdrantWriteStore()

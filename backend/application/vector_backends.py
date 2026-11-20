@@ -21,18 +21,21 @@ plugin, mirroring the memory backend registry
 * :func:`effective_qdrant_config` -- the one place that resolves "which Qdrant
   does the artifact store talk to".
 
-Import direction: ``vector_port`` imports this module; this module imports
-``vector_port`` only lazily inside plugin methods (the qdrant availability gate
-delegates to the port's documented gate functions), and ``qdrant_client`` only
-inside the adapters, so importing the registry is always safe.
+Import direction: ``vector_port`` and ``vector_write_store`` import this
+module -- never the reverse. Adapter construction is late-bound through
+:data:`SEARCH_PORT_FACTORIES` / :data:`WRITE_STORE_FACTORIES`, which those
+modules populate at import time, so the registry is free of import cycles and
+importing it is always safe. ``qdrant_client`` is only touched through
+:func:`importlib.util.find_spec` (availability) and inside the adapters.
 """
 from __future__ import annotations
 
+import importlib.util
 import os
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import Any, ClassVar
 
 from persistence.qdrant_config import (
     DEFAULT_QDRANT_COLLECTION_PREFIX,
@@ -47,13 +50,10 @@ from persistence.qdrant_config import (
     resolve_qdrant_config,
 )
 
-if TYPE_CHECKING:  # pragma: no cover - typing only, avoids a runtime cycle
-    from application.vector_port import VectorPort
-    from application.vector_write_store import VectorWriteStore
-
 __all__ = [
     "ARTIFACT_VECTOR_BACKEND_ENV",
     "DEFAULT_ARTIFACT_VECTOR_BACKEND",
+    "NoopWriteStore",
     "PgVectorVectorPlugin",
     "QdrantVectorPlugin",
     "VECTOR_BACKEND_REGISTRY",
@@ -65,6 +65,9 @@ __all__ = [
     "build_write_store",
     "effective_qdrant_config",
     "get_vector_backend_plugin",
+    "qdrant_client_available",
+    "register_search_port_factory",
+    "register_write_store_factory",
     "register_vector_backend",
     "resolve_artifact_vector_backend_name",
 ]
@@ -138,6 +141,71 @@ def _artifact_settings_row() -> Any:
         return None
 
 
+#: Late-bound adapter factories. The registry itself must not import
+#: ``application.vector_port`` or ``application.vector_write_store`` (that
+#: would close an import cycle; ``tests/test_architecture_contracts.py`` walks
+#: function-level imports too). Those modules register their factories here at
+#: import time, and :meth:`VectorBackendPlugin.create_search_port` resolves them
+#: lazily. In practice the factory is always present: the only caller of
+#: ``create_search_port`` is the selector in ``vector_port`` itself.
+SEARCH_PORT_FACTORIES: dict[str, Callable[[], Any]] = {}
+WRITE_STORE_FACTORIES: dict[str, Callable[[], Any]] = {}
+
+
+def register_search_port_factory(name: str) -> Callable[[Callable[[], Any]], Callable[[], Any]]:
+    """Register the read-port factory for ``name`` (called by ``vector_port``)."""
+
+    def _decorator(factory: Callable[[], Any]) -> Callable[[], Any]:
+        SEARCH_PORT_FACTORIES[name] = factory
+        return factory
+
+    return _decorator
+
+
+def register_write_store_factory(name: str) -> Callable[[Callable[[], Any]], Callable[[], Any]]:
+    """Register the write-store factory for ``name`` (called by ``vector_write_store``)."""
+
+    def _decorator(factory: Callable[[], Any]) -> Callable[[], Any]:
+        WRITE_STORE_FACTORIES[name] = factory
+        return factory
+
+    return _decorator
+
+
+def qdrant_client_available() -> bool:
+    """Whether the optional ``qdrant_client`` package is importable."""
+    return importlib.util.find_spec("qdrant_client") is not None
+
+
+class NoopWriteStore:
+    """pgvector: the ORM column is the index, so no external write exists.
+
+    Lives here (not in ``vector_write_store``) so the default
+    :meth:`VectorBackendPlugin.create_write_store` needs no import of that
+    module -- keeping the registry free of a back-edge.
+    """
+
+    name = "pgvector"
+    available = False
+
+    def ensure_workspace(
+        self, tenant_id: Any, workspace_id: Any, *, dry_run: bool = False
+    ) -> str:
+        return ""
+
+    def read_signature(self, handle: str, entity_id: Any) -> dict[str, Any] | None:
+        return None
+
+    def upsert(self, handle: str, record: Any) -> None:
+        return None
+
+    def delete(self, handle: str, entity_id: Any) -> None:
+        return None
+
+    def recreate_workspace(self, tenant_id: Any, workspace_id: Any) -> str:
+        return ""
+
+
 class VectorBackendPlugin(ABC):
     """One registered artifact vector backend."""
 
@@ -188,15 +256,22 @@ class VectorBackendPlugin(ABC):
         )
 
     @classmethod
-    @abstractmethod
-    def create_search_port(cls) -> "VectorPort":
-        """Build the read-side port for this backend."""
+    def create_search_port(cls) -> Any:
+        """Build the read-side port via the late-bound factory registry."""
+        factory = SEARCH_PORT_FACTORIES.get(cls.name)
+        if factory is None:
+            raise RuntimeError(
+                f"no search-port factory registered for {cls.name!r}; "
+                "import application.vector_port first"
+            )
+        return factory()
 
     @classmethod
-    def create_write_store(cls) -> "VectorWriteStore":
-        """Build the write-side store; the default has no external index."""
-        from application.vector_write_store import NoopWriteStore
-
+    def create_write_store(cls) -> Any:
+        """Build the write-side store via the factory registry (noop default)."""
+        factory = WRITE_STORE_FACTORIES.get(cls.name)
+        if factory is not None:
+            return factory()
         return NoopWriteStore()
 
 
@@ -306,13 +381,6 @@ class PgVectorVectorPlugin(VectorBackendPlugin):
         search=True, hybrid_query=False, entity_queries=False, external_store=False
     )
 
-    @classmethod
-    def create_search_port(cls) -> "VectorPort":
-        from application.vector_port import PgVectorVectorPort
-
-        return PgVectorVectorPort()
-
-
 @register_vector_backend("qdrant")
 class QdrantVectorPlugin(VectorBackendPlugin):
     """The opt-in external store (ADR-020)."""
@@ -375,33 +443,25 @@ class QdrantVectorPlugin(VectorBackendPlugin):
 
     @classmethod
     def availability_reason(cls) -> str:
-        """Delegate to the port's documented gate (keeps one gate, not two)."""
-        from application import vector_port  # lazy: avoids an import cycle
+        """Return the first gate that keeps Qdrant from serving, or ``""``.
 
-        if not vector_port._qdrant_client_available():
+        The same three conditions the port documents (ADR-020 §4): the package
+        is importable, the effective config resolves, and a base URL is set.
+        Deliberately self-contained: the registry must not import
+        ``application.vector_port`` back.
+        """
+        if not qdrant_client_available():
             return "qdrant_client_missing"
         try:
-            config = vector_port._effective_qdrant_config()
+            config = effective_qdrant_config()
         except Exception:  # noqa: BLE001 - config problems degrade to pgvector
             return "qdrant_config_error"
         if not getattr(config, "base_url", "").strip():
             return "qdrant_base_url_missing"
         return ""
 
-    @classmethod
-    def create_search_port(cls) -> "VectorPort":
-        from application.vector_port import QdrantVectorPort
 
-        return QdrantVectorPort()
-
-    @classmethod
-    def create_write_store(cls) -> "VectorWriteStore":
-        from application.vector_write_store import QdrantWriteStore
-
-        return QdrantWriteStore()
-
-
-def build_write_store(name: str | None = None) -> "VectorWriteStore":
+def build_write_store(name: str | None = None) -> Any:
     """Build the write store for ``name`` (default: the requested backend)."""
     backend = (name or resolve_artifact_vector_backend_name()).strip().lower()
     plugin = get_vector_backend_plugin(backend)
