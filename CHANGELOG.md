@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0-beta.5] — 2026-11-20
+
+### Added
+- feat(memory): provider-neutral memory backend registry with capability declarations, provider webhook/reconcile dispatch and tenant provisioning/teardown hooks (#1949)
+- refactor(quality): repowise-driven quality fixes and a memory-abstraction assessment document (#1947)
+- fix(system): align the provider webhook schema with the reconcile capability surface (#1948)
+- feat(vector): pluggable artifact vector backends with a registry/capability layer (analogous to `memory.backends`), a `VectorWriteStore`/`VectorRecord` contract replacing the Qdrant-in-indexer coupling, an admin "System Settings → Vector Storage" surface with a DB override and diagnostic, W003/health visibility of the DB secret state, and migration `0155` (#1951)
+
+### Changed
+- chore(deps): dependency updates — nginx, python and gunicorn base images, honcho-ai 2.9.0, pypdf, dompurify, @dagrejs/dagre, @xyflow/react, react-dom 19.3.1, @types/node, @playwright/test 1.65.1 and @testing-library/react
+
+- refactor(ui): route the remaining 115 error paths in 48 files through the shared `toUserErrorMessage` mapper, keep it mock-safe, and harden the legacy helper against transport leaks (#1953)
+- refactor(ui): behaviour-preserving extractions from the repowise backlog — keyboard navigation out of `WorkspaceTree`, `TreeRow` label/chrome split, `ReviewsView` bulk-confirm flow and page-level `RequirementEditors` dialogs; no functional change (#1954, #1955, #1956, #1957)
+
+### Fixed
+- fix(ui): differentiate login errors (401/429/5xx/network), allow leaving MFA enrolment, fix Danger/Primary text contrast at 169 sites, honour the document language, fix tab ARIA, add memory success feedback and retry while removing ineffective Honcho fields, and give `VITE_API_BASE_URL` a default (#1950)
+- fix(ui): add `--color-warning-text` across 5 themes (30 sites), fully translate `MismatchReviewTable`, centralise `toUserErrorMessage`, add a 404 page and unsaved-changes guard, restore focus, correct the login banner level, fix the scatter legend/swatch, improve table/pagination accessibility and surface secret status (#1952)
+
 ## [1.9.0-beta.4] — 2026-11-19
 
 ### Fixed
