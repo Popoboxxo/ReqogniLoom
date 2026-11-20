@@ -118,3 +118,33 @@ def test_ci_and_example_images_are_digest_pinned(
         f"expected >= {expected_min} refs for {image_marker}, "
         f"found {len(matched)}"
     )
+
+
+def test_honcho_runtime_patch_is_wired_into_both_engine_services() -> None:
+    """#1247: the upstream #1441 backport must be mounted AND executed.
+
+    The pinned vendor image stays untouched; both `honcho` and `honcho-deriver`
+    mount the patch read-only and their entrypoint shims execute it before
+    ``src.config`` is imported. A missing mount or invocation silently restores
+    the ``400 MissingSessionID`` dialectic regression.
+    """
+    compose = (REPO_ROOT / "deploy" / "docker-compose.yml").read_text(
+        encoding="utf-8"
+    )
+    patch = REPO_ROOT / "deploy" / "honcho-patch" / "apply_patch.py"
+    assert patch.is_file(), f"missing runtime backport: {patch}"
+
+    assert compose.count("./deploy/honcho-patch:/tmp/honcho-patch:ro") >= 2, (
+        "both honcho and honcho-deriver must mount the patch directory"
+    )
+    assert compose.count('exec(compile(open(_patch).read(), _patch, "exec"))') >= 2, (
+        "both entrypoint shims must execute the backport before importing config"
+    )
+    text = patch.read_text(encoding="utf-8")
+    for anchor in (
+        "def with_opencode_session_header(",
+        "with_opencode_session_header(effective_config, telemetry)",
+        "x-opencode-session",
+        "already applied",
+    ):
+        assert anchor in text, f"patch script lost anchor {anchor!r}"

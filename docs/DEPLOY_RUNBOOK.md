@@ -168,22 +168,40 @@ $DC --profile honcho logs honcho | grep 'derived x-opencode-session'
 #     "[honcho] LLM_OPENCODE_SESSION is empty"                             FAIL
 ```
 
-### 3.1 Upstream boundary: the Honcho dialectic header is not provable in-repo (#1153, #1247)
+### 3.1 Honcho dialectic header: runtime backport of upstream #1441 (#1153, #1247)
 
 `memory.ask` on `MEMORY_BACKEND=honcho` goes through Honcho's **server-side**
-dialectic engine, and the header that engine must send to Zen-Go
-(`x-opencode-session`) is resolved **inside the pinned `honcho` image** — code
-outside this repository. In-repo we can prove (a) the session value is present
-(3a), (b) it reaches the backend/celery containers (3b), (c) the OpenCode Go
-provider attaches the header **on the wire** (#1186,
-`backend/llm_adapter/tests/test_opencode_session_check_1050.py`), and (d) the nine
-Honcho module names are set in the engine process (3d). We **cannot** observe the
-Honcho engine's *outbound* provider request from pytest: that seam is inside the
-vendor image, and the in-repo live spike is `integration`/skip
-(`backend/memory/tests/test_honcho_deploy_contract.py`).
+dialectic engine. The operator's `provider_params.extra_headers` is correctly
+resolved inside the pinned image, but v3.6.1 still drops it on the wire in the
+Dialectic/Complete path. Upstream fix
+[plastic-labs/honcho#1441](https://github.com/plastic-labs/honcho/pull/1441)
+injects `x-opencode-session` from the Honcho conversation ID immediately before
+the provider call; it is **not** in any released version as of v3.6.1.
 
-**Escalation — run when `memory.ask` or the dialectic endpoint answers HTTP 500 /
-`400 MissingSessionID` while 3a–3d are green:**
+**Fix in this repo (since #1247):** both `honcho` and `honcho-deriver` mount
+`deploy/honcho-patch/` read-only into `/tmp/honcho-patch` and their entrypoint
+shims execute `apply_patch.py` *before* `src.config` is imported. The script
+applies #1441 with exact, asserted replacements and is idempotent across
+`docker restart`. The vendor tag+digest pin stays untouched; only the container
+layer is patched. Recreate the services after changing the patch:
+`make honcho` (or `docker compose ... up -d --force-recreate honcho honcho-deriver`).
+
+**Verify the patch is active:**
+
+```bash
+docker logs reqogniloom-honcho-1 2>&1 | grep 'honcho-patch'
+# -> "[honcho-patch] upstream fix #1441 applied" (or "already applied")
+docker exec reqogniloom-honcho-1 /app/.venv/bin/python -c \
+  "from src.llm.runtime import with_opencode_session_header as w; print(w.__name__)"
+# -> with_opencode_session_header
+```
+
+**Wire-level reproduction (optional):** point `HONCHO_LLM_BASE_URL` at an
+OpenAI-compatible mock that logs request headers and call `peer.chat`. Note that
+#1441 deliberately injects only for `https://opencode.ai/zen/go/...`.
+
+**Escalation — run when `memory.ask` still answers HTTP 500 /
+`400 MissingSessionID` after 3a–3d and the patch log above are green:**
 
 ```bash
 # Step 1 — prove the pinned image resolves the nine names into the SDK kwarg
@@ -205,19 +223,18 @@ docker compose -f deploy/docker-compose.yml --project-directory . \
 ```
 
 - Step 1 **fails** → the shim/env wiring is wrong on this image; pin/rebuild it.
-- Step 1 **passes** but `memory.ask` still 400s/500s → the remaining gap is
-  **inside the vendor image** (the engine's HTTP client not attaching
-  `extra_headers`). Escalate upstream; not fixable in-repo. The degradation stays
-  loud (`memory.ask` returns `degraded: true` with a non-empty `detail`), never a
-  silent empty answer.
+- Step 1 **passes** but `memory.ask` still 400s/500s → check the patch log above
+  first; if the patch is active, the gap is inside the vendor image and must be
+  escalated upstream. The degradation stays loud (`memory.ask` returns
+  `degraded: true` with a non-empty `detail`), never a silent empty answer.
 
-**#1153 must be reopened.** It was closed as fixed, but the #1247 measurement
-(`memory.ask` still degraded; the header unobservable at the Honcho wire)
-contradicts the closed state. Track the vendor-side resolution there.
+**#1153 / #1247.** #1153 was closed as fixed but #1247 proved the defect
+persisted on the vendor side. The runtime backport above closes that gap for
+this deployment; track upstream PR #1441 for the permanent vendor release.
 
 **Related SDK drift (resolved).** `backend/requirements.txt` and
-`backend/requirements.lock` now both pin `honcho-ai==2.5.1`; the lock previously
-still said `honcho-ai==2.3.0`, which made a CVE check against the lock answer for
+`backend/requirements.lock` now both pin `honcho-ai==2.9.0`; the lock previously
+still said `honcho-ai==2.8.0`, which made a CVE check against the lock answer for
 a client that was not deployed. The parity is guarded — the two files drifting
 apart again fails `test_honcho_sdk_lock_matches_requirements` in
 `backend/memory/tests/test_honcho_deploy_contract.py`, which reads both pins and

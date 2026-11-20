@@ -511,11 +511,13 @@ def test_pinned_image_resolves_opencode_session_sdk_param() -> None:
     The import above resolves against the tag+digest-pinned image, so once the
     pin is fixed the spike is reproducible across hosts.
 
-    ESCALATION (#1247): this spike proves the *config resolution* only — one seam
-    short of the wire. If it passes but ``memory.ask`` still returns HTTP 500 /
-    ``400 MissingSessionID``, the remaining gap is inside the vendor image and
-    cannot be observed in-repo; follow the escalation in
-    ``docs/DEPLOY_RUNBOOK.md`` §3.1 and **reopen #1153**.
+    #1247: this spike proves the *config resolution* only — one seam short of
+    the wire. v3.6.1 still drops the operator header in the Dialectic/Complete
+    path; the deployment applies the upstream #1441 fix as an idempotent runtime
+    backport from ``deploy/honcho-patch/`` via both Honcho entrypoint shims. If
+    ``memory.ask`` still returns HTTP 500 / ``400 MissingSessionID``, check the
+    ``[honcho-patch]`` startup log first, then follow ``docs/DEPLOY_RUNBOOK.md``
+    §3.1.
     """
     if shutil.which("docker") is None:
         pytest.skip(

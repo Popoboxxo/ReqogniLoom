@@ -816,34 +816,37 @@ any output reads `none` — neither reads `failed`. `failed` fires only on the p
 
 Both cases are the documented blind spot of a client-side view, not a backend bug.
 
-### Upstream boundary: the Honcho dialectic header is vendor-internal (#1153, #1247)
+### Honcho dialectic header: runtime backport of upstream #1441 (#1153, #1247)
 
-`memory.ask` on `MEMORY_BACKEND=honcho` is answered by Honcho's **server-side** dialectic engine,
-and the `x-opencode-session` header that engine must attach to its Zen-Go calls is resolved
-**inside the pinned `honcho` image** — code outside this repository. In-repo we can prove the
-session value is present, reaches the containers, is attached by the **OpenCode Go provider on the
-wire** (#1186), and that the nine Honcho module names are set in the engine process. We **cannot**
-observe the Honcho engine's outbound provider request from pytest; the in-repo live spike is
-`integration`/skip.
+`memory.ask` on `MEMORY_BACKEND=honcho` is answered by Honcho's **server-side** dialectic engine.
+The operator's `provider_params.extra_headers.x-opencode-session` is correctly resolved inside the
+pinned image, but v3.6.1 still drops it on the wire in the Dialectic/Complete path. Upstream
+[PR #1441](https://github.com/plastic-labs/honcho/pull/1441) injects the header from the Honcho
+conversation context right before the provider call; it is not in any release up to v3.6.1.
 
-If `memory.ask` (or the dialectic endpoint) returns HTTP 500 / `400 MissingSessionID` while the
-deploy gates are green, this is the documented escalation:
+**Fix in this deployment:** both `honcho` and `honcho-deriver` mount `deploy/honcho-patch/`
+read-only at `/tmp/honcho-patch` and their entrypoint shims run `apply_patch.py` *before*
+`src.config` is imported. The script is idempotent and applies #1441 with exact, asserted
+replacements, so a base-image change fails loudly. The vendor tag+digest pin stays unchanged; only
+the container layer is patched. Verify with
+`docker logs reqogniloom-honcho-1 2>&1 | grep honcho-patch` — expect
+`upstream fix #1441 applied` (or `already applied` after a restart).
 
-1. Run the pinned-image config-resolution spike (the command in
+If `memory.ask` (or the dialectic endpoint) still returns HTTP 500 / `400 MissingSessionID`:
+
+1. Check the `[honcho-patch]` startup log first — no line means the mount/shim was lost.
+2. Run the pinned-image config-resolution spike (the command in
    `backend/memory/tests/test_honcho_deploy_contract.py::test_pinned_image_resolves_opencode_session_sdk_param`).
    It proves the nine names become `extra_headers`.
-2. If step 1 fails, the shim/env wiring is wrong on this image — pin/rebuild it.
-3. If step 1 passes but `memory.ask` still fails, the remaining gap is **inside the vendor image**
-   (its HTTP client not attaching `extra_headers`). Escalate upstream — it is not fixable in-repo.
-   `memory.ask` keeps returning a **loud** `degraded: true` with a non-empty `detail`, never a
-   silent empty answer.
+3. If both are green, escalate upstream. `memory.ask` keeps returning a **loud** `degraded: true`
+   with a non-empty `detail`, never a silent empty answer.
 
-The deploy-runbook escalation and the PID 1 proof are in
+The full deploy-runbook escalation is in
 [`docs/DEPLOY_RUNBOOK.md`](../docs/DEPLOY_RUNBOOK.md) §3.1.
 
-**#1153 must be reopened:** it was closed as fixed, but #1247 shows `memory.ask` is still degraded
-and the header is unobservable at the Honcho wire. `backend/requirements.txt` and
-`backend/requirements.lock` both pin `honcho-ai==2.5.1`, and the running `backend` image imports
+**#1153 / #1247.** #1153 was closed as fixed, but #1247 proved the defect persisted on the vendor
+side; the runtime backport above closes it for this deployment. `backend/requirements.txt` and
+`backend/requirements.lock` both pin `honcho-ai==2.9.0`, and the running `backend` image imports
 exactly that (`importlib.metadata.version("honcho-ai")` inside the container); verify it on any
 other deployment before diagnosing `memory.ask` — a stale image is the only way the two can
 disagree.
