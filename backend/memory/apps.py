@@ -46,6 +46,35 @@ def _apply_memory_settings_override(
     return cfg
 
 
+def _teardown_memory_tenant(sender, instance, **kwargs) -> None:
+    """Best-effort provider teardown when a tenant row is deleted (P5).
+
+    Deferred to ``transaction.on_commit`` so an external call never runs inside
+    the deletion transaction, and swallowed/logged because an external store
+    failure must not turn a local delete into an error. A backend without
+    external state keeps the no-op default.
+    """
+    from django.db import transaction
+
+    tenant_id = instance.id
+
+    def _run() -> None:
+        try:
+            from memory.backends import get_memory_backend
+
+            get_memory_backend().teardown_tenant(tenant_id)
+        except Exception:  # noqa: BLE001 - teardown is best-effort
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "memory backend tenant teardown skipped for tenant=%s",
+                tenant_id,
+                exc_info=True,
+            )
+
+    transaction.on_commit(_run)
+
+
 class MemoryConfig(AppConfig):
     """AI Long-Term Memory — Workspace + Tenant-global memory (ADR-01 Layer-2
     app, placed like ``context_graph``). See the plan's Task 2 for the
@@ -92,6 +121,18 @@ class MemoryConfig(AppConfig):
         # optional ``qdrant_client`` package is absent, because the SDK import
         # is lazy inside QdrantMemoryBackend._ensure_client().
         import memory.qdrant_backend  # noqa: F401 - imported for its registration side effect
+
+        # P5: provider teardown when a tenant is deleted. Connected with a
+        # dispatch_uid so a re-entered ready() cannot double-register.
+        from django.db.models.signals import post_delete
+        from persistence.models import Tenant
+
+        post_delete.connect(
+            _teardown_memory_tenant,
+            sender=Tenant,
+            dispatch_uid="memory.teardown_tenant",
+            weak=False,
+        )
 
         # SA-21: register the SystemMemorySettings embedding-override lookup
         # on llm_adapter's DI seam, so llm_adapter/embedding_service.py
