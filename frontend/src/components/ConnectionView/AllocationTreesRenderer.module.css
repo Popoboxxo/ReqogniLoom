@@ -248,7 +248,7 @@
 .lock {
   display: inline-flex;
   flex: 0 0 auto;
-  color: var(--color-warning);
+  color: var(--color-warning-text);
 }
 
 .rowAction {

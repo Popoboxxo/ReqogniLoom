@@ -20,6 +20,7 @@ import type {
   SystemMemoryVizScope,
 } from "../../api/memory";
 import styles from "./MemoryVisualizationSection.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 type VizView = "list" | "cluster" | "scatter";
 
@@ -47,11 +48,6 @@ function clusterColorClass(clusterId: number): string {
   const idx = ((clusterId % CLUSTER_COLOR_CLASSES.length) + CLUSTER_COLOR_CLASSES.length) %
     CLUSTER_COLOR_CLASSES.length;
   return CLUSTER_COLOR_CLASSES[idx];
-}
-
-function extractErrorMessage(err: unknown): string {
-  const e = err as { error?: { message?: string }; message?: string };
-  return e?.error?.message ?? e?.message ?? String(err);
 }
 
 function formatDate(iso: string): string {
@@ -165,7 +161,7 @@ export function MemoryVisualizationSection(): JSX.Element {
         })
         .catch((err: unknown) => {
           if (requestId !== entriesRequestIdRef.current) return;
-          setEntriesError(extractErrorMessage(err));
+          setEntriesError(toUserErrorMessage(err, t));
           setEntries([]);
           setEntriesLoaded(true);
         })
@@ -210,7 +206,7 @@ export function MemoryVisualizationSection(): JSX.Element {
         })
         .catch((err: unknown) => {
           if (requestId !== projectionRequestIdRef.current) return;
-          setProjectionError(extractErrorMessage(err));
+          setProjectionError(toUserErrorMessage(err, t));
           setProjection(null);
         })
         .finally(() => {
@@ -363,7 +359,7 @@ export function MemoryVisualizationSection(): JSX.Element {
             <>
               <table className={styles.table} data-testid="memory-viz-list-table">
                 <caption className="visually-hidden">
-                  {t("common.tableCaption")}
+                  {t("systemSettings.memory.viz.caption")}
                 </caption>
                 <thead>
                   <tr>
@@ -378,6 +374,7 @@ export function MemoryVisualizationSection(): JSX.Element {
                     <tr key={row.id} data-testid={`memory-viz-row-${row.id}`}>
                       <td className={styles.contentCell} title={row.content}>
                         {truncate(row.content, SNIPPET_MAX_LEN)}
+                        <span className="visually-hidden">{row.content}</span>
                       </td>
                       <td>{formatDate(row.created_at)}</td>
                       <td>{row.confidence.toFixed(2)}</td>
@@ -398,7 +395,11 @@ export function MemoryVisualizationSection(): JSX.Element {
                   >
                     {t("systemSettings.memory.viz.prev")}
                   </button>
-                  <span className={styles.pageInfo}>
+                  <span
+                    className={styles.pageInfo}
+                    role="status"
+                    data-testid="memory-viz-page-info"
+                  >
                     {t("systemSettings.memory.viz.pageInfo", {
                       page: entriesPage,
                       totalPages: entriesTotalPages,
@@ -490,11 +491,32 @@ export function MemoryVisualizationSection(): JSX.Element {
 
               {view === "scatter" && projection.points.length > 0 && (
                 <div className={styles.scatterWrapper} data-testid="memory-viz-scatter-plot">
+                  {/* Colour-only encoding is not sufficient: the legend names
+                      each cluster (with its size) and the description below
+                      carries the same information as text. */}
+                  <div
+                    className={styles.scatterLegend}
+                    data-testid="memory-viz-scatter-legend"
+                  >
+                    {clusterGroups.map(([clusterId, members]) => (
+                      <span key={clusterId} className={styles.scatterLegendItem}>
+                        <span
+                          aria-hidden="true"
+                          className={`${styles.clusterSwatch} ${clusterColorClass(clusterId)}`}
+                        />
+                        {t("systemSettings.memory.viz.clusterLabel", {
+                          id: clusterId,
+                          count: members.length,
+                        })}
+                      </span>
+                    ))}
+                  </div>
                   <svg
                     className={styles.scatterSvg}
                     viewBox={`0 0 ${SCATTER_VIEWBOX_WIDTH} ${SCATTER_VIEWBOX_HEIGHT}`}
                     role="img"
                     aria-label={t("systemSettings.memory.viz.scatterAriaLabel")}
+                    aria-describedby="memory-viz-scatter-description"
                   >
                     {scatterPoints.map((p) => (
                       <circle
@@ -509,6 +531,15 @@ export function MemoryVisualizationSection(): JSX.Element {
                       </circle>
                     ))}
                   </svg>
+                  <p
+                    id="memory-viz-scatter-description"
+                    className="visually-hidden"
+                  >
+                    {t("systemSettings.memory.viz.scatterDescription", {
+                      count: projection.points.length,
+                      clusters: clusterGroups.length,
+                    })}
+                  </p>
                 </div>
               )}
             </>

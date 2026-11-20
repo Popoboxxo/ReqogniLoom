@@ -131,6 +131,21 @@
   margin-bottom: var(--space-2);
 }
 
+.scatterLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.scatterLegendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .clusterSwatch {
   display: inline-block;
   width: 10px;
@@ -172,35 +187,59 @@
 }
 
 .clusterColor0 {
+  /* `fill` paints the SVG scatter points; `background-color` paints the HTML
+     legend swatch that reuses the same class (a span ignores `fill`). */
   fill: var(--color-level-l0);
+  background-color: var(--color-level-l0);
 }
 
 .clusterColor1 {
+  /* `fill` paints the SVG scatter points; `background-color` paints the HTML
+     legend swatch that reuses the same class (a span ignores `fill`). */
   fill: var(--color-level-l1);
+  background-color: var(--color-level-l1);
 }
 
 .clusterColor2 {
+  /* `fill` paints the SVG scatter points; `background-color` paints the HTML
+     legend swatch that reuses the same class (a span ignores `fill`). */
   fill: var(--color-level-l3);
+  background-color: var(--color-level-l3);
 }
 
 .clusterColor3 {
+  /* `fill` paints the SVG scatter points; `background-color` paints the HTML
+     legend swatch that reuses the same class (a span ignores `fill`). */
   fill: var(--color-level-l4);
+  background-color: var(--color-level-l4);
 }
 
 .clusterColor4 {
+  /* `fill` paints the SVG scatter points; `background-color` paints the HTML
+     legend swatch that reuses the same class (a span ignores `fill`). */
   fill: var(--color-diagram-edge-primary);
+  background-color: var(--color-diagram-edge-primary);
 }
 
 .clusterColor5 {
+  /* `fill` paints the SVG scatter points; `background-color` paints the HTML
+     legend swatch that reuses the same class (a span ignores `fill`). */
   fill: var(--color-diagram-edge-dependency);
+  background-color: var(--color-diagram-edge-dependency);
 }
 
 .clusterColor6 {
+  /* `fill` paints the SVG scatter points; `background-color` paints the HTML
+     legend swatch that reuses the same class (a span ignores `fill`). */
   fill: var(--color-reqtype-usecase);
+  background-color: var(--color-reqtype-usecase);
 }
 
 .clusterColor7 {
+  /* `fill` paints the SVG scatter points; `background-color` paints the HTML
+     legend swatch that reuses the same class (a span ignores `fill`). */
   fill: var(--color-diff-removed-text);
+  background-color: var(--color-diff-removed-text);
 }
 
 .empty {

@@ -750,7 +750,7 @@
 }
 
 .saveStatusDirty {
-  color: var(--color-warning);
+  color: var(--color-warning-text);
 }
 
 .saveStatusSaved {

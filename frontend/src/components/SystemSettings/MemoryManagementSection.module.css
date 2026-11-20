@@ -46,7 +46,7 @@
 }
 
 .degraded {
-  color: var(--color-warning);
+  color: var(--color-warning-text);
   font-size: var(--font-size-sm);
   padding: var(--space-3) 0;
 }

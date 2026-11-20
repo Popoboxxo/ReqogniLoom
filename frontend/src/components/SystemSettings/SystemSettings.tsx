@@ -20,6 +20,7 @@
  * admin role). Active tab is a ``?tab=`` query param (no deeper routing).
  */
 
+import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "../../context/AuthContext";
@@ -37,6 +38,7 @@ import { TreeDisplaySection } from "./TreeDisplaySection";
 import { CreateFormSection } from "./CreateFormSection";
 import { PreferenceLevelSection } from "../shared/PreferenceLevelSection/PreferenceLevelSection";
 import { PageHeader } from "../shared/PageHeader";
+import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
 import styles from "./SystemSettings.module.css";
 
@@ -69,6 +71,8 @@ export default function SystemSettings(): JSX.Element {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const isAdmin = roles.includes("admin");
+  const [isDirty, setIsDirty] = useState(false);
+  const [pendingTab, setPendingTab] = useState<SystemTabId | null>(null);
   const tabParam = searchParams.get("tab");
   const activeTab: SystemTabId = isSystemTab(tabParam) ? tabParam : "administration";
 
@@ -87,6 +91,20 @@ export default function SystemSettings(): JSX.Element {
     const next = new URLSearchParams(searchParams);
     next.set("tab", tab);
     setSearchParams(next, { replace: true });
+    setIsDirty(false);
+  };
+
+  /**
+   * A tab switch unmounts the active section, discarding staged edits. Ask
+   * before doing that instead of losing a half-edited settings form silently.
+   */
+  const requestTab = (tab: SystemTabId): void => {
+    if (tab === activeTab) return;
+    if (isDirty) {
+      setPendingTab(tab);
+      return;
+    }
+    setTab(tab);
   };
 
   const TABS: { id: SystemTabId; label: string }[] = [
@@ -122,7 +140,7 @@ export default function SystemSettings(): JSX.Element {
         role="tablist"
         aria-label={t("nav.systemSettings", "System Settings")}
         data-testid="system-settings-tablist"
-        onKeyDown={(e) => handleTablistKeyDown(e, TAB_IDS, activeTab, setTab)}
+        onKeyDown={(e) => handleTablistKeyDown(e, TAB_IDS, activeTab, requestTab)}
         className={styles.tablist}
       >
         {TABS.map((tab) => {
@@ -142,7 +160,7 @@ export default function SystemSettings(): JSX.Element {
                 isTabActive ? `system-settings-panel-${tab.id}` : undefined
               }
               tabIndex={tabRovingTabIndex(tab.id, activeTab)}
-              onClick={() => setTab(tab.id)}
+              onClick={() => requestTab(tab.id)}
               className="btn-tab"
             >
               {tab.label}
@@ -191,17 +209,32 @@ export default function SystemSettings(): JSX.Element {
         )}
         {activeTab === "memory" && (
           <>
-            <MemorySystemSettingsSection />
+            <MemorySystemSettingsSection onDirtyChange={setIsDirty} />
             <MemoryManagementSection />
             <MemoryVisualizationSection />
           </>
         )}
         {activeTab === "vector-store" && (
           <div data-testid="system-vector-store">
-            <ArtifactVectorSettingsSection />
+            <ArtifactVectorSettingsSection onDirtyChange={setIsDirty} />
           </div>
         )}
       </div>
+
+      {pendingTab && (
+        <ConfirmDialog
+          title={t("systemSettings.unsaved.title")}
+          message={t("systemSettings.unsaved.message")}
+          confirmLabel={t("systemSettings.unsaved.confirm")}
+          onConfirm={() => {
+            const target = pendingTab;
+            setPendingTab(null);
+            setTab(target);
+          }}
+          onCancel={() => setPendingTab(null)}
+          testId="system-settings-unsaved-confirm"
+        />
+      )}
     </div>
   );
 }

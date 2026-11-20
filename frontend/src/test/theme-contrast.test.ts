@@ -128,6 +128,11 @@ const CONTRAST_PAIRS: ReadonlyArray<readonly [fg: string, bg: string, backdrop: 
   // cards/rails on --color-surface-raised.
   ["--color-danger-text", "--color-surface", "--color-surface"],
   ["--color-danger-text", "--color-surface-raised", "--color-surface-raised"],
+  // WCAG 1.4.3: --color-warning is a border/icon accent; as text it clears AA
+  // in dark/light but not in bauhaus (2.66:1) or sepia (2.86:1). Text uses the
+  // dedicated --color-warning-text token, asserted on both surfaces.
+  ["--color-warning-text", "--color-surface", "--color-surface"],
+  ["--color-warning-text", "--color-surface-raised", "--color-surface-raised"],
 ];
 
 /* ==========================================================================

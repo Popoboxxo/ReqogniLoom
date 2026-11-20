@@ -230,6 +230,11 @@ export function LoginPage(): JSX.Element {
               its content must not be able to render links or HTML on the login
               page. That is a deliberate, security-motivated divergence from
               BannerStack's in-app Markdown rendering. */}
+          {/* Level must not be conveyed by the border colour alone (WCAG
+              1.4.1): name it for assistive technology. */}
+          <span className="visually-hidden">
+            {t(`login.banner.level.${loginBanner.level}`)}:{" "}
+          </span>
           <span className={styles.bannerMessage}>{loginBanner.message}</span>
           {loginBanner.dismissible && (
             <button

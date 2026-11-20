@@ -482,7 +482,7 @@
 /* A lost precondition: the field is still editable, the value is just not the
  * value the server has. Orange border, never red — nothing failed on input. */
 .fieldConflict {
-  border-color: var(--color-warning);
+  border-color: var(--color-warning-text);
 }
 
 .fieldConflictNote {
@@ -491,7 +491,7 @@
   align-items: center;
   gap: var(--space-2);
   margin: 0;
-  color: var(--color-warning);
+  color: var(--color-warning-text);
   font-size: var(--font-size-sm);
 }
 

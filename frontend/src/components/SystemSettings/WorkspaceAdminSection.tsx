@@ -21,6 +21,7 @@ import { TriLabelOverviewDialog } from "../AdminDialog/TriLabelOverviewDialog";
 import { Dialog } from "../shared/Dialog";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import styles from "./WorkspaceAdminSection.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 export function WorkspaceAdminSection(): JSX.Element {
   const { t } = useTranslation();
@@ -51,7 +52,7 @@ export function WorkspaceAdminSection(): JSX.Element {
       await reloadWorkspaces(activeWorkspace.id);
       setSavedOk(true);
     } catch (err: unknown) {
-      setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
+      setSaveError(toUserErrorMessage(err, t));
     } finally {
       setIsClosing(false);
     }
@@ -65,7 +66,7 @@ export function WorkspaceAdminSection(): JSX.Element {
       await reloadWorkspaces(activeWorkspace.id);
       setSavedOk(true);
     } catch (err: unknown) {
-      setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
+      setSaveError(toUserErrorMessage(err, t));
     }
   }, [activeWorkspace, reloadWorkspaces]);
 
@@ -83,7 +84,7 @@ export function WorkspaceAdminSection(): JSX.Element {
       setDeleteConfirmation("");
       navigate("/");
     } catch (err: unknown) {
-      setDeleteError((err as { error?: { message?: string } })?.error?.message ?? String(err));
+      setDeleteError(toUserErrorMessage(err, t));
     } finally {
       setIsDeleting(false);
     }
@@ -119,7 +120,7 @@ export function WorkspaceAdminSection(): JSX.Element {
       setSavedOk(true);
       navigate("/");
     } catch (err: unknown) {
-      setSaveError((err as { error?: { message?: string } })?.error?.message ?? String(err));
+      setSaveError(toUserErrorMessage(err, t));
     } finally {
       setIsCloning(false);
     }

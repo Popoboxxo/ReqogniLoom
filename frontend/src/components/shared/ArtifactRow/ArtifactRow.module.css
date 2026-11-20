@@ -90,7 +90,7 @@
   align-items: center;
   vertical-align: text-bottom;
   margin-right: var(--space-1);
-  color: var(--color-warning);
+  color: var(--color-warning-text);
 }
 
 /* Issue #804: compact SE-attribute line. A single, clipped line (rather than

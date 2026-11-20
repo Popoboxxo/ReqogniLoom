@@ -128,7 +128,7 @@
 
 .globalBadge {
   background: var(--color-badge-warning-bg);
-  color: var(--color-warning);
+  color: var(--color-warning-text);
   padding: 1px 6px;
   border-radius: var(--radius-sm);
   font-size: var(--font-size-xs);
@@ -137,7 +137,7 @@
 
 .globalBadgeDetail {
   background: var(--color-badge-warning-bg);
-  color: var(--color-warning);
+  color: var(--color-warning-text);
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   font-size: var(--font-size-xs);

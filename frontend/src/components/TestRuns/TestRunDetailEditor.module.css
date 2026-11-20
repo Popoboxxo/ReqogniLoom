@@ -14,7 +14,7 @@
 
 .syncError {
   margin: var(--space-2) 0 0;
-  color: var(--color-warning);
+  color: var(--color-warning-text);
   font-size: var(--font-size-sm);
 }
 

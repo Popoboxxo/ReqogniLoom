@@ -44,7 +44,7 @@
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  color: var(--color-warning);
+  color: var(--color-warning-text);
 }
 
 /*

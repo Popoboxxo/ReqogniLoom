@@ -19,7 +19,7 @@
   max-width: 640px;
 }
 .noticeText {
-  color: var(--color-warning);
+  color: var(--color-warning-text);
 }
 
 .card {
