@@ -685,10 +685,27 @@ class RequirementService(ServiceBase):
         is **not** decided here — it changes link-creation semantics, which
         ADR-005 does not authorise. Recorded as an open follow-up in the
         ADR-005 report.
+
+        Raises:
+            ValidationError: *parent_id* is neither ``None`` nor UUID-shaped
+                (coerced HERE, at the single write entry point: the MCP update
+                tool forwards the raw payload value, so a bare
+                ``UUID(str(parent_id))`` escaped as an unhandled ``ValueError``
+                and answered ``INTERNAL_ERROR`` instead of a 4xx), the parent
+                would be the Requirement itself, or it lives in another
+                workspace.
+            NotFoundError: No ``Artifact`` exists for a UUID-shaped
+                *parent_id*.
         """
         if parent_id is _UNSET:
             return False
-        new_parent_id = None if parent_id is None else UUID(str(parent_id))
+        if parent_id is None:
+            new_parent_id: UUID | None = None
+        else:
+            try:
+                new_parent_id = UUID(str(parent_id))
+            except (AttributeError, TypeError, ValueError) as exc:
+                raise ValidationError("'parent_id' must be a UUID or null") from exc
         current_parent_id = requirement.artifact.parent_id
         parent_changed = new_parent_id != current_parent_id
         if parent_changed:

@@ -24,6 +24,14 @@ reuses the source primary keys and aborts the atomic batch on the global
 ``pl_artifact_pkey`` / entity PK; a taken id therefore falls back to a freshly
 allocated UUID instead of failing.
 
+Strict cell values (backend review S1/S2): every cell is converted to its
+column's declared type *before* anything is written. A value that does not
+convert (``int("abc")``, a malformed UUID or timestamp) or that is not a
+documented token (a boolean outside ``true/false/1/0/yes/no``, an unknown
+``lifecycle_status``) fails only its own row as ``INVALID_VALUE`` — it is never
+silently replaced by a default, and it never turns into a whole-batch
+persistence rollback. The atomic batch is reserved for real persistence errors.
+
 Interface contracts implemented:
   IF-AS-EXT-IN-001  — inbound: import_csv(csv_text, entity_type, workspace_id, ctx)
   IF-AS-EXT-OUT-007 — outbound: persistence ORM (Artifact + entity creates)
@@ -39,7 +47,6 @@ import csv
 import io
 import json
 import logging
-import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -54,7 +61,12 @@ from auth_tenancy.context import AuthContext
 # Backward-compat alias used by tests that patch 'application.import_service.TenantContext'
 TenantContext = AuthContext
 
-from application.base import NotFoundError, ServiceBase, ValidationError
+from application.base import (
+    NotFoundError,
+    PermissionDeniedError,
+    ServiceBase,
+    ValidationError,
+)
 from application.export_service import (
     _APP_ENTITY_TYPES,
     _PERSISTENCE_ENTITY_TYPES,
@@ -134,13 +146,59 @@ _IDENTITY_COLUMNS = frozenset(
 )
 
 
-def _import_value(cell: Any, kind: str) -> Any:
+# Explicit token sets for boolean cells (backend review S2). The previous
+# ``in ("true", "1", "yes")`` expression made *every* other value ``False``, so
+# a typo such as "ture" or "maybe" imported silently as ``False``. Only these
+# tokens are booleans now; any other non-empty cell is a per-row
+# ``INVALID_VALUE`` error instead of a silent rewrite.
+_BOOL_TRUE_TOKENS: frozenset[str] = frozenset({"true", "1", "yes"})
+_BOOL_FALSE_TOKENS: frozenset[str] = frozenset({"false", "0", "no"})
+
+#: Human-readable type name per CSV column kind, used in coercion messages.
+_KIND_LABELS: dict[str, str] = {
+    "int": "integer",
+    "bool": "boolean (true/false/1/0/yes/no)",
+    "datetime": "ISO-8601 timestamp",
+    "uuid": "UUID",
+}
+
+
+class _CellValueError(ValueError):
+    """One CSV cell cannot be converted to its column's declared type.
+
+    Backend review S1/S2: the conversion used to raise a bare ``ValueError``
+    from inside the atomic insert (reclassified as a whole-batch
+    ``PERSISTENCE_ERROR``) or to silently substitute a default (``False`` for an
+    unknown boolean, ``None`` for an unparseable timestamp). A conversion
+    failure is a *value* defect of one row, so it is raised as this dedicated
+    type, which the validation phase turns into a per-row ``INVALID_VALUE``.
+
+    Still a ``ValueError`` subclass, so any caller that caught the historic
+    ``ValueError`` keeps working.
+    """
+
+    def __init__(self, column: str, kind: str, value: str) -> None:
+        self.column = column
+        self.kind = kind
+        self.value = value
+        label = _KIND_LABELS.get(kind, kind)
+        super().__init__(
+            f"Field '{column}': {value!r} is not a valid {label} value."
+        )
+
+
+def _import_value(cell: Any, kind: str, *, column: str = "") -> Any:
     """Deserialise a single CSV *cell* string to its typed value per *kind*.
 
     Inverse of :func:`application.export_service._csv_cell` /
     :func:`~application.export_service._export_value`. Empty cells become ``None``
-    (text/int/uuid/datetime), ``False`` (bool) or ``[]`` (json) so that absent
-    values fall back to the model default on create.
+    (text/int/bool/uuid/datetime) or ``[]`` (json) so that absent values fall
+    back to the model default on create.
+
+    ``column`` only names the offending column in a :class:`_CellValueError`;
+    a cell that is neither empty nor a member of the kind's explicit token set
+    (booleans), or that fails its type conversion (int/uuid/datetime), raises
+    that error instead of silently substituting a value (backend review S1/S2).
     """
     text = "" if cell is None else str(cell)
     stripped = text.strip()
@@ -149,9 +207,21 @@ def _import_value(cell: Any, kind: str) -> Any:
         # model default applies on create.
         return text if stripped else None
     if kind == "int":
-        return int(stripped) if stripped else None
+        if not stripped:
+            return None
+        try:
+            return int(stripped)
+        except ValueError as exc:
+            raise _CellValueError(column, kind, stripped) from exc
     if kind == "bool":
-        return stripped.lower() in ("true", "1", "yes")
+        if not stripped:
+            return None
+        token = stripped.casefold()
+        if token in _BOOL_TRUE_TOKENS:
+            return True
+        if token in _BOOL_FALSE_TOKENS:
+            return False
+        raise _CellValueError(column, kind, stripped)
     if kind == "json":
         if not stripped:
             return []
@@ -161,9 +231,22 @@ def _import_value(cell: Any, kind: str) -> Any:
             # Legacy / non-JSON payload: wrap the raw value so nothing is dropped.
             return [stripped]
     if kind == "datetime":
-        return parse_datetime(stripped) if stripped else None
+        if not stripped:
+            return None
+        parsed = parse_datetime(stripped)
+        if parsed is None:
+            # ``parse_datetime`` signals "not ISO-8601" with ``None``. The old
+            # code returned it verbatim, which emptied the column (model
+            # default) without a word — a silent data loss.
+            raise _CellValueError(column, kind, stripped)
+        return parsed
     if kind == "uuid":
-        return UUID(stripped) if stripped else None
+        if not stripped:
+            return None
+        try:
+            return UUID(stripped)
+        except ValueError as exc:
+            raise _CellValueError(column, kind, stripped) from exc
     return text
 
 
@@ -177,6 +260,64 @@ class ImportRowError:
     row_number: int
     field: str
     message: str
+
+
+def _cell_coercion_errors(
+    row_number: int, row: Mapping[str, Any], entity_type: str
+) -> list[ImportRowError]:
+    """Report every cell that violates its column's type or vocabulary.
+
+    Backend review S1/S2. Two defects are fixed here, both *before* any write:
+
+    * **S1** — ``_import_value`` raised a bare ``ValueError`` for
+      ``int("abc")`` / ``UUID("not-a-uuid")``. The parse ran inside
+      ``transaction.atomic()``, so the broad persistence handler turned one bad
+      cell into a whole-batch rollback (``PERSISTENCE_ERROR``). Converted here,
+      the defect fails only its own row, as ``INVALID_VALUE``.
+    * **S2** — the conversion used to replace unknown values silently
+      (``"ture"`` -> ``False``, an unparseable timestamp -> ``None`` = model
+      default, an unknown ``lifecycle_status`` -> forced ``ACTIVE``). Nothing is
+      substituted any more: an unknown value is reported.
+
+    The derived cause code is the existing ``CAUSE_INVALID_VALUE``: these
+    messages never start with :data:`_MISSING_REQUIRED_PREFIX`, so
+    :meth:`ImportService._cause_code_for_errors` classifies the row correctly
+    without a second error class.
+    """
+    errors: list[ImportRowError] = []
+    for col, kind in ENTITY_FIELD_SPECS.get(entity_type, []):
+        if col not in row:
+            continue
+        try:
+            _import_value(row.get(col), kind, column=col)
+        except _CellValueError as exc:
+            errors.append(
+                ImportRowError(row_number=row_number, field=col, message=str(exc))
+            )
+
+    # ``lifecycle_status`` is a ``str`` column whose value must be a member of
+    # the soft-delete vocabulary; the vocabulary lives on the TextChoices class,
+    # so it is imported lazily (no module-level model import).
+    if "lifecycle_status" in row:
+        raw = (row.get("lifecycle_status") or "").strip()
+        if raw:
+            from persistence.models import LifecycleStatus
+
+            if raw.casefold() not in {
+                str(value).casefold() for value in LifecycleStatus.values
+            }:
+                errors.append(
+                    ImportRowError(
+                        row_number=row_number,
+                        field="lifecycle_status",
+                        message=(
+                            f"Field 'lifecycle_status': {raw!r} is not a valid "
+                            f"lifecycle status. Allowed: "
+                            f"{', '.join(LifecycleStatus.values)}."
+                        ),
+                    )
+                )
+    return errors
 
 
 @dataclass
@@ -450,6 +591,14 @@ def _resolve_import_identity(
     are still free; a taken id falls through to a fresh UUID on insert. A
     same-workspace hit never reaches here — the natural-key dedupe already
     turned it into a ``DUPLICATE`` skip.
+
+    The lookup deliberately uses ``unscoped`` (every tenant): ``id`` is the
+    entity's / ``Artifact``'s *global* primary key, so an id already taken in
+    **another** tenant must be detected too — otherwise adopting it violates
+    ``pl_artifact_pkey`` and rolls back the whole batch. Scoping this query to
+    the importing tenant (backend review S4: cross-tenant existence oracle)
+    would trade a weak, internal side channel for a hard import failure and is
+    therefore not done; the response never names the hit.
     """
     preserved_artifact_ids: list[Any] = []
     preserved_entity_ids: list[Any] = []
@@ -460,7 +609,15 @@ def _resolve_import_identity(
         for col, kind in identity_columns.items():
             if col not in row:
                 continue
-            value = _import_value(row.get(col), kind)
+            try:
+                value = _import_value(row.get(col), kind, column=col)
+            except _CellValueError:
+                # Backend review S1: a malformed identity cell must not abort
+                # the batch here. Identity columns are a *hint* (ADR-014 §3), and
+                # the row is already rejected by ``_cell_coercion_errors`` before
+                # it can reach the insert path; skipping keeps this helper safe
+                # for a direct caller that skips validation.
+                continue
             if value is None:
                 continue
             if col == "artifact_id":
@@ -491,6 +648,30 @@ def _resolve_import_identity(
     return taken_artifact_ids, taken_entity_ids
 
 
+def _canonical_lifecycle_status(raw: Any, lifecycle_status_model: Any) -> Any:
+    """Map a CSV ``lifecycle_status`` cell onto the model's enum value.
+
+    Backend review S2: the previous expression forced ``ACTIVE`` for every value
+    outside ``model.values`` — a typo such as ``"activ"`` silently reactivated
+    an artifact. Now:
+
+    * empty/absent cell -> ``None`` (the caller then leaves ``Artifact`` at its
+      model default),
+    * a known value (case-insensitively, folded onto the canonical spelling) ->
+      that value,
+    * anything else -> ``None`` as well, because such a row is already rejected
+      by :func:`_cell_coercion_errors` before any insert. Returning ``None``
+      keeps this helper from *ever* substituting a value on its own.
+    """
+    token = "" if raw is None else str(raw).strip()
+    if not token:
+        return None
+    for value in lifecycle_status_model.values:
+        if token.casefold() == str(value).casefold():
+            return value
+    return None
+
+
 def _parse_import_row(
     row: Mapping[str, str], *, ic: _ImportContext
 ) -> _ImportRow:
@@ -500,11 +681,14 @@ def _parse_import_row(
     for col, kind in ic.spec:
         if col not in row:
             continue
-        value = _import_value(row.get(col), kind)
+        value = _import_value(row.get(col), kind, column=col)
         if col in _IDENTITY_COLUMNS:
             identity[col] = value
-        elif value is None and kind not in ("bool", "json"):
-            # Empty optional value -> fall back to the model default.
+        elif value is None and kind != "json":
+            # Empty optional value -> fall back to the model default. Booleans
+            # are covered: an empty ``suspect`` cell means "not supplied", so
+            # the model default (``False``) applies — it is never an assertion
+            # that the flag is off (backend review S2).
             continue
         else:
             content[col] = value
@@ -518,11 +702,8 @@ def _parse_import_row(
 
     lifecycle_status_value = None
     if ic.has_lifecycle_status_column:
-        lifecycle_status_raw = content.pop("lifecycle_status", None)
-        lifecycle_status_value = (
-            lifecycle_status_raw
-            if lifecycle_status_raw in ic.lifecycle_status_model.values
-            else ic.lifecycle_status_model.ACTIVE
+        lifecycle_status_value = _canonical_lifecycle_status(
+            content.pop("lifecycle_status", None), ic.lifecycle_status_model
         )
 
     # TestCase type normalisation (#816, #953): fold the CSV cell onto the
@@ -684,7 +865,10 @@ class ImportService(ServiceBase):
             ImportResult with success flag, counts, and per-row errors.
 
         Raises:
-            ValidationError: entity_type invalid or row count exceeds limit.
+            ValidationError: entity_type invalid, workspace_id malformed, or row
+                count exceeds limit.
+            NotFoundError: the workspace does not exist or belongs to another
+                tenant.
         """
         ws_uuid = self._prepare_import(entity_type, workspace_id, ctx)
 
@@ -751,7 +935,10 @@ class ImportService(ServiceBase):
             ImportResult with success flag, counts, and per-row errors.
 
         Raises:
-            ValidationError: entity_type invalid or row count exceeds limit.
+            ValidationError: entity_type invalid, workspace_id malformed, or row
+                count exceeds limit.
+            NotFoundError: the workspace does not exist or belongs to another
+                tenant.
         """
         ws_uuid = self._prepare_import(entity_type, workspace_id, ctx)
 
@@ -778,10 +965,17 @@ class ImportService(ServiceBase):
     ) -> UUID:
         """Shared pre-flight for every import entry point.
 
-        Tenant propagation, the write-permission check and the entity-type
-        guard run in the same order for :meth:`import_csv` and
-        :meth:`import_rows`, so neither path can bypass a check the other one
-        applies (REQ-L2-AS-021/022, REQ-L3-IMP-001).
+        Tenant propagation, the write-permission check, the entity-type guard
+        and the workspace-id shape check run in the same order for
+        :meth:`import_csv` and :meth:`import_rows`, so neither path can bypass a
+        check the other one applies (REQ-L2-AS-021/022, REQ-L3-IMP-001).
+
+        Backend review S3: ``UUID(str(workspace_id))`` used to raise a bare
+        ``ValueError`` that escaped as an unhandled 500. A malformed id is a
+        request defect, hence ``ValidationError`` (400). Whether the id *exists*
+        (and belongs to the caller's tenant) is answered by
+        :meth:`_prepare_import_context`, which turns ``DoesNotExist`` into
+        ``NotFoundError`` (404).
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -792,7 +986,12 @@ class ImportService(ServiceBase):
                 f"Allowed: {sorted(_VALID_ENTITY_TYPES)}"
             )
 
-        return UUID(str(workspace_id))
+        try:
+            return UUID(str(workspace_id))
+        except (TypeError, ValueError) as exc:
+            raise ValidationError(
+                f"Invalid workspace_id {workspace_id!r}: expected a UUID."
+            ) from exc
 
     def _import_parsed(
         self,
@@ -959,6 +1158,14 @@ class ImportService(ServiceBase):
                     },
                 )
 
+        except (ValidationError, NotFoundError, PermissionDeniedError):
+            # Backend review S3: a *domain* refusal resolved inside the insert
+            # path (an unknown or foreign-tenant workspace -> NotFoundError) is
+            # not a persistence failure. It must keep its own status (404/400/
+            # 403) instead of being flattened into a batch-rollback envelope,
+            # which the REST layer could only answer with 422. The atomic block
+            # is already rolled back when this handler runs.
+            raise
         except Exception as exc:
             # Finding 079: a rollback must name its cause. The previous empty
             # ``errors`` list made a failed import indistinguishable from a
@@ -1511,6 +1718,11 @@ class ImportService(ServiceBase):
                     )
                 )
 
+        # Type/vocabulary gate (backend review S1/S2): every cell that cannot be
+        # converted to its column's declared type — or is not a documented value
+        # of its vocabulary — fails only this row, before anything is written.
+        errors.extend(_cell_coercion_errors(row_number, row, entity_type))
+
         # Length constraints
         title = row.get("title", "")
         if len(title) > 500:
@@ -1644,7 +1856,17 @@ class ImportService(ServiceBase):
     ) -> _ImportContext:
         """Resolve workspace, workflow definition and collision sets once."""
         models = self._model_registry
-        workspace = models.workspace.objects.get(id=workspace_id)
+        # Backend review S3: the tenant-scoped manager already hides another
+        # tenant's workspace, so ``DoesNotExist`` covers both "unknown" and
+        # "foreign". Surfacing it as ``NotFoundError`` (404) instead of letting
+        # it fall through to the batch-rollback handler removes the 422/500 and
+        # keeps a foreign workspace indistinguishable from an unknown one.
+        try:
+            workspace = models.workspace.objects.get(id=workspace_id)
+        except models.workspace.DoesNotExist as exc:
+            raise NotFoundError(
+                f"Workspace {workspace_id} not found."
+            ) from exc
         tenant = workspace.tenant
         spec = ENTITY_FIELD_SPECS[entity_type]
 

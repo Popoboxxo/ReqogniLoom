@@ -834,7 +834,10 @@ the container layer is patched. Verify with
 
 If `memory.ask` (or the dialectic endpoint) still returns HTTP 500 / `400 MissingSessionID`:
 
-1. Check the `[honcho-patch]` startup log first — no line means the mount/shim was lost.
+1. Check the `[honcho-patch]` startup log first. A missing mount is **fail-closed** since the
+   audit fix: the container refuses to start with `FATAL: … apply_patch.py is missing`. A
+   `partial patch across files` line means an interrupted earlier run — recreate the service
+   (`docker compose up -d --force-recreate honcho honcho-deriver`) so the backport re-runs.
 2. Run the pinned-image config-resolution spike (the command in
    `backend/memory/tests/test_honcho_deploy_contract.py::test_pinned_image_resolves_opencode_session_sdk_param`).
    It proves the nine names become `extra_headers`.

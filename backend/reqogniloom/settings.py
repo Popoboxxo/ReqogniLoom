@@ -16,6 +16,7 @@ Environment variables (see .env.example for full list):
 """
 from __future__ import annotations
 
+import os
 from datetime import timedelta
 from pathlib import Path
 
@@ -64,6 +65,115 @@ def _get_required_secret(key: str) -> str:
         )
     return value
 
+
+# ---------------------------------------------------------------------------
+# Weak-secret rejection (security audit finding #2 — CWE-798/CWE-1188)
+# ---------------------------------------------------------------------------
+# ``_get_required_secret`` only rejects EMPTY values, so a deployment that
+# copies ``.env.example`` verbatim used to boot with a publicly known
+# ``SECRET_KEY`` / ``AUTH_JWT_SECRET``. ``SECRET_KEY`` is not just Django
+# configuration: it signs MFA challenges (auth_tenancy/services/mfa.py),
+# workflow seals (workflow/signature_gate.py) and import-idempotency
+# fingerprints (application/import_idempotency.py). A known value turns all of
+# those from a barrier into a formality; a known ``AUTH_JWT_SECRET`` makes every
+# HS256 access token forgeable — including its ``tenant_id``/``user_id`` claims.
+
+_SECRET_MIN_LENGTH = 32
+
+# Build-only marker, not a deployment secret: ``backend/Dockerfile`` runs
+# ``manage.py collectstatic`` with throwaway values (``SECRET_KEY=build-only-dummy``
+# and friends) because that step only needs *importable* settings — the values are
+# never baked into the image environment. Rejecting this exact sentinel would
+# break the image build, so it is exempt from the strength gate. Any other value —
+# including the ``.env.example`` placeholders — is still checked. Moving the build
+# to an explicit ``SECRET_STRENGTH_CHECK=off`` switch would remove this last
+# exception (see the report); until then it is pinned by
+# reqogniloom/tests/test_secret_strength.py.
+_BUILD_ONLY_SECRETS: frozenset[str] = frozenset({"build-only-dummy"})
+
+# Case-insensitive substrings that only ever occur in documentation templates,
+# local dev fallbacks or CI fixtures. Kept as markers (not exact values) so a
+# rotated placeholder still matches.
+_WEAK_SECRET_MARKERS: tuple[str, ...] = (
+    "change-me",
+    "change_me",
+    "changeme",
+    "change-in-production",
+    "your-secret",
+    "yoursecret",
+    "replace-me",
+    "placeholder",
+    "insecure",
+    "dev-secret",
+    "test-secret",
+)
+
+
+def _is_weak_secret(value: str) -> bool:
+    """True when ``value`` is too short or carries a known placeholder marker.
+
+    A pure helper on purpose: the decision must be testable without re-importing
+    Django settings (the module-level gate below is evaluated once, at import).
+
+    The image build's ``collectstatic`` sentinel is the only exemption — see
+    ``_BUILD_ONLY_SECRETS``.
+    """
+    candidate = value.strip()
+    if candidate in _BUILD_ONLY_SECRETS:
+        return False
+    candidate = candidate.casefold()
+    if len(candidate) < _SECRET_MIN_LENGTH:
+        return True
+    return any(marker in candidate for marker in _WEAK_SECRET_MARKERS)
+
+
+def _is_production_secret_context(django_env: str, settings_module: str) -> bool:
+    """Decide whether the weak-secret gate applies to this process.
+
+    Enforcement is deliberately keyed on ``DJANGO_ENV`` (the deployment gate that
+    already forces ``DEBUG=False`` in production) *and* on a non-test settings
+    module — NOT on ``DEBUG`` itself. Two independent reasons:
+
+    * ``DEBUG`` is False in the test suite as well: pytest-django imports this
+      module with ``DJANGO_ENV`` unset (``= production``) while requesting
+      ``DEBUG=True``, so ``DEBUG`` resolves to False there. A ``DEBUG``-based
+      gate would reject the suite's intentionally short fixtures.
+    * ``DJANGO_ENV`` is the documented deployment switch: the dev overlay sets
+      ``development`` (weak dev fallback tolerated), the shipped default is
+      ``production`` (gate active).
+
+    ``reqogniloom.settings_test`` is exempt because it is the test-only module
+    (fixed test database, LocMemCache, eager Celery, ``DEBUG=True``) and cannot
+    serve as a production configuration.
+    """
+    if django_env in _NON_PROD_ENVS:
+        return False
+    return settings_module.rsplit(".", 1)[-1] != "settings_test"
+
+
+def _validate_secret_strength(key: str, value: str, *, enforce: bool) -> None:
+    """Raise ``ImproperlyConfigured`` for a weak secret in a production context.
+
+    Args:
+        key: Environment variable name, used verbatim in the error message.
+        value: The configured secret value.
+        enforce: False in dev/test contexts — the check is a no-op then.
+
+    Raises:
+        ImproperlyConfigured: If ``enforce`` is set and the value is weak.
+    """
+    if not enforce or not _is_weak_secret(value):
+        return
+    raise ImproperlyConfigured(
+        f"{key} is set to a weak or placeholder value (minimum {_SECRET_MIN_LENGTH} "
+        f"characters, no CHANGE-ME/dev-secret/test-secret markers) in a production "
+        f"deployment. This value is publicly known from .env.example/CI and would "
+        f"undermine token signing, MFA challenges and workflow seals.\n"
+        f"Run `bash scripts/setup.sh` or generate a value with:\n"
+        f'  python -c "import secrets; print(secrets.token_urlsafe(64))"\n'
+        f"For a non-production deployment set DJANGO_ENV=development|dev|local|test."
+    )
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -83,6 +193,13 @@ DJANGO_ENV: str = config("DJANGO_ENV", default="production").strip().lower()
 _NON_PROD_ENVS = {"development", "dev", "local", "test"}
 _debug_requested: bool = config("DEBUG", default=False, cast=bool)
 DEBUG: bool = _debug_requested and DJANGO_ENV in _NON_PROD_ENVS
+# Weak-secret gate (audit finding #2), evaluated once at import. See
+# ``_is_production_secret_context`` for why DJANGO_ENV — not DEBUG — decides and
+# why the test settings module is exempt.
+_SECRET_STRENGTH_ENFORCED: bool = _is_production_secret_context(
+    DJANGO_ENV, os.environ.get("DJANGO_SETTINGS_MODULE", "")
+)
+_validate_secret_strength("SECRET_KEY", SECRET_KEY, enforce=_SECRET_STRENGTH_ENFORCED)
 # Deliberately decoupled from DEBUG: some deployments run with DEBUG=False
 # (the correct production default, REQ-115) but are only reachable over plain
 # HTTP (e.g. an internal/sandbox IP with no TLS-terminating reverse proxy).
@@ -1034,6 +1151,11 @@ SPECTACULAR_SETTINGS = {
 # in all environments (both test and production).
 # ---------------------------------------------------------------------------
 AUTH_JWT_SECRET: str = _get_required_secret("AUTH_JWT_SECRET")
+# Same weak-secret gate as SECRET_KEY (audit finding #2): a known HS256 secret
+# makes every access token forgeable, including its tenant_id/user_id claims.
+_validate_secret_strength(
+    "AUTH_JWT_SECRET", AUTH_JWT_SECRET, enforce=_SECRET_STRENGTH_ENFORCED
+)
 
 # SA-34 (SYSTEMAUDIT-2026-08-27 §4.6 F11) — server-side pepper for API-key
 # hashes. Stored ONLY here / in the environment, never in a database column:

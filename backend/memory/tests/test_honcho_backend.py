@@ -41,6 +41,22 @@ class ServerError(Exception):
     """
 
 
+class NotFoundError(Exception):
+    """Stand-in for the Honcho SDK's 404 exception (a conclusion is gone).
+
+    Not imported from ``honcho.http.exceptions`` for the same reason as
+    :class:`ServerError`; ``backend._is_conclusion_gone_error`` recognises it by
+    class name, which is exactly the fallback that keeps the delete retry
+    convergent without the SDK's types.
+    """
+
+
+class _GoneError(Exception):
+    """404-shaped transport error: the server answered ``404 Not Found``."""
+
+    status_code = 404
+
+
 def _conclusion(entry_id: str, content: str, level: str = "explicit"):
     """Minimal stand-in for honcho's ``Conclusion`` (only the fields we read).
 
@@ -1540,6 +1556,182 @@ class TestHonchoForget:
 
         workspaces = [c.kwargs["workspace_id"] for c in honcho_cls.call_args_list]
         assert workspaces == [f"reqogniloom_{tenant_a}", f"reqogniloom_{tenant_b}"]
+
+
+class TestHonchoWriteMirrorCompensation:
+    """The conclusion and the local mirror row are written as one compensated
+    unit.
+
+    The conclusion is created first (it is the external source of truth), so a
+    failing mirror insert used to leave an external observation that nothing in
+    ``mem_memory_entry`` references: it is invisible to ``list_entries``, it
+    cannot be reached by ``delete_entry`` (no ``backend_ref`` resolves it) and
+    every retry creates a second one. The write path now compensates.
+    """
+
+    @pytest.mark.django_db
+    def test_a_failing_mirror_insert_discards_the_conclusion_it_just_created(
+        self, caplog
+    ):
+        from memory.models import MemoryEntry
+
+        with active_tenant() as tenant:
+            backend, client = _backend_with_mock_client()
+            user = make_user(tenant)
+            client.peer(f"{tenant.id}_{user.id}").conclusions.create.return_value = [
+                _conclusion("nano-orphan", "some fact")
+            ]
+
+            with mock.patch(
+                "memory.honcho_backend.MemoryEntry.objects.create",
+                side_effect=RuntimeError("mirror insert failed"),
+            ):
+                with pytest.raises(RuntimeError, match="mirror insert failed"):
+                    backend.write(tenant.id, "user", user.id, "some fact")
+
+            deleted = [c.args[0] for c in client._http.delete.call_args_list]
+            assert any(path.endswith("/conclusions/nano-orphan") for path in deleted), (
+                "the conclusion this call created must be deleted again, or the "
+                "engine keeps an entry no backend_ref can address"
+            )
+            assert (
+                MemoryEntry.objects.filter(scope="user", user_id=user.id).count() == 0
+            )
+            # The Deriver must not learn from content whose write was reported
+            # as failed: the message publish runs after the mirror row.
+            client.session.assert_not_called()
+            # Logging must never leak memory content (it is user data).
+            assert "some fact" not in caplog.text
+
+    @pytest.mark.django_db
+    def test_a_failing_compensation_does_not_mask_the_mirror_error(self, caplog):
+        with active_tenant() as tenant:
+            backend, client = _backend_with_mock_client()
+            user = make_user(tenant)
+            client.peer(f"{tenant.id}_{user.id}").conclusions.create.return_value = [
+                _conclusion("nano-orphan", "some fact")
+            ]
+            client._http.delete.side_effect = ServerError("engine unreachable")
+
+            with mock.patch(
+                "memory.honcho_backend.MemoryEntry.objects.create",
+                side_effect=RuntimeError("mirror insert failed"),
+            ):
+                with pytest.raises(RuntimeError, match="mirror insert failed"):
+                    backend.write(tenant.id, "user", user.id, "some fact")
+
+            # The residue is logged (an orphan may remain) instead of silently
+            # replacing the caller's own failure with the cleanup failure.
+            assert "orphan" in caplog.text
+            assert "some fact" not in caplog.text
+
+
+class TestHonchoExternalFirstDelete:
+    """Deletes reach the external store BEFORE the local mirror row goes.
+
+    ``backend_ref`` is the only handle a retry has on the external conclusion,
+    so destroying the row first (the old order) made any failed engine call an
+    unretryable DSGVO gap. These tests pin the new order and the convergence
+    that makes a retry after a partially successful batch possible.
+    """
+
+    @pytest.mark.django_db
+    def test_a_failed_external_delete_keeps_the_row_and_a_retry_succeeds(self):
+        from memory.models import MemoryEntry
+
+        with active_tenant() as tenant:
+            backend, client = _backend_with_mock_client()
+            user = make_user(tenant)
+            client.peer(f"{tenant.id}_{user.id}").conclusions.create.return_value = [
+                _conclusion("nano-keep", "fact")
+            ]
+            ref = backend.write(tenant.id, "user", user.id, "fact")
+            client._http.delete.side_effect = ServerError("engine down")
+
+            with pytest.raises(ServerError):
+                backend.delete_entry(tenant.id, ref.entry_id)
+
+            row = MemoryEntry.objects.filter(id=ref.entry_id).first()
+            assert row is not None, "the mirror row must survive a failed delete"
+            assert row.backend_ref == "nano-keep"
+
+            client._http.delete.side_effect = None
+            assert backend.delete_entry(tenant.id, ref.entry_id) is True
+            assert not MemoryEntry.objects.filter(id=ref.entry_id).exists()
+
+    @pytest.mark.django_db
+    def test_an_already_deleted_conclusion_still_removes_the_row(self):
+        """A 404 proves the deletion goal; raising on it would block every
+        retry that follows a partially successful external delete."""
+        from memory.models import MemoryEntry
+
+        with active_tenant() as tenant:
+            backend, client = _backend_with_mock_client()
+            user = make_user(tenant)
+            client.peer(f"{tenant.id}_{user.id}").conclusions.create.return_value = [
+                _conclusion("nano-gone", "fact")
+            ]
+            ref = backend.write(tenant.id, "user", user.id, "fact")
+            client._http.delete.side_effect = NotFoundError("conclusion not found")
+
+            assert backend.delete_entry(tenant.id, ref.entry_id) is True
+            assert not MemoryEntry.objects.filter(id=ref.entry_id).exists()
+
+    @pytest.mark.django_db
+    def test_delete_scope_keeps_every_row_when_an_external_delete_fails(self):
+        from memory.models import MemoryEntry
+
+        with active_tenant() as tenant:
+            backend, client = _backend_with_mock_client()
+            user = make_user(tenant)
+            peer = client.peer(f"{tenant.id}_{user.id}")
+            peer.conclusions.create.side_effect = [
+                [_conclusion("nano-one", "one")],
+                [_conclusion("nano-two", "two")],
+            ]
+            backend.write(tenant.id, "user", user.id, "one")
+            backend.write(tenant.id, "user", user.id, "two")
+
+            client._http.delete.side_effect = ServerError("engine down")
+            with pytest.raises(ServerError):
+                backend.delete_scope(tenant.id, "user", user.id)
+
+            assert client._http.delete.call_count == 2, "every ref is attempted"
+            refs = set(
+                MemoryEntry.objects.filter(scope="user", user_id=user.id).values_list(
+                    "backend_ref", flat=True
+                )
+            )
+            assert refs == {"nano-one", "nano-two"}
+
+    @pytest.mark.django_db
+    def test_delete_scope_retry_converges_after_a_partial_external_delete(self):
+        """One external delete succeeds, the next fails -> retry must finish.
+
+        The retry re-addresses the conclusion the first attempt already removed;
+        a 404 there is success, not a permanent blocker.
+        """
+        from memory.models import MemoryEntry
+
+        with active_tenant() as tenant:
+            backend, client = _backend_with_mock_client()
+            user = make_user(tenant)
+            peer = client.peer(f"{tenant.id}_{user.id}")
+            peer.conclusions.create.side_effect = [
+                [_conclusion("nano-one", "one")],
+                [_conclusion("nano-two", "two")],
+            ]
+            backend.write(tenant.id, "user", user.id, "one")
+            backend.write(tenant.id, "user", user.id, "two")
+
+            client._http.delete.side_effect = [None, ServerError("engine down")]
+            with pytest.raises(ServerError):
+                backend.delete_scope(tenant.id, "user", user.id)
+            assert MemoryEntry.objects.filter(scope="user", user_id=user.id).count() == 2
+
+            client._http.delete.side_effect = [_GoneError(), None]
+            assert backend.delete_scope(tenant.id, "user", user.id) == 2
+            assert MemoryEntry.objects.filter(scope="user", user_id=user.id).count() == 0
 
 
 class TestHonchoBackendRegistration:
