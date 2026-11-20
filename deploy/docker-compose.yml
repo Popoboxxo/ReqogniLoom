@@ -1485,9 +1485,17 @@ services:
         # still set when Honcho reads its settings.
         # Issue #1247: apply the upstream #1441 backport BEFORE src.config is
         # imported. Idempotent (docker restart keeps the container layer).
+        # FAIL CLOSED: a missing mount means the #1441 fix is silently absent
+        # and dialectic/DREAM calls drop `x-opencode-session` again (audit
+        # finding #1). Refuse to start instead of booting half-patched.
         _patch = "/tmp/honcho-patch/apply_patch.py"
-        if os.path.isfile(_patch):
-            exec(compile(open(_patch).read(), _patch, "exec"))
+        if not os.path.isfile(_patch):
+            raise SystemExit(
+                "[honcho] FATAL: " + _patch + " is missing — the #1247 "
+                "backport mount (deploy/honcho-patch:/tmp/honcho-patch:ro) is "
+                "gone. Fix the volume mount; refusing to start without the fix."
+            )
+        exec(compile(open(_patch).read(), _patch, "exec"))
         os.execv("/app/docker/entrypoint.sh", ["/app/docker/entrypoint.sh"])
         PY
     extra_hosts:
@@ -1607,9 +1615,16 @@ services:
                 flush=True,
             )
         # Issue #1247: same upstream backport as in the `honcho` service.
+        # Same FAIL-CLOSED mount check as the `honcho` service above — keep the
+        # block identical apart from the log tag and the final exec target.
         _patch = "/tmp/honcho-patch/apply_patch.py"
-        if os.path.isfile(_patch):
-            exec(compile(open(_patch).read(), _patch, "exec"))
+        if not os.path.isfile(_patch):
+            raise SystemExit(
+                "[honcho-deriver] FATAL: " + _patch + " is missing — the #1247 "
+                "backport mount (deploy/honcho-patch:/tmp/honcho-patch:ro) is "
+                "gone. Fix the volume mount; refusing to start without the fix."
+            )
+        exec(compile(open(_patch).read(), _patch, "exec"))
         os.execv(
             "/app/.venv/bin/python",
             ["/app/.venv/bin/python", "-m", "src.deriver"],

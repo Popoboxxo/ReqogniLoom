@@ -95,15 +95,16 @@ from django.db import transaction
 from django.db.models import Model
 
 from application.ai_proposal_service import (
+    ProposalAuthoring,
     proposal_report,
     require_proposal_support,
     resolve_proposal_authoring,
     verify_proposal_state,
 )
 from application.base import NotFoundError, ServiceBase, ValidationError
-from application.test_steps import normalize_steps
 from application.glossary_service import GlossaryService
 from application.models import Risk
+from application.test_steps import normalize_steps
 from auth_tenancy.context import AuthContext
 from llm_adapter.providers import truncate_prompt_content
 from persistence.models import (
@@ -609,6 +610,19 @@ def _as_draft_text(value: Any, field_label: str) -> str:
     if isinstance(value, str):
         return value
     raise ValidationError(f"{field_label} must be a string when present.")
+
+
+def _draft_failure_detail(exc: BaseException) -> str:
+    """Bounded, non-leaking error text for an UNEXPECTED per-draft failure.
+
+    The batch write seams (``persist_glossary_drafts`` / ``persist_risk_drafts``)
+    answer per-draft failures inside the normal 200/201 response, so this text
+    reaches API/MCP clients. A raw ``IntegrityError``/``DatabaseError`` message
+    names constraints and can quote SQL, so the class name (enough for a client
+    to tell "not persisted" from a domain rejection) is all that is surfaced;
+    the full traceback goes to the log at the call site.
+    """
+    return f"{type(exc).__name__}: the draft could not be persisted"
 
 
 def _derivation_version(artifact_id: str) -> int:
@@ -1955,7 +1969,7 @@ class AiDerivationService(ServiceBase):
         """
         try:
             state, proposed_by = verify_proposal_state(created_id, item_type)
-        except Exception:  # noqa: BLE001 — reporting must not fail the write
+        except Exception:
             logger.warning(
                 "Could not read back the workflow state of %s %s to verify its "
                 "proposal status.",
@@ -2338,6 +2352,7 @@ class AiDerivationService(ServiceBase):
         synonyms: list[str],
         abbreviation: str,
         policy: str = "manual",
+        authoring: ProposalAuthoring | None = None,
     ) -> dict[str, Any]:
         """Persist one derived GlossaryTerm draft (Phase 3, Task 4).
 
@@ -2377,6 +2392,15 @@ class AiDerivationService(ServiceBase):
         catches ``ValidationError`` from every other write-mode helper, so no
         extra handling is needed here.
 
+        Args:
+            authoring: The batch's already-resolved proposal authoring
+                (:meth:`proposal_authoring`). :meth:`persist_glossary_drafts`
+                resolves it ONCE for the whole batch and hands it in, so a
+                batch of N drafts costs one workflow-definition read instead of
+                N. ``None`` (the default) resolves it here, preserving this
+                helper's guarantee that *every* caller gets a proposal attempt
+                without having to remember it.
+
         Returns:
             ``{"id": <uuid-str>, "term": str, "status": <final status string>,
             "proposal": {...}}``. The ``proposal`` block reports the workflow
@@ -2386,13 +2410,14 @@ class AiDerivationService(ServiceBase):
         self._set_tenant_context(ctx)
 
         # Issue #1089: a derived GlossaryTerm is AI content and must be born a
-        # reviewable proposal. Resolved HERE rather than in the tool layer so
-        # every caller of this helper gets it — this helper is the creation
-        # path for GlossaryTerm, exactly as ``_write_derived_entity`` is for
-        # the trace-linked types.
-        authoring = resolve_proposal_authoring(
-            ctx, item_type="GlossaryTerm", workspace_id=workspace_id
-        )
+        # reviewable proposal. Resolved HERE (or handed in by the batch seam)
+        # rather than in the tool layer so every caller of this helper gets it —
+        # this helper is the creation path for GlossaryTerm, exactly as
+        # ``_write_derived_entity`` is for the trace-linked types.
+        if authoring is None:
+            authoring = resolve_proposal_authoring(
+                ctx, item_type="GlossaryTerm", workspace_id=workspace_id
+            )
 
         created = GlossaryService().create(
             ctx=authoring.create_context,
@@ -2548,6 +2573,29 @@ class AiDerivationService(ServiceBase):
         same response envelope. An empty ``drafts`` list persists nothing and
         is still a success (mirrors the MCP loop it replaces).
 
+        Proposal gate — deliberately NOT made a hard failure here (see the
+        requirement accept paths :meth:`persist_derived_requirements` /
+        :meth:`persist_decomposed_requirements`, which call
+        :func:`application.ai_proposal_service.require_proposal_support`): this
+        seam is the batch "save what the reviewer accepted" path, and a
+        workspace without a ``proposed`` state (``minimal`` preset, or an admin
+        who removed the state) must still be able to store the drafts it just
+        showed its user. The downgrade is therefore *reported*, not silent:
+
+          * every ``written`` entry carries the ``proposal`` block, whose
+            ``supported``/``reason``/``is_proposal`` fields say that the row is
+            a plain draft and why (``_proposal_block``);
+          * the batch resolves the authoring ONCE up front and logs the
+            downgrade (``logger.info``), so an operator can see it server-side
+            too.
+
+        That asymmetry with the requirement paths is intentional and pinned by
+        ``rest_api/tests/test_ai_derivation_rest_parity_1358.py::
+        test_glossary_write_on_a_minimal_workspace_reports_no_proposal``.
+        Turning it into a 4xx would break the minimal-rigor preset, where the
+        glossary is a light-weight backlog artefact rather than a formal
+        V-model proposal.
+
         Args:
             ctx: Authenticated, tenant-scoped context.
             workspace_id: Workspace the drafts were derived for.
@@ -2565,6 +2613,17 @@ class AiDerivationService(ServiceBase):
             (e.g. a colliding ``(workspace, term)`` pair) never discards the
             drafts already written (REQ-L3-PL003-002).
 
+            ``failed`` is the honest answer for *every* per-draft failure, not
+            only the domain ones: a draft rejected by
+            :class:`~application.base.ValidationError` /
+            :class:`~application.base.NotFoundError` keeps its own message,
+            while an unexpected error (e.g. an ``IntegrityError`` from a
+            parallel duplicate) is logged with its traceback and reported as a
+            bounded ``"<ExceptionType>: the draft could not be persisted"``.
+            Aborting the whole batch on such a one-off would return a 500 for
+            drafts that are already committed — the partial state this response
+            contract exists to avoid.
+
         Raises:
             ValidationError: ``policy`` is invalid, the preview is malformed,
                 or the workspace does not exist for this tenant.
@@ -2574,6 +2633,14 @@ class AiDerivationService(ServiceBase):
 
         workspace = self._get_workspace(workspace_id)
         drafts = self._preview_drafts(preview, "derive_glossary_from_workspace")
+
+        # Resolved once per batch (one definition read instead of one per
+        # draft) and reported rather than enforced — see the class docstring
+        # note on the deliberate downgrade.
+        authoring = self.proposal_authoring(
+            ctx, item_type="GlossaryTerm", workspace_id=workspace.id
+        )
+        self._log_proposal_downgrade("GlossaryTerm", workspace.id, authoring, len(drafts))
 
         written: list[dict[str, Any]] = []
         failed: list[dict[str, Any]] = []
@@ -2598,10 +2665,20 @@ class AiDerivationService(ServiceBase):
                         ),
                         abbreviation=str(entry.get("abbreviation", "") or ""),
                         policy=policy,
+                        authoring=authoring,
                     )
                 )
             except (ValidationError, NotFoundError) as exc:
                 failed.append({"draft": draft, "error": str(exc)})
+            except Exception as exc:
+                logger.exception(
+                    "AI derivation: persisting the glossary draft %d/%d failed "
+                    "unexpectedly for workspace=%s",
+                    len(written) + len(failed) + 1,
+                    len(drafts),
+                    workspace.id,
+                )
+                failed.append({"draft": draft, "error": _draft_failure_detail(exc)})
 
         response: dict[str, Any] = {
             "written": written,
@@ -2645,6 +2722,12 @@ class AiDerivationService(ServiceBase):
             ``failed`` list when individual drafts were rejected. Each draft
             is written in its own atomic transaction (REQ-L3-PL003-002).
 
+            Like :meth:`persist_glossary_drafts`, ``failed`` covers EVERY
+            per-draft failure: domain errors keep their own message, an
+            unexpected one is logged and reported as a bounded
+            ``"<ExceptionType>: the draft could not be persisted"`` instead of
+            aborting the batch after some drafts are already committed.
+
         Raises:
             ValidationError: ``policy`` is invalid or the preview is
                 malformed.
@@ -2664,6 +2747,11 @@ class AiDerivationService(ServiceBase):
         authoring = self.proposal_authoring(
             ctx, item_type="Risk", workspace_id=workspace_id
         )
+        # Same deliberate downgrade as the glossary seam: the batch reports an
+        # unsupported proposal gate (per-item ``proposal`` block) instead of
+        # failing a minimal-preset workspace outright. Logged once per batch so
+        # the downgrade is visible server-side too.
+        self._log_proposal_downgrade("Risk", workspace_id, authoring, len(drafts))
 
         from application.risk_service import RiskService
 
@@ -2710,6 +2798,15 @@ class AiDerivationService(ServiceBase):
                 )
             except (ValidationError, NotFoundError) as exc:
                 failed.append({"draft": draft, "error": str(exc)})
+            except Exception as exc:
+                logger.exception(
+                    "AI derivation: persisting the risk draft %d/%d failed "
+                    "unexpectedly for workspace=%s",
+                    len(written) + len(failed) + 1,
+                    len(drafts),
+                    workspace_id,
+                )
+                failed.append({"draft": draft, "error": _draft_failure_detail(exc)})
 
         response: dict[str, Any] = {
             "written": written,
@@ -2783,6 +2880,39 @@ class AiDerivationService(ServiceBase):
             "written": written,
             "is_mock_fallback": bool(preview.get("is_mock_fallback", False)),
         }
+
+    @staticmethod
+    def _log_proposal_downgrade(
+        item_type: str,
+        workspace_id: UUID | str,
+        authoring: ProposalAuthoring,
+        draft_count: int,
+    ) -> None:
+        """Report (never enforce) a batch write without a proposal gate.
+
+        The requirement accept paths call
+        :func:`application.ai_proposal_service.require_proposal_support` and
+        hard-fail, because their whole contract is "create a reviewable
+        proposal". The batch seams must not: a ``minimal``-preset workspace has
+        no ``proposed`` state and still has to be able to save the drafts its
+        user just approved, and a hard 4xx for the batch would also discard the
+        drafts that are already valid.
+
+        So the downgrade is made explicit in two places instead of failing:
+        the per-item ``proposal`` block in the response (see
+        :meth:`_proposal_block`) and this log line. Empty batches are not
+        logged -- nothing was persisted, so there is nothing to report.
+        """
+        if draft_count <= 0 or authoring.supported:
+            return
+        logger.info(
+            "AI derivation: %d %s draft(s) persisted as plain drafts (not "
+            "reviewable proposals) for workspace=%s — %s",
+            draft_count,
+            item_type,
+            workspace_id,
+            authoring.reason,
+        )
 
     @staticmethod
     def _preview_drafts(preview: Any, flow: str) -> list[dict[str, Any]]:
@@ -2946,7 +3076,7 @@ class AiDerivationService(ServiceBase):
                     workspace_id=workspace_id,
                 )
                 current_state = result.new_state
-        except Exception:  # noqa: BLE001 — auto-approve must never break a write
+        except Exception:
             logger.warning(
                 "Auto-approve stopped for %s %s at state %s",
                 item_type,
@@ -3318,7 +3448,7 @@ class AiDerivationService(ServiceBase):
             # eviction (nothing was ever written under it), and keeps the
             # returned key consistent with every other post-computation path.
             return f"{MOCK_FALLBACK_MARKER}{result}", cache_key
-        except Exception as error:  # noqa: BLE001 — see fix #116 docstring note above
+        except Exception as error:
             # fix #116: circuit-breaker/timeout failures (LlmTransportError),
             # missing-SDK / SDK errors (RuntimeError) and any other provider
             # exception (rate limits, malformed SDK responses, ...) must not

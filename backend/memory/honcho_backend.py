@@ -643,6 +643,48 @@ def _is_engine_unavailable_error(exc: BaseException) -> bool:
     return type(exc).__name__ in _UNAVAILABLE_EXCEPTION_NAMES
 
 
+#: Exception CLASS NAMES that mean "this conclusion does not exist (anymore)",
+#: matched by name for the same reason as :data:`_UNAVAILABLE_EXCEPTION_NAMES`
+#: (the optional SDK is not importable in every environment). The HTTP status
+#: check in :func:`_is_conclusion_gone_error` is the primary signal; these names
+#: only cover SDK doubles and a future rename of the 404 exception.
+_GONE_EXCEPTION_NAMES = frozenset({"NotFoundError"})
+
+
+def _is_conclusion_gone_error(exc: BaseException) -> bool:
+    """Whether *exc* means "the conclusion is already gone" (404 on a delete).
+
+    A delete is idempotent in intent: once the conclusion is gone, the goal of
+    the call is reached. Treating 404 as success is what makes a RETRY of
+    :meth:`HonchoMemoryBackend.delete_entry`/:meth:`~HonchoMemoryBackend.delete_scope`
+    converge: both now delete externally first, so a retry after a partially
+    successful batch re-addresses conclusions that the previous attempt already
+    removed. Without this tolerance such a retry would fail forever on the
+    already-deleted ids and could never reach the local rows.
+
+    Deliberately narrow: a 5xx/transport failure is NOT "gone" -- that one must
+    keep the local mirror row (and its ``backend_ref``) alive so the caller can
+    try again.
+    """
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None)
+    if status == 404:
+        return True
+
+    try:
+        from honcho.http import exceptions as honcho_errors  # lazy, optional dependency
+
+        not_found = getattr(honcho_errors, "NotFoundError", None)
+    except Exception:  # noqa: BLE001 - the name fallback decides without the SDK
+        not_found = None
+    if isinstance(not_found, type) and isinstance(exc, not_found):
+        return True
+
+    return type(exc).__name__ in _GONE_EXCEPTION_NAMES
+
+
 def _engine_unavailable_detail(exc: BaseException) -> str:
     """Build the bounded ``detail`` for a failed engine write (#1823).
 
@@ -1320,6 +1362,41 @@ class HonchoMemoryBackend(MemoryBackend):
         )
         scope.delete(str(conclusion_id))
 
+    def _discard_conclusion_best_effort(
+        self, tenant_id: UUID, conclusion_id: str, *, context: str
+    ) -> bool:
+        """Best-effort removal of a conclusion this backend just created.
+
+        Compensation for :meth:`write`'s mirror step: the caller is already
+        handling a failure, so an error here must never mask the original one --
+        the method therefore never raises. Both outcomes are logged (the id is a
+        nanoid, not memory content): success at warning, because a write that
+        was undone is worth seeing; failure at error, because a conclusion may
+        remain in the engine as an orphan and that is the residue an operator
+        has to clean up.
+        """
+        try:
+            self._delete_conclusion(tenant_id, conclusion_id)
+        except Exception as exc:  # noqa: BLE001 - never mask the caller's error
+            logger.error(
+                "honcho memory: could not discard conclusion %s for tenant=%s "
+                "after %s failed (error type %s); it may remain as an orphan "
+                "in the engine",
+                conclusion_id,
+                tenant_id,
+                context,
+                type(exc).__name__,
+            )
+            return False
+        logger.warning(
+            "honcho memory: discarded conclusion %s for tenant=%s because %s "
+            "failed",
+            conclusion_id,
+            tenant_id,
+            context,
+        )
+        return True
+
     # -- session / message plumbing (F6) --------------------------------
 
     def _ensure_session(self, tenant_id: UUID, scope: str, scope_id: UUID) -> Any:
@@ -1568,6 +1645,15 @@ class HonchoMemoryBackend(MemoryBackend):
         is best-effort -- a missing embedding provider leaves the column NULL
         and the row is still written.
 
+        The two stores are written in ONE compensated sequence, never as a
+        silent half-state: if the local mirror insert fails, the conclusion this
+        call just created is deleted again (best-effort, see
+        :meth:`_discard_conclusion_best_effort`) and the original error is
+        re-raised. Without that compensation the engine would keep an
+        observation that no ``backend_ref`` points at -- invisible to
+        ``list_entries``/``delete_entry`` and duplicated by every retry, since a
+        retry has no way to recognise the orphan.
+
         ``source_event_id`` IS now preserved (on the local mirror), which the
         pre-#1002 implementation dropped: Honcho's create payload still only
         accepts ``content``/``session_id``, but provenance now has a home in
@@ -1576,10 +1662,11 @@ class HonchoMemoryBackend(MemoryBackend):
         F6 adds one step: the same content is also published as a *message* in
         the scope's session (see :meth:`_publish_engine_message`), which is what
         gives Honcho's Deriver, peer card, summary and dream something to work
-        with. That step is fail-open and runs only AFTER the conclusion -- and,
-        deliberately, only after the no-object guard, so a rejected conclusion
-        never leaves an orphan observation in the engine. Both the guard and the
-        nanoid-in-``backend_ref`` contract are unchanged by F6.
+        with. That step is fail-open and runs LAST -- after the conclusion, the
+        no-object guard and the local mirror row -- so neither a rejected
+        conclusion nor a failed mirror insert leaves an orphan observation the
+        Deriver could learn from. Both the guard and the nanoid-in-``backend_ref``
+        contract are unchanged by F6.
 
         Raises:
             MemoryBackendUnavailableError: issue #1823 -- the engine could not
@@ -1617,6 +1704,35 @@ class HonchoMemoryBackend(MemoryBackend):
         if not created:
             raise RuntimeError("Honcho accepted the conclusion but returned no object")
         conclusion = created[0]
+        embedding, embedding_model = _safe_generate_embedding_with_model(content)
+        try:
+            with _tenant_context(tenant_id):
+                entry = MemoryEntry.objects.create(
+                    tenant_id=tenant_id,
+                    content=content,
+                    embedding=embedding,
+                    embedding_model=embedding_model,
+                    contributor_user_id=contributor_user_id,
+                    source_event_id=source_event_id,
+                    source_session_id=source_session_id,
+                    language=language,
+                    confidence=confidence,
+                    entity_type=entity_type,
+                    backend_ref=backend_ref or str(conclusion.id),
+                    **_scope_filter(scope, scope_id),
+                )
+        except Exception:
+            # The conclusion is already accepted by the engine, so a failed
+            # mirror insert would leave an external observation that no
+            # ``mem_memory_entry`` row references: it cannot be listed, cannot
+            # be deleted through ``delete_entry`` (no ``backend_ref`` to resolve
+            # it) and a retry writes a SECOND one. Compensate, then let the
+            # original error through unchanged -- the caller must still see that
+            # its write failed.
+            self._discard_conclusion_best_effort(
+                tenant_id, str(conclusion.id), context="the local mirror insert"
+            )
+            raise
         self._publish_engine_message(
             peer,
             tenant_id,
@@ -1629,23 +1745,7 @@ class HonchoMemoryBackend(MemoryBackend):
             language=language,
             confidence=confidence,
         )
-        embedding, embedding_model = _safe_generate_embedding_with_model(content)
-        with _tenant_context(tenant_id):
-            entry = MemoryEntry.objects.create(
-                tenant_id=tenant_id,
-                content=content,
-                embedding=embedding,
-                embedding_model=embedding_model,
-                contributor_user_id=contributor_user_id,
-                source_event_id=source_event_id,
-                source_session_id=source_session_id,
-                language=language,
-                confidence=confidence,
-                entity_type=entity_type,
-                backend_ref=backend_ref or str(conclusion.id),
-                **_scope_filter(scope, scope_id),
-            )
-            return _ref_from_entry(entry)
+        return _ref_from_entry(entry)
 
     def list_entries(
         self,
@@ -1686,9 +1786,19 @@ class HonchoMemoryBackend(MemoryBackend):
         row was removed; the external delete is attempted regardless, so a
         conclusion that predates the mirror (or whose mirror row is already
         gone) still gets deleted.
+
+        Ordering is load-bearing: the EXTERNAL conclusion is deleted first, the
+        local row only after that call succeeded. The old order (local first)
+        destroyed the ``backend_ref`` before the external delete was attempted,
+        so a failed engine call left a conclusion nobody could address again --
+        an unretryable DSGVO gap. Now a failed external delete raises and the
+        mirror row (with its ``backend_ref``) survives, which makes a plain
+        retry sufficient. A conclusion the engine reports as already gone (404)
+        counts as deleted, so retrying after a partially successful run
+        converges instead of failing forever.
         """
         backend_ref: str | None = None
-        removed = False
+        row_id: UUID | None = None
         with _tenant_context(tenant_id):
             uid = _maybe_uuid(entry_id)
             row = MemoryEntry.objects.filter(id=uid).first() if uid is not None else None
@@ -1696,22 +1806,77 @@ class HonchoMemoryBackend(MemoryBackend):
                 row = MemoryEntry.objects.filter(backend_ref=str(entry_id)).first()
             if row is not None:
                 backend_ref = row.backend_ref
-                row.delete()
-                removed = True
+                row_id = row.id
 
-        self._delete_conclusion(tenant_id, backend_ref or str(entry_id))
-        return removed
+        try:
+            self._delete_conclusion(tenant_id, backend_ref or str(entry_id))
+        except Exception as exc:
+            if not _is_conclusion_gone_error(exc):
+                logger.error(
+                    "honcho memory: external delete failed for tenant=%s "
+                    "entry=%s (error type %s); the local mirror row is kept so "
+                    "the delete can be retried",
+                    tenant_id,
+                    row_id or entry_id,
+                    type(exc).__name__,
+                )
+                raise
+
+        if row_id is None:
+            return False
+        with _tenant_context(tenant_id):
+            deleted, _ = MemoryEntry.objects.filter(id=row_id).delete()
+        return deleted > 0
 
     def delete_scope(self, tenant_id: UUID, scope: str, scope_id: UUID) -> int:
-        """Delete every local mirror row for the scope and its Honcho conclusions."""
+        """Delete every local mirror row for the scope and its Honcho conclusions.
+
+        Same ordering rule as :meth:`delete_entry`, applied to the whole batch:
+        every external conclusion is deleted before a single local row goes. If
+        any external delete fails (and is not a 404 the engine reports for an
+        already-deleted conclusion), the local rows -- and with them every
+        ``backend_ref`` -- are kept and the first failure is re-raised, so a
+        retry can finish the job. Deleting locally first would leave the engine
+        holding content this method already reported as deleted.
+        """
         with _tenant_context(tenant_id):
             rows = list(MemoryEntry.objects.filter(**_scope_filter(scope, scope_id)))
-            backend_refs = [r.backend_ref for r in rows]
-            deleted, _ = MemoryEntry.objects.filter(**_scope_filter(scope, scope_id)).delete()
+        backend_refs = [r.backend_ref for r in rows if r.backend_ref]
 
+        failures: list[tuple[str, BaseException]] = []
         for ref in backend_refs:
-            if ref:
+            try:
                 self._delete_conclusion(tenant_id, ref)
+            except Exception as exc:  # noqa: BLE001 - attempted for every ref
+                if _is_conclusion_gone_error(exc):
+                    continue
+                logger.error(
+                    "honcho memory: external delete failed for tenant=%s "
+                    "scope=%s scope_id=%s conclusion=%s (error type %s)",
+                    tenant_id,
+                    scope,
+                    scope_id,
+                    ref,
+                    type(exc).__name__,
+                )
+                failures.append((ref, exc))
+
+        if failures:
+            logger.error(
+                "honcho memory: scope delete aborted for tenant=%s scope=%s "
+                "scope_id=%s -- %d of %d external conclusions could not be "
+                "deleted, so the %d local mirror rows are kept for a retry",
+                tenant_id,
+                scope,
+                scope_id,
+                len(failures),
+                len(backend_refs),
+                len(rows),
+            )
+            raise failures[0][1]
+
+        with _tenant_context(tenant_id):
+            deleted, _ = MemoryEntry.objects.filter(**_scope_filter(scope, scope_id)).delete()
         return deleted
 
     def health(self) -> MemoryHealth:
