@@ -115,7 +115,7 @@
 
 /* Missing coverage is the information this component exists for (ch. 5). */
 .warning {
-  color: var(--color-warning);
+  color: var(--color-warning-text);
   font-size: var(--font-size-sm);
   line-height: 1;
 }

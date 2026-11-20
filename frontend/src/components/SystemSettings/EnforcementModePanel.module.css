@@ -77,7 +77,7 @@
 
 .warningHint {
   font-size: var(--font-size-sm);
-  color: var(--color-warning);
+  color: var(--color-warning-text);
 }
 
 .actions {

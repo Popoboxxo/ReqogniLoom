@@ -242,9 +242,26 @@
     "llm_not_configured": "LLM provider is not configured. AI features are unavailable.",
     "unknown": "Unknown error",
     "boundaryHint": "Please reload the page. If the error persists, give support the reference.",
-    "reference": "Reference"
+    "reference": "Reference",
+    "network": "The server cannot be reached. Please check your network connection.",
+    "timeout": "The request took too long. Please try again.",
+    "rate_limited": "Too many requests. Please wait a moment.",
+    "server": "The server could not process the request. Please try again later."
+  },
+  "notFound": {
+    "heading": "Page not found",
+    "summary": "This address does not belong to any page. It may have been renamed or is out of date.",
+    "backToDashboard": "Back to dashboard"
   },
   "login": {
+    "banner": {
+      "level": {
+        "neutral": "Notice",
+        "info": "Information",
+        "warning": "Warning",
+        "critical": "Critical"
+      }
+    },
     "title": "Sign In",
     "usernameLabel": "Username",
     "usernamePlaceholder": "Enter username...",
@@ -2980,6 +2997,9 @@
     "themes.tenantDefaultSave": "Save as default",
     "themes.tenantDefaultSaveFor": "Save {{target}} as default",
     "themes.tenantDefaultSaved": "Saved",
+    "memory.caption": "Workspace memory overview",
+    "memory.colActions": "Actions",
+    "memory.viz.caption": "Memory entries",
     "memory.heading": "Memory Overview",
     "memory.hint": "Per workspace: memory status, entry counts per tier, last consolidation. Deleting permanently removes workspace memory and the tenant memory of the workspace's current members.",
     "memory.colWorkspace": "Workspace",
@@ -2999,6 +3019,7 @@
     "memory.deleteConfirmButton": "Permanently Delete",
     "memory.noWorkspaces": "No workspaces found.",
     "memory.loadError": "Failed to load memory overview.",
+    "memory.deleteSuccess": "Memory for {{workspace}} deleted.",
     "memory.deleteError": "Delete failed.",
     "memory.viz.heading": "Visualization",
     "memory.viz.hint": "Shows what's actually inside consolidated memory: list, similarity clusters, and a 2D projection of the embeddings.",
@@ -3024,6 +3045,7 @@
     "memory.viz.excludedNoEmbeddingNotice": "{{count}} entries have no embedding yet and do not appear in the Cluster/Scatter views.",
     "memory.viz.clusterLabel": "Cluster {{id}} ({{count}} entries)",
     "memory.viz.scatterAriaLabel": "2D projection of memory embeddings, colored by cluster",
+    "memory.viz.scatterDescription": "Scatter plot of {{count}} entries in {{clusters}} clusters; the legend maps each colour to a cluster.",
     "memorySettings.heading": "System-wide Memory Configuration",
     "memorySettings.hint": "Overrides the environment-variable configuration for the embedding provider and memory backend at runtime. Fields left unset keep using the environment variable.",
     "memorySettings.embeddingProvider": "Embedding Provider",
@@ -3048,6 +3070,8 @@
     "memorySettings.honchoLegacyFieldsHint": "No effect — decision pending.",
     "memorySettings.honchoVersion": "Honcho Version",
     "memorySettings.honchoVersionUnavailable": "Not available",
+    "memorySettings.secretStatusSet": "Status: a secret is configured.",
+    "memorySettings.secretStatusUnset": "Status: no secret configured.",
     "memorySettings.secretSetPlaceholder": "•••••••• (set, overwrite to change)",
     "memorySettings.secretUnsetPlaceholder": "Not set",
     "memorySettings.overrideBadge": "Overridden",
@@ -3075,6 +3099,33 @@
       "reset": "Reset to environment",
       "resetConfirmTitle": "Reset to environment?",
       "resetConfirmBody": "Removes the stored backend selection and every backend setting. The environment variables apply again."
+    },
+    "mismatchReview": {
+      "heading": "Mismatch Review",
+      "filterCapability": "Filter by capability",
+      "allCapabilities": "All capabilities",
+      "filterSubjectType": "Filter by subject type",
+      "allSubjects": "All subjects",
+      "since": "Since",
+      "until": "Until",
+      "empty": "No mismatches recorded in this window — legacy and new decisions agree.",
+      "tableCaption": "Differences between legacy and new permission decisions",
+      "columnTime": "Time",
+      "columnSubject": "Subject",
+      "columnCapability": "Capability",
+      "columnWorkspace": "Workspace",
+      "columnArtifact": "Artifact",
+      "columnLegacy": "Legacy",
+      "columnNew": "New",
+      "tenantWide": "tenant-wide",
+      "allowed": "allowed",
+      "denied": "denied",
+      "page": "Sincee {{page}} / {{total}}"
+    },
+    "unsaved": {
+      "title": "Unsaved changes",
+      "message": "This tab has unsaved changes. Switching tabs discards them.",
+      "confirm": "Discard and switch"
     },
     "pageSummary": "Tenant-wide configuration: administration, workflow, attribute and permission defaults, display and memory.",
     "tabs": {

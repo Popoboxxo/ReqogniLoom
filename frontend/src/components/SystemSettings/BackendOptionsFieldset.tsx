@@ -96,6 +96,7 @@ export function BackendOptionsFieldset({
               <input
                 type="password"
                 data-testid={testId}
+                aria-describedby={`${testId}-status`}
                 placeholder={
                   isSet
                     ? t("systemSettings.memorySettings.secretSetPlaceholder")
@@ -104,6 +105,18 @@ export function BackendOptionsFieldset({
                 value={staged}
                 onChange={(e) => onSecretChange(field.name, e.target.value)}
               />
+              {/* The "is a secret configured" state must not live only in the
+                  placeholder: it disappears as soon as the field is typed into
+                  and is not part of the field's description (WCAG 3.3.2). */}
+              <span
+                id={`${testId}-status`}
+                className={styles.hint}
+                data-testid={`${testId}-status`}
+              >
+                {isSet
+                  ? t("systemSettings.memorySettings.secretStatusSet")
+                  : t("systemSettings.memorySettings.secretStatusUnset")}
+              </span>
               {badge}
             </label>
           );

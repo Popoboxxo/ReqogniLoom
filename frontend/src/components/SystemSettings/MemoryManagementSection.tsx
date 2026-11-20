@@ -11,6 +11,7 @@ import {
   type WorkspaceMemoryOverviewRow,
 } from "../../api/memory";
 import { Dialog } from "../shared/Dialog";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 import styles from "./MemoryManagementSection.module.css";
 
 function formatDate(iso: string | null): string {
@@ -30,6 +31,7 @@ export function MemoryManagementSection(): JSX.Element {
   const [pendingDelete, setPendingDelete] = useState<WorkspaceMemoryOverviewRow | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteNotice, setDeleteNotice] = useState<string | null>(null);
 
   const reload = useCallback((): void => {
     memoryApi
@@ -41,7 +43,9 @@ export function MemoryManagementSection(): JSX.Element {
       })
       .catch((err: unknown) => {
         console.error("MemoryManagementSection: failed to load overview", err);
-        setLoadError(t("systemSettings.memory.loadError"));
+        setLoadError(
+          toUserErrorMessage(err, t, t("systemSettings.memory.loadError"))
+        );
         setHasLoaded(true);
       });
   }, [t]);
@@ -55,12 +59,16 @@ export function MemoryManagementSection(): JSX.Element {
     setIsDeleting(true);
     setDeleteError(null);
     try {
+      const deleted = pendingDelete.workspace_name;
       await memoryApi.deleteSystemWorkspaceMemory(pendingDelete.workspace_id);
       setPendingDelete(null);
+      setDeleteNotice(t("systemSettings.memory.deleteSuccess", { workspace: deleted }));
       reload();
     } catch (err: unknown) {
       console.error("MemoryManagementSection: failed to delete workspace memory", err);
-      setDeleteError(t("systemSettings.memory.deleteError"));
+      setDeleteError(
+        toUserErrorMessage(err, t, t("systemSettings.memory.deleteError"))
+      );
     } finally {
       setIsDeleting(false);
     }
@@ -88,6 +96,11 @@ export function MemoryManagementSection(): JSX.Element {
           {loadError}
         </p>
       )}
+      {deleteNotice && !loadError && (
+        <p role="status" data-testid="memory-management-deleted" className={styles.hint}>
+          {deleteNotice}
+        </p>
+      )}
 
       {!loadError && hasLoaded && rows.length === 0 && (
         <p data-testid="memory-management-empty" className={styles.empty}>
@@ -98,7 +111,7 @@ export function MemoryManagementSection(): JSX.Element {
       {rows.length > 0 && (
         <table className={styles.table} data-testid="memory-management-table">
           <caption className="visually-hidden">
-            {t("common.tableCaption")}
+            {t("systemSettings.memory.caption")}
           </caption>
           <thead>
             <tr>
@@ -110,15 +123,22 @@ export function MemoryManagementSection(): JSX.Element {
               <th scope="col">{t("systemSettings.memory.colContributors")}</th>
               <th scope="col">{t("systemSettings.memory.colStatus")}</th>
               <th scope="col">{t("systemSettings.memory.colLastConsolidated")}</th>
-              <th scope="col" />
+              <th scope="col">
+                <span className="visually-hidden">
+                  {t("systemSettings.memory.colActions")}
+                </span>
+              </th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
               <tr key={row.workspace_id} data-testid={`memory-row-${row.workspace_id}`}>
                 <td>{row.workspace_name}</td>
-                <td aria-label={row.enabled ? t("common.yes", "Yes") : t("common.no", "No")}>
+                <td>
                   {row.enabled ? <Check aria-hidden="true" size={14} /> : "—"}
+                  <span className="visually-hidden">
+                    {row.enabled ? t("common.yes", "Yes") : t("common.no", "No")}
+                  </span>
                 </td>
                 <td>{row.workspace_entry_count}</td>
                 <td>{row.user_entry_count}</td>

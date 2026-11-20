@@ -19,11 +19,7 @@ import {
 import { EnforcementFlipDialog } from "./EnforcementFlipDialog";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import styles from "./EnforcementModePanel.module.css";
-
-function extractErrorMessage(err: unknown): string {
-  const e = err as { error?: { message?: string }; message?: string };
-  return e?.error?.message ?? e?.message ?? String(err);
-}
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 const WINDOW_DAYS = 30;
 
@@ -51,7 +47,7 @@ export function EnforcementModePanel(): JSX.Element {
       const s = await permissionDefaultsApi.getEnforcement(WINDOW_DAYS);
       setStatus(s);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setLoading(false);
     }
@@ -68,7 +64,7 @@ export function EnforcementModePanel(): JSX.Element {
       await permissionDefaultsApi.flipEnforcement("shadow");
       await load();
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setRollingBack(false);
     }

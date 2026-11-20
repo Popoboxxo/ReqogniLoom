@@ -23,11 +23,7 @@ import { useToast } from "../shared/Toast/useToast";
 import { EnforcementModePanel } from "./EnforcementModePanel";
 import { MismatchReviewTable } from "./MismatchReviewTable";
 import styles from "./PermissionDefaultsTab.module.css";
-
-function extractErrorMessage(err: unknown): string {
-  const e = err as { error?: { message?: string }; message?: string };
-  return e?.error?.message ?? e?.message ?? String(err);
-}
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 function GlobalPermissionMatrixCard(): JSX.Element {
   const { t } = useTranslation();
@@ -45,7 +41,7 @@ function GlobalPermissionMatrixCard(): JSX.Element {
       const d = await permissionDefaultsApi.getGlobal();
       setDef(d);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setLoading(false);
     }
@@ -72,7 +68,7 @@ function GlobalPermissionMatrixCard(): JSX.Element {
           );
         }
       } catch (err) {
-        setError(extractErrorMessage(err));
+        setError(toUserErrorMessage(err, t));
       } finally {
         setSaving(false);
       }

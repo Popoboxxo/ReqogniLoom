@@ -445,6 +445,12 @@
 
   --color-success: var(--palette-emerald-500);
   --color-warning: var(--palette-amber-500);
+  /* #1280 (WCAG 1.4.3): readable WARNING-AS-TEXT variant, mirroring
+     --color-primary-text/--color-danger-text. --color-warning is tuned as a
+     border/icon accent; as text it clears AA on the dark surface but not in
+     bauhaus/sepia (2.66:1 / 2.86:1), so text uses this token instead.
+     Measured: 8.31:1 on --color-surface, 6.81:1 on --color-surface-raised. */
+  --color-warning-text: var(--palette-amber-500);
   --color-danger: var(--palette-red-500);
   /* #1258: readable DANGER-AS-TEXT variant, mirroring --color-primary-text.
      --color-danger is tuned as a *border/icon* accent; painting it as the
@@ -976,6 +982,8 @@
 
   --color-success: var(--palette-emerald-600);
   --color-warning: var(--palette-amber-700);
+  /* Readable WARNING-AS-TEXT variant (see the dark block): 4.80:1 / 5.02:1. */
+  --color-warning-text: var(--palette-amber-700);
   --color-danger: var(--palette-red-600);
   /* #1258: readable DANGER-AS-TEXT variant, mirroring --color-primary-text.
      --color-danger is tuned as a *border/icon* accent; painting it as the
@@ -1189,6 +1197,10 @@
      darker, ramp order preserved). */
   --color-success: var(--palette-bauhaus-teal-500);
   --color-warning: var(--palette-bauhaus-amber-500);
+  /* Readable WARNING-AS-TEXT variant (see the dark block). The -500 warning
+     accent measures 2.66:1 here; the -800 rung clears AA on both surfaces:
+     6.12:1 / 6.75:1. */
+  --color-warning-text: var(--palette-bauhaus-amber-800);
   --color-danger: var(--palette-bauhaus-terracotta-650);
   /* #1258: readable DANGER-AS-TEXT variant, mirroring --color-primary-text.
      --color-danger is tuned as a *border/icon* accent; painting it as the
@@ -1366,6 +1378,9 @@
 
   --color-success: var(--palette-nordic-aurora-green-500);
   --color-warning: var(--palette-nordic-aurora-orange-500);
+  /* Readable WARNING-AS-TEXT variant (see the dark block). One ramp step
+     lighter raises headroom on the raised surface: 6.7:1 / 5.4:1. */
+  --color-warning-text: var(--palette-nordic-aurora-orange-400);
   --color-danger: var(--palette-nordic-aurora-red-500);
   /* #1258: readable DANGER-AS-TEXT variant, mirroring --color-primary-text.
      --color-danger is tuned as a *border/icon* accent; painting it as the
@@ -1549,6 +1564,10 @@
 
   --color-success: var(--palette-sepia-forest-500);
   --color-warning: var(--palette-sepia-gold-500);
+  /* Readable WARNING-AS-TEXT variant (see the dark block). The -500 gold
+     measures 2.86:1 here; the -800 rung clears AA on both surfaces:
+     6.45:1 / 7.26:1. */
+  --color-warning-text: var(--palette-sepia-gold-800);
   --color-danger: var(--palette-sepia-brick-500);
   /* #1258: readable DANGER-AS-TEXT variant, mirroring --color-primary-text.
      --color-danger is tuned as a *border/icon* accent; painting it as the

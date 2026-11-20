@@ -18,6 +18,7 @@ import {
 } from "../../api/system-artifact-vector-settings";
 import { BackendOptionsFieldset } from "./BackendOptionsFieldset";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 import styles from "./MemorySystemSettingsSection.module.css";
 
 type OptionMap = Record<string, unknown>;
@@ -26,7 +27,14 @@ type SecretMap = Record<string, string>;
 const EMPTY_OPTIONS: Record<string, OptionMap> = {};
 const EMPTY_SECRETS: Record<string, SecretMap> = {};
 
-export function ArtifactVectorSettingsSection(): JSX.Element {
+export interface ArtifactVectorSettingsSectionProps {
+  /** Reports staged (unsaved) edits so the tab shell can guard a switch. */
+  onDirtyChange?: (dirty: boolean) => void;
+}
+
+export function ArtifactVectorSettingsSection({
+  onDirtyChange,
+}: ArtifactVectorSettingsSectionProps): JSX.Element {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<ArtifactVectorSettings | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -48,13 +56,31 @@ export function ArtifactVectorSettingsSection(): JSX.Element {
       setStagedSecrets(EMPTY_SECRETS);
     } catch (err) {
       console.error("ArtifactVectorSettingsSection: failed to load settings", err);
-      setLoadError(t("systemSettings.artifactVectorSettings.loadError"));
+      setLoadError(
+        toUserErrorMessage(
+          err,
+          t,
+          t("systemSettings.artifactVectorSettings.loadError")
+        )
+      );
     }
   }, [t]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    const hasStagedOptions = Object.values(stagedOptions).some(
+      (value) => Object.keys(value).length > 0
+    );
+    const hasStagedSecrets = Object.values(stagedSecrets).some(
+      (value) => Object.keys(value).length > 0
+    );
+    const selectorChanged =
+      settings != null && backend !== (settings.vector_backend ?? "");
+    onDirtyChange?.(hasStagedOptions || hasStagedSecrets || selectorChanged);
+  }, [stagedOptions, stagedSecrets, backend, settings, onDirtyChange]);
 
   // When no explicit override is selected, edit the backend the environment
   // currently resolves to — otherwise an env-configured Qdrant deployment
@@ -97,7 +123,13 @@ export function ArtifactVectorSettingsSection(): JSX.Element {
       setSavedNotice(t("actions.saved"));
     } catch (err) {
       console.error("ArtifactVectorSettingsSection: failed to save settings", err);
-      setSaveError(t("systemSettings.artifactVectorSettings.saveError"));
+      setSaveError(
+        toUserErrorMessage(
+          err,
+          t,
+          t("systemSettings.artifactVectorSettings.saveError")
+        )
+      );
     } finally {
       setIsSaving(false);
     }
@@ -117,7 +149,13 @@ export function ArtifactVectorSettingsSection(): JSX.Element {
       setSavedNotice(t("actions.saved"));
     } catch (err) {
       console.error("ArtifactVectorSettingsSection: failed to reset settings", err);
-      setSaveError(t("systemSettings.artifactVectorSettings.saveError"));
+      setSaveError(
+        toUserErrorMessage(
+          err,
+          t,
+          t("systemSettings.artifactVectorSettings.saveError")
+        )
+      );
     } finally {
       setIsSaving(false);
     }

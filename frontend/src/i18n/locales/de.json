@@ -242,9 +242,26 @@
     "llm_not_configured": "LLM-Provider ist nicht konfiguriert. KI-Features sind nicht verfügbar.",
     "unknown": "Unbekannter Fehler",
     "boundaryHint": "Bitte laden Sie die Seite neu. Bleibt der Fehler, nennen Sie dem Support die Referenz.",
-    "reference": "Referenz"
+    "reference": "Referenz",
+    "network": "Der Server ist nicht erreichbar. Bitte prüfen Sie Ihre Netzwerkverbindung.",
+    "timeout": "Die Anfrage hat zu lange gedauert. Bitte versuchen Sie es erneut.",
+    "rate_limited": "Zu viele Anfragen. Bitte warten Sie einen Moment.",
+    "server": "Der Server konnte die Anfrage nicht verarbeiten. Bitte versuchen Sie es später erneut."
+  },
+  "notFound": {
+    "heading": "Seite nicht gefunden",
+    "summary": "Diese Adresse gehört zu keiner Seite. Möglicherweise wurde sie umbenannt oder ist veraltet.",
+    "backToDashboard": "Zum Dashboard"
   },
   "login": {
+    "banner": {
+      "level": {
+        "neutral": "Hinweis",
+        "info": "Information",
+        "warning": "Warnung",
+        "critical": "Kritisch"
+      }
+    },
     "title": "Anmelden",
     "usernameLabel": "Benutzername",
     "usernamePlaceholder": "Benutzername eingeben...",
@@ -2980,6 +2997,9 @@
     "themes.tenantDefaultSave": "Als Standard speichern",
     "themes.tenantDefaultSaveFor": "{{target}} als Standard speichern",
     "themes.tenantDefaultSaved": "Gespeichert",
+    "memory.caption": "Workspace-Übersicht des Gedächtnisses",
+    "memory.colActions": "Aktionen",
+    "memory.viz.caption": "Gedächtnis-Einträge",
     "memory.heading": "Gedächtnis-Übersicht",
     "memory.hint": "Pro Workspace: Memory-Status, Anzahl Einträge je Ebene, letzte Konsolidierung. Löschen entfernt Workspace-Memory und das Tenant-Memory der aktuellen Workspace-Mitglieder unwiderruflich.",
     "memory.colWorkspace": "Workspace",
@@ -2999,6 +3019,7 @@
     "memory.deleteConfirmButton": "Endgültig löschen",
     "memory.noWorkspaces": "Keine Workspaces gefunden.",
     "memory.loadError": "Memory-Übersicht konnte nicht geladen werden.",
+    "memory.deleteSuccess": "Gedächtnis für {{workspace}} gelöscht.",
     "memory.deleteError": "Löschen fehlgeschlagen.",
     "memory.viz.heading": "Visualisierung",
     "memory.viz.hint": "Zeigt den tatsächlichen Inhalt des konsolidierten Memory: Liste, Ähnlichkeits-Cluster und 2D-Projektion der Embeddings.",
@@ -3024,6 +3045,7 @@
     "memory.viz.excludedNoEmbeddingNotice": "{{count}} Einträge haben noch kein Embedding und erscheinen nicht in Cluster/Streudiagramm.",
     "memory.viz.clusterLabel": "Cluster {{id}} ({{count}} Einträge)",
     "memory.viz.scatterAriaLabel": "2D-Projektion der Memory-Embeddings, eingefärbt nach Cluster",
+    "memory.viz.scatterDescription": "Streudiagramm mit {{count}} Einträgen in {{clusters}} Clustern; die Legende ordnet jede Farbe einem Cluster zu.",
     "memorySettings.heading": "Systemweite Gedächtnis-Konfiguration",
     "memorySettings.hint": "Überschreibt die Umgebungsvariablen-Konfiguration für Embedding-Provider und Gedächtnis-Backend zur Laufzeit. Nicht gesetzte Felder verwenden weiterhin die Umgebungsvariable.",
     "memorySettings.embeddingProvider": "Embedding-Provider",
@@ -3048,6 +3070,8 @@
     "memorySettings.honchoLegacyFieldsHint": "Ohne Wirkung — Entscheidung offen.",
     "memorySettings.honchoVersion": "Honcho-Version",
     "memorySettings.honchoVersionUnavailable": "Nicht verfügbar",
+    "memorySettings.secretStatusSet": "Status: ein Secret ist hinterlegt.",
+    "memorySettings.secretStatusUnset": "Status: kein Secret hinterlegt.",
     "memorySettings.secretSetPlaceholder": "•••••••• (gesetzt, zum Ändern überschreiben)",
     "memorySettings.secretUnsetPlaceholder": "Nicht gesetzt",
     "memorySettings.overrideBadge": "Überschrieben",
@@ -3075,6 +3099,33 @@
       "reset": "Auf Umgebung zurücksetzen",
       "resetConfirmTitle": "Auf Umgebung zurücksetzen?",
       "resetConfirmBody": "Entfernt die gespeicherte Backend-Auswahl und alle Backend-Einstellungen. Die Umgebungsvariablen gelten danach wieder."
+    },
+    "mismatchReview": {
+      "heading": "Abweichungsprüfung",
+      "filterCapability": "Nach Capability filtern",
+      "allCapabilities": "Alle Capabilities",
+      "filterSubjectType": "Nach Subjekttyp filtern",
+      "allSubjects": "Alle Subjekte",
+      "since": "Seit",
+      "until": "Bis",
+      "empty": "Keine Abweichungen in diesem Zeitraum — alte und neue Entscheidungen stimmen überein.",
+      "tableCaption": "Abweichungen zwischen alter und neuer Berechtigungsentscheidung",
+      "columnTime": "Zeit",
+      "columnSubject": "Subjekt",
+      "columnCapability": "Capability",
+      "columnWorkspace": "Workspace",
+      "columnArtifact": "Artefakt",
+      "columnLegacy": "Alt",
+      "columnNew": "Neu",
+      "tenantWide": "tenant-weit",
+      "allowed": "erlaubt",
+      "denied": "verweigert",
+      "page": "Seite {{page}} / {{total}}"
+    },
+    "unsaved": {
+      "title": "Ungespeicherte Änderungen",
+      "message": "Dieser Tab enthält ungespeicherte Änderungen. Beim Wechsel gehen sie verloren.",
+      "confirm": "Verwerfen und wechseln"
     },
     "pageSummary": "Tenant-weite Konfiguration: Administration, Workflow-, Attribut- und Berechtigungs-Standards, Darstellung und Gedächtnis.",
     "tabs": {

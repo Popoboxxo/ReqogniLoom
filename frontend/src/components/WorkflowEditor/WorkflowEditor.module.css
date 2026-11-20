@@ -627,7 +627,7 @@
 }
 
 .edgeLockIcon {
-  color: var(--color-warning);
+  color: var(--color-warning-text);
   flex: 0 0 auto;
 }
 

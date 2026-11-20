@@ -14,8 +14,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { bannersApi, type Banner, type BannerLevel } from "../../api/banners";
-import { extractErrorMessage } from "../../api/client";
 import styles from "./BannerSection.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 const LEVELS: BannerLevel[] = ["neutral", "info", "warning", "critical"];
 
@@ -52,7 +52,7 @@ export function BannerSection(): JSX.Element {
         setShowOnLoginPage(existing.show_on_login_page);
       })
       .catch((err) => {
-        if (!cancelled) setError(extractErrorMessage(err));
+        if (!cancelled) setError(toUserErrorMessage(err, t));
       })
       .finally(() => {
         // Only the *current* run may clear the loading state: the cancelled
@@ -90,7 +90,7 @@ export function BannerSection(): JSX.Element {
       setBanner(updated);
       setSavedOk(true);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setIsSaving(false);
     }

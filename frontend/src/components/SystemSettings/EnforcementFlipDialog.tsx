@@ -19,11 +19,7 @@ import {
   extractStaleMismatchCount,
 } from "../../api/permission-defaults";
 import styles from "./EnforcementFlipDialog.module.css";
-
-function extractErrorMessage(err: unknown): string {
-  const e = err as { error?: { message?: string }; message?: string };
-  return e?.error?.message ?? e?.message ?? String(err);
-}
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 interface EnforcementFlipDialogProps {
   windowDays: number;
@@ -53,7 +49,7 @@ export function EnforcementFlipDialog({
         if (!cancelled) setCount(status.pending_mismatch_count);
       })
       .catch((err) => {
-        if (!cancelled) setError(extractErrorMessage(err));
+        if (!cancelled) setError(toUserErrorMessage(err, t));
       })
       .finally(() => {
         if (!cancelled) setLoadingCount(false);
@@ -86,7 +82,7 @@ export function EnforcementFlipDialog({
           t("systemSettings.enforcementFlip.staleCountError", { count: stale })
         );
       } else {
-        setError(extractErrorMessage(err));
+        setError(toUserErrorMessage(err, t));
       }
     } finally {
       setBusy(false);

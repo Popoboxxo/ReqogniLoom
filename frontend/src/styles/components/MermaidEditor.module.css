@@ -117,7 +117,7 @@
 }
 
 .statusUnsaved {
-  color: var(--color-warning);
+  color: var(--color-warning-text);
 }
 
 .statusError {

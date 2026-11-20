@@ -271,7 +271,7 @@
 
 .warningText {
   font-weight: 600;
-  color: var(--color-warning);
+  color: var(--color-warning-text);
   margin: 0 0 var(--space-2) 0;
 }
 
@@ -282,7 +282,7 @@
 
 .warningListItem {
   font-size: var(--font-size-sm);
-  color: var(--color-warning);
+  color: var(--color-warning-text);
   margin-bottom: var(--space-1);
 }
 
@@ -337,7 +337,7 @@
    header rather than only in the post-import warning list. */
 .previewHeaderUnknown {
   font-weight: 600;
-  color: var(--color-warning);
+  color: var(--color-warning-text);
   background: var(--color-surface-raised);
   text-decoration: line-through;
 }

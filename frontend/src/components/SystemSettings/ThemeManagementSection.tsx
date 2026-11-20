@@ -38,6 +38,7 @@ import {
 } from "../../api/themePalettes";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import styles from "./ThemeManagementSection.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 export function ThemeManagementSection(): JSX.Element {
   const { t } = useTranslation();
@@ -62,7 +63,7 @@ export function ThemeManagementSection(): JSX.Element {
       .catch((err: unknown) => {
         if (!cancelled) {
           setError(
-            (err as { error?: { message?: string } })?.error?.message ?? String(err)
+            toUserErrorMessage(err, t)
           );
         }
       });
@@ -88,7 +89,7 @@ export function ThemeManagementSection(): JSX.Element {
       })
       .catch((err: unknown) => {
         setError(
-          (err as { error?: { message?: string } })?.error?.message ?? String(err)
+          toUserErrorMessage(err, t)
         );
       });
   }
@@ -173,7 +174,7 @@ export function ThemeManagementSection(): JSX.Element {
       reload();
     } catch (err: unknown) {
       setError(
-        (err as { error?: { message?: string } })?.error?.message ?? String(err)
+        toUserErrorMessage(err, t)
       );
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";

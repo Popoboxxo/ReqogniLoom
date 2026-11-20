@@ -30,6 +30,7 @@ import { SidebarNavigation } from "./SidebarNavigation";
 import { LoginPage } from "./LoginPage";
 import { InterviewWidget } from "../InterviewWidget/InterviewWidget";
 import { BannerStack } from "./BannerStack";
+import { NotFoundPage } from "./NotFoundPage";
 import styles from "./AppShell.module.css";
 
 // Lazy-loaded route components for performance (REQ-L2-RF-009)
@@ -256,7 +257,7 @@ function AppShell(): JSX.Element {
                   Settings tab where prompt variables actually live instead of
                   silently falling through to the "*" dashboard redirect. */}
               <Route path="/prompts" element={<Navigate to="/settings?tab=llm" replace />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
         </ErrorBoundary>

@@ -215,7 +215,12 @@ describe("MemorySystemSettingsSection", () => {
     expect(screen.getByTestId("memory-settings-save-btn")).toBeEnabled();
 
     await user.clear(input);
-    expect(screen.getByTestId("memory-settings-save-btn")).toBeDisabled();
+    // aria-disabled (not disabled) keeps the button focusable for the
+    // confirm-dialog focus restore; the click handler guards the no-op.
+    expect(screen.getByTestId("memory-settings-save-btn")).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    );
   });
 
   it("switching the memory backend to honcho stages the change and confirms before saving", async () => {

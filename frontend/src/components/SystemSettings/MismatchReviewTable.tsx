@@ -20,11 +20,7 @@ import {
   type PermissionDecisionMismatch,
 } from "../../api/permission-defaults";
 import styles from "./MismatchReviewTable.module.css";
-
-function extractErrorMessage(err: unknown): string {
-  const e = err as { error?: { message?: string }; message?: string };
-  return e?.error?.message ?? e?.message ?? String(err);
-}
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 const PAGE_SIZE = 25;
 
@@ -80,7 +76,7 @@ export function MismatchReviewTable(): JSX.Element {
         setCount(resp.count);
         setPage(targetPage);
       } catch (err) {
-        setError(extractErrorMessage(err));
+        setError(toUserErrorMessage(err, t));
         setItems([]);
       } finally {
         setLoading(false);
@@ -99,7 +95,7 @@ export function MismatchReviewTable(): JSX.Element {
 
   return (
     <section className={styles.card} id="mismatch-review-card" data-testid="mismatch-review-section">
-      <h3 className={styles.heading}>Mismatch Review</h3>
+      <h3 className={styles.heading}>{t("systemSettings.mismatchReview.heading")}</h3>
 
       {/* Filters */}
       <div className={styles.filters}>
@@ -108,9 +104,9 @@ export function MismatchReviewTable(): JSX.Element {
           value={capability}
           onChange={(e) => setCapability(e.target.value as CapabilityKey | "")}
           className={styles.select}
-          aria-label="Filter by capability"
+          aria-label={t("systemSettings.mismatchReview.filterCapability")}
         >
-          <option value="">All capabilities</option>
+          <option value="">{t("systemSettings.mismatchReview.allCapabilities")}</option>
           {CAPABILITY_KEYS.map((cap) => (
             <option key={cap} value={cap}>
               {cap}
@@ -124,9 +120,9 @@ export function MismatchReviewTable(): JSX.Element {
             setSubjectType(e.target.value as MismatchSubjectType | "")
           }
           className={styles.select}
-          aria-label="Filter by subject type"
+          aria-label={t("systemSettings.mismatchReview.filterSubjectType")}
         >
-          <option value="">All subjects</option>
+          <option value="">{t("systemSettings.mismatchReview.allSubjects")}</option>
           {SUBJECT_TYPES.map((s) => (
             <option key={s} value={s}>
               {s}
@@ -139,7 +135,7 @@ export function MismatchReviewTable(): JSX.Element {
           value={since}
           onChange={(e) => setSince(e.target.value)}
           className={styles.select}
-          aria-label="Since"
+          aria-label={t("systemSettings.mismatchReview.since")}
         />
         <input
           type="date"
@@ -147,7 +143,7 @@ export function MismatchReviewTable(): JSX.Element {
           value={until}
           onChange={(e) => setUntil(e.target.value)}
           className={styles.select}
-          aria-label="Until"
+          aria-label={t("systemSettings.mismatchReview.until")}
         />
       </div>
 
@@ -158,10 +154,12 @@ export function MismatchReviewTable(): JSX.Element {
       )}
 
       {loading ? (
-        <p className={styles.loadingText}>…</p>
+        <p className={styles.loadingText} role="status">
+          {t("loading")}
+        </p>
       ) : items.length === 0 ? (
         <p data-testid="mismatch-empty" className={styles.emptyText}>
-          No mismatches recorded in this window — legacy and new decisions agree.
+          {t("systemSettings.mismatchReview.empty")}
         </p>
       ) : (
         <div className={styles.tableScroll}>
@@ -170,17 +168,17 @@ export function MismatchReviewTable(): JSX.Element {
             className={styles.table}
           >
             <caption className="visually-hidden">
-              {t("common.tableCaption")}
+              {t("systemSettings.mismatchReview.tableCaption")}
             </caption>
             <thead>
               <tr>
-                <th scope="col" className={styles.th}>Time</th>
-                <th scope="col" className={styles.th}>Subject</th>
-                <th scope="col" className={styles.th}>Capability</th>
-                <th scope="col" className={styles.th}>Workspace</th>
-                <th scope="col" className={styles.th}>Artifact</th>
-                <th scope="col" className={styles.th}>Legacy</th>
-                <th scope="col" className={styles.th}>New</th>
+                <th scope="col" className={styles.th}>{t("systemSettings.mismatchReview.columnTime")}</th>
+                <th scope="col" className={styles.th}>{t("systemSettings.mismatchReview.columnSubject")}</th>
+                <th scope="col" className={styles.th}>{t("systemSettings.mismatchReview.columnCapability")}</th>
+                <th scope="col" className={styles.th}>{t("systemSettings.mismatchReview.columnWorkspace")}</th>
+                <th scope="col" className={styles.th}>{t("systemSettings.mismatchReview.columnArtifact")}</th>
+                <th scope="col" className={styles.th}>{t("systemSettings.mismatchReview.columnLegacy")}</th>
+                <th scope="col" className={styles.th}>{t("systemSettings.mismatchReview.columnNew")}</th>
               </tr>
             </thead>
             <tbody>
@@ -204,16 +202,28 @@ export function MismatchReviewTable(): JSX.Element {
                   </td>
                   <td className={styles.td}>{m.capability}</td>
                   <td className={styles.td}>
-                    {m.workspace_id ? `${m.workspace_id.slice(0, 8)}…` : "tenant-wide"}
+                    {m.workspace_id
+                      ? `${m.workspace_id.slice(0, 8)}…`
+                      : t("systemSettings.mismatchReview.tenantWide")}
                   </td>
                   <td className={styles.td + ' ' + styles.tdMono}>
                     {m.artifact_id ? `${m.artifact_id.slice(0, 8)}…` : "—"}
                   </td>
-                  <td className={styles.td} aria-label={m.legacy_decision ? "allowed" : "denied"}>
+                  <td className={styles.td}>
                     <DecisionMark value={m.legacy_decision} />
+                    <span className="visually-hidden">
+                      {m.legacy_decision
+                        ? t("systemSettings.mismatchReview.allowed")
+                        : t("systemSettings.mismatchReview.denied")}
+                    </span>
                   </td>
-                  <td className={styles.td} aria-label={m.new_decision ? "allowed" : "denied"}>
+                  <td className={styles.td}>
                     <DecisionMark value={m.new_decision} />
+                    <span className="visually-hidden">
+                      {m.new_decision
+                        ? t("systemSettings.mismatchReview.allowed")
+                        : t("systemSettings.mismatchReview.denied")}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -232,10 +242,17 @@ export function MismatchReviewTable(): JSX.Element {
             onClick={() => void load(page - 1)}
             className="btn-secondary btn-sm"
           >
-            Previous
+            {t("actions.previous")}
           </button>
-          <span className={styles.pageIndicator}>
-            Page {page} / {totalPages}
+          <span
+            className={styles.pageIndicator}
+            role="status"
+            data-testid="mismatch-page-indicator"
+          >
+            {t("systemSettings.mismatchReview.page", {
+              page,
+              total: totalPages,
+            })}
           </span>
           <button
             type="button"
@@ -244,7 +261,7 @@ export function MismatchReviewTable(): JSX.Element {
             onClick={() => void load(page + 1)}
             className="btn-secondary btn-sm"
           >
-            Next
+            {t("actions.next")}
           </button>
         </div>
       )}

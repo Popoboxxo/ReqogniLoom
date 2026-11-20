@@ -32,6 +32,7 @@ import {
 import { BackendOptionsFieldset } from "./BackendOptionsFieldset";
 import { Dialog } from "../shared/Dialog";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 import styles from "./MemorySystemSettingsSection.module.css";
 
 // "openai" is a registered, documented backend provider (1536-dim); a
@@ -131,7 +132,14 @@ function buildFlatStaged(form: SystemMemorySettingsUpdate): Record<string, unkno
   return staged;
 }
 
-export function MemorySystemSettingsSection(): JSX.Element {
+export interface MemorySystemSettingsSectionProps {
+  /** Reports staged (unsaved) edits so the tab shell can guard a switch. */
+  onDirtyChange?: (dirty: boolean) => void;
+}
+
+export function MemorySystemSettingsSection({
+  onDirtyChange,
+}: MemorySystemSettingsSectionProps): JSX.Element {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<SystemMemorySettings | null>(null);
   const [form, setForm] = useState<SystemMemorySettingsUpdate>({});
@@ -153,7 +161,9 @@ export function MemorySystemSettingsSection(): JSX.Element {
       })
       .catch((err: unknown) => {
         console.error("MemorySystemSettingsSection: failed to load settings", err);
-        setLoadError(t("systemSettings.memorySettings.loadError"));
+        setLoadError(
+          toUserErrorMessage(err, t, t("systemSettings.memorySettings.loadError"))
+        );
       });
   }, [t]);
 
@@ -164,6 +174,10 @@ export function MemorySystemSettingsSection(): JSX.Element {
   useEffect(() => {
     if (Object.keys(form).length > 0) setSavedNotice(null);
   }, [form]);
+
+  useEffect(() => {
+    onDirtyChange?.(Object.keys(form).length > 0);
+  }, [form, onDirtyChange]);
 
   const isRiskyChange = useCallback((): boolean => {
     if (!settings) return false;
@@ -185,7 +199,9 @@ export function MemorySystemSettingsSection(): JSX.Element {
       setSavedNotice(t("actions.saved"));
     } catch (err) {
       console.error("MemorySystemSettingsSection: failed to save settings", err);
-      setSaveError(t("systemSettings.memorySettings.saveError"));
+      setSaveError(
+        toUserErrorMessage(err, t, t("systemSettings.memorySettings.saveError"))
+      );
     } finally {
       setIsSaving(false);
     }
@@ -209,7 +225,9 @@ export function MemorySystemSettingsSection(): JSX.Element {
       setSavedNotice(t("actions.saved"));
     } catch (err) {
       console.error("MemorySystemSettingsSection: failed to reset settings", err);
-      setSaveError(t("systemSettings.memorySettings.saveError"));
+      setSaveError(
+        toUserErrorMessage(err, t, t("systemSettings.memorySettings.saveError"))
+      );
     } finally {
       setIsSaving(false);
     }
@@ -524,8 +542,15 @@ export function MemorySystemSettingsSection(): JSX.Element {
           type="button"
           className="btn-primary"
           data-testid="memory-settings-save-btn"
-          disabled={isSaving || Object.keys(form).length === 0}
-          onClick={handleSaveClick}
+          // `aria-disabled` (not `disabled`) for the empty-form state keeps the
+          // button focusable: the confirm dialog restores focus to it, and a
+          // disabled element cannot take focus (WCAG 2.4.3).
+          aria-disabled={Object.keys(form).length === 0}
+          disabled={isSaving}
+          onClick={() => {
+            if (Object.keys(form).length === 0) return;
+            handleSaveClick();
+          }}
         >
           {isSaving ? "…" : t("actions.save", "Save")}
         </button>
