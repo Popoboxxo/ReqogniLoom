@@ -32,8 +32,8 @@ import {
   type LlmProvider,
   type LlmSettingsUpdate,
 } from "../../api/llm-settings";
-import { extractErrorMessage } from "../../api/client";
 import styles from "./LlmSettingsSection.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 /**
  * Type guard: does this build know `value` as a selectable provider?
@@ -72,7 +72,7 @@ export function LlmSettingsSection(): JSX.Element {
         setApiKeyIsSet(s.api_key_is_set);
       })
       .catch((err) => {
-        if (active) setError(extractErrorMessage(err));
+        if (active) setError(toUserErrorMessage(err, t));
       })
       .finally(() => {
         if (active) setIsLoading(false);
@@ -102,7 +102,7 @@ export function LlmSettingsSection(): JSX.Element {
       setApiKey("");
       setSavedOk(true);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setIsSaving(false);
     }

@@ -20,9 +20,9 @@
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { requirementsApi } from '../../api/requirements';
-import { extractErrorMessage } from '../../api/client';
 import type { ApiError, SimilarRequirement, UUID } from '../../types';
 import styles from './SimilarRequirementsPanel.module.css';
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 interface SimilarRequirementsPanelProps {
   requirementId: UUID;
@@ -57,7 +57,7 @@ export function SimilarRequirementsPanel({
       } else if (code === 'SERVICE_UNAVAILABLE') {
         setState({ status: 'unavailable' });
       } else {
-        setState({ status: 'error', message: extractErrorMessage(err) });
+        setState({ status: 'error', message: toUserErrorMessage(err, t) });
       }
     }
   }, [requirementId]);

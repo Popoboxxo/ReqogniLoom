@@ -52,7 +52,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { extractErrorMessage } from "../../api/client";
 import { testcasesApi } from "../../api/testcases";
 import { workflowTransitionsApi } from "../../api/workflow-transitions";
 import type { ScenarioKind } from "../../api/testcases";
@@ -65,6 +64,7 @@ import { Badge } from "../shared/Badge";
 import { QualityBadge } from "../shared/QualityBadge";
 import { QualityPanel } from "../shared/QualityPanel";
 import styles from "./TestCaseArtifactForm.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 const STEPS_WIRE_FIELD = "steps";
 const STEPS_FORM_FIELD = "steps_data";
@@ -190,7 +190,7 @@ export function TestCaseArtifactForm({
       await testcasesApi.review(testCase.id, { reviewed: true });
       onReviewed?.();
     } catch (err) {
-      setReviewError(extractErrorMessage(err) || t("testcases.reviewedFailed"));
+      setReviewError(toUserErrorMessage(err, t) || t("testcases.reviewedFailed"));
     } finally {
       setReviewSaving(false);
     }

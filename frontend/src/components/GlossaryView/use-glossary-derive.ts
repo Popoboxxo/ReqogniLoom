@@ -18,8 +18,8 @@ import { useCallback, useState } from "react";
 import type { TFunction } from "i18next";
 
 import { glossaryApi } from "../../api/glossary";
-import { extractErrorMessage } from "../../api/client";
 import type { AiDerivationDraft } from "../shared/AiDerivationDialog";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 export interface UseGlossaryDeriveOptions {
   workspaceId: string | undefined;
@@ -77,7 +77,7 @@ export function useGlossaryDerive({
         }))
       );
     } catch (err) {
-      setDeriveLoadError(extractErrorMessage(err) || t("glossary.deriveFailed"));
+      setDeriveLoadError(toUserErrorMessage(err, t, t("glossary.deriveFailed")));
     } finally {
       setDeriveLoading(false);
     }
@@ -98,7 +98,7 @@ export function useGlossaryDerive({
         closeDeriveDialog();
         reloadTerms();
       } catch (err) {
-        setDeriveSubmitError(extractErrorMessage(err) || t("glossary.deriveFailed"));
+        setDeriveSubmitError(toUserErrorMessage(err, t, t("glossary.deriveFailed")));
       } finally {
         setDeriveSaving(false);
       }

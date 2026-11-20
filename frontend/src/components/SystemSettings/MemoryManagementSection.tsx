@@ -11,8 +11,8 @@ import {
   type WorkspaceMemoryOverviewRow,
 } from "../../api/memory";
 import { Dialog } from "../shared/Dialog";
-import { toUserErrorMessage } from "../../utils/userErrorMessage";
 import styles from "./MemoryManagementSection.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";

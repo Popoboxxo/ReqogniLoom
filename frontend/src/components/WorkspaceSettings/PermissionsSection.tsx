@@ -62,12 +62,12 @@ import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { useRequiredValidation } from "../shared/useRequiredValidation";
 import type { Artifact, UUID } from "../../types";
 import {
-  extractErrorMessage,
   extractMessage,
   isLastAdminError,
   parseLastAdminMessage,
 } from "../shared/apiError";
 import styles from "./PermissionsSection.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 function memberRoleKey(userId: string, role: string): string {
   return `${userId}::${role}`;
@@ -143,7 +143,7 @@ export function PermissionsSection({
         if (!cancelled) setMembers(rows);
       })
       .catch((err) => {
-        if (!cancelled) setError(extractErrorMessage(err));
+        if (!cancelled) setError(toUserErrorMessage(err, t));
       });
     return () => {
       cancelled = true;
@@ -165,7 +165,7 @@ export function PermissionsSection({
         setPermissions(rows);
         setHasLoaded(true);
       } catch (err) {
-        setError(extractErrorMessage(err));
+        setError(toUserErrorMessage(err, t));
         setPermissions([]);
       } finally {
         setIsLoading(false);
@@ -206,7 +206,7 @@ export function PermissionsSection({
       setFilterUserId(grantUserId.trim());
       await loadPermissions(grantUserId.trim());
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setIsGranting(false);
     }
@@ -232,7 +232,7 @@ export function PermissionsSection({
           setPermissions((prev) => prev.filter((p) => p.id !== permissionId));
         }
       } catch (err) {
-        setError(extractErrorMessage(err));
+        setError(toUserErrorMessage(err, t));
       } finally {
         setRevokingId(null);
       }
@@ -252,7 +252,7 @@ export function PermissionsSection({
       const rows = await workspaceMembersApi.list(workspaceId);
       setMembers(rows);
     } catch (err) {
-      setMembersError(extractErrorMessage(err));
+      setMembersError(toUserErrorMessage(err, t));
     }
   }, [workspaceId]);
 
@@ -278,7 +278,7 @@ export function PermissionsSection({
         );
         return;
       }
-      setMembersError(extractErrorMessage(err));
+      setMembersError(toUserErrorMessage(err, t));
     },
     [t]
   );

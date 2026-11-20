@@ -34,11 +34,11 @@ import type {
   DecompositionDraft,
   DraftNode,
 } from "../../api/architectureDecompose";
-import { extractErrorMessage } from "../../api/client";
 import { UnprocessableEntityError } from "../../api/errors";
 import { promptVariablesApi } from "../../api/prompt-variables";
 import { AiActionIcon } from "../shared/AiActions";
 import styles from "./ArchitectureDecomposePanel.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 /**
  * Used only when the variable catalog cannot be read (e.g. a non-admin user
@@ -196,7 +196,7 @@ export function ArchitectureDecomposePanel({
       setDraft(next);
       setPhase("review");
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
       setPhase("idle");
     }
   }, [workspaceId, element.id, maxBreadth, maxDepth]);
@@ -213,7 +213,7 @@ export function ArchitectureDecomposePanel({
       setPhase("done");
       onCommitted?.(committed);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
       // UI-40: a rolled-back commit (DecompositionAuditError, 422) carries
       // the offending I1-I5/SE-Auditor findings — surface them as a
       // structured list instead of only the flat summary message.

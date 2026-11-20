@@ -36,16 +36,12 @@ import {
 } from "../../api/notification-preferences";
 import { NOTIFICATION_PREFERENCES_CHANGED_EVENT } from "../../hooks/useNotificationFeed";
 import styles from "./NotificationsSection.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 /**
  * Best-effort human-readable message from a thrown API error. Returns `""` when
  * the value carries none, so the caller can substitute localized copy.
  */
-function extractErrorMessage(err: unknown): string {
-  const e = err as { error?: { message?: string }; message?: string };
-  return e?.error?.message ?? e?.message ?? "";
-}
-
 export function NotificationsSection(): JSX.Element {
   const { t } = useTranslation();
   const [preferences, setPreferences] = useState<NotificationPreferences | null>(null);
@@ -59,7 +55,7 @@ export function NotificationsSection(): JSX.Element {
     try {
       setPreferences(await notificationPreferencesApi.get());
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setIsLoading(false);
     }
@@ -81,7 +77,7 @@ export function NotificationsSection(): JSX.Element {
         // rejected. (See the ADR-009 note in the module docstring.)
         window.dispatchEvent(new Event(NOTIFICATION_PREFERENCES_CHANGED_EVENT));
       } catch (err) {
-        setError(extractErrorMessage(err));
+        setError(toUserErrorMessage(err, t));
       } finally {
         setPendingKind(null);
       }

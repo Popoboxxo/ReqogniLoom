@@ -18,8 +18,8 @@ import {
 } from "../../api/system-artifact-vector-settings";
 import { BackendOptionsFieldset } from "./BackendOptionsFieldset";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
-import { toUserErrorMessage } from "../../utils/userErrorMessage";
 import styles from "./MemorySystemSettingsSection.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 type OptionMap = Record<string, unknown>;
 type SecretMap = Record<string, string>;

@@ -55,8 +55,15 @@ export type ActionStateMap = Record<string, ActionState>;
  * the page fell straight through to the green "No findings" empty state.
  */
 export function resolveErrorMessage(err: unknown, fallback: string): string {
-  const message = err instanceof Error ? err.message : extractErrorMessage(err);
-  return message.trim() ? message : fallback;
+  const message =
+    err instanceof Error && !(err instanceof TypeError)
+      ? err.message
+      : extractErrorMessage(err);
+  // A raw transport string ("Failed to fetch") is not a message; keep the
+  // localized fallback instead of showing the browser's text.
+  const trimmed = message.trim();
+  if (!trimmed || trimmed.toLowerCase() === "failed to fetch") return fallback;
+  return trimmed;
 }
 
 /**

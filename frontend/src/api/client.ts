@@ -574,6 +574,28 @@ export function getApiErrorMeta(err: unknown): ApiErrorMeta {
   };
 }
 
+/**
+ * Raw browser transport strings that must never be rendered as an error
+ * message (they say nothing actionable and look like a crash). Shared by
+ * `toUserErrorMessage` and every legacy caller of `extractErrorMessage`.
+ */
+const TRANSPORT_ERROR_MESSAGES = new Set([
+  "failed to fetch",
+  "load failed",
+  "networkerror when attempting to fetch resource.",
+  "network request failed",
+  "the network connection was lost.",
+]);
+
+/** Whether *err* is a fetch/transport failure rather than an API rejection. */
+export function isTransportError(err: unknown): boolean {
+  if (err instanceof TypeError) return true;
+  if (err instanceof Error) {
+    return TRANSPORT_ERROR_MESSAGES.has(err.message.trim().toLowerCase());
+  }
+  return false;
+}
+
 export function extractApiErrorMessage(err: unknown): string | null {
   // R2A-006: the structured fields of the typed base win over the legacy raw
   // `{ error }` envelope, which stays as a fallback for hand-built objects and
@@ -589,7 +611,9 @@ export function extractApiErrorMessage(err: unknown): string | null {
   // defect.
   if (detailMsg) return detail?.field ? `${detail.field}: ${detailMsg}` : detailMsg;
   if (message) return message;
-  if (err instanceof Error && err.message) return err.message;
+  if (err instanceof Error && err.message) {
+    return isTransportError(err) ? null : err.message;
+  }
   return null;
 }
 
@@ -602,7 +626,11 @@ export function extractApiErrorMessage(err: unknown): string | null {
  * localised fallback should win over a stringified unknown value.
  */
 export function extractErrorMessage(err: unknown): string {
-  return extractApiErrorMessage(err) ?? String(err);
+  const message = extractApiErrorMessage(err);
+  if (message !== null) return message;
+  // A transport failure has no useful server sentence; return "" so callers'
+  // localized fallbacks (a `t(...)` expression) win instead of echoing the browser.
+  return isTransportError(err) ? "" : String(err);
 }
 
 // ---------------------------------------------------------------------------

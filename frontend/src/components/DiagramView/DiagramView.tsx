@@ -24,8 +24,8 @@ import { DiagramCreateForm } from "./DiagramCreateForm";
 import { DiagramDetailView } from "./DiagramDetailView";
 import { DiagramList } from "./DiagramList";
 import { useDiagramList } from "./useDiagramData";
-import { extractErrorMessage } from "../../api/client";
 import styles from "./DiagramView.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 export default function DiagramView(): JSX.Element {
   const { t } = useTranslation();
@@ -48,7 +48,7 @@ export default function DiagramView(): JSX.Element {
         if (diagramId === id) navigate("/diagrams");
       } catch (err) {
         console.error("Failed to delete diagram", err);
-        setDeleteError(extractErrorMessage(err) || t("diagrams.deleteFailed", "Failed to delete diagram."));
+        setDeleteError(toUserErrorMessage(err, t) || t("diagrams.deleteFailed", "Failed to delete diagram."));
       }
     },
     [id, deleteDiagram, navigate, t],

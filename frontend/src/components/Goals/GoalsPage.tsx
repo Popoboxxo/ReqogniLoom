@@ -46,7 +46,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { extractErrorMessage } from "../../api/client";
 import { fieldErrorsFromException } from "../shared/ArtifactForm/field-errors";
 import { goalsApi } from "../../api/goals";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -70,6 +69,7 @@ import { MainGoalPanel } from "./MainGoalPanel";
 import type { WorkflowAllowedTransition } from "../../api/workflow-transitions";
 import type { Goal, MainGoal } from "../../types";
 import styles from "./Goals.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 /** Create/edit form state. `null` = no dialog, `{ editing: null }` = create. */
 interface FormState {
@@ -134,7 +134,7 @@ export default function GoalsPage(): JSX.Element {
       // not rely on every future caller remembering to.
       setError(null);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     }
   }, [workspaceId]);
 
@@ -262,7 +262,7 @@ export default function GoalsPage(): JSX.Element {
         // cause inside it, where the action was triggered. GitHub #1392: the
         // per-field half (when the 400 names a field) renders under the
         // control instead of leaving the user to guess which one.
-        const message = extractErrorMessage(err);
+        const message = toUserErrorMessage(err, t);
         setError(message);
         setFormFieldErrors(fieldErrorsFromException(err, message));
       } finally {
@@ -303,7 +303,7 @@ export default function GoalsPage(): JSX.Element {
         // effect above resets it to the route's anchor once `goals` reloads.
         await loadGoals();
       } catch (err) {
-        setError(extractErrorMessage(err));
+        setError(toUserErrorMessage(err, t));
       } finally {
         setIsSubmitting(false);
       }

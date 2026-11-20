@@ -32,8 +32,8 @@ import {
 import { BackendOptionsFieldset } from "./BackendOptionsFieldset";
 import { Dialog } from "../shared/Dialog";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
-import { toUserErrorMessage } from "../../utils/userErrorMessage";
 import styles from "./MemorySystemSettingsSection.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 // "openai" is a registered, documented backend provider (1536-dim); a
 // deployment configured that way must be able to see/keep it selected.

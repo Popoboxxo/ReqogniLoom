@@ -14,7 +14,7 @@ import type { TFunction } from "i18next";
 
 import { glossaryApi } from "../../api/glossary";
 import type { GlossaryTerm } from "../../types";
-import { extractErrorMessage } from "../../api/client";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 export interface SynonymLinkTarget {
   termId: string;
@@ -77,7 +77,7 @@ export function useGlossarySynonymLink({
         setSynonymLinkQuery("");
         reloadTerms();
       } catch (err: unknown) {
-        onError(extractErrorMessage(err) || t("glossary.linkSynonymFailed"));
+        onError(toUserErrorMessage(err, t, t("glossary.linkSynonymFailed")));
       }
     },
     [t, reloadTerms, onError]

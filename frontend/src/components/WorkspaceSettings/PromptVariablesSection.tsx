@@ -21,12 +21,12 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { extractErrorMessage } from "../../api/client";
 import {
   promptVariablesApi,
   type PromptVariableState,
   type PromptVariableType,
 } from "../../api/prompt-variables";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 export interface PromptVariablesSectionProps {
   /** Workspace whose overrides are edited when the scope is "workspace". */
@@ -259,7 +259,7 @@ export function PromptVariablesSection({
       setVariables(data.variables);
       setDrafts({});
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setIsLoading(false);
     }
@@ -324,13 +324,13 @@ export function PromptVariablesSection({
       try {
         parsed = parseValue(raw, variable.var_type);
       } catch (parseErr) {
-        setError(extractErrorMessage(parseErr));
+        setError(toUserErrorMessage(parseErr, t));
         return;
       }
       const updated = await promptVariablesApi.save(variable.name, parsed, targetScopeId());
       await applyMutationResult(updated);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setBusyName(null);
     }
@@ -343,7 +343,7 @@ export function PromptVariablesSection({
       const updated = await promptVariablesApi.clear(variable.name, targetScopeId());
       await applyMutationResult(updated);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setBusyName(null);
     }
@@ -359,7 +359,7 @@ export function PromptVariablesSection({
       try {
         parsed = parseValue(newValue, newType);
       } catch (parseErr) {
-        setError(extractErrorMessage(parseErr));
+        setError(toUserErrorMessage(parseErr, t));
         return;
       }
       const updated = await promptVariablesApi.save(name, parsed, targetScopeId(), {
@@ -371,7 +371,7 @@ export function PromptVariablesSection({
       setNewDescription("");
       setNewValue("");
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError(toUserErrorMessage(err, t));
     } finally {
       setBusyName(null);
     }

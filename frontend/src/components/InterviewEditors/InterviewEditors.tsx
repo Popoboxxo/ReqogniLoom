@@ -23,9 +23,9 @@ import { InterviewDetail } from "./InterviewDetail";
 import { useInterviewData } from "./useInterviewData";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import { interviewsApi } from "../../api/interviews";
-import { extractErrorMessage } from "../../api/client";
 import { INTERVIEW_ARTIFACT_TYPES, MULTI_START_PARAM } from "../../constants/interviewArtifactTypes";
 import styles from "./InterviewEditors.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 export default function InterviewEditors(): JSX.Element {
   const { t } = useTranslation();
@@ -64,7 +64,7 @@ export default function InterviewEditors(): JSX.Element {
       refresh();
       navigate(`/interviews/${state.id}`);
     } catch (err) {
-      setStartError(extractErrorMessage(err));
+      setStartError(toUserErrorMessage(err, t));
     } finally {
       setStartingType(null);
     }

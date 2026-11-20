@@ -46,7 +46,6 @@ import {
   type ReviewListItem,
   type WorkflowArtifactType,
 } from "../../api/workflow-transitions";
-import { extractErrorMessage } from "../../api/client";
 import { ForbiddenError } from "../../api/errors";
 import { useReviewsData, type ReviewQueueMode } from "./useReviewsData";
 import { SignatureDialog } from "./SignatureDialog";
@@ -54,6 +53,7 @@ import { ReviewHistoryPanel } from "./ReviewHistoryPanel";
 import { SuggestionsInbox } from "./SuggestionsInbox";
 import { getWorkflowStatusLabel } from "../../utils/workflowStatus";
 import styles from "./ReviewsView.module.css";
+import { toUserErrorMessage } from "../../utils/userErrorMessage";
 
 // UI-34 (Systemaudit 2026-08-27 AP-5): the queue rendered every loaded item
 // in one unbounded `<ul>` with no pagination controls at all. This paginates
@@ -226,7 +226,7 @@ function formatReasonError(err: unknown, t: TFunction): string {
   if (err instanceof ForbiddenError) {
     return err.message || t("reviews.forbidden");
   }
-  return extractErrorMessage(err);
+  return toUserErrorMessage(err, t);
 }
 
 /**
@@ -680,7 +680,7 @@ export default function ReviewsView({
         const { confirmed, failed } = await bulkConfirm(
           selectedIds,
           (id) => confirmReviewItem(id, action),
-          (_id, error) => failures.push(extractErrorMessage(error)),
+          (_id, error) => failures.push(toUserErrorMessage(error, t)),
         );
         setSelectedIds([]);
         setBulkReason("");
@@ -718,7 +718,7 @@ export default function ReviewsView({
       const { confirmed, failed } = await bulkConfirm(
         selectedIds,
         (id) => confirmProposal(id, changeReason),
-        (_id, error) => failures.push(extractErrorMessage(error)),
+        (_id, error) => failures.push(toUserErrorMessage(error, t)),
       );
       setSelectedIds([]);
       setBulkResult({ ok: confirmed.length, failed: failed.length, mode: queueMode });
