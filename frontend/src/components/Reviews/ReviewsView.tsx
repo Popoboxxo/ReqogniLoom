@@ -323,22 +323,27 @@ function resolveReviewBulkTransition(
  * review queue names the decision that produced the report (#1196).
  */
 function bulkReportText(
-  result: { ok: number; failed: number; action?: ReviewBulkAction },
-  queueMode: ReviewQueueMode,
+  result: {
+    ok: number;
+    failed: number;
+    action?: ReviewBulkAction;
+    mode: ReviewQueueMode;
+  },
   t: TFunction,
 ): string {
+  const { mode } = result;
   const done =
-    queueMode === "proposals"
+    mode === "proposals"
       ? t("workflow.proposal.bulkConfirmDone", { count: result.ok })
       : result.action === "reject"
         ? t("reviews.bulkRejectDone", { count: result.ok })
         : t("reviews.bulkApproveDone", { count: result.ok });
   if (result.failed === 0) return done;
   const failed =
-    queueMode === "proposals"
+    mode === "proposals"
       ? t("workflow.proposal.bulkConfirmFailed", { count: result.failed })
       : t("reviews.bulkFailed", { count: result.failed });
-  return `${done}${queueMode === "proposals" ? " — " : ", "}${failed}`;
+  return `${done}${mode === "proposals" ? " — " : ", "}${failed}`;
 }
 
 /** Why an Approve/Reject button is disabled, or undefined when it is not. */
@@ -427,6 +432,12 @@ export default function ReviewsView({
      * on the existing `{ ok, failed }` shape.
      */
     action?: ReviewBulkAction;
+    /**
+     * The queue mode the run started in. Captured with the result so a mode
+     * toggle while the run is in flight cannot relabel the sentence with the
+     * other queue's verb.
+     */
+    mode: ReviewQueueMode;
   } | null>(null);
   // #1193: the first failure reason of the last bulk confirm, surfaced inline
   // instead of being swallowed behind a bare "N failed" count.
@@ -673,7 +684,12 @@ export default function ReviewsView({
         );
         setSelectedIds([]);
         setBulkReason("");
-        setBulkResult({ ok: confirmed.length, failed: failed.length, action });
+        setBulkResult({
+          ok: confirmed.length,
+          failed: failed.length,
+          action,
+          mode: queueMode,
+        });
         setBulkError(failures.length > 0 ? failures[0] : null);
         await refreshList();
       } finally {
@@ -705,7 +721,7 @@ export default function ReviewsView({
         (_id, error) => failures.push(extractErrorMessage(error)),
       );
       setSelectedIds([]);
-      setBulkResult({ ok: confirmed.length, failed: failed.length });
+      setBulkResult({ ok: confirmed.length, failed: failed.length, mode: queueMode });
       setBulkError(failures.length > 0 ? failures[0] : null);
       await refreshList();
     } finally {
@@ -1009,7 +1025,7 @@ export default function ReviewsView({
       )}
       {bulkResult && (
         <p role="status" data-testid="reviews-bulk-confirm-result">
-          {bulkReportText(bulkResult, queueMode, t)}
+          {bulkReportText(bulkResult, t)}
         </p>
       )}
       {/* #1193: the cause behind the "N failed" count — previously the
