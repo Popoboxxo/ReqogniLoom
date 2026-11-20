@@ -27,6 +27,12 @@ export interface BackendOptionsFieldsetProps {
   stagedSecrets: Record<string, string>;
   onOptionChange: (field: string, value: unknown) => void;
   onSecretChange: (field: string, value: string) => void;
+  /**
+   * Prefix for the generated `data-testid`s. Defaults to the historical
+   * `memory-settings` prefix so existing E2E selectors keep working; the
+   * artifact vector-store surface passes `artifact-vector-settings`.
+   */
+  testIdPrefix?: string;
 }
 
 function kebab(name: string): string {
@@ -56,6 +62,7 @@ export function BackendOptionsFieldset({
   stagedSecrets,
   onOptionChange,
   onSecretChange,
+  testIdPrefix = "memory-settings",
 }: BackendOptionsFieldsetProps): JSX.Element {
   const { t } = useTranslation();
 
@@ -67,7 +74,7 @@ export function BackendOptionsFieldset({
     <>
       {fields.map((field) => {
         const suffix = kebab(field.name);
-        const testId = `memory-settings-${backend}-${suffix}`;
+        const testId = `${testIdPrefix}-${backend}-${suffix}`;
         const label = field.label_key
           ? t(field.label_key, { defaultValue: humanize(field.name) })
           : humanize(field.name);

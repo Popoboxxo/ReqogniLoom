@@ -89,7 +89,6 @@ from __future__ import annotations
 
 import importlib.util
 import logging
-import os
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -99,6 +98,14 @@ from django.db import transaction
 from django.db.utils import OperationalError, ProgrammingError
 
 from application.artifact_vector_store import DENSE_VECTOR_NAME, SPARSE_VECTOR_NAME
+from application.vector_backends import (
+    ARTIFACT_VECTOR_BACKEND_ENV,
+    DEFAULT_ARTIFACT_VECTOR_BACKEND,
+    QDRANT_ARTIFACT_BACKEND as _QDRANT_ARTIFACT_BACKEND,
+    effective_qdrant_config,
+    get_vector_backend_plugin,
+    resolve_artifact_vector_backend_name,
+)
 from llm_adapter.embedding_service import (
     embedding_model_filter,
     note_foreign_embedding_models,
@@ -145,10 +152,8 @@ DEGRADED_CROSS_TYPE_QUERY_FAILED = "cross_type_query_failed"
 #: Explicit selector for the ARTIFACT vector backend. Deliberately separate from
 #: ``MEMORY_BACKEND`` (which governs the AI memory store) so the artifact store
 #: is never switched as a side effect of another knob (ADR-020 §4). Values:
-#: ``pgvector`` (default) or ``qdrant``.
-ARTIFACT_VECTOR_BACKEND_ENV = "ARTIFACT_VECTOR_BACKEND"
-DEFAULT_ARTIFACT_VECTOR_BACKEND = "pgvector"
-_QDRANT_ARTIFACT_BACKEND = "qdrant"
+#: ``pgvector`` (default) or ``qdrant``. Re-exported from the backend registry,
+#: which owns the canonical constants.
 
 
 class VectorBackendUnavailableError(RuntimeError):
@@ -1168,47 +1173,55 @@ def mark_request_degraded(port: Any, reason: str) -> None:
         logger.debug("vector port does not accept a degraded flag", exc_info=True)
 
 
-def _construct_qdrant_port() -> tuple[QdrantVectorPort | None, Exception | None]:
-    """Build the Qdrant adapter when it is selected, else report why not.
+def _construct_selected_port() -> tuple[Any | None, Exception | None, str]:
+    """Build the requested port when it is available, else report why not.
 
-    Returns ``(port, None)`` when the adapter was built, ``(None, exc)`` when
-    Qdrant was selected but construction failed, and ``(None, None)`` when
-    Qdrant was not selected at all. Keeping the two failure modes apart is what
-    lets :func:`get_fallback_vector_port` distinguish "pgvector was requested"
-    (not degraded) from "Qdrant was requested but could not be built" (an
-    outage: pgvector serves, so the request is degraded).
+    Returns ``(port, None, name)`` when a non-default backend was built,
+    ``(None, exc, name)`` when it was requested but construction failed, and
+    ``(None, None, name)`` when pgvector was requested or the plugin reports a
+    gate reason (package missing, unconfigured, ...). Keeping the two failure
+    modes apart is what lets :func:`get_fallback_vector_port` distinguish
+    "pgvector was requested" (not degraded) from "an external backend was
+    requested but could not be built" (an outage: pgvector serves, so the
+    request is degraded).
     """
-    if not _qdrant_selected():
-        return None, None
+    name = _artifact_vector_backend()
+    if name == DEFAULT_ARTIFACT_VECTOR_BACKEND:
+        return None, None, name
+    plugin = get_vector_backend_plugin(name)
+    if plugin is None or plugin.availability_reason():
+        return None, None, name
     try:
-        return QdrantVectorPort(), None
+        return plugin.create_search_port(), None, name
     except Exception as exc:  # optional backend must never break search
         logger.warning(
-            "Qdrant is configured but the vector port could not be built; "
-            "falling back to pgvector",
+            "Artifact vector backend %r is configured but its port could not "
+            "be built; falling back to pgvector",
+            name,
             exc_info=True,
         )
-        return None, exc
+        return None, exc, name
 
 
 def get_fallback_vector_port() -> VectorPort:
-    """The search-facing port: Qdrant (with pgvector fallback) if opted in.
+    """The search-facing port: the external store (with pgvector fallback) if opted in.
 
     Returns the plain pgvector adapter -- byte-identical to
-    :func:`get_vector_port` -- when Qdrant is not selected, so the default
-    deployment sees ``degraded=False``, ``vector_backend="pgvector"`` and the
-    exact same hits as before.
+    :func:`get_vector_port` -- when no external store is selected, so the
+    default deployment sees ``degraded=False``, ``vector_backend="pgvector"``
+    and the exact same hits as before.
 
-    When Qdrant IS selected but its adapter cannot be constructed, this returns
-    a :class:`FallbackVectorPort` that already reports
+    When an external store IS selected but its adapter cannot be constructed,
+    this returns a :class:`FallbackVectorPort` that already reports
     ``degraded=True``/``degraded_reason="qdrant_unavailable"`` and
     ``vector_backend="pgvector"`` -- the same state a runtime outage produces
-    (Qdrant intended, pgvector serving), so ``SearchService`` applies the QR-S07
-    gate to the pgvector hits. Returning a BARE ``PgVectorVectorPort`` here --
-    as an earlier version did -- reported ``degraded=False`` and served ungated
-    rows: exactly the hole the fallback gate closes elsewhere.
+    (external store intended, pgvector serving), so ``SearchService`` applies
+    the QR-S07 gate to the pgvector hits. Returning a BARE
+    ``PgVectorVectorPort`` here -- as an earlier version did -- reported
+    ``degraded=False`` and served ungated rows: exactly the hole the fallback
+    gate closes elsewhere.
     """
-    port, construction_error = _construct_qdrant_port()
+    port, construction_error, _name = _construct_selected_port()
     if port is not None:
         return FallbackVectorPort(port)
     if construction_error is not None:
@@ -1221,78 +1234,64 @@ def get_fallback_vector_port() -> VectorPort:
 
 
 def get_vector_port() -> VectorPort:
-    """Return the active vector port: pgvector by default, Qdrant if opted in.
+    """Return the active vector port: pgvector by default, the selected store if opted in.
 
-    Qdrant is selected ONLY when every gate condition holds (see
-    :func:`_qdrant_selected`): the explicit ``ARTIFACT_VECTOR_BACKEND=qdrant``
-    selector, an importable ``qdrant_client`` package, and a configured
-    effective Qdrant base URL. Any other case -- unset selector, package
-    absent, unconfigured, or a construction failure -- degrades to the pgvector
-    adapter, so the default path is never affected by the optional backend
-    (ADR-020 §4). There is deliberately no implicit switch, and
-    ``MEMORY_BACKEND`` is not consulted at all (T-A2-1).
+    An external store is selected ONLY when every gate condition holds: the
+    explicit ``ARTIFACT_VECTOR_BACKEND`` selector (or the
+    ``SystemArtifactVectorSettings`` DB override), an importable
+    ``qdrant_client`` package, and a configured effective Qdrant base URL. Any
+    other case -- unset selector, package absent, unconfigured, unknown name, or
+    a construction failure -- degrades to the pgvector adapter, so the default
+    path is never affected by an optional backend (ADR-020 §4). There is
+    deliberately no implicit switch, and ``MEMORY_BACKEND`` is not consulted at
+    all (T-A2-1).
 
     Deliberately unchanged by the T-A2-7 fallback wrapper: the three legacy
-    similarity call sites keep their loud-failure contract (a Qdrant outage
-    raises ``QdrantBackendUnavailableError`` out of the adapter instead of
-    being silently served from pgvector). Only
-    :func:`get_fallback_vector_port` -- the search path -- wraps.
+    similarity call sites keep their loud-failure contract (an outage raises
+    ``QdrantBackendUnavailableError`` out of the adapter instead of being
+    silently served from pgvector). Only :func:`get_fallback_vector_port` --
+    the search path -- wraps.
     """
-    port, _construction_error = _construct_qdrant_port()
+    port, _construction_error, _name = _construct_selected_port()
     if port is not None:
         return port
     return PgVectorVectorPort()
 
 
 def _artifact_vector_backend() -> str:
-    """Return the explicit artifact vector-backend selector (default pgvector)."""
-    return os.environ.get(
-        ARTIFACT_VECTOR_BACKEND_ENV, DEFAULT_ARTIFACT_VECTOR_BACKEND
-    ).strip().lower()
+    """Return the requested artifact vector backend (DB override > env)."""
+    return resolve_artifact_vector_backend_name()
 
 
 def _effective_qdrant_config() -> Any:
     """Resolve the effective Qdrant config (DB override over env), lazily.
 
-    Prefers ``memory.qdrant_backend.resolve_effective_qdrant_config`` so the
-    artifact port honours the same ``SystemMemorySettings`` override the memory
-    backend does; if that helper is not importable it falls back to the env-only
-    :func:`persistence.qdrant_config.resolve_qdrant_config`. Imported lazily on
-    purpose: ``memory`` must never be a module-level dependency of the port.
+    Delegates to :func:`application.vector_backends.effective_qdrant_config`,
+    the single resolver shared by the port, the write store and the admin
+    surface. Kept as a module attribute because existing callers (and tests)
+    patch it as the "which Qdrant" seam.
     """
-    try:
-        from memory.qdrant_backend import (  # lazy: DB-override resolver
-            resolve_effective_qdrant_config,
-        )
-    except ImportError:
-        from persistence.qdrant_config import resolve_qdrant_config  # lazy: config seam
-
-        return resolve_qdrant_config()
-    return resolve_effective_qdrant_config()
+    return effective_qdrant_config()
 
 
 def _qdrant_selection_reason() -> str:
     """Return the first gate that keeps Qdrant from serving, or ``""``.
 
-    The conditions are evaluated in the same order as :func:`_qdrant_selected`
-    (ADR-020 §4, decoupled from ``MEMORY_BACKEND`` by T-A2-1), so the diagnostic
-    can never disagree with the selector. The value is a stable,
-    machine-readable token — never free text — because it is exposed verbatim
-    in the ``/health/`` advisory.
+    The conditions live on the registered Qdrant plugin
+    (:meth:`application.vector_backends.QdrantVectorPlugin.availability_reason`),
+    which delegates back to this module's ``_qdrant_client_available`` /
+    ``_effective_qdrant_config`` seams, so the diagnostic can never disagree
+    with the selector. The value is a stable, machine-readable token — never
+    free text — because it is exposed verbatim in the ``/health/`` advisory.
     """
     if _artifact_vector_backend() != _QDRANT_ARTIFACT_BACKEND:
         # No explicit opt-in: pgvector is the requested backend, so this is not
         # a fallback and there is no reason to report.
         return ""
-    if not _qdrant_client_available():
-        return "qdrant_client_missing"
-    try:
-        config = _effective_qdrant_config()
-    except Exception:  # noqa: BLE001 - config problems degrade to pgvector
-        return "qdrant_config_error"
-    if not getattr(config, "base_url", "").strip():
-        return "qdrant_base_url_missing"
-    return ""
+    plugin = get_vector_backend_plugin(_QDRANT_ARTIFACT_BACKEND)
+    if plugin is None:  # pragma: no cover - the plugin is always registered
+        return "unknown_artifact_vector_backend"
+    return plugin.availability_reason()
 
 
 def _qdrant_selected() -> bool:
@@ -1328,7 +1327,8 @@ def vector_backend_diagnostic() -> dict[str, str]:
       ``qdrant_config_error`` or ``qdrant_base_url_missing``.
     """
     requested = _artifact_vector_backend()
-    if requested not in {DEFAULT_ARTIFACT_VECTOR_BACKEND, _QDRANT_ARTIFACT_BACKEND}:
+    plugin = get_vector_backend_plugin(requested)
+    if plugin is None:
         # An unknown selector is also served by pgvector; naming it as a
         # fallback is more useful than reporting a phantom "pgvector
         # requested".
@@ -1337,12 +1337,8 @@ def vector_backend_diagnostic() -> dict[str, str]:
             "active": DEFAULT_ARTIFACT_VECTOR_BACKEND,
             "reason": "unknown_artifact_vector_backend",
         }
-    reason = _qdrant_selection_reason()
-    active = (
-        _QDRANT_ARTIFACT_BACKEND
-        if requested == _QDRANT_ARTIFACT_BACKEND and reason == ""
-        else DEFAULT_ARTIFACT_VECTOR_BACKEND
-    )
+    reason = plugin.availability_reason()
+    active = requested if reason == "" else DEFAULT_ARTIFACT_VECTOR_BACKEND
     return {"requested": requested, "active": active, "reason": reason}
 
 

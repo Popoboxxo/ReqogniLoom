@@ -287,19 +287,28 @@ def check_honcho_embedding_consistency(
 def qdrant_artifact_backend_selected() -> bool:
     """Whether the artifact store is *configured* for Qdrant.
 
-    Reads only the ``ARTIFACT_VECTOR_BACKEND`` selector. "Configured" is not
-    "active": the port decides the full selection (package and base URL
-    included) and degrades to pgvector for the rest, so a selected-but-gated
-    deployment still serves artifacts from pgvector. This is the "is there
-    anything to say about Qdrant auth at all" question, so a default (pgvector)
-    deployment reports nothing.
+    Resolves the selector the same way the port does: the
+    ``SystemArtifactVectorSettings`` DB override wins over the
+    ``ARTIFACT_VECTOR_BACKEND`` environment variable (ADR-020 extension, admin
+    UI). "Configured" is not "active": the port decides the full selection
+    (package and base URL included) and degrades to pgvector for the rest, so a
+    selected-but-gated deployment still serves artifacts from pgvector. This is
+    the "is there anything to say about Qdrant auth at all" question, so a
+    default (pgvector) deployment reports nothing.
     """
-    return (
-        os.environ.get(ARTIFACT_VECTOR_BACKEND_ENV_VAR, "")
-        .strip()
-        .lower()
-        == QDRANT_ARTIFACT_BACKEND
-    )
+    try:
+        from application.vector_backends import (
+            resolve_artifact_vector_backend_name,
+        )
+
+        return resolve_artifact_vector_backend_name() == QDRANT_ARTIFACT_BACKEND
+    except Exception:  # noqa: BLE001 - a check must never break startup
+        return (
+            os.environ.get(ARTIFACT_VECTOR_BACKEND_ENV_VAR, "")
+            .strip()
+            .lower()
+            == QDRANT_ARTIFACT_BACKEND
+        )
 
 
 def _django_env() -> str:
@@ -361,9 +370,11 @@ def _qdrant_api_key_configured() -> bool:
     """Whether an API key is configured for Qdrant (DB override over env).
 
     Resolves through the same helper the artifact port and the memory backend
-    use, because a key persisted in ``SystemMemorySettings.backend_secrets["qdrant"]["api_key"]``
-    never appears in the environment — reading only ``os.environ`` reported a
-    false ``memory.W003`` on every readiness probe of such a deployment.
+    use (:func:`application.vector_backends.effective_qdrant_config`), because a
+    key persisted in ``SystemArtifactVectorSettings`` (artifact store) or in the
+    legacy ``SystemMemorySettings.backend_secrets["qdrant"]["api_key"]`` never
+    appears in the environment — reading only ``os.environ`` reported a false
+    ``memory.W003`` on every readiness probe of such a deployment.
 
     A non-empty ``QDRANT_API_KEY`` short-circuits BEFORE the resolver: the
     predicate is a boolean, and no DB value can turn a configured env key into
@@ -378,9 +389,9 @@ def _qdrant_api_key_configured() -> bool:
     if env_key:
         return True
     try:
-        from memory.qdrant_backend import resolve_effective_qdrant_config
+        from application.vector_backends import effective_qdrant_config
 
-        resolved_key = resolve_effective_qdrant_config().api_key
+        resolved_key = effective_qdrant_config().api_key
     except Exception as exc:  # noqa: BLE001 - a check must never break startup.
         # Unresolvable config and no env key (checked above): this process cannot
         # see a key, so callers warn (`memory.W003` / `/health/`). An unreadable

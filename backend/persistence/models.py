@@ -36,6 +36,7 @@ Ownership note (Datenmodell-Konsolidierung Phase 2 / Milestone M2):
 """
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Iterator, Sequence
 from typing import Any
@@ -5995,6 +5996,70 @@ class SavedView(TenantScopedModel):
         return f"SavedView({self.item_type}/{self.name})"
 
 
+# ---------------------------------------------------------------------------
+# Artifact vector backend configuration (ADR-020 extension)
+# ---------------------------------------------------------------------------
+
+#: Singleton primary key of :class:`SystemArtifactVectorSettings`. The value is
+#: distinct from ``SystemMemorySettings`` (…001) and
+#: ``SystemRateLimitOverride`` (…002) so the three process-wide singletons can
+#: never collide.
+SYSTEM_ARTIFACT_VECTOR_SETTINGS_ID = UUID("00000000-0000-0000-0000-000000000003")
+
+
+class SystemArtifactVectorSettings(AuditableModel):
+    """Process-wide singleton: DB override for the artifact vector store.
+
+    Deliberately separate from :class:`~memory.models.SystemMemorySettings`:
+    the artifact store is decoupled from ``MEMORY_BACKEND`` by ADR-020 §4 /
+    T-A2-1, so configuring one must never switch the other.
+
+    Every field is nullable: ``NULL`` means "no override, environment wins".
+    The singleton is enforced by ``save()`` always forcing the same primary key
+    and is created lazily on first write (reads never create a row, mirroring
+    the ``SystemMemorySettings`` precedent).
+    """
+
+    #: ``pgvector`` (default) or any registered artifact vector backend.
+    vector_backend = models.CharField(max_length=32, null=True, blank=True)
+    #: Non-secret per-backend settings, keyed by the plugin's ``settings_key``:
+    #: ``{"qdrant": {"collection_prefix": "reqlo", ...}}``. Never holds a
+    #: ``secret`` field -- those live only in ``backend_secrets_encrypted``.
+    backend_options = models.JSONField(default=dict, blank=True)
+    #: Fernet ciphertext over a JSON object of the same shape, holding ONLY the
+    #: declared ``secret`` fields. Never read directly -- use
+    #: :attr:`backend_secrets`.
+    backend_secrets_encrypted = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "persist_system_artifact_vector_settings"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self.pk = SYSTEM_ARTIFACT_VECTOR_SETTINGS_ID
+        super().save(*args, **kwargs)
+
+    @property
+    def backend_secrets(self) -> dict:
+        """Decrypt the per-backend secret map. ``{}`` when unset/corrupt."""
+        raw = decrypt_secret(self.backend_secrets_encrypted or "")
+        if not raw:
+            return {}
+        try:
+            value = json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    @backend_secrets.setter
+    def backend_secrets(self, value: dict) -> None:
+        self.backend_secrets_encrypted = encrypt_secret(
+            json.dumps(value or {}, sort_keys=True, separators=(",", ":"))
+        )
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"SystemArtifactVectorSettings({self.vector_backend or 'env'})"
+
+
 # Public foundation surface. Other apps import from here.
 __all__ = [
     "AuditableModel",
@@ -6071,4 +6136,6 @@ __all__ = [
     "UserTableViewState",
     "SavedView",
     "SAVED_VIEW_VISIBILITY_CHOICES",
+    "SYSTEM_ARTIFACT_VECTOR_SETTINGS_ID",
+    "SystemArtifactVectorSettings",
 ]

@@ -50,6 +50,10 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from rest_framework.routers import DefaultRouter
 
 from admin_ops.banner_rest import GlobalBannerView, PublicLoginBannerView, WorkspaceBannerView
+from admin_ops.artifact_vector_rest import (
+    SystemArtifactVectorSettingsResetView,
+    SystemArtifactVectorSettingsView,
+)
 from admin_ops.health_rest import SystemHealthView
 from admin_ops.rate_limit_rest import GlobalRateLimitsView, RateLimitsView
 from admin_ops.rest import AdminRestoreView, BackupListCreateView
@@ -809,6 +813,18 @@ urlpatterns = [
         "system/memory-settings/reset/",
         SystemMemorySettingsResetView.as_view(),
         name="system-memory-settings-reset",
+    ),
+    # Artifact vector store — Admin-UI configuration (ADR-020 extension).
+    # GET: System-Admin. PUT/reset: Django superuser (deployment-global row).
+    path(
+        "system/artifact-vector-settings/",
+        SystemArtifactVectorSettingsView.as_view(),
+        name="system-artifact-vector-settings",
+    ),
+    path(
+        "system/artifact-vector-settings/reset/",
+        SystemArtifactVectorSettingsResetView.as_view(),
+        name="system-artifact-vector-settings-reset",
     ),
     # AI Long-Term Memory — System-Admin workspace overview + delete
     # (Memory Admin UI Phase 1, spec 2026-08-26).

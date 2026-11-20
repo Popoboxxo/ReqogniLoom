@@ -1570,6 +1570,18 @@
    "post"
   ],
   [
+   "/api/v1/system/artifact-vector-settings/",
+   "get"
+  ],
+  [
+   "/api/v1/system/artifact-vector-settings/",
+   "put"
+  ],
+  [
+   "/api/v1/system/artifact-vector-settings/reset/",
+   "post"
+  ],
+  [
    "/api/v1/system/create-form-config/",
    "get"
   ],

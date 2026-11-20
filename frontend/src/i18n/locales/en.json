@@ -3058,6 +3058,24 @@
     "memorySettings.confirmButton": "Save anyway",
     "memorySettings.loadError": "Failed to load configuration.",
     "memorySettings.saveError": "Failed to save.",
+    "artifactVectorSettings": {
+      "heading": "Artifact Vector Store",
+      "hint": "Selects the vector store that serves semantic search over artifacts. Without a selection the ARTIFACT_VECTOR_BACKEND environment variable applies. Qdrant additionally needs a reachable instance and a run of manage.py index_artifact_vectors.",
+      "backend": "Vector backend",
+      "backendEnvDefault": "Default (environment variable)",
+      "diagnostic": "Requested: {{requested}} · Active: {{active}}.",
+      "reason": {
+        "unknown_artifact_vector_backend": "The configured name is not registered; pgvector serves instead.",
+        "qdrant_client_missing": "The qdrant_client package is not installed; pgvector serves instead.",
+        "qdrant_config_error": "The Qdrant configuration cannot be read; pgvector serves instead.",
+        "qdrant_base_url_missing": "No Qdrant base URL is configured; pgvector serves instead."
+      },
+      "loadError": "The vector store configuration could not be loaded.",
+      "saveError": "Saving failed.",
+      "reset": "Reset to environment",
+      "resetConfirmTitle": "Reset to environment?",
+      "resetConfirmBody": "Removes the stored backend selection and every backend setting. The environment variables apply again."
+    },
     "pageSummary": "Tenant-wide configuration: administration, workflow, attribute and permission defaults, display and memory.",
     "tabs": {
       "administration": "Administration",
@@ -3065,7 +3083,8 @@
       "attributeDefaults": "Attribute Defaults",
       "permissionDefaults": "Permission Defaults",
       "memory": "Memory",
-      "display": "Display"
+      "display": "Display",
+      "vectorStore": "Vector Store"
     },
     "permissionDefaults": {
       "globalMatrixTitle": "Global Permission Matrix",

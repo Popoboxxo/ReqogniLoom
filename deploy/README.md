@@ -1043,11 +1043,21 @@ artifact index hooks are active (i.e. the deployment carrying them is already li
 the default stays `pgvector`: a Qdrant store switched on before its backfill answers semantic
 search from an empty collection, which looks like "no results" rather than like an error.
 
-Selecting `qdrant` requires **all** of: the explicit `ARTIFACT_VECTOR_BACKEND=qdrant`, an
-importable `qdrant_client` package, and a configured `QDRANT_BASE_URL`. If any condition is
-missing the artifact port stays on pgvector — it never switches implicitly. The selection is
-deliberately **independent of `MEMORY_BACKEND`**: that knob governs the AI-memory store only, so
-an artifact Qdrant store can serve in front of a Honcho or pgvector memory backend.
+Selecting `qdrant` requires **all** of: the explicit `ARTIFACT_VECTOR_BACKEND=qdrant` (or the same
+value stored through the Admin UI — see below), an importable `qdrant_client` package, and a
+configured `QDRANT_BASE_URL`. If any condition is missing the artifact port stays on pgvector — it
+never switches implicitly. The selection is deliberately **independent of `MEMORY_BACKEND`**: that
+knob governs the AI-memory store only, so an artifact Qdrant store can serve in front of a Honcho or
+pgvector memory backend.
+
+**Admin UI equivalent (ADR-020 extension).** *System Settings → Vektorstore* exposes the artifact
+selector and every `QDRANT_*` field for this store (base URL, collection prefix, distance, timeout,
+HNSW, gRPC, quantization, API key) plus the effective-vs-requested diagnostic. A stored value
+overrides the environment variable; *Reset to environment* clears it. The store is backed by its own
+singleton (`persist_system_artifact_vector_settings`), so a write there never changes the memory
+backend — and the memory settings page never changes the artifact store. Writes require a Django
+superuser, mirroring `/system/memory-settings/`. The index itself is still built with
+`manage.py index_artifact_vectors`; the UI shows the selection, not a reindex trigger.
 
 **The key requirement applies to the artifact store too.** This port puts **tenant artifact
 vectors** into Qdrant, so `QDRANT_API_KEY` (plus the matching `QDRANT__SERVICE__API_KEY` on the
