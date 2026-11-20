@@ -362,6 +362,23 @@ class TestUpdateParentId:
         with pytest.raises(TypeError):
             _svc().update_requirement(req.id, env["ctx"], level=4)
 
+    @pytest.mark.parametrize("bad_parent", ["not-a-uuid", "", 42, object()])
+    def test_a_non_uuid_parent_id_is_a_validation_error(self, env, bad_parent):
+        """Backend review finding: the raw ``UUID()`` error must not escape.
+
+        The REST serializer's ``UUIDField`` validates ``parent_id``, but the MCP
+        update tool forwards the raw payload value, so a malformed id used to
+        surface as an unhandled ``ValueError`` — i.e. ``INTERNAL_ERROR``/500
+        instead of a 4xx with a usable message.
+        """
+        req = _create(env, "Req")
+
+        with pytest.raises(ValidationError, match="parent_id"):
+            _svc().update_requirement(req.id, env["ctx"], parent_id=bad_parent)
+
+        # The refused update left the hierarchy untouched.
+        assert _level(env, req.artifact_id) == 1
+
 
 # ---------------------------------------------------------------------------
 # The TraceLink write path, through the manager

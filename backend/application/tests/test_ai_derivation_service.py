@@ -8,6 +8,7 @@ error handling via a capturing fake provider.
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 
@@ -2047,6 +2048,155 @@ def test_persist_methods_reject_a_malformed_preview(auth_context, workspace):
     assert "'policy' must be one of ('manual', 'auto'), got 'bogus'." in str(
         exc_info.value
     )
+
+
+# ---------------------------------------------------------------------------
+# Batch write seams: proposal-gate reporting + per-draft failure isolation
+#
+# The two batch seams (glossary, risk) are NOT the requirement accept paths:
+# they must survive a workspace without a "proposed" state and they must never
+# abort a batch after some drafts are committed. Both properties are pinned
+# here; the transport-level half of the downgrade lives in
+# rest_api/tests/test_ai_derivation_rest_parity_1358.py.
+# ---------------------------------------------------------------------------
+
+
+def test_persist_glossary_drafts_reports_the_missing_proposal_gate(
+    auth_context, workspace, caplog
+):
+    """A workspace without a proposal gate still persists — and says so.
+
+    ``require_proposal_support`` is deliberately NOT applied here (unlike
+    ``persist_derived_requirements``): a ``minimal``-preset workspace, or one
+    whose admin removed ``"proposed"``, must be able to save the drafts its
+    user just accepted, and a 4xx would discard the drafts that are valid. The
+    downgrade is therefore reported twice: per item in the response and once
+    per batch in the log.
+    """
+    with caplog.at_level(logging.INFO, logger="application.ai_derivation_service"):
+        result = AiDerivationService().persist_glossary_drafts(
+            auth_context,
+            workspace_id=workspace.id,
+            preview={
+                "drafts": [
+                    {"term": "Loom", "definition": "A weaving machine."},
+                    {"term": "Warp", "definition": "The lengthwise yarn."},
+                ]
+            },
+        )
+
+    assert len(result["written"]) == 2
+    assert "failed" not in result
+    for written in result["written"]:
+        proposal = written["proposal"]
+        assert proposal["supported"] is False
+        assert proposal["is_proposal"] is False
+        assert proposal["reason"], "the gap must be explainable, not silent"
+    assert "persisted as plain drafts" in caplog.text
+    assert "2 GlossaryTerm draft(s)" in caplog.text
+
+
+def test_persist_risk_drafts_reports_the_missing_proposal_gate(
+    auth_context, workspace, caplog
+):
+    """Same contract for the risk seam (identical downgrade policy)."""
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Element for the gate report", ctx=auth_context
+    )
+
+    with caplog.at_level(logging.INFO, logger="application.ai_derivation_service"):
+        result = AiDerivationService().persist_risk_drafts(
+            auth_context,
+            architecture_element_id=ae.id,
+            preview={"drafts": [{"title": "Vendor lock-in"}]},
+        )
+
+    assert len(result["written"]) == 1
+    assert result["written"][0]["proposal"]["supported"] is False
+    assert "persisted as plain drafts" in caplog.text
+
+
+def test_persist_glossary_drafts_collects_an_unexpected_failure_per_draft(
+    auth_context, workspace, monkeypatch, caplog
+):
+    """A non-domain error is one failed draft, not a 500 for the whole batch.
+
+    Reproduces the parallel-duplicate shape (an ``IntegrityError`` the loop only
+    used to catch as ``ValidationError``): aborting here would answer 500 while
+    the other draft is already committed, and the caller would not learn which
+    one it was.
+    """
+    from django.db import IntegrityError
+
+    svc = AiDerivationService()
+    real_write = svc._write_glossary_term_draft
+    calls = {"n": 0}
+
+    def flaky(**kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise IntegrityError("duplicate key value violates unique constraint")
+        return real_write(**kwargs)
+
+    monkeypatch.setattr(svc, "_write_glossary_term_draft", flaky)
+
+    with caplog.at_level(logging.ERROR, logger="application.ai_derivation_service"):
+        result = svc.persist_glossary_drafts(
+            auth_context,
+            workspace_id=workspace.id,
+            preview={
+                "drafts": [
+                    {"term": "First", "definition": "One."},
+                    {"term": "Second", "definition": "Two."},
+                ]
+            },
+        )
+
+    assert len(result["written"]) == 1
+    assert len(result["failed"]) == 1
+    assert result["failed"][0]["draft"]["term"] == "First"
+    error = result["failed"][0]["error"]
+    assert error.startswith("IntegrityError:")
+    # The DB text (constraint name, SQL) must not travel to the client...
+    assert "duplicate key" not in error
+    # ...but it must be in the log, with the traceback.
+    assert "duplicate key value violates unique constraint" in caplog.text
+
+
+def test_persist_risk_drafts_collects_an_unexpected_failure_per_draft(
+    auth_context, workspace, monkeypatch, caplog
+):
+    """Same isolation for the risk loop (it wraps ``_write_derived_entity``)."""
+    from django.db import IntegrityError
+
+    ae = ArchitectureService().create_architecture_element(
+        workspace_id=workspace.id, title="Element for flaky drafts", ctx=auth_context
+    )
+    svc = AiDerivationService()
+    real_write = svc._write_derived_entity
+    calls = {"n": 0}
+
+    def flaky(**kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise IntegrityError("duplicate key value violates unique constraint")
+        return real_write(**kwargs)
+
+    monkeypatch.setattr(svc, "_write_derived_entity", flaky)
+
+    with caplog.at_level(logging.ERROR, logger="application.ai_derivation_service"):
+        result = svc.persist_risk_drafts(
+            auth_context,
+            architecture_element_id=ae.id,
+            preview={"drafts": [{"title": "First risk"}, {"title": "Second risk"}]},
+        )
+
+    assert len(result["written"]) == 1
+    assert len(result["failed"]) == 1
+    assert result["failed"][0]["draft"]["title"] == "First risk"
+    assert result["failed"][0]["error"].startswith("IntegrityError:")
+    assert "duplicate key" not in result["failed"][0]["error"]
+    assert "duplicate key value violates unique constraint" in caplog.text
 
 
 # ---------------------------------------------------------------------------
