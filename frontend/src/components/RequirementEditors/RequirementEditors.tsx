@@ -88,6 +88,73 @@ import {
 import { useRequirementInspector } from './use-requirement-inspector';
 import { useRequirementListActions } from './use-requirement-list-actions';
 import { useRequirementSelection } from './use-requirement-selection';
+import type { Requirement } from '../../types';
+
+/** Shape returned by the create-payload builders (passed to `mutateAsync`). */
+type CreatePayload = Record<string, unknown> & {
+  workspace_id: string;
+  title: string;
+};
+
+/**
+ * Resolve the requirement a row action targets from the current list. Only the
+ * id is kept in state (a refresh that removes the row must close the dialog
+ * instead of leaving it pointed at a ghost), so this is a pure lookup.
+ */
+function resolveRequirement(
+  requirements: Requirement[],
+  id: string | null,
+): Requirement | undefined {
+  if (!id) {
+    return undefined;
+  }
+  return requirements.find((req) => req.id === id);
+}
+
+/**
+ * Build the payload for the lightweight (non-definition) create form. Returns
+ * null for a blank title so the caller can refuse the submit before any write;
+ * optional fields are only sent when the user actually typed something, so an
+ * empty string cannot clobber a server-side default.
+ */
+function buildCreatePayload(
+  workspaceId: string,
+  title: string,
+  description: string,
+  category: string,
+): CreatePayload | null {
+  const trimmedTitle = title.trim();
+  if (!trimmedTitle) {
+    return null;
+  }
+  return {
+    workspace_id: workspaceId,
+    title: trimmedTitle,
+    ...(description.trim() ? { description: description.trim() } : {}),
+    ...(category ? { category } : {}),
+  };
+}
+
+/**
+ * Build the payload for the definition-driven ArtifactForm. Definition
+ * validation (the required title) stays here so the caller reads as a
+ * straight-line submit.
+ */
+function buildDefinitionCreatePayload(
+  values: ArtifactFormValues,
+  workspaceId: string,
+  createFailedLabel: string,
+): CreatePayload {
+  const title = typeof values.title === 'string' ? values.title.trim() : '';
+  if (!title) {
+    throw new Error(createFailedLabel);
+  }
+  return {
+    ...values,
+    workspace_id: workspaceId,
+    title,
+  };
+}
 
 /**
  * RequirementEditors — main view with SplitView (list | detail)
@@ -185,9 +252,7 @@ export default function RequirementEditors(): JSX.Element {
   // read from the current list, so a refresh that removes the row (filter,
   // delete) closes the dialog instead of leaving it pointed at a ghost.
   const [addToGroupId, setAddToGroupId] = useState<string | null>(null);
-  const addToGroupRequirement = addToGroupId
-    ? requirements.find((req) => req.id === addToGroupId)
-    : undefined;
+  const addToGroupRequirement = resolveRequirement(requirements, addToGroupId);
 
   const createRequirement = useCreateRequirement();
 
@@ -244,29 +309,17 @@ export default function RequirementEditors(): JSX.Element {
   // Split-view state for localStorage persistence
   
   /**
-   * Handle create new requirement.
+   * Persist a validated create payload and own the post-write flow. Keeping
+   * the write, the error surface and the navigation in one named helper lets
+   * the lightweight create entry point read as a straight-line payload build.
+   * Only the fallback form uses this; the definition-driven form deliberately
+   * lets rejections propagate to ArtifactForm's own field-error handling.
    */
-  const handleCreate = useCallback(async (): Promise<void> => {
-    if (!activeWorkspace) return;
-    // BUG-02 (SYSTEMAUDIT_2026-08-18 §4): title is a required field. This
-    // used to silently substitute the placeholder copy for a blank/
-    // whitespace-only input and submit that — the save button below is now
-    // disabled for the same condition, this guard only protects against a
-    // direct form submit (e.g. pressing Enter) bypassing that.
-    const title = newTitle.trim();
-    if (!title) return;
+  const submitCreate = useCallback(async (payload: CreatePayload): Promise<void> => {
     setCreating(true);
     setCreateError(null);
     try {
-      const created = await createRequirement.mutateAsync({
-        workspace_id: activeWorkspace.id,
-        title,
-        // BUG-11: only send what the user actually typed — an empty string
-        // for a field the backend treats as optional should not clobber a
-        // server-side default.
-        ...(newDescription.trim() ? { description: newDescription.trim() } : {}),
-        ...(newCategory ? { category: newCategory } : {}),
-      });
+      const created = await createRequirement.mutateAsync(payload);
       closeCreateForm();
       navigate(`/requirements/${created.id}`);
     } catch (err: unknown) {
@@ -279,18 +332,34 @@ export default function RequirementEditors(): JSX.Element {
     } finally {
       setCreating(false);
     }
-  }, [activeWorkspace, createRequirement, navigate, newTitle, newDescription, newCategory, t, closeCreateForm, setCreating, setCreateError]);
+  }, [createRequirement, navigate, t, closeCreateForm, setCreating, setCreateError]);
+
+  /**
+   * Handle create new requirement.
+   */
+  const handleCreate = useCallback(async (): Promise<void> => {
+    if (!activeWorkspace) return;
+    // BUG-02 (SYSTEMAUDIT_2026-08-18 §4): title is a required field. This
+    // used to silently substitute the placeholder copy for a blank/
+    // whitespace-only input and submit that — refusing a blank title here only
+    // protects against a direct form submit (e.g. pressing Enter) bypassing
+    // the disabled save button.
+    const payload = buildCreatePayload(
+      activeWorkspace.id,
+      newTitle,
+      newDescription,
+      newCategory,
+    );
+    if (!payload) return;
+    await submitCreate(payload);
+  }, [activeWorkspace, newTitle, newDescription, newCategory, submitCreate]);
 
   /** ArtifactForm owns definition validation, nested values and save errors. */
   const handleDefinitionCreate = useCallback(async (values: ArtifactFormValues): Promise<void> => {
     if (!activeWorkspace) throw new Error(t('req.createFailed'));
-    const title = typeof values.title === 'string' ? values.title.trim() : '';
-    if (!title) throw new Error(t('req.createFailed'));
-    const created = await createRequirement.mutateAsync({
-      ...values,
-      workspace_id: activeWorkspace.id,
-      title,
-    });
+    const created = await createRequirement.mutateAsync(
+      buildDefinitionCreatePayload(values, activeWorkspace.id, t('req.createFailed')),
+    );
     closeCreateForm();
     navigate(`/requirements/${created.id}`);
   }, [activeWorkspace, createRequirement, navigate, t, closeCreateForm]);
@@ -344,6 +413,126 @@ export default function RequirementEditors(): JSX.Element {
   const [traceFooterVisible] = useTraceFooterVisible();
   // Task 9 / ADR-030: per-module persisted tree width (min matches minWidths[0]).
   const { treeWidth, defaultTreeWidth, setTreeWidth } = useTreeWidth('requirements', { min: 320 });
+
+  // ---- Page-level dialogs / footer ---------------------------------------
+  // Each dialog owns a single visibility decision. Pulling them out of the
+  // main return keeps the page shell readable as a high-level flow; they are
+  // plain functions (no hooks, no new component nodes), so the rendered output
+  // is byte-for-byte the same JSX as before the extraction.
+
+  const renderUnsavedChangesDialog = (): JSX.Element | null =>
+    pendingSelectId ? (
+      <ConfirmDialog
+        title={t('editor.unsavedChangesTitle')}
+        message={t('editor.unsavedChangesMessage')}
+        confirmLabel={t('editor.discardChanges')}
+        onConfirm={confirmPendingSelect}
+        onCancel={() => setPendingSelectId(null)}
+        testId="req-unsaved-changes-dialog"
+      />
+    ) : null;
+
+  const renderDeriveTestcaseDialog = (): JSX.Element | null =>
+    showDeriveTestcasePanel && requirement && activeWorkspace ? (
+      <Dialog
+        title={t('deriveTestcase.title')}
+        description={requirement.title}
+        onClose={closeDeriveTestcasePanel}
+        size="lg"
+        testId="derive-testcase-dialog"
+      >
+        <DeriveTestCasePanel
+          workspaceId={activeWorkspace.id}
+          requirement={{ id: requirement.id, title: requirement.title }}
+          onCreated={closeDeriveTestcasePanel}
+        />
+      </Dialog>
+    ) : null;
+
+  const renderAiDerivationDialog = (): JSX.Element | null =>
+    // Issue #1368 (W12b): the `decompose-next-level` preview's drafts are
+    // rendered here, in the app-wide AI review dialog (#1360). Confirm and
+    // "Review later" persist the selected drafts through the accept seam
+    // (`proposed`, #1089); Discard writes nothing.
+    showAiDeriveDialog && requirement ? (
+      <AiDerivationDialog
+        open
+        title={t('actions.deriveAi')}
+        sourceLabel={requirement.title}
+        drafts={aiDrafts}
+        isLoading={isAiDeriving}
+        loadError={aiDraftLoadError}
+        isSubmitting={isAiSaving}
+        submitError={aiDraftSubmitError}
+        selectable
+        onConfirm={(drafts) => void handleAiDraftDecision(drafts, false)}
+        onReviewLater={(drafts) => void handleAiDraftDecision(drafts, true)}
+        onDiscard={closeAiDeriveDialog}
+        testIdPrefix="req-derive-drafts"
+      />
+    ) : null;
+
+  const renderGroupManagerDialog = (): JSX.Element | null =>
+    // G1 (spec §4.2/§4.5.1): group administration as a dialog, rendered on
+    // purpose at PAGE level — inside `leftPanel` the SplitView column's
+    // `overflow` would clip it. `GroupManager` itself is unchanged: same
+    // API, same testids, same per-group search. The shared <Dialog> brings
+    // the focus trap, Escape and the focus return to the toolbar trigger.
+    isGroupManagerOpen && hasRole('editor') ? (
+      <Dialog
+        title={t('groups.title')}
+        description={t('groups.dialogHint')}
+        size="lg"
+        testId="group-manager-dialog"
+        onClose={() => setIsGroupManagerOpen(false)}
+      >
+        <GroupManager
+          groups={requirementGroups.managerGroups}
+          requirements={requirements}
+          isLoading={requirementGroups.isLoading}
+          error={requirementGroups.error}
+          onCreate={requirementGroups.createGroup}
+          onAddMember={requirementGroups.addMember}
+          onRemoveMember={requirementGroups.removeMember}
+        />
+      </Dialog>
+    ) : null;
+
+  const renderAddToGroupDialog = (): JSX.Element | null =>
+    // G2 (spec §4.5.3): "Zu Gruppe hinzufügen…" — page level for the same
+    // reason as the group manager dialog above (the SplitView column clips
+    // overflow). The hook owns the write + reload, so the folder counters
+    // and the "in N Gruppen" marker update without a route reload; the
+    // dialog itself stays open on a rejected add (role="alert").
+    addToGroupRequirement && hasRole('editor') ? (
+      <AddToGroupDialog
+        requirementId={addToGroupRequirement.id}
+        requirementTitle={
+          addToGroupRequirement.title || t('editor.untitled')
+        }
+        groups={requirementGroups.managerGroups}
+        isLoading={requirementGroups.isLoading}
+        groupsError={requirementGroups.error}
+        onAdd={requirementGroups.addMember}
+        onCreateGroup={requirementGroups.createGroup}
+        onClose={() => setAddToGroupId(null)}
+      />
+    ) : null;
+
+  const renderTraceFooter = (): JSX.Element | null =>
+    traceFooterVisible && requirement ? (
+      <TraceSpineFooter
+        artifact={{
+          artifactId: requirement.artifact_id,
+          id: requirement.id,
+          artifactType: 'Requirement',
+          level: null,
+        }}
+        onOpenArtifact={(_artifact, entry) => {
+          if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
+        }}
+      />
+    ) : null;
 
   // Loading state
   if (isLoading) {
@@ -689,95 +878,11 @@ export default function RequirementEditors(): JSX.Element {
 
   return (
     <>
-      {pendingSelectId && (
-        <ConfirmDialog
-          title={t('editor.unsavedChangesTitle')}
-          message={t('editor.unsavedChangesMessage')}
-          confirmLabel={t('editor.discardChanges')}
-          onConfirm={confirmPendingSelect}
-          onCancel={() => setPendingSelectId(null)}
-          testId="req-unsaved-changes-dialog"
-        />
-      )}
-      {showDeriveTestcasePanel && requirement && activeWorkspace && (
-        <Dialog
-          title={t('deriveTestcase.title')}
-          description={requirement.title}
-          onClose={closeDeriveTestcasePanel}
-          size="lg"
-          testId="derive-testcase-dialog"
-        >
-          <DeriveTestCasePanel
-            workspaceId={activeWorkspace.id}
-            requirement={{ id: requirement.id, title: requirement.title }}
-            onCreated={closeDeriveTestcasePanel}
-          />
-        </Dialog>
-      )}
-      {/* Issue #1368 (W12b): the `decompose-next-level` preview's drafts are
-          rendered here, in the app-wide AI review dialog (#1360). Confirm and
-          "Review later" persist the selected drafts through the accept seam
-          (`proposed`, #1089); Discard writes nothing. */}
-      {showAiDeriveDialog && requirement && (
-        <AiDerivationDialog
-          open
-          title={t('actions.deriveAi')}
-          sourceLabel={requirement.title}
-          drafts={aiDrafts}
-          isLoading={isAiDeriving}
-          loadError={aiDraftLoadError}
-          isSubmitting={isAiSaving}
-          submitError={aiDraftSubmitError}
-          selectable
-          onConfirm={(drafts) => void handleAiDraftDecision(drafts, false)}
-          onReviewLater={(drafts) => void handleAiDraftDecision(drafts, true)}
-          onDiscard={closeAiDeriveDialog}
-          testIdPrefix="req-derive-drafts"
-        />
-      )}
-      {/* G1 (spec §4.2/§4.5.1): group administration as a dialog, rendered on
-          purpose at PAGE level — inside `leftPanel` the SplitView column's
-          `overflow` would clip it. `GroupManager` itself is unchanged: same
-          API, same testids, same per-group search. The shared <Dialog> brings
-          the focus trap, Escape and the focus return to the toolbar trigger. */}
-      {isGroupManagerOpen && hasRole('editor') && (
-        <Dialog
-          title={t('groups.title')}
-          description={t('groups.dialogHint')}
-          size="lg"
-          testId="group-manager-dialog"
-          onClose={() => setIsGroupManagerOpen(false)}
-        >
-          <GroupManager
-            groups={requirementGroups.managerGroups}
-            requirements={requirements}
-            isLoading={requirementGroups.isLoading}
-            error={requirementGroups.error}
-            onCreate={requirementGroups.createGroup}
-            onAddMember={requirementGroups.addMember}
-            onRemoveMember={requirementGroups.removeMember}
-          />
-        </Dialog>
-      )}
-      {/* G2 (spec §4.5.3): "Zu Gruppe hinzufügen…" — page level for the same
-          reason as the group manager dialog above (the SplitView column clips
-          overflow). The hook owns the write + reload, so the folder counters
-          and the "in N Gruppen" marker update without a route reload; the
-          dialog itself stays open on a rejected add (role="alert"). */}
-      {addToGroupRequirement && hasRole('editor') && (
-        <AddToGroupDialog
-          requirementId={addToGroupRequirement.id}
-          requirementTitle={
-            addToGroupRequirement.title || t('editor.untitled')
-          }
-          groups={requirementGroups.managerGroups}
-          isLoading={requirementGroups.isLoading}
-          groupsError={requirementGroups.error}
-          onAdd={requirementGroups.addMember}
-          onCreateGroup={requirementGroups.createGroup}
-          onClose={() => setAddToGroupId(null)}
-        />
-      )}
+      {renderUnsavedChangesDialog()}
+      {renderDeriveTestcaseDialog()}
+      {renderAiDerivationDialog()}
+      {renderGroupManagerDialog()}
+      {renderAddToGroupDialog()}
       {/* Same page shell as RiskEditors/AdrEditors/IssueEditors: header at
           page level, SplitView filling the rest. */}
       <div
@@ -800,19 +905,7 @@ export default function RequirementEditors(): JSX.Element {
             minWidths={[320, 448]}
             containerClassName={styles.splitWrapper}
           />
-          {traceFooterVisible && requirement && (
-            <TraceSpineFooter
-              artifact={{
-                artifactId: requirement.artifact_id,
-                id: requirement.id,
-                artifactType: 'Requirement',
-                level: null,
-              }}
-              onOpenArtifact={(_artifact, entry) => {
-                if (entry) navigate(getArtifactRoute(entry.entityType, entry.entityId));
-              }}
-            />
-          )}
+          {renderTraceFooter()}
         </div>
       </div>
     </>
