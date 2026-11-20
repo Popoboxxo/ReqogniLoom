@@ -60,7 +60,7 @@
 }
 
 .error {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   margin-bottom: var(--space-3);
 }
 

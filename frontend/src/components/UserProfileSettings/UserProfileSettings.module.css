@@ -48,7 +48,7 @@
 }
 
 .saveError {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   margin-bottom: var(--space-3);
   font-size: var(--font-size-sm);
 }

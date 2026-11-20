@@ -117,7 +117,7 @@
 
 .error {
   margin: var(--space-3) 0 0;
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
 }
 

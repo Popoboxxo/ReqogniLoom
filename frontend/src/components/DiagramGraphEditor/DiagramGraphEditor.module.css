@@ -718,7 +718,7 @@
 }
 
 .editActionDanger {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   border-color: var(--palette-red-500-a40);
 }
 
@@ -758,7 +758,7 @@
 }
 
 .saveStatusError {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 /* --------------------------------------------------------------------------
@@ -801,7 +801,7 @@
 }
 
 .toastIcon {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   flex: 0 0 auto;
 }
 

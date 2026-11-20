@@ -172,14 +172,14 @@
 }
 
 .bannerError {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   border-color: var(--color-danger);
 }
 
 .rowError {
   display: block;
   margin-top: var(--space-1);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
 }
 

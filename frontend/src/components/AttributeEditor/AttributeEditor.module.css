@@ -170,7 +170,7 @@
   padding: var(--space-3);
   border-radius: var(--radius-md);
   background: var(--color-surface-muted);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
 }
 

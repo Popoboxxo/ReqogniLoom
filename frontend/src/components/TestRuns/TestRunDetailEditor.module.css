@@ -149,7 +149,7 @@
 }
 
 .errorSmall {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
 }
 
@@ -160,7 +160,7 @@
 }
 
 .errorNote {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
   margin-bottom: var(--space-3);
 }

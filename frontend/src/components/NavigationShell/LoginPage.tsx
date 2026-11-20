@@ -13,7 +13,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { useAuth, type LoginOutcome } from "../../context/AuthContext";
+import {
+  LoginRequestError,
+  useAuth,
+  type LoginOutcome,
+} from "../../context/AuthContext";
 import { MfaLoginError } from "../../api/mfa";
 import { versionApi, type VersionInfo } from "../../api/version";
 import { bannersApi, type LoginBanner } from "../../api/banners";
@@ -157,11 +161,27 @@ export function LoginPage(): JSX.Element {
       setMfaCode("");
       setMfaError(null);
       setUseRecoveryCode(false);
-    } catch {
-      setError(t("login.invalidCredentials"));
+    } catch (err) {
+      // Name the real cause: a proxy/network outage or a lockout is not a
+      // wrong password (usability review H1).
+      if (err instanceof LoginRequestError) {
+        if (err.kind === "rate_limited") setError(t("login.rateLimited"));
+        else if (err.kind === "server") setError(t("login.serverUnavailable"));
+        else if (err.kind === "network") setError(t("login.networkError"));
+        else setError(t("login.invalidCredentials"));
+      } else {
+        setError(t("login.invalidCredentials"));
+      }
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleBackToCredentials = (): void => {
+    setMfaOutcome(null);
+    setMfaCode("");
+    setMfaError(null);
+    setUseRecoveryCode(false);
   };
 
   const handleMfaSubmit = async (e: FormEvent): Promise<void> => {
@@ -235,9 +255,22 @@ export function LoginPage(): JSX.Element {
         >
           <h2 className={styles.formTitle}>{t("login.mfa.title")}</h2>
           {mfaOutcome.kind === "enroll" ? (
-            <p role="alert" className={styles.mutedNotice}>
-              {t("login.mfa.enrollRequired")}
-            </p>
+            <>
+              <p role="alert" className={styles.mutedNotice}>
+                {t("login.mfa.enrollRequired")}
+              </p>
+              <p className={styles.mutedNotice}>
+                {t("login.mfa.enrollGuidance")}
+              </p>
+              <button
+                type="button"
+                onClick={handleBackToCredentials}
+                data-testid="login-mfa-enroll-back"
+                className={`btn-secondary ${styles.submitButton}`}
+              >
+                {t("login.mfa.backToLogin")}
+              </button>
+            </>
           ) : (
             <>
               <label htmlFor="login-mfa-code" className={styles.fieldLabel}>
@@ -311,7 +344,9 @@ export function LoginPage(): JSX.Element {
               <span aria-hidden="true" className={styles.brandDot} />
               <h1 className={styles.appTitle}>{APP_NAME}</h1>
             </div>
-            <p className={styles.tagline}>AI-native Requirements Management</p>
+            <p className={styles.tagline} lang="en">
+              AI-native Requirements Management
+            </p>
             {versionLabel && (
               <span data-testid="login-version-indicator" className={styles.version}>
                 {versionLabel}
@@ -320,7 +355,7 @@ export function LoginPage(): JSX.Element {
           </div>
           <h2 className={styles.formTitle}>{t("login.title")}</h2>
           {error && (
-            <p role="alert" className={styles.errorText}>
+            <p id="login-error" role="alert" className={styles.errorText}>
               {error}
             </p>
           )}
@@ -341,9 +376,15 @@ export function LoginPage(): JSX.Element {
             data-testid="login-username-input"
             type="text"
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={(e) => {
+              setUsername(e.target.value);
+              if (error) setError(null);
+            }}
             placeholder={t("login.usernamePlaceholder")}
             autoComplete="username"
+            autoFocus
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "login-error" : undefined}
             disabled={isLoading}
             className={styles.input}
           />
@@ -355,9 +396,14 @@ export function LoginPage(): JSX.Element {
             data-testid="login-password-input"
             type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              if (error) setError(null);
+            }}
             placeholder={t("login.passwordPlaceholder")}
             autoComplete="current-password"
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "login-error" : undefined}
             disabled={isLoading}
             className={styles.input}
           />

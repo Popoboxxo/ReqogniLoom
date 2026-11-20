@@ -21,7 +21,7 @@
 }
 
 .mutedTextDanger {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .heading {
@@ -148,7 +148,7 @@
  * a hand-rolled fill — a module rule here would load after global.css and
  * shadow it, so the duplicated declarations are gone. */
 .compareError {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
   margin: 0 0 var(--space-3) 0;
 }
@@ -252,7 +252,7 @@
 }
 
 .diffTdOld {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .diffTdNew {

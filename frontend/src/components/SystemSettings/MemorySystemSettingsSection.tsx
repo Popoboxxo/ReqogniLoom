@@ -138,6 +138,7 @@ export function MemorySystemSettingsSection(): JSX.Element {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [pendingWarningConfirm, setPendingWarningConfirm] = useState(false);
   // UI-20: unified on the shared ConfirmDialog instead of window.confirm.
   const [pendingResetConfirm, setPendingResetConfirm] = useState(false);
@@ -160,6 +161,10 @@ export function MemorySystemSettingsSection(): JSX.Element {
     reload();
   }, [reload]);
 
+  useEffect(() => {
+    if (Object.keys(form).length > 0) setSavedNotice(null);
+  }, [form]);
+
   const isRiskyChange = useCallback((): boolean => {
     if (!settings) return false;
     const providerChanged =
@@ -177,6 +182,7 @@ export function MemorySystemSettingsSection(): JSX.Element {
       setSettings(result);
       setForm({});
       setPendingWarningConfirm(false);
+      setSavedNotice(t("actions.saved"));
     } catch (err) {
       console.error("MemorySystemSettingsSection: failed to save settings", err);
       setSaveError(t("systemSettings.memorySettings.saveError"));
@@ -200,6 +206,7 @@ export function MemorySystemSettingsSection(): JSX.Element {
       const result = await systemMemorySettingsApi.reset();
       setSettings(result);
       setForm({});
+      setSavedNotice(t("actions.saved"));
     } catch (err) {
       console.error("MemorySystemSettingsSection: failed to reset settings", err);
       setSaveError(t("systemSettings.memorySettings.saveError"));
@@ -290,9 +297,19 @@ export function MemorySystemSettingsSection(): JSX.Element {
 
   if (loadError) {
     return (
-      <p role="alert" data-testid="memory-system-settings-error" className={styles.error}>
-        {loadError}
-      </p>
+      <div>
+        <p role="alert" data-testid="memory-system-settings-error" className={styles.error}>
+          {loadError}
+        </p>
+        <button
+          type="button"
+          className="btn-secondary"
+          data-testid="memory-system-settings-retry"
+          onClick={() => void reload()}
+        >
+          {t("actions.retry", "Retry")}
+        </button>
+      </div>
     );
   }
   if (!settings) {
@@ -440,55 +457,6 @@ export function MemorySystemSettingsSection(): JSX.Element {
         );
       })}
 
-      <p className={styles.hint} data-testid="memory-settings-honcho-legacy-fields-hint">
-        {t("systemSettings.memorySettings.honchoLegacyFieldsHint")}
-      </p>
-
-      <label className={styles.field}>
-        {t("systemSettings.memorySettings.honchoPeerName")}
-        <input
-          type="text"
-          data-testid="memory-settings-honcho-peer-name"
-          value={textFieldValue(form.honcho_peer_name, settings.honcho_peer_name)}
-          onChange={(e) => setForm((f) => ({ ...f, honcho_peer_name: e.target.value || null }))}
-        />
-        {settings.honcho_peer_name_is_override && (
-          <span data-testid="honcho-peer-name-override-badge" className={styles.overrideBadge}>
-            {t("systemSettings.memorySettings.overrideBadge")}
-          </span>
-        )}
-      </label>
-
-      <label className={styles.field}>
-        {t("systemSettings.memorySettings.honchoWorkspaceId")}
-        <input
-          type="text"
-          data-testid="memory-settings-honcho-workspace-id"
-          value={textFieldValue(form.honcho_workspace_id, settings.honcho_workspace_id)}
-          onChange={(e) => setForm((f) => ({ ...f, honcho_workspace_id: e.target.value || null }))}
-        />
-        {settings.honcho_workspace_id_is_override && (
-          <span data-testid="honcho-workspace-id-override-badge" className={styles.overrideBadge}>
-            {t("systemSettings.memorySettings.overrideBadge")}
-          </span>
-        )}
-      </label>
-
-      <label className={styles.field}>
-        {t("systemSettings.memorySettings.honchoAppId")}
-        <input
-          type="text"
-          data-testid="memory-settings-honcho-app-id"
-          value={textFieldValue(form.honcho_app_id, settings.honcho_app_id)}
-          onChange={(e) => setForm((f) => ({ ...f, honcho_app_id: e.target.value || null }))}
-        />
-        {settings.honcho_app_id_is_override && (
-          <span data-testid="honcho-app-id-override-badge" className={styles.overrideBadge}>
-            {t("systemSettings.memorySettings.overrideBadge")}
-          </span>
-        )}
-      </label>
-
       <label className={styles.field}>
         {t("systemSettings.memorySettings.honchoVersion")}
         <input
@@ -538,6 +506,11 @@ export function MemorySystemSettingsSection(): JSX.Element {
       {saveError && (
         <p role="alert" data-testid="memory-system-settings-save-error" className={styles.error}>
           {saveError}
+        </p>
+      )}
+      {savedNotice && !saveError && (
+        <p role="status" data-testid="memory-system-settings-saved" className={styles.hint}>
+          {savedNotice}
         </p>
       )}
       {settings.warning && (

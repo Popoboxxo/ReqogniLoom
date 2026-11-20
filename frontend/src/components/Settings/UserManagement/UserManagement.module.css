@@ -78,7 +78,7 @@
 
 .error {
   margin-top: var(--space-3);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 /* --- Create-user dialog form --------------------------------------------- */
@@ -116,7 +116,7 @@
 
 .formError {
   margin: 0;
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
 }
 

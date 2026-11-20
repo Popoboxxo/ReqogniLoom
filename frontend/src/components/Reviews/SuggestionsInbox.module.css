@@ -78,7 +78,7 @@
 }
 
 .errorText {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 /* Dialog error text sits on --color-surface-raised, where the dark theme's

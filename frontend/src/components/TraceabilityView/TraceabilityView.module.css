@@ -49,7 +49,7 @@
 }
 
 .errorText {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   margin: 0;
 }
 
@@ -63,7 +63,7 @@
 }
 
 .cycleWarningTitle {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .cycleList {
@@ -295,7 +295,7 @@
 
 .uncovered {
   background: var(--color-surface-raised);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .coveragePanel {

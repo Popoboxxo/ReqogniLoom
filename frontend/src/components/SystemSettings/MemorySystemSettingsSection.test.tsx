@@ -417,7 +417,7 @@ describe("MemorySystemSettingsSection", () => {
 
   // --- #1286: expanded Honcho fields ------------------------------------
 
-  it("renders the five additional Honcho fields with their loaded effective values", async () => {
+  it("renders the effective Honcho fields the backend persists", async () => {
     vi.mocked(systemMemorySettingsApi.get).mockResolvedValue({
       ...SETTINGS,
       honcho_dialectic_level: "high",
@@ -432,11 +432,11 @@ describe("MemorySystemSettingsSection", () => {
 
     await screen.findByTestId("memory-system-settings-section");
     expect(screen.getByTestId("memory-settings-honcho-dialectic-level")).toHaveValue("high");
-    expect(screen.getByTestId("memory-settings-honcho-peer-name")).toHaveValue("reqlo-admin");
-    expect(screen.getByTestId("memory-settings-honcho-workspace-id")).toHaveValue("ws-honcho-1");
-    expect(screen.getByTestId("memory-settings-honcho-app-id")).toHaveValue("app-42");
     expect(screen.getByTestId("memory-settings-honcho-session-ttl")).toHaveValue(3600);
     expect(screen.getByTestId("memory-settings-honcho-version")).toHaveValue("2.5.1");
+    // The no-effect peer/workspace/app fields were removed from the UI: the
+    // backend never persisted them (usability review M11).
+    expect(screen.queryByTestId("memory-settings-honcho-peer-name")).toBeNull();
   });
 
   it("offers exactly the five dialectic levels plus an explicit default option", async () => {
@@ -455,9 +455,6 @@ describe("MemorySystemSettingsSection", () => {
 
     await screen.findByTestId("memory-system-settings-section");
     await user.selectOptions(screen.getByTestId("memory-settings-honcho-dialectic-level"), "medium");
-    await user.type(screen.getByTestId("memory-settings-honcho-peer-name"), "reqlo-admin");
-    await user.type(screen.getByTestId("memory-settings-honcho-workspace-id"), "ws-honcho-1");
-    await user.type(screen.getByTestId("memory-settings-honcho-app-id"), "app-42");
     fireEvent.change(screen.getByTestId("memory-settings-honcho-session-ttl"), {
       target: { value: "1800" },
     });
@@ -466,9 +463,6 @@ describe("MemorySystemSettingsSection", () => {
     await waitFor(() => {
       expect(systemMemorySettingsApi.update).toHaveBeenCalledWith({
         honcho_dialectic_level: "medium",
-        honcho_peer_name: "reqlo-admin",
-        honcho_workspace_id: "ws-honcho-1",
-        honcho_app_id: "app-42",
         honcho_session_ttl: 1800,
       });
     });
@@ -518,9 +512,8 @@ describe("MemorySystemSettingsSection", () => {
     render(<MemorySystemSettingsSection />);
 
     expect(await screen.findByTestId("honcho-dialectic-level-override-badge")).toBeInTheDocument();
-    expect(screen.getByTestId("honcho-peer-name-override-badge")).toBeInTheDocument();
-    expect(screen.getByTestId("honcho-workspace-id-override-badge")).toBeInTheDocument();
-    expect(screen.getByTestId("honcho-app-id-override-badge")).toBeInTheDocument();
     expect(screen.getByTestId("honcho-session-ttl-override-badge")).toBeInTheDocument();
+    // peer/workspace/app are no longer rendered (never persisted, M11).
+    expect(screen.queryByTestId("honcho-peer-name-override-badge")).toBeNull();
   });
 });

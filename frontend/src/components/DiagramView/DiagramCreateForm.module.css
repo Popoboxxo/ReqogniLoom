@@ -74,7 +74,7 @@
 
 .error {
   grid-column: 1 / -1;
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
 }
 

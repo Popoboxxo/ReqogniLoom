@@ -64,4 +64,13 @@ i18n
     ...createMissingKeyDiagnostics(import.meta.env.DEV),
   });
 
+// WCAG 3.1.1: the document language must match the rendered language even
+// before login/workspace resolution. Previously only the post-login shell set
+// it, so the login page declared `lang="en"` while rendering German.
+const syncDocumentLanguage = (lng: string): void => {
+  document.documentElement.lang = lng.startsWith("de") ? "de" : "en";
+};
+syncDocumentLanguage(i18n.resolvedLanguage ?? i18n.language);
+i18n.on("languageChanged", syncDocumentLanguage);
+
 export { i18n };

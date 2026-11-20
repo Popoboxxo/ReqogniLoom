@@ -93,5 +93,5 @@
 
 .error {
   margin: 0;
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }

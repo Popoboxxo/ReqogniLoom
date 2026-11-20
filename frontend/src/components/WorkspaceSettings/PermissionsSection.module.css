@@ -86,7 +86,7 @@
 }
 
 .errorText {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
 }
 
@@ -140,13 +140,13 @@
 
 .levelChipDeny {
   background: rgba(var(--color-danger-rgb), 0.12);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .revokeButton {
   min-height: var(--btn-h-sm);
   background: transparent;
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   border: 1px solid var(--color-danger);
   border-radius: var(--radius-btn);
   padding: 0 var(--space-3);
@@ -173,7 +173,7 @@
 }
 
 .membersError {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
 }
 
@@ -214,12 +214,12 @@
 }
 
 .suspendAction {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   border: 1px solid var(--color-danger);
 }
 
 .suspendActionPending {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   border: 1px solid var(--color-danger);
   cursor: wait;
   opacity: 0.6;

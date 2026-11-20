@@ -11,7 +11,7 @@
    The leading gap used to come from a literal space in a CSS `::after`; it is
    a token here so the marker keeps its spacing in every context. */
 .requiredMarker {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   margin-inline-start: var(--space-1);
 }
 
@@ -102,7 +102,7 @@
   align-items: center;
   gap: var(--space-1);
   margin: 0;
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
 }
 

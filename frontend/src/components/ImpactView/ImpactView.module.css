@@ -122,7 +122,7 @@
 }
 
 .nodeError {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
   margin: var(--space-2) 0 var(--space-2) var(--space-5);
 }
@@ -184,7 +184,7 @@
 }
 
 .searchError {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
   margin-top: var(--space-3);
 }

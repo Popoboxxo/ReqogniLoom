@@ -32,7 +32,7 @@
 }
 
 .createError {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-sm);
   margin-top: var(--space-3);
 }
@@ -47,6 +47,6 @@
 }
 
 .errorText {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   margin-bottom: var(--space-4);
 }

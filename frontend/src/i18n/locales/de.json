@@ -254,6 +254,9 @@
     "passwordRequired": "Bitte geben Sie ein Passwort ein.",
     "submit": "Anmelden",
     "invalidCredentials": "Ungültige Anmeldedaten. Bitte versuchen Sie es erneut.",
+    "rateLimited": "Zu viele Anmeldeversuche. Bitte warten Sie einen Moment und versuchen Sie es erneut.",
+    "serverUnavailable": "Der Anmeldedienst ist derzeit nicht erreichbar (Serverfehler). Bitte versuchen Sie es später erneut.",
+    "networkError": "Keine Verbindung zum Server. Bitte prüfen Sie Ihre Netzwerkverbindung.",
     "sessionExpired": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an, um fortzufahren.",
     "mfa": {
       "title": "Zweiter Faktor",
@@ -264,7 +267,9 @@
       "invalidCode": "Code ungültig.",
       "locked": "Zu viele Fehlversuche. Erneut in {{minutes}} min.",
       "expired": "Anmeldung abgelaufen, bitte neu anmelden.",
-      "enrollRequired": "Für dieses Konto ist ein zweiter Faktor Pflicht."
+      "enrollRequired": "Für dieses Konto ist ein zweiter Faktor Pflicht.",
+      "enrollGuidance": "Der zweite Faktor ist verpflichtend, aber noch nicht eingerichtet. Bitte wenden Sie sich an eine Administratorin oder einen Administrator.",
+      "backToLogin": "Zurück zur Anmeldung"
     }
   },
   "mfa": {
@@ -2975,7 +2980,7 @@
     "themes.tenantDefaultSave": "Als Standard speichern",
     "themes.tenantDefaultSaveFor": "{{target}} als Standard speichern",
     "themes.tenantDefaultSaved": "Gespeichert",
-    "memory.heading": "Memory-Übersicht",
+    "memory.heading": "Gedächtnis-Übersicht",
     "memory.hint": "Pro Workspace: Memory-Status, Anzahl Einträge je Ebene, letzte Konsolidierung. Löschen entfernt Workspace-Memory und das Tenant-Memory der aktuellen Workspace-Mitglieder unwiderruflich.",
     "memory.colWorkspace": "Workspace",
     "memory.colEnabled": "Aktiv",
@@ -3019,8 +3024,8 @@
     "memory.viz.excludedNoEmbeddingNotice": "{{count}} Einträge haben noch kein Embedding und erscheinen nicht in Cluster/Streudiagramm.",
     "memory.viz.clusterLabel": "Cluster {{id}} ({{count}} Einträge)",
     "memory.viz.scatterAriaLabel": "2D-Projektion der Memory-Embeddings, eingefärbt nach Cluster",
-    "memorySettings.heading": "Systemweite Speicher-Konfiguration",
-    "memorySettings.hint": "Überschreibt die Umgebungsvariablen-Konfiguration für Embedding-Provider und Memory-Backend zur Laufzeit. Nicht gesetzte Felder verwenden weiterhin die Umgebungsvariable.",
+    "memorySettings.heading": "Systemweite Gedächtnis-Konfiguration",
+    "memorySettings.hint": "Überschreibt die Umgebungsvariablen-Konfiguration für Embedding-Provider und Gedächtnis-Backend zur Laufzeit. Nicht gesetzte Felder verwenden weiterhin die Umgebungsvariable.",
     "memorySettings.embeddingProvider": "Embedding-Provider",
     "memorySettings.memoryBackend": "Memory-Backend",
     "memorySettings.embeddingModelName": "Embedding-Modellname",
@@ -3053,13 +3058,13 @@
     "memorySettings.confirmButton": "Trotzdem speichern",
     "memorySettings.loadError": "Konfiguration konnte nicht geladen werden.",
     "memorySettings.saveError": "Speichern fehlgeschlagen.",
-    "pageSummary": "Tenant-weite Konfiguration: Administration, Workflow-Vorgaben und Berechtigungs-Standards.",
+    "pageSummary": "Tenant-weite Konfiguration: Administration, Workflow-, Attribut- und Berechtigungs-Standards, Darstellung und Gedächtnis.",
     "tabs": {
       "administration": "Administration",
       "workflowDefaults": "Workflow-Standards",
       "attributeDefaults": "Attribut-Standards",
       "permissionDefaults": "Berechtigungs-Standards",
-      "memory": "Memory",
+      "memory": "Gedächtnis",
       "display": "Darstellung"
     },
     "permissionDefaults": {

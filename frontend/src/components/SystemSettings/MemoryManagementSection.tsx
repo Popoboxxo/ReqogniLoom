@@ -139,6 +139,7 @@ export function MemoryManagementSection(): JSX.Element {
                     type="button"
                     className="btn-danger"
                     data-testid={`memory-delete-btn-${row.workspace_id}`}
+                    aria-label={`${t("systemSettings.memory.deleteButton")} – ${row.workspace_name}`}
                     onClick={() => {
                       setDeleteError(null);
                       setPendingDelete(row);
