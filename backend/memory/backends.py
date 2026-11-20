@@ -573,6 +573,38 @@ class MemoryBackend(ABC):
     #: normalised to ``unknown`` by the health probe.
     derivation_status: str = "unknown"
 
+    # -- optional provider extension points (default no-op) ----------------
+    #
+    # A provider that needs inbound events or external tenant lifecycle can
+    # override these without touching the core: the registry, the settings
+    # schema, the capability flags and the conformance suite already treat a
+    # backend as a plugin. They are intentionally non-abstract so an existing
+    # adapter stays valid.
+
+    def webhook_route(self) -> str | None:
+        """Path segment for inbound provider events, or None (no webhook).
+
+        A backend that returns a value declares an endpoint under
+        ``/api/v1/memory/webhooks/<segment>/``; :meth:`verify_webhook` owns
+        the authentication and payload parsing for it.
+        """
+        return None
+
+    def verify_webhook(self, request: Any) -> list[dict[str, Any]] | None:
+        """Authenticate and decode one inbound webhook request.
+
+        Returns the recognised events (opaque dicts) or None when the backend
+        does not consume webhooks. Implementations must raise on an invalid
+        signature/payload; the caller maps that to 400/401. Default: none.
+        """
+        return None
+
+    def provision_tenant(self, tenant_id: UUID) -> None:
+        """Create any external tenant state on first use. Default: no-op."""
+
+    def teardown_tenant(self, tenant_id: UUID) -> None:
+        """Remove external tenant state on tenant deletion. Default: no-op."""
+
     # -- canonical-store API (RFC #1002) ---------------------------------
 
     @abstractmethod

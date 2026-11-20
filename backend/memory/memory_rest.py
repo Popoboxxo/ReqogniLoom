@@ -394,16 +394,27 @@ class SystemMemorySettingsWriteSerializer(serializers.Serializer):
     embedding_model_name = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=128)
     ollama_base_url = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
     embedding_timeout = serializers.IntegerField(required=False, allow_null=True, min_value=1)
-    # "honcho" is selectable again: memory.honcho_backend now implements the
-    # full MemoryBackend contract against the verified honcho-ai SDK and is
-    # registered at startup via memory.apps.MemoryConfig.ready(), so
-    # get_memory_backend() resolves it instead of raising. It still requires
-    # HONCHO_BASE_URL (or the honcho_base_url override below) to be set —
-    # that is surfaced as a health-check failure, not a save-time error, so an
-    # admin can configure the URL and the backend in either order.
+    # The selectable backends come from MEMORY_BACKEND_REGISTRY, not a literal
+    # list: memory.apps.MemoryConfig.ready() registers every adapter (pgvector,
+    # honcho, qdrant, and any future provider) at startup, so a new adapter is
+    # selectable without editing this module. The field is populated in
+    # __init__ because the registry is only complete once the app registry is
+    # ready; the empty default never validates a value on its own.
+    #
+    # Selecting a backend whose config is incomplete is a health-check failure,
+    # not a save-time error, so an admin can configure URL and backend in
+    # either order.
     memory_backend = serializers.ChoiceField(
-        choices=["pgvector", "honcho", "qdrant"], required=False, allow_null=True
+        choices=(), required=False, allow_null=True
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from memory.backends import MEMORY_BACKEND_REGISTRY
+
+        self.fields["memory_backend"].choices = (
+            sorted(MEMORY_BACKEND_REGISTRY) or ["pgvector"]
+        )
     honcho_base_url = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=255)
     honcho_api_key = serializers.CharField(write_only=True, required=False, allow_blank=True, max_length=512)
     # #1286: the dialectic/peer/scope surface was configurable only via env.
