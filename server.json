@@ -25,6 +25,24 @@
           "isRequired": true
         }
       ]
+    },
+    {
+      "type": "sse",
+      "url": "https://{host}/mcp/sse/",
+      "variables": {
+        "host": {
+          "description": "Hostname of your self-hosted ReqogniLoom instance (legacy SSE transport — DEPRECATED, do not use for new configs; prefer /mcp/ streamable-http)",
+          "isRequired": true
+        }
+      },
+      "headers": [
+        {
+          "name": "X-API-Key",
+          "value": "{REQOGNILOOM_API_KEY}",
+          "isSecret": true,
+          "isRequired": true
+        }
+      ]
     }
   ]
 }

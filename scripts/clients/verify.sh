@@ -22,6 +22,9 @@ done
 # Name of the OpenCode client binary (default `opencode`), matching install.sh.
 OPENCODE_BIN="${OPENCODE_BIN:-opencode}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 require_bin() {
   command -v "$1" >/dev/null 2>&1 || {
     echo "fail: '$1' not found on PATH" >&2; exit 3;
@@ -87,6 +90,27 @@ case "$CLIENT" in
     out="$(hermes mcp test reqogniloom 2>&1 || true)"
     expect_marker "$out" "Connected"
     echo "info: skills expected at ${HOME}/.hermes/skills/reqogniloom"
+
+    # #1914: a copied plugin install goes stale while a symlink follows
+    # `git pull`. Enforce that the installed SemVer matches the shipped
+    # manifest, and point at the explicit --refresh update path on drift.
+    repo_plugin="$REPO_ROOT/integrations/hermes-agent-plugin/plugin.yaml"
+    installed_plugin="${HERMES_PLUGINS_DIR:-$HOME/.hermes/plugins}/reqogniloom"
+    if [ -f "$repo_plugin" ] && [ -f "$installed_plugin/plugin.yaml" ]; then
+      expected_version="$(sed -n 's/^version:[[:space:]]*//p' "$repo_plugin" | head -n 1 | tr -d '\r"')"
+      actual_version="$(sed -n 's/^version:[[:space:]]*//p' "$installed_plugin/plugin.yaml" | head -n 1 | tr -d '\r"')"
+      if [ -n "$expected_version" ] && [ "$actual_version" != "$expected_version" ]; then
+        echo "fail: installed Hermes plugin $actual_version != shipped $expected_version (#1914)" >&2
+        echo "      update: bash $REPO_ROOT/scripts/clients/install.sh --client hermes --with-dashboard --refresh --url \"https://<host>\" --key-env REQOGNILOOM_API_KEY" >&2
+        exit 1
+      fi
+      echo "ok: Hermes plugin version $actual_version matches shipped manifest"
+      if [ -L "$installed_plugin" ]; then
+        echo "info: symlink install -> $(readlink "$installed_plugin") (follows git pull)"
+      fi
+    elif [ ! -f "$installed_plugin/plugin.yaml" ]; then
+      echo "info: no agent/dashboard plugin at $installed_plugin (optional; use --with-dashboard)"
+    fi
     ;;
   kimi-code|antigravity)
     # No native status command: the config file is the artifact. A full smoke

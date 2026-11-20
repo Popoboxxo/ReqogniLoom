@@ -43,7 +43,7 @@ bash scripts/clients/install.sh --client hermes --with-dashboard \
 - Dashboard-Tab `ReqogniLoom` (`tab.path: /reqogniloom`, Position `after:analytics`) — read-only: Workspace-Zähler und offene Interviews.
 - Slash-Command `/reqogniloom` plus opt-in Listen-Mode; Vorschläge landen als `suggestion` und werden erst nach `/reqogniloom accept` persistent.
 
-- **Versionsregel:** eigenes SemVer in `plugin.yaml` und `dashboard/manifest.json` plus `minServerVersion` — **nicht** an das Repo-`VERSION` gekoppelt (ADR-017 Entscheidung 2).
+- **Versionsregel:** eigenes SemVer in `plugin.yaml` und `dashboard/manifest.json` plus `minServerVersion` — **nicht** an das Repo-`VERSION` gekoppelt (ADR-017 Entscheidung 2). **Update/Drift (#1914):** ein Symlink folgt `git pull`; eine kopierte Installation bleibt stehen. Version und Commit prüfen: `grep '^version:' ~/.hermes/plugins/reqogniloom/plugin.yaml` gegen `grep '^version:' integrations/hermes-agent-plugin/plugin.yaml` im Repo. Aktualisieren mit `bash scripts/clients/install.sh --client hermes --with-dashboard --refresh --url "https://<host>" --key-env REQOGNILOOM_API_KEY` (timestamped Backup, danach `bash scripts/clients/verify.sh --client hermes` — der Verifier meldet Versionsdrift).
 
 ### Desktop-Plugin
 

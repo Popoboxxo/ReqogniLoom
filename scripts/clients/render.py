@@ -394,40 +394,64 @@ def render_marketplace(registry: dict[str, Any], version: str) -> str:
 def render_server_json(registry: dict[str, Any], version: str) -> str:
     """Render the repo-root MCP registry entry (Stufe 2, store S1).
 
-    Conforms to ``server.schema.json`` (2025-12-11): a remote Streamable HTTP
-    transport with an ``X-API-Key`` header whose value is an env-var template,
-    never a literal key. E1 is confirmed (user, 2026-10-09): personal namespace
-    ``io.github.popoboxxo``.
+    Conforms to ``server.schema.json`` (2025-12-11): a primary Streamable HTTP
+    remote with an ``X-API-Key`` env-var template (never a literal key), plus —
+    since #1913 — the still-served legacy SSE remote marked deprecated in its
+    host-variable description. E1 is confirmed (user, 2026-10-09): personal
+    namespace ``io.github.popoboxxo``.
     """
     mcp = registry["store"]["mcp_registry"]
+    headers = [
+        {
+            "name": mcp["auth_header"],
+            "value": "{REQOGNILOOM_API_KEY}",
+            "isSecret": True,
+            "isRequired": True,
+        }
+    ]
+    remotes: list[dict[str, Any]] = [
+        {
+            "type": "streamable-http",
+            "url": f"https://{{host}}{mcp['remote_path']}",
+            "variables": {
+                "host": {
+                    "description": "Hostname of your self-hosted ReqogniLoom instance",
+                    "isRequired": True,
+                }
+            },
+            "headers": headers,
+        }
+    ]
+    # #1913: publish the still-served legacy SSE transport as a second remote.
+    # The MCP server schema has no `deprecated` field, so the explicit target
+    # statement lives in the host variable's description (and in the generated
+    # client docs via conventions.transport_rule_*). New configs use /mcp/.
+    legacy_path = mcp.get("legacy_remote_path")
+    if legacy_path:
+        remotes.append(
+            {
+                "type": "sse",
+                "url": f"https://{{host}}{legacy_path}",
+                "variables": {
+                    "host": {
+                        "description": (
+                            "Hostname of your self-hosted ReqogniLoom instance "
+                            "(legacy SSE transport — DEPRECATED, do not use for "
+                            "new configs; prefer /mcp/ streamable-http)"
+                        ),
+                        "isRequired": True,
+                    }
+                },
+                "headers": headers,
+            }
+        )
     server = {
         "$schema": SERVER_SCHEMA,
         "name": mcp["name"],
         "description": mcp["description"],
         "version": version,
         "repository": {"url": mcp["repository_url"], "source": "github"},
-        "remotes": [
-            {
-                "type": "streamable-http",
-                "url": f"https://{{host}}{mcp['remote_path']}",
-                "variables": {
-                    "host": {
-                        "description": (
-                            "Hostname of your self-hosted ReqogniLoom instance"
-                        ),
-                        "isRequired": True,
-                    }
-                },
-                "headers": [
-                    {
-                        "name": mcp["auth_header"],
-                        "value": "{REQOGNILOOM_API_KEY}",
-                        "isSecret": True,
-                        "isRequired": True,
-                    }
-                ],
-            }
-        ],
+        "remotes": remotes,
     }
     return json.dumps(server, indent=2, ensure_ascii=False) + "\n"
 
@@ -605,6 +629,27 @@ def validate_store_artifacts(
                         for header in headers
                     ),
                     "server.json: remote must carry the X-API-Key header",
+                    problems,
+                )
+            # #1913: the legacy SSE transport must be published as a second
+            # remote with an explicit deprecation statement when the registry
+            # declares it.
+            legacy_path = (registry.get("store", {}).get("mcp_registry") or {}).get(
+                "legacy_remote_path"
+            )
+            if legacy_path:
+                legacy = remotes[1] if len(remotes) > 1 else {}
+                _expect(
+                    legacy.get("type") == "sse"
+                    and legacy.get("url") == f"https://{{host}}{legacy_path}",
+                    "server.json: second remote must be the legacy SSE transport",
+                    problems,
+                )
+                legacy_host = (legacy.get("variables") or {}).get("host") or {}
+                legacy_note = legacy_host.get("description") or ""
+                _expect(
+                    "DEPRECATED" in legacy_note and "/mcp/" in legacy_note,
+                    "server.json: legacy SSE remote needs a deprecation note",
                     problems,
                 )
             _expect(

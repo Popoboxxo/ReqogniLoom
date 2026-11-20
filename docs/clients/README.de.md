@@ -36,8 +36,8 @@ Ein Client, eine Seite, **Deutsch und Englisch**. Alle Seiten sind aus `clients/
 
 ### Transport-Entscheidung
 
-- **Streamable HTTP** (`/mcp/`): Client spricht es nativ — bevorzugt.
-- **SSE** (`/mcp/sse/`): Plugin-/Store-Weg sieht SSE vor (Claude-Plugin, Antigravity).
+- **Streamable HTTP** (`/mcp/`): Client spricht es nativ — **kanonisch, für alle neuen Configs Pflicht**.
+- **SSE** (`/mcp/sse/`): Legacy-Transport, weiterhin für bestehende Claude-Plugin-/Antigravity-Configs ausgeliefert. **Deprecated** — kein Ziel für neue Integrationen; wird mit einem zukünftigen Major-Release entfernt. Auch in `server.json` als zweiter Remote gelistet.
 - **stdio-Bridge** (lokales Skript): falls ein Client ausschließlich stdio spricht.
 
 ### Platzhalterformen

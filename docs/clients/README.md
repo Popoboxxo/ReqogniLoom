@@ -36,8 +36,8 @@ One client, one page, **German and English**. Every page is generated from `clie
 
 ### Transport decision
 
-- **Streamable HTTP** (`/mcp/`): client speaks it natively — preferred.
-- **SSE** (`/mcp/sse/`): plugin/store path expects SSE (Claude plugin, Antigravity).
+- **Streamable HTTP** (`/mcp/`): client speaks it natively — **canonical, required for all new configs**.
+- **SSE** (`/mcp/sse/`): legacy transport, still served for existing Claude plugin / Antigravity configs. **Deprecated** — not a target for new integrations; to be removed in a future major release. Also listed as a second remote in `server.json`.
 - **stdio bridge** (local script): when a client only speaks stdio.
 
 ### Placeholder forms

@@ -47,12 +47,12 @@ conventions:
   # Rule (plan §3.3): prefer Streamable HTTP when the client speaks it natively;
   # use SSE for plugin/store paths; stdio bridge when the client is stdio-only.
   transport_rule_de:
-    - "**Streamable HTTP** (`/mcp/`): Client spricht es nativ — bevorzugt."
-    - "**SSE** (`/mcp/sse/`): Plugin-/Store-Weg sieht SSE vor (Claude-Plugin, Antigravity)."
+    - "**Streamable HTTP** (`/mcp/`): Client spricht es nativ — **kanonisch, für alle neuen Configs Pflicht**."
+    - "**SSE** (`/mcp/sse/`): Legacy-Transport, weiterhin für bestehende Claude-Plugin-/Antigravity-Configs ausgeliefert. **Deprecated** — kein Ziel für neue Integrationen; wird mit einem zukünftigen Major-Release entfernt. Auch in `server.json` als zweiter Remote gelistet."
     - "**stdio-Bridge** (lokales Skript): falls ein Client ausschließlich stdio spricht."
   transport_rule_en:
-    - "**Streamable HTTP** (`/mcp/`): client speaks it natively — preferred."
-    - "**SSE** (`/mcp/sse/`): plugin/store path expects SSE (Claude plugin, Antigravity)."
+    - "**Streamable HTTP** (`/mcp/`): client speaks it natively — **canonical, required for all new configs**."
+    - "**SSE** (`/mcp/sse/`): legacy transport, still served for existing Claude plugin / Antigravity configs. **Deprecated** — not a target for new integrations; to be removed in a future major release. Also listed as a second remote in `server.json`."
     - "**stdio bridge** (local script): when a client only speaks stdio."
 
   # Every client spells an environment-variable reference differently (#1171,
@@ -120,6 +120,12 @@ store:
     description: "ReqogniLoom MCP server: requirements, architecture and test management."
     repository_url: https://github.com/Popoboxxo/ReqogniLoom
     remote_path: /mcp/
+    # #1913: the legacy SSE transport is still served at /mcp/sse/ and is used
+    # by a few plugin/store configs. Publish it as a SECOND remote so clients
+    # reading server.json see both transports; the deprecation statement lives
+    # in the `variables.host.description` of that remote and in the generated
+    # client docs (conventions.transport_rule_*). New configs MUST use /mcp/.
+    legacy_remote_path: /mcp/sse/
     auth_header: X-API-Key
     decision_e1: "confirmed 2026-10-09: personal namespace io.github.popoboxxo"
 
@@ -743,7 +749,7 @@ clients:
       items:
         - "Dashboard-Tab `ReqogniLoom` (`tab.path: /reqogniloom`, Position `after:analytics`) — read-only: Workspace-Zähler und offene Interviews."
         - "Slash-Command `/reqogniloom` plus opt-in Listen-Mode; Vorschläge landen als `suggestion` und werden erst nach `/reqogniloom accept` persistent."
-      version_note: "eigenes SemVer in `plugin.yaml` und `dashboard/manifest.json` plus `minServerVersion` — **nicht** an das Repo-`VERSION` gekoppelt (ADR-017 Entscheidung 2)."
+      version_note: "eigenes SemVer in `plugin.yaml` und `dashboard/manifest.json` plus `minServerVersion` — **nicht** an das Repo-`VERSION` gekoppelt (ADR-017 Entscheidung 2). **Update/Drift (#1914):** ein Symlink folgt `git pull`; eine kopierte Installation bleibt stehen. Version und Commit prüfen: `grep '^version:' ~/.hermes/plugins/reqogniloom/plugin.yaml` gegen `grep '^version:' integrations/hermes-agent-plugin/plugin.yaml` im Repo. Aktualisieren mit `bash scripts/clients/install.sh --client hermes --with-dashboard --refresh --url \"https://<host>\" --key-env REQOGNILOOM_API_KEY` (timestamped Backup, danach `bash scripts/clients/verify.sh --client hermes` — der Verifier meldet Versionsdrift)."
     desktop_plugin_de:
       intro: "Neben dem MCP-Server (Abschnitt 2) kann die Hermes-Desktop-App das ReqogniLoom-**Desktop-Plugin** laden — ein eigenes Panel plus ein Statusbar-Eintrag. Quelle im Repo: `integrations/hermes-plugin/reqogniloom/`, Manifest `hermes-plugin.json`."
       install:
@@ -788,7 +794,7 @@ clients:
       items:
         - "Dashboard tab `ReqogniLoom` (`tab.path: /reqogniloom`, position `after:analytics`) — read-only: workspace counters and open interviews."
         - "Slash command `/reqogniloom` plus opt-in listen mode; proposals land as `suggestion` and become persistent only after `/reqogniloom accept`."
-      version_note: "own SemVer in `plugin.yaml` and `dashboard/manifest.json` plus `minServerVersion` — **not** coupled to the repo `VERSION` (ADR-017 decision 2)."
+      version_note: "own SemVer in `plugin.yaml` and `dashboard/manifest.json` plus `minServerVersion` — **not** coupled to the repo `VERSION` (ADR-017 decision 2). **Update / drift (#1914):** a symlink follows `git pull`; a copied install stays stale. Check the installed commit/version with `grep '^version:' ~/.hermes/plugins/reqogniloom/plugin.yaml` against `grep '^version:' integrations/hermes-agent-plugin/plugin.yaml` in the repo. Update with `bash scripts/clients/install.sh --client hermes --with-dashboard --refresh --url \"https://<host>\" --key-env REQOGNILOOM_API_KEY` (timestamped backup, then re-link/copy) and re-check with `bash scripts/clients/verify.sh --client hermes` — the verifier reports version drift."
     fallback_de:
       - lang: yaml
         text: |

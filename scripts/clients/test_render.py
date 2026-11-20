@@ -149,3 +149,23 @@ def test_server_json_remote_uses_host_variable() -> None:
     assert remote["variables"]["host"]["isRequired"] is True
     assert "Hostname" in remote["variables"]["host"]["description"]
     assert "<host>" not in json.dumps(payload)
+
+
+def test_server_json_lists_both_transports_with_deprecation() -> None:
+    """#1913: server.json documents the canonical + the legacy SSE transport.
+
+    The primary remote must stay streamable-http (`/mcp/`); the legacy SSE
+    remote is still served but carries an explicit deprecation/target note so
+    clients cannot mistake it for the recommended endpoint.
+    """
+    registry = render.load_registry()
+    payload = json.loads(render.render_server_json(registry, render.load_version()))
+    remotes = payload["remotes"]
+    assert [remote["type"] for remote in remotes] == ["streamable-http", "sse"]
+
+    legacy = remotes[1]
+    assert legacy["url"] == "https://{host}/mcp/sse/"
+    note = legacy["variables"]["host"]["description"]
+    assert "DEPRECATED" in note
+    assert "/mcp/" in note
+    assert legacy["headers"][0]["name"] == "X-API-Key"
