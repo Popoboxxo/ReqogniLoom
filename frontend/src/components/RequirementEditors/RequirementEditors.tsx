@@ -60,19 +60,20 @@ import {
   writeRequirementViewMode,
   type RequirementViewMode,
 } from './RequirementViewToggle';
-import { GroupManager } from './GroupManager';
-import { AddToGroupDialog } from './AddToGroupDialog';
+import {
+  UnsavedChangesDialog,
+  DeriveTestcaseDialog,
+  RequirementAiDerivationDialog,
+  RequirementGroupDialogs,
+} from './RequirementDialogs';
 import { useRequirementGroups } from './useRequirementGroups';
 import { RequirementArtifactForm, REQUIREMENT_ATTRIBUTE_OVERRIDES } from './RequirementArtifactForm';
 import { ArtifactForm, type ArtifactFormValues } from '../shared/ArtifactForm';
 import { ReqTraceLinkPanel } from './ReqTraceLinkPanel';
 import { AiActionSection, type AiActionDescriptor } from '../shared/AiActions';
-import { AiDerivationDialog } from '../shared/AiDerivationDialog';
 import { SimilarRequirementsPanel } from './SimilarRequirementsPanel';
 import { ArtifactMemoryPanel } from '../Memory/ArtifactMemoryPanel';
-import { DeriveTestCasePanel } from '../TestCaseEditors/DeriveTestCasePanel';
 import { Dialog } from '../shared/Dialog';
-import { ConfirmDialog } from '../shared/ConfirmDialog';
 import { CustomFieldsEditor } from '../shared/CustomFieldsEditor';
 import { InspectorShell } from '../shared/ArtifactInspector';
 import { TraceSpineFooter } from '../shared/TraceSpine';
@@ -419,105 +420,6 @@ export default function RequirementEditors(): JSX.Element {
   // main return keeps the page shell readable as a high-level flow; they are
   // plain functions (no hooks, no new component nodes), so the rendered output
   // is byte-for-byte the same JSX as before the extraction.
-
-  const renderUnsavedChangesDialog = (): JSX.Element | null =>
-    pendingSelectId ? (
-      <ConfirmDialog
-        title={t('editor.unsavedChangesTitle')}
-        message={t('editor.unsavedChangesMessage')}
-        confirmLabel={t('editor.discardChanges')}
-        onConfirm={confirmPendingSelect}
-        onCancel={() => setPendingSelectId(null)}
-        testId="req-unsaved-changes-dialog"
-      />
-    ) : null;
-
-  const renderDeriveTestcaseDialog = (): JSX.Element | null =>
-    showDeriveTestcasePanel && requirement && activeWorkspace ? (
-      <Dialog
-        title={t('deriveTestcase.title')}
-        description={requirement.title}
-        onClose={closeDeriveTestcasePanel}
-        size="lg"
-        testId="derive-testcase-dialog"
-      >
-        <DeriveTestCasePanel
-          workspaceId={activeWorkspace.id}
-          requirement={{ id: requirement.id, title: requirement.title }}
-          onCreated={closeDeriveTestcasePanel}
-        />
-      </Dialog>
-    ) : null;
-
-  const renderAiDerivationDialog = (): JSX.Element | null =>
-    // Issue #1368 (W12b): the `decompose-next-level` preview's drafts are
-    // rendered here, in the app-wide AI review dialog (#1360). Confirm and
-    // "Review later" persist the selected drafts through the accept seam
-    // (`proposed`, #1089); Discard writes nothing.
-    showAiDeriveDialog && requirement ? (
-      <AiDerivationDialog
-        open
-        title={t('actions.deriveAi')}
-        sourceLabel={requirement.title}
-        drafts={aiDrafts}
-        isLoading={isAiDeriving}
-        loadError={aiDraftLoadError}
-        isSubmitting={isAiSaving}
-        submitError={aiDraftSubmitError}
-        selectable
-        onConfirm={(drafts) => void handleAiDraftDecision(drafts, false)}
-        onReviewLater={(drafts) => void handleAiDraftDecision(drafts, true)}
-        onDiscard={closeAiDeriveDialog}
-        testIdPrefix="req-derive-drafts"
-      />
-    ) : null;
-
-  const renderGroupManagerDialog = (): JSX.Element | null =>
-    // G1 (spec §4.2/§4.5.1): group administration as a dialog, rendered on
-    // purpose at PAGE level — inside `leftPanel` the SplitView column's
-    // `overflow` would clip it. `GroupManager` itself is unchanged: same
-    // API, same testids, same per-group search. The shared <Dialog> brings
-    // the focus trap, Escape and the focus return to the toolbar trigger.
-    isGroupManagerOpen && hasRole('editor') ? (
-      <Dialog
-        title={t('groups.title')}
-        description={t('groups.dialogHint')}
-        size="lg"
-        testId="group-manager-dialog"
-        onClose={() => setIsGroupManagerOpen(false)}
-      >
-        <GroupManager
-          groups={requirementGroups.managerGroups}
-          requirements={requirements}
-          isLoading={requirementGroups.isLoading}
-          error={requirementGroups.error}
-          onCreate={requirementGroups.createGroup}
-          onAddMember={requirementGroups.addMember}
-          onRemoveMember={requirementGroups.removeMember}
-        />
-      </Dialog>
-    ) : null;
-
-  const renderAddToGroupDialog = (): JSX.Element | null =>
-    // G2 (spec §4.5.3): "Zu Gruppe hinzufügen…" — page level for the same
-    // reason as the group manager dialog above (the SplitView column clips
-    // overflow). The hook owns the write + reload, so the folder counters
-    // and the "in N Gruppen" marker update without a route reload; the
-    // dialog itself stays open on a rejected add (role="alert").
-    addToGroupRequirement && hasRole('editor') ? (
-      <AddToGroupDialog
-        requirementId={addToGroupRequirement.id}
-        requirementTitle={
-          addToGroupRequirement.title || t('editor.untitled')
-        }
-        groups={requirementGroups.managerGroups}
-        isLoading={requirementGroups.isLoading}
-        groupsError={requirementGroups.error}
-        onAdd={requirementGroups.addMember}
-        onCreateGroup={requirementGroups.createGroup}
-        onClose={() => setAddToGroupId(null)}
-      />
-    ) : null;
 
   const renderTraceFooter = (): JSX.Element | null =>
     traceFooterVisible && requirement ? (
@@ -878,11 +780,37 @@ export default function RequirementEditors(): JSX.Element {
 
   return (
     <>
-      {renderUnsavedChangesDialog()}
-      {renderDeriveTestcaseDialog()}
-      {renderAiDerivationDialog()}
-      {renderGroupManagerDialog()}
-      {renderAddToGroupDialog()}
+      <UnsavedChangesDialog
+        pendingSelectId={pendingSelectId}
+        onConfirm={confirmPendingSelect}
+        onCancel={() => setPendingSelectId(null)}
+      />
+      <DeriveTestcaseDialog
+        show={showDeriveTestcasePanel}
+        requirement={requirement}
+        workspaceId={activeWorkspace?.id}
+        onClose={closeDeriveTestcasePanel}
+      />
+      <RequirementAiDerivationDialog
+        show={showAiDeriveDialog}
+        requirement={requirement}
+        drafts={aiDrafts}
+        isLoading={isAiDeriving}
+        loadError={aiDraftLoadError}
+        isSubmitting={isAiSaving}
+        submitError={aiDraftSubmitError}
+        onDecision={(drafts, parked) => void handleAiDraftDecision(drafts, parked)}
+        onDiscard={closeAiDeriveDialog}
+      />
+      <RequirementGroupDialogs
+        isManagerOpen={isGroupManagerOpen}
+        hasEditorRole={hasRole("editor")}
+        groups={requirementGroups}
+        requirements={requirements}
+        addToGroupRequirement={addToGroupRequirement}
+        onManagerClose={() => setIsGroupManagerOpen(false)}
+        onAddToGroupClose={() => setAddToGroupId(null)}
+      />
       {/* Same page shell as RiskEditors/AdrEditors/IssueEditors: header at
           page level, SplitView filling the rest. */}
       <div
