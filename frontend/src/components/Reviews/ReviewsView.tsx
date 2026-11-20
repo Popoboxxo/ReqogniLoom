@@ -48,6 +48,14 @@ import {
 } from "../../api/workflow-transitions";
 import { ForbiddenError } from "../../api/errors";
 import { useReviewsData, type ReviewQueueMode } from "./useReviewsData";
+import {
+  confirmTransition,
+  type ReviewBulkAction,
+  type ReviewBulkResult,
+} from "./review-bulk";
+import { useReviewBulkActions } from "./use-review-bulk";
+export { bulkConfirm } from "./review-bulk";
+export type { ReviewBulkAction } from "./review-bulk";
 import { SignatureDialog } from "./SignatureDialog";
 import { ReviewHistoryPanel } from "./ReviewHistoryPanel";
 import { SuggestionsInbox } from "./SuggestionsInbox";
@@ -88,7 +96,6 @@ type ReviewsListMode = ReviewQueueMode | "suggestions";
  * pane's Approve/Reject pair; the target each one resolves to is read from the
  * item itself (see `confirmReviewItem`), never from a second table.
  */
-type ReviewBulkAction = "approve" | "reject";
 
 // REQ-168: per-type approve/reject targets. The review queue keeps the queue
 // scoped to the `in_review` state, so these are the only transitions the
@@ -179,25 +186,6 @@ const DIFF_KIND: Record<WorkflowArtifactType, DiffEntityType> = {
  * with no cause. The optional `onError` callback surfaces the thrown value per
  * failing id so the caller can show *why* the approval did not go through.
  */
-export async function bulkConfirm(
-  ids: readonly string[],
-  confirmOne: (id: string) => Promise<unknown>,
-  onError?: (id: string, error: unknown) => void,
-): Promise<{ confirmed: string[]; failed: string[] }> {
-  const confirmed: string[] = [];
-  const failed: string[] = [];
-  for (const id of ids) {
-    try {
-      await confirmOne(id);
-      confirmed.push(id);
-    } catch (error) {
-      failed.push(id);
-      onError?.(id, error);
-    }
-  }
-  return { confirmed, failed };
-}
-
 function findTransition(
   transitions: AllowedTransition[] | undefined,
   targetState: string
@@ -422,23 +410,7 @@ export default function ReviewsView({
   const queueMode: ReviewQueueMode =
     listMode === "proposals" ? "proposals" : "review";
   const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
-  const [bulkResult, setBulkResult] = useState<{
-    ok: number;
-    failed: number;
-    /**
-     * #1196: which decision produced the report, so the sentence can name the
-     * right verb ("freigegeben" vs "abgelehnt"). Optional and absent on the
-     * proposals path, whose wording stays untouched — a purely additive field
-     * on the existing `{ ok, failed }` shape.
-     */
-    action?: ReviewBulkAction;
-    /**
-     * The queue mode the run started in. Captured with the result so a mode
-     * toggle while the run is in flight cannot relabel the sentence with the
-     * other queue's verb.
-     */
-    mode: ReviewQueueMode;
-  } | null>(null);
+  const [bulkResult, setBulkResult] = useState<ReviewBulkResult | null>(null);
   // #1193: the first failure reason of the last bulk confirm, surfaced inline
   // instead of being swallowed behind a bare "N failed" count.
   const [bulkError, setBulkError] = useState<string | null>(null);
@@ -577,21 +549,11 @@ export default function ReviewsView({
       // require one today, but dropping whatever the user typed previously hid
       // the case where a workspace's graph *does* require it — the server then
       // answered 400 and the caller never saw it.
-      if (reason.trim()) {
-        await workflowTransitionsApi.transition(
-          selectedArtifactType,
-          id,
-          confirm.target_state,
-          reason,
-        );
-        return;
-      }
-      // Keep the no-reason call shape byte-identical to before so existing
-      // callers/tests are unaffected when there is nothing to send.
-      await workflowTransitionsApi.transition(
+      await confirmTransition(
         selectedArtifactType,
         id,
         confirm.target_state,
+        reason,
       );
     },
     [selectedArtifactType, t],
@@ -641,93 +603,30 @@ export default function ReviewsView({
       // (transitions are per-item POSTs) and
       // backend/workflow/transition_validator.py validates `change_reason`
       // per item, so the same string travels with every call.
-      if (bulkReason.trim()) {
-        await workflowTransitionsApi.transition(
-          selectedArtifactType,
-          id,
-          target.target_state,
-          bulkReason,
-        );
-        return;
-      }
-      // Keep the no-reason call shape identical to `confirmProposal`'s so the
-      // two paths wire the same request either way.
-      await workflowTransitionsApi.transition(
+      await confirmTransition(
         selectedArtifactType,
         id,
         target.target_state,
+        bulkReason,
       );
     },
     [selectedArtifactType, bulkReason, t],
   );
 
-  /**
-   * #1196: run one bulk decision over the review-queue selection.
-   *
-   * A sibling of the proposals handler rather than a shared helper: that one
-   * is pinned by the #1193 suites and has to keep its DOM byte-identical, so
-   * the two runs stay independent. Both drive the same `bulkConfirm`, which
-   * remains the only such loop in this file.
-   */
-  const runReviewBulk = useCallback(
-    async (action: ReviewBulkAction): Promise<void> => {
-      setIsActing(true);
-      setBulkError(null);
-      try {
-        // #1193: collect the cause of every failed item so the reviewer learns
-        // *why* instead of only that something failed.
-        const failures: string[] = [];
-        const { confirmed, failed } = await bulkConfirm(
-          selectedIds,
-          (id) => confirmReviewItem(id, action),
-          (_id, error) => failures.push(toUserErrorMessage(error, t)),
-        );
-        setSelectedIds([]);
-        setBulkReason("");
-        setBulkResult({
-          ok: confirmed.length,
-          failed: failed.length,
-          action,
-          mode: queueMode,
-        });
-        setBulkError(failures.length > 0 ? failures[0] : null);
-        await refreshList();
-      } finally {
-        setIsActing(false);
-      }
-    },
-    [confirmReviewItem, selectedIds, refreshList],
-  );
-
-  /**
-   * #1193: confirm the selected proposals as one sequential run.
-   *
-   * Extracted from the proposals button's inline async handler so the button
-   * stays a one-line `onClick`. The state reset stays in `finally`: a rejected
-   * `refreshList()` used to throw past `setIsActing(false)` and leave the
-   * button disabled forever (Fix F3).
-   */
-  const runProposalBulk = useCallback(async (): Promise<void> => {
-    setIsActing(true);
-    setBulkError(null);
-    try {
-      // Collect the cause of every failed confirmation so the reviewer learns
-      // *why* (e.g. a rejected `change_reason`) instead of only that something
-      // failed.
-      const failures: string[] = [];
-      const { confirmed, failed } = await bulkConfirm(
-        selectedIds,
-        (id) => confirmProposal(id, changeReason),
-        (_id, error) => failures.push(toUserErrorMessage(error, t)),
-      );
-      setSelectedIds([]);
-      setBulkResult({ ok: confirmed.length, failed: failed.length, mode: queueMode });
-      setBulkError(failures.length > 0 ? failures[0] : null);
-      await refreshList();
-    } finally {
-      setIsActing(false);
-    }
-  }, [confirmProposal, selectedIds, changeReason, refreshList]);
+  const { runReviewBulk, runProposalBulk } = useReviewBulkActions({
+    selectedIds,
+    clearSelection: () => setSelectedIds([]),
+    queueMode,
+    changeReason,
+    confirmReviewItem,
+    confirmProposal,
+    refreshList,
+    setIsActing,
+    setBulkResult,
+    setBulkError,
+    setBulkReason,
+    t,
+  });
 
   const selected = useMemo(
     () => items.find((r) => r.id === selectedId) ?? null,
