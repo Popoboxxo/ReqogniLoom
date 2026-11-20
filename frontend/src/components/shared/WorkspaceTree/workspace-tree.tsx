@@ -1312,6 +1312,161 @@ export function WorkspaceTree({
 // TreeRow — single row in the tree
 // ---------------------------------------------------------------------------
 
+
+/** Chrome-state inputs for {@link treeRowClassName}. */
+interface TreeRowChromeFlags {
+  hasCustomRow: boolean;
+  isGroupFolder: boolean;
+  hasDepth: boolean;
+  isSelected: boolean;
+  containsSelection: boolean;
+  dropPosition: 'before' | 'after' | 'inside' | null | undefined;
+  isDragging: boolean;
+}
+
+/**
+ * Build the row's class list from its chrome flags (extracted from the
+ * component to keep `TreeRow`'s branch count down; no behaviour change).
+ */
+function treeRowClassName(
+  styles: Record<string, string>,
+  flags: TreeRowChromeFlags,
+): string {
+  const {
+    hasCustomRow,
+    isGroupFolder,
+    hasDepth,
+    isSelected,
+    containsSelection,
+    dropPosition,
+    isDragging,
+  } = flags;
+  return [
+    styles.treeRow,
+    hasCustomRow ? styles.treeRowCustom : '',
+    isGroupFolder ? styles.treeRowGroupFolder : '',
+    hasDepth ? styles.treeLine : '',
+    !hasCustomRow && !isSelected && !containsSelection
+      ? styles.treeRowHoverable
+      : '',
+    !hasCustomRow && isSelected ? styles.treeRowSelected : '',
+    containsSelection ? styles.treeRowHasActiveDescendant : '',
+    dropPosition === 'inside' ? styles.dropTarget : '',
+    dropPosition === 'before' ? styles.dropBefore : '',
+    dropPosition === 'after' ? styles.dropAfter : '',
+    isDragging ? styles.dragging : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+/**
+ * Default label of a tree row: identifier, name, status/type badge, outdated
+ * marker, last-change stamp and level badge. Extracted from `TreeRow` so the
+ * row component's branch count reflects interaction/chrome only.
+ */
+interface TreeRowDefaultLabelProps {
+  node: WorkspaceTreeNode;
+  labels: TreeRowLabels;
+  testIdPrefix: string;
+  isSelected: boolean;
+  showLevelBadge: boolean;
+  showsField: (field: string) => boolean;
+}
+
+function TreeRowDefaultLabel({
+  node,
+  labels,
+  testIdPrefix,
+  isSelected,
+  showLevelBadge,
+  showsField,
+}: TreeRowDefaultLabelProps): JSX.Element {
+  return (
+    <>
+      {/* Readable identifier (issue #932). Muted mono prefix so rows align
+          and the uid — not the opaque UUID — is the scannable handle.
+          Issue #1257: only when the configured selection includes `uid`. */}
+      {node.identifier && showsField('uid') && (
+        <span
+          data-testid={`${testIdPrefix}-identifier-${node.id}`}
+          className={styles.nodeIdentifier}
+          title={node.identifier}
+        >
+          {node.identifier}
+        </span>
+      )}
+
+      {/* Node name */}
+      <span
+        className={
+          styles.nodeName +
+          ' ' +
+          (isSelected ? styles.nodeNameSelected : styles.nodeNameUnselected)
+        }
+        title={node.name}
+      >
+        {node.name}
+      </span>
+
+      {/* Status / type badge (node.badge). Issue #675: rendered through the
+          shared <Badge>, so a tree row's badge is the same physical badge an
+          <ArtifactRow> renders for the same artifact. Only the colour — the
+          caller's type ramp — stays local, via `typeBadgeStyle`.
+          Issue #1257: gated on the configured `status` field. */}
+      {node.badge && showsField('status') && (
+        <Badge
+          variant="neutral"
+          testId={`${testIdPrefix}-badge-${node.id}`}
+          title={node.badge.title ?? node.badge.text}
+          ariaLabel={node.badge.title ?? node.badge.text}
+          style={typeBadgeStyle(node.badge.bg, node.badge.color)}
+        >
+          {node.badge.text}
+        </Badge>
+      )}
+
+      {node.outdated && (
+        <Badge
+          variant="warning"
+          testId={`${testIdPrefix}-outdated-${node.id}`}
+          title={labels.outdated}
+          ariaLabel={labels.outdated}
+        >
+          {labels.outdated}
+        </Badge>
+      )}
+
+      {/* Last change (issue #1257). The node model carried no timestamp
+          before #1257 because no tree rendered one; a caller that supplies
+          it gets it under the same `updated_at` key the artifact lists use,
+          and it can be switched off like any other field. */}
+      {node.updatedAt && showsField('updated_at') && (
+        <span
+          data-testid={`${testIdPrefix}-updated-${node.id}`}
+          className={styles.nodeUpdatedAt}
+          title={node.updatedAt}
+        >
+          {node.updatedAt}
+        </span>
+      )}
+
+      {/* Level badge — the shared, neutral <LevelBadge> (issue #674).
+          `node.level` is already a display string ("L0", "L1", ...), so it
+          goes in as `label`; the numeric `level` prop would re-prefix it
+          to "LL0".
+          Issue #1257: gated on the configured `level` field, on top of the
+          caller's `showLevelBadge` opt-in. */}
+      {showLevelBadge && node.level && showsField('level') && (
+        <LevelBadge
+          label={node.level}
+          testId={`${testIdPrefix}-level-${node.id}`}
+        />
+      )}
+    </>
+  );
+}
+
 interface TreeRowProps {
   node: WorkspaceTreeNode;
   depth: number;
@@ -1452,7 +1607,6 @@ function TreeRow({
   // drop appends/re-parents (`inside`) or inserts before/after it. The line is
   // an additional visual channel, the outline stays for the `inside` case.
   const dropPosition = isDropTarget ? dragProps?.dropPosition : null;
-  const dropsInside = dropPosition === 'inside';
   // Row chrome (background + left accent) is class-based, not inline — the
   // collapsed-ancestor tint below needs a class that is not beaten by an inline
   // `background`, and colour stays token-driven either way.
@@ -1460,24 +1614,15 @@ function TreeRow({
   // Hover only applies to the default row: a `renderRow` override (e.g.
   // <ArtifactRow>) owns its own hover state, and a selected/ancestor row keeps
   // its own chrome instead of flashing the neutral hover background.
-  const rowClassName =
-    [
-      styles.treeRow,
-      hasCustomRow ? styles.treeRowCustom : '',
-      isGroupFolder ? styles.treeRowGroupFolder : '',
-      depth > 0 ? styles.treeLine : '',
-      !hasCustomRow && !isSelected && !containsSelection
-        ? styles.treeRowHoverable
-        : '',
-      !hasCustomRow && isSelected ? styles.treeRowSelected : '',
-      containsSelection ? styles.treeRowHasActiveDescendant : '',
-      dropsInside ? styles.dropTarget : '',
-      dropPosition === 'before' ? styles.dropBefore : '',
-      dropPosition === 'after' ? styles.dropAfter : '',
-      isDragging ? styles.dragging : '',
-    ]
-      .filter(Boolean)
-      .join(' ');
+  const rowClassName = treeRowClassName(styles, {
+    hasCustomRow,
+    isGroupFolder,
+    hasDepth: depth > 0,
+    isSelected,
+    containsSelection,
+    dropPosition,
+    isDragging,
+  });
 
   // Issue #876 (Etappe 5): the row's base chrome lives in
   // `workspace-tree.module.css`. Two values stay genuinely per-instance and
@@ -1607,87 +1752,14 @@ function TreeRow({
           {renderRow!(node, { isSelected })}
         </div>
       ) : (
-        <>
-          {/* Readable identifier (issue #932). Muted mono prefix so rows align
-              and the uid — not the opaque UUID — is the scannable handle.
-              Issue #1257: only when the configured selection includes `uid`. */}
-          {node.identifier && showsField('uid') && (
-            <span
-              data-testid={`${testIdPrefix}-identifier-${node.id}`}
-              className={styles.nodeIdentifier}
-              title={node.identifier}
-            >
-              {node.identifier}
-            </span>
-          )}
-
-          {/* Node name */}
-          <span
-            className={
-              styles.nodeName +
-              ' ' +
-              (isSelected ? styles.nodeNameSelected : styles.nodeNameUnselected)
-            }
-            title={node.name}
-          >
-            {node.name}
-          </span>
-
-          {/* Status / type badge (node.badge). Issue #675: rendered through the
-              shared <Badge>, so a tree row's badge is the same physical badge an
-              <ArtifactRow> renders for the same artifact. Only the colour — the
-              caller's type ramp — stays local, via `typeBadgeStyle`.
-              Issue #1257: gated on the configured `status` field. */}
-          {node.badge && showsField('status') && (
-            <Badge
-              variant="neutral"
-              testId={`${testIdPrefix}-badge-${node.id}`}
-              title={node.badge.title ?? node.badge.text}
-              ariaLabel={node.badge.title ?? node.badge.text}
-              style={typeBadgeStyle(node.badge.bg, node.badge.color)}
-            >
-              {node.badge.text}
-            </Badge>
-          )}
-
-          {node.outdated && (
-            <Badge
-              variant="warning"
-              testId={`${testIdPrefix}-outdated-${node.id}`}
-              title={labels.outdated}
-              ariaLabel={labels.outdated}
-            >
-              {labels.outdated}
-            </Badge>
-          )}
-
-          {/* Last change (issue #1257). The node model carried no timestamp
-              before #1257 because no tree rendered one; a caller that supplies
-              it gets it under the same `updated_at` key the artifact lists use,
-              and it can be switched off like any other field. */}
-          {node.updatedAt && showsField('updated_at') && (
-            <span
-              data-testid={`${testIdPrefix}-updated-${node.id}`}
-              className={styles.nodeUpdatedAt}
-              title={node.updatedAt}
-            >
-              {node.updatedAt}
-            </span>
-          )}
-
-          {/* Level badge — the shared, neutral <LevelBadge> (issue #674).
-              `node.level` is already a display string ("L0", "L1", ...), so it
-              goes in as `label`; the numeric `level` prop would re-prefix it
-              to "LL0".
-              Issue #1257: gated on the configured `level` field, on top of the
-              caller's `showLevelBadge` opt-in. */}
-          {showLevelBadge && node.level && showsField('level') && (
-            <LevelBadge
-              label={node.level}
-              testId={`${testIdPrefix}-level-${node.id}`}
-            />
-          )}
-        </>
+        <TreeRowDefaultLabel
+          node={node}
+          labels={labels}
+          testIdPrefix={testIdPrefix}
+          isSelected={isSelected}
+          showLevelBadge={showLevelBadge}
+          showsField={showsField}
+        />
       )}
 
       {/* P4.4: workflow lock marker. Rendered for custom rows too (the
