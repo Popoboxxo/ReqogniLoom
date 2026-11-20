@@ -108,8 +108,12 @@ def test_known_weak_values_are_detected(value: str) -> None:
 @pytest.mark.parametrize(
     "value",
     [
-        secrets.token_urlsafe(64),
-        secrets.token_hex(32),
+        # Deterministic literals, NOT ``secrets.token_*``: a random value in a
+        # parametrize list makes pytest-xdist workers collect different test
+        # ids ("Different tests were collected between gw0 and gw1"). The
+        # runtime subprocess tests below may still generate random secrets.
+        "9bOyYICG9xRhCczy8KyQ5pdacKtiV0trdzveCAYmZonCtdMcBAoX_69GjGUAYNtN-xLLoVXKaxCKI0-WehP1UQ",
+        "2e5c4a0f4e38fdd86577ac51d09755beddb7d4dfabc516ba3b8839dd86905327",
         "a" * project_settings._SECRET_MIN_LENGTH,
         "7f3c9a1e5b8d2046f1a7c3e9b5d2084a6c1e9f3b7d5a2c8e4f6b0d9a3c7e5f1b",
     ],
