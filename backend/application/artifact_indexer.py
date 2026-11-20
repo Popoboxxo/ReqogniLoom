@@ -45,16 +45,18 @@ from uuid import UUID
 from django.apps import apps
 from django.core.exceptions import ObjectDoesNotExist
 
-from application.artifact_vector_store import (
-    ARTIFACT_COLLECTION_VERSION,
+from application.artifact_vector_store import (  # re-exported for compatibility
     DENSE_VECTOR_NAME,
     SPARSE_VECTOR_NAME,
-    alias_target,
-    ensure_artifact_collection,
-    resolve_artifact_qdrant_config,
+    QdrantWriteStore,
+)
+from application.vector_write_store import (
+    VectorRecord,
+    VectorWriteStore,
+    build_write_store,
 )
 from persistence.models import Artifact
-from persistence.qdrant_config import QdrantConfig, build_collection_alias, build_collection_name
+from persistence.qdrant_config import QdrantConfig
 from persistence.tenancy import TenantContext
 
 logger = logging.getLogger(__name__)
@@ -236,33 +238,33 @@ def tenant_scope(tenant_id: UUID | str) -> Iterator[None]:
             TenantContext.clear_tenant()
 
 
-def _collection_name(config: QdrantConfig, tenant_id: Any, workspace_id: Any) -> str:
-    return build_collection_name(config.collection_prefix, tenant_id, workspace_id=workspace_id,
-                                 scope="workspace", artifacts=True,
-                                 version=ARTIFACT_COLLECTION_VERSION)
-
-
 class ArtifactIndexer:
-    """Turns entities into points, skips unchanged ones and counts failures.
+    """Turns entities into records, skips unchanged ones and counts failures.
 
-    ``client`` is a ``QdrantClient`` (or a signature-strict double in tests).
-    ``models_module`` and ``config`` are test/seam overrides, ``embed_text`` is
-    the embedding callable (defaults to the LLM adapter's ``generate_embedding``,
-    resolved per call so the command's rate limiter can wrap it), ``dry_run``
-    predicts without any Qdrant write, and ``metrics`` collects the counters.
+    The write surface is a :class:`~application.vector_write_store.VectorWriteStore`,
+    so this module never imports Qdrant: ``store`` is the seam a new backend
+    implements. ``client`` is kept as a convenience/test overload -- passing it
+    wraps it in a :class:`QdrantWriteStore` -- and ``config``/``models_module``
+    are test/seam overrides for that store. ``embed_text`` is the embedding
+    callable (defaults to the LLM adapter's ``generate_embedding``, resolved per
+    call so the command's rate limiter can wrap it), ``dry_run`` predicts
+    without any external write, and ``metrics`` collects the counters.
     """
 
-    def __init__(self, client: Any, *, models_module: Any = None,
-                 config: QdrantConfig | None = None,
+    def __init__(self, client: Any = None, *, store: VectorWriteStore | None = None,
+                 models_module: Any = None, config: QdrantConfig | None = None,
                  embed_text: Callable[[str], list[float] | None] | None = None,
                  dry_run: bool = False, metrics: IndexerMetrics | None = None) -> None:
-        self._client = client
-        self._models_module = models_module
-        self._config = config
+        if store is None:
+            store = (
+                QdrantWriteStore(client, config=config, models_module=models_module)
+                if client is not None
+                else build_write_store()
+            )
+        self._store = store
         self._embed_text = embed_text
         self._dry_run = dry_run
         self.metrics = metrics if metrics is not None else IndexerMetrics()
-        self._ensured: set[tuple[str, str]] = set()
         #: One ``logger.error`` per instance: a bulk run reports the first reason
         #: once, the per-reason counters carry the rest. Per instance (not module
         #: global) so neither a second command invocation nor a long-lived worker
@@ -296,8 +298,15 @@ class ArtifactIndexer:
                     return self._fail("empty_text")
                 content_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
                 model_id = self._current_model_id()
-                collection = self._collection(tenant_id, workspace_id)
-                if self._is_unchanged(collection, entity_id, content_sha256, model_id):
+                handle = self._store.ensure_workspace(
+                    tenant_id, workspace_id, dry_run=self._dry_run
+                )
+                signature = self._store.read_signature(handle, entity_id)
+                if (
+                    signature
+                    and signature.get("content_sha256") == content_sha256
+                    and signature.get("embedding_model") == model_id
+                ):
                     self.metrics.skipped += 1
                     return "skipped"
 
@@ -308,13 +317,24 @@ class ArtifactIndexer:
                     self.metrics.upserted += 1
                     return "upserted"
 
-                self._client.upsert(
-                    collection_name=collection,
-                    points=[self._point(
-                        entity_id, row, text, dense, tenant_id, workspace_id,
-                        entity_type, content_sha256, model_id,
-                    )],
-                    wait=True,
+                artifact_id = getattr(row, "artifact_id", None)
+                self._store.upsert(
+                    handle,
+                    VectorRecord(
+                        entity_id=entity_id,
+                        dense=dense,
+                        text=text,
+                        payload={
+                            "tenant_id": str(tenant_id),
+                            "workspace_id": str(workspace_id),
+                            "entity_type": entity_type,
+                            "entity_id": str(entity_id),
+                            "artifact_id": str(artifact_id) if artifact_id else None,
+                            "content_sha256": content_sha256,
+                            "embedding_model": model_id,
+                            "point_kind": POINT_KIND_ARTIFACT,
+                        },
+                    ),
                 )
                 self.metrics.upserted += 1
                 return "upserted"
@@ -340,51 +360,17 @@ class ArtifactIndexer:
                     workspace_id = spec.workspace(row) if row is not None else None
                 if workspace_id is None:
                     return self._fail("workspace_unresolved")
-                collection = self._collection(tenant_id, workspace_id)
+                handle = self._store.ensure_workspace(
+                    tenant_id, workspace_id, dry_run=self._dry_run
+                )
                 if not self._dry_run:
-                    self._client.delete(
-                        collection_name=collection,
-                        points_selector=self._models().PointIdsList(points=[str(entity_id)]),
-                        wait=True,
-                    )
+                    self._store.delete(handle, entity_id)
                 self.metrics.deleted += 1
                 return "deleted"
         except Exception as exc:  # noqa: BLE001 - see _fail
             return self._fail(type(exc).__name__)
 
     # -- internals ----------------------------------------------------------
-
-    def _models(self) -> Any:
-        if self._models_module is None:
-            from qdrant_client import models  # lazy: optional dependency
-
-            self._models_module = models
-        return self._models_module
-
-    def _collection(self, tenant_id: UUID, workspace_id: UUID) -> str:
-        config = self._config or resolve_artifact_qdrant_config()
-        self._config = config
-        if self._dry_run:
-            # Provisioning is a Qdrant write: a dry run addresses the name only.
-            return _collection_name(config, tenant_id, workspace_id)
-        key = (str(tenant_id), str(workspace_id))
-        if key not in self._ensured:
-            ensure_artifact_collection(
-                self._client, tenant_id, workspace_id, config=config,
-                models_module=self._models(),
-            )
-            self._ensured.add(key)
-        return _collection_name(config, tenant_id, workspace_id)
-
-    def _is_unchanged(
-        self, collection: str, entity_id: UUID, content_sha256: str, model_id: str
-    ) -> bool:
-        if not self._client.collection_exists(collection):
-            return False
-        records = self._client.retrieve(collection_name=collection, ids=[str(entity_id)])
-        payload = getattr(records[0], "payload", None) if records else None
-        return bool(payload) and payload.get("content_sha256") == content_sha256 \
-            and payload.get("embedding_model") == model_id
 
     def _dense_for(self, row: Any, text: str, model_id: str) -> list[float] | None:
         """Reuse the stored pgvector column when it matches, else embed.
@@ -406,21 +392,6 @@ class ArtifactIndexer:
         from llm_adapter.embedding_service import generate_embedding  # lazy: no cycle
 
         return generate_embedding(text)
-
-    def _point(self, entity_id: UUID, row: Any, text: str, dense: list[float] | None,
-               tenant_id: UUID, workspace_id: UUID, entity_type: str,
-               content_sha256: str, model_id: str) -> Any:
-        artifact_id = getattr(row, "artifact_id", None)
-        return self._models().PointStruct(
-            id=str(entity_id),
-            vector={DENSE_VECTOR_NAME: dense,
-                    SPARSE_VECTOR_NAME: self._models().Document(text=text, model="qdrant/bm25")},
-            payload={"tenant_id": str(tenant_id), "workspace_id": str(workspace_id),
-                     "entity_type": entity_type, "entity_id": str(entity_id),
-                     "artifact_id": str(artifact_id) if artifact_id else None,
-                     "content_sha256": content_sha256, "embedding_model": model_id,
-                     "point_kind": POINT_KIND_ARTIFACT},
-        )
 
     @staticmethod
     def _current_model_id() -> str:
@@ -446,26 +417,12 @@ def recreate_artifact_collection(
     """DESTRUCTIVELY rebuild one workspace's artifact collection and alias.
 
     Drops ``..._artifacts_v2`` and its ``..._artifacts_live`` alias, then
-    provisions an empty collection. Only ``--recreate`` reaches this.
+    provisions an empty collection. Only ``--recreate`` reaches this. The
+    mechanics live on :class:`~application.artifact_vector_store.QdrantWriteStore`;
+    this wrapper keeps the historical API used by the command and its tests.
     """
-    config = config if config is not None else resolve_artifact_qdrant_config()
-    models = models_module
-    if models is None:
-        from qdrant_client import models  # lazy: optional dependency
-
-    collection = _collection_name(config, tenant_id, workspace_id)
-    alias = build_collection_alias(
-        config.collection_prefix, tenant_id, workspace_id=workspace_id, scope="workspace"
-    )
-    if client.collection_exists(collection):
-        if alias_target(client, alias) == collection:
-            client.update_collection_aliases(change_aliases_operations=[
-                models.DeleteAliasOperation(delete_alias=models.DeleteAlias(alias_name=alias))
-            ])
-        client.delete_collection(collection_name=collection)
-    return ensure_artifact_collection(
-        client, tenant_id, workspace_id, config=config, models_module=models
-    )
+    store = QdrantWriteStore(client, config=config, models_module=models_module)
+    return store.recreate_workspace(tenant_id, workspace_id)
 
 
 __all__ = ["DENSE_VECTOR_NAME", "IndexOutcome", "IndexerMetrics", "POINT_KIND_ARTIFACT",

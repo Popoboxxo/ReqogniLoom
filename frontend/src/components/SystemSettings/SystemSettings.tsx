@@ -9,7 +9,11 @@
  * pattern and card styling). Tabs:
  *   - administration    → relocated System Health / Backup / Lifecycle (SCR-204)
  *   - workflow-defaults  → global per-preset Workflow Editor (SCR-205)
+ *   - attribute-defaults → global attribute visibility/required/layout defaults
  *   - permission-defaults → global matrix + enforcement + mismatches (SCR-206)
+ *   - display            → tree/create-form/preference tenant defaults
+ *   - memory             → memory backend, workspace overview, visualization
+ *   - vector-store       → artifact vector backend + Qdrant settings (ADR-020)
  *
  * Admin-gated with the same page-level early-return pattern as WorkspaceSettings
  * (the nav link is visible to all authenticated users; the page gates on the
@@ -27,6 +31,7 @@ import { ThemeManagementSection } from "./ThemeManagementSection";
 import { PermissionDefaultsTab } from "./PermissionDefaultsTab";
 import { MemoryManagementSection } from "./MemoryManagementSection";
 import { MemorySystemSettingsSection } from "./MemorySystemSettingsSection";
+import { ArtifactVectorSettingsSection } from "./ArtifactVectorSettingsSection";
 import { MemoryVisualizationSection } from "./MemoryVisualizationSection";
 import { TreeDisplaySection } from "./TreeDisplaySection";
 import { CreateFormSection } from "./CreateFormSection";
@@ -41,7 +46,8 @@ type SystemTabId =
   | "attribute-defaults"
   | "permission-defaults"
   | "display"
-  | "memory";
+  | "memory"
+  | "vector-store";
 
 const TAB_IDS: SystemTabId[] = [
   "administration",
@@ -50,6 +56,7 @@ const TAB_IDS: SystemTabId[] = [
   "permission-defaults",
   "display",
   "memory",
+  "vector-store",
 ];
 
 function isSystemTab(value: string | null): value is SystemTabId {
@@ -89,6 +96,7 @@ export default function SystemSettings(): JSX.Element {
     { id: "permission-defaults", label: t("systemSettings.tabs.permissionDefaults", "Permission Defaults") },
     { id: "display", label: t("systemSettings.tabs.display") },
     { id: "memory", label: t("systemSettings.tabs.memory", "Memory") },
+    { id: "vector-store", label: t("systemSettings.tabs.vectorStore") },
   ];
 
   const isEditorTab = activeTab === "workflow-defaults";
@@ -187,6 +195,11 @@ export default function SystemSettings(): JSX.Element {
             <MemoryManagementSection />
             <MemoryVisualizationSection />
           </>
+        )}
+        {activeTab === "vector-store" && (
+          <div data-testid="system-vector-store">
+            <ArtifactVectorSettingsSection />
+          </div>
         )}
       </div>
     </div>

@@ -3058,6 +3058,24 @@
     "memorySettings.confirmButton": "Trotzdem speichern",
     "memorySettings.loadError": "Konfiguration konnte nicht geladen werden.",
     "memorySettings.saveError": "Speichern fehlgeschlagen.",
+    "artifactVectorSettings": {
+      "heading": "Artefakt-Vektorspeicher",
+      "hint": "Legt fest, welcher Vektorstore die semantische Suche über Artefakte bedient. Ohne Auswahl gilt die Umgebungsvariable ARTIFACT_VECTOR_BACKEND. Qdrant benötigt zusätzlich eine erreichbare Instanz und einen Lauf von manage.py index_artifact_vectors.",
+      "backend": "Vektor-Backend",
+      "backendEnvDefault": "Standard (Umgebungsvariable)",
+      "diagnostic": "Angefordert: {{requested}} · Aktiv: {{active}}.",
+      "reason": {
+        "unknown_artifact_vector_backend": "Der konfigurierte Name ist nicht registriert; es wird pgvector verwendet.",
+        "qdrant_client_missing": "Das Python-Paket qdrant_client ist nicht installiert; es wird pgvector verwendet.",
+        "qdrant_config_error": "Die Qdrant-Konfiguration ist nicht lesbar; es wird pgvector verwendet.",
+        "qdrant_base_url_missing": "Keine Qdrant-Base-URL konfiguriert; es wird pgvector verwendet."
+      },
+      "loadError": "Die Vektorspeicher-Konfiguration konnte nicht geladen werden.",
+      "saveError": "Speichern fehlgeschlagen.",
+      "reset": "Auf Umgebung zurücksetzen",
+      "resetConfirmTitle": "Auf Umgebung zurücksetzen?",
+      "resetConfirmBody": "Entfernt die gespeicherte Backend-Auswahl und alle Backend-Einstellungen. Die Umgebungsvariablen gelten danach wieder."
+    },
     "pageSummary": "Tenant-weite Konfiguration: Administration, Workflow-, Attribut- und Berechtigungs-Standards, Darstellung und Gedächtnis.",
     "tabs": {
       "administration": "Administration",
@@ -3065,7 +3083,8 @@
       "attributeDefaults": "Attribut-Standards",
       "permissionDefaults": "Berechtigungs-Standards",
       "memory": "Gedächtnis",
-      "display": "Darstellung"
+      "display": "Darstellung",
+      "vectorStore": "Vektorspeicher"
     },
     "permissionDefaults": {
       "globalMatrixTitle": "Globale Berechtigungsmatrix",

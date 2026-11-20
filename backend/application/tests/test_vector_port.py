@@ -473,7 +473,7 @@ class TestGetVectorPortFactory:
     def test_degrades_when_qdrant_package_absent(self, monkeypatch):
         self._opt_in(monkeypatch)
         monkeypatch.setattr(
-            "application.vector_port._qdrant_client_available", lambda: False
+            "application.vector_backends.qdrant_client_available", lambda: False
         )
         assert isinstance(get_vector_port(), PgVectorVectorPort)
 

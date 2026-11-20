@@ -21,7 +21,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from application import vector_port
+from application import vector_backends, vector_port
 
 
 def _patch_gate(
@@ -38,21 +38,22 @@ def _patch_gate(
     decoupled from the memory backend (T-A2-1), so it must be irrelevant.
     """
     monkeypatch.setenv(vector_port.ARTIFACT_VECTOR_BACKEND_ENV, selector)
+    # The gate now lives on the backend plugin; patch the registry seams.
     monkeypatch.setattr(
-        vector_port, "_qdrant_client_available", lambda: client_available
+        vector_backends, "qdrant_client_available", lambda: client_available
     )
     if config_error:
 
         def _boom() -> None:
             raise RuntimeError("unreadable qdrant config")
 
-        monkeypatch.setattr(vector_port, "_effective_qdrant_config", _boom)
+        monkeypatch.setattr(vector_backends, "effective_qdrant_config", _boom)
     else:
 
         def _config() -> SimpleNamespace:
             return SimpleNamespace(base_url=base_url)
 
-        monkeypatch.setattr(vector_port, "_effective_qdrant_config", _config)
+        monkeypatch.setattr(vector_backends, "effective_qdrant_config", _config)
 
 
 class TestVectorBackendDiagnostic:

@@ -625,6 +625,8 @@ _TENANT_SCOPED = {
     "ThemePaletteDetailView": "theme palette catalog",
     "SystemMemorySettingsView": "system-admin memory configuration",
     "SystemMemorySettingsResetView": "system-admin memory configuration",
+    "SystemArtifactVectorSettingsView": "system-admin artifact vector configuration",
+    "SystemArtifactVectorSettingsResetView": "system-admin artifact vector configuration",
     "SystemMemoryWorkspaceOverviewView": "system-admin memory overview",
     "SystemMemoryWorkspaceDeleteView": "system-admin memory deletion",
     "SystemMemoryEntriesListView": "system-admin memory entries",
