@@ -48,10 +48,11 @@ from application.generic_export_service import (
     _serialize_row,
     _workspace_filter,
 )
-from application.workspace_snapshot_service import (
-    SNAPSHOT_FORMAT_VERSION,
-    WorkspaceSnapshotService,
-)
+# Import-cycle guard (#ARCH): workspace_snapshot_service is part of the big
+# application SCC; importing it at module level would pull this service into
+# that cycle. The service class is imported lazily where it is used, and the
+# wire format version is a contract constant shared by both services.
+SNAPSHOT_FORMAT_VERSION = "artifact-transfer/v1"
 from auth_tenancy.context import AuthContext, AuthMethod
 from persistence.tenancy import TenantContext
 from presets.exceptions import CrossTenantWorkspaceError
@@ -316,6 +317,8 @@ class ZipSnapshotExportService(ServiceBase):
         try:
             # Reuse the JSON snapshot's row collection so the two transports
             # stay byte-for-byte consistent in what they consider in scope.
+            from application.workspace_snapshot_service import WorkspaceSnapshotService
+
             snapshot = WorkspaceSnapshotService().export_snapshot(
                 ctx=source_ctx, workspace_id=workspace_id
             )
@@ -611,6 +614,8 @@ class ZipSnapshotExportService(ServiceBase):
         previous = TenantContext.get_tenant() if TenantContext.is_set() else None
         set_request_tenant(source.tenant_id)
         try:
+            from application.workspace_snapshot_service import WorkspaceSnapshotService
+
             snapshot = WorkspaceSnapshotService().export_snapshot(
                 ctx=source_ctx, workspace_id=source.id
             )
