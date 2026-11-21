@@ -267,6 +267,7 @@ from rest_api.views import (
     ChangeRequestViewSet,
     ConsistencyStatusView,
     CsvExportView,
+    GenericEntityExportView,
     CsvImportView,
     DocumentViewSet,
     GlossaryTermViewSet,
@@ -448,6 +449,12 @@ urlpatterns = [
         "workspaces/<uuid:pk>/export/reqif/",
         ReqifExportView.as_view(),
         name="workspace-reqif-export",
+    ),
+    # P2: generic export for every artifact-transfer entity and format.
+    path(
+        "workspaces/<uuid:pk>/export/entity/",
+        GenericEntityExportView.as_view(),
+        name="workspace-generic-export",
     ),
     # ReqIF 1.2 import (REQ-147, COMP-AS-008b) — workspace-scoped.
     path(

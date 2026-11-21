@@ -2214,6 +2214,10 @@
    "get"
   ],
   [
+   "/api/v1/workspaces/{id}/export/entity/",
+   "get"
+  ],
+  [
    "/api/v1/workspaces/{id}/export/reqif/",
    "get"
   ],

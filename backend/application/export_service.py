@@ -282,6 +282,7 @@ class ExportResult:
         media_type: MIME type string.
         filename: Suggested filename for HTTP Content-Disposition.
         record_count: Number of exported records.
+        truncated: True when the row cap cut the export short (generic P2 path).
     """
 
     def __init__(
@@ -290,11 +291,13 @@ class ExportResult:
         media_type: str,
         filename: str,
         record_count: int,
+        truncated: bool = False,
     ) -> None:
         self.content = content
         self.media_type = media_type
         self.filename = filename
         self.record_count = record_count
+        self.truncated = truncated
 
 
 # ---------- Service ----------

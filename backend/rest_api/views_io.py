@@ -181,6 +181,7 @@ from application.services import (
     WorkflowFacade,
     WorkspaceService,
 )
+from application.generic_export_service import GenericArtifactExportService
 
 # GH-914: the trace-link proposal guard raises a service-local exception, like
 # BundleDepthExceededError above — imported from its own module rather than
@@ -1596,3 +1597,78 @@ class ReqifImportView(APIView):
         )
 
         return Response(body, status=http_status)
+
+# ---------------------------------------------------------------------------
+# GenericEntityExportView — P2: all transfer-contract entities, all formats
+# ---------------------------------------------------------------------------
+
+
+class GenericEntityExportView(APIView):
+    """GET /api/v1/workspaces/{id}/export/entity/ — generic artifact export.
+
+    The entity key is the stable id from the artifact-transfer contract, not a
+    model name. Formats are json | csv | markdown | pdf; ReqIF and the ZIP
+    snapshot have dedicated paths. The row cap is reported in
+    ``X-Export-Truncated`` so a caller cannot mistake a partial export for a
+    complete one.
+    """
+
+    @extend_schema(
+        tags=["export"],
+        summary="Export any transfer-contract entity in JSON/CSV/Markdown/PDF",
+        parameters=[
+            OpenApiParameter(
+                name="entity",
+                type=str,
+                required=True,
+                description="Stable entity key from the artifact transfer contract.",
+            ),
+            OpenApiParameter(
+                name="export_format",
+                type=str,
+                required=False,
+                description="json (default) | csv | markdown | pdf. Not `format` — DRF consumes ?format for renderer negotiation.",
+            ),
+        ],
+        responses={200: OpenApiResponse(description="Exported artifact data.")},
+    )
+    def get(self, request: Request, pk: str | None = None) -> HttpResponse:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except Exception as exc:  # noqa: BLE001 — uniform service error mapping
+            return _service_error_response(exc, lang)
+
+        entity_key = request.query_params.get("entity")
+        if not entity_key:
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="entity is required (stable artifact-transfer entity key).",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # `format` is reserved by DRF content negotiation (?format=csv would 404).
+        export_format = request.query_params.get("export_format", "json")
+
+        try:
+            result = GenericArtifactExportService().export(
+                ctx=ctx,
+                workspace_id=pk,
+                entity_key=entity_key,
+                format=export_format,
+            )
+        except ValidationError as exc:
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            return _service_error_response(exc, lang)
+
+        response = HttpResponse(result.content, content_type=result.media_type)
+        response["Content-Disposition"] = f'attachment; filename="{result.filename}"'
+        if result.truncated:
+            response["X-Export-Truncated"] = "true"
+        return response
