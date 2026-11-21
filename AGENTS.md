@@ -88,7 +88,7 @@ make up (recreated Container bei geänderter Config/Env; reines `docker compose 
 
 ## Anforderungs-Kategorien
 
-Kategorien für `docs/REQUIREMENTS.md`:
+Kategorien für Anforderungen (`docs/REQUIREMENTS.md`):
 
 - **Functional** — Features, User Stories, CRUD auf Requirements/Architecture/TestCases/ADRs/Risks/Issues
 - **Non-Functional** — Performance, Sicherheit, Skalierbarkeit, Audit-Compliance, Multi-Tenancy
@@ -108,7 +108,7 @@ Kategorien für `docs/REQUIREMENTS.md`:
 <!-- agent-meta:managed-begin -->
 > **AI ROUTING:** Claude -> CLAUDE.md | Opencode, Gemini -> AGENTS.md
 > **ENTRY:** `orchestrator`-Agent (für alle Dev-Tasks).
-`agent-meta v2.0.0-beta.8` | DoD: `rapid-prototyping` | REQ-Trace: `false`
+`agent-meta v2.0.0-beta.9` | DoD: `rapid-prototyping` | REQ-Trace: `false`
 
 
 
@@ -134,7 +134,11 @@ blockiert (fail closed); die Meldung nennt Submodul, Ziel und Ausweg (ohne
 ## Bekannte Grenzen
 
 Erkennung per Tokenizer, kein Shell-Parser — Indirektion (`eval`, `$(...)`, `xargs`) bleibt unerkannt.
-Lücken-Liste (#551/#592/#809), Guard-Einstufung: `AGENTS.md#bekannte-grenzen`.
+Nicht erkannt (#551/#592/#809): `eval "git commit ..."`, direkte Schreibzugriffe auf `.git/`, andere Git-Tools (`hub`, `gh repo ...`), `$(...)`/Backticks als Indirektion.
+Das Destructive-Gate (#809) sieht nur direkte `rm`-Aufrufe (kein `find -delete`, `xargs rm`, Variablen-Pfade, Pfad-Traversal).
+Der DoD-Push-Check (Worktree-Branch-Erkennung) nimmt den Branch aus dem effektiven Verzeichnis des Pushs (`-C`-Kette bzw. führendes `cd`, sonst Hook-cwd; Worktrees zählen). Nur ein FÜHRENDES `cd` wird aufgelöst; nicht auflösbare Ziele, `pushd`/`popd`, `--git-dir`/`--work-tree` und `GIT_DIR` bleiben fail-closed.
+Gequoteter Text von Nicht-Git-Textkonsumenten (`gh ... --body "...git push..."`, `echo`, `printf`) gilt nicht als Push; Indirektion über `bash -c`/`eval`/`xargs` und `gh alias --shell` bleibt fail-closed bzw. bekannte Grenze.
+Einstufung: Convention boundary (Akzident-Netz, kein Ersatz für Backups); Security-Eigenschaften nur für das Destructive-Gate und den DoD-Push-Check (fail-closed ohne `python3`, #595).
 
 
 
@@ -171,7 +175,8 @@ Format: `<type>: <beschreibung>` (Bsp: `feat: ...`)
 # Repo-Containment („Gefängnis-Modus")
 
 Repo-Containment ist AKTIV: Schreibzugriffe sind auf die Projekt-Wurzel beschränkt; einziger sanktionierter Ausnahmebereich ist `.tmp/`.
-Durchsetzung: PreToolUse-Hook = **Convention boundary** (keine Security Boundary, nur gegen akzidentellen Missbrauch; Definition: `AGENTS.md#guard-terminologie-convention-boundary-vs-security-boundary`). Grenzen/Details: `AGENTS.md#repo-containment-gefängnis-modus`.
+Durchsetzung: PreToolUse-Hook = **Convention boundary** (keine Security Boundary, nur gegen akzidentellen Missbrauch; Convention boundary = fail-closed nur gegen akzidentellen Missbrauch, Security boundary = auch gegen deliberate Umgehung).
+Kerngrenzen: Indirektion (`eval`, `bash -c`, `xargs`, Interpreter, Variablen-Ziele) und exotische Redirections/`cd`-Ketten umgehen den Tokenizer; Symlink-/TOCTOU-Escape ist nur per `realpath` gemildert; MCP-/Nicht-Tool-Schreibpfade und Selbst-Deaktivierung des Guards durch den Agenten sind nicht abgedeckt; hook-lose Provider erhalten nur die Prompt-Konvention.
 
 
 
@@ -537,6 +542,7 @@ Jeder Dev-Task -> `orchestrator`. Ausnahme: User Override oder 1-Step (falls erl
 
 ## Git Delegation
 Commit ist für die per `auto_commit`-Tier freigeschaltete Rolle erlaubt (Details im Commit-Authority-Block der jeweiligen Rolle). Push, Tag und Branch-Management bleiben ausschließlich Aufgabe des `git` Agenten. Read-only (status, log) im Main Chat ok.
+**Merge-Muster (#1172):** Main Chat dispatcht Merges direkt an `git` (Fallback; #783).
 Worker-Subagenten ohne `git`-Sentinel können auch `git init`, schreibendes `git config` und `git stash` nicht ausführen (Orchestrator-Guard-Mutationsliste).
 
 Native Extensions (Skills/Hooks) erlaubt, ignorieren nicht Branch-Guard/DoD.
@@ -634,7 +640,7 @@ Bei Bedarf mit `Read` laden; verfügbare Regeln via `ls` im jeweiligen Verzeichn
 | `documenter` | CODEBASE_OVERVIEW, ARCHITECTURE, README |
 | `e2e-tester` | E2E-Tests, visuelle Regression, Accessibility-Audits via Playwright |
 | `effort-estimator` | Schätzt Aufwände für Entwicklungsaufgaben basierend auf Task-Typ, LLM-Kali |
-| `explorer` | Read-only Codebase-Recherche, Dependency, Impact-Mapping |
+| `explorer` | Codebase-Recherche, Dependency, Impact-Mapping |
 | `export-manager` | Target-agnostischer Output-Router: Markdown, Confluence, Jira-Xray |
 | `feedback` | Projekt-Feedback standardisieren: Bugs, Features, Verbesserungen als GitHub I |
 | `frontend-component-engineer` | Screen-Spec + Token-Contract → produktionsreife UI-Komponenten |

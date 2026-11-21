@@ -3,10 +3,10 @@
 > Projektbeschreibung für Claude-Agenten. Diese Datei ist die **einzige Quelle**
 > für projektspezifischen Kontext — Agenten lesen sie, statt eigenen Kontext zu haben.
 >
-> Generiert von agent-meta v2.0.0-beta.8 — `2026-11-08`
+> Generiert von agent-meta v2.0.0-beta.9 — `2026-11-16`
 >
 > **Längenempfehlung:** 200–500 Zeilen optimal. Über 500 Zeilen → Detailwissen in
-> `docs/ARCHITECTURE.md`, `docs/API.md` o.ä. auslagern und manuell verlinken.
+> eigene Doku-Dateien (z.B. ARCHITECTURE.md, API.md) auslagern und manuell verlinken.
 > Agent-spezifisches Wissen → `.claude/3-project/<rolle>-ext.md` (Extension).
 >
 > **CLAUDE.md Hierarchie (Claude Code lädt in dieser Reihenfolge):**
@@ -49,7 +49,7 @@ Hier kannst du eigene, projektspezifische Notizen eintragen. Dieser Bereich wird
 backend/             # Django REST API (20 Apps in REQFLOW_APPS)
                      #   Layer 0: persistence, auth_tenancy, presets, audit
                      #   Layer 1: llm_adapter, traceability, workflow, link_types, attribute_definitions, baseline
-                     #   Layer 2: application (68 *_service.py)
+                     #   Layer 2: application (97 *_service.py)
                      #   Layer 3: rest_api, mcp_server
                      #   Ext: diagram, icd, context_graph, memory, se_metrics, resilience, admin_ops
 backend/reqogniloom/ # Django-Projekt (settings.py, urls.py, wsgi.py, asgi.py, version.py, health.py)
@@ -85,7 +85,7 @@ scripts/build.sh                   — Release-Build mit APP_VERSION/GIT_COMMIT_
   docs/agent-templates/tool-manifest.json, Drift-Gate: backend/mcp_server/tests/test_tool_manifest_drift.py);
   kanonischer Pfad /mcp/, /api/v1/mcp/ nur noch deprecated Alias
 - drf-spectacular für OpenAPI 3.0 (Schema, Swagger-UI, ReDoc)
-- Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade (68 *_service.py)
+- Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade (97 *_service.py)
 - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03)
 - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell
 - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation
@@ -123,7 +123,7 @@ make up (recreated Container bei geänderter Config/Env; reines `docker compose 
 
 ## Anforderungs-Kategorien
 
-Kategorien für `docs/REQUIREMENTS.md`:
+Kategorien für Anforderungen (`docs/REQUIREMENTS.md`):
 
 - **Functional** — Features, User Stories, CRUD auf Requirements/Architecture/TestCases/ADRs/Risks/Issues
 - **Non-Functional** — Performance, Sicherheit, Skalierbarkeit, Audit-Compliance, Multi-Tenancy
@@ -148,7 +148,7 @@ Kategorien für `docs/REQUIREMENTS.md`:
 
 > **AI ROUTING:** Claude -> CLAUDE.md | Opencode, Gemini -> AGENTS.md
 
-Generiert von agent-meta v2.0.0-beta.8 — `2026-11-08`
+Generiert von agent-meta v2.0.0-beta.9 — `2026-11-16`
 DoD-Preset: **rapid-prototyping** | REQ-Traceability: false | Tests: false | Codebase-Overview: false | Security-Audit: false
 > **Einstiegspunkt:** Starte mit dem `orchestrator`-Agenten für alle Entwicklungsaufgaben — Ausnahmen siehe Abschnitt »Orchestrator — Universal Router«.
 
