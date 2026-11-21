@@ -35,7 +35,7 @@ from workflow.services import create_default_workflow
 
 pytestmark = pytest.mark.django_db
 
-EXPECTED_TOOL_COUNT = 301
+EXPECTED_TOOL_COUNT = 302  # #2016: +change_request.submit_for_review
 BULK_TOOL = "artifact.bulk_update"
 
 

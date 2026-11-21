@@ -263,8 +263,8 @@ def test_manifest_keeps_48_prefixes_and_the_current_count() -> None:
     # MCP-Modernisierung Phase D added the 48th prefix ``tool``
     # (``tool.list_groups``) and moved it to 299. Tabellenansicht slice 3 added
     # the two ``saved_view`` read tools inside that same 48th prefix set
-    # (299 -> 301).
-    assert manifest["tool_count"] == 301
+    # (299 -> 301), then #2016's ``change_request.submit_for_review`` (301 -> 302).
+    assert manifest["tool_count"] == 302
     assert manifest["tool_count"] == len(manifest["tools"])
     assert len({t["prefix"] for t in manifest["tools"]}) == 49
 

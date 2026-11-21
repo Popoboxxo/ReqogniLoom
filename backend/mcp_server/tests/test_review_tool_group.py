@@ -76,6 +76,36 @@ def api_key():
 
 
 @pytest.fixture
+def agent_auth_context(user):
+    """Agent-principal variant: agent-created items start in ``proposed``."""
+    return AuthContext(
+        user_id=user.id,
+        tenant_id=user.tenant.id,
+        active_roles=("editor", "admin"),
+        auth_method="test",
+        api_key_id=None,
+        tenant_name="rv-tenant",
+        actor_type="agent",
+        agent_label="test-agent",
+    )
+
+
+@pytest.fixture
+def adr_proposed(agent_auth_context, workspace, adr_workflow):
+    """An Adr created by an agent — seeded at ``proposed`` by initial_state_for."""
+    from application.adr_service import AdrService
+
+    return AdrService().create_adr(
+        workspace_id=workspace.id,
+        title="Proposed ADR",
+        description="awaiting human confirmation",
+        ctx=agent_auth_context,
+        context="ctx",
+        consequences="consequences",
+    )
+
+
+@pytest.fixture
 def review_tool_group():
     return ReviewToolGroup()
 
@@ -565,3 +595,142 @@ def test_write_tools_are_rbac_gated():
     assert "review.reject" in _WRITE_TOOL_PREFIXES
     assert "review.request_changes" in _WRITE_TOOL_PREFIXES
     assert "review.list_pending" not in _WRITE_TOOL_PREFIXES
+
+
+# ---------------------------------------------------------------------------
+# #2015/#2017/#2018 — one shared "awaiting review" predicate
+# ---------------------------------------------------------------------------
+
+
+def test_list_pending_excludes_issue_open_with_only_outdated_equivalent_gate(
+    review_tool_group, auth_context, api_key, workspace, issue_open, adr_awaiting_review
+):
+    """#2015: Issue ``open`` has exactly one approval-gated hop --
+    ``open -> wontfix`` -- but ``wontfix`` is ``is_outdated_equivalent``, so
+    review.approve already refuses it. The queue used raw is_approval_gate
+    and listed the item anyway; both transports must now agree."""
+    result = review_tool_group.execute_tool(
+        "review.list_pending",
+        {"workspace_id": str(workspace.id)},
+        auth_context,
+        api_key,
+    )
+    assert result.success is True, result.message
+    ids = {item["item_id"] for item in result.data["items"]}
+    assert str(issue_open.id) not in ids
+    # A genuinely reviewable item in the same workspace is still listed.
+    assert str(adr_awaiting_review.id) in ids
+
+
+def test_list_pending_keeps_proposed_items(
+    review_tool_group, auth_context, api_key, workspace, adr_proposed
+):
+    """#1089 one-source-of-truth: an AI proposal is queued by state name
+    alone. Migrating the ordinary-item branch to the shared predicate must not
+    drop that branch."""
+    result = review_tool_group.execute_tool(
+        "review.list_pending",
+        {"workspace_id": str(workspace.id), "item_type": "Adr"},
+        auth_context,
+        api_key,
+    )
+    assert result.success is True, result.message
+    rows = {
+        item["item_id"]: item
+        for item in result.data["items"]
+    }
+    assert str(adr_proposed.id) in rows
+    assert rows[str(adr_proposed.id)]["current_state"] == "proposed"
+
+
+def test_list_pending_approval_targets_are_filtered(
+    auth_context, workspace, issue_open, adr_awaiting_review
+):
+    """REST projects ``PendingReviewItem.to_dict()['approval_targets']`` as-is,
+    so filtering the queue through the shared predicate is what surfaces
+    filtered approval targets on ``GET /reviews/pending/`` (#2015)."""
+    from application.review_queue_service import ReviewQueueService
+    from persistence.tenancy import TenantContext
+
+    TenantContext.set_tenant(auth_context.tenant_id)
+    try:
+        pending = ReviewQueueService().list_pending(auth_context, workspace_id=workspace.id)
+    finally:
+        TenantContext.clear_tenant()
+
+    by_id = {item.item_id: item for item in pending}
+    assert str(issue_open.id) not in by_id
+    assert by_id[str(adr_awaiting_review.id)].approval_targets == ("Approved",)
+    assert by_id[str(adr_awaiting_review.id)].to_dict()["approval_targets"] == [
+        "Approved"
+    ]
+
+
+def test_reject_draft_is_refused_with_validation_error(
+    review_tool_group, auth_context, api_key, workspace, adr_in_draft
+):
+    """#2017: review.reject is a review decision, not a generic soft-delete.
+    A draft has no approval-shaped move and must be refused with an actionable
+    error; <type>.outdate remains the unconditional escape hatch."""
+    TenantContext.set_tenant(auth_context.tenant_id)
+    try:
+        result = review_tool_group.execute_tool(
+            "review.reject",
+            {
+                "item_id": str(adr_in_draft.id),
+                "item_type": "Adr",
+                "workspace_id": str(workspace.id),
+                "reason": "not ready",
+            },
+            auth_context,
+            api_key,
+        )
+    finally:
+        TenantContext.clear_tenant()
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "not awaiting review" in result.message
+    assert "adr.outdate" in result.message
+
+
+def test_request_changes_draft_gives_clear_not_awaiting_review_error(
+    review_tool_group, auth_context, api_key, workspace, adr_in_draft
+):
+    """#2018: the old handler always went to ``definition.initial_state``;
+    from Draft that is a self-transition and the validator leaked
+    "'Draft' -> 'Draft' is not defined". The shared gate must refuse first."""
+    result = review_tool_group.execute_tool(
+        "review.request_changes",
+        {
+            "item_id": str(adr_in_draft.id),
+            "item_type": "Adr",
+            "workspace_id": str(workspace.id),
+            "reason": "nothing to send back",
+        },
+        auth_context,
+        api_key,
+    )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+    assert "not awaiting review" in result.message
+    assert "is not defined" not in result.message
+
+
+def test_request_changes_awaiting_item_still_returns_to_initial_state(
+    review_tool_group, auth_context, api_key, workspace, adr_awaiting_review
+):
+    """The success path is unchanged: from In Review the item goes back to
+    Draft, now with the gate confirming a rework move is meaningful."""
+    result = review_tool_group.execute_tool(
+        "review.request_changes",
+        {
+            "item_id": str(adr_awaiting_review.id),
+            "item_type": "Adr",
+            "workspace_id": str(workspace.id),
+            "reason": "needs a risk section",
+        },
+        auth_context,
+        api_key,
+    )
+    assert result.success is True, result.message
+    assert result.data["new_state"] == "Draft"

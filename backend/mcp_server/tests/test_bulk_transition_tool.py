@@ -41,7 +41,7 @@ from workflow.services import create_default_workflow
 
 pytestmark = pytest.mark.django_db
 
-EXPECTED_TOOL_COUNT = 301
+EXPECTED_TOOL_COUNT = 302  # #2016: +change_request.submit_for_review
 TRANSITION_TOOL = "artifact.bulk_transition"
 IN_REVIEW = "in_review"
 APPROVED = "approved"

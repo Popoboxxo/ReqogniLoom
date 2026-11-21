@@ -20,10 +20,13 @@ here in Layer 2, and both transports project it:
 * ``rest_api.review_views`` — projects each row to the REST row shape and
   paginates it.
 
-The gate itself is ``workflow.services.is_approval_gate`` — a transition whose
-``allowed_roles`` excludes ``"editor"`` is a real sign-off, while one an
-``editor`` may already take unsupervised is a self-service submission step.
-That predicate is the *existing* mechanism and is not re-implemented here.
+For ordinary items the gate is :func:`resolve_approval_target` — the one
+predicate shared with ``review.approve``/``reject``/``request_changes``. It
+prefers the definition's ``auto_approve_target``, otherwise takes a transition
+whose ``allowed_roles`` excludes ``"editor"`` (``is_approval_gate`` -- a real
+sign-off rather than an editor's self-service submission step), and always
+excludes self-transitions and ``is_outdated_equivalent`` rejection endpoints
+(issues #2015/#2017/#2018). One decision, every transport.
 
 **AI proposals are surfaced by the same query.** An item in
 :data:`workflow.definition_store.PROPOSED_STATE` is pending exactly when the
@@ -46,14 +49,86 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from application.base import PermissionDeniedError, ServiceBase
 from application.workspace_service import WorkspaceService
 from auth_tenancy.context import AuthContext
 
+if TYPE_CHECKING:  # pragma: no cover - typing only, avoids Django startup cost
+    from workflow.definition_store import TransitionDefinitionDTO
+
 logger = logging.getLogger(__name__)
+
+
+def resolve_approval_target(
+    *,
+    current_state: str | None,
+    transitions: Iterable[TransitionDefinitionDTO],
+    workflow_json: dict[str, Any],
+) -> str | None:
+    """Return the state an approval decision would move to, or ``None``.
+
+    One predicate answering "is this item awaiting a human review decision?"
+    for every transport (issues #2015/#2016/#2017/#2018). It is the exact rule
+    ``review.approve`` has always applied, lifted out of the MCP layer so the
+    pending queue, ``approve``, ``reject`` and ``request_changes`` can no
+    longer disagree about which items are reviewable:
+
+    1. prefer the definition's explicit ``auto_approve_target`` among the
+       transitions available from the item's current state;
+    2. otherwise take the first approval-gated transition (``allowed_roles``
+       excludes ``editor`` -- :func:`workflow.services.is_approval_gate`);
+    3. ignore self-transitions and states flagged ``is_outdated_equivalent``
+       (a rejection endpoint is not an approval endpoint, GH-370).
+
+    ``None`` means the item is **not** awaiting review: either the current
+    state could not be resolved, or it has no genuine approval-shaped move.
+    "proposed" is deliberately not special-cased here -- callers that surface
+    AI proposals keep their own state-name branch (see ``list_pending``).
+
+    Args:
+        current_state: The item's workflow state. ``None`` means unresolved;
+            the predicate then has no genuine transition to return.
+        transitions: The moves available from *current_state* (the
+            ``AvailableTransitions.transitions`` tuple).
+        workflow_json: Raw workflow document supplying ``state_meta``; an
+            empty dict is handled as "no per-state metadata".
+
+    Returns:
+        The approval target state name, or ``None`` when the item is not
+        awaiting a human approval decision.
+    """
+    from workflow.definition_store import get_state_meta
+    from workflow.services import is_approval_gate
+
+    if current_state is None:
+        return None
+
+    genuine = [t for t in transitions if t.from_state != t.to_state]
+    meta = {t.to_state: get_state_meta(workflow_json, t.to_state) for t in genuine}
+    target = next(
+        (
+            t.to_state
+            for t in genuine
+            if meta[t.to_state].get("auto_approve_target", False)
+            and not meta[t.to_state].get("is_outdated_equivalent", False)
+        ),
+        None,
+    )
+    if target is None:
+        gate = next(
+            (
+                t
+                for t in genuine
+                if is_approval_gate(t)
+                and not meta[t.to_state].get("is_outdated_equivalent", False)
+            ),
+            None,
+        )
+        target = gate.to_state if gate is not None else None
+    return target
 
 
 @dataclass(frozen=True)
@@ -200,7 +275,7 @@ class ReviewQueueService(ServiceBase):
                 or none of *required_roles*.
         """
         from workflow.definition_store import PROPOSED_STATE
-        from workflow.services import get_available_transitions, is_approval_gate
+        from workflow.services import get_available_transitions, get_workflow_json
 
         workspace_uuid = UUID(str(workspace_id))
         self._set_tenant_context(ctx)
@@ -244,11 +319,19 @@ class ReviewQueueService(ServiceBase):
                 available = get_available_transitions(
                     item_ids[0], row_type, workspace_uuid
                 )
-                targets = tuple(
-                    t.to_state for t in available.transitions if is_approval_gate(t)
+                # #2015: use the SAME predicate as review.approve so the queue
+                # never lists an item approve() would refuse (e.g. an Issue in
+                # ``open`` whose sole gate target ``wontfix`` is
+                # ``is_outdated_equivalent``). The filtered target is also what
+                # ``to_dict()`` surfaces to REST as ``approval_targets``.
+                target = resolve_approval_target(
+                    current_state=available.current_state,
+                    transitions=available.transitions,
+                    workflow_json=get_workflow_json(workspace_uuid, row_type),
                 )
-                if not targets:
+                if target is None:
                     continue
+                targets = (target,)
             for item_id in item_ids:
                 pending.append(
                     PendingReviewItem(
@@ -332,4 +415,4 @@ def _attach_provenance(items: list[PendingReviewItem]) -> None:
             object.__setattr__(item, "proposed_at", at)
 
 
-__all__ = ["PendingReviewItem", "ReviewQueueService"]
+__all__ = ["PendingReviewItem", "ReviewQueueService", "resolve_approval_target"]
