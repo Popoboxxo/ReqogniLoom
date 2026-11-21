@@ -170,19 +170,45 @@ from application.reqif_export_service import (
     _ATTR_CATEGORY,
     _ATTR_CUSTOM_FIELDS,
     _ATTR_DESCRIPTION,
+    _ATTR_ICD_CURRENT_REVISION,
+    _ATTR_ICD_DIRECTION,
+    _ATTR_ICD_INVARIANTS,
+    _ATTR_ICD_INTERFACE_TYPE,
+    _ATTR_ICD_NAME,
+    _ATTR_ICD_POSTCONDITIONS,
+    _ATTR_ICD_PRECONDITIONS,
+    _ATTR_ICD_SEMANTIC_DESCRIPTION,
+    _ATTR_ICD_SOURCE_ELEMENT,
+    _ATTR_ICD_TARGET_ELEMENT,
     _ATTR_MOSCOW_PRIORITY,
+    _ATTR_ORIGIN,
+    _ATTR_REVIEWED,
+    _ATTR_SCENARIO_KIND,
     _ATTR_STATUS,
+    _ATTR_STEPS_JSON,
+    _ATTR_TEST_SUSPECT,
+    _ATTR_TEST_TYPE,
+    _ATTR_TIER_KEY,
     _ATTR_TITLE,
     _ATTR_UID,
     _ATTR_VERIFICATION_METHOD,
+    _SPEC_OBJECT_TYPE_ICD,
     _SPEC_OBJECT_TYPE_NEED,
     _SPEC_OBJECT_TYPE_REQUIREMENT,
+    _SPEC_OBJECT_TYPE_TESTCASE,
+    _bool_text,
 )
 from auth_tenancy.context import AuthContext
 from persistence.custom_fields import validate_custom_fields
 from traceability.types import VALID_LINK_TYPES
 
 logger = logging.getLogger(__name__)
+
+# P3: additional Requirement attributes published by the standard-conformant
+# ReqIF mapping (tier_key is imported from the exporter above).
+_ATTR_LEVEL = "ATTR-LEVEL"
+_ATTR_COMPLEXITY_FIBONACCI = "ATTR-COMPLEXITY-FIBONACCI"
+_ATTR_SUSPECT = "ATTR-SUSPECT"
 
 # ---------------------------------------------------------------------------
 # Size guards (REQ-147, mirrors application.import_service._MAX_ROWS intent)
@@ -218,6 +244,45 @@ _REQUIREMENT_KNOWN_ATTRS = frozenset(
         _ATTR_CATEGORY,
         _ATTR_CUSTOM_FIELDS,
         _ATTR_VERIFICATION_METHOD,
+        _ATTR_TIER_KEY,
+        _ATTR_LEVEL,
+        _ATTR_COMPLEXITY_FIBONACCI,
+        _ATTR_SUSPECT,
+    }
+)
+# D14d: TestCase / Icd attribute sets mirrored from reqif_export_service.
+_TESTCASE_KNOWN_ATTRS = frozenset(
+    {
+        _ATTR_UID,
+        _ATTR_TITLE,
+        _ATTR_DESCRIPTION,
+        _ATTR_STATUS,
+        _ATTR_CUSTOM_FIELDS,
+        _ATTR_TEST_TYPE,
+        _ATTR_SCENARIO_KIND,
+        _ATTR_STEPS_JSON,
+        _ATTR_ORIGIN,
+        _ATTR_REVIEWED,
+        _ATTR_TEST_SUSPECT,
+    }
+)
+_ICD_KNOWN_ATTRS = frozenset(
+    {
+        _ATTR_UID,
+        _ATTR_TITLE,
+        _ATTR_DESCRIPTION,
+        _ATTR_STATUS,
+        _ATTR_CUSTOM_FIELDS,
+        _ATTR_ICD_NAME,
+        _ATTR_ICD_SOURCE_ELEMENT,
+        _ATTR_ICD_TARGET_ELEMENT,
+        _ATTR_ICD_DIRECTION,
+        _ATTR_ICD_INTERFACE_TYPE,
+        _ATTR_ICD_SEMANTIC_DESCRIPTION,
+        _ATTR_ICD_PRECONDITIONS,
+        _ATTR_ICD_POSTCONDITIONS,
+        _ATTR_ICD_INVARIANTS,
+        _ATTR_ICD_CURRENT_REVISION,
     }
 )
 
@@ -415,6 +480,21 @@ def _parse_artifact_uuid(identifier: str) -> UUID | None:
         return None
 
 
+def _parse_icd_uuid(identifier: str | None) -> UUID | None:
+    """Recover the Icd entity UUID from a ``_icd-<uuid>`` identifier (D14d).
+
+    Mirrors ``reqif_export_service._icd_spec_object_id``. Returns None for any
+    other identifier, which then relies on the external ReqIF identity
+    (``Artifact.reqif_identifier``) for idempotent re-import.
+    """
+    if not identifier or not identifier.startswith("_icd-"):
+        return None
+    try:
+        return UUID(identifier[5:])
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
 def _parse_relation_uuid(identifier: str | None) -> UUID | None:
     """Recover the TraceLink UUID from a ``_r-<uuid>`` SPEC-RELATION identifier.
 
@@ -553,6 +633,9 @@ class ReqifImportResult:
     needs: ReqifEntityReport
     requirements: ReqifEntityReport
     relations: ReqifEntityReport
+    # D14d: additive report sections for the two additional SPEC-OBJECT types.
+    test_cases: ReqifEntityReport = field(default_factory=ReqifEntityReport)
+    icds: ReqifEntityReport = field(default_factory=ReqifEntityReport)
     warnings: list[str] = field(default_factory=list)
     request_id: str = ""
     idempotent_replay: bool = False
@@ -565,6 +648,8 @@ class ReqifImportResult:
             self.needs.failed
             + self.requirements.failed
             + self.relations.failed
+            + self.test_cases.failed
+            + self.icds.failed
             + sum(1 for item in self.extra_items if item["status"] == STATUS_FAILED)
         )
 
@@ -575,12 +660,22 @@ class ReqifImportResult:
             self.needs.succeeded
             + self.requirements.succeeded
             + self.relations.succeeded
+            + self.test_cases.succeeded
+            + self.icds.succeeded
         )
-        skipped = self.needs.skipped + self.requirements.skipped + self.relations.skipped
+        skipped = (
+            self.needs.skipped
+            + self.requirements.skipped
+            + self.relations.skipped
+            + self.test_cases.skipped
+            + self.icds.skipped
+        )
         failed = (
             self.needs.failed
             + self.requirements.failed
             + self.relations.failed
+            + self.test_cases.failed
+            + self.icds.failed
             + sum(1 for item in self.extra_items if item["status"] == STATUS_FAILED)
         )
         return {
@@ -597,6 +692,8 @@ class ReqifImportResult:
             *self.needs.items,
             *self.requirements.items,
             *self.relations.items,
+            *self.test_cases.items,
+            *self.icds.items,
             *self.extra_items,
         ]
 
@@ -657,6 +754,8 @@ class ReqifImportResult:
             "needs": self.needs.to_dict(),
             "requirements": self.requirements.to_dict(),
             "relations": self.relations.to_dict(),
+            "test_cases": self.test_cases.to_dict(),
+            "icds": self.icds.to_dict(),
         }
 
 
@@ -754,6 +853,8 @@ class ReqifImportService(ServiceBase):
         needs_report = ReqifEntityReport()
         reqs_report = ReqifEntityReport()
         relations_report = ReqifEntityReport()
+        test_cases_report = ReqifEntityReport()
+        icds_report = ReqifEntityReport()
         warnings: list[str] = []
 
         tenant = workspace.tenant
@@ -788,7 +889,12 @@ class ReqifImportService(ServiceBase):
                     needs_report.skipped += 1
                     continue
 
-                report = needs_report if kind == "StakeholderNeed" else reqs_report
+                report = {
+                    "StakeholderNeed": needs_report,
+                    "Requirement": reqs_report,
+                    "TestCase": test_cases_report,
+                    "Icd": icds_report,
+                }[kind]
                 spec_type = bundle.get_spec_object_type_by_ref(so.spec_object_type)
 
                 try:
@@ -880,15 +986,21 @@ class ReqifImportService(ServiceBase):
                         "requirements_created": reqs_report.created,
                         "requirements_updated": reqs_report.updated,
                         "relations_created": relations_report.created,
+                        "test_cases_created": test_cases_report.created,
+                        "icds_created": icds_report.created,
                         "failed": (
                             needs_report.failed
                             + reqs_report.failed
                             + relations_report.failed
+                            + test_cases_report.failed
+                            + icds_report.failed
                         ),
                         "skipped": (
                             needs_report.skipped
                             + reqs_report.skipped
                             + relations_report.skipped
+                            + test_cases_report.skipped
+                            + icds_report.skipped
                         ),
                     },
                 )
@@ -924,12 +1036,16 @@ class ReqifImportService(ServiceBase):
                 needs_report.failed
                 + reqs_report.failed
                 + relations_report.failed
+                + test_cases_report.failed
+                + icds_report.failed
             )
             == 0,
             dry_run=dry_run,
             needs=needs_report,
             requirements=reqs_report,
             relations=relations_report,
+            test_cases=test_cases_report,
+            icds=icds_report,
             warnings=warnings,
             request_id=request_id or str(uuid.uuid4()),
         )
@@ -984,6 +1100,11 @@ class ReqifImportService(ServiceBase):
             return "StakeholderNeed"
         if spec_object_type_ref == _SPEC_OBJECT_TYPE_REQUIREMENT:
             return "Requirement"
+        # D14d: standard SPEC-OBJECT-TYPEs for the two additional kinds.
+        if spec_object_type_ref == _SPEC_OBJECT_TYPE_TESTCASE:
+            return "TestCase"
+        if spec_object_type_ref == _SPEC_OBJECT_TYPE_ICD:
+            return "Icd"
         return None
 
     @classmethod
@@ -1018,10 +1139,15 @@ class ReqifImportService(ServiceBase):
             kind,
             warnings,
         )
-        verification_method, moscow_priority = ReqifImportService._kind_specific_values(
-            kind,
-            so,
-        )
+        (
+            verification_method,
+            moscow_priority,
+            tier_key,
+            level,
+            complexity_fibonacci,
+            suspect,
+        ) = ReqifImportService._kind_specific_values(kind, so)
+        extra_fields = ReqifImportService._read_extra_kind_fields(kind, so)
 
         # ---- Resolve target artifact id / existing row ----
         target_uuid, foreign_identifier, existing_artifact = (
@@ -1030,6 +1156,7 @@ class ReqifImportService(ServiceBase):
                 workspace,
                 external_uid,
                 warnings,
+                kind,
             )
         )
 
@@ -1053,11 +1180,16 @@ class ReqifImportService(ServiceBase):
                 category=category,
                 verification_method=verification_method,
                 moscow_priority=moscow_priority,
+                tier_key=tier_key,
+                level=level,
+                complexity_fibonacci=complexity_fibonacci,
+                suspect=suspect,
                 custom_fields=custom_fields,
                 external_uid=external_uid,
                 foreign_identifier=foreign_identifier,
                 status_raw=status_raw,
                 workspace_id=workspace.id,
+                extra_fields=extra_fields,
             ):
                 return existing_artifact, False, True
             artifact = existing_artifact
@@ -1070,6 +1202,7 @@ class ReqifImportService(ServiceBase):
                 workspace,
                 tenant,
                 warnings,
+                extra_fields,
             )
             created = True
 
@@ -1084,6 +1217,11 @@ class ReqifImportService(ServiceBase):
             status_raw,
             workspace.id,
             tenant,
+            tier_key=tier_key,
+            level=level,
+            complexity_fibonacci=complexity_fibonacci,
+            suspect=suspect,
+            extra_fields=extra_fields,
         )
         ReqifImportService._apply_artifact_external_identity(
             artifact,
@@ -1219,7 +1357,12 @@ class ReqifImportService(ServiceBase):
         The key is the attribute's long name when the document's
         SPEC-OBJECT-TYPE defines one, else the raw ``definition_ref``.
         """
-        known_attrs = _NEED_KNOWN_ATTRS if kind == "StakeholderNeed" else _REQUIREMENT_KNOWN_ATTRS
+        known_attrs = {
+            "StakeholderNeed": _NEED_KNOWN_ATTRS,
+            "Requirement": _REQUIREMENT_KNOWN_ATTRS,
+            "TestCase": _TESTCASE_KNOWN_ATTRS,
+            "Icd": _ICD_KNOWN_ATTRS,
+        }[kind]
         custom_fields: dict[str, Any] = {}
         for attribute in so.attributes:
             if attribute.definition_ref in known_attrs:
@@ -1233,11 +1376,14 @@ class ReqifImportService(ServiceBase):
         return custom_fields
 
     @staticmethod
-    def _kind_specific_values(kind: str, so: Any) -> tuple[str | None, str | None]:
-        """Read the kind-specific entity fields (verification / priority).
+    def _kind_specific_values(kind: str, so: Any) -> tuple:
+        """Read kind-specific fields (Requirement: verification + tier/level).
 
-        ``verification_method`` belongs to a Requirement, ``moscow_priority``
-        to a StakeholderNeed; the other stays ``None``.
+        ReqIF exports publish the Requirement's tier, level, Fibonacci
+        complexity and suspect flag as user-defined attributes. P3 maps them
+        back onto the model columns instead of leaving them in
+        ``Artifact.custom_fields``. Invalid values are ignored so a malformed
+        foreign attribute cannot break the whole import.
         """
         attrs = so.attribute_map
         verification_method = (
@@ -1250,7 +1396,115 @@ class ReqifImportService(ServiceBase):
             if kind == "StakeholderNeed"
             else None
         )
-        return verification_method, moscow_priority
+        tier_key = level = complexity = suspect = None
+        if kind == "Requirement":
+            tier_key = ReqifImportService._attr_text(attrs, _ATTR_TIER_KEY) or None
+            raw_level = ReqifImportService._attr_text(attrs, _ATTR_LEVEL)
+            raw_complexity = ReqifImportService._attr_text(attrs, _ATTR_COMPLEXITY_FIBONACCI)
+            raw_suspect = ReqifImportService._attr_text(attrs, _ATTR_SUSPECT).strip().lower()
+            try:
+                level = int(raw_level) if raw_level else None
+            except ValueError:
+                level = None
+            try:
+                complexity = int(raw_complexity) if raw_complexity else None
+            except ValueError:
+                complexity = None
+            if raw_suspect in {"true", "1", "yes"}:
+                suspect = True
+            elif raw_suspect in {"false", "0", "no"}:
+                suspect = False
+        return verification_method, moscow_priority, tier_key, level, complexity, suspect
+
+    @staticmethod
+    def _attr_bool(attrs: dict[str, Any], key: str) -> bool | None:
+        """Read a ReqIF STRING boolean token (true/false/1/0/yes/no)."""
+        raw = ReqifImportService._attr_text(attrs, key).strip().lower()
+        if raw in {"true", "1", "yes"}:
+            return True
+        if raw in {"false", "0", "no"}:
+            return False
+        return None
+
+    @staticmethod
+    def _attr_json_list(attrs: dict[str, Any], key: str) -> list[Any]:
+        """Read a JSON-encoded list attribute; malformed/absent -> ``[]``."""
+        raw = ReqifImportService._attr_text(attrs, key)
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return []
+        return parsed if isinstance(parsed, list) else []
+
+    @staticmethod
+    def _read_extra_kind_fields(kind: str, so: Any) -> dict[str, Any]:
+        """D14d: read TestCase/Icd fields from their standard attributes.
+
+        Kept separate from ``_kind_specific_values`` (Need/Requirement, used by
+        the existing REQ-146/147 paths) so the two mappings stay additive and
+        neither can regress the other.
+        """
+        attrs = so.attribute_map
+        if kind == "TestCase":
+            reviewed = ReqifImportService._attr_bool(attrs, _ATTR_REVIEWED)
+            suspect = ReqifImportService._attr_bool(attrs, _ATTR_TEST_SUSPECT)
+            return {
+                "test_type": ReqifImportService._attr_text(attrs, _ATTR_TEST_TYPE) or None,
+                "scenario_kind": (
+                    ReqifImportService._attr_text(attrs, _ATTR_SCENARIO_KIND) or None
+                ),
+                "steps": ReqifImportService._attr_json_list(attrs, _ATTR_STEPS_JSON),
+                "origin": ReqifImportService._attr_text(attrs, _ATTR_ORIGIN) or None,
+                "reviewed": reviewed,
+                "suspect": suspect,
+            }
+        if kind == "Icd":
+            raw_revision = ReqifImportService._attr_text(
+                attrs, _ATTR_ICD_CURRENT_REVISION
+            )
+            try:
+                revision = int(raw_revision) if raw_revision else None
+            except ValueError:
+                revision = None
+
+            def _uuid_or_none(raw: str) -> UUID | None:
+                try:
+                    return UUID(raw) if raw else None
+                except (ValueError, AttributeError, TypeError):
+                    return None
+
+            return {
+                "name": ReqifImportService._attr_text(attrs, _ATTR_ICD_NAME) or None,
+                "source_element_id": _uuid_or_none(
+                    ReqifImportService._attr_text(attrs, _ATTR_ICD_SOURCE_ELEMENT)
+                ),
+                "target_element_id": _uuid_or_none(
+                    ReqifImportService._attr_text(attrs, _ATTR_ICD_TARGET_ELEMENT)
+                ),
+                "direction": (
+                    ReqifImportService._attr_text(attrs, _ATTR_ICD_DIRECTION) or None
+                ),
+                "interface_type": (
+                    ReqifImportService._attr_text(attrs, _ATTR_ICD_INTERFACE_TYPE) or None
+                ),
+                "semantic_description": (
+                    ReqifImportService._attr_text(attrs, _ATTR_ICD_SEMANTIC_DESCRIPTION)
+                    or ""
+                ),
+                "preconditions": ReqifImportService._attr_json_list(
+                    attrs, _ATTR_ICD_PRECONDITIONS
+                ),
+                "postconditions": ReqifImportService._attr_json_list(
+                    attrs, _ATTR_ICD_POSTCONDITIONS
+                ),
+                "invariants": ReqifImportService._attr_json_list(
+                    attrs, _ATTR_ICD_INVARIANTS
+                ),
+                "current_revision": revision,
+            }
+        return {}
 
     @staticmethod
     def _resolve_spec_object_target(
@@ -1258,6 +1512,7 @@ class ReqifImportService(ServiceBase):
         workspace: Any,
         external_uid: str | None,
         warnings: list[str],
+        kind: str,
     ) -> tuple[Any, str | None, Any]:
         """Locate the artifact this SPEC-OBJECT maps to, if any.
 
@@ -1286,6 +1541,40 @@ class ReqifImportService(ServiceBase):
 
         target_uuid = _parse_artifact_uuid(so.identifier)
         existing_artifact = None
+        if kind == "Icd":
+            # D14d: an Icd identifier is ``_icd-<entity id>`` and may point at
+            # an Icd with no backing Artifact. Resolve the entity directly and
+            # materialise a shadow Artifact when needed so the rest of the
+            # upsert pipeline (which is Artifact-centric) stays unchanged.
+            icd_uuid = _parse_icd_uuid(so.identifier)
+            if icd_uuid is not None:
+                from icd.models import Icd
+
+                icd = Icd.objects.filter(
+                    id=icd_uuid, workspace_id=workspace.id
+                ).first()
+                if icd is not None:
+                    if icd.artifact_id:
+                        existing_artifact = icd.artifact
+                    else:
+                        existing_artifact = Artifact.objects.create(
+                            id=uuid.uuid4(),
+                            tenant=workspace.tenant,
+                            workspace=workspace,
+                            artifact_type="Icd",
+                            custom_fields={},
+                        )
+                        Icd.objects.filter(pk=icd.pk).update(
+                            artifact=existing_artifact
+                        )
+                else:
+                    warnings.append(
+                        f"Identifier {so.identifier} matches an Icd outside this "
+                        "workspace; imported as a new Icd with a fresh id."
+                    )
+            # A new Icd always gets a fresh Artifact id; the external identity
+            # below keeps a re-import of the same document idempotent.
+            target_uuid = None
         if target_uuid is not None:
             existing_artifact = Artifact.objects.filter(
                 id=target_uuid, workspace_id=workspace.id
@@ -1327,13 +1616,23 @@ class ReqifImportService(ServiceBase):
         Raises ``_SoftError(TYPE_MISMATCH)`` when the artifact carries an
         entity of the other kind — a partial row that cannot be updated.
         """
-        from persistence.models import Requirement, StakeholderNeed
+        from icd.models import Icd
+        from persistence.models import Requirement, StakeholderNeed, TestCase
 
-        entity = (
-            Requirement.objects.filter(artifact_id=existing_artifact.id).first()
-            if kind == "Requirement"
-            else StakeholderNeed.objects.filter(artifact_id=existing_artifact.id).first()
-        )
+        entity = {
+            "Requirement": lambda: Requirement.objects.filter(
+                artifact_id=existing_artifact.id
+            ).first(),
+            "StakeholderNeed": lambda: StakeholderNeed.objects.filter(
+                artifact_id=existing_artifact.id
+            ).first(),
+            "TestCase": lambda: TestCase.objects.filter(
+                artifact_id=existing_artifact.id
+            ).first(),
+            "Icd": lambda: Icd.objects.filter(
+                artifact_id=existing_artifact.id
+            ).first(),
+        }[kind]()
         if entity is None:
             raise _SoftError(
                 f"Identifier {so.identifier} matches an existing artifact of a "
@@ -1350,6 +1649,7 @@ class ReqifImportService(ServiceBase):
         workspace: Any,
         tenant: Any,
         warnings: list[str],
+        extra_fields: dict[str, Any] | None = None,
     ) -> tuple[Any, Any]:
         """Create the Artifact + entity rows for a not-yet-known SPEC-OBJECT.
 
@@ -1363,7 +1663,8 @@ class ReqifImportService(ServiceBase):
         with random UUIDv4s) case of a cross-tenant id collision invisible
         to the tenant-scoped query above (AUD-2026-09-071).
         """
-        from persistence.models import Artifact, Requirement, StakeholderNeed
+        from icd.models import Icd
+        from persistence.models import Artifact, Requirement, StakeholderNeed, TestCase
 
         new_id = target_uuid or uuid.uuid4()
         try:
@@ -1389,15 +1690,34 @@ class ReqifImportService(ServiceBase):
                     artifact_type=kind,
                     custom_fields={},
                 )
-        entity = (
-            # #133/#1402: ``workspace`` is denormalized onto the Artifact-backed
-            # entity to back its (workspace, uid) partial UniqueConstraint. It
-            # is set for every kind, not just Requirement — a NULL would
-            # silently exempt the imported row from the constraint.
-            Requirement(tenant=tenant, artifact=artifact, workspace=workspace)
-            if kind == "Requirement"
-            else StakeholderNeed(tenant=tenant, artifact=artifact, workspace=workspace)
-        )
+        extra_fields = extra_fields or {}
+        # #133/#1402: ``workspace`` is denormalized onto the Artifact-backed
+        # entity to back its (workspace, uid) partial UniqueConstraint. It is
+        # set for every kind, not just Requirement — a NULL would silently
+        # exempt the imported row from the constraint.
+        common = dict(tenant=tenant, artifact=artifact, workspace=workspace)
+        if kind == "Requirement":
+            entity = Requirement(**common)
+        elif kind == "TestCase":
+            entity = TestCase(**common)
+        elif kind == "Icd":
+            # source/target are required UUID columns; the exported values are
+            # authoritative (D12/D12b) but a malformed document must not abort
+            # the whole import — fall back to placeholder UUIDs for that case.
+            def _endpoint(value: str | None) -> UUID:
+                try:
+                    return UUID(str(value)) if value else uuid.uuid4()
+                except (ValueError, AttributeError, TypeError):
+                    return uuid.uuid4()
+
+            entity = Icd(
+                **common,
+                name=extra_fields.get("name") or so.identifier,
+                source_element_id=_endpoint(extra_fields.get("source_element_id")),
+                target_element_id=_endpoint(extra_fields.get("target_element_id")),
+            )
+        else:
+            entity = StakeholderNeed(**common)
         return artifact, entity
 
     @classmethod
@@ -1413,6 +1733,12 @@ class ReqifImportService(ServiceBase):
         status_raw: str,
         workspace_id: Any,
         tenant: Any,
+        *,
+        tier_key: str | None = None,
+        level: int | None = None,
+        complexity_fibonacci: int | None = None,
+        suspect: bool | None = None,
+        extra_fields: dict[str, Any] | None = None,
     ) -> None:
         """Copy the parsed values onto the entity and apply workflow status.
 
@@ -1426,8 +1752,40 @@ class ReqifImportService(ServiceBase):
         entity.category = category
         if kind == "Requirement":
             entity.verification_method = verification_method
-        else:
+            if tier_key is not None:
+                entity.tier_key = tier_key
+            if level is not None:
+                entity.level = level
+            if complexity_fibonacci is not None:
+                entity.complexity_fibonacci = complexity_fibonacci
+            if suspect is not None:
+                entity.suspect = suspect
+        elif kind == "StakeholderNeed":
             entity.moscow_priority = moscow_priority
+        elif kind == "TestCase":
+            extras = extra_fields or {}
+            for key in ("test_type", "scenario_kind", "origin", "steps", "reviewed"):
+                if extras.get(key) is not None:
+                    setattr(entity, key, extras[key])
+            if extras.get("suspect") is not None:
+                entity.suspect = extras["suspect"]
+        elif kind == "Icd":
+            extras = extra_fields or {}
+            if extras.get("name"):
+                entity.name = extras["name"]
+            for key in (
+                "source_element_id",
+                "target_element_id",
+                "direction",
+                "interface_type",
+                "semantic_description",
+                "preconditions",
+                "postconditions",
+                "invariants",
+                "current_revision",
+            ):
+                if extras.get(key) is not None:
+                    setattr(entity, key, extras[key])
         cls._apply_status(entity, kind, status_raw, workspace_id, tenant)
 
     @staticmethod
@@ -1477,11 +1835,16 @@ class ReqifImportService(ServiceBase):
         category: str,
         verification_method: str | None,
         moscow_priority: str | None,
+        tier_key: str | None,
+        level: int | None,
+        complexity_fibonacci: int | None,
+        suspect: bool | None,
         custom_fields: dict[str, Any],
         external_uid: str | None,
         foreign_identifier: str | None,
         status_raw: str,
         workspace_id: UUID,
+        extra_fields: dict[str, Any] | None = None,
     ) -> bool:
         """Return True when the incoming SPEC-OBJECT matches the stored one.
 
@@ -1490,16 +1853,106 @@ class ReqifImportService(ServiceBase):
         workflow state). A True result lets the caller count ``skipped``
         (``DUPLICATE``) and return without any write effect.
         """
-        if entity.title != title or entity.description != description:
+        # Not every entity uses the Need/Requirement field names: TestCase has
+        # no `category`, Icd speaks `name`/`semantic_description` instead of
+        # `title`/`description`. Missing attributes must not break idempotency.
+        stored_title = getattr(entity, "title", None)
+        stored_description = getattr(entity, "description", None)
+        stored_category = getattr(entity, "category", None)
+        if kind == "Icd":
+            stored_title = getattr(entity, "name", None)
+            stored_description = getattr(entity, "semantic_description", None)
+            stored_category = ""
+        # A model without a column reports None while the ReqIF attribute is
+        # an empty string — semantically identical, so normalise before compare.
+        _norm = lambda value: "" if value is None else value
+        if _norm(stored_title) != _norm(title) or _norm(stored_description) != _norm(description):
+            logger.debug(
+                "ReqIF identity: text differs %r/%r != %r/%r",
+                stored_title, stored_description, title, description,
+            )
             return False
-        if entity.category != category:
+        if _norm(stored_category) != _norm(category):
+            logger.debug(
+                "ReqIF identity: category differs %r != %r", stored_category, category
+            )
             return False
         if kind == "Requirement":
             if entity.verification_method != verification_method:
                 return False
-        else:
+            if tier_key is not None and entity.tier_key != tier_key:
+                return False
+            if level is not None and entity.level != level:
+                return False
+            if complexity_fibonacci is not None and entity.complexity_fibonacci != complexity_fibonacci:
+                return False
+            if suspect is not None and bool(entity.suspect) != suspect:
+                return False
+        elif kind == "StakeholderNeed":
             if entity.moscow_priority != moscow_priority:
                 return False
+        elif kind == "TestCase":
+            extras = extra_fields or {}
+            for key in (
+                "test_type",
+                "scenario_kind",
+                "steps",
+                "origin",
+                "reviewed",
+                "suspect",
+            ):
+                if key not in extras:
+                    continue
+                stored = getattr(entity, key, None)
+                incoming = extras[key]
+                if key == "steps":
+                    # Steps are a JSON list of dicts; dict key order and
+                    # optional generated ids must not turn a replay into an
+                    # update. Compare canonical JSON instead of object identity.
+                    if json.dumps(stored or [], sort_keys=True) != json.dumps(
+                        incoming or [], sort_keys=True
+                    ):
+                        logger.debug(
+                            "ReqIF TestCase identity: steps differ: %r != %r",
+                            stored, incoming,
+                        )
+                        return False
+                    continue
+                if key in {"reviewed", "suspect"}:
+                    incoming_bool = (
+                        str(incoming).strip().lower() in {"true", "1", "yes"}
+                        if isinstance(incoming, str)
+                        else bool(incoming)
+                    )
+                    if bool(stored) != incoming_bool:
+                        logger.debug(
+                            "ReqIF TestCase identity: %s differs: %r != %r",
+                            key, stored, incoming,
+                        )
+                        return False
+                    continue
+                if stored != incoming:
+                    logger.debug(
+                        "ReqIF TestCase identity: %s differs: %r != %r",
+                        key, stored, incoming,
+                    )
+                    return False
+        elif kind == "Icd":
+            extras = extra_fields or {}
+            for key in (
+                "name",
+                "source_element_id",
+                "target_element_id",
+                "direction",
+                "interface_type",
+                "semantic_description",
+                "preconditions",
+                "postconditions",
+                "invariants",
+                "current_revision",
+            ):
+                if key in extras and getattr(entity, key, None) != extras[key]:
+                    return False
         if (artifact.custom_fields or {}) != custom_fields:
             return False
         # Only compare the external identity we would actually (re)write;

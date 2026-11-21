@@ -16,8 +16,16 @@ SPEC-OBJECT-TYPEs (one per exported artifact type)
 ---------------------------------------------------
   ``ST-StakeholderNeed`` — for ``persistence.models.StakeholderNeed``
   ``ST-Requirement``     — for ``persistence.models.Requirement``
+  ``ST-TestCase``        — for ``persistence.models.TestCase`` (D14d)
+  ``ST-Icd``             — for ``icd.models.Icd`` (D14d)
 
-  Shared attribute definitions (both types, ``DATATYPE-DEFINITION-STRING``):
+  Both additional types are *standard* SPEC-OBJECTs: their data is carried by
+  ``ATTRIBUTE-DEFINITION-STRING`` declarations on their own SPEC-OBJECT-TYPE
+  (plus shared definitions declared once on the Need type and resolved via
+  ``xsd:IDREF``). No private ``THE-OTHER-CONTENT``/``TOOL-EXTENSIONS`` payload
+  is used, so the document stays valid against the ReqIF 1.2 XSD.
+
+  Shared attribute definitions (all types, ``DATATYPE-DEFINITION-STRING``):
     ATTR-UID           <- {StakeholderNeed,Requirement}.uid
     ATTR-TITLE         <- .title
     ATTR-DESCRIPTION   <- .description
@@ -245,6 +253,9 @@ def _load_reqif() -> None:
 _DATATYPE_STRING = "DT-String"
 _SPEC_OBJECT_TYPE_NEED = "ST-StakeholderNeed"
 _SPEC_OBJECT_TYPE_REQUIREMENT = "ST-Requirement"
+# D14d: TestCase and Icd as standard-conformant SPEC-OBJECTs.
+_SPEC_OBJECT_TYPE_TESTCASE = "ST-TestCase"
+_SPEC_OBJECT_TYPE_ICD = "ST-Icd"
 _SPECIFICATION_TYPE = "ST-Specification-Default"
 
 _ATTR_UID = "ATTR-UID"
@@ -259,6 +270,26 @@ _ATTR_MOSCOW_PRIORITY = "ATTR-MOSCOW-PRIORITY"
 #: display label. Requirement-only (a StakeholderNeed carries no tier).
 _ATTR_TIER_KEY = "ATTR-TIER-KEY"
 _ATTR_TIER_NAME = "ATTR-TIER-NAME"
+
+# D14d: TestCase-only attributes (all STRING, JSON-encoded where structured).
+_ATTR_TEST_TYPE = "ATTR-TEST-TYPE"
+_ATTR_SCENARIO_KIND = "ATTR-SCENARIO-KIND"
+_ATTR_STEPS_JSON = "ATTR-STEPS-JSON"
+_ATTR_ORIGIN = "ATTR-ORIGIN"
+_ATTR_REVIEWED = "ATTR-REVIEWED"
+_ATTR_TEST_SUSPECT = "ATTR-TEST-SUSPECT"
+
+# D14d: Icd-only attributes (all STRING, JSON-encoded where structured).
+_ATTR_ICD_NAME = "ATTR-ICD-NAME"
+_ATTR_ICD_SOURCE_ELEMENT = "ATTR-ICD-SOURCE-ELEMENT"
+_ATTR_ICD_TARGET_ELEMENT = "ATTR-ICD-TARGET-ELEMENT"
+_ATTR_ICD_DIRECTION = "ATTR-ICD-DIRECTION"
+_ATTR_ICD_INTERFACE_TYPE = "ATTR-ICD-INTERFACE-TYPE"
+_ATTR_ICD_SEMANTIC_DESCRIPTION = "ATTR-ICD-SEMANTIC-DESCRIPTION"
+_ATTR_ICD_PRECONDITIONS = "ATTR-ICD-PRECONDITIONS"
+_ATTR_ICD_POSTCONDITIONS = "ATTR-ICD-POSTCONDITIONS"
+_ATTR_ICD_INVARIANTS = "ATTR-ICD-INVARIANTS"
+_ATTR_ICD_CURRENT_REVISION = "ATTR-ICD-CURRENT-REVISION"
 
 # INT-06 finding 076: the ReqIF XSD declares LAST-CHANGE (xsd:dateTime) and,
 # for DATATYPE-DEFINITION-STRING, MAX-LENGTH as *required* on the elements this
@@ -289,6 +320,21 @@ def _sanitize_ncname_fragment(value: str) -> str:
 
 def _artifact_spec_object_id(artifact_id: UUID) -> str:
     return f"_{artifact_id}"
+
+
+def _icd_spec_object_id(icd_id: UUID) -> str:
+    """SPEC-OBJECT IDENTIFIER for an Icd (which may have no backing Artifact).
+
+    An ICD always has its own entity id, so this stays deterministic even when
+    ``Icd.artifact`` is NULL. The ``_icd-`` prefix keeps it an NCName and keeps
+    it distinct from the ``_<uuid>`` artifact-backed form.
+    """
+    return f"_icd-{icd_id}"
+
+
+def _bool_text(value: bool | None) -> str:
+    """Serialise a boolean as an explicit ReqIF STRING token."""
+    return "true" if value else "false"
 
 
 def _spec_object_identifier(
@@ -331,9 +377,9 @@ def _relation_type_id(link_type: str) -> str:
 
 
 class ReqifExportService(ServiceBase):
-    """ReqIF 1.2 export for StakeholderNeeds, Requirements and TraceLinks.
+    """ReqIF 1.2 export for Needs, Requirements, TestCases, Icds and TraceLinks.
 
-    COMP-AS-008 (ExportService family). REQ-146.
+    COMP-AS-008 (ExportService family). REQ-146 / D14d.
 
     Usage::
 
@@ -377,14 +423,21 @@ class ReqifExportService(ServiceBase):
             hierarchy_children,
             exported_ids,
             reqif_identifier_by_id,
+            spec_object_ids,
         ) = self._build_spec_objects(ws_uuid, last_change=now)
         spec_relations, relation_types = self._build_spec_relations(
-            ws_uuid, exported_ids, reqif_identifier_by_id, last_change=now
+            ws_uuid,
+            exported_ids,
+            reqif_identifier_by_id,
+            spec_object_ids,
+            last_change=now,
         )
 
         spec_types: list[Any] = [
             self._build_need_type(now),
             self._build_requirement_type(now),
+            self._build_test_case_type(now),
+            self._build_icd_type(now),
             ReqIFSpecificationType(
                 identifier=_SPECIFICATION_TYPE,
                 long_name="Default Specification",
@@ -525,21 +578,90 @@ class ReqifExportService(ServiceBase):
             ],
         )
 
+    @classmethod
+    def _build_test_case_type(cls, last_change: str) -> ReqIFSpecObjectType:
+        """D14d: SPEC-OBJECT-TYPE for TestCase (standard STRING attributes)."""
+        _load_reqif()
+        return ReqIFSpecObjectType(
+            identifier=_SPEC_OBJECT_TYPE_TESTCASE,
+            long_name="Test Case",
+            last_change=last_change,
+            # Only this type's own definitions are declared here; the shared
+            # ones (UID/TITLE/DESCRIPTION/STATUS/CATEGORY/CUSTOM-FIELDS) live
+            # on the Need type and are referenced document-wide via xsd:IDREF.
+            attribute_definitions=[
+                cls._attribute_definition(_ATTR_TEST_TYPE, "Test Type", last_change),
+                cls._attribute_definition(
+                    _ATTR_SCENARIO_KIND, "Scenario Kind", last_change
+                ),
+                cls._attribute_definition(_ATTR_STEPS_JSON, "Steps (JSON)", last_change),
+                cls._attribute_definition(_ATTR_ORIGIN, "Origin", last_change),
+                cls._attribute_definition(_ATTR_REVIEWED, "Reviewed", last_change),
+                cls._attribute_definition(
+                    _ATTR_TEST_SUSPECT, "Suspect", last_change
+                ),
+            ],
+        )
+
+    @classmethod
+    def _build_icd_type(cls, last_change: str) -> ReqIFSpecObjectType:
+        """D14d: SPEC-OBJECT-TYPE for Icd (standard STRING attributes)."""
+        _load_reqif()
+        return ReqIFSpecObjectType(
+            identifier=_SPEC_OBJECT_TYPE_ICD,
+            long_name="Interface Control Document",
+            last_change=last_change,
+            attribute_definitions=[
+                cls._attribute_definition(_ATTR_ICD_NAME, "ICD Name", last_change),
+                cls._attribute_definition(
+                    _ATTR_ICD_SOURCE_ELEMENT, "Source Element", last_change
+                ),
+                cls._attribute_definition(
+                    _ATTR_ICD_TARGET_ELEMENT, "Target Element", last_change
+                ),
+                cls._attribute_definition(
+                    _ATTR_ICD_DIRECTION, "Direction", last_change
+                ),
+                cls._attribute_definition(
+                    _ATTR_ICD_INTERFACE_TYPE, "Interface Type", last_change
+                ),
+                cls._attribute_definition(
+                    _ATTR_ICD_SEMANTIC_DESCRIPTION,
+                    "Semantic Description",
+                    last_change,
+                ),
+                cls._attribute_definition(
+                    _ATTR_ICD_PRECONDITIONS, "Preconditions (JSON)", last_change
+                ),
+                cls._attribute_definition(
+                    _ATTR_ICD_POSTCONDITIONS, "Postconditions (JSON)", last_change
+                ),
+                cls._attribute_definition(
+                    _ATTR_ICD_INVARIANTS, "Invariants (JSON)", last_change
+                ),
+                cls._attribute_definition(
+                    _ATTR_ICD_CURRENT_REVISION, "Current Revision", last_change
+                ),
+            ],
+        )
+
     # ---------- SPEC-OBJECT + SPEC-HIERARCHY builders ----------
 
     @classmethod
     def _build_spec_objects(
         cls, workspace_id: UUID, last_change: str | None = None
     ) -> tuple[list[ReqIFSpecObject], list[ReqIFSpecHierarchy], dict[UUID, str]]:
-        """Fetch Needs+Requirements, build SPEC-OBJECTs and the hierarchy tree.
+        """Fetch all exportable entities, build SPEC-OBJECTs and the hierarchy.
 
-        Returns:
+        D14d adds TestCase and Icd to the two original types. Returns:
             (spec_objects, root_hierarchy_children, exported_artifact_ids)
             where exported_artifact_ids maps Artifact.id -> artifact_type for
-            every exported (StakeholderNeed/Requirement) artifact — used by
-            _build_spec_relations to decide which TraceLinks are in scope.
+            every artifact-backed exported entity (Need/Requirement/TestCase
+            and Icd-with-artifact) — used by _build_spec_relations to decide
+            which TraceLinks are in scope.
         """
-        from persistence.models import Artifact, Requirement, StakeholderNeed
+        from icd.models import Icd
+        from persistence.models import Artifact, Requirement, StakeholderNeed, TestCase
 
         # All artifacts in the workspace (any type) — needed to walk parent
         # chains through non-exported intermediate types (ArchitectureElement,
@@ -575,6 +697,10 @@ class ReqifExportService(ServiceBase):
         reqs = Requirement.objects.filter(
             artifact__workspace_id=workspace_id
         ).select_related("artifact")
+        test_cases = TestCase.objects.filter(
+            artifact__workspace_id=workspace_id
+        ).select_related("artifact")
+        icds = Icd.objects.filter(workspace_id=workspace_id)
 
         exported_ids: dict[UUID, str] = {}
         spec_objects: list[ReqIFSpecObject] = []
@@ -591,6 +717,8 @@ class ReqifExportService(ServiceBase):
             "StakeholderNeed", (need.id for need in needs)
         )
         req_states = state_reader.current_states("Requirement", (req.id for req in reqs))
+        tc_states = state_reader.current_states("TestCase", (tc.id for tc in test_cases))
+        icd_states = state_reader.current_states("Icd", (icd.id for icd in icds))
 
         # Task 12: the ``status`` column is dropped, so an item with no
         # WorkflowItemState falls back to its preset's initial state instead
@@ -598,6 +726,8 @@ class ReqifExportService(ServiceBase):
         # Finding 2).
         need_initial_state = state_reader.initial_state("StakeholderNeed")
         req_initial_state = state_reader.initial_state("Requirement")
+        tc_initial_state = state_reader.initial_state("TestCase")
+        icd_initial_state = state_reader.initial_state("Icd")
 
         # P2/V4/V5: one ladder lookup per export (never per Requirement), so
         # every SPEC-OBJECT can publish its tier_key and the ladder display
@@ -611,8 +741,16 @@ class ReqifExportService(ServiceBase):
         }
 
         now = last_change if last_change is not None else _now_iso()
+        # artifact id -> the SPEC-OBJECT identifier actually emitted. Icd uses
+        # `_icd-<entity-id>` while the other types use `_<artifact-id>`; using
+        # the generic form for Icd produced dangling IDREFs in SPEC-HIERARCHY
+        # and SPEC-RELATION (XSD violation).
+        spec_object_ids: dict[UUID, str] = {}
         for need in needs:
             exported_ids[need.artifact_id] = "StakeholderNeed"
+            spec_object_ids[need.artifact_id] = _spec_object_identifier(
+                need.artifact_id, reqif_identifier_by_id
+            )
             spec_objects.append(
                 cls._spec_object_from_need(
                     need,
@@ -628,6 +766,9 @@ class ReqifExportService(ServiceBase):
 
         for req in reqs:
             exported_ids[req.artifact_id] = "Requirement"
+            spec_object_ids[req.artifact_id] = _spec_object_identifier(
+                req.artifact_id, reqif_identifier_by_id
+            )
             spec_objects.append(
                 cls._spec_object_from_requirement(
                     req,
@@ -642,15 +783,64 @@ class ReqifExportService(ServiceBase):
                 )
             )
 
+        for tc in test_cases:
+            exported_ids[tc.artifact_id] = "TestCase"
+            spec_object_ids[tc.artifact_id] = _spec_object_identifier(
+                tc.artifact_id, reqif_identifier_by_id
+            )
+            spec_objects.append(
+                cls._spec_object_from_test_case(
+                    tc,
+                    custom_fields_by_id.get(tc.artifact_id, {}),
+                    tc_states.get(str(tc.id)) or tc_initial_state,
+                    identifier=_spec_object_identifier(
+                        tc.artifact_id, reqif_identifier_by_id
+                    ),
+                    external_uid=reqif_uid_by_id.get(tc.artifact_id, ""),
+                    last_change=now,
+                )
+            )
+
+        for icd in icds:
+            # Only artifact-backed ICDs participate in the hierarchy/relations
+            # (their id is stable through the backing Artifact). An ICD with no
+            # artifact is still exported as a standalone SPEC-OBJECT.
+            if icd.artifact_id is not None:
+                exported_ids[icd.artifact_id] = "Icd"
+                spec_object_ids[icd.artifact_id] = _icd_spec_object_id(icd.id)
+            spec_objects.append(
+                cls._spec_object_from_icd(
+                    icd,
+                    custom_fields_by_id.get(icd.artifact_id, {})
+                    if icd.artifact_id
+                    else {},
+                    icd_states.get(str(icd.id)) or icd_initial_state,
+                    external_uid=reqif_uid_by_id.get(icd.artifact_id, "")
+                    if icd.artifact_id
+                    else "",
+                    last_change=now,
+                )
+            )
+
         # Sort spec_objects by identifier for a deterministic document order
         # independent of DB fetch order.
         spec_objects.sort(key=lambda so: so.identifier)
 
         hierarchy_children = cls._build_hierarchy(
-            exported_ids, parent_by_id, reqif_identifier_by_id, last_change=now
+            exported_ids,
+            parent_by_id,
+            reqif_identifier_by_id,
+            spec_object_ids,
+            last_change=now,
         )
 
-        return spec_objects, hierarchy_children, exported_ids, reqif_identifier_by_id
+        return (
+            spec_objects,
+            hierarchy_children,
+            exported_ids,
+            reqif_identifier_by_id,
+            spec_object_ids,
+        )
 
     @staticmethod
     def _string_attr(definition_ref: str, value: str) -> SpecObjectAttribute:
@@ -760,11 +950,130 @@ class ReqifExportService(ServiceBase):
             last_change=last_change,
         )
 
+    @classmethod
+    def _spec_object_from_test_case(
+        cls,
+        tc: Any,
+        custom_fields: dict,
+        status: str | None = None,
+        *,
+        identifier: str | None = None,
+        external_uid: str = "",
+        last_change: str | None = None,
+    ) -> ReqIFSpecObject:
+        """D14d: encode a TestCase as a standard SPEC-OBJECT."""
+        _load_reqif()
+        from workflow import state_reader
+
+        attributes = [
+            cls._string_attr(_ATTR_UID, external_uid or tc.uid or ""),
+            cls._string_attr(_ATTR_TITLE, tc.title or ""),
+            cls._string_attr(_ATTR_DESCRIPTION, tc.description or ""),
+            cls._string_attr(
+                _ATTR_STATUS,
+                (status if status is not None else state_reader.initial_state("TestCase"))
+                or "",
+            ),
+        ]
+        for ref, value in (
+            (_ATTR_TEST_TYPE, tc.test_type),
+            (_ATTR_SCENARIO_KIND, tc.scenario_kind),
+            (_ATTR_ORIGIN, tc.origin),
+        ):
+            if value:
+                attributes.append(cls._string_attr(ref, value))
+        attributes.append(
+            cls._string_attr(
+                _ATTR_STEPS_JSON,
+                json.dumps(tc.steps or [], sort_keys=True, ensure_ascii=False),
+            )
+        )
+        attributes.append(cls._string_attr(_ATTR_REVIEWED, _bool_text(tc.reviewed)))
+        attributes.append(
+            cls._string_attr(_ATTR_TEST_SUSPECT, _bool_text(tc.suspect))
+        )
+        if custom_fields:
+            attributes.append(
+                cls._string_attr(
+                    _ATTR_CUSTOM_FIELDS,
+                    json.dumps(custom_fields, sort_keys=True, ensure_ascii=False),
+                )
+            )
+        return ReqIFSpecObject(
+            identifier=identifier or _artifact_spec_object_id(tc.artifact_id),
+            spec_object_type=_SPEC_OBJECT_TYPE_TESTCASE,
+            attributes=attributes,
+            last_change=last_change,
+        )
+
+    @classmethod
+    def _spec_object_from_icd(
+        cls,
+        icd: Any,
+        custom_fields: dict,
+        status: str | None = None,
+        *,
+        external_uid: str = "",
+        last_change: str | None = None,
+    ) -> ReqIFSpecObject:
+        """D14d: encode an Icd as a standard SPEC-OBJECT."""
+        _load_reqif()
+        from workflow import state_reader
+
+        attributes = [
+            cls._string_attr(_ATTR_UID, external_uid or ""),
+            cls._string_attr(_ATTR_TITLE, icd.name or ""),
+            cls._string_attr(_ATTR_DESCRIPTION, icd.semantic_description or ""),
+            cls._string_attr(
+                _ATTR_STATUS,
+                (status if status is not None else state_reader.initial_state("Icd"))
+                or "",
+            ),
+            cls._string_attr(_ATTR_ICD_NAME, icd.name or ""),
+            cls._string_attr(_ATTR_ICD_SOURCE_ELEMENT, str(icd.source_element_id)),
+            cls._string_attr(_ATTR_ICD_TARGET_ELEMENT, str(icd.target_element_id)),
+            cls._string_attr(_ATTR_ICD_DIRECTION, icd.direction or ""),
+            cls._string_attr(
+                _ATTR_ICD_CURRENT_REVISION, str(icd.current_revision or 0)
+            ),
+        ]
+        for ref, value in (
+            (_ATTR_ICD_INTERFACE_TYPE, icd.interface_type),
+            (_ATTR_ICD_SEMANTIC_DESCRIPTION, icd.semantic_description),
+        ):
+            if value:
+                attributes.append(cls._string_attr(ref, value))
+        for ref, value in (
+            (_ATTR_ICD_PRECONDITIONS, icd.preconditions),
+            (_ATTR_ICD_POSTCONDITIONS, icd.postconditions),
+            (_ATTR_ICD_INVARIANTS, icd.invariants),
+        ):
+            attributes.append(
+                cls._string_attr(
+                    ref,
+                    json.dumps(value or [], sort_keys=True, ensure_ascii=False),
+                )
+            )
+        if custom_fields:
+            attributes.append(
+                cls._string_attr(
+                    _ATTR_CUSTOM_FIELDS,
+                    json.dumps(custom_fields, sort_keys=True, ensure_ascii=False),
+                )
+            )
+        return ReqIFSpecObject(
+            identifier=_icd_spec_object_id(icd.id),
+            spec_object_type=_SPEC_OBJECT_TYPE_ICD,
+            attributes=attributes,
+            last_change=last_change,
+        )
+
     @staticmethod
     def _build_hierarchy(
         exported_ids: dict[UUID, str],
         parent_by_id: dict[UUID, UUID | None],
         reqif_identifier_by_id: dict[UUID, str],
+        spec_object_ids: dict[UUID, str] | None = None,
         last_change: str | None = None,
     ) -> list[ReqIFSpecHierarchy]:
         """Build nested SPEC-HIERARCHY nodes from the Artifact.parent tree.
@@ -798,7 +1107,8 @@ class ReqifExportService(ServiceBase):
         # Deterministic ordering within each level.
         for kids in children_by_parent.values():
             kids.sort(
-                key=lambda aid: _spec_object_identifier(aid, reqif_identifier_by_id)
+                key=lambda aid: (spec_object_ids or {}).get(aid)
+                or _spec_object_identifier(aid, reqif_identifier_by_id)
             )
 
         def build_nodes(parent: UUID | None, level: int) -> list[ReqIFSpecHierarchy]:
@@ -809,9 +1119,8 @@ class ReqifExportService(ServiceBase):
                 nodes.append(
                     ReqIFSpecHierarchy(
                         identifier=_artifact_hierarchy_id(artifact_id),
-                        spec_object=_spec_object_identifier(
-                            artifact_id, reqif_identifier_by_id
-                        ),
+                        spec_object=(spec_object_ids or {}).get(artifact_id)
+                        or _spec_object_identifier(artifact_id, reqif_identifier_by_id),
                         level=level,
                         last_change=last_change,
                         children=child_nodes or None,
@@ -828,6 +1137,7 @@ class ReqifExportService(ServiceBase):
         workspace_id: UUID,
         exported_ids: dict[UUID, str],
         reqif_identifier_by_id: dict[UUID, str],
+        spec_object_ids: dict[UUID, str] | None = None,
         last_change: str | None = None,
     ) -> tuple[list[ReqIFSpecRelation], list[ReqIFSpecRelationType]]:
         _load_reqif()
@@ -842,8 +1152,9 @@ class ReqifExportService(ServiceBase):
 
         for link in links:
             if link["source_id"] not in exported_ids or link["target_id"] not in exported_ids:
-                # Out of scope for REQ-146: link touches a non-exported
-                # artifact type (e.g. ArchitectureElement, TestCase).
+                # Link touches a type that is not exported (e.g.
+                # ArchitectureElement) — out of scope. Need/Requirement/
+                # TestCase and artifact-backed Icd are all in exported_ids.
                 continue
             link_type = link["link_type"]
             used_link_types.add(link_type)
@@ -851,12 +1162,10 @@ class ReqifExportService(ServiceBase):
                 ReqIFSpecRelation(
                     identifier=_relation_id(link["id"]),
                     relation_type_ref=_relation_type_id(link_type),
-                    source=_spec_object_identifier(
-                        link["source_id"], reqif_identifier_by_id
-                    ),
-                    target=_spec_object_identifier(
-                        link["target_id"], reqif_identifier_by_id
-                    ),
+                    source=(spec_object_ids or {}).get(link["source_id"])
+                    or _spec_object_identifier(link["source_id"], reqif_identifier_by_id),
+                    target=(spec_object_ids or {}).get(link["target_id"])
+                    or _spec_object_identifier(link["target_id"], reqif_identifier_by_id),
                     # LAST-CHANGE is required by the ReqIF XSD on SPEC-RELATION.
                     last_change=last_change,
                 )

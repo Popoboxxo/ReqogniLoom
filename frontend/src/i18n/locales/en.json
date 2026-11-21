@@ -105,6 +105,7 @@
     "workflows": "Workflows",
     "logout": "Logout",
     "import": "Import",
+    "dataTransfer": "Data transfer",
     "icds": "ICDs",
     "diagrams": "Diagrams",
     "toggleTheme": "Toggle light/dark mode",
@@ -1698,6 +1699,47 @@
         "blocked": "Blocked",
         "not_run": "Not Run"
       }
+    }
+  },
+  "dataTransfer": {
+    "title": "Data transfer",
+    "summary": "Export full snapshots, copy them into another workspace, and run a checked restore of a backup.",
+    "export": {
+      "title": "Export snapshot",
+      "description": "Creates a versioned full snapshot of the current workspace including all entities and relations.",
+      "action": "Export snapshot",
+      "entities": "{{count}} entities",
+      "relations": "{{count}} relations",
+      "download": "Download as JSON"
+    },
+    "import": {
+      "title": "Import / copy snapshot",
+      "description": "Imports a snapshot file into an existing or a new workspace. The preview shows the exact plan without changes.",
+      "fileLabel": "Snapshot file (JSON)",
+      "noFile": "Select a snapshot file first.",
+      "dryRun": "Dry run — preview without changes",
+      "newWorkspace": "New workspace (name, optional)",
+      "targetWorkspace": "Target workspace (UUID, optional)",
+      "preview": "Show preview",
+      "action": "Import",
+      "created": "{{count}} created",
+      "updated": "{{count}} updated",
+      "skipped": "{{count}} skipped",
+      "reconciled": "{{count}} marked not in source"
+    },
+    "restore": {
+      "title": "Checked restore",
+      "description": "Admin only: restores a backup into a target instance. Verifies checksum and format version before loading.",
+      "backupId": "Backup ID (UUID)",
+      "noBackup": "Enter a backup ID first.",
+      "dryRun": "Dry run — show the checked plan without loading",
+      "targetTenant": "Target tenant (UUID, optional)",
+      "targetWorkspace": "Target workspace (UUID, optional)",
+      "confirmation": "Confirmation (RESTORE)",
+      "preview": "Show plan",
+      "action": "Run restore",
+      "checksum": "Checksum verified: {{value}}",
+      "format": "Format version: {{value}}"
     }
   },
   "import": {

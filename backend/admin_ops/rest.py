@@ -66,7 +66,10 @@ from admin_ops.services import (
     BackupNotFoundError,
     BackupService,
 )
-from admin_ops.services.admin_restore_service import RESTORE_CAPTCHA
+from admin_ops.services.admin_restore_service import (
+    DEFAULT_BACKUP_FORMAT_VERSION,
+    RESTORE_CAPTCHA,
+)
 from admin_ops.services.exceptions import BackupStorageError
 from application.base import (
     NotFoundError,
@@ -140,6 +143,24 @@ def _restore_result_to_dict(result: Any) -> dict[str, Any]:
         ),
         "restored_tables": list(getattr(result, "restored_tables", []) or []),
         "rows_per_table": dict(getattr(result, "rows_per_table", {}) or {}),
+        # --- P7 additions (additive) ---
+        "dry_run": bool(getattr(result, "dry_run", False)),
+        "format_version": getattr(
+            result, "format_version", DEFAULT_BACKUP_FORMAT_VERSION
+        ),
+        "target_tenant": (
+            str(result.target_tenant)
+            if getattr(result, "target_tenant", None) is not None
+            else None
+        ),
+        "target_workspace": (
+            str(result.target_workspace)
+            if getattr(result, "target_workspace", None) is not None
+            else None
+        ),
+        "checksum_verified": bool(getattr(result, "checksum_verified", False)),
+        "warnings": list(getattr(result, "warnings", []) or []),
+        "plan": getattr(result, "plan", None),
     }
 
 
@@ -525,7 +546,10 @@ class AdminRestoreView(APIView):
             {
               "backup_id": "<uuid>",
               "confirmation_text": "RESTORE",
-              "restore_type"?: "full" | "partial"  (advisory only; service is full)
+              "restore_type"?: "full" | "partial"  (advisory only; service is full),
+              "dry_run"?: false,               (verify + plan, no loaddata, no audit),
+              "target_tenant"?: "<uuid>",      (explicit RLS tenant; default caller's),
+              "target_workspace"?: "<uuid>"    (destination workspace in that tenant)
             }
 
         Returns 200 with ``{"restore": {...}}`` on success.
@@ -594,11 +618,31 @@ class AdminRestoreView(APIView):
                     status.HTTP_400_BAD_REQUEST,
                 )
 
+        # --- P7 target-instance options ---
+        dry_run = data.get("dry_run", False)
+        if not isinstance(dry_run, bool):
+            return _err(
+                request,
+                "VALIDATION_ERROR",
+                "Field 'dry_run' must be a boolean.",
+                status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            target_tenant = _parse_uuid(data.get("target_tenant"), "target_tenant")
+            target_workspace = _parse_uuid(
+                data.get("target_workspace"), "target_workspace"
+            )
+        except ValidationError as exc:
+            return _err(request, "VALIDATION_ERROR", str(exc), status.HTTP_400_BAD_REQUEST)
+
         try:
             result = self._service.restore(
                 ctx,
                 backup_id=backup_id,  # type: ignore[arg-type]
                 confirmation_text=confirmation_text,
+                dry_run=dry_run,
+                target_tenant=target_tenant,
+                target_workspace=target_workspace,
             )
         except PermissionDeniedError as exc:
             return _err(request, "PERMISSION_DENIED", str(exc), status.HTTP_403_FORBIDDEN)

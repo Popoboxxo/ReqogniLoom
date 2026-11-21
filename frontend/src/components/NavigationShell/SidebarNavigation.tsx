@@ -137,6 +137,8 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/reviews", labelKey: "nav.reviews", feature: "approver_ui", group: "test" },
 
   { path: "/import", labelKey: "nav.import", feature: "csv_import", group: "admin" },
+  // P8/D18: „Datenübernahme" — snapshot export/import + geprüfter Restore.
+  { path: "/data-transfer", labelKey: "nav.dataTransfer", feature: "dashboard", group: "admin" },
   // REQ-176: Visual Workflow Editor — always visible (like glossary/settings).
   { path: "/workflows", labelKey: "nav.workflows", feature: "dashboard", group: "admin" },
   // SysEng 2.0 Phase 3 (Auditor UI) — always visible, like glossary/workflows/

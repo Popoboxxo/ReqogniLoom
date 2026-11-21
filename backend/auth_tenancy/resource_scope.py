@@ -377,6 +377,9 @@ _WORKSPACE_VIA_REQUEST = (
     # service binds every lookup (definition, rows, item rules) to it.
     "TableQueryView",
     "CsvExportView",
+    "GenericEntityExportView",
+    "SnapshotExportView",
+    "SnapshotImportView",
     "ReqifImportView",
     "ReqifExportView",
     "ReviewPolicyView",

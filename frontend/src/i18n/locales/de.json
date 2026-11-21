@@ -105,6 +105,7 @@
     "workflows": "Workflows",
     "logout": "Abmelden",
     "import": "Import",
+    "dataTransfer": "Datenübernahme",
     "icds": "ICDs",
     "diagrams": "Diagramme",
     "toggleTheme": "Hell-/Dunkelmodus umschalten",
@@ -1698,6 +1699,47 @@
         "blocked": "Blockiert",
         "not_run": "Nicht ausgeführt"
       }
+    }
+  },
+  "dataTransfer": {
+    "title": "Datenübernahme",
+    "summary": "Vollständige Snapshots exportieren, in einen anderen Workspace kopieren und Backups geprüft zurückspielen.",
+    "export": {
+      "title": "Snapshot exportieren",
+      "description": "Erzeugt einen versionierten Voll-Snapshot des aktuellen Workspace inklusive aller Entitäten und Relationen.",
+      "action": "Snapshot exportieren",
+      "entities": "{{count}} Entitäten",
+      "relations": "{{count}} Relationen",
+      "download": "Als JSON herunterladen"
+    },
+    "import": {
+      "title": "Snapshot importieren / kopieren",
+      "description": "Importiert eine Snapshot-Datei in einen vorhandenen oder einen neuen Workspace. Die Vorschau zeigt den exakten Plan ohne Änderungen.",
+      "fileLabel": "Snapshot-Datei (JSON)",
+      "noFile": "Bitte zuerst eine Snapshot-Datei auswählen.",
+      "dryRun": "Testlauf — Vorschau ohne Änderungen",
+      "newWorkspace": "Neuer Workspace (Name, optional)",
+      "targetWorkspace": "Ziel-Workspace (UUID, optional)",
+      "preview": "Vorschau anzeigen",
+      "action": "Importieren",
+      "created": "{{count}} erstellt",
+      "updated": "{{count}} aktualisiert",
+      "skipped": "{{count}} übersprungen",
+      "reconciled": "{{count}} als nicht in Quelle markiert"
+    },
+    "restore": {
+      "title": "Geprüfter Restore",
+      "description": "Admin-only: stellt ein Backup in eine Zielinstanz wieder her. Prüft Checksumme und Formatversion vor dem Laden.",
+      "backupId": "Backup-ID (UUID)",
+      "noBackup": "Bitte zuerst eine Backup-ID eingeben.",
+      "dryRun": "Testlauf — geprüften Plan anzeigen, ohne zu laden",
+      "targetTenant": "Ziel-Tenant (UUID, optional)",
+      "targetWorkspace": "Ziel-Workspace (UUID, optional)",
+      "confirmation": "Bestätigung (RESTORE)",
+      "preview": "Plan anzeigen",
+      "action": "Restore ausführen",
+      "checksum": "Checksumme verifiziert: {{value}}",
+      "format": "Formatversion: {{value}}"
     }
   },
   "import": {

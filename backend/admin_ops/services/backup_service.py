@@ -24,6 +24,7 @@ from django.core.management import call_command
 from django.db import transaction
 
 from admin_ops.models import BackupMetadata, BackupStatus, BackupType
+from admin_ops.services.admin_restore_service import DEFAULT_BACKUP_FORMAT_VERSION
 from admin_ops.services.exceptions import BackupNotFoundError, BackupStorageError
 from admin_ops.services.paths import absolute_backup_path, backup_root
 from application.base import ServiceBase
@@ -138,6 +139,13 @@ class BackupService:
                 # double-store the data file's contents).
                 summary_metadata.setdefault("file_size_bytes", size)
                 summary_metadata.setdefault("checksum_sha256", digest)
+                # P7/D17: a versioned format contract so a restore can refuse
+                # an unknown layout instead of blindly replaying it. Forced
+                # (not setdefault) — a caller cannot stamp an unsupported
+                # version on a backup this service produced.
+                summary_metadata["format_version"] = (
+                    DEFAULT_BACKUP_FORMAT_VERSION
+                )
                 row.metadata = summary_metadata
                 row.save()
 

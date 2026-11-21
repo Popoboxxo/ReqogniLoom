@@ -95,6 +95,36 @@ CAUSE_INVALID_VALUE = "INVALID_VALUE"
 CAUSE_QUOTING_ERROR = "QUOTING_ERROR"
 CAUSE_UNKNOWN_TYPE = "UNKNOWN_TYPE"
 CAUSE_BOM_DETECTED = "BOM_DETECTED"
+# P4 / D2: a row whose exported version diverges from the target row is a
+# conflict, not a silent duplicate.
+CAUSE_VERSION_CONFLICT = "VERSION_CONFLICT"
+
+# P4 / D2 conflict policies. ``version-guard`` is the default: a divergent
+# exported version refuses the row; ``update`` is the explicit opt-in that
+# applies all exported fields authoritatively (D12/D12b). ``skip``/``error``
+# are the optional variants named in D2.
+CONFLICT_VERSION_GUARD = "version-guard"
+CONFLICT_UPDATE = "update"
+CONFLICT_SKIP = "skip"
+CONFLICT_ERROR = "error"
+VALID_CONFLICT_POLICIES = frozenset(
+    {CONFLICT_VERSION_GUARD, CONFLICT_UPDATE, CONFLICT_SKIP, CONFLICT_ERROR}
+)
+
+# P4 / D3/D3b: reconciliation never deletes. Items absent from the source are
+# moved to a type-specific terminal state and carry this flag in their backing
+# Artifact's custom_fields so the reason is queryable.
+NOT_IN_SOURCE_FIELD = "not_in_source"
+NOT_IN_SOURCE_STATUS_FIELD = "not_in_source_status"
+_RECONCILE_STATUS_BY_TYPE: dict[str, str] = {
+    "Requirement": "outdated",
+    "StakeholderNeed": "outdated",
+    "ArchitectureElement": "outdated",
+    "TestCase": "deprecated",
+    "Adr": "outdated",
+    "Risk": "outdated",
+    "Issue": "outdated",
+}
 
 # Prefix shared by every "required field missing" message produced by
 # ``_validate_row`` and the attribute gate (the wording issue #1195 aligned).
@@ -372,6 +402,11 @@ class ImportResult:
     # and independent of a later rollback (issue #1195). ``0`` means "unset";
     # ``counts`` then falls back to deriving the total from the outcome counters.
     total_count: int = 0
+    # --- P4 (D2/D5/D6): additive import semantics ---
+    dry_run: bool = False
+    updated_count: int = 0
+    reconciled_count: int = 0
+    conflicts: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def counts(self) -> dict[str, int]:
@@ -384,7 +419,7 @@ class ImportResult:
         batch rollback reclassifies rows, so it must not be used as the file's
         row count.
         """
-        succeeded = self.imported_count
+        succeeded = self.imported_count + self.updated_count
         skipped = self.duplicate_count
         failed = self.failed_count
         total = (
@@ -404,10 +439,14 @@ class ImportResult:
         return {
             "success": self.success,
             "contract": self.contract,
-            "dry_run": False,
+            "dry_run": self.dry_run,
             "counts": self.counts,
             "items": list(self.items),
             "warnings": list(self.warnings),
+            # P4 additions (additive; old consumers ignore unknown keys).
+            "conflicts": list(self.conflicts),
+            "updated_count": self.updated_count,
+            "reconciled_count": self.reconciled_count,
             "idempotent_replay": self.idempotent_replay,
             "request_id": self.request_id,
             # Legacy additive keys (unchanged meaning).
@@ -847,6 +886,10 @@ class ImportService(ServiceBase):
         workspace_id: UUID | str,
         ctx: AuthContext,
         artifact_type_tag: str = "",
+        *,
+        dry_run: bool = False,
+        conflict_policy: str = CONFLICT_VERSION_GUARD,
+        reconcile_status: bool = False,
     ) -> ImportResult:
         """Parse, validate, and atomically persist CSV rows.
 
@@ -898,6 +941,9 @@ class ImportService(ServiceBase):
             warnings=warnings,
             parse_errors=parse_errors,
             max_rows=_MAX_ROWS,
+            dry_run=dry_run,
+            conflict_policy=conflict_policy,
+            reconcile_status=reconcile_status,
         )
 
     def import_rows(
@@ -909,6 +955,9 @@ class ImportService(ServiceBase):
         artifact_type_tag: str = "",
         *,
         max_rows: int = _MAX_ROWS,
+        dry_run: bool = False,
+        conflict_policy: str = CONFLICT_VERSION_GUARD,
+        reconcile_status: bool = False,
     ) -> ImportResult:
         """Validate and atomically persist already-parsed rows.
 
@@ -955,6 +1004,9 @@ class ImportService(ServiceBase):
             warnings=[],
             parse_errors=[],
             max_rows=max_rows,
+            dry_run=dry_run,
+            conflict_policy=conflict_policy,
+            reconcile_status=reconcile_status,
         )
 
     def _prepare_import(
@@ -1005,6 +1057,9 @@ class ImportService(ServiceBase):
         warnings: list[str],
         parse_errors: list[ImportRowError],
         max_rows: int = _MAX_ROWS,
+        dry_run: bool = False,
+        conflict_policy: str = CONFLICT_VERSION_GUARD,
+        reconcile_status: bool = False,
     ) -> ImportResult:
         """The single validation + insert pipeline shared by every entry point.
 
@@ -1017,7 +1072,16 @@ class ImportService(ServiceBase):
         REQ-L3-IMP-001: validation with a full per-row error report.
         REQ-L3-IMP-002: single transaction.atomic() for all inserts.
         REQ-L3-IMP-003: row ceiling enforced before any DB write.
+
+        P4 (D2/D3/D5/D6): ``dry_run`` runs the full pipeline and rolls it back;
+        ``conflict_policy`` selects version-guard (default) / update / skip /
+        error; ``reconcile_status`` soft-marks absent rows instead of deleting.
         """
+        if conflict_policy not in VALID_CONFLICT_POLICIES:
+            raise ValidationError(
+                f"Unsupported conflict_policy {conflict_policy!r}; allowed: "
+                f"{sorted(VALID_CONFLICT_POLICIES)}."
+            )
         # fix #120: unrecognised header columns (typos, un-mapped German
         # labels like "Beschreibung") are silently dropped by _insert_rows'
         # spec-driven loop, which iterates ENTITY_FIELD_SPECS rather than the
@@ -1077,6 +1141,60 @@ class ImportService(ServiceBase):
         valid_rows = [(num, row) for num, row in rows if num not in row_errors]
         total_count = len(rows)
 
+        # ---------- P4/D2: version-guard vs. explicit update ----------
+        # Determine which valid rows already have a counterpart in the target
+        # workspace. A divergent exported ``version`` is a VERSION_CONFLICT
+        # under the default policy; ``update`` routes the row to the authoritative
+        # in-place updater instead of the create path (D12/D12b).
+        conflict_items: list[dict[str, Any]] = []
+        skipped_conflict_items: list[dict[str, Any]] = []
+        update_rows: list[tuple[int, dict[str, str]]] = []
+        if valid_rows:
+            existing_by_key = self._existing_entities_by_key(
+                valid_rows, entity_type, workspace_id
+            )
+            kept_for_policy: list[tuple[int, dict[str, str]]] = []
+            for row_num, row in valid_rows:
+                key = self._natural_key(row)
+                lookup_key = (key[0], key[1].casefold()) if key else None
+                existing = existing_by_key.get(lookup_key) if lookup_key else None
+                if existing is None:
+                    kept_for_policy.append((row_num, row))
+                    continue
+                if conflict_policy == CONFLICT_UPDATE:
+                    update_rows.append((row_num, row))
+                    continue
+                source_version = (row.get("version") or "").strip()
+                stored_version = str(getattr(existing, "version", "") or "")
+                if source_version and source_version != stored_version:
+                    message = (
+                        f"Version conflict for {key[0]}={key[1]!r}: source "
+                        f"version {source_version} != target version "
+                        f"{stored_version}. Re-upload with conflict_policy=update "
+                        "to overwrite."
+                    )
+                    conflict_item = self._failed_item(
+                        entity_type,
+                        row_num,
+                        key[1],
+                        CAUSE_VERSION_CONFLICT,
+                        message,
+                    )
+                    if conflict_policy == CONFLICT_SKIP:
+                        # D2 optional variant: a divergent version is a neutral
+                        # skip, not a batch failure. Keep the target row intact.
+                        skipped_conflict_items.append(conflict_item)
+                        continue
+                    # version-guard (default) and error both record a failure;
+                    # `error` additionally aborts the whole batch below.
+                    conflict_items.append(conflict_item)
+                    failed_count += 1
+                    continue
+                # No exported version to compare: fall through to the existing
+                # natural-key dedupe (DUPLICATE), which is a neutral skip.
+                kept_for_policy.append((row_num, row))
+            valid_rows = kept_for_policy
+
         # ---------- Natural-key dedupe (ADR-014 §3, Finding 072) ----------
         # A repeated upload (or a file with repeated rows) must not duplicate
         # entities: the second occurrence of an entity's natural key (``uid``
@@ -1092,48 +1210,69 @@ class ImportService(ServiceBase):
         else:
             kept_rows, duplicate_items = [], []
         duplicate_count = len(duplicate_items)
-
         failed_items = self._failed_items(
             entity_type=entity_type,
             rows=rows,
             row_errors=row_errors,
             cause_code=CAUSE_MISSING_REQUIRED_FIELD,
-        )
+        ) + conflict_items
 
-        if failed_count and not kept_rows:
+        if conflict_policy == CONFLICT_ERROR and conflict_items:
+            # D2 optional variant: a single divergent version rejects the
+            # whole batch. No write has happened yet, so imported_count is 0.
+            return ImportResult(
+                success=False,
+                imported_count=0,
+                skipped_count=duplicate_count + len(skipped_conflict_items),
+                errors=validation_errors,
+                status="validation_error",
+                warnings=warnings,
+                failed_count=failed_count,
+                duplicate_count=duplicate_count,
+                items=failed_items + conflict_items + skipped_conflict_items + duplicate_items,
+                total_count=total_count,
+                dry_run=dry_run,
+                conflicts=conflict_items,
+            )
+
+        if failed_count and not kept_rows and not update_rows:
             # Nothing was (or can be) persisted: every validation-clean row is
             # itself a duplicate. ``failed > 0`` => 422 (ADR-014 §2); the
             # duplicates stay ``skipped`` and neutral.
             return ImportResult(
                 success=False,
                 imported_count=0,
-                skipped_count=duplicate_count,
+                skipped_count=duplicate_count + len(skipped_conflict_items),
                 errors=validation_errors,
                 status="validation_error",
                 warnings=warnings,
                 failed_count=failed_count,
                 duplicate_count=duplicate_count,
-                items=failed_items + duplicate_items,
+                items=failed_items + skipped_conflict_items + duplicate_items,
                 total_count=total_count,
+                dry_run=dry_run,
+                conflicts=conflict_items,
             )
 
-        if not kept_rows:
+        if not kept_rows and not update_rows and not reconcile_status:
             # No failures and no insertable rows: either the file had no data
             # rows or every row was a duplicate. No write effect, no failure
             # (ADR-014 §1/§2).
             return ImportResult(
                 success=True,
                 imported_count=0,
-                skipped_count=duplicate_count,
+                skipped_count=duplicate_count + len(skipped_conflict_items),
                 errors=[],
                 status="ok",
                 warnings=warnings,
                 duplicate_count=duplicate_count,
-                items=duplicate_items,
+                items=skipped_conflict_items + duplicate_items,
                 total_count=total_count,
+                dry_run=dry_run,
+                conflicts=conflict_items,
             )
 
-        # ---------- Atomic insert of all valid rows ----------
+        # ---------- Atomic insert / update / reconcile of all valid rows ----------
         try:
             with transaction.atomic():
                 imported = self._insert_rows(
@@ -1143,20 +1282,49 @@ class ImportService(ServiceBase):
                     ctx=ctx,
                     artifact_type_tag=artifact_type_tag or entity_type,
                 )
-
-                # REQ-L3-IMP-004: batch audit event
-                self._audit(
-                    ctx=ctx,
-                    operation="create",
+                updated = self._update_rows(
+                    rows=update_rows,
                     entity_type=entity_type,
-                    entity_id=workspace_id,  # workspace as aggregate entity_id for batch
-                    details={
-                        "workspace_id": str(workspace_id),
-                        "imported_count": imported,
-                        "duplicate_count": duplicate_count,
-                        "operation_type": "bulk_import",
-                    },
+                    workspace_id=workspace_id,
+                    ctx=ctx,
+                    artifact_type_tag=artifact_type_tag or entity_type,
                 )
+                reconciled = (
+                    self._reconcile_not_in_source(
+                        rows=valid_rows + update_rows,
+                        entity_type=entity_type,
+                        workspace_id=workspace_id,
+                        ctx=ctx,
+                    )
+                    if reconcile_status
+                    else 0
+                )
+
+                # REQ-L3-IMP-004: batch audit event (suppressed on dry-run — the
+                # enclosing transaction is rolled back anyway).
+                if not dry_run:
+                    self._audit(
+                        ctx=ctx,
+                        operation="create",
+                        entity_type=entity_type,
+                        entity_id=workspace_id,  # workspace as aggregate entity_id for batch
+                        details={
+                            "workspace_id": str(workspace_id),
+                            "imported_count": imported,
+                            "updated_count": updated,
+                            "duplicate_count": duplicate_count,
+                            "reconciled_count": reconciled,
+                            "conflict_policy": conflict_policy,
+                            "dry_run": dry_run,
+                            "operation_type": "bulk_import",
+                        },
+                    )
+
+                if dry_run:
+                    # D5: the full pipeline (including per-row writes and
+                    # reconciliation) really executes so the report is exact;
+                    # only the final commit is withheld.
+                    transaction.set_rollback(True)
 
         except (ValidationError, NotFoundError, PermissionDeniedError):
             # Backend review S3: a *domain* refusal resolved inside the insert
@@ -1197,7 +1365,7 @@ class ImportService(ServiceBase):
             return ImportResult(
                 success=False,
                 imported_count=0,
-                skipped_count=duplicate_count,
+                skipped_count=duplicate_count + len(skipped_conflict_items),
                 errors=[
                     ImportRowError(
                         row_number=0, field="persistence", message=message
@@ -1207,24 +1375,166 @@ class ImportService(ServiceBase):
                 warnings=warnings,
                 failed_count=rollback_failed,
                 duplicate_count=duplicate_count,
-                items=[persistence_item] + failed_items + duplicate_items,
+                items=[persistence_item] + failed_items + skipped_conflict_items + duplicate_items,
                 total_count=total_count,
+                dry_run=dry_run,
+                conflicts=conflict_items,
             )
 
         return ImportResult(
             success=(failed_count == 0),
             imported_count=imported,
-            skipped_count=duplicate_count,
+            skipped_count=duplicate_count + len(skipped_conflict_items),
             errors=validation_errors,
             status="ok" if failed_count == 0 else "validation_error",
             warnings=warnings,
             failed_count=failed_count,
             duplicate_count=duplicate_count,
-            items=failed_items + duplicate_items,
+            items=failed_items + skipped_conflict_items + duplicate_items,
             total_count=total_count,
+            dry_run=dry_run,
+            conflicts=conflict_items,
+            updated_count=updated,
+            reconciled_count=reconciled,
         )
 
     # ---------- Private helpers ----------
+
+    def _update_rows(
+        self,
+        rows: list[tuple[int, dict[str, str]]],
+        entity_type: str,
+        workspace_id: UUID,
+        ctx: AuthContext,
+        artifact_type_tag: str,
+    ) -> int:
+        """D2/D12: apply exported fields authoritatively to existing rows.
+
+        Only reached with ``conflict_policy='update'``. Identity (``id`` /
+        ``artifact_id``) and FK targets are never rewritten — D12b remaps them
+        only for cross-workspace copies, which this in-place update is not.
+        The source ``version`` is authoritative data (D12) and is carried over.
+        """
+        if not rows:
+            return 0
+        ic = self._prepare_import_context(
+            rows, entity_type, workspace_id, artifact_type_tag
+        )
+        model_fields = {f.name for f in ic.entity_model._meta.fields}
+        updated = 0
+        for _row_num, row in rows:
+            parsed = _parse_import_row(row, ic=ic)
+            key = self._natural_key(row)
+            if key is None:
+                continue
+            column, value = key
+            lookup = {"pk": value} if column == "id" else {column: value}
+            entity = ic.entity_model.objects.filter(
+                **self._workspace_filter(entity_type, workspace_id), **lookup
+            ).first()
+            if entity is None:
+                continue
+            for field, field_value in parsed.content.items():
+                if field in model_fields and field != "id":
+                    setattr(entity, field, field_value)
+            source_version = parsed.identity.get("version")
+            if source_version is not None and "version" in model_fields:
+                entity.version = source_version
+            entity.save()
+
+            artifact_id = getattr(entity, "artifact_id", None)
+            if artifact_id and parsed.lifecycle_status_value is not None:
+                ic.models.artifact.objects.filter(pk=artifact_id).update(
+                    lifecycle_status=parsed.lifecycle_status_value
+                )
+            if ic.definition is not None and parsed.mapped_status is not None:
+                _apply_imported_workflow_state(
+                    entity_id=entity.id,
+                    item_type=entity_type,
+                    workspace_id=workspace_id,
+                    tenant=ic.tenant,
+                    definition=ic.definition,
+                    mapped_state=parsed.mapped_status,
+                    source="CSV update",
+                )
+            updated += 1
+        return updated
+
+    @classmethod
+    def _reconcile_not_in_source(
+        cls,
+        rows: list[tuple[int, dict[str, str]]],
+        entity_type: str,
+        workspace_id: UUID,
+        ctx: AuthContext,
+    ) -> int:
+        """D3/D3b: soft-mark rows absent from the source — never delete them.
+
+        Every row of this type in the target workspace whose natural key is not
+        among ``rows`` is moved to the type-specific terminal state (Requirement
+        -> outdated, TestCase -> deprecated, …) and its backing Artifact carries
+        ``not_in_source`` plus ``not_in_source_status`` in ``custom_fields``.
+        Already-marked rows are skipped, which makes reconciliation idempotent.
+        """
+        from persistence.models import Artifact
+        from workflow.models import WorkflowEngineDefinition
+
+        target_status = _RECONCILE_STATUS_BY_TYPE.get(entity_type, "outdated")
+        model = cls._entity_model(entity_type)
+        scope = cls._workspace_filter(entity_type, workspace_id)
+        source_keys: set[tuple[str, str]] = set()
+        for _num, row in rows:
+            key = cls._natural_key(row)
+            if key is not None:
+                source_keys.add((key[0], key[1].casefold()))
+
+        definition = WorkflowEngineDefinition.objects.filter(
+            workspace_id=str(workspace_id), item_type=entity_type
+        ).first()
+
+        reconciled = 0
+        for entity in model.objects.filter(**scope).iterator():
+            candidates: list[tuple[str, str]] = []
+            uid = getattr(entity, "uid", None)
+            if uid:
+                candidates.append(("uid", str(uid).casefold()))
+            candidates.append(("id", str(entity.pk).casefold()))
+            title = getattr(entity, "title", None)
+            if title:
+                candidates.append(("title", str(title).casefold()))
+            if any(key in source_keys for key in candidates):
+                continue
+
+            artifact_id = getattr(entity, "artifact_id", None)
+            if artifact_id is None:
+                continue
+            artifact = Artifact.unscoped.filter(pk=artifact_id).first()
+            if artifact is None:
+                continue
+            custom_fields = dict(artifact.custom_fields or {})
+            if custom_fields.get(NOT_IN_SOURCE_FIELD) is True:
+                continue
+            custom_fields[NOT_IN_SOURCE_FIELD] = True
+            custom_fields[NOT_IN_SOURCE_STATUS_FIELD] = target_status
+            artifact.custom_fields = custom_fields
+            artifact.save(update_fields=["custom_fields"])
+
+            if definition is not None:
+                valid_states = list(
+                    (definition.workflow_json or {}).get("states", [])
+                )
+                mapped = _map_status(target_status, valid_states)
+                _apply_imported_workflow_state(
+                    entity_id=entity.id,
+                    item_type=entity_type,
+                    workspace_id=workspace_id,
+                    tenant=artifact.tenant,
+                    definition=definition,
+                    mapped_state=mapped,
+                    source="CSV reconcile",
+                )
+            reconciled += 1
+        return reconciled
 
     @staticmethod
     def _failed_item(
@@ -1395,6 +1705,50 @@ class ImportService(ServiceBase):
             "Issue": Issue,
         }
         return models[entity_type]
+
+    @classmethod
+    def _existing_entities_by_key(
+        cls,
+        rows: list[tuple[int, dict[str, str]]],
+        entity_type: str,
+        workspace_id: UUID,
+    ) -> dict[tuple[str, str], Any]:
+        """Map each row's natural key to an existing row in the target workspace.
+
+        Used by the P4 version-guard/update split. Bounded to a handful of
+        queries (one per key column) and scoped to the target workspace, so a
+        same-named entity in another workspace never triggers a false conflict.
+        """
+        model = cls._entity_model(entity_type)
+        scope = cls._workspace_filter(entity_type, workspace_id)
+        by_key: dict[tuple[str, str], Any] = {}
+        columns: dict[str, list[str]] = {"uid": [], "id": [], "title": []}
+        for _num, row in rows:
+            key = cls._natural_key(row)
+            if key is not None:
+                columns[key[0]].append(key[1])
+        for column, values in columns.items():
+            if not values:
+                continue
+            lookup = {column + "__in": list(set(values))}
+            if column == "id":
+                valid = []
+                for value in set(values):
+                    try:
+                        valid.append(str(UUID(value)))
+                    except (ValueError, AttributeError, TypeError):
+                        continue
+                lookup = {"pk__in": valid} if valid else {}
+            if not lookup:
+                continue
+            for entity in model.objects.filter(**scope, **lookup):
+                raw = getattr(entity, "uid", None) or getattr(entity, "id", None)
+                if column == "title":
+                    raw = getattr(entity, "title", None)
+                if raw is None:
+                    continue
+                by_key.setdefault((column, str(raw).casefold()), entity)
+        return by_key
 
     @staticmethod
     def _natural_key(row: dict[str, str]) -> tuple[str, str] | None:
@@ -1925,6 +2279,13 @@ class ImportService(ServiceBase):
 
 
 __all__ = [
+    "CAUSE_VERSION_CONFLICT",
+    "CONFLICT_ERROR",
+    "CONFLICT_SKIP",
+    "CONFLICT_UPDATE",
+    "CONFLICT_VERSION_GUARD",
+    "NOT_IN_SOURCE_FIELD",
+    "NOT_IN_SOURCE_STATUS_FIELD",
     "PERSISTENCE_ERROR_MESSAGE",
     "ImportResult",
     "ImportRowError",

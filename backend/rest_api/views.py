@@ -400,6 +400,9 @@ from .views_governance import (
 from .views_io import (
     CsvExportView,
     CsvImportView,
+    GenericEntityExportView,
+    SnapshotExportView,
+    SnapshotImportView,
     ReqifExportView,
     ReqifImportView,
     SearchViewSet,
