@@ -858,3 +858,380 @@ clients:
       - "Desktop plugin: after a `git pull`, re-run `npm ci && npm run build` in `integrations/hermes-plugin/reqogniloom/`."
       - "Per-artifact version rules (ADR-017): desktop plugin = repo `VERSION` (Option A); agent / dashboard plugin = own SemVer + `minServerVersion` (decision 2)."
       - "Repo pull or store update; Stage-2 goal: catalog entry → `hermes mcp install reqogniloom`."
+
+# Client capability matrix (#2001). Rendered to docs/clients/capabilities*.md.
+# Rule: a cell is never filled from assumption. `supported`/`partial` need
+# evidence (kind + detail); `partial`/`unsupported` need an issue or a note
+# saying why. A (client, row) pair without a cell renders as `unverified`.
+capabilities:
+  verified:
+    date: "2026-11-21"
+    server: 1.9.0-beta.5
+    plugin: 1.9.0-beta.4
+  legend:
+    - status: supported
+      symbol: "✓"
+      label_de: "unterstützt: nachweislich funktionsfähig"
+      label_en: "supported: verified to work"
+    - status: partial
+      symbol: "◐"
+      label_de: "teilweise unterstützt: funktioniert mit dokumentierter Einschränkung oder nur für einige Operationen"
+      label_en: "partially supported: works with a documented limitation or only some operations"
+    - status: unsupported
+      symbol: "✗"
+      label_de: "nicht unterstützt"
+      label_en: "not supported"
+    - status: unverified
+      symbol: "?"
+      label_de: "für diesen Client nicht verifiziert (noch kein Nachweis)"
+      label_en: "not verified for this client (no evidence yet)"
+  evidence_kinds:
+    - kind: live
+      label_de: "über diesen Client ausgeführt (von einer Person oder einem Agenten), mit Datum und Versionen"
+      label_en: "run by a person or agent through that client, with date and versions"
+    - kind: registry
+      label_de: "frühere QA, erfasst als `tested_version` in `clients/registry.yaml`, nicht erneut ausgeführt"
+      label_en: "earlier QA recorded as `tested_version` in `clients/registry.yaml`, not re-run"
+    - kind: repo
+      label_de: "Prüfung der Dateien im Repository, nichts ausgeführt"
+      label_en: "inspection of files in the repository, nothing executed"
+  groups:
+    - key: connection
+      title_de: Verbindung und Verteilung
+      title_en: Connection and distribution
+      rows:
+        - {key: mcp_connection, label_de: MCP-Verbindung, label_en: MCP connection}
+        - {key: one_command_install, label_de: Installation mit einem Befehl, label_en: One-command install}
+    - key: plugin_content
+      title_de: Plugin-Inhalt
+      title_en: Plugin content
+      rows:
+        - {key: tools_reachable, label_de: Tools erreichbar, label_en: Tools reachable}
+        - {key: skills, label_de: Skills (8), label_en: Skills (8)}
+        - {key: role_agents, label_de: Rollen-Agenten, label_en: Role agents}
+        - {key: hooks_listen_mode, label_de: "Hooks / Mithörmodus (automatische Erfassung)", label_en: "Hooks / listen mode (ambient capture)"}
+    - key: workflows
+      title_de: Workflows
+      title_en: Workflows
+      rows:
+        - {key: interview_single, label_de: Interview (einzeln), label_en: Interview (single)}
+        - {key: interview_multi, label_de: Interview (mehrfach), label_en: Interview (multi)}
+        - {key: document_projection, label_de: Dokument-Projektion, label_en: Document projection}
+        - {key: test_run_reporting, label_de: Testlauf-Berichte, label_en: Test run reporting}
+        - {key: change_control, label_de: Änderungssteuerung, label_en: Change control}
+        - {key: baseline, label_de: Baseline, label_en: Baseline}
+    - key: artifacts
+      title_de: "Artefakte (anlegen, lesen, ändern über die Plugin-Tools)"
+      title_en: "Artifacts (create, read, change through the plugin tools)"
+      rows:
+        - {key: requirement, label_de: Anforderung, label_en: Requirement}
+        - {key: architecture_element, label_de: Architekturelement, label_en: ArchitectureElement}
+        - {key: stakeholder_need, label_de: Stakeholder-Bedarf, label_en: StakeholderNeed}
+        - {key: adr, label_de: ADR, label_en: ADR}
+        - {key: risk, label_de: Risiko, label_en: Risk}
+        - {key: issue, label_de: Issue, label_en: Issue}
+        - {key: glossary_term, label_de: Glossarbegriff, label_en: Glossary term}
+        - {key: test_case, label_de: Testfall, label_en: TestCase}
+        - {key: test_run, label_de: Testlauf, label_en: TestRun}
+        - {key: goal, label_de: Ziel, label_en: Goal}
+        - {key: main_goal, label_de: Hauptziel, label_en: MainGoal}
+        - {key: milestone, label_de: Meilenstein, label_en: Milestone}
+        - {key: document, label_de: Dokument, label_en: Document}
+        - {key: icd, label_de: ICD, label_en: ICD}
+        - {key: diagram, label_de: Diagramm, label_en: Diagram}
+        - {key: change_request, label_de: Änderungsantrag, label_en: ChangeRequest}
+        - {key: work_item, label_de: Arbeitspaket, label_en: WorkItem}
+        - {key: trace_link, label_de: Trace-Link, label_en: Trace link}
+        - {key: baseline_artifact, label_de: Baseline (Artefakt), label_en: Baseline (artifact)}
+        - {key: memory_entry, label_de: Memory-Eintrag, label_en: Memory entry}
+        - {key: comment, label_de: Kommentar, label_en: Comment}
+        - {key: saved_view, label_de: Gespeicherte Ansicht, label_en: SavedView}
+        - {key: group, label_de: Gruppe, label_en: Group}
+        - {key: allocation, label_de: Allokation, label_en: Allocation}
+  notes_de:
+    - "Der Server stellt jedem MCP-Client dieselben Tools bereit; die Artefakt-Zeilen beschreiben daher nur die clientseitige Unterstützung und das verifizierte Verhalten, keine zweite Tool-Liste."
+    - "`unverified` (?) heißt: Niemand hat diesen Client bisher gegen die Matrix geprüft. Es heißt nicht „nicht unterstützt“."
+    - "Jeder Live-Lauf eines weiteren Clients macht aus `unverified`-Zellen einen verifizierten Status."
+  notes_en:
+    - "The server exposes the same tools to every MCP client, so the artifact rows are client-side and verified-behaviour rows only, not a second tool list."
+    - "`unverified` (?) means nobody ran this client against the matrix yet; it does not mean unsupported."
+    - "Each live run of another client turns `unverified` cells into a verified status."
+  cells:
+    claude-code:
+      - row: mcp_connection
+        status: partial
+        evidence: &cc_live {kind: live, detail: "2026-11-21 · Claude Code 2.1.330 · plugin 1.9.0-beta.4 · server 1.9.0-beta.5"}
+        issues: [1960, 1985]
+        note_de: "Der SSE-Server des Plugins war verbunden, die Tools waren aufrufbar. Ein Aufruf brach unter paralleler Last mittendrin ab; in einem anderen Setup wurde SSE als fehlerhaft gemeldet"
+        note_en: "Plugin SSE server connected and tools were callable. One call dropped mid-flight under parallel load; SSE reported failing in another setup"
+      - row: one_command_install
+        status: unverified
+        note_de: "dokumentiert (`claude plugin marketplace add`, `install`, `configure`), in dieser Verifikation nicht erneut ausgeführt"
+        note_en: "documented (`claude plugin marketplace add`, `install`, `configure`), not re-run in this verification"
+      - row: tools_reachable
+        status: partial
+        evidence: *cc_live
+        issues: [1980, 1987]
+        note_de: "301 Tools angeboten; 7 haben keinen Handler (`group.*`, `allocation.query`); `suggest_level` und `suggest_links` lehnen den API-Key ab"
+        note_en: "301 tools advertised; 7 have no handler (`group.*`, `allocation.query`); `suggest_level` and `suggest_links` refuse the API key"
+      - row: skills
+        status: partial
+        evidence: *cc_live
+        issues: [1962, 1964]
+        note_de: "8 Skills werden gelistet und geladen; die Texte haben Mängel (Tool-Liste, `workspace_id`); nicht jeder Skill wurde Ende-zu-Ende ausgeführt"
+        note_en: "8 skills are listed and load; texts have defects (tool list, `workspace_id`); not every skill was executed end to end"
+      - row: role_agents
+        status: unsupported
+        evidence: *cc_live
+        issues: [1974]
+        note_de: "7 Agenten ausgeliefert, keiner kann starten (das `tools`-Frontmatter passt zu keinem Tool)"
+        note_en: "7 agents shipped, none can start (`tools` frontmatter matches no tool)"
+      - row: hooks_listen_mode
+        status: unsupported
+        evidence: {kind: repo, detail: "2026-11-21"}
+        issues: [2001, 1156, 1201]
+        note_de: "keine Hooks ausgeliefert; keine automatische Erfassung von Anforderungen aus einem Gespräch (#2001: Matrix; das Konzept in #1156/#1201 gilt nur für Hermes)"
+        note_en: "no hooks shipped; no automatic capture of requirements from a conversation (#2001: matrix; the concept in #1156/#1201 is Hermes only)"
+      - row: interview_single
+        status: partial
+        evidence: *cc_live
+        issues: [1982, 1991]
+        note_de: "alle 8 Artefakttypen lassen sich anlegen; der Update-Zweig (`set_target`) verliert Felder"
+        note_en: "all 8 artifact types can be created; the update branch (`set_target`) loses fields"
+      - row: interview_multi
+        status: partial
+        evidence: *cc_live
+        issues: [1990]
+        note_de: "funktioniert nur nach manueller Bearbeitung des Vorschlags"
+        note_en: "works only after hand-editing the proposal"
+      - row: document_projection
+        status: partial
+        evidence: *cc_live
+        note_de: "`document.project` und `projection_status` funktionieren; Auslieferung per Branch und Pull Request nicht getestet; `adopt` nicht testbar (kein Tool legt ein `repo_external`-Dokument an)"
+        note_en: "`document.project` and `projection_status` work; delivery by branch and pull request not tested; `adopt` not testable (no tool creates a `repo_external` document)"
+      - row: test_run_reporting
+        status: partial
+        evidence: *cc_live
+        issues: [1976, 1975]
+        note_de: "Läufe lassen sich anlegen, berichten und abschließen, der Status wird abgeleitet; Schritte gehen beim Anlegen verloren; die Abdeckung ignoriert Laufergebnisse"
+        note_en: "runs can be created, reported and completed and the status is derived; steps are dropped on create; coverage ignores run results"
+      - row: change_control
+        status: partial
+        evidence: *cc_live
+        issues: [1993]
+        note_de: "Änderungsanträge lassen sich anlegen; der Review-Pfad lässt sich nicht durchlaufen"
+        note_en: "change requests can be created; the review path cannot be driven"
+      - row: baseline
+        status: partial
+        evidence: *cc_live
+        note_de: "`list`, `get`, `compare`, `rollback_preview` sind nur lesend; es gibt kein Tool zum Anlegen; Happy Path nicht getestet"
+        note_en: "`list`, `get`, `compare`, `rollback_preview` are read-only; there is no create tool; happy path not tested"
+      - row: requirement
+        status: partial
+        evidence: *cc_live
+        issues: [1984]
+        note_de: "create, get, query, outdate funktionieren; update kann `acceptance_criteria` und `verification_method` nicht ändern"
+        note_en: "create, get, query, outdate work; update cannot change `acceptance_criteria` or `verification_method`"
+      - row: architecture_element
+        status: partial
+        evidence: *cc_live
+        issues: [1991]
+        note_de: "create, get, update, link funktionieren; das Interview legt nur eine Wurzel an"
+        note_en: "create, get, update, link work; interview creates only a root"
+      - row: stakeholder_need
+        status: supported
+        evidence: *cc_live
+        note_de: "create, read, update, outdate und das Ableiten von Anforderungen funktionieren"
+        note_en: "create, read, update, outdate, derive requirements work"
+      - row: adr
+        status: partial
+        evidence: *cc_live
+        issues: [1983]
+        note_de: "create, read, update, outdate funktionieren; delete markiert nur als veraltet"
+        note_en: "create, read, update, outdate work; delete only marks it outdated"
+      - row: risk
+        status: partial
+        evidence: *cc_live
+        issues: [1983]
+        note_de: "wie ADR"
+        note_en: "as ADR"
+      - row: issue
+        status: partial
+        evidence: *cc_live
+        issues: [1983]
+        note_de: "wie ADR"
+        note_en: "as ADR"
+      - row: glossary_term
+        status: partial
+        evidence: *cc_live
+        issues: [1983]
+        note_de: "delete markiert nur als veraltet; reactivate liefert den Status draft"
+        note_en: "delete only marks it outdated; reactivate returns draft"
+      - row: test_case
+        status: partial
+        evidence: *cc_live
+        issues: [1976, 1975]
+        note_de: "Schritte gehen beim Anlegen verloren; `execution_status` schreibt eine Textmarkierung in die Beschreibung"
+        note_en: "steps are dropped on create; `execution_status` writes a text marker into the description"
+      - row: test_run
+        status: supported
+        evidence: *cc_live
+        note_de: "create, get, list, Ergebnisse melden, abschließen; Status wird abgeleitet (in Arbeit, bestanden, fehlgeschlagen, teilweise)"
+        note_en: "create, get, list, report results, complete; status derived (in progress, passed, failed, partial)"
+      - row: goal
+        status: partial
+        evidence: *cc_live
+        note_de: "Versionen funktionieren; `create_version` übernimmt die Beschreibung nicht"
+        note_en: "versions work; `create_version` does not inherit the description"
+      - row: main_goal
+        status: partial
+        evidence: *cc_live
+        note_de: "read, approve funktionieren (eine Freigabe lässt sich nicht zurücknehmen); Generierung auf dem getesteten Deployment deaktiviert"
+        note_en: "read, approve work (approval cannot be reverted); generation disabled on the tested deployment"
+      - row: milestone
+        status: partial
+        evidence: *cc_live
+        note_de: "create, update, get, list funktionieren; das Binden einer Baseline nicht getestet"
+        note_en: "create, update, get, list work; binding a baseline not tested"
+      - row: document
+        status: partial
+        evidence: *cc_live
+        issues: [1981]
+        note_de: "create, update, versions, diff, transition, outdate, reactivate funktionieren; ein Bulk-Übergang friert ein freigegebenes Dokument nicht ein"
+        note_en: "create, update, versions, diff, transition, outdate, reactivate work; bulk transition does not freeze a released document"
+      - row: icd
+        status: partial
+        evidence: *cc_live
+        issues: [1986]
+        note_de: "create, read, query funktionieren; update mit `priority` schlägt fehl; kein delete"
+        note_en: "create, read, query work; update with `priority` fails; no delete"
+      - row: diagram
+        status: supported
+        evidence: *cc_live
+        note_de: "create, get, update, query, outdate, reactivate funktionieren"
+        note_en: "create, get, update, query, outdate, reactivate work"
+      - row: change_request
+        status: partial
+        evidence: *cc_live
+        issues: [1993]
+        note_de: "create, read, update funktionieren; der Review-Pfad lässt sich nicht durchlaufen"
+        note_en: "create, read, update work; review path cannot be driven"
+      - row: work_item
+        status: supported
+        evidence: *cc_live
+        note_de: "create, read, query, update, progress, checkpoint, resume, transition funktionieren"
+        note_en: "create, read, query, update, progress, checkpoint, resume, transition work"
+      - row: trace_link
+        status: partial
+        evidence: *cc_live
+        issues: [1988, 1978]
+        note_de: "create und query funktionieren; die ID-Räume sind inkonsistent"
+        note_en: "create and query work; id spaces are inconsistent"
+      - row: baseline_artifact
+        status: partial
+        evidence: *cc_live
+        note_de: "nur lesend"
+        note_en: "read only"
+      - row: memory_entry
+        status: partial
+        evidence: *cc_live
+        note_de: "write, query, list funktionieren; ask kann eine leere Antwort ohne Hinweis liefern"
+        note_en: "write, query, list work; ask can return an empty answer without a hint"
+      - row: comment
+        status: supported
+        evidence: *cc_live
+        note_de: "create, list, resolve funktionieren"
+        note_en: "create, list, resolve work"
+      - row: saved_view
+        status: partial
+        evidence: *cc_live
+        note_de: "list funktioniert; apply nicht getestet (es gab keine Ansicht)"
+        note_en: "list works; apply not tested (no view existed)"
+      - row: group
+        status: unsupported
+        evidence: *cc_live
+        issues: [1980]
+        note_de: "alle group-Tools antworten mit „Unknown tool“"
+        note_en: "all group tools answer \"Unknown tool\""
+      - row: allocation
+        status: unsupported
+        evidence: *cc_live
+        issues: [1980]
+        note_de: "`allocation.query` antwortet mit „Unknown tool“"
+        note_en: "`allocation.query` answers \"Unknown tool\""
+    codex:
+      - row: mcp_connection
+        status: supported
+        evidence: {kind: registry, detail: "tested_version 0.151.0"}
+        note_de: "nicht erneut ausgeführt"
+        note_en: "not re-run"
+      - &no_agents
+        row: role_agents
+        status: unsupported
+        evidence: &repo {kind: repo, detail: "2026-11-21"}
+        note_de: "keine ausgeliefert (Claude Code liefert 7)"
+        note_en: "none shipped (Claude Code ships 7)"
+      - &no_hooks
+        row: hooks_listen_mode
+        status: unsupported
+        evidence: *repo
+        note_de: "keine Hook-Dateien ausgeliefert"
+        note_en: "no hook files shipped"
+      - &same_skills
+        row: skills
+        status: unverified
+        evidence: *repo
+        note_de: "dieselben 8 Skills werden ausgeliefert (byte-identisch mit den Claude-Code-Skills, #1962 und #1964 gelten daher auch hier); im Client nicht geladen"
+        note_en: "the same 8 skills are shipped (byte-identical to the Claude Code skills, so #1962 and #1964 apply); not loaded in the client"
+    opencode:
+      - row: mcp_connection
+        status: supported
+        evidence: {kind: registry, detail: "tested_version 1.18.x / 2.2.x"}
+        note_de: "lokal installiert: 2.3.2, neuer als getestet; nicht erneut ausgeführt"
+        note_en: "installed locally: 2.3.2, newer than tested; not re-run"
+      - &opencode_install
+        row: one_command_install
+        status: unverified
+        evidence: *repo
+        note_de: "Installer und Config-Snippets sind vorhanden; `opencode mcp list` zeigt auf dem Verifikationsrechner „No MCP servers configured“"
+        note_en: "an installer and config snippets exist; `opencode mcp list` shows \"No MCP servers configured\" on the verification machine"
+      - *no_agents
+      - *no_hooks
+      - *same_skills
+    opencode-v2:
+      - row: mcp_connection
+        status: supported
+        evidence: {kind: registry, detail: "tested_version 2.2.5"}
+        note_de: "Beta, Zielstufe L2; nicht erneut ausgeführt"
+        note_en: "beta, target level L2; not re-run"
+      - *opencode_install
+      - *no_agents
+      - *no_hooks
+      - *same_skills
+    kimi-code:
+      - row: mcp_connection
+        status: supported
+        evidence: {kind: registry, detail: "tested_version 2.1.1"}
+        note_de: "nicht erneut ausgeführt"
+        note_en: "not re-run"
+      - *no_hooks
+    antigravity:
+      - row: mcp_connection
+        status: supported
+        evidence: {kind: registry, detail: "tested_version preview"}
+        note_de: "nicht erneut ausgeführt"
+        note_en: "not re-run"
+      - *no_agents
+      - *no_hooks
+      - *same_skills
+    hermes:
+      - row: mcp_connection
+        status: supported
+        evidence: {kind: registry, detail: "tested_version current stack"}
+        note_de: "nicht erneut ausgeführt"
+        note_en: "not re-run"
+      - row: hooks_listen_mode
+        status: unverified
+        evidence: *repo
+        note_de: "ein `pre_llm_call`-Hook und ein Capture-Worker existieren im Code (`integrations/hermes-agent-plugin`, PR #1213); in dieser Verifikation nicht ausgeführt"
+        note_en: "a `pre_llm_call` hook and a capture worker exist in code (`integrations/hermes-agent-plugin`, PR #1213); not run in this verification"

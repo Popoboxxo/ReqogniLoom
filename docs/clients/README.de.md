@@ -4,6 +4,8 @@
 
 Ein Client, eine Seite, **Deutsch und Englisch**. Alle Seiten sind aus `clients/registry.yaml` generiert; manuelle Änderungen sind ein CI-Fehler.
 
+Unterstützte Funktionen und Artefakte je Client: [Capability-Matrix](capabilities.de.md).
+
 ## Matrix
 
 | Client | Transport | Auth | Zielstufe | Seite |
