@@ -153,6 +153,60 @@ def test_icd_update_replaces_custom_fields_and_round_trips(
     assert read.data["icd"]["semantic_description"] == "updated contract"
 
 
+def test_icd_update_with_priority_succeeds_and_persists(
+    e2e_tenant, e2e_workspace, e2e_userrole_member, e2e_api_key_member
+) -> None:
+    """#1986: priority is an Artifact system field, never an IcdUpdateDTO kwarg."""
+    call_command("bootstrap_attribute_definitions", tenant=str(e2e_tenant.id))
+    created = _create_icd(str(e2e_workspace.id), e2e_api_key_member)
+    assert created.success is True, created.message
+    icd_id = created.data["icd"]["id"]
+
+    updated = _dispatch(
+        "icd.update", {"id": icd_id, "priority": "high"}, e2e_api_key_member
+    )
+    assert updated.success is True, updated.message
+    assert updated.data["icd"]["priority"] == "high"
+
+    read = _dispatch("icd.read", {"id": icd_id}, e2e_api_key_member)
+    assert read.success is True, read.message
+    assert read.data["icd"]["priority"] == "high"
+
+
+def test_icd_create_with_ancestor_target_is_a_validation_error(
+    e2e_workspace, e2e_userrole_member, e2e_api_key_member
+) -> None:
+    """#1986: a child -> ancestor 'decomposes' pair must not be INTERNAL_ERROR."""
+    root_id, child_id = _create_architecture_pair(
+        str(e2e_workspace.id), e2e_api_key_member
+    )
+    forward = _dispatch(
+        "icd.create",
+        {
+            "workspace_id": str(e2e_workspace.id),
+            "name": "forward-icd",
+            "source_element_id": root_id,
+            "target_element_id": child_id,
+        },
+        e2e_api_key_member,
+    )
+    assert forward.success is True, forward.message
+
+    reverse = _dispatch(
+        "icd.create",
+        {
+            "workspace_id": str(e2e_workspace.id),
+            "name": "reverse-icd",
+            "source_element_id": child_id,
+            "target_element_id": root_id,
+        },
+        e2e_api_key_member,
+    )
+    assert reverse.success is False
+    assert reverse.error_code == "VALIDATION_ERROR"
+    assert "cycle" in reverse.message.lower() or "ancestor" in reverse.message.lower()
+
+
 def test_icd_query_lists_workspace_icds(
     e2e_workspace, e2e_userrole_member, e2e_api_key_member
 ) -> None:

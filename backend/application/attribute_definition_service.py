@@ -273,14 +273,43 @@ class AttributeDefinitionService(ServiceBase):
         *,
         item_type: str | None = None,
         preset: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """Return every tenant-wide global default, optionally filtered."""
+        """Return tenant-wide global defaults, optionally filtered and paged.
+
+        ``limit=None`` (the REST default) keeps the historic unbounded answer.
+        MCP's ``attribute_definition.list`` passes an explicit bounded limit
+        (#1989): an unfiltered answer spans every item type × preset and used
+        to exceed the transport's token budget. Slicing happens *before*
+        :meth:`ensure_sections` so only the requested page is materialised.
+        """
         ServiceBase._assert_permission(ctx, "admin")
         self._set_tenant_context(ctx)
         rows = self._global.list(ctx.tenant_id, item_type=item_type, preset=preset)
+        if offset:
+            rows = rows[offset:]
+        if limit is not None:
+            rows = rows[:limit]
         for row in rows:
             self._global.ensure_sections(row)
         return [self._global_payload(r.item_type, r.preset, r) for r in rows]
+
+    def count_global(
+        self,
+        ctx: AuthContext,
+        *,
+        item_type: str | None = None,
+        preset: str | None = None,
+    ) -> int:
+        """Number of global defaults matching *item_type*/*preset* (#1989).
+
+        Pairs with :meth:`list_global`'s page so a caller can report a total
+        independently of the bounded page it received.
+        """
+        ServiceBase._assert_permission(ctx, "admin")
+        self._set_tenant_context(ctx)
+        return len(self._global.list(ctx.tenant_id, item_type=item_type, preset=preset))
 
     def get_global(
         self, ctx: AuthContext, item_type: str, preset: str

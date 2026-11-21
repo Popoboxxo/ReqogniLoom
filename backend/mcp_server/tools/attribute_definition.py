@@ -40,10 +40,22 @@ from application.base import PermissionDeniedError
 from attribute_definitions.schema import AttributeDefinitionConflictError
 from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
-from mcp_server.tools.base import BaseToolGroup, require_param, require_uuid
+from mcp_server.tools.base import (
+    BaseToolGroup,
+    parse_pagination,
+    require_param,
+    require_uuid,
+)
 from presets.exceptions import CrossTenantWorkspaceError
 
 logger = logging.getLogger(__name__)
+
+#: #1989: every definition embeds its full attribute/section payload, so an
+#: unfiltered list spans every item type × preset (~674k characters) and blows
+#: the transport's token budget. Page conservatively — lower than the generic
+#: 50-item ``*.query`` default — while letting a client opt into more per page.
+_LIST_DEFAULT_LIMIT = 20
+_LIST_MAX_LIMIT = 100
 
 
 def _definition_payload(definition: dict[str, Any]) -> dict[str, Any]:
@@ -244,7 +256,11 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
         return [
             {
                 "name": "attribute_definition.list",
-                "description": "List the tenant-wide global attribute defaults (admin-only).",
+                "description": (
+                    "List the tenant-wide global attribute defaults (admin-only). "
+                    "Paginated: pass item_type and/or preset to narrow the list, "
+                    "and limit/offset to page through it (default 20 per page)."
+                ),
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -252,6 +268,21 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
                         "preset": {
                             "type": "string",
                             "enum": ["minimal", "standard", "extended"],
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": _LIST_MAX_LIMIT,
+                            "default": _LIST_DEFAULT_LIMIT,
+                            "description": (
+                                "Max definitions per page (default 20, max 100)."
+                            ),
+                        },
+                        "offset": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0,
+                            "description": "Number of matching definitions to skip.",
                         },
                     },
                     "required": [],
@@ -340,16 +371,38 @@ class AttributeDefinitionToolGroup(BaseToolGroup):
     def _handle_list(
         self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
+        # #1989: an unfiltered call used to serialise every item type × preset.
+        # ParameterError from parse_pagination is mapped to VALIDATION_ERROR by
+        # the base dispatcher, just like require_param/require_uuid.
+        limit, offset = parse_pagination(
+            params, default_limit=_LIST_DEFAULT_LIMIT, max_limit=_LIST_MAX_LIMIT
+        )
+        item_type = params.get("item_type") or None
+        preset = params.get("preset") or None
+        service = self._get_service()
         try:
-            definitions = self._get_service().list_global(
+            definitions = service.list_global(
                 auth_context,
-                item_type=params.get("item_type") or None,
-                preset=params.get("preset") or None,
+                item_type=item_type,
+                preset=preset,
+                limit=limit,
+                offset=offset,
+            )
+            total = service.count_global(
+                auth_context, item_type=item_type, preset=preset
             )
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         payload = [_definition_payload(d) for d in definitions]
-        return ToolResult.ok({"definitions": payload, "count": len(payload)})
+        return ToolResult.ok({
+            "definitions": payload,
+            # ``count`` keeps its historic meaning (size of this response);
+            # the paging metadata is additive so existing clients stay valid.
+            "count": len(payload),
+            "total_count": int(total),
+            "limit": limit,
+            "offset": offset,
+        })
 
     def _handle_get(
         self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str

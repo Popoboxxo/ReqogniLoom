@@ -60,6 +60,16 @@ def test_unknown_exception_stays_masked():
     assert map_tool_exception(KeyError("boom")) is None
 
 
+def test_cycle_detected_error_is_a_validation_error():
+    """#1986: CycleDetectedError is a plain Exception, not a domain ValidationError."""
+    from traceability.exceptions import CycleDetectedError
+
+    mapped = map_tool_exception(CycleDetectedError("decomposes"))
+    assert mapped is not None
+    assert mapped[0] == "VALIDATION_ERROR"
+    assert "cycle" in mapped[1].lower()
+
+
 def test_invalid_state_code_is_registered_on_both_dispatch_paths():
     """#573 used INVALID_STATE long before it was registered (#1082 class)."""
     from mcp_server.protocol_handler import ERROR_CODE_MAP, ERROR_CODES
