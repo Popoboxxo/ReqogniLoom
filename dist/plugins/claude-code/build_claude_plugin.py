@@ -3,7 +3,7 @@ plugin: .claude-plugin/plugin.json (including the ``userConfig`` prompts the
 installer/`claude plugin configure` fills in), .mcp.json (SSE, interpolated
 from ``userConfig``, never a literal key), agents/<role>.md (Claude Code
 subagent format with MCP tool
-names rewritten to mcp__<server>__<tool>) — the tool-restricted RBAC
+names rewritten to mcp__plugin_<plugin>_<server>__<tool_underscored>) — the tool-restricted RBAC
 identities from Task 3 — plus skills/<name>/SKILL.md (the unrestricted
 process skills from Task 4, copied verbatim), and a marketplace.json so
 `claude plugin install` / `/plugin` discovery works without manual
@@ -136,8 +136,13 @@ def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
 
     for role_file in ROLE_FILES:
         frontmatter, body = parse_role_file(TEMPLATES_DIR / role_file)
+        # Claude Code exposes an MCP tool from a plugin as
+        # ``mcp__plugin_<plugin>_<server>__<tool>`` with every ``.`` in the tool
+        # name replaced by ``_`` (issue #1974). The old ``mcp__<server>__<dotted>``
+        # form matched nothing, so all 154 role refs were dead.
         prefixed_tools = [
-            f"mcp__{SERVER_NAME}__{t}" for t in frontmatter.get("tools", [])
+            f"mcp__plugin_{SERVER_NAME}_{SERVER_NAME}__{t.replace('.', '_')}"
+            for t in frontmatter.get("tools", [])
         ]
         agent_frontmatter = yaml.safe_dump(
             {

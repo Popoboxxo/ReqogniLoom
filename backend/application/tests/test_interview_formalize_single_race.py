@@ -228,6 +228,61 @@ def test_concurrent_single_formalize_completes_exactly_once(
 
 
 @pytest.mark.django_db(transaction=True)
+def test_grounded_update_forwards_all_elicited_fields(
+    tenant: Tenant, workspace: Workspace, ctx: AuthContext
+):
+    """Issue #1982 — the grounded UPDATE branch must forward every answer.
+
+    The CREATE path builds kwargs from all collected_fields via
+    build_adapter_fields; the update path used to send only title and
+    description, silently dropping acceptance_criteria and verification_method
+    (and rationale unless it was the sole source of description). A session that
+    elicits all three must write all three onto the existing Requirement.
+    """
+    from application.requirement_service import RequirementService
+
+    target = RequirementService().create_requirement(
+        workspace_id=workspace.id,
+        title="Original title",
+        description="original description",
+        acceptance_criteria="original AC",
+        verification_method="Analysis",
+        ctx=ctx,
+    )
+
+    service = InterviewService()
+    session = service.start(ctx, "Requirement", workspace.id)
+    service.set_target(ctx, session.id, target.artifact_id)
+    service.answer(ctx, session.id, "title", "Updated title")
+    service.answer(ctx, session.id, "rationale", "new rationale text")
+    service.answer(ctx, session.id, "acceptance_criteria", "new AC text")
+    service.answer(ctx, session.id, "verification_method", "Test")
+
+    result = service.formalize(ctx, session.id)
+
+    assert result["status"] == "completed", result
+    assert result["resulting_artifact_ids"] == [str(target.id)]
+
+    TenantContext.set_tenant(tenant.id)
+    try:
+        target.refresh_from_db()
+        assert target.title == "Updated title"
+        # rationale -> description alias (no explicit description was elicited).
+        assert target.description == "new rationale text"
+        assert target.acceptance_criteria == "new AC text"
+        assert target.verification_method == "Test"
+        # The update branch must not also create a second artifact.
+        assert (
+            Requirement.objects.filter(workspace_id=workspace.id)
+            .exclude(id=target.id)
+            .count()
+            == 0
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+@pytest.mark.django_db(transaction=True)
 def test_second_sequential_formalize_is_rejected_after_completion(
     ctx: AuthContext, answerable_session
 ):

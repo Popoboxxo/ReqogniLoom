@@ -3,20 +3,20 @@ name: test-engineer
 description: Creates and links test cases, derives tests from requirements, and records
   test-run results via ReqogniLoom's MCP server.
 tools:
-- mcp__reqogniloom__test.get
-- mcp__reqogniloom__test.query
-- mcp__reqogniloom__test.create
-- mcp__reqogniloom__test.update
-- mcp__reqogniloom__test.link
-- mcp__reqogniloom__test.run_create
-- mcp__reqogniloom__test.run_get
-- mcp__reqogniloom__test.run_report_results
-- mcp__reqogniloom__test.derive_from_requirement
-- mcp__reqogniloom__requirement.get
-- mcp__reqogniloom__requirement.query
-- mcp__reqogniloom__traceability.query
-- mcp__reqogniloom__artifact.search
-- mcp__reqogniloom__workspace.get_context
+- mcp__plugin_reqogniloom_reqogniloom__test_get
+- mcp__plugin_reqogniloom_reqogniloom__test_query
+- mcp__plugin_reqogniloom_reqogniloom__test_create
+- mcp__plugin_reqogniloom_reqogniloom__test_update
+- mcp__plugin_reqogniloom_reqogniloom__test_link
+- mcp__plugin_reqogniloom_reqogniloom__test_run_create
+- mcp__plugin_reqogniloom_reqogniloom__test_run_get
+- mcp__plugin_reqogniloom_reqogniloom__test_run_report_results
+- mcp__plugin_reqogniloom_reqogniloom__test_derive_from_requirement
+- mcp__plugin_reqogniloom_reqogniloom__requirement_get
+- mcp__plugin_reqogniloom_reqogniloom__requirement_query
+- mcp__plugin_reqogniloom_reqogniloom__traceability_query
+- mcp__plugin_reqogniloom_reqogniloom__artifact_search
+- mcp__plugin_reqogniloom_reqogniloom__workspace_get_context
 ---
 
 # Test Engineer

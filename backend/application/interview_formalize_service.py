@@ -8,6 +8,7 @@ never called directly by transports -- the public entry point stays
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 from uuid import UUID
 
@@ -16,6 +17,7 @@ from django.db.models import F
 
 from application.base import NotFoundError, ValidationError
 from application.models import DomainEventOutbox
+from application.sentinels import UNSET as _UNSET
 from persistence.models import InterviewSession, InterviewSessionArtifact
 from persistence.transactions import atomic_transaction
 from workflow import state_reader
@@ -23,6 +25,67 @@ from workflow import state_reader
 # Keep the original log category: operators filter on it, and the split must
 # not change observable logging behaviour.
 logger = logging.getLogger("application.interview_service")
+
+
+#: Collected protocol fields that map onto ``RequirementService.update_requirement``
+#: kwargs. Explicit so a workspace-custom protocol's arbitrary field name cannot
+#: reach the update service and surface as an opaque TypeError at formalize time.
+_REQUIREMENT_UPDATE_FIELDS: frozenset[str] = frozenset({
+    "description",
+    "acceptance_criteria",
+    "source",
+    "category",
+    "type",
+    "complexity_fibonacci",
+    "verification_method",
+    "uid",
+    "suspect",
+    "allocation_intent",
+    "custom_fields",
+})
+
+
+def _build_requirement_update_kwargs(
+    collected_fields: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Translate elicited interview answers into ``update_requirement`` kwargs.
+
+    Only fields actually elicited are emitted. An absent field keeps the shared
+    ``_UNSET`` value and is simply omitted from the result, so the service leaves
+    that column untouched — passing ``None`` instead would *clear* the
+    sentinel-backed fields (``verification_method``, ``complexity_fibonacci``,
+    ``uid``, ``custom_fields``).
+
+    The definition-derived protocol's ``rationale`` alias is folded into
+    ``description`` exactly as the create path's ``build_adapter_fields`` does:
+    an explicitly collected ``description`` wins, and ``rationale`` survives as
+    its own kwarg only when both were collected (Requirement accepts both).
+
+    Args:
+        collected_fields: ``InterviewSession.collected_fields``.
+
+    Returns:
+        Keyword arguments for ``RequirementService.update_requirement``.
+    """
+    kwargs: dict[str, Any] = {}
+
+    rationale = collected_fields.get("rationale", _UNSET)
+    description = collected_fields.get("description", _UNSET)
+    if rationale is not _UNSET:
+        if description is _UNSET:
+            kwargs["description"] = rationale or ""
+        else:
+            kwargs["description"] = description
+            kwargs["rationale"] = rationale
+    elif description is not _UNSET:
+        kwargs["description"] = description
+
+    for field in _REQUIREMENT_UPDATE_FIELDS:
+        if field != "description" and field in collected_fields:
+            kwargs[field] = collected_fields[field]
+
+    return kwargs
+
 
 class InterviewFormalizationMixin:
     """Single-kind formalize path; mixed into :class:`InterviewService`."""
@@ -309,24 +372,21 @@ class InterviewFormalizationMixin:
                     f"Target artifact {session.target_artifact_id} no longer "
                     "exists; cannot formalize an update against it."
                 )
+            # Issue #1982: forward every elicited answer, not just title and
+            # description. The create path already does this through
+            # build_adapter_fields; the grounded-update branch used to drop
+            # acceptance_criteria/verification_method, so those answers were
+            # silently lost on an update. _build_requirement_update_kwargs also
+            # keeps C-1's rationale->description alias (with an explicitly
+            # collected description winning).
+            kwargs = _build_requirement_update_kwargs(session.collected_fields)
             updated = svc.update_requirement(
                 target.id,
                 ctx,
                 title=title,
-                # C-1: the definition-derived protocol (interview_protocol.py
-                # ::protocol_from_definition) elicits whatever attribute the
-                # definition marks ai_elicit -- for the bootstrapped
-                # Requirement definition that is `description`, never the old
-                # hardcoded `rationale` field. Reading only `rationale` here
-                # silently formalized every such session with an empty
-                # description. `rationale` is kept as a fallback for a
-                # hand-written admin protocol override that still names the
-                # old field.
-                description=(
-                    session.collected_fields.get("description")
-                    or session.collected_fields.get("rationale")
-                    or None
-                ),
+                # The extended preset rejects an update without a reason.
+                change_reason="interview formalization",
+                **kwargs,
             )
             # Issue #736: resulting_artifact_ids must carry the Requirement's
             # own id (the "user-facing" id returned by

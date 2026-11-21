@@ -51,10 +51,12 @@ batch shape the table view needs: "move the selected rows to one state". It is
 refuses a subset (a draft may go to ``approved``, an already released row may
 not) and the user's selected page must not be all-or-nothing there.
 
-It never writes ``status``. Every id runs through
-:meth:`application.workflow_facade.WorkflowFacade.transition`, i.e. the normal
-per-artifact gate: the workspace's graph decides whether the edge exists, the
-preset/transition roles decide who may take it, the change-reason policy and
+It never writes ``status``. Every id runs through the owning transition path:
+for Documents that is :meth:`application.document_service.DocumentService.transition_status`
+so the F-1/F-5 freeze side effects apply (issue #1981); for every other type it
+is :meth:`application.workflow_facade.WorkflowFacade.transition`. Both are the
+normal per-artifact gate: the workspace's graph decides whether the edge exists,
+the preset/transition roles decide who may take it, the change-reason policy and
 signature gates apply per item, and the audit/history rows come from the same
 code path a single transition uses. The service adds only what a service cannot
 delegate: the 100-id bound, the derived workspace, the per-workspace role fence
@@ -766,17 +768,24 @@ class BulkUpdateService(ServiceBase):
         to_state: str,
         change_reason: str,
     ) -> str:
-        """Run one id through the workflow facade; return the new state.
+        """Run one id through its owning transition path; return the new state.
 
         The typed row id, not the artifact id, is what the engine keys on, so it
         is resolved here (the same ``artifact_id`` FK every type uses).
 
+        Documents are the one type whose transition carries side effects (the
+        F-1 freeze, the F-5 ``Document.version`` bump and the ``ArtifactVersion``
+        snapshot) implemented in ``DocumentService.transition_status`` — not in
+        the bare facade. Routing Documents straight through the facade (issue
+        #1981) skipped all three, so a bulk-released document stayed writable and
+        had no revision provenance, unlike the same move via REST/MCP. Dispatch
+        Documents through the owning service for parity; every other type stays
+        on the facade.
+
         Raises:
             NotFoundError: The artifact has no typed row (data defect).
-            Plus every refusal :meth:`WorkflowFacade.transition` raises.
+            Plus every refusal the owning transition path raises.
         """
-        from application.workflow_facade import WorkflowFacade
-
         entity_id = (
             model_for(item_type)
             .objects.filter(artifact_id=artifact_id, tenant_id=ctx.tenant_id)
@@ -787,6 +796,25 @@ class BulkUpdateService(ServiceBase):
             raise NotFoundError(
                 f"No {item_type} row backs artifact {artifact_id}"
             )
+
+        if item_type == "Document":
+            from application.document_service import DocumentService
+            from workflow import state_reader
+
+            # No ETag is published by this endpoint, so there is no caller
+            # revision to compare: expected_version=None keeps the batch's
+            # last-writer-wins behaviour while the freeze logic still runs.
+            DocumentService().transition_status(
+                document_id=entity_id,
+                target_state=to_state,
+                ctx=ctx,
+                change_reason=change_reason,
+                expected_version=None,
+            )
+            return str(state_reader.current_state("Document", entity_id))
+
+        from application.workflow_facade import WorkflowFacade
+
         result = WorkflowFacade().transition(
             entity_id,
             to_state,

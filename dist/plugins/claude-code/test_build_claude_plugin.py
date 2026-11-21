@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -35,14 +36,15 @@ def test_build_claude_plugin_produces_valid_manifests(tmp_path):
     architect_md = (
         tmp_path / "reqogniloom" / "agents" / "requirements-architecture-manager.md"
     ).read_text()
-    assert "mcp__reqogniloom__requirement.create" in architect_md
-    assert "mcp__reqogniloom__goal.read" in architect_md  # Task 3 addition survives packaging
+    assert "mcp__plugin_reqogniloom_reqogniloom__requirement_create" in architect_md
+    # Task 3 addition survives packaging.
+    assert "mcp__plugin_reqogniloom_reqogniloom__goal_read" in architect_md
 
     change_manager_md = (
         tmp_path / "reqogniloom" / "agents" / "change-manager.md"
     ).read_text()
-    assert "mcp__reqogniloom__change_request.create" in change_manager_md
-    assert "mcp__reqogniloom__review.approve" in change_manager_md
+    assert "mcp__plugin_reqogniloom_reqogniloom__change_request_create" in change_manager_md
+    assert "mcp__plugin_reqogniloom_reqogniloom__review_approve" in change_manager_md
 
     # marketplace.json must live under .claude-plugin/ at the marketplace
     # root so `claude plugin marketplace add <out_dir>` finds it.
@@ -128,6 +130,44 @@ def test_build_claude_plugin_all_json_files_parse(tmp_path):
     )
     for json_file in tmp_path.rglob("*.json"):
         json.loads(json_file.read_text(encoding="utf-8"))  # raises on invalid JSON
+
+
+def test_generated_agent_tool_refs_match_the_manifest(tmp_path):
+    """Issue #1974: every mcp__ tool ref in an agent must resolve to a real tool.
+
+    The old generator emitted ``mcp__reqogniloom__<dotted-name>``; Claude Code
+    actually exposes plugin MCP tools as
+    ``mcp__plugin_<plugin>_<server>__<tool-with-underscores>``, so all 154 refs
+    matched nothing. Deriving the expected identifiers from the committed
+    manifest (rather than hardcoding them here) makes a renamed or added tool
+    fail this check too.
+    """
+    result = subprocess.run(
+        [sys.executable, str(BUILD_DIR / "build_claude_plugin.py"),
+         "--out", str(tmp_path)],
+        capture_output=True, text=True, cwd=REPO_ROOT,
+    )
+    assert result.returncode == 0, result.stderr
+
+    manifest = json.loads(
+        (REPO_ROOT / "docs" / "agent-templates" / "tool-manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    expected = {
+        f"mcp__plugin_reqogniloom_reqogniloom__{tool['name'].replace('.', '_')}"
+        for tool in manifest["tools"]
+    }
+
+    agents = sorted((tmp_path / "reqogniloom" / "agents").glob("*.md"))
+    assert len(agents) == 7
+    ref_re = re.compile(r"mcp__[a-zA-Z0-9_]+")
+    seen = 0
+    for agent in agents:
+        for ref in ref_re.findall(agent.read_text(encoding="utf-8")):
+            seen += 1
+            assert ref in expected, f"{agent.name}: unknown tool ref {ref}"
+    assert seen == 154, f"expected 154 tool refs across 7 agents, got {seen}"
 
 
 def test_discover_skill_names_matches_the_canonical_skill_set():
