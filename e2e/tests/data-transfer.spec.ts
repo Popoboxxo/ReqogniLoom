@@ -124,3 +124,122 @@ test.describe('[P8/D18] Datenübernahme page', () => {
     expect(report.plan.loaddata).toBe(false);
   });
 });
+
+// R5/P2 — plan docs/plans/2026-11-21-artifact-transfer-plan.md §6 P2 DoD
+// "E2E je Format". Every single-export format declared by the transfer contract
+// (BASE_FORMATS minus the ZIP snapshot) is served by the generic entity
+// endpoint; the two re-importable formats (JSON via snapshot, CSV via the CSV
+// importer) additionally complete a real dry-run round-trip.
+// Endpoints/params discovered from backend/rest_api/urls.py + views_io.py —
+// notably `export_format` (NOT `format`, which DRF consumes for negotiation)
+// and `entity` (a stable artifact-transfer entity key). No URLs invented.
+test.describe('[R5/P2] Single-format export — JSON, CSV, Markdown, PDF', () => {
+  const singleFormats: Array<{
+    name: string;
+    exportFormat: string;
+    contentType: string;
+  }> = [
+    { name: 'json', exportFormat: 'json', contentType: 'application/json' },
+    { name: 'csv', exportFormat: 'csv', contentType: 'text/csv' },
+    { name: 'markdown', exportFormat: 'markdown', contentType: 'text/markdown' },
+    { name: 'pdf', exportFormat: 'pdf', contentType: 'application/pdf' },
+  ];
+
+  for (const { name, exportFormat, contentType } of singleFormats) {
+    test(`[P2] GET /export/entity serves a non-empty ${name} document`, async ({ request }) => {
+      const token = await getAuthToken();
+      const resp = await request.get(
+        `${BACKEND_URL}/api/v1/workspaces/${SEEDED_WORKSPACE_ID}/export/entity/`,
+        {
+          headers: authHeaders(token),
+          params: { entity: 'requirement', export_format: exportFormat },
+        }
+      );
+
+      expect(resp.status()).toBe(200);
+      const body = await resp.body();
+      expect(body.length).toBeGreaterThan(0);
+      // Content-Type matches the format's media type (charset suffix allowed).
+      expect(resp.headers()['content-type']).toContain(contentType);
+      // Content-Disposition carries the contract filename "export_<entity>.<format>".
+      expect(resp.headers()['content-disposition']).toContain(
+        `export_requirement.${exportFormat}`
+      );
+    });
+  }
+
+  test('[P2] JSON export is contract-tagged and re-imports via the snapshot importer (dry-run)', async ({ request }) => {
+    const token = await getAuthToken();
+
+    // Generic entity JSON export is a contract-tagged document (P2 JSON format).
+    const entityResp = await request.get(
+      `${BACKEND_URL}/api/v1/workspaces/${SEEDED_WORKSPACE_ID}/export/entity/`,
+      { headers: authHeaders(token), params: { entity: 'requirement' } }
+    );
+    expect(entityResp.status()).toBe(200);
+    const doc = await entityResp.json();
+    expect(doc.metadata.contract).toBe('artifact-transfer/v1');
+    expect(Array.isArray(doc.data)).toBe(true);
+
+    // The re-importable JSON path is the versioned snapshot + checked importer.
+    const snapshotResp = await request.post(
+      `${BACKEND_URL}/api/v1/workspaces/${SEEDED_WORKSPACE_ID}/export/snapshot/`,
+      { headers: authHeaders(token) }
+    );
+    expect(snapshotResp.status()).toBe(200);
+    const snapshot = await snapshotResp.json();
+    expect(snapshot.format_version).toBe('artifact-transfer/v1');
+
+    const importResp = await request.post(
+      `${BACKEND_URL}/api/v1/workspaces/${SEEDED_WORKSPACE_ID}/import/snapshot/`,
+      {
+        headers: authHeaders(token),
+        data: {
+          snapshot,
+          new_workspace_name: `e2e-json-roundtrip-${Date.now()}`,
+          dry_run: true,
+        },
+      }
+    );
+    expect(importResp.ok()).toBeTruthy();
+    const result = await importResp.json();
+    expect(result.success).toBe(true);
+    expect(result.dry_run).toBe(true);
+    // `created` is a {entity_type: count} map (D8/D9).
+    expect(Object.keys(result.created ?? {}).length).toBeGreaterThan(0);
+  });
+
+  test('[P2] CSV export re-imports via the CSV importer (dry-run)', async ({ request }) => {
+    const token = await getAuthToken();
+
+    // Use the dedicated CSV endpoint — its output is the round-trippable CSV
+    // (terminology comment line + lossless cell flattening) the importer parses.
+    const exportResp = await request.get(
+      `${BACKEND_URL}/api/v1/workspaces/${SEEDED_WORKSPACE_ID}/export/csv/`,
+      { headers: authHeaders(token), params: { entity_type: 'Requirement' } }
+    );
+    expect(exportResp.status()).toBe(200);
+    const csvBuffer = await exportResp.body();
+    expect(csvBuffer.length).toBeGreaterThan(0);
+    expect(exportResp.headers()['content-type']).toContain('text/csv');
+
+    const importResp = await request.post(
+      `${BACKEND_URL}/api/v1/workspaces/${SEEDED_WORKSPACE_ID}/import/csv/`,
+      {
+        headers: authHeaders(token),
+        params: { dry_run: 'true' },
+        multipart: {
+          entity_type: 'Requirement',
+          file: { name: 'roundtrip.csv', mimeType: 'text/csv', buffer: csvBuffer },
+        },
+      }
+    );
+    expect(importResp.ok()).toBeTruthy();
+    const report = await importResp.json();
+    // Legacy and contract-v2 envelopes both carry these keys (ADR-014 §5):
+    // a clean dry-run of valid exported rows has no failures.
+    expect(report.success).toBe(true);
+    expect(report.status).toBe('ok');
+    expect(typeof report.imported_count).toBe('number');
+  });
+});

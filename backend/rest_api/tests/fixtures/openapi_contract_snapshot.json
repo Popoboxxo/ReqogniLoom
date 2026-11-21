@@ -9904,6 +9904,59 @@
     },
     {
       "method": "post",
+      "path": "/api/v1/workspaces/{id}/export/snapshot/zip/",
+      "operationId": "workspaces_export_snapshot_zip_create",
+      "requestContentTypes": [
+        "application/json",
+        "application/x-www-form-urlencoded",
+        "multipart/form-data"
+      ],
+      "responseCodes": [
+        "200",
+        "202",
+        "400",
+        "401",
+        "403",
+        "404",
+        "405",
+        "415",
+        "500"
+      ]
+    },
+    {
+      "method": "get",
+      "path": "/api/v1/workspaces/{id}/export/snapshot/zip/{export_id}/download/",
+      "operationId": "workspaces_export_snapshot_zip_download_retrieve",
+      "requestContentTypes": [],
+      "responseCodes": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "405",
+        "415",
+        "500"
+      ]
+    },
+    {
+      "method": "get",
+      "path": "/api/v1/workspaces/{id}/export/snapshot/zip/{export_id}/status/",
+      "operationId": "workspaces_export_snapshot_zip_status_retrieve",
+      "requestContentTypes": [],
+      "responseCodes": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "405",
+        "415",
+        "500"
+      ]
+    },
+    {
+      "method": "post",
       "path": "/api/v1/workspaces/{id}/import/csv/",
       "operationId": "workspaces_import_csv_create",
       "requestContentTypes": [
@@ -11735,6 +11788,9 @@
     "WorkspaceSnapshotExportResponseRequest",
     "WorkspaceSnapshotImportResponse",
     "WorkspaceSnapshotImportResponseRequest",
+    "WorkspaceZipSnapshotStartResponse",
+    "WorkspaceZipSnapshotStartResponseRequest",
+    "WorkspaceZipSnapshotStatusResponse",
     "_SearchHit",
     "_SearchResponse"
   ],

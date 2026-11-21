@@ -30,6 +30,7 @@ from django.utils import timezone
 from application.base import NotFoundError, ServiceBase, ValidationError
 from application.optimistic_lock import assert_expected_version, lock_for_version_check
 from application.workspace_provisioning import provision_workspace_defaults
+from application.workspace_snapshot_service import WorkspaceSnapshotService
 from auth_tenancy.context import AuthContext
 from auth_tenancy.models import ROLE_ADMIN, UserRole
 from link_types.defaults import (
@@ -443,19 +444,22 @@ class WorkspaceService(ServiceBase):
             requirement_preset=active_tier,
         )
 
-        old_to_new_artifact = self._clone_artifacts(ctx, source, target)
-
-        # Copy Requirements
-        reqs = list(Requirement.objects.filter(artifact__workspace=source))
-        self._reassign_cloned_artifact(reqs, old_to_new_artifact)
-
-        self._clone_architecture_elements(source, old_to_new_artifact)
-
-        # Copy TestCases
-        tests = list(TestCase.objects.filter(artifact__workspace=source))
-        self._reassign_cloned_artifact(tests, old_to_new_artifact)
-
-        self._clone_trace_links(source, old_to_new_artifact)
+        # P6: the actual data copy is owned by the snapshot import. Exporting
+        # the source and importing it into the just-provisioned shell covers
+        # all 24 contract entities and every relation carrier (trace links,
+        # parent hierarchy, allocation, group membership, comments, test runs)
+        # with one generic, id-mapped path — no per-type copy branches here.
+        # The shell/target id is passed explicitly so the source workspace is
+        # never modified and the import keeps the version-guard semantics.
+        snapshot_service = WorkspaceSnapshotService()
+        snapshot = snapshot_service.export_snapshot(ctx=ctx, workspace_id=source.id)
+        snapshot_service.import_snapshot(
+            ctx=ctx,
+            snapshot=snapshot,
+            target_workspace_id=target.id,
+            conflict_mode="version-guard",
+            stamp_source_id=True,
+        )
 
         self._audit(
             ctx=ctx,
@@ -512,110 +516,6 @@ class WorkspaceService(ServiceBase):
                 "suspended_at": None,
             },
         )
-
-    @staticmethod
-    def _clone_artifacts(
-        ctx: AuthContext, source: Workspace, target: Workspace
-    ) -> dict[UUID, Artifact]:
-        """Copy every source Artifact and fix parent FKs; return the old->new map."""
-        old_to_new_artifact: dict[UUID, Artifact] = {}
-
-        # Copy Artifacts
-        artifacts = list(Artifact.objects.filter(workspace=source))
-        for a in artifacts:
-            new_a = Artifact.objects.create(
-                tenant_id=ctx.tenant_id,
-                workspace=target,
-                artifact_type=a.artifact_type,
-            )
-            old_to_new_artifact[a.id] = new_a
-
-        # Fix parent FKs on Artifacts
-        # TODO (hierarchy consolidation): Artifact.parent is deprecated in
-        # favor of 'derives-from' TraceLinks; this loop preserves whatever
-        # parent data exists (mostly NULL — see persistence/models.py
-        # Artifact.parent docstring) for backward compatibility with
-        # ArtifactService-created hierarchies. TraceLinks are copied
-        # separately below and are the primary hierarchy carrier.
-        for a in artifacts:
-            if a.parent_id:
-                new_a = old_to_new_artifact[a.id]
-                new_a.parent_id = old_to_new_artifact[a.parent_id].id
-                new_a.save(update_fields=["parent_id"])
-        return old_to_new_artifact
-
-    @staticmethod
-    def _reassign_cloned_artifact(
-        rows: list[Any], old_to_new_artifact: dict[UUID, Artifact]
-    ) -> None:
-        """Re-insert *rows* onto their CLONED artifact (pk=None + FK remap).
-
-        Identical clone step for every one-artifact entity (Requirement,
-        TestCase): each source row keeps its field values, only the PK, the
-        ``artifact`` FK and the denormalized ``workspace`` FK are replaced
-        before the INSERT.
-
-        G1.3/#1402: the workspace FK must be re-pointed at the CLONED
-        artifact's workspace. Copying the source row keeps the *source*
-        workspace id, which both puts the clone in the wrong workspace and
-        collides with the source row on ``uq_<table>_workspace_uid`` — the
-        clone would fail with an IntegrityError on any uid-bearing source.
-        """
-        for row in rows:
-            row.pk = None
-            row.artifact = old_to_new_artifact[row.artifact_id]
-            row.workspace_id = row.artifact.workspace_id
-            row.save()
-
-    @staticmethod
-    def _clone_architecture_elements(
-        source: Workspace, old_to_new_artifact: dict[UUID, Artifact]
-    ) -> None:
-        """Copy ArchitectureElements, remapping the self-referential parent FK.
-
-        Two-pass to preserve the hierarchy across ≥2 levels:
-          1. create every element with parent=None and record
-             old_id -> new instance,
-          2. remap each parent reference to the CLONED parent instance.
-        Mutating ``arch.pk`` in-place loses the old id, so the old id
-        and old parent id are captured BEFORE the insert.
-        """
-        archs = list(ArchitectureElement.objects.filter(artifact__workspace=source))
-        old_parent_of: dict[UUID, UUID | None] = {}
-        old_to_new_arch: dict[UUID, ArchitectureElement] = {}
-        for arch in archs:
-            old_id = arch.id
-            old_parent_of[old_id] = arch.parent_id
-            arch.pk = None
-            arch.parent = None  # remapped in the second pass below
-            arch.artifact = old_to_new_artifact[arch.artifact_id]
-            # G1.3/#1402: re-point the denormalized workspace FK at the clone's
-            # workspace — see _reassign_cloned_artifact.
-            arch.workspace_id = arch.artifact.workspace_id
-            arch.save()
-            old_to_new_arch[old_id] = arch
-
-        # Second pass: point each cloned element at its cloned parent.
-        for old_id, old_parent_id in old_parent_of.items():
-            if old_parent_id is not None:
-                new_arch = old_to_new_arch[old_id]
-                new_arch.parent = old_to_new_arch[old_parent_id]
-                new_arch.save(update_fields=["parent"])
-
-    @staticmethod
-    def _clone_trace_links(
-        source: Workspace, old_to_new_artifact: dict[UUID, Artifact]
-    ) -> None:
-        """Copy TraceLinks onto the cloned artifacts.
-
-        Using TraceLink directly instead of engine to clone within same tenant
-        easily.
-        """
-        for link in list(TraceLink.objects.filter(source__workspace=source)):
-            link.pk = None
-            link.source_id = old_to_new_artifact[link.source_id].id
-            link.target_id = old_to_new_artifact[link.target_id].id
-            link.save()
 
     # ---------- Lifecycle API (REQ-L1-042) ----------
 

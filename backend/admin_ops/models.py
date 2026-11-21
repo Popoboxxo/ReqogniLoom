@@ -46,6 +46,131 @@ class BackupType(models.TextChoices):
     PARTIAL = "partial", "Partial"
 
 
+class ExportStatus(models.TextChoices):
+    """Lifecycle states of an :class:`ExportSnapshotMetadata` row (D14b)."""
+
+    PENDING = "pending", "Pending"
+    IN_PROGRESS = "in_progress", "In Progress"
+    COMPLETED = "completed", "Completed"
+    FAILED = "failed", "Failed"
+    EXPIRED = "expired", "Expired"
+
+
+class ExportSnapshotMetadata(TenantScopedModel):
+    """Tenant-scoped bookkeeping for one async ZIP snapshot export (D14b).
+
+    Unlike :class:`BackupMetadata` (a system-wide DR artefact), an export is
+    tenant data: only the tenant that requested it may see, poll or download
+    it. The row is created in ``pending`` by the REST start endpoint, moved to
+    ``in_progress`` by the Celery worker and finished with a checksum, byte
+    size and ``expires_at`` TTL. ``file_path`` is relative to ``EXPORT_DIR``
+    (see :func:`admin_ops.services.paths.export_root`).
+
+    The ZIP itself never contains secrets, audit rows or global definitions
+    (D13); ``metadata`` carries only counts and provenance.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    status = models.CharField(
+        max_length=16,
+        choices=ExportStatus.choices,
+        default=ExportStatus.PENDING,
+        help_text="Lifecycle state. Only 'completed' rows are downloadable.",
+    )
+    source_workspace_id = models.UUIDField(
+        help_text="Workspace the snapshot was taken from (scope of the export).",
+    )
+    file_path = models.CharField(
+        max_length=512,
+        null=True,
+        blank=True,
+        help_text="Relative path under EXPORT_DIR to the generated ZIP.",
+    )
+    size_bytes = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Size of the stored ZIP in bytes; NULL until completed.",
+    )
+    checksum_sha256 = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="SHA-256 hex digest of the final ZIP file.",
+    )
+    content_checksum_sha256 = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="SHA-256 of the canonical snapshot contents (stored in the ZIP).",
+    )
+    format_version = models.CharField(
+        max_length=64,
+        default="artifact-transfer/v1",
+        help_text="Versioned snapshot contract the ZIP was written against.",
+    )
+    task_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Celery task id that produced this export.",
+    )
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="TTL deadline; expired rows and their files are purged.",
+    )
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Wall-clock time the ZIP finished writing.",
+    )
+    error_message = models.TextField(
+        blank=True,
+        default="",
+        help_text="Populated when status='failed'.",
+    )
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Free-form provenance: 'source_tenant_id', 'target_workspace_id', "
+            "'target_tenant_id', 'entity_counts', 'format_version'."
+        ),
+    )
+    owner = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="User who started the export (independent of created_by).",
+    )
+
+    class Meta:
+        db_table = "admin_ops_export_snapshot_metadata"
+        indexes = [
+            models.Index(
+                fields=["status", "created_at"],
+                name="idx_export_status_created",
+            ),
+            models.Index(fields=["expires_at"], name="idx_export_expires_at"),
+        ]
+
+    def __str__(self) -> str:  # pragma: no cover - debug helper
+        return f"ExportSnapshotMetadata({self.id}, {self.status})"
+
+    @property
+    def is_downloadable(self) -> bool:
+        """Only a completed, non-expired export with a file may be downloaded."""
+        from django.utils import timezone
+
+        if self.status != ExportStatus.COMPLETED or not self.file_path:
+            return False
+        if self.expires_at is not None and self.expires_at <= timezone.now():
+            return False
+        return True
+
+
 class BackupMetadata(AuditableModel):
     """Instance-level record of a system backup (REQ-L1-046).
 
@@ -490,6 +615,8 @@ __all__ = [
     "BackupMetadata",
     "BackupStatus",
     "BackupType",
+    "ExportSnapshotMetadata",
+    "ExportStatus",
     "Banner",
     "BannerLevel",
     "BannerScope",

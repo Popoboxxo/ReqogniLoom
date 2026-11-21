@@ -576,3 +576,75 @@ def release_element_async(
                 logger.exception(
                     "release_element_async could not reset the tenant context"
                 )
+
+
+@shared_task(name="application.export_workspace_snapshot_zip")
+def export_workspace_snapshot_zip(
+    export_id: str,
+    tenant_id: str,
+    workspace_id: str,
+    source_tenant_id: str,
+) -> dict[str, Any]:
+    """Stream one artifact-transfer ZIP snapshot inside a Celery worker (D14c).
+
+    Only ids cross the queue boundary (ADR-03) — no credential, no tenant
+    object. The worker re-arms both isolation layers (``set_request_tenant``:
+    ORM thread-local **and** ``SET app.current_tenant`` for Postgres RLS)
+    before the first query. Failures are stamped on the
+    :class:`~admin_ops.models.ExportSnapshotMetadata` row by the service and
+    re-raised so Celery records FAILURE; the REST status route surfaces them.
+
+    Returns:
+        The service's summary dict (checksum, byte size, per-entity counts).
+    """
+    from application.zip_snapshot_export_service import ZipSnapshotExportService
+    from persistence.middleware import clear_request_tenant, set_request_tenant
+    from persistence.tenancy import TenantContext
+
+    tenant_was_set = TenantContext.is_set()
+    try:
+        set_request_tenant(tenant_id)
+        return ZipSnapshotExportService().build_zip(
+            export_id=export_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            source_tenant_id=source_tenant_id,
+        )
+    except Exception:  # noqa: BLE001 — re-raised so Celery records FAILURE
+        logger.exception(
+            "export_workspace_snapshot_zip failed for export=%s (workspace=%s, tenant=%s)",
+            export_id,
+            workspace_id,
+            tenant_id,
+        )
+        raise
+    finally:
+        # #522: under CELERY_TASK_ALWAYS_EAGER the body runs inline on the
+        # caller's thread — snapshot first, never clear the caller's tenant.
+        if not tenant_was_set and TenantContext.is_set():
+            try:
+                clear_request_tenant()
+            except Exception:  # noqa: BLE001 — teardown must not mask the cause
+                logger.exception(
+                    "export_workspace_snapshot_zip could not reset the tenant context"
+                )
+
+
+@shared_task(name="application.cleanup_expired_export_snapshots")
+def cleanup_expired_export_snapshots() -> int:
+    """Purge expired snapshot ZIPs and their metadata rows (D14b TTL).
+
+    Registered as an hourly beat task. Uses the ``unscoped`` manager on purpose:
+    this is system maintenance across tenants, not a tenant-facing query.
+    Errors are logged and swallowed so the beat loop keeps running.
+    """
+    from application.zip_snapshot_export_service import purge_expired_exports
+
+    try:
+        deleted = purge_expired_exports()
+        if deleted:
+            logger.info("cleanup_expired_export_snapshots: removed %d export(s)", deleted)
+        return deleted
+    except Exception:  # noqa: BLE001 — beat task must never crash the loop
+        logger.exception("cleanup_expired_export_snapshots: purge failed")
+        return 0
