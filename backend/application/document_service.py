@@ -696,6 +696,12 @@ class DocumentService(ServiceBase):
         The gates G-1…G-4 are enforced by the workflow validator on the same
         transition, so they apply here as well.
 
+        This is the sole freeze owner, so the bulk-transition path routes
+        Documents through it (issue #1981) instead of calling the bare
+        workflow facade: ``expected_version=None`` is the supported "no ETag"
+        mode for that caller, keeping its last-writer-wins semantics while the
+        F-1/F-5 side effects still run.
+
         Args:
             document_id: UUID of the document.
             target_state: Requested workflow state.

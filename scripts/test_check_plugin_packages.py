@@ -62,6 +62,30 @@ def test_missing_source_tree_is_reported(tmp_path: Path) -> None:
     assert any("package.json" in p and "missing" in p for p in problems), problems
 
 
+def test_claude_agent_tool_refs_must_resolve_to_manifest(tmp_path: Path) -> None:
+    """Issue #1974: a stale dotted/old-prefix ref must fail the release ratchet."""
+    _materialize(tmp_path)
+    manifest = tmp_path / "docs" / "agent-templates" / "tool-manifest.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(REPO_ROOT / "docs" / "agent-templates" / "tool-manifest.json", manifest)
+    agents_src = REPO_ROOT / "dist" / "plugins" / "claude-code" / "reqogniloom" / "agents"
+    agents_dst = tmp_path / "dist" / "plugins" / "claude-code" / "reqogniloom" / "agents"
+    shutil.copytree(agents_src, agents_dst)
+    expected_version = ratchet.load_expected_version(REPO_ROOT)
+    assert ratchet.collect_problems(tmp_path, expected_version) == []
+
+    agent = agents_dst / "test-engineer.md"
+    agent.write_text(
+        agent.read_text(encoding="utf-8").replace(
+            "mcp__plugin_reqogniloom_reqogniloom__test_create",
+            "mcp__reqogniloom__test.create",
+        ),
+        encoding="utf-8",
+    )
+    problems = ratchet.collect_problems(tmp_path, expected_version)
+    assert any("test-engineer.md" in p and "mcp__reqogniloom__test.create" in p for p in problems), problems
+
+
 def test_version_drift_in_desktop_manifest_is_reported(tmp_path: Path) -> None:
     _materialize(tmp_path)
     manifest = tmp_path / "integrations/hermes-plugin/reqogniloom/hermes-plugin.json"

@@ -158,6 +158,47 @@ INDEPENDENT_POC: tuple[tuple[str, str], ...] = (
 
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 
+#: Claude Code plugin MCP-tool naming (issue #1974). Must stay in sync with
+#: ``SERVER_NAME`` and the ``mcp__plugin_<plugin>_<server>__<tool_underscored>``
+#: transform in ``dist/plugins/claude-code/build_claude_plugin.py``.
+_CLAUDE_PLUGIN_NAME = "reqogniloom"
+_CLAUDE_MCP_SERVER = "reqogniloom"
+_CLAUDE_TOOL_REF_RE = re.compile(r"mcp__[a-zA-Z0-9_.]+")
+
+
+def _check_claude_code_tool_refs(repo_root: Path, problems: list[str]) -> None:
+    """Every generated agent tool ref must resolve to a manifest tool (#1974).
+
+    The committed agent files ship as-is; a stale dotted or old-prefix ref is
+    dead in Claude Code. Derive the allowed identifiers from the canonical tool
+    manifest instead of duplicating the tool list in this ratchet.
+    """
+    manifest_path = repo_root / "docs" / "agent-templates" / "tool-manifest.json"
+    agents_dir = (
+        repo_root / "dist" / "plugins" / "claude-code" / "reqogniloom" / "agents"
+    )
+    if not manifest_path.is_file() or not agents_dir.is_dir():
+        # Presence of the build inputs is checked elsewhere; avoid double-reporting.
+        return
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        problems.append(f"Claude Code tool-manifest.json is not valid JSON: {exc}")
+        return
+    prefix = f"mcp__plugin_{_CLAUDE_PLUGIN_NAME}_{_CLAUDE_MCP_SERVER}__"
+    expected = {
+        prefix + tool["name"].replace(".", "_")
+        for tool in manifest.get("tools", [])
+        if isinstance(tool, dict) and "name" in tool
+    }
+    for agent in sorted(agents_dir.glob("*.md")):
+        for ref in _CLAUDE_TOOL_REF_RE.findall(agent.read_text(encoding="utf-8")):
+            if ref not in expected:
+                problems.append(
+                    f"Claude Code agent {agent.name}: tool ref {ref} matches no "
+                    "tool in docs/agent-templates/tool-manifest.json"
+                )
+
 
 def load_expected_version(repo_root: Path = REPO_ROOT) -> str:
     """Return the released version: the repo ``VERSION`` file, stripped."""
@@ -250,6 +291,8 @@ def collect_problems(repo_root: Path, expected_version: str) -> list[str]:
             problems.append(f"{label}: {rel} has no 'version'")
         elif not _VERSION_RE.match(version):
             problems.append(f"{label}: {rel} version {version!r} is not a concrete SemVer")
+
+    _check_claude_code_tool_refs(repo_root, problems)
 
     return problems
 
