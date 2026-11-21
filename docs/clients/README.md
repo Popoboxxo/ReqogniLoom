@@ -4,6 +4,8 @@
 
 One client, one page, **German and English**. Every page is generated from `clients/registry.yaml`; manual edits are a CI failure.
 
+Supported features and artifacts per client: [capability matrix](capabilities.md).
+
 ## Matrix
 
 | Client | Transport | Auth | Target | Page |

@@ -262,6 +262,14 @@ def render_matrix(registry: dict[str, Any], *, lang: str) -> str:
             "generated from `clients/registry.yaml`; manual edits are a CI failure."
         ),
         "",
+        (
+            "Unterstützte Funktionen und Artefakte je Client: "
+            "[Capability-Matrix](capabilities.de.md)."
+            if de
+            else "Supported features and artifacts per client: "
+            "[capability matrix](capabilities.md)."
+        ),
+        "",
         "## Matrix",
         "",
         "| Client | Transport | Auth | "
@@ -358,6 +366,205 @@ def render_matrix(registry: dict[str, Any], *, lang: str) -> str:
         f"- **{'Bestanden' if de else 'Pass'}:** {smoke['pass_de' if de else 'pass_en']}",
         "",
     ]
+    return "\n".join(parts).rstrip("\n") + "\n"
+
+
+#: Capability matrix (#2001): the four statuses and three evidence kinds the
+#: validation rules are written against; the registry legend must match them.
+CAP_STATUSES = ("supported", "partial", "unsupported", "unverified")
+CAP_EVIDENCE_KINDS = ("live", "registry", "repo")
+#: Statuses that claim something and therefore need evidence / a justification.
+_CAP_NEEDS_EVIDENCE = ("supported", "partial")
+_CAP_NEEDS_REASON = ("partial", "unsupported")
+
+
+def _cap_rows(caps: dict[str, Any]) -> list[dict[str, Any]]:
+    return [row for group in caps.get("groups") or [] for row in group.get("rows") or []]
+
+
+def _cap_cells(caps: dict[str, Any], client_id: str) -> dict[str, dict[str, Any]]:
+    return {cell.get("row"): cell for cell in (caps.get("cells") or {}).get(client_id) or []}
+
+
+def _issue_links(issues: Iterable[int], repo_url: str) -> str:
+    return ", ".join(f"[#{n}]({repo_url}/issues/{n})" for n in issues)
+
+
+def _cell_text(text: str) -> str:
+    """Keep a note inside one markdown table cell."""
+    return text.replace("|", "\\|").replace("\n", " ")
+
+
+def validate_capabilities(registry: dict[str, Any]) -> list[str]:
+    """Guard the ``capabilities`` section: nothing is claimed without evidence."""
+    caps = registry.get("capabilities")
+    if not isinstance(caps, dict):
+        return ["capabilities: section missing"]
+    problems: list[str] = []
+    legend = [entry.get("status") for entry in caps.get("legend") or []]
+    _expect(
+        legend == list(CAP_STATUSES),
+        f"capabilities.legend: statuses must be {list(CAP_STATUSES)}, got {legend}",
+        problems,
+    )
+    kinds = [entry.get("kind") for entry in caps.get("evidence_kinds") or []]
+    _expect(
+        kinds == list(CAP_EVIDENCE_KINDS),
+        f"capabilities.evidence_kinds: must be {list(CAP_EVIDENCE_KINDS)}, got {kinds}",
+        problems,
+    )
+    verified = caps.get("verified") or {}
+    for field in ("date", "server", "plugin"):
+        _expect(bool(verified.get(field)), f"capabilities.verified: missing {field}", problems)
+    _expect(
+        len(caps.get("notes_de") or []) == len(caps.get("notes_en") or []),
+        "capabilities: notes_de/notes_en differ in length",
+        problems,
+    )
+
+    row_keys: set[str] = set()
+    for row in _cap_rows(caps):
+        key = row.get("key")
+        _expect(key not in row_keys, f"capabilities: duplicate row {key!r}", problems)
+        row_keys.add(key)
+        for lang in ("de", "en"):
+            _expect(bool(row.get(f"label_{lang}")), f"capabilities: row {key!r} lacks label_{lang}", problems)
+
+    client_ids = {client["id"] for client in registry["clients"]}
+    for client_id, cells in (caps.get("cells") or {}).items():
+        if client_id not in client_ids:
+            problems.append(f"capabilities: unknown client id {client_id!r}")
+            continue
+        seen: set[str] = set()
+        for cell in cells or []:
+            row = cell.get("row")
+            where = f"capabilities.{client_id}.{row}"
+            if row not in row_keys:
+                problems.append(f"{where}: unknown row key")
+            if row in seen:
+                problems.append(f"{where}: duplicate row")
+            seen.add(row)
+            status = cell.get("status")
+            if status not in CAP_STATUSES:
+                problems.append(f"{where}: unknown status {status!r}")
+                continue
+            evidence = cell.get("evidence") or {}
+            if evidence:
+                _expect(
+                    evidence.get("kind") in CAP_EVIDENCE_KINDS,
+                    f"{where}: unknown evidence kind {evidence.get('kind')!r}",
+                    problems,
+                )
+            if status in _CAP_NEEDS_EVIDENCE:
+                _expect(
+                    bool(evidence.get("kind") and evidence.get("detail")),
+                    f"{where}: {status} needs evidence (kind + detail)",
+                    problems,
+                )
+            has_note = bool(cell.get("note_de") and cell.get("note_en"))
+            if status in _CAP_NEEDS_REASON:
+                _expect(
+                    bool(cell.get("issues")) or has_note,
+                    f"{where}: {status} needs an issue or an explanatory note",
+                    problems,
+                )
+            _expect(
+                bool(cell.get("note_de")) == bool(cell.get("note_en")),
+                f"{where}: note needs both note_de and note_en",
+                problems,
+            )
+    return problems
+
+
+def render_capabilities(registry: dict[str, Any], *, lang: str) -> str:
+    """Render the client capability matrix (#2001). Missing cells are ``?``."""
+    de = lang == "de"
+    caps = registry["capabilities"]
+    clients = registry["clients"]
+    repo_url = registry["store"]["mcp_registry"]["repository_url"]
+    symbol = {entry["status"]: entry["symbol"] for entry in caps["legend"]}
+    verified = caps["verified"]
+    unverified = {"status": "unverified"}
+
+    parts: list[str] = [
+        GENERATED_HEADER,
+        "",
+        "# ReqogniLoom — Client-Capability-Matrix" if de else "# ReqogniLoom — client capability matrix",
+        "",
+        (
+            f"> Verifiziert am {verified['date']} gegen den ReqogniLoom-Server "
+            f"{verified['server']} und den Repository-Stand mit Plugin {verified['plugin']}."
+            if de
+            else f"> Verified on {verified['date']} against ReqogniLoom server "
+            f"{verified['server']} and the repository state at plugin {verified['plugin']}."
+        ),
+        "",
+        (
+            "Datum und Versionen beziehen sich auf diesen Verifikationslauf, nicht auf das "
+            "aktuelle Release. Die Client-Version und die Art des Nachweises stehen je Zelle "
+            "in den Detailtabellen. Die Seite ist aus `clients/registry.yaml` generiert."
+            if de
+            else "The date and versions refer to this verification run, not to the current "
+            "release. The client version and the kind of evidence are given per cell in the "
+            "detail tables. This page is generated from `clients/registry.yaml`."
+        ),
+        "",
+        "## " + ("Legende" if de else "Legend"),
+        "",
+        "| Symbol | Status | " + ("Bedeutung" if de else "Meaning") + " |",
+        "|---|---|---|",
+    ]
+    for entry in caps["legend"]:
+        parts.append(
+            f"| {entry['symbol']} | `{entry['status']}` | {entry['label_de' if de else 'label_en']} |"
+        )
+    parts += ["", "**" + ("Nachweisarten" if de else "Evidence kinds") + ":**", ""]
+    parts += [
+        f"- `{entry['kind']}`: {entry['label_de' if de else 'label_en']}"
+        for entry in caps["evidence_kinds"]
+    ]
+
+    cells = {client["id"]: _cap_cells(caps, client["id"]) for client in clients}
+    parts += [
+        "",
+        "## Matrix",
+        "",
+        "| " + ("Funktion / Artefakt" if de else "Feature / artifact") + " | "
+        + " | ".join(client["name"] for client in clients) + " |",
+        "|---|" + "---|" * len(clients),
+    ]
+    for group in caps["groups"]:
+        parts.append(f"| **{group['title_de' if de else 'title_en']}** |" + " |" * len(clients))
+        for row in group["rows"]:
+            marks = [
+                symbol[cells[client["id"]].get(row["key"], unverified)["status"]]
+                for client in clients
+            ]
+            parts.append(f"| {row['label_de' if de else 'label_en']} | " + " | ".join(marks) + " |")
+
+    parts += ["", "## " + ("Details je Client" if de else "Details per client"), ""]
+    head = (
+        "| Funktion / Artefakt | Status | Hinweis | Nachweis | Issues |"
+        if de
+        else "| Feature / artifact | Status | Note | Evidence | Issues |"
+    )
+    for client in clients:
+        parts += [f"### {client['name']}", "", head, "|---|---|---|---|---|"]
+        for row in _cap_rows(caps):
+            cell = cells[client["id"]].get(row["key"], unverified)
+            evidence = cell.get("evidence") or {}
+            proof = f"`{evidence['kind']}` ({evidence['detail']})" if evidence else "—"
+            parts.append(
+                f"| {row['label_de' if de else 'label_en']} "
+                f"| {symbol[cell['status']]} `{cell['status']}` "
+                f"| {_cell_text(cell.get('note_de' if de else 'note_en') or '—')} "
+                f"| {proof} "
+                f"| {_issue_links(cell.get('issues') or [], repo_url) or '—'} |"
+            )
+        parts.append("")
+
+    parts += ["## " + ("Hinweise" if de else "Notes"), ""]
+    parts += [f"{i}. {note}" for i, note in enumerate(caps["notes_de" if de else "notes_en"], 1)]
     return "\n".join(parts).rstrip("\n") + "\n"
 
 
@@ -680,7 +887,7 @@ _FENCE_RE = re.compile(r"^```", re.MULTILINE)
 def check_parity(files: dict[Path, str]) -> list[str]:
     """German/English pages must have identical headings and code-block counts."""
     problems: list[str] = []
-    for client_id in CLIENT_IDS:
+    for client_id in (*CLIENT_IDS, "capabilities"):
         de = files.get(DOCS_DIR / f"{client_id}.de.md", "")
         en = files.get(DOCS_DIR / f"{client_id}.md", "")
         if len(_HEADING_RE.findall(de)) != len(_HEADING_RE.findall(en)):
@@ -718,6 +925,8 @@ def plan_outputs(registry: dict[str, Any]) -> dict[Path, str]:
         files[DOCS_DIR / f"{client['id']}.de.md"] = render_client(client, lang="de")
     files[DOCS_DIR / "README.md"] = render_matrix(registry, lang="en")
     files[DOCS_DIR / "README.de.md"] = render_matrix(registry, lang="de")
+    files[DOCS_DIR / "capabilities.md"] = render_capabilities(registry, lang="en")
+    files[DOCS_DIR / "capabilities.de.md"] = render_capabilities(registry, lang="de")
     files[MARKETPLACE_PATH] = render_marketplace(registry, version)
     files[SERVER_JSON_PATH] = render_server_json(registry, version)
     return files
@@ -733,6 +942,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     registry = load_registry()
+    cap_problems = validate_capabilities(registry)
+    if cap_problems:
+        # The capability page cannot be rendered from an invalid section.
+        for problem in cap_problems:
+            print(f"ERROR: {problem}", file=sys.stderr)
+        return 1
     problems = validate_artifacts(registry)
     files = plan_outputs(registry)
     problems += validate_store_artifacts(registry, files)
