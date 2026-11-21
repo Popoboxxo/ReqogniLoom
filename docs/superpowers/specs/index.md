@@ -11,6 +11,9 @@ umgekehrt ebenso.
 
 ## Oberste Ebene — offene Arbeiten
 
+## [2026-11-21-listen-modus-alle-clients-design.md](2026-11-21-listen-modus-alle-clients-design.md)
+**Draft — analysis and design, nothing implemented.** Listen mode: automatic capture of requirements, architecture and decisions from a conversation, queued as suggestions for human review, working functionally the same in every client (Claude Code, Codex, OpenCode V1/V2, Kimi Code, Antigravity, Hermes). Evidence-based status of the server (no single capture call, no suggestion kind for free-text artifacts), of the Hermes listen mode (never run live, defects H1–H8) and of the hook surface of each client (documentation only, no hook executed). Target architecture: one server call `suggestion.capture` plus thin per-client adapters, equivalence tiers A/B/C, conformance scenarios S1–S12, decisions D1–D11. Plan: [`../plans/2026-11-21-listen-modus-alle-clients-draft.md`](../plans/2026-11-21-listen-modus-alle-clients-draft.md).
+
 ## [2026-11-16-vergleichswerkzeug-gap-analyse-design.md](2026-11-16-vergleichswerkzeug-gap-analyse-design.md)
 **Draft — analysis and improvement proposals, nothing implemented.** Functional comparison against an external requirements tool (abbreviated VWZ): capability matrix, exact semantics from its source, proposals V1–V14, concept need K1 (execution status of the `verifies` link as a configurable sub-workflow), decisions E1–E11. Open decisions are tracked in the plan [`../plans/2026-11-16-vergleichswerkzeug-nachweis-und-vertraege-draft.md`](../plans/2026-11-16-vergleichswerkzeug-nachweis-und-vertraege-draft.md). Updates the deferred concept [`../plans/2026-08-08-vwz-interop-and-inspiration-concept.md`](../plans/2026-08-08-vwz-interop-and-inspiration-concept.md).
 
