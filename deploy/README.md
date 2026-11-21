@@ -50,6 +50,31 @@ count matches (15/15), asserts 0 errors, and proves an injected error leaves **n
 database**. The operator-facing contract and isolated-restore command are in
 [`docs/DEPLOY_RUNBOOK.md`](../docs/DEPLOY_RUNBOOK.md) §6.
 
+## Data transfer: snapshots and checked restore (P5–P8)
+
+Beyond the sidecar's DR path, the application exposes a **data-transfer** surface for moving
+artifacts between workspaces and for a checked target-instance restore:
+
+- **Snapshot export/import** — `POST /api/v1/workspaces/{id}/export/snapshot/` produces a
+  versioned full snapshot (all 24 REST/MCP entity types + relations); `POST
+  /api/v1/workspaces/{id}/import/snapshot/` imports it into an existing workspace or creates a
+  new one (`new_workspace_name`). `dry_run=true` returns the exact plan without writes. The UI
+  page **„Datenübernahme"** (`/data-transfer`) exposes export, download, dry-run preview and copy.
+- **CSV / ReqIF import semantics** — `dry_run`, `conflict_policy` (`version-guard` default,
+  `update`/`skip`/`error` admin-only) and `reconcile_status` (soft-mark via `not_in_source`, never
+  delete). The same flags are available in the snapshot import as `conflict_mode`.
+- **Checked restore** — `POST /api/v1/admin/restore/` (MCP `admin.restore`) now verifies the
+  on-disk SHA-256 against the backup row **before** `loaddata`, validates the stamped
+  `format_version`, accepts `dry_run` (plan only, no load, no audit row) and the explicit
+  `target_tenant` / `target_workspace`. The RLS session context is armed for the target tenant
+  and always restored in a `finally`. MCP and REST accept identical fields.
+
+**Operational boundary (ADR-012):** the sidecar remains the single DR source of truth. The
+application restore is a checked, audited overlay into an explicit target instance — it does
+**not** replace the `verify-restore.sh` gate, the isolated-target atomic restore, or the 15/15
+row-count smoke. Run both: the sidecar restore gate for DR, and the application restore dry-run
+for a preflight of a targeted recovery.
+
 ## LLM provider misconfiguration fails the deploy (#1050)
 
 `LLM_PROVIDER=opencode_go` requires `LLM_OPENCODE_SESSION` — the Zen-Go endpoint answers

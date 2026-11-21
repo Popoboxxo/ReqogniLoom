@@ -246,6 +246,68 @@ REQ-Datei und **keine** Traceability-Matrix geändert.
 
 ---
 
+## Update 2026-11-21 — P7/D17: geprüfter Ziel-Instanz-Restore (Änderung, keine Supersession)
+
+**Status dieser Änderung:** accepted ( Ergänzung zu Option A; die Kernentscheidung
+„Sidecar ist die DR-Wahrheit" bleibt unverändert ).
+**Bezug:** Plan `docs/plans/2026-11-21-artifact-transfer-plan.md`, Entscheidung **D17**;
+Finding **EXT-004** (`docs/audit/2026-11-16-deep-dive-findings.md:252`).
+
+### Kontext der Änderung
+
+Der App-Restore (`AdminRestoreService`) war bisher ein **ungeprüfter Upsert-Overlay
+in dieselbe Instanz**: kein Ziel-Parameter, keine Checksum-Prüfung, kein `dry_run`,
+kein explizit bewaffneter RLS-Kontext. Damit existierte — trotz Option A — ein
+zweiter, unkontrollierter Restore-Pfad, genau das Muster, das ADR-012 beenden wollte
+(„zwei Wahrheiten"). EXT-004 hält diesen Zustand fest.
+
+### Entscheidung der Änderung
+
+Der App-Restore wird zu einem **geprüften Ziel-Instanz-Restore** ausgebaut. Er bleibt
+ein nicht-destruktiver Overlay (keine Löschung neuerer Zeilen), erhält aber:
+
+1. **Checksum-Verifikation** — die SHA-256 der On-Disk-Bytes wird **vor** `loaddata`
+   gegen `BackupMetadata.checksum_sha256` geprüft; Abweichung → Abbruch ohne jeden
+   Write. Ein korrumpiertes oder nachträglich verändertes File kann nicht mehr
+   teilweise angewendet werden.
+2. **`format_version`** — `BackupService` stempelt beim Erzeugen eine Formatversion
+   (`metadata["format_version"]`); der Restore verweigert unbekannte Versionen und
+   behandelt Legacy-Zeilen ohne Schlüssel als Version 1. Damit ist das Format
+   versioniert statt implizit.
+3. **`dry_run`** — führt Prüfung, Zusammenfassung und Zielvalidierung aus und
+   liefert einen exakten Plan (`counts`, `conflicts`-äquivalente `plan`-Daten),
+   ruft aber **kein** `loaddata` und schreibt **keine** Audit-Zeile. Keine
+   Seiteneffekte.
+4. **`target_tenant` / `target_workspace`** — das Ziel ist explizit. Der RLS-
+   Kontext wird für `target_tenant` bewaffnet und in einem `finally` **immer**
+   auf den vorherigen Wert zurückgesetzt (eine exposierte Connection darf nie mit
+   einem fremden Tenant weiterlaufen). `target_workspace` wird gegen den Ziel-
+   Tenant validiert und auditiert; der `dumpdata`-Overlay bleibt instanzweit.
+5. **Audit-Parität** — REST (`POST /api/v1/admin/restore/`) und MCP (`admin.restore`)
+   akzeptieren dieselben Felder; Start, Abschluss und Fehlschlag tragen
+   `format_version`, `target_tenant`, `target_workspace` und `checksum_verified`.
+
+**Abgrenzung (wichtig):** Diese Änderung macht den App-Pfad **nicht** zur DR-Wahrheit.
+Der Sidecar (`postgres-backup`, `.sql.gz`, atomarer Restore in eine isolierte
+Zieldatenbank, 15/15-Smoke) bleibt die einzige DR-Quelle gemäß Option A. Der App-
+Pfad ist ein **kontrollierter, auditierter Overlay für gezielte Wiederherstellung
+in eine Zielinstanz** — er ersetzt weder den Smoke noch das Runbook und führt
+keinen zweiten automatischen Backup-Erzeuger ein. Es gibt weiterhin genau **einen**
+Erzeuger (Sidecar) und genau **einen** DR-Nachweis (den Smoke).
+
+### Konsequenzen der Änderung
+
+- **Positiv:** EXT-004 ist geschlossen; ein Restore kann nicht mehr stillschweigend
+  gegen ein falsches Ziel oder eine korrumpierte Datei laufen; `dry_run` liefert
+  eine prüfbare Vorschau; der RLS-Kontext kann nicht in den nächsten Request
+  durchschlagen.
+- **Negativ:** Ein `BackupMetadata`-Row ohne `checksum_sha256` (Legacy) wird nur
+  gewarnt, nicht verifiziert — der Schutz greift erst für neue Backups. Ein
+  `target_workspace` filtert den Overlay nicht auf Zeilen dieses Workspace; die
+  workspace-genaue Kopie bleibt der Snapshot-Import (P5/P6), nicht der DB-Restore.
+
+---
+
 ## Offene Punkte
 
 1. **Umsetzung `scripts/backup.sh` / `scripts/restore.sh`** — beide werden entfernt;

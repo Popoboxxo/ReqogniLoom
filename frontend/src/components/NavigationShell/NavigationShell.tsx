@@ -83,6 +83,9 @@ const TestRunsList = lazy(() =>
   import("../TestRuns/TestRunsList").then((m) => ({ default: m.TestRunsList }))
 );
 const CsvImport = lazy(() => import("../CsvImport/CsvImport"));
+const DataTransferPage = lazy(
+  () => import("../DataTransfer/DataTransferPage")
+);
 const IcdView = lazy(() => import("../IcdView/IcdView"));
 const DiagramView = lazy(() => import("../DiagramView/DiagramView"));
 const CanvasEditor = lazy(() =>
@@ -197,6 +200,7 @@ function AppShell(): JSX.Element {
               <Route path="/testcases/:id" element={<TestCaseEditors />} />
               <Route path="/test-runs" element={<TestRunsList />} />
               <Route path="/import" element={<CsvImport />} />
+              <Route path="/data-transfer" element={<DataTransferPage />} />
               <Route path="/icds" element={<IcdView />} />
               <Route path="/icds/:id" element={<IcdView />} />
               <Route path="/diagrams" element={<DiagramView />} />

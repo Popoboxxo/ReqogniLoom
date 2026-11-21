@@ -1,7 +1,7 @@
 # Daten-Lifecycle-Katalog (S5.3 WP-2)
 
 > **Owner:** `database-engineer` · **Sunset-Koordination:** `devops-engineer`
-> **Status:** interne Referenz (Ist-Zustand, kein Implementierungsauftrag) · **Stand:** Commit `f60697d`
+> **Status:** interne Referenz (Ist-Zustand, kein Implementierungsauftrag) · **Stand:** 2026-11-21, Branch `feat/artifact-transfer-contract` (Basiskatalog verifiziert am Commit `f60697d`)
 > **Normreferenzen:** ISO 15489-1 (Records Management), DSGVO Art. 5(1)(e) (Speicherbegrenzung),
 > [ADR-012](../../se/ADR/ADR-012_backup_wahrheit.md) (Backup als verbindliche Quelle),
 > [ADR-014](../../se/ADR/ADR-014_import_erfolgssemantik_idempotenz.md) (Idempotenz/Outbox).
@@ -56,11 +56,66 @@ Alle `file:line`-Angaben wurden am Base-Commit `f60697d` durch Lesen der Quellen
 | 143+ frontmatter-lose, unowned Dokumente | `docs/audit/2026-11-16-deep-dive-findings.md:1139` | Kein Datum — Inventar offen | Pro Dokument `owner`, `status`, `date` im Frontmatter ergänzen **oder** archivieren; danach aus dem Inventar streichen | `documenter` / `knowledge-curator` |
 | Backup-Retention (42-h-Horizont) | ADR-012 `docs/se/ADR/ADR-012_backup_wahrheit.md:65`; `deploy/docker-compose.yml:362,418,422` | `BACKUP_RETENTION=7` × 6 h | Dumps älter als `BACKUP_RETENTION` werden automatisch geprunt; Off-Host-Kopie gem. ADR-012 separat zu entscheiden | `database-engineer` / `devops-engineer` |
 
+## Datenübernahme — Snapshots und geprüfter Restore (P5–P8)
+
+Ergänzung zum obigen Katalog (Plan
+`docs/plans/2026-11-21-artifact-transfer-plan.md`, Entscheidungen D14b/D17/D18):
+
+| Artefakt | Creator | Retention | Export-Pfad | Löschmechanismus | Status | Owner |
+|---|---|---|---|---|---|---|
+| **ExportSnapshot** (versioniertes JSONL/ZIP-Voll-Snapshot) | `application/workspace_snapshot_service.py` (`export_snapshot`), REST `POST /workspaces/{id}/export/snapshot/`, UI `/data-transfer` | `EXPORT_DIR` + `ExportSnapshotMetadata.expires_at` (TTL/Cleanup analog Backup-Retention, D14b) | REST Download + UI „Als JSON herunterladen"; alle 24 Entitäten + Relationen | TTL-Cleanup über `expires_at` (betrieblich zu überwachen: Diskwachstum wie bei Backups) | **neu (P5/P8)** | `application` / `devops-engineer` |
+| **Geprüfter App-Restore** (`BackupRestore`-Audit) | `admin_ops.services.AdminRestoreService.restore` (`restore.start` / `restore.complete` / `restore.fail`) | Audit-Log 2 Jahre (siehe AuditLog-Zeile) | REST `/api/v1/admin/restore/`, MCP `admin.restore` — `dry_run` liefert Plan ohne Loaddata/Audit | Kein eigenes Purge; Audit-Folge | **neu (P7)** — Checksum + `format_version` + `target_*` + RLS-armed Kontext; Sidecar bleibt DR-Wahrheit (ADR-012-Update) | `database-engineer` / `security-auditor` |
+
+**Wichtig:** Der App-Restore ist kein zweiter DR-Erzeuger. Der Sidecar (`postgres-backup`,
+`.sql.gz`, 15/15-Smoke) bleibt die verbindliche DR-Quelle; der App-Pfad ist ein kontrollierter
+Overlay in eine Zielinstanz. Siehe ADR-012, Update 2026-11-21.
+
+**CSV/ReqIF-Import-Semantik (P4):** `dry_run`, `conflict_policy` und `reconcile_status` sind
+additive Import-Parameter; `not_in_source` markiert fehlende Zeilen im `custom_fields` des
+backing Artifact, es wird **nie** physisch gelöscht (D3/D3b).
+
+## Runbook: alle Artefakte in einen neuen Workspace übernehmen
+
+Voraussetzung: Quell-Workspace lesen, Ziel-ADMIN. Der Upload geht über die
+UI-Seite `/data-transfer` („Datenübernahme") oder die REST-Endpunkte.
+
+1. **Quelle exportieren:** `POST /api/v1/workspaces/<source-id>/export/snapshot/`
+   (oder UI: „Snapshot herunterladen"). Das Dokument trägt
+   `format_version = "artifact-transfer/v1"` und einen SHA-256-Checksum-Wert.
+   Alle 24 Entitäten und ihre Relationen (inkl. Comments und TestRuns) sind
+   enthalten.
+2. **Dry-Run im Ziel:** `POST /api/v1/workspaces/<source-id>/import/snapshot/`
+   mit `{"snapshot": <dokument>, "new_workspace_name": "…", "dry_run": true}`.
+   Die Antwort enthält `counts`, `conflicts[]` und `id_map`; es wird **kein**
+   Workspace angelegt. Bei Abweichungen zuerst den Konflikt auflösen — ein
+   Dry-Run ist bei Cross-Tenant und bei `reconcile_status` zwingend.
+3. **Echten Import ausführen:** gleicher Aufruf mit `dry_run: false`. Ohne
+   `target_workspace_id`, aber mit `new_workspace_name` entsteht ein neuer
+   Workspace (Preset/Workflow-Defaults + Creator-Admin, D4). Alle IDs werden
+   gemappt; die Quell-ID steht in `source_id`.
+4. **In bestehenden Workspace:** `target_workspace_id` angeben und
+   `conflict_mode` wählen. Default `version-guard` lehnt abweichende Versionen
+   ab; `update` (nur ADMIN) überschreibt autoritativ; `reconcile_status` (nur
+   ADMIN) markiert fehlende Zeilen als `not_in_source` — es wird nie gelöscht.
+5. **Verifikation:** `GET /api/v1/workspaces/<target-id>/export/entity/?entity=requirement`
+   und der VCRM-Abgleich prüfen, dass Relationen und Test-Coverage mitgekommen
+   sind. Der `id_map` aus Schritt 3 erlaubt die Zuordnung alter zu neuen IDs.
+6. **Geprüfter Restore (nur DR-Zwecke):** `POST /api/v1/admin/restore/` mit
+   `dry_run: true`, `target_tenant` und optional `target_workspace`. Erst nach
+   dem geprüften Preview (Audit-Beleg, 24 h gültig) ist der echte Aufruf
+   erlaubt. Der Sidecar (`postgres-backup`) bleibt die DR-Wahrheit.
+
+Siehe [ADR-031](../../se/ADR/ADR-031_artefakt_transfer.md) für die verbindlichen
+Entscheidungen und [ADR-012](../../se/ADR/ADR-012_backup_wahrheit.md) für die
+Backup-Wahrheit.
+
 ## Verifikation
 
-- Quellen aller zitierten `file:line`-Angaben am Commit `f60697d` gelesen (Base des Worktrees
-  `fix/s5-3-ops-maturity`). Abweichungen zu den übermittelten Gate-Fakten: Memory-Konsolidierung
-  ist `settings.py:1263-1272` / `1302-1322` (nicht `1263-1262`); MCP-Alias-Block ist
-  `urls.py:81-87` (nicht exakt `82-86`). Alle anderen Angaben stimmen mit dem Code überein.
-- **Keine** Code-, Löschlogik-, Migrations- oder Dependency-Änderung. Ausschließlich diese
-  Datei wurde angelegt.
+- Quellen aller zitierten `file:line`-Angaben am Commit `f60697d` gelesen (Base des
+  `fix/s5-3-ops-maturity`-Katalogs). Abweichungen zu den übermittelten Gate-Fakten:
+  Memory-Konsolidierung ist `settings.py:1263-1272` / `1302-1322` (nicht
+  `1263-1262`); MCP-Alias-Block ist `urls.py:81-87` (nicht exakt `82-86`). Alle
+  anderen Angaben stimmen mit dem Code überein.
+- Der Abschnitt „Datenübernahme" und das Runbook wurden 2026-11-21 im Rahmen
+  des Artefakt-Transfer-Plans ergänzt; die dort genannten Endpunkte sind im
+  Branch `feat/artifact-transfer-contract` implementiert.
