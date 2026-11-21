@@ -268,6 +268,8 @@ from rest_api.views import (
     ConsistencyStatusView,
     CsvExportView,
     GenericEntityExportView,
+    SnapshotExportView,
+    SnapshotImportView,
     CsvImportView,
     DocumentViewSet,
     GlossaryTermViewSet,
@@ -455,6 +457,17 @@ urlpatterns = [
         "workspaces/<uuid:pk>/export/entity/",
         GenericEntityExportView.as_view(),
         name="workspace-generic-export",
+    ),
+    # P5/P6: full workspace snapshot export/import (new or existing target).
+    path(
+        "workspaces/<uuid:pk>/export/snapshot/",
+        SnapshotExportView.as_view(),
+        name="workspace-snapshot-export",
+    ),
+    path(
+        "workspaces/<uuid:pk>/import/snapshot/",
+        SnapshotImportView.as_view(),
+        name="workspace-snapshot-import",
     ),
     # ReqIF 1.2 import (REQ-147, COMP-AS-008b) — workspace-scoped.
     path(

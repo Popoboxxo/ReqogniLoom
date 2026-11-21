@@ -1,5 +1,5 @@
 {
-  "generated_from": "reqogniloom==1.9.0-beta.2",
+  "generated_from": "reqogniloom==unknown",
   "tool_count": 301,
   "tools": [
     {
@@ -67,6 +67,18 @@
           "restore_type": {
             "type": "string",
             "description": "Advisory restore type ('full' default or 'partial')."
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Verify + return an exact plan without loading or auditing."
+          },
+          "target_tenant": {
+            "type": "string",
+            "description": "Explicit RLS tenant UUID (defaults to the caller's tenant)."
+          },
+          "target_workspace": {
+            "type": "string",
+            "description": "Destination workspace UUID inside the target tenant."
           }
         },
         "required": [

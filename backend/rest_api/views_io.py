@@ -182,6 +182,7 @@ from application.services import (
     WorkspaceService,
 )
 from application.generic_export_service import GenericArtifactExportService
+from application.workspace_snapshot_service import WorkspaceSnapshotService
 
 # GH-914: the trace-link proposal guard raises a service-local exception, like
 # BundleDepthExceededError above — imported from its own module rather than
@@ -848,6 +849,10 @@ class CsvImportView(APIView):
         ctx: Any,
         lang: str,
         idem_key: str | None,
+        *,
+        dry_run: bool = False,
+        conflict_policy: str = "version-guard",
+        reconcile_status: bool = False,
     ) -> tuple[Any, Response | None]:
         """Run ImportService.import_csv and map failures to Responses.
 
@@ -864,6 +869,9 @@ class CsvImportView(APIView):
                     entity_type=entity_type,
                     workspace_id=workspace_id,
                     ctx=ctx,
+                    dry_run=dry_run,
+                    conflict_policy=conflict_policy,
+                    reconcile_status=reconcile_status,
                 ),
                 None,
             )
@@ -953,6 +961,22 @@ class CsvImportView(APIView):
         if upload_error is not None:
             return upload_error
 
+        dry_run_raw = request.query_params.get("dry_run", "false")
+        dry_run = str(dry_run_raw).strip().lower() in ("1", "true", "yes")
+        conflict_policy = request.query_params.get("conflict_policy", "version-guard")
+        reconcile_status = str(
+            request.query_params.get("reconcile_status", "false")
+        ).strip().lower() in ("1", "true", "yes")
+        if (conflict_policy != "version-guard" or reconcile_status) and not ctx.has_role("admin"):
+            return Response(
+                build_error_response(
+                    "PERMISSION_DENIED",
+                    lang,
+                    message="update/reconcile conflict policies require the admin role",
+                ),
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         # --- Optional Idempotency-Key (ADR-014 §3, contract v2) ---
         idem_key = None
         fingerprint = None
@@ -963,14 +987,25 @@ class CsvImportView(APIView):
                 lang,
                 raw_body=raw_body,
                 endpoint=self._IDEMPOTENCY_ENDPOINT,
-                fingerprint_extra=f"entity_type={entity_type}",
+                fingerprint_extra=(
+                    f"entity_type={entity_type};dry_run={dry_run};"
+                    f"conflict_policy={conflict_policy};reconcile_status={reconcile_status}"
+                ),
             )
             if idem_error is not None:
                 return idem_error
 
         # --- Delegate to ImportService ---
         result, import_error = self._run_csv_import(
-            csv_text, entity_type, pk, ctx, lang, idem_key
+            csv_text,
+            entity_type,
+            pk,
+            ctx,
+            lang,
+            idem_key,
+            dry_run=dry_run,
+            conflict_policy=conflict_policy,
+            reconcile_status=reconcile_status,
         )
         if import_error is not None:
             return import_error
@@ -1672,3 +1707,122 @@ class GenericEntityExportView(APIView):
         if result.truncated:
             response["X-Export-Truncated"] = "true"
         return response
+
+# ---------------------------------------------------------------------------
+# Snapshot endpoints — P5/P6: full workspace copy / import
+# ---------------------------------------------------------------------------
+
+# The project's schema gate requires every APIView to expose a DRF serializer
+# (a `responses=` entry alone is not enough). These inline serializers are the
+# wire contract for the snapshot endpoints and double as their OpenAPI schema.
+_SnapshotExportSerializer = inline_serializer(
+    name="WorkspaceSnapshotExportResponse",
+    fields={
+        "format_version": serializers.CharField(),
+        "checksum": serializers.CharField(),
+        "source_workspace_id": serializers.CharField(),
+        "source_tenant_id": serializers.CharField(),
+        "entities": serializers.DictField(),
+    },
+)
+_SnapshotImportSerializer = inline_serializer(
+    name="WorkspaceSnapshotImportResponse",
+    fields={
+        "success": serializers.BooleanField(),
+        "workspace_id": serializers.CharField(),
+        "created": serializers.DictField(),
+        "updated": serializers.DictField(),
+        "skipped": serializers.DictField(),
+        "reconciled": serializers.DictField(),
+        "dry_run": serializers.BooleanField(),
+        "warnings": serializers.ListField(child=serializers.CharField()),
+        "id_map": serializers.DictField(),
+    },
+)
+
+
+class SnapshotExportView(APIView):
+    """POST /api/v1/workspaces/{id}/export/snapshot/ — versioned full snapshot."""
+
+    serializer_class = _SnapshotExportSerializer
+
+    @extend_schema(
+        tags=["export"],
+        summary="Export a versioned snapshot of the whole workspace",
+        responses={200: _SnapshotExportSerializer},
+    )
+    def post(self, request: Request, pk: str | None = None) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            snapshot = WorkspaceSnapshotService().export_snapshot(ctx=ctx, workspace_id=pk)
+        except Exception as exc:  # noqa: BLE001 — uniform error envelope
+            return _service_error_response(exc, lang)
+        return Response(snapshot)
+
+
+class SnapshotImportView(APIView):
+    """POST /api/v1/workspaces/{id}/import/snapshot/ — import into a workspace.
+
+    Body: ``{snapshot, target_workspace_id?, new_workspace_name?, dry_run?,
+    conflict_mode?}``. Omitting both target fields is a validation error; a
+    missing ``target_workspace_id`` with a name creates a new workspace.
+    """
+
+    serializer_class = _SnapshotImportSerializer
+
+    @extend_schema(
+        tags=["import"],
+        summary="Import a workspace snapshot into an existing or new workspace",
+        responses={200: _SnapshotImportSerializer},
+    )
+    def post(self, request: Request, pk: str | None = None) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+        except Exception as exc:  # noqa: BLE001
+            return _service_error_response(exc, lang)
+
+        snapshot = request.data.get("snapshot")
+        if not isinstance(snapshot, dict):
+            return Response(
+                build_error_response("VALIDATION_ERROR", lang, message="snapshot must be an object"),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        conflict_mode = request.data.get("conflict_mode", "version-guard")
+        if conflict_mode != "version-guard" and not ctx.has_role("admin"):
+            return Response(
+                build_error_response(
+                    "PERMISSION_DENIED",
+                    lang,
+                    message="update/reconcile_status import requires the admin role",
+                ),
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        try:
+            result = WorkspaceSnapshotService().import_snapshot(
+                ctx=ctx,
+                snapshot=snapshot,
+                target_workspace_id=(
+                    request.data.get("target_workspace_id")
+                    or (None if request.data.get("new_workspace_name") else pk)
+                ),
+                new_workspace_name=request.data.get("new_workspace_name"),
+                dry_run=bool(request.data.get("dry_run", False)),
+                conflict_mode=conflict_mode,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _service_error_response(exc, lang)
+        return Response(
+            {
+                "success": result.success,
+                "workspace_id": str(result.workspace_id),
+                "created": result.created,
+                "updated": result.updated,
+                "skipped": result.skipped,
+                "reconciled": result.reconciled,
+                "dry_run": result.dry_run,
+                "warnings": result.warnings,
+                "id_map": result.id_map,
+            }
+        )

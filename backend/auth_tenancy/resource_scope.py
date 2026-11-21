@@ -378,6 +378,8 @@ _WORKSPACE_VIA_REQUEST = (
     "TableQueryView",
     "CsvExportView",
     "GenericEntityExportView",
+    "SnapshotExportView",
+    "SnapshotImportView",
     "ReqifImportView",
     "ReqifExportView",
     "ReviewPolicyView",

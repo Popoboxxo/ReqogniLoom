@@ -15,6 +15,7 @@ database.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -454,7 +455,8 @@ def test_restore_is_a_non_destructive_overlay_with_honest_counts(
             backup_type=BackupType.FULL,
             file_path=rel_path,
             file_size_bytes=len(payload),
-            checksum_sha256="0" * 64,
+            # P7 verifies the on-disk bytes before loaddata; use the real digest.
+            checksum_sha256=hashlib.sha256(payload.encode("utf-8")).hexdigest(),
             created_by=admin_user,
         )
 

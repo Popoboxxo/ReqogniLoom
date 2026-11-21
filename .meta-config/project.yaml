@@ -212,7 +212,7 @@ variables:
       baseline/                              # Layer 1 (Snapshot-Baselines, Diff-Engine)
       context_graph/                         # abgeleiteter Soft-Edge-Layer (Issue #377)
       memory/                                # AI Long-Term Memory (Workspace + Tenant-global)
-      application/                           # Layer 2 (68 *_service.py Domain-Services, Single Entry Point)
+      application/                           # Layer 2 (96 *_service.py Domain-Services, Single Entry Point)
       rest_api/                              # Layer 3 (DRF ViewSets + drf-spectacular OpenAPI)
       mcp_server/                            # Layer 3 (MCP-Tool-Registry: 301 Tools, 49 Gruppen)
       diagram/                               # Ext (SVG/PNG/Mermaid/PlantUML Renderer)
@@ -236,7 +236,7 @@ variables:
       src/{__tests__,__mocks__}/             # Vitest 5 Unit-Tests
       package.json                           # React 19, Vite 8, react-i18next, Vitest 5, ESLint 10
     e2e/
-      tests/**/*.spec.ts                     # Playwright/Chromium E2E-Tests (70 Spec-Dateien)
+      tests/**/*.spec.ts                     # Playwright/Chromium E2E-Tests (74 Spec-Dateien)
       playwright.config.ts                   # 4 Shards, globalTimeout 10 min
     deploy/
       docker-compose.yml                    # Full-Stack-Basis: 9 Default-Services (postgres, postgres-backup, redis, backend, llm-preflight, migrate, celery, celery-beat, frontend) + Profile honcho (5 Services) und qdrant (1 Service); pinnt fertige GHCR-Images
@@ -250,14 +250,14 @@ variables:
     backend/             # Django REST API (20 Apps in REQFLOW_APPS)
                          #   Layer 0: persistence, auth_tenancy, presets, audit
                          #   Layer 1: llm_adapter, traceability, workflow, link_types, attribute_definitions, baseline
-                         #   Layer 2: application (68 *_service.py)
+                         #   Layer 2: application (96 *_service.py)
                          #   Layer 3: rest_api, mcp_server
                          #   Ext: diagram, icd, context_graph, memory, se_metrics, resilience, admin_ops
     backend/reqogniloom/ # Django-Projekt (settings.py, urls.py, wsgi.py, asgi.py, version.py, health.py)
     frontend/            # React 19 + TS 5.5+ SPA (Vite 8, Vitest 5, ESLint 10)
                          #   src/api/  src/components/  src/config/  src/constants/  src/context/
                          #   src/hooks/  src/i18n/  src/queries/  src/styles/  src/types/  src/utils/
-    e2e/                 # Playwright/Chromium E2E-Tests (70 Spec-Dateien, 4 CI-Shards)
+    e2e/                 # Playwright/Chromium E2E-Tests (74 Spec-Dateien, 4 CI-Shards)
     docs/                # Anforderungen, Architektur, SE-Kaskade (docs/se/), Pläne (docs/plans/, docs/superpowers/), Konzepte, Release-Reports
     deploy/              # Deployment: docker-compose.yml (Basis), .override.yml (Dev), .minimal.yml, .env, README.md
     testing/             # docker-compose.test.yml (Standalone-Test-Stack, kein Overlay, kein Deployment-File)
@@ -281,7 +281,7 @@ variables:
       docs/agent-templates/tool-manifest.json, Drift-Gate: backend/mcp_server/tests/test_tool_manifest_drift.py);
       kanonischer Pfad /mcp/, /api/v1/mcp/ nur noch deprecated Alias
     - drf-spectacular für OpenAPI 3.0 (Schema, Swagger-UI, ReDoc)
-    - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade (68 *_service.py)
+    - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade (96 *_service.py)
     - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03)
     - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell
     - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation
@@ -488,6 +488,9 @@ orchestrator:
     ask-user: true
     meta-feedback: false
   mode: advisory
+  provider-overrides:
+    Opencode:
+      topology: subagent
 drift-detection:
   enabled: true
 release-gates:

@@ -298,6 +298,19 @@ class RestoreRequestSerializer(serializers.Serializer):
     restore_type = serializers.ChoiceField(
         choices=["full", "partial"], required=False
     )
+    dry_run = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Verify checksum/format/target and return a plan without loading.",
+    )
+    target_tenant = serializers.UUIDField(
+        required=False, allow_null=True,
+        help_text="Explicit RLS tenant for the restore (defaults to the caller's).",
+    )
+    target_workspace = serializers.UUIDField(
+        required=False, allow_null=True,
+        help_text="Destination workspace inside the target tenant.",
+    )
 
 
 class RestoreResultSerializer(serializers.Serializer):
@@ -311,6 +324,15 @@ class RestoreResultSerializer(serializers.Serializer):
         child=serializers.IntegerField(),
         help_text="table name -> restored row count.",
     )
+    dry_run = serializers.BooleanField(required=False)
+    format_version = serializers.CharField(required=False)
+    target_tenant = serializers.CharField(required=False, allow_null=True)
+    target_workspace = serializers.CharField(required=False, allow_null=True)
+    checksum_verified = serializers.BooleanField(required=False)
+    warnings = serializers.ListField(
+        child=serializers.CharField(), required=False
+    )
+    plan = serializers.JSONField(required=False, allow_null=True)
 
 
 class RestoreResponseSerializer(serializers.Serializer):

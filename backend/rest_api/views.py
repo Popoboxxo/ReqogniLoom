@@ -401,6 +401,8 @@ from .views_io import (
     CsvExportView,
     CsvImportView,
     GenericEntityExportView,
+    SnapshotExportView,
+    SnapshotImportView,
     ReqifExportView,
     ReqifImportView,
     SearchViewSet,

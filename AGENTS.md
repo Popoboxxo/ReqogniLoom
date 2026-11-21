@@ -14,7 +14,7 @@
 backend/             # Django REST API (20 Apps in REQFLOW_APPS)
                      #   Layer 0: persistence, auth_tenancy, presets, audit
                      #   Layer 1: llm_adapter, traceability, workflow, link_types, attribute_definitions, baseline
-                     #   Layer 2: application (95 *_service.py)
+                     #   Layer 2: application (96 *_service.py)
                      #   Layer 3: rest_api, mcp_server
                      #   Ext: diagram, icd, context_graph, memory, se_metrics, resilience, admin_ops
 backend/reqogniloom/ # Django-Projekt (settings.py, urls.py, wsgi.py, asgi.py, version.py, health.py)
@@ -50,7 +50,7 @@ scripts/build.sh                   — Release-Build mit APP_VERSION/GIT_COMMIT_
   docs/agent-templates/tool-manifest.json, Drift-Gate: backend/mcp_server/tests/test_tool_manifest_drift.py);
   kanonischer Pfad /mcp/, /api/v1/mcp/ nur noch deprecated Alias
 - drf-spectacular für OpenAPI 3.0 (Schema, Swagger-UI, ReDoc)
-- Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade (95 *_service.py)
+- Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade (96 *_service.py)
 - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03)
 - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell
 - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation
@@ -134,7 +134,7 @@ blockiert (fail closed); die Meldung nennt Submodul, Ziel und Ausweg (ohne
 ## Bekannte Grenzen
 
 Erkennung per Tokenizer, kein Shell-Parser — Indirektion (`eval`, `$(...)`, `xargs`) bleibt unerkannt.
-Lücken-Liste (#551/#592/#809), Guard-Einstufung: `AGENTS.md#bekannte-grenzen`.
+Lücken-Liste (#551/#592/#809), Guard-Einstufung: `docs/concepts/branch-guard-known-limits.md`.
 
 
 
@@ -171,7 +171,7 @@ Format: `<type>: <beschreibung>` (Bsp: `feat: ...`)
 # Repo-Containment („Gefängnis-Modus")
 
 Repo-Containment ist AKTIV: Schreibzugriffe sind auf die Projekt-Wurzel beschränkt; einziger sanktionierter Ausnahmebereich ist `.tmp/`.
-Durchsetzung: PreToolUse-Hook = **Convention boundary** (keine Security Boundary, nur gegen akzidentellen Missbrauch; Definition: `AGENTS.md#guard-terminologie-convention-boundary-vs-security-boundary`). Grenzen/Details: `AGENTS.md#repo-containment-gefängnis-modus`.
+Durchsetzung: PreToolUse-Hook = **Convention boundary** (keine Security Boundary, nur gegen akzidentellen Missbrauch; Definition: `.claude/rules/branch-guard.md#guard-terminologie-convention-boundary-vs-security-boundary`). Grenzen/Details: `docs/concepts/repo-containment-prison-mode.md`.
 
 
 
