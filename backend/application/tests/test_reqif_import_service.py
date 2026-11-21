@@ -1208,3 +1208,34 @@ class TestReqifReimportIdentity1242:
         assert result.relations.created == 1
         imported_link = TraceLink.objects.get(source__workspace=target)
         assert str(imported_link.id) == str(external_link_id)
+
+
+class TestReqifFieldFidelityP3:
+    """P3: exported Requirement attributes return to model columns, not custom_fields."""
+
+    def test_tier_key_round_trips_into_requirement(self, source_workspace, target_workspace):
+        from persistence.middleware import clear_request_tenant, set_request_tenant
+
+        tenant = source_workspace["tenant"]
+        set_request_tenant(tenant.id)
+        try:
+            req = source_workspace["req1"]
+            req.tier_key = "V2"
+            req.save(update_fields=["tier_key"])
+        finally:
+            clear_request_tenant()
+
+        reqif_text = _export(source_workspace["workspace"].id, tenant.id)
+        result = _import(reqif_text, target_workspace.id, tenant.id)
+
+        assert result.success is True
+        set_request_tenant(tenant.id)
+        try:
+            target = Requirement.objects.filter(
+                artifact__workspace_id=target_workspace.id, title="Req One"
+            ).first()
+            assert target is not None
+            assert target.tier_key == "V2"
+            assert "ATTR-TIER-KEY" not in (target.artifact.custom_fields or {})
+        finally:
+            clear_request_tenant()

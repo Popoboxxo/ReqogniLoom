@@ -172,6 +172,7 @@ from application.reqif_export_service import (
     _ATTR_DESCRIPTION,
     _ATTR_MOSCOW_PRIORITY,
     _ATTR_STATUS,
+    _ATTR_TIER_KEY,
     _ATTR_TITLE,
     _ATTR_UID,
     _ATTR_VERIFICATION_METHOD,
@@ -183,6 +184,12 @@ from persistence.custom_fields import validate_custom_fields
 from traceability.types import VALID_LINK_TYPES
 
 logger = logging.getLogger(__name__)
+
+# P3: additional Requirement attributes published by the standard-conformant
+# ReqIF mapping (tier_key is imported from the exporter above).
+_ATTR_LEVEL = "ATTR-LEVEL"
+_ATTR_COMPLEXITY_FIBONACCI = "ATTR-COMPLEXITY-FIBONACCI"
+_ATTR_SUSPECT = "ATTR-SUSPECT"
 
 # ---------------------------------------------------------------------------
 # Size guards (REQ-147, mirrors application.import_service._MAX_ROWS intent)
@@ -218,6 +225,10 @@ _REQUIREMENT_KNOWN_ATTRS = frozenset(
         _ATTR_CATEGORY,
         _ATTR_CUSTOM_FIELDS,
         _ATTR_VERIFICATION_METHOD,
+        _ATTR_TIER_KEY,
+        _ATTR_LEVEL,
+        _ATTR_COMPLEXITY_FIBONACCI,
+        _ATTR_SUSPECT,
     }
 )
 
@@ -1018,10 +1029,14 @@ class ReqifImportService(ServiceBase):
             kind,
             warnings,
         )
-        verification_method, moscow_priority = ReqifImportService._kind_specific_values(
-            kind,
-            so,
-        )
+        (
+            verification_method,
+            moscow_priority,
+            tier_key,
+            level,
+            complexity_fibonacci,
+            suspect,
+        ) = ReqifImportService._kind_specific_values(kind, so)
 
         # ---- Resolve target artifact id / existing row ----
         target_uuid, foreign_identifier, existing_artifact = (
@@ -1053,6 +1068,10 @@ class ReqifImportService(ServiceBase):
                 category=category,
                 verification_method=verification_method,
                 moscow_priority=moscow_priority,
+                tier_key=tier_key,
+                level=level,
+                complexity_fibonacci=complexity_fibonacci,
+                suspect=suspect,
                 custom_fields=custom_fields,
                 external_uid=external_uid,
                 foreign_identifier=foreign_identifier,
@@ -1084,6 +1103,10 @@ class ReqifImportService(ServiceBase):
             status_raw,
             workspace.id,
             tenant,
+            tier_key=tier_key,
+            level=level,
+            complexity_fibonacci=complexity_fibonacci,
+            suspect=suspect,
         )
         ReqifImportService._apply_artifact_external_identity(
             artifact,
@@ -1233,11 +1256,14 @@ class ReqifImportService(ServiceBase):
         return custom_fields
 
     @staticmethod
-    def _kind_specific_values(kind: str, so: Any) -> tuple[str | None, str | None]:
-        """Read the kind-specific entity fields (verification / priority).
+    def _kind_specific_values(kind: str, so: Any) -> tuple:
+        """Read kind-specific fields (Requirement: verification + tier/level).
 
-        ``verification_method`` belongs to a Requirement, ``moscow_priority``
-        to a StakeholderNeed; the other stays ``None``.
+        ReqIF exports publish the Requirement's tier, level, Fibonacci
+        complexity and suspect flag as user-defined attributes. P3 maps them
+        back onto the model columns instead of leaving them in
+        ``Artifact.custom_fields``. Invalid values are ignored so a malformed
+        foreign attribute cannot break the whole import.
         """
         attrs = so.attribute_map
         verification_method = (
@@ -1250,7 +1276,25 @@ class ReqifImportService(ServiceBase):
             if kind == "StakeholderNeed"
             else None
         )
-        return verification_method, moscow_priority
+        tier_key = level = complexity = suspect = None
+        if kind == "Requirement":
+            tier_key = ReqifImportService._attr_text(attrs, _ATTR_TIER_KEY) or None
+            raw_level = ReqifImportService._attr_text(attrs, _ATTR_LEVEL)
+            raw_complexity = ReqifImportService._attr_text(attrs, _ATTR_COMPLEXITY_FIBONACCI)
+            raw_suspect = ReqifImportService._attr_text(attrs, _ATTR_SUSPECT).strip().lower()
+            try:
+                level = int(raw_level) if raw_level else None
+            except ValueError:
+                level = None
+            try:
+                complexity = int(raw_complexity) if raw_complexity else None
+            except ValueError:
+                complexity = None
+            if raw_suspect in {"true", "1", "yes"}:
+                suspect = True
+            elif raw_suspect in {"false", "0", "no"}:
+                suspect = False
+        return verification_method, moscow_priority, tier_key, level, complexity, suspect
 
     @staticmethod
     def _resolve_spec_object_target(
@@ -1413,6 +1457,11 @@ class ReqifImportService(ServiceBase):
         status_raw: str,
         workspace_id: Any,
         tenant: Any,
+        *,
+        tier_key: str | None = None,
+        level: int | None = None,
+        complexity_fibonacci: int | None = None,
+        suspect: bool | None = None,
     ) -> None:
         """Copy the parsed values onto the entity and apply workflow status.
 
@@ -1426,6 +1475,14 @@ class ReqifImportService(ServiceBase):
         entity.category = category
         if kind == "Requirement":
             entity.verification_method = verification_method
+            if tier_key is not None:
+                entity.tier_key = tier_key
+            if level is not None:
+                entity.level = level
+            if complexity_fibonacci is not None:
+                entity.complexity_fibonacci = complexity_fibonacci
+            if suspect is not None:
+                entity.suspect = suspect
         else:
             entity.moscow_priority = moscow_priority
         cls._apply_status(entity, kind, status_raw, workspace_id, tenant)
@@ -1477,6 +1534,10 @@ class ReqifImportService(ServiceBase):
         category: str,
         verification_method: str | None,
         moscow_priority: str | None,
+        tier_key: str | None,
+        level: int | None,
+        complexity_fibonacci: int | None,
+        suspect: bool | None,
         custom_fields: dict[str, Any],
         external_uid: str | None,
         foreign_identifier: str | None,
@@ -1496,6 +1557,14 @@ class ReqifImportService(ServiceBase):
             return False
         if kind == "Requirement":
             if entity.verification_method != verification_method:
+                return False
+            if tier_key is not None and entity.tier_key != tier_key:
+                return False
+            if level is not None and entity.level != level:
+                return False
+            if complexity_fibonacci is not None and entity.complexity_fibonacci != complexity_fibonacci:
+                return False
+            if suspect is not None and bool(entity.suspect) != suspect:
                 return False
         else:
             if entity.moscow_priority != moscow_priority:
