@@ -32,9 +32,11 @@ test.describe('[P8/D18] Datenübernahme page', () => {
     );
     expect(resp.ok()).toBeTruthy();
     const body = await resp.json();
-    expect(body).toBeTruthy();
     expect(typeof body).toBe('object');
-    expect(body.entities || body.workspace).toBeTruthy();
+    expect(body.format_version).toBe('artifact-transfer/v1');
+    expect(body.checksum).toBeTruthy();
+    // Every transfer-contract entity bucket must be present (D8).
+    expect(Object.keys(body.entities ?? {}).length).toBeGreaterThan(0);
   });
 
   test('[D9/D12b] snapshot dry-run import copies into a new workspace without writes', async ({ request }) => {
@@ -57,7 +59,13 @@ test.describe('[P8/D18] Datenübernahme page', () => {
     expect(dryResp.ok()).toBeTruthy();
     const result = await dryResp.json();
     expect(result.dry_run).toBe(true);
-    expect(result.created).toBeGreaterThanOrEqual(0);
+    // `created` is a {entity_type: count} map, not a scalar (D8/D9).
+    expect(typeof result.created).toBe('object');
+    expect(
+      Object.values(result.created as Record<string, number>).reduce(
+        (sum, n) => sum + Number(n), 0
+      )
+    ).toBeGreaterThan(0);
   });
 
   test('[D14d] ReqIF export -> dry-run import round-trip', async ({ request }) => {

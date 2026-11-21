@@ -148,6 +148,7 @@ export default function DataTransferPage(): JSX.Element {
         <p>{t("dataTransfer.export.description")}</p>
         <button
           type="button"
+          className="btn-primary"
           onClick={onExport}
           disabled={busy || !workspaceId}
           data-testid="snapshot-export-button"
@@ -164,6 +165,7 @@ export default function DataTransferPage(): JSX.Element {
             </span>
             <button
               type="button"
+              className="btn-secondary"
               onClick={onDownload}
               data-testid="snapshot-download-button"
             >
@@ -214,6 +216,7 @@ export default function DataTransferPage(): JSX.Element {
         </label>
         <button
           type="button"
+          className="btn-primary"
           onClick={onImport}
           disabled={busy || importFile === null || !workspaceId}
           data-testid="snapshot-import-button"
@@ -298,6 +301,7 @@ export default function DataTransferPage(): JSX.Element {
         </label>
         <button
           type="button"
+          className="btn-primary"
           onClick={onRestore}
           disabled={busy || !backupId.trim() || restoreConfirm !== "RESTORE"}
           data-testid="restore-button"
