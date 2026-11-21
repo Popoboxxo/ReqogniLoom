@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 301,
+  "tool_count": 302,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -169,7 +169,7 @@
       "name": "adr.delete",
       "prefix": "adr",
       "is_write": true,
-      "description": "Permanently delete the ADR through its backing service (hard delete — the row is removed and cannot be restored). For a reversible workflow removal use adr.outdate (soft-delete) and adr.reactivate (restore).",
+      "description": "Soft-delete the ADR through its backing service (write). The row is retained and marked outdated by the workflow engine (it is not removed); trace links and audit history are preserved. It is hidden from default adr.query results — use include_outdated=true to find it and adr.reactivate to restore it. Equivalent to adr.outdate.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1746,7 +1746,7 @@
       "name": "attribute_definition.list",
       "prefix": "attribute_definition",
       "is_write": false,
-      "description": "List the tenant-wide global attribute defaults (admin-only).",
+      "description": "List the tenant-wide global attribute defaults (admin-only). Paginated: pass item_type and/or preset to narrow the list, and limit/offset to page through it (default 20 per page).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1760,6 +1760,19 @@
               "standard",
               "extended"
             ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20,
+            "description": "Max definitions per page (default 20, max 100)."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "Number of matching definitions to skip."
           }
         },
         "required": []
@@ -2442,7 +2455,7 @@
       "name": "change_request.delete",
       "prefix": "change_request",
       "is_write": true,
-      "description": "Permanently delete the Change Request through its backing service (hard delete — the row is removed and cannot be restored). For a reversible workflow removal use change_request.outdate (soft-delete) and change_request.reactivate (restore).",
+      "description": "Soft-delete the Change Request through its backing service (write). The row is retained and marked outdated by the workflow engine (it is not removed); trace links and audit history are preserved. It is hidden from default change_request.query results — use include_outdated=true to find it and change_request.reactivate to restore it. Equivalent to change_request.outdate.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2553,6 +2566,38 @@
         },
         "required": [
           "id"
+        ]
+      }
+    },
+    {
+      "name": "change_request.submit_for_review",
+      "prefix": "change_request",
+      "is_write": true,
+      "description": "Submit a Change Request for CCB review (write): performs the editor-gated 'draft -> submitted' transition of the ccb_approval workflow. Requires a change_reason. Further decisions (under_review/approved/rejected) stay behind their approver gates; use review.approve/reject for those.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the Change Request to submit."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the owning workspace."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Required rationale for the submission; the CCB 'draft -> submitted' transition demands a non-empty reason."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Optional last-seen workflow revision (CR-08). A stale value is refused as a version conflict instead of overwriting the winner."
+          }
+        },
+        "required": [
+          "id",
+          "workspace_id",
+          "change_reason"
         ]
       }
     },
@@ -3636,7 +3681,7 @@
       "name": "glossary.delete",
       "prefix": "glossary",
       "is_write": true,
-      "description": "Permanently delete the Glossary Term through its backing service (hard delete — the row is removed and cannot be restored). For a reversible workflow removal use glossary.outdate (soft-delete) and glossary.reactivate (restore).",
+      "description": "Soft-delete the Glossary Term through its backing service (write). The row is retained and marked outdated by the workflow engine (it is not removed); trace links and audit history are preserved. It is hidden from default glossary.query results — use include_outdated=true to find it and glossary.reactivate to restore it. Equivalent to glossary.outdate.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4813,7 +4858,7 @@
       "name": "issue.delete",
       "prefix": "issue",
       "is_write": true,
-      "description": "Permanently delete the Issue through its backing service (hard delete — the row is removed and cannot be restored). For a reversible workflow removal use issue.outdate (soft-delete) and issue.reactivate (restore).",
+      "description": "Soft-delete the Issue through its backing service (write). The row is retained and marked outdated by the workflow engine (it is not removed); trace links and audit history are preserved. It is hidden from default issue.query results — use include_outdated=true to find it and issue.reactivate to restore it. Equivalent to issue.outdate.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7294,7 +7339,7 @@
       "name": "review.reject",
       "prefix": "review",
       "is_write": true,
-      "description": "Reject an item currently awaiting review: transitions it to the universal 'outdated' state (Phase 0), recording reason in the workflow history.",
+      "description": "Reject an item currently awaiting review: transitions it to the universal 'outdated' state (Phase 0), recording reason in the workflow history. Items not awaiting review are refused; use <type>.outdate for an unconditional soft-delete.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7323,7 +7368,7 @@
       "name": "review.request_changes",
       "prefix": "review",
       "is_write": true,
-      "description": "Send an item currently awaiting review back to its workflow's initial state for rework, recording reason in the workflow history. MCP-ONLY (#1356 addendum, #1362d): there is no REST endpoint or UI action for this decision — the UI offers approve/reject only, so do not probe for a 'request changes' REST route.",
+      "description": "Send an item currently awaiting review back to its workflow's initial state for rework, recording reason in the workflow history. Items not awaiting review are refused with a clear error instead of a self-transition. MCP-ONLY (#1356 addendum, #1362d): there is no REST endpoint or UI action for this decision — the UI offers approve/reject only, so do not probe for a 'request changes' REST route.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7465,7 +7510,7 @@
       "name": "risk.delete",
       "prefix": "risk",
       "is_write": true,
-      "description": "Permanently delete the Risk through its backing service (hard delete — the row is removed and cannot be restored). For a reversible workflow removal use risk.outdate (soft-delete) and risk.reactivate (restore).",
+      "description": "Soft-delete the Risk through its backing service (write). The row is retained and marked outdated by the workflow engine (it is not removed); trace links and audit history are preserved. It is hidden from default risk.query results — use include_outdated=true to find it and risk.reactivate to restore it. Equivalent to risk.outdate.",
       "inputSchema": {
         "type": "object",
         "properties": {

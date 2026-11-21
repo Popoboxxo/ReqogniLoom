@@ -86,8 +86,8 @@ _ENUM_FIELDS_BY_PREFIX: dict[str, dict[str, str]] = {
 #
 # A bare ``"Delete a {prefix} entity (write)."`` template produces broken
 # English ("Delete a adr entity"), says nothing about what the entity *is*, and
-# hides the fact that ``delete`` is a hard delete while ``outdate``/``reactivate``
-# are the workflow soft-delete/restore pair. The table below supplies a label,
+# mislabeled ``delete`` as a hard delete: the five services actually soft-delete
+# through ``workflow.services.outdate()``. The table below supplies a label,
 # a plural and a one-clause semantic gloss per entity; the sentences are built
 # with "the <label>" so they stay grammatical for every prefix. Every generated
 # description is >= 40 characters and carries the lifecycle semantics.
@@ -158,10 +158,12 @@ def _entity_description(prefix: str, action: str) -> str:
         )
     if action == "delete":
         return (
-            f"Permanently delete the {label} through its backing service "
-            "(hard delete — the row is removed and cannot be restored). For a "
-            f"reversible workflow removal use {prefix}.outdate (soft-delete) "
-            f"and {prefix}.reactivate (restore)."
+            f"Soft-delete the {label} through its backing service (write). "
+            "The row is retained and marked outdated by the workflow engine "
+            "(it is not removed); trace links and audit history are preserved. "
+            f"It is hidden from default {prefix}.query results — use "
+            f"include_outdated=true to find it and {prefix}.reactivate to "
+            f"restore it. Equivalent to {prefix}.outdate."
         )
     if action == "outdate":
         return (
@@ -730,7 +732,11 @@ class GenericCrudToolGroup(BaseToolGroup):
         # Domain errors (NotFound/Validation/OptimisticLock/Integrity) are
         # mapped centrally by BaseToolGroup.execute_tool (#1663, N2-N4).
         self._delete_method(ctx=auth_context, **{self._delete_id_param: obj_id})
-        return ToolResult.ok({"status": "deleted"})
+        # These services soft-delete via workflow.services.outdate() (Phase 4
+        # D-3, GH-443/GH-484): the row is kept and flagged outdated. Keep the
+        # historic ``status: "deleted"`` value for backward compatibility and
+        # add ``mode: "soft"`` to disclose the real, reversible semantics (#1983).
+        return ToolResult.ok({"status": "deleted", "mode": "soft"})
 
     def _resolve_workspace_id(self, *, obj_id: uuid.UUID, auth_context: AuthContext) -> uuid.UUID:
         """Fetch the entity and read its ``workspace_id`` — the same
