@@ -7,7 +7,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import type { ReactElement } from "react";
+import { StrictMode, type ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { InterviewChatPane, type CreatedArtifactRef } from "./InterviewChatPane";
 import type { InterviewState, MultiFormalizeResult, ProposalItem, SingleFormalizeResult } from "../../api/interviews";
@@ -134,6 +134,98 @@ describe("InterviewChatPane", () => {
 
     await screen.findByText("no provider");
     expect(input.value).toBe("hello");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #1967: guided first question on mount
+// ---------------------------------------------------------------------------
+
+describe("InterviewChatPane guided first question", () => {
+  const openField = { name: "rationale", type: "textarea" };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Multi-mode sessions still run the proposal effect on mount; a default
+    // resolution keeps that effect harmless while this suite focuses on chat.
+    vi.mocked(interviewsApi.propose).mockResolvedValue({ proposal: null });
+  });
+
+  it("asks the first protocol question on mount for a fresh single-kind session", async () => {
+    const onStateChange = vi.fn();
+    const greeted = makeInterview({
+      id: "s-fresh",
+      missing_fields: [openField],
+      transcript: [],
+    });
+    vi.mocked(interviewsApi.chat).mockResolvedValue({
+      reply: "Why does this requirement exist?",
+      state: greeted,
+    });
+
+    renderPane(<InterviewChatPane interview={greeted} onStateChange={onStateChange} />);
+
+    await waitFor(() =>
+      expect(interviewsApi.chat).toHaveBeenCalledWith("s-fresh", "")
+    );
+    expect(onStateChange).toHaveBeenCalledWith(greeted);
+  });
+
+  it("fires one chat call AND applies the first reply under React StrictMode", async () => {
+    const greeted = makeInterview({ id: "s-strict", missing_fields: [openField] });
+    vi.mocked(interviewsApi.chat).mockResolvedValue({
+      reply: "First question",
+      state: greeted,
+    });
+    const onStateChange = vi.fn();
+
+    renderPane(
+      <StrictMode>
+        <InterviewChatPane interview={greeted} onStateChange={onStateChange} />
+      </StrictMode>
+    );
+
+    await waitFor(() =>
+      expect(interviewsApi.chat).toHaveBeenCalledWith("s-strict", "")
+    );
+    expect(interviewsApi.chat).toHaveBeenCalledTimes(1);
+    // Regression for F1: the first setup's cleanup used to cancel the only
+    // reply, so the count passed while the question never reached the UI.
+    await waitFor(() => expect(onStateChange).toHaveBeenCalledWith(greeted));
+  });
+
+  it("does not greet a multi-kind session", () => {
+    const multi = makeInterview({
+      id: "s-multi",
+      session_kind: "multi",
+      missing_fields: [openField],
+    });
+    renderPane(<InterviewChatPane interview={multi} onStateChange={vi.fn()} />);
+    expect(interviewsApi.chat).not.toHaveBeenCalled();
+  });
+
+  it("does not greet a session that already has a transcript", () => {
+    const used = makeInterview({
+      id: "s-used",
+      missing_fields: [openField],
+      transcript: [{ role: "user", text: "hi", timestamp: "t1" }],
+    });
+    renderPane(<InterviewChatPane interview={used} onStateChange={vi.fn()} />);
+    expect(interviewsApi.chat).not.toHaveBeenCalled();
+  });
+
+  it("does not block the page when the first chat call fails", async () => {
+    vi.mocked(interviewsApi.chat).mockRejectedValue(new Error("no provider"));
+    const fresh = makeInterview({ id: "s-fail", missing_fields: [openField] });
+    const onStateChange = vi.fn();
+    renderPane(<InterviewChatPane interview={fresh} onStateChange={onStateChange} />);
+
+    await waitFor(() =>
+      expect(interviewsApi.chat).toHaveBeenCalledWith("s-fail", "")
+    );
+    expect(onStateChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByTestId("interview-chat-input")).not.toBeDisabled();
   });
 });
 

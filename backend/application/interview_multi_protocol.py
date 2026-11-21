@@ -27,8 +27,10 @@ import json
 import re
 from typing import Any
 
+from application.interview_proposal_errors import ProposalValidationError
 from application.prompt_resolver import resolve_and_render
 from link_types.catalog import resolve_catalog
+from persistence.errors import ValidationError
 
 _MULTI_PROTOCOL_SLOT = "interview.protocol.multi"
 
@@ -72,6 +74,141 @@ def _proposal_within_limits(parsed: list[dict]) -> bool:
                 return False
     return True
 
+
+# Issue #1990: the LLM prompt used to ask for a top-level ``title`` next to
+# ``fields``. ``formalize`` only reads ``item["fields"]``, so that title was
+# silently lost (or the whole item rejected for lacking a ``fields`` dict).
+# The canonical item shape has exactly these keys; ``title`` is a legacy
+# alias we normalise into ``fields`` rather than a second source of truth.
+_ITEM_ALLOWED_KEYS: frozenset[str] = frozenset({"type", "title", "fields", "links"})
+
+
+def normalize_proposal_items(proposal: list[dict]) -> list[dict]:
+    """Return copies of *proposal* in the shape ``formalize`` accepts.
+
+    A legacy top-level ``title`` is folded into ``fields["title"]`` when the
+    latter is absent (an explicit ``fields`` value always wins). The original
+    top-level key is kept for backwards compatibility with callers that
+    compare the readout to what they stored -- ``formalize`` ignores it.
+
+    Every other top-level key is REJECTED with a machine-readable reason
+    (:class:`ProposalValidationError`) instead of being silently dropped:
+    server-owned names (``priority``/``status``/...) get ``RESERVED_FIELD``,
+    anything else gets ``UNEXPECTED_ITEM_FIELD``. Silently ignoring a key the
+    model emitted is how server-owned values and typos survived into the
+    proposal long enough to fail at write time.
+
+    Nothing is mutated in place; the stored ``grounding_snapshot`` stays
+    untouched and the normalised copy is safe to hand to ``formalize``.
+    """
+    # Imported here to keep this parse-layer module free of a hard dependency
+    # on the reserved-name registry owned by the formalisation service.
+    from application.interview_multi_formalize_service import (
+        _RESERVED_PROPOSAL_FIELDS,
+    )
+
+    normalised: list[dict] = []
+    for index, item in enumerate(proposal):
+        if not isinstance(item, dict):
+            raise ProposalValidationError(
+                f"proposal item #{index} must be a dict, got {type(item).__name__}",
+                code="INVALID_PROPOSAL_SHAPE",
+                item_index=index,
+            )
+        for key in item:
+            if not isinstance(key, str) or key in _ITEM_ALLOWED_KEYS:
+                continue
+            code = "RESERVED_FIELD" if key in _RESERVED_PROPOSAL_FIELDS else "UNEXPECTED_ITEM_FIELD"
+            raise ProposalValidationError(
+                f"proposal item #{index}: top-level field {key!r} is not part of the "
+                "canonical {type, fields, links} shape",
+                code=code,
+                item_index=index,
+                field=key,
+            )
+        fields = item.get("fields")
+        if fields is not None and not isinstance(fields, dict):
+            raise ProposalValidationError(
+                f"proposal item #{index}: 'fields' must be a dict",
+                code="INVALID_PROPOSAL_SHAPE",
+                item_index=index,
+                field="fields",
+            )
+        new_item = dict(item)
+        if isinstance(fields, dict) and "title" not in fields and "title" in item:
+            new_item["fields"] = {**fields, "title": item["title"]}
+        normalised.append(new_item)
+    return normalised
+
+
+def validate_proposal_link_pairs(proposal: list[dict], workspace_id) -> None:
+    """Check every proposed link against the workspace link-type catalog.
+
+    Issue #1990: structural link validation (``from``/``to`` indices and a
+    string ``type``) never checked ``allowed_pairs``, so an LLM-proposed
+    ``realizes`` from ArchitectureElement to Requirement only failed *after*
+    the artifacts had been created, inside the write transaction. Resolving
+    the endpoints to their proposal item types here lets the readout reject
+    the bad edge before it is ever shown as confirmable.
+
+    Endpoint indices are range-checked defensively so this helper is safe to
+    call standalone; the formalize path still runs the authoritative
+    structural validation first.
+    """
+    from link_types.catalog import validate_link_pair
+
+    for index, item in enumerate(proposal):
+        if not isinstance(item, dict):
+            raise ProposalValidationError(
+                f"proposal item #{index} must be a dict, got {type(item).__name__}",
+                code="INVALID_PROPOSAL_SHAPE",
+                item_index=index,
+            )
+        for link_index, link in enumerate(item.get("links") or []):
+            if not isinstance(link, dict):
+                continue  # structural validation owns this case
+            source = link.get("from")
+            target = link.get("to")
+            link_type = link.get("type")
+            if (
+                not isinstance(source, int)
+                or isinstance(source, bool)
+                or not isinstance(target, int)
+                or isinstance(target, bool)
+                or not 0 <= source < len(proposal)
+                or not 0 <= target < len(proposal)
+                or not isinstance(link_type, str)
+            ):
+                # Out-of-range/malformed endpoints are a shape error, not a
+                # pair mismatch; the caller's structure gate reports them.
+                raise ProposalValidationError(
+                    f"proposal item #{index}, link #{link_index}: invalid link endpoints",
+                    code="INVALID_LINK_PAIR",
+                    item_index=index,
+                    field=f"links[{link_index}]",
+                )
+            try:
+                validate_link_pair(
+                    workspace_id,
+                    link_type,
+                    proposal[source]["type"],
+                    proposal[target]["type"],
+                    manual=True,
+                )
+            except ValidationError as exc:
+                raise ProposalValidationError(
+                    str(exc),
+                    code="INVALID_LINK_PAIR",
+                    item_index=index,
+                    field=f"links[{link_index}]",
+                    details={
+                        "link_type": link_type,
+                        "source_type": proposal[source]["type"],
+                        "target_type": proposal[target]["type"],
+                    },
+                ) from exc
+
+
 _MULTI_PROTOCOL_FACTORY_DEFAULT = """\
 You are helping a user figure out which requirements-engineering artifacts \
 they need, from a plain description of their problem. Artifact types \
@@ -84,11 +221,17 @@ glossary surface, not proposed by an interview.
 Ask clarifying questions if the problem is unclear. Once you have enough \
 information, propose a list of artifacts as a fenced ```json code block, \
 each item shaped as:
-{"type": "<ArtifactType>", "title": "<short title>", "fields": {<fields for that type's create call>}, "links": [{"from": <index>, "to": <index>, "type": "<trace-link-type>"}]}
+{"type": "<ArtifactType>", "fields": {<fields for that type's create call>}, "links": [{"from": <index>, "to": <index>, "type": "<trace-link-type>"}]}
+
+Put EVERY field — including `title` — inside `fields`; do not emit a \
+top-level `title` or any other top-level key besides `type`, `fields` and \
+`links`. Server-owned fields (`status`, `owner`, `reporter`, `priority`, ids, \
+timestamps, version, ctx) are not allowed. Do not set `type` inside `fields`.
 
 Use trace-link types from the workspace's link-type catalog, which is supplied \
 in the prompt context as `available_link_types`. Never propose a type that is \
-not in that list.
+not in that list, and only use a type whose allowed endpoint pair matches the \
+two items you are linking (an index's item type is its source/target type).
 
 available_link_types: {available_link_types}
 
@@ -159,6 +302,13 @@ def parse_multi_proposal(raw_llm_output: str) -> list[dict] | None:
         return None
     if not isinstance(parsed, list):
         return None
-    if not _proposal_within_limits(parsed):
+    # Issue #1990: fold a legacy top-level ``title`` into ``fields`` at the
+    # parse boundary so the chat response and the stored pending proposal are
+    # already in the shape ``formalize`` accepts. Reserved/foreign top-level
+    # keys are rejected here with a machine-readable reason instead of being
+    # silently dropped. Link-pair validation needs the workspace catalog and
+    # runs at readout (propose) and at the formalize write gate.
+    normalised = normalize_proposal_items(parsed)
+    if not _proposal_within_limits(normalised):
         return None
-    return parsed
+    return normalised

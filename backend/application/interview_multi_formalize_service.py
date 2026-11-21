@@ -14,6 +14,7 @@ from django.db import transaction
 from django.db.models import F
 
 from application.base import ValidationError
+from application.interview_proposal_errors import ProposalValidationError
 from application.models import DomainEventOutbox
 from persistence.models import InterviewSession, InterviewSessionArtifact
 
@@ -272,18 +273,26 @@ def validate_confirmed_proposal_fields(
             allowed_cache[item_type] = allowed
         for key, value in item["fields"].items():
             if not isinstance(key, str):
-                raise ValidationError(
-                    f"proposal item #{item_index}: field names must be strings"
+                raise ProposalValidationError(
+                    f"proposal item #{item_index}: field names must be strings",
+                    code="INVALID_PROPOSAL_SHAPE",
+                    item_index=item_index,
                 )
             if key in _RESERVED_PROPOSAL_FIELDS:
-                raise ValidationError(
+                raise ProposalValidationError(
                     f"proposal item {item_type!r}: field {key!r} is server-owned "
-                    "and cannot be set by an interview proposal"
+                    "and cannot be set by an interview proposal",
+                    code="RESERVED_FIELD",
+                    item_index=item_index,
+                    field=key,
                 )
             if key not in allowed:
-                raise ValidationError(
+                raise ProposalValidationError(
                     f"proposal item {item_type!r}: field {key!r} is not an allowed "
-                    f"field for this artifact type"
+                    f"field for this artifact type",
+                    code="UNKNOWN_FIELD",
+                    item_index=item_index,
+                    field=key,
                 )
             _validate_proposal_field_value(item_type, key, value)
 
@@ -329,8 +338,19 @@ class InterviewMultiFormalizationMixin:
         # AI-005: field allowlist + type/length validation runs here, in the
         # service layer, so every transport (REST, UI, MCP) is protected and no
         # create_X() is reached with a reserved or oversized field.
+        # Issue #1990: normalise the LLM-authored shape first (a top-level
+        # ``title`` becomes ``fields["title"]``) and reject the link type's
+        # allowed-pair mismatch here, before any artifact is written. Local
+        # import avoids a module-level cycle with the parse-layer module.
+        from application.interview_multi_protocol import (
+            normalize_proposal_items,
+            validate_proposal_link_pairs,
+        )
+
+        confirmed_proposal = normalize_proposal_items(confirmed_proposal)
         _validate_confirmed_proposal(confirmed_proposal)
         validate_confirmed_proposal_fields(ctx, session.workspace_id, confirmed_proposal)
+        validate_proposal_link_pairs(confirmed_proposal, session.workspace_id)
         self._reject_diagram_ref_links(confirmed_proposal)
 
         with transaction.atomic():

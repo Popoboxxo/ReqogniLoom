@@ -263,13 +263,29 @@ PER_ITEM_TYPE_EXCLUDED_FIELDS: dict[str, frozenset[str]] = {
 #: ctx)``. ``Adr.description`` needs no entry — it is already in the shared
 #: pair below.
 PER_ITEM_TYPE_AI_ELICIT_FIELDS: dict[str, frozenset[str]] = {
-    "Risk": frozenset({"probability", "impact"}),
+    # `probability`/`impact` are create_risk()'s two required fields and have
+    # been elicited on every preset since 0007. #1991 adds the documented
+    # optional fields so their create_risk() defaults are no longer applied
+    # without the user being asked.
+    "Risk": frozenset(
+        {"probability", "impact", "mitigation_strategy", "category", "detection"}
+    ),
     # #272/Plan B B1-T1: a Requirement interview that never asks for these
     # produces an artifact whose SE tail is empty -- the interview was the one
     # path into the model that bypassed the SE attributes entirely.
     "Requirement": frozenset(
         {"acceptance_criteria", "verification_method", "rationale"}
     ),
+    # Issue #1991: the create tools document these fields, but an interview
+    # never asked for them, so the create_X() service applied its default
+    # silently (Issue severity/category, TestCase test_type,
+    # ArchitectureElement element_type). ADR's context/decision/consequences
+    # are rendered by the `decision_record` widget yet stayed empty because
+    # widget-bound attributes were skipped by the protocol derivation.
+    "Adr": frozenset({"context", "decision", "consequences"}),
+    "Issue": frozenset({"severity", "category"}),
+    "TestCase": frozenset({"test_type"}),
+    "ArchitectureElement": frozenset({"element_type"}),
 }
 
 #: Lowest preset stage at which the entries above are elicited. ``minimal``
@@ -281,6 +297,32 @@ PER_ITEM_TYPE_AI_ELICIT_FIELDS: dict[str, frozenset[str]] = {
 #: scope of the 0011 repair migration, so a fresh bootstrap and the repair
 #: cannot diverge.
 AI_ELICIT_MIN_STAGE: dict[str, int] = {"Requirement": 2}
+
+#: Issue #1991: the fields added above (everything except the pre-existing
+#: Risk/Requirement entries) are SE-discipline questions. They are asked from
+#: stage 2 (standard/extended) only, so a minimal workspace keeps its short
+#: interview. Per-field rather than per-item-type so Risk's mandatory
+#: probability/impact stay at stage 1 while its optional documented fields
+#: follow the SE discipline.
+_AI_ELICIT_FIELD_MIN_STAGE: dict[tuple[str, str], int] = {
+    ("Adr", "context"): 2,
+    ("Adr", "decision"): 2,
+    ("Adr", "consequences"): 2,
+    ("Issue", "severity"): 2,
+    ("Issue", "category"): 2,
+    ("Risk", "mitigation_strategy"): 2,
+    ("Risk", "category"): 2,
+    ("Risk", "detection"): 2,
+    ("TestCase", "test_type"): 2,
+    ("ArchitectureElement", "element_type"): 2,
+}
+
+
+def ai_elicit_min_stage(item_type: str, name: str) -> int:
+    """Lowest preset stage at which *name* is elicited for *item_type*."""
+    return _AI_ELICIT_FIELD_MIN_STAGE.get(
+        (item_type, name), AI_ELICIT_MIN_STAGE.get(item_type, 1)
+    )
 
 #: Elicited for every item type: the two attributes every ``create_X()``
 #: accepts and every artifact needs.
@@ -1081,7 +1123,10 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
                     # ``en`` deliberately stays the field name.
                     "label": resolve_core_label(name),
                     "ai_elicit": name in SHARED_AI_ELICIT_FIELDS
-                    or name in PER_ITEM_TYPE_AI_ELICIT_FIELDS.get(item_type, frozenset()),
+                    or (
+                        name in PER_ITEM_TYPE_AI_ELICIT_FIELDS.get(item_type, frozenset())
+                        and PRESET_STAGE[preset] >= ai_elicit_min_stage(item_type, name)
+                    ),
                     "export": True,
                 }
             )
@@ -1135,11 +1180,11 @@ def introspect_core_attributes(item_type: str, preset: str) -> list[dict[str, An
     # stays authoritative -- bounded by ``AI_ELICIT_MIN_STAGE`` and, inside that
     # stage, by ``visible`` (a hidden attribute is not asked for).
     elicit_names = PER_ITEM_TYPE_AI_ELICIT_FIELDS.get(item_type, frozenset())
-    elicit_from_stage = AI_ELICIT_MIN_STAGE.get(item_type, 1)
     for attribute in attributes:
         if attribute["name"] in elicit_names:
             attribute["ai_elicit"] = (
-                stage >= elicit_from_stage and bool(attribute.get("visible", True))
+                stage >= ai_elicit_min_stage(item_type, attribute["name"])
+                and bool(attribute.get("visible", True))
             )
 
     # NOTE: preset `mandatory_fields` are deliberately not applied here — see

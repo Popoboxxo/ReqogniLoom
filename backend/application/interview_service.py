@@ -433,6 +433,7 @@ class InterviewService(
             get_multi_protocol_prompt,
             parse_multi_proposal,
         )
+        from application.interview_proposal_errors import ProposalValidationError
         from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.timeouts import resolve_timeout_seconds
         from llm_adapter.token_tracking import (
@@ -510,11 +511,33 @@ class InterviewService(
             {"role": "user", "content": user_message},
             {"role": "assistant", "content": reply},
         ]
-        proposal = parse_multi_proposal(reply)
+        # Issue #1990: a model reply can be syntactically valid JSON but still
+        # carry a reserved top-level field. parse_multi_proposal rejects that
+        # with a machine-readable reason; the chat TURN itself must still
+        # succeed (the user sees the reply), so record the reason in the
+        # snapshot instead of failing the whole turn. propose() re-validates
+        # the same proposal before showing it as confirmable.
+        try:
+            proposal = parse_multi_proposal(reply)
+        except ProposalValidationError as exc:
+            proposal = None
+            proposal_error: dict[str, Any] | None = {
+                "code": exc.code,
+                "message": str(exc),
+                **exc.details,
+            }
+        else:
+            proposal_error = None
         if proposal is not None:
             session.grounding_snapshot = {
                 **session.grounding_snapshot,
                 "pending_proposal": proposal,
+                "pending_proposal_error": None,
+            }
+        elif proposal_error is not None:
+            session.grounding_snapshot = {
+                **session.grounding_snapshot,
+                "pending_proposal_error": proposal_error,
             }
         # Same optimistic-concurrency bump as the single-mode chat save
         # (review-2 fix n2): a multi chat turn must not silently overwrite a
