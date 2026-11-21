@@ -1412,6 +1412,12 @@ CELERY_BEAT_SCHEDULE = {
         "task": "application.cleanup_import_idempotency_records",
         "schedule": crontab(minute=0),
     },
+    # R1/P5 (D14b): bound the EXPORT_DIR disk footprint by purging expired
+    # artifact-transfer ZIPs (and their metadata rows) hourly.
+    "cleanup-export-snapshots": {
+        "task": "application.cleanup_expired_export_snapshots",
+        "schedule": crontab(minute=30),
+    },
 }
 
 # T-A4-2: the dream entry exists only when the cadence is positive. Building the

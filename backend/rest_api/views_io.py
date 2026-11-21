@@ -39,7 +39,7 @@ from uuid import UUID
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db.models import ProtectedError, QuerySet
-from django.http import Http404, HttpResponse
+from django.http import FileResponse, Http404, HttpResponse
 from django.utils import timezone
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -183,6 +183,7 @@ from application.services import (
 )
 from application.generic_export_service import GenericArtifactExportService
 from application.workspace_snapshot_service import WorkspaceSnapshotService
+from application.zip_snapshot_export_service import ZipSnapshotExportService
 
 # GH-914: the trace-link proposal guard raises a service-local exception, like
 # BundleDepthExceededError above — imported from its own module rather than
@@ -1841,3 +1842,157 @@ class SnapshotImportView(APIView):
                 "id_map": result.id_map,
             }
         )
+
+
+# ---------------------------------------------------------------------------
+# ZIP full-snapshot endpoints — R1/P5 (D14a/D14b/D14c/D16)
+# ---------------------------------------------------------------------------
+
+# Same inline-serializer + error-envelope convention as the JSON snapshot
+# endpoints above: the serializer is both the OpenAPI wire contract and the
+# required ``serializer_class`` for the project's schema gate.
+_ZipSnapshotStartSerializer = inline_serializer(
+    name="WorkspaceZipSnapshotStartResponse",
+    fields={
+        "export_id": serializers.CharField(required=False),
+        "task_id": serializers.CharField(required=False),
+        "status": serializers.CharField(required=False),
+        "checksum_sha256": serializers.CharField(required=False, allow_null=True),
+        "size_bytes": serializers.IntegerField(required=False, allow_null=True),
+        "status_url": serializers.CharField(required=False),
+        "download_url": serializers.CharField(required=False),
+        "dry_run": serializers.BooleanField(required=False),
+        "source_workspace_id": serializers.CharField(required=False),
+        "target_workspace_id": serializers.CharField(required=False, allow_null=True),
+        "cross_tenant": serializers.BooleanField(required=False),
+        "preview": serializers.DictField(required=False),
+    },
+)
+_ZipSnapshotStatusSerializer = inline_serializer(
+    name="WorkspaceZipSnapshotStatusResponse",
+    fields={
+        "export_id": serializers.CharField(),
+        "status": serializers.CharField(),
+        "source_workspace_id": serializers.CharField(),
+        "format_version": serializers.CharField(),
+        "checksum_sha256": serializers.CharField(allow_null=True),
+        "content_checksum_sha256": serializers.CharField(allow_null=True),
+        "size_bytes": serializers.IntegerField(allow_null=True),
+        "expires_at": serializers.CharField(allow_null=True),
+        "download_url": serializers.CharField(allow_null=True),
+        "error_message": serializers.CharField(),
+        "metadata": serializers.DictField(),
+    },
+)
+_ZipSnapshotDownloadSerializer = inline_serializer(
+    name="WorkspaceZipSnapshotDownloadResponse",
+    fields={
+        "export_id": serializers.CharField(),
+        "checksum_sha256": serializers.CharField(allow_null=True),
+    },
+)
+
+
+class ZipSnapshotExportStartView(APIView):
+    """POST /api/v1/workspaces/{id}/export/snapshot/zip/ — queue a ZIP export.
+
+    Body: ``{target_workspace_id?, dry_run?}``. A dry run returns entity counts
+    only (no file, no queued job) and is mandatory for cross-tenant transfers.
+    """
+
+    serializer_class = _ZipSnapshotStartSerializer
+
+    @extend_schema(
+        tags=["export"],
+        summary="Start an async versioned ZIP snapshot export",
+        request=_ZipSnapshotStartSerializer,
+        responses={200: _ZipSnapshotStartSerializer, 202: _ZipSnapshotStartSerializer},
+    )
+    def post(self, request: Request, pk: str | None = None) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            result = ZipSnapshotExportService().start_export(
+                ctx=ctx,
+                workspace_id=pk,
+                target_workspace_id=request.data.get("target_workspace_id") or None,
+                dry_run=bool(request.data.get("dry_run", False)),
+            )
+        except Exception as exc:  # noqa: BLE001 — uniform error envelope
+            return _service_error_response(exc, lang)
+        response_status = (
+            status.HTTP_200_OK if result.get("dry_run") else status.HTTP_202_ACCEPTED
+        )
+        return Response(result, status=response_status)
+
+
+class ZipSnapshotExportStatusView(APIView):
+    """GET /api/v1/workspaces/{id}/export/snapshot/zip/{export_id}/status/."""
+
+    serializer_class = _ZipSnapshotStatusSerializer
+
+    @extend_schema(
+        tags=["export"],
+        summary="Poll the status of a ZIP snapshot export",
+        responses={200: _ZipSnapshotStatusSerializer},
+    )
+    def get(
+        self, request: Request, pk: str | None = None, export_id: str | None = None
+    ) -> Response:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            result = ZipSnapshotExportService().get_status(
+                ctx=ctx, workspace_id=pk, export_id=export_id
+            )
+        except Exception as exc:  # noqa: BLE001
+            return _service_error_response(exc, lang)
+        return Response(
+            {
+                "export_id": result.export_id,
+                "status": result.status,
+                "source_workspace_id": result.source_workspace_id,
+                "format_version": result.format_version,
+                "checksum_sha256": result.checksum_sha256,
+                "content_checksum_sha256": result.content_checksum_sha256,
+                "size_bytes": result.size_bytes,
+                "expires_at": result.expires_at,
+                "download_url": result.download_url,
+                "error_message": result.error_message,
+                "metadata": result.metadata,
+            }
+        )
+
+
+class ZipSnapshotExportDownloadView(APIView):
+    """GET /api/v1/workspaces/{id}/export/snapshot/zip/{export_id}/download/."""
+
+    serializer_class = _ZipSnapshotDownloadSerializer
+
+    @extend_schema(
+        tags=["export"],
+        summary="Download a completed ZIP snapshot",
+        responses={
+            200: OpenApiResponse(description="Versioned ZIP snapshot", response=OpenApiTypes.BINARY)
+        },
+    )
+    def get(
+        self, request: Request, pk: str | None = None, export_id: str | None = None
+    ) -> HttpResponse:
+        lang = detect_lang(request)
+        try:
+            ctx = get_auth_context(request)
+            service = ZipSnapshotExportService()
+            result = service.get_status(ctx=ctx, workspace_id=pk, export_id=export_id)
+            path = service.download_path(ctx=ctx, workspace_id=pk, export_id=export_id)
+            response = FileResponse(
+                open(path, "rb"),
+                content_type="application/zip",
+                as_attachment=True,
+                filename=f"workspace-snapshot-{result.export_id}.zip",
+            )
+            if result.checksum_sha256:
+                response["X-Checksum-SHA256"] = result.checksum_sha256
+            return response
+        except Exception as exc:  # noqa: BLE001
+            return _service_error_response(exc, lang)

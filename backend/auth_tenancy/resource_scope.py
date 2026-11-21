@@ -380,6 +380,12 @@ _WORKSPACE_VIA_REQUEST = (
     "GenericEntityExportView",
     "SnapshotExportView",
     "SnapshotImportView",
+    # R1/P5: the ZIP snapshot start/status/download routes carry the workspace
+    # in the URL (``workspaces/<uuid:pk>/...``); the service additionally binds
+    # each export row to that workspace and the caller's tenant.
+    "ZipSnapshotExportStartView",
+    "ZipSnapshotExportStatusView",
+    "ZipSnapshotExportDownloadView",
     "ReqifImportView",
     "ReqifExportView",
     "ReviewPolicyView",

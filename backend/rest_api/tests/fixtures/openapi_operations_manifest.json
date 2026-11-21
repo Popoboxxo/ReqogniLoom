@@ -2226,6 +2226,18 @@
       "post"
     ],
     [
+      "/api/v1/workspaces/{id}/export/snapshot/zip/",
+      "post"
+    ],
+    [
+      "/api/v1/workspaces/{id}/export/snapshot/zip/{export_id}/download/",
+      "get"
+    ],
+    [
+      "/api/v1/workspaces/{id}/export/snapshot/zip/{export_id}/status/",
+      "get"
+    ],
+    [
       "/api/v1/workspaces/{id}/import/csv/",
       "post"
     ],

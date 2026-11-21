@@ -270,6 +270,9 @@ from rest_api.views import (
     GenericEntityExportView,
     SnapshotExportView,
     SnapshotImportView,
+    ZipSnapshotExportDownloadView,
+    ZipSnapshotExportStartView,
+    ZipSnapshotExportStatusView,
     CsvImportView,
     DocumentViewSet,
     GlossaryTermViewSet,
@@ -468,6 +471,22 @@ urlpatterns = [
         "workspaces/<uuid:pk>/import/snapshot/",
         SnapshotImportView.as_view(),
         name="workspace-snapshot-import",
+    ),
+    # R1/P5: async ZIP full-snapshot export (start / poll / download).
+    path(
+        "workspaces/<uuid:pk>/export/snapshot/zip/",
+        ZipSnapshotExportStartView.as_view(),
+        name="workspace-snapshot-zip-export-start",
+    ),
+    path(
+        "workspaces/<uuid:pk>/export/snapshot/zip/<uuid:export_id>/status/",
+        ZipSnapshotExportStatusView.as_view(),
+        name="workspace-snapshot-zip-export-status",
+    ),
+    path(
+        "workspaces/<uuid:pk>/export/snapshot/zip/<uuid:export_id>/download/",
+        ZipSnapshotExportDownloadView.as_view(),
+        name="workspace-snapshot-zip-export-download",
     ),
     # ReqIF 1.2 import (REQ-147, COMP-AS-008b) — workspace-scoped.
     path(
