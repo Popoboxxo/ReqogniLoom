@@ -821,6 +821,12 @@ class RequirementsToolGroup(BaseToolGroup):
         if "parent_id" in data or "parent_id" in params:
             hierarchy_kwargs["parent_id"] = _field("parent_id")
 
+        # Issue #2004: fields the workflow/service owns are never written here.
+        # They are reported back in `ignored_read_only_fields` so an agent can
+        # tell "accepted but not applied" apart from "applied". This is purely
+        # additive — the persisted entity is unchanged.
+        ignored_read_only: list[str] = []
+
         try:
             # Ledger gap #1 / issue #881: same central gate as
             # RequirementViewSet.partial_update. workspace_id is not part of
@@ -843,6 +849,14 @@ class RequirementsToolGroup(BaseToolGroup):
                     "cannot be set (ADR-005). Send 'parent_id' to move the "
                     "requirement, then read the derived level back.",
                 )
+            # #2004: an echoed, unchanged `level` is tolerated (#263) but never
+            # applied — surface it as ignored. A *changed* one already returned
+            # a VALIDATION_ERROR above, so it cannot reach this response.
+            if sent_level is not None:
+                ignored_read_only.append("level")
+            if "status" in data or "status" in params:
+                ignored_read_only.append("status")
+            ignored_read_only.sort()
 
             definition_error = validate_artifact_write(
                 auth_context,
@@ -887,7 +901,10 @@ class RequirementsToolGroup(BaseToolGroup):
             tool_name="requirement.update",
             api_key=api_key,
         )
-        return ToolResult.ok({"requirement": _requirement_to_dict(req)})
+        return ToolResult.ok({
+            "requirement": _requirement_to_dict(req),
+            "ignored_read_only_fields": ignored_read_only,
+        })
 
     # ------------------------------------------------------------------
     # requirement.outdate
@@ -1023,13 +1040,31 @@ class RequirementsToolGroup(BaseToolGroup):
             tool_name="requirement.decompose",
             api_key=api_key,
         )
-        return ToolResult.ok({
+        children = [
+            {"id": str(c.id), "title": c.title, "description": c.description}
+            for c in result.children
+        ]
+        payload: dict[str, Any] = {
             "parent_id": str(result.parent_id),
-            "children": [
-                {"id": str(c.id), "title": c.title, "description": c.description}
-                for c in result.children
-            ],
-        })
+            "children": children,
+        }
+        if not children:
+            # Issue #2000: the decomposition capability is registered as async
+            # in the LLM router, so `children` is not populated in this call's
+            # response -- the adapter hands back a task_id instead. Keep the
+            # call a success but say so: a bare `children: []` is otherwise
+            # indistinguishable from a broken pipeline. The cause-neutral code
+            # and message must NOT claim the provider returned nothing or that
+            # the requirement lacks detail (that would misinform every caller).
+            # This is additive and distinct from the async task_id path.
+            payload["degraded"] = True
+            payload["degraded_reason"] = "NO_CHILDREN_DERIVED"
+            payload["message"] = (
+                "No child requirements are available from this call; the "
+                "decomposition capability runs asynchronously — poll the task "
+                "status or use the derivation flow."
+            )
+        return ToolResult.ok(payload)
 
     # ------------------------------------------------------------------
     # requirement.derive

@@ -982,14 +982,65 @@ def test_llm_system_prompt_role_is_label_only_does_not_filter_data(workspace_wit
     prompt_dev = result_dev.data["system_prompt"]
     prompt_tester = result_tester.data["system_prompt"]
 
-    # Extract the requirements and architecture sections (everything after the role line)
-    # to verify the substantive data is identical
-    dev_sections = prompt_dev.split("## Aktive Requirements")[1] if "## Aktive Requirements" in prompt_dev else ""
-    tester_sections = prompt_tester.split("## Aktive Requirements")[1] if "## Aktive Requirements" in prompt_tester else ""
-    assert dev_sections == tester_sections, "Requirements and architecture sections must be identical"
+    # Compare the substantive data lines only: section headings are localised
+    # (issue #1997), so splitting on one fixed German heading is not stable.
+    def _data_lines(prompt: str) -> list[str]:
+        return [line for line in prompt.splitlines() if line.startswith("- [")]
 
-    # Verify the role label is echoed correctly in each prompt
-    assert "Du bist als developer unterwegs" in prompt_dev
+    assert _data_lines(prompt_dev) == _data_lines(prompt_tester), (
+        "Requirements and architecture data must be identical regardless of role"
+    )
+    assert _data_lines(prompt_dev), "the fixture has at least one active requirement"
+
+    # The role is echoed as a label only, in the workspace's resolved language.
+    from application.ai_language import system_prompt_text
+
+    assert system_prompt_text(workspace_id)["role"].format(role="developer") in prompt_dev
+    assert system_prompt_text(workspace_id)["role"].format(role="tester") in prompt_tester
+
+
+@pytest.mark.django_db
+def test_llm_system_prompt_follows_resolved_ai_language(tenant_workspace_ctx):
+    """#1997/#2030: the system prompt text follows the S7 language seam
+    (explicit ``ai_language`` -> ``Workspace.language`` -> English) instead of
+    being hardcoded German."""
+    from application.ai_language import system_prompt_text
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+    from persistence.models import AiLanguage, Workspace
+
+    tenant, workspace, ctx = tenant_workspace_ctx
+    group = CrossCuttingToolGroup()
+
+    def _prompt() -> str:
+        result = group.execute_tool(
+            "workspace.llm_system_prompt",
+            params={"workspace_id": str(workspace.id)},
+            auth_context=ctx,
+            api_key="",
+        )
+        assert result.success is True
+        return result.data["system_prompt"]
+
+    # Default workspace: ai_language=auto, content language=en -> English.
+    prompt_en = _prompt()
+    en = system_prompt_text(workspace.id)
+    assert en["working_on"].format(project=workspace.name) in prompt_en
+    assert en["active_requirements"] in prompt_en
+    assert "Du arbeitest am Projekt" not in prompt_en
+
+    # An explicit German override wins over the English content language.
+    TenantContext.set_tenant(tenant.id)
+    try:
+        Workspace.objects.filter(id=workspace.id).update(
+            ai_language=AiLanguage.DE
+        )
+    finally:
+        TenantContext.clear_tenant()
+    prompt_de = _prompt()
+    de = system_prompt_text(workspace.id)
+    assert de["working_on"].format(project=workspace.name) in prompt_de
+    assert de["active_requirements"] in prompt_de
+    assert "You are working on project" not in prompt_de
 
 
 # ---------------------------------------------------------------------------
@@ -1063,6 +1114,41 @@ def test_change_impact_returns_affected_entities(entity_with_traces, auth_ctx):
     assert entry["relation"] == "upstream"
     assert "likely_affected" in entry
     assert "rationale" in entry
+
+
+def test_change_impact_prompt_explains_trace_direction():
+    """#2037: the ranking prompt must teach the LLM that 'upstream' is a trace
+    direction, not a hierarchy level -- otherwise a 'refines' child (upstream of
+    its parent) gets mislabeled 'higher-level'. The wire field 'relation' stays
+    the raw direction ('upstream'); only the prompt wording changes."""
+    from unittest.mock import patch
+
+    from mcp_server.tools import cross_cutting
+
+    candidates = [
+        {
+            "id": "child-1",
+            "entity_type": "ArchitectureElement",
+            "title": "Detailed child",
+            "link_type": "refines",
+            "relation": "upstream",
+        }
+    ]
+    with patch.object(
+        cross_cutting, "_complete_change_impact", return_value="[]"
+    ) as complete:
+        result = cross_cutting.CrossCuttingToolGroup()._rank_change_impact_candidates(
+            candidates, "change"
+        )
+
+    prompt = complete.call_args.args[0]
+    assert "trace direction, NOT hierarchy level" in prompt
+    assert "neighbour points at the anchor" in prompt
+    assert "anchor points at the neighbour" in prompt
+    assert "'refines' links point from the more detailed child" in prompt
+    assert "does NOT mean 'higher-level'" in prompt
+    # Wire contract unchanged: relation is still the raw trace direction.
+    assert result[0]["relation"] == "upstream"
 
 
 @pytest.mark.django_db
