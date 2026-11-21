@@ -136,7 +136,7 @@ def test_router_routes_all_group_and_allocation_tools() -> None:
 
 @pytest.mark.django_db
 def test_dispatch_request_does_not_report_group_tools_as_unknown(
-    e2e_api_key_admin, e2e_workspace
+    e2e_api_key_admin, e2e_userrole_admin, e2e_workspace
 ) -> None:
     """The exact regression: dispatch_request used to answer UNKNOWN_TOOL."""
     result = ToolRegistry().dispatch_request(
@@ -145,5 +145,5 @@ def test_dispatch_request_does_not_report_group_tools_as_unknown(
         api_key=e2e_api_key_admin,
     )
 
-    assert result.error_code != "UNKNOWN_TOOL", result
-    assert result.success is True, result
+    assert result.error_code != "UNKNOWN_TOOL", (result.error_code, result.message)
+    assert result.success is True, (result.error_code, result.message)
