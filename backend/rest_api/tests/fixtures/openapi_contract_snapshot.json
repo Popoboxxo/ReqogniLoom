@@ -11388,6 +11388,7 @@
     "ErrorDetail",
     "ErrorResponse",
     "GenerateDraftRequestRequest",
+    "GenericEntityExportResponse",
     "GlobalAttributeDefinition",
     "GlobalLinkType",
     "GlobalLinkTypePage",

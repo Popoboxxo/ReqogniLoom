@@ -1638,6 +1638,19 @@ class ReqifImportView(APIView):
 # ---------------------------------------------------------------------------
 
 
+# The schema gate requires a declared content schema for every 2xx response;
+# `OpenApiResponse(description=...)` alone publishes no content type.
+_GenericEntityExportSerializer = inline_serializer(
+    name="GenericEntityExportResponse",
+    fields={
+        "entity": serializers.CharField(),
+        "export_format": serializers.CharField(),
+        "items": serializers.ListField(child=serializers.DictField()),
+        "truncated": serializers.BooleanField(),
+    },
+)
+
+
 class GenericEntityExportView(APIView):
     """GET /api/v1/workspaces/{id}/export/entity/ — generic artifact export.
 
@@ -1647,6 +1660,8 @@ class GenericEntityExportView(APIView):
     ``X-Export-Truncated`` so a caller cannot mistake a partial export for a
     complete one.
     """
+
+    serializer_class = _GenericEntityExportSerializer
 
     @extend_schema(
         tags=["export"],
@@ -1665,7 +1680,7 @@ class GenericEntityExportView(APIView):
                 description="json (default) | csv | markdown | pdf. Not `format` — DRF consumes ?format for renderer negotiation.",
             ),
         ],
-        responses={200: OpenApiResponse(description="Exported artifact data.")},
+        responses={200: _GenericEntityExportSerializer},
     )
     def get(self, request: Request, pk: str | None = None) -> HttpResponse:
         lang = detect_lang(request)
