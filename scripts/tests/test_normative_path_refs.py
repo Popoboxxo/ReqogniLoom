@@ -26,12 +26,18 @@ SOURCES = (AGENTS, REQUIREMENTS)
 # Previously missing: three AGENTS.md targets (now in-document anchors), the two
 # SE schemas created in this slice, and the archived audit path in REQUIREMENTS.md.
 PREVIOUSLY_MISSING = (
-    "AGENTS.md#bekannte-grenzen",
-    "AGENTS.md#guard-terminologie-convention-boundary-vs-security-boundary",
-    "AGENTS.md#repo-containment-gefängnis-modus",
     "schemas/se-adr.schema.json",
     "schemas/se-review.schema.json",
     "docs/archive/audits/SYSTEMAUDIT_2026-08-27.md",
+)
+
+# agent-meta v2.0.0-beta.9 fixed the three dead path refs at the source: the
+# normative rules no longer link to non-existent files but describe the
+# boundaries inline. The guard now pins that resolved content instead of the
+# superseded anchors.
+INLINE_LIMIT_MARKERS = (
+    "Einstufung: Convention boundary",
+    "Kerngrenzen: Indirektion",
 )
 REMOVED_DEAD_REFS = (
     "docs/concepts/branch-guard-known-limits.md",
@@ -102,6 +108,8 @@ def test_previously_missing_paths_are_covered() -> None:
     all_text = "\n".join(texts.values())
     available_anchors = _agents_anchors(texts[AGENTS])
 
+    for marker in INLINE_LIMIT_MARKERS:
+        assert marker in all_text, f"DOC-011 inline limit marker missing: {marker}"
     for ref in PREVIOUSLY_MISSING:
         assert ref in all_text, f"DOC-011 target no longer referenced: {ref}"
         if ref.startswith("AGENTS.md#"):

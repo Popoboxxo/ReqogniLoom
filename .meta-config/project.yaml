@@ -1,4 +1,4 @@
-agent-meta-version: "2.0.0-beta.8"
+agent-meta-version: "2.0.0-beta.9"
 test-repo:
   enabled: false
   path: ''
@@ -81,7 +81,7 @@ systems-engineering:
     plus L2/<System>System/-Zellen), VV/VV_Strategy_new_needs_v6.md, strategy/ (PRODUCT_STRATEGY,
     test-strategy, integration-strategy), requirements/, reviews/, traceability-matrix.md,
     interface-registry.md, reports/ inkl. reports/deep_audit/ und KNOWN_TEST_GATE_REDS.md.
-    Projektstand VERSION 1.8.0-beta.28; jüngster Release-Report RELEASE_v1.8.0-beta.18.md
+    Projektstand VERSION 1.9.0-beta.2; jüngster Release-Report RELEASE_v1.9.0-beta.2.md
     (für beta.19–beta.28 fehlt der Report). Konsolidierter Audit-Stand
     docs/REAUDIT_2026-09-03.md; 11 CI-Workflows unter .github/workflows/ (ci, playwright
     mit 4 Shards, docker-publish, version-drift-check, client-artifacts-check, client-smoke,
@@ -212,7 +212,7 @@ variables:
       baseline/                              # Layer 1 (Snapshot-Baselines, Diff-Engine)
       context_graph/                         # abgeleiteter Soft-Edge-Layer (Issue #377)
       memory/                                # AI Long-Term Memory (Workspace + Tenant-global)
-      application/                           # Layer 2 (68 *_service.py Domain-Services, Single Entry Point)
+      application/                           # Layer 2 (97 *_service.py Domain-Services, Single Entry Point)
       rest_api/                              # Layer 3 (DRF ViewSets + drf-spectacular OpenAPI)
       mcp_server/                            # Layer 3 (MCP-Tool-Registry: 301 Tools, 49 Gruppen)
       diagram/                               # Ext (SVG/PNG/Mermaid/PlantUML Renderer)
@@ -250,7 +250,7 @@ variables:
     backend/             # Django REST API (20 Apps in REQFLOW_APPS)
                          #   Layer 0: persistence, auth_tenancy, presets, audit
                          #   Layer 1: llm_adapter, traceability, workflow, link_types, attribute_definitions, baseline
-                         #   Layer 2: application (68 *_service.py)
+                         #   Layer 2: application (97 *_service.py)
                          #   Layer 3: rest_api, mcp_server
                          #   Ext: diagram, icd, context_graph, memory, se_metrics, resilience, admin_ops
     backend/reqogniloom/ # Django-Projekt (settings.py, urls.py, wsgi.py, asgi.py, version.py, health.py)
@@ -281,7 +281,7 @@ variables:
       docs/agent-templates/tool-manifest.json, Drift-Gate: backend/mcp_server/tests/test_tool_manifest_drift.py);
       kanonischer Pfad /mcp/, /api/v1/mcp/ nur noch deprecated Alias
     - drf-spectacular für OpenAPI 3.0 (Schema, Swagger-UI, ReDoc)
-    - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade (68 *_service.py)
+    - Single-Entry-Point Pattern (ADR-01): Layer 2 application/ ist die einzige Domain-Fassade (97 *_service.py)
     - TenantContext als Thread-Local Singleton + Row-Level-Security (ADR-03)
     - Configurable Rigor (ADR-04): 3 Presets (minimal/standard/extended) mit gleichem Datenmodell
     - LLM-Provider-Abstraktion (ADR-02): Capability-Interface mit graceful degradation
@@ -480,7 +480,7 @@ orchestrator:
   handoff:
     protocol: a2a-v1
   delegation:
-    max_depth: 10
+    max_depth: 3
   direct-dispatch-enabled: true
   checkpointing: true
   unknown-fallback:
@@ -488,6 +488,9 @@ orchestrator:
     ask-user: true
     meta-feedback: false
   mode: advisory
+  provider-overrides:
+    Opencode:
+      topology: subagent
 drift-detection:
   enabled: true
 release-gates:
