@@ -13,6 +13,9 @@ als UNVERIFIED markiert. Die unten genannten GitHub-Issues wurden durch diesen A
 - **Dieses Verzeichnis (oberste Ebene)** — Pläne mit echter offener Arbeit sowie laufende Koordinations- und Entscheidungsdokumente.
 
 ## Oberste Ebene — offene Arbeiten
+## [2026-11-21-artifact-transfer-plan.md](2026-11-21-artifact-transfer-plan.md)
+**In progress (2026-11-21, frontmatter `status: in_progress`).** Vollständiger Plan für Import/Export, Backup/Restore und vollständige Workspace-Kopie über alle 24 REST/MCP-Entitäten. Findings: driftende Allowlists (3/4/7/12/15 Typen), ~17 Typen ohne Exportpfad, App-Restore als Upsert-Overlay ohne Ziel/Checksum (EXT-004), Clone nur 6 Typen. 18 getroffene Entscheidungen (nie löschen → `reconcile_status`, neue IDs + `source_id`, alle Relationen, Cross-Tenant mit Quell-LESEN+Ziel-ADMIN+Dry-Run, ZIP-Snapshot via `EXPORT_DIR`, ReqIF standardkonform inkl. TestCase/Icd, Ziel-Instanz-Restore). 8 Pakete P1–P8; Implementierung startet auf `feat/artifact-transfer-contract` mit P1 (Contract & Ratchet).
+
 
 ## [2026-11-19-trace-spine-footer-plan.md](2026-11-19-trace-spine-footer-plan.md)
 **Approved plan — all 4 slices implemented (2026-11-19, frontmatter `status: approved`).** Moved the `<TraceSpine>` arrow chain into a full-width horizontal footer with two independent user toggles (footer / inspector), expand past 5 stations while keeping the active station visible, per-module resizable tree (explicit reversal of the UI-001 no-drag decision, ADR-030 accepted), and an on-demand impact-analysis drawer on `/traceability`. Verified against `origin/main 37e3ee40`: 8 real spine mounts, concept-only SplitView contract, `hideTraceLinks` already removed by Inspector redesign M8. 4 slices / 12 tasks with gates; user decisions D1/D2/D2b/D3/D5/D7/D8 in §2; reviews + resolutions in §11. UI/a11y reviews APPROVE per slice; implementation on `docs/trace-spine-footer-plan`, final PR/merge pending.
