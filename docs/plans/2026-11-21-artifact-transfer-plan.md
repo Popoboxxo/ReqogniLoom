@@ -1,7 +1,7 @@
 ---
 type: PLAN
 title: "Import/Export, Backup/Restore und vollständige Workspace-Kopie für alle Artefakte"
-status: in_progress
+status: done
 date: 2026-11-21
 author_agent: planner
 language: de
@@ -132,7 +132,7 @@ OMG ReqIF 1.2 ist ein **Austauschformat für Organisationen ohne gemeinsames Rep
 | **P7 — Backup/Restore** | Checksum-Verifikation, `format_version`, Dry-Run, RLS-Kontext, echter Round-Trip inkl. pgvector, `target_*`, ADR-012/EXT-004 | Round-Trip gegen echte Test-DB; RLS-Test; UI/MCP-Parität |
 | **P8 — E2E & Ops** | Seite „Datenübernahme"; E2E Snapshot/Copy/ReqIF/Restore; `deploy/README.md`, `DATA_LIFECYCLE.md`, ADRs | 4 CI-Shards grün; Runbook „alle Artefakte in neuen Workspace" |
 
-Reihenfolge: P1 → P2/P3/P4 (parallel) → P5 → P6 → P7 → P8. Jedes Paket: eigener PR, Review, CI 30/30, Merge-Commit.
+Reihenfolge: P1 → P2/P3/P4 (parallel) → P5 → P6 → P7 → P8. Auslieferung: alle Pakete gemeinsam auf einem Branch in einem PR („ein Branch/ein PR" statt Einzel-PRs je Paket); Review, CI und Merge erfolgen gesammelt über diesen einen PR.
 
 ## 7. Testmatrix (verbindlich)
 
@@ -155,3 +155,24 @@ Für **jede** der 24 Entitäten: `export(format)` → `import(target=new)` → F
 - `backend/mcp_server/tests/entity_surface_matrix.py`
 - `docs/se/ADR/ADR-012_backup_wahrheit.md`, `docs/audit/2026-11-16-deep-dive-findings.md`
 - OMG ReqIF 1.2 (`https://www.omg.org/spec/ReqIF/1.2/`)
+
+---
+
+## 10. Abschlussnotiz (R6, 2026-11-21)
+
+**Zweck:** Dokumentiert den Umsetzungsstand dieses Plans zum Abschluss (R6).
+**Quelle:** Übergabe des Main-Chats; Code-only-Worker auf Branch `feat/transfer-plan-completion`. Keine Test- oder CI-Durchführung durch die Worker.
+
+Die fünf Implementierungspakete wurden auf diesem einen Branch umgesetzt:
+
+| REQ | Paket | Inhalt |
+|---|---|---|
+| R1 | P5 | ZIP-Snapshot (async Export/Import, Checksum, Streaming) |
+| R2 | P6 | Vollständige Workspace-Kopie (`clone_workspace`, FK/M2M-Remap) |
+| R3 | P7 | Restore-Test inkl. pgvector-Round-Trip |
+| R4 | §7 | Testmatrix Typ × Format × Zielmodus |
+| R5 | P2 | Per-Format-E2E (CSV/JSON/MD/PDF) |
+
+R6 (diese Datei): Status auf `done` gesetzt, Auslieferungsnotiz auf „ein Branch/ein PR" korrigiert.
+
+**Verifikation (Main-Chat, 2026-11-21):** Die Worker lieferten Code-only (kein Shell im Harness, agent-meta#1329); alle Testläufe, Fixture-Regenerierungen und der Git-Export liefen anschließend im Main-Chat. Die neuen Pakete sind lokal grün: R1 8/8, R2+R4 37/37, R3 3/3, R5 code-seitig (CI-Shards). OpenAPI-Fixtures (633 Operationen / 495 Schemas), Tool-Manifest und DOC-008-Counts wurden regeneriert; `makemigrations --check` ist sauber. Der abschließende CI-Lauf erfolgt im PR.
