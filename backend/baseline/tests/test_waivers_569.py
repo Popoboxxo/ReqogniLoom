@@ -363,6 +363,28 @@ class TestGovernanceChokePoints:
         with pytest.raises(GovernanceAuthorityError):
             assert_gate_waiver_authority(editor)
 
+    def test_authority_message_is_operation_aware(self):
+        """#2033: only the denial verb changes with ``action``; the default
+        grant-path wording and the authority decision stay identical."""
+        editor = MagicMock()
+        editor.active_roles = ("editor",)
+
+        with pytest.raises(GovernanceAuthorityError) as waive_exc:
+            assert_gate_waiver_authority(editor)
+        with pytest.raises(GovernanceAuthorityError) as list_exc:
+            assert_gate_waiver_authority(editor, action="list")
+
+        assert "overriding or waiving the SE-Auditor baseline gate" in str(
+            waive_exc.value
+        )
+        assert "listing SE-Auditor waiver records" in str(list_exc.value)
+        assert "waiving" not in str(list_exc.value)
+
+    def test_authority_choke_point_rejects_unknown_action(self):
+        """An unknown action fails closed instead of silently degrading."""
+        with pytest.raises(ValueError):
+            assert_gate_waiver_authority(MagicMock(), action="banana")
+
     def test_reason_policy_constants_are_reexported_from_the_facade(self):
         """AC-569-33: constants live at L1 and remain importable from the facade."""
         from application import baseline_facade

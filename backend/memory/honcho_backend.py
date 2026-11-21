@@ -2376,8 +2376,18 @@ class HonchoMemoryBackend(MemoryBackend):
         # Without ``include_evidence`` the SDK returns the bare answer string, or
         # ``None`` when the engine found nothing to say -- never a wrapper.
         text = answer if isinstance(answer, str) else ("" if answer is None else str(answer))
+        # #2036: a clean empty answer (the engine found nothing relevant) is
+        # still a successful answer (F9: degraded stays False). Surface a
+        # positive, non-user-data hint so "nothing relevant known" is
+        # distinguishable from a successful but non-empty answer without
+        # changing the wire-level degraded contract.
+        detail = "no_relevant_memory" if answer is None else ""
         return MemoryAnswer(
-            text=text, generated_at=generated_at, backend="honcho", degraded=False
+            text=text,
+            generated_at=generated_at,
+            backend="honcho",
+            degraded=False,
+            detail=detail,
         )
 
     def consolidate(

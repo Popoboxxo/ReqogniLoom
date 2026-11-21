@@ -520,8 +520,9 @@ class MemoryToolGroup(BaseToolGroup):
         ``unknown_scope:<ExceptionClassName>`` (never user data) when the answer
         degraded, so a caller can tell a backend outage apart from an unknown
         scope -- and both from "nothing known". The exception class name stays a
-        substring for backwards compatibility. It is an empty string on a
-        successful answer.
+        substring for backwards compatibility. On a successful answer ``detail``
+        is normally empty; a dialectic backend may set the positive hint
+        ``no_relevant_memory`` for a clean-empty answer (``degraded=False``).
 
         Registered as a WRITE tool (``_WRITE_TOOL_PREFIXES``): the call drives a
         generative LLM, so a read_only/Viewer key must not reach it.

@@ -767,6 +767,8 @@ class TestHonchoSpecificContract:
 
             assert answer.degraded is False
             assert answer.text == ""
+            # #2036: positive hint on a successful empty answer (F9 unchanged).
+            assert answer.detail == "no_relevant_memory"
 
     def test_honcho_admits_no_scope_less_derivation_claim(self):
         """AP-B5.1 (#1155): Honcho CAN derive, but the scope-less health
