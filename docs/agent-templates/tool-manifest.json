@@ -1995,7 +1995,7 @@
       "name": "audit.query",
       "prefix": "audit",
       "is_write": false,
-      "description": "Query the audit log with filters (admin-only, read).",
+      "description": "Query the audit log with filters (read). Requires BOTH the admin workspace role AND an ADMIN-tier API key. Results are tenant-wide within the caller's own tenant; workspace_id is validated for format only and does not filter.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4518,7 +4518,7 @@
       "name": "interview.answer",
       "prefix": "interview",
       "is_write": true,
-      "description": "Record an answer for one field of the current phase (write).",
+      "description": "Record an answer for one named protocol field (write). The field name is resolved across ALL phases of the session's protocol, not just the current one, so an already-collected field can be answered again.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -8473,7 +8473,7 @@
       "name": "tool.list_groups",
       "prefix": "tool",
       "is_write": false,
-      "description": "List every MCP tool group with its tool count. Always visible, never narrowed by an API key's tool_groups curation — call it to discover which group names exist before configuring a key's tool_groups list. Note that tool_groups only changes what tools/list advertises; every tool your role and key scope permit stays callable by name.",
+      "description": "List every MCP tool group with its tool count. Always visible, never narrowed by an API key's tool_groups curation — call it to discover which group names exist before configuring a key's tool_groups list. Counts are the full registry totals, NOT the subset tools/list returns for your role, key scope and tool_groups curation — that list may be smaller (or empty for a group you cannot use). Note that tool_groups only changes what tools/list advertises; every tool your role and key scope permit stays callable by name.",
       "inputSchema": {
         "type": "object",
         "properties": {},
