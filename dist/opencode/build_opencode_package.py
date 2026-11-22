@@ -30,11 +30,20 @@ and the version comes from the repo ``VERSION`` file only.
 import argparse
 import json
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
 
 BUILD_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BUILD_DIR.parent.parent
+# Standalone script (no package __init__.py) and also loaded by path from the
+# repo root by dist/test_mcp_convention_parity.py: make the shared helper
+# importable from either entry point.
+DIST_DIR = REPO_ROOT / "dist"
+if str(DIST_DIR) not in sys.path:
+    sys.path.insert(0, str(DIST_DIR))
+from mcp_url import mcp_endpoint_url  # noqa: E402
+
 SKILLS_SRC = REPO_ROOT / "dist" / "agent-skills"
 DOMAIN_MODEL = REPO_ROOT / "docs" / "agent-templates" / "DOMAIN_MODEL.md"
 LICENSE_FILE = REPO_ROOT / "LICENSE"
@@ -79,7 +88,7 @@ def v2_server_entry(url: str, key_env: str) -> dict[str, Any]:
     """
     return {
         "type": "remote",
-        "url": f"{url}/mcp/",
+        "url": mcp_endpoint_url(url),
         "headers": {"X-API-Key": f"{{env:{key_env}}}"},
         "oauth": False,
         "codemode": False,
@@ -187,6 +196,7 @@ Set the two environment variables OpenCode expands at connect time — never put
 a key into the config file:
 
 ```bash
+# Base URL, no path; do not end in /mcp (the plugin appends /mcp/ itself).
 export REQOGNILOOM_MCP_URL="https://your-reqogniloom-host"
 export REQOGNILOOM_API_KEY="<your API key>"
 ```
@@ -290,7 +300,7 @@ def build(
                 "mcp": {
                     SERVER_NAME: {
                         "type": "remote",
-                        "url": "{env:REQOGNILOOM_MCP_URL}/mcp/",
+                        "url": mcp_endpoint_url("{env:REQOGNILOOM_MCP_URL}"),
                         "headers": {"X-API-Key": "{env:REQOGNILOOM_API_KEY}"},
                     }
                 }

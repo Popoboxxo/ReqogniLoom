@@ -57,6 +57,15 @@ case "$CLIENT" in
     ;;
   opencode|opencode-v2)
     require_bin "$OPENCODE_BIN"
+    # #2049: a base URL that already ended in /mcp used to produce a doubled
+    # /mcp/mcp/ endpoint. install.sh now normalizes the base; catch a stale
+    # config here so the operator gets an actionable error instead of a 404.
+    opencode_config="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json"
+    if [ -f "$opencode_config" ] && grep -qF '/mcp/mcp/' "$opencode_config"; then
+      echo "fail: doubled /mcp/mcp/ path in $opencode_config (#2049)" >&2
+      echo "      re-run install.sh with a base URL (no path, do not end in /mcp)" >&2
+      exit 1
+    fi
     # Isolation: run the client outside the checkout. OpenCode also loads a
     # project-root config, so inside the repository it would mix the
     # maintainer's own servers into the answer (observed: a foreign

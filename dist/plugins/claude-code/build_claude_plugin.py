@@ -16,12 +16,21 @@ being hand-typed per install.
 import argparse
 import json
 import shutil
+import sys
 from pathlib import Path
 
 import yaml
 
 BUILD_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BUILD_DIR.parent.parent.parent
+# Standalone script (no package __init__.py) and also loaded by path from the
+# repo root by dist/test_mcp_convention_parity.py: make the shared helper
+# importable from either entry point.
+DIST_DIR = REPO_ROOT / "dist"
+if str(DIST_DIR) not in sys.path:
+    sys.path.insert(0, str(DIST_DIR))
+from mcp_url import mcp_endpoint_url  # noqa: E402
+
 TEMPLATES_DIR = REPO_ROOT / "docs" / "agent-templates"
 SKILLS_SRC = REPO_ROOT / "dist" / "agent-skills"
 SERVER_NAME = "reqogniloom"
@@ -85,7 +94,8 @@ def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
                         "type": "string",
                         "title": "ReqogniLoom URL",
                         "description": (
-                            "Base URL, e.g. https://reqlo.example.com"
+                            "Base URL, no path; do not end in /mcp "
+                            "(e.g. https://reqlo.example.com)"
                         ),
                         "required": True,
                     },
@@ -113,7 +123,7 @@ def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
                 "mcpServers": {
                     SERVER_NAME: {
                         "type": "http",
-                        "url": "${user_config.mcp_url}/mcp/",
+                        "url": mcp_endpoint_url("${user_config.mcp_url}"),
                         "headers": {"X-API-Key": "${user_config.api_key}"},
                     }
                 }
