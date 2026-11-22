@@ -9,7 +9,8 @@ req_id  : REQ-L1-046 (admin DR / observability),
 
 Tools implemented:
 
-  audit.query        (read)  — query the audit log with filters (admin-only)
+  audit.query        (read)  — query the audit log with filters (admin role +
+                                 ADMIN key tier; tenant-wide in own tenant)
   audit.ai_review    (read)  — SysEng 2.0 N8: bundle SE-Auditor findings into
                                 LLM-generated refactoring packages
   audit.se_audit     (read)  — raw SE-Auditor run (issue #410); AUTHOR tier
@@ -39,12 +40,13 @@ Architecture
   - ``events.dlq_list``  -> ``application.dlq_service.DlqService.list_dlq``
   - ``events.dlq_replay``-> ``application.dlq_service.DlqService.replay_dlq_event``
 
-* Admin role enforcement: each handler checks
-  ``auth_context.has_role("admin")`` at the very top. The underlying
-  ``audit.services.query`` does not enforce admin role (it only sets the
-  tenant context), and the DLQ service does check admin role itself as
-  defence in depth. The MCP-level check guarantees a clean
-  ``PERMISSION_DENIED`` response with no DB roundtrip.
+* Admin enforcement: each admin-only handler uses ``_check_admin`` at the
+  very top, which requires BOTH the user's ``admin`` workspace role AND an
+  ADMIN-tier key scope (#2034, via the shared ``scope_denial_reason`` gate
+  used by ``audit.waivers``). The underlying ``audit.services.query`` sets
+  only the tenant context (no admin check), so the MCP-level check is the
+  clean ``PERMISSION_DENIED`` with no DB roundtrip. The DLQ service also
+  checks admin role as defence in depth.
   ``audit.ai_review`` is the one exception: it is a workspace-scoped SE
   copilot, not an admin-observability tool (unlike ``audit.query`` /
   ``events.*``), so it intentionally does NOT gate on the admin role —
@@ -124,6 +126,7 @@ from audit.models import AuditEntry
 from audit.query import AuditQueryFilters
 from audit.services import query as audit_query
 from auth_tenancy.context import AuthContext
+from auth_tenancy.services.authorization import Operation, scope_denial_reason
 from baseline.exceptions import GovernanceAuthorityError
 from baseline.waivers import assert_gate_waiver_authority
 from mcp_server.protocol_handler import ToolResult
@@ -368,7 +371,12 @@ class AuditToolGroup(BaseToolGroup):
     _TOOL_SCHEMAS = [
         {
             "name": "audit.query",
-            "description": "Query the audit log with filters (admin-only, read).",
+            "description": (
+                "Query the audit log with filters (read). Requires BOTH the admin "
+                "workspace role AND an ADMIN-tier API key. Results are tenant-wide "
+                "within the caller's own tenant; workspace_id is validated for "
+                "format only and does not filter."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -674,22 +682,40 @@ class AuditToolGroup(BaseToolGroup):
 
     @staticmethod
     def _check_admin(auth_context: AuthContext) -> ToolResult | None:
-        """Return a ``PERMISSION_DENIED`` ToolResult if the caller is not admin.
+        """Return a ``PERMISSION_DENIED`` ToolResult unless BOTH admin gates hold.
 
-        Returns ``None`` when the caller has the admin role (i.e. the
-        gate is open). The result is intentionally a ``ToolResult`` (not
-        an exception) because the ``BaseToolGroup.execute_tool``
-        dispatcher only maps ``ParameterError`` -> ``VALIDATION_ERROR``;
-        anything else falls through to ``INTERNAL_ERROR``. Returning a
-        ``ToolResult`` keeps the MCP response clean.
+        #2034: this used to check only ``has_role("admin")`` (the user's
+        workspace role). ``audit.query`` and ``events.dlq_list`` are READ at
+        the key-scope gate, so an AUTHOR-tier key whose owner holds the admin
+        role read tenant-wide audit / DLQ data through a weaker door than REST.
+        ``events.dlq_replay`` is WRITE in the governance ``events`` namespace
+        (``Operation.WORKSPACE_CONFIG``) and shares this handler gate. The
+        explicit ``Operation.WORKFLOW_APPROVAL`` check below applies the ADMIN
+        tier hardening ``audit.waivers`` already uses, consistently to all
+        three admin-only handlers. The role gate is KEPT — both must hold;
+        neither is weakened. A credential with no scope (Bearer session) is
+        not narrowed: ``scope_denial_reason(None, ...)`` returns ``None``.
+
+        Returns ``None`` only when both gates are open. The result is
+        intentionally a ``ToolResult`` (not an exception) because the
+        ``BaseToolGroup.execute_tool`` dispatcher only maps ``ParameterError``
+        -> ``VALIDATION_ERROR``; anything else falls through to
+        ``INTERNAL_ERROR``. Returning a ``ToolResult`` keeps the MCP response
+        clean.
         """
-        if auth_context.has_role("admin"):
-            return None
-        return ToolResult.error(
-            "PERMISSION_DENIED",
-            f"Permission denied: role 'admin' required, "
-            f"user has {auth_context.active_roles}",
+        if not auth_context.has_role("admin"):
+            return ToolResult.error(
+                "PERMISSION_DENIED",
+                f"Permission denied: role 'admin' required, "
+                f"user has {auth_context.active_roles}",
+            )
+        # Governance-tier key scope (same operation/tier audit.waivers uses).
+        scope_error = scope_denial_reason(
+            auth_context.scope, Operation.WORKFLOW_APPROVAL
         )
+        if scope_error:
+            return ToolResult.error("PERMISSION_DENIED", scope_error)
+        return None
 
     # ------------------------------------------------------------------
     # audit.query (read)
@@ -699,6 +725,12 @@ class AuditToolGroup(BaseToolGroup):
         self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """audit.query — query the audit log with filters (admin-only).
+
+        Authorization (#2034): the caller needs BOTH the admin workspace role
+        (``_check_admin``) AND an ADMIN-tier key scope (the shared
+        ``scope_denial_reason`` gate, mirroring ``audit.waivers``). Reads are
+        tenant-wide within the caller's own tenant (``AuditEntry`` is
+        ``TenantScopedModel``); ``workspace_id`` is validated but not applied.
 
         Optional params (all named in the tool schema):
             actor        : actor user/agent id.

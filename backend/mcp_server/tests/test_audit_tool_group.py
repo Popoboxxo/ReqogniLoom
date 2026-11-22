@@ -22,6 +22,7 @@ Covers:
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
@@ -249,6 +250,43 @@ class TestAuditToolGroup:
         assert result.success is False
         assert result.error_code == "PERMISSION_DENIED"
         mock_query.assert_not_called()
+
+    def test_audit_query_author_tier_key_with_admin_role_is_denied(self):
+        """#2034: the admin ROLE alone is not enough. audit.query is a READ
+        tool at the key-scope gate, so an AUTHOR-tier key whose owner holds
+        the admin role used to read the tenant-wide audit log. The governance
+        tier check (mirroring audit.waivers) must deny it BEFORE the service.
+        Would FAIL before the fix."""
+        author_admin_ctx = replace(ADMIN_CTX, scope="author")
+        group, _ = self._group()
+        with patch("mcp_server.tools.audit.audit_query") as mock_query:
+            result = group.execute_tool(
+                tool_name="audit.query",
+                params={},
+                auth_context=author_admin_ctx,
+                api_key=VALID_API_KEY,
+            )
+        assert result.success is False
+        assert result.error_code == "PERMISSION_DENIED"
+        mock_query.assert_not_called()
+
+    @patch("mcp_server.tools.audit.TenantContext.set_tenant")
+    @patch("mcp_server.tools.audit.audit_query")
+    def test_audit_query_admin_tier_key_with_admin_role_succeeds(
+        self, mock_query, mock_set_tenant
+    ):
+        """The ADMIN-tier key (default legacy 'write' scope) still passes
+        BOTH gates — the role gate and the new governance-tier gate."""
+        group, _ = self._group()
+        mock_query.return_value = _mock_paginated_result(entries=[], total=0)
+        result = group.execute_tool(
+            tool_name="audit.query",
+            params={},
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is True
+        mock_query.assert_called_once()
 
     def test_dlq_list_with_editor_role_returns_permission_denied(self):
         group, dlq = self._group()
