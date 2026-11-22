@@ -14,7 +14,10 @@ from django.db import transaction
 from django.db.models import F
 
 from application.base import ValidationError
-from application.interview_proposal_errors import ProposalValidationError
+from application.interview_proposal_errors import (
+    _RESERVED_PROPOSAL_FIELDS,  # also re-exported here for import compatibility
+    ProposalValidationError,
+)
 from application.models import DomainEventOutbox
 from persistence.models import InterviewSession, InterviewSessionArtifact
 
@@ -34,19 +37,11 @@ _DIAGRAM_REF_LINK_TYPE = "diagram-ref"
 # module is the service layer -- the single choke point REST, UI and MCP all
 # pass through -- so the validation lives here and no transport can bypass it.
 #
-# Reserved field names: status is workflow-owned; owner/reporter/priority are
-# Artifact-level system fields written through their own gateway; the rest are
-# internal identity/audit columns. This small BLOCKLIST is applied on top of
-# the derived allowlist so a create_X() that happens to accept `status`
-# (StakeholderNeed) or `owner` (Risk) still cannot be driven by model output.
-# Deliberately narrow: legitimate classification fields such as Issue.severity
-# or Risk.probability are NOT reserved and keep working.
-_RESERVED_PROPOSAL_FIELDS: frozenset[str] = frozenset({
-    "status", "owner", "reporter", "priority",
-    "id", "tenant", "tenant_id", "workspace", "workspace_id",
-    "artifact", "artifact_id", "created_by", "created_at", "modified_at",
-    "version", "ctx",
-})
+# The reserved-field blocklist itself lives in ``interview_proposal_errors``
+# (a leaf module) and is imported above. It is deliberately narrow: legitimate
+# classification fields such as Issue.severity or Risk.probability are NOT
+# reserved and keep working. Importing it from the leaf rather than defining it
+# here keeps this module free of a back-edge from the proposal parse layer.
 
 # Conservative string ceilings. 5000 matches the largest free-text column
 # max_length on the in-scope models (e.g. Adr.context/decision), so legitimate

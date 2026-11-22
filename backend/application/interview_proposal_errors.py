@@ -10,13 +10,28 @@ edit the proposal before it would round-trip.
 via ``code``/``details`` (in addition to a human-readable message) so a UI or
 an agent can branch on *why* a proposal was refused instead of parsing prose.
 It subclasses :class:`persistence.errors.ValidationError`, so every existing
-``except ValidationError`` transport seam keeps working unchanged.
+``except ValidationError`` transport seam keeps working unchanged. The module
+also owns ``_RESERVED_PROPOSAL_FIELDS``, the shared server-owned-field registry
+both the proposal parse layer and the formalisation service need.
 """
 from __future__ import annotations
 
 from typing import Any
 
 from persistence.errors import ValidationError
+
+# Server-owned proposal fields. Canonical home here (a leaf module both the
+# parse layer and the formalisation service already import) so neither side
+# has to import the other just to classify a RESERVED_FIELD rejection. Keeping
+# this registry in the formalisation service used to make
+# ``interview_multi_protocol -> interview_multi_formalize_service`` a back-edge
+# and pulled four more modules into an application import cycle.
+_RESERVED_PROPOSAL_FIELDS: frozenset[str] = frozenset({
+    "status", "owner", "reporter", "priority",
+    "id", "tenant", "tenant_id", "workspace", "workspace_id",
+    "artifact", "artifact_id", "created_by", "created_at", "modified_at",
+    "version", "ctx",
+})
 
 
 class ProposalValidationError(ValidationError):
@@ -48,4 +63,4 @@ class ProposalValidationError(ValidationError):
             self.details["field"] = field
 
 
-__all__ = ["ProposalValidationError"]
+__all__ = ["ProposalValidationError", "_RESERVED_PROPOSAL_FIELDS"]

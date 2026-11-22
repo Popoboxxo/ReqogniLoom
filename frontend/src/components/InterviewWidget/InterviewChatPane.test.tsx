@@ -227,6 +227,26 @@ describe("InterviewChatPane guided first question", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByTestId("interview-chat-input")).not.toBeDisabled();
   });
+
+  it("does not crash when the first chat call returns undefined", async () => {
+    // A stubbed/absent transport can hand back `undefined` instead of a
+    // Promise. `Promise.resolve` must normalise that without a synchronous
+    // `.then`-on-undefined throw, and the empty catch must swallow the
+    // destructuring rejection so the page stays usable.
+    vi.mocked(interviewsApi.chat).mockReturnValue(
+      undefined as unknown as ReturnType<typeof interviewsApi.chat>
+    );
+    const fresh = makeInterview({ id: "s-undefined", missing_fields: [openField] });
+    const onStateChange = vi.fn();
+    renderPane(<InterviewChatPane interview={fresh} onStateChange={onStateChange} />);
+
+    await waitFor(() =>
+      expect(interviewsApi.chat).toHaveBeenCalledWith("s-undefined", "")
+    );
+    expect(onStateChange).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByTestId("interview-chat-input")).not.toBeDisabled();
+  });
 });
 
 // ---------------------------------------------------------------------------

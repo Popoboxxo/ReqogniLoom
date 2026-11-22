@@ -80,8 +80,10 @@ export function InterviewChatPane({
     greetingActiveRef.current = true; // re-arm after StrictMode's first cleanup
 
     if (shouldGreet) {
-      interviewsApi
-        .chat(interview.id, "")
+      // `Promise.resolve` normalises a transport that returns `undefined`
+      // instead of a Promise (e.g. a stubbed/mocked `chat` in tests). Without
+      // it, `.then` on `undefined` throws synchronously and crashes the pane.
+      Promise.resolve(interviewsApi.chat(interview.id, ""))
         .then(({ state }) => {
           if (greetingActiveRef.current && greetingSessionRef.current === interview.id) {
             onStateChange(state);

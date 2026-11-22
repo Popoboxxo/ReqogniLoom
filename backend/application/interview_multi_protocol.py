@@ -27,7 +27,10 @@ import json
 import re
 from typing import Any
 
-from application.interview_proposal_errors import ProposalValidationError
+from application.interview_proposal_errors import (
+    _RESERVED_PROPOSAL_FIELDS,
+    ProposalValidationError,
+)
 from application.prompt_resolver import resolve_and_render
 from link_types.catalog import resolve_catalog
 from persistence.errors import ValidationError
@@ -101,12 +104,6 @@ def normalize_proposal_items(proposal: list[dict]) -> list[dict]:
     Nothing is mutated in place; the stored ``grounding_snapshot`` stays
     untouched and the normalised copy is safe to hand to ``formalize``.
     """
-    # Imported here to keep this parse-layer module free of a hard dependency
-    # on the reserved-name registry owned by the formalisation service.
-    from application.interview_multi_formalize_service import (
-        _RESERVED_PROPOSAL_FIELDS,
-    )
-
     normalised: list[dict] = []
     for index, item in enumerate(proposal):
         if not isinstance(item, dict):
