@@ -1187,8 +1187,8 @@ capabilities:
       - row: mcp_connection
         status: supported
         evidence: {kind: registry, detail: "tested_version 1.18.x / 2.2.x"}
-        note_de: "lokal installiert: 2.3.2, neuer als getestet; nicht erneut ausgeführt"
-        note_en: "installed locally: 2.3.2, newer than tested; not re-run"
+        note_de: "2.3.x unverifiziert: lokal 2.3.2 installiert, neuer als die getesteten 1.18.x/2.2.x; nicht erneut ausgeführt"
+        note_en: "2.3.x unverified: 2.3.2 installed locally, newer than the tested 1.18.x/2.2.x; not re-run"
       - &opencode_install
         row: one_command_install
         status: unverified

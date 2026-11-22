@@ -154,7 +154,7 @@ The date and versions refer to this verification run, not to the current release
 
 | Feature / artifact | Status | Note | Evidence | Issues |
 |---|---|---|---|---|
-| MCP connection | ✓ `supported` | installed locally: 2.3.2, newer than tested; not re-run | `registry` (tested_version 1.18.x / 2.2.x) | — |
+| MCP connection | ✓ `supported` | 2.3.x unverified: 2.3.2 installed locally, newer than the tested 1.18.x/2.2.x; not re-run | `registry` (tested_version 1.18.x / 2.2.x) | — |
 | One-command install | ? `unverified` | an installer and config snippets exist; `opencode mcp list` shows "No MCP servers configured" on the verification machine | `repo` (2026-11-21) | — |
 | Tools reachable | ? `unverified` | — | — | — |
 | Skills (8) | ? `unverified` | the same 8 skills are shipped (byte-identical to the Claude Code skills, so #1962 and #1964 apply); not loaded in the client | `repo` (2026-11-21) | — |
