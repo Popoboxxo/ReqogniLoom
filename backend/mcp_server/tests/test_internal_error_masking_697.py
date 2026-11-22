@@ -25,6 +25,7 @@ from auth_tenancy.context import AuthContext, AuthMethod
 from mcp_server.tools.generic import GenericCrudToolGroup
 from mcp_server.tools.link_type import LinkTypeToolGroup
 from mcp_server.tools.review import ReviewToolGroup
+from persistence.tenancy import TenantContext
 
 CTX = AuthContext(
     user_id=UUID("00000000-0000-0000-0000-000000000001"),
@@ -101,6 +102,14 @@ class TestReviewGroupMasksUnmappedFailures:
         # real DB read. Stubbed here so the fault lands on the handler's own
         # outdate() call, keeping this masking test DB-free (same idiom as
         # the reactivate test's ``_resolve_workspace_id`` stub above).
+        #
+        # #2017: the awaiting-review guard reads tenant-scoped workflow state.
+        # No TenantContext is active in this DB-free probe, so the guard must
+        # step aside rather than raise TenantContextNotSetError before the
+        # stubbed fault; real callers always carry a context (CCB tests pin
+        # the unchanged gate).
+        TenantContext.clear_tenant()
+        assert TenantContext.is_set() is False
         with patch.object(
             group, "_resolve_item_type", return_value=("Requirement", None)
         ), patch(

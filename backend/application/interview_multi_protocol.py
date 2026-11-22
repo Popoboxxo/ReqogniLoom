@@ -282,11 +282,16 @@ def parse_multi_proposal(raw_llm_output: str) -> list[dict] | None:
     """Extract the fenced ```json list from an LLM reply.
 
     Returns the parsed list of artifact-proposal dicts, or ``None`` when the
-    output has no JSON fence, malformed JSON, a non-list payload, or a payload
+    output has no JSON fence, malformed JSON, a non-list payload, a payload
     exceeding the AI-005 proposal-size ceilings (item/field/link counts and
-    string lengths) -- the caller decides how to surface that ("LLM liefert
-    keinen parsbaren Vorschlag"). Field-name allowlisting and per-value
-    type/length validation happen later, in the service write path.
+    string lengths), or a proposal shape ``normalize_proposal_items`` refuses
+    -- the caller decides how to surface that ("LLM liefert keinen parsbaren
+    Vorschlag"). This is the untrusted *parse* boundary: a malformed model
+    reply is "no proposal this turn", never a hard error. The strict
+    :class:`ProposalValidationError` reason codes stay at the readout/write
+    gates (``propose`` / ``formalize``) that call ``normalize_proposal_items``
+    on a stored or caller-supplied proposal. Field-name allowlisting and
+    per-value type/length validation happen in the service write path.
     """
     if len(raw_llm_output) > MAX_RAW_LLM_OUTPUT_LENGTH:
         return None
@@ -301,11 +306,17 @@ def parse_multi_proposal(raw_llm_output: str) -> list[dict] | None:
         return None
     # Issue #1990: fold a legacy top-level ``title`` into ``fields`` at the
     # parse boundary so the chat response and the stored pending proposal are
-    # already in the shape ``formalize`` accepts. Reserved/foreign top-level
-    # keys are rejected here with a machine-readable reason instead of being
-    # silently dropped. Link-pair validation needs the workspace catalog and
-    # runs at readout (propose) and at the formalize write gate.
-    normalised = normalize_proposal_items(parsed)
+    # already in the shape ``formalize`` accepts. A shape/field rejection here
+    # means the model produced no usable proposal -- return None, matching the
+    # no-fence / malformed / oversized contract above. The machine-readable
+    # ProposalValidationError is raised only when propose()/formalize() apply
+    # the same normalisation to a stored or caller-supplied proposal.
+    # Link-pair validation needs the workspace catalog and runs at readout
+    # (propose) and at the formalize write gate.
+    try:
+        normalised = normalize_proposal_items(parsed)
+    except ProposalValidationError:
+        return None
     if not _proposal_within_limits(normalised):
         return None
     return normalised

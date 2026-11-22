@@ -511,12 +511,14 @@ class InterviewService(
             {"role": "user", "content": user_message},
             {"role": "assistant", "content": reply},
         ]
-        # Issue #1990: a model reply can be syntactically valid JSON but still
-        # carry a reserved top-level field. parse_multi_proposal rejects that
-        # with a machine-readable reason; the chat TURN itself must still
-        # succeed (the user sees the reply), so record the reason in the
-        # snapshot instead of failing the whole turn. propose() re-validates
-        # the same proposal before showing it as confirmable.
+        # Issue #1990: parse_multi_proposal is the untrusted parse boundary --
+        # a malformed or non-conforming model reply is "no proposal this turn"
+        # (it returns None), and must never fail the chat TURN itself (the user
+        # still sees the reply). Strict, machine-readable rejection reasons are
+        # produced by propose()/formalize() when a stored or caller-supplied
+        # proposal is normalised for readout/write. The catch below is kept as
+        # a defensive net so any future parse-layer ValidationError still
+        # degrades to an in-snapshot reason instead of failing the turn.
         try:
             proposal = parse_multi_proposal(reply)
         except ProposalValidationError as exc:

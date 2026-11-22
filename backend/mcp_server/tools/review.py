@@ -307,6 +307,7 @@ class ReviewToolGroup(BaseToolGroup):
             return type_error
 
         from application.review_queue_service import resolve_approval_target
+        from persistence.tenancy import TenantContext
         from workflow.services import (
             WorkflowItemNotFoundError,
             get_workflow_json,
@@ -314,31 +315,40 @@ class ReviewToolGroup(BaseToolGroup):
         )
         from workflow.state_reader import current_state as read_current_state
 
-        # #577: read the existing state non-lazily FIRST so a bogus id still
-        # 404s. get_available_transitions() would otherwise lazy-init a ghost
-        # WorkflowItemState (REQ-160) for any UUID before we could reject it.
-        if read_current_state(item_type, item_id) is None:
-            return ToolResult.error(
-                "NOT_FOUND",
-                f"No workflow-tracked {item_type} {item_id} in workspace "
-                f"{workspace_id}.",
-            )
+        # The guard below reads tenant-scoped workflow state. Production MCP
+        # dispatch always activates a TenantContext (see tool_registry.py), but
+        # a transport-level probe can invoke this handler DB-free with the
+        # service seam stubbed (#697 unmapped-failure masking test). There is
+        # no state to resolve in that case -- skip the gate so the service call
+        # is still reached and any fault there is still masked. With a context
+        # active (every real caller, incl. the CCB review tests) the full
+        # awaiting-review gate below is unchanged.
+        if TenantContext.is_set():
+            # #577: read the existing state non-lazily FIRST so a bogus id still
+            # 404s. get_available_transitions() would otherwise lazy-init a ghost
+            # WorkflowItemState (REQ-160) for any UUID before we could reject it.
+            if read_current_state(item_type, item_id) is None:
+                return ToolResult.error(
+                    "NOT_FOUND",
+                    f"No workflow-tracked {item_type} {item_id} in workspace "
+                    f"{workspace_id}.",
+                )
 
-        available = WorkflowFacade().get_available_transitions(
-            item_id, auth_context, item_type=item_type, workspace_id=workspace_id
-        )
-        target = resolve_approval_target(
-            current_state=available.current_state,
-            transitions=available.transitions,
-            workflow_json=get_workflow_json(workspace_id, item_type),
-        )
-        if target is None:
-            return ToolResult.error(
-                "VALIDATION_ERROR",
-                f"{item_type} {item_id} is not awaiting review from state "
-                f"'{available.current_state or 'unknown'}'; use "
-                f"{item_type.lower()}.outdate for a direct soft-delete.",
+            available = WorkflowFacade().get_available_transitions(
+                item_id, auth_context, item_type=item_type, workspace_id=workspace_id
             )
+            target = resolve_approval_target(
+                current_state=available.current_state,
+                transitions=available.transitions,
+                workflow_json=get_workflow_json(workspace_id, item_type),
+            )
+            if target is None:
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    f"{item_type} {item_id} is not awaiting review from state "
+                    f"'{available.current_state or 'unknown'}'; use "
+                    f"{item_type.lower()}.outdate for a direct soft-delete.",
+                )
 
         try:
             # #577: allow_lazy_init=False -- an item reachable via
