@@ -710,12 +710,18 @@ side of the ADR-019 loop. In the UI it is the **"Suggestions" mode of
 human reviewer) has to know:
 
 * **Suggestions are produced by an agent, never by the human UI.** Producing a
-  proposal requires an **agent-typed API key** (an `reqlo_*` key with an agent
-  principal); a human bearer token or session is refused **fail-closed** with
-  `409 PRODUCER_CONTEXT_REQUIRED`. That is by design (Zusage 7(f)): an
-  unstamped, unreviewed proposal must never be attributed to a person. The MCP
-  side raises the same error (`suggestion` tool group), so the guarantee is
-  transport-independent.
+  proposal requires an authenticated **`reqlo_*` API key that resolves to
+  `actor_type="agent"`**: an agent-principal key with a write-capable scope, or
+  a user-principal plugin key issued with the explicit `author` scope. A
+  user-principal key with the legacy `write` or `admin` scope stays
+  `actor_type="user"` and is **refused** by `require_producer_context` (the M2
+  proposal stamp requires an agent actor). A human bearer token or session has
+  no key id and is refused **fail-closed** with `409 PRODUCER_CONTEXT_REQUIRED`,
+  as is a read-only key. That is by design (Zusage 7(f)): an unstamped,
+  unreviewed proposal must never be attributed to a person. The MCP side raises
+  the same error (`suggestion` tool group), so the guarantee is
+  transport-independent. Deciding (accept/reject) still requires a human/user
+  key — an agent key may never confirm its own proposal.
 * **The inbox is already reachable** — it is the mode toggle on the review
   surface (`reviews-suggestions-mode-toggle`), with an accompanying hint that
   names the agent path. An **empty inbox is expected** on a workspace that no

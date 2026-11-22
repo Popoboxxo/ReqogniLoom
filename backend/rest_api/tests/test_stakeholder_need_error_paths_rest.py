@@ -186,6 +186,30 @@ def test_create_without_title_returns_400() -> None:
     assert "title" in fields
 
 
+@pytest.mark.parametrize(
+    "raw_body",
+    [b"null", b"42", b'"just a string"', b"true"],
+    ids=["null", "number", "string", "bool"],
+)
+def test_create_with_primitive_json_body_returns_400(raw_body: bytes) -> None:
+    """#1969: a JSON primitive must never reach ``dict(request.data)``.
+
+    The pre-serializer ``dict()`` conversion raised TypeError/ValueError before
+    any error handler could map it, so the client saw a 500 HTML page instead
+    of the documented 400 VALIDATION_ERROR envelope. Send the raw bytes (a
+    ``format="json"`` post of ``None`` would be encoded as an empty body) to
+    exercise each primitive exactly as a real client would.
+    """
+    _, user, _ = _scenario()
+    resp = _client(user).generic(
+        "POST", "/api/v1/needs/", raw_body, content_type="application/json"
+    )
+    assert resp.status_code == 400, resp.content
+    body = resp.json()
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+    assert any(d["field"] == "body" for d in body["error"]["details"])
+
+
 # ---------------------------------------------------------------------------
 # partial_update / destroy failure branches
 # ---------------------------------------------------------------------------

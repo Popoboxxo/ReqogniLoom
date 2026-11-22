@@ -300,12 +300,15 @@ def test_release_gate_failure_is_409_document_gate_failed(
 def test_reopen_lifts_the_freeze_and_allows_the_edit(authed_client, workspace) -> None:
     doc = _create(authed_client, workspace)
     _in_review(authed_client, doc)
-    assert _transition(authed_client, doc["id"], RELEASE_STATE).status_code == 200
+    released = _transition(authed_client, doc["id"], RELEASE_STATE)
+    assert released.status_code == 200, released.content
+    # Issue #2024: release bumps the entity version (creation=1, release=2).
+    assert released.json()["version"] == 2
 
     reopened = _transition(authed_client, doc["id"], REVIEW_STATE)
     assert reopened.status_code == 200, reopened.content
     assert reopened.json()["document"]["frozen_at"] is None
-    assert reopened.json()["version"] == 2
+    assert reopened.json()["version"] == 3
 
     assert (
         authed_client.patch(
