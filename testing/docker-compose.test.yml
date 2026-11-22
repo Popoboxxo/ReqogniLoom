@@ -190,13 +190,41 @@ services:
       # .dockerignore strips tests/ from the built image on purpose).
       - ./backend:/app
       - ./docs:/app/docs:ro
+      # Repo-level fixtures several backend suites resolve relative to the
+      # checkout root. In-container cwd is /app (the backend/ bind mount), so
+      # without these the paths do not exist and tests fail with ENOENT.
+      - ./deploy:/deploy:ro
+      - ./README.md:/app/README.md:ro
+      - ./.meta-config:/app/.meta-config:ro
+      - ./scripts:/app/scripts:ro
+      - ./AGENTS.md:/app/AGENTS.md:ro
+      - ./CLAUDE.md:/app/CLAUDE.md:ro
     depends_on:
       postgres-test:
         condition: service_healthy
       redis-test:
         condition: service_healthy
     entrypoint: []
-    command: ["pytest", "-q"]
+    # Cookie-env isolation: the gitignored root .env (injected via `env_file:
+    # .env`) pins AUTH_COOKIE_SECURE= / CSRF_COOKIE_SECURE=False /
+    # SESSION_COOKIE_SECURE=False for local plain-HTTP dev. If those reach the
+    # pytest process they shadow settings.py's production-safe defaults and
+    # break backend/reqogniloom/tests/test_cookie_settings.py. `env -u` drops
+    # ONLY those three keys (verified with a real `run`); every other env var
+    # stays intact and `env` execs pytest directly, so PID 1 / signals are
+    # unchanged. An `environment:` null override cannot be used here: the
+    # root .env is auto-loaded for interpolation and would re-supply the very
+    # values being removed.
+    command:
+      - env
+      - -u
+      - AUTH_COOKIE_SECURE
+      - -u
+      - CSRF_COOKIE_SECURE
+      - -u
+      - SESSION_COOKIE_SECURE
+      - pytest
+      - -q
 
   frontend-test:
     build:
@@ -211,5 +239,10 @@ services:
       # is the repo root, but in-container __dirname is /app/src/test, so it
       # resolves to /backend. Mount the backend read-only at that expected path.
       - ./backend:/backend:ro
+      # interactive-hit-targets.test.ts reads the Playwright spec files from
+      # /e2e/tests (in-container absolute path); without this mount the glob
+      # resolves to nothing and the test fails with ENOENT on
+      # /e2e/tests/mobile-sheets.spec.ts.
+      - ./e2e:/e2e:ro
     entrypoint: []
     command: ["sh", "-c", "npm install && npm test"]

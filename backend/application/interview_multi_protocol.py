@@ -50,6 +50,31 @@ MAX_PROPOSAL_LINKS_PER_ITEM = 50
 MAX_PROPOSAL_STRING_LENGTH = 5_000
 
 
+def _fields_within_limits(fields: Any) -> bool:
+    """Check one parsed item's ``fields`` dict against the parse-boundary ceilings."""
+    if not isinstance(fields, dict) or len(fields) > MAX_PROPOSAL_FIELDS_PER_ITEM:
+        return False
+    for key, value in fields.items():
+        if not isinstance(key, str) or len(key) > 200:
+            return False
+        if isinstance(value, str) and len(value) > MAX_PROPOSAL_STRING_LENGTH:
+            return False
+    return True
+
+
+def _item_within_limits(item: Any) -> bool:
+    """Check one parsed proposal item's shape and size at the parse boundary."""
+    if not isinstance(item, dict):
+        return False
+    if not _fields_within_limits(item.get("fields")):
+        return False
+    links = item.get("links")
+    if links is not None:
+        if not isinstance(links, list) or len(links) > MAX_PROPOSAL_LINKS_PER_ITEM:
+            return False
+    return True
+
+
 def _proposal_within_limits(parsed: list[dict]) -> bool:
     """Check the size/shape ceilings on a parsed proposal list.
 
@@ -60,22 +85,7 @@ def _proposal_within_limits(parsed: list[dict]) -> bool:
     """
     if not parsed or len(parsed) > MAX_PROPOSAL_ITEMS:
         return False
-    for item in parsed:
-        if not isinstance(item, dict):
-            return False
-        fields = item.get("fields")
-        if not isinstance(fields, dict) or len(fields) > MAX_PROPOSAL_FIELDS_PER_ITEM:
-            return False
-        for key, value in fields.items():
-            if not isinstance(key, str) or len(key) > 200:
-                return False
-            if isinstance(value, str) and len(value) > MAX_PROPOSAL_STRING_LENGTH:
-                return False
-        links = item.get("links")
-        if links is not None:
-            if not isinstance(links, list) or len(links) > MAX_PROPOSAL_LINKS_PER_ITEM:
-                return False
-    return True
+    return all(_item_within_limits(item) for item in parsed)
 
 
 # Issue #1990: the LLM prompt used to ask for a top-level ``title`` next to
@@ -84,6 +94,39 @@ def _proposal_within_limits(parsed: list[dict]) -> bool:
 # The canonical item shape has exactly these keys; ``title`` is a legacy
 # alias we normalise into ``fields`` rather than a second source of truth.
 _ITEM_ALLOWED_KEYS: frozenset[str] = frozenset({"type", "title", "fields", "links"})
+
+
+def _validate_item_shape(item: Any, index: int) -> dict:
+    """Validate one proposal item's shape and return its normalised copy."""
+    if not isinstance(item, dict):
+        raise ProposalValidationError(
+            f"proposal item #{index} must be a dict, got {type(item).__name__}",
+            code="INVALID_PROPOSAL_SHAPE",
+            item_index=index,
+        )
+    for key in item:
+        if not isinstance(key, str) or key in _ITEM_ALLOWED_KEYS:
+            continue
+        code = "RESERVED_FIELD" if key in _RESERVED_PROPOSAL_FIELDS else "UNEXPECTED_ITEM_FIELD"
+        raise ProposalValidationError(
+            f"proposal item #{index}: top-level field {key!r} is not part of the "
+            "canonical {type, fields, links} shape",
+            code=code,
+            item_index=index,
+            field=key,
+        )
+    fields = item.get("fields")
+    if fields is not None and not isinstance(fields, dict):
+        raise ProposalValidationError(
+            f"proposal item #{index}: 'fields' must be a dict",
+            code="INVALID_PROPOSAL_SHAPE",
+            item_index=index,
+            field="fields",
+        )
+    new_item = dict(item)
+    if isinstance(fields, dict) and "title" not in fields and "title" in item:
+        new_item["fields"] = {**fields, "title": item["title"]}
+    return new_item
 
 
 def normalize_proposal_items(proposal: list[dict]) -> list[dict]:
@@ -106,36 +149,71 @@ def normalize_proposal_items(proposal: list[dict]) -> list[dict]:
     """
     normalised: list[dict] = []
     for index, item in enumerate(proposal):
-        if not isinstance(item, dict):
-            raise ProposalValidationError(
-                f"proposal item #{index} must be a dict, got {type(item).__name__}",
-                code="INVALID_PROPOSAL_SHAPE",
-                item_index=index,
-            )
-        for key in item:
-            if not isinstance(key, str) or key in _ITEM_ALLOWED_KEYS:
-                continue
-            code = "RESERVED_FIELD" if key in _RESERVED_PROPOSAL_FIELDS else "UNEXPECTED_ITEM_FIELD"
-            raise ProposalValidationError(
-                f"proposal item #{index}: top-level field {key!r} is not part of the "
-                "canonical {type, fields, links} shape",
-                code=code,
-                item_index=index,
-                field=key,
-            )
-        fields = item.get("fields")
-        if fields is not None and not isinstance(fields, dict):
-            raise ProposalValidationError(
-                f"proposal item #{index}: 'fields' must be a dict",
-                code="INVALID_PROPOSAL_SHAPE",
-                item_index=index,
-                field="fields",
-            )
-        new_item = dict(item)
-        if isinstance(fields, dict) and "title" not in fields and "title" in item:
-            new_item["fields"] = {**fields, "title": item["title"]}
-        normalised.append(new_item)
+        normalised.append(_validate_item_shape(item, index))
     return normalised
+
+
+def _link_endpoints_valid(source: Any, target: Any, link_type: Any, n: int) -> bool:
+    """Return True for in-range, non-bool int endpoints and a string link type.
+
+    This is the De-Morgan form of the old inline 7-way ``or`` rejection test;
+    the check order is unchanged so short-circuiting and bool exclusion stay
+    identical (``bool`` is a subclass of ``int`` and must stay rejected).
+    """
+    return (
+        isinstance(source, int)
+        and not isinstance(source, bool)
+        and isinstance(target, int)
+        and not isinstance(target, bool)
+        and 0 <= source < n
+        and 0 <= target < n
+        and isinstance(link_type, str)
+    )
+
+
+def _validate_one_link(
+    link: Any,
+    index: int,
+    link_index: int,
+    proposal: list[dict],
+    workspace_id,
+    validate_link_pair,
+) -> None:
+    """Validate one proposed link's endpoints and its catalog allowed-pair match."""
+    if not isinstance(link, dict):
+        return  # structural validation owns this case
+    source = link.get("from")
+    target = link.get("to")
+    link_type = link.get("type")
+    if not _link_endpoints_valid(source, target, link_type, len(proposal)):
+        # Out-of-range/malformed endpoints are a shape error, not a pair
+        # mismatch; the caller's structure gate reports them.
+        raise ProposalValidationError(
+            f"proposal item #{index}, link #{link_index}: invalid link endpoints",
+            code="INVALID_LINK_PAIR",
+            item_index=index,
+            field=f"links[{link_index}]",
+        )
+    try:
+        validate_link_pair(
+            workspace_id,
+            link_type,
+            proposal[source]["type"],
+            proposal[target]["type"],
+            manual=True,
+        )
+    except ValidationError as exc:
+        raise ProposalValidationError(
+            str(exc),
+            code="INVALID_LINK_PAIR",
+            item_index=index,
+            field=f"links[{link_index}]",
+            details={
+                "link_type": link_type,
+                "source_type": proposal[source]["type"],
+                "target_type": proposal[target]["type"],
+            },
+        ) from exc
 
 
 def validate_proposal_link_pairs(proposal: list[dict], workspace_id) -> None:
@@ -162,48 +240,9 @@ def validate_proposal_link_pairs(proposal: list[dict], workspace_id) -> None:
                 item_index=index,
             )
         for link_index, link in enumerate(item.get("links") or []):
-            if not isinstance(link, dict):
-                continue  # structural validation owns this case
-            source = link.get("from")
-            target = link.get("to")
-            link_type = link.get("type")
-            if (
-                not isinstance(source, int)
-                or isinstance(source, bool)
-                or not isinstance(target, int)
-                or isinstance(target, bool)
-                or not 0 <= source < len(proposal)
-                or not 0 <= target < len(proposal)
-                or not isinstance(link_type, str)
-            ):
-                # Out-of-range/malformed endpoints are a shape error, not a
-                # pair mismatch; the caller's structure gate reports them.
-                raise ProposalValidationError(
-                    f"proposal item #{index}, link #{link_index}: invalid link endpoints",
-                    code="INVALID_LINK_PAIR",
-                    item_index=index,
-                    field=f"links[{link_index}]",
-                )
-            try:
-                validate_link_pair(
-                    workspace_id,
-                    link_type,
-                    proposal[source]["type"],
-                    proposal[target]["type"],
-                    manual=True,
-                )
-            except ValidationError as exc:
-                raise ProposalValidationError(
-                    str(exc),
-                    code="INVALID_LINK_PAIR",
-                    item_index=index,
-                    field=f"links[{link_index}]",
-                    details={
-                        "link_type": link_type,
-                        "source_type": proposal[source]["type"],
-                        "target_type": proposal[target]["type"],
-                    },
-                ) from exc
+            _validate_one_link(
+                link, index, link_index, proposal, workspace_id, validate_link_pair
+            )
 
 
 _MULTI_PROTOCOL_FACTORY_DEFAULT = """\

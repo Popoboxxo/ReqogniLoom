@@ -568,7 +568,7 @@ class TestRegisterCommand:
             "memory.management.commands.honcho_register_webhooks._request", fake_request
         )
         with active_tenant() as tenant:
-            line = json.loads(self._run())
+            line = json.loads(self._run("--tenant", str(tenant.id)))
 
         assert [method for method, _ in seen] == ["GET"]
         assert line["action"] == "list"
@@ -597,8 +597,8 @@ class TestRegisterCommand:
         monkeypatch.setattr(
             "memory.management.commands.honcho_register_webhooks._request", fake_request
         )
-        with active_tenant():
-            line = json.loads(self._run("--list"))
+        with active_tenant() as tenant:
+            line = json.loads(self._run("--tenant", str(tenant.id), "--list"))
 
         assert seen == ["GET"]
         assert line["action"] == "list"
@@ -619,8 +619,12 @@ class TestRegisterCommand:
         monkeypatch.setattr(
             "memory.management.commands.honcho_register_webhooks._request", fake_request
         )
-        with active_tenant():
-            line = json.loads(self._run("--url", "https://reqogniloom.test/hook"))
+        with active_tenant() as tenant:
+            line = json.loads(
+                self._run(
+                    "--tenant", str(tenant.id), "--url", "https://reqogniloom.test/hook"
+                )
+            )
 
         assert line["ok"] is True
         assert line["status"] == status
@@ -646,7 +650,7 @@ class TestRegisterCommand:
             "memory.management.commands.honcho_register_webhooks._request", fake_request
         )
         with active_tenant() as tenant:
-            line = json.loads(self._run("--delete", "ep-1"))
+            line = json.loads(self._run("--tenant", str(tenant.id), "--delete", "ep-1"))
 
         assert line["action"] == "delete"
         assert line["ok"] is True
@@ -710,9 +714,11 @@ class TestRegisterCommand:
         from django.core.management import call_command
 
         out = StringIO()
-        with active_tenant(), pytest.raises(CommandError, match="failed"):
+        with active_tenant() as tenant, pytest.raises(CommandError, match="failed"):
             call_command(
                 "honcho_register_webhooks",
+                "--tenant",
+                str(tenant.id),
                 "--url",
                 "https://reqogniloom.test/hook",
                 stdout=out,

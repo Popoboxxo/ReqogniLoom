@@ -563,7 +563,7 @@ def map_tool_exception(exc: Exception) -> tuple[str, str] | None:
     # caller-actionable answer.
     try:
         from traceability.exceptions import CycleDetectedError
-    except Exception:  # pragma: no cover - traceability is always installed
+    except ImportError:  # pragma: no cover - traceability is always installed
         CycleDetectedError = ()  # type: ignore[assignment,misc]
     if CycleDetectedError and isinstance(exc, CycleDetectedError):
         return (
