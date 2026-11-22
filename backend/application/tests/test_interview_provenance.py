@@ -117,6 +117,50 @@ class TestSingleModeProvenance:
             TenantContext.clear_tenant()
 
 
+class TestInterviewTestCaseProvenance:
+    """#2044: TestCase provenance follows the interview producer."""
+
+    @staticmethod
+    def _formalized_test_case(ctx, workspace):
+        from application.test_service import TestService
+
+        svc = InterviewService()
+        # Single mode: a human answers every protocol field (title + rationale).
+        session = svc.start(ctx, "TestCase", workspace.id)
+        svc.answer(ctx, session.id, "title", "Human-written TC")
+        svc.answer(ctx, session.id, "rationale", "an engineer typed this")
+        result = svc.formalize(ctx, session.id)
+        tc_id = uuid.UUID(result["resulting_artifact_ids"][0])
+        return TestService().get_test_case(tc_id, ctx)
+
+    def test_single_mode_test_case_is_manual_and_reviewed(self, ctx, workspace):
+        """Regression: before the fix the adapter hardcoded
+        origin=ai_generated/reviewed=False even for human-answered sessions."""
+        tc = self._formalized_test_case(ctx, workspace)
+        assert tc.origin == "manual"
+        assert tc.reviewed is True
+
+    def test_multi_mode_proposal_stays_ai_generated_unreviewed(self, ctx, workspace):
+        """The AI/proposal path keeps #424's unreviewed posture."""
+        from application.test_service import TestService
+        from persistence.models import InterviewSession
+
+        svc = InterviewService()
+        session = svc.start(
+            ctx, None, workspace.id, session_kind=InterviewSession.SESSION_KIND_MULTI
+        )
+        proposal = [
+            {"type": "TestCase", "fields": {"title": "AI-proposed TC"}, "links": []}
+        ]
+        result = svc.formalize(ctx, session.id, confirmed_proposal=proposal)
+
+        tc = TestService().get_test_case(
+            uuid.UUID(result["created"][0]["artifact_id"]), ctx
+        )
+        assert tc.origin == "ai_generated"
+        assert tc.reviewed is False
+
+
 class TestProvenanceLookupIdSpaces:
     def test_resolves_by_artifact_pk(self, ctx, workspace):
         from application.requirement_service import RequirementService

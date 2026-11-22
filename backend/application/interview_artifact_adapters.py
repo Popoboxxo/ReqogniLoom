@@ -37,6 +37,13 @@ from application.test_service import TestService
 from auth_tenancy.context import AuthContext
 from persistence.models import GlossaryTerm
 
+# #2044: reserved key the SINGLE-mode formalize path uses to carry the
+# human-answer provenance of a TestCase to this adapter. It is never a protocol
+# field or a create_X() kwarg: _test_case strips it before delegating, and the
+# multi/proposal validation allowlist rejects unknown keys so a client cannot
+# set it there. Multi-mode therefore keeps the ai_generated/unreviewed default.
+TEST_ORIGIN_FIELD = "__interview_test_origin"
+
 
 @dataclass(frozen=True)
 class CreatedArtifactRef:
@@ -129,31 +136,34 @@ def _risk(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
 
 
 def _test_case(fields: dict, ctx: AuthContext, workspace_id) -> CreatedArtifactRef:
-    # #424 producer P4: the interview formalisation is an LLM extraction step
-    # (``interview_multi_protocol`` extracts a fenced JSON proposal) with no
-    # per-TestCase human confirmation gate, so the created row is AI-generated
-    # and unreviewed. Marking it ``manual``/``reviewed`` reintroduced exactly
-    # the false-green class #424 closes (prompt output counting as verified
-    # evidence).
+    # #424 / #2044: provenance follows the interview's actual producer.
+    # * Single mode (human answered every protocol field): the caller sets
+    #   TEST_ORIGIN_FIELD="manual" -> origin=manual, reviewed=True.
+    # * Multi/proposal mode (LLM extracted a fenced JSON proposal, no
+    #   per-TestCase human confirmation gate): the key is absent -> the
+    #   ai_generated/unreviewed default stays, so prompt output never counts
+    #   as verified evidence (the false-green class #424 closes).
     #
     # Overwrite protection: a tenant-defined interview protocol derives its
     # field names from attribute definitions, so a field literally named
-    # ``origin``/``reviewed`` can land in *fields*. Keyword-argument ordering
-    # provides no protection here — ``create_test_case(..., origin=X,
-    # **fields)`` raises ``TypeError: got multiple values for keyword
-    # argument 'origin'`` regardless of the order. The normative mechanism is
-    # therefore this dictionary filter: the adapter owns ``origin``/``reviewed``,
-    # every other proposal field (including ``scenario_kind``) passes through.
+    # ``origin``/``reviewed`` (or our reserved key) can land in *fields*.
+    # Keyword-argument ordering provides no protection here —
+    # ``create_test_case(..., origin=X, **fields)`` raises ``TypeError: got
+    # multiple values for keyword argument 'origin'`` regardless of order.
+    # The normative mechanism is therefore this dictionary filter: the adapter
+    # owns ``origin``/``reviewed``, every other proposal field (including
+    # ``scenario_kind``) passes through.
+    origin = fields.get(TEST_ORIGIN_FIELD, "ai_generated")
     adapter_fields = {
         key: value
         for key, value in fields.items()
-        if key not in ("origin", "reviewed")
+        if key not in ("origin", "reviewed", TEST_ORIGIN_FIELD)
     }
     obj = TestService().create_test_case(
         workspace_id=workspace_id,
         ctx=ctx,
-        origin="ai_generated",
-        reviewed=False,
+        origin=origin,
+        reviewed=origin == "manual",
         **adapter_fields,
     )
     return CreatedArtifactRef(

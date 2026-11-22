@@ -175,6 +175,7 @@ def _formalize_new_artifact(ctx, session, title: str) -> list[str]:
     """
     from application.interview_artifact_adapters import (
         ARTIFACT_CREATION_ADAPTERS,
+        TEST_ORIGIN_FIELD,
         build_adapter_fields,
     )
 
@@ -188,6 +189,13 @@ def _formalize_new_artifact(ctx, session, title: str) -> list[str]:
         )
     fields = build_adapter_fields(session.collected_fields)
     fields["title"] = title  # the normalised/stripped value wins
+    if session.artifact_type == "TestCase":
+        # #2044: in single mode every field was answered by a human, so this is
+        # manual, reviewed content -- not unreviewed LLM output (#424). The
+        # adapter consumes this reserved key (never forwarded to create_X()).
+        # Multi/proposal formalize does NOT set it, keeping that path
+        # ai_generated/unreviewed.
+        fields[TEST_ORIGIN_FIELD] = "manual"
     try:
         created_ref = adapter(fields, ctx, session.workspace_id)
     except (KeyError, TypeError) as exc:

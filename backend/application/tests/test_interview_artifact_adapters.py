@@ -6,6 +6,7 @@ import pytest
 
 from application.interview_artifact_adapters import (
     ARTIFACT_CREATION_ADAPTERS,
+    TEST_ORIGIN_FIELD,
     CreatedArtifactRef,
     build_adapter_fields,
 )
@@ -189,6 +190,33 @@ class TestArtifactCreationAdapters:
         )
         assert ref == CreatedArtifactRef(
             artifact_id=fake_case.artifact_id, artifact_type="TestCase", entity_id=fake_case.id
+        )
+
+    def test_test_case_adapter_single_mode_marks_manual_reviewed(self):
+        """#2044: human-answered single-mode interviews set the reserved
+        provenance key; the adapter must create manual/reviewed content.
+        Would FAIL before the fix (adapter hardcoded ai_generated/False)."""
+        fake_ctx = MagicMock()
+        fake_case = MagicMock(id=uuid.uuid4(), artifact_id=uuid.uuid4())
+        with patch(
+            "application.interview_artifact_adapters.TestService.create_test_case",
+            autospec=True,
+            return_value=fake_case,
+        ) as mocked:
+            ARTIFACT_CREATION_ADAPTERS["TestCase"](
+                {"title": "TC-1", TEST_ORIGIN_FIELD: "manual", "origin": "injected"},
+                fake_ctx,
+                "ws-1",
+            )
+        _assert_called_once_with_kwargs(
+            mocked,
+            {
+                "workspace_id": "ws-1",
+                "ctx": fake_ctx,
+                "title": "TC-1",
+                "origin": "manual",
+                "reviewed": True,
+            },
         )
 
     def test_adr_adapter_normalizes_orm_object(self):
