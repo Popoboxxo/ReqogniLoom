@@ -106,6 +106,52 @@ def _restore(definition_json: Any) -> bool:
     return bool(restored)
 
 
+def _process_definition_row(
+    row: Any,
+    model: Any,
+    *,
+    workspace_model: Any,
+    names: set[str],
+    reverse: bool,
+    touched_workspaces: list[Any],
+) -> None:
+    """Apply this migration's flag edit to one definition row.
+
+    This is the original in-loop body lifted out verbatim: choose ``_restore``
+    (reverse) or ``_capture_and_set`` (forward), persist only a changed row and
+    remember a changed Workspace row for the post-pass cache invalidation.
+    Keeping it here flattens ``_run`` so the TenantContext set/clear bracket and
+    the item-type -> model -> row ordering stay visible and unmodified.
+    """
+    changed = (
+        _restore(row.definition_json)
+        if reverse
+        else _capture_and_set(row.definition_json, names)
+    )
+    if changed:
+        row.save(update_fields=["definition_json"])
+        if model is workspace_model:
+            touched_workspaces.append(row.workspace_id)
+
+
+def _invalidate_caches(touched_workspaces: list[Any]) -> None:
+    """Best-effort per-workspace invalidation after the data pass.
+
+    The import guard and the iteration order are copied verbatim from the
+    original driver, so the post-pass behavior is unchanged.
+    """
+    # The resolved definition is cached per workspace; without this the shared
+    # cache keeps serving the pre-/post-repair payload. Best effort by contract,
+    # and it cannot reach the in-process caches of already-running workers --
+    # those still need the usual post-migrate restart (same caveat as 0007/0011).
+    try:
+        from application.cache_invalidation import invalidate_workspace_caches
+    except Exception:  # noqa: BLE001 — import guard  # pragma: no cover - reduced installs
+        return
+    for workspace_id in touched_workspaces:
+        invalidate_workspace_caches(workspace_id)
+
+
 def _run(apps, schema_editor, *, reverse: bool) -> None:
     Tenant = apps.get_model("persistence", "Tenant")
     Global = apps.get_model("attribute_definitions", "GlobalAttributeDefinition")
@@ -126,28 +172,18 @@ def _run(apps, schema_editor, *, reverse: bool) -> None:
                     for row in model.objects.filter(
                         tenant_id=tenant_id, item_type=item_type, preset__in=PRESETS
                     ):
-                        changed = (
-                            _restore(row.definition_json)
-                            if reverse
-                            else _capture_and_set(row.definition_json, names)
+                        _process_definition_row(
+                            row,
+                            model,
+                            workspace_model=Workspace,
+                            names=names,
+                            reverse=reverse,
+                            touched_workspaces=touched_workspaces,
                         )
-                        if changed:
-                            row.save(update_fields=["definition_json"])
-                            if model is Workspace:
-                                touched_workspaces.append(row.workspace_id)
         finally:
             TenantContext.clear_tenant()
 
-    # The resolved definition is cached per workspace; without this the shared
-    # cache keeps serving the pre-/post-repair payload. Best effort by contract,
-    # and it cannot reach the in-process caches of already-running workers --
-    # those still need the usual post-migrate restart (same caveat as 0007/0011).
-    try:
-        from application.cache_invalidation import invalidate_workspace_caches
-    except Exception:  # noqa: BLE001 — import guard  # pragma: no cover - reduced installs
-        return
-    for workspace_id in touched_workspaces:
-        invalidate_workspace_caches(workspace_id)
+    _invalidate_caches(touched_workspaces)
 
 
 def forwards(apps, schema_editor) -> None:

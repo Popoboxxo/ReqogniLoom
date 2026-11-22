@@ -12,7 +12,24 @@ import os
 import pytest
 
 
+# settings.py derives CSRF_COOKIE_SECURE / SESSION_COOKIE_SECURE from
+# AUTH_COOKIE_SECURE only when those env vars are UNSET. Ambient values (e.g.
+# the test stack's `env_file: .env` injecting `CSRF_COOKIE_SECURE=False`) shadow
+# that default, so clear them before reloading unless a test sets them itself.
+_COOKIE_SECURE_ENV_VARS = (
+    "AUTH_COOKIE_SECURE",
+    "SESSION_COOKIE_SECURE",
+    "CSRF_COOKIE_SECURE",
+)
+
+
 def _reload_settings_with_env(monkeypatch, **env):
+    # Drop every cookie-secure env var the caller did not explicitly set so the
+    # AUTH-derived defaults take effect. monkeypatch records and restores each
+    # change at teardown, so subsequent tests still see the original values.
+    for key in _COOKIE_SECURE_ENV_VARS:
+        if key not in env:
+            monkeypatch.delenv(key, raising=False)
     for key, value in env.items():
         monkeypatch.setenv(key, value)
     import reqogniloom.settings as settings_module

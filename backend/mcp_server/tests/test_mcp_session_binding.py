@@ -221,6 +221,25 @@ def test_delete_rejection_does_not_log_the_session_id(caplog) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _find_repo_root(manifest_suffix: Path) -> Path:
+    """Return the ancestor directory holding the committed tool manifest.
+
+    A hardcoded ``parents[N]`` index is layout-dependent: the repo root is
+    ``parents[3]`` on the host (``<repo>/backend/mcp_server/tests/``) but
+    ``parents[2]`` in the container (``/app/mcp_server/tests/``, where
+    ``backend/`` is ``/app`` and ``docs/`` is bind-mounted at ``/app/docs``).
+    Probing for the manifest marker works in both. Failing loudly keeps the
+    contract test from silently degrading when the manifest cannot be found.
+    """
+    current = Path(__file__).resolve()
+    for ancestor in current.parents:
+        if (ancestor / manifest_suffix).is_file():
+            return ancestor
+    raise FileNotFoundError(
+        f"{manifest_suffix} not found in any ancestor of {current}"
+    )
+
+
 def test_session_hardening_does_not_change_tool_contract() -> None:
     """The live tool manifest still matches the committed one after API-002."""
     from mcp_server.management.commands.export_tool_manifest import (
@@ -228,7 +247,7 @@ def test_session_hardening_does_not_change_tool_contract() -> None:
         build_manifest,
     )
 
-    repo_root = Path(__file__).resolve().parents[3]
+    repo_root = _find_repo_root(_MANIFEST_SUFFIX)
     committed = json.loads((repo_root / _MANIFEST_SUFFIX).read_text(encoding="utf-8"))
     live = build_manifest()
 
