@@ -190,6 +190,18 @@ services:
       # .dockerignore strips tests/ from the built image on purpose).
       - ./backend:/app
       - ./docs:/app/docs:ro
+      # Issue #1964: docs/agent-templates/test_workspace_id_prerequisite.py
+      # resolves its fixtures relative to the checkout root (REPO_ROOT=/app in
+      # this image) and byte-compares the canonical skill/DOMAIN_MODEL/agent
+      # texts against every generated dist/ copy. That guard CANNOT run when
+      # dist/ is absent: /app/dist/agent-skills/... and the shipped plugin
+      # agents do not exist in this image, so it fails with ENOENT and turns
+      # the backend suite RED. This read-only mount keeps ALL of its assertions
+      # active inside the container; the same guard also runs green on the host
+      # CI job (`pytest docs/agent-templates dist`), where dist/ is present.
+      # pytest's default norecursedirs already contains `dist`, so mounting it
+      # here does NOT pull dist/'s own generator tests into this suite.
+      - ./dist:/app/dist:ro
       # Repo-level fixtures several backend suites resolve relative to the
       # checkout root. In-container cwd is /app (the backend/ bind mount), so
       # without these the paths do not exist and tests fail with ENOENT.

@@ -321,6 +321,19 @@ _ATTRIBUTE_TO_PROTOCOL_TYPE = {
     "user": "text",
 }
 
+#: #2043: ``ArchitectureElement.parent_id`` is a reference-shaped attribute
+#: that the protocol degrades to free text. The generic "Elicit the ..."
+#: fragment gives the host/LLM no rule for that text, so the field was filled
+#: with a guess (or left out) and every second element was rejected by I5 as a
+#: forbidden second root. Append the rule to the elicitation phase so the
+#: answer is an actionable id -- or an explicit blank, which is the documented
+#: way to ask for the single root (I5 still rejects a blank when a root exists).
+_PARENT_ID_PROMPT_HINT = (
+    " For 'parent_id', ask for the id of an existing ArchitectureElement to "
+    "attach this element under it; leave it blank to create the single root "
+    "(blank is rejected by invariant I5 when the workspace already has one)."
+)
+
 
 def _attributes_by_section(
     attributes: list[dict], artifact_type: str
@@ -401,14 +414,19 @@ def _phases_from_sections(
             fields.append(
                 ProtocolField(name=attribute["name"], type=field_type, choices=choices)
             )
+        prompt = (
+            f"Elicit the {artifact_type}'s {section} attributes: "
+            f"{', '.join(f.name for f in fields)}."
+        )
+        if artifact_type == "ArchitectureElement" and any(
+            f.name == "parent_id" for f in fields
+        ):
+            prompt += _PARENT_ID_PROMPT_HINT
         phases.append(
             ProtocolPhase(
                 name=section,
                 required_fields=fields,
-                prompt_fragment=(
-                    f"Elicit the {artifact_type}'s {section} attributes: "
-                    f"{', '.join(f.name for f in fields)}."
-                ),
+                prompt_fragment=prompt,
             )
         )
 

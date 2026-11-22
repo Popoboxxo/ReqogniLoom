@@ -32,6 +32,8 @@ Architecture:
 from __future__ import annotations
 
 import logging
+import re
+from typing import Any
 from uuid import UUID
 
 from django.db.models import F, Q, QuerySet
@@ -74,6 +76,61 @@ logger = logging.getLogger(__name__)
 
 # Allowed execution status values (REQ-L2-AS-005)
 VALID_EXECUTION_STATUSES = frozenset({"Passed", "Failed", "Not Run"})
+
+# ---------------------------------------------------------------------------
+# Execution-status carrier (#1975)
+# ---------------------------------------------------------------------------
+# Artifact rows carry no ``status`` column (model-consolidation invariant,
+# see ``persistence/tests/test_no_status_columns.py``). The status therefore
+# lives in the backing Artifact's JSON ``custom_fields`` map — NOT as a text
+# prefix on ``TestCase.description`` as it did before #1975.
+EXECUTION_STATUS_FIELD = "execution_status"
+
+# Pre-#1975 rows stored ``[execution_status:<value>]`` at the start of the
+# description. Recognise it on read so legacy values are not lost, and strip
+# it on every read/write so free text never doubles as a state carrier.
+_LEGACY_DESCRIPTION_STATUS_RE = re.compile(r"^\[execution_status:([^\]]*)\]\s*")
+
+
+def strip_legacy_execution_status(description: str | None) -> str:
+    """Return *description* without a leading legacy status marker (#1975).
+
+    Non-string values (test doubles, malformed legacy rows) normalise to an
+    empty string rather than raising on a regex match.
+    """
+    if not isinstance(description, str) or not description:
+        return ""
+    return _LEGACY_DESCRIPTION_STATUS_RE.sub("", description)
+
+
+def _legacy_execution_status_in_description(description: str | None) -> str | None:
+    """Return a valid status encoded by a leading legacy marker, if any."""
+    if not isinstance(description, str):
+        return None
+    match = _LEGACY_DESCRIPTION_STATUS_RE.match(description)
+    if match and match.group(1) in VALID_EXECUTION_STATUSES:
+        return match.group(1)
+    return None
+
+
+def read_execution_status(test_case: Any) -> str | None:
+    """Return *test_case*'s execution status from its canonical carrier.
+
+    ``Artifact.custom_fields["execution_status"]`` wins. Pre-#1975 rows that
+    still carry the tag in ``TestCase.description`` are recognised as a
+    fallback so the value stays visible until the row is next written; the
+    marker itself is never returned as description text (see
+    :func:`strip_legacy_execution_status`).
+    """
+    artifact = getattr(test_case, "artifact", None)
+    custom_fields = getattr(artifact, "custom_fields", None)
+    if isinstance(custom_fields, dict):
+        value = custom_fields.get(EXECUTION_STATUS_FIELD)
+        if value in VALID_EXECUTION_STATUSES:
+            return str(value)
+    return _legacy_execution_status_in_description(
+        getattr(test_case, "description", None)
+    )
 
 # ---------------------------------------------------------------------------
 # Canonical test-type representation (#816)
@@ -255,11 +312,22 @@ class TestService(ServiceBase):
         if workspace is None:
             raise NotFoundError(f"Workspace {workspace_id} not found")
 
+        cleaned_custom_fields = _clean_custom_fields(custom_fields)
+        # Follow-up to #1975: a caller may still hand us the old text carrier.
+        # Strip it from the description AND migrate its value into the real
+        # carrier so creation cannot persist the marker nor lose the status.
+        # An explicit, valid custom_fields value always wins.
+        legacy_status = _legacy_execution_status_in_description(description)
+        if legacy_status is not None and cleaned_custom_fields.get(
+            EXECUTION_STATUS_FIELD
+        ) not in VALID_EXECUTION_STATUSES:
+            cleaned_custom_fields[EXECUTION_STATUS_FIELD] = legacy_status
+
         artifact = Artifact.objects.create(
             tenant=tenant,
             workspace=workspace,
             artifact_type="TestCase",
-            custom_fields=_clean_custom_fields(custom_fields),
+            custom_fields=cleaned_custom_fields,
         )
 
         test_case = TestCase.objects.create(
@@ -270,7 +338,7 @@ class TestService(ServiceBase):
             # (NULLs are distinct under a UNIQUE index).
             workspace=workspace,
             title=title,
-            description=description,
+            description=strip_legacy_execution_status(description),
             steps=_typed_steps(steps),
             # Issue #932: allocate the local readable uid when not supplied.
             uid=uid or generate_local_uid("TestCase", workspace_id),
@@ -376,7 +444,9 @@ class TestService(ServiceBase):
         if title is not None:
             test_case.title = title
         if description is not None:
-            test_case.description = description
+            # #1975: a caller must not be able to re-introduce the old text
+            # carrier through the normal update path.
+            test_case.description = strip_legacy_execution_status(description)
         if steps is not None:
             typed_steps = normalize_steps(steps, testcase_id=test_case.id)
             validate_steps(typed_steps)
@@ -567,13 +637,42 @@ class TestService(ServiceBase):
             ctx, test_case.artifact_id, workspace_id=test_case.artifact.workspace_id
         )
 
-        # Store execution_status in description as tagged metadata
-        # (schema v1 has no dedicated execution_status field — extend if needed)
-        # Remove any existing tag via regex (lstrip removes chars, not substrings)
-        import re
-        stripped = re.sub(r'^\[execution_status:[^\]]*\]\s*', '', test_case.description)
-        test_case.description = f"[execution_status:{execution_status}] {stripped}"
-        test_case.save(update_fields=["description"])
+        # #1975: the status is state, not text. Store it in the backing
+        # Artifact's real JSON carrier and remove any legacy description tag
+        # (persisted here too, so old rows migrate on their next status write).
+        # No schema migration is involved: Artifact.custom_fields already exists
+        # and the no-status-column invariant stays intact.
+        artifact = test_case.artifact
+        custom_fields = (
+            dict(artifact.custom_fields)
+            if isinstance(artifact.custom_fields, dict)
+            else {}
+        )
+        stripped_description = strip_legacy_execution_status(test_case.description)
+        status_changed = (
+            custom_fields.get(EXECUTION_STATUS_FIELD) != execution_status
+        )
+        description_changed = stripped_description != test_case.description
+
+        if status_changed:
+            custom_fields[EXECUTION_STATUS_FIELD] = execution_status
+            artifact.custom_fields = custom_fields
+            artifact.save(update_fields=["custom_fields", "modified_at"])
+        if description_changed:
+            test_case.description = stripped_description
+            test_case.save(update_fields=["description", "modified_at"])
+
+        # A status write is a content change: bump the version and append a
+        # revision exactly like the other TestCase mutation paths do. The
+        # "this really changed something" gate keeps idempotent writes cheap.
+        if status_changed or description_changed:
+            TestCase.objects.filter(id=test_case.id).update(version=F("version") + 1)
+            test_case.refresh_from_db(fields=["version"])
+            ArtifactVersionService().record(
+                test_case.artifact_id,
+                snapshot_fields(test_case, "TestCase"),
+                ctx,
+            )
 
         self._audit(ctx=ctx, operation="update", entity_type="TestCase", entity_id=test_case_id)
         return test_case
@@ -786,7 +885,10 @@ __all__ = [
     "VALID_EXECUTION_STATUSES",
     "VALID_TEST_TYPES",
     "VALID_TEST_TYPE_VALUES",
+    "EXECUTION_STATUS_FIELD",
     "TestService",
     "canonical_test_type_or_none",
     "normalize_test_type",
+    "read_execution_status",
+    "strip_legacy_execution_status",
 ]

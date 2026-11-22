@@ -87,8 +87,36 @@ class TestKeyValidation:
 class TestNormalize:
     def test_accepts_bare_keys_and_objects_into_canonical_entries(self) -> None:
         assert normalize_tree_fields(["uid", {"key": "status", "width": "half"}]) == [
-            {"key": "uid", "width": DEFAULT_TREE_FIELD_WIDTH},
+            # #2028: a bare key inherits the catalogue width (uid = half), not
+            # the global DEFAULT_TREE_FIELD_WIDTH fallback.
+            {"key": "uid", "width": "half"},
             {"key": "status", "width": "half"},
+        ]
+
+    @pytest.mark.parametrize(
+        "key", [spec.key for spec in SYSTEM_TREE_FIELDS if spec.width == "half"]
+    )
+    def test_bare_key_uses_the_catalogue_width(self, key: str) -> None:
+        """#2028: string keys and objects without a width agree with `get`."""
+        expected = next(spec.width for spec in SYSTEM_TREE_FIELDS if spec.key == key)
+        assert normalize_tree_fields([key]) == [{"key": key, "width": expected}]
+        assert normalize_tree_fields([{"key": key}]) == [
+            {"key": key, "width": expected}
+        ]
+
+    def test_custom_key_without_a_width_keeps_the_global_default(self) -> None:
+        """#2028: only built-ins carry a per-field width; custom fields stay full."""
+        assert normalize_tree_fields(
+            ["Kunde-Name", {"key": "my_custom_field"}],
+            extra_keys=["Kunde-Name", "my_custom_field"],
+        ) == [
+            {"key": "Kunde-Name", "width": DEFAULT_TREE_FIELD_WIDTH},
+            {"key": "my_custom_field", "width": DEFAULT_TREE_FIELD_WIDTH},
+        ]
+
+    def test_explicit_width_still_wins_over_the_catalogue_default(self) -> None:
+        assert normalize_tree_fields([{"key": "uid", "width": "full"}]) == [
+            {"key": "uid", "width": "full"}
         ]
 
     def test_preserves_the_caller_order(self) -> None:

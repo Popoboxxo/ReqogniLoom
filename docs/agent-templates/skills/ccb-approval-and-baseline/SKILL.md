@@ -8,9 +8,14 @@ description: Use when recording architectural decisions (ADRs), tracking issues,
 See [DOMAIN_MODEL.md](../../DOMAIN_MODEL.md) for the REQ-ID schema, trace-link types, and baseline
 scopes referenced below.
 
+> **Workspace-ID prerequisite:** every `workspace.get_context` call below passes a concrete
+> `workspace_id` (from the session context, or obtained via `workspace.list` — which most thin
+> plugin roles lack, so get the id from the orchestrating role that has it or ask the user).
+> See DOMAIN_MODEL.md → "Workspace-ID prerequisite". Never call it without the id.
+
 ## Workflow
 
-1. `workspace.get_context` — learn the active state machine and rigor preset; a workspace defines
+1. `workspace.get_context(workspace_id)` — learn the active state machine and rigor preset; a workspace defines
    its own set of legal transitions for requirements/architecture (e.g.
    `draft -> in_review -> approved -> baselined`) — never assume a fixed chain.
 2. Record decisions with `adr.create`/`adr.update`; `adr.read` fetches a single ADR by ID when you

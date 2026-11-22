@@ -569,3 +569,71 @@ class TestValidation:
             assert stored.workspace_id == workspace.id
         finally:
             clear_request_tenant()
+
+
+# ---------------------------------------------------------------------------
+# Custom attributes in the catalogue (#2028)
+# ---------------------------------------------------------------------------
+
+
+class TestCustomAttributeCatalog:
+    def test_catalog_uses_the_context_workspace_when_no_id_is_passed(
+        self,
+        editor_ctx: AuthContext,
+        workspace: Workspace,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A workspace-bound credential still sees its custom attributes.
+
+        #2028: returning ``[]`` as soon as ``workspace_id`` is absent left the
+        catalog of a user-scoped ``set`` (which cannot carry a workspace) short
+        of the four custom attributes a workspace-scoped ``get`` returns.
+        """
+        seen: list[object] = []
+
+        def fake_resolve(self, ctx, item_type, workspace_id):
+            seen.append(workspace_id)
+            return {
+                "attributes": [
+                    {"name": "difficulty", "kind": "extended"},
+                    {"name": "status", "kind": "core"},
+                ],
+                "sections": [],
+            }
+
+        monkeypatch.setattr(
+            "application.attribute_definition_service.AttributeDefinitionService.resolve",
+            fake_resolve,
+        )
+        bound = AuthContext(
+            user_id=editor_ctx.user_id,
+            tenant_id=editor_ctx.tenant_id,
+            active_roles=editor_ctx.active_roles,
+            auth_method=editor_ctx.auth_method,
+            workspace_id=workspace.id,
+        )
+        keys = {
+            entry["key"]
+            for entry in TreeDisplayConfigService().catalog(bound, item_type=ITEM_TYPE)
+        }
+        assert "difficulty" in keys
+        assert seen == [workspace.id]
+
+    def test_catalog_stays_builtin_without_any_workspace_context(
+        self,
+        editor_ctx: AuthContext,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """No workspace at all is still a non-failing, built-in-only read."""
+        monkeypatch.setattr(
+            "application.attribute_definition_service.AttributeDefinitionService.resolve",
+            lambda *a, **kw: pytest.fail("must not resolve without a workspace"),
+        )
+        keys = {
+            entry["key"]
+            for entry in TreeDisplayConfigService().catalog(
+                editor_ctx, item_type=ITEM_TYPE
+            )
+        }
+        assert "uid" in keys
+        assert "difficulty" not in keys

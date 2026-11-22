@@ -27,6 +27,19 @@ export interface SearchResponse {
   query: string;
 }
 
+/**
+ * Issue #1971: upper bound for a global-search query.
+ *
+ * The request line `GET /search/?q=…` is part of the URL, so an unbounded
+ * query eventually trips the HTTP server / Vite proxy's request-line limit
+ * (~10k characters here) with a 414 — long before the search backend can
+ * answer. Keeping the constant next to the request that would fail lets the
+ * input (`maxLength`) and this client agree on one number. The UI shows a
+ * visible hint when it enforces the bound, so a truncated query is never
+ * silently substituted for what the user typed.
+ */
+export const MAX_SEARCH_QUERY_LENGTH = 2000;
+
 export const searchApi = {
   search(
     query: string,
@@ -34,7 +47,10 @@ export const searchApi = {
     options: { type?: string[]; page?: number; limit?: number } = {}
   ): Promise<SearchResponse> {
     const params = new URLSearchParams();
-    params.set("q", query);
+    // Defence in depth: callers other than the bounded input must not be able
+    // to produce a 414 either. Normal queries are far below this limit and are
+    // passed through byte-for-byte.
+    params.set("q", query.slice(0, MAX_SEARCH_QUERY_LENGTH));
     params.set("workspace_id", workspaceId);
     if (options.type && options.type.length > 0) {
       for (const t of options.type) {

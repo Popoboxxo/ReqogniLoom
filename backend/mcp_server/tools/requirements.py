@@ -47,6 +47,7 @@ from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
+    ParameterError,
     artifact_custom_fields,
     mcp_audit_handoff,
     optional_uuid,
@@ -171,6 +172,93 @@ def _check_llm_configured() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# requirement.update -- one source of truth for the writable ``data`` keys.
+#
+# Issue #1984/#2003: the advertised ``data`` schema used to omit
+# ``acceptance_criteria`` and ``verification_method`` even though
+# ``RequirementService.update_requirement`` accepts both, and the handler
+# silently dropped unknown keys while still bumping the version.  The schema
+# and the strict unknown-key rejection below now read from this one map, so a
+# field cannot be writable in the handler yet undeclared (or vice versa).
+# Read-only keys (``level``, ``status``) are declared too: the #2004 reporting
+# keeps working and an agent can see that they are accepted-but-not-applied.
+# ---------------------------------------------------------------------------
+
+_REQUIREMENT_UPDATE_DATA_PROPERTIES: dict[str, dict[str, Any]] = {
+    "title": {"type": "string"},
+    "description": {"type": "string"},
+    "category": {"type": "string"},
+    "rationale": {
+        "type": "string",
+        "description": "Justification for the requirement (IEEE 29148 §5.2.6).",
+    },
+    "source": {
+        "type": "string",
+        "description": "Origin of the requirement (stakeholder, document, decision).",
+    },
+    "acceptance_criteria": {
+        "type": "string",
+        "description": "Criteria describing when the requirement is fulfilled.",
+    },
+    "verification_method": {
+        "type": "string",
+        "enum": ["Test", "Review", "Analysis", "Inspection", "Demonstration"],
+        "description": "Verification method (only meaningful for type='SyReq').",
+    },
+    "parent_id": {
+        "type": ["string", "null"],
+        "description": (
+            "Artifact id of the new parent Requirement, or null to detach this "
+            "requirement to the top of the cascade. Applied (ADR-005) — the "
+            "derived `level` is recomputed for the moved requirement and "
+            "everything below it."
+        ),
+    },
+    "level": {
+        "type": "integer",
+        "description": (
+            "READ-ONLY (ADR-005): derived from the hierarchy, never settable. "
+            "Listed so the contract stays explicit; a supplied value "
+            "is rejected with VALIDATION_ERROR."
+        ),
+    },
+    "status": {
+        "type": "string",
+        "description": (
+            "READ-ONLY (REQ-143). The WorkflowEngine owns the lifecycle state; "
+            "a supplied value is reported in `ignored_read_only_fields` and "
+            "never written. Use the transitions endpoint to change it."
+        ),
+    },
+    "change_reason": {
+        "type": "string",
+        "description": (
+            "Reason for the change. Required when the workspace's "
+            "change_reason preset policy is 'mandatory' (e.g. extended preset)."
+        ),
+    },
+    "custom_fields": {
+        "type": "object",
+        "additionalProperties": True,
+        "description": (
+            "Extended user-defined attributes (flat key/value map). Replaces "
+            "the stored map."
+        ),
+    },
+    # Attribut v3 WS2 (#936): Artifact-level system fields are applied through
+    # the gateway.
+    **SYSTEM_FIELD_SCHEMA,
+}
+
+#: Keys an update payload may carry. Top-level callers may send these flat
+#: (#601 cross-tool compatibility); the nested ``data`` object carries the
+#: documented form. ``id``/``data`` themselves are added by the handler.
+_REQUIREMENT_UPDATE_FIELD_NAMES: frozenset[str] = frozenset(
+    _REQUIREMENT_UPDATE_DATA_PROPERTIES
+)
+
+
+# ---------------------------------------------------------------------------
 # requirement.update — pure field helpers (no service, no audit, no DB I/O).
 #
 # Extracted from ``_handle_update`` (repowise finding #3, brain method).  The
@@ -203,6 +291,7 @@ class _UpdateFieldBundle(NamedTuple):
     changed_fields: dict[str, Any]
     custom_fields_kwargs: dict[str, Any]
     hierarchy_kwargs: dict[str, Any]
+    se_mask_kwargs: dict[str, Any]
 
 
 def _collect_update_fields(
@@ -233,6 +322,11 @@ def _collect_update_fields(
             "rationale",
             "source",
             "category",
+            # #1984/#2003: these SE mask fields are accepted by
+            # RequirementService.update_requirement but used to be dropped
+            # here, so an MCP update answered 200 while leaving them stale.
+            "acceptance_criteria",
+            "verification_method",
             "custom_fields",
         )
         if name in data or name in params
@@ -247,12 +341,23 @@ def _collect_update_fields(
     if "parent_id" in data or "parent_id" in params:
         hierarchy_kwargs["parent_id"] = field("parent_id")
 
+    # "Only forward what was sent" matters especially for
+    # ``verification_method``: the service uses an _UNSET sentinel there, so
+    # passing an implicit ``None`` would clear a value the caller never
+    # mentioned. The plain-string fields tolerate ``None`` as "unchanged",
+    # but keeping them in the same conditional bundle is consistent and safe.
+    se_mask_kwargs: dict[str, Any] = {}
+    for name in ("acceptance_criteria", "verification_method"):
+        if name in data or name in params:
+            se_mask_kwargs[name] = field(name)
+
     return _UpdateFieldBundle(
         field,
         system_values,
         changed_fields,
         custom_fields_kwargs,
         hierarchy_kwargs,
+        se_mask_kwargs,
     )
 
 
@@ -481,49 +586,12 @@ class RequirementsToolGroup(BaseToolGroup):
                             "(ADR-005) and is rejected if supplied. `parent_id` "
                             "re-parents the requirement and re-derives `level`."
                         ),
-                        "properties": {
-                            "title": {"type": "string"},
-                            "description": {"type": "string"},
-                            "category": {"type": "string"},
-                            "parent_id": {
-                                "type": ["string", "null"],
-                                "description": (
-                                    "Artifact id of the new parent Requirement, or "
-                                    "null to detach this requirement to the top "
-                                    "of the cascade. Applied (ADR-005) — the "
-                                    "derived `level` is recomputed for the moved "
-                                    "requirement and everything below it."
-                                ),
-                            },
-                            "level": {
-                                "type": "integer",
-                                "description": (
-                                    "READ-ONLY (ADR-005): derived from the "
-                                    "hierarchy, never settable. Listed so the "
-                                    "contract stays explicit; a supplied value "
-                                    "is rejected with VALIDATION_ERROR."
-                                ),
-                            },
-                            "change_reason": {
-                                "type": "string",
-                                "description": (
-                                    "Reason for the change. Required when the "
-                                    "workspace's change_reason preset policy "
-                                    "is 'mandatory' (e.g. extended preset)."
-                                ),
-                            },
-                            "custom_fields": {
-                                "type": "object",
-                                "additionalProperties": True,
-                                "description": (
-                                    "Extended user-defined attributes (flat "
-                                    "key/value map). Replaces the stored map."
-                                ),
-                            },
-                            # Attribut v3 WS2 (#936): Artifact-level system
-                            # fields are applied through the gateway.
-                            **SYSTEM_FIELD_SCHEMA,
-                        },
+                        # #1984/#2003: the single map above drives both the
+                        # advertised contract and the handler's unknown-key
+                        # rejection — it now includes the SE mask fields
+                        # ``acceptance_criteria``/``verification_method`` the
+                        # service accepts but the static schema used to omit.
+                        "properties": _REQUIREMENT_UPDATE_DATA_PROPERTIES,
                     },
                 },
                 "required": ["id"]
@@ -786,6 +854,16 @@ class RequirementsToolGroup(BaseToolGroup):
     ) -> ToolResult:
         """requirement.create — create a new requirement (write, audited)."""
         title = require_param(params, "title")
+        # Issue #1970: require_param rejects None/blank strings, but a numeric
+        # (or other non-string) title used to be pushed through ``str(title)``
+        # below and persisted as e.g. "123". Type coercion at the boundary is
+        # exactly the silent-rewrite class this wave closes, so make the rule
+        # strict and name the field and the expected type in the error.
+        if not isinstance(title, str):
+            raise ParameterError(
+                "Parameter 'title' must be a string, got "
+                f"{type(title).__name__}; numeric titles are not coerced."
+            )
         workspace_id = require_uuid(params, "workspace_id")
         description: str = params.get("description", "")
         category: str = params.get("category", "")
@@ -835,7 +913,7 @@ class RequirementsToolGroup(BaseToolGroup):
             with mcp_audit_handoff():
                 req = self._service.create_requirement(
                     workspace_id=workspace_id,
-                    title=str(title),
+                    title=title,
                     ctx=auth_context,
                     description=description,
                     acceptance_criteria=acceptance_criteria,
@@ -879,8 +957,29 @@ class RequirementsToolGroup(BaseToolGroup):
         self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
         """requirement.update — update an existing requirement (write, audited)."""
-        req_id = require_uuid(params, "id")
+        # #1984/#2002: reject unknown keys at BOTH levels before any read or
+        # write. Without this, a typo like ``foo`` was silently dropped while
+        # the version still bumped, so a client could not tell its update had
+        # no effect. Flat top-level fields stay allowed (#601 cross-tool
+        # compatibility); ``id``/``data`` are the envelope keys.
+        reject_unknown_params(
+            params,
+            allowed=["id", "data", *_REQUIREMENT_UPDATE_FIELD_NAMES],
+            tool_name="requirement.update",
+        )
         data: dict[str, Any] = params.get("data") or {}
+        if not isinstance(data, dict):
+            raise ParameterError(
+                "Parameter 'data' must be an object with the update field "
+                "names as keys."
+            )
+        reject_unknown_params(
+            data,
+            allowed=list(_REQUIREMENT_UPDATE_FIELD_NAMES),
+            tool_name="requirement.update.data",
+        )
+
+        req_id = require_uuid(params, "id")
 
         # Field resolution and the "only forward what was sent" rule live in
         # pure helpers now (repowise finding #3).  The gate, service call and
@@ -891,6 +990,7 @@ class RequirementsToolGroup(BaseToolGroup):
         changed_fields = fields.changed_fields
         custom_fields_kwargs = fields.custom_fields_kwargs
         hierarchy_kwargs = fields.hierarchy_kwargs
+        se_mask_kwargs = fields.se_mask_kwargs
 
         try:
             # Ledger gap #1 / issue #881: same central gate as
@@ -932,6 +1032,7 @@ class RequirementsToolGroup(BaseToolGroup):
                     source=field("source"),
                     category=field("category"),
                     change_reason=field("change_reason"),
+                    **se_mask_kwargs,
                     **custom_fields_kwargs,
                     **hierarchy_kwargs,
                 )

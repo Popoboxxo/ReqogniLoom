@@ -549,6 +549,13 @@ def map_tool_exception(exc: Exception) -> tuple[str, str] | None:
         return "CONFLICT", str(exc)
     if isinstance(exc, ValidationError):
         return "VALIDATION_ERROR", str(exc)
+    # #1966: a handler's own ``int()``/``float()`` conversion raises a plain
+    # ValueError for a wrongly typed argument. That is a caller-actionable
+    # validation failure, not a server defect — map only the exact base type so
+    # custom ValueErrors with a domain contract keep their own handling and
+    # genuinely unexpected failures stay CWE-209-masked below.
+    if type(exc) is ValueError:
+        return "VALIDATION_ERROR", str(exc) or "Invalid parameter value."
     if isinstance(exc, NotFoundError):
         return "NOT_FOUND", str(exc)
     if isinstance(exc, PermissionDeniedError):

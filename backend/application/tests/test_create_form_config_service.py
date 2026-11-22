@@ -16,7 +16,7 @@ import uuid
 import pytest
 
 from application.create_form_config_service import (
-    SCOPE_DEFAULT,
+    SCOPE_EFFECTIVE,
     SCOPE_GLOBAL,
     SCOPE_USER,
     SCOPE_WORKSPACE,
@@ -119,7 +119,9 @@ class TestResolution:
         payload = CreateFormConfigService().get_config(
             editor_ctx, item_type=ITEM_TYPE, workspace_id=workspace.id
         )
-        assert payload["scope"] == SCOPE_DEFAULT
+        # #2031: the advertised default scope is "effective"; an effective read
+        # with no stored level reports that mode, not a stored "default" level.
+        assert payload["scope"] == SCOPE_EFFECTIVE
         # Only editable attributes are configurable; the workflow-owned status
         # is not part of the create dialog.
         assert _keys(payload) == ["title", "description"]
@@ -204,7 +206,7 @@ class TestReset:
         payload = service.get_config(
             admin_ctx, item_type=ITEM_TYPE, workspace_id=workspace.id
         )
-        assert payload["scope"] == SCOPE_DEFAULT
+        assert payload["scope"] == SCOPE_EFFECTIVE
         row = TreeDisplayConfig.objects.get(
             scope=TREE_DISPLAY_SCOPE_WORKSPACE, workspace_id=workspace.id
         )

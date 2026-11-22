@@ -106,7 +106,7 @@ class GoalService(ServiceBase):
         *,
         workspace_id: uuid.UUID,
         title: str,
-        description: str = "",
+        description: str | None = None,
         lineage_id: uuid.UUID | None = None,
         ctx: Any,
         custom_fields: dict | None = None,
@@ -116,7 +116,10 @@ class GoalService(ServiceBase):
         Args:
             workspace_id: Target workspace UUID.
             title: Goal title.
-            description: Optional goal description.
+            description: Optional goal description. ``None`` (omitted) inherits
+                the description of the lineage's latest version when appending
+                to an existing lineage; an explicit ``""`` still clears it.
+                A brand-new lineage with no description defaults to ``""``.
             lineage_id: When ``None``, starts a brand-new lineage (sequence
                 1). When given, appends the next version to that lineage.
             ctx: Resolved AuthContext.
@@ -202,8 +205,19 @@ class GoalService(ServiceBase):
                         self._unknown_lineage_message(workspace.id, lineage_id)
                     )
                 sequence_number = last.sequence_number + 1
+                # #2023: a new version of an existing lineage inherits the
+                # latest version's description when the caller omitted it.
+                # ``GoalService.update`` already does this at its call site;
+                # this seam covers every other caller (MCP goal.create_version,
+                # interview adapter, direct service use). An explicit ``""``
+                # is still written verbatim, so clearing stays possible.
+                resolved_description = (
+                    last.description if description is None else description
+                )
             else:
                 sequence_number = 1
+                # No predecessor to inherit from — keep the historical default.
+                resolved_description = "" if description is None else description
 
             try:
                 with transaction.atomic():
@@ -225,7 +239,7 @@ class GoalService(ServiceBase):
                         lineage_id=resolved_lineage_id,
                         sequence_number=sequence_number,
                         title=title,
-                        description=description,
+                        description=resolved_description,
                         created_by_name=str(ctx.user_id),
                     )
                     goal_candidate.save()

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -55,6 +56,13 @@ class GlossaryTermDTO:
     # REQ-L2-AS-037 / Epic #934 WS1: extended user-defined attributes live on
     # the backing Artifact; exposed so both transports can read them back.
     custom_fields: dict | None = None
+    # #2022: AuditableModel supplies created_at/modified_at on every
+    # GlossaryTerm, but from_orm() used to drop them. Both the REST serializer
+    # (created_at / updated_at) and the MCP tool group (which projects the
+    # DTO's __dict__) declare these fields, so without them the timestamps
+    # were silently absent from every glossary response.
+    created_at: datetime | None = None
+    modified_at: datetime | None = None
 
     @property
     def artifact(self) -> Any:
@@ -93,6 +101,8 @@ class GlossaryTermDTO:
                 if term.artifact_id
                 else {}
             ),
+            created_at=term.created_at,
+            modified_at=term.modified_at,
         )
         # WS2 #936: keep the backing row reachable so the gateway can persist
         # and read the Artifact-level system fields for both transports.

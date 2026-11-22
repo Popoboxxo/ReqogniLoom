@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Any
 
 from application.artifact_attribute_gateway import artifact_system_fields
+from application.artifact_fields_update import assert_artifact_not_outdated
 from application.base import NotFoundError, ValidationError
 from auth_tenancy.context import AuthContext
 from django.db.models import QuerySet
@@ -567,6 +568,19 @@ class GenericCrudToolGroup(BaseToolGroup):
                 custom_fields = getattr(artifact, "custom_fields", None)
             if isinstance(custom_fields, dict):
                 data["custom_fields"] = self._jsonify(custom_fields)
+            # #2009: ``affected_item_ids`` is a relation, not a model column,
+            # so it is never part of ``obj.__dict__``. Without this the MCP
+            # change_request.read/create/update responses silently dropped the
+            # impact set even though the REST serializer now returns it.
+            # Stored ``item_id`` values are Artifact UUIDs (the same ids the
+            # service accepts on write, alongside entity ids).
+            if hasattr(obj, "affected_items"):
+                data["affected_item_ids"] = [
+                    str(item_id)
+                    for item_id in obj.affected_items.order_by("created_at").values_list(
+                        "item_id", flat=True
+                    )
+                ]
             # Attribut v3 WS2 (#936): Artifact-level system fields in actor wire
             # form, mirroring the REST DTO builders.
             if self._system_fields_on:
@@ -592,6 +606,46 @@ class GenericCrudToolGroup(BaseToolGroup):
         if not self._system_fields_on:
             return {}
         return system_field_values(params)
+
+    def _schema_required_names(self, tool_name: str) -> list[str]:
+        """Return the ``required`` names from *tool_name*'s inputSchema.
+
+        Mirrors :meth:`schema_param_names` (which returns the property names).
+        A group built without ``__init__`` publishes no schemas, so it has no
+        required names and callers fall back to a signature-free message.
+        """
+        try:
+            schemas = self.get_tool_schemas()
+        except RuntimeError:
+            return []
+        for schema in schemas:
+            if schema.get("name") == tool_name:
+                return list(schema.get("inputSchema", {}).get("required", []))
+        return []
+
+    def _type_error_validation_message(
+        self, tool_name: str, params: dict[str, Any]
+    ) -> str:
+        """Build a client-safe validation message for a service ``TypeError``.
+
+        A ``TypeError`` from the wrapped service means a required field was
+        omitted or an undeclared one was forwarded. Name the offending field(s)
+        from the published schema rather than echoing ``str(exc)``, which leaks
+        the Python call signature (``AdrService.create_adr() missing 1 required
+        positional argument: 'description'`` — issue #1995). When no field can
+        be derived from the schema, return a stable generic message; the
+        exception itself is logged server-side by the caller.
+        """
+        required = self._schema_required_names(tool_name)
+        missing = [name for name in required if name not in params]
+        if missing:
+            return f"Missing required field(s) for {tool_name}: {', '.join(missing)}."
+        allowed = self.schema_param_names(tool_name)
+        if allowed:
+            invalid = sorted(k for k in params if k not in allowed)
+            if invalid:
+                return f"Invalid field(s) for {tool_name}: {', '.join(invalid)}."
+        return f"Missing or invalid field for {tool_name}; check the tool's inputSchema."
 
     def _handle_read(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         allowed = self.schema_param_names(f"{self.prefix}.read")
@@ -646,8 +700,13 @@ class GenericCrudToolGroup(BaseToolGroup):
             # `except Exception` below as an opaque INTERNAL_ERROR (HTTP 500)
             # instead of an actionable client-facing validation error —
             # mirrors the TypeError handling in `_handle_update` (#83 Bug 1).
+            # #1995: name the field from the published schema instead of
+            # echoing str(exc), which leaks the Python call signature to the
+            # client. The original exception is kept in the server-side log.
+            logger.warning("%s.create service TypeError: %s", self.prefix, exc)
             return ToolResult.error(
-                "VALIDATION_ERROR", f"Missing or invalid field for {self.prefix}.create: {exc}"
+                "VALIDATION_ERROR",
+                self._type_error_validation_message(f"{self.prefix}.create", params),
             )
 
     def _handle_update(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
@@ -696,6 +755,18 @@ class GenericCrudToolGroup(BaseToolGroup):
             # bare ``except Exception`` below exactly as it did before this
             # validation call was added.
             workspace_id = self._resolve_workspace_id(obj_id=obj_id, auth_context=auth_context)
+            # #2019: a soft-deleted (outdated) artifact must not be changed
+            # through this generic MCP path either. Use the same shared guard
+            # the REST/bulk seam runs, before the typed service can bump the
+            # entity version. This covers every entity served by this group
+            # (Adr, Risk, Issue, GlossaryTerm, ChangeRequest) — no ADR-only
+            # special case.
+            try:
+                assert_artifact_not_outdated(
+                    self._resolve_artifact_id(obj_id=obj_id, auth_context=auth_context)
+                )
+            except ValidationError as exc:
+                return ToolResult.error("VALIDATION_ERROR", str(exc))
             # Attribut v3 WS2 (#936): owner/reporter/priority are Artifact-level
             # and never reach the wrapped update method, but the definition gate
             # must see them so an unresolvable actor is rejected before the call.
@@ -720,8 +791,12 @@ class GenericCrudToolGroup(BaseToolGroup):
             # Any other unexpected/misnamed field: surface a clear, actionable
             # message instead of letting it fall through to a bare
             # INTERNAL_ERROR (#83 Bug 1 root cause pattern).
+            # #1995: derive the offending field from the published schema,
+            # never from the raw Python TypeError text (call-signature leak).
+            logger.warning("%s.update service TypeError: %s", self.prefix, exc)
             return ToolResult.error(
-                "VALIDATION_ERROR", f"Invalid field for {self.prefix}.update: {exc}"
+                "VALIDATION_ERROR",
+                self._type_error_validation_message(f"{self.prefix}.update", params),
             )
 
     def _handle_delete(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
@@ -745,6 +820,16 @@ class GenericCrudToolGroup(BaseToolGroup):
         """
         obj = self._read_method(ctx=auth_context, **{self._read_id_param: obj_id})
         return obj.workspace_id
+
+    def _resolve_artifact_id(
+        self, *, obj_id: uuid.UUID, auth_context: AuthContext
+    ) -> uuid.UUID | None:
+        """Return the entity's backing ``Artifact`` id, or ``None`` for a
+        legacy unbacked row. Used by the shared outdated guard in
+        :meth:`_handle_update` (#2019).
+        """
+        obj = self._read_method(ctx=auth_context, **{self._read_id_param: obj_id})
+        return getattr(obj, "artifact_id", None)
 
     def _handle_outdate(self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str) -> ToolResult:
         allowed = self.schema_param_names(f"{self.prefix}.outdate")

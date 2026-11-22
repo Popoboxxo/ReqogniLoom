@@ -45,6 +45,8 @@ vi.mock("../api/preferences", () => ({
 }));
 
 vi.mock("../api/search", () => ({
+  // SidebarNavigation imports this bound for the search input's maxLength.
+  MAX_SEARCH_QUERY_LENGTH: 2000,
   searchApi: { search: vi.fn(async () => ({ results: [], total_count: 0, page: 1, limit: 10, query: "" })) },
 }));
 

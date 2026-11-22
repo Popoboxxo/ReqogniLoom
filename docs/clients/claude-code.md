@@ -5,8 +5,8 @@
 
 | | |
 |---|---|
-| Transport | SSE |
-| Endpoint | `/mcp/sse/` |
+| Transport | Streamable HTTP |
+| Endpoint | `/mcp/` |
 | Auth | `X-API-Key` |
 | Target level | L3 |
 | Tested | 2.1.267 |
@@ -32,9 +32,9 @@ claude plugin configure reqogniloom@reqogniloom-marketplace
 Complete, generated configuration (env-var references, never a literal key):
 
 ```bash
-# Transport is SSE (matching the plugin's `.mcp.json`) — not HTTP:
-claude mcp add --transport sse reqogniloom \
-  "$REQOGNILOOM_MCP_URL/mcp/sse/" \
+# Transport is Streamable HTTP (matching the plugin's `.mcp.json`), not SSE:
+claude mcp add --transport http reqogniloom \
+  "$REQOGNILOOM_MCP_URL/mcp/" \
   --header "X-API-Key: $REQOGNILOOM_API_KEY"
 ```
 
@@ -46,7 +46,7 @@ claude mcp add --transport sse reqogniloom \
 ## 5. Verification
 
 - **Command:** `claude mcp list`
-- **Expected:** `plugin:reqogniloom:reqogniloom: http://<host>/mcp/sse/ (SSE) - ✔ Connected`
+- **Expected:** `plugin:reqogniloom:reqogniloom: http://<host>/mcp/ (HTTP) - ✔ Connected`
 - **Tool-call result:** 49 Requirements (QA reference workspace)
 
 ## 6. Pitfalls

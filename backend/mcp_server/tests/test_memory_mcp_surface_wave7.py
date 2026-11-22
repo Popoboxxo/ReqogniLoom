@@ -470,3 +470,73 @@ class TestMemoryAdminTools:
 
         assert result.success is False
         assert result.error_code == "NOT_FOUND"
+
+
+@pytest.mark.django_db
+class TestCapabilitiesBlobIsolation2038:
+    """Issue #2038: the large capabilities blob belongs on ONE response.
+
+    ``memory.overview`` is the explicit capabilities/health surface; the other
+    memory responses carry only the documented F9 ``backend``/``degraded``
+    invariant fields, never the repeated ``capabilities`` block (nor the
+    digest/ask/derivation capability probes).
+    """
+
+    def test_lite_envelope_returns_only_f9_fields(self):
+        from memory.health import lite_envelope
+
+        assert set(lite_envelope()) == {"backend", "degraded"}
+
+    def test_overview_is_the_capabilities_surface(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            make_workspace(tenant)
+            ctx = _system_admin_ctx(tenant)
+            result = MemoryToolGroup()._handle_overview(
+                params={}, auth_context=ctx, api_key=None
+            )
+
+        assert result.success, result.message
+        # The full envelope — including the large capabilities block — lives
+        # here and only here, with ``scopes`` normalised to a JSON list.
+        caps = result.data["capabilities"]
+        assert isinstance(caps, dict)
+        assert "dialectic" in caps
+        assert isinstance(caps["scopes"], list)
+        assert {
+            "backend",
+            "degraded",
+            "digest_available",
+            "ask_available",
+            "derivation_status",
+        } <= set(result.data)
+
+    def test_ordinary_admin_responses_omit_the_capabilities_blob(self, monkeypatch):
+        monkeypatch.setenv("EMBEDDING_PROVIDER", "mock")
+        with active_tenant() as tenant:
+            ws = make_workspace(tenant)
+            ctx = _system_admin_ctx(tenant)
+            group = MemoryToolGroup()
+            projection = group._handle_projection(
+                params={"scope": "workspace", "workspace_id": str(ws.id)},
+                auth_context=ctx,
+                api_key=None,
+            )
+            exported = group._handle_export(params={}, auth_context=ctx, api_key=None)
+            deleted = group._handle_delete_workspace(
+                params={"workspace_id": str(ws.id)}, auth_context=ctx, api_key=None
+            )
+
+        blob_keys = {
+            "capabilities",
+            "digest_available",
+            "ask_available",
+            "derivation_status",
+            "ok",
+            "detail",
+        }
+        for result in (projection, exported, deleted):
+            assert result.success, result.message
+            assert not blob_keys & set(result.data), blob_keys & set(result.data)
+            # The F9 "backend is up/down" invariant is preserved.
+            assert {"backend", "degraded"} <= set(result.data)

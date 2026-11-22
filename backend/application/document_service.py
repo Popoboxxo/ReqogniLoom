@@ -69,6 +69,7 @@ from application.optimistic_lock import (
     lock_for_version_check,
 )
 from auth_tenancy.context import AuthContext
+from persistence.custom_fields import coerce_custom_fields
 from persistence.models import Artifact, Document, Tenant, Workspace
 from persistence.transactions import atomic_transaction
 from workflow import state_reader
@@ -162,6 +163,12 @@ def _document_snapshot(document: Document) -> dict[str, Any]:
     doc_date = payload.get("doc_date")
     if doc_date is not None:
         payload["doc_date"] = doc_date.isoformat()
+    # Issue #2026: custom_fields lives on the backing Artifact (F-2), not on
+    # the Document row. snapshot_fields' plain getattr would store None for
+    # every revision, so resolve the real map here.
+    payload["custom_fields"] = coerce_custom_fields(
+        getattr(document.artifact, "custom_fields", None)
+    )
     return payload
 
 
@@ -686,10 +693,11 @@ class DocumentService(ServiceBase):
         endpoints):
 
         * on entering the release state (``state_meta.freeze_on_enter``):
-          :meth:`release`'s freeze is applied and the approved content is
-          snapshotted as an ``ArtifactVersion`` revision (F-1, F-5);
+          :meth:`release`'s freeze is applied, the approved content is
+          snapshotted as an ``ArtifactVersion`` revision and
+          ``Document.version`` is incremented (F-1, F-5; issue #2024);
         * on leaving the release state for its rework state: the freeze is
-          lifted and ``Document.version`` is incremented (F-5);
+          lifted and ``Document.version`` is incremented again (F-5);
         * leaving for a terminal state (``Abgelöst``/``Archiviert``) keeps the
           freeze — a superseded release stays frozen (F-6).
 
@@ -764,6 +772,13 @@ class DocumentService(ServiceBase):
                 ctx,
                 change_reason=change_reason or "released",
             )
+            # Issue #2024: releasing is itself a new entity revision. Without
+            # this bump the object returned to MCP/REST (and the DOCUMENT_*
+            # events below) still reports the pre-release version even though
+            # a new ArtifactVersion was just recorded. Mirror the re-open
+            # branch's atomic F() increment below.
+            Document.objects.filter(id=document.id).update(version=F("version") + 1)
+            document.refresh_from_db(fields=["version"])
         elif (
             release_state is not None
             and previous_state == release_state

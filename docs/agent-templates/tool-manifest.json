@@ -7112,6 +7112,29 @@
               "category": {
                 "type": "string"
               },
+              "rationale": {
+                "type": "string",
+                "description": "Justification for the requirement (IEEE 29148 §5.2.6)."
+              },
+              "source": {
+                "type": "string",
+                "description": "Origin of the requirement (stakeholder, document, decision)."
+              },
+              "acceptance_criteria": {
+                "type": "string",
+                "description": "Criteria describing when the requirement is fulfilled."
+              },
+              "verification_method": {
+                "type": "string",
+                "enum": [
+                  "Test",
+                  "Review",
+                  "Analysis",
+                  "Inspection",
+                  "Demonstration"
+                ],
+                "description": "Verification method (only meaningful for type='SyReq')."
+              },
               "parent_id": {
                 "type": [
                   "string",
@@ -7122,6 +7145,10 @@
               "level": {
                 "type": "integer",
                 "description": "READ-ONLY (ADR-005): derived from the hierarchy, never settable. Listed so the contract stays explicit; a supplied value is rejected with VALIDATION_ERROR."
+              },
+              "status": {
+                "type": "string",
+                "description": "READ-ONLY (REQ-143). The WorkflowEngine owns the lifecycle state; a supplied value is reported in `ignored_read_only_fields` and never written. Use the transitions endpoint to change it."
               },
               "change_reason": {
                 "type": "string",

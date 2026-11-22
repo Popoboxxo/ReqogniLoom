@@ -350,7 +350,15 @@ class AdminToolGroup(BaseToolGroup):
                 "default_link_type": (
                     workspace.default_link_type or default_trace_link_type()
                 ),
-                "language": workspace.language,
+                # REQ-013 stores the content language in the ``preset`` blob;
+                # the legacy column can be stale and disagree with it (#2029).
+                # Keep the blob intact and expose one authoritative value in
+                # this response, falling back to the column on legacy rows.
+                "language": (
+                    (workspace.preset or {}).get("language")
+                    or getattr(workspace, "language", "")
+                    or "de"
+                ),
                 # S7 (spec §7.6): the AI output language, separate from the
                 # UI/content language above.
                 "ai_language": getattr(workspace, "ai_language", "") or "auto",

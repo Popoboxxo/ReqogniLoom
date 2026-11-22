@@ -9,9 +9,14 @@ See [DOMAIN_MODEL.md](../../DOMAIN_MODEL.md) for the REQ-ID schema, trace-link t
 scopes referenced below. This skill is strictly read-only by design — it never mutates anything it
 audits; findings route to whichever role/skill owns the fix.
 
+> **Workspace-ID prerequisite:** every `workspace.get_context` call below passes a concrete
+> `workspace_id` (from the session context, or obtained via `workspace.list` — which most thin
+> plugin roles lack, so get the id from the orchestrating role that has it or ask the user).
+> See DOMAIN_MODEL.md → "Workspace-ID prerequisite". Never call it without the id.
+
 ## Workflow
 
-1. `workspace.get_context` — learn the active rigor preset before judging what "complete
+1. `workspace.get_context(workspace_id)` — learn the active rigor preset before judging what "complete
    traceability" means for this workspace; a `minimal`-preset workspace does not necessarily
    expect every requirement to carry a documented rationale, don't flag its absence as a gap there.
 2. Walk the tree with `requirement.query` / `architecture.query` / `test.query`, using

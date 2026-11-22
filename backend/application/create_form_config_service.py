@@ -75,6 +75,10 @@ SCOPE_USER = "user"
 SCOPE_WORKSPACE = "workspace"
 SCOPE_GLOBAL = "global"
 SCOPE_DEFAULT = "default"
+#: ``effective`` is the read *resolution mode* (user > workspace > global >
+#: definition default). An effective read that matches no stored level reports
+#: this scope, matching the MCP tool's advertised default (#2031).
+SCOPE_EFFECTIVE = "effective"
 
 #: The scopes a caller may read/write. ``default`` is a resolution outcome only,
 #: never a target store.
@@ -123,7 +127,8 @@ class CreateFormConfigService(ServiceBase):
 
         Resolution order is ``user > workspace > global > definition default``.
         The returned ``scope`` names which level supplied the value, so a UI can
-        show "inherited" vs "set here".
+        show "inherited" vs "set here"; when no level matched, it reports the
+        resolution mode ``effective`` rather than a stored level (#2031).
         """
         self._set_tenant_context(ctx)
         base = self.catalog(ctx, item_type, workspace_id)
@@ -140,9 +145,12 @@ class CreateFormConfigService(ServiceBase):
                     fields=merge_create_form_entries(mapping[item_type], base=base),
                     base=base,
                 )
+        # Report the requested resolution mode, not a stored level: the MCP
+        # tool advertises ``effective`` as its default scope, so an unconfigured
+        # effective read must not answer with ``default`` (#2031).
         return self._payload(
             item_type=item_type,
-            scope=SCOPE_DEFAULT,
+            scope=SCOPE_EFFECTIVE,
             fields=base,
             base=base,
         )
@@ -532,6 +540,7 @@ class CreateFormConfigService(ServiceBase):
 
 __all__ = [
     "SCOPE_DEFAULT",
+    "SCOPE_EFFECTIVE",
     "SCOPE_GLOBAL",
     "SCOPE_USER",
     "SCOPE_WORKSPACE",

@@ -740,3 +740,165 @@ class TestBundleExposesRequirementTier:
         )
 
         assert result.items[0].fields == {"tier_name": "Last"}
+
+
+# ---------------------------------------------------------------------------
+# GitHub #2014 — architecture.decompose_commit builds its children through
+# the ArchitectureElement.parent_id FK and deliberately emits no Arch->Arch
+# ALLOCATED_TO link (issue #365). The old ALLOCATED_TO-only CTE therefore
+# missed an entire class of decompositions. These tests build REAL structural
+# children (parent=...), not ALLOCATED_TO edges, which is exactly what the
+# pre-existing tests failed to do.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestGetBundleStructuralParentTree:
+    def test_structural_child_is_walked_at_depth_one(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement,
+        make_allocated_to_link,
+    ):
+        root = make_architecture_element(workspace, title="Root")
+        child = make_architecture_element(
+            workspace, title="Structural child", parent=root
+        )
+        req = make_requirement(workspace, title="On structural child")
+        # No Arch->Arch link: the ONLY relationship between root and child is
+        # the parent_id FK, exactly like architecture.decompose_commit builds.
+        make_allocated_to_link(source=req, target=child)
+
+        result = RequirementBundleQueryService().get_bundle(
+            auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=None
+        )
+
+        assert {i.requirement_id for i in result.items} == {req.id}
+        assert result.items[0].depth == 1
+        assert result.items[0].found_under_element_id == child.artifact_id
+
+    def test_depth_zero_still_excludes_structural_children(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement,
+        make_allocated_to_link,
+    ):
+        """Documented depth semantics stay intact: 0 = direct allocations only."""
+        root = make_architecture_element(workspace, title="Root")
+        child = make_architecture_element(
+            workspace, title="Structural child", parent=root
+        )
+        req_direct = make_requirement(workspace, title="On root")
+        req_child = make_requirement(workspace, title="On structural child")
+        make_allocated_to_link(source=req_direct, target=root)
+        make_allocated_to_link(source=req_child, target=child)
+
+        result = RequirementBundleQueryService().get_bundle(
+            auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=0
+        )
+
+        assert {i.requirement_id for i in result.items} == {req_direct.id}
+        assert result.items[0].found_under_element_id == root.artifact_id
+
+    def test_structural_grandchild_is_walked_at_depth_two(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement,
+        make_allocated_to_link,
+    ):
+        root = make_architecture_element(workspace, title="Root")
+        mid = make_architecture_element(workspace, title="Mid", parent=root)
+        leaf = make_architecture_element(workspace, title="Leaf", parent=mid)
+        req = make_requirement(workspace, title="On structural grandchild")
+        make_allocated_to_link(source=req, target=leaf)
+
+        svc = RequirementBundleQueryService()
+        result_depth1 = svc.get_bundle(
+            auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=1
+        )
+        result_depth2 = svc.get_bundle(
+            auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=2
+        )
+
+        assert result_depth1.items == []
+        assert {i.requirement_id for i in result_depth2.items} == {req.id}
+        assert result_depth2.items[0].depth == 2
+
+    def test_requirement_reachable_by_both_paths_is_reported_once(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement,
+        make_allocated_to_link,
+    ):
+        """The same child reachable via parent_id AND ALLOCATED_TO must not
+        duplicate the Requirement (neither at the CTE level nor in the result).
+        """
+        from django.db import connection
+
+        from application.requirement_bundle_service import _ARCH_TREE_CTE
+
+        root = make_architecture_element(workspace, title="Root")
+        child = make_architecture_element(
+            workspace, title="Both paths", parent=root
+        )
+        make_allocated_to_link(source=child, target=root)  # semantic allocation
+        req = make_requirement(workspace, title="On doubly reachable child")
+        make_allocated_to_link(source=req, target=child)
+
+        result = RequirementBundleQueryService().get_bundle(
+            auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=None
+        )
+        assert len(result.items) == 1
+        assert result.items[0].requirement_id == req.id
+        assert result.items[0].depth == 1
+
+        # White-box: the shared CTE itself yields the child exactly once.
+        svc = RequirementBundleQueryService()
+        svc._set_tenant_context(auth_ctx)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                _ARCH_TREE_CTE + " SELECT element_artifact_id, depth FROM arch_tree;",
+                [
+                    str(root.artifact_id),
+                    LinkType.ALLOCATED_TO.value,
+                    str(auth_ctx.tenant_id),
+                    MAX_DEPTH,
+                ],
+            )
+            rows = cursor.fetchall()
+        assert sorted(rows, key=lambda r: (r[1], str(r[0]))) == sorted(
+            [(root.artifact_id, 0), (child.artifact_id, 1)],
+            key=lambda r: (r[1], str(r[0])),
+        )
+
+    def test_truncation_flag_covers_structural_tree_past_max_depth(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement,
+        make_allocated_to_link,
+    ):
+        root = make_architecture_element(workspace, title="Chain root")
+        current = root
+        for level in range(1, MAX_DEPTH + 4):
+            current = make_architecture_element(
+                workspace, title=f"Chain L{level}", parent=current
+            )
+        req_deep = make_requirement(workspace, title="Beyond cap")
+        make_allocated_to_link(source=req_deep, target=current)
+
+        result = RequirementBundleQueryService().get_bundle(
+            auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=None
+        )
+
+        assert result.items == []
+        assert result.truncated_at_depth is True
+
+    def test_no_truncation_for_structural_tree_ending_at_max_depth(
+        self, auth_ctx, workspace, make_architecture_element, make_requirement,
+        make_allocated_to_link,
+    ):
+        root = make_architecture_element(workspace, title="Boundary root")
+        current = root
+        for level in range(1, MAX_DEPTH + 1):
+            current = make_architecture_element(
+                workspace, title=f"Boundary L{level}", parent=current
+            )
+        req_shallow = make_requirement(workspace, title="Shallow")
+        make_allocated_to_link(source=req_shallow, target=root)
+
+        result = RequirementBundleQueryService().get_bundle(
+            auth_ctx, root_id=root.id, workspace_id=workspace.id, depth=None
+        )
+
+        assert {i.requirement_id for i in result.items} == {req_shallow.id}
+        assert result.truncated_at_depth is False

@@ -191,6 +191,11 @@ class GlossaryTermSerializer(
             return obj.get("artifact_id")
         return getattr(obj, "artifact_id", None)
 
+    # #2022: these were declared here all along, but GlossaryTermDTO.from_orm()
+    # dropped the AuditableModel timestamps, so DRF skipped both fields on
+    # every glossary response. The DTO now carries created_at/modified_at, so
+    # ``updated_at`` (source="modified_at") resolves again — keep both keys as
+    # the published wire contract.
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True, source="modified_at")
     created_by_id = serializers.UUIDField(read_only=True, allow_null=True)

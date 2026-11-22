@@ -133,22 +133,19 @@ ARCH_DECOMPOSE_PROMPT_TEMPLATE = (
 
 
 def _rationale_custom_fields(rationale: object) -> dict[str, Any] | None:
-    """Return the extended-attribute carrier for a node's generated rationale.
+    """Return the custom-field carrier for a generated *element* rationale.
 
-    ``rationale`` is an extended (``kind="extended"``) attribute for **both**
-    entity types this commit creates (``attribute_definitions.stage_matrix``:
-    Requirement -> ISO 29148, ArchitectureElement -> ISO 42010), so it is
-    persisted under ``Artifact.custom_fields["rationale"]`` — the carrier
-    ``RequirementService.create_requirement`` and
-    ``ArchitectureService.create_architecture_element`` already accept. A
-    top-level ``rationale`` field is rejected by design (#915/#916), and
-    forwarding only title/description silently dropped the generated rationale
-    on commit — the N1 counterpart of the derivation fix (issue #583).
+    ``ArchitectureElement`` has no real ``rationale`` column — unlike
+    ``Requirement``, whose rationale is a first-class field (issue #871/#583)
+    that ``RequirementService.create_requirement`` accepts directly (issue
+    #2011). An element's generated rationale is therefore still an extended
+    attribute carried by ``Artifact.custom_fields["rationale"]`` (ISO 42010
+    in ``attribute_definitions.stage_matrix``); the derived Requirement uses
+    the real column instead (see :meth:`commit_draft`).
 
-    A draft without a non-empty rationale yields ``None`` so the created entity
-    keeps the same empty ``custom_fields`` map (``{}``) that every other create
-    call without custom fields produces, instead of a bogus
-    ``{"rationale": ""}`` entry.
+    An empty rationale yields ``None`` so the created element keeps the same
+    empty ``custom_fields`` map (``{}``) that every other create call without
+    custom fields produces, instead of a bogus ``{"rationale": ""}`` entry.
     """
     if isinstance(rationale, str) and rationale:
         return {"rationale": rationale}
@@ -574,14 +571,13 @@ class ArchitectureDecomposeService(ServiceBase):
                 )
                 # The draft carries one generated rationale per node
                 # (``DraftRequirement.rationale`` — the DTO has no separate
-                # element-level rationale, see DraftNode). It is an extended
-                # attribute for BOTH created entity types, so it is persisted
-                # under Artifact.custom_fields["rationale"] for each of them:
-                # forwarding only title/description (+ element_type/parent)
-                # silently dropped it (issue #583).
-                rationale_fields = _rationale_custom_fields(
-                    node.requirement.rationale
-                )
+                # element-level rationale, see DraftNode). Issue #2011: the
+                # derived Requirement's rationale goes into the real
+                # ``Requirement.rationale`` column, which create_requirement
+                # accepts directly; only the ArchitectureElement (no such
+                # column) keeps it in custom_fields ("rationale", ISO 42010).
+                rationale = node.requirement.rationale
+                rationale_text = rationale if isinstance(rationale, str) else ""
                 child_element = self._architecture.create_architecture_element(
                     workspace_id=UUID(workspace_id),
                     title=node.title,
@@ -589,15 +585,15 @@ class ArchitectureDecomposeService(ServiceBase):
                     description=node.description,
                     element_type=node.element_type,
                     parent_id=parent_element_id,
-                    custom_fields=rationale_fields,
+                    custom_fields=_rationale_custom_fields(rationale),
                 )
                 child_req = self._requirements.create_requirement(
                     workspace_id=UUID(workspace_id),
                     title=node.requirement.title or node.title,
                     ctx=ctx,
                     description=node.requirement.description,
+                    rationale=rationale_text,
                     parent_id=req_artifact_ids.get(parent_req_id),
-                    custom_fields=rationale_fields,
                 )
                 req_artifact_ids[child_req.id] = child_req.artifact_id
                 created[node.temp_id] = (child_element.id, child_req.id)

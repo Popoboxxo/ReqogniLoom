@@ -4,13 +4,20 @@ Export, Plan 1 Task 1).
 
 Design: docs/superpowers/specs/Archive/2026-08-08-requirement-bundle-export-design.md
 
-Walks the ALLOCATED_TO trace-link graph (Requirement->ArchitectureElement and
-ArchitectureElement->ArchitectureElement) starting at a root
-ArchitectureElement, up to a configurable depth, collecting every Requirement
-directly allocated to the root or any sub-element within that depth. Does NOT
-use the Artifact parent_id structural tree (that is a different relationship,
-see ArtifactService.get_tree) — grouping here is the semantic ALLOCATED_TO
-allocation, per the design spec's explicit decision.
+Walks two complementary containment graphs down from a root ArchitectureElement,
+up to a configurable depth, collecting every Requirement allocated to the root
+or any sub-element within that depth:
+
+* the semantic ALLOCATED_TO trace-link graph (Requirement->ArchitectureElement
+  and ArchitectureElement->ArchitectureElement); and
+* the structural ``ArchitectureElement.parent_id`` tree (issue #2014), which is
+  what architecture.decompose_commit writes its children into and which
+  deliberately emits no Arch->Arch ALLOCATED_TO link (issue #365).
+
+Both walks share one recursive CTE (``_ARCH_TREE_CTE``) whose UNION dedupes
+elements reachable by both paths, so a Requirement is never reported twice.
+The ``Artifact.parent`` tree is a third, unrelated relationship (see
+ArtifactService.get_tree) and is deliberately NOT walked here.
 """
 from __future__ import annotations
 
@@ -41,7 +48,7 @@ class BundleDepthExceededError(ValidationError):
 
 @dataclass
 class BundleItem:
-    """One Requirement found during the ALLOCATED_TO walk, with its origin.
+    """One Requirement found during the containment walk, with its origin.
 
     .. warning:: ``requirement_id`` and ``found_under_element_id`` live in
        **different id spaces**. ``requirement_id`` is ``Requirement.id`` (the
@@ -100,6 +107,14 @@ REQUIREMENT_ALL_FIELDS = (
     "workspace_id",
     "title",
     "description",
+    # #2013: rationale/source are real Requirement columns (Issue #871/#583,
+    # IEEE 29148 §5.2.6) and stage_matrix.py marks them core attributes with
+    # ``export=True`` (visible_stages={2, 3}). Without them in this tuple the
+    # ``& _PROJECTABLE`` intersection in resolve_export_fields silently drops
+    # them from every "all"/"visible" bundle export and rejects them as unknown
+    # in "custom" mode, even though the definition advertises them.
+    "rationale",
+    "source",
     "acceptance_criteria",
     "category",
     "status",
@@ -154,58 +169,88 @@ _SYSTEM_EXPORT_FIELDS: frozenset = frozenset(
     }
 )
 
-# Shared recursive CTE walking ALLOCATED_TO ArchitectureElement->
-# ArchitectureElement edges down from a root element. Used verbatim by both
-# get_bundle's main query and its truncation probe — they MUST agree on the
-# reachable node set, so the text lives here once rather than being inlined
-# twice.
+# Shared recursive CTE walking BOTH containment graphs down from a root
+# ArchitectureElement:
+#   (1) ALLOCATED_TO ArchitectureElement->ArchitectureElement trace links, and
+#   (2) the structural ArchitectureElement.parent_id tree (issue #2014).
+# Used verbatim by both get_bundle's main query and its truncation probe —
+# they MUST agree on the reachable node set, so the text lives here once
+# rather than being inlined twice.
 #
-# Placeholders, in order:
+# Placeholders, in order (deliberately still FOUR, as before issue #2014):
 #   1. root artifact id (uuid)
 #   2. link type ('allocated-to')
 #   3. tenant id (uuid)
 #   4. depth cap (int)
+# Both edge kinds live in one LATERAL subquery so the link-type/tenant/cap
+# placeholders are shared. This keeps every existing caller's parameter list
+# (including the raw-SQL tenant-predicate guard tests, which execute this
+# constant with exactly four parameters) byte-for-byte unchanged.
 #
 # Design notes:
-#   * Direction: ALLOCATED_TO points child -> parent (source = the allocated
-#     thing, target = the allocation target), so walking *down* from the root
-#     matches on tl.target_id and yields tl.source_id.
-#   * The artifact_type join is load-bearing, not cosmetic: SE_LINK_SEMANTICS
-#     (traceability/types.py) only constrains ALLOCATED_TO endpoints to
-#     {(Requirement, ArchitectureElement), (ArchitectureElement,
-#     ArchitectureElement)} when the workspace has se_mode configured —
-#     TraceLinkService._check_se_semantics returns early otherwise. Without
-#     the join, a Requirement --allocated-to--> Requirement edge in an
-#     ordinary dev-mode workspace would enter arch_tree as if it were an
-#     architecture element and corrupt found_under_element_id.
-#   * UNION (not UNION ALL) is the cycle/diamond guard: nothing enforces a
-#     single parent for Arch->Arch edges (TraceLinkService.create_trace_link
-#     only dedupes previous links for Requirement sources), so a diamond
-#     allocation multiplies rows per path with UNION ALL, up to MAX_DEPTH
-#     levels deep — on a query now reachable from an authenticated external
-#     REST/MCP endpoint. UNION dedupes (element_artifact_id, depth) pairs,
-#     bounding the walk at roughly nodes x (cap + 1) rows.
-#   * tenant_id is filtered explicitly even though pl_tracelink/pl_artifact
-#     both carry FORCE ROW LEVEL SECURITY (persistence/migrations/
-#     0003_rls_policies.py). Every other query path in this codebase has two
-#     layers of tenant scoping (RLS + the ORM's thread-local tenant filter);
-#     this raw-SQL path would otherwise have one, which matters for future
-#     non-request contexts (e.g. Celery) where no middleware runs.
+#   * Direction (ALLOCATED_TO): the link points child -> parent (source = the
+#     allocated thing, target = the allocation target), so walking *down*
+#     from the root matches on tl.target_id and yields tl.source_id.
+#   * The artifact_type join on the ALLOCATED_TO branch is load-bearing, not
+#     cosmetic: SE_LINK_SEMANTICS (traceability/types.py) only constrains
+#     ALLOCATED_TO endpoints to {(Requirement, ArchitectureElement),
+#     (ArchitectureElement, ArchitectureElement)} when the workspace has
+#     se_mode configured — TraceLinkService._check_se_semantics returns early
+#     otherwise. Without the join, a Requirement --allocated-to--> Requirement
+#     edge in an ordinary dev-mode workspace would enter arch_tree as if it
+#     were an architecture element and corrupt found_under_element_id. The
+#     structural branch needs no such join: both rows ARE ArchitectureElements,
+#     so their ``artifact_id`` columns already point at architecture artifacts.
+#   * The structural branch converts the CTE's artifact id back to an
+#     ArchitectureElement business id (``parent_arch.artifact_id =
+#     t.element_artifact_id``) to follow the self-FK ``parent_id``, then maps
+#     the child back to its artifact id. architecture.decompose_commit writes
+#     children exclusively through this FK and emits no Arch->Arch link
+#     (issue #365), so without this branch a whole class of decompositions is
+#     invisible to the bundle export. The child's tenant is pinned to the
+#     parent's (no extra placeholder) so the walk cannot cross tenants.
+#   * UNION (not UNION ALL) on BOTH unions is the cycle/diamond guard AND the
+#     cross-path dedup: a child reachable both via ALLOCATED_TO and via
+#     parent_id from the same parent collapses to one edge, and the outer CTE
+#     UNION collapses identical (element, depth) pairs. A requirement allocated
+#     to such an element is therefore never reported twice. (If a node is
+#     reachable at two different depths, the main query's DISTINCT ON keeps
+#     the shallowest.)
+#   * tenant_id is filtered explicitly on every term even though pl_tracelink,
+#     pl_artifact and pl_architecture_element all carry FORCE ROW LEVEL
+#     SECURITY (persistence/migrations/0003_rls_policies.py). Every other
+#     query path in this codebase has two layers of tenant scoping (RLS + the
+#     ORM's thread-local tenant filter); this raw-SQL path would otherwise
+#     have one, which matters for future non-request contexts (e.g. Celery)
+#     where no middleware runs.
 _ARCH_TREE_CTE = """
     WITH RECURSIVE arch_tree AS (
         SELECT %s::uuid AS element_artifact_id, 0 AS depth
 
         UNION
 
-        SELECT tl.source_id AS element_artifact_id, t.depth + 1
-        FROM pl_tracelink tl
-        INNER JOIN arch_tree t ON tl.target_id = t.element_artifact_id
-        INNER JOIN pl_artifact a
-            ON a.id = tl.source_id
-           AND a.artifact_type = 'ArchitectureElement'
-        WHERE tl.link_type = %s
-          AND tl.tenant_id = %s::uuid
-          AND t.depth < %s
+        SELECT edges.child_artifact_id AS element_artifact_id, t.depth + 1
+        FROM arch_tree t
+        JOIN LATERAL (
+            SELECT tl.source_id AS child_artifact_id
+            FROM pl_tracelink tl
+            INNER JOIN pl_artifact a
+                ON a.id = tl.source_id
+               AND a.artifact_type = 'ArchitectureElement'
+            WHERE tl.target_id = t.element_artifact_id
+              AND tl.link_type = %s
+              AND tl.tenant_id = %s::uuid
+
+            UNION
+
+            SELECT child_arch.artifact_id AS child_artifact_id
+            FROM pl_architecture_element parent_arch
+            INNER JOIN pl_architecture_element child_arch
+                ON child_arch.parent_id = parent_arch.id
+               AND child_arch.tenant_id = parent_arch.tenant_id
+            WHERE parent_arch.artifact_id = t.element_artifact_id
+        ) edges ON TRUE
+        WHERE t.depth < %s
     )
 """
 
@@ -225,8 +270,9 @@ class RequirementBundleQueryService(ServiceBase):
         fields: list[str] | None = None,
     ) -> BundleResult:
         """Return every Requirement allocated (ALLOCATED_TO) to *root_id* or
-        its ALLOCATED_TO sub-elements, up to *depth* levels, with fields
-        limited per *filter_mode*.
+        to a sub-element reachable within *depth* levels, with fields
+        limited per *filter_mode*. Sub-elements come from both the
+        ALLOCATED_TO Arch->Arch graph and the structural parent_id tree.
 
         Args:
             ctx: Resolved AuthContext (tenant scoping).
@@ -235,8 +281,9 @@ class RequirementBundleQueryService(ServiceBase):
                 backing Artifact id internally).
             workspace_id: Workspace the root element must belong to.
             depth: 0 = only requirements directly allocated to the root.
-                N = also walk N levels of ALLOCATED_TO Arch->Arch
-                sub-elements. None = unbounded, capped at MAX_DEPTH.
+                N = also walk N levels down through both ALLOCATED_TO
+                Arch->Arch edges and structural parent_id children.
+                None = unbounded, capped at MAX_DEPTH.
             filter_mode: "all" (every ``export=true`` attribute of the
                 resolved Requirement AttributeDefinition, plus the system
                 columns no definition can ever carry — see
@@ -296,11 +343,11 @@ class RequirementBundleQueryService(ServiceBase):
                 f"ArchitectureElement {root_id} not found in workspace {workspace_id}"
             )
 
-        # Recursive CTE over pl_tracelink, filtered to ALLOCATED_TO, walking
-        # ArchitectureElement->ArchitectureElement edges from the root (see
-        # _ARCH_TREE_CTE), then collecting every Requirement->ArchitectureElement
-        # edge landing on any element found in that walk. Mirrors
-        # ArtifactService.get_tree's raw-SQL CTE shape
+        # Recursive CTE walking BOTH the ALLOCATED_TO Arch->Arch edges and the
+        # structural ArchitectureElement.parent_id tree down from the root
+        # (see _ARCH_TREE_CTE), then collecting every
+        # Requirement->ArchitectureElement edge landing on any element found
+        # in that walk. Mirrors ArtifactService.get_tree's raw-SQL CTE shape
         # (backend/application/artifact_service.py:492).
         #
         # Deviation from the plan brief: the brief's recursive term joined
@@ -338,12 +385,12 @@ class RequirementBundleQueryService(ServiceBase):
             cursor.execute(
                 sql,
                 [
-                    str(root_artifact_id),
-                    allocated_to,
-                    tenant_id,
-                    effective_cap,
-                    allocated_to,
-                    tenant_id,
+                    str(root_artifact_id),  # CTE anchor
+                    allocated_to,  # CTE LATERAL branch 1
+                    tenant_id,  # CTE LATERAL branch 1
+                    effective_cap,  # CTE recursive term
+                    allocated_to,  # main SELECT
+                    tenant_id,  # main SELECT
                 ],
             )
             rows = cursor.fetchall()
@@ -368,10 +415,12 @@ class RequirementBundleQueryService(ServiceBase):
         # no further children naturally reaches (and includes) that boundary
         # node too, so the round-1 check false-positived on perfectly
         # complete, untruncated results. The correct test is whether some
-        # ALLOCATED_TO edge actually *targets* a depth-effective_cap node —
+        # real child edge actually *targets* a depth-effective_cap node —
         # i.e. there is a real child beyond the cap that the recursion's
         # ``t.depth < effective_cap`` guard stopped it from adding — not
-        # whether the boundary node itself merely exists.
+        # whether the boundary node itself merely exists. Both containment
+        # graphs are probed: an ALLOCATED_TO edge and a structural parent_id
+        # child (issue #2014) each count as a cut-off subtree.
         #
         # Runs the recursive walk a second time to answer this (cheap,
         # index-backed given MAX_DEPTH=20 and pl_tracelink's
@@ -383,32 +432,48 @@ class RequirementBundleQueryService(ServiceBase):
         # the walk itself: only an *element* beyond the cap is something the
         # recursion cut off. A Requirement allocated to the boundary element
         # is already present in the result, so counting it as truncation
-        # would be a false positive.
+        # would be a false positive. Both edge kinds are checked through one
+        # LATERAL UNION, reusing the CTE's four placeholders (the probe adds
+        # the same three it always did: link type, tenant, cap).
         truncated = False
         if depth is None:
             truncation_sql = _ARCH_TREE_CTE + """
                 SELECT EXISTS (
-                    SELECT 1 FROM pl_tracelink tl
-                    JOIN arch_tree t ON tl.target_id = t.element_artifact_id
-                    INNER JOIN pl_artifact a
-                        ON a.id = tl.source_id
-                       AND a.artifact_type = 'ArchitectureElement'
-                    WHERE tl.link_type = %s
-                      AND tl.tenant_id = %s::uuid
-                      AND t.depth = %s
+                    SELECT 1
+                    FROM arch_tree t
+                    JOIN LATERAL (
+                        SELECT 1 AS hit
+                        FROM pl_tracelink tl
+                        INNER JOIN pl_artifact a
+                            ON a.id = tl.source_id
+                           AND a.artifact_type = 'ArchitectureElement'
+                        WHERE tl.target_id = t.element_artifact_id
+                          AND tl.link_type = %s
+                          AND tl.tenant_id = %s::uuid
+
+                        UNION
+
+                        SELECT 1 AS hit
+                        FROM pl_architecture_element parent_arch
+                        INNER JOIN pl_architecture_element child_arch
+                            ON child_arch.parent_id = parent_arch.id
+                           AND child_arch.tenant_id = parent_arch.tenant_id
+                        WHERE parent_arch.artifact_id = t.element_artifact_id
+                    ) edges ON TRUE
+                    WHERE t.depth = %s
                 );
             """
             with connection.cursor() as cursor:
                 cursor.execute(
                     truncation_sql,
                     [
-                        str(root_artifact_id),
-                        allocated_to,
-                        tenant_id,
-                        effective_cap,
-                        allocated_to,
-                        tenant_id,
-                        effective_cap,
+                        str(root_artifact_id),  # CTE anchor
+                        allocated_to,  # CTE LATERAL branch 1
+                        tenant_id,  # CTE LATERAL branch 1
+                        effective_cap,  # CTE recursive term
+                        allocated_to,  # probe LATERAL branch 1
+                        tenant_id,  # probe LATERAL branch 1
+                        effective_cap,  # probe outer term
                     ],
                 )
                 truncated = bool(cursor.fetchone()[0])

@@ -1005,6 +1005,17 @@ class SanitizedCharField(FreeTextFieldMarker, serializers.CharField):
     """
 
     def to_internal_value(self, data: Any) -> str:
+        # Issue #1970: DRF's CharField coerces int/float to str (bool/None and
+        # container types were already rejected by its own ``invalid`` check).
+        # A numeric title must be a client error, never a silently rewritten
+        # value — the same rule the MCP ``requirement.create`` boundary now
+        # enforces. DRF nests the message under this field's key, so the field
+        # name is already part of the 400 body.
+        if not isinstance(data, str):
+            raise serializers.ValidationError(
+                "Expected a string; numeric and other non-string values are "
+                "not coerced."
+            )
         value = super().to_internal_value(data)
         # No field_name here: DRF already nests a field-level error under the
         # field's key, so passing one would produce {"title": {"title": [...]}}.

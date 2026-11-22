@@ -32,7 +32,6 @@ from uuid import UUID
 
 from application.tree_display_config_service import (
     SCOPE_GLOBAL,
-    SCOPE_USER,
     SCOPE_WORKSPACE,
     WRITABLE_SCOPES,
     TreeDisplayConfigService,
@@ -234,10 +233,10 @@ class TreeDisplayConfigToolGroup(BaseToolGroup):
             raise ParameterError(
                 "Parameter 'workspace_id' is required for scope 'workspace'."
             )
-        if scope == SCOPE_USER and workspace_id is not None:
-            raise ParameterError(
-                "Scope 'user' must not carry a workspace_id."
-            )
+        # A user-level setting is stored workspace-independently, but an
+        # optional workspace_id is accepted as a *catalog hint*: it lets the
+        # response carry the same custom attributes as a workspace-scoped `get`
+        # (#2028). The service ignores it for storage at this level.
 
         service = self._service()
         try:

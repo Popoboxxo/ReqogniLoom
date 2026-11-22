@@ -475,12 +475,29 @@ class InterviewSessionMixin:
                 "be used. Start a session without a target instead."
             )
 
+        from application.trace_link_service import TraceLinkService
         from persistence.models import Requirement
 
-        if not Requirement.objects.filter(artifact_id=artifact_id).exists():
-            raise NotFoundError(f"Requirement with artifact_id={artifact_id} not found")
+        # #2005: callers naturally hold the user-facing Requirement id (the
+        # ``id`` returned by requirement.create/get), which is a distinct UUID
+        # from the backing Artifact id stored in ``target_artifact_id``. Resolve
+        # both id kinds through the same canonical helper artifact_service.get_tree
+        # uses, so an entity id no longer raises a bare "not found" here. An id
+        # that is already an Artifact id is returned unchanged (backwards
+        # compatible); anything that resolves to a non-Requirement artifact is
+        # still rejected by the filter below.
+        try:
+            resolved_artifact_id = TraceLinkService()._resolve_artifact_id(artifact_id)
+        except NotFoundError as exc:
+            raise NotFoundError(
+                f"Requirement with artifact_id or entity id {artifact_id} not found"
+            ) from exc
+        if not Requirement.objects.filter(artifact_id=resolved_artifact_id).exists():
+            raise NotFoundError(
+                f"Requirement with artifact_id or entity id {artifact_id} not found"
+            )
 
-        session.target_artifact_id = artifact_id
+        session.target_artifact_id = resolved_artifact_id
         session.version = F("version") + 1
         session.save(update_fields=["target_artifact_id", "modified_at", "version"])
         session.refresh_from_db(fields=["version"])

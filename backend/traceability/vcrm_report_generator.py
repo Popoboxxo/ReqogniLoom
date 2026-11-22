@@ -10,6 +10,11 @@ Responsibilities:
 - CSV export (mandatory), PDF export (implemented via reportlab)
 - Test result: "Passed" | "Failed" | "Not Run" (default: "Not Run")
 
+ID spaces (#1978): both ``requirement_id`` and ``test_case_id`` are **entity**
+ids. ``CoverageCalculator.get_coverage_data`` additionally exposes the
+TestCase *Artifact* id as ``tc["id"]`` for the trace-link graph; that value
+must never be exported as ``test_case_id``.
+
 Interface contracts consumed:
 - IF-TE-INT-004: CoverageCalculator.get_coverage_data(workspace_id, baseline_id?)
 - IF-TE-INT-005: QueryEngine.query(artifact_id, direction, ctx)
@@ -135,7 +140,16 @@ class VCRMReportGenerator:
                             VCRMRow(
                                 requirement_id=req_id,
                                 component_id=comp_id,
-                                test_case_id=tc.get("id", ""),
+                                # #1978: the VCRM mixes entity ids only.
+                                # ``requirement_id`` above is a Requirement
+                                # entity id, so ``test_case_id`` must be the
+                                # TestCase entity id too — not the Artifact
+                                # id carried by ``tc["id"]``. The fallback
+                                # keeps hand-built CoverageData fixtures
+                                # (tests, plugins) working.
+                                test_case_id=(
+                                    tc.get("test_case_id") or tc.get("id", "")
+                                ),
                                 test_result=tc.get("result", "Not Run"),
                                 verification_method=entry.verification_method or "",
                             )

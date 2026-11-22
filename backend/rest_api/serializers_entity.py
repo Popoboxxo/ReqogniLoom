@@ -156,6 +156,9 @@ class RequirementSerializer(
         return getattr(obj, "artifact_id", None)
 
     parent_id = serializers.UUIDField(required=False, allow_null=True)
+    # #1970: title is strict — SanitizedCharField rejects numeric/other
+    # non-string input instead of coercing it with str(). The rule lives in
+    # the shared field class, so every title declaration stays in lockstep.
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     # #871/#583 (IEEE 29148 §5.2.6): justification and origin of the requirement.
@@ -379,6 +382,7 @@ class StakeholderNeedSerializer(
     # endpoint for a need (UI concept ch. 12.11). Read-only.
     artifact_id = serializers.UUIDField(read_only=True)
     parent_id = serializers.UUIDField(required=False, allow_null=True, read_only=True)
+    # #1970: strict string type via SanitizedCharField (see RequirementSerializer).
     title = SanitizedCharField(max_length=500)
     description = SanitizedCharField(allow_blank=True, default="", max_length=20000)
     category = serializers.CharField(max_length=64, allow_blank=True, default="")

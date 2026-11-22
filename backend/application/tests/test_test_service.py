@@ -24,10 +24,13 @@ import pytest
 from application.base import NotFoundError, PermissionDeniedError, ValidationError
 from application.test_service import (
     DEFAULT_TEST_TYPE,
+    EXECUTION_STATUS_FIELD,
     VALID_EXECUTION_STATUSES,
     VALID_TEST_TYPES,
     TestService,
     normalize_test_type,
+    read_execution_status,
+    strip_legacy_execution_status,
 )
 from auth_tenancy.context import AuthContext
 from persistence.models import TestCase
@@ -61,6 +64,7 @@ def _make_test_case(**kwargs):
     artifact = MagicMock()
     artifact.id = uuid.uuid4()
     artifact.workspace_id = kwargs.get("workspace_id", WS_ID)
+    artifact.custom_fields = dict(kwargs.get("custom_fields", {}))
     tc.artifact = artifact
     tc.artifact_id = artifact.id
     return tc
@@ -269,6 +273,56 @@ class TestCreateTestCase:
         kw = mock_audit.call_args.kwargs
         assert kw["operation"] == "create"
         assert kw["entity_type"] == "TestCase"
+
+    def test_create_strips_legacy_marker_and_migrates_status_to_custom_fields(self):
+        """#1975 follow-up: create never persists the text carrier."""
+        from persistence.models import TestCase as TestCaseModel
+        from persistence.tenancy import TenantContext
+
+        _tenant, workspace, ctx = _real_setup("ts-create-legacy-marker")
+        tc = TestService().create_test_case(
+            workspace_id=workspace.id,
+            title="TC-legacy-create",
+            ctx=ctx,
+            description="[execution_status:Passed] original body",
+        )
+
+        assert tc.description == "original body"
+        assert tc.artifact.custom_fields[EXECUTION_STATUS_FIELD] == "Passed"
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            stored = TestCaseModel.objects.select_related("artifact").get(id=tc.id)
+            assert stored.description == "original body"
+            assert "[execution_status:" not in stored.description
+            assert stored.artifact.custom_fields[EXECUTION_STATUS_FIELD] == "Passed"
+            assert read_execution_status(stored) == "Passed"
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_create_explicit_status_in_custom_fields_wins_over_legacy_marker(self):
+        """#1975 follow-up: an explicit carrier wins over a stray marker."""
+        from persistence.models import TestCase as TestCaseModel
+        from persistence.tenancy import TenantContext
+
+        _tenant, workspace, ctx = _real_setup("ts-create-status-precedence")
+        tc = TestService().create_test_case(
+            workspace_id=workspace.id,
+            title="TC-precedence",
+            ctx=ctx,
+            description="[execution_status:Passed] original body",
+            custom_fields={EXECUTION_STATUS_FIELD: "Failed"},
+        )
+
+        assert tc.description == "original body"
+        assert tc.artifact.custom_fields[EXECUTION_STATUS_FIELD] == "Failed"
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            assert read_execution_status(
+                TestCaseModel.objects.select_related("artifact").get(id=tc.id)
+            ) == "Failed"
+        finally:
+            TenantContext.clear_tenant()
 
 
 # ---------------------------------------------------------------------------
@@ -531,14 +585,19 @@ class TestUpdateTestStatus:
                     )
                 ),
             ),
+            # #1975: a status write now bumps version and appends a revision.
+            patch("application.test_service.TestCase.objects.filter"),
+            patch("application.test_service.ArtifactVersionService"),
             patch.object(svc, "_audit"),
         ):
             svc.update_test_status(
                 test_case_id=TC_ID, execution_status="Passed", ctx=ctx
             )
 
-        assert "[execution_status:Passed]" in mock_tc.description
-        mock_tc.save.assert_called_once()
+        # #1975: status is state in the real carrier, never description text.
+        assert mock_tc.artifact.custom_fields[EXECUTION_STATUS_FIELD] == "Passed"
+        assert "[execution_status:" not in mock_tc.description
+        mock_tc.artifact.save.assert_called_once()
 
     def test_valid_status_failed_accepted(self):
         """update_test_status accepts 'Failed'."""
@@ -561,13 +620,16 @@ class TestUpdateTestStatus:
                     )
                 ),
             ),
+            patch("application.test_service.TestCase.objects.filter"),
+            patch("application.test_service.ArtifactVersionService"),
             patch.object(svc, "_audit"),
         ):
             svc.update_test_status(
                 test_case_id=TC_ID, execution_status="Failed", ctx=ctx
             )
 
-        assert "[execution_status:Failed]" in mock_tc.description
+        assert mock_tc.artifact.custom_fields[EXECUTION_STATUS_FIELD] == "Failed"
+        assert "[execution_status:" not in mock_tc.description
 
     def test_not_found_raises(self):
         """NotFoundError when test case is absent during status update."""
@@ -592,6 +654,80 @@ class TestUpdateTestStatus:
                 svc.update_test_status(
                     test_case_id=TC_ID, execution_status="Passed", ctx=ctx
                 )
+
+    def test_legacy_description_marker_is_stripped_on_status_write(self):
+        """#1975: an old text carrier is migrated, not duplicated."""
+        svc = TestService()
+        ctx = _make_ctx()
+        mock_tc = _make_test_case(
+            description="[execution_status:Failed] keep this text"
+        )
+
+        with (
+            patch("application.test_service.ServiceBase._set_tenant_context"),
+            patch("application.test_service.ServiceBase._assert_write_permission"),
+            patch(
+                "application.test_service.TestCase.objects.select_related",
+                return_value=MagicMock(
+                    filter=MagicMock(
+                        return_value=MagicMock(first=MagicMock(return_value=mock_tc))
+                    )
+                ),
+            ),
+            patch("application.test_service.TestCase.objects.filter"),
+            patch("application.test_service.ArtifactVersionService"),
+            patch.object(svc, "_audit"),
+        ):
+            svc.update_test_status(
+                test_case_id=TC_ID, execution_status="Passed", ctx=ctx
+            )
+
+        assert mock_tc.description == "keep this text"
+        assert mock_tc.artifact.custom_fields[EXECUTION_STATUS_FIELD] == "Passed"
+        mock_tc.save.assert_called_once()
+
+    def test_status_write_bumps_version_and_records_revision(self):
+        """#1975: status is a content change — revision + version bump."""
+        from persistence.tenancy import TenantContext
+
+        _tenant, workspace, ctx = _real_setup("ts-status-version")
+        svc = TestService()
+        tc = svc.create_test_case(
+            workspace_id=workspace.id, title="Status version", ctx=ctx
+        )
+        assert tc.version == 1
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            updated = svc.update_test_status(
+                test_case_id=tc.id, execution_status="Passed", ctx=ctx
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        assert updated.version == 2
+        from persistence.models import ArtifactVersion, TestCase as TestCaseModel
+
+        TenantContext.set_tenant(ctx.tenant_id)
+        try:
+            stored = TestCaseModel.objects.get(id=tc.id)
+            assert stored.artifact.custom_fields[EXECUTION_STATUS_FIELD] == "Passed"
+            assert "[execution_status:" not in stored.description
+            assert ArtifactVersion.objects.filter(artifact_id=tc.artifact_id).count() == 2
+        finally:
+            TenantContext.clear_tenant()
+
+    def test_read_helpers_handle_real_carrier_and_legacy_fallback(self):
+        """#1975: read exposes the real carrier and never the marker text."""
+        tc = _make_test_case(description="[execution_status:Failed] legacy body")
+        # No real carrier yet: the legacy tag is recognised, but stripped.
+        assert read_execution_status(tc) == "Failed"
+        assert strip_legacy_execution_status(tc.description) == "legacy body"
+
+        tc.artifact.custom_fields = {EXECUTION_STATUS_FIELD: "Passed"}
+        assert read_execution_status(tc) == "Passed"
+        assert strip_legacy_execution_status(tc.description) == "legacy body"
+        assert strip_legacy_execution_status(None) == ""
 
 
 # ---------------------------------------------------------------------------

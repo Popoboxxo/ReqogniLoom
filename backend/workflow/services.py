@@ -727,8 +727,10 @@ def reactivate(
     Returns:
         TransitionResult describing the **lifecycle** transition:
         ``previous_state`` is ``"outdated"``, ``new_state`` is the workflow
-        state the item kept throughout. See :func:`outdate` for why the
-        lifecycle axis rather than the workflow axis is reported here.
+        state the item kept throughout — except for ``GlossaryTerm`` (#2020),
+        whose wire ``status`` mirrors the lifecycle flag and therefore reports
+        ``"active"`` instead. See :func:`outdate` for why the lifecycle axis
+        rather than the workflow axis is reported here.
 
     Raises:
         ValueError: The item has no backing Artifact, or is not currently
@@ -752,10 +754,25 @@ def reactivate(
     _set_lifecycle_status(item_id_uuid, item_type, LifecycleStatus.ACTIVE)
 
     state = _get_lifecycle().get_item_state(item_id_uuid, item_type, workspace_uuid)
+    # #2020: GlossaryTerm is the one workflow-tracked item type whose wire
+    # ``status`` is derived from the backing Artifact's soft-delete flag
+    # ("active"/"outdated", see GlossaryTermDTO.from_orm) instead of from
+    # WorkflowItemState.current_state — its workflow states are
+    # draft/in_review/approved/deprecated. Reporting the preserved workflow
+    # state here made ``glossary.reactivate`` answer ``status="draft"`` while
+    # ``glossary.get``/``glossary.query`` answer ``status="active"`` for the
+    # very same term. Align only the reported value: the state row and the
+    # workflow definition (including ``glossary_term_default.states[0]``)
+    # stay untouched.
+    new_state = (
+        LifecycleStatus.ACTIVE.value
+        if item_type == "GlossaryTerm"
+        else (state.current_state if state is not None else "")
+    )
     return TransitionResult(
         item_id=item_id_uuid,
         previous_state=OUTDATED_STATUS,
-        new_state=state.current_state if state is not None else "",
+        new_state=new_state,
         history_entry_id=None,
         signature_seal=None,
     )

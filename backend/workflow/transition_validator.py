@@ -372,12 +372,34 @@ class TransitionValidator:
             request.current_state, request.target_state
         )
         if transition is None:
+            # Central hint for every caller of the engine (document.transition,
+            # artifact.bulk_transition and the goal wrapper alike): an unknown
+            # target is actionable only when the reachable states are named
+            # (#2025). Read them from the same definition that refused the edge —
+            # the transition rules themselves are untouched.
+            targets = list(
+                dict.fromkeys(
+                    t.to_state
+                    for t in definition.transitions
+                    if t.from_state == request.current_state
+                )
+            )
+            if targets:
+                hint = (
+                    f" Valid target states from {request.current_state!r}: "
+                    f"{', '.join(targets)}."
+                )
+            else:
+                hint = (
+                    f" No target state is reachable from "
+                    f"{request.current_state!r} in this workspace's workflow."
+                )
             return ValidationResult(
                 valid=False,
                 error_code=EC_TRANSITION_NOT_ALLOWED,
                 error_message=(
                     f"Transition not allowed: {request.current_state!r} → "
-                    f"{request.target_state!r} is not defined"
+                    f"{request.target_state!r} is not defined.{hint}"
                 ),
             )
 

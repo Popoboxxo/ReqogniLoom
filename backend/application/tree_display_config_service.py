@@ -419,12 +419,15 @@ class TreeDisplayConfigService(ServiceBase):
         """Best-effort custom attribute names of ``(item_type, workspace)``.
 
         Returns ``[]`` whenever the definition cannot be resolved — no
-        bootstrapped definition, unknown item type, missing workspace — so the
-        catalogue (and validation) never fail because the attribute engine is
-        not ready. The import is lazy to avoid a module-load cycle with
-        ``attribute_definitions``.
+        bootstrapped definition or unknown item type — so the catalogue (and
+        validation) never fail because the attribute engine is not ready. When
+        no explicit workspace was passed, the workspace the credential is bound
+        to (``ctx.workspace_id``) is used, so a workspace-scoped caller still
+        sees its custom attributes in every response (#2028). The import is lazy
+        to avoid a module-load cycle with ``attribute_definitions``.
         """
-        if not item_type or workspace_id is None:
+        resolved_workspace_id = workspace_id or ctx.workspace_id
+        if not item_type or resolved_workspace_id is None:
             return []
         try:
             from application.attribute_definition_service import (
@@ -432,7 +435,7 @@ class TreeDisplayConfigService(ServiceBase):
             )
 
             definition = AttributeDefinitionService().resolve(
-                ctx, item_type, workspace_id
+                ctx, item_type, resolved_workspace_id
             )
             # Only extended attributes are relevant: a ``core`` attribute is a
             # model field (``id``/``status``/…) that the built-in catalogue

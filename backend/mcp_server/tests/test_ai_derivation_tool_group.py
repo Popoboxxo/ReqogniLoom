@@ -452,11 +452,11 @@ def test_decompose_next_level_write_mode_persists_child_requirements(ai_ctx):
 
 
 # ---------------------------------------------------------------------------
-# issue #583 — the write path forwarded only title+description to
+# issue #583 / #2011 — the write path forwarded only title+description to
 # RequirementService, so the draft's generated `rationale` (INCOSE text the
-# LLM did produce) was silently dropped. `rationale` is an extended
-# Requirement attribute: its carrier is Artifact.custom_fields["rationale"],
-# never a top-level field (#915/#916 reject that by design).
+# LLM did produce) was silently dropped. #583 first routed it through
+# Artifact.custom_fields["rationale"]; #2011 corrects that: `rationale` is a
+# first-class Requirement column that create_requirement accepts directly.
 # ---------------------------------------------------------------------------
 
 
@@ -472,7 +472,7 @@ class _DraftProvider:
         return json.dumps(self._payload)
 
 
-def test_derive_requirements_write_mode_persists_rationale_in_custom_fields(
+def test_derive_requirements_write_mode_persists_rationale_column(
     ai_ctx, monkeypatch
 ):
     from mcp_server.tools.requirements import RequirementsToolGroup
@@ -504,13 +504,16 @@ def test_derive_requirements_write_mode_persists_rationale_in_custom_fields(
     expected = ["Because safety.", "Because performance."]
     for entry, rationale in zip(written, expected):
         req = Requirement.objects.get(id=entry["id"])
-        assert req.artifact.custom_fields == {"rationale": rationale}
+        # #2011: real column, not a custom field.
+        assert req.rationale == rationale
+        assert req.artifact.custom_fields == {}
 
         read = _exec(
             RequirementsToolGroup(), "requirement.get", {"id": entry["id"]}, ctx
         )
         assert read.success
-        assert read.data["requirement"]["custom_fields"] == {"rationale": rationale}
+        assert read.data["requirement"]["rationale"] == rationale
+        assert read.data["requirement"]["custom_fields"] == {}
 
 
 def test_derive_requirements_write_mode_without_rationale_has_no_bogus_field(
@@ -574,9 +577,9 @@ def test_decompose_next_level_write_mode_persists_rationale(ai_ctx, monkeypatch)
 
     assert result.success
     child = Requirement.objects.get(id=result.data["written"][0]["id"])
-    assert child.artifact.custom_fields == {
-        "rationale": "Because the parent demands it."
-    }
+    # #2011: real column, not a custom field.
+    assert child.rationale == "Because the parent demands it."
+    assert child.artifact.custom_fields == {}
 
 
 # ---------------------------------------------------------------------------

@@ -122,7 +122,15 @@ def assert_expected_version(
     current = getattr(instance, "version", None)
     if current == expected_version:
         return
+    # The entity's own PK is not the id the caller holds. Every artifact-backed
+    # entity (Requirement, Adr, Risk, ...) carries a distinct ``artifact_id``:
+    # that is the identifier returned by requirement.get/architecture.get and
+    # the one callers send back as ``expected_version``'s companion ``id``.
+    # Reporting ``pk`` named a UUID the caller had never seen (issue #2010).
+    # Fall back to the PK for entities with no backing Artifact so the message
+    # stays useful for the generic helper's non-artifact users.
+    reported_id = getattr(instance, "artifact_id", None) or getattr(instance, "pk", "?")
     raise OptimisticLockError(
-        f"Stale version for {entity_type} {getattr(instance, 'pk', '?')}: "
+        f"Stale version for {entity_type} {reported_id}: "
         f"expected {expected_version}, current is {current}"
     )

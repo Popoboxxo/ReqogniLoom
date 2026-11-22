@@ -132,6 +132,7 @@
     "languageSaveFailed": "Die Workspace-Sprache konnte nicht gespeichert werden. Deine Ansicht wurde geändert, die Änderung wurde aber nicht gesichert.",
     "interviews": "Interviews",
     "searchPlaceholder": "Alle Artefakte durchsuchen …",
+    "searchLimitHint": "Suchanfragen sind auf {{max}} Zeichen begrenzt. Längere Eingaben werden abgeschnitten.",
     "optionalArtifacts": "Optional-Artefakte",
     "showOptionalArtifacts": "Optionale Artefakte einblenden",
     "hideOptionalArtifacts": "Optionale Artefakte ausblenden",
@@ -1482,6 +1483,9 @@
       "scope": "Geltungsbereich",
       "scopeWorkspace": "Nur dieser Workspace",
       "scopeGlobal": "Global (alle Workspaces)",
+      "scopeWorkspaceNote": "Änderungen gelten nur für diesen Workspace.",
+      "scopeGlobalNote": "Änderungen gelten tenant-weit für alle Workspaces.",
+      "readOnly": "Du hast keine Schreibberechtigung für Prompts in diesem Geltungsbereich.",
       "reset": "Auf Standard zurücksetzen",
       "resetToGlobal": "Override entfernen",
       "unknownPlaceholders": "Unbekannte Platzhalter — sie bleiben im Prompt-Text stehen:",
@@ -1515,6 +1519,7 @@
       "computedValue": "wird vom System berechnet",
       "originCode": "Code",
       "newName": "Neue Variable",
+      "readOnly": "Du hast keine Schreibberechtigung für Prompt-Variablen in diesem Geltungsbereich.",
       "boolTrue": "Wahr",
       "boolFalse": "Falsch",
       "origin": {
@@ -3175,6 +3180,7 @@
       "workflowDefaults": "Workflow-Standards",
       "attributeDefaults": "Attribut-Standards",
       "permissionDefaults": "Berechtigungs-Standards",
+      "prompts": "KI-Prompts",
       "memory": "Gedächtnis",
       "display": "Darstellung",
       "vectorStore": "Vektorspeicher"

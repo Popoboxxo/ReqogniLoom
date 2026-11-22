@@ -554,6 +554,25 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         lang = detect_lang(request)
         workspace_id = kwargs.get("workspace_pk")
 
+        # #1969: ``dict()`` on a JSON primitive (null/number/string/bool) raises
+        # TypeError/ValueError before the serializer and outside the try below,
+        # surfacing as a 500 HTML page. Reject non-object bodies here with the
+        # documented 400 VALIDATION_ERROR envelope; dict bodies take the exact
+        # same path as before.
+        if not isinstance(request.data, dict):
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    details=[
+                        {
+                            "field": "body",
+                            "errors": ["Request body must be a JSON object."],
+                        }
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         data = dict(request.data)
         if "workspace_id" not in data and workspace_id:
             data["workspace_id"] = workspace_id

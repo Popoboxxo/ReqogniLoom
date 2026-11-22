@@ -36,13 +36,14 @@ from django.utils import timezone as django_timezone
 from ..context import AuthMethod, IdentityClaims
 from ..errors import AuthenticationFailed
 from ..jwt_tokens import decode_jwt
-from ..models import MAX_ACTIVE_API_KEYS_PER_USER as _DEFAULT_MAX_ACTIVE_API_KEYS_PER_USER
 from ..models import (
+    API_KEY_SCOPE_AUTHOR,
     PRINCIPAL_TYPE_AGENT,
     PRINCIPAL_TYPE_USER,
     ApiKey,
     normalize_api_key_scope,
 )
+from ..models import MAX_ACTIVE_API_KEYS_PER_USER as _DEFAULT_MAX_ACTIVE_API_KEYS_PER_USER
 from .refresh_token_store import (
     RefreshTokenState,
     claim_refresh_token,
@@ -294,6 +295,33 @@ def load_api_key_policy_row(api_key_id: UUID) -> dict[str, Any] | None:
         .values("scope", "tool_groups")
         .first()
     )
+
+
+def resolve_api_key_actor_type(*, principal_type: str, scope: str | None) -> str:
+    """Return the actor type a validated API key acts under (#1987).
+
+    An ``agent``-principal key is an agent by construction. A ``user``-principal
+    key issued with the explicit ``author`` capability scope is a machine/plugin
+    producer: it must resolve to ``actor_type="agent"`` so the ADR-019 M2 stamp
+    (``TraceLinkService`` keys off that flag) and the agent self-confirm block
+    apply to its proposals. The plugin key in #1987 is exactly this shape.
+
+    Every other scope keeps the historical ``user`` actor type. In particular
+    the legacy default ``write`` is deliberately *not* reclassified: it is the
+    widest tier and is used by ordinary owner credentials, so changing it would
+    relabel every existing key. A read-only key never produces either way.
+    Bearer sessions never reach this helper — they are stamped as users in the
+    JWT path.
+
+    Args:
+        principal_type: The key's stored ``principal_type`` column.
+        scope: The key's stored capability scope (normalised case-insensitively).
+    """
+    if principal_type == PRINCIPAL_TYPE_AGENT:
+        return PRINCIPAL_TYPE_AGENT
+    if normalize_api_key_scope(scope) == API_KEY_SCOPE_AUTHOR:
+        return PRINCIPAL_TYPE_AGENT
+    return PRINCIPAL_TYPE_USER
 
 
 class AuthenticationService:
@@ -832,7 +860,9 @@ class AuthenticationService:
             roles=(),  # roles are resolved by AuthorizationService from UserRole.
             auth_method=AuthMethod.API_KEY,
             api_key_id=api_key.id,
-            actor_type=api_key.principal_type,
+            actor_type=resolve_api_key_actor_type(
+                principal_type=api_key.principal_type, scope=api_key.scope
+            ),
             agent_label=api_key.agent_label,
             scope=api_key.scope,
             api_key_workspace_ids=tuple(
@@ -1045,4 +1075,5 @@ __all__ = [
     "generate_api_key_plaintext",
     "hash_api_key",
     "hash_api_key_legacy",
+    "resolve_api_key_actor_type",
 ]

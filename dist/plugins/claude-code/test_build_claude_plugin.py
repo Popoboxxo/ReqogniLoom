@@ -28,8 +28,8 @@ def test_build_claude_plugin_produces_valid_manifests(tmp_path):
         (tmp_path / "reqogniloom" / ".mcp.json").read_text()
     )
     server = mcp_json["mcpServers"]["reqogniloom"]
-    assert server["type"] == "sse"
-    assert server["url"] == "${user_config.mcp_url}/mcp/sse/"
+    assert server["type"] == "http"
+    assert server["url"] == "${user_config.mcp_url}/mcp/"
     assert server["headers"]["X-API-Key"] == "${user_config.api_key}"
     assert "reqlo_" not in json.dumps(mcp_json)  # no real key leaked into template
 
@@ -112,7 +112,7 @@ def test_plugin_declares_user_config_and_mcp_uses_it(tmp_path):
     server = json.loads(
         (tmp_path / "reqogniloom" / ".mcp.json").read_text()
     )["mcpServers"]["reqogniloom"]
-    assert server["url"] == "${user_config.mcp_url}/mcp/sse/"
+    assert server["url"] == "${user_config.mcp_url}/mcp/"
     assert "mcp_url" in server["url"]
     assert server["headers"]["X-API-Key"] == "${user_config.api_key}"
 
@@ -120,6 +120,29 @@ def test_plugin_declares_user_config_and_mcp_uses_it(tmp_path):
     rendered = json.dumps(plugin) + json.dumps(server)
     assert "REQOGNILOOM_" not in rendered
     assert "reqlo_" not in rendered
+
+
+def test_generated_mcp_config_uses_streamable_http_not_sse(tmp_path):
+    """#1960: the Claude plugin must target the canonical Streamable HTTP
+    endpoint, not the legacy SSE endpoint.
+
+    A POST to `/mcp/sse/` is rejected with 405 (see
+    `backend/mcp_server/tests/test_e2e_sse_transport.py`), so an `sse` server
+    config hands Claude Code a transport that can never carry JSON-RPC.
+    """
+    subprocess.run(
+        [sys.executable, str(BUILD_DIR / "build_claude_plugin.py"),
+         "--out", str(tmp_path)],
+        cwd=REPO_ROOT, check=True,
+    )
+    raw = (tmp_path / "reqogniloom" / ".mcp.json").read_text(encoding="utf-8")
+    server = json.loads(raw)["mcpServers"]["reqogniloom"]
+    assert server["type"] == "http"
+    assert server["type"] != "sse"
+    assert server["url"] == "${user_config.mcp_url}/mcp/"
+    assert "/mcp/sse/" not in server["url"]
+    assert "/mcp/sse/" not in raw
+    assert server["headers"]["X-API-Key"] == "${user_config.api_key}"
 
 
 def test_build_claude_plugin_all_json_files_parse(tmp_path):

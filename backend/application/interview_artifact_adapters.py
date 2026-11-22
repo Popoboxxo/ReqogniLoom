@@ -26,6 +26,7 @@ from uuid import UUID
 
 from application.adr_service import AdrService
 from application.architecture_service import ArchitectureService
+from application.base import ValidationError
 from application.glossary_service import GlossaryService
 from application.goal_service import GoalService
 from application.issue_service import IssueService
@@ -69,9 +70,42 @@ def _architecture_element(fields: dict, ctx: AuthContext, workspace_id) -> Creat
     # `name` -- forwarded generically via **fields, so callers (build_adapter_fields
     # / a multi-mode proposal) must supply `title`; anything else raises
     # TypeError, which both formalize paths convert into a ValidationError.
-    obj = ArchitectureService().create_architecture_element(
-        workspace_id=workspace_id, ctx=ctx, **fields
-    )
+    adapter_fields = dict(fields)
+    parent = adapter_fields.get("parent_id")
+    if parent is None or (isinstance(parent, str) and not parent.strip()):
+        # #2043: the interview asks parent_id as free text and it is OPTIONAL.
+        # A blank answer means "no parent" -> a root; drop the kwarg so the
+        # service's own default (None) is used. Invariant I5 then allows the
+        # root only when the workspace has none, and rejects a second one.
+        # Never invent a parent or bypass the service's validator here.
+        adapter_fields.pop("parent_id", None)
+    elif not isinstance(parent, UUID):
+        # The protocol degrades the FK reference to free text; normalise it to
+        # a UUID so a malformed id fails here with a readable ValidationError
+        # instead of a DB-level coercion error. Existence / cross-workspace
+        # (I3), cycle (I1) and single-root (I5) checks stay in the service.
+        try:
+            adapter_fields["parent_id"] = UUID(str(parent).strip())
+        except (ValueError, AttributeError, TypeError) as exc:
+            raise ValidationError(
+                f"parent_id must be the id of an existing ArchitectureElement, "
+                f"got {parent!r}."
+            ) from exc
+    try:
+        obj = ArchitectureService().create_architecture_element(
+            workspace_id=workspace_id, ctx=ctx, **adapter_fields
+        )
+    except ValidationError as exc:
+        # #2043: make an I5 rejection actionable in an interview -- the host
+        # can re-ask the parent_id question instead of looping on a "second
+        # root" error the user has no way to resolve.
+        if "[I5]" in str(exc) and "parent_id" not in adapter_fields:
+            raise ValidationError(
+                f"{exc} Answer the 'parent_id' interview question with the id "
+                "of an existing ArchitectureElement to attach this element "
+                "under it."
+            ) from exc
+        raise
     return CreatedArtifactRef(
         artifact_id=obj.artifact_id, artifact_type="ArchitectureElement", entity_id=obj.id
     )

@@ -24,6 +24,10 @@ SE-Begriffe erklärt [`DOMAIN_MODEL.md`](../DOMAIN_MODEL.md). Niemals Quellcode,
 Datenbank oder Repository von ReqogniLoom verändern: kein Schreib-Tool, kein
 Commit, kein Push, kein Branch.
 
+> **Workspace-ID-Voraussetzung:** `workspace.get_context` erhält eine konkrete `workspace_id`; diese
+> Rolle kann sie bei Bedarf über `workspace.list` ermitteln. Siehe DOMAIN_MODEL.md →
+> „Workspace-ID prerequisite". Ohne ID nie aufrufen.
+
 ## Auftrag
 
 Diese Rolle nimmt Fehlerfälle und Probleme mit ReqogniLoom strukturiert auf und
@@ -36,7 +40,7 @@ macht daraus ein nachvollziehbares GitHub-Issue:
   Daten.
 - **Einordnen:** Server-Bug, Client-Fehler, Konfiguration, Upstream-Anbieter
   oder fehlende Funktion — nach dem Klassifikationsbaum des Prozess-Skills.
-- **Minimal reproduzieren:** mit den lesenden Tools (`workspace.get_context`,
+- **Minimal reproduzieren:** mit den lesenden Tools (`workspace.get_context(workspace_id)`,
   `workspace.list`, `workspace.get_preferences`, `artifact.search`,
   `artifact.get_tree`, `document.read`, `document.query`, `metrics.get`,
   `metrics.catalog`) prüfen, ob der Fehler an Workspace-Zustand, Rechten oder

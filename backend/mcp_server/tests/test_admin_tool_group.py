@@ -402,6 +402,34 @@ class TestAdminToolGroup:
         assert data["language"] == "en"
         svc.get_workspace.assert_called_once_with(WORKSPACE_UUID, ADMIN_CTX)
 
+    def test_get_preferences_exposes_one_language_from_the_preset(self):
+        """#2029: preset.language is authoritative; the legacy column is stale.
+
+        The preset blob is returned intact and the top-level language agrees
+        with it instead of reporting a second, conflicting value.
+        """
+        group, svc, _ = self._group()
+        ws = _mock_workspace()
+        ws.preset = {"tier": "standard", "language": "de"}
+        ws.ai_prompts = {}
+        ws.decomposition_link_type = "decomposes"
+        ws.default_link_type = "derives-from"
+        ws.language = "en"  # stale legacy column (#2029)
+        svc.get_workspace.return_value = ws
+
+        result = group.execute_tool(
+            tool_name="workspace.get_preferences",
+            params={"workspace_id": str(WORKSPACE_UUID)},
+            auth_context=ADMIN_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        data = result.data["result"]
+        assert data["preset"] == {"tier": "standard", "language": "de"}
+        assert data["language"] == "de"
+        assert data["language"] == data["preset"]["language"]
+
     def test_get_preferences_not_found(self):
         """workspace.get_preferences returns NOT_FOUND when workspace missing."""
         group, svc, _ = self._group()

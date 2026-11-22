@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import time
 from collections import OrderedDict
 from collections.abc import Callable
@@ -54,6 +55,51 @@ from mcp_server.api_key_policy import get_api_key_policy
 from mcp_server.protocol_handler import ToolResult
 
 logger = logging.getLogger(__name__)
+
+
+_INTEGER_TEXT = re.compile(r"^[+-]?\d+$")
+_NUMBER_TEXT = re.compile(r"^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$")
+
+
+def _json_type_matches(kind: str, value: Any) -> bool:
+    """Whether *value* satisfies one JSON-Schema ``type`` keyword (#1966).
+
+    Coercion is deliberately permissive for the legacy string form of numbers
+    and booleans (``limit="10"`` has always worked): the gate exists to reject
+    values a handler cannot turn into its declared type at all, not to change
+    accepted inputs. ``bool`` is excluded from numeric types even though Python
+    makes it an ``int`` subclass — handlers reject it explicitly today.
+    """
+    if kind == "null":
+        return value is None
+    if kind == "string":
+        return isinstance(value, str)
+    if kind == "integer":
+        return (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            or isinstance(value, str)
+            and bool(_INTEGER_TEXT.match(value.strip()))
+        )
+    if kind == "number":
+        return (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            or isinstance(value, str)
+            and bool(_NUMBER_TEXT.match(value.strip()))
+        )
+    if kind == "boolean":
+        return isinstance(value, bool) or (
+            isinstance(value, str) and value.strip().lower() in {"true", "false"}
+        )
+    if kind == "array":
+        return isinstance(value, list)
+    if kind == "object":
+        return isinstance(value, dict)
+    # Unknown/custom type keyword — not this gate's business; let the handler
+    # validate it as before rather than rejecting a value we cannot judge.
+    return True
+
 
 # ---------------------------------------------------------------------------
 # Tool catalogue filtering + compaction (issue #866).
@@ -1055,6 +1101,11 @@ class ToolRegistry:
         # ``workspace.get_context``), so the *published* schema, not the routed
         # group's local schema list, must decide whether a parameter exists.
         self._schema_param_index: dict[str, tuple[str, ...]] | None = None
+        # #1966: the full published inputSchema per tool, built in the same pass
+        # as the parameter-name index above. Used by the dispatcher's type gate
+        # so a wrongly typed argument is a VALIDATION_ERROR naming the field,
+        # not a handler ValueError masked as "An internal error occurred.".
+        self._schema_index: dict[str, dict[str, Any]] | None = None
 
         # Lazy-imported tool groups to avoid circular imports at module load
         self._groups: dict[str, Any] = {}
@@ -1068,8 +1119,9 @@ class ToolRegistry:
         """
         self._groups = groups
         self._router = ToolGroupRouter(groups)
-        # Registered schemas changed — the published-parameter index is stale.
+        # Registered schemas changed — the published-schema indexes are stale.
         self._schema_param_index = None
+        self._schema_index = None
 
     def all_tool_schemas(self) -> list[dict[str, Any]]:
         """Return every registered tool schema, before any RBAC/scope gating.
@@ -1512,6 +1564,14 @@ class ToolRegistry:
             if error is not None:
                 return error
 
+            # #1966: validate against the published inputSchema *after* auth so
+            # an unauthenticated caller still gets AUTH_FAILED, and before the
+            # handler so a wrong type is a field-named VALIDATION_ERROR instead
+            # of a ValueError swallowed by the catch-all as INTERNAL_ERROR.
+            error = self._validate_schema_param_types(tool_name, params)
+            if error is not None:
+                return error
+
             # --- Step 6: Execute tool ---
             return self._execute_tool_call(context, tool_name, params, api_key)
         finally:
@@ -1582,29 +1642,90 @@ class ToolRegistry:
         ``BaseToolGroup`` (ratcheted by
         ``test_mcp_workspace_fence_1376.py``).
         """
-        if self._schema_param_index is None:
-            # Lazy import: tool groups import ``mcp_server.protocol_handler``
-            # and some are themselves imported lazily by ``_ensure_groups``.
-            from mcp_server.tools.base import BaseToolGroup
+        self._build_published_schema_index()
+        return (self._schema_param_index or {}).get(tool_name)
 
-            index: dict[str, tuple[str, ...]] = {}
-            seen_groups: set[int] = set()
-            for group in self._groups.values():
-                if id(group) in seen_groups:
+    def _build_published_schema_index(self) -> None:
+        """Build both published-schema indexes in one pass (idempotent).
+
+        Routing is deliberately not used: several prefixes share a group, and
+        ``AdminToolGroup`` delegates non-lifecycle calls to a wrapped
+        ``CrossCuttingToolGroup``. Only the schemas a client can actually see
+        are a sound basis for parameter names (#1376) and types (#1966).
+        """
+        if self._schema_index is not None and self._schema_param_index is not None:
+            return
+        # Lazy import: tool groups import ``mcp_server.protocol_handler``
+        # and some are themselves imported lazily by ``_ensure_groups``.
+        from mcp_server.tools.base import BaseToolGroup
+
+        schemas: dict[str, dict[str, Any]] = {}
+        names: dict[str, tuple[str, ...]] = {}
+        seen_groups: set[int] = set()
+        for group in self._groups.values():
+            if id(group) in seen_groups:
+                continue
+            seen_groups.add(id(group))
+            if not isinstance(group, BaseToolGroup):
+                continue
+            for schema in group.get_tool_schemas():
+                name = schema.get("name")
+                if not name or name in schemas:
                     continue
-                seen_groups.add(id(group))
-                if not isinstance(group, BaseToolGroup):
-                    continue
-                for schema in group.get_tool_schemas():
-                    name = schema.get("name")
-                    if not name or name in index:
-                        continue
-                    properties = (schema.get("inputSchema") or {}).get(
-                        "properties"
-                    ) or {}
-                    index[name] = tuple(properties)
-            self._schema_param_index = index
-        return self._schema_param_index.get(tool_name)
+                schemas[name] = schema
+                properties = (schema.get("inputSchema") or {}).get("properties") or {}
+                names[name] = tuple(properties)
+        self._schema_index = schemas
+        self._schema_param_index = names
+
+    def _published_input_schema(self, tool_name: str) -> dict[str, Any] | None:
+        """Return the published ``inputSchema`` of *tool_name*, if inspectable."""
+        self._build_published_schema_index()
+        schema = (self._schema_index or {}).get(tool_name)
+        if schema is None:
+            return None
+        input_schema = schema.get("inputSchema")
+        return input_schema if isinstance(input_schema, dict) else None
+
+    def _validate_schema_param_types(
+        self, tool_name: str, params: dict[str, Any]
+    ) -> ToolResult | None:
+        """Reject a wrongly typed parameter before any handler runs (#1966).
+
+        ``artifact.search`` used to do ``int(params.get("limit", 20))``; a string
+        such as ``"abc"`` raised ``ValueError``, which no exception mapper knew
+        and the catch-all masked as ``"An internal error occurred."``. The
+        published ``inputSchema`` already declares the accepted type, so the
+        dispatcher can answer ``VALIDATION_ERROR`` with the offending field name
+        for every tool at once instead of teaching each handler its own guard.
+
+        Numeric/boolean strings that parse cleanly stay valid: existing callers
+        (and tests) legitimately send ``limit="10"``, and the schema type gate
+        must not silently narrow that. ``bool`` is rejected for numeric fields
+        even though Python treats it as an ``int`` subclass.
+        """
+        input_schema = self._published_input_schema(tool_name)
+        if input_schema is None:
+            return None
+        properties = input_schema.get("properties") or {}
+        if not isinstance(properties, dict):
+            return None
+        for name, value in params.items():
+            spec = properties.get(name)
+            if not isinstance(spec, dict) or "type" not in spec:
+                continue
+            declared = spec["type"]
+            allowed = declared if isinstance(declared, list) else [declared]
+            if not isinstance(allowed, list) or not allowed:
+                continue
+            if any(_json_type_matches(str(kind), value) for kind in allowed):
+                continue
+            expected = " or ".join(str(kind) for kind in allowed)
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"Field '{name}' must be {expected}; got {type(value).__name__}.",
+            )
+        return None
 
     def _resolve_dispatch_context(
         self,

@@ -8,9 +8,14 @@ description: Use when creating or linking test cases, deriving tests from requir
 See [DOMAIN_MODEL.md](../../DOMAIN_MODEL.md) for the REQ-ID schema and trace-link types referenced
 below.
 
+> **Workspace-ID prerequisite:** every `workspace.get_context` call below passes a concrete
+> `workspace_id` (from the session context, or obtained via `workspace.list` — which most thin
+> plugin roles lack, so get the id from the orchestrating role that has it or ask the user).
+> See DOMAIN_MODEL.md → "Workspace-ID prerequisite". Never call it without the id.
+
 ## Workflow
 
-1. `workspace.get_context` — learn the active rigor preset (it changes which fields a test case
+1. `workspace.get_context(workspace_id)` — learn the active rigor preset (it changes which fields a test case
    must carry before linking to a requirement).
 2. Find the requirement you're testing with `requirement.get`/`requirement.query`, and check
    `traceability.query` to see whether a test case already covers it — don't create duplicates.

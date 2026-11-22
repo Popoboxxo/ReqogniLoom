@@ -26,6 +26,11 @@ SE-Begriffe (Dokument, Anker, Glossar, Trace-Kante) erklärt
 von ReqogniLoom direkt anfassen — jede Aktion ist ein MCP-Tool-Aufruf innerhalb
 dieser Whitelist.
 
+> **Workspace-ID-Voraussetzung:** Diese Rolle hat kein `workspace.list`-Tool. `workspace.get_context`
+> erhält eine konkrete `workspace_id` (aus dem Sitzungs-/Aufgabenkontext) oder die ID kommt von der
+> orchestrierenden Rolle mit `workspace.list` bzw. vom Menschen. Siehe DOMAIN_MODEL.md →
+> „Workspace-ID prerequisite". Ohne ID nie aufrufen.
+
 ## Auftrag
 
 Diese Rolle hält die Markdown-Projektionen der Loom-Dokumente aktuell und
@@ -45,7 +50,7 @@ schaltet Repo-Dokumente kontrolliert auf Loom-first um:
 
 Lesend ergänzen `document.read`, `document.query`, `document.versions`,
 `document.diff` und `traceability.query` den Blick auf den Loom-Stand;
-`artifact.search` findet betroffene Artefakte, `workspace.get_context` liefert
+`artifact.search` findet betroffene Artefakte, `workspace.get_context(workspace_id)` liefert
 Rigor-Stufe und Workspace-Kontext.
 
 ## Review profile

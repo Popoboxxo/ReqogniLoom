@@ -3,6 +3,22 @@
 Every role and process skill in this directory links here instead of restating these concepts —
 if you're updating one of them, update it here once, not in five places.
 
+## Workspace-ID prerequisite (read before any workspace tool call)
+
+`workspace.get_context` reports the active preset, workflow states and role **only when a concrete
+`workspace_id` is passed**; called without it the response carries no preset, and you must not
+infer one from a previous session. Every `workspace.get_context` mention in the skills and roles
+that link here therefore means `workspace.get_context(workspace_id=<the resolved id>)`.
+
+Resolve that id before the call:
+
+- Use the concrete id from the user/task/session context (workspace UUID, an artifact link, the
+  orchestrating session) when one is available.
+- Otherwise obtain it via `workspace.list` — **most thin plugin roles do not have that tool**;
+  only the `reqogniloom-support` role and the main/orchestrating session do. If your role has no
+  `workspace.list`, ask the user for the id or get it from the orchestrating role that has it.
+  Never call `workspace.get_context` with a placeholder or an invented id.
+
 ## REQ-ID schema
 `REQ-L0-*` (Stakeholder Needs) through `REQ-L3-*` (Component-level requirements); `REQ-L4` is
 reserved for Presentation. V-Modell chain: L0 Stakeholder Needs -> L1 System Requirements ->
@@ -44,9 +60,9 @@ call's own parameters don't already cover the link you need.
 `minimal` / `standard` / `extended` share the same data model but differ in which fields are
 mandatory (`mandatory_fields`), which workflow states/transitions exist, and which optional
 governance features (e.g. CCB approval, baseline-linkage enforcement) are active. Call
-`workspace.get_context` at the start of any session to learn the active preset before deciding how
-much detail an artifact needs — never assume a fixed set of states or required fields across
-workspaces.
+`workspace.get_context(workspace_id)` at the start of any session to learn the active preset before
+deciding how much detail an artifact needs (see "Workspace-ID prerequisite" above for how to
+resolve the id) — never assume a fixed set of states or required fields across workspaces.
 
 ## 3 Baseline-Scopes
 Document / Project / Global — all three are one entity (`Baseline`) distinguished by scope. An

@@ -326,3 +326,92 @@ def test_real_bootstrap_visible_mode_reflects_an_admin_hidden_attribute() -> Non
 
     assert "uid" not in visible_fields
     assert "uid" in all_fields
+
+
+# ---------------------------------------------------------------------------
+# GitHub #2013 — rationale/source are export=true attributes (stage_matrix
+# ``visible_stages={2, 3}``) and real Requirement columns. Before the fix the
+# ``& _PROJECTABLE`` intersection in resolve_export_fields dropped them.
+# ---------------------------------------------------------------------------
+
+
+def test_definition_exported_rationale_and_source_survive_projection(service) -> None:
+    ctx, workspace_id = MagicMock(), uuid.uuid4()
+    with patch(
+        "application.requirement_bundle_service.AttributeDefinitionService"
+    ) as definition:
+        definition.return_value.export_attributes.return_value = [
+            _attr("rationale"), _attr("source"), _attr("title")
+        ]
+        all_fields = service.resolve_export_fields(ctx, workspace_id, "all", None)
+        visible_fields = service.resolve_export_fields(ctx, workspace_id, "visible", None)
+        custom_fields = service.resolve_export_fields(
+            ctx, workspace_id, "custom", ["rationale", "source"]
+        )
+    assert "rationale" in all_fields
+    assert "source" in all_fields
+    assert "rationale" in visible_fields
+    assert "source" in visible_fields
+    assert custom_fields == {"rationale", "source"}
+
+
+def test_real_bootstrap_exports_rationale_and_source() -> None:
+    ctx, workspace = _bootstrap_tenant_workspace_ctx()
+    svc = RequirementBundleQueryService()
+    all_fields = svc.resolve_export_fields(ctx, workspace.id, "all", None)
+    visible_fields = svc.resolve_export_fields(ctx, workspace.id, "visible", None)
+    custom_fields = svc.resolve_export_fields(
+        ctx, workspace.id, "custom", ["rationale", "source"]
+    )
+    assert "rationale" in all_fields
+    assert "source" in all_fields
+    # The fixture's workspace is ``standard`` (stage 2) — both attributes are
+    # visible_stages={2, 3} there.
+    assert "rationale" in visible_fields
+    assert "source" in visible_fields
+    assert custom_fields == {"rationale", "source"}
+
+
+def test_real_bootstrap_get_bundle_returns_rationale_and_source_values() -> None:
+    """End-to-end proof at the actual ``.values()`` projection site: both
+    columns are real Requirement columns and must come back with their
+    stored values, not just be accepted as field names."""
+    from persistence.middleware import clear_request_tenant, set_request_tenant
+    from persistence.models import ArchitectureElement, Artifact, Requirement, TraceLink
+
+    ctx, workspace = _bootstrap_tenant_workspace_ctx()
+    set_request_tenant(ctx.tenant_id)
+    try:
+        root_artifact = Artifact.objects.create(
+            tenant_id=ctx.tenant_id,
+            workspace=workspace,
+            artifact_type="ArchitectureElement",
+        )
+        root = ArchitectureElement.objects.create(
+            tenant_id=ctx.tenant_id, artifact=root_artifact, title="Root"
+        )
+        req_artifact = Artifact.objects.create(
+            tenant_id=ctx.tenant_id, workspace=workspace, artifact_type="Requirement"
+        )
+        Requirement.objects.create(
+            tenant_id=ctx.tenant_id,
+            artifact=req_artifact,
+            title="R1",
+            rationale="Because ISO 29148 demands it",
+            source="Stakeholder interview",
+        )
+        TraceLink.objects.create(
+            tenant_id=ctx.tenant_id,
+            source=req_artifact,
+            target=root_artifact,
+            link_type="allocated-to",
+        )
+    finally:
+        clear_request_tenant()
+
+    result = RequirementBundleQueryService().get_bundle(
+        ctx, root_id=root.id, workspace_id=workspace.id, depth=0, filter_mode="all"
+    )
+    assert len(result.items) == 1
+    assert result.items[0].fields["rationale"] == "Because ISO 29148 demands it"
+    assert result.items[0].fields["source"] == "Stakeholder interview"

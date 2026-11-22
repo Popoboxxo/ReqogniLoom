@@ -1253,16 +1253,19 @@ class ChangeRequestSerializer(
     )
     # #399 (cluster 5) / spec section 4.4: the drift badge's "raise change
     # request" shortcut needs a declared contract for pre-filling the affected
-    # items. Write-only and additive: `create_change_request` already validates
-    # the ids workspace-/tenant-scoped (`_validate_affected_items`) and
-    # snapshots the "before" state, it was only never reachable through REST.
+    # items. `create_change_request` validates the ids workspace-/tenant-scoped
+    # (`_validate_affected_items`) and snapshots the "before" state.
+    # #2009: readable again — a write-only field never reached the response, so
+    # a client could post an impact set but never read it back. Both the entity
+    # id and the backing Artifact id are accepted on write; the stored value
+    # returned here is the Artifact id.
     affected_item_ids = serializers.ListField(
         child=serializers.UUIDField(),
         required=False,
-        write_only=True,
+        default=list,
         help_text=(
-            "Optional list of artifact UUIDs to register as affected items "
-            "of the new change request."
+            "Optional list of artifact UUIDs (or artifact-backed entity ids) "
+            "to register as affected items of the change request."
         ),
     )
     version = serializers.IntegerField(
@@ -1270,3 +1273,33 @@ class ChangeRequestSerializer(
     )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        """Populate ``affected_item_ids`` on read (#2009).
+
+        The CR ViewSets feed this serializer the dict from ``_cr_to_dict``,
+        which has no ``affected_item_ids`` key — ``default=list`` alone would
+        make the field appear but always empty. Read the persisted impact rows
+        instead (their ``item_id`` is the Artifact UUID), so a client can
+        round-trip the impact set it posted. Kept in the serializer rather than
+        the view because this is the field's output contract and every caller
+        reusing the serializer inherits it.
+        """
+        data = super().to_representation(instance)
+        cr_id = (
+            instance.get("id")
+            if isinstance(instance, dict)
+            else getattr(instance, "id", None)
+        )
+        if cr_id:
+            from persistence.models import ChangeRequestAffectedItem
+
+            data["affected_item_ids"] = [
+                str(item_id)
+                for item_id in ChangeRequestAffectedItem.objects.filter(
+                    change_request_id=cr_id
+                )
+                .order_by("created_at")
+                .values_list("item_id", flat=True)
+            ]
+        return data

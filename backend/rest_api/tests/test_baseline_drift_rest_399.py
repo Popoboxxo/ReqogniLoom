@@ -155,7 +155,12 @@ def test_requirement_retrieve_carries_the_drift_summary(drift_env):
 
 
 def test_change_request_prefill_accepts_affected_item_ids(drift_env):
-    """AC-D1-11 (contract half): write-only prefill from the drift badge."""
+    """AC-D1-11 (contract half): prefill from the drift badge.
+
+    #2009 corrected the old expectation (the field used to be write-only and
+    therefore absent from the response): a readable field must echo the
+    persisted impact set so a client can round-trip it.
+    """
     client, tenant, workspace, artifact, req = drift_env
 
     resp = client.post(
@@ -168,7 +173,7 @@ def test_change_request_prefill_accepts_affected_item_ids(drift_env):
         format="json",
     )
     assert resp.status_code == 201, resp.content
-    assert "affected_item_ids" not in resp.json()
+    assert resp.json()["affected_item_ids"] == [str(artifact.id)]
 
 
 def test_change_request_prefill_rejects_an_unknown_item(drift_env):

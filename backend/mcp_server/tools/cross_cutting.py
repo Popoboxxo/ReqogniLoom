@@ -262,6 +262,31 @@ def artifact_summary_rate_limited(auth_context: AuthContext) -> bool:
     return False
 
 
+def _int_param(params: dict[str, Any], name: str, default: int) -> int:
+    """Parse a declared-integer parameter, naming the field on bad input.
+
+    #1966: ``int(params["limit"])`` used to raise a bare ``ValueError`` for
+    ``limit="abc"``; neither the group's except-list nor the central exception
+    mapper knows that type, so the client saw ``INTERNAL_ERROR``. The dispatcher
+    now validates schemas, but a handler can also be called directly (many unit
+    tests do), so keep the typed guard here too. A numeric string stays valid —
+    the published schema says "integer", and callers have always sent ``"10"``.
+    ``bool`` is rejected: it is an ``int`` subclass in Python but never a valid
+    JSON integer.
+    """
+    raw = params.get(name, default)
+    if isinstance(raw, bool) or isinstance(raw, float):
+        raise ParameterError(f"Parameter '{name}' must be an integer.")
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return int(raw.strip())
+        except ValueError:
+            raise ParameterError(f"Parameter '{name}' must be an integer.") from None
+    raise ParameterError(f"Parameter '{name}' must be an integer.")
+
+
 def _bulk_entries_param(params: dict[str, Any]) -> list[Any]:
     """Return the raw ``entries`` array of ``artifact.bulk_update``.
 
@@ -1790,8 +1815,8 @@ class CrossCuttingToolGroup(BaseToolGroup):
         type_filter: list[str] | None = (
             type_filter_raw if isinstance(type_filter_raw, list) else None
         )
-        page: int = int(params.get("page", 1))
-        limit: int = int(params.get("limit", 20))
+        page: int = _int_param(params, "page", 1)
+        limit: int = _int_param(params, "limit", 20)
         mode = str(params.get("mode", "hybrid")).strip().lower()
         min_score_raw = params.get("min_score", 0.0)
         # BE-R5 (F3): ``bool`` is an ``int`` subclass, so ``float(True)`` would

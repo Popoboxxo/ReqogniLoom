@@ -294,11 +294,21 @@ class TreeNodeDTO:
     #: P1: the node's fractional sort key, so a tree client can send an exact
     #: ``after_id`` back on reorder without a second lookup.
     sort_key: str | None = None
+    # Issue #2027: a tree node without these is unusable to an MCP client —
+    # it cannot label the node, resolve its local id or tell a live node from
+    # an outdated one. Defaults keep direct constructors (and the REST tree
+    # roots) source-compatible.
+    title: str = ""
+    uid: str = ""
+    status: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "id": str(self.id),
             "artifact_type": self.artifact_type,
+            "title": self.title,
+            "uid": self.uid,
+            "status": self.status,
             "sort_key": self.sort_key,
             "custom_fields": (
                 dict(self.custom_fields)
@@ -1015,7 +1025,9 @@ class ArtifactService(ServiceBase):
         """Return the full subtree rooted at *root_id* using a Recursive CTE.
 
         REQ-L2-AS-002: < 200ms for 500 artifacts in 5 levels.
-        ADR-L3-AS001-02: single SQL query, no N+1.
+        ADR-L3-AS001-02: one recursive CTE for the subtree, no N+1. The
+        label enrichment (issue #2027) adds one batch scan per distinct
+        entity type present in the subtree, never one per node.
 
         #38: *root_id* is resolved the same way TraceLinkService resolves
         TraceLink endpoints — callers naturally pass the more user-facing
@@ -1031,23 +1043,28 @@ class ArtifactService(ServiceBase):
 
         root_id = TraceLinkService()._resolve_artifact_id(root_id)
 
-        # Recursive CTE: fetch all descendants in one query
+        # Recursive CTE: fetch all descendants in one query. ``status`` is the
+        # Artifact's single soft-delete/lifecycle flag (issue #2027); title and
+        # uid live on the type-specific rows and are resolved in one batch
+        # below, so no column that does not exist on pl_artifact is selected.
         sql = """
             WITH RECURSIVE tree AS (
-                SELECT id, parent_id, artifact_type, sort_key, custom_fields, 0 AS depth
+                SELECT id, parent_id, artifact_type, sort_key, custom_fields,
+                       lifecycle_status, 0 AS depth
                 FROM pl_artifact
                 WHERE id = %s
                   AND workspace_id = %s
 
                 UNION ALL
 
-                SELECT a.id, a.parent_id, a.artifact_type, a.sort_key, a.custom_fields,
-                       t.depth + 1
+                SELECT a.id, a.parent_id, a.artifact_type, a.sort_key,
+                       a.custom_fields, a.lifecycle_status, t.depth + 1
                 FROM pl_artifact a
                 INNER JOIN tree t ON a.parent_id = t.id
                 WHERE t.depth < 20
             )
-            SELECT id, parent_id, artifact_type, sort_key, custom_fields
+            SELECT id, parent_id, artifact_type, sort_key, custom_fields,
+                   lifecycle_status
             FROM tree
             ORDER BY depth, sort_key NULLS LAST, id;
         """
@@ -1061,12 +1078,14 @@ class ArtifactService(ServiceBase):
                 artifact_type,
                 sort_key,
                 custom_fields,
+                lifecycle_status,
             ) in cursor.fetchall():
                 rows[row_id] = {
                     "parent_id": parent_id,
                     "artifact_type": artifact_type,
                     "sort_key": sort_key,
                     "custom_fields": coerce_custom_fields(custom_fields),
+                    "status": lifecycle_status,
                     "children": [],
                 }
 
@@ -1075,6 +1094,48 @@ class ArtifactService(ServiceBase):
                 f"Artifact {root_id} not found in workspace {workspace_id}"
             )
 
+        # Issue #2027: title/uid are not columns on pl_artifact — they live on
+        # the type-specific entity rows. Scan only the types actually present
+        # in the subtree: one batch query per present type, never N+1.
+        from persistence.models import (
+            ArchitectureElement,
+            Document,
+            Issue,
+            Requirement,
+            Risk,
+            StakeholderNeed,
+            TestCase,
+            WorkItem,
+        )
+
+        label_models: dict[str, Any] = {
+            "Requirement": Requirement,
+            "ArchitectureElement": ArchitectureElement,
+            "StakeholderNeed": StakeholderNeed,
+            "TestCase": TestCase,
+            "Document": Document,
+            "Risk": Risk,
+            "Issue": Issue,
+            "WorkItem": WorkItem,
+        }
+        try:
+            from application.models import Adr
+
+            label_models["Adr"] = Adr
+        except ImportError:  # Adr is absent in some minimal test configs.
+            pass
+
+        labels: dict[UUID, tuple[str, str]] = {}
+        present_types = {data["artifact_type"] for data in rows.values()}
+        tree_ids = list(rows)
+        for artifact_type, model in label_models.items():
+            if artifact_type not in present_types:
+                continue
+            for artifact_id, title, uid in model.objects.filter(
+                artifact_id__in=tree_ids
+            ).values_list("artifact_id", "title", "uid"):
+                labels[artifact_id] = (title or "", uid or "")
+
         # Build nested structure
         nodes: dict[UUID, TreeNodeDTO] = {
             uid: TreeNodeDTO(
@@ -1082,6 +1143,9 @@ class ArtifactService(ServiceBase):
                 artifact_type=data["artifact_type"],
                 custom_fields=data["custom_fields"],
                 sort_key=data["sort_key"],
+                title=labels.get(uid, ("", ""))[0],
+                uid=labels.get(uid, ("", ""))[1],
+                status=data["status"] or "",
             )
             for uid, data in rows.items()
         }

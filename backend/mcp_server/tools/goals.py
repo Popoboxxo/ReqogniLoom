@@ -514,7 +514,10 @@ class GoalToolGroup(BaseToolGroup):
             result = GoalService().create_version(
                 workspace_id=workspace_id,
                 title=params.get("title", ""),
-                description=params.get("description", ""),
+                # #2023: omitting description must reach the service as None so
+                # a new version inherits its lineage's latest description.
+                # An explicitly supplied "" still clears it.
+                description=params.get("description"),
                 lineage_id=lineage_id,
                 ctx=auth_context,
                 custom_fields=params.get("custom_fields"),

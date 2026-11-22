@@ -8,9 +8,14 @@ description: Use when capturing a stakeholder need or deriving/decomposing a req
 See [DOMAIN_MODEL.md](../../DOMAIN_MODEL.md) for the REQ-ID schema, trace-link types, and rigor
 presets referenced below.
 
+> **Workspace-ID prerequisite:** every `workspace.get_context` call below passes a concrete
+> `workspace_id` (from the session context, or obtained via `workspace.list` — which most thin
+> plugin roles lack, so get the id from the orchestrating role that has it or ask the user).
+> See DOMAIN_MODEL.md → "Workspace-ID prerequisite". Never call it without the id.
+
 ## Workflow
 
-1. `workspace.get_context` — learn the active rigor preset and, if the workspace has goals
+1. `workspace.get_context(workspace_id)` — learn the active rigor preset and, if the workspace has goals
    configured, `goal.read`/`goal.query`/`main_goal.read` to see which strategic goal the need
    should ultimately serve; flag (don't silently proceed) if it doesn't trace toward any active
    goal.
