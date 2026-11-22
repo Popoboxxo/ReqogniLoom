@@ -608,3 +608,42 @@ class TestGetTreeRootIdResolution:
             svc.get_tree(
                 root_id=uuid.uuid4(), workspace_id=gt_workspace.id, ctx=gt_ctx
             )
+
+
+class TestGetTreeNodeFields2027:
+    """Issue #2027: tree nodes must carry title, uid and status so an MCP
+    client can label, identify and judge a node without a second lookup."""
+
+    def test_tree_nodes_expose_title_uid_and_status(self, gt_ctx, gt_workspace):
+        from application.requirement_service import RequirementService
+        from persistence.tenancy import TenantContext
+
+        TenantContext.set_tenant(gt_workspace.tenant_id)
+        try:
+            service = RequirementService()
+            root = service.create_requirement(
+                workspace_id=gt_workspace.id, title="Root requirement", ctx=gt_ctx
+            )
+            child = service.create_requirement(
+                workspace_id=gt_workspace.id,
+                title="Child requirement",
+                ctx=gt_ctx,
+                parent_id=root.artifact_id,
+            )
+        finally:
+            TenantContext.clear_tenant()
+
+        tree = ArtifactService().get_tree(
+            root_id=root.id, workspace_id=gt_workspace.id, ctx=gt_ctx
+        )
+        payload = tree.as_dict()
+
+        assert {"title", "uid", "status"} <= set(payload)
+        assert payload["title"] == "Root requirement"
+        assert payload["uid"] == root.uid
+        assert payload["status"] == "active"
+        assert len(payload["children"]) == 1
+        child_payload = payload["children"][0]
+        assert child_payload["title"] == "Child requirement"
+        assert child_payload["uid"] == child.uid
+        assert child_payload["status"] == "active"

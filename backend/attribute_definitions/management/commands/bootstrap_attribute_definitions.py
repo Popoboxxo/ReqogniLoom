@@ -285,7 +285,11 @@ PER_ITEM_TYPE_AI_ELICIT_FIELDS: dict[str, frozenset[str]] = {
     "Adr": frozenset({"context", "decision", "consequences"}),
     "Issue": frozenset({"severity", "category"}),
     "TestCase": frozenset({"test_type"}),
-    "ArchitectureElement": frozenset({"element_type"}),
+    # #2043: `parent_id` is the aliased FK column (see WIDGET_FIELD_ALIASES
+    # below) -- without eliciting it an interview can never choose a parent,
+    # so every element after the first is rejected by I5 as a forbidden
+    # second root. Asked at the same SE stage as `element_type`.
+    "ArchitectureElement": frozenset({"element_type", "parent_id"}),
 }
 
 #: Lowest preset stage at which the entries above are elicited. ``minimal``
@@ -315,6 +319,9 @@ _AI_ELICIT_FIELD_MIN_STAGE: dict[tuple[str, str], int] = {
     ("Risk", "detection"): 2,
     ("TestCase", "test_type"): 2,
     ("ArchitectureElement", "element_type"): 2,
+    # #2043: parent choice is an SE-hierarchy question, same stage as
+    # element_type (a minimal workspace keeps its short interview).
+    ("ArchitectureElement", "parent_id"): 2,
 }
 
 

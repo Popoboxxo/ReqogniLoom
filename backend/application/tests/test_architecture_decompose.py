@@ -712,14 +712,13 @@ class TestReportedRegressionsDoNotReproduce:
     def test_commit_persists_generated_rationale_for_both_entity_types(
         self, tenant, workspace, ctx
     ):
-        """issue #583: commit_draft dropped the node's generated rationale.
+        """issue #583/#2011: commit_draft must persist the node's rationale.
 
         The draft carries one LLM rationale per node
-        (``DraftRequirement.rationale``) and it is an extended attribute for
-        both created entity types (``attribute_definitions.stage_matrix``:
-        Requirement -> ISO 29148, ArchitectureElement -> ISO 42010). Its
-        carrier is ``Artifact.custom_fields["rationale"]``, so both the child
-        element and the derived requirement must carry it.
+        (``DraftRequirement.rationale``). Issue #2011: the derived
+        Requirement stores it in the real ``Requirement.rationale`` column,
+        while the child ArchitectureElement (no such column) keeps it in
+        ``Artifact.custom_fields["rationale"]`` (ISO 42010).
         """
         from application.architecture_decompose_service import (
             DraftNode,
@@ -757,9 +756,9 @@ class TestReportedRegressionsDoNotReproduce:
             assert element.artifact.custom_fields == {
                 "rationale": "Because faults must be observable."
             }
-            assert requirement.artifact.custom_fields == {
-                "rationale": "Because faults must be observable."
-            }
+            # #2011: the Requirement uses the real column, not a custom field.
+            assert requirement.rationale == "Because faults must be observable."
+            assert requirement.artifact.custom_fields == {}
 
     def test_commit_of_mock_draft_persists_the_generated_rationale(
         self, tenant, workspace, ctx
@@ -784,13 +783,16 @@ class TestReportedRegressionsDoNotReproduce:
                 id=result.created_requirement_ids[0]
             )
             assert element.artifact.custom_fields == {"rationale": rationale}
-            assert requirement.artifact.custom_fields == {"rationale": rationale}
+            # #2011: the Requirement uses the real column, not a custom field.
+            assert requirement.rationale == rationale
+            assert requirement.artifact.custom_fields == {}
 
     def test_commit_without_rationale_creates_no_bogus_custom_field(
         self, tenant, workspace, ctx
     ):
         """An empty rationale must not produce a ``{"rationale": ""}`` entry —
-        both entities keep the ``{}`` every create without custom fields uses."""
+        the element keeps the ``{}`` every create without custom fields uses,
+        and the Requirement's real rationale column stays empty (#2011)."""
         from application.architecture_decompose_service import (
             DraftNode,
             DraftRequirement,
@@ -826,6 +828,7 @@ class TestReportedRegressionsDoNotReproduce:
             )
             assert element.artifact.custom_fields == {}
             assert requirement.artifact.custom_fields == {}
+            assert requirement.rationale == ""
 
     def test_commit_never_persists_a_blank_titled_requirement(
         self, tenant, workspace, ctx

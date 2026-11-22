@@ -364,8 +364,12 @@ class InterviewMultiFormalizationMixin:
             self._record_multi_formalization(ctx, session, created_refs, transition_applied)
 
         return {
+            # #2006: report the user-facing entity id (the ``id`` that
+            # requirement.get / architecture.get / *.read accept), matching
+            # the single-kind path's ``resulting_artifact_ids``. The Artifact
+            # PK is still used for the provenance rows and TraceLinks above.
             "created": [
-                {"artifact_id": str(ref.artifact_id), "artifact_type": ref.artifact_type}
+                {"artifact_id": str(ref.entity_id), "artifact_type": ref.artifact_type}
                 for ref in created_refs
             ],
             "status": "completed",

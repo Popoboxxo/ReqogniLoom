@@ -109,6 +109,21 @@ SYSTEM_TREE_FIELDS: tuple[TreeFieldSpec, ...] = (
 
 _SYSTEM_BY_KEY: dict[str, TreeFieldSpec] = {spec.key: spec for spec in SYSTEM_TREE_FIELDS}
 
+
+def _default_width_for_key(key: Any) -> str:
+    """Return the catalogue width for *key*, or the global fallback.
+
+    A bare string key (or an entry without an explicit ``width``) inherits the
+    width the catalogue advertises for that field — ``uid`` is ``half``, not the
+    global ``full`` fallback. Custom attributes have no per-field width, so they
+    keep the same global default :func:`field_catalog` gives them (#2028).
+    """
+    if not isinstance(key, str):
+        return DEFAULT_TREE_FIELD_WIDTH
+    spec = _SYSTEM_BY_KEY.get(key)
+    return spec.width if spec is not None else DEFAULT_TREE_FIELD_WIDTH
+
+
 #: The pre-#1257 fixed combination, in its rendered order. A configuration that
 #: is absent on every level resolves to this (issue #1257 point 5 — an existing
 #: user's tree does not change). ``uid``/``level``/``status`` are what
@@ -232,7 +247,10 @@ def normalize_tree_fields(
 
     Accepts the same two entry shapes :func:`merge_tree_fields` reads — a bare
     key string or ``{"key": <str>, "width": "full"|"half"}`` — and returns a
-    canonical ``[{"key", "width"}, …]`` list in the caller's order.
+    canonical ``[{"key", "width"}, …]`` list in the caller's order. An omitted
+    width resolves to the field's catalogue width (:func:`_default_width_for_key`),
+    so normalizing ``"uid"`` stores ``half`` rather than the global ``full``
+    fallback (#2028).
 
     Raises:
         TreeFieldError: *raw* is not a list, an entry is not a string/object, a
@@ -250,10 +268,10 @@ def normalize_tree_fields(
 
     for index, entry in enumerate(raw):
         if isinstance(entry, str):
-            key, width = entry, DEFAULT_TREE_FIELD_WIDTH
+            key, width = entry, _default_width_for_key(entry)
         elif isinstance(entry, Mapping):
             key = entry.get("key")
-            width = entry.get("width", DEFAULT_TREE_FIELD_WIDTH)
+            width = entry.get("width", _default_width_for_key(key))
         else:
             errors.append(f"fields[{index}] must be a string or an object")
             continue

@@ -692,10 +692,11 @@ class RequirementService(ServiceBase):
                 tool forwards the raw payload value, so a bare
                 ``UUID(str(parent_id))`` escaped as an unhandled ``ValueError``
                 and answered ``INTERNAL_ERROR`` instead of a 4xx), the parent
-                would be the Requirement itself, or it lives in another
-                workspace.
-            NotFoundError: No ``Artifact`` exists for a UUID-shaped
-                *parent_id*.
+                would be the Requirement itself, it lives in another workspace,
+                or the resolved id names a non-Requirement artifact-backed
+                entity (e.g. an ADR or ArchitectureElement).
+            NotFoundError: No ``Artifact`` or artifact-backed entity exists
+                for a UUID-shaped *parent_id* (both id kinds are accepted).
         """
         if parent_id is _UNSET:
             return False
@@ -706,6 +707,35 @@ class RequirementService(ServiceBase):
                 new_parent_id = UUID(str(parent_id))
             except (AttributeError, TypeError, ValueError) as exc:
                 raise ValidationError("'parent_id' must be a UUID or null") from exc
+            # #2008: the FK tree stores Artifact ids, but callers naturally hold
+            # the user-facing Requirement id (requirement.create/get's ``id``),
+            # a distinct UUID. Resolve both kinds through the canonical helper
+            # artifact_service.get_tree uses; an already-Artifact id passes
+            # through unchanged. Must happen before the self/workspace/cycle
+            # checks below, which all compare Artifact ids.
+            from application.trace_link_service import TraceLinkService
+
+            try:
+                new_parent_id = TraceLinkService()._resolve_artifact_id(new_parent_id)
+            except (NotFoundError, ValueError, TypeError) as exc:
+                # A NULL-FK entity row makes the resolver raise ValueError;
+                # it is the same "no usable parent" caller error as a miss.
+                raise NotFoundError(
+                    f"Parent artifact or Requirement id {parent_id} not found "
+                    f"(pass an Artifact id or a Requirement id)"
+                ) from exc
+            # The resolver accepts ANY artifact-backed entity (Adr,
+            # ArchitectureElement, TestCase, ...). A Requirement's parent FK
+            # must point at a Requirement's Artifact, so verify the resolved
+            # Artifact actually backs a Requirement row — otherwise a foreign
+            # entity id silently corrupts the V-model hierarchy. Checking the
+            # entity (rather than the artifact_type string) is authoritative
+            # and independent of the stored type spelling.
+            if not Requirement.objects.filter(artifact_id=new_parent_id).exists():
+                raise ValidationError(
+                    f"Parent id {parent_id} does not name a Requirement "
+                    f"(pass a Requirement id or its Artifact id)"
+                )
         current_parent_id = requirement.artifact.parent_id
         parent_changed = new_parent_id != current_parent_id
         if parent_changed:

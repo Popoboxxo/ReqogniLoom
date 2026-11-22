@@ -645,3 +645,41 @@ class TestListVersions:
                 ArtMock.objects.filter.return_value.exists.return_value = False
                 with pytest.raises(NotFoundError):
                     svc.list_versions(artifact_id=ARTIFACT_ID, ctx=ctx)
+
+
+# ---------------------------------------------------------------------------
+# Issue #2026: Document diff response shape
+# ---------------------------------------------------------------------------
+
+
+class TestDocumentDiffShape2026:
+    """The MCP ``document.diff`` response must include custom_fields and be a
+    delta; other artifact types keep their historical diff contract."""
+
+    def test_document_snapshot_fields_include_custom_fields(self):
+        from application.artifact_diff_service import _ENTITY_FIELDS
+
+        assert "custom_fields" in _ENTITY_FIELDS["Document"]
+
+    def test_document_diff_drops_unchanged_entries(self):
+        svc = ArtifactDiffService()
+        fields = svc._compute_fields_diff(
+            {"title": "Spec", "body": "Body", "custom_fields": {"owner": "team-a"}},
+            {"title": "Spec", "body": "Body", "custom_fields": {"owner": "team-b"}},
+            "Document",
+        )
+
+        assert all(field["status"] != "unchanged" for field in fields)
+        assert [field["name"] for field in fields] == ["custom_fields"]
+        assert fields[0]["status"] == "modified"
+        assert fields[0]["from"] == {"owner": "team-a"}
+        assert fields[0]["to"] == {"owner": "team-b"}
+
+    def test_other_artifact_types_still_report_unchanged_entries(self):
+        svc = ArtifactDiffService()
+        fields = svc._compute_fields_diff(
+            {"title": "Same"}, {"title": "Same"}, "Requirement"
+        )
+
+        assert fields
+        assert all(field["status"] == "unchanged" for field in fields)

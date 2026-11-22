@@ -290,6 +290,10 @@ class TestGetCoverageData:
         entry = next(e for e in data.entries if e.requirement_id == str(req.id))
         assert len(entry.test_cases) == 1
         assert entry.test_cases[0]["id"] == str(tc_art.id)
+        # #1978: distinct id spaces — ``id`` is the Artifact id used by the
+        # trace graph; ``test_case_id`` is the entity id the VCRM must export.
+        assert entry.test_cases[0]["test_case_id"] == str(tc.id)
+        assert entry.test_cases[0]["test_case_id"] != entry.test_cases[0]["id"]
 
     def test_empty_workspace_returns_empty_entries(
         self, calc, tenant_a, workspace_a

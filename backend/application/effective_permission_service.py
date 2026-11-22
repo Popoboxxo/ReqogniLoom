@@ -47,7 +47,14 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from application.base import ValidationError
-from auth_tenancy.services.authorization import AuthorizationService, Operation
+from auth_tenancy.services.authorization import (
+    AuthorizationService,
+    Operation,
+    required_scope_tier,
+    scope_allows,
+    scope_denial_reason,
+    scope_tier,
+)
 from auth_tenancy.services.item_permission import (
     ItemPermissionService,
     PermissionDecision,
@@ -92,12 +99,19 @@ class EffectivePermission:
         is_allowed: ``True`` iff :attr:`level` is at least as strong as the
             queried level. ``write >= read >= deny``.
         queried_level: The normalised level the caller asked about.
+        governance_allowed: Whether the credential's API-key scope permits the
+            ADMIN tier (#1998/#2032). An AUTHOR key may still author content,
+            so ``is_allowed`` for ``write`` stays ``True`` for it, but every
+            governance operation is refused by the very same scope gate the
+            MCP registry enforces. Defaults to ``True`` for callers that do
+            not pass a key scope (bearer sessions and pre-#2032 callers).
     """
 
     level: str
     reason: str
     is_allowed: bool
     queried_level: str
+    governance_allowed: bool = True
 
     def __str__(self) -> str:  # pragma: no cover - debug helper
         return (
@@ -134,6 +148,7 @@ class EffectivePermissionService:
         workspace_id: UUID,
         artifact_id: UUID | None = None,
         level: str,
+        scope: str | None = None,
     ) -> EffectivePermission:
         """Return the effective permission and whether it satisfies *level*.
 
@@ -145,6 +160,10 @@ class EffectivePermissionService:
                 question (the item layer then falls back to the
                 workspace-wide rule only).
             level: The queried level — ``"read"`` or ``"write"``.
+            scope: The credential's API-key scope (``AuthContext.scope``).
+                Passing it makes the answer reflect the real key gate: a
+                read-only key cannot write, and an AUTHOR key cannot govern.
+                ``None`` keeps the pre-#2032 RBAC+item-only answer.
 
         Returns:
             An :class:`EffectivePermission`.
@@ -172,12 +191,16 @@ class EffectivePermissionService:
         effective_level, effective_reason = self._merge_effective(
             rbac_level, rbac_reason, item_decision
         )
+        effective_level, effective_reason = self._apply_scope_gate(
+            effective_level, effective_reason, scope=scope, queried_level=queried_level
+        )
 
         return EffectivePermission(
             level=effective_level,
             reason=effective_reason,
             is_allowed=level_satisfies_level(effective_level, queried_level),
             queried_level=queried_level,
+            governance_allowed=scope_allows(scope, Operation.WORKSPACE_CONFIG),
         )
 
     def resolve_effective_permissions_batch(
@@ -188,6 +211,7 @@ class EffectivePermissionService:
         workspace_id: UUID,
         artifact_ids: Sequence[UUID | None],
         level: str,
+        scope: str | None = None,
     ) -> dict[UUID | None, EffectivePermission]:
         """Resolve the effective permission for many artifacts in one workspace.
 
@@ -205,6 +229,8 @@ class EffectivePermissionService:
             artifact_ids: Artifact ids to resolve. ``None`` (workspace-wide
                 question) is supported and resolved via the single-item path.
             level: Queried level — ``"read"`` or ``"write"``.
+            scope: Credential API-key scope; applied through the exact same
+                :meth:`_apply_scope_gate` as the single-item path.
 
         Returns:
             Mapping keyed by the same ids passed in (``None`` included when
@@ -246,15 +272,54 @@ class EffectivePermissionService:
             effective_level, effective_reason = self._merge_effective(
                 rbac_level, rbac_reason, item_decision
             )
+            effective_level, effective_reason = self._apply_scope_gate(
+                effective_level, effective_reason, scope=scope, queried_level=queried_level
+            )
             result[artifact_id] = EffectivePermission(
                 level=effective_level,
                 reason=effective_reason,
                 is_allowed=level_satisfies_level(effective_level, queried_level),
                 queried_level=queried_level,
+                governance_allowed=scope_allows(scope, Operation.WORKSPACE_CONFIG),
             )
         return result
 
     # -- Helpers ----------------------------------------------------------
+
+    @staticmethod
+    def _apply_scope_gate(
+        level: str,
+        reason: str,
+        *,
+        scope: str | None,
+        queried_level: str,
+    ) -> tuple[str, str]:
+        """Narrow the reported level with the credential's API-key scope.
+
+        Uses the same :func:`scope_denial_reason` the REST and MCP enforcement
+        points use, so ``permissions.check`` can no longer answer "write" for a
+        key whose scope denies it (#1998/#2032). An AUTHOR key does pass the
+        ordinary WRITE operation: its governance limitation is reported through
+        :attr:`EffectivePermission.governance_allowed` and, for ``write``
+        queries, appended to the reason. A read-only (or unknown) scope is
+        clamped below the queried level instead.
+        """
+        operation = Operation.READ if queried_level == "read" else Operation.WRITE
+        denial = scope_denial_reason(scope, operation)
+        if denial is not None:
+            tier = scope_tier(scope)
+            # An unrecognised scope is below every tier and permits nothing —
+            # not even reads. A recognised read-only tier can still read.
+            if tier is not None and tier < required_scope_tier(Operation.READ):
+                ceiling = "deny"
+            else:
+                ceiling = "read" if queried_level == "write" else "deny"
+            return more_restrictive_level(level, ceiling), f"{reason} {denial}"
+
+        governance_denial = scope_denial_reason(scope, Operation.WORKSPACE_CONFIG)
+        if queried_level == "write" and governance_denial is not None:
+            return level, f"{reason} {governance_denial}"
+        return level, reason
 
     @staticmethod
     def _merge_effective(

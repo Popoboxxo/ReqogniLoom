@@ -255,6 +255,10 @@ def test_release_freezes_the_content_fields_and_records_a_revision(
     assert document.frozen_at is not None
     assert document.frozen_fields == list(FROZEN_FIELDS)
     assert service.current_status(document.id, approver_ctx) == RELEASE_STATE
+    # Issue #2024: release is its own entity revision. The version reported by
+    # MCP/REST must not be the pre-release value while a new ArtifactVersion
+    # already exists.
+    assert document.version == 2
 
     from application.artifact_version_service import ArtifactVersionService
 
@@ -266,6 +270,27 @@ def test_release_freezes_the_content_fields_and_records_a_revision(
     )
     assert released_payload["title"] == "System Spec"
     assert released_payload["body"] == "# System Spec\n\nContent."
+
+
+def test_release_snapshot_includes_custom_fields(
+    service, workspace, editor_ctx, approver_ctx
+):
+    """Issue #2026: custom_fields lives on the backing Artifact and must be
+    part of the recorded revision, not a stored ``None``."""
+    document = _released(
+        service,
+        workspace,
+        editor_ctx,
+        approver_ctx,
+        custom_fields={"reviewer": "team-a"},
+    )
+
+    from application.artifact_version_service import ArtifactVersionService
+
+    released_payload = ArtifactVersionService().get_payload(
+        document.artifact_id, 2, approver_ctx
+    )
+    assert released_payload["custom_fields"] == {"reviewer": "team-a"}
 
 
 @pytest.mark.parametrize(
@@ -461,6 +486,8 @@ def test_reopen_lifts_the_freeze_and_starts_a_new_version(
 ):
     document = _released(service, workspace, editor_ctx, approver_ctx)
     released_version = document.version
+    # Issue #2024: creation=1, release=2, re-open=3.
+    assert released_version == 2
 
     reopened = service.reopen(
         document.id, approver_ctx, change_reason="substantial rework"
@@ -469,6 +496,7 @@ def test_reopen_lifts_the_freeze_and_starts_a_new_version(
     assert reopened.frozen_at is None
     assert reopened.frozen_fields == []
     assert reopened.version == released_version + 1
+    assert reopened.version == 3
     assert service.current_status(document.id, approver_ctx) == REVIEW_STATE
 
     # The content is editable again...

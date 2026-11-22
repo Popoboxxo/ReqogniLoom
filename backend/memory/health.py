@@ -308,6 +308,29 @@ def envelope() -> dict[str, Any]:
     }
 
 
+def lite_envelope() -> dict[str, Any]:
+    """Return only the F9-invariant health fields (``backend``, ``degraded``).
+
+    Every memory response must tell an agent "this backend is up/down" so a
+    legitimately empty read is not mistaken for an outage (see the module
+    docstring). That promise needs only two cached fields. It does NOT need the
+    full :func:`envelope` — in particular the large ``capabilities`` block
+    (``asdict(MemoryCapabilities)``) and the digest/ask/derivation probes, which
+    belong on the one explicit capabilities/overview surface (issue #2038).
+
+    Ordinary memory responses (writes, admin list/export/delete) therefore use
+    this helper instead of :func:`envelope`, keeping the blob out of every
+    unrelated call while preserving the documented ``backend``/``degraded``
+    contract. ``health_view``/REST callers that do advertise capabilities keep
+    using :func:`envelope`.
+    """
+    health = memory_health()
+    return {
+        "backend": health.backend,
+        "degraded": (not health.ok) or health.degraded,
+    }
+
+
 def health_view() -> dict[str, Any]:
     """Return the shape used by the ``admin/health`` ``memory`` component.
 
@@ -330,5 +353,6 @@ __all__ = [
     "health_view",
     "invalidate_health_cache",
     "is_degraded",
+    "lite_envelope",
     "memory_health",
 ]

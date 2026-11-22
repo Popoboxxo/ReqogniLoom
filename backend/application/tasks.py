@@ -129,12 +129,13 @@ def run_traceability_suggest_links(
     from the API-key row (:func:`_resolve_agent_context`).
 
     Since ADR-019 WP5 the run *persists* a ``trace_link`` suggestion per
-    eligible finding, so it is a production and only an agent/API-key context
-    may run it. The dispatch path already refuses a human trigger
+    eligible finding, so it is a production and only a write-capable API-key
+    context may run it. The dispatch path already refuses a human trigger
     (``suggest_links_async``); this worker additionally **fails closed** with
     :class:`~application.base.ProducerContextRequiredError` when no key id was
-    propagated or the key does not resolve to an active agent key in the
-    tenant, so no unstamped proposal can ever be written.
+    propagated, the key does not resolve to an active key in the tenant, or its
+    scope cannot author content — the same gate as the synchronous path
+    (#1987), so no unstamped proposal can ever be written.
 
     Returns:
         The :meth:`SuggestLinksResult.to_dict` payload, stored verbatim in the
@@ -195,25 +196,35 @@ def _resolve_agent_context(tenant_id: str, api_key_id: str | None) -> AuthContex
     never the credential. The key is looked up under the propagated tenant
     (armed by ``set_request_tenant``; RLS at the DB layer narrows it further),
     so a foreign-tenant key id cannot be used to forge provenance. Fail-closed:
-    a missing id, or an id that is not an active *agent* key in this tenant,
-    raises :class:`~application.base.ProducerContextRequiredError` — a human or
-    system context must never produce an unstamped proposal (ADR-019 7(f)).
+    a missing id, an id that does not resolve to an active key in this tenant,
+    or a key whose scope cannot author content raises
+    :class:`~application.base.ProducerContextRequiredError` — a human or system
+    context must never produce an unstamped proposal (ADR-019 7(f)).
+
+    #1987: the key's *principal label* is not the gate — the credential is. The
+    worker accepts an agent-principal key and a user-principal plugin key with
+    the explicit ``author`` scope, exactly like the dispatcher's
+    :func:`~application.base.require_producer_context`, and runs that very same
+    helper on the rebuilt context so the two paths cannot drift. A human bearer
+    (no propagated key id) and a read-only key stay refused.
     """
     from uuid import UUID
 
-    from application.base import ProducerContextRequiredError
+    from application.base import ProducerContextRequiredError, require_producer_context
     from auth_tenancy.context import AuthContext, AuthMethod
     from auth_tenancy.models import ApiKey
+    from auth_tenancy.services.authentication import resolve_api_key_actor_type
 
     if not api_key_id:
         raise ProducerContextRequiredError(
             "run_traceability_suggest_links: no api_key_id was propagated; "
             "refusing to produce a suggestion outside an agent/API-key context."
         )
+    # No principal_type filter: a user-principal author-scoped plugin key is a
+    # legitimate producer too (#1987). The scope gate below narrows this set.
     key = (
         ApiKey.objects.filter(
             id=api_key_id,
-            principal_type="agent",
             revoked_at__isnull=True,
         )
         .select_related("user")
@@ -222,19 +233,39 @@ def _resolve_agent_context(tenant_id: str, api_key_id: str | None) -> AuthContex
     if key is None:
         raise ProducerContextRequiredError(
             "run_traceability_suggest_links: the propagated api_key_id does not "
-            "resolve to an active agent API key in this tenant."
+            "resolve to an active API key in this tenant."
         )
-    return AuthContext(
+    ctx = AuthContext(
         user_id=key.user_id,
         tenant_id=UUID(str(tenant_id)),
         active_roles=(),
         auth_method=AuthMethod.API_KEY,
         api_key_id=key.id,
-        actor_type="agent",
+        # Keep the M2 proposal stamp / self-confirm block aligned with the
+        # synchronous path for user-principal author keys as well.
+        actor_type=resolve_api_key_actor_type(
+            principal_type=key.principal_type, scope=key.scope
+        ),
         agent_label=key.agent_label or "",
         scope=key.scope,
         api_key_workspace_ids=tuple(key.workspace_ids or ()),
     )
+    # Single source of truth: the exact gate the synchronous dispatcher path
+    # uses. Refuses a read-only / unknown scope and any non-key-shaped context.
+    require_producer_context(ctx)
+    # Narrower than the scope gate on purpose: a user-principal key with a
+    # legacy scope other than 'author' keeps ``actor_type="user"``, and the M2
+    # proposal stamp in TraceLinkService keys off that flag. Refusing it here
+    # keeps this worker gate at least as strict as the original
+    # ``principal_type="agent"`` filter — the only widening is the #1987 case
+    # (author-scoped plugin keys, which resolve to ``agent`` above). No
+    # unstamped, unreviewed proposal can be persisted.
+    if not ctx.is_agent:
+        raise ProducerContextRequiredError(
+            "run_traceability_suggest_links: the propagated API key is not an "
+            "agent producer context; refusing to write an unstamped proposal."
+        )
+    return ctx
 
 
 @shared_task(name="application.index_artifact_vector")

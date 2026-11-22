@@ -67,7 +67,10 @@ import hashlib
 import logging
 import os
 import random
+import threading
+import time
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -259,6 +262,10 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
     dimensions = EMBEDDING_VECTOR_DIMENSIONS
     _DEFAULT_MODEL = "all-MiniLM-L6-v2"
     _model = None  # class-level lazy singleton -- loading the model is expensive (~100ms+)
+    # #1965: concurrent cache misses (now more likely, since searches fan out
+    # through a timeout worker thread) used to race here and load the model
+    # several times. Double-checked locking keeps the cold start to one load.
+    _model_lock = threading.Lock()
     # Which model name _model was actually built from. The cache is KEYED by
     # this name: without it, an EMBEDDING_MODEL_NAME change (env or, since
     # Memory Admin UI Phase 3, a SystemMemorySettings override) would be
@@ -272,9 +279,14 @@ class SentenceTransformersEmbeddingProvider(EmbeddingProvider):
     def _get_model(self):
         cls = SentenceTransformersEmbeddingProvider
         if cls._model is None or cls._loaded_model_name != self._model_name:
-            from sentence_transformers import SentenceTransformer
-            cls._model = SentenceTransformer(self._model_name)
-            cls._loaded_model_name = self._model_name
+            with cls._model_lock:
+                # Re-check under the lock: another thread may have loaded the
+                # model while this one was waiting for it.
+                if cls._model is None or cls._loaded_model_name != self._model_name:
+                    from sentence_transformers import SentenceTransformer
+
+                    cls._model = SentenceTransformer(self._model_name)
+                    cls._loaded_model_name = self._model_name
         return cls._model
 
     def embed(self, text: str) -> list[float] | None:
@@ -359,16 +371,134 @@ class OpenAiEmbeddingProvider(EmbeddingProvider):
             return None
 
 
+# ---------- Bounded, TTL'd embedding cache (issue #1965) ----------
+#
+# ``artifact.search`` (hybrid/vector) used to call ``generate_embedding(query)``
+# synchronously and uncached on every request. With the default
+# sentence-transformers provider that is an in-process ``model.encode()`` per
+# call -- tens of seconds on a cold/large model -- even though the vector is a
+# pure function of (provider configuration, text). Repeated identical queries
+# therefore paid the full inference cost every time.
+#
+# The cache is deliberately keyed by the *resolved provider configuration* as
+# well as the text: switching EMBEDDING_PROVIDER / EMBEDDING_MODEL_NAME (or the
+# persisted SystemMemorySettings override) must never serve a vector from the
+# old model into a new model's similarity query. No tenant/workspace component
+# is needed -- embedding configuration is process-wide (see
+# :func:`_apply_db_settings`) and the output contains no tenant data -- so the
+# cache is shared across scopes, which maximises reuse.
+#
+# Bounded + TTL'd so a long-lived worker can never accumulate unbounded text
+# (a search query is caller-controlled). Failed embeddings (``None``) are NOT
+# cached: a transient provider outage must be retryable on the next call.
+
+#: Cache entry lifetime in seconds. Env-configurable per 12-factor; tests
+#: monkeypatch the module attribute directly.
+EMBEDDING_QUERY_CACHE_TTL_SECONDS = float(
+    os.environ.get("EMBEDDING_QUERY_CACHE_TTL_SECONDS", "300")
+)
+
+#: Maximum number of cached (config, text) -> vector entries. Oldest entries
+#: are evicted first (LRU) once the bound is reached.
+EMBEDDING_QUERY_CACHE_MAX_ENTRIES = int(
+    os.environ.get("EMBEDDING_QUERY_CACHE_MAX_ENTRIES", "256")
+)
+
+
+@dataclass(frozen=True)
+class _EmbeddingCacheEntry:
+    vector: list[float]
+    expires_at: float
+
+
+_embedding_cache: OrderedDict[tuple, _EmbeddingCacheEntry] = OrderedDict()
+_embedding_cache_lock = threading.Lock()
+
+
+def _embedding_cache_key(config: EmbeddingProviderConfig, text: str) -> tuple:
+    """Return the cache key for ``text`` under the resolved provider config."""
+    return (
+        config.provider_name,
+        config.model_name or "",
+        config.base_url or "",
+        EMBEDDING_VECTOR_DIMENSIONS,
+        text,
+    )
+
+
+def _embedding_cache_get(key: tuple) -> list[float] | None:
+    """Return a copy of the cached vector, or ``None`` on miss/expiry."""
+    now = time.monotonic()
+    with _embedding_cache_lock:
+        entry = _embedding_cache.get(key)
+        if entry is None:
+            return None
+        if entry.expires_at <= now:
+            del _embedding_cache[key]
+            return None
+        _embedding_cache.move_to_end(key)
+        # Copy: callers must not be able to mutate the cached vector in place.
+        return list(entry.vector)
+
+
+def _embedding_cache_put(key: tuple, vector: list[float]) -> None:
+    """Store ``vector`` under ``key``, evicting the oldest entry if full."""
+    ttl = EMBEDDING_QUERY_CACHE_TTL_SECONDS
+    if ttl <= 0 or EMBEDDING_QUERY_CACHE_MAX_ENTRIES <= 0:
+        return
+    with _embedding_cache_lock:
+        _embedding_cache[key] = _EmbeddingCacheEntry(
+            vector=list(vector), expires_at=time.monotonic() + ttl
+        )
+        _embedding_cache.move_to_end(key)
+        while len(_embedding_cache) > EMBEDDING_QUERY_CACHE_MAX_ENTRIES:
+            _embedding_cache.popitem(last=False)
+
+
+def clear_embedding_cache() -> None:
+    """Drop all cached query embeddings (config-change / test utility)."""
+    with _embedding_cache_lock:
+        _embedding_cache.clear()
+
+
 def generate_embedding(text: str) -> list[float] | None:
     """Backward-compatible facade -- existing call sites (Requirement, TraceLink,
-    Icd embedding generation) are unchanged, now backed by the registry."""
+    Icd embedding generation) are unchanged, now backed by the registry.
+
+    Issue #1965: results are cached in a bounded, TTL'd, thread-safe LRU keyed
+    by the resolved provider configuration plus the text, so repeated searches
+    with the same query no longer pay for repeated model inference. The
+    provider-facing contract is unchanged: this NEVER raises and returns
+    ``None`` on empty text or any provider error.
+    """
     if not text or not text.strip():
         return None
+
+    # Resolve the config ONCE: it feeds both the cache key and (on a miss) the
+    # provider factory, so the vector can never be labelled with one config and
+    # produced by another.
     try:
-        return get_embedding_provider().embed(text)
+        config = _read_config()
+    except Exception as exc:  # noqa: BLE001 - config is best-effort
+        logger.debug("embedding config lookup skipped: %s", exc)
+        config = _read_env_config()
+
+    key = _embedding_cache_key(config, text)
+    cached = _embedding_cache_get(key)
+    if cached is not None:
+        logger.debug("embedding cache hit (text_len=%d)", len(text))
+        return cached
+
+    try:
+        vector = get_embedding_provider(config).embed(text)
     except Exception as exc:  # noqa: BLE001 — embedding best-effort; None (logged)
         logger.warning("generate_embedding failed: %s", exc)
         return None
+
+    # Never cache a failure: the next identical call must be free to retry.
+    if vector is not None:
+        _embedding_cache_put(key, vector)
+    return vector
 
 
 #: Sites that have already warned about a dimension mismatch this process,
@@ -719,9 +849,12 @@ __all__ = [
     "EMBEDDING_MODEL_MODE_WARN",
     "EMBEDDING_MODEL_STRICT_ENV",
     "EMBEDDING_PROVIDER_REGISTRY",
+    "EMBEDDING_QUERY_CACHE_MAX_ENTRIES",
+    "EMBEDDING_QUERY_CACHE_TTL_SECONDS",
+    "UNKNOWN_EMBEDDING_MODEL_ID",
     "EmbeddingProvider",
     "EmbeddingProviderConfig",
-    "UNKNOWN_EMBEDDING_MODEL_ID",
+    "clear_embedding_cache",
     "current_embedding_model_id",
     "embedding_model_filter",
     "embedding_model_strict_mode",

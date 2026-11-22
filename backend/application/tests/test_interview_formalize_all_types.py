@@ -118,6 +118,12 @@ def _answer_all_required_fields(svc: InterviewService, ctx, session_id) -> None:
                 value = (field.get("choices") or [_ENUM_ANSWER])[0]
             elif field["type"] == "number":
                 value = 1
+            elif field["name"] == "parent_id":
+                # #2043: optional FK reference -- a blank answer asks for the
+                # single root. A generic string is NOT a valid element id and
+                # must be rejected by the adapter, so this helper answers the
+                # only value that is valid for a workspace with no root yet.
+                value = ""
             else:
                 value = f"Interview answer for {field['name']}"
             svc.answer(ctx, session_id, field["name"], value)

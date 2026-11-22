@@ -918,23 +918,44 @@ class ChangeRequestService(ServiceBase):
     ) -> list[str]:
         """Return de-duplicated artifact id strings, all verified to exist.
 
+        Both id kinds are accepted (#2009): callers hold the user-facing
+        entity id (``requirement.create/get``'s ``id``) as often as the backing
+        Artifact id. Each id is resolved through the same canonical helper
+        ``artifact_service.get_tree`` uses; the stored/states-captured value is
+        always the Artifact id, so existing artifact-id callers are unchanged.
+
         Row-level isolation: the lookup filters on ``tenant_id`` explicitly
         (``unscoped`` manager, mirroring ``baseline.state_capture``) *and* on
         the CR's ``workspace_id``, so a CR can never reference an artifact of
         another tenant or another workspace.
         """
+        from application.trace_link_service import TraceLinkService
+
+        resolver = TraceLinkService()
         normalized: list[str] = []
+        unresolved: list[str] = []
         for raw in item_ids or ():
             try:
-                normalized_id = str(uuid_module.UUID(str(raw)))
+                identifier = uuid_module.UUID(str(raw))
             except (ValueError, AttributeError, TypeError) as exc:
                 raise ValidationError(
                     f"Affected item id '{raw}' is not a valid UUID"
                 ) from exc
+            try:
+                artifact_id = resolver._resolve_artifact_id(identifier)
+            except (NotFoundError, ValueError, TypeError):
+                # Keep the historical ValidationError contract (a bad affected
+                # id is a 400, not a 404) and the same error message. Besides
+                # NotFoundError, the resolver can raise ValueError/TypeError
+                # for an entity row whose nullable artifact FK is empty —
+                # without these, that caller mistake escaped as a 500.
+                unresolved.append(str(raw))
+                continue
+            normalized_id = str(artifact_id)
             if normalized_id not in normalized:
                 normalized.append(normalized_id)
 
-        if not normalized:
+        if not normalized and not unresolved:
             return []
 
         from persistence.models import Artifact
@@ -947,7 +968,9 @@ class ChangeRequestService(ServiceBase):
                 workspace_id=workspace_id,
             ).values_list("id", flat=True)
         }
-        missing = [item_id for item_id in normalized if item_id not in found]
+        missing = unresolved + [
+            item_id for item_id in normalized if item_id not in found
+        ]
         if missing:
             raise ValidationError(
                 "Affected items not found in workspace "

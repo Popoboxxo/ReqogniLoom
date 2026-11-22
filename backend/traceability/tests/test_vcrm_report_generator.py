@@ -78,10 +78,14 @@ class TestVCRMGeneration:
 
         req_rows = [r for r in matrix.rows if r.requirement_id == str(req.id)]
         assert len(req_rows) >= 1
+        # #1978: the VCRM mixes entity ids only — ``requirement_id`` above is
+        # the Requirement entity id, so the test-case column must be the
+        # TestCase entity id too, not the trace-link Artifact id.
         tc_row = next(
-            (r for r in req_rows if r.test_case_id == str(tc_art.id)), None
+            (r for r in req_rows if r.test_case_id == str(tc.id)), None
         )
         assert tc_row is not None
+        assert all(r.test_case_id != str(tc_art.id) for r in req_rows)
 
     def test_vcrm_still_shows_outdated_requirement(
         self, vcrm_gen, tenant_a, workspace_a
@@ -268,7 +272,8 @@ class TestVCRMVerificationMethod:
             "verification_method",
         ]
 
-        data_row = next(row for row in rows[1:] if row[2] == str(art_tc.id))
+        # #1978: test_case_id is the TestCase entity id, not its Artifact id.
+        data_row = next(row for row in rows[1:] if row[2] == str(_tc.id))
         assert data_row[4] == "Test"
 
     def test_csv_keeps_existing_column_positions(
@@ -300,11 +305,11 @@ class TestVCRMVerificationMethod:
         data_row = next(
             row
             for row in list(csv.reader(io.StringIO(csv_str)))[1:]
-            if row[2] == str(art_tc.id)
+            if row[2] == str(_tc.id)
         )
         assert data_row[0] == str(req.id)
         assert data_row[1] == ""  # no allocation → empty component
-        assert data_row[2] == str(art_tc.id)
+        assert data_row[2] == str(_tc.id)  # #1978: entity id on both sides
         assert data_row[3] == "Not Run"
         assert data_row[4] == "Analysis"
 
@@ -711,7 +716,11 @@ class TestVCRMBatchedAllocationQueries:
                             for tc_info in entry.test_cases:
                                 ref_rows.append((
                                     str(entry.requirement_id), comp,
-                                    tc_info.get("id", ""),
+                                    # #1978: VCRM exports the entity id.
+                                    (
+                                        tc_info.get("test_case_id")
+                                        or tc_info.get("id", "")
+                                    ),
                                     tc_info.get("result", "Not Run"),
                                     entry.verification_method or "",
                                 ))

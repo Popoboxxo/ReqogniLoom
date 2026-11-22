@@ -154,8 +154,17 @@ _ENTITY_FIELDS: dict[str, list[str]] = {
     # this table, so a missing entry would record an empty payload. ``frozen_at``
     # and ``frozen_fields`` are deliberately excluded: they are the freeze
     # bookkeeping, not document content, and would turn every release into a
-    # diff of themselves.
-    "Document": ["title", "description", "body", "kind", "doc_date"],
+    # diff of themselves. ``custom_fields`` lives on the backing Artifact and
+    # is Loom-owned content (F-2): issue #2026 requires it to be snapshotted
+    # and diffable just like the other Document fields.
+    "Document": [
+        "title",
+        "description",
+        "body",
+        "kind",
+        "doc_date",
+        "custom_fields",
+    ],
     # Plan F F3-T5: a work item records a content revision on create and on
     # every write, so ``/work-items/{id}/versions/`` and ``/diff/`` have a
     # payload to compare. ``status`` is deliberately absent — it lives in
@@ -407,8 +416,14 @@ class ArtifactDiffService(ServiceBase):
           - ``from``: old value (absent for ``added``)
           - ``to``: new value (absent for ``removed``)
           - ``lines``: unified diff lines (only for text fields with changes)
+
+        Issue #2026: for ``Document`` the MCP ``document.diff`` response is a
+        delta, so entries whose value did not change are dropped. Every other
+        artifact type keeps the historical ``unchanged`` entries in its
+        published diff contract.
         """
         fields = _ENTITY_FIELDS.get(entity_type, [])
+        drop_unchanged = entity_type == "Document"
         result: list[dict[str, Any]] = []
 
         all_field_names = list(
@@ -444,7 +459,10 @@ class ArtifactDiffService(ServiceBase):
                 # that only comes from the static _ENTITY_FIELDS list, not
                 # from either actual snapshot. Nothing to compare; "unchanged"
                 # with empty values is the honest rendering (both sides
-                # genuinely have no content).
+                # genuinely have no content) — except for Document, whose
+                # delta-only contract omits it (issue #2026).
+                if drop_unchanged:
+                    continue
                 result.append(
                     {
                         "name": field_name,
@@ -463,14 +481,15 @@ class ArtifactDiffService(ServiceBase):
             new_cmp = self._normalise(new_val)
 
             if old_cmp == new_cmp:
-                result.append(
-                    {
-                        "name": field_name,
-                        "status": "unchanged",
-                        "from": old_val,
-                        "to": new_val,
-                    }
-                )
+                if not drop_unchanged:
+                    result.append(
+                        {
+                            "name": field_name,
+                            "status": "unchanged",
+                            "from": old_val,
+                            "to": new_val,
+                        }
+                    )
             else:
                 entry = {
                     "name": field_name,

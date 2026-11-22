@@ -328,27 +328,83 @@ class AnchorsPresentError(ValidationError):
         self.details = {"count": count}
 
 
+def is_producer_context(ctx: AuthContext) -> bool:
+    """Return whether *ctx* is an authenticated, write-capable API-key producer.
+
+    ADR-019 Decision 3/4 + Zusage 7(f), refined by #1987: what matters is not the
+    *label* on the principal but the credential. A producer must carry an API-key
+    id (so every proposal is stamped with a stable ``proposed_by``), a scope that
+    actually permits content writes, **and** an actor type that is genuinely
+    ``"agent"``. The latter is checked through the very same
+    :func:`~auth_tenancy.services.authentication.resolve_api_key_actor_type` the
+    worker uses, so an agent principal and a user-principal plugin key with the
+    explicit ``author`` scope qualify, while a legacy user-principal ``write`` /
+    ``admin`` key stays refused: it carries no agent actor and the M2 proposal
+    stamp in ``TraceLinkService`` would silently skip it. A genuine bearer
+    session has no key id and is refused before either check.
+
+    Imports are deliberately local: ``auth_tenancy.services`` imports
+    ``application.base`` through the item-permission service, so a module-level
+    import would close an import cycle.
+    """
+    from auth_tenancy.context import AuthMethod
+    from auth_tenancy.models import PRINCIPAL_TYPE_AGENT
+    from auth_tenancy.services.authentication import resolve_api_key_actor_type
+    from auth_tenancy.services.authorization import (
+        Operation,
+        required_scope_tier,
+        scope_tier,
+    )
+
+    if ctx.auth_method != AuthMethod.API_KEY or ctx.api_key_id is None:
+        return False
+    tier = scope_tier(ctx.scope)
+    # A blank/unknown scope is not a write-capable key scope — fail closed.
+    if tier is None or tier < required_scope_tier(Operation.WRITE):
+        return False
+    # ``ctx.actor_type`` is the *already resolved* value from authentication;
+    # feeding it back through the shared helper is idempotent for an agent key
+    # and still reclassifies a user-principal author key if a caller built the
+    # context directly. A user-principal write/admin key resolves to "user" and
+    # is refused — same invariant as the Celery worker (follow-up 1).
+    return (
+        resolve_api_key_actor_type(
+            principal_type=ctx.actor_type, scope=ctx.scope
+        )
+        == PRINCIPAL_TYPE_AGENT
+    )
+
+
 def require_producer_context(ctx: AuthContext) -> None:
     """Fail closed unless *ctx* is an agent/API-key producer context.
 
     ADR-019 Decision 3/4 + Zusage 7(f): the MVP production path is explicitly
-    limited to agent / API-key principals (MCP ``traceability.suggest_links``).
-    A human-bearer context would otherwise create an unstamped "proposal" link
+    limited to API-key producers (MCP ``traceability.suggest_links``). A
+    human-bearer context would otherwise create an unstamped "proposal" link
     (or, now, a suggestion receipt) with no ``proposed_by`` — a silent
     Human-in-the-Loop bypass. Both :class:`SuggestionService` and the
     ``TraceabilitySuggestService`` producer call this single helper so the
     fail-closed rule cannot drift between them.
 
+    A user-principal key with the explicit ``author`` scope is such a producer
+    (#1987): it is a machine credential and resolves to ``actor_type="agent"``
+    at authentication time, so the M2 proposal stamp and the self-confirm block
+    keep working. A read-only key, a legacy user-principal ``write`` / ``admin``
+    key and a human bearer are all refused.
+
     Raises:
-        ProducerContextRequiredError: the context is not ``actor_type ==
-            "agent"`` with a non-null ``api_key_id`` (→ HTTP 409).
+        ProducerContextRequiredError: the context is not an authenticated
+            API key with a write-capable scope, a resolving ``agent`` actor and
+            a non-null ``api_key_id`` (→ HTTP 409).
     """
-    if ctx.actor_type != "agent" or ctx.api_key_id is None:
+    if not is_producer_context(ctx):
         raise ProducerContextRequiredError(
-            "Producing a suggestion requires an agent/API-key context "
-            "(actor_type='agent' and api_key_id set). A human bearer "
-            "context is refused fail-closed to prevent an unstamped, "
-            "unreviewed proposal."
+            "Producing a suggestion requires an API-key context with a "
+            "write-capable scope, an agent actor (principal_type='agent' or an "
+            "explicit 'author' scope) and an api_key_id. A human bearer "
+            "session, a read-only key and a legacy user-principal write/admin "
+            "key are refused fail-closed to prevent an unstamped, unreviewed "
+            "proposal."
         )
 
 
@@ -706,5 +762,6 @@ __all__ = [
     "ValidationError",
     "WaiverFindingNotBlockingError",
     "WaiverReasonPolicyViolation",
+    "is_producer_context",
     "require_producer_context",
 ]

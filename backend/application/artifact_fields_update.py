@@ -75,7 +75,12 @@ from persistence.models import Artifact, LifecycleStatus
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["ArtifactFrozenError", "FieldUpdateResult", "update_artifact_fields"]
+__all__ = [
+    "ArtifactFrozenError",
+    "FieldUpdateResult",
+    "assert_artifact_not_outdated",
+    "update_artifact_fields",
+]
 
 #: Public alias of the artifact freeze error. ``WorkflowFrozenError`` is the
 #: type the transports already map to **409 WORKFLOW_FROZEN** (registered in
@@ -93,6 +98,30 @@ class FieldUpdateResult:
     entity_id: UUID
     item_type: str
     version: int
+
+
+def assert_artifact_not_outdated(artifact: Artifact | UUID | None) -> None:
+    """Refuse a write to a soft-deleted (``outdated``) artifact (#2019).
+
+    Single guard shared by the REST/bulk seam (:func:`update_artifact_fields`)
+    and the MCP generic ``*.update`` path so both transports enforce the same
+    rule *before* a typed service can bump the entity version. An already
+    loaded :class:`~persistence.models.Artifact` avoids a redundant query; a
+    bare ``UUID`` is resolved here. ``None`` means the entity has no backing
+    artifact, i.e. there is no soft-delete flag to enforce — consistent with
+    ``workflow.services.outdate`` being a no-op for unbacked types.
+
+    Raises:
+        ValidationError: the artifact is flagged ``LifecycleStatus.OUTDATED``.
+    """
+    if artifact is None:
+        return
+    if isinstance(artifact, UUID):
+        artifact = Artifact.objects.filter(id=artifact).first()
+    if artifact is not None and artifact.lifecycle_status == LifecycleStatus.OUTDATED:
+        raise ValidationError(
+            f"Artifact {artifact.id} is outdated and cannot be changed"
+        )
 
 
 def _resolved_attributes(
@@ -210,10 +239,7 @@ def update_artifact_fields(
             f"Artifact {artifact_id} is a {artifact.artifact_type}, not a "
             f"{item_type}"
         )
-    if artifact.lifecycle_status == LifecycleStatus.OUTDATED:
-        raise ValidationError(
-            f"Artifact {artifact_id} is outdated and cannot be changed"
-        )
+    assert_artifact_not_outdated(artifact)
 
     workspace_id = artifact.workspace_id
     ServiceBase._assert_item_write_permission(

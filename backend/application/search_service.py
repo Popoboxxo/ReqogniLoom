@@ -60,8 +60,12 @@ Note on tsvector columns:
 from __future__ import annotations
 
 import logging
+import os
 import re
+import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from dataclasses import replace as dataclass_replace
@@ -158,6 +162,32 @@ _RRF_K = 60
 # supporting index bounds an unbounded scan/sort otherwise — the HNSW index
 # does bound the *cost* here, but we still only need the top few dozen).
 _SEMANTIC_TOP_K = 50
+
+# #1965: the fixed 50 candidates were fetched even for a 5-result page. The
+# semantic leg only needs enough candidates to populate the requested page
+# after RRF fusion, so the per-type pool is bounded by the page window with a
+# 2x over-fetch margin (fusion can reorder a rank-30 semantic hit into page 1
+# when the other legs are sparse). The floor keeps tiny pages useful and the
+# _SEMANTIC_TOP_K ceiling means large pages keep the historical pool size, so
+# the worst case is byte-identical to before #1965.
+_SEMANTIC_MIN_TOP_K = 20
+_SEMANTIC_OVERFETCH_FACTOR = 2
+
+# #1965: a slow embedding provider must not hold a web worker for the whole
+# inference. The request thread waits at most this long for the query vector,
+# then serves fulltext+lexical (hybrid) or an empty vector leg (vector) and
+# reports the degradation instead of blocking. Env-configurable per 12-factor;
+# tests monkeypatch _embedding_timeout_seconds directly.
+_SEARCH_EMBEDDING_TIMEOUT_ENV = "SEARCH_EMBEDDING_TIMEOUT_SECONDS"
+_SEARCH_EMBEDDING_TIMEOUT_DEFAULT = 8.0
+
+#: Local degraded_reason tokens for a query vector that could not be produced
+#: in time / at all. The request is still served (keyword-only), so the loss of
+#: the semantic leg must be *loud*, not silent. A provider that is simply not
+#: configured still returns ``None`` without a token, preserving the
+#: pre-#1965 wire contract for that steady state.
+DEGRADED_EMBEDDING_TIMEOUT = "embedding_timeout"
+DEGRADED_EMBEDDING_FAILED = "embedding_failed"
 
 #: T-A3-2 (A-L21): normalized lexical score at/above which a hit counts as an
 #: *exact* identifier match and is pinned above the fused list. The exact-title
@@ -754,6 +784,7 @@ def _run_semantic_query(
     port: Any = None,
     query_text: str = "",
     ctx: Any = None,
+    semantic_limit: int | None = None,
 ) -> list[SearchHit]:
     """Cosine-similarity pass over ``entity_type``'s ``embedding`` column.
 
@@ -838,7 +869,10 @@ def _run_semantic_query(
             tenant_id=tenant_id,
             workspace_id=workspace_id,
             workspace_field=_SEMANTIC_WORKSPACE_FIELDS.get(entity_type),
-            limit=_SEMANTIC_TOP_K,
+            # #1965: bound the per-type ANN pool by the requested page window
+            # (2x over-fetch, capped at the historical 50). Direct callers
+            # that omit semantic_limit keep the old fixed pool.
+            limit=semantic_limit if semantic_limit is not None else _SEMANTIC_TOP_K,
             iterative_scan=True,
             # T-A2-6: the Qdrant adapter fuses this text as its BM25 leg; the
             # pgvector adapter ignores it (results stay byte-identical).
@@ -1448,6 +1482,105 @@ def _run_lexical_query(
         return []
 
 
+# ---------- #1965 performance helpers ----------
+
+
+def _embedding_timeout_seconds() -> float:
+    """Return the hard deadline for query-embedding generation, in seconds.
+
+    Any unparseable / non-positive value falls back to the safe default, so a
+    mistyped env var can neither disable the timeout (hang) nor make every
+    search degrade (0s deadline).
+    """
+    raw = os.environ.get(_SEARCH_EMBEDDING_TIMEOUT_ENV)
+    if raw is None:
+        return _SEARCH_EMBEDDING_TIMEOUT_DEFAULT
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return _SEARCH_EMBEDDING_TIMEOUT_DEFAULT
+    return value if value > 0 else _SEARCH_EMBEDDING_TIMEOUT_DEFAULT
+
+
+def _semantic_candidate_limit(page: int, limit: int) -> int:
+    """Per-type semantic candidate pool for a ``page``/``limit`` window.
+
+    Bounded by the requested window (with _SEMANTIC_OVERFETCH_FACTOR margin)
+    and capped at the historical _SEMANTIC_TOP_K, so a small page no longer
+    fetches 50 rows per embeddable type while a large page is unchanged.
+    ``limit`` is already validated to [1, _MAX_LIMIT] by ``search()``.
+    """
+    return min(
+        _SEMANTIC_TOP_K,
+        max(page * limit * _SEMANTIC_OVERFETCH_FACTOR, _SEMANTIC_MIN_TOP_K),
+    )
+
+
+def _generate_query_embedding(
+    query: str, tenant_id: Any | None = None
+) -> tuple[list[float] | None, str | None]:
+    """Generate the query vector without blocking the request thread past the
+    #1965 deadline.
+
+    Mirrors the established REQ-084 sync-timeout seam in
+    ``llm_adapter.router``: the (synchronous, provider-owned) embed call runs
+    in a one-shot worker thread, the request thread waits at most
+    :func:`_embedding_timeout_seconds`, and the abandoned worker is never
+    joined (``shutdown(wait=False, cancel_futures=True)``). On expiry the
+    future is cancelled and ``None`` is returned, which makes the caller serve
+    the keyword legs only -- no exception escapes into the search path.
+
+    The active tenant is re-armed in the worker (both the thread-local
+    ``TenantContext`` and the connection's ``app.current_tenant`` RLS GUC)
+    because ``generate_embedding`` resolves its configuration through the
+    best-effort SystemMemorySettings lookup.
+    """
+    timeout = _embedding_timeout_seconds()
+
+    def _call() -> list[float] | None:
+        if tenant_id is not None:
+            from persistence.middleware import (
+                clear_request_tenant,
+                set_request_tenant,
+            )
+
+            set_request_tenant(tenant_id)
+        try:
+            return generate_embedding(query)
+        finally:
+            if tenant_id is not None:
+                clear_request_tenant()
+
+    started = time.perf_counter()
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="search-embed")
+    try:
+        future = pool.submit(_call)
+        try:
+            return future.result(timeout=timeout), None
+        except FutureTimeoutError:
+            future.cancel()
+            logger.warning(
+                "artifact.search: query embedding timed out after %.3fs "
+                "(query_len=%d); degrading to keyword-only result legs.",
+                timeout,
+                len(query),
+            )
+            return None, DEGRADED_EMBEDDING_TIMEOUT
+        except Exception:  # embedding must never fail a search
+            logger.exception(
+                "artifact.search: query embedding failed; degrading to keyword-only."
+            )
+            return None, DEGRADED_EMBEDDING_FAILED
+        finally:
+            logger.debug(
+                "artifact.search timing: embedding_ms=%.1f timeout_s=%.3f",
+                (time.perf_counter() - started) * 1000.0,
+                timeout,
+            )
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
 # ---------- Service ----------
 
 
@@ -1621,10 +1754,22 @@ class SearchService(ServiceBase):
         # and ONLY there: a pgvector deployment keeps its exact behaviour (no
         # embedding call when the filter holds no embeddable type).
         needs_entity_semantics = port.supports_entity_queries and bool(effective_types)
+        search_started = time.perf_counter()
+        semantic_limit = _semantic_candidate_limit(page, limit)
         if mode != "keyword" and (
             (_EMBEDDABLE_TYPES & set(effective_types)) or needs_entity_semantics
         ):
-            query_embedding = generate_embedding(query)
+            query_embedding, embedding_degradation = _generate_query_embedding(
+                query, tenant_id=tenant_id
+            )
+            if embedding_degradation is not None:
+                # Timeout / provider error: the vector leg is gone. Hybrid
+                # already falls back to the plain fulltext+lexical merge when
+                # no semantic hit exists; make that degradation visible on
+                # the wire (T-A2-7). A provider that is merely not configured
+                # still returns None with NO token, preserving the old wire
+                # contract for that steady state.
+                mark_request_degraded(port, embedding_degradation)
 
         if scope == "tenant":
             # scope="tenant" means "every workspace I'm allowed to see", so an
@@ -1644,6 +1789,7 @@ class SearchService(ServiceBase):
                 mode=mode,
                 ctx=ctx,
                 port=port,
+                semantic_limit=semantic_limit,
             )
         else:
             ws_uuid: UUID | None = (
@@ -1658,6 +1804,7 @@ class SearchService(ServiceBase):
                 entity_types=effective_types,
                 ctx=ctx,
                 mode=mode,
+                semantic_limit=semantic_limit,
             )
 
             # Execute per-type queries and merge
@@ -1674,6 +1821,7 @@ class SearchService(ServiceBase):
                         ctx=ctx,
                         port=port,
                         port_semantic_hits=port_hits.get(entity_type),
+                        semantic_limit=semantic_limit,
                     )
                     hits.extend(type_hits)
                 except Exception:
@@ -1715,6 +1863,19 @@ class SearchService(ServiceBase):
         offset = (page - 1) * limit
         page_hits = hits[offset : offset + limit]
 
+        # #1965 timing instrumentation: one structured line per request so a
+        # regression to the 23-30s path is diagnosable without a profiler.
+        logger.debug(
+            "artifact.search timing: mode=%s types=%d total_ms=%.1f "
+            "page=%d limit=%d semantic_limit=%d hits=%d",
+            mode,
+            len(effective_types),
+            (time.perf_counter() - search_started) * 1000.0,
+            page,
+            limit,
+            semantic_limit,
+            total_count,
+        )
         return SearchResult(
             results=page_hits,
             total_count=total_count,
@@ -1740,6 +1901,7 @@ class SearchService(ServiceBase):
         ctx: AuthContext | None = None,
         port: Any = None,
         port_semantic_hits: list[SearchHit] | None = None,
+        semantic_limit: int | None = None,
     ) -> list[SearchHit]:
         """Return hits for one entity type from all applicable search passes.
 
@@ -1801,6 +1963,7 @@ class SearchService(ServiceBase):
                 port=port,
                 query_text=raw_query,
                 ctx=ctx,
+                semantic_limit=semantic_limit,
             )
             # T-A2-6: types WITHOUT an embedding column get their semantic hits
             # from the port's cross-type query (Qdrant only; empty otherwise).
@@ -1855,6 +2018,7 @@ class SearchService(ServiceBase):
         entity_types: list[str],
         ctx: AuthContext | None,
         mode: str = "hybrid",
+        semantic_limit: int | None = None,
     ) -> dict[str, list[SearchHit]]:
         """Cross-type semantic hits for the types WITHOUT an embedding column.
 
@@ -1916,7 +2080,9 @@ class SearchService(ServiceBase):
                 query_vector=query_embedding,
                 query_text=query_text,
                 entity_types=requested,
-                limit=_SEMANTIC_TOP_K,
+                # #1965: same bounded pool as the single-type leg; ``None``
+                # keeps direct callers on the historical fixed 50.
+                limit=semantic_limit if semantic_limit is not None else _SEMANTIC_TOP_K,
                 ctx=ctx,
             )
         except Exception:
@@ -1955,6 +2121,7 @@ class SearchService(ServiceBase):
         mode: str = "hybrid",
         ctx: AuthContext | None = None,
         port: Any = None,
+        semantic_limit: int | None = None,
     ) -> list[SearchHit]:
         """Search every type in ``entity_types`` across all ``workspace_ids``.
 
@@ -1986,6 +2153,7 @@ class SearchService(ServiceBase):
                         entity_types=[entity_type],
                         ctx=ctx,
                         mode=mode,
+                        semantic_limit=semantic_limit,
                     )
                     per_workspace_hits.append(
                         cls._search_entity_type(
@@ -1999,6 +2167,7 @@ class SearchService(ServiceBase):
                             ctx=ctx,
                             port=port,
                             port_semantic_hits=port_hits.get(entity_type),
+                            semantic_limit=semantic_limit,
                         )
                     )
                 except Exception:

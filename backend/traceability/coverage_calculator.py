@@ -407,7 +407,11 @@ class CoverageCalculator:
                 :meth:`coverage` applies (``counts_as_verification_evidence``).
 
         Returns:
-            CoverageData with per-requirement test-case lists.
+            CoverageData with per-requirement test-case lists. Each test-case
+            dict carries ``id`` (the TestCase *Artifact* id, used by the
+            trace-link graph) and ``test_case_id`` (the TestCase *entity* id,
+            the same id space as ``requirement_id`` — #1978). VCRM exporters
+            must use ``test_case_id`` so the matrix mixes no id spaces.
 
         Raises:
             BaselineCoverageNotSupportedError: ``baseline_id`` is not None.
@@ -475,7 +479,13 @@ class CoverageCalculator:
                 req_id = req_id_map[req_art_id]
                 meta = testcase_meta.get(tc_art_id, {})
                 req_testcases[req_id].append({
+                    # Two DIFFERENT id spaces, deliberately both present (#1978):
+                    # ``id`` stays the TestCase Artifact id (trace-link endpoint),
+                    # ``test_case_id`` is the TestCase ENTITY id — the same id
+                    # space as ``entry.requirement_id`` in the VCRM. Consumers
+                    # that need to address the TestCase use ``test_case_id``.
                     "id": tc_art_id,
+                    "test_case_id": str(meta.get("id") or ""),
                     "result": result_by_testcase.get(tc_art_id, "Not Run"),
                     # #424/#402: provenance + off-nominal category are carried
                     # per test case so report consumers (and the REST coverage
@@ -693,7 +703,11 @@ class CoverageCalculator:
     def _testcase_meta_by_artifact(
         self, artifact_ids: set[str]
     ) -> dict[str, dict]:
-        """Return ``{artifact_id: {origin, reviewed, scenario_kind, uid, title}}``."""
+        """Return ``{artifact_id: {id, origin, reviewed, scenario_kind, uid, title}}``.
+
+        ``id`` is the TestCase *entity* id (#1978); the dict key is the
+        Artifact id. Both are needed by the VCRM payload.
+        """
         return {
             str(row["artifact_id"]): row
             for row in self._load_testcase_rows(artifact_ids)

@@ -180,6 +180,29 @@ class TestTransitionValidatorRules:
         assert result.valid is False
         assert result.error_code == EC_TRANSITION_NOT_ALLOWED
         assert "Transition not allowed" in (result.error_message or "")
+        # #2025: the error must name the reachable targets from the current
+        # state so a client does not have to discover them by trial and error.
+        assert "Valid target states from 'draft': in_review." in (
+            result.error_message or ""
+        )
+
+    def test_undefined_transition_reports_a_terminal_state_without_targets(self):
+        """#2025: a state with no outgoing edges says so instead of guessing."""
+        dfn = _make_definition()
+        validator = _make_validator(dfn)
+        req, _ = _req(
+            current_state="approved",  # no outgoing transition in the fixture
+            target_state="deprecated",
+            roles=("admin",),
+            definition=dfn,
+        )
+        result = validator.validate(req)
+        assert result.valid is False
+        assert result.error_code == EC_TRANSITION_NOT_ALLOWED
+        assert (
+            "No target state is reachable from 'approved' in this workspace's workflow."
+            in (result.error_message or "")
+        )
 
     def test_change_reason_required(self):
         """in_review→approved requires change_reason; empty → CHANGE_REASON_REQUIRED."""
