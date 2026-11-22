@@ -73,6 +73,7 @@ MUTATE_VERBS = frozenset(
         "report_results", "run_create", "run_complete", "run_report_results", "mark_reviewed",
         "derive_requirements", "derive_from_requirement", "create_version", "create_manual",
         "decompose_commit", "request_changes", "remember_interaction", "backup_create",
+        "submit_for_review",
     }
 )
 

@@ -322,28 +322,53 @@ _ATTRIBUTE_TO_PROTOCOL_TYPE = {
 }
 
 
-def protocol_from_definition(
+def _attributes_by_section(
     attributes: list[dict], artifact_type: str
-) -> ProtocolConfig:
-    """Derive an interview protocol from a resolved attribute definition.
+) -> dict[str, list[dict]]:
+    """Classify the elicitable attributes of *attributes* by section.
 
-    Spec section 7: elicitation phases ARE the definition's sections, in the
-    definition's order; a phase's required fields are that section's
-    ``ai_elicit=true`` attributes. ``approval`` and ``formalization`` are
-    appended unchanged so the engine's phase machine is untouched.
-
-    Resolves audit finding L2.2 as a side effect: the hardcoded default only
-    ever elicited title + rationale for every type.
-
-    Raises:
-        ProtocolValidationError: the definition marks no attribute as
-            ``ai_elicit`` — an interview with nothing to ask is not usable, and
-            silently returning an empty protocol would strand the session.
+    Non-elicitable and view-only widget attributes are skipped; an elicitable
+    widget whose bound fields are not elicitable, an unsupported attribute
+    type, and a definition with no elicitable attribute are each rejected with
+    the same :class:`ProtocolValidationError` messages as the inline code this
+    helper was extracted from (byte-for-byte unchanged).
     """
     by_section: dict[str, list[dict]] = {}
     for attribute in attributes:
-        if attribute["type"] == "widget" or not attribute.get("ai_elicit"):
+        if not attribute.get("ai_elicit"):
             continue
+        attribute_type = attribute.get("type")
+        if attribute_type == "widget":
+            # Issue #1991: a widget is a VIEW over core fields (ADR's
+            # `decision_record` renders description/context/consequences), not
+            # an interview question itself. Its bound fields are separate
+            # attributes in the same definition and are processed in their own
+            # right, so the widget entry is skipped deliberately -- but only
+            # when at least one bound field really is elicitable. Otherwise
+            # the definition is broken: reject it explicitly instead of
+            # silently dropping the only attribute asked for.
+            bound = attribute.get("fields") or []
+            if any(
+                isinstance(candidate, dict)
+                and candidate is not attribute
+                and candidate.get("name") in bound
+                and candidate.get("ai_elicit")
+                for candidate in attributes
+            ):
+                continue
+            raise ProtocolValidationError(
+                f"Widget {attribute['name']!r} of {artifact_type!r} is marked "
+                "ai_elicit but none of its bound fields is elicitable; "
+                "an interview cannot ask a widget."
+            )
+        if attribute_type not in _ATTRIBUTE_TO_PROTOCOL_TYPE:
+            # Previously `.get(type, "text")` silently downgraded an unknown
+            # type to free text, so a misconfigured definition produced a
+            # broken interview instead of a readable error. Reject explicitly.
+            raise ProtocolValidationError(
+                f"Attribute {attribute['name']!r} of {artifact_type!r} has "
+                f"unsupported type {attribute_type!r} for an interview field."
+            )
         by_section.setdefault(attribute["section"], []).append(attribute)
 
     if not by_section:
@@ -351,12 +376,23 @@ def protocol_from_definition(
             f"No attribute of artifact_type={artifact_type!r} is marked "
             f"ai_elicit; nothing to interview for."
         )
+    return by_section
 
+
+def _phases_from_sections(
+    by_section: dict[str, list[dict]], artifact_type: str
+) -> list[ProtocolPhase]:
+    """Build elicitation phases from *by_section*, then approval/formalization.
+
+    The emitted :class:`ProtocolPhase` objects (names, field types/choices,
+    prompt fragments and order) are byte-for-byte identical to the inline code
+    this helper was extracted from.
+    """
     phases: list[ProtocolPhase] = []
     for section, section_attributes in by_section.items():
         fields = []
         for attribute in section_attributes:
-            field_type = _ATTRIBUTE_TO_PROTOCOL_TYPE.get(attribute["type"], "text")
+            field_type = _ATTRIBUTE_TO_PROTOCOL_TYPE[attribute["type"]]
             choices = (
                 [o["value"] for o in attribute["options"]]
                 if field_type == "enum"
@@ -388,6 +424,30 @@ def protocol_from_definition(
             name="formalization", required_fields=[], prompt_fragment="Confirm and formalize."
         )
     )
+    return phases
+
+
+def protocol_from_definition(
+    attributes: list[dict], artifact_type: str
+) -> ProtocolConfig:
+    """Derive an interview protocol from a resolved attribute definition.
+
+    Spec section 7: elicitation phases ARE the definition's sections, in the
+    definition's order; a phase's required fields are that section's
+    ``ai_elicit=true`` attributes. ``approval`` and ``formalization`` are
+    appended unchanged so the engine's phase machine is untouched.
+
+    Resolves audit finding L2.2 as a side effect: the hardcoded default only
+    ever elicited title + rationale for every type.
+
+    Raises:
+        ProtocolValidationError: the definition marks no attribute as
+            ``ai_elicit`` — an interview with nothing to ask is not usable, and
+            silently returning an empty protocol would strand the session.
+    """
+    by_section = _attributes_by_section(attributes, artifact_type)
+
+    phases = _phases_from_sections(by_section, artifact_type)
     return ProtocolConfig(phases=phases)
 
 

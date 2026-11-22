@@ -14,6 +14,10 @@ from django.db import transaction
 from django.db.models import F
 
 from application.base import ValidationError
+from application.interview_proposal_errors import (
+    _RESERVED_PROPOSAL_FIELDS,  # also re-exported here for import compatibility
+    ProposalValidationError,
+)
 from application.models import DomainEventOutbox
 from persistence.models import InterviewSession, InterviewSessionArtifact
 
@@ -33,19 +37,11 @@ _DIAGRAM_REF_LINK_TYPE = "diagram-ref"
 # module is the service layer -- the single choke point REST, UI and MCP all
 # pass through -- so the validation lives here and no transport can bypass it.
 #
-# Reserved field names: status is workflow-owned; owner/reporter/priority are
-# Artifact-level system fields written through their own gateway; the rest are
-# internal identity/audit columns. This small BLOCKLIST is applied on top of
-# the derived allowlist so a create_X() that happens to accept `status`
-# (StakeholderNeed) or `owner` (Risk) still cannot be driven by model output.
-# Deliberately narrow: legitimate classification fields such as Issue.severity
-# or Risk.probability are NOT reserved and keep working.
-_RESERVED_PROPOSAL_FIELDS: frozenset[str] = frozenset({
-    "status", "owner", "reporter", "priority",
-    "id", "tenant", "tenant_id", "workspace", "workspace_id",
-    "artifact", "artifact_id", "created_by", "created_at", "modified_at",
-    "version", "ctx",
-})
+# The reserved-field blocklist itself lives in ``interview_proposal_errors``
+# (a leaf module) and is imported above. It is deliberately narrow: legitimate
+# classification fields such as Issue.severity or Risk.probability are NOT
+# reserved and keep working. Importing it from the leaf rather than defining it
+# here keeps this module free of a back-edge from the proposal parse layer.
 
 # Conservative string ceilings. 5000 matches the largest free-text column
 # max_length on the in-scope models (e.g. Adr.context/decision), so legitimate
@@ -272,18 +268,26 @@ def validate_confirmed_proposal_fields(
             allowed_cache[item_type] = allowed
         for key, value in item["fields"].items():
             if not isinstance(key, str):
-                raise ValidationError(
-                    f"proposal item #{item_index}: field names must be strings"
+                raise ProposalValidationError(
+                    f"proposal item #{item_index}: field names must be strings",
+                    code="INVALID_PROPOSAL_SHAPE",
+                    item_index=item_index,
                 )
             if key in _RESERVED_PROPOSAL_FIELDS:
-                raise ValidationError(
+                raise ProposalValidationError(
                     f"proposal item {item_type!r}: field {key!r} is server-owned "
-                    "and cannot be set by an interview proposal"
+                    "and cannot be set by an interview proposal",
+                    code="RESERVED_FIELD",
+                    item_index=item_index,
+                    field=key,
                 )
             if key not in allowed:
-                raise ValidationError(
+                raise ProposalValidationError(
                     f"proposal item {item_type!r}: field {key!r} is not an allowed "
-                    f"field for this artifact type"
+                    f"field for this artifact type",
+                    code="UNKNOWN_FIELD",
+                    item_index=item_index,
+                    field=key,
                 )
             _validate_proposal_field_value(item_type, key, value)
 
@@ -329,8 +333,19 @@ class InterviewMultiFormalizationMixin:
         # AI-005: field allowlist + type/length validation runs here, in the
         # service layer, so every transport (REST, UI, MCP) is protected and no
         # create_X() is reached with a reserved or oversized field.
+        # Issue #1990: normalise the LLM-authored shape first (a top-level
+        # ``title`` becomes ``fields["title"]``) and reject the link type's
+        # allowed-pair mismatch here, before any artifact is written. Local
+        # import avoids a module-level cycle with the parse-layer module.
+        from application.interview_multi_protocol import (
+            normalize_proposal_items,
+            validate_proposal_link_pairs,
+        )
+
+        confirmed_proposal = normalize_proposal_items(confirmed_proposal)
         _validate_confirmed_proposal(confirmed_proposal)
         validate_confirmed_proposal_fields(ctx, session.workspace_id, confirmed_proposal)
+        validate_proposal_link_pairs(confirmed_proposal, session.workspace_id)
         self._reject_diagram_ref_links(confirmed_proposal)
 
         with transaction.atomic():

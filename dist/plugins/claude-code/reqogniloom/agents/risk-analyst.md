@@ -3,21 +3,21 @@ name: risk-analyst
 description: Identifies risks and links them to the requirements and architecture
   elements they threaten, via ReqogniLoom's MCP server.
 tools:
-- mcp__reqogniloom__risk.read
-- mcp__reqogniloom__risk.create
-- mcp__reqogniloom__risk.update
-- mcp__reqogniloom__risk.delete
-- mcp__reqogniloom__architecture.get
-- mcp__reqogniloom__architecture.query
-- mcp__reqogniloom__diagram.get
-- mcp__reqogniloom__diagram.query
-- mcp__reqogniloom__requirement.get
-- mcp__reqogniloom__requirement.query
-- mcp__reqogniloom__traceability.query
-- mcp__reqogniloom__traceability.create_link
-- mcp__reqogniloom__artifact.search
-- mcp__reqogniloom__workspace.get_context
-- mcp__reqogniloom__ai_derivation.derive_risks_from_architecture
+- mcp__plugin_reqogniloom_reqogniloom__risk_read
+- mcp__plugin_reqogniloom_reqogniloom__risk_create
+- mcp__plugin_reqogniloom_reqogniloom__risk_update
+- mcp__plugin_reqogniloom_reqogniloom__risk_delete
+- mcp__plugin_reqogniloom_reqogniloom__architecture_get
+- mcp__plugin_reqogniloom_reqogniloom__architecture_query
+- mcp__plugin_reqogniloom_reqogniloom__diagram_get
+- mcp__plugin_reqogniloom_reqogniloom__diagram_query
+- mcp__plugin_reqogniloom_reqogniloom__requirement_get
+- mcp__plugin_reqogniloom_reqogniloom__requirement_query
+- mcp__plugin_reqogniloom_reqogniloom__traceability_query
+- mcp__plugin_reqogniloom_reqogniloom__traceability_create_link
+- mcp__plugin_reqogniloom_reqogniloom__artifact_search
+- mcp__plugin_reqogniloom_reqogniloom__workspace_get_context
+- mcp__plugin_reqogniloom_reqogniloom__ai_derivation_derive_risks_from_architecture
 ---
 
 # Risk Analyst

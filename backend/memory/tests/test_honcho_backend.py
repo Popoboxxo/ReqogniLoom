@@ -1445,6 +1445,8 @@ class TestHonchoAsk:
 
         assert answer.degraded is False
         assert answer.text == ""
+        # #2036: a clean empty answer carries a positive hint, not an outage.
+        assert answer.detail == "no_relevant_memory"
 
     def test_ask_never_passes_a_raw_scope_id_to_honcho(self):
         backend, client = _backend_with_mock_client()

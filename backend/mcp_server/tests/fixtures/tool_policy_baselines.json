@@ -185,6 +185,7 @@
     "change_request.delete",
     "change_request.outdate",
     "change_request.reactivate",
+    "change_request.submit_for_review",
     "change_request.update",
     "comment.create",
     "comment.resolve",

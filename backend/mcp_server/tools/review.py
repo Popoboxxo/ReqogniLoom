@@ -3,16 +3,17 @@ MCP Tool Group for review/approval endpoints (Phase 5, REQ-L2-RV-001).
 
 A deliberately thin wrapper over WorkflowFacade / workflow.services — no new
 state machine, no new state_meta flags. Reuses:
-  - workflow.services.is_approval_gate (Phase 5 Task 2) for
-    review.list_pending: a transition is a real human approval decision when
-    its allowed_roles excludes "editor". The walk itself now lives in
-    ``application.review_queue_service.ReviewQueueService`` (issue #1089), which
-    the REST endpoints ``GET /api/v1/reviews/pending/`` and
-    ``GET /api/v1/workspaces/{id}/reviews/pending/`` share — one service, two
-    transports. That service additionally surfaces items in the ``"proposed"``
-    state (AI proposals awaiting a human), which ``is_approval_gate``
-    deliberately does not match because a proposal's own moves are
-    editor-gated.
+  - workflow.services.is_approval_gate (Phase 5 Task 2): a transition is a
+    real human approval decision when its allowed_roles excludes "editor".
+    It is one input to the shared predicate below, not a standalone gate.
+    The pending-queue walk itself lives in
+    ``application.review_queue_service.ReviewQueueService`` (issue #1089),
+    which the REST endpoints ``GET /api/v1/reviews/pending/`` and
+    ``GET /api/v1/workspaces/{id}/reviews/pending/`` share — one service,
+    two transports. That service additionally surfaces items in the
+    ``"proposed"`` state (AI proposals awaiting a human), which
+    ``is_approval_gate`` deliberately does not match because a proposal's own
+    moves are editor-gated.
   - WorkflowEngineDefinition's state_meta "auto_approve_target" (Phase 3) for
     review.approve's destination (falls back to the first approval-gated
     transition's target when no explicit auto_approve_target is configured).
@@ -23,8 +24,18 @@ state machine, no new state_meta flags. Reuses:
     "outdated" is not a state_meta-declared transition target for any preset,
     so WorkflowFacade.transition(target_state="outdated") would be rejected
     by the transition validator; the module-level outdate() escape hatch is
-    the only correct way to reach it.
-  - WorkflowDefinitionDTO.initial_state for review.request_changes.
+    the only correct way to reach it. Since #2017 the escape hatch is gated by
+    the shared "awaiting review" predicate: a draft (or any item with no
+    approval-shaped move) is refused, and <type>.outdate stays the unconditional
+    escape hatch for callers that really want a direct soft-delete.
+  - WorkflowDefinitionDTO.initial_state for review.request_changes -- but only
+    after the same "awaiting review" gate (#2018) confirms a rework transition
+    is meaningful; from the initial state it used to attempt a self-transition
+    and surface a cryptic validator error.
+  - application.review_queue_service.resolve_approval_target: the ONE predicate
+    answering "is this item awaiting review?" (issues #2015-#2018). approve,
+    reject, request_changes and list_pending all consult it, so the queue can
+    never advertise an item the decision tools refuse.
   - WorkflowFacade.resolve_item_type (#1356) for the caller-supplied
     item_type: the engine matches item types exactly ("Requirement"), while
     this tool's schema declares a free string, so the handlers resolve the
@@ -134,7 +145,8 @@ class ReviewToolGroup(BaseToolGroup):
             "description": (
                 "Reject an item currently awaiting review: transitions it to "
                 "the universal 'outdated' state (Phase 0), recording reason "
-                "in the workflow history."
+                "in the workflow history. Items not awaiting review are "
+                "refused; use <type>.outdate for an unconditional soft-delete."
             ),
             "inputSchema": {
                 "type": "object",
@@ -159,7 +171,9 @@ class ReviewToolGroup(BaseToolGroup):
             "description": (
                 "Send an item currently awaiting review back to its "
                 "workflow's initial state for rework, recording reason in "
-                "the workflow history. MCP-ONLY (#1356 addendum, #1362d): "
+                "the workflow history. Items not awaiting review are refused "
+                "with a clear error instead of a self-transition. "
+                "MCP-ONLY (#1356 addendum, #1362d): "
                 "there is no REST endpoint or UI action for this decision — "
                 "the UI offers approve/reject only, so do not probe for a "
                 "'request changes' REST route."
@@ -271,9 +285,16 @@ class ReviewToolGroup(BaseToolGroup):
     def _handle_reject(
         self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        """review.reject -- soft-delete via the universal outdate() escape
-        hatch (bypasses normal preset-transition validation, same as e.g.
-        needs.outdate / requirement.outdate)."""
+        """review.reject -- reject an item awaiting review via the universal
+        outdate() escape hatch (bypasses normal preset-transition validation,
+        same as e.g. needs.outdate / requirement.outdate).
+
+        #2017: unlike every <type>.outdate tool this is a *review decision*,
+        so it is gated by the shared "awaiting review" predicate. A draft (or
+        any item with no approval-shaped move) is refused with a clear
+        VALIDATION_ERROR; <type>.outdate stays the unconditional escape hatch
+        for callers that genuinely want a direct soft-delete.
+        """
         item_id = require_uuid(params, "item_id")
         item_type = require_param(params, "item_type")
         workspace_id = require_uuid(params, "workspace_id")
@@ -285,7 +306,49 @@ class ReviewToolGroup(BaseToolGroup):
         if type_error is not None:
             return type_error
 
-        from workflow.services import WorkflowItemNotFoundError, outdate
+        from application.review_queue_service import resolve_approval_target
+        from persistence.tenancy import TenantContext
+        from workflow.services import (
+            WorkflowItemNotFoundError,
+            get_workflow_json,
+            outdate,
+        )
+        from workflow.state_reader import current_state as read_current_state
+
+        # The guard below reads tenant-scoped workflow state. Production MCP
+        # dispatch always activates a TenantContext (see tool_registry.py), but
+        # a transport-level probe can invoke this handler DB-free with the
+        # service seam stubbed (#697 unmapped-failure masking test). There is
+        # no state to resolve in that case -- skip the gate so the service call
+        # is still reached and any fault there is still masked. With a context
+        # active (every real caller, incl. the CCB review tests) the full
+        # awaiting-review gate below is unchanged.
+        if TenantContext.is_set():
+            # #577: read the existing state non-lazily FIRST so a bogus id still
+            # 404s. get_available_transitions() would otherwise lazy-init a ghost
+            # WorkflowItemState (REQ-160) for any UUID before we could reject it.
+            if read_current_state(item_type, item_id) is None:
+                return ToolResult.error(
+                    "NOT_FOUND",
+                    f"No workflow-tracked {item_type} {item_id} in workspace "
+                    f"{workspace_id}.",
+                )
+
+            available = WorkflowFacade().get_available_transitions(
+                item_id, auth_context, item_type=item_type, workspace_id=workspace_id
+            )
+            target = resolve_approval_target(
+                current_state=available.current_state,
+                transitions=available.transitions,
+                workflow_json=get_workflow_json(workspace_id, item_type),
+            )
+            if target is None:
+                return ToolResult.error(
+                    "VALIDATION_ERROR",
+                    f"{item_type} {item_id} is not awaiting review from state "
+                    f"'{available.current_state or 'unknown'}'; use "
+                    f"{item_type.lower()}.outdate for a direct soft-delete.",
+                )
 
         try:
             # #577: allow_lazy_init=False -- an item reachable via
@@ -345,11 +408,35 @@ class ReviewToolGroup(BaseToolGroup):
         if type_error is not None:
             return type_error
 
+        from application.review_queue_service import resolve_approval_target
+        from workflow.services import get_workflow_json
+
         facade = WorkflowFacade()
         definition = facade.get_definition(auth_context, item_type=item_type, workspace_id=workspace_id)
         if definition is None:
             return ToolResult.error(
                 "VALIDATION_ERROR", f"No workflow configured for {item_type} in this workspace."
+            )
+
+        # #2018: gate on the same "awaiting review" predicate as approve and
+        # reject. From the initial state (e.g. a CCB ``draft``) the old code
+        # always transitioned to ``definition.initial_state`` -- a self-move --
+        # and leaked the validator's cryptic "'draft' -> 'draft' is not
+        # defined". An item that is not awaiting review has no rework to send
+        # back, so refuse with the same vocabulary as the other two tools.
+        available = facade.get_available_transitions(
+            item_id, auth_context, item_type=item_type, workspace_id=workspace_id
+        )
+        if resolve_approval_target(
+            current_state=available.current_state,
+            transitions=available.transitions,
+            workflow_json=get_workflow_json(workspace_id, item_type),
+        ) is None:
+            return ToolResult.error(
+                "VALIDATION_ERROR",
+                f"{item_type} {item_id} is not awaiting review from state "
+                f"'{available.current_state or 'unknown'}'; there is no rework "
+                f"transition to '{definition.initial_state}'.",
             )
 
         try:
@@ -432,8 +519,8 @@ class ReviewToolGroup(BaseToolGroup):
     def _transition_to_gate_target(
         self, *, params, auth_context, api_key, operation, reason_param
     ) -> ToolResult:
-        from workflow.definition_store import get_state_meta
-        from workflow.services import get_workflow_json, is_approval_gate
+        from application.review_queue_service import resolve_approval_target
+        from workflow.services import get_workflow_json
 
         item_id = require_uuid(params, "item_id")
         item_type = require_param(params, "item_type")
@@ -458,37 +545,18 @@ class ReviewToolGroup(BaseToolGroup):
         # ``definition_row.workflow_json if definition_row else {}``.
         workflow_json = get_workflow_json(workspace_id, item_type)
 
-        # Prefer the preset's explicit auto_approve_target (Phase 3) among the
-        # currently available transitions; fall back to the first genuine
-        # approval-gated transition (allowed_roles excludes "editor") if none
-        # is configured.
-        target = next(
-            (
-                t.to_state
-                for t in available.transitions
-                if get_state_meta(workflow_json, t.to_state).get("auto_approve_target", False)
-            ),
-            None,
+        # #2015-#2018: one shared predicate decides whether the item is
+        # awaiting review and where an approval would land. It prefers the
+        # preset's auto_approve_target, falls back to the first approval-gated
+        # (allowed_roles excludes "editor") transition, and excludes
+        # self-transitions plus is_outdated_equivalent rejection endpoints
+        # (GH-370). Keeping it here -- rather than reimplementing it per tool --
+        # is what makes the pending queue and every decision tool agree.
+        target = resolve_approval_target(
+            current_state=available.current_state,
+            transitions=available.transitions,
+            workflow_json=workflow_json,
         )
-        if target is None:
-            # GH-370 hardening: never let the fallback implicitly "approve"
-            # into a reject/outdated-equivalent state (e.g. Issue.Wontfix).
-            # Such states are rejection endpoints, not approval endpoints --
-            # picking them here would make review.approve() indistinguishable
-            # from review.reject() for any preset that has no explicit
-            # auto_approve_target configured.
-            gate = next(
-                (
-                    t
-                    for t in available.transitions
-                    if is_approval_gate(t)
-                    and not get_state_meta(workflow_json, t.to_state).get(
-                        "is_outdated_equivalent", False
-                    )
-                ),
-                None,
-            )
-            target = gate.to_state if gate is not None else None
 
         if target is None:
             if available.current_state is None:

@@ -200,6 +200,19 @@ def test_resolve_is_allowed_for_a_non_admin(service, editor_ctx, workspace, seed
 
 
 @pytest.mark.django_db
+@pytest.mark.django_db
+def test_list_global_honours_limit_and_offset(service, admin_ctx, seeded) -> None:
+    """#1989: the MCP tool's bounded page is applied before payload building."""
+    all_presets = [d["preset"] for d in service.list_global(admin_ctx, item_type="Risk")]
+    assert all_presets == ["extended", "minimal", "standard"]
+
+    page = service.list_global(admin_ctx, item_type="Risk", limit=1, offset=1)
+    assert [d["preset"] for d in page] == [all_presets[1]]
+    assert service.count_global(admin_ctx, item_type="Risk") == 3
+    # REST keeps the historic unbounded answer when no limit is passed.
+    assert len(service.list_global(admin_ctx, item_type="Risk")) == 3
+
+
 def test_get_global_requires_admin(service, editor_ctx, seeded) -> None:
     with pytest.raises(PermissionDeniedError):
         service.get_global(editor_ctx, "Risk", "standard")

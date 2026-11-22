@@ -3,31 +3,31 @@ name: quality-auditor
 description: Read-only traceability and coverage auditing across requirements, architecture,
   tests, goals, and CCB process health, via ReqogniLoom's MCP server.
 tools:
-- mcp__reqogniloom__requirement.get
-- mcp__reqogniloom__requirement.query
-- mcp__reqogniloom__architecture.get
-- mcp__reqogniloom__architecture.query
-- mcp__reqogniloom__diagram.get
-- mcp__reqogniloom__diagram.query
-- mcp__reqogniloom__test.get
-- mcp__reqogniloom__test.query
-- mcp__reqogniloom__traceability.query
-- mcp__reqogniloom__artifact.search
-- mcp__reqogniloom__artifact.get_tree
-- mcp__reqogniloom__workspace.get_context
-- mcp__reqogniloom__glossary.read
-- mcp__reqogniloom__adr.read
-- mcp__reqogniloom__risk.read
-- mcp__reqogniloom__issue.read
-- mcp__reqogniloom__goal.read
-- mcp__reqogniloom__goal.query
-- mcp__reqogniloom__main_goal.read
-- mcp__reqogniloom__baseline.list
-- mcp__reqogniloom__baseline.get
-- mcp__reqogniloom__baseline.compare
-- mcp__reqogniloom__change_request.read
-- mcp__reqogniloom__change_request.query
-- mcp__reqogniloom__review.list_pending
+- mcp__plugin_reqogniloom_reqogniloom__requirement_get
+- mcp__plugin_reqogniloom_reqogniloom__requirement_query
+- mcp__plugin_reqogniloom_reqogniloom__architecture_get
+- mcp__plugin_reqogniloom_reqogniloom__architecture_query
+- mcp__plugin_reqogniloom_reqogniloom__diagram_get
+- mcp__plugin_reqogniloom_reqogniloom__diagram_query
+- mcp__plugin_reqogniloom_reqogniloom__test_get
+- mcp__plugin_reqogniloom_reqogniloom__test_query
+- mcp__plugin_reqogniloom_reqogniloom__traceability_query
+- mcp__plugin_reqogniloom_reqogniloom__artifact_search
+- mcp__plugin_reqogniloom_reqogniloom__artifact_get_tree
+- mcp__plugin_reqogniloom_reqogniloom__workspace_get_context
+- mcp__plugin_reqogniloom_reqogniloom__glossary_read
+- mcp__plugin_reqogniloom_reqogniloom__adr_read
+- mcp__plugin_reqogniloom_reqogniloom__risk_read
+- mcp__plugin_reqogniloom_reqogniloom__issue_read
+- mcp__plugin_reqogniloom_reqogniloom__goal_read
+- mcp__plugin_reqogniloom_reqogniloom__goal_query
+- mcp__plugin_reqogniloom_reqogniloom__main_goal_read
+- mcp__plugin_reqogniloom_reqogniloom__baseline_list
+- mcp__plugin_reqogniloom_reqogniloom__baseline_get
+- mcp__plugin_reqogniloom_reqogniloom__baseline_compare
+- mcp__plugin_reqogniloom_reqogniloom__change_request_read
+- mcp__plugin_reqogniloom_reqogniloom__change_request_query
+- mcp__plugin_reqogniloom_reqogniloom__review_list_pending
 ---
 
 # Quality Auditor

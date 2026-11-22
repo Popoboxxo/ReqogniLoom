@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, Callable, NamedTuple
 
 from django.db.models import QuerySet
 
@@ -168,6 +168,121 @@ def _check_llm_configured() -> bool:
         or os.environ.get("OPENAI_API_KEY")
         or os.environ.get("ANTHROPIC_API_KEY")
     )
+
+
+# ---------------------------------------------------------------------------
+# requirement.update — pure field helpers (no service, no audit, no DB I/O).
+#
+# Extracted from ``_handle_update`` (repowise finding #3, brain method).  The
+# definition gate, service call and audit sequence in the handler are untouched
+# by these helpers; they only derive values from the caller payload and the
+# already-fetched Requirement.
+# ---------------------------------------------------------------------------
+
+
+def _resolve_update_field(
+    data: dict[str, Any], params: dict[str, Any], name: str
+) -> Any:
+    """Resolve one update field: nested ``data`` wins, flat ``params`` falls back.
+
+    Pure extraction of the ``_field`` closure that used to live inside
+    ``_handle_update``.  Keeps the #601 cross-tool compatibility rule byte for
+    byte: a key present in ``data`` (even with a ``None`` value) shadows the
+    same key on flat top-level ``params``.
+    """
+    if name in data:
+        return data.get(name)
+    return params.get(name)
+
+
+class _UpdateFieldBundle(NamedTuple):
+    """Derived field bundles returned by :func:`_collect_update_fields`."""
+
+    field: Callable[[str], Any]
+    system_values: dict[str, Any]
+    changed_fields: dict[str, Any]
+    custom_fields_kwargs: dict[str, Any]
+    hierarchy_kwargs: dict[str, Any]
+
+
+def _collect_update_fields(
+    params: dict[str, Any], data: dict[str, Any]
+) -> _UpdateFieldBundle:
+    """Derive every field bundle ``requirement.update`` needs from one payload.
+
+    Pure: reads its two arguments only.  Preserves the "only forward what was
+    sent" rule for ``custom_fields`` and ``parent_id`` (the service uses an
+    ``_UNSET`` sentinel, so an absent key must not clear the map / detach the
+    requirement), and the definition-gate input ``changed_fields`` including
+    the Artifact-level system fields (Attribut v3 WS2 / #936).
+    """
+
+    def field(name: str) -> Any:
+        return _resolve_update_field(data, params, name)
+
+    system_values = {
+        name: field(name)
+        for name in ("owner", "reporter", "priority")
+        if name in data or name in params
+    }
+    changed_fields = {
+        name: field(name)
+        for name in (
+            "title",
+            "description",
+            "rationale",
+            "source",
+            "category",
+            "custom_fields",
+        )
+        if name in data or name in params
+    }
+    changed_fields.update(system_values)
+
+    custom_fields_kwargs: dict[str, Any] = {}
+    if "custom_fields" in data or "custom_fields" in params:
+        custom_fields_kwargs["custom_fields"] = field("custom_fields")
+
+    hierarchy_kwargs: dict[str, Any] = {}
+    if "parent_id" in data or "parent_id" in params:
+        hierarchy_kwargs["parent_id"] = field("parent_id")
+
+    return _UpdateFieldBundle(
+        field,
+        system_values,
+        changed_fields,
+        custom_fields_kwargs,
+        hierarchy_kwargs,
+    )
+
+
+def _ignored_read_only_fields(
+    data: dict[str, Any], params: dict[str, Any], existing_req: Any
+) -> tuple[list[str], ToolResult | None]:
+    """Compute the additive ``ignored_read_only_fields`` response list.
+
+    Pure: reads its arguments only, performs no I/O and persists nothing.  The
+    second element is the ADR-005 ``level`` rejection (already shaped as a
+    ``ToolResult``) that the caller must surface *before* the definition gate;
+    ``None`` means the request may proceed.  A changed ``level`` is rejected,
+    an unchanged echo is tolerated but reported, ``status`` is always reported
+    when sent — exactly the #2004 / #263 contract.
+    """
+    ignored: list[str] = []
+    sent_level = _resolve_update_field(data, params, "level")
+    if sent_level is not None and sent_level != existing_req.level:
+        return [], ToolResult.error(
+            "VALIDATION_ERROR",
+            "'level' is derived from the Requirement hierarchy and "
+            "cannot be set (ADR-005). Send 'parent_id' to move the "
+            "requirement, then read the derived level back.",
+        )
+    if sent_level is not None:
+        ignored.append("level")
+    if "status" in data or "status" in params:
+        ignored.append("status")
+    ignored.sort()
+    return ignored, None
 
 
 class RequirementsToolGroup(BaseToolGroup):
@@ -767,59 +882,15 @@ class RequirementsToolGroup(BaseToolGroup):
         req_id = require_uuid(params, "id")
         data: dict[str, Any] = params.get("data") or {}
 
-        # #601: the documented contract nests fields under `data` (#21), but
-        # need.update's contract is flat top-level params -- that cross-tool
-        # inconsistency leads real callers to send fields (notably
-        # change_reason) flat on requirement.update too, where they were
-        # silently dropped and produced a confusing "change_reason required"
-        # error even though the caller did send it. Fall back to top-level
-        # params for any field `data` doesn't set, without changing the
-        # documented nested contract for callers who already use it.
-        def _field(name: str) -> Any:
-            if name in data:
-                return data.get(name)
-            return params.get(name)
-
-        # Only fields the caller actually sent (via `data` or flat top-level,
-        # see `_field` above) go into the definition check — a field this
-        # request never touches must not be re-checked as if it were unset.
-        #
-        # Attribut v3 WS2 (#936): the Artifact-level system fields are accepted
-        # flat or under `data`; the service never sees them (they are applied
-        # through the gateway below) but the definition gate must see them so a
-        # malformed/unknown actor is rejected before the service call.
-        system_values = {
-            name: _field(name)
-            for name in ("owner", "reporter", "priority")
-            if name in data or name in params
-        }
-        changed_fields = {
-            name: _field(name)
-            for name in (
-                "title",
-                "description",
-                "rationale",
-                "source",
-                "category",
-                "custom_fields",
-            )
-            if name in data or name in params
-        }
-        changed_fields.update(system_values)
-
-        # Only forward custom_fields when the caller actually sent it: the
-        # service uses an `_UNSET` sentinel so an absent key must not be
-        # conflated with "clear the map".
-        custom_fields_kwargs: dict[str, Any] = {}
-        if "custom_fields" in data or "custom_fields" in params:
-            custom_fields_kwargs["custom_fields"] = _field("custom_fields")
-
-        # ADR-005: `parent_id` re-parents and re-derives `level`. Same
-        # "only forward what was sent" rule as custom_fields — an absent key must
-        # not be conflated with "detach to the top of the cascade".
-        hierarchy_kwargs: dict[str, Any] = {}
-        if "parent_id" in data or "parent_id" in params:
-            hierarchy_kwargs["parent_id"] = _field("parent_id")
+        # Field resolution and the "only forward what was sent" rule live in
+        # pure helpers now (repowise finding #3).  The gate, service call and
+        # audit sequence below are deliberately unchanged.
+        fields = _collect_update_fields(params, data)
+        field = fields.field
+        system_values = fields.system_values
+        changed_fields = fields.changed_fields
+        custom_fields_kwargs = fields.custom_fields_kwargs
+        hierarchy_kwargs = fields.hierarchy_kwargs
 
         try:
             # Ledger gap #1 / issue #881: same central gate as
@@ -828,21 +899,15 @@ class RequirementsToolGroup(BaseToolGroup):
             # requirement.outdate already uses.
             existing_req = self._service.get_requirement(req_id, auth_context)
 
-            # ADR-005: `level` is derived and read-only. The update path never
-            # forwarded it (that asymmetry with the create path was the gap the
-            # ADR closes), but "not forwarded" alone would still be a silent
-            # accept — the very failure class this wave removes. An unchanged
-            # echo is tolerated, mirroring the REST `status` contract (#263): a
-            # client that resends the object it just read keeps its other
-            # edits.
-            sent_level = _field("level")
-            if sent_level is not None and sent_level != existing_req.level:
-                return ToolResult.error(
-                    "VALIDATION_ERROR",
-                    "'level' is derived from the Requirement hierarchy and "
-                    "cannot be set (ADR-005). Send 'parent_id' to move the "
-                    "requirement, then read the derived level back.",
-                )
+            # Issue #2004 / ADR-005: read-only fields are reported, a *changed*
+            # ``level`` is rejected. The helper is pure; the error it may
+            # return is surfaced here, before the definition gate — exactly
+            # where the inlined check used to sit.
+            ignored_read_only, level_error = _ignored_read_only_fields(
+                data, params, existing_req
+            )
+            if level_error is not None:
+                return level_error
 
             definition_error = validate_artifact_write(
                 auth_context,
@@ -861,12 +926,12 @@ class RequirementsToolGroup(BaseToolGroup):
                 req = self._service.update_requirement(
                     requirement_id=req_id,
                     ctx=auth_context,
-                    title=_field("title"),
-                    description=_field("description"),
-                    rationale=_field("rationale"),
-                    source=_field("source"),
-                    category=_field("category"),
-                    change_reason=_field("change_reason"),
+                    title=field("title"),
+                    description=field("description"),
+                    rationale=field("rationale"),
+                    source=field("source"),
+                    category=field("category"),
+                    change_reason=field("change_reason"),
                     **custom_fields_kwargs,
                     **hierarchy_kwargs,
                 )
@@ -887,7 +952,10 @@ class RequirementsToolGroup(BaseToolGroup):
             tool_name="requirement.update",
             api_key=api_key,
         )
-        return ToolResult.ok({"requirement": _requirement_to_dict(req)})
+        return ToolResult.ok({
+            "requirement": _requirement_to_dict(req),
+            "ignored_read_only_fields": ignored_read_only,
+        })
 
     # ------------------------------------------------------------------
     # requirement.outdate
@@ -1023,13 +1091,31 @@ class RequirementsToolGroup(BaseToolGroup):
             tool_name="requirement.decompose",
             api_key=api_key,
         )
-        return ToolResult.ok({
+        children = [
+            {"id": str(c.id), "title": c.title, "description": c.description}
+            for c in result.children
+        ]
+        payload: dict[str, Any] = {
             "parent_id": str(result.parent_id),
-            "children": [
-                {"id": str(c.id), "title": c.title, "description": c.description}
-                for c in result.children
-            ],
-        })
+            "children": children,
+        }
+        if not children:
+            # Issue #2000: the decomposition capability is registered as async
+            # in the LLM router, so `children` is not populated in this call's
+            # response -- the adapter hands back a task_id instead. Keep the
+            # call a success but say so: a bare `children: []` is otherwise
+            # indistinguishable from a broken pipeline. The cause-neutral code
+            # and message must NOT claim the provider returned nothing or that
+            # the requirement lacks detail (that would misinform every caller).
+            # This is additive and distinct from the async task_id path.
+            payload["degraded"] = True
+            payload["degraded_reason"] = "NO_CHILDREN_DERIVED"
+            payload["message"] = (
+                "No child requirements are available from this call; the "
+                "decomposition capability runs asynchronously — poll the task "
+                "status or use the derivation flow."
+            )
+        return ToolResult.ok(payload)
 
     # ------------------------------------------------------------------
     # requirement.derive

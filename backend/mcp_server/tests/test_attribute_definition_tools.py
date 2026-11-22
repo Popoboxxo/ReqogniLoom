@@ -156,6 +156,97 @@ def test_list_maps_permission_denied(group, ctx) -> None:
     assert result.error_code == "PERMISSION_DENIED"
 
 
+def test_list_schema_declares_pagination(group) -> None:
+    """#1989: the unbounded list dumped every item type × preset (~674k chars)."""
+    schema = {t["name"]: t["inputSchema"] for t in group.get_tool_schemas()}
+    properties = schema["attribute_definition.list"]["properties"]
+    assert properties["limit"]["default"] == 20
+    assert properties["limit"]["maximum"] == 100
+    assert properties["offset"]["default"] == 0
+    assert "limit" not in schema["attribute_definition.list"]["required"]
+
+
+@pytest.mark.django_db
+def test_list_forwards_pagination_and_reports_totals(group, ctx) -> None:
+    with patch(
+        "mcp_server.tools.attribute_definition.AttributeDefinitionService"
+    ) as service:
+        service.return_value.list_global.return_value = [PAYLOAD, PAYLOAD]
+        service.return_value.count_global.return_value = 7
+        result = group.execute_tool(
+            tool_name="attribute_definition.list",
+            params={
+                "limit": 2, "offset": 3, "item_type": "Risk", "preset": "minimal",
+            },
+            auth_context=ctx,
+            api_key=VALID_API_KEY,
+        )
+    assert result.success is True, result.message
+    # ``count`` keeps its historic meaning; paging metadata is additive.
+    assert result.data["count"] == 2
+    assert result.data["total_count"] == 7
+    assert result.data["limit"] == 2
+    assert result.data["offset"] == 3
+    service.return_value.list_global.assert_called_once_with(
+        ctx, item_type="Risk", preset="minimal", limit=2, offset=3
+    )
+    service.return_value.count_global.assert_called_once_with(
+        ctx, item_type="Risk", preset="minimal"
+    )
+
+
+@pytest.mark.django_db
+def test_list_bounds_the_default_page(group, ctx) -> None:
+    with patch(
+        "mcp_server.tools.attribute_definition.AttributeDefinitionService"
+    ) as service:
+        service.return_value.list_global.return_value = []
+        service.return_value.count_global.return_value = 36
+        result = group.execute_tool(
+            tool_name="attribute_definition.list",
+            params={},
+            auth_context=ctx,
+            api_key=VALID_API_KEY,
+        )
+    assert result.success is True, result.message
+    assert result.data["limit"] == 20
+    assert result.data["offset"] == 0
+    assert result.data["total_count"] == 36
+    service.return_value.list_global.assert_called_once_with(
+        ctx, item_type=None, preset=None, limit=20, offset=0
+    )
+
+
+@pytest.mark.django_db
+def test_list_caps_an_oversized_limit(group, ctx) -> None:
+    with patch(
+        "mcp_server.tools.attribute_definition.AttributeDefinitionService"
+    ) as service:
+        service.return_value.list_global.return_value = []
+        service.return_value.count_global.return_value = 0
+        result = group.execute_tool(
+            tool_name="attribute_definition.list",
+            params={"limit": 5000},
+            auth_context=ctx,
+            api_key=VALID_API_KEY,
+        )
+    assert result.success is True, result.message
+    assert result.data["limit"] == 100
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("bad_limit", [0, -1, "many"])
+def test_list_rejects_an_invalid_limit(group, ctx, bad_limit) -> None:
+    result = group.execute_tool(
+        tool_name="attribute_definition.list",
+        params={"limit": bad_limit},
+        auth_context=ctx,
+        api_key=VALID_API_KEY,
+    )
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+
 @pytest.mark.django_db
 def test_update_rejects_a_non_list_attributes_param(group, ctx) -> None:
     result = group.execute_tool(

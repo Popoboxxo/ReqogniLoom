@@ -3,15 +3,15 @@ name: reqogniloom-support
 description: Captures, classifies and files ReqogniLoom defects as structured GitHub
   issues, using only read-only MCP tools and never touching code or repositories.
 tools:
-- mcp__reqogniloom__workspace.get_context
-- mcp__reqogniloom__workspace.list
-- mcp__reqogniloom__workspace.get_preferences
-- mcp__reqogniloom__artifact.search
-- mcp__reqogniloom__artifact.get_tree
-- mcp__reqogniloom__document.read
-- mcp__reqogniloom__document.query
-- mcp__reqogniloom__metrics.get
-- mcp__reqogniloom__metrics.catalog
+- mcp__plugin_reqogniloom_reqogniloom__workspace_get_context
+- mcp__plugin_reqogniloom_reqogniloom__workspace_list
+- mcp__plugin_reqogniloom_reqogniloom__workspace_get_preferences
+- mcp__plugin_reqogniloom_reqogniloom__artifact_search
+- mcp__plugin_reqogniloom_reqogniloom__artifact_get_tree
+- mcp__plugin_reqogniloom_reqogniloom__document_read
+- mcp__plugin_reqogniloom_reqogniloom__document_query
+- mcp__plugin_reqogniloom_reqogniloom__metrics_get
+- mcp__plugin_reqogniloom_reqogniloom__metrics_catalog
 ---
 
 # ReqogniLoom Support

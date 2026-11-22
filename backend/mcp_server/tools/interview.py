@@ -570,15 +570,25 @@ class InterviewToolGroup(BaseToolGroup):
     ) -> ToolResult:
         """Read-only pending-proposal readout (multi-artifact plan Task 6).
 
-        Mirrors _handle_get_state's shape: plain read, so no write_mcp_audit
-        and only NotFoundError needs explicit mapping -- propose() raises
-        nothing else of note.
+        Mirrors _handle_get_state's shape: plain read, so no write_mcp_audit.
+
+        Issue #1990: propose() now re-validates the stored proposal before
+        surfacing it. A rejected proposal carries a machine-readable reason
+        (``ProposalValidationError.code``/``details``), returned as the
+        ToolResult's ``details["reason"]`` so an agent can branch on it
+        instead of parsing the human-readable message.
         """
         session_id = require_uuid(params, "session_id")
         try:
             proposal = self._service.propose(auth_context, session_id)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
+        except ValidationError as exc:
+            reason = getattr(exc, "code", "INVALID_PROPOSAL")
+            details = dict(getattr(exc, "details", {}) or {})
+            return ToolResult.error(
+                "VALIDATION_ERROR", str(exc), details={"reason": reason, **details}
+            )
         return ToolResult.ok({"proposal": proposal})
 
     def _handle_chat(

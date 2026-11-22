@@ -433,6 +433,7 @@ class InterviewService(
             get_multi_protocol_prompt,
             parse_multi_proposal,
         )
+        from application.interview_proposal_errors import ProposalValidationError
         from llm_adapter.audit_logger import LlmAuditLogger
         from llm_adapter.timeouts import resolve_timeout_seconds
         from llm_adapter.token_tracking import (
@@ -510,11 +511,35 @@ class InterviewService(
             {"role": "user", "content": user_message},
             {"role": "assistant", "content": reply},
         ]
-        proposal = parse_multi_proposal(reply)
+        # Issue #1990: parse_multi_proposal is the untrusted parse boundary --
+        # a malformed or non-conforming model reply is "no proposal this turn"
+        # (it returns None), and must never fail the chat TURN itself (the user
+        # still sees the reply). Strict, machine-readable rejection reasons are
+        # produced by propose()/formalize() when a stored or caller-supplied
+        # proposal is normalised for readout/write. The catch below is kept as
+        # a defensive net so any future parse-layer ValidationError still
+        # degrades to an in-snapshot reason instead of failing the turn.
+        try:
+            proposal = parse_multi_proposal(reply)
+        except ProposalValidationError as exc:
+            proposal = None
+            proposal_error: dict[str, Any] | None = {
+                "code": exc.code,
+                "message": str(exc),
+                **exc.details,
+            }
+        else:
+            proposal_error = None
         if proposal is not None:
             session.grounding_snapshot = {
                 **session.grounding_snapshot,
                 "pending_proposal": proposal,
+                "pending_proposal_error": None,
+            }
+        elif proposal_error is not None:
+            session.grounding_snapshot = {
+                **session.grounding_snapshot,
+                "pending_proposal_error": proposal_error,
             }
         # Same optimistic-concurrency bump as the single-mode chat save
         # (review-2 fix n2): a multi chat turn must not silently overwrite a

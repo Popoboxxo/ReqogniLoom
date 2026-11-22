@@ -795,6 +795,23 @@ class TestTraceabilityConnector:
             created_by_id=None,
         )
 
+    def test_create_icd_maps_cycle_detected_error_to_validation_error(
+        self, tenant_a, workspace_id, src_id, tgt_id
+    ):
+        """#1986: a child -> ancestor link is a caller error, not a 500."""
+        from icd.services import create_icd
+        from persistence.errors import ValidationError
+        from traceability.exceptions import CycleDetectedError
+
+        with active_tenant(tenant_a):
+            dto = _make_create_dto(tenant_a, workspace_id, src_id, tgt_id)
+            with patch(
+                "icd.traceability_connector.TraceabilityConnector.link_to_architecture",
+                side_effect=CycleDetectedError("decomposes"),
+            ):
+                with pytest.raises(ValidationError, match="ancestor"):
+                    create_icd(dto)
+
     def test_link_to_architecture_calls_create_trace_link(self):
         """Unit test: connector delegates to traceability.services.create_trace_link."""
         from icd.traceability_connector import TraceabilityConnector

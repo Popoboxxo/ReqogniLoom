@@ -298,6 +298,79 @@ def test_permission_denied_row_is_forbidden_and_others_move(
     assert _state_of(first) == APPROVED
 
 
+def _provision_document_workflow(workspace: Workspace) -> None:
+    """Seed the ``document_default`` state machine a Document release needs."""
+    TenantContext.set_tenant(workspace.tenant_id)
+    try:
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="document_default",
+            item_type="Document",
+            tenant_id=workspace.tenant_id,
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+
+def test_document_bulk_transition_applies_freeze_and_version(
+    service, workspace, editor_ctx, approver_ctx
+) -> None:
+    """Issue #1981: a bulk-released Document must freeze and record a revision.
+
+    The bare facade moves the workflow state but skips DocumentService's F-1/F-5
+    side effects, so a bulk release left the document writable with no revision
+    provenance — unlike the same move through REST/MCP. The bulk path must route
+    Documents through DocumentService.transition_status instead.
+    """
+    from application.artifact_version_service import ArtifactVersionService
+    from application.document_service import FROZEN_FIELDS, DocumentService
+    from persistence.models import Document
+
+    _provision_document_workflow(workspace)
+
+    document = DocumentService().create_document(
+        workspace.id,
+        editor_ctx,
+        title="Bulk Released Spec",
+        kind=Document.Kind.SPEC,
+        description="Freeze me",
+        body="# Bulk Released Spec\n\nContent.",
+    )
+
+    first = service.bulk_transition(
+        editor_ctx,
+        "Document",
+        [document.artifact_id],
+        "In Prüfung",
+        "into review",
+    )
+    assert first.failed == ()
+    assert [row["state"] for row in first.transitioned] == ["In Prüfung"]
+
+    released = service.bulk_transition(
+        approver_ctx,
+        "Document",
+        [document.artifact_id],
+        "Freigegeben",
+        "approved",
+    )
+    assert released.ok is True, released.failed
+    assert [row["state"] for row in released.transitioned] == ["Freigegeben"]
+
+    TenantContext.set_tenant(workspace.tenant_id)
+    try:
+        document.refresh_from_db()
+        assert document.frozen_at is not None
+        assert document.frozen_fields == list(FROZEN_FIELDS)
+        # Revision 1 = creation, revision 2 = the released snapshot.
+        revisions = ArtifactVersionService().list_revisions(
+            document.artifact_id, approver_ctx
+        )
+        assert len(revisions) == 2
+    finally:
+        TenantContext.clear_tenant()
+
+
 def test_status_is_never_written_directly(
     service, workspace, editor_ctx
 ) -> None:

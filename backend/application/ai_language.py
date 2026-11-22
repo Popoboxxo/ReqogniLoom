@@ -54,6 +54,28 @@ LANGUAGE_INSTRUCTION_NAMES: dict[str, str] = {
 #: directive. A template containing it receives no second directive.
 LANGUAGE_PLACEHOLDER = "{language}"
 
+#: Localised scaffolding for the agent system prompt (issue #1997/#2030).
+#: Kept in the single language source of truth -- never in the MCP tool that
+#: renders it -- so a hardcoded-language prompt is caught by the ratchet test
+#: in ``application/tests/test_ai_language.py``. Keys are stable identifiers;
+#: values are ``str.format`` templates (``{project}`` / ``{role}``).
+_SYSTEM_PROMPT_TEXT: dict[str, dict[str, str]] = {
+    "de": {
+        "working_on": 'Du arbeitest am Projekt "{project}".',
+        "role": "Du bist als {role} unterwegs.",
+        "active_requirements": "## Aktive Requirements",
+        "architecture": "## Architecture",
+        "test_coverage": "## Testabdeckung",
+    },
+    "en": {
+        "working_on": 'You are working on project "{project}".',
+        "role": "You are acting as {role}.",
+        "active_requirements": "## Active Requirements",
+        "architecture": "## Architecture",
+        "test_coverage": "## Test Coverage",
+    },
+}
+
 
 def _workspace_language_columns(workspace_id: UUID | str | None) -> tuple[str, str]:
     """Return ``(ai_language, content_language)`` for *workspace_id*.
@@ -140,6 +162,26 @@ def language_instruction(workspace_id: UUID | str | None) -> str:
     return _directive_for(language_name)
 
 
+def system_prompt_text(workspace_id: UUID | str | None) -> dict[str, str]:
+    """Return the localised scaffolding strings for an agent system prompt.
+
+    The language follows the same S7 resolution order as every other prompt
+    (explicit ``ai_language`` -> ``Workspace.language`` -> English) via
+    :func:`effective_ai_language`, so a tool rendering the prompt never has to
+    hardcode one language. Unsupported codes degrade to English.
+
+    Args:
+        workspace_id: Workspace whose resolved AI language governs the text.
+            ``None`` resolves to English.
+
+    Returns:
+        A dict of ``str.format``-ready strings keyed by ``working_on``,
+        ``role``, ``active_requirements``, ``architecture`` and
+        ``test_coverage``.
+    """
+    return _SYSTEM_PROMPT_TEXT[effective_ai_language(workspace_id)]
+
+
 def _directive_for(language_name: str) -> str:
     return (
         f"\n\nRespond in {language_name}. All generated titles, "
@@ -189,4 +231,5 @@ __all__ = [
     "language_instruction",
     "language_label",
     "resolve_ai_language",
+    "system_prompt_text",
 ]

@@ -337,15 +337,21 @@ class IcdToolGroup(BaseToolGroup):
         # applied through the gateway below, but the definition gate must see
         # them too so an unresolvable actor is rejected before the service call.
         system_values = system_field_values(params)
+        # #1986: ``IcdUpdateDTO`` has only the contract fields in _UPDATE_FIELDS.
+        # Merging owner/reporter/priority into ``changed_fields`` used to pass
+        # ``priority=`` to the dataclass, which has no such field -> TypeError
+        # (uncaught by the (ValueError, ValidationError) handler below). Keep the
+        # two maps separate: the definition gate still sees every sent field,
+        # while the DTO receives only fields it can actually carry. Priority is
+        # persisted through apply_system_fields() after the service call.
         changed_fields = {
             field: params[field] for field in _UPDATE_FIELDS if field in params
         }
-        changed_fields.update(system_values)
         definition_error = validate_artifact_write(
             auth_context,
             _ITEM_TYPE,
             existing.workspace_id,
-            dict(changed_fields),
+            {**changed_fields, **system_values},
             {"__exists__": True},
         )
         if definition_error is not None:

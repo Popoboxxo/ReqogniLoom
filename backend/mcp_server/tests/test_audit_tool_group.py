@@ -1744,7 +1744,21 @@ class TestAuditWaivers:
         assert len(result.data["waivers"]) == 1
         assert result.data["waivers"][0]["waiver_id"] == str(active.waiver_id)
         list_supp.assert_called_once_with(WORKSPACE_ID, ADMIN_CTX, state="all")
-        mock_authority.assert_called_once_with(ADMIN_CTX)
+        mock_authority.assert_called_once_with(ADMIN_CTX, action="list")
+
+    def test_waivers_denial_message_describes_a_read(self):
+        """#2033: the read path still denies without approval authority, but
+        the message must not claim the caller tried to override/waive a gate."""
+        result = AuditToolGroup().execute_tool(
+            "audit.waivers",
+            params={"workspace_id": str(WORKSPACE_ID)},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert result.success is False
+        assert result.error_code == "PERMISSION_DENIED"
+        assert "listing SE-Auditor waiver records" in result.message
+        assert "waiving" not in result.message
 
     @patch("mcp_server.tools.audit.assert_gate_waiver_authority")
     def test_waivers_state_all_returns_both(self, mock_authority):

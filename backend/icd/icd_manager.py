@@ -51,7 +51,9 @@ from icd.contract_validator import ValidationResult, get_validator
 from icd.models import Icd, IcdRevision
 from icd.traceability_connector import get_connector
 from persistence.artifact_backing import ensure_artifact
+from persistence.errors import ValidationError
 from persistence.models import ArtifactVersion
+from traceability.exceptions import CycleDetectedError
 
 logger = logging.getLogger(__name__)
 
@@ -500,6 +502,20 @@ class IcdManager:
                         "exists in this workspace"
                     ) from exc
                 raise
+            except CycleDetectedError as exc:
+                # #1986: the contract link is 'decomposes' (parent -> child), so
+                # an element and its own ancestor are not a valid pair. The
+                # engine raises a plain Exception (CycleDetectedError), which
+                # the transport would otherwise mask as INTERNAL_ERROR. Turn
+                # it into the domain validation error the MCP/REST layers
+                # already map; inside the atomic block the partial row rolls
+                # back.
+                raise ValidationError(
+                    "Invalid ICD source/target pair: the 'decomposes' contract "
+                    "link would introduce a cycle because the target is an "
+                    "ancestor of the source. Choose two architecture elements "
+                    "that are not in an ancestor/descendant relationship."
+                ) from exc
 
             # Plan A, T-A2-4: index hook, in this write's transaction (SA-02).
             publish_entity_event(

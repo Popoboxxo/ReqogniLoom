@@ -53,6 +53,7 @@ from typing import Any
 from uuid import UUID
 
 from application import workspace_context_service
+from application.ai_language import system_prompt_text
 from application.artifact_summary_service import ArtifactSummaryService
 from application.base import ProducerContextRequiredError
 from application.change_impact_service import (  # R2S-003: Layer 2 façade only
@@ -158,6 +159,13 @@ _CHANGE_IMPACT_PROMPT_TEMPLATE = (
     "by this specific change. Return a JSON array of objects, one per "
     "input entity, each with exactly these keys: 'id' (echo the given id "
     "unchanged), 'likely_affected' (bool), 'rationale' (short string).\n\n"
+    "How to read the 'relation' field (trace direction, NOT hierarchy level):\n"
+    "- 'upstream' means the neighbour points at the anchor; 'downstream' "
+    "means the anchor points at the neighbour.\n"
+    "- 'refines' links point from the more detailed child to the coarser "
+    "parent, so a refining child appears as 'upstream' of its parent.\n"
+    "- 'upstream' does NOT mean 'higher-level' or 'more abstract'. Judge "
+    "impact from 'link_type' and 'title', never from 'upstream' alone.\n\n"
     "Linked entities: {candidates_json}"
 )
 
@@ -2647,20 +2655,24 @@ class CrossCuttingToolGroup(BaseToolGroup):
         # Phase 0.4/2.2 intent. Deliberately NOT implemented now — WorkspaceGoal
         # was descoped from Phase 0.
 
-        lines = [f'Du arbeitest am Projekt "{workspace.name}".']
+        # Issue #1997/#2030: the prompt used to be hardcoded German regardless
+        # of the workspace language. Render its scaffolding from the S7 single
+        # source of truth (explicit ai_language -> content language -> English).
+        text = system_prompt_text(workspace_id)
+        lines = [text["working_on"].format(project=workspace.name)]
         if role:
-            lines.append(f"Du bist als {role} unterwegs.")
+            lines.append(text["role"].format(role=role))
         lines.append("")
-        lines.append("## Aktive Requirements")
+        lines.append(text["active_requirements"])
         for req in lists["requirements_list"][:20]:  # cap list length defensively regardless of token-budget truncation
             lines.append(f"- [{req.get('level', '?')}] {req['title']} (status: {req['status']})")
         lines.append("")
-        lines.append("## Architecture")
+        lines.append(text["architecture"])
         for ae in lists["architecture_list"][:20]:
             lines.append(f"- {ae['name']} (type: {ae.get('type', '?')}, status: {ae['status']})")
         lines.append("")
         lines.append(
-            f"## Testabdeckung\n{counts['tests']['pass']} pass, {counts['tests']['fail']} fail"
+            f"{text['test_coverage']}\n{counts['tests']['pass']} pass, {counts['tests']['fail']} fail"
         )
 
         prompt_text = "\n".join(lines)

@@ -12,7 +12,7 @@
  * previewed by ProposalPreviewGraph) and, after confirming, a result summary
  * of the artifacts created via `interviewsApi.formalize`.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import {
@@ -58,6 +58,52 @@ export function InterviewChatPane({
   const [error, setError] = useState<string | null>(null);
   const [pendingProposal, setPendingProposal] = useState<ProposalItem[] | null>(null);
   const [createdArtifacts, setCreatedArtifacts] = useState<CreatedArtifactRef[] | null>(null);
+
+  // Issue #1967: a fresh single-kind session knows its open fields but shows
+  // an empty chat view -- the user had to invent a first sentence before the
+  // backend asked anything. Drive one empty first turn on mount so the
+  // protocol's first question is visible immediately. `greetingSessionRef`
+  // keyed by session id keeps StrictMode's double effect from firing a second
+  // chat call, while `greetingActiveRef` is re-armed on EVERY setup: StrictMode
+  // runs setup -> cleanup -> setup, and a closure-local `cancelled` would stay
+  // true after the first cleanup and silently drop the only reply.
+  const greetingSessionRef = useRef<string | null>(null);
+  const greetingActiveRef = useRef(true);
+
+  useEffect(() => {
+    if (interview.session_kind && interview.session_kind !== "single") return;
+    if (interview.transcript.length > 0) return;
+    if (!interview.missing_fields?.length) return;
+
+    const shouldGreet = greetingSessionRef.current !== interview.id;
+    greetingSessionRef.current = interview.id;
+    greetingActiveRef.current = true; // re-arm after StrictMode's first cleanup
+
+    if (shouldGreet) {
+      // `Promise.resolve` normalises a transport that returns `undefined`
+      // instead of a Promise (e.g. a stubbed/mocked `chat` in tests). Without
+      // it, `.then` on `undefined` throws synchronously and crashes the pane.
+      Promise.resolve(interviewsApi.chat(interview.id, ""))
+        .then(({ state }) => {
+          if (greetingActiveRef.current && greetingSessionRef.current === interview.id) {
+            onStateChange(state);
+          }
+        })
+        .catch(() => {
+          // A missing LLM provider or an exhausted budget must not block the
+          // page: the user can still type the first message by hand.
+        });
+    }
+    return () => {
+      greetingActiveRef.current = false;
+    };
+  }, [
+    interview.id,
+    interview.session_kind,
+    interview.transcript,
+    interview.missing_fields,
+    onStateChange,
+  ]);
 
   // Multi-mode: refresh the LLM proposal after every transcript turn. The
   // parent replaces the whole interview object via onStateChange after each

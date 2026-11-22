@@ -369,6 +369,18 @@ GROUP_SPECS: tuple[_GroupSpec, ...] = (
     ),
     _GroupSpec(
         prefix="context", group_key="cross_cutting",
+        read_only=frozenset({
+            "context.change_impact",
+            "context.test_coverage",
+        }),
+    ),
+    # Issue #1980: group.* and allocation.* live in CrossCuttingToolGroup and
+    # the manifest, but ToolGroupRouter.route matches ``f"{prefix}."`` — without
+    # their own prefix entries they dispatch as UNKNOWN_TOOL even though the
+    # handler map has them. Both prefixes share the cross_cutting group instance
+    # (and its security policy) via group_key; no new tool is introduced.
+    _GroupSpec(
+        prefix="group", group_key="cross_cutting",
         write_tools=(
             "group.add_member",
             "group.create",
@@ -376,11 +388,14 @@ GROUP_SPECS: tuple[_GroupSpec, ...] = (
             "group.remove_member",
         ),
         read_only=frozenset({
-            "allocation.query",
-            "context.change_impact",
-            "context.test_coverage",
             "group.list",
             "group.members",
+        }),
+    ),
+    _GroupSpec(
+        prefix="allocation", group_key="cross_cutting",
+        read_only=frozenset({
+            "allocation.query",
         }),
     ),
     _GroupSpec(
@@ -521,6 +536,7 @@ GROUP_SPECS: tuple[_GroupSpec, ...] = (
             "change_request.delete",
             "change_request.outdate",
             "change_request.reactivate",
+            "change_request.submit_for_review",
             "change_request.update",
         ),
     ),
@@ -1132,7 +1148,6 @@ class ToolRegistry:
         if self._router is not None:
             return
         from application.adr_service import AdrService
-        from application.change_request_service import ChangeRequestService
         from application.glossary_service import GlossaryService
         from application.issue_service import IssueService
         from application.risk_service import RiskService
@@ -1145,6 +1160,7 @@ class ToolRegistry:
         from mcp_server.tools.audit import AuditToolGroup
         from mcp_server.tools.backup import BackupToolGroup
         from mcp_server.tools.baseline import BaselineToolGroup
+        from mcp_server.tools.change_request import ChangeRequestToolGroup
         from mcp_server.tools.comment import CommentToolGroup
         from mcp_server.tools.create_form_config import CreateFormConfigToolGroup
         from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
@@ -1197,9 +1213,7 @@ class ToolRegistry:
             "glossary": lambda: GenericCrudToolGroup(
                 "glossary", GlossaryService, item_type="GlossaryTerm"
             ),
-            "change_request": lambda: GenericCrudToolGroup(
-                "change_request", ChangeRequestService, item_type="ChangeRequest"
-            ),
+            "change_request": ChangeRequestToolGroup,
             "prompt_template": PromptTemplateToolGroup,
             "prompt_variable": PromptVariableToolGroup,
             "ai_derivation": AiDerivationToolGroup,

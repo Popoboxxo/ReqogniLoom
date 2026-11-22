@@ -7,9 +7,9 @@ aliases neither add a ``tools/list`` entry nor a route, so the catalogue stays
 at 301 and the #1376 no-shadow-tools guard keeps holding.
 
 R2A-004: the generic CRUD factory used to emit ``"Delete a adr entity"`` and
-hide the hard-delete vs. soft-delete distinction. Per-prefix descriptions now
-carry both; the manifest-length/grammar ratchet lives in
-``test_tool_manifest_drift.py``.
+mislabel the workflow-engine soft-delete as a hard delete. Per-prefix
+descriptions now disclose the reversible soft-delete semantics (#1983); the
+manifest-length/grammar ratchet lives in ``test_tool_manifest_drift.py``.
 """
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ def test_verb_vocabulary_classifies_only_crud_family() -> None:
 def test_hidden_aliases_are_well_formed_and_invisible() -> None:
     """Every hidden alias is deprecated and points at a real published tool."""
     published = {schema["name"] for schema in _all_tools()}
-    assert len(published) == 301
+    assert len(published) == 302
 
     aliases = ToolRegistry().hidden_tool_aliases()
     assert aliases, "the legacy verb aliases disappeared — republish the metadata"
@@ -160,8 +160,14 @@ def test_generic_descriptions_are_grammatical_and_disclose_lifecycle() -> None:
             if " a adr" in description or " a issue" in description or " a risk" in description:
                 bad_articles.append(f"{prefix}.{action}")
         delete = descriptions["delete"].lower()
-        assert "hard delete" in delete, f"{prefix}.delete hides lifecycle semantics"
+        assert "hard delete" not in delete, (
+            f"{prefix}.delete falsely claims a hard delete; these services "
+            "soft-delete through the workflow engine"
+        )
         assert "soft-delete" in delete, f"{prefix}.delete lacks the soft-delete pointer"
+        assert "not removed" in delete, (
+            f"{prefix}.delete does not disclose that the row is retained"
+        )
         assert f"{prefix}.outdate" in delete and f"{prefix}.reactivate" in delete
         assert "soft-delete" in descriptions["outdate"].lower()
         assert "previous workflow state" in descriptions["reactivate"].lower()

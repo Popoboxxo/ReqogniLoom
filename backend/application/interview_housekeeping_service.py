@@ -226,9 +226,34 @@ class InterviewHousekeepingMixin:
         Sourced from ``grounding_snapshot["pending_proposal"]`` -- written by
         ``generate_chat_turn()`` whenever the LLM emitted a parseable
         proposal; None until then (multi-artifact plan Task 5).
+
+        Issue #1990: this is a READ of a stored, LLM-authored payload, so the
+        same gates ``formalize`` applies run here before the proposal is
+        surfaced as confirmable: canonical-shape normalisation (top-level
+        ``title`` folded into ``fields``), reserved/unknown field rejection,
+        field allowlist and link allowed-pair validation. The returned copy is
+        therefore safe to pass straight back into ``formalize`` unchanged. A
+        rejected proposal raises :class:`ProposalValidationError` carrying a
+        machine-readable reason instead of silently showing a broken plan.
         """
+        from application.interview_multi_formalize_service import (
+            _validate_confirmed_proposal,
+            validate_confirmed_proposal_fields,
+        )
+        from application.interview_multi_protocol import (
+            normalize_proposal_items,
+            validate_proposal_link_pairs,
+        )
+
         session = self._get_session(ctx, session_id)
-        return session.grounding_snapshot.get("pending_proposal")
+        proposal = session.grounding_snapshot.get("pending_proposal")
+        if proposal is None:
+            return None
+        proposal = normalize_proposal_items(proposal)
+        _validate_confirmed_proposal(proposal)
+        validate_confirmed_proposal_fields(ctx, session.workspace_id, proposal)
+        validate_proposal_link_pairs(proposal, session.workspace_id)
+        return proposal
 
     def provenance_session_id(self, ctx, artifact_id: UUID) -> str | None:
         """Resolve the interview session that created *artifact_id*, if any.

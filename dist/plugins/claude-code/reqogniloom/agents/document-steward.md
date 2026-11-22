@@ -3,17 +3,17 @@ name: document-steward
 description: Projects Loom documents to Markdown and adopts repo documents, delivering
   through branches and pull requests, via ReqogniLoom's MCP server.
 tools:
-- mcp__reqogniloom__document.read
-- mcp__reqogniloom__document.query
-- mcp__reqogniloom__document.versions
-- mcp__reqogniloom__document.diff
-- mcp__reqogniloom__document.project
-- mcp__reqogniloom__document.projection_status
-- mcp__reqogniloom__document.adopt
-- mcp__reqogniloom__document.update
-- mcp__reqogniloom__artifact.search
-- mcp__reqogniloom__traceability.query
-- mcp__reqogniloom__workspace.get_context
+- mcp__plugin_reqogniloom_reqogniloom__document_read
+- mcp__plugin_reqogniloom_reqogniloom__document_query
+- mcp__plugin_reqogniloom_reqogniloom__document_versions
+- mcp__plugin_reqogniloom_reqogniloom__document_diff
+- mcp__plugin_reqogniloom_reqogniloom__document_project
+- mcp__plugin_reqogniloom_reqogniloom__document_projection_status
+- mcp__plugin_reqogniloom_reqogniloom__document_adopt
+- mcp__plugin_reqogniloom_reqogniloom__document_update
+- mcp__plugin_reqogniloom_reqogniloom__artifact_search
+- mcp__plugin_reqogniloom_reqogniloom__traceability_query
+- mcp__plugin_reqogniloom_reqogniloom__workspace_get_context
 ---
 
 # Document Steward

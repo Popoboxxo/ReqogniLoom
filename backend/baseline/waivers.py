@@ -467,7 +467,18 @@ def validate_waiver_reason(reason: str, *, label: str) -> str:
     )
 
 
-def assert_gate_waiver_authority(ctx: Any) -> None:
+#: Denial verb phrase per operation. The authority DECISION is identical for
+#: every action -- only the message wording is operation-aware (#2033): a
+#: read/list caller is not trying to override or waive a gate, so telling it so
+#: is misleading. Default ``"waive"`` keeps the grant/override paths' exact
+#: wording; ``"list"`` is used by the read-only audit.waivers MCP tool.
+_GATE_AUTHORITY_VERBS: dict[str, str] = {
+    "waive": "overriding or waiving the SE-Auditor baseline gate",
+    "list": "listing SE-Auditor waiver records",
+}
+
+
+def assert_gate_waiver_authority(ctx: Any, *, action: str = "waive") -> None:
     """Require approval authority to waive/suppress the gate, or raise.
 
     The single authority choke point (#569/M2): accepting a known compliance
@@ -479,12 +490,26 @@ def assert_gate_waiver_authority(ctx: Any) -> None:
 
     Used by both ``BaselineFacade`` (global override + per-finding waivers) and
     ``AuditService.suppress_finding``, so the rule exists once. Callers remap
-    :class:`GovernanceAuthorityError` to ``PermissionDeniedError``.
+    :class:`GovernanceAuthorityError` to ``PermissionDeniedError``. The MCP
+    ``audit.waivers`` read path also uses this choke point, passing
+    ``action="list"`` so its denial describes a read rather than a waiver
+    (#2033) -- the check itself is unchanged.
+
+    Args:
+        ctx: The caller's authorization context.
+        action: ``"waive"`` (default, the grant/override path) or ``"list"``
+            (the read-only suppression list). Selects only the denial wording.
 
     Raises:
         GovernanceAuthorityError: The caller lacks approval authority or the
             required API-key tier.
+        ValueError: ``action`` is not a recognised operation (fail closed).
     """
+    try:
+        verb = _GATE_AUTHORITY_VERBS[action]
+    except KeyError as exc:
+        raise ValueError(f"Unknown waiver authority action: {action!r}") from exc
+
     # Deferred import: ``auth_tenancy.services.__init__`` pulls in
     # ``auth_tenancy.services.item_permission``, which imports
     # ``application.base`` — a module-level import here would couple this
@@ -499,9 +524,8 @@ def assert_gate_waiver_authority(ctx: Any) -> None:
     decision = AuthorizationService().decide_access(roles, Operation.WORKFLOW_APPROVAL)
     if not decision.allow:
         raise GovernanceAuthorityError(
-            "Permission denied: overriding or waiving the SE-Auditor "
-            "baseline gate requires approval authority ('admin' or "
-            f"'approver'), user has {roles}."
+            f"Permission denied: {verb} requires approval authority "
+            f"('admin' or 'approver'), user has {roles}."
         )
 
     scope_error = scope_denial_reason(
@@ -509,8 +533,7 @@ def assert_gate_waiver_authority(ctx: Any) -> None:
     )
     if scope_error:
         raise GovernanceAuthorityError(
-            "Permission denied: overriding or waiving the SE-Auditor "
-            f"baseline gate is a governance operation. {scope_error}"
+            f"Permission denied: {verb} is a governance operation. {scope_error}"
         )
 
 

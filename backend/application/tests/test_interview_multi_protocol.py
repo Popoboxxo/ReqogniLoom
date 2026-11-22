@@ -1,7 +1,13 @@
 """Multi-artifact interview protocol — prompt slot + proposal parsing (Plan Task 4)."""
 import json
 
-from application.interview_multi_protocol import parse_multi_proposal
+import pytest
+
+from application.interview_multi_protocol import (
+    normalize_proposal_items,
+    parse_multi_proposal,
+)
+from application.interview_proposal_errors import ProposalValidationError
 
 
 class TestParseMultiProposal:
@@ -46,3 +52,21 @@ Let me know if this looks right.'''
         item = {"type": "Requirement", "fields": {"title": "ok"}, "links": []}
         raw = f"```json\n{json.dumps([item])}\n```"
         assert parse_multi_proposal(raw) == [item]
+
+    def test_parse_boundary_swallows_rejections_but_normalise_stays_strict(self):
+        """#1990 strict validation belongs at propose()/formalize(), not here.
+
+        The raw LLM reply is untrusted: a shape or field rejection means "no
+        proposal this turn" (``None``). The very same input still raises a
+        machine-readable ``ProposalValidationError`` when a caller-supplied /
+        stored proposal is normalised at the readout or write gate.
+        """
+        for item in (
+            1,  # non-dict entry -> INVALID_PROPOSAL_SHAPE
+            {"type": "Requirement", "fields": [], "links": []},  # fields not a dict
+            {"type": "Requirement", "status": "approved", "fields": {}},  # RESERVED_FIELD
+        ):
+            raw = f"```json\n{json.dumps([item])}\n```"
+            assert parse_multi_proposal(raw) is None
+            with pytest.raises(ProposalValidationError):
+                normalize_proposal_items([item])

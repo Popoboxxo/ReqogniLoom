@@ -185,6 +185,10 @@ _PROMPT_PATHS: dict[str, tuple[str, tuple[str, ...]]] = {
         "memory/tasks.py",
         ("resolve_ai_language(",),
     ),
+    "workspace.llm_system_prompt": (
+        "mcp_server/tools/cross_cutting.py",
+        ("system_prompt_text(",),
+    ),
 }
 
 
@@ -220,6 +224,37 @@ def test_no_module_builds_its_own_language_directive() -> None:
         source = path.read_text(encoding="utf-8")
         if "Respond in " in source or _LOCAL_DIRECTIVE_HELPER.search(source):
             offenders.append(str(path.relative_to(_BACKEND)))
+    assert offenders == []
+
+
+#: The legacy hardcoded-German scaffolding fragments of
+#: ``workspace.llm_system_prompt`` (issue #1997/#2030). The prompt prose must
+#: come from ``application.ai_language`` -- a tool embedding one language is
+#: exactly the drift this ratchet exists to catch. The role line is omitted
+#: because the tool's (manifest-pinned) description still quotes it as an
+#: example; the three fragments below were the actual rendered prompt lines.
+_HARDCODED_PROMPT_FRAGMENTS: tuple[str, ...] = (
+    "Du arbeitest am Projekt",
+    "## Aktive Requirements",
+    "## Testabdeckung",
+)
+
+
+def test_mcp_tools_have_no_hardcoded_prompt_language() -> None:
+    """#1997: no MCP tool may embed hardcoded German prompt prose.
+
+    :func:`test_every_prompt_path_uses_the_central_language_source` pins that
+    the system-prompt path routes through ``ai_language``. This test closes the
+    other half: even if that marker survives, a regression that pastes literal
+    translated text back into a tool is caught here.
+    """
+    tools_dir = _BACKEND / "mcp_server" / "tools"
+    offenders: list[str] = []
+    for path in sorted(tools_dir.glob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        for fragment in _HARDCODED_PROMPT_FRAGMENTS:
+            if fragment in source:
+                offenders.append(f"{path.relative_to(_BACKEND)}: {fragment}")
     assert offenders == []
 
 

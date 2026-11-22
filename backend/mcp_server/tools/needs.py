@@ -330,6 +330,12 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         # REQ-143: `status` is deliberately excluded — the WorkflowEngine is the
         # single source of truth for the lifecycle state. A client-sent `status`
         # is ignored (not an error) and the response reflects the true value.
+        # Issue #2004: report that ignored field back instead of dropping it
+        # silently — additive only, the persisted need is unchanged.
+        ignored_read_only: list[str] = []
+        if "status" in params:
+            ignored_read_only.append("status")
+
         kwargs = {}
         for f in ["title", "description", "category", "moscow_priority", "custom_fields"]:
             if f in params:
@@ -370,7 +376,10 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
             
-        return ToolResult.ok({"need": _need_to_dict(need)})
+        return ToolResult.ok({
+            "need": _need_to_dict(need),
+            "ignored_read_only_fields": ignored_read_only,
+        })
 
     def _handle_get_traces(
         self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str

@@ -1221,8 +1221,11 @@ class AuditToolGroup(BaseToolGroup):
 
         # REST E12 parity: the suppression list is the governance management
         # surface, so it needs the same approval authority as the grant path.
+        # #2033: pass action="list" so a denial describes a read, not an
+        # attempt to override/waive a gate -- the authority check itself is
+        # unchanged.
         try:
-            assert_gate_waiver_authority(auth_context)
+            assert_gate_waiver_authority(auth_context, action="list")
         except GovernanceAuthorityError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
 

@@ -185,6 +185,21 @@ def test_generic_named_service_delete_uses_introspected_id_param():
     service.delete.assert_called_once_with(ctx=CTX, term_id=ENTITY_ID)
 
 
+def test_delete_response_discloses_soft_delete_mode():
+    """``*.delete`` soft-deletes via the workflow engine: the historic
+    ``status: "deleted"`` value stays for compatibility while ``mode: "soft"``
+    discloses the real, reversible semantics (#1983)."""
+    service = _make_generic_named_service()
+    group = _group_for(service)
+
+    result = group._handle_delete(
+        params={"id": str(ENTITY_ID)}, auth_context=CTX, api_key="reqlo_x"
+    )
+
+    assert result.success is True
+    assert result.data == {"status": "deleted", "mode": "soft"}
+
+
 @pytest.mark.django_db
 def test_generic_named_service_create_uses_generic_method():
     service = _make_generic_named_service()

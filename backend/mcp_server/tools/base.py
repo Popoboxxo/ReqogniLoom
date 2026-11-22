@@ -556,6 +556,22 @@ def map_tool_exception(exc: Exception) -> tuple[str, str] | None:
     if isinstance(exc, OptimisticLockError):
         return "CONFLICT", f"Version conflict: {exc}"
 
+    # #1986: CycleDetectedError is a plain Exception, not the
+    # persistence.errors.ValidationError handled above. A cycle raised while
+    # anchoring an ICD used to escape every handler's except-list and surface
+    # as INTERNAL_ERROR. Map it centrally so every tool group gets a typed,
+    # caller-actionable answer.
+    try:
+        from traceability.exceptions import CycleDetectedError
+    except ImportError:  # pragma: no cover - traceability is always installed
+        CycleDetectedError = ()  # type: ignore[assignment,misc]
+    if CycleDetectedError and isinstance(exc, CycleDetectedError):
+        return (
+            "VALIDATION_ERROR",
+            "The requested link would introduce a cycle; choose a source/target "
+            "pair that keeps the traceability hierarchy acyclic.",
+        )
+
     try:
         from django.db import IntegrityError
     except Exception:  # pragma: no cover - Django is always available in-app
