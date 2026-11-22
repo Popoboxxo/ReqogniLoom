@@ -93,6 +93,13 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "jsdom",
+    // CI E2/E3: the frontend-test container runs 432 jsdom test files under a
+    // constrained CPU quota. Vitest's default forks pool sizes workers from all
+    // visible CPUs, which produced forks-worker startup timeouts (E2) and
+    // CPU-contention flakes whose failing set varied across runs (E3). Cap the
+    // pool at 2 workers for deterministic, low-contention scheduling. This is
+    // a concurrency limit only — no timeout, assertion or test is changed.
+    maxWorkers: 2,
     setupFiles: ["./src/test/setup.ts"],
     // Include test files (see TESTING_CONVENTIONS.md for layout rules).
     // `scripts/**/*.test.mjs` covers the Node-side analysis scripts that live
