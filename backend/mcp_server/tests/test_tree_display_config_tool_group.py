@@ -248,22 +248,32 @@ def test_set_requires_a_workspace_id_for_the_workspace_scope(group, ctx) -> None
     assert result.error_code == "VALIDATION_ERROR"
 
 
-def test_set_rejects_a_workspace_id_on_the_user_scope(group, ctx) -> None:
-    """Scope 'user' is self-service; a workspace there would be ignored."""
-    result = _call(
-        group,
-        "tree_display_config.set",
-        {
-            "scope": "user",
-            "item_type": "Requirement",
-            "fields": ["uid"],
-            "workspace_id": str(uuid.uuid4()),
-        },
-        ctx,
-    )
+def test_set_accepts_a_workspace_id_on_the_user_scope_as_a_catalog_hint(
+    group, ctx
+) -> None:
+    """#2028: user settings stay workspace-free but the catalog needs the id.
 
-    assert result.success is False
-    assert result.error_code == "VALIDATION_ERROR"
+    Without it the response catalog misses the workspace's custom attributes
+    that a workspace-scoped ``get`` returns.
+    """
+    workspace_id = str(uuid.uuid4())
+    with _service_patch("set_config") as handler:
+        result = _call(
+            group,
+            "tree_display_config.set",
+            {
+                "scope": "user",
+                "item_type": "Requirement",
+                "fields": ["uid"],
+                "workspace_id": workspace_id,
+            },
+            ctx,
+        )
+
+    assert result.success is True
+    kwargs = handler.call_args.kwargs
+    assert kwargs["scope"] == "user"
+    assert str(kwargs["workspace_id"]) == workspace_id
 
 
 def test_set_rejects_a_non_list_fields_payload(group, ctx) -> None:

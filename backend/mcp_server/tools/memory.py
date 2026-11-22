@@ -79,7 +79,7 @@ from memory.backends import (
     VALID_REASONING_LEVELS,
     MemoryBackendUnavailableError,
 )
-from memory.health import envelope
+from memory.health import envelope, lite_envelope
 from memory.policy import MemoryPolicy
 from memory.prompts import MAX_INTERACTION_TEXT_CHARS, validate_interaction_text
 from memory.ratelimit import MemoryWriteRateLimitExceeded
@@ -614,7 +614,9 @@ class MemoryToolGroup(BaseToolGroup):
             lambda: MemoryEntryService().forget(
                 auth_context, entry_id=entry_id, change_reason=params.get("change_reason")
             ),
-            success={"deleted": True, **envelope()},
+            # #2038: only the F9 health fields belong on an ordinary write; the
+            # large capabilities block lives on memory.overview, not here.
+            success={"deleted": True, **lite_envelope()},
         )
 
     def _handle_promote(
@@ -703,6 +705,12 @@ class MemoryToolGroup(BaseToolGroup):
         MCP twin of ``GET /api/v1/system/memory/workspaces/``.
         ``MemoryAdminService.list_workspace_overview`` asserts System-Admin
         itself; the handler only JSON-serialises the ORM-typed row fields.
+
+        This is the ONE explicit capabilities/health surface (issue #2038): the
+        full :func:`~memory.health.envelope` — including the large
+        ``capabilities`` block — is spread here and only here, so an agent can
+        discover the active backend's capabilities in a single call instead of
+        receiving that blob on every unrelated memory response.
         """
         return self._service_call(
             lambda: {
@@ -732,7 +740,7 @@ class MemoryToolGroup(BaseToolGroup):
                         auth_context, scope=scope, workspace_id=workspace_id
                     )
                 ),
-                **envelope(),
+                **lite_envelope(),
             }
         )
 
@@ -758,7 +766,7 @@ class MemoryToolGroup(BaseToolGroup):
                 "entries": _jsonable(rows),
                 "count": result["count"],
                 "truncated": result["count"] > len(rows),
-                **envelope(),
+                **lite_envelope(),
             }
 
         return self._service_call(_call)
@@ -803,7 +811,7 @@ class MemoryToolGroup(BaseToolGroup):
                         auth_context, workspace_id
                     )
                 ),
-                **envelope(),
+                **lite_envelope(),
             }
         )
 

@@ -329,6 +329,99 @@ def test_update_execution_status_path_round_trip(caller):
     assert result.data["test_case"]["id"] == tc["id"]
 
 
+def test_create_forwards_declared_steps_to_the_service(caller):
+    """#1976: `steps` is in the schema and must survive test.create."""
+    _tenant, workspace, ctx = caller
+    steps = [
+        {"step_type": "given", "text": "a signed-in user"},
+        {"step_type": "when", "text": "they open the dashboard"},
+        {"step_type": "then", "text": "the panel is visible"},
+    ]
+    group = McpTestToolGroup()
+    created = _exec(
+        group,
+        "test.create",
+        {
+            "workspace_id": str(workspace.id),
+            "title": "Steps TC",
+            "steps": steps,
+        },
+        ctx,
+    )
+
+    assert created.success is True
+    assert [
+        (s["step_type"], s["text"]) for s in created.data["test_case"]["steps"]
+    ] == [
+        ("given", "a signed-in user"),
+        ("when", "they open the dashboard"),
+        ("then", "the panel is visible"),
+    ]
+    fetched = _exec(group, "test.get", {"id": created.data["test_case"]["id"]}, ctx)
+    assert fetched.success is True
+    assert [step["text"] for step in fetched.data["test_case"]["steps"]] == [
+        "a signed-in user",
+        "they open the dashboard",
+        "the panel is visible",
+    ]
+
+
+def test_create_rejects_malformed_steps(caller):
+    """#1976: the handler validates shape at the MCP boundary."""
+    _tenant, workspace, ctx = caller
+    group = McpTestToolGroup()
+    result = _exec(
+        group,
+        "test.create",
+        {
+            "workspace_id": str(workspace.id),
+            "title": "Bad steps TC",
+            "steps": [{"step_type": "bogus", "text": "oops"}],
+        },
+        ctx,
+    )
+
+    assert result.success is False
+    assert result.error_code == "VALIDATION_ERROR"
+
+
+def test_execution_status_exposed_without_description_marker(caller):
+    """#1975: MCP exposes the real carrier, never the old text prefix."""
+    _tenant, _workspace, ctx = caller
+    tc = _create(caller, "Carrier TC")
+    group = McpTestToolGroup()
+
+    updated = _exec(
+        group,
+        "test.update",
+        {"id": tc["id"], "data": {"execution_status": "Failed"}},
+        ctx,
+    )
+    assert updated.success is True
+    assert updated.data["test_case"]["execution_status"] == "Failed"
+    assert "[execution_status:" not in updated.data["test_case"]["description"]
+
+    fetched = _exec(group, "test.get", {"id": tc["id"]}, ctx)
+    assert fetched.success is True
+    assert fetched.data["test_case"]["execution_status"] == "Failed"
+
+
+def test_legacy_description_marker_is_stripped_on_mcp_read(caller):
+    """#1975: legacy rows stay readable (value kept, marker removed)."""
+    _tenant, _workspace, ctx = caller
+    tc = _create(
+        caller,
+        "Legacy marker TC",
+        description="[execution_status:Passed] plain body",
+    )
+    group = McpTestToolGroup()
+    fetched = _exec(group, "test.get", {"id": tc["id"]}, ctx)
+
+    assert fetched.success is True
+    assert fetched.data["test_case"]["description"] == "plain body"
+    assert fetched.data["test_case"]["execution_status"] == "Passed"
+
+
 def test_update_rejects_lifecycle_value_with_actionable_hint(caller):
     """GH-453: a lifecycle value in data.status gets the review/workflow hint."""
     _tenant, _workspace, ctx = caller

@@ -730,6 +730,10 @@ class TestMemoryToolGroupHandlers:
             result = group._handle_forget(params={"entry_id": str(ref.entry_id)}, auth_context=ctx, api_key=None)
             assert result.success
             assert "degraded" in result.data
+            # #2038: an ordinary write carries only the F9 health fields -- the
+            # large capabilities block lives on memory.overview, not here.
+            assert "capabilities" not in result.data
+            assert {"backend", "degraded"} <= set(result.data)
 
     def test_forget_accepts_a_honcho_style_nanoid(self, monkeypatch):
         """``entry_id`` is a String: an external nanoid resolves via backend_ref."""

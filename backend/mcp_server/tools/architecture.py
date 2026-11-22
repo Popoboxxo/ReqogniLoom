@@ -652,6 +652,15 @@ class ArchitectureToolGroup(BaseToolGroup):
 
         trace_link_id = str(trace_link.id) if hasattr(trace_link, "id") else str(arch_id)
 
+        # Issue #2007: ``arch_id``/``target_id`` are business-entity ids; the
+        # persisted TraceLink stores the backing Artifact ids. Mirroring the
+        # traceability.create_link fix (#264), report both so the success is
+        # verifiable against traceability.query and no caller has to guess
+        # which id kind ``source_id``/``target_id`` carry. The existing keys
+        # keep their meaning (raw input) for backwards compatibility.
+        resolved_source_id = str(getattr(trace_link, "source_id", arch_id))
+        resolved_target_id = str(getattr(trace_link, "target_id", target_id))
+
         write_mcp_audit(
             ctx=auth_context,
             operation="create",
@@ -671,6 +680,9 @@ class ArchitectureToolGroup(BaseToolGroup):
                 "source_id": str(arch_id),
                 "target_id": str(target_id),
                 "link_type": link_type,
+                # Artifact-level endpoints as actually persisted (#2007).
+                "source_artifact_id": resolved_source_id,
+                "target_artifact_id": resolved_target_id,
             }
         })
 

@@ -119,32 +119,24 @@ def _parse_mode_policy(params: dict[str, Any]) -> tuple[str, str]:
     return mode, policy
 
 
-def _derived_requirement_custom_fields(
-    draft: dict[str, Any],
-) -> dict[str, Any] | None:
-    """Return the extended-attribute carrier for a persisted requirement draft.
+def _derived_requirement_rationale(draft: dict[str, Any]) -> str:
+    """Return the draft's generated rationale for the real Requirement column.
 
-    ``rationale`` is an extended (``kind="extended"``) Requirement attribute
-    (``attribute_definitions.stage_matrix``), so it is persisted under
-    ``Artifact.custom_fields["rationale"]`` — the exact carrier
-    ``requirement.create``/``requirement.update`` already use. A top-level
-    ``rationale`` field is rejected by design (#915/#916); that is precisely
-    why the derived draft's rationale used to be silently dropped on write.
+    ``Requirement.rationale`` is a first-class column (issue #871/#583,
+    IEEE 29148 §5.2.6) that ``RequirementService.create_requirement`` accepts
+    directly. Older code routed this value through
+    ``Artifact.custom_fields["rationale"]`` under the mistaken belief that a
+    top-level ``rationale`` was rejected by design (#915/#916) — it is not,
+    and the value ended up invisible to every consumer of the real column
+    (issue #2011).
 
-    A draft without a non-empty rationale yields ``None`` so the created
-    Requirement keeps the same empty ``custom_fields`` map (``{}``) that every
-    other create call without custom fields produces, instead of a bogus
-    ``{"rationale": ""}`` entry.
-
-    No other draft field has an extended-attribute carrier: ``description`` is
-    a core Requirement column, and ``suggested_parent_id`` /
-    ``suggested_arch_element_id`` are derivation hints, not persisted
-    attributes.
+    A draft without a rationale yields ``""``, the same value every create
+    call without one produces. ``description`` is already a core column, and
+    ``suggested_parent_id`` / ``suggested_arch_element_id`` are derivation
+    hints, not persisted attributes.
     """
     rationale = draft.get("rationale")
-    if isinstance(rationale, str) and rationale:
-        return {"rationale": rationale}
-    return None
+    return rationale if isinstance(rationale, str) else ""
 
 
 def _llm_error_result(exc: LlmResponseError) -> ToolResult:
@@ -240,12 +232,11 @@ def derive_requirements_from_need(
                     title=d["title"],
                     ctx=authoring.create_context,
                     description=d["description"],
-                    # The draft's INCOSE rationale is an extended Requirement
-                    # attribute; its carrier is Artifact.custom_fields
-                    # (Attribut-v3) — forwarding only title/description dropped
-                    # it silently (issue #583). See
-                    # _derived_requirement_custom_fields.
-                    custom_fields=_derived_requirement_custom_fields(d),
+                    # #2011: the INCOSE rationale goes into the real
+                    # Requirement.rationale column, not custom_fields —
+                    # create_requirement accepts it directly. See
+                    # _derived_requirement_rationale.
+                    rationale=_derived_requirement_rationale(d),
                 ),
                 # TraceLinkService._resolve_artifact_id only resolves
                 # Artifact/Requirement/ArchitectureElement/Adr ids — not
@@ -654,9 +645,8 @@ class AiDerivationToolGroup(BaseToolGroup):
                         ctx=authoring.create_context,
                         description=d["description"],
                         # Same rationale carrier as derive_requirements_from_need
-                        # above (issue #583): Artifact.custom_fields, never a
-                        # top-level field.
-                        custom_fields=_derived_requirement_custom_fields(d),
+                        # above (#2011): the real Requirement.rationale column.
+                        rationale=_derived_requirement_rationale(d),
                     ),
                     source_entity_id=requirement_id,
                     source_item_type="Requirement",

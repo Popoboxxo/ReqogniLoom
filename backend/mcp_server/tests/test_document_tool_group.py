@@ -206,6 +206,9 @@ def test_transition_release_freezes_content_fields(
     )
     assert released.success is True, released.message
     assert released.data["document"]["status"] == RELEASE_STATE
+    # Issue #2024: the transition response must report the bumped version.
+    assert released.data["document"]["version"] == 2
+    assert released.data["version"] == 2
     assert released.data["document"]["frozen_fields"] == [
         "title",
         "description",
@@ -261,16 +264,19 @@ def test_reopen_lifts_the_freeze_and_bumps_the_version(
     assert _transition(
         e2e_api_key_admin, document_id, REVIEW_STATE, change_reason="ready"
     ).success
-    assert _transition(
+    released = _transition(
         e2e_api_key_admin, document_id, RELEASE_STATE, change_reason="approved"
-    ).success
+    )
+    assert released.success is True, released.message
+    # Issue #2024: creation=1, release=2, re-open=3.
+    assert released.data["document"]["version"] == 2
 
     reopened = _transition(
         e2e_api_key_admin, document_id, REVIEW_STATE, change_reason="rework"
     )
     assert reopened.success is True, reopened.message
     assert reopened.data["document"]["frozen_at"] is None
-    assert reopened.data["document"]["version"] == 2
+    assert reopened.data["document"]["version"] == 3
 
 
 # ---------------------------------------------------------------------------
@@ -303,6 +309,41 @@ def test_versions_and_diff_read_the_revision_store(
     )
     assert diff.success is True, diff.message
     assert "Renamed" in str(diff.data["diff"])
+
+
+def test_diff_reports_custom_fields_and_omits_unchanged_entries(
+    e2e_workspace, e2e_api_key_member
+) -> None:
+    """Issue #2026: ``document.diff`` must be a delta that includes the
+    backing Artifact's custom_fields, not a full field dump of "unchanged"
+    entries with custom_fields missing."""
+    created = _create(
+        e2e_api_key_member,
+        str(e2e_workspace.id),
+        custom_fields={"reviewer": "team-a"},
+    )
+    assert created.success is True, created.message
+    document_id = created.data["document"]["id"]
+
+    updated = _dispatch(
+        "document.update",
+        {"id": document_id, "custom_fields": {"reviewer": "team-b"}},
+        e2e_api_key_member,
+    )
+    assert updated.success is True, updated.message
+
+    diff = _dispatch(
+        "document.diff",
+        {"id": document_id, "from_version": 1, "to_version": 2},
+        e2e_api_key_member,
+    )
+    assert diff.success is True, diff.message
+    fields = diff.data["diff"]["fields"]
+    assert all(field["status"] != "unchanged" for field in fields)
+    custom_fields = next(field for field in fields if field["name"] == "custom_fields")
+    assert custom_fields["status"] == "modified"
+    assert custom_fields["from"] == {"reviewer": "team-a"}
+    assert custom_fields["to"] == {"reviewer": "team-b"}
 
 
 # ---------------------------------------------------------------------------

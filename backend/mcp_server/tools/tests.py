@@ -76,8 +76,12 @@ from application.services import (
     TraceLinkService,
     ValidationError,
 )
-from application.test_steps import normalize_steps
-from application.test_service import normalize_test_type
+from application.test_steps import normalize_steps, validate_steps
+from application.test_service import (
+    normalize_test_type,
+    read_execution_status,
+    strip_legacy_execution_status,
+)
 #: Issue #1564: typed step schema shared by write surfaces. ``step_type`` and
 #: ``text`` are required; ``id`` is optional (the service assigns a stable one).
 #: The legacy ``{step, expected_result}`` form stays accepted at runtime — the
@@ -202,6 +206,11 @@ def _test_case_to_dict(
     The value is the raw lowercase state (``"draft"``/``"ready"``/
     ``"approved"``/``"deprecated"``, or ``"outdated"`` for soft-deleted rows),
     i.e. the same vocabulary the REST ``TestCaseSerializer`` returns.
+
+    #1975: ``status`` is the workflow lifecycle; ``execution_status`` is the
+    separate Passed/Failed/Not Run result carried in the artifact's
+    ``custom_fields``. A pre-fix ``[execution_status:...]`` text prefix is
+    stripped from ``description`` on read so the two never get confused again.
     """
     result: dict[str, Any] = {
         "id": str(tc.id),
@@ -210,8 +219,11 @@ def _test_case_to_dict(
         # projection omitted it.
         "uid": getattr(tc, "uid", None),
         "title": tc.title,
-        "description": tc.description,
+        "description": strip_legacy_execution_status(tc.description),
         "status": resolve_engine_status("TestCase", tc.id, status_map=status_map),
+        # #1975: additive — the real execution-status carrier, exposed so a
+        # caller never has to parse it out of free text.
+        "execution_status": read_execution_status(tc),
         "version": tc.version,
         # Issue #1564: always the typed shape, legacy rows normalised on read.
         "steps": normalize_steps(tc.steps) if hasattr(tc, "steps") else [],
@@ -870,6 +882,19 @@ class McpTestToolGroup(BaseToolGroup):
             return ToolResult.error("VALIDATION_ERROR", str(exc))
         description: str = params.get("description", "")
         linked_req_id = optional_uuid(params, "linked_req_id")
+        # Issue #1976: `steps` is declared in the input schema and the service
+        # supports it, but the handler never forwarded it — a create silently
+        # dropped every step the caller sent. Validate the shape at the MCP
+        # boundary (same normaliser/validator the service uses) so a malformed
+        # payload is a VALIDATION_ERROR, then forward the typed steps.
+        steps = params.get("steps")
+        typed_steps = None
+        if steps is not None:
+            try:
+                typed_steps = normalize_steps(steps)
+                validate_steps(typed_steps)
+            except ValidationError as exc:
+                return ToolResult.error("VALIDATION_ERROR", str(exc))
         # REQ-L2-AS-037: TestService.create_test_case already accepts
         # custom_fields; the handler used to drop it.
         custom_fields = params.get("custom_fields")
@@ -914,6 +939,7 @@ class McpTestToolGroup(BaseToolGroup):
                     ctx=auth_context,
                     description=description,
                     test_type=test_type,
+                    steps=typed_steps,
                     custom_fields=custom_fields,
                     origin=origin,
                     scenario_kind=scenario_kind,

@@ -435,6 +435,11 @@ class PermissionsToolGroup(BaseToolGroup):
         (ADR-01) — this handler only validates the MCP parameters, delegates
         and serialises the answer, so a future REST endpoint reuses the same
         rule instead of re-implementing it.
+
+        Issue #2032: the credential's API-key scope is forwarded as well, so an
+        AUTHOR-scoped admin key is no longer reported as if it could perform
+        governance operations. ``governance_allowed`` is returned beside the
+        decision (the ``decision`` dict itself keeps its stable shape).
         """
         workspace_id = require_uuid(params, "workspace_id")
         level_raw = params.get("permission_level")
@@ -457,6 +462,7 @@ class PermissionsToolGroup(BaseToolGroup):
                 workspace_id=workspace_id,
                 artifact_id=artifact_id,
                 level=level,
+                scope=auth_context.scope,
             )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
@@ -471,6 +477,8 @@ class PermissionsToolGroup(BaseToolGroup):
                     "is_allowed": effective.is_allowed,
                 },
                 "queried_level": effective.queried_level,
+                "key_scope": auth_context.scope or None,
+                "governance_allowed": effective.governance_allowed,
             }
         )
 

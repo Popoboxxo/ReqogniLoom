@@ -112,14 +112,15 @@ def test_generate_then_commit_roundtrip(n1_ctx):
 
 
 def test_commit_persists_rationale_and_reads_it_back(n1_ctx):
-    """issue #583 — the generated rationale must survive the commit.
+    """issue #583/#2011 — the generated rationale must survive the commit.
 
     ``architecture.decompose`` already returns the node's generated rationale
     in the draft, but ``architecture.decompose_commit`` forwarded only
     title/description to the create services, so it was dropped for both
-    created entity types. ``rationale`` is an extended attribute for each
-    (Requirement: ISO 29148, ArchitectureElement: ISO 42010), carried by
-    ``Artifact.custom_fields["rationale"]`` — it must round-trip on read.
+    created entity types. Issue #2011: the Requirement stores it in the real
+    ``Requirement.rationale`` column, while the ArchitectureElement (no such
+    column) keeps it in ``Artifact.custom_fields["rationale"]`` (ISO 42010) —
+    both must round-trip on read.
     """
     from mcp_server.tools.requirements import RequirementsToolGroup
 
@@ -165,9 +166,9 @@ def test_commit_persists_rationale_and_reads_it_back(n1_ctx):
         ctx,
     )
     assert requirement_read.success
-    assert requirement_read.data["requirement"]["custom_fields"] == {
-        "rationale": rationale
-    }
+    # #2011: real column, not a custom field.
+    assert requirement_read.data["requirement"]["rationale"] == rationale
+    assert requirement_read.data["requirement"]["custom_fields"] == {}
 
 
 def test_generate_blocked_in_minimal_preset(n1_ctx):
