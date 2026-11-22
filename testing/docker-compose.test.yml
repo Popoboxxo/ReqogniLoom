@@ -196,7 +196,12 @@ services:
       - ./deploy:/deploy:ro
       - ./README.md:/app/README.md:ro
       - ./.meta-config:/app/.meta-config:ro
-      - ./scripts:/app/scripts:ro
+      # Deliberately NO ./scripts mount here: pytest collects every test_*.py
+      # under /app, so binding scripts/ would pull the host-only scripts suite
+      # (incl. scripts/tests/test_doc_number_drift.py) into the in-container run.
+      # Those tests resolve repo-root paths that do not exist in this layout
+      # (/app IS backend/, so /app/backend/... is absent), and that suite is a
+      # host-side CI job anyway (.github/workflows/ci.yml runs it explicitly).
       - ./AGENTS.md:/app/AGENTS.md:ro
       - ./CLAUDE.md:/app/CLAUDE.md:ro
     depends_on:
