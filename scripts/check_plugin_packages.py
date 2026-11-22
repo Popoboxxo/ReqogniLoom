@@ -240,18 +240,17 @@ def _read_yaml_field(path: Path, field: str) -> str | None:
     return None
 
 
-def collect_problems(repo_root: Path, expected_version: str) -> list[str]:
-    """Return every presence/version problem for the plugin packages.
-
-    ``repo_root`` is a parameter (not the module constant) so the checks are
-    testable against a temporary tree.
-    """
-    problems: list[str] = []
-
+def _check_required_sources(repo_root: Path, problems: list[str]) -> None:
+    """Append a problem for every missing first-party plugin source file."""
     for label, rel in REQUIRED_SOURCES:
         if not (repo_root / rel).is_file():
             problems.append(f"{label}: missing source file {rel}")
 
+
+def _check_version_coupled(
+    repo_root: Path, expected_version: str, problems: list[str]
+) -> None:
+    """Append problems for coupled manifests that are missing, invalid or drifted."""
     # Cache parsed JSON per file so several pointers into the same manifest do
     # not re-read or re-parse it.
     parsed: dict[str, object] = {}
@@ -281,6 +280,9 @@ def collect_problems(repo_root: Path, expected_version: str) -> list[str]:
                 f"({loc.path} → {pointer})"
             )
 
+
+def _check_independent_poc(repo_root: Path, problems: list[str]) -> None:
+    """Presence/format checks for independently-versioned POC artifacts (ADR-017)."""
     for label, rel in INDEPENDENT_POC:
         target = repo_root / rel
         if not target.is_file():
@@ -292,8 +294,18 @@ def collect_problems(repo_root: Path, expected_version: str) -> list[str]:
         elif not _VERSION_RE.match(version):
             problems.append(f"{label}: {rel} version {version!r} is not a concrete SemVer")
 
-    _check_claude_code_tool_refs(repo_root, problems)
 
+def collect_problems(repo_root: Path, expected_version: str) -> list[str]:
+    """Return every presence/version problem for the plugin packages.
+
+    ``repo_root`` is a parameter (not the module constant) so the checks are
+    testable against a temporary tree.
+    """
+    problems: list[str] = []
+    _check_required_sources(repo_root, problems)
+    _check_version_coupled(repo_root, expected_version, problems)
+    _check_independent_poc(repo_root, problems)
+    _check_claude_code_tool_refs(repo_root, problems)
     return problems
 
 

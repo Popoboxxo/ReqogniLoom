@@ -87,6 +87,136 @@ def _build_requirement_update_kwargs(
     return kwargs
 
 
+def _formalize_grounded_update(ctx, session, title: str) -> list[str]:
+    """Grounded-UPDATE branch of interview formalization.
+
+    Extracted from ``_write_formalization_artifacts`` (repowise finding #16):
+    this path updates the Requirement a session was grounded onto instead of
+    creating a new artifact. Kept as a module-level helper so the public
+    ``InterviewService`` method surface stays byte-identical (the split-contract
+    test pins that exact set).
+
+    The target's existence is re-checked here, at write time (spec §9: grounding
+    may be stale by the time formalize() runs), so a deleted target raises
+    ``NotFoundError`` rather than silently creating a new artifact (wrong
+    outcome) or updating a row that no longer exists. The update is
+    Requirement-only -- generalizing it needs a second, update-flavoured
+    adapter registry, which the spec does not ask for (see ``set_target()``'s
+    matching guard).
+
+    Returns the Requirement's *own* id (issue #736): the user-facing id returned
+    by requirement.create/get and resolvable via
+    ``RequirementService.get_requirement``'s ``id=`` lookup -- not the backing
+    Artifact PK (the two are distinct UUIDs, see ``Requirement.artifact``
+    OneToOneField). ``artifact.get_tree()`` resolves this id too, via
+    TraceLinkService._resolve_artifact.
+    """
+    from application.requirement_service import RequirementService
+    from persistence.models import Requirement
+
+    resulting_ids: list[str] = []
+
+    if session.artifact_type != "Requirement":
+        raise ValidationError(
+            f"formalize() cannot update an existing "
+            f"{session.artifact_type!r}: the grounded-update branch is "
+            "Requirement-only. Start a session without a target to "
+            "create a new artifact instead."
+        )
+    svc = RequirementService()
+    target = Requirement.objects.filter(
+        artifact_id=session.target_artifact_id
+    ).first()
+    if target is None:
+        raise NotFoundError(
+            f"Target artifact {session.target_artifact_id} no longer "
+            "exists; cannot formalize an update against it."
+        )
+    # Issue #1982: forward every elicited answer, not just title and
+    # description. The create path already does this through
+    # build_adapter_fields; the grounded-update branch used to drop
+    # acceptance_criteria/verification_method, so those answers were
+    # silently lost on an update. _build_requirement_update_kwargs also
+    # keeps C-1's rationale->description alias (with an explicitly
+    # collected description winning).
+    kwargs = _build_requirement_update_kwargs(session.collected_fields)
+    updated = svc.update_requirement(
+        target.id,
+        ctx,
+        title=title,
+        # The extended preset rejects an update without a reason.
+        change_reason="interview formalization",
+        **kwargs,
+    )
+    resulting_ids.append(str(updated.id))
+    return resulting_ids
+
+
+def _formalize_new_artifact(ctx, session, title: str) -> list[str]:
+    """CREATE + provenance-join branch of interview formalization.
+
+    Extracted from ``_write_formalization_artifacts`` (repowise finding #16):
+    with no grounding target the artifact is created through
+    ``ARTIFACT_CREATION_ADAPTERS`` -- the same registry the multi-kind path
+    uses -- so all 8 in-scope artifact types work through their production
+    ``create_X()`` service method (workflow state initialization included,
+    spec L2.1).
+
+    A missing required service field (KeyError) or a protocol field name the
+    create_X() signature does not accept (TypeError) is caller/config input,
+    not a server fault -- it must never escape as an unhandled 500 (same
+    contract as _formalize_multi).
+
+    Beyond the create, this writes the provenance join row ``_formalize_multi``
+    writes, so provenance_session_id()/the InterviewProvenanceBadge work for
+    single-kind sessions too (L2.3). ``artifact_id`` (the Artifact PK), never
+    ``entity_id``, is stored: this is an Artifact FK. The reported user-facing
+    id is ``entity_id`` (issue #736), not the Artifact PK.
+    """
+    from application.interview_artifact_adapters import (
+        ARTIFACT_CREATION_ADAPTERS,
+        build_adapter_fields,
+    )
+
+    resulting_ids: list[str] = []
+
+    adapter = ARTIFACT_CREATION_ADAPTERS.get(session.artifact_type)
+    if adapter is None:
+        raise ValidationError(
+            f"No artifact creation adapter for "
+            f"artifact_type={session.artifact_type!r}."
+        )
+    fields = build_adapter_fields(session.collected_fields)
+    fields["title"] = title  # the normalised/stripped value wins
+    try:
+        created_ref = adapter(fields, ctx, session.workspace_id)
+    except (KeyError, TypeError) as exc:
+        # Same contract as _formalize_multi: a missing required
+        # service field (KeyError) or a protocol field name the
+        # create_X() signature does not accept (TypeError) is
+        # caller/config input, not a server fault -- it must never
+        # escape as an unhandled 500.
+        raise ValidationError(
+            f"cannot formalize {session.artifact_type!r} from the "
+            f"collected answers: {exc}"
+        ) from exc
+    # Issue #736: report the user-facing subtype id, not the
+    # Artifact PK.
+    resulting_ids.append(str(created_ref.entity_id))
+    # L2.3: the same provenance join row _formalize_multi writes, so
+    # provenance_session_id()/the InterviewProvenanceBadge work for
+    # single-kind sessions too -- previously only multi-kind
+    # artifacts could ever show "created via interview".
+    # artifact_id (the Artifact PK), never entity_id: this is an
+    # Artifact FK.
+    InterviewSessionArtifact.objects.create(
+        session=session,
+        artifact_id=created_ref.artifact_id,
+        artifact_type=created_ref.artifact_type,
+    )
+    return resulting_ids
+
+
 class InterviewFormalizationMixin:
     """Single-kind formalize path; mixed into :class:`InterviewService`."""
 
@@ -321,117 +451,25 @@ class InterviewFormalizationMixin:
 
     @staticmethod
     def _write_formalization_artifacts(ctx, session, title: str) -> list[str]:
-        """Write stage: create or update the backing artifact and return its
+        """Write stage: create or update the backing artifact, return its
         user-facing id(s).
 
-        With ``target_artifact_id`` set (grounded update, issue #540) the
-        Requirement-only update branch runs -- generalizing it needs a
-        second, update-flavoured adapter registry, which the spec does not
-        ask for (see ``set_target()``'s matching guard). The target's
-        existence is re-checked here, at write time (spec §9: grounding
-        may be stale by the time formalize() runs), so a deleted target
-        raises NotFoundError rather than silently creating a new artifact
-        (wrong outcome) or updating a row that no longer exists.
+        Dispatch only. The two branches are self-contained module-level helpers
+        so each can be reasoned about in isolation (repowise finding #16):
 
-        Without a target the artifact is created through
-        ``ARTIFACT_CREATION_ADAPTERS`` -- the same registry the multi-kind
-        path uses -- so all 8 in-scope artifact types work through their
-        production ``create_X()`` service method (workflow state
-        initialization included, spec L2.1), plus the provenance join row
-        ``_formalize_multi`` writes, so provenance_session_id()/the
-        InterviewProvenanceBadge work for single-kind sessions too (L2.3).
-        A missing required service field (KeyError) or a protocol field
-        name the create_X() signature does not accept (TypeError) is
-        caller/config input, not a server fault -- it must never escape as
-        an unhandled 500 (same contract as _formalize_multi).
+        * ``_formalize_grounded_update`` -- ``target_artifact_id`` set; the
+          Requirement-only grounded-UPDATE path (issue #540).
+        * ``_formalize_new_artifact`` -- no target; CREATE via
+          ``ARTIFACT_CREATION_ADAPTERS`` plus the provenance join row.
+
+        This method stays on the mixin so the pinned public ``InterviewService``
+        surface is unchanged. The branch condition, error codes, user-facing
+        ids and side effects are identical to the pre-split inline sequence --
+        the original inline order is preserved inside each helper.
         """
-        from application.interview_artifact_adapters import (
-            ARTIFACT_CREATION_ADAPTERS,
-            build_adapter_fields,
-        )
-
-        resulting_ids: list[str] = []
-
         if session.target_artifact_id is not None:
-            from application.requirement_service import RequirementService
-            from persistence.models import Requirement
-
-            if session.artifact_type != "Requirement":
-                raise ValidationError(
-                    f"formalize() cannot update an existing "
-                    f"{session.artifact_type!r}: the grounded-update branch is "
-                    "Requirement-only. Start a session without a target to "
-                    "create a new artifact instead."
-                )
-            svc = RequirementService()
-            target = Requirement.objects.filter(
-                artifact_id=session.target_artifact_id
-            ).first()
-            if target is None:
-                raise NotFoundError(
-                    f"Target artifact {session.target_artifact_id} no longer "
-                    "exists; cannot formalize an update against it."
-                )
-            # Issue #1982: forward every elicited answer, not just title and
-            # description. The create path already does this through
-            # build_adapter_fields; the grounded-update branch used to drop
-            # acceptance_criteria/verification_method, so those answers were
-            # silently lost on an update. _build_requirement_update_kwargs also
-            # keeps C-1's rationale->description alias (with an explicitly
-            # collected description winning).
-            kwargs = _build_requirement_update_kwargs(session.collected_fields)
-            updated = svc.update_requirement(
-                target.id,
-                ctx,
-                title=title,
-                # The extended preset rejects an update without a reason.
-                change_reason="interview formalization",
-                **kwargs,
-            )
-            # Issue #736: resulting_artifact_ids must carry the Requirement's
-            # own id (the "user-facing" id returned by
-            # requirement.create/get, resolvable via
-            # RequirementService.get_requirement's ``id=`` lookup), not the
-            # backing Artifact's id -- the two are distinct UUIDs (see
-            # Requirement.artifact OneToOneField). artifact.get_tree() still
-            # resolves this id too, via TraceLinkService._resolve_artifact.
-            resulting_ids.append(str(updated.id))
-        else:
-            adapter = ARTIFACT_CREATION_ADAPTERS.get(session.artifact_type)
-            if adapter is None:
-                raise ValidationError(
-                    f"No artifact creation adapter for "
-                    f"artifact_type={session.artifact_type!r}."
-                )
-            fields = build_adapter_fields(session.collected_fields)
-            fields["title"] = title  # the normalised/stripped value wins
-            try:
-                created_ref = adapter(fields, ctx, session.workspace_id)
-            except (KeyError, TypeError) as exc:
-                # Same contract as _formalize_multi: a missing required
-                # service field (KeyError) or a protocol field name the
-                # create_X() signature does not accept (TypeError) is
-                # caller/config input, not a server fault -- it must never
-                # escape as an unhandled 500.
-                raise ValidationError(
-                    f"cannot formalize {session.artifact_type!r} from the "
-                    f"collected answers: {exc}"
-                ) from exc
-            # Issue #736: report the user-facing subtype id, not the
-            # Artifact PK.
-            resulting_ids.append(str(created_ref.entity_id))
-            # L2.3: the same provenance join row _formalize_multi writes, so
-            # provenance_session_id()/the InterviewProvenanceBadge work for
-            # single-kind sessions too -- previously only multi-kind
-            # artifacts could ever show "created via interview".
-            # artifact_id (the Artifact PK), never entity_id: this is an
-            # Artifact FK.
-            InterviewSessionArtifact.objects.create(
-                session=session,
-                artifact_id=created_ref.artifact_id,
-                artifact_type=created_ref.artifact_type,
-            )
-        return resulting_ids
+            return _formalize_grounded_update(ctx, session, title)
+        return _formalize_new_artifact(ctx, session, title)
 
     @staticmethod
     def _complete_single_formalization_workflow(ctx, session) -> bool:
