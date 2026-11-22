@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "reqogniloom": {
-      "type": "sse",
-      "url": "${user_config.mcp_url}/mcp/sse/",
+      "type": "http",
+      "url": "${user_config.mcp_url}/mcp/",
       "headers": {
         "X-API-Key": "${user_config.api_key}"
       }

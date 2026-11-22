@@ -16,9 +16,15 @@ keine Repo-Zugangsdaten. Das Schreiben, Branchen und Öffnen des Pull Requests
 übernimmt der Agent oder der CI-Job `scripts/clients/project_documents.py` —
 beide arbeiten mit demselben Protokoll.
 
+> **Workspace-ID-Voraussetzung:** Jeder `workspace.get_context`-Aufruf unten erhält eine konkrete
+> `workspace_id` (aus dem Sitzungskontext; die meisten schlanken Plugin-Rollen haben **kein**
+> `workspace.list` — ID dann von der orchestrierenden Rolle mit dieser Berechtigung holen oder
+> vom Menschen erfragen). Ohne ID liefert `workspace.get_context` kein Rigor-Preset — siehe
+> DOMAIN_MODEL.md → „Workspace-ID prerequisite".
+
 ## Ablauf
 
-1. `workspace.get_context` — Rigor-Stufe, Workspace-ID und Dokumentumfang
+1. `workspace.get_context(workspace_id)` — Rigor-Stufe, Workspace-ID und Dokumentumfang
    ermitteln. Dokumente über `document.query` auflisten, einzelne über
    `document.read` prüfen; `document.versions` und `document.diff` zeigen, ob
    sich der Loom-Stand seit der letzten Projektion bewegt hat.

@@ -1,7 +1,7 @@
 """Render the canonical role templates + tool manifest into a Claude Code
 plugin: .claude-plugin/plugin.json (including the ``userConfig`` prompts the
-installer/`claude plugin configure` fills in), .mcp.json (SSE, interpolated
-from ``userConfig``, never a literal key), agents/<role>.md (Claude Code
+installer/`claude plugin configure` fills in), .mcp.json (Streamable HTTP,
+interpolated from ``userConfig``, never a literal key), agents/<role>.md (Claude Code
 subagent format with MCP tool
 names rewritten to mcp__plugin_<plugin>_<server>__<tool_underscored>) — the tool-restricted RBAC
 identities from Task 3 — plus skills/<name>/SKILL.md (the unrestricted
@@ -112,8 +112,8 @@ def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
             {
                 "mcpServers": {
                     SERVER_NAME: {
-                        "type": "sse",
-                        "url": "${user_config.mcp_url}/mcp/sse/",
+                        "type": "http",
+                        "url": "${user_config.mcp_url}/mcp/",
                         "headers": {"X-API-Key": "${user_config.api_key}"},
                     }
                 }

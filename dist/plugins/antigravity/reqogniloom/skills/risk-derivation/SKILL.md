@@ -8,9 +8,14 @@ description: Use when identifying risks and linking them to the requirements or 
 See [DOMAIN_MODEL.md](../../DOMAIN_MODEL.md) for the REQ-ID schema and trace-link types referenced
 below.
 
+> **Workspace-ID prerequisite:** every `workspace.get_context` call below passes a concrete
+> `workspace_id` (from the session context, or obtained via `workspace.list` — which most thin
+> plugin roles lack, so get the id from the orchestrating role that has it or ask the user).
+> See DOMAIN_MODEL.md → "Workspace-ID prerequisite". Never call it without the id.
+
 ## Workflow
 
-1. `workspace.get_context` — learn the active rigor preset (it affects which fields a risk record
+1. `workspace.get_context(workspace_id)` — learn the active rigor preset (it affects which fields a risk record
    must carry, e.g. `extended` typically requires a documented likelihood/impact/mitigation
    triad).
 2. Use `requirement.get`/`requirement.query` and `architecture.get`/`architecture.query` to

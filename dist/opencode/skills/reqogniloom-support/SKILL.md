@@ -10,6 +10,11 @@ Artefakt und Dokument. Das Issue-Formular liegt im ReqogniLoom-Repository unter
 `.github/ISSUE_TEMPLATE/reqogniloom-defect.yml`. Diese Rolle arbeitet
 ausschließlich lesend und legt am Ende genau ein Issue an.
 
+> **Workspace-ID-Voraussetzung:** Jeder `workspace.get_context`-Aufruf unten erhält eine konkrete
+> `workspace_id`. Diese Rolle besitzt `workspace.list` und ermittelt die ID bei Bedarf selbst,
+> andernfalls aus dem Aufgabenkontext. Ohne ID liefert `workspace.get_context` kein Rigor-Preset —
+> siehe DOMAIN_MODEL.md → „Workspace-ID prerequisite".
+
 ## 1. Aufnahme-Checkliste
 
 Jede Angabe wird erfragt, nicht geraten. Fehlt eine Pflichtangabe, wird
@@ -46,7 +51,7 @@ Von oben nach unten prüfen, die erste zutreffende Klasse gewinnt:
    **kein** öffentliches Detail-Issue.
 2. **Server-Bug** — reproduzierbar mit gültiger Konfiguration und gültigen
    Rechten; ein anderer Aufrufer mit denselben Daten scheitert identisch. Die
-   lesenden Tools (`workspace.get_context`, `document.read`) bestätigen den
+   lesenden Tools (`workspace.get_context(workspace_id)`, `document.read`) bestätigen den
    Zustand, nicht die Ursache.
 3. **Client-Fehler** — der Aufruf ist falsch gebaut: falscher Transport
    (SSE gegen HTTP), fehlender `X-API-Key`-Header, `{env:…}`-Platzhalter nicht
@@ -64,7 +69,8 @@ und die zweite Klasse im Issue-Text als Zusammenhang nennen.
 
 ## 3. Minimal-Reproduktion
 
-1. `workspace.get_context` — Workspace-ID, Rigor-Stufe und Rolle bestätigen.
+1. `workspace.get_context(workspace_id)` — Workspace-ID, Rigor-Stufe und Rolle bestätigen; die ID
+   kommt aus dem Aufgabenkontext oder aus `workspace.list` (dieser Rolle verfügbar).
 2. `workspace.list` und `workspace.get_preferences` — liegt der Fehler an einem
    zweiten Workspace ebenfalls vor? Ist die Konfiguration wie erwartet?
 3. `artifact.search` und `artifact.get_tree` — betroffenes Artefakt und seine
