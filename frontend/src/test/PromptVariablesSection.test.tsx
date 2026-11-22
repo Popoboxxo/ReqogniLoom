@@ -2,7 +2,7 @@
  * ARCH-L1-001 ReactFrontend — central prompt variable management (spec §5).
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { PromptVariablesSection } from "../components/WorkspaceSettings/PromptVariablesSection";
@@ -127,20 +127,26 @@ describe("PromptVariablesSection (spec §5)", () => {
     ).toContain("Workspace-Override");
   });
 
-  it("writes the tenant default when the global scope is selected", async () => {
+  it("writes the tenant default when mounted on the global surface (#1968)", async () => {
     const user = userEvent.setup();
-    render(<PromptVariablesSection workspaceId={WORKSPACE_ID} />);
+    render(<PromptVariablesSection scope="global" />);
     await screen.findByTestId("prompt-variable-max_breadth-input");
 
-    await user.selectOptions(
-      screen.getByTestId("prompt-variables-scope-select"),
-      "global"
-    );
     await user.click(screen.getByTestId("prompt-variable-max_breadth-save"));
 
     await waitFor(() =>
       expect(save).toHaveBeenCalledWith("max_breadth", 5, null)
     );
+  });
+
+  it("does not expose a global scope switcher in workspace settings (#1968)", async () => {
+    render(<PromptVariablesSection workspaceId={WORKSPACE_ID} />);
+    await screen.findByTestId("prompt-variable-max_breadth-input");
+
+    expect(
+      screen.queryByTestId("prompt-variables-scope-select")
+    ).toBeNull();
+    expect(screen.getByTestId("prompt-variables-scope-note")).toBeTruthy();
   });
 
   it("drops an override via reset", async () => {
@@ -212,33 +218,19 @@ describe("PromptVariablesSection (spec §5)", () => {
     // disable the reset button. The fix refetches the full list instead.
     const user = userEvent.setup();
     const withOverride = variable("max_breadth", {
+      global_value: 9,
+      global_version: 1,
       workspace_value: 2,
       workspace_version: 1,
       has_workspace_override: true,
       effective_value: 2,
       effective_scope: "workspace",
     });
-    list
-      .mockResolvedValueOnce({
-        variables: [withOverride],
-        count: 1,
-        workspace_id: WORKSPACE_ID,
-      })
-      .mockResolvedValueOnce({
-        variables: [
-          variable("max_breadth", {
-            global_value: 9,
-            global_version: 1,
-            workspace_value: 2,
-            workspace_version: 1,
-            has_workspace_override: true,
-            effective_value: 2,
-            effective_scope: "workspace",
-          }),
-        ],
-        count: 1,
-        workspace_id: WORKSPACE_ID,
-      });
+    list.mockResolvedValue({
+      variables: [withOverride],
+      count: 1,
+      workspace_id: WORKSPACE_ID,
+    });
     // Simulates the real backend's partial response for a global-scope
     // write: it looks like the workspace override was dropped.
     save.mockResolvedValueOnce(
@@ -252,13 +244,9 @@ describe("PromptVariablesSection (spec §5)", () => {
       })
     );
 
-    render(<PromptVariablesSection workspaceId={WORKSPACE_ID} />);
+    const { rerender } = render(<PromptVariablesSection scope="global" />);
     await screen.findByTestId("prompt-variable-max_breadth-input");
 
-    await user.selectOptions(
-      screen.getByTestId("prompt-variables-scope-select"),
-      "global"
-    );
     const input = screen.getByTestId("prompt-variable-max_breadth-input");
     await user.clear(input);
     await user.type(input, "9");
@@ -270,13 +258,15 @@ describe("PromptVariablesSection (spec §5)", () => {
     // The fix requires a refetch after a global-scope write.
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
 
-    await user.selectOptions(
-      screen.getByTestId("prompt-variables-scope-select"),
-      "workspace"
+    // Issue #1968: the two scopes are different surfaces now; re-mounting
+    // the workspace one must still show the untouched override.
+    rerender(
+      <PromptVariablesSection scope="workspace" workspaceId={WORKSPACE_ID} />
     );
-
-    expect(screen.getByTestId("prompt-variable-max_breadth-input")).toHaveValue(
-      "2"
+    await waitFor(() =>
+      expect(screen.getByTestId("prompt-variable-max_breadth-input")).toHaveValue(
+        "2"
+      )
     );
     expect(
       screen.getByTestId("prompt-variable-max_breadth-origin").textContent
@@ -327,5 +317,51 @@ describe("PromptVariablesSection (spec §5)", () => {
     await screen.findByTestId("prompt-variable-new-save");
 
     expect(screen.getByTestId("prompt-variable-new-save")).toHaveTextContent("Erstellen");
+  });
+
+  it("disables the whole editor with a clear message on RBAC denial (#1968)", async () => {
+    save.mockRejectedValueOnce({ status: 403, message: "Forbidden" });
+
+    render(<PromptVariablesSection scope="global" />);
+    await userEvent.click(
+      await screen.findByTestId("prompt-variable-max_breadth-save")
+    );
+
+    expect(
+      await screen.findByTestId("prompt-variables-readonly")
+    ).toBeTruthy();
+    expect(screen.getByTestId("prompt-variable-max_breadth-input")).toBeDisabled();
+    expect(screen.getByTestId("prompt-variable-max_breadth-save")).toBeDisabled();
+    expect(screen.getByTestId("prompt-variable-new-name")).toBeDisabled();
+    expect(screen.getByTestId("prompt-variable-new-save")).toBeDisabled();
+
+    const callsAfterDenial = save.mock.calls.length;
+    fireEvent.click(screen.getByTestId("prompt-variable-new-save"));
+    expect(save).toHaveBeenCalledTimes(callsAfterDenial);
+  });
+
+  it("honours canEdit={false} without any failed request (#1968)", async () => {
+    render(<PromptVariablesSection scope="global" canEdit={false} />);
+    await screen.findByTestId("prompt-variable-max_breadth-input");
+
+    expect(screen.getByTestId("prompt-variables-readonly")).toBeTruthy();
+    expect(screen.getByTestId("prompt-variable-max_breadth-save")).toBeDisabled();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("names the reset action per scope: override vs tenant default (#1968 review)", async () => {
+    const { rerender } = render(
+      <PromptVariablesSection workspaceId={WORKSPACE_ID} />
+    );
+    expect(
+      await screen.findByTestId("prompt-variable-max_breadth-reset")
+    ).toHaveTextContent("Override entfernen");
+
+    rerender(<PromptVariablesSection scope="global" />);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("prompt-variable-max_breadth-reset")
+      ).toHaveTextContent("Auf Standard zurücksetzen")
+    );
   });
 });

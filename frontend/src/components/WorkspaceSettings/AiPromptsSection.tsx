@@ -13,14 +13,17 @@
  * `workspace_to_glossary`, `decision_to_adr`) that were previously reachable
  * only via MCP — and can write either scope:
  *
- *   - Scope "workspace": saving publishes a workspace override; resetting
- *     deletes it so the slot falls back to the tenant-global default.
- *   - Scope "global": saving publishes the tenant-wide default; resetting
- *     falls back to the factory text shipped with the product.
+ *   - Scope "workspace" (workspace settings): saving publishes a workspace
+ *     override; resetting deletes it so the slot falls back to the
+ *     tenant-global default.
+ *   - Scope "global" (system settings prompt tab): saving publishes the
+ *     tenant-wide default; resetting falls back to the factory text.
  *
- * The scope switch exists because the previous section was the only UI able to
- * edit tenant-wide prompts; dropping to workspace-only editing would have
- * traded one gap for another.
+ * Issue #1968: the two scopes are now *separate surfaces*. This component no
+ * longer renders a scope switcher — a caller mounts it with a fixed `scope`,
+ * so workspace settings can never write the tenant default. A 403 (or an
+ * explicit `canEdit={false}`) turns the whole section read-only with a clear
+ * message instead of leaving controls that fail on every save.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -33,14 +36,25 @@ import {
 import { promptVariablesApi, type PromptVariableState } from "../../api/prompt-variables";
 import { PromptVariableTable } from "./PromptVariableTable";
 import styles from "./AiPromptsSection.module.css";
-import { toUserErrorMessage } from "../../utils/userErrorMessage";
+import {
+  classifyUserError,
+  toUserErrorMessage,
+} from "../../utils/userErrorMessage";
 
 interface Props {
   /** Workspace whose overrides are edited when scope is "workspace". */
-  workspaceId: string;
+  workspaceId?: string;
+  /**
+   * The one scope this surface owns (issue #1968). Workspace settings passes
+   * "workspace", the system settings prompt tab passes "global". No runtime
+   * switcher: mixing the two is exactly the defect being fixed.
+   */
+  scope?: EditScope;
+  /** False when the caller already knows the user may not write here. */
+  canEdit?: boolean;
 }
 
-/** Which scope the admin is currently editing. */
+/** Which scope this mounted surface edits. */
 type EditScope = "workspace" | "global";
 
 /** Human-readable label fallbacks for the slots the product ships with. */
@@ -104,9 +118,12 @@ function originForScope(slot: PromptSlotState, scope: EditScope): string {
   return slot.global_content === null ? "factory" : "global";
 }
 
-export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
+export function AiPromptsSection({
+  workspaceId,
+  scope = "workspace",
+  canEdit = true,
+}: Props): JSX.Element {
   const { t } = useTranslation();
-  const [scope, setScope] = useState<EditScope>("workspace");
   const [slots, setSlots] = useState<PromptSlotState[]>([]);
   const [variables, setVariables] = useState<PromptVariableState[]>([]);
   // Only slots the admin actually edited appear here — an absent entry means
@@ -117,6 +134,10 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
   const [busySlot, setBusySlot] = useState<string | null>(null);
   const [savedSlot, setSavedSlot] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Issue #1968: an RBAC-denied request makes the rest of the form useless.
+  // Remember it so every control can be disabled with one clear message.
+  const [accessDenied, setAccessDenied] = useState(false);
+  const readOnly = !canEdit || accessDenied;
 
   const load = useCallback(async (): Promise<void> => {
     setError(null);
@@ -136,6 +157,9 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
       setSlots(orderSlots(slotsResult.value.slots));
       setDrafts({});
     } else {
+      if (classifyUserError(slotsResult.reason) === "unauthorized") {
+        setAccessDenied(true);
+      }
       setError(toUserErrorMessage(slotsResult.reason, t));
     }
 
@@ -154,18 +178,18 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
 
   const orderedSlots = useMemo(() => orderSlots(slots), [slots]);
 
-  const handleScopeChange = (next: EditScope): void => {
-    // Drafts are scope-specific: keeping them would silently carry a
-    // workspace-override edit into a tenant-wide save.
-    setScope(next);
-    setDrafts({});
-    setSavedSlot(null);
-    setError(null);
-  };
-
   const handleChange = (name: string, next: string): void => {
     setDrafts((prev) => ({ ...prev, [name]: next }));
     setSavedSlot(null);
+  };
+
+  /** Fail closed: a workspace-scope mount must never fall back to a global write. */
+  const targetScopeId = (): string | null => {
+    if (scope === "global") return null;
+    if (!workspaceId) {
+      throw new Error("A workspaceId is required for workspace-scope prompt writes");
+    }
+    return workspaceId;
   };
 
   /** Replace one slot in local state with the server's post-write truth. */
@@ -180,7 +204,21 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
     });
   };
 
+  /**
+   * A global-scope write omits `workspace_id`, so the server's response does
+   * not resolve that workspace's rows. Refetch with the workspace id instead
+   * of merging a partial state that would blank out its overrides in the UI.
+   */
+  const applyWriteResult = async (updated: PromptSlotState): Promise<void> => {
+    if (scope === "global") {
+      await load();
+      return;
+    }
+    applyUpdated(updated);
+  };
+
   const handleSave = async (slot: PromptSlotState): Promise<void> => {
+    if (readOnly) return;
     setBusySlot(slot.name);
     setError(null);
     setSavedSlot(null);
@@ -188,11 +226,12 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
       const updated = await promptTemplatesApi.saveSlot(
         slot.name,
         drafts[slot.name] ?? contentForScope(slot, scope),
-        scope === "workspace" ? workspaceId : null
+        targetScopeId()
       );
-      applyUpdated(updated);
+      await applyWriteResult(updated);
       setSavedSlot(slot.name);
     } catch (err) {
+      if (classifyUserError(err) === "unauthorized") setAccessDenied(true);
       setError(toUserErrorMessage(err, t));
     } finally {
       setBusySlot(null);
@@ -200,16 +239,18 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
   };
 
   const handleReset = async (slot: PromptSlotState): Promise<void> => {
+    if (readOnly) return;
     setBusySlot(slot.name);
     setError(null);
     setSavedSlot(null);
     try {
       const updated = await promptTemplatesApi.clearSlot(
         slot.name,
-        scope === "workspace" ? workspaceId : null
+        targetScopeId()
       );
-      applyUpdated(updated);
+      await applyWriteResult(updated);
     } catch (err) {
+      if (classifyUserError(err) === "unauthorized") setAccessDenied(true);
       setError(toUserErrorMessage(err, t));
     } finally {
       setBusySlot(null);
@@ -268,25 +309,23 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
         </p>
       )}
 
-      <div className={styles.scopeRow}>
-        <label htmlFor="prompt-scope-select" className={styles.fieldLabelInline}>
-          {t("settings.promptTemplates.scope", "Geltungsbereich")}
-        </label>
-        <select
-          id="prompt-scope-select"
-          data-testid="prompt-scope-select"
-          value={scope}
-          onChange={(e) => handleScopeChange(e.target.value as EditScope)}
-          className={styles.select}
+      {/* Issue #1968: no scope switcher — the mounting surface owns the
+          scope. The note replaces the former dropdown's orientation. */}
+      <p className={styles.hint} data-testid="prompt-template-scope-note">
+        {scope === "workspace"
+          ? t("settings.promptTemplates.scopeWorkspaceNote")
+          : t("settings.promptTemplates.scopeGlobalNote")}
+      </p>
+
+      {readOnly && (
+        <p
+          role="alert"
+          data-testid="prompt-template-readonly"
+          className={styles.warning}
         >
-          <option value="workspace">
-            {t("settings.promptTemplates.scopeWorkspace", "Nur dieser Workspace")}
-          </option>
-          <option value="global">
-            {t("settings.promptTemplates.scopeGlobal", "Global (alle Workspaces)")}
-          </option>
-        </select>
-      </div>
+          {t("settings.promptTemplates.readOnly")}
+        </p>
+      )}
 
       {error && (
         <p
@@ -324,6 +363,7 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
               data-testid={`prompt-${slot.name}-input`}
               value={value}
               onChange={(e) => handleChange(slot.name, e.target.value)}
+              disabled={readOnly}
               className={styles.textarea}
             />
             <div className={styles.buttonRow}>
@@ -331,7 +371,7 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
                 type="button"
                 data-testid={`prompt-${slot.name}-save`}
                 onClick={() => void handleSave(slot)}
-                disabled={isBusy}
+                disabled={isBusy || readOnly}
                 className="btn-primary"
               >
                 {isBusy ? t("actions.saving") : t("actions.save")}
@@ -340,7 +380,7 @@ export function AiPromptsSection({ workspaceId }: Props): JSX.Element {
                 type="button"
                 data-testid={`prompt-${slot.name}-reset`}
                 onClick={() => void handleReset(slot)}
-                disabled={isBusy || !canReset}
+                disabled={isBusy || readOnly || !canReset}
                 className="btn-secondary"
               >
                 {scope === "workspace"

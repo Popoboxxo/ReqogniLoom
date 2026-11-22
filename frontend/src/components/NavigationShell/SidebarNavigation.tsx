@@ -25,7 +25,11 @@ import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useFocusTrap } from "../shared/Dialog";
 import { useTheme } from "../../context/ThemeContext";
 import { i18n } from "../../i18n/index";
-import { searchApi, type SearchHit } from "../../api/search";
+import {
+  searchApi,
+  MAX_SEARCH_QUERY_LENGTH,
+  type SearchHit,
+} from "../../api/search";
 import { versionApi, type VersionInfo } from "../../api/version";
 import { workspacesApi } from "../../api/workspaces";
 import { CreateWorkspaceModal } from "./CreateWorkspaceModal";
@@ -241,6 +245,9 @@ export function SidebarNavigation(): JSX.Element {
 
   // ---- Global search state (REQ-L1-020) -----------------------------------
   const [searchQuery, setSearchQuery] = React.useState<string>("");
+  // Issue #1971: set when the input bound actually clipped what the user
+  // typed/pasted, so the truncation is visible instead of silent.
+  const [searchTruncated, setSearchTruncated] = React.useState<boolean>(false);
   const [searchResults, setSearchResults] = React.useState<SearchHit[]>([]);
   const [isSearching, setIsSearching] = React.useState<boolean>(false);
   const [isSearchOpen, setIsSearchOpen] = React.useState<boolean>(false);
@@ -343,7 +350,12 @@ export function SidebarNavigation(): JSX.Element {
   const handleSearchChange = (
     event: React.ChangeEvent<HTMLInputElement>
   ): void => {
-    const value = event.target.value;
+    const raw = event.target.value;
+    // The input already carries maxLength (so ordinary typing stops at the
+    // bound). Clipping here as well covers paste and programmatic changes,
+    // and raises a visible hint instead of dropping characters silently.
+    const value = raw.slice(0, MAX_SEARCH_QUERY_LENGTH);
+    setSearchTruncated(raw.length > MAX_SEARCH_QUERY_LENGTH);
     setSearchQuery(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!value.trim()) {
@@ -369,6 +381,7 @@ export function SidebarNavigation(): JSX.Element {
   const handleHitClick = (hit: SearchHit): void => {
     setIsSearchOpen(false);
     setSearchQuery("");
+    setSearchTruncated(false);
     setSearchResults([]);
     const route =
       hit.artifact_type === "Requirement"
@@ -660,6 +673,12 @@ export function SidebarNavigation(): JSX.Element {
           aria-label={t("nav.searchPlaceholder")}
           data-testid="global-search"
           value={searchQuery}
+          maxLength={MAX_SEARCH_QUERY_LENGTH}
+          aria-describedby={
+            searchTruncated || searchQuery.length >= MAX_SEARCH_QUERY_LENGTH
+              ? "global-search-limit-hint"
+              : undefined
+          }
           onChange={handleSearchChange}
           onKeyDown={handleSearchKeyDown}
           onFocus={() => {
@@ -667,6 +686,21 @@ export function SidebarNavigation(): JSX.Element {
           }}
           className={styles.searchInput}
         />
+        {/* Show the hint both when a paste was clipped and when ordinary
+            typing reaches the bound (maxLength stops further input). */}
+        {(searchTruncated || searchQuery.length >= MAX_SEARCH_QUERY_LENGTH) && (
+          <p
+            id="global-search-limit-hint"
+            role="status"
+            data-testid="global-search-limit-hint"
+            // Reuse the existing small, token-coloured sidebar chrome note:
+            // the search wrapper has no CSS module of its own and the write
+            // scope for #1971 stays inside this component file.
+            className={styles.langNotice}
+          >
+            {t("nav.searchLimitHint", { max: MAX_SEARCH_QUERY_LENGTH })}
+          </p>
+        )}
         {isSearchOpen && (searchResults.length > 0 || isSearching) && (
           <ul role="listbox" aria-label={t("nav.searchResults")} className={styles.dropdownList}>
             {isSearching && (

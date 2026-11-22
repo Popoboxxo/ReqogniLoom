@@ -6,11 +6,13 @@
  *   were previously reachable only via MCP
  * - the workspace scope shows the effective value and saves an override
  * - resetting a workspace override deletes it (falls back to the global value)
- * - switching to the global scope edits the tenant-wide default instead
+ * - the global scope is a separate surface (issue #1968): no switcher here,
+ *   mounting with scope="global" edits the tenant-wide default instead
+ * - a 403 latches read-only mode with a clear message and disabled controls
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { AiPromptsSection } from "./AiPromptsSection";
 import * as promptTemplatesModule from "../../api/prompt-templates";
@@ -213,13 +215,11 @@ describe("AiPromptsSection (issue #119)", () => {
     expect(screen.getByTestId("prompt-need_to_sysreq-reset")).toBeEnabled();
   });
 
-  it("writes the tenant-global default when the scope is switched to global", async () => {
-    render(<AiPromptsSection workspaceId={WORKSPACE_ID} />);
-    await screen.findByTestId("prompt-scope-select");
-    await userEvent.selectOptions(
-      screen.getByTestId("prompt-scope-select"),
-      "global"
-    );
+  it("writes the tenant-global default when mounted on the global surface", async () => {
+    // Issue #1968: the system-settings tab mounts this component with
+    // scope="global" and no workspace id — there is no runtime switcher.
+    render(<AiPromptsSection scope="global" />);
+    await screen.findByTestId("prompt-need_to_sysreq-input");
 
     // The global scope shows the tenant-wide row, not the workspace override.
     expect(screen.getByTestId("prompt-need_to_sysreq-input")).toHaveValue(
@@ -234,6 +234,44 @@ describe("AiPromptsSection (issue #119)", () => {
         null
       )
     );
+  });
+
+  it("does not expose a global scope switcher in workspace settings (#1968)", async () => {
+    render(<AiPromptsSection workspaceId={WORKSPACE_ID} />);
+    await screen.findByTestId("prompt-need_to_sysreq-input");
+
+    expect(screen.queryByTestId("prompt-scope-select")).not.toBeInTheDocument();
+    // The inline default was removed (i18n-parity ratchet); the mocked t()
+    // therefore resolves the locale key itself.
+    expect(screen.getByTestId("prompt-template-scope-note")).toHaveTextContent(
+      "settings.promptTemplates.scopeWorkspaceNote"
+    );
+  });
+
+  it("disables every control with a clear message on RBAC denial (#1968)", async () => {
+    api.saveSlot.mockRejectedValueOnce({ status: 403, message: "Forbidden" });
+
+    render(<AiPromptsSection workspaceId={WORKSPACE_ID} />);
+    await userEvent.click(await screen.findByTestId("prompt-need_to_sysreq-save"));
+
+    expect(await screen.findByTestId("prompt-template-readonly")).toBeInTheDocument();
+    expect(screen.getByTestId("prompt-need_to_sysreq-input")).toBeDisabled();
+    expect(screen.getByTestId("prompt-need_to_sysreq-save")).toBeDisabled();
+    expect(screen.getByTestId("prompt-need_to_sysreq-reset")).toBeDisabled();
+
+    // No further writes are attempted once the denial is latched.
+    const callsAfterDenial = api.saveSlot.mock.calls.length;
+    fireEvent.click(screen.getByTestId("prompt-testcase_derive-save"));
+    expect(api.saveSlot).toHaveBeenCalledTimes(callsAfterDenial);
+  });
+
+  it("honours canEdit={false} without any failed request (#1968)", async () => {
+    render(<AiPromptsSection workspaceId={WORKSPACE_ID} canEdit={false} />);
+    await screen.findByTestId("prompt-need_to_sysreq-input");
+
+    expect(screen.getByTestId("prompt-template-readonly")).toBeInTheDocument();
+    expect(screen.getByTestId("prompt-need_to_sysreq-save")).toBeDisabled();
+    expect(api.saveSlot).not.toHaveBeenCalled();
   });
 });
 

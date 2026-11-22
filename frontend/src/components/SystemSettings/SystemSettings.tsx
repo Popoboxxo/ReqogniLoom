@@ -12,6 +12,7 @@
  *   - attribute-defaults → global attribute visibility/required/layout defaults
  *   - permission-defaults → global matrix + enforcement + mismatches (SCR-206)
  *   - display            → tree/create-form/preference tenant defaults
+ *   - prompts            → tenant-wide AI prompt templates/variables (#1968)
  *   - memory             → memory backend, workspace overview, visualization
  *   - vector-store       → artifact vector backend + Qdrant settings (ADR-020)
  *
@@ -37,6 +38,8 @@ import { MemoryVisualizationSection } from "./MemoryVisualizationSection";
 import { TreeDisplaySection } from "./TreeDisplaySection";
 import { CreateFormSection } from "./CreateFormSection";
 import { PreferenceLevelSection } from "../shared/PreferenceLevelSection/PreferenceLevelSection";
+import { AiPromptsSection } from "../WorkspaceSettings/AiPromptsSection";
+import { PromptVariablesSection } from "../WorkspaceSettings/PromptVariablesSection";
 import { PageHeader } from "../shared/PageHeader";
 import { ConfirmDialog } from "../shared/ConfirmDialog";
 import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
@@ -48,6 +51,7 @@ type SystemTabId =
   | "attribute-defaults"
   | "permission-defaults"
   | "display"
+  | "prompts"
   | "memory"
   | "vector-store";
 
@@ -57,6 +61,9 @@ const TAB_IDS: SystemTabId[] = [
   "attribute-defaults",
   "permission-defaults",
   "display",
+  // Issue #1968: tenant-wide prompt templates/variables are the one scope
+  // workspace settings must not write. They live here, behind the admin gate.
+  "prompts",
   "memory",
   "vector-store",
 ];
@@ -113,6 +120,7 @@ export default function SystemSettings(): JSX.Element {
     { id: "attribute-defaults", label: t("systemSettings.tabs.attributeDefaults", "Attribute Defaults") },
     { id: "permission-defaults", label: t("systemSettings.tabs.permissionDefaults", "Permission Defaults") },
     { id: "display", label: t("systemSettings.tabs.display") },
+    { id: "prompts", label: t("systemSettings.tabs.prompts") },
     { id: "memory", label: t("systemSettings.tabs.memory", "Memory") },
     { id: "vector-store", label: t("systemSettings.tabs.vectorStore") },
   ];
@@ -154,8 +162,9 @@ export default function SystemSettings(): JSX.Element {
               data-testid={`system-settings-tab-${tab.id}`}
               aria-selected={isTabActive}
               // Only the active tab has a rendered panel; pointing the other
-              // five at an ID that does not exist is an axe aria-valid-attr-value
-              // violation and makes the tab/panel relation unresolvable.
+              // tabs at an ID that does not exist is an axe
+              // aria-valid-attr-value violation and makes the tab/panel
+              // relation unresolvable.
               aria-controls={
                 isTabActive ? `system-settings-panel-${tab.id}` : undefined
               }
@@ -205,6 +214,15 @@ export default function SystemSettings(): JSX.Element {
                 preference values; every workspace inherits it unless it
                 overrides it. */}
             <PreferenceLevelSection scope="global" />
+          </div>
+        )}
+        {activeTab === "prompts" && (
+          <div data-testid="system-prompts">
+            {/* Issue #1968: global is the only scope this surface writes;
+                workspace overrides stay in WorkspaceSettings. Both editors
+                are admin-gated here (the page early-returns for non-admins). */}
+            <AiPromptsSection scope="global" canEdit={isAdmin} />
+            <PromptVariablesSection scope="global" canEdit={isAdmin} />
           </div>
         )}
         {activeTab === "memory" && (

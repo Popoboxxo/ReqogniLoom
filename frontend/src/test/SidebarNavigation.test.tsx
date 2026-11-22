@@ -17,9 +17,13 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { AuthProvider } from "../context/AuthContext";
-import { WorkspaceProvider } from "../context/WorkspaceContext";
+import {
+  WorkspaceProvider,
+  DEFAULT_WORKSPACE,
+} from "../context/WorkspaceContext";
 import { ThemeProvider } from "../context/ThemeContext";
 import { SidebarNavigation } from "../components/NavigationShell/SidebarNavigation";
+import { searchApi, MAX_SEARCH_QUERY_LENGTH } from "../api/search";
 import { themePalettesApi } from "../api/themePalettes";
 import type { Workspace } from "../types";
 
@@ -34,6 +38,9 @@ vi.mock("../api/preferences", () => ({
 }));
 
 vi.mock("../api/search", () => ({
+  // Mirror the production bound so the input assertion in the #1971 test
+  // checks the real value rather than a hard-coded duplicate.
+  MAX_SEARCH_QUERY_LENGTH: 2000,
   searchApi: { search: vi.fn(async () => ({ results: [], total_count: 0, page: 1, limit: 10, query: "" })) },
 }));
 
@@ -760,5 +767,78 @@ describe("SidebarNavigation — collapsible nav groups (T-C4-4)", () => {
       screen.getByTestId("sidebar-group-toggle-overview")
     ).toBeInTheDocument();
     expect(screen.getByText("Dashboard").closest("a")).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Global search query bound (issue #1971)
+// ---------------------------------------------------------------------------
+
+describe("SidebarNavigation — bounded global search (#1971)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installLocalStorageStub();
+    sessionStorage.clear();
+    stubAuthFetch(["admin"]);
+    setListWorkspace(true);
+  });
+
+  it("caps the input with maxLength and clips an oversized paste visibly", async () => {
+    renderSidebar();
+    const input = await screen.findByTestId("global-search");
+
+    expect(input).toHaveAttribute("maxlength", String(MAX_SEARCH_QUERY_LENGTH));
+
+    const oversized = "a".repeat(MAX_SEARCH_QUERY_LENGTH + 50);
+    fireEvent.change(input, { target: { value: oversized } });
+
+    expect(input).toHaveValue("a".repeat(MAX_SEARCH_QUERY_LENGTH));
+    expect(
+      await screen.findByTestId("global-search-limit-hint")
+    ).toBeInTheDocument();
+
+    await waitFor(
+      () =>
+        expect(searchApi.search).toHaveBeenCalledWith(
+          "a".repeat(MAX_SEARCH_QUERY_LENGTH),
+          DEFAULT_WORKSPACE.id,
+          { limit: 10 }
+        ),
+      { timeout: 2000 }
+    );
+  });
+
+  it("leaves a normal working query byte-for-byte unchanged", async () => {
+    renderSidebar();
+    const input = await screen.findByTestId("global-search");
+    const query = "ASIL decomposition";
+
+    fireEvent.change(input, { target: { value: query } });
+
+    expect(input).toHaveValue(query);
+    expect(
+      screen.queryByTestId("global-search-limit-hint")
+    ).not.toBeInTheDocument();
+    await waitFor(
+      () =>
+        expect(searchApi.search).toHaveBeenCalledWith(query, DEFAULT_WORKSPACE.id, {
+          limit: 10,
+        }),
+      { timeout: 2000 }
+    );
+  });
+
+  it("explains the bound when typing reaches maxLength", async () => {
+    renderSidebar();
+    const input = await screen.findByTestId("global-search");
+
+    fireEvent.change(input, {
+      target: { value: "a".repeat(MAX_SEARCH_QUERY_LENGTH) },
+    });
+
+    expect(
+      await screen.findByTestId("global-search-limit-hint")
+    ).toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-describedby", "global-search-limit-hint");
   });
 });

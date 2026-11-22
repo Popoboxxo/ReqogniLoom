@@ -9,8 +9,10 @@
  * every prompt that references it, so editing it inside one prompt's editor
  * would misrepresent the blast radius of the change.
  *
- * Scope switch mirrors `AiPromptsSection`: "workspace" writes an override for
- * the active workspace, "global" writes the tenant-wide default.
+ * Issue #1968: the scope is fixed by the mounting surface — workspace
+ * settings passes "workspace" (a workspace override), the system settings
+ * prompt tab passes "global" (the tenant-wide default). There is no in-component
+ * switcher, so the two surfaces can no longer write into each other's scope.
  * `kind: "data"` rows render read-only with a "code-bound" note.
  *
  * All styles are hoisted module constants (no inline style-object literals) —
@@ -26,14 +28,21 @@ import {
   type PromptVariableState,
   type PromptVariableType,
 } from "../../api/prompt-variables";
-import { toUserErrorMessage } from "../../utils/userErrorMessage";
+import {
+  classifyUserError,
+  toUserErrorMessage,
+} from "../../utils/userErrorMessage";
 
 export interface PromptVariablesSectionProps {
   /** Workspace whose overrides are edited when the scope is "workspace". */
-  workspaceId: string;
+  workspaceId?: string;
+  /** The one scope this surface owns (issue #1968). */
+  scope?: EditScope;
+  /** False when the caller already knows the user may not write here. */
+  canEdit?: boolean;
 }
 
-/** Which scope the admin is currently editing. */
+/** Which scope this mounted surface edits. */
 type EditScope = "workspace" | "global";
 
 const VARIABLE_TYPES: readonly PromptVariableType[] = [
@@ -120,13 +129,6 @@ const badgeStyle: CSSProperties = {
 const errorStyle: CSSProperties = {
   color: "var(--color-danger)",
   marginBottom: "var(--space-3)",
-};
-
-const scopeRowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--space-3)",
-  marginBottom: "var(--space-4)",
 };
 
 const createRowStyle: CSSProperties = {
@@ -237,9 +239,10 @@ function BoolValueSelect({
 
 export function PromptVariablesSection({
   workspaceId,
+  scope = "workspace",
+  canEdit = true,
 }: PromptVariablesSectionProps): JSX.Element {
   const { t } = useTranslation();
-  const [scope, setScope] = useState<EditScope>("workspace");
   const [variables, setVariables] = useState<PromptVariableState[]>([]);
   // Only variables the admin actually edited appear here — an absent entry
   // means "show whatever the server last reported".
@@ -251,6 +254,10 @@ export function PromptVariablesSection({
   const [newType, setNewType] = useState<PromptVariableType>("str");
   const [newDescription, setNewDescription] = useState("");
   const [newValue, setNewValue] = useState("");
+  // Issue #1968: latch an RBAC denial so every control can be disabled with
+  // one clear message instead of failing on each individual save.
+  const [accessDenied, setAccessDenied] = useState(false);
+  const readOnly = !canEdit || accessDenied;
 
   const load = useCallback(async (): Promise<void> => {
     setError(null);
@@ -259,6 +266,7 @@ export function PromptVariablesSection({
       setVariables(data.variables);
       setDrafts({});
     } catch (err) {
+      if (classifyUserError(err) === "unauthorized") setAccessDenied(true);
       setError(toUserErrorMessage(err, t));
     } finally {
       setIsLoading(false);
@@ -269,15 +277,13 @@ export function PromptVariablesSection({
     void load();
   }, [load]);
 
-  const targetScopeId = (): string | null =>
-    scope === "workspace" ? workspaceId : null;
-
-  const handleScopeChange = (next: EditScope): void => {
-    // Drafts are scope-specific: keeping them would carry a workspace edit
-    // into a tenant-wide save.
-    setScope(next);
-    setDrafts({});
-    setError(null);
+  /** Fail closed: a workspace-scope mount must never fall back to a global write. */
+  const targetScopeId = (): string | null => {
+    if (scope === "global") return null;
+    if (!workspaceId) {
+      throw new Error("A workspaceId is required for workspace-scope prompt writes");
+    }
+    return workspaceId;
   };
 
   /** Replace one variable in local state with the server's post-write truth. */
@@ -316,6 +322,7 @@ export function PromptVariablesSection({
   };
 
   const handleSave = async (variable: PromptVariableState): Promise<void> => {
+    if (readOnly) return;
     setBusyName(variable.name);
     setError(null);
     try {
@@ -330,6 +337,7 @@ export function PromptVariablesSection({
       const updated = await promptVariablesApi.save(variable.name, parsed, targetScopeId());
       await applyMutationResult(updated);
     } catch (err) {
+      if (classifyUserError(err) === "unauthorized") setAccessDenied(true);
       setError(toUserErrorMessage(err, t));
     } finally {
       setBusyName(null);
@@ -337,12 +345,14 @@ export function PromptVariablesSection({
   };
 
   const handleReset = async (variable: PromptVariableState): Promise<void> => {
+    if (readOnly) return;
     setBusyName(variable.name);
     setError(null);
     try {
       const updated = await promptVariablesApi.clear(variable.name, targetScopeId());
       await applyMutationResult(updated);
     } catch (err) {
+      if (classifyUserError(err) === "unauthorized") setAccessDenied(true);
       setError(toUserErrorMessage(err, t));
     } finally {
       setBusyName(null);
@@ -351,7 +361,7 @@ export function PromptVariablesSection({
 
   const handleCreate = async (): Promise<void> => {
     const name = newName.trim();
-    if (!name) return;
+    if (!name || readOnly) return;
     setBusyName(name);
     setError(null);
     try {
@@ -371,6 +381,7 @@ export function PromptVariablesSection({
       setNewDescription("");
       setNewValue("");
     } catch (err) {
+      if (classifyUserError(err) === "unauthorized") setAccessDenied(true);
       setError(toUserErrorMessage(err, t));
     } finally {
       setBusyName(null);
@@ -410,25 +421,18 @@ export function PromptVariablesSection({
         )}
       </p>
 
-      <div style={scopeRowStyle}>
-        <label htmlFor="prompt-variables-scope" style={labelStyle}>
-          {t("settings.promptTemplates.scope", "Geltungsbereich")}
-        </label>
-        <select
-          id="prompt-variables-scope"
-          data-testid="prompt-variables-scope-select"
-          value={scope}
-          onChange={(e) => handleScopeChange(e.target.value as EditScope)}
-          style={selectStyle}
-        >
-          <option value="workspace">
-            {t("settings.promptTemplates.scopeWorkspace", "Nur dieser Workspace")}
-          </option>
-          <option value="global">
-            {t("settings.promptTemplates.scopeGlobal", "Global (alle Workspaces)")}
-          </option>
-        </select>
-      </div>
+      {/* Issue #1968: no scope switcher — the mounting surface owns the scope. */}
+      <p style={hintStyle} data-testid="prompt-variables-scope-note">
+        {scope === "workspace"
+          ? t("settings.promptTemplates.scopeWorkspaceNote")
+          : t("settings.promptTemplates.scopeGlobalNote")}
+      </p>
+
+      {readOnly && (
+        <p role="alert" data-testid="prompt-variables-readonly" style={errorStyle}>
+          {t("settings.promptVariables.readOnly")}
+        </p>
+      )}
 
       {error && (
         <p role="alert" data-testid="prompt-variables-error" style={errorStyle}>
@@ -457,7 +461,7 @@ export function PromptVariablesSection({
                     id={`prompt-variable-${variable.name}-input`}
                     testId={`prompt-variable-${variable.name}-input`}
                     value={value}
-                    disabled={isBusy}
+                    disabled={isBusy || readOnly}
                     onChange={(raw) =>
                       setDrafts((prev) => ({ ...prev, [variable.name]: raw }))
                     }
@@ -469,7 +473,7 @@ export function PromptVariablesSection({
                     id={`prompt-variable-${variable.name}-input`}
                     data-testid={`prompt-variable-${variable.name}-input`}
                     value={value}
-                    disabled={isBusy}
+                    disabled={isBusy || readOnly}
                     onChange={(e) =>
                       setDrafts((prev) => ({ ...prev, [variable.name]: e.target.value }))
                     }
@@ -480,7 +484,7 @@ export function PromptVariablesSection({
                   type="button"
                   data-testid={`prompt-variable-${variable.name}-save`}
                   onClick={() => void handleSave(variable)}
-                  disabled={isBusy}
+                  disabled={isBusy || readOnly}
                   className="btn-primary"
                 >
                   {t("actions.save")}
@@ -489,10 +493,12 @@ export function PromptVariablesSection({
                   type="button"
                   data-testid={`prompt-variable-${variable.name}-reset`}
                   onClick={() => void handleReset(variable)}
-                  disabled={isBusy || origin !== scope}
+                  disabled={isBusy || readOnly || origin !== scope}
                   className="btn-secondary"
                 >
-                  {t("settings.promptTemplates.resetToGlobal", "Override entfernen")}
+                  {scope === "workspace"
+                    ? t("settings.promptTemplates.resetToGlobal")
+                    : t("settings.promptTemplates.reset")}
                 </button>
                 <span
                   style={badgeStyle}
@@ -520,6 +526,7 @@ export function PromptVariablesSection({
             id="prompt-variable-new-name"
             data-testid="prompt-variable-new-name"
             value={newName}
+            disabled={readOnly}
             onChange={(e) => setNewName(e.target.value)}
             style={inputStyle}
           />
@@ -530,6 +537,7 @@ export function PromptVariablesSection({
             id="prompt-variable-new-type"
             data-testid="prompt-variable-new-type"
             value={newType}
+            disabled={readOnly}
             onChange={(e) => setNewType(e.target.value as PromptVariableType)}
             style={selectStyle}
           >
@@ -546,6 +554,7 @@ export function PromptVariablesSection({
             id="prompt-variable-new-description"
             data-testid="prompt-variable-new-description"
             value={newDescription}
+            disabled={readOnly}
             onChange={(e) => setNewDescription(e.target.value)}
             style={inputStyle}
           />
@@ -557,7 +566,7 @@ export function PromptVariablesSection({
               id="prompt-variable-new-value"
               testId="prompt-variable-new-value"
               value={newValue}
-              disabled={busyName !== null}
+              disabled={busyName !== null || readOnly}
               onChange={setNewValue}
               trueLabel={t("settings.promptVariables.boolTrue", "Wahr")}
               falseLabel={t("settings.promptVariables.boolFalse", "Falsch")}
@@ -567,6 +576,7 @@ export function PromptVariablesSection({
               id="prompt-variable-new-value"
               data-testid="prompt-variable-new-value"
               value={newValue}
+              disabled={readOnly}
               onChange={(e) => setNewValue(e.target.value)}
               style={inputStyle}
             />
@@ -576,7 +586,7 @@ export function PromptVariablesSection({
           type="button"
           data-testid="prompt-variable-new-save"
           onClick={() => void handleCreate()}
-          disabled={busyName !== null}
+          disabled={busyName !== null || readOnly}
           className="btn-primary"
         >
           {t("actions.create")}

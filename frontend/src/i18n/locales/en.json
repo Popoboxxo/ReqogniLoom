@@ -132,6 +132,7 @@
     "languageSaveFailed": "Could not save the workspace language. Your view was updated, but the change was not saved.",
     "interviews": "Interviews",
     "searchPlaceholder": "Search all artifacts …",
+    "searchLimitHint": "Search queries are limited to {{max}} characters. Longer input is cut off.",
     "optionalArtifacts": "Optional Artifacts",
     "showOptionalArtifacts": "Show optional artifacts",
     "hideOptionalArtifacts": "Hide optional artifacts",
@@ -1482,6 +1483,9 @@
       "scope": "Scope",
       "scopeWorkspace": "This workspace only",
       "scopeGlobal": "Global (all workspaces)",
+      "scopeWorkspaceNote": "Changes apply to this workspace only.",
+      "scopeGlobalNote": "Changes apply tenant-wide to all workspaces.",
+      "readOnly": "You do not have permission to edit prompts at this scope.",
       "reset": "Reset to default",
       "resetToGlobal": "Remove override",
       "unknownPlaceholders": "Unknown placeholders — they stay literally in the prompt text:",
@@ -1515,6 +1519,7 @@
       "computedValue": "computed by the system",
       "originCode": "Code",
       "newName": "New variable",
+      "readOnly": "You do not have permission to edit prompt variables at this scope.",
       "boolTrue": "True",
       "boolFalse": "False",
       "origin": {
@@ -3175,6 +3180,7 @@
       "workflowDefaults": "Workflow Defaults",
       "attributeDefaults": "Attribute Defaults",
       "permissionDefaults": "Permission Defaults",
+      "prompts": "AI Prompts",
       "memory": "Memory",
       "display": "Display",
       "vectorStore": "Vector Store"
