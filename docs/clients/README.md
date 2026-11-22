@@ -10,7 +10,7 @@ Supported features and artifacts per client: [capability matrix](capabilities.md
 
 | Client | Transport | Auth | Target | Page |
 |---|---|---|---|---|
-| Claude Code | SSE | `X-API-Key` | L3 | [Claude Code](claude-code.md) |
+| Claude Code | Streamable HTTP | `X-API-Key` | L3 | [Claude Code](claude-code.md) |
 | Codex CLI | Streamable HTTP | `Authorization: Bearer` | L3 | [Codex CLI](codex.md) |
 | OpenCode | Streamable HTTP | `X-API-Key` | L3 | [OpenCode](opencode.md) |
 | OpenCode V2 (Beta) | Streamable HTTP | `X-API-Key` | L2 | [OpenCode V2 (Beta)](opencode-v2.md) |
