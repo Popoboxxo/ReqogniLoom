@@ -235,6 +235,18 @@ def render_client(client: dict[str, Any], *, lang: str) -> str:
         _bullets(client["update_de" if de else "update_en"]),
         "",
     ]
+
+    # Optional per-client note (#1985): e.g. the ambiguous-transport / retry
+    # contract. The wording lives in the registry so DE/EN cannot drift and a
+    # hand edit of the generated page stays a CI failure.
+    transport_notes = client.get("__transport_notes")
+    if transport_notes:
+        parts += [
+            "## 9. " + transport_notes["heading_de" if de else "heading_en"],
+            "",
+            _bullets(transport_notes["bullets_de" if de else "bullets_en"]),
+            "",
+        ]
     return "\n".join(parts).rstrip("\n") + "\n"
 
 
@@ -915,8 +927,13 @@ def check_stage2_parity(docs_dir: Path = DOCS_DIR) -> list[str]:
 
 def plan_outputs(registry: dict[str, Any]) -> dict[Path, str]:
     version = load_version()
+    transport_notes = registry.get("transport_notes") or {}
     registry["clients"] = [
-        {**client, "__conventions": registry["conventions"]}
+        {
+            **client,
+            "__conventions": registry["conventions"],
+            "__transport_notes": transport_notes.get(client["id"]),
+        }
         for client in registry["clients"]
     ]
     files: dict[Path, str] = {}
