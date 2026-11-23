@@ -1302,6 +1302,21 @@ HEALTH_STRICT_READINESS: bool = config(
     "HEALTH_STRICT_READINESS", default=True, cast=_health_strict_readiness
 )
 
+# Issue #1959: opt into the corpus-wide embedding-model drift counts published
+# by the read-only ``SECURITY DEFINER`` function created in
+# ``persistence/0156_embedding_drift_definer_function``. Default OFF keeps the
+# historical graceful-degradation behaviour byte for byte: an unauthenticated
+# /health request sets no tenant, the embedding tables are FORCE ROW LEVEL
+# SECURITY, and the app role cannot bypass it, so the aggregate is RLS-shadowed
+# and reported as ``unknown`` (with one warning pointing at the authoritative
+# management command). Turn this on once the function + grant are deployed: the
+# advisory then carries numeric, corpus-wide counts without the "unknown"
+# warning. No acknowledge/silence switch exists on purpose — real drift must
+# still raise the same warning as today.
+HEALTH_EMBEDDING_DRIFT_AUTHORITATIVE: bool = config(
+    "HEALTH_EMBEDDING_DRIFT_AUTHORITATIVE", default=False, cast=bool
+)
+
 # ADR-010 §3: the HTTP ``Sunset`` date advertised by the deprecated ``/health/``
 # alias. ISO-8601 here; the view formats it as an IMF-fixdate at response time.
 HEALTH_ALIAS_SUNSET: str = config("HEALTH_ALIAS_SUNSET", default="2027-04-01")

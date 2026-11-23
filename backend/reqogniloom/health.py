@@ -18,7 +18,9 @@ COMP-RA-006 HealthEndpoint — implements the split contract of ADR-010:
 
 Advisory signals (``llm_provider_env``, ``embedding_dimensions``,
 ``embedding_model_consistency``, ``embedding_model_drift`` (``?verbose=1`` only;
-per-table counts, or ``unknown`` when the connecting role cannot see past RLS),
+per-table counts — corpus-wide when ``HEALTH_EMBEDDING_DRIFT_AUTHORITATIVE``
+is on and the definer helper is callable (issue #1959), otherwise ``unknown``
+when the connecting role cannot see past RLS),
 ``qdrant_api_key`` / ``qdrant_api_key_missing`` (the two advisory KEYS are
 ``?verbose=1`` only, so an anonymous caller is not handed the store's security
 posture; the matching ``memory.W003`` warning TEXT stays unconditional because
@@ -153,6 +155,55 @@ def _embedding_count_scope() -> str:
     return count_scope()
 
 
+#: One call, one row, four corpus-wide counts. The function is installed by
+#: ``persistence/0156`` and owned by DEFINER_DB_ROLE; it is the only way this
+#: unauthenticated endpoint can answer a whole-corpus question without lying.
+_AUTHORITATIVE_DRIFT_SQL = """
+SELECT requirement, tracelink, icd, memory
+FROM public.embedding_model_drift_counts(%s)
+"""
+
+_AUTHORITATIVE_DRIFT_LABELS: tuple[str, ...] = (
+    "requirement",
+    "tracelink",
+    "icd",
+    "memory",
+)
+
+
+def _authoritative_embedding_drift(model_id: str) -> dict[str, int] | None:
+    """Return corpus-wide per-table drift counts, or ``None`` if unusable.
+
+    Opt-in via ``HEALTH_EMBEDDING_DRIFT_AUTHORITATIVE`` (default off). ``None``
+    means the authoritative path is not available — flag off, helper missing,
+    ``EXECUTE`` revoked, an unexpected result shape, or any DB error — and the
+    caller must fall back to the historical RLS-aware branch unchanged. It is
+    deliberately a soft failure: an advisory must never take down the probe.
+    """
+    if not getattr(django_settings, "HEALTH_EMBEDDING_DRIFT_AUTHORITATIVE", False):
+        return None
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(_AUTHORITATIVE_DRIFT_SQL, [model_id])
+            row = cursor.fetchone()
+    except Exception as exc:  # noqa: BLE001 - health check must never crash
+        logger.warning(
+            "Health check: authoritative embedding-model drift counts unavailable - %s",
+            exc,
+        )
+        return None
+    if row is None or len(row) != len(_AUTHORITATIVE_DRIFT_LABELS):
+        return None
+    drift: dict[str, int] = {}
+    for label, value in zip(_AUTHORITATIVE_DRIFT_LABELS, row, strict=True):
+        # A bigint count is always an int; anything else is a broken helper and
+        # must not replace an honest ``unknown`` with a plausible-looking lie.
+        if not isinstance(value, int) or value < 0:
+            return None
+        drift[label] = value
+    return drift
+
+
 def _embedding_model_drift() -> dict[str, int | str]:
     """Return, per table, how many vectors were written by a *different* model.
 
@@ -171,8 +222,11 @@ def _embedding_model_drift() -> dict[str, int | str]:
     WHAT THIS ENDPOINT CAN AND CANNOT SEE. ``/health*`` is unauthenticated and
     sets no tenant, while the embedding tables are ``ENABLE`` + ``FORCE ROW
     LEVEL SECURITY``. ``unscoped`` skips the ORM tenant filter but is *not* an
-    RLS bypass, so the count's meaning depends on the connecting role — it is
-    classified first (:func:`_embedding_count_scope`):
+    RLS bypass. When ``HEALTH_EMBEDDING_DRIFT_AUTHORITATIVE`` is on (issue
+    #1959), the corpus-wide ``SECURITY DEFINER`` helper is tried first
+    (:func:`_authoritative_embedding_drift`); if it is unavailable for any
+    reason the endpoint degrades to the historical branch below, which classifies
+    what the connecting role can actually see (:func:`_embedding_count_scope`):
 
     * **privileged role** (superuser / ``BYPASSRLS``) -> the count is
       corpus-wide and numeric;
@@ -202,6 +256,20 @@ def _embedding_model_drift() -> dict[str, int | str]:
     from persistence.rls_visibility import COUNT_SCOPE_SHADOWED
 
     model_id = current_embedding_model_id()
+    try:
+        authoritative = _authoritative_embedding_drift(model_id)
+    except Exception as exc:  # noqa: BLE001 - health check must never crash
+        logger.warning(
+            "Health check: authoritative embedding-model drift lookup failed - %s",
+            exc,
+        )
+        authoritative = None
+    if authoritative is not None:
+        # Numeric corpus-wide counts: _collect_advisory sees no ``unknown`` and
+        # emits no "restart the owner-only command" warning. Real drift still
+        # raises the normal warning — this is not an acknowledge/silence flag.
+        return authoritative
+
     shadowed = _embedding_count_scope() == COUNT_SCOPE_SHADOWED
     drift: dict[str, int | str] = {}
     for column in embedding_columns():

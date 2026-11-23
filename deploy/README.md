@@ -89,6 +89,33 @@ check is conditional: mock/anthropic/openai/ollama/azure deployments are unaffec
 > A Honcho deployment can still answer incorrectly if the `honcho` image drifts off its verified
 > tag/digest — see `## Troubleshooting: Stale Honcho image (#1153)` below.
 
+## Corpus-wide embedding-drift counts on `/health` are opt-in (#1959)
+
+`GET /health/ready?verbose=1` publishes the `embedding_model_drift` advisory. Because `/health*`
+is unauthenticated and sets no tenant while the four embedding tables are `FORCE ROW LEVEL
+SECURITY`, the app DB role (`DB_APP_USER`, `rolbypassrls=false`) cannot answer a corpus-wide
+question: without help it would report `0` — indistinguishable from "no drift" — so the values
+are withheld as `unknown` and one warning points at
+`manage.py verify_embedding_dimensions --models` (the owner-role view). The status stays
+`warning`/HTTP 200 in both modes (ADR-010: advisory only).
+
+`HEALTH_EMBEDDING_DRIFT_AUTHORITATIVE` (default `false`) makes that advisory authoritative:
+`persistence/0156_embedding_drift_definer_function` installs the read-only
+`public.embedding_model_drift_counts(text)` `SECURITY DEFINER` function, owned by the existing
+`DB_DEFINER_USER` role (`NOLOGIN NOSUPERUSER BYPASSRLS`) and executable only by `DB_APP_USER`.
+With the flag on, `/health/ready?verbose=1` reports numeric corpus-wide counts for
+`pl_requirement`, `pl_tracelink`, `icd_icd` and `mem_memory_entry`, with no `unknown` warning.
+No new DB alias or secret is needed. If the function is absent, its `EXECUTE` grant is revoked,
+or the call fails for any reason, the endpoint falls back to the historical `unknown` + single
+warning — never a false clean bill, never `degraded`/503. There is deliberately **no**
+"acknowledge/silence" flag: real drift must keep raising the same warning.
+
+Set it in `.env` after the migration has run:
+
+```ini
+HEALTH_EMBEDDING_DRIFT_AUTHORITATIVE=true
+```
+
 ## Automatic quality assessment is opt-in and needs an agent key (#1578)
 
 `QUALITY_AUTO_ASSESS_ENABLED` (default `false`) turns on event-driven and periodic quality
