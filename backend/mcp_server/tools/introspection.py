@@ -6,8 +6,11 @@ holds. It is always visible and never filtered by ``ApiKey.tool_groups`` (see
 narrowed still needs a way to learn what else it could ask for, and group names
 plus counts are pure metadata — no tenant data, no security value.
 
-Counts come from the registry's own schema build, so this cannot drift from
-``tools/list``. Groups with no schemas (the ``resource``/``prompt`` capability
+Counts come from the registry's own schema build: they are the *unfiltered*
+totals per prefix, so they cannot drift from the catalogue itself. They are
+deliberately NOT the number of tools ``tools/list`` returns to a given caller
+— that list is narrowed by role, key scope and ``tool_groups`` curation and
+may be smaller. Groups with no schemas (the ``resource``/``prompt`` capability
 pseudo-tools) are omitted by construction: they are not part of the tool
 surface at all.
 
@@ -37,9 +40,12 @@ class IntrospectionToolGroup(BaseToolGroup):
                 "List every MCP tool group with its tool count. Always visible, "
                 "never narrowed by an API key's tool_groups curation — call it "
                 "to discover which group names exist before configuring a key's "
-                "tool_groups list. Note that tool_groups only changes what "
-                "tools/list advertises; every tool your role and key scope "
-                "permit stays callable by name."
+                "tool_groups list. Counts are the full registry totals, NOT the "
+                "subset tools/list returns for your role, key scope and tool_groups "
+                "curation — that list may be smaller (or empty for a group you "
+                "cannot use). Note that tool_groups only changes what tools/list "
+                "advertises; every tool your role and key scope permit stays "
+                "callable by name."
             ),
             "inputSchema": {"type": "object", "properties": {}, "required": []},
         }

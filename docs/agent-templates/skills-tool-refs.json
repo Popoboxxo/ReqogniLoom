@@ -53,7 +53,9 @@
   ],
   "interview-management": [
     "interview.start", "interview.get_state", "interview.answer",
-    "interview.grounding_context", "interview.formalize"
+    "interview.list", "interview.get", "interview.grounding_context",
+    "interview.set_target", "interview.formalize", "interview.propose",
+    "interview.chat", "interview.abandon"
   ],
   "document-projection": [
     "workspace.get_context",

@@ -24,6 +24,7 @@ Set the two environment variables OpenCode expands at connect time — never put
 a key into the config file:
 
 ```bash
+# Base URL, no path; do not end in /mcp (the plugin appends /mcp/ itself).
 export REQOGNILOOM_MCP_URL="https://your-reqogniloom-host"
 export REQOGNILOOM_API_KEY="<your API key>"
 ```

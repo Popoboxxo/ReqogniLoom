@@ -101,7 +101,10 @@ def test_plugin_declares_user_config_and_mcp_uses_it(tmp_path):
     assert user_config["mcp_url"] == {
         "type": "string",
         "title": "ReqogniLoom URL",
-        "description": "Base URL, e.g. https://reqlo.example.com",
+        "description": (
+            "Base URL, no path; do not end in /mcp "
+            "(e.g. https://reqlo.example.com)"
+        ),
         "required": True,
     }
     assert user_config["api_key"]["type"] == "string"

@@ -7,7 +7,7 @@
 # shell history, or the config file.
 #
 # Usage:
-#   bash scripts/clients/install.sh --client <id> --url <https://host> \
+#   bash scripts/clients/install.sh --client <id> --url <base-URL, no /mcp> \
 #       [--key-env REQOGNILOOM_API_KEY] [--skills-dir <dir>] \
 #       [--with-dashboard] [--force|--refresh] [--dry-run] [--yes]
 #
@@ -57,7 +57,13 @@ done
 
 [ -n "$CLIENT" ] || { echo "--client is required" >&2; usage 1; }
 [ -n "$URL" ] || { echo "--url is required" >&2; usage 1; }
-URL="${URL%/}"
+# --url is a BASE URL (no path; do not end in /mcp). Every client below appends
+# /mcp/ itself, so strip a trailing slash and an already-present /mcp segment
+# before that suffix is added — otherwise https://host/mcp/ becomes
+# https://host/mcp/mcp/ (issues #1961, #2049).
+while [[ "$URL" == */ ]]; do URL="${URL%/}"; done
+if [[ "$URL" == */mcp ]]; then URL="${URL%/mcp}"; fi
+[ -n "$URL" ] || { echo "--url must be a base URL, not a path" >&2; usage 1; }
 KEY_ENV="${KEY_ENV:-REQOGNILOOM_API_KEY}"
 if [ "$WITH_DASHBOARD" -eq 1 ] && [ "$CLIENT" != "hermes" ]; then
   echo "--with-dashboard is only supported for --client hermes" >&2

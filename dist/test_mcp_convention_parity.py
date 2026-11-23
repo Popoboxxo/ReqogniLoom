@@ -41,7 +41,10 @@ parity guard even if that pipeline test is reworked.
 """
 import importlib.util
 import json
+import os
 import re
+import subprocess
+import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -293,6 +296,16 @@ def _load_builder(path: Path) -> ModuleType:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _load_mcp_url_helper() -> ModuleType:
+    """Import the shared normalizer the same way the builders do (sys.path),
+    so object identity below proves they share one module, not a copy."""
+    if str(DIST_DIR) not in sys.path:
+        sys.path.insert(0, str(DIST_DIR))
+    import mcp_url
+
+    return mcp_url
 
 
 def _parse(spec: BuilderSpec, text: str) -> dict[str, Any]:
@@ -605,3 +618,105 @@ def test_every_builder_is_covered_by_this_guard() -> None:
         f"{unguarded}; CONFIG_BUILDERS entries whose module does not exist: "
         f"{missing}"
     )
+
+
+@pytest.mark.parametrize(
+    ("base", "expected"),
+    [
+        ("https://reqlo.example.com", "https://reqlo.example.com/mcp/"),
+        ("https://reqlo.example.com/", "https://reqlo.example.com/mcp/"),
+        ("https://reqlo.example.com/mcp", "https://reqlo.example.com/mcp/"),
+        ("https://reqlo.example.com/mcp/", "https://reqlo.example.com/mcp/"),
+        ("{env:REQOGNILOOM_MCP_URL}", "{env:REQOGNILOOM_MCP_URL}/mcp/"),
+        ("${user_config.mcp_url}", "${user_config.mcp_url}/mcp/"),
+    ],
+)
+def test_mcp_endpoint_url_appends_exactly_one_mcp_suffix(
+    base: str, expected: str
+) -> None:
+    """Issues #1961/#2049: a base URL that already ends in /mcp must not get
+    a second suffix. Both interpolation placeholders pass through unchanged,
+    so the helper is safe for generated configs as well as literal URLs."""
+    assert _load_mcp_url_helper().mcp_endpoint_url(base) == expected
+
+
+def test_both_config_builders_use_the_shared_url_helper() -> None:
+    """The Claude Code and OpenCode builders must not re-implement the suffix."""
+    helper = _load_mcp_url_helper()
+    for name in ("claude-code", "opencode"):
+        spec = next(s for s in CONFIG_BUILDERS if s.name == name)
+        builder = _load_builder(spec.module_path)
+        assert builder.mcp_endpoint_url is helper.mcp_endpoint_url, (
+            f"{name} does not use the shared URL normalizer"
+        )
+
+
+@pytest.mark.parametrize(
+    "base", ["http://h:8001/", "http://h:8001/mcp", "http://h:8001/mcp/"]
+)
+def test_installer_normalizes_a_base_url_that_already_ends_in_mcp(
+    base: str,
+) -> None:
+    """#2049: install.sh receives a *base* URL and appends /mcp/ itself.
+
+    A ``--dry-run`` exercises the real argument handling without needing a
+    client binary or touching HOME; the first line shows the literal URL the
+    installer would hand to the client.
+    """
+    result = subprocess.run(
+        [
+            "bash", str(REPO_ROOT / "scripts" / "clients" / "install.sh"),
+            "--client", "codex", "--url", base, "--dry-run", "--yes",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "--url http://h:8001/mcp/ " in result.stdout, (
+        f"base {base!r} produced a doubled or missing /mcp/ suffix: "
+        f"{result.stdout.splitlines()[0] if result.stdout else ''}"
+    )
+
+
+def test_verifier_rejects_a_stale_doubled_mcp_path(tmp_path: Path) -> None:
+    """#2049: verify.sh rejects a config the installer would now normalize."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake = bin_dir / "opencode"
+    fake.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [ "$1" = mcp ] && [ "$2" = list ]; then\n'
+        '  echo "reqogniloom  connected"\n'
+        "fi\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    config = tmp_path / "home" / ".config" / "opencode" / "opencode.json"
+    config.parent.mkdir(parents=True)
+    verify = [
+        "bash", str(REPO_ROOT / "scripts" / "clients" / "verify.sh"),
+        "--client", "opencode-v2",
+    ]
+    env = {
+        "HOME": str(tmp_path / "home"),
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+    }
+
+    def url_config(url: str) -> str:
+        return json.dumps({"mcp": {"servers": {"reqogniloom": {"url": url}}}})
+
+    config.write_text(url_config("http://h:8001/mcp/mcp/"), encoding="utf-8")
+    stale = subprocess.run(
+        verify, cwd=REPO_ROOT, env=env, capture_output=True, text=True
+    )
+    assert stale.returncode != 0
+    assert "doubled /mcp/mcp/" in stale.stderr
+    assert "do not end in /mcp" in stale.stderr
+
+    # A single /mcp/ suffix passes the same check.
+    config.write_text(url_config("http://h:8001/mcp/"), encoding="utf-8")
+    fixed = subprocess.run(
+        verify, cwd=REPO_ROOT, env=env, capture_output=True, text=True
+    )
+    assert fixed.returncode == 0, fixed.stderr

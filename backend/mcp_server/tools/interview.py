@@ -135,7 +135,12 @@ class InterviewToolGroup(BaseToolGroup):
         },
         {
             "name": "interview.answer",
-            "description": "Record an answer for one field of the current phase (write).",
+            "description": (
+                "Record an answer for one named protocol field (write). The field "
+                "name is resolved across ALL phases of the session's protocol, not "
+                "just the current one, so an already-collected field can be "
+                "answered again."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {

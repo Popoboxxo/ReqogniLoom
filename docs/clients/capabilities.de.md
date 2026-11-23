@@ -154,7 +154,7 @@ Datum und Versionen beziehen sich auf diesen Verifikationslauf, nicht auf das ak
 
 | Funktion / Artefakt | Status | Hinweis | Nachweis | Issues |
 |---|---|---|---|---|
-| MCP-Verbindung | ✓ `supported` | lokal installiert: 2.3.2, neuer als getestet; nicht erneut ausgeführt | `registry` (tested_version 1.18.x / 2.2.x) | — |
+| MCP-Verbindung | ✓ `supported` | 2.3.x unverifiziert: lokal 2.3.2 installiert, neuer als die getesteten 1.18.x/2.2.x; nicht erneut ausgeführt | `registry` (tested_version 1.18.x / 2.2.x) | — |
 | Installation mit einem Befehl | ? `unverified` | Installer und Config-Snippets sind vorhanden; `opencode mcp list` zeigt auf dem Verifikationsrechner „No MCP servers configured“ | `repo` (2026-11-21) | — |
 | Tools erreichbar | ? `unverified` | — | — | — |
 | Skills (8) | ? `unverified` | dieselben 8 Skills werden ausgeliefert (byte-identisch mit den Claude-Code-Skills, #1962 und #1964 gelten daher auch hier); im Client nicht geladen | `repo` (2026-11-21) | — |

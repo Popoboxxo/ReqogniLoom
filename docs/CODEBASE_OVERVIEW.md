@@ -1500,9 +1500,9 @@ curl -X POST http://localhost:8000/mcp/ \
 
 ####9 `audit.*` — Audit Log Query
 
-Query the system-wide audit log with filters for actor, operation, workspace, and time range.
+Query the audit log with filters for actor, operation, and time range. Results are **tenant-wide within the caller's own tenant** (`AuditEntry` is tenant-scoped); the `workspace_id` parameter is validated for format only and does **not** filter.
 
-**Tools:** `query` (supports filters: `actor`, `operation`, `workspace`, `time_from`, `time_to`, `limit`, `offset`)
+**Tools:** `query` (filters: `actor`, `operation`, `start_time`, `end_time`, `limit`; `workspace_id` reserved/validated-only)
 
 **Example:**
 ```bash
@@ -1514,12 +1514,12 @@ curl -X POST http://localhost:8000/mcp/ \
     "method": "tools/call",
     "params": {
       "name": "audit.query",
-      "arguments": {"workspace_id": 1, "limit": 20}
+      "arguments": {"limit": 20}
     }
   }'
 ```
 
-**Role required:** Member (own scope) / Admin (all scopes)
+**Authorization:** Requires **both** the `admin` workspace role **and** an **ADMIN-tier API key**. The role gate alone is not sufficient — an AUTHOR-tier key is denied even when its owner holds the admin role (same governance-tier rule as `audit.waivers`). Without a key scope (Bearer session), the admin role is sufficient.
 
 ---
 

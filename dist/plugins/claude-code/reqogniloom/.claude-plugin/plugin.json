@@ -9,7 +9,7 @@
     "mcp_url": {
       "type": "string",
       "title": "ReqogniLoom URL",
-      "description": "Base URL, e.g. https://reqlo.example.com",
+      "description": "Base URL, no path; do not end in /mcp (e.g. https://reqlo.example.com)",
       "required": true
     },
     "api_key": {
