@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import uuid
 
 import pytest
@@ -87,16 +88,14 @@ class TestVCRMGeneration:
         assert tc_row is not None
         assert all(r.test_case_id != str(tc_art.id) for r in req_rows)
 
-    def test_vcrm_still_shows_outdated_requirement(
+    def test_vcrm_excludes_outdated_requirement_by_default(
         self, vcrm_gen, tenant_a, workspace_a
     ):
-        """Regression: VCRM must keep showing outdated Requirements.
+        """#1977: VCRM defaults to parity with ``traceability.coverage``.
 
-        CoverageCalculator.get_coverage_data() defaults to
-        include_outdated=False, but VCRMReportGenerator is an audit/
-        compliance report and must explicitly opt back into
-        include_outdated=True so outdated requirements don't silently
-        disappear from the matrix.
+        Outdated Requirements must be absent from the default matrix; the
+        full historical record is available only via the explicit
+        audit/compliance mode (``include_outdated=True``).
         """
         from workflow.services import create_default_workflow, outdate
 
@@ -123,7 +122,127 @@ class TestVCRMGeneration:
 
             matrix = vcrm_gen.generate_vcrm(workspace_a.id)
 
+        assert not any(r.requirement_id == str(req.id) for r in matrix.rows)
+
+    def test_vcrm_includes_outdated_requirement_when_requested(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """#1977: ``include_outdated=True`` restores the legacy all-rows view.
+
+        This preserves the pre-fix assertion under the explicit audit/
+        compliance mode.
+        """
+        from workflow.services import create_default_workflow, outdate
+
+        class _SystemCtx:
+            user_id = "system:test-vcrm-report-generator"
+
+        with active_tenant(tenant_a):
+            _, req = make_requirement(tenant_a, workspace_a, "Outdated-Req")
+            create_default_workflow(
+                workspace_id=workspace_a.id,
+                preset="standard",
+                item_type="Requirement",
+                tenant_id=tenant_a.id,
+            )
+            outdate(
+                item_id=req.id,
+                item_type="Requirement",
+                workspace_id=workspace_a.id,
+                ctx=_SystemCtx(),
+                reason="test: mark outdated",
+            )
+
+            matrix = vcrm_gen.generate_vcrm(
+                workspace_a.id, include_outdated=True
+            )
+
         assert any(r.requirement_id == str(req.id) for r in matrix.rows)
+
+    def test_vcrm_excludes_outdated_testcase_by_default(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """#1977: an outdated verifying TestCase is hidden by default.
+
+        Mirrors ``CoverageCalculator.get_coverage_data``: the default view is
+        coverage parity, so only the active verifying TestCase stays in the
+        matrix. Uses the TestCase *entity* id (#1978).
+        """
+        from workflow.services import create_default_workflow, outdate
+
+        class _SystemCtx:
+            user_id = "system:test-vcrm-report-generator"
+
+        with active_tenant(tenant_a):
+            art_req, _ = make_requirement(tenant_a, workspace_a, "R-1")
+            active_tc_art, active_tc = make_test_case(
+                tenant_a, workspace_a, "TC-Active"
+            )
+            outdated_tc_art, outdated_tc = make_test_case(
+                tenant_a, workspace_a, "TC-Outdated"
+            )
+            create_default_workflow(
+                workspace_id=workspace_a.id,
+                preset="testcase_default",
+                item_type="TestCase",
+                tenant_id=tenant_a.id,
+            )
+            outdate(
+                item_id=outdated_tc.id,
+                item_type="TestCase",
+                workspace_id=workspace_a.id,
+                ctx=_SystemCtx(),
+                reason="test: mark outdated",
+            )
+            make_trace_link(active_tc_art, art_req, tenant_a, "verifies")
+            make_trace_link(outdated_tc_art, art_req, tenant_a, "verifies")
+
+            matrix = vcrm_gen.generate_vcrm(workspace_a.id)
+
+        tc_ids = {r.test_case_id for r in matrix.rows}
+        assert str(active_tc.id) in tc_ids
+        assert str(outdated_tc.id) not in tc_ids
+
+    def test_vcrm_includes_outdated_testcase_when_requested(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """#1977: ``include_outdated=True`` keeps the outdated TestCase."""
+        from workflow.services import create_default_workflow, outdate
+
+        class _SystemCtx:
+            user_id = "system:test-vcrm-report-generator"
+
+        with active_tenant(tenant_a):
+            art_req, _ = make_requirement(tenant_a, workspace_a, "R-1")
+            active_tc_art, active_tc = make_test_case(
+                tenant_a, workspace_a, "TC-Active"
+            )
+            outdated_tc_art, outdated_tc = make_test_case(
+                tenant_a, workspace_a, "TC-Outdated"
+            )
+            create_default_workflow(
+                workspace_id=workspace_a.id,
+                preset="testcase_default",
+                item_type="TestCase",
+                tenant_id=tenant_a.id,
+            )
+            outdate(
+                item_id=outdated_tc.id,
+                item_type="TestCase",
+                workspace_id=workspace_a.id,
+                ctx=_SystemCtx(),
+                reason="test: mark outdated",
+            )
+            make_trace_link(active_tc_art, art_req, tenant_a, "verifies")
+            make_trace_link(outdated_tc_art, art_req, tenant_a, "verifies")
+
+            matrix = vcrm_gen.generate_vcrm(
+                workspace_a.id, include_outdated=True
+            )
+
+        tc_ids = {r.test_case_id for r in matrix.rows}
+        assert str(active_tc.id) in tc_ids
+        assert str(outdated_tc.id) in tc_ids
 
     def test_to_dict_returns_serializable_structure(
         self, vcrm_gen, tenant_a, workspace_a
@@ -213,6 +332,53 @@ class TestCSVExport:
             "test_result",
             "verification_method",
         ]
+
+    def test_export_vcrm_csv_respects_include_outdated(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """#1977: CSV export defaults to coverage parity and opts into the
+        legacy all-rows audit/compliance view via ``include_outdated=True``.
+
+        Asserted via data-row counts / ids so the CSV positional contract
+        (#878) stays untouched.
+        """
+        from workflow.services import create_default_workflow, outdate
+
+        class _SystemCtx:
+            user_id = "system:test-vcrm-report-generator"
+
+        with active_tenant(tenant_a):
+            _, kept = make_requirement(tenant_a, workspace_a, "Kept")
+            _, outdated = make_requirement(tenant_a, workspace_a, "Outdated")
+            create_default_workflow(
+                workspace_id=workspace_a.id,
+                preset="standard",
+                item_type="Requirement",
+                tenant_id=tenant_a.id,
+            )
+            outdate(
+                item_id=outdated.id,
+                item_type="Requirement",
+                workspace_id=workspace_a.id,
+                ctx=_SystemCtx(),
+                reason="test: mark outdated",
+            )
+
+            default_csv = vcrm_gen.export_vcrm_csv(workspace_a.id)
+            audit_csv = vcrm_gen.export_vcrm_csv(
+                workspace_a.id, include_outdated=True
+            )
+
+        def data_row_ids(csv_str: str) -> list[str]:
+            rows = list(csv.reader(io.StringIO(csv_str)))
+            return [row[0] for row in rows[1:]]  # drop header
+
+        default_ids = data_row_ids(default_csv)
+        audit_ids = data_row_ids(audit_csv)
+        assert str(kept.id) in default_ids
+        assert str(outdated.id) not in default_ids
+        assert str(outdated.id) in audit_ids
+        assert len(audit_ids) == len(default_ids) + 1
 
 
 # ---------------------------------------------------------------------------
@@ -545,6 +711,51 @@ class TestVCRMPDFExport:
         # Should indicate VCRM or matrix
         assert "VCRM" in text or "Matrix" in text or len(text) > 500
 
+    def test_export_vcrm_pdf_respects_include_outdated(
+        self, vcrm_gen, tenant_a, workspace_a
+    ):
+        """#1977: PDF export uses the same row filtering as CSV/matrix.
+
+        The renderer writes ``Total Entries: N`` into the PDF metadata block,
+        so the entry count is asserted from the extracted text.
+        """
+        from pypdf import PdfReader
+        from workflow.services import create_default_workflow, outdate
+
+        class _SystemCtx:
+            user_id = "system:test-vcrm-report-generator"
+
+        with active_tenant(tenant_a):
+            make_requirement(tenant_a, workspace_a, "Kept")
+            _, outdated = make_requirement(tenant_a, workspace_a, "Outdated")
+            create_default_workflow(
+                workspace_id=workspace_a.id,
+                preset="standard",
+                item_type="Requirement",
+                tenant_id=tenant_a.id,
+            )
+            outdate(
+                item_id=outdated.id,
+                item_type="Requirement",
+                workspace_id=workspace_a.id,
+                ctx=_SystemCtx(),
+                reason="test: mark outdated",
+            )
+
+            default_pdf = vcrm_gen.export_vcrm_pdf(workspace_a.id)
+            audit_pdf = vcrm_gen.export_vcrm_pdf(
+                workspace_a.id, include_outdated=True
+            )
+
+        def entry_count(pdf_bytes: bytes) -> int:
+            reader = PdfReader(io.BytesIO(pdf_bytes))
+            text = "".join(page.extract_text() or "" for page in reader.pages)
+            match = re.search(r"Total Entries:\s*(\d+)", text)
+            assert match, f"no entry count in PDF text: {text!r}"
+            return int(match.group(1))
+
+        assert entry_count(audit_pdf) == entry_count(default_pdf) + 1
+
 
 # ---------------------------------------------------------------------------
 # PERF-002: batched allocation lookups (N+1 elimination)
@@ -725,9 +936,13 @@ class TestVCRMBatchedAllocationQueries:
                                     entry.verification_method or "",
                                 ))
 
+            # The oracle above uses ``include_outdated=True``; the VCRM call
+            # must use the same mode for an apples-to-apples comparison.
             new_rows = [
                 _vcrm_row_key(r)
-                for r in vcrm_gen.generate_vcrm(workspace_a.id).rows
+                for r in vcrm_gen.generate_vcrm(
+                    workspace_a.id, include_outdated=True
+                ).rows
             ]
 
         assert sorted(new_rows) == sorted(ref_rows), (

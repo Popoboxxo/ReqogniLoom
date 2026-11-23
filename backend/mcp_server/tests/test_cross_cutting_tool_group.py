@@ -764,11 +764,29 @@ def test_traceability_coverage_rejects_an_unknown_artifact_type(
 
 
 @pytest.mark.django_db
-def test_traceability_vcrm_json_and_csv(requirement_with_tests, auth_ctx):
+def test_traceability_vcrm_json_and_csv(
+    requirement_with_tests, auth_ctx, tenant_workspace_ctx
+):
+    from application.requirement_service import RequirementService
     from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+    from mcp_server.tools.requirements import RequirementsToolGroup
 
     _req_id, workspace_id, _gap = requirement_with_tests
+    _tenant, _workspace, ctx = tenant_workspace_ctx
     group = CrossCuttingToolGroup()
+
+    # #1977: add an outdated Requirement to the same workspace. The default
+    # VCRM must hide it; the explicit audit/compliance mode must restore it.
+    svc = RequirementService()
+    outdated = svc.create_requirement(
+        workspace_id=workspace_id, title="Outdated", ctx=ctx
+    )
+    outdate_res = RequirementsToolGroup(service=svc)._handle_outdate(
+        params={"id": str(outdated.id), "reason": "obsolete"},
+        auth_context=ctx,
+        api_key="x",
+    )
+    assert outdate_res.success is True
 
     json_res = group.execute_tool(
         "traceability.vcrm",
@@ -782,6 +800,19 @@ def test_traceability_vcrm_json_and_csv(requirement_with_tests, auth_ctx):
     # #878: additive key on every JSON row.
     assert json_res.data["rows"], "fixture must yield at least one VCRM row"
     assert "verification_method" in json_res.data["rows"][0]
+    default_req_ids = {r["requirement_id"] for r in json_res.data["rows"]}
+    assert str(outdated.id) not in default_req_ids
+
+    audit_res = group.execute_tool(
+        "traceability.vcrm",
+        params={"workspace_id": str(workspace_id), "include_outdated": True},
+        auth_context=auth_ctx,
+        api_key="",
+    )
+    assert audit_res.success is True
+    audit_req_ids = {r["requirement_id"] for r in audit_res.data["rows"]}
+    assert str(outdated.id) in audit_req_ids
+    assert audit_res.data["row_count"] > json_res.data["row_count"]
 
     csv_res = group.execute_tool(
         "traceability.vcrm",
@@ -795,6 +826,57 @@ def test_traceability_vcrm_json_and_csv(requirement_with_tests, auth_ctx):
     assert csv_res.data["csv"].startswith(
         "requirement_id,component_id,test_case_id,test_result,verification_method"
     )
+
+    # #1977: the CSV export path honours the same flag (row counts).
+    csv_audit_res = group.execute_tool(
+        "traceability.vcrm",
+        params={
+            "workspace_id": str(workspace_id),
+            "format": "csv",
+            "include_outdated": True,
+        },
+        auth_context=auth_ctx,
+        api_key="",
+    )
+    assert csv_audit_res.success is True
+    assert csv_audit_res.data["row_count"] > csv_res.data["row_count"]
+
+
+@pytest.mark.django_db
+def test_traceability_vcrm_include_outdated_defaults_false(
+    requirement_with_tests, auth_ctx
+):
+    """#1977: the tool defaults to coverage parity and documents the flag."""
+    from mcp_server.tools.cross_cutting import CrossCuttingToolGroup
+
+    schema = next(
+        s
+        for s in CrossCuttingToolGroup._TOOL_SCHEMAS
+        if s["name"] == "traceability.vcrm"
+    )
+    prop = schema["inputSchema"]["properties"]["include_outdated"]
+    assert prop["type"] == "boolean"
+    assert schema["inputSchema"]["required"] == ["workspace_id"]
+    assert "outdated" in schema["description"].lower()
+    assert "audit" in schema["description"].lower()
+
+    _req_id, workspace_id, _gap = requirement_with_tests
+    group = CrossCuttingToolGroup()
+    default = group.execute_tool(
+        "traceability.vcrm",
+        params={"workspace_id": str(workspace_id)},
+        auth_context=auth_ctx,
+        api_key="",
+    )
+    explicit = group.execute_tool(
+        "traceability.vcrm",
+        params={"workspace_id": str(workspace_id), "include_outdated": False},
+        auth_context=auth_ctx,
+        api_key="",
+    )
+    assert default.success is True
+    assert explicit.success is True
+    assert default.data["row_count"] == explicit.data["row_count"]
 
 
 @pytest.mark.django_db
