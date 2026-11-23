@@ -39,6 +39,13 @@ Background:
     role, so it cannot ``SET ROLE`` into it; only a superuser could, and a
     superuser already bypasses RLS.
 
+    Issue #1959 (additive extension, mirroring the #1739 pattern): the inventory
+    below also names ``public.embedding_model_drift_counts(text)``, created by
+    the later ``persistence/0156`` migration, and grants SELECT on the four
+    embedding tables it reads. Ownership/grant statements are existence-guarded
+    so both fresh and already-migrated databases end in the same state; no
+    migration history is rewritten.
+
 Rejected alternative — table ownership (``ALTER TABLE ... OWNER TO``):
     Transferring the seven tables to the definer would also bypass RLS (tables
     are not FORCEd), but it implicitly grants ``ALL`` privileges including
@@ -96,6 +103,12 @@ DEFINER_SIGNATURES: tuple[str, ...] = (
     "public.as_outbox_candidates(integer, timestamptz)",
     "public.as_worker_backlog()",
     "public.rls_hard_enforced(text)",
+    # Issue #1959: corpus-wide embedding-model drift counts for /health. The
+    # function is created by persistence/0156 (later than this migration), so
+    # the ownership transfer below is existence-guarded — the later migration
+    # transfers its own function on creation. Listing it here keeps the guard
+    # exhaustive and re-asserts ownership when this migration is replayed.
+    "public.embedding_model_drift_counts(text)",
 )
 
 #: Minimal per-table DML grant the definer bodies actually need. Derived from
@@ -112,7 +125,23 @@ DEFINER_TABLE_PRIVILEGES: dict[str, tuple[str, ...]] = {
     "pl_rls_enforcement": ("SELECT",),
     # ``pl_user`` is joined by auth_api_key_lookup for tenant_id / is_active.
     "pl_user": ("SELECT",),
+    # Issue #1959: the drift-count function only reads these four embedding
+    # tables. BYPASSRLS (role attribute) plus these explicit SELECT grants are
+    # the whole surface it needs — no DML, no table ownership.
+    "pl_requirement": ("SELECT",),
+    "pl_tracelink": ("SELECT",),
+    "icd_icd": ("SELECT",),
+    "mem_memory_entry": ("SELECT",),
 }
+
+#: Tables above that are created by *other* apps' migrations which this
+#: already-applied migration cannot safely depend on (adding a dependency to an
+#: applied migration would flip its position in the graph). Their grants are
+#: guarded with ``to_regclass`` so a fresh install that has not reached those
+#: apps yet still migrates cleanly; the 0156 migration grants them itself too.
+_LATE_EMBEDDING_TABLES: frozenset[str] = frozenset(
+    {"pl_requirement", "pl_tracelink", "icd_icd", "mem_memory_entry"}
+)
 
 
 def _quote_ident(name: str) -> str:
@@ -145,13 +174,28 @@ $$;
 
 
 def _grant_sql() -> str:
-    """USAGE on the schema plus the explicit per-table DML grants."""
+    """USAGE on the schema plus the explicit per-table DML grants.
+
+    The embedding tables added for #1959 are created by other apps' migrations
+    that this already-applied migration cannot depend on, so those statements
+    are existence-guarded (``to_regclass``) instead. On a fresh install where
+    they are already present the grants are applied here; where they are not,
+    persistence/0156 installs its own function and grants when it runs.
+    """
     role = _quote_ident(DEFINER_DB_ROLE)
     statements = [f"GRANT USAGE ON SCHEMA public TO {role};"]
     for table, privileges in DEFINER_TABLE_PRIVILEGES.items():
-        statements.append(
-            f"GRANT {', '.join(privileges)} ON public.{_quote_ident(table)} TO {role};"
-        )
+        grant = f"GRANT {', '.join(privileges)} ON public.{_quote_ident(table)} TO {role};"
+        if table in _LATE_EMBEDDING_TABLES:
+            statements.append(
+                "DO $do$\nBEGIN\n"
+                f"    IF to_regclass('public.{table}') IS NOT NULL THEN\n"
+                f"        {grant}\n"
+                "    END IF;\n"
+                "END $do$;"
+            )
+        else:
+            statements.append(grant)
     return "\n".join(statements)
 
 
@@ -160,9 +204,17 @@ def _revoke_sql() -> str:
     role = _quote_ident(DEFINER_DB_ROLE)
     statements = []
     for table in DEFINER_TABLE_PRIVILEGES:
-        statements.append(
-            f"REVOKE ALL PRIVILEGES ON public.{_quote_ident(table)} FROM {role};"
-        )
+        revoke = f"REVOKE ALL PRIVILEGES ON public.{_quote_ident(table)} FROM {role};"
+        if table in _LATE_EMBEDDING_TABLES:
+            statements.append(
+                "DO $do$\nBEGIN\n"
+                f"    IF to_regclass('public.{table}') IS NOT NULL THEN\n"
+                f"        {revoke}\n"
+                "    END IF;\n"
+                "END $do$;"
+            )
+        else:
+            statements.append(revoke)
     statements.append(f"REVOKE USAGE ON SCHEMA public FROM {role};")
     return "\n".join(statements)
 

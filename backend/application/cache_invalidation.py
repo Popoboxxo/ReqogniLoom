@@ -92,18 +92,23 @@ def _workspace_keys(workspace_id: str) -> list[str]:
 def _matrix_cache_keys(workspace_id: str) -> list[str]:
     """Return the VCRM matrix cache keys for *workspace_id* (REQ-104, BE-22).
 
-    Only the live (no-baseline) key is returned for deterministic
-    ``delete_many`` invalidation, which every cache backend supports (the test
-    suite runs on LocMemCache). Baseline-scoped variants are additionally
-    covered by the pattern deletion in :func:`invalidate_workspace_caches` when
-    the backend exposes ``delete_pattern`` (django-redis). Imported lazily to
-    keep this module importable during app loading and to respect the layer
-    boundary (application → traceability is a downward dependency).
+    Both the live default (coverage-parity) key and the #1977
+    ``include_outdated=True`` audit/compliance variant are returned for
+    deterministic ``delete_many`` invalidation, which every cache backend
+    supports (the test suite runs on LocMemCache). Baseline-scoped variants are
+    additionally covered by the pattern deletion in
+    :func:`invalidate_workspace_caches` when the backend exposes
+    ``delete_pattern`` (django-redis). Imported lazily to keep this module
+    importable during app loading and to respect the layer boundary
+    (application → traceability is a downward dependency).
     """
     try:
         from traceability.services import traceability_matrix_cache_key
 
-        return [traceability_matrix_cache_key(workspace_id)]
+        return [
+            traceability_matrix_cache_key(workspace_id),
+            traceability_matrix_cache_key(workspace_id, include_outdated=True),
+        ]
     except Exception:  # noqa: BLE001 — never break invalidation  # pragma: no cover - defensive
         return []
 

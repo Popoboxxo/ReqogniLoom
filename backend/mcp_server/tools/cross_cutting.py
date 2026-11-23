@@ -1232,7 +1232,14 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 "e.g. Test/Review/Analysis; empty string when unset). "
                 "``format=\"csv\"`` "
                 "returns result.csv (the mandatory CSV export) plus row_count; "
-                "it appends ``verification_method`` as the last column."
+                "it appends ``verification_method`` as the last column. "
+                "``include_outdated`` (default false) excludes outdated "
+                "Requirements/TestCases for parity with "
+                "``traceability.coverage``; set it to true for the explicit "
+                "audit/compliance mode with the legacy all-rows behavior. "
+                "VCRM rows carry no ``outdated`` marker (the CSV positional "
+                "contract #878 must not break), so filtering is the only way "
+                "to handle outdated entries."
             ),
             "inputSchema": {
                 "type": "object",
@@ -1244,6 +1251,14 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     "format": {
                         "type": "string",
                         "description": "Output format: 'json' (default) or 'csv'.",
+                    },
+                    "include_outdated": {
+                        "type": "boolean",
+                        "description": (
+                            "Include outdated Requirements/TestCases "
+                            "(default false; true = legacy all-rows "
+                            "audit/compliance mode)."
+                        ),
                     },
                 },
                 "required": ["workspace_id"],
@@ -2836,6 +2851,9 @@ class CrossCuttingToolGroup(BaseToolGroup):
 
         Read-only. ``format="json"`` (default) returns the matrix rows;
         ``format="csv"`` returns the mandatory CSV export as a string.
+        #1977: ``include_outdated`` defaults to false (coverage parity);
+        true selects the legacy all-rows audit/compliance mode and is
+        forwarded to both export paths.
         """
         workspace_id = require_uuid(params, "workspace_id")
         fmt = str(params.get("format", "json")).lower()
@@ -2843,19 +2861,24 @@ class CrossCuttingToolGroup(BaseToolGroup):
             return ToolResult.error(
                 "VALIDATION_ERROR", "Parameter 'format' must be 'json' or 'csv'."
             )
+        include_outdated = bool(params.get("include_outdated", False))
 
         from traceability.vcrm_report_generator import VCRMReportGenerator
 
         generator = VCRMReportGenerator()
         try:
             if fmt == "csv":
-                csv_text = generator.export_vcrm_csv(workspace_id)
+                csv_text = generator.export_vcrm_csv(
+                    workspace_id, include_outdated=include_outdated
+                )
                 # Data rows = every line after the header row.
                 row_count = max(len(csv_text.splitlines()) - 1, 0)
                 return ToolResult.ok(
                     {"format": "csv", "row_count": row_count, "csv": csv_text}
                 )
-            matrix = generator.generate_vcrm(workspace_id)
+            matrix = generator.generate_vcrm(
+                workspace_id, include_outdated=include_outdated
+            )
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
 

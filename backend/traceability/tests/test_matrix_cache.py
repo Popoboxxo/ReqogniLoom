@@ -83,3 +83,61 @@ class TestVCRMMatrixCache:
             link.delete()
 
         assert cache.get(key) is None
+
+    def test_default_and_audit_variants_use_different_cache_keys(
+        self, workspace_a
+    ):
+        """#1977: ``include_outdated`` is part of the cache key.
+
+        The coverage-parity default and the audit/compliance variant must
+        never serve each other's rows.
+        """
+        default_key = services.traceability_matrix_cache_key(workspace_a.id)
+        audit_key = services.traceability_matrix_cache_key(
+            workspace_a.id, include_outdated=True
+        )
+        assert default_key != audit_key
+
+    def test_include_outdated_matrix_is_cached_separately(
+        self, tenant_a, workspace_a
+    ):
+        """#1977: both modes get their own cached matrix."""
+        cache.clear()
+        with active_tenant(tenant_a):
+            make_requirement(tenant_a, workspace_a, "R-1")
+            default_matrix = services.generate_vcrm(workspace_a.id)
+            audit_matrix = services.generate_vcrm(
+                workspace_a.id, include_outdated=True
+            )
+
+        default_key = services.traceability_matrix_cache_key(workspace_a.id)
+        audit_key = services.traceability_matrix_cache_key(
+            workspace_a.id, include_outdated=True
+        )
+        assert cache.get(default_key).to_dict() == default_matrix.to_dict()
+        assert cache.get(audit_key).to_dict() == audit_matrix.to_dict()
+
+    def test_invalidate_workspace_caches_clears_audit_variant(
+        self, tenant_a, workspace_a
+    ):
+        """#1977: workspace invalidation clears BOTH matrix variants under
+        LocMemCache (the ``delete_pattern`` path is django-redis only)."""
+        from application.cache_invalidation import invalidate_workspace_caches
+
+        cache.clear()
+        with active_tenant(tenant_a):
+            make_requirement(tenant_a, workspace_a, "R-1")
+            services.generate_vcrm(workspace_a.id)
+            services.generate_vcrm(workspace_a.id, include_outdated=True)
+
+        default_key = services.traceability_matrix_cache_key(workspace_a.id)
+        audit_key = services.traceability_matrix_cache_key(
+            workspace_a.id, include_outdated=True
+        )
+        assert cache.get(default_key) is not None
+        assert cache.get(audit_key) is not None
+
+        invalidate_workspace_caches(workspace_a.id)
+
+        assert cache.get(default_key) is None
+        assert cache.get(audit_key) is None

@@ -68,6 +68,8 @@ DEFINER_SIGNATURES: tuple[str, ...] = (
     "public.as_outbox_candidates(integer, timestamptz)",
     "public.as_worker_backlog()",
     "public.rls_hard_enforced(text)",
+    # Issue #1959: read-only corpus-wide embedding-drift counts (0156).
+    "public.embedding_model_drift_counts(text)",
 )
 
 #: The minimal per-table DML grant set the migration must install.
@@ -79,6 +81,11 @@ DEFINER_TABLE_PRIVILEGES: dict[str, tuple[str, ...]] = {
     "as_domain_event_dlq": ("SELECT",),
     "pl_rls_enforcement": ("SELECT",),
     "pl_user": ("SELECT",),
+    # Issue #1959: the drift-count definer only reads these embedding tables.
+    "pl_requirement": ("SELECT",),
+    "pl_tracelink": ("SELECT",),
+    "icd_icd": ("SELECT",),
+    "mem_memory_entry": ("SELECT",),
 }
 
 #: Privileges the ten bodies never use on their tables. Asserted absent so the

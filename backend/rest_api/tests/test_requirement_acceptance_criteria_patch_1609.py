@@ -144,7 +144,14 @@ def test_patch_without_items_leaves_the_list_untouched(authed_client, workspace)
     assert len(response.json()["acceptance_criteria_items"]) == 2
 
 
-def test_free_text_acceptance_criteria_stays_compatible(authed_client, workspace):
+def test_free_text_write_reseeds_the_authoritative_list(authed_client, workspace):
+    """#2012: a text-only write makes that text the single source of truth.
+
+    The old two-store contract let the free text and the structured list drift
+    apart. With ``acceptance_criteria_items`` authoritative, a text-only PATCH
+    now seeds exactly one criterion from the text (the free-text column stays a
+    synchronous mirror of it).
+    """
     requirement = _create(authed_client, workspace.id)
     authed_client.patch(
         f"/api/v1/requirements/{requirement['id']}/",
@@ -164,9 +171,42 @@ def test_free_text_acceptance_criteria_stays_compatible(authed_client, workspace
     assert response.status_code == 200, response.content
     body = response.json()
     assert body["acceptance_criteria"] == "Legacy free text acceptance criteria"
-    # The free-text field is a separate column: writing it must not wipe the
-    # structured list.
-    assert len(body["acceptance_criteria_items"]) == 2
+    expected = [
+        {
+            "text": "Legacy free text acceptance criteria",
+            "fulfilled": False,
+            "evidence_ref": None,
+        }
+    ]
+    assert body["acceptance_criteria_items"] == expected
+    assert _stored_items(requirement["id"]) == expected
+
+
+def test_both_fields_in_one_patch_prefers_the_structured_list(authed_client, workspace):
+    """#2012: REST precedence (views_entity_core.py) is preserved — list wins."""
+    requirement = _create(authed_client, workspace.id)
+
+    response = authed_client.patch(
+        f"/api/v1/requirements/{requirement['id']}/",
+        {
+            "acceptance_criteria": "Text that must lose",
+            "acceptance_criteria_items": _TWO_ITEMS,
+            "change_reason": "#2012 precedence",
+        },
+        format="json",
+    )
+
+    assert response.status_code == 200, response.content
+    body = response.json()
+    assert [item["text"] for item in body["acceptance_criteria_items"]] == [
+        "Login succeeds with valid credentials",
+        "Login is refused with a wrong password",
+    ]
+    # The mirror is materialized from the winning list, not the losing text.
+    assert body["acceptance_criteria"] == (
+        "Login succeeds with valid credentials\n"
+        "Login is refused with a wrong password"
+    )
 
 
 def test_create_persists_acceptance_criteria_items(authed_client, workspace):

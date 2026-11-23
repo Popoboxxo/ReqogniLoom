@@ -100,6 +100,52 @@ _NON_ATOMIC_TERM_PATTERN = re.compile(r"\b(and|or)\b", re.IGNORECASE)
 _CONSISTENCY_TASK_TENANT_CACHE_PREFIX = "requirement_consistency_task_tenant"
 _CONSISTENCY_TASK_TENANT_TTL_SECONDS = 86400
 
+# #2012: the legacy free-text ``acceptance_criteria`` column is a synchronous
+# *mirror* of the authoritative structured ``acceptance_criteria_items`` list.
+# The cap matches ``RequirementWriteSerializer.acceptance_criteria``'s
+# ``SanitizedCharField(max_length=20000)`` (rest_api/serializers_entity.py), so a
+# mirror produced through a service/MCP write obeys the same limit a REST write
+# would. The structured list keeps the full text; only the mirror is capped.
+_ACCEPTANCE_TEXT_MAX_LENGTH = 20_000
+
+
+def _materialize_acceptance_text(criteria: list[dict[str, Any]]) -> str:
+    """Deterministic free-text projection of the authoritative criteria list.
+
+    #2012: every structured write re-materializes the mirror in the same
+    transaction. Joining the normalized (already stripped) ``text`` values with
+    newlines makes the projection stable and independent of dict ordering; the
+    sanitizer is the same guard the free-text write paths use (HTML/script URI
+    rejection). ``fulfilled`` / ``evidence_ref`` live only in the list and are
+    never derived from, or overwritten by, this text.
+
+    Each text is sanitized INDIVIDUALLY, before the join. The guard normalizes a
+    value by stripping C0 controls (including ``\\n``) before matching dangerous
+    URI schemes, so sanitizing the synthesized joined string would reject two
+    perfectly harmless criteria ("see java" + "script:alert(1)") that only form
+    a token across the boundary. No check is skipped: every individual text
+    still goes through :func:`clean_free_text_field` exactly as before.
+    """
+    cleaned_texts = [
+        clean_free_text_field(str(item.get("text", "")).strip(), "acceptance_criteria")
+        or ""
+        for item in criteria
+    ]
+    joined = "\n".join(cleaned_texts).strip()
+    return joined[:_ACCEPTANCE_TEXT_MAX_LENGTH].rstrip()
+
+
+def _seed_criteria_from_text(text: str) -> list[dict[str, Any]]:
+    """The single criterion a text-only write seeds into the structured list.
+
+    #2012: a text-only write (create / update without ``acceptance_criteria_items``)
+    makes that text authoritative, so the list becomes exactly one unchecked,
+    unevidenced criterion. Structured writes overwrite this seed through
+    :meth:`RequirementService.set_acceptance_criteria` (REST precedence:
+    structured wins when both fields are supplied in one request).
+    """
+    return [{"text": text.strip(), "fulfilled": False, "evidence_ref": None}]
+
 
 def detect_non_atomic_terms(title: str) -> list[str]:
     """Return the distinct conjunction words found in ``title``, lowercased.
@@ -404,6 +450,15 @@ class RequirementService(ServiceBase):
         description = clean_free_text_field(description, "description")
         acceptance_criteria = clean_free_text_field(
             acceptance_criteria, "acceptance_criteria"
+        ) or ""
+        # #2012: the structured list is the single authoritative store. A
+        # text-only create seeds exactly one criterion from the (sanitized) text
+        # and derives the mirror back from it, so read-back through MCP and the
+        # release gate sees what was just written.
+        criteria_items = (
+            _seed_criteria_from_text(acceptance_criteria)
+            if acceptance_criteria.strip()
+            else []
         )
         # #871/#583: rationale/source are free text too — same defense in depth
         # as description/acceptance_criteria (closes the MCP bypass).
@@ -438,7 +493,9 @@ class RequirementService(ServiceBase):
             description=description,
             rationale=rationale,
             source=source,
-            acceptance_criteria=acceptance_criteria,
+            # #2012: both stores are written synchronously in this one insert.
+            acceptance_criteria=_materialize_acceptance_text(criteria_items),
+            acceptance_criteria_items=criteria_items,
             category=category,
             type=type,
             complexity_fibonacci=complexity_fibonacci,
@@ -626,9 +683,14 @@ class RequirementService(ServiceBase):
         if description is not None:
             requirement.description = clean_free_text_field(description, "description")
         if acceptance_criteria is not None:
-            requirement.acceptance_criteria = clean_free_text_field(
-                acceptance_criteria, "acceptance_criteria"
-            )
+            cleaned = clean_free_text_field(acceptance_criteria, "acceptance_criteria") or ""
+            # #2012: a text-only update makes that text the source of truth —
+            # seed one criterion in the authoritative list, then re-materialize
+            # the mirror. A structured list supplied in the same request is
+            # applied afterwards by the REST view (structured wins there).
+            items = _seed_criteria_from_text(cleaned) if cleaned.strip() else []
+            requirement.acceptance_criteria_items = items
+            requirement.acceptance_criteria = _materialize_acceptance_text(items)
         if rationale is not None:
             requirement.rationale = clean_free_text_field(rationale, "rationale")
         if source is not None:
@@ -1198,7 +1260,19 @@ class RequirementService(ServiceBase):
             requirement.acceptance_criteria_items = normalize_criteria_list(items)
         except FieldValidationError as exc:
             raise ValidationError(str(exc)) from exc
-        requirement.save(update_fields=["acceptance_criteria_items", "modified_at"])
+        # #2012: mirror the (possibly edited) text back into the free-text
+        # column in the same write. Only ``text`` feeds the mirror; the
+        # fulfilled/evidence_ref values changed above stay in the list.
+        requirement.acceptance_criteria = _materialize_acceptance_text(
+            requirement.acceptance_criteria_items
+        )
+        requirement.save(
+            update_fields=[
+                "acceptance_criteria_items",
+                "acceptance_criteria",
+                "modified_at",
+            ]
+        )
         self._audit(
             ctx=ctx,
             operation="update",
@@ -1233,7 +1307,18 @@ class RequirementService(ServiceBase):
             raise ValidationError(str(exc)) from exc
         requirement = self._load_requirement_for_update(requirement_id, ctx, None)
         requirement.acceptance_criteria_items = normalized
-        requirement.save(update_fields=["acceptance_criteria_items", "modified_at"])
+        # #2012: synchronous, deterministic mirror in the same transaction —
+        # an MCP ``..._set`` now produces read-back text the release gate can
+        # see. The list remains authoritative; re-materializing never rewrites
+        # a criterion's fulfilled/evidence_ref.
+        requirement.acceptance_criteria = _materialize_acceptance_text(normalized)
+        requirement.save(
+            update_fields=[
+                "acceptance_criteria_items",
+                "acceptance_criteria",
+                "modified_at",
+            ]
+        )
         self._audit(
             ctx=ctx,
             operation="update",

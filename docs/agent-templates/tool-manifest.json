@@ -6969,7 +6969,7 @@
       "name": "requirement.get",
       "prefix": "requirement",
       "is_write": false,
-      "description": "Fetch a single requirement by ID.",
+      "description": "Fetch a single requirement by ID. Returns both ``acceptance_criteria`` (the synchronous free-text mirror) and ``acceptance_criteria_items`` (the authoritative structured criteria list), so structured writes are visible on read-back.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -8661,7 +8661,7 @@
       "name": "traceability.vcrm",
       "prefix": "traceability",
       "is_write": true,
-      "description": "Export the Verification Cross Reference Matrix (VCRM, COMP-TE-004, issue #410) for a workspace: requirement x component x test_case x result x verification_method. ``format=\"json\"`` (default) returns result.rows/result.row_count; every row additionally carries ``verification_method`` (the requirement's method, e.g. Test/Review/Analysis; empty string when unset). ``format=\"csv\"`` returns result.csv (the mandatory CSV export) plus row_count; it appends ``verification_method`` as the last column.",
+      "description": "Export the Verification Cross Reference Matrix (VCRM, COMP-TE-004, issue #410) for a workspace: requirement x component x test_case x result x verification_method. ``format=\"json\"`` (default) returns result.rows/result.row_count; every row additionally carries ``verification_method`` (the requirement's method, e.g. Test/Review/Analysis; empty string when unset). ``format=\"csv\"`` returns result.csv (the mandatory CSV export) plus row_count; it appends ``verification_method`` as the last column. ``include_outdated`` (default false) excludes outdated Requirements/TestCases for parity with ``traceability.coverage``; set it to true for the explicit audit/compliance mode with the legacy all-rows behavior. VCRM rows carry no ``outdated`` marker (the CSV positional contract #878 must not break), so filtering is the only way to handle outdated entries.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -8672,6 +8672,10 @@
           "format": {
             "type": "string",
             "description": "Output format: 'json' (default) or 'csv'."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "Include outdated Requirements/TestCases (default false; true = legacy all-rows audit/compliance mode)."
           }
         },
         "required": [

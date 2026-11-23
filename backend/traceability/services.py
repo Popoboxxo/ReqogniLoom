@@ -90,16 +90,21 @@ _MATRIX_CACHE_PREFIX = "reqogniloom:traceability-matrix"
 def traceability_matrix_cache_key(
     workspace_id: uuid.UUID | str,
     baseline_id: uuid.UUID | str | None = None,
+    *,
+    include_outdated: bool = False,
 ) -> str:
     """Return the shared-cache key for a workspace's VCRM matrix (REQ-104).
 
     The key is workspace-scoped and varies by baseline snapshot so baseline
-    diffs never collide with the live matrix. It shares the ``reqogniloom:``
-    namespace used by ``application.cache_invalidation`` so the existing
-    workspace pattern-invalidation also reaches these keys.
+    diffs never collide with the live matrix. #1977: it also varies by the
+    ``include_outdated`` mode, so the default (coverage-parity) matrix and the
+    explicit audit/compliance matrix never serve each other's rows. It shares
+    the ``reqogniloom:`` namespace used by ``application.cache_invalidation``
+    so the existing workspace pattern-invalidation also reaches these keys.
     """
     variant = str(baseline_id) if baseline_id is not None else "live"
-    return f"{_MATRIX_CACHE_PREFIX}:{workspace_id}:{variant}"
+    mode = "outdated" if include_outdated else "active"
+    return f"{_MATRIX_CACHE_PREFIX}:{workspace_id}:{variant}:{mode}"
 
 
 # ---------------------------------------------------------------------------
@@ -182,15 +187,16 @@ def get_coverage_data(
     workspace_id: uuid.UUID,
     baseline_id: uuid.UUID | None = None,
     *,
+    include_outdated: bool = False,
     include_unreviewed_ai: bool = False,
 ) -> CoverageData:
     """Return per-requirement test-case data (used by VCRMReportGenerator).
 
     IF-TE-INT-004. REQ-L2-TE-013.
 
-    Note: explicitly passes ``include_outdated=True`` to preserve this
-    facade's pre-existing behavior (show all requirements, including
-    outdated ones) regardless of the underlying calculator's new default.
+    #1977: ``include_outdated`` defaults to ``False`` for parity with
+    ``traceability.coverage``; pass ``True`` for the legacy all-rows
+    audit/compliance behavior. The facade no longer forces ``True``.
     #424/R4: ``include_unreviewed_ai`` defaults to ``False``, so the facade
     also drops unreviewed AI test cases — the intended semantics; pass
     ``True`` for the raw view.
@@ -198,7 +204,7 @@ def get_coverage_data(
     return _coverage_calc.get_coverage_data(
         workspace_id=workspace_id,
         baseline_id=baseline_id,
-        include_outdated=True,
+        include_outdated=include_outdated,
         include_unreviewed_ai=include_unreviewed_ai,
     )
 
@@ -353,6 +359,8 @@ def batch_delete_trace_links(link_ids: list[uuid.UUID]) -> int:
 def generate_vcrm(
     workspace_id: uuid.UUID,
     baseline_id: uuid.UUID | None = None,
+    *,
+    include_outdated: bool = False,
 ) -> VCRMMatrix:
     """Generate the VCRM matrix.
 
@@ -360,9 +368,19 @@ def generate_vcrm(
     REQ-104: served from the shared cache when a fresh entry exists; otherwise
     recomputed via live graph traversal and cached for
     ``TRACEABILITY_MATRIX_CACHE_TTL`` seconds. Entries are invalidated on any
-    TraceLink mutation (see ``application.cache_invalidation``).
+    TraceLink mutation (see ``application.cache_invalidation``). #1977: the
+    cache key varies by ``include_outdated`` so the two modes stay isolated.
+
+    Args:
+        workspace_id: Workspace to report on.
+        baseline_id: Optional baseline snapshot.
+        include_outdated: Defaults to ``False`` (parity with
+            ``traceability.coverage``); ``True`` selects the legacy all-rows
+            audit/compliance mode.
     """
-    cache_key = traceability_matrix_cache_key(workspace_id, baseline_id)
+    cache_key = traceability_matrix_cache_key(
+        workspace_id, baseline_id, include_outdated=include_outdated
+    )
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -370,6 +388,7 @@ def generate_vcrm(
     matrix = _vcrm_gen.generate_vcrm(
         workspace_id=workspace_id,
         baseline_id=baseline_id,
+        include_outdated=include_outdated,
     )
     cache.set(cache_key, matrix, TRACEABILITY_MATRIX_CACHE_TTL)
     return matrix
@@ -378,28 +397,38 @@ def generate_vcrm(
 def export_vcrm_csv(
     workspace_id: uuid.UUID,
     baseline_id: uuid.UUID | None = None,
+    *,
+    include_outdated: bool = False,
 ) -> str:
     """Export the VCRM matrix as a CSV string.
 
     REQ-L2-TE-013: mandatory CSV export.
+    #1977: ``include_outdated`` defaults to ``False`` (coverage parity);
+    ``True`` restores the legacy all-rows audit/compliance mode.
     """
     return _vcrm_gen.export_vcrm_csv(
         workspace_id=workspace_id,
         baseline_id=baseline_id,
+        include_outdated=include_outdated,
     )
 
 
 def export_vcrm_pdf(
     workspace_id: uuid.UUID,
     baseline_id: uuid.UUID | None = None,
+    *,
+    include_outdated: bool = False,
 ) -> bytes:
     """Export the VCRM matrix as PDF.
 
     REQ-L2-TE-013 / REQ-L2-AS-016: delegates to pdf_report_generator.
+    #1977: ``include_outdated`` defaults to ``False`` (coverage parity);
+    ``True`` restores the legacy all-rows audit/compliance mode.
     """
     return _vcrm_gen.export_vcrm_pdf(
         workspace_id=workspace_id,
         baseline_id=baseline_id,
+        include_outdated=include_outdated,
     )
 
 

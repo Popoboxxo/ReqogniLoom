@@ -67,3 +67,10 @@ claude mcp add --transport http reqogniloom \
 - Breaking: Das Plugin liest keine `REQOGNILOOM_*`-Umgebungsvariablen mehr — die Werte nach dem Update einmal per `claude plugin configure reqogniloom` setzen.
 - Deinstallation: `claude plugin uninstall reqogniloom`.
 - Der Installer kopiert für diesen Client keine Skills (das Plugin bringt sie mit) — `--refresh` ändert hier nichts.
+
+## 9. Mehrdeutige Transport-Antworten / Retry-Vertrag
+
+- Die Meldung „transport dropped mid-call; response for tool '…' was lost“ erzeugt der Client bzw. dessen Transport-Schicht — nicht der ReqogniLoom-Server. Sie ist keine Server-Fehlermeldung und besagt nicht, dass der Schreibaufruf fehlgeschlagen ist.
+- Das ausgelieferte Plugin nutzt Streamable HTTP (`type: http` in `.mcp.json`, `/mcp/`); die alte `type: sse`-Konfiguration wird nicht mehr ausgeliefert. Damit entfällt der langlebige SSE-Stream, aber clientseitige Timeouts bleiben möglich — eine mehrdeutige Antwort kann weiterhin auftreten.
+- Bei einem mehrdeutigen Timeout eines Schreib-Tools **vor** einem Retry den Artefaktzustand neu lesen — z. B. `interview.get_state` nach einem `interview.answer`. Nur last-write-wins-Tools wie `interview.answer` lassen sich so abgleichen; nicht annehmen, dass alle Schreib-Tools idempotent sind.
+- Zur Korrelation spiegelt der Server die JSON-RPC-`id` wider, und einzelne Fehlerpayloads enthalten `retryable`-Hinweise (z. B. `SESSION_EXPIRED`, Rate-Limits). Es gibt **keinen** serverseitigen Write-Dedupe-/Idempotency-Key — abgleichen heißt neu lesen, nicht blind erneut senden.

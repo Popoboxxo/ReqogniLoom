@@ -16,7 +16,8 @@ TestCase *Artifact* id as ``tc["id"]`` for the trace-link graph; that value
 must never be exported as ``test_case_id``.
 
 Interface contracts consumed:
-- IF-TE-INT-004: CoverageCalculator.get_coverage_data(workspace_id, baseline_id?)
+- IF-TE-INT-004: CoverageCalculator.get_coverage_data(
+  workspace_id, baseline_id?, include_outdated=False)
 - IF-TE-INT-005: QueryEngine.query(artifact_id, direction, ctx)
 - IF-TE-EXT-OUT-001: Django ORM (ArchitectureElement metadata)
 
@@ -70,6 +71,8 @@ class VCRMReportGenerator:
         self,
         workspace_id: uuid.UUID,
         baseline_id: uuid.UUID | None = None,
+        *,
+        include_outdated: bool = False,
     ) -> VCRMMatrix:
         """Generate the VCRM matrix for a workspace.
 
@@ -81,17 +84,30 @@ class VCRMReportGenerator:
         Args:
             workspace_id: Workspace to generate the matrix for.
             baseline_id: Optional baseline snapshot (forwarded to coverage data).
+            include_outdated: Defaults to ``False`` — parity with
+                ``traceability.coverage``: outdated Requirements and their
+                outdated verifying TestCases are excluded. Pass ``True`` for
+                the explicit audit/compliance mode, which restores the legacy
+                all-rows behavior (the historical VCRM default).
+
+        #1977 compliance note: VCRM rows carry **no** ``outdated`` marker. The
+        legacy behavior was to always include outdated rows because VCRM was
+        treated as an audit artifact; that made it disagree with
+        ``traceability.coverage`` and silently surface deleted work in the
+        default view. The default now matches coverage, and the full historical
+        record is available only via the explicit ``include_outdated=True``
+        audit/compliance mode. No ``outdated`` column is added to :class:`VCRMRow`:
+        the CSV positional contract (#878) — downstream consumers read the
+        first four columns by index — must not break, so filtering is the only
+        supported way to handle outdated entries.
 
         Returns:
             VCRMMatrix with all rows.
         """
-        # Explicitly include outdated Requirements/TestCases: a compliance
-        # report (VCRM) must not silently hide entries just because the
-        # underlying CoverageCalculator changed its default behavior.
         coverage_data = self._coverage.get_coverage_data(
             workspace_id=workspace_id,
             baseline_id=baseline_id,
-            include_outdated=True,
+            include_outdated=include_outdated,
         )
 
         if not coverage_data.entries:
@@ -161,6 +177,8 @@ class VCRMReportGenerator:
         self,
         workspace_id: uuid.UUID,
         baseline_id: uuid.UUID | None = None,
+        *,
+        include_outdated: bool = False,
     ) -> str:
         """Export the VCRM matrix as a CSV string.
 
@@ -170,8 +188,19 @@ class VCRMReportGenerator:
         #878 (B2-T3): ``verification_method`` is appended as the **last**
         column so every pre-existing column keeps its position — consumers
         that read the first four columns by index stay compatible.
+
+        Args:
+            workspace_id: Workspace to export.
+            baseline_id: Optional baseline snapshot.
+            include_outdated: Forwarded to :meth:`generate_vcrm`. Defaults to
+                ``False`` (coverage parity); ``True`` selects the legacy
+                all-rows audit/compliance mode. See the compliance note there.
         """
-        matrix = self.generate_vcrm(workspace_id=workspace_id, baseline_id=baseline_id)
+        matrix = self.generate_vcrm(
+            workspace_id=workspace_id,
+            baseline_id=baseline_id,
+            include_outdated=include_outdated,
+        )
 
         output = io.StringIO()
         writer = csv.writer(output)
@@ -196,13 +225,26 @@ class VCRMReportGenerator:
         self,
         workspace_id: uuid.UUID,
         baseline_id: uuid.UUID | None = None,
+        *,
+        include_outdated: bool = False,
     ) -> bytes:
         """Export the VCRM matrix as a PDF.
 
         REQ-L2-TE-013 / REQ-L2-AS-016: PDF export renders the VCRM matrix
         (Requirement × Component × TestCase × Result × Method) via reportlab.
+
+        Args:
+            workspace_id: Workspace to export.
+            baseline_id: Optional baseline snapshot.
+            include_outdated: Forwarded to :meth:`generate_vcrm`. Defaults to
+                ``False`` (coverage parity); ``True`` selects the legacy
+                all-rows audit/compliance mode. See the compliance note there.
         """
-        matrix = self.generate_vcrm(workspace_id=workspace_id, baseline_id=baseline_id)
+        matrix = self.generate_vcrm(
+            workspace_id=workspace_id,
+            baseline_id=baseline_id,
+            include_outdated=include_outdated,
+        )
         return _render_vcrm_pdf(matrix, workspace_id)
 
     # -----------------------------------------------------------------------
