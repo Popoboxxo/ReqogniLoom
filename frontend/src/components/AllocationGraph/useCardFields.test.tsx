@@ -10,7 +10,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useWorkspace } from "../../context/WorkspaceContext";
 import { PLACEHOLDER_WORKSPACE_ID } from "../../utils/workspaceId";
 import { cardFieldsApi, type CardFieldConfigMap } from "./cardFields";
 import { useCardFields } from "./useCardFields";
