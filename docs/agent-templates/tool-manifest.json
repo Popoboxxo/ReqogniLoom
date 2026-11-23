@@ -6969,7 +6969,7 @@
       "name": "requirement.get",
       "prefix": "requirement",
       "is_write": false,
-      "description": "Fetch a single requirement by ID.",
+      "description": "Fetch a single requirement by ID. Returns both ``acceptance_criteria`` (the synchronous free-text mirror) and ``acceptance_criteria_items`` (the authoritative structured criteria list), so structured writes are visible on read-back.",
       "inputSchema": {
         "type": "object",
         "properties": {

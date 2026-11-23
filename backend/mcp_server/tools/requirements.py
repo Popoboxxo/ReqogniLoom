@@ -118,9 +118,13 @@ def _requirement_to_dict(
         "uid": getattr(req, "uid", None),
         "title": req.title,
         "description": req.description,
-                "acceptance_criteria": getattr(req, "acceptance_criteria", ""),
-                "rationale": getattr(req, "rationale", ""),
-                "source": getattr(req, "source", ""),
+        "acceptance_criteria": getattr(req, "acceptance_criteria", ""),
+        # #2012: REST parity — expose the authoritative structured list too.
+        # The free-text column above is only its synchronous mirror; agents
+        # must read this field to see what a structured write actually stored.
+        "acceptance_criteria_items": getattr(req, "acceptance_criteria_items", None) or [],
+        "rationale": getattr(req, "rationale", ""),
+        "source": getattr(req, "source", ""),
         "category": req.category,
         "status": resolve_engine_status(
             "Requirement", req.id, status_map=status_map
@@ -414,7 +418,12 @@ class RequirementsToolGroup(BaseToolGroup):
     _TOOL_SCHEMAS = [
         {
             "name": "requirement.get",
-            "description": "Fetch a single requirement by ID.",
+            "description": (
+                "Fetch a single requirement by ID. Returns both "
+                "``acceptance_criteria`` (the synchronous free-text mirror) and "
+                "``acceptance_criteria_items`` (the authoritative structured "
+                "criteria list), so structured writes are visible on read-back."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
