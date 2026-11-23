@@ -52,6 +52,7 @@ import { useArchitectureCreate } from "./use-architecture-create";
 import { useArchitectureDerive } from "./use-architecture-derive";
 import { useArchitectureDecompose } from "./use-architecture-decompose";
 import { useWorkspace } from "../../context/WorkspaceContext";
+import { isPlaceholderWorkspaceId } from "../../utils/workspaceId";
 import {
   ARCH_LIFECYCLE_STATUSES,
   buildAiActions,
@@ -107,7 +108,13 @@ export default function ArchitectureEditors(): JSX.Element {
   // P4.4: one batch read for the whole tree. Keys are ArchitectureElement.id —
   // the id this tree already uses as node id. A failed read degrades to "no
   // markers"; the backend still rejects a move of a frozen element with 409.
-  const locks = useWorkspaceLocks(activeWorkspace?.id ?? null, "architecture");
+  // Identity, not isLoadingWorkspace: the flag is false during auth restore
+  // while the workspace is still the fake placeholder. Real ids stay real on
+  // reload, so this also avoids a refresh flicker.
+  const locks = useWorkspaceLocks(
+    isPlaceholderWorkspaceId(activeWorkspace?.id) ? null : (activeWorkspace?.id ?? null),
+    "architecture"
+  );
 
   // ---- Cohesion hooks (S3.2 WP-5) ----
   // List-level writes (reparent/delete + their shared error banner and

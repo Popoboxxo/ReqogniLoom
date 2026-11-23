@@ -26,6 +26,7 @@ import {
   type PreferenceScope,
 } from "../api/preference-values";
 import { useOptionalWorkspace } from "../context/WorkspaceContext";
+import { isPlaceholderWorkspaceId } from "../utils/workspaceId";
 
 /** Five minutes: preferences change on a settings page, not mid-session. */
 const PREFERENCES_STALE_TIME_MS = 5 * 60 * 1000;
@@ -44,13 +45,28 @@ export const preferenceKeys = {
  * The resolved values for the caller (`source` says which level supplied each).
  *
  * `workspaceId === null` asks the account-wide route; pass an id to include the
- * workspace level.
+ * workspace level. `enabled` follows `usePreferenceLevel`: a consumer that has
+ * not resolved its workspace yet must stay idle. Passing the placeholder id is
+ * not enough — a falsy `enabled` keeps the request from firing against either
+ * the fake workspace id or the account-wide route.
  */
-export function useEffectivePreferences(workspaceId: string | null) {
+export function useEffectivePreferences(
+  workspaceId: string | null,
+  enabled = true
+) {
+  // Second layer for consumers that only hold an id (e.g. PreferenceLevelSection):
+  // a truthy id paired with the DEFAULT_WORKSPACE placeholder would 404. Gate on
+  // reference identity, not isLoadingWorkspace — that flag is false throughout
+  // the auth-restore window and the offline fallback, both of which still hold
+  // the placeholder. Account-wide reads (null) never use that id and stay enabled.
+  const isPlaceholder = isPlaceholderWorkspaceId(
+    useOptionalWorkspace()?.activeWorkspace?.id
+  );
   return useQuery<PreferenceEffective>({
     queryKey: preferenceKeys.effective(workspaceId),
     queryFn: () => preferenceValuesApi.effective(workspaceId),
     staleTime: PREFERENCES_STALE_TIME_MS,
+    enabled: enabled && !(isPlaceholder && workspaceId !== null),
   });
 }
 
@@ -68,13 +84,17 @@ export function usePreferenceLevel(
   scope: PreferenceScope,
   workspaceId?: string
 ) {
+  const isPlaceholder = isPlaceholderWorkspaceId(
+    useOptionalWorkspace()?.activeWorkspace?.id
+  );
   return useQuery<PreferenceLevel>({
     queryKey: preferenceKeys.level(scope, workspaceId),
     queryFn: () => preferenceValuesApi.getLevel(scope, workspaceId),
     staleTime: PREFERENCES_STALE_TIME_MS,
-    // The workspace route needs an id; without one there is nothing to read
-    // (and the wrapper would throw), so stay idle instead.
-    enabled: scope !== "workspace" || Boolean(workspaceId),
+    // The workspace route needs a real id. Identity (not isLoadingWorkspace)
+    // also covers the auth-restore/offline windows, where the flag is false but
+    // activeWorkspace is still the placeholder. user/global routes are unaffected.
+    enabled: scope !== "workspace" || (Boolean(workspaceId) && !isPlaceholder),
   });
 }
 
@@ -91,7 +111,11 @@ export function usePreferenceLevel(
 export function usePreferenceValue<T>(key: string, fallback: T): T {
   const workspace = useOptionalWorkspace();
   const { data } = useEffectivePreferences(
-    workspace?.activeWorkspace?.id ?? null
+    workspace?.activeWorkspace?.id ?? null,
+    // Identity, not isLoadingWorkspace: the flag is false during auth restore
+    // and the offline fallback while activeWorkspace is still the placeholder.
+    // No provider => `!workspace` keeps the account-wide degradation.
+    !workspace || !isPlaceholderWorkspaceId(workspace.activeWorkspace?.id)
   );
   // `values` is optional on read: a deployment/proxy that answers the route
   // with a different 2xx shape must degrade to the fallback like any other

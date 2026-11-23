@@ -40,6 +40,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { useAuth } from "../context/AuthContext";
 import { useWorkspace } from "../context/WorkspaceContext";
+import { isPlaceholderWorkspaceId } from "../utils/workspaceId";
 import { useEffectivePreferences } from "../queries/preferences";
 import { displayPreferencesApi } from "../api/display-preferences";
 import {
@@ -72,7 +73,13 @@ export const DISPLAY_PREFERENCES_QUERY_KEY = ["display-preferences", "me"] as co
  */
 function AuthenticatedPreferencesHydrator(): null {
   const { activeWorkspace } = useWorkspace();
-  const { data } = useEffectivePreferences(activeWorkspace?.id ?? null);
+  // Identity, not isLoadingWorkspace: during auth restore and the offline
+  // fallback the flag is false while activeWorkspace is still the fake
+  // DEFAULT_WORKSPACE. A real workspace stays real on reload (no flicker).
+  const { data } = useEffectivePreferences(
+    activeWorkspace?.id ?? null,
+    !isPlaceholderWorkspaceId(activeWorkspace?.id)
+  );
   // `undefined` while loading, on error, and for an unset key — all three must
   // leave the cache alone. A stored `false` is a value and survives this check.
   const resolved = data?.values[SHOW_READABLE_IDS_KEY]?.value;

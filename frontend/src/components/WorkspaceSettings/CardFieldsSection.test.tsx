@@ -6,7 +6,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import de from "../../i18n/locales/de.json";
 
 import {
@@ -16,6 +16,12 @@ import {
   type CardFieldConfigMap,
 } from "../AllocationGraph/cardFields";
 import { CardFieldsSection } from "./CardFieldsSection";
+import { PLACEHOLDER_WORKSPACE_ID } from "../../utils/workspaceId";
+
+let activeWorkspaceForTest: { id: string } | null = { id: "ws-1" };
+vi.mock("../../context/WorkspaceContext", () => ({
+  useOptionalWorkspace: () => ({ activeWorkspace: activeWorkspaceForTest }),
+}));
 
 vi.mock("react-i18next", () => {
   function lookup(key: string): string | undefined {
@@ -56,6 +62,7 @@ import { preferenceValuesApi } from "../../api/preference-values";
 beforeEach(() => {
   vi.clearAllMocks();
   vi.restoreAllMocks();
+  activeWorkspaceForTest = { id: "ws-1" };
   window.localStorage.clear();
   const stored = serializeCardFieldConfigMap(defaultCardFieldConfigMap());
   vi.mocked(preferenceValuesApi.effective).mockResolvedValue({
@@ -181,5 +188,16 @@ describe("CardFieldsSection", () => {
       "true"
     );
     expect(screen.getByTestId("card-fields-field-type")).toBeInTheDocument();
+  });
+
+  it("does not read preferences while activeWorkspace is the placeholder", async () => {
+    // FR-01: WorkspaceSettings is direct-linkable and can mount with the fake
+    // workspace while isLoadingWorkspace is already false.
+    activeWorkspaceForTest = { id: PLACEHOLDER_WORKSPACE_ID };
+
+    renderSection();
+
+    await act(async () => {});
+    expect(preferenceValuesApi.effective).not.toHaveBeenCalled();
   });
 });
