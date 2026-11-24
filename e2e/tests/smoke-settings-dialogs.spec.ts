@@ -239,23 +239,72 @@ test.describe('Smoke — settings and dialogs @smoke', () => {
   });
 
   test('C38 global search issues GET /search/ without a TypeError @smoke', async ({ page }, testInfo) => {
-    // A fixed needle like "test" only matches leftover E2E artifacts on a
-    // polluted developer DB and returns zero rows on the clean CI seed — which
-    // is exactly why the positive result assertion flaked there. Read a REAL
-    // requirement title from the rendered list first and search for that exact
-    // string: a full-text match against an existing title always scores 1.0,
-    // so at least one `[data-testid="global-search-result"]` is guaranteed in
-    // any workspace state. The search itself is still a real UI action below.
+    // A fixed needle ("test") matches leftover artifacts on a polluted
+    // developer DB but returns zero rows on the clean CI seed: the demo
+    // workspace there holds 0 requirements, so neither `req-list-tree` nor
+    // `artifact-table-view` exists and the empty state renders instead.
+    // Global search is workspace-scoped, so the needle must be a real artifact
+    // of the ACTIVE workspace. Read a real requirement title from whichever
+    // view actually rendered; when the workspace is empty, create one through
+    // the create form first (a real UI action) so the search can find it.
     await session.gotoRoute(page, '/requirements');
-    await expect(page.locator('[data-testid="req-list-tree"]')).toBeVisible({ timeout: 10000 });
-    // RequirementList renders rows as <ArtifactRow testId=`req-row-<id>`>; the
-    // title is the first element carrying a `title` attribute inside the row.
-    const firstRow = page.locator('[data-testid^="req-row-"]').first();
-    await expect(firstRow).toBeVisible({ timeout: 10000 });
-    const needle =
-      (await firstRow.locator('[title]').first().getAttribute('title'))?.trim() ||
-      (await firstRow.innerText()).split('\n')[0].trim();
-    expect(needle.length, 'seeded requirement title must be a non-empty search term').toBeGreaterThan(0);
+
+    const listView = page.locator('[data-testid="req-list-tree"]');
+    const tableView = page.locator('[data-testid="artifact-table-view"]');
+    const emptyState = page.locator('[data-testid="req-list-empty"]');
+    // The list/table mode is a per-browser preference
+    // (RequirementViewToggle.tsx:16-26); wait for whichever view is rendered,
+    // including the empty state so a clean seed can be prepared instead of
+    // timing out on a hardcoded selector.
+    await expect(listView.or(tableView).or(emptyState).first()).toBeVisible({ timeout: 10000 });
+    const anyRow = page
+      .locator('[data-testid^="req-row-"]')
+      .or(page.locator('[data-testid^="table-row-"]'))
+      .first();
+    await expect(
+      anyRow
+        .or(emptyState)
+        .or(page.locator('[data-testid="req-list-no-match"]'))
+        .or(page.locator('[data-testid="artifact-table-empty-state"]'))
+        .first()
+    ).toBeVisible({ timeout: 10000 });
+
+    if (!(await anyRow.isVisible())) {
+      // Clean seed (0 requirements) or an empty table: create a requirement
+      // through the real UI so the workspace-scoped search has a real hit.
+      const createdTitle = `C38 global search needle ${Date.now()}`;
+      await page.locator('[data-testid="create-req-btn"]').click();
+      await expect(page.locator('[data-testid="req-new-title-input"]')).toBeVisible({
+        timeout: 10000,
+      });
+      await page.locator('[data-testid="req-new-title-input"]').fill(createdTitle);
+      await page.locator('[data-testid="req-new-save-btn"]').click();
+      await expect(anyRow).toBeVisible({ timeout: 10000 });
+    }
+
+    // Read the needle from the view that actually rendered — never assume the
+    // list view. Tree: ArtifactRow's title attribute on `req-row-<id>`. Table:
+    // the row's `cell-<id>-title` button (the title column is not necessarily
+    // the first cell, so match on the `-title` suffix, never on cell order).
+    let needle: string;
+    if (await listView.isVisible()) {
+      const firstRow = page.locator('[data-testid^="req-row-"]').first();
+      await expect(firstRow).toBeVisible({ timeout: 10000 });
+      needle =
+        (await firstRow.locator('[title]').first().getAttribute('title'))?.trim() ||
+        (await firstRow.innerText()).split('\n')[0].trim();
+    } else if (await tableView.isVisible()) {
+      const firstRow = page.locator('[data-testid^="table-row-"]').first();
+      await expect(firstRow).toBeVisible({ timeout: 10000 });
+      needle = (await firstRow.locator('[data-testid$="-title"]').first().innerText()).trim();
+    } else {
+      throw new Error(
+        'C38: neither requirements view rendered — expected one of ' +
+          '[data-testid="req-list-tree"] or [data-testid="artifact-table-view"]; ' +
+          'no real requirement title could be read.'
+      );
+    }
+    expect(needle.length, 'rendered requirement title must be a non-empty search term').toBeGreaterThan(0);
 
     const searchInput = page.locator('[data-testid="global-search"]');
     await expect(searchInput).toBeVisible({ timeout: 10000 });
@@ -293,7 +342,7 @@ test.describe('Smoke — settings and dialogs @smoke', () => {
       testInfo,
       'C38-global-search',
       page,
-      `filled global-search with a real seeded requirement title and pressed Enter`,
+      `filled global-search with a real requirement title from the rendered view and pressed Enter`,
       `GET /search/ -> ${searchResponse.status()}; listbox + global-search-result visible; no TypeError; needle="${needle}"`
     );
   });
