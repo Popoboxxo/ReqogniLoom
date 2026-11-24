@@ -17,6 +17,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { useOptionalWorkspace } from "../../context/WorkspaceContext";
+import { isPlaceholderWorkspaceId } from "../../utils/workspaceId";
 import {
   CARD_FIELD_KEYS,
   MAX_CARD_ROWS,
@@ -49,9 +51,21 @@ export function CardFieldsSection({ workspaceId }: CardFieldsSectionProps): JSX.
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
+  const isPlaceholder = isPlaceholderWorkspaceId(
+    useOptionalWorkspace()?.activeWorkspace?.id
+  );
+
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
+    // WorkspaceSettings can be deep-linked on first load: the id prop is then
+    // the truthy DEFAULT_WORKSPACE placeholder. Identity also covers the auth
+    // restore window, where isLoadingWorkspace is already false.
+    if (isPlaceholder) {
+      return () => {
+        cancelled = true;
+      };
+    }
     void cardFieldsApi.load(workspaceId).then((loaded) => {
       if (cancelled) return;
       setConfig(loaded);
@@ -60,7 +74,7 @@ export function CardFieldsSection({ workspaceId }: CardFieldsSectionProps): JSX.
     return () => {
       cancelled = true;
     };
-  }, [workspaceId]);
+  }, [workspaceId, isPlaceholder]);
 
   const current = config[kind];
 

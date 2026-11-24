@@ -9,27 +9,39 @@
  * requirement shows the lock marker while nothing else on the row changes.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { RequirementList } from './RequirementList';
+import { useWorkspaceLocks } from '../shared/WorkspaceTree/useWorkspaceLocks';
+import { PLACEHOLDER_WORKSPACE_ID } from '../../utils/workspaceId';
 import type { Requirement } from '../../types';
 
 vi.mock('../../context/AuthContext', () => ({
   useAuth: () => ({ roles: ['admin'] }),
 }));
 
+const mockUseWorkspace = vi.fn();
 vi.mock('../../context/WorkspaceContext', () => ({
-  useWorkspace: () => ({ activeWorkspace: { id: 'ws-a' } }),
-  useOptionalWorkspace: () => ({ activeWorkspace: { id: 'ws-a' } }),
+  useWorkspace: () => mockUseWorkspace(),
+  useOptionalWorkspace: () => mockUseWorkspace(),
 }));
 
 // P4.4: keep the focused test off the network. One row is frozen.
 vi.mock('../shared/WorkspaceTree/useWorkspaceLocks', () => ({
-  useWorkspaceLocks: (workspaceId: string | null, type: string) =>
+  useWorkspaceLocks: vi.fn((workspaceId: string | null, type: string) =>
     workspaceId === 'ws-a' && type === 'requirement'
       ? { 'req-locked': 'Freigegeben' }
-      : {},
+      : {}
+  ),
 }));
+
+beforeEach(() => {
+  mockUseWorkspace.mockReturnValue({
+    activeWorkspace: { id: 'ws-a' },
+    isLoadingWorkspace: false,
+  });
+  vi.mocked(useWorkspaceLocks).mockClear();
+});
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -144,5 +156,32 @@ describe('RequirementList — workflow lock wiring (P4.4)', () => {
     expect(
       screen.queryByTestId('req-list-tree-lock-req-open'),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('RequirementList — first-load workspace gate (P4.4)', () => {
+  it('passes null to the lock read while the workspace is the placeholder', () => {
+    // FR-01: isLoadingWorkspace can already be false while activeWorkspace is
+    // still the fake DEFAULT_WORKSPACE — identity is the reliable signal.
+    mockUseWorkspace.mockReturnValue({
+      activeWorkspace: { id: PLACEHOLDER_WORKSPACE_ID },
+      isLoadingWorkspace: false,
+    });
+
+    renderList([makeRequirement({ id: 'req-locked' })]);
+
+    expect(useWorkspaceLocks).toHaveBeenCalledWith(null, 'requirement');
+    expect(
+      screen.queryByTestId('req-list-tree-lock-req-locked'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('passes the real workspace id to the lock read once loading finishes', () => {
+    renderList([makeRequirement({ id: 'req-locked' })]);
+
+    expect(useWorkspaceLocks).toHaveBeenCalledWith('ws-a', 'requirement');
+    expect(
+      screen.getByTestId('req-list-tree-lock-req-locked'),
+    ).toBeInTheDocument();
   });
 });

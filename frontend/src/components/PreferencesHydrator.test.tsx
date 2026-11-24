@@ -24,6 +24,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveLocaleKey } from "../test/i18n-test-helpers";
+import { PLACEHOLDER_WORKSPACE_ID } from "../utils/workspaceId";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -133,7 +134,10 @@ beforeEach(() => {
   setInspectorVisible(true);
   vi.mocked(displayPreferencesApi.get).mockResolvedValue(SERVER_PREFS);
   mockUseAuth.mockReturnValue({ status: "authenticated" });
-  mockUseWorkspace.mockReturnValue({ activeWorkspace: { id: WORKSPACE_ID } });
+  mockUseWorkspace.mockReturnValue({
+    activeWorkspace: { id: WORKSPACE_ID },
+    isLoadingWorkspace: false,
+  });
 });
 
 describe("PreferencesHydrator (T-C2-7)", () => {
@@ -202,6 +206,52 @@ describe("PreferencesHydrator (T-C2-7)", () => {
     expect(preferenceValuesApi.effective).not.toHaveBeenCalled();
     expect(displayPreferencesApi.get).not.toHaveBeenCalled();
     expect(getReadableIdsVisible()).toBe(true);
+  });
+
+  it("does not request preferences while the workspace is still the placeholder", async () => {
+    const PLACEHOLDER_ID = "00000000-0000-0000-0000-000000000000";
+    // FR-01 failing path: isLoadingWorkspace is already false during auth
+    // restore, but activeWorkspace still carries the fake placeholder id.
+    mockUseWorkspace.mockReturnValue({
+      activeWorkspace: { id: PLACEHOLDER_WORKSPACE_ID },
+      isLoadingWorkspace: false,
+    });
+    vi.mocked(preferenceValuesApi.effective).mockResolvedValue({
+      workspace_id: WORKSPACE_ID,
+      values: { "ui.ids.show_readable": { value: false, source: "user" } },
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <PreferencesHydrator />
+      </QueryClientProvider>
+    );
+
+    await act(async () => {});
+    expect(preferenceValuesApi.effective).not.toHaveBeenCalled();
+
+    // Once the real workspace resolves the same mounted query starts against
+    // the real id — never the placeholder and never the account-wide route.
+    mockUseWorkspace.mockReturnValue({
+      activeWorkspace: { id: WORKSPACE_ID },
+      isLoadingWorkspace: false,
+    });
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <PreferencesHydrator />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() =>
+      expect(preferenceValuesApi.effective).toHaveBeenCalledWith(WORKSPACE_ID)
+    );
+    expect(preferenceValuesApi.effective).not.toHaveBeenCalledWith(
+      PLACEHOLDER_ID
+    );
+    expect(preferenceValuesApi.effective).not.toHaveBeenCalledWith(null);
   });
 });
 
