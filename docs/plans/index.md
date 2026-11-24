@@ -2,7 +2,7 @@
 
 Dieser Index listet jedes Plan-Dokument in `docs/plans/` und `docs/plans/Archive/` samt Implementierungsstatus,
 geprüft gegen `origin/main` am 2026-11-04 und aktualisiert gegen `main` am 2026-11-17. Er spiegelt `docs/superpowers/plans/index.md`.
-**Stand:** `1.9.0-beta.2` (die `VERSION` am HEAD) · **Letzte Prüfung:** 2026-11-17. Jede `*.md` der obersten Ebene ist hier verlinkt; `scripts/tests/test_doc_index_freshness.py` überwacht das in CI.
+**Stand:** `1.9.0-beta.6` (die `VERSION` am HEAD) · **Letzte Prüfung:** 2026-11-17. Jede `*.md` der obersten Ebene ist hier verlinkt; `scripts/tests/test_doc_index_freshness.py` überwacht das in CI.
 
 Evidenzgrad: Die Backlog-Pläne A–G wurden auf PR-/Commit-Ebene verifiziert (Commit-Subject auf `origin/main` plus
 Existenz des benannten Ergebnisses), nicht Zeile für Zeile. Punkte ohne Nachweis im Repository sind
