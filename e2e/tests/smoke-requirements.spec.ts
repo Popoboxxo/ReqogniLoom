@@ -51,11 +51,14 @@ test.describe('Smoke — requirements @smoke', () => {
     await expect(dialog).toBeVisible({ timeout: 10000 });
     await expect(page.locator('[data-testid="req-new-title-input"]')).toBeVisible({ timeout: 10000 });
 
-    // Both form paths (definition-driven ArtifactForm and fallback form) render
-    // the same required-title error; accept either test id.
-    const titleError = page
-      .locator('[data-testid="req-new-title-input-error"]')
-      .or(page.locator('[data-testid="new-req-title-error"]'));
+    // The seeded workspace resolves the attribute definition, so the create
+    // dialog is the definition-driven ArtifactForm. Its FieldShell renders the
+    // required-title error as `<control testId>-error`, i.e.
+    // `req-new-title-input-error` (fieldTestIds.title = 'req-new-title-input').
+    // The `new-req-title-error` id only exists on the degraded fallback form,
+    // which never renders here; pinning the real id also satisfies the
+    // e2e↔frontend testid-drift guard.
+    const titleError = page.locator('[data-testid="req-new-title-input-error"]');
     await expect(titleError).toHaveCount(0);
     await page.locator('[data-testid="req-new-save-btn"]').click();
     await expect(titleError).toBeVisible({ timeout: 8000 });
