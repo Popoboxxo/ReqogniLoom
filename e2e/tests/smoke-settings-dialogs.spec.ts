@@ -239,10 +239,27 @@ test.describe('Smoke — settings and dialogs @smoke', () => {
   });
 
   test('C38 global search issues GET /search/ without a TypeError @smoke', async ({ page }, testInfo) => {
-    await session.gotoRoute(page, '/');
+    // A fixed needle like "test" only matches leftover E2E artifacts on a
+    // polluted developer DB and returns zero rows on the clean CI seed — which
+    // is exactly why the positive result assertion flaked there. Read a REAL
+    // requirement title from the rendered list first and search for that exact
+    // string: a full-text match against an existing title always scores 1.0,
+    // so at least one `[data-testid="global-search-result"]` is guaranteed in
+    // any workspace state. The search itself is still a real UI action below.
+    await session.gotoRoute(page, '/requirements');
+    await expect(page.locator('[data-testid="req-list-tree"]')).toBeVisible({ timeout: 10000 });
+    // RequirementList renders rows as <ArtifactRow testId=`req-row-<id>`>; the
+    // title is the first element carrying a `title` attribute inside the row.
+    const firstRow = page.locator('[data-testid^="req-row-"]').first();
+    await expect(firstRow).toBeVisible({ timeout: 10000 });
+    const needle =
+      (await firstRow.locator('[title]').first().getAttribute('title'))?.trim() ||
+      (await firstRow.innerText()).split('\n')[0].trim();
+    expect(needle.length, 'seeded requirement title must be a non-empty search term').toBeGreaterThan(0);
+
     const searchInput = page.locator('[data-testid="global-search"]');
     await expect(searchInput).toBeVisible({ timeout: 10000 });
-    await searchInput.fill('test');
+    await searchInput.fill(needle);
     // The shared backend occasionally stalls the first search request under
     // load; re-press Enter once rather than failing on infrastructure noise.
     // The check still requires a real GET /search/ and a 200 response.
@@ -264,16 +281,20 @@ test.describe('Smoke — settings and dialogs @smoke', () => {
     expect(searchResponse).toBeDefined();
     expect(searchResponse!.status()).toBe(200);
     // Positive visible result in addition to the 200/no-TypeError assertions.
-    await expect(page.locator('[data-testid="global-search-result"]').first()).toBeVisible({
-      timeout: 8000,
+    // Wait for the result listbox container explicitly (SidebarNavigation.tsx
+    // renders the result buttons inside `role="listbox"`), then a result row.
+    const listbox = page.locator('[role="listbox"]');
+    await expect(listbox).toBeVisible({ timeout: 10000 });
+    await expect(listbox.locator('[data-testid="global-search-result"]').first()).toBeVisible({
+      timeout: 10000,
     });
     await expect(page.locator('body')).not.toContainText('TypeError');
     await attachEvidence(
       testInfo,
       'C38-global-search',
       page,
-      'filled global-search and pressed Enter',
-      `GET /search/ -> ${searchResponse.status()}; global-search-result visible; no TypeError`
+      `filled global-search with a real seeded requirement title and pressed Enter`,
+      `GET /search/ -> ${searchResponse.status()}; listbox + global-search-result visible; no TypeError; needle="${needle}"`
     );
   });
 
