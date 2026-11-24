@@ -2,7 +2,7 @@
 
 Dieser Index listet jedes Plan-Dokument in `docs/plans/` und `docs/plans/Archive/` samt Implementierungsstatus,
 geprüft gegen `origin/main` am 2026-11-04 und aktualisiert gegen `main` am 2026-11-17. Er spiegelt `docs/superpowers/plans/index.md`.
-**Stand:** `1.9.0-beta.2` (die `VERSION` am HEAD) · **Letzte Prüfung:** 2026-11-17. Jede `*.md` der obersten Ebene ist hier verlinkt; `scripts/tests/test_doc_index_freshness.py` überwacht das in CI.
+**Stand:** `1.9.0-beta.6` (die `VERSION` am HEAD) · **Letzte Prüfung:** 2026-11-17. Jede `*.md` der obersten Ebene ist hier verlinkt; `scripts/tests/test_doc_index_freshness.py` überwacht das in CI.
 
 Evidenzgrad: Die Backlog-Pläne A–G wurden auf PR-/Commit-Ebene verifiziert (Commit-Subject auf `origin/main` plus
 Existenz des benannten Ergebnisses), nicht Zeile für Zeile. Punkte ohne Nachweis im Repository sind
@@ -13,6 +13,10 @@ als UNVERIFIED markiert. Die unten genannten GitHub-Issues wurden durch diesen A
 - **Dieses Verzeichnis (oberste Ebene)** — Pläne mit echter offener Arbeit sowie laufende Koordinations- und Entscheidungsdokumente.
 
 ## Oberste Ebene — offene Arbeiten
+## [2026-11-24-ui-e2e-master-plan.md](2026-11-24-ui-e2e-master-plan.md)
+**Proposal (2026-11-24, frontmatter `status: proposed`).** Masterplan fuer exhaustives UI-E2E-Testing: aus Code generierter State-Space-Katalog (Routes, Artefakte, Workflow-States, Rollen, Presets, Dialoge via `data-testid`), Model-Based Testing + All-Pairs + Vollfaktor nur fuer kritische Triple, Action-Dispatcher mit ausschliesslich browser-getriggerten Aktionen, fuenf Schichten (L0 Vitest bis L5 Random-Walk), Screenshot-/Axe-/Network-Beweise pro Zelle und eine gemessene Abdeckungsmatrix als CI-Gate. 5 Phasen, ca. 16–26 Arbeitstage; empfohlener erster PR: P0 (Generator + Matrix + Dispatcher) + P1 (alle 31 Dialoge/Buttons). Basis: 47 Smoke-Checks aus PR #2060.
+
+
 ## [2026-11-21-artifact-transfer-plan.md](2026-11-21-artifact-transfer-plan.md)
 **In progress (2026-11-21, frontmatter `status: in_progress`).** Vollständiger Plan für Import/Export, Backup/Restore und vollständige Workspace-Kopie über alle 24 REST/MCP-Entitäten. Findings: driftende Allowlists (3/4/7/12/15 Typen), ~17 Typen ohne Exportpfad, App-Restore als Upsert-Overlay ohne Ziel/Checksum (EXT-004), Clone nur 6 Typen. 18 getroffene Entscheidungen (nie löschen → `reconcile_status`, neue IDs + `source_id`, alle Relationen, Cross-Tenant mit Quell-LESEN+Ziel-ADMIN+Dry-Run, ZIP-Snapshot via `EXPORT_DIR`, ReqIF standardkonform inkl. TestCase/Icd, Ziel-Instanz-Restore). 8 Pakete P1–P8; Implementierung startet auf `feat/artifact-transfer-contract` mit P1 (Contract & Ratchet).
 

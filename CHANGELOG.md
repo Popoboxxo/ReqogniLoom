@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0-beta.6] — 2026-11-24
+
+### Added
+- test(e2e): expand the browser smoke suite from 3 to 47 real checks with a shared session setup and smoke specs for core flows, domain routes, requirements and settings/dialogs; update the documented E2E spec count to 79 (#2060)
+- test(api-keys): extend the RBAC role/auth-method matrix to credential endpoints — viewers manage only their own keys (foreign pk → 404), write-tier keys stay bounded by creator rights, and `/users/` plus `/permission-defaults/` remain admin-gated (#2058, #1731)
+
+### Changed
+- fix(mcp): first wave of open issues — MCP routing and group tools, bulk freeze, interview roundtrip/field elicitation, tool-policy classification (`submit_for_review` as a write tool), CI test-stack and installer mounts, plus corrected backend test-file counts (#2054)
+- fix: second wave closing 44 bug issues across backend services, REST serializers/views, the MCP tool registry and schemas, frontend prompt settings/navigation, client artefacts and test mounts (#2055)
+- fix(clients): normalize the base URL before appending `/mcp/`, flag OpenCode 2.3.x as unverified, and align tool descriptions plus manifest rebaselines (#1999, #1979, #2034, #2044; #2056)
+- docs(mcp): document the ambiguous transport retry contract for clients (#2012; #2057)
+
+### Fixed
+- fix: 21.11 backlog sweep — make structured acceptance criteria authoritative (#1959), report authoritative embedding drift in health when opted in (#1977), exclude outdated items from VCRM by default (#1985) and align the documented backend test count (#2057)
+- fix(mcp): enforce the admin API-key tier on tenant-wide audit reads (#2034), derive interview TestCase provenance from `session_kind` (#2044) and gate CCB review decisions in the first wave (#2054, #2056)
+- fix(frontend): gate workspace-scoped first-load preference and lock requests on the real workspace identity instead of the loading flag, blocking calls during the auth-restore/offline window while the placeholder UUID is active, with Vitest regressions (#2059)
+
 ## [1.9.0-beta.5] — 2026-11-20
 
 ### Added
