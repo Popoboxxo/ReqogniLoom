@@ -7,6 +7,8 @@
 
 import { useEffect, useState } from "react";
 
+import { useWorkspace } from "../../context/WorkspaceContext";
+import { isPlaceholderWorkspaceId } from "../../utils/workspaceId";
 import {
   cardFieldsApi,
   defaultCardFieldConfigMap,
@@ -16,6 +18,10 @@ import {
 export function useCardFields(
   workspaceId: string | null | undefined
 ): CardFieldConfigMap {
+  const { activeWorkspace } = useWorkspace();
+  // Derived boolean, not the object: context reads may return a fresh wrapper
+  // per render (tests/memo-less providers), which would re-run the effect.
+  const isPlaceholder = isPlaceholderWorkspaceId(activeWorkspace?.id);
   const [config, setConfig] = useState<CardFieldConfigMap>(() =>
     defaultCardFieldConfigMap()
   );
@@ -23,7 +29,10 @@ export function useCardFields(
   useEffect(() => {
     let active = true;
     setConfig(defaultCardFieldConfigMap());
-    if (!workspaceId) {
+    // The caller's id is the truthy DEFAULT_WORKSPACE placeholder until a real
+    // workspace resolves; loading it would hit a 404 preference route. Identity
+    // also covers auth restore, where isLoadingWorkspace is already false.
+    if (!workspaceId || isPlaceholder) {
       return () => {
         active = false;
       };
@@ -34,7 +43,7 @@ export function useCardFields(
     return () => {
       active = false;
     };
-  }, [workspaceId]);
+  }, [workspaceId, isPlaceholder]);
 
   return config;
 }

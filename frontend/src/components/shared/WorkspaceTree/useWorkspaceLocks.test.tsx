@@ -55,4 +55,28 @@ describe("useWorkspaceLocks (P4.4)", () => {
     expect(mockedFetchLocks).not.toHaveBeenCalled();
     expect(result.current).toEqual({});
   });
+
+  it("starts the read only when the loading null is replaced by a real id", async () => {
+    // Call sites pass null while isLoadingWorkspace is true: the placeholder id
+    // is truthy and would otherwise produce a 404 against the fake workspace.
+    const PLACEHOLDER_ID = "00000000-0000-0000-0000-000000000000";
+    mockedFetchLocks.mockResolvedValue({ "req-1": "Freigegeben" });
+
+    const { rerender } = renderHook(
+      ({ id }: { id: string | null }) => useWorkspaceLocks(id, "requirement"),
+      { initialProps: { id: null as string | null } }
+    );
+
+    expect(mockedFetchLocks).not.toHaveBeenCalled();
+
+    rerender({ id: "ws-real" });
+
+    await waitFor(() =>
+      expect(mockedFetchLocks).toHaveBeenCalledWith("ws-real", "requirement")
+    );
+    expect(mockedFetchLocks).not.toHaveBeenCalledWith(
+      PLACEHOLDER_ID,
+      "requirement"
+    );
+  });
 });

@@ -26,6 +26,7 @@ import { X, Layers, FolderPlus } from 'lucide-react';
 import { usePersistedListState } from '../../hooks/usePersistedListState';
 import { useHasRole } from '../../hooks/useHasRole';
 import { useWorkspace } from '../../context/WorkspaceContext';
+import { isPlaceholderWorkspaceId } from '../../utils/workspaceId';
 import { useArtifactList, artifactId } from '../../hooks/useArtifactList';
 import { ListToolbar } from '../shared/ListToolbar';
 import {
@@ -343,7 +344,13 @@ export const RequirementList: React.FC<RequirementListProps> = ({
   // P4.4: one batch read for the whole tree. Keys are Requirement.id — exactly
   // the node id space this list uses. A failed read yields `{}` (no markers);
   // the backend still rejects a move of a frozen requirement with 409.
-  const locks = useWorkspaceLocks(activeWorkspace?.id ?? null, 'requirement');
+  // Identity, not isLoadingWorkspace: the flag is false during auth restore
+  // while the workspace is still the fake placeholder. Real ids stay real on
+  // reload, so this also avoids a refresh flicker.
+  const locks = useWorkspaceLocks(
+    isPlaceholderWorkspaceId(activeWorkspace?.id) ? null : (activeWorkspace?.id ?? null),
+    'requirement'
+  );
   // R2/T1 (systemaudit 2026-09-02): a viewer must not see the per-row Delete
   // trigger at all — only the server rejected the delete before. Shared with
   // SidebarNavigation/RequirementForm/RequirementEditors via useHasRole.
