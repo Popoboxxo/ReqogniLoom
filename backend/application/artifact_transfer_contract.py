@@ -11,7 +11,7 @@ Design decisions implemented here (see the plan, §4):
 
 * D3b — no import ever deletes. A missing target row is moved to
   ``status_reconcile`` and flagged ``not_in_source`` instead.
-* D8 — every REST/MCP-listed entity (24) has a spec, including the two
+* D8 — every REST/MCP-listed entity (25) has a spec, including the three
   configuration entities whose scope is *not* a workspace artifact.
 * D9/D10 — new ids + ``source_id``; all relations are in scope, so every spec
   lists its relation carriers.
@@ -110,7 +110,7 @@ def _spec(
     )
 
 
-#: All 24 entities listed by the REST/MCP entity-surface matrix. Keys are the
+#: All 25 entities listed by the REST/MCP entity-surface matrix. Keys are the
 #: stable ids from ``mcp_server/tests/entity_surface_matrix.py``; the ratchet
 #: test asserts both sets stay identical.
 TRANSFER_SPECS: dict[str, ArtifactTransferSpec] = {
@@ -155,6 +155,19 @@ TRANSFER_SPECS: dict[str, ArtifactTransferSpec] = {
         status_reconcile=None,
         roundtrip=False,
         note="Tenant object, not an artifact: snapshot metadata only.",
+    ),
+    "workflow_default": _spec(
+        "workflow_default",
+        "GlobalWorkflowDefinition",
+        scope="global_config",
+        formats=("json",),
+        relations=(),
+        status_reconcile=None,
+        roundtrip=False,
+        note=(
+            "Tenant-wide workflow defaults (P1.8): configuration template, "
+            "snapshot metadata only."
+        ),
     ),
 }
 

@@ -1,6 +1,6 @@
 """R4 / plan §7 — mandatory artifact-transfer test matrix.
 
-Every one of the 24 entries in :data:`TRANSFER_SPECS` is exercised through the
+Every one of the 25 entries in :data:`TRANSFER_SPECS` is exercised through the
 real services: ``WorkspaceSnapshotService.export_snapshot`` followed by
 ``import_snapshot`` into a new workspace, then a field-by-field and
 relation-by-relation comparison. The additional tests cover every target mode
@@ -248,7 +248,7 @@ def _assert_relation_remap(
 
 
 # ---------------------------------------------------------------------------
-# 1. Parametrized round-trip over all 24 entities (field + relation parity)
+# 1. Parametrized round-trip over all 25 entities (field + relation parity)
 # ---------------------------------------------------------------------------
 
 

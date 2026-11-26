@@ -77,7 +77,13 @@ def _model_for(spec: ArtifactTransferSpec) -> type[models.Model]:
 
 
 def _workspace_filter(model: type[models.Model], workspace_id: UUID, ctx: AuthContext) -> dict[str, Any]:
-    """Return the ORM filter selecting one workspace's rows for *model*."""
+    """Return the ORM filter selecting the rows visible from one workspace.
+
+    Most models are scoped through their artifact/source or a workspace column.
+    Two tenant-level configuration entities carry no workspace relation at all
+    and are therefore scoped by the tenant: the exported ``Workspace`` row
+    itself and the tenant-wide ``GlobalWorkflowDefinition`` templates.
+    """
     fields = {f.name for f in model._meta.get_fields()}
     if "artifact" in fields:
         return {"artifact__workspace_id": workspace_id}
@@ -86,6 +92,10 @@ def _workspace_filter(model: type[models.Model], workspace_id: UUID, ctx: AuthCo
         return {"source__workspace_id": workspace_id}
     if "workspace" in fields or "workspace_id" in fields:
         return {"workspace_id": workspace_id}
+    if model.__name__ == "GlobalWorkflowDefinition":
+        # Tenant-wide workflow template: the tenant is the scope; every
+        # workspace of the tenant sees the same rows.
+        return {"tenant_id": ctx.tenant_id}
     if spec_scope_is_global(model):
         # Workspace itself: the tenant is the scope; return only that row.
         return {"id": workspace_id, "tenant_id": ctx.tenant_id}

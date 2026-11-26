@@ -115,8 +115,15 @@ _EXPLICIT_OPERATION_IDS = {
 #: Operations that *always* answer a 4xx, so a 2xx entry would be a lie.
 #: ``Baseline`` is immutable: ``PATCH`` is documented as 405 by design and the
 #: runtime never returns 2xx (see ``BaselineViewSet.partial_update``).
+#: ``WorkflowDefinitionViewSet`` is the second case (P0.1 / M-6): a workflow
+#: definition is configuration keyed by ``(workspace_id, item_type)``, so the
+#: detail route has nothing to answer — ``retrieve`` always 404s and
+#: ``destroy`` always 403s (``Workflow definitions cannot be deleted``). Both
+#: are now documented honestly instead of advertising a synthetic 200/204.
 _ALWAYS_4XX_OPERATIONS = {
     ("/api/v1/baselines/{id}/", "patch"),
+    ("/api/v1/workflows/{id}/", "delete"),
+    ("/api/v1/workflows/{id}/", "get"),
 }
 
 #: Views deliberately typed by #1388; they must not silently regress to the

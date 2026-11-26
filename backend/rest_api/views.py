@@ -347,7 +347,7 @@ from .views_trace_baseline import (
     BaselineViewSet,
     TraceLinkViewSet,
     TraceabilityViewSet,
-    _BASELINE_PRESET_404,
+    _BASELINE_DETAIL_404,
     _BASELINE_TAG_PARAMETER,
     _BASELINE_WORKSPACE_ID_PARAMETER,
     _BaselineAutoSchema,

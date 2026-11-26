@@ -28,8 +28,14 @@ import type {
   ArtifactDiffResult,
   ArtifactVersion,
 } from "../types";
+import type { WorkflowTransitionStateChange } from "../types/workflow";
 
-/** Artifact types that participate in the WorkflowEngine lifecycle. */
+/**
+ * Artifact types that participate in the WorkflowEngine lifecycle *and* whose
+ * list endpoint honours a server-side `?status=` filter. This is the union the
+ * Reviews UI switches over, so it must stay exactly the set of types whose
+ * queue can be filtered server-side (see `StatusFilterableArtifactType`).
+ */
 export type WorkflowArtifactType =
   | "requirement"
   | "need"
@@ -49,6 +55,46 @@ export type WorkflowArtifactType =
   | "goal"
   | "main-goal";
 
+/**
+ * Artifact types served by the two mixin-based ViewSets
+ * (`DocumentViewSet` / `WorkItemViewSet` in
+ * `backend/rest_api/views_entity_core.py`). Both mix in
+ * `WorkflowTransitionsMixin` (backend/rest_api/mixins/workflow_transitions.py),
+ * so they expose the same `GET/POST /{resource}/{id}/transitions/` pair as
+ * every other workflow type, but with one deliberate deviation on POST: the
+ * body is identical, the response additionally carries the **entity** revision
+ * (`version`, the value to echo as `expected_version` on the next guarded
+ * write) and the serialized entity (`document` / `work_item`) — the generic
+ * ViewSets return the workflow fields only. They are *not* part of
+ * `WorkflowArtifactType` because their list endpoints expose `status` as a row
+ * field and ignore `?status=` (ADR-026 §9 / Plan F); see
+ * `StatusFilterableArtifactType`.
+ */
+export type DocumentWorkflowArtifactType = "document" | "work-item";
+
+/**
+ * Every artifact type the generic transition helpers below can address.
+ *
+ * Note for callers of `listByStatus`: the widened members are transition-only.
+ * Their list endpoints ignore `?status=`, so a status-filtered listing would
+ * silently return unfiltered rows — hence the narrow
+ * `StatusFilterableArtifactType` parameter on that one helper.
+ */
+export type TransitionArtifactType =
+  | WorkflowArtifactType
+  | DocumentWorkflowArtifactType;
+
+/**
+ * Types whose list endpoint filters by `?status=` server-side (status-mirror
+ * column). Document/WorkItem expose `status` as a row field and their lists
+ * ignore `?status=`, so a status-filtered query against them must be a
+ * *compile* error rather than a silently unfiltered result.
+ */
+export type StatusFilterableArtifactType = Exclude<
+  TransitionArtifactType,
+  DocumentWorkflowArtifactType
+>;
+
 /** A single allowed transition from the current state. */
 export interface WorkflowAllowedTransition {
   target_state: string;
@@ -66,13 +112,40 @@ export interface WorkflowTransitionsResponse {
    * item is not in the "proposed" state (KI-Vorschlag-als-Zustand spec §4.4).
    */
   proposed_by: string | null;
+  /**
+   * Entity revision, present on the document/work-item routes only. It is the
+   * value to echo as `expected_version` on the next guarded write (KA-F-08).
+   * For every other type this key carries the WorkflowItemState revision.
+   */
+  version?: number;
+  /**
+   * The WorkflowItemState revision, returned by the document/work-item routes
+   * under this name because `version` is taken by the entity there — those two
+   * ViewSets rename it in their GET response
+   * (backend/rest_api/views_entity_core.py).
+   */
+  workflow_version?: number;
 }
 
-/** Response of POST /{resource}/{id}/transitions/. */
-export interface WorkflowTransitionResult {
-  id: string;
-  previous_state: string;
-  new_state: string;
+/**
+ * Response of POST /{resource}/{id}/transitions/ — the canonical
+ * item-transition result of the WorkflowEngine.
+ *
+ * The state change itself is the shared `WorkflowTransitionStateChange` every
+ * transition route returns; this interface adds the artifact-specific extras.
+ * The workspace-*definition* PATCH (`PATCH /workflows/{id}/`, `{id,
+ * target_state}`) is a different payload with its own type —
+ * `WorkflowDefinitionTransitionResult` in `./workflows`.
+ */
+export interface WorkflowTransitionResult
+  extends WorkflowTransitionStateChange {
+  /**
+   * Entity revision after the transition — returned by the document/work-item
+   * routes only. On those routes `expected_version` guards the entity, not the
+   * workflow revision; the entity payload itself (`document` / `work_item`)
+   * stays on the specialised wrappers' result types.
+   */
+  version?: number;
 }
 
 /**
@@ -116,9 +189,10 @@ export interface ReviewListItem {
 /**
  * Maps the artifact type to its REST collection path segment. These MUST match
  * the DRF router registrations in ``backend/rest_api/urls.py`` — note the
- * test-case ViewSet is registered as ``testcases`` (no hyphen).
+ * test-case ViewSet is registered as ``testcases`` (no hyphen) and the
+ * document/work-item ViewSets as ``documents`` / ``work-items``.
  */
-const RESOURCE_PATH: Record<WorkflowArtifactType, string> = {
+const RESOURCE_PATH: Record<TransitionArtifactType, string> = {
   requirement: "requirements",
   need: "needs",
   adr: "adrs",
@@ -136,15 +210,38 @@ const RESOURCE_PATH: Record<WorkflowArtifactType, string> = {
   // GoalViewSet → "goals", MainGoalViewSet → "main-goals".
   goal: "goals",
   "main-goal": "main-goals",
+  // P1.9: router registrations (backend/rest_api/urls.py) —
+  // DocumentViewSet → "documents", WorkItemViewSet → "work-items".
+  document: "documents",
+  "work-item": "work-items",
 };
 
-const transitionsPath = (type: WorkflowArtifactType, id: UUID): string =>
+const transitionsPath = (type: TransitionArtifactType, id: UUID): string =>
   `/${RESOURCE_PATH[type]}/${id}/transitions/`;
+
+/**
+ * POST a transition to `/{resource}/{id}/transitions/`, addressing the resource
+ * through the shared `RESOURCE_PATH` table above.
+ *
+ * Exported so the specialised wrappers (`documentsApi`, `workItemsApi`) keep
+ * their own payload/result contracts while sharing one URL source of truth —
+ * this helper owns the path so the two cannot drift from the generic routes.
+ * ``expected_version`` is only a generic parameter here; the caller's body
+ * decides whether it means the workflow revision or the entity revision (on
+ * document/work-item it is the entity, ADR-026 §9).
+ */
+export function postWorkflowTransition<TResult>(
+  type: TransitionArtifactType,
+  id: UUID,
+  body: Record<string, unknown>
+): Promise<TResult> {
+  return apiClient.post<TResult>(transitionsPath(type, id), body);
+}
 
 export const workflowTransitionsApi = {
   /** GET the current workflow state and the moves allowed from it. */
   getTransitions(
-    type: WorkflowArtifactType,
+    type: TransitionArtifactType,
     id: UUID
   ): Promise<WorkflowTransitionsResponse> {
     return apiClient.get<WorkflowTransitionsResponse>(transitionsPath(type, id));
@@ -154,18 +251,26 @@ export const workflowTransitionsApi = {
    * POST a workflow transition (role / change_reason / signature gates are
    * enforced server-side). ``credential`` carries the password/TOTP token for
    * transitions whose ``signature_gate`` is true.
+   *
+   * ``expectedVersion`` is sent as ``expected_version`` only when defined; on
+   * the document/work-item routes it guards the entity revision, on every other
+   * type the WorkflowItemState revision.
    */
   transition(
-    type: WorkflowArtifactType,
+    type: TransitionArtifactType,
     id: UUID,
     targetState: string,
     changeReason?: string,
-    credential?: string
+    credential?: string,
+    expectedVersion?: number
   ): Promise<WorkflowTransitionResult> {
-    return apiClient.post<WorkflowTransitionResult>(transitionsPath(type, id), {
+    return postWorkflowTransition<WorkflowTransitionResult>(type, id, {
       target_state: targetState,
       change_reason: changeReason ?? "",
       credential: credential ?? "",
+      ...(expectedVersion !== undefined
+        ? { expected_version: expectedVersion }
+        : {}),
     });
   },
 
@@ -183,9 +288,14 @@ export const workflowTransitionsApi = {
    * GET the artifacts of ``type`` in the given workflow ``status`` for a
    * workspace (the review queue's list source). Returns the (possibly
    * paginated) first page's results.
+   *
+   * ``type`` is deliberately narrowed to `StatusFilterableArtifactType`:
+   * Document/WorkItem list endpoints ignore ``?status=`` (their ``status`` is a
+   * row field), so asking for a status-filtered document list would silently
+   * return unfiltered rows. Passing one of them here must fail to compile.
    */
   async listByStatus(
-    type: WorkflowArtifactType,
+    type: StatusFilterableArtifactType,
     workspaceId: UUID,
     status: string
   ): Promise<ReviewListItem[]> {

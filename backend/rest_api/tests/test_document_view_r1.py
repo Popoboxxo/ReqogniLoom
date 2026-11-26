@@ -6,6 +6,9 @@ write path), so this suite pins:
 
 * ``200`` with the documented field form and ``ETag: "<version>"``,
 * ``403`` for an item-level denial (the RBAC matrix alone is not the answer),
+* the two-layer read gate and the R2 write capability: a writer reads with
+  ``can_write: true``, a ``viewer`` reads with every field locked by
+  ``PERMISSION``, and a caller without a workspace role gets ``403``,
 * ``404`` for an unknown or foreign-tenant id (no existence oracle) and
   ``400`` for a malformed path segment (#271),
 * the route is *inventoried*: it resolves to the ``view`` action and is part of
@@ -251,6 +254,110 @@ def test_foreign_tenant_document_is_404(authed_client, workspace, document) -> N
     response = authed_client.get(_view_url(foreign.id))
 
     assert response.status_code == 404, response.content
+
+
+# ---------------------------------------------------------------------------
+# P1.6 — the two-layer read gate and the documented write capability
+# ---------------------------------------------------------------------------
+
+_READER_PASSWORD = "r1-reader-pass-secure!"
+
+
+def _client_for_role(tenant, workspace, role: str | None) -> APIClient:
+    """Return an authenticated client for a fresh user with *role*.
+
+    ``role=None`` creates a tenant member without any ``UserRole`` — the caller
+    the RBAC matrix must refuse (fail-closed on an empty role set).
+    """
+    from auth_tenancy.models import UserRole
+
+    suffix = uuid.uuid4().hex[:8]
+    user = User.objects.create(
+        username=f"r1-{role or 'norole'}-{suffix}",
+        email=f"r1-{role or 'norole'}-{suffix}@t.test",
+        tenant=tenant,
+    )
+    user.set_password(_READER_PASSWORD)
+    user.save(update_fields=["password"])
+    set_request_tenant(tenant.id)
+    try:
+        if role is not None:
+            UserRole.objects.create(
+                tenant=tenant, user=user, workspace=workspace, role=role
+            )
+    finally:
+        clear_request_tenant()
+
+    client = APIClient()
+    login = client.post(
+        "/api/v1/auth/login/",
+        {"username": user.username, "password": _READER_PASSWORD},
+        format="json",
+    )
+    assert login.status_code == 200, login.content
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.json()['token']}")
+    return client
+
+
+def test_writer_reads_the_document_with_write_capability(
+    authed_client, document
+) -> None:
+    """The writer's 200 carries ``can_write: true`` and no read-only reason."""
+    response = authed_client.get(_view_url(document["id"]))
+
+    assert response.status_code == 200, response.content
+    payload = response.json()
+    assert payload["capabilities"] == {
+        "can_write": True,
+        "read_only_reason": None,
+    }
+    assert payload["editable_fields"] == [
+        "title",
+        "description",
+        "body",
+        "doc_date",
+        "custom_fields",
+    ]
+
+
+def test_reader_reads_but_every_field_is_locked_by_permission(
+    tenant, workspace, document
+) -> None:
+    """A ``viewer`` reads (200) and sees ``PERMISSION`` on every field (R2)."""
+    from auth_tenancy.models import ROLE_VIEWER
+
+    client = _client_for_role(tenant, workspace, ROLE_VIEWER)
+
+    response = client.get(_view_url(document["id"]))
+
+    assert response.status_code == 200, response.content
+    payload = response.json()
+    assert payload["capabilities"] == {
+        "can_write": False,
+        "read_only_reason": "PERMISSION",
+    }
+    assert payload["editable_fields"] == []
+    assert [field["name"] for field in payload["fields"]] == [
+        "title",
+        "description",
+        "body",
+        "doc_date",
+        "custom_fields",
+    ]
+    assert all(field["editable"] is False for field in payload["fields"])
+    assert {field["locked"]["code"] for field in payload["fields"]} == {
+        "PERMISSION"
+    }
+
+
+def test_caller_without_read_permission_is_403(tenant, workspace, document) -> None:
+    """No role in the workspace → the RBAC matrix refuses the read (403)."""
+    client = _client_for_role(tenant, workspace, None)
+
+    response = client.get(_view_url(document["id"]))
+
+    assert response.status_code == 403, response.content
+    assert response.json()["error"]["code"] == "PERMISSION_DENIED"
 
 
 # ---------------------------------------------------------------------------

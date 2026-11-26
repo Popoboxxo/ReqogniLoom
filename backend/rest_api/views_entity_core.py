@@ -114,6 +114,9 @@ from application.bulk_update_service import (
     MAX_ENTRIES as MAX_BULK_ENTRIES,
     MAX_TRANSITION_IDS as MAX_BULK_TRANSITION_IDS,
 )
+# P2.2 / m-4: the single canonical Document field map shared with the MCP
+# ``document.*`` tool group — no second copy of the field list.
+from application.document_payload import document_fields
 # R1 reading view (docs/superpowers/plans/2026-11-15-document-view-on-document.md):
 # one read object, no write path.
 from application.document_reading_service import DocumentReadingService
@@ -216,12 +219,13 @@ from rest_api.preset_guard import PresetError, PresetGateMixin
 from rest_api.query_params import (
     parse_bool_param,
     parse_change_reason,
-    parse_include_deleted,
+    parse_include_outdated,
     parse_int_param,
     parse_uuid_param,
     parse_workspace_id,
     reject_unknown_query_params,
     require_non_empty_param,
+    validate_include_flag,
 )
 from rest_api.platform_schema_serializers import (
     AllocationListResponseSerializer,
@@ -312,16 +316,50 @@ from .views_common import (
 
 
 def _query_flag(request: Request, name: str) -> bool:
-    """Read a boolean query flag ('true'/'1'/'yes', any casing).
+    """Read a boolean query flag ('true'/'1'/'yes', any casing) — legacy reader.
 
-    Shared by the coverage reports (``/requirements/coverage-report/`` and
-    ``/needs/validation-coverage/``) so both read the same flag set.
+    Kept because ``rest_api.views`` still re-exports it (that module is the
+    legacy facade and is not part of this change). **Do not use it for the
+    ``include_outdated``/``include_deleted`` flags**: it swallows an
+    unparseable value as "false". Use :func:`parse_include_outdated` with
+    :func:`validate_include_flag`, or :func:`parse_bool_param` for a strict
+    non-aliased boolean.
     """
     return str(request.query_params.get(name, "")).strip().lower() in {
         "true",
         "1",
         "yes",
     }
+
+
+def _coverage_report_flag_error(
+    request: Request, lang: str
+) -> Response | None:
+    """Validate the coverage reports' boolean flags before they are read.
+
+    Both reports used a lenient local reader, so ``?include_deleted=true`` was
+    ignored and ``?include_outdated=maybe`` silently meant "false" — a caller
+    that asked one question received the answer to another with a ``200``.
+    The flags now go through the canonical resolvers
+    (:func:`parse_include_outdated` honours the deprecated ``include_deleted``
+    alias; :func:`parse_bool_param` is strict). This helper performs the strict
+    part up front so a bad value answers ``400 VALIDATION_ERROR`` instead of
+    being swallowed by the surrounding service-error handling.
+
+    Returns ``None`` when both flags are acceptable, otherwise the ready-to-
+    return 400.
+    """
+    include_error = validate_include_flag(request, lang)
+    if include_error is not None:
+        return include_error
+    try:
+        parse_bool_param(request.query_params, "include_unreviewed_ai")
+    except ValueError as exc:
+        return Response(
+            build_error_response("VALIDATION_ERROR", lang, message=str(exc)),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return None
 
 
 
@@ -389,7 +427,7 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             items = self.service.list_by_workspace(
                 get_auth_context(request),
                 workspace_id,
-                include_deleted=parse_include_deleted(request.query_params),
+                include_deleted=parse_include_outdated(request.query_params),
                 search=search,
             )
             return self._paginate(
@@ -422,6 +460,19 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 description=(
                     "Include soft-deleted (outdated) StakeholderNeeds and count "
                     "outdated validating TestCases as evidence. Defaults to false."
+                ),
+            ),
+            OpenApiParameter(
+                name="include_deleted",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                deprecated=True,
+                description=(
+                    "Deprecated alias of `include_outdated`: supported through "
+                    "1.11.0 (inclusive); removal no earlier than 1.12.0 "
+                    "(see docs/api/REST-CONVENTIONS.md §10). When both are "
+                    "sent, `include_outdated` wins."
                 ),
             ),
             OpenApiParameter(
@@ -481,8 +532,13 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         if error is not None:
             return error
 
-        include_outdated = _query_flag(request, "include_outdated")
-        include_unreviewed_ai = _query_flag(request, "include_unreviewed_ai")
+        error = _coverage_report_flag_error(request, lang)
+        if error is not None:
+            return error
+        include_outdated = parse_include_outdated(request.query_params)
+        include_unreviewed_ai = bool(
+            parse_bool_param(request.query_params, "include_unreviewed_ai")
+        )
 
         try:
             ctx = get_auth_context(request)
@@ -693,7 +749,8 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         flag, not a workflow state) and a subsequent GET on this URL still
         answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
         record, and there never was one in this tenant". List endpoints hide
-        outdated records by default; pass ``?include_deleted=true`` to see
+        outdated records by default; pass ``?include_outdated=true`` (the
+        deprecated alias ``?include_deleted=true`` still works) to see
         them, and ``POST .../reactivate/`` to restore one.
 
         TraceLinks pointing at the record survive the delete, and traceability
@@ -1110,7 +1167,8 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         service, so the parameter had no effect.
         GH-443: soft-deleted requirements (``status="outdated"``, the state
         DELETE puts them in) are hidden by default; pass
-        ``?include_deleted=true`` to include them, or ``?status=outdated`` to
+        ``?include_outdated=true`` (deprecated alias: ``?include_deleted=true``)
+        to include them, or ``?status=outdated`` to
         list only those.
         """
         lang = detect_lang(request)
@@ -1139,7 +1197,7 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             items = self._svc().list_requirements(
                 workspace_id=workspace_id,
                 ctx=ctx,
-                include_deleted=parse_include_deleted(request.query_params),
+                include_deleted=parse_include_outdated(request.query_params),
                 status=status_filter,
                 search=search,
                 allocated=allocated,
@@ -1582,8 +1640,9 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         flag, not a workflow state) and a subsequent GET on this URL still
         answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
         record, and there never was one in this tenant". List endpoints hide
-        outdated records by default; pass ``?include_deleted=true`` (or
-        ``?status=outdated``) to see them, and ``POST .../reactivate/`` to
+        outdated records by default; pass ``?include_outdated=true`` (the
+        deprecated alias ``?include_deleted=true`` still works) or
+        ``?status=outdated`` to see them, and ``POST .../reactivate/`` to
         restore one. TraceLinks pointing at the record survive, and
         traceability coverage ignores outdated records.
 
@@ -1934,7 +1993,9 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         Query params:
             workspace_id (required): target workspace UUID.
             include_outdated (default false): include soft-deleted
-                Requirements/TestCases.
+                Requirements/TestCases. The deprecated ``include_deleted`` alias
+                is accepted (supported through 1.11.0 inclusive; removal no
+                earlier than 1.12.0).
             include_unreviewed_ai (default false): #424 — count an
                 ``origin="ai_generated"``, unreviewed TestCase as coverage
                 (the raw view). The default excludes it and reports the
@@ -1966,8 +2027,13 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         if error is not None:
             return error
 
-        include_outdated = _query_flag(request, "include_outdated")
-        include_unreviewed_ai = _query_flag(request, "include_unreviewed_ai")
+        error = _coverage_report_flag_error(request, lang)
+        if error is not None:
+            return error
+        include_outdated = parse_include_outdated(request.query_params)
+        include_unreviewed_ai = bool(
+            parse_bool_param(request.query_params, "include_unreviewed_ai")
+        )
 
         try:
             ctx = get_auth_context(request)
@@ -2613,7 +2679,7 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             if error is not None:
                 return error
             # REQ-006: include_deleted=true exposes soft-deleted elements (admin use)
-            include_deleted = parse_include_deleted(request.query_params)
+            include_deleted = parse_include_outdated(request.query_params)
             search = request.query_params.get("search") or None
             items = self._svc().list_architecture_elements(
                 workspace_id=workspace_id,
@@ -2913,7 +2979,8 @@ class ArchitectureElementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         Soft-delete: returns 204, but the record is NOT removed. The backing
         Artifact's lifecycle_status moves to "outdated" (Phase 4: an Artifact
         flag, not a workflow state). List endpoints hide outdated elements by
-        default; pass ``?include_deleted=true`` to see them, and
+        default; pass ``?include_outdated=true`` (the deprecated alias
+        ``?include_deleted=true`` still works) to see them, and
         ``POST .../reactivate/`` to restore one. TraceLinks pointing at the
         element survive the delete, and traceability coverage ignores outdated
         elements.
@@ -3428,7 +3495,7 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             items = self._svc().list_test_cases(
                 workspace_id=workspace_id,
                 ctx=ctx,
-                include_deleted=parse_include_deleted(request.query_params),
+                include_deleted=parse_include_outdated(request.query_params),
                 search=search,
                 status=status_filter,
             )
@@ -3667,7 +3734,8 @@ class TestCaseViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         flag, not a workflow state) and a subsequent GET on this URL still
         answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
         record, and there never was one in this tenant". List endpoints hide
-        outdated records by default; pass ``?include_deleted=true`` to see
+        outdated records by default; pass ``?include_outdated=true`` (the
+        deprecated alias ``?include_deleted=true`` still works) to see
         them, and ``POST .../reactivate/`` to restore one.
 
         Caveat, unchanged by GH-443: unlike the other soft-deleting entities,
@@ -4041,43 +4109,18 @@ def _test_to_dict(tc: Any) -> dict[str, Any]:
 def _document_to_dict(document: Any) -> dict[str, Any]:
     """Convert a ``Document`` ORM row to the serializer-compatible dict.
 
+    Thin delegate to :func:`application.document_payload.document_fields`, the
+    single canonical field map shared with the MCP ``document.*`` tool group
+    (P2.2 / m-4) — the two transports can no longer drift field by field.
+
     ``status`` is intentionally absent: ``DocumentSerializer`` resolves it from
     the workflow engine (``WorkflowStateSerializerMixin``), which is also what
     turns a soft-deleted document into ``"outdated"`` via the state reader's
-    lifecycle join. ``doc_date`` is passed through as a ``date``; the DRF
-    ``DateField`` renders it as ISO-8601.
+    lifecycle join. ``doc_date``/``frozen_at``/``created_at``/``updated_at``
+    stay native ``date``/``datetime`` values; the DRF ``DateField``/
+    ``DateTimeField`` render them as ISO-8601.
     """
-    return {
-        "id": str(document.id),
-        "workspace_id": str(document.workspace_id),
-        "artifact_id": (
-            str(document.artifact_id)
-            if getattr(document, "artifact_id", None)
-            else None
-        ),
-        "uid": getattr(document, "uid", None),
-        "title": document.title,
-        "kind": document.kind,
-        "description": getattr(document, "description", ""),
-        "body": getattr(document, "body", ""),
-        "doc_date": getattr(document, "doc_date", None),
-        "frozen_at": getattr(document, "frozen_at", None),
-        "frozen_fields": list(getattr(document, "frozen_fields", None) or []),
-        # Phase G / #1374 S3: dual-source and projection bookkeeping (read-only).
-        "owner_mode": getattr(document, "owner_mode", "loom"),
-        "source_path": getattr(document, "source_path", ""),
-        "source_sha256": getattr(document, "source_sha256", ""),
-        "projection_mode": getattr(document, "projection_mode", "none"),
-        "projected_sha256": getattr(document, "projected_sha256", ""),
-        "projected_version": getattr(document, "projected_version", None),
-        "custom_fields": _artifact_custom_fields(document),
-        "version": document.version,
-        "created_at": document.created_at,
-        # ``Document`` inherits the house ``modified_at`` column (it does not
-        # define its own ``updated_at`` like Adr/Risk); the wire key stays
-        # ``updated_at`` so the contract matches every other artifact.
-        "updated_at": document.modified_at,
-    }
+    return document_fields(document)
 
 
 
@@ -4343,7 +4386,8 @@ class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
       ``DOCUMENT_GATE_FAILED`` with one ``details`` entry per violated gate.
     * **Soft delete (G1.5).** ``DELETE`` answers ``204`` and only flips the
       backing Artifact's lifecycle flag; GET still answers ``200`` with
-      ``status="outdated"``, lists hide it unless ``?include_deleted=true``,
+      ``status="outdated"``, lists hide it unless ``?include_outdated=true``
+      (deprecated alias: ``?include_deleted=true``),
       and ``POST .../reactivate/`` restores it.
     * **Ordering (G2.1).** The list is ordered by ``-modified_at, id`` in the
       service, so pagination is deterministic.
@@ -4364,13 +4408,19 @@ class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
     @list_schema()
     def list(self, request: Request, **kwargs: Any) -> Response:
-        """GET /api/v1/documents/?workspace_id=<id>[&include_deleted=true]
+        """GET /api/v1/documents/?workspace_id=<id>[&include_outdated=true]
 
         Documents are ordered by ``-modified_at, id`` (G2.1), so OFFSET/LIMIT
         pagination is stable. Soft-deleted documents are hidden unless
-        ``include_deleted`` is true (G1.5 V4).
+        ``include_outdated`` is true (G1.5 V4); the deprecated alias
+        ``include_deleted`` is still accepted. An unparseable value on either
+        key answers ``400 VALIDATION_ERROR`` (unrelated parameters stay
+        ignored).
         """
         lang = detect_lang(request)
+        error = validate_include_flag(request, lang)
+        if error is not None:
+            return error
         try:
             ctx = get_auth_context(request)
             workspace_id, error = parse_workspace_id(
@@ -4381,7 +4431,7 @@ class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             items = self._svc().list_documents(
                 workspace_id=workspace_id,
                 ctx=ctx,
-                include_deleted=parse_include_deleted(request.query_params),
+                include_deleted=parse_include_outdated(request.query_params),
             )
         except (ValidationError, ValueError) as exc:
             return _service_error_response(
@@ -4442,6 +4492,34 @@ class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         responses={
             (200, "application/json"): DocumentReadingSerializer,
             (200, "text/markdown"): OpenApiTypes.STR,
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "``VALIDATION_ERROR`` — the ``{id}`` path segment is not a "
+                    "well-formed UUID (``BaseEntityViewSet.initial``, #271). "
+                    "``details`` is empty; the message names the parameter. A "
+                    "well-formed but unknown id is a 404, never a 400."
+                ),
+            ),
+            403: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "``PERMISSION_DENIED`` — the RBAC matrix grants the caller "
+                    "no read role in this workspace, or an item-level rule on "
+                    "this document narrows it to ``none``. Both layers answer "
+                    "the same 403; the read is refused before any body is "
+                    "built."
+                ),
+            ),
+            404: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "``NOT_FOUND`` — the id is a valid UUID but no document "
+                    "with it exists in the caller's tenant. A document of "
+                    "another tenant answers this same 404, so the response is "
+                    "no existence oracle."
+                ),
+            ),
         },
         description=(
             "Read object of the document reading view (R1): document head, "
@@ -4470,8 +4548,9 @@ class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         Answers ``200`` with :class:`DocumentReadingSerializer` and
         ``ETag: "<version>"`` (the same convention as ``retrieve``, so the client
         can PATCH conditionally without a second GET). An unknown or foreign id
-        answers ``404``; a built-in or item-level permission denial ``403``.
-        Nothing here writes: the endpoint is the read half of the editable
+        answers ``404``; a built-in or item-level permission denial ``403``; a
+        malformed ``{id}`` path segment ``400`` (``BaseEntityViewSet.initial``,
+        #271). Nothing here writes: the endpoint is the read half of the editable
         document view (plan R1), never a second write path.
 
         ``?format=markdown`` answers the same request as ``text/markdown``:
@@ -4644,7 +4723,8 @@ class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
         The row is not removed: ``Artifact.lifecycle_status`` moves to
         ``"outdated"`` (G1.5 V1/V2), a subsequent GET still answers ``200`` with
-        ``status="outdated"``, and lists hide it unless ``?include_deleted=true``.
+        ``status="outdated"``, and lists hide it unless ``?include_outdated=true``
+        (deprecated alias: ``?include_deleted=true``).
         ``change_reason`` may be sent in the body or as ``?change_reason=``; a
         preset that mandates one answers ``400 VALIDATION_ERROR`` without it.
         """
@@ -4854,11 +4934,27 @@ class DocumentViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             if response.status_code == status.HTTP_200_OK and isinstance(
                 response.data, dict
             ):
+                # The parent already answered 200 (it resolved the target and
+                # built the transition list), so this enrichment is
+                # best-effort: a not-found / permission / malformed-pk failure
+                # while re-reading the document leaves the parent's answer
+                # untouched instead of turning a readable transition list into
+                # a 404.
+                #
+                # Anything else is a genuine defect, not a benign miss: it used
+                # to be swallowed too, which is how a broken `get_document`
+                # could silently ship a response without `workflow_version`.
+                # `_service_error_response` is the single place that logs the
+                # unmapped exception with `exc_info` and returns the canonical
+                # masked 5xx envelope, so it is called directly — no second
+                # log line here.
                 try:
                     ctx = get_auth_context(request)
                     document = self._svc().get_document(UUID(pk), ctx)
-                except Exception:  # noqa: BLE001 — keep the parent's answer
+                except (NotFoundError, PermissionDeniedError, ValueError):
                     return response
+                except Exception as exc:  # noqa: BLE001 — masked 5xx, logged there
+                    return _service_error_response(exc, detect_lang(request))
                 response.data["workflow_version"] = response.data.get("version")
                 response.data["version"] = document.version
             return response
@@ -5061,7 +5157,8 @@ class WorkItemViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
       the newest checkpoint and every open item, sorted ``(ordinal, id)``.
     * **Soft delete (G1.5).** ``DELETE`` answers ``204`` and only flips the
       backing Artifact's lifecycle flag; GET still answers ``200`` with
-      ``status="outdated"``, lists hide it unless ``?include_deleted=true``,
+      ``status="outdated"``, lists hide it unless ``?include_outdated=true``
+      (deprecated alias: ``?include_deleted=true``),
       and ``POST .../reactivate/`` restores it.
     * **Ordering (G2.1).** The list is ordered by ``(ordinal, id)`` in the
       service, so pagination is deterministic.
@@ -5097,13 +5194,27 @@ class WorkItemViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 description="Only items of this document.",
             ),
             OpenApiParameter(
-                "include_deleted",
+                "include_outdated",
                 OpenApiTypes.BOOL,
                 OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Include soft-deleted (outdated) items. Defaults to false; "
-                    "the detail GET still answers 200 with status='outdated'."
+                    "Canonical spelling: include soft-deleted items (their "
+                    "workflow state is 'outdated'). Defaults to false; the "
+                    "detail GET still answers 200 with status='outdated'."
+                ),
+            ),
+            OpenApiParameter(
+                "include_deleted",
+                OpenApiTypes.BOOL,
+                OpenApiParameter.QUERY,
+                required=False,
+                deprecated=True,
+                description=(
+                    "Deprecated alias of `include_outdated`: supported through "
+                    "1.11.0 (inclusive); removal no earlier than 1.12.0 "
+                    "(see docs/api/REST-CONVENTIONS.md §10). When both are "
+                    "sent, `include_outdated` wins."
                 ),
             ),
         ]
@@ -5113,9 +5224,15 @@ class WorkItemViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
         Items are ordered by ``(ordinal, id)`` (G2.1), so OFFSET/LIMIT
         pagination is stable. Soft-deleted items are hidden unless
-        ``include_deleted`` is true (G1.5 V4).
+        ``include_outdated`` is true (G1.5 V4); the deprecated alias
+        ``include_deleted`` is still accepted. An unparseable value on either
+        key answers ``400 VALIDATION_ERROR`` (unrelated parameters stay
+        ignored).
         """
         lang = detect_lang(request)
+        error = validate_include_flag(request, lang)
+        if error is not None:
+            return error
         try:
             ctx = get_auth_context(request)
             workspace_id, error = parse_workspace_id(
@@ -5135,7 +5252,7 @@ class WorkItemViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 workspace_id=workspace_id,
                 ctx=ctx,
                 document_id=document_id,
-                include_deleted=parse_include_deleted(request.query_params),
+                include_deleted=parse_include_outdated(request.query_params),
             )
         except (ValidationError, ValueError) as exc:
             return _service_error_response(
@@ -5353,7 +5470,8 @@ class WorkItemViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
         The row is not removed: ``Artifact.lifecycle_status`` moves to
         ``"outdated"`` (G1.5 V1/V2), a subsequent GET still answers ``200`` with
-        ``status="outdated"``, and lists hide it unless ``?include_deleted=true``.
+        ``status="outdated"``, and lists hide it unless ``?include_outdated=true``
+        (deprecated alias: ``?include_deleted=true``).
         ``change_reason`` may be sent in the body or as ``?change_reason=``; a
         preset that mandates one answers ``400 VALIDATION_ERROR`` without it.
         """
@@ -5418,11 +5536,28 @@ class WorkItemViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             if response.status_code == status.HTTP_200_OK and isinstance(
                 response.data, dict
             ):
+                # The parent already answered 200, so this enrichment is
+                # best-effort: a not-found / permission / malformed-pk failure
+                # while re-reading the item leaves the parent's answer
+                # untouched instead of turning a readable transition list into
+                # a 404.
+                #
+                # Anything else is a genuine defect, not a benign miss: it used
+                # to be swallowed too (``except Exception: return response``),
+                # which shipped a response without ``workflow_version``. The
+                # client then built its POST precondition from the engine
+                # revision instead of the entity revision and got a 409/412
+                # with no clue why. ``_service_error_response`` logs the
+                # unmapped exception exactly once with ``exc_info`` and returns
+                # the canonical masked 5xx envelope — same contract as the
+                # Document branch.
                 try:
                     ctx = get_auth_context(request)
                     item = self._svc().get_work_item(UUID(pk), ctx)
-                except Exception:  # noqa: BLE001 — keep the parent's answer
+                except (NotFoundError, PermissionDeniedError, ValueError):
                     return response
+                except Exception as exc:  # noqa: BLE001 — masked 5xx, logged there
+                    return _service_error_response(exc, detect_lang(request))
                 response.data["workflow_version"] = response.data.get("version")
                 response.data["version"] = item.version
             return response

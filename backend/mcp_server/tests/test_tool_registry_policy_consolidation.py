@@ -13,7 +13,10 @@ These frozen baselines were captured from the pre-consolidation literals (HEAD
 only extended when a genuinely new tool lands in `GROUP_SPECS` afterwards —
 e.g. #2016 added the state-mutating `change_request.submit_for_review` write
 tool, which is correctly gated as WRITE and therefore belongs in both the
-derived catalogue and this baseline (146 -> 147).
+derived catalogue and this baseline (146 -> 147), and P1.8/M-11 added the
+tenant-wide `workflow_default` group (2 reads, 7 writes, a governance
+namespace: 147 -> 154 writes, 98 -> 100 read names, +1 governance namespace;
+P2.8 added the two work_item soft-delete writes: 154 -> 156).
 """
 from __future__ import annotations
 
@@ -67,9 +70,11 @@ def test_fail_closed_write_default_preserved() -> None:
 def test_write_tool_names_are_pinned() -> None:
     """The WRITE catalogue (an import-time tuple) is pinned too.
 
-    The 302-tool count itself is already gated by ``test_tool_manifest_drift``;
+    The 313-tool count itself is already gated by ``test_tool_manifest_drift``;
     this test only guards the policy set that consolidation rewrote.
     """
     assert isinstance(registry._WRITE_TOOL_PREFIXES, tuple)
-    # 146 consolidation-era writes + #2016's change_request.submit_for_review.
-    assert len(registry._WRITE_TOOL_PREFIXES) == 147
+    # 146 consolidation-era writes + #2016's change_request.submit_for_review
+    # + P1.8/M-11's seven workflow_default writes + P2.8's work_item.outdate/
+    # work_item.reactivate.
+    assert len(registry._WRITE_TOOL_PREFIXES) == 156

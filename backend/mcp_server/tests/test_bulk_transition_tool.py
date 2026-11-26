@@ -41,7 +41,8 @@ from workflow.services import create_default_workflow
 
 pytestmark = pytest.mark.django_db
 
-EXPECTED_TOOL_COUNT = 302  # #2016: +change_request.submit_for_review
+# #2016: +change_request.submit_for_review; P1.8/M-11: +9 workflow_default tools
+EXPECTED_TOOL_COUNT = 313
 TRANSITION_TOOL = "artifact.bulk_transition"
 IN_REVIEW = "in_review"
 APPROVED = "approved"
@@ -160,10 +161,11 @@ def test_manifest_contains_the_transition_tool(manifest: dict[str, Any]) -> None
     assert properties["ids"]["maxItems"] == 100
 
 
-def test_tool_count_is_301_with_49_prefixes(manifest: dict[str, Any]) -> None:
+def test_tool_count_is_313_with_50_prefixes(manifest: dict[str, Any]) -> None:
     assert manifest["tool_count"] == EXPECTED_TOOL_COUNT
     assert len(manifest["tools"]) == EXPECTED_TOOL_COUNT
-    assert len({tool["prefix"] for tool in manifest["tools"]}) == 49
+    # P1.8 / M-11 added the ``workflow_default`` group as the 50th prefix.
+    assert len({tool["prefix"] for tool in manifest["tools"]}) == 50
 
 
 def test_registry_advertises_the_tool_as_a_write() -> None:

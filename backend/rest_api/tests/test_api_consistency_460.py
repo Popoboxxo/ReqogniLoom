@@ -265,21 +265,28 @@ def test_malformed_workspace_id_never_echoes_the_offending_value(authed_client):
     assert payload not in response.content.decode(errors="replace")
 
 
-def test_baseline_list_keeps_the_preset_gate_in_front_of_the_check(authed_client):
-    """BaselineViewSet is the one call site with a gate before the validation.
+def test_baseline_list_validates_before_the_preset_gate(authed_client):
+    """Validation now runs *before* the preset gate on the flat list route.
 
-    ``PresetGateMixin`` decides whether the endpoint exists for this workspace
-    at all, so it deliberately still runs first and on the raw value — an
-    unresolvable workspace makes it raise ``Http404`` before the parameter is
-    ever parsed. The status therefore stays 404 (not the 400 the other list
-    endpoints give); what this asserts is that the *envelope* is JSON, which
-    it was not before ``handler404`` was wired up.
+    ``BaselineViewSet`` used to let ``PresetGateMixin`` answer first and on the
+    raw value: an unparseable ``?workspace_id=`` raised ``Http404``, so a plain
+    client defect was reported as a missing resource. #1391 parses the parameter
+    first, so a malformed value answers the shared ``parse_workspace_id`` 400
+    instead. The 404 stays reserved for a preset-disabled, foreign or unknown
+    workspace — the cases where the route genuinely does not exist for the
+    caller.
     """
-    response = authed_client.get("/api/v1/baselines/?workspace_id=kaputt")
+    payload = "<script>alert(1)</script>"
 
-    assert response.status_code == 404
+    response = authed_client.get("/api/v1/baselines/", {"workspace_id": payload})
+
+    assert response.status_code == 400
     assert response["Content-Type"].startswith("application/json")
-    assert _envelope(response)["code"] == "NOT_FOUND"
+    error = _envelope(response)
+    assert error["code"] == "VALIDATION_ERROR"
+    assert error["message"] == "workspace_id must be a valid UUID"
+    # Reflection guard (#271 family): the malformed value is never echoed.
+    assert payload not in response.content.decode(errors="replace")
 
 
 def test_baseline_list_with_a_valid_workspace_id_still_works(authed_client, workspace):

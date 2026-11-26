@@ -57,7 +57,7 @@ gleichen Commit nachzuziehen (kein separater Audit-Fund daraus machen).
 | `ADMIN_LOGIN_LOCKOUT_ENABLED` | `default=True` (+ Threshold 5, Window 900, Duration 900) — :738-749 | `true` | Brute-Force-Schutz für Admin-Login; Abschalten nur mit externem Equivalentschutz. | fail-closed | devops-engineer | mittelbar |
 | `AUTH_REFRESH_REUSE_GRACE_SECONDS` | `default=0` — :1099-1101 | 0 (strikt) | `0` erkennt Reuse sofort; jeder positive Wert ist ein nicht erkanntes Replay-Fenster (SA-32/F7). | fail-closed | devops-engineer | mittelbar |
 | `AUTH_LOGIN_INCLUDE_BODY_TOKEN` | `default=True` — :1085-1087 | `false` nach Client-Migration (siehe §4) | Token im Response-Body erhöht die Exposition via Logs/Proxies; Abschaltung ist Deprecation-Ziel. | **fail-open** (Deprecation) | devops-engineer | mittelbar |
-| `API_KEY_PEPPER` | `default=""` — :1054 | aus Secret-Manager setzen | Defence-in-Depth für API-Key-Hashes; optional (nicht fail-fast), Rotation = erzwungene Key-Rotation. Leerer Wert = kein Pepper. | **fail-open** (optional) | devops-engineer | mittelbar (SEC-001) |
+| `API_KEY_PEPPER` | `default=""` — :1196 | aus Secret-Manager setzen | Defence-in-Depth für API-Key-Hashes; auf Settings-Ebene optional (Dev/Test), im Produktionskontext aber fail-closed über die Error-Checks `reqogniloom.E001`/`E002`. Rotation = erzwungene Key-Rotation. Leerer Wert = kein Pepper; Laufzeit-Residual siehe `docs/runbooks/secret-rotation.md` §2. | **fail-closed** (Prod-Kontext, validiert); Dev/Test optional | devops-engineer | mittelbar (SEC-001) |
 | `IMPORT_FINGERPRINT_SECRET` | `default=""` — :1568-1570 | aus Secret-Manager setzen | Ohne Secret sind Import-Idempotency-Fingerprints ungesalzen. | **fail-open** | devops-engineer | mittelbar |
 | `AUTH_JWT_TTL_SECONDS` | `default=3600` — :1063 | ≤ 3600 | 60-minütiges Access-Token-Fenster (#77); längere TTL vergrößert Missbrauchsfenster. | fail-closed | devops-engineer | mittelbar |
 | `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE` | `"reqogniloom"` / `"reqogniloom-api"` — :1056-1057 | deployment-spezifisch setzen | Valide Tokens fremder Instanzen mit identischen Claims wären sonst akzeptiert. | neutral (empfohlen: fail-closed) | devops-engineer | mittelbar |
@@ -107,9 +107,11 @@ Die Produktiv-Haltung lautet damit für **alle** in §2 als *fail-open* klassifi
    behebbar, `rls_hardening.py:15-20`); ohne Owner-Control ist der Backstop partial.
 3. Die produktiven Defaults `MFA_STAFF_ENFORCEMENT=required`,
    `AUTH_LOGIN_INCLUDE_BODY_TOKEN=false`, `SELF_INIT_ON_MIGRATE=false` sowie gesetzte
-   `API_KEY_PEPPER`/`IMPORT_FINGERPRINT_SECRET`/`REDIS_PASSWORD` und ein positiver
+   `IMPORT_FINGERPRINT_SECRET`/`REDIS_PASSWORD` und ein positiver
    `TENANT_TOKEN_LIMIT_PER_DAY` sind Zielbild derselben Haltung — kein fail-open Knob
-   darf ohne dokumentierte Ausnahme in Produktion verbleiben.
+   darf ohne dokumentierte Ausnahme in Produktion verbleiben. (`API_KEY_PEPPER` ist seit
+   P1.3 kein fail-open Knob mehr: im Produktionskontext erzwingen `reqogniloom.E001`/`E002`
+   einen nicht-leeren, starken Wert.)
 4. Die Env-abhängigen Defaults (`LLM_ALLOW_PRIVATE_BASE_URL`, `DEBUG`, Cookie-/HSTS-Flags,
    Throttles) gelten nur bei `DJANGO_ENV` aus `_NON_PROD_ENVS` (`development`, `dev`,
    `local`, `test`). In Produktion ist der restriktive Zweig maßgeblich.

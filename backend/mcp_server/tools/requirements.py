@@ -57,6 +57,8 @@ from mcp_server.tools.base import (
     require_uuid,
     resolve_engine_status,
     resolve_status_map,
+    soft_delete_reason,
+    soft_delete_reason_properties,
     validate_artifact_write,
     workspace_query_required,
     write_mcp_audit,
@@ -690,7 +692,7 @@ class RequirementsToolGroup(BaseToolGroup):
                 "type": "object",
                 "properties": {
                     "id": {"type": "string", "description": "UUID of the requirement."},
-                    "reason": {"type": "string", "description": "Optional audit reason."},
+                    **soft_delete_reason_properties(),
                 },
                 "required": ["id"],
             },
@@ -1074,27 +1076,26 @@ class RequirementsToolGroup(BaseToolGroup):
     def _handle_outdate(
         self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        """requirement.outdate — soft-delete via the workflow engine (write, audited)."""
+        """requirement.outdate — soft-delete through RequirementService (write, audited).
+
+        P1.10: routed through ``RequirementService.delete_requirement`` — the
+        same call REST's ``DELETE /api/v1/requirements/{id}/`` makes — instead
+        of the raw ``workflow.services.outdate`` escape hatch, which ignores
+        its ``reason`` argument since Phase 4. The service is what enforces the
+        item-level write rule (#1716) and the workspace's ``change_reason``
+        preset policy (#604), and it is what writes the ``AuditEntry`` that
+        carries the resolved reason. Domain errors (NotFound / PermissionDenied
+        / Validation) are mapped centrally by ``BaseToolGroup.execute_tool``.
+        """
         req_id = require_uuid(params, "id")
-        reason: str = params.get("reason", "")
+        reason: str = soft_delete_reason(params)
 
         try:
-            req = self._service.get_requirement(req_id, auth_context)
-        except NotFoundError as exc:
-            return ToolResult.error("NOT_FOUND", str(exc))
-        except PermissionDeniedError as exc:
-            return ToolResult.error("PERMISSION_DENIED", str(exc))
-
-        from workflow.services import outdate
-
-        try:
-            outdate(
-                item_id=req_id,
-                item_type="Requirement",
-                workspace_id=req.artifact.workspace_id,
-                ctx=auth_context,
-                reason=reason,
+            self._service.delete_requirement(
+                req_id, auth_context, change_reason=reason
             )
+        except (NotFoundError, PermissionDeniedError, ValidationError):
+            raise
         except Exception:
             # #697 (CWE-209): mask the unmapped cause, log it server-side.
             logger.exception("requirement.outdate failed")
@@ -1109,6 +1110,10 @@ class RequirementsToolGroup(BaseToolGroup):
             entity_id=req_id,
             tool_name="requirement.outdate",
             api_key=api_key,
+            # REQ-L2-MC-012 provenance the domain entry above does not carry
+            # (tool name + api-key hash); the resolved reason rides along so
+            # both rows of the one deletion agree on why it happened.
+            details={"change_reason": reason},
         )
         return ToolResult.ok({"id": str(req_id), "status": "outdated"})
 

@@ -28,7 +28,7 @@
 // List-validated without a live stack:
 //   npx playwright test document-reading-view --list
 
-import { test, expect, type APIRequestContext } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import {
   createIsolatedWorkspace,
   deleteWorkspace,
@@ -93,6 +93,22 @@ async function fetchDocument(
   return body;
 }
 
+/**
+ * The reading surface opens in *read* mode (`1.9.0-beta.7`): the inline field
+ * editors, the save-mode switch and the save bar only exist after the explicit
+ * edit toggle. Every test that drives an inline write goes through here, so the
+ * read-first default is part of what is proven instead of being bypassed by a
+ * fixture that silently starts in edit mode.
+ */
+async function enterEditMode(page: Page): Promise<void> {
+  await expect(page.getByTestId('document-mode-toggle')).toBeVisible();
+  await page.getByTestId('document-mode-edit').click();
+  await expect(page.getByTestId('document-mode-edit')).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  );
+}
+
 test.describe('Document reading view', () => {
   test.beforeEach(async ({ request, page }) => {
     token = await getAuthToken();
@@ -141,6 +157,14 @@ test.describe('Document reading view', () => {
     await page.goto(`${FRONTEND_URL}/documents/${document.id}`);
     await expect(page.getByTestId('document-detail-version')).toHaveText('v1');
 
+    // Read mode is the default: the value is rendered, no editor exists yet.
+    await expect(page.getByTestId('document-reading-field-title')).toContainText(
+      'Lesbare Spezifikation'
+    );
+    await expect(page.getByTestId('document-field-input-title')).toHaveCount(0);
+
+    await enterEditMode(page);
+
     await page.getByTestId('document-field-input-title').fill('Neuer Titel');
     // The save affordance only exists while the field is dirty — its presence
     // is part of the immediate-mode contract.
@@ -159,6 +183,7 @@ test.describe('Document reading view', () => {
     await page.goto(`${FRONTEND_URL}/documents/${document.id}`);
     await expect(page.getByTestId('document-reading-view')).toBeVisible();
 
+    await enterEditMode(page);
     await page.getByTestId('document-mode-batch').click();
     await expect(page.getByTestId('document-save-bar')).toBeVisible();
 
@@ -226,6 +251,7 @@ test.describe('Document reading view', () => {
     expect(((await external.json()) as { version: number }).version).toBe(2);
 
     // The surface still holds version 1 and now writes against it.
+    await enterEditMode(page);
     await page.getByTestId('document-field-input-title').fill('Lokale Änderung');
 
     const conflictResponse = page.waitForResponse(
@@ -257,6 +283,7 @@ test.describe('Document reading view', () => {
     // A dirty batch keeps the save bar (and therefore the mode switch) on
     // screen, so the print rule is proven against a page that *does* carry
     // controls in screen media.
+    await enterEditMode(page);
     await page.getByTestId('document-mode-batch').click();
     await page.getByTestId('document-field-input-title').fill('Druck-Titel');
     await expect(page.getByTestId('document-save-bar')).toBeVisible();

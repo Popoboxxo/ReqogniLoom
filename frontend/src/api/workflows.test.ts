@@ -157,6 +157,22 @@ describe("workflowsApi mutations", () => {
   });
 });
 
+describe("workflowsApi entity types", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it.each(["Document", "WorkItem"] as const)(
+    "queries the definition endpoint for %s",
+    async (entityType) => {
+      mockGet.mockResolvedValue(rawGraph(["draft"]));
+      await workflowsApi.getDefinition(entityType, WS);
+      const path = mockGet.mock.calls[0][0] as string;
+      expect(path).toContain("/workflows/definition/?");
+      expect(path).toContain(`workspace_id=${WS}`);
+      expect(path).toContain(`item_type=${entityType}`);
+    }
+  );
+});
+
 describe("extractWorkflowError", () => {
   it("uses the ForbiddenError message directly", () => {
     expect(extractWorkflowError(new ForbiddenError("no admin"))).toBe("no admin");

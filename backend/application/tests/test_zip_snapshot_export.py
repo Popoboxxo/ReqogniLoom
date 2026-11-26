@@ -37,7 +37,7 @@ def _isolated_export_dir(tmp_path, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_zip_has_all_24_entity_buckets_manifest_media_and_checksum() -> None:
+def test_zip_has_a_bucket_for_every_entity_plus_manifest_media_and_checksum() -> None:
     with active_tenant() as tenant:
         source = make_workspace(tenant)
         make_requirement(source, title="ZIP Requirement")
@@ -61,7 +61,9 @@ def test_zip_has_all_24_entity_buckets_manifest_media_and_checksum() -> None:
                 for name in names
                 if name.startswith("entities/") and name.endswith(".jsonl")
             ]
-            assert len(buckets) == len(TRANSFER_SPECS) == 24
+            # One bucket per contract entity — derived, so a new spec cannot
+            # leave this assertion behind.
+            assert len(buckets) == len(TRANSFER_SPECS)
             assert "manifest.json" in names
             assert "relations.jsonl" in names
             assert "media/README.md" in names

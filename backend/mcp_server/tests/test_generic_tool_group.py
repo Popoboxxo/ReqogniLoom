@@ -463,11 +463,17 @@ class _OutdatableService:
         self.update_widget = _mock_with_signature(
             lambda widget_id, ctx, **kw: {"id": ENTITY_ID}
         )
-        self.delete_widget = _mock_with_signature(lambda widget_id, ctx: None)
+        self.delete_widget = _mock_with_signature(
+            lambda widget_id, ctx, change_reason="": None
+        )
         self.list = MagicMock(return_value=[_WidgetDTO(WIDGET_WORKSPACE_ID)])
 
 
-def test_outdate_tool_calls_workflow_outdate(monkeypatch):
+def test_outdate_tool_calls_the_service_delete(monkeypatch):
+    """P1.10: the handler reaches the domain ``delete_widget``, not the escape
+    hatch — the service is what records the reason, the item-level rule and the
+    audit entry (``workflow.services.outdate`` ignores ``reason`` since
+    Phase 4)."""
     service = _OutdatableService()
     group = _group_for(service)
 
@@ -482,13 +488,12 @@ def test_outdate_tool_calls_workflow_outdate(monkeypatch):
 
     assert result.success is True
     assert result.data == {"id": str(ENTITY_ID), "status": "outdated"}
-    mock_outdate.assert_called_once_with(
-        item_id=ENTITY_ID,
-        item_type="Widget",
-        workspace_id=WIDGET_WORKSPACE_ID,
+    service.delete_widget.assert_called_once_with(
+        widget_id=ENTITY_ID,
         ctx=CTX,
-        reason="no longer needed",
+        change_reason="no longer needed",
     )
+    mock_outdate.assert_not_called()
 
 
 def test_reactivate_tool_calls_workflow_reactivate(monkeypatch):

@@ -31,15 +31,30 @@ Design notes
   — ``mcp_server/`` performs no ORM access of its own (enforced by
   ``rest_api/tests/test_architecture.py::test_no_new_direct_orm_access_mcp_root``,
   whose ceiling for this file is 0 and must stay there).
-* **Fail-soft resolution, fail-closed gate.** Resolution returning ``None``
-  (unknown tool, absent/malformed id, deleted row, lookup error) leaves the
-  pre-existing behaviour untouched — it never invents a workspace and never
-  denies on its own. Whenever a workspace *is* resolved, the gate in
-  ``tool_registry`` is strict: no role in that workspace means
-  ``PERMISSION_DENIED``. A missing registry entry can therefore only ever be a
-  missed tightening, never a new outage.
+* **Fail-soft resolution, fail-closed gate — for reads.** Resolution returning
+  ``None`` (unknown tool, absent/malformed id, deleted row, lookup error) leaves
+  a *read* tool's pre-existing behaviour untouched — it never invents a
+  workspace and never denies on its own. Whenever a workspace *is* resolved, the
+  gate in ``tool_registry`` is strict: no role in that workspace means
+  ``PERMISSION_DENIED``.
+* **Writes are fail-closed.** Security finding #4
+  (``.tmp/security-audit-rest-mcp-2026-11-25.md``) showed what the read-side
+  rule costs on the write path: a write tool missing here fell back to the
+  caller's tenant-wide role aggregate, so an Editor in workspace A could mutate
+  an object in workspace B. A write tool that cannot be scoped to a workspace is
+  therefore **denied** before any domain work, unless it is instance-level or
+  deliberately tenant-scoped (see :data:`TENANT_SCOPED_WRITE_TOOLS`). The error
+  class depends on the cause: a *missing or malformed* target parameter is a
+  ``VALIDATION_ERROR`` (a request-shape defect, diagnosed from the same registry
+  by :func:`target_param_error`), while only a *well-formed* target that matches
+  no row — or a row in a workspace the caller holds no role in — is
+  ``PERMISSION_DENIED`` with the scope text. Reads are unchanged.
 * **The registry is declarative on purpose.** Every entry is a
-  ``(param name, entity key)`` pair, checked in order, first hit wins. Several
+  ``(param name, entity key)`` pair, checked in order, first hit wins. A param
+  name may be a dotted path into a nested payload (``draft.root_element_id``)
+  or name a list of ids (``ids``); both are probed with the same rule — the
+  first value that resolves decides, and nothing resolving means "unresolved",
+  which a write then denies. Several
   tools list more than one candidate entity for the same parameter (e.g.
   ``context.change_impact``'s ``entity_id``, which may name any of four
   artifact types); UUID primary keys make a cross-table collision effectively
@@ -73,6 +88,30 @@ declared the parameter, accepted ``None`` for it, and then fell through to
 ``SearchService.search(scope="workspace", workspace_id=None)`` — documented as
 "the whole tenant with no RBAC narrowing". Declaring a parameter is not
 enforcing it.
+
+Write-tool classification
+-------------------------
+
+Every write tool must be accounted for by exactly one mechanism, and
+``test_every_write_tool_is_classified`` fails the build otherwise:
+
+1. ``workspace_id`` **required** in its input schema — the dispatcher narrows
+   roles to it and gates there. Omitting a *required* parameter stays a
+   request-shape defect the handler reports as ``VALIDATION_ERROR`` (#1374);
+   it is never a scoping ambiguity, because the tool cannot be called without
+   the workspace it targets.
+2. an entry in :data:`_TOOL_TARGETS` — the gate resolves the workspace from the
+   object the call names (a scalar id, a list of ids, or a dotted path into a
+   nested payload such as ``architecture.decompose_commit``'s ``draft``).
+3. :data:`TENANT_SCOPED_WRITE_TOOLS` — deliberately tenant/instance level, with
+   a per-entry reason.
+4. ``_INSTANCE_LEVEL_TOOLS`` in ``tool_registry`` — already declared
+   instance-level in ``GROUP_SPECS`` (``admin.backup_create``, ``admin.restore``).
+
+Anything else is denied at dispatch. The ratchet is the guard against a *new*
+tool shipping unscoped; the runtime gate in
+``ToolRegistry._unscoped_write_denial`` is what makes a missed entry fail closed
+instead of falling back to tenant-wide roles.
 """
 from __future__ import annotations
 
@@ -200,6 +239,12 @@ _TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
         ("requirement_id", "requirement"),
     ),
     "architecture.decompose": (("element_id", "architecture"),),
+    # Finding #4 (P1.2): the draft's root element is the object the commit
+    # actually extends — the service derives the workspace from *that row*
+    # (never from the caller-supplied ``draft.workspace_id``), so resolving the
+    # dotted path is what stops an Editor in A from committing a decomposition
+    # into workspace B. A missing/unresolvable root id is denied, not admitted.
+    "architecture.decompose_commit": (("draft.root_element_id", "architecture"),),
     "architecture.link": (
         ("arch_id", "architecture"),
         ("target_id", "artifact"),
@@ -224,6 +269,30 @@ _TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
     "change_request.update": (("id", "change_request"),),
     "comment.create": (("artifact_id", "artifact"),),
     "comment.resolve": (("id", "comment"),),
+    # Finding #4 (P1.2): both tools act on ``Artifact`` rows but still name no
+    # workspace. ``artifact.move`` names one artifact; ``artifact.bulk_transition``
+    # names a list of them, and the *first* resolvable id decides the workspace
+    # the gate is evaluated against. A batch that mixes workspaces is refused by
+    # the service as a request defect before any row moves, so one workspace is
+    # the correct gate target for the whole call.
+    "artifact.move": (("artifact_id", "artifact"),),
+    "artifact.bulk_transition": (("ids", "artifact"),),
+    # P6 visual groups: a group is an ``Artifact`` of type "Group", and its
+    # members are requirements. Both ids name objects in the group's workspace;
+    # without these entries an Editor in A could add/move/remove members of a
+    # group living in B on the tenant-wide role fallback.
+    "group.add_member": (
+        ("group_id", "artifact"),
+        ("requirement_id", "requirement"),
+    ),
+    "group.move_member": (
+        ("group_id", "artifact"),
+        ("requirement_id", "requirement"),
+    ),
+    "group.remove_member": (
+        ("group_id", "artifact"),
+        ("requirement_id", "requirement"),
+    ),
     "context.related": _artifact_or_domain("artifact_id"),
     "diagram.outdate": (("id", "diagram"),),
     "diagram.reactivate": (("id", "diagram"),),
@@ -239,6 +308,9 @@ _TOOL_TARGETS: dict[str, tuple[tuple[str, str], ...]] = {
     "milestone.record_audit": (("id", "milestone"),),
     "work_item.transition": (("id", "work_item"),),
     "work_item.set_progress": (("id", "work_item"),),
+    # P2.8: the WorkItem soft-delete/restore pair names its target by ``id`` too.
+    "work_item.outdate": (("id", "work_item"),),
+    "work_item.reactivate": (("id", "work_item"),),
     "glossary.delete": (("id", "glossary"),),
     "glossary.outdate": (("id", "glossary"),),
     "glossary.reactivate": (("id", "glossary"),),
@@ -446,6 +518,12 @@ TOOL_ENFORCED_WORKSPACE_SCOPE: frozenset[str] = frozenset(
 #: * ``tool.list_groups`` (MCP-Modernisierung Task 13) — pure catalogue
 #:   metadata: the registry's group names and schema counts, derived from code
 #:   with no DB access. There is no workspace (or tenant) data to scope to.
+#: * ``workflow_default.list`` — the tenant-wide global workflow defaults
+#:   (P1.8/M-11). They are keyed by ``(tenant, item_type, preset)`` and are the
+#:   template every non-customized workspace definition inherits, so no
+#:   workspace exists to scope to; the handler re-asserts tenant admin.
+#: * ``workflow_default.get`` — the same table, one ``(item_type, preset)``
+#:   pair; also workspace-less by contract, admin gate in the handler.
 TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
     {
         "admin.backup_list",
@@ -475,6 +553,8 @@ TENANT_SCOPED_READ_TOOLS: frozenset[str] = frozenset(
         "preference.registry",
         "preference.get",
         "tool.list_groups",
+        "workflow_default.list",
+        "workflow_default.get",
     }
 )
 
@@ -489,8 +569,203 @@ FENCE_FILTERED_TOOLS: frozenset[str] = frozenset({"workspace.list"})
 
 
 # ---------------------------------------------------------------------------
+# Deliberately tenant-scoped write tools
+# ---------------------------------------------------------------------------
+
+#: Write tools that are safe **when no ``workspace_id`` is supplied and no
+#: target object is named**. Each entry is a product decision backed by a read
+#: of the handler/service, never a convenience bucket: a workspace-level write
+#: whose target is merely *unknown* must be denied, not listed here.
+#:
+#: The set is what ``ToolRegistry._unscoped_write_denial`` consults, so an entry
+#: means "this workspace-less call is admitted". A tool that *also* accepts a
+#: ``workspace_id`` is still narrowed to it by the dispatcher (Case 1 of
+#: ``_scoped_gate_context``) whenever the caller supplies one, and the strict
+#: role gate applies then — the entry only covers the genuinely tenant-wide
+#: shape. The ratchet asserts every entry is a live write tool.
+#:
+#: Tenant-wide configuration catalogues (no workspace resource at all):
+#:
+#: * ``attribute_definition.create`` / ``.delete`` / ``.export`` / ``.import`` —
+#:   the tenant-wide global defaults are per (item_type, preset), not per
+#:   workspace (see ``TENANT_SCOPED_READ_TOOLS``' ``attribute_definition.list``
+#:   entry); the workspace-scoped siblings are the explicit
+#:   ``*_workspace`` tools, which require ``workspace_id``. Admin-gated in
+#:   ``AttributeDefinitionService``.
+#: * ``attribute_catalog.create`` / ``.update`` / ``.deprecate`` / ``.import`` /
+#:   ``.add_to_definition`` / ``.reorder`` — the central catalog (WS5 #942) is a
+#:   tenant-wide template library by design (spec section 8): entries carry no
+#:   workspace and are shared across all of them. ``add_to_definition`` and
+#:   ``reorder`` accept an optional ``workspace_id`` to shape one workspace's
+#:   definition instead of the global default; that path is dispatcher-gated.
+#:   All six are admin-gated in ``AttributeCatalogService``.
+#: * ``attribute_migration.apply`` / ``.dry_run`` / ``.rollback`` — AWMS
+#:   (WS7 #940) is tenant-wide admin tooling: a plan is keyed by its scope,
+#:   which may span several workspaces, so no single workspace can be the gate
+#:   target. Admin-gated in ``AttributeMigrationService`` (same reasoning as the
+#:   read-side ``attribute_migration.*`` entries).
+#: * ``link_type.create`` — creates a *global* tenant link-type definition
+#:   (``LinkTypeFacade.create_global``); it has no ``workspace_id`` parameter at
+#:   all. ``link_type.update`` follows the same split: it updates the global
+#:   definition without one and switches to ``update_workspace`` (dispatcher-
+#:   gated) when a ``workspace_id`` is supplied. Both are ADMIN tier.
+#: * ``prompt_template.create`` / ``.update`` — the template is tenant-wide by
+#:   contract; an optional ``workspace_id`` selects the workspace override and
+#:   is dispatcher-gated (mirror of the ``prompt_template.get`` / ``.list`` read
+#:   entries). Admin tier (governance namespace).
+#: * ``prompt_variable.set`` / ``.clear`` — the same variable catalog and the
+#:   same optional-workspace split; admin tier.
+#: * ``preference.set`` — writes the caller's *own* user-level values only
+#:   (self-service, no workspace; the handler refuses any other level).
+#: * ``preference.set_default`` — the tenant-wide default; a ``workspace_id``
+#:   selects the workspace level and is dispatcher-gated (mirror of
+#:   ``preference.get``).
+#: * ``tree_display_config.set`` / ``create_form_definition.set`` /
+#:   ``create_form_definition.import`` — without a ``workspace_id`` these write
+#:   only the caller's own level or the tenant-wide default, neither of which is
+#:   workspace data; a supplied ``workspace_id`` is what makes the workspace
+#:   level participate and is then dispatcher-gated (mirror of the
+#:   ``tree_display_config.get`` / ``create_form_definition.*`` read entries).
+#:
+#: Tenant administration (a user is not a workspace resource):
+#:
+#: * ``user.create`` / ``user.activate`` / ``user.deactivate`` /
+#:   ``user.assign_tenant_admin`` / ``user.revoke_tenant_admin`` — the tenant
+#:   user directory; scoping them to one workspace would break exactly the
+#:   admin flows ``user.list`` is exempted for (assigning a user their first
+#:   role). Tenant-admin-only, re-checked in ``UserService``.
+#:
+#: Task-status polls (the id is not an artifact and has no workspace):
+#:
+#: * ``requirement.check_consistency_status`` — polls the Celery task dispatched
+#:   by ``requirement.check_consistency`` through the tenant-ownership cache
+#:   mapping the tool checks itself (same shape as the read-side
+#:   ``requirement_bundle.compression_status`` entry).
+#:
+#: Memory (workspace scope is resolved by ``MemoryPolicy``, not by the artifact
+#: registry):
+#:
+#: * ``memory.export`` / ``memory.overview`` / ``memory.projection`` /
+#:   ``memory.settings`` — the System-Admin memory surface; ``MemoryAdminService``
+#:   (and, for ``settings``, the handler) re-assert System-Admin, so a
+#:   workspace-less call cannot reach another tenant's or another workspace's
+#:   memory without that standing. ``projection``'s optional ``workspace_id`` is
+#:   dispatcher-gated.
+#: * ``memory.write`` / ``memory.forget`` — ``MemoryEntryService`` applies
+#:   ``MemoryPolicy``: ``scope="user"`` is the caller's own memory (no
+#:   workspace), ``scope="workspace"`` requires ``workspace_id`` (dispatcher-
+#:   gated), and ``scope="artifact"`` / an existing entry are checked against the
+#:   owning workspace's roles inside the service — which is why the dispatcher
+#:   cannot pre-resolve them (same "enforced by the service" class as the
+#:   read-side ``memory.get`` / ``memory.query`` entries).
+#:
+#: Tenant-wide workflow configuration (no workspace resource at all):
+#:
+#: * ``workflow_default.initialize`` — creates the tenant-wide global workflow
+#:   default for one ``(item_type, preset)`` pair (P1.8/M-11). It is the
+#:   template inherited by every non-customized workspace definition; there is
+#:   no workspace to gate on, and the handler re-asserts tenant admin exactly as
+#:   REST's ``_require_admin`` does.
+#: * ``workflow_default.add_state`` — appends a state to that global template
+#:   and propagates it into every inheriting workspace; workspace-less and
+#:   admin-gated in the handler.
+#: * ``workflow_default.update_state`` — renames a state and/or toggles its
+#:   freeze flag on the global template; workspace-less, admin-gated.
+#: * ``workflow_default.delete_state`` — removes a state from the global
+#:   template (fail-closed CONFLICT while a transition references it or a live
+#:   item in an inheriting workspace occupies it); workspace-less, admin-gated.
+#: * ``workflow_default.add_transition`` — appends an edge to the global
+#:   template; workspace-less, admin-gated.
+#: * ``workflow_default.update_transition`` — updates one edge's role/gate
+#:   flags on the global template; workspace-less, admin-gated.
+#: * ``workflow_default.delete_transition`` — removes one edge from the global
+#:   template; workspace-less, admin-gated.
+#:
+#: The seven are the mutations REST publishes under
+#: ``/api/v1/workflow-defaults/``; the corresponding reads
+#: (``workflow_default.list`` / ``workflow_default.get``) are justified in
+#: ``TENANT_SCOPED_READ_TOOLS``.
+TENANT_SCOPED_WRITE_TOOLS: frozenset[str] = frozenset(
+    {
+        "attribute_catalog.add_to_definition",
+        "attribute_catalog.create",
+        "attribute_catalog.deprecate",
+        "attribute_catalog.import",
+        "attribute_catalog.reorder",
+        "attribute_catalog.update",
+        "attribute_definition.create",
+        "attribute_definition.delete",
+        "attribute_definition.export",
+        "attribute_definition.import",
+        "attribute_migration.apply",
+        "attribute_migration.dry_run",
+        "attribute_migration.rollback",
+        "create_form_definition.import",
+        "create_form_definition.set",
+        "link_type.create",
+        "link_type.update",
+        "memory.export",
+        "memory.forget",
+        "memory.overview",
+        "memory.projection",
+        "memory.settings",
+        "memory.write",
+        "preference.set",
+        "preference.set_default",
+        "prompt_template.create",
+        "prompt_template.update",
+        "prompt_variable.clear",
+        "prompt_variable.set",
+        "requirement.check_consistency_status",
+        "tree_display_config.set",
+        "user.activate",
+        "user.assign_tenant_admin",
+        "user.create",
+        "user.deactivate",
+        "user.revoke_tenant_admin",
+        "workflow_default.add_state",
+        "workflow_default.add_transition",
+        "workflow_default.delete_state",
+        "workflow_default.delete_transition",
+        "workflow_default.initialize",
+        "workflow_default.update_state",
+        "workflow_default.update_transition",
+    }
+)
+
+
+# ---------------------------------------------------------------------------
 # Resolution
 # ---------------------------------------------------------------------------
+
+
+def _param_value(params: Mapping[str, Any], path: str) -> Any:
+    """Return the value *path* names in *params*, walking nested objects.
+
+    A plain name (``"id"``) is a direct lookup. A dotted name
+    (``"draft.root_element_id"``) walks into the nested object — the registry
+    needs it for a tool whose published schema wraps its target in a payload
+    object (``architecture.decompose_commit``). Returns ``None`` as soon as a
+    segment is absent or is not a mapping, which reads as "not supplied".
+    """
+    current: Any = params
+    for segment in path.split("."):
+        if not isinstance(current, Mapping):
+            return None
+        current = current.get(segment)
+    return current
+
+
+def _candidate_ids(raw: Any) -> tuple[Any, ...]:
+    """Normalise a target parameter into the ids to probe, in order.
+
+    A batch parameter (``artifact.bulk_transition``'s ``ids``) carries a list;
+    every element is a candidate, so the first one that resolves decides the
+    workspace. Every scalar is its own single candidate.
+    """
+    if isinstance(raw, (list, tuple)):
+        return tuple(raw)
+    return (raw,)
 
 
 def resolve_target_workspace_id(
@@ -504,25 +779,26 @@ def resolve_target_workspace_id(
 
     Returns:
         The owning workspace id as a string, or ``None`` when the tool names
-        no resolvable object — the caller then keeps its previous behaviour.
+        no resolvable object — a read tool then keeps its previous behaviour,
+        a write tool is denied by ``ToolRegistry._unscoped_write_denial``.
     """
     targets = _TOOL_TARGETS.get(tool_name)
     if not targets:
         return None
 
     for param_name, entity_key in targets:
-        raw = params.get(param_name)
-        if raw in (None, ""):
-            continue
-        try:
-            value = UUID(str(raw))
-        except (ValueError, TypeError, AttributeError):
-            # A malformed id is the tool's own validation problem; it must not
-            # short-circuit the remaining candidates.
-            continue
-        workspace_id = resolve_owning_workspace_id(entity_key, value)
-        if workspace_id is not None:
-            return str(workspace_id)
+        for raw in _candidate_ids(_param_value(params, param_name)):
+            if raw in (None, ""):
+                continue
+            try:
+                value = UUID(str(raw))
+            except (ValueError, TypeError, AttributeError):
+                # A malformed id is the tool's own validation problem; it must
+                # not short-circuit the remaining candidates.
+                continue
+            workspace_id = resolve_owning_workspace_id(entity_key, value)
+            if workspace_id is not None:
+                return str(workspace_id)
     return None
 
 
@@ -543,6 +819,11 @@ def target_param_error(tool_name: str, params: Mapping[str, Any]) -> str | None:
     lookup simply found no row), so the call's actual defect is named instead
     of the workspace-scope text.
 
+    A batch target (a list of ids) is well-formed as soon as one element parses
+    — that is exactly the set :func:`resolve_target_workspace_id` probed — and a
+    dotted target path (``draft.root_element_id``) is looked up the same way the
+    resolver looks it up.
+
     Returns ``None`` when the failure is *not* parameter-level — i.e. every
     supplied target parameter is well-formed but resolved to no row (deleted
     object, foreign tenant). That failure must keep the caller's previous
@@ -561,15 +842,28 @@ def target_param_error(tool_name: str, params: Mapping[str, Any]) -> str | None:
     malformed: list[str] = []
     has_well_formed = False
     for param_name, _entity_key in targets:
-        raw = params.get(param_name)
-        if raw in (None, ""):
+        supplied = [
+            raw
+            for raw in _candidate_ids(_param_value(params, param_name))
+            if raw not in (None, "")
+        ]
+        if not supplied:
             continue
-        try:
-            UUID(str(raw))
-        except (ValueError, TypeError, AttributeError):
-            malformed.append(param_name)
-        else:
+        # A batch parameter is well-formed as soon as one of its ids parses:
+        # the resolver probes the same set, so a single typo in a list of ids
+        # is not the reason the whole call failed to resolve.
+        well_formed_here = False
+        for raw in supplied:
+            try:
+                UUID(str(raw))
+            except (ValueError, TypeError, AttributeError):
+                continue
+            well_formed_here = True
+            break
+        if well_formed_here:
             has_well_formed = True
+        else:
+            malformed.append(param_name)
 
     if malformed:
         names = sorted(set(malformed))
@@ -601,6 +895,7 @@ def target_param_error(tool_name: str, params: Mapping[str, Any]) -> str | None:
 __all__ = [
     "FENCE_FILTERED_TOOLS",
     "TENANT_SCOPED_READ_TOOLS",
+    "TENANT_SCOPED_WRITE_TOOLS",
     "TOOL_ENFORCED_WORKSPACE_SCOPE",
     "resolve_target_workspace_id",
     "target_param_error",

@@ -28,11 +28,21 @@ intended failure signal, so it raised ``CommandError``. Here the code runs insid
 blast radius). Instead, a fresh database with no ``SYSTEM_ADMIN_PASSWORD`` is
 logged loudly and skipped, leaving migrations intact. The create-only password
 guarantee is unchanged: an existing admin's password is never rewritten.
+
+A *trivial* password is the one exception (P1.1, review finding M-1): creating a
+login-capable superuser with ``admin`` is worse than an aborted ``migrate``,
+because the deployment then looks healthy while the most privileged account in
+it is guessable. That case raises ``ImproperlyConfigured`` before any row is
+written. The gate only looks at a password this run would actually write, so a
+leftover trivial value in the environment of an already-bootstrapped deployment
+stays a no-op (and is reported as ``reqogniloom.W012`` by the startup checks).
 """
 from __future__ import annotations
 
 import logging
 import os
+
+from django.core.exceptions import ImproperlyConfigured
 
 from application.attribute_bootstrap import (
     bootstrap_attribute_definitions_for_tenant,
@@ -45,6 +55,9 @@ from auth_tenancy.provisioning import (
     DEFAULT_ADMIN_USERNAME,
     ProvisioningError,
     provision_admin,
+)
+from auth_tenancy.services.bootstrap_password import (
+    bootstrap_password_rejection_reason,
 )
 from persistence.models import User
 from presets.models import WorkspacePresetConfig
@@ -80,6 +93,21 @@ def run_self_init() -> None:
             username,
         )
         return
+
+    if password and not admin_exists:
+        # A trivial password is the one case that must NOT be a silent skip: the
+        # account being created is the deployment's most privileged one. Raising
+        # here aborts `migrate` (loudly, in the one-shot migrate service) before
+        # a guessable superuser exists. Only a password this run would actually
+        # write is inspected — see the module docstring.
+        reason = bootstrap_password_rejection_reason(password)
+        if reason is not None:
+            raise ImproperlyConfigured(
+                f"SYSTEM_ADMIN_PASSWORD {reason}. Self-init refuses to provision "
+                "the admin account with a trivial password (REQ-188, plan P1.1). "
+                "Set a strong value in the environment and re-run `migrate`; "
+                "`bash scripts/setup.sh` generates one."
+            )
 
     try:
         result = provision_admin(

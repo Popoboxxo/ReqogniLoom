@@ -572,8 +572,8 @@ drf-spectacular derives an `operationId` from the path tokens plus the action;
 path variables are stripped, so a collection route and its detail route tokenise
 to the same prefix and both fell back to `retrieve`. The collision resolver then
 appended `_2` to whichever path sorted **second** — an order-dependent artefact,
-not a stable identifier. Eight collection operations now carry an explicit,
-method-shaped id:
+not a stable identifier. Eight collection operations carried an explicit,
+method-shaped id from that fix:
 
 | Old (colliding, order-dependent) | New (stable) | Operation |
 |---|---|---|
@@ -585,6 +585,15 @@ method-shaped id:
 | `interviews_retrieve` / `interviews_retrieve_2` | `interviews_list` | `GET /api/v1/interviews/` |
 | `requirements_acceptance_criteria_retrieve` / `requirements_acceptance_criteria_retrieve_2` | `requirements_acceptance_criteria_list` | `GET /api/v1/requirements/{id}/acceptance-criteria/` |
 | `workflow_defaults_retrieve` / `workflow_defaults_retrieve_2` | `workflow_defaults_list` | `GET /api/v1/workflow-defaults/` |
+
+P2.11 (`m-3`) extended the same rule to the review queue, whose three
+routes all publish `*_retrieve`-shaped ids while being list operations:
+
+| Old (misleading) | New (stable) | Operation |
+|---|---|---|
+| `reviews_retrieve` | `reviews_list` | `GET /api/v1/reviews/` |
+| `reviews_pending_retrieve` | `reviews_pending_list` | `GET /api/v1/reviews/pending/` |
+| `workspaces_reviews_pending_retrieve` | `workspaces_reviews_pending_list` | `GET /api/v1/workspaces/{workspace_id}/reviews/pending/` |
 
 The left column is the whole old pair, not two names a client could rely on: the
 un-suffixed id belonged to the collection only because of sort order, and `_2`
@@ -681,7 +690,8 @@ no generative engine, this degradation is the normal shape, not an error.
 MCP surface. It is a **soft** delete: the row survives and moves to the
 workflow's outdated-equivalent state (`state_meta: {…: {is_outdated_equivalent:
 true}}`, e.g. `deprecated`, `Superseded`, `wontfix`, `Closed`), and the list
-endpoints hide it unless the caller opts in with `?include_deleted=true`.
+endpoints hide it unless the caller opts in with `?include_outdated=true`
+(`?include_deleted=true` is the deprecated alias — see the horizon table below).
 
 The endpoints exist for **admin / data-hygiene / automation** callers (scripts,
 migrations, MCP agents) that decide server-side to retire an artifact. They are
@@ -695,9 +705,32 @@ outdated-equivalent target. Consequences:
   gates enforced by the WorkflowEngine), not through `DELETE`.
 * A `DELETE` is still a valid API/MCP call and behaves exactly as before — the
   visibility change is purely client-side.
-* List visibility is uniform across artifact types: `?include_deleted=true`
+* List visibility is uniform across artifact types: `?include_outdated=true`
   reveals outdated rows, and every artifact list offers the same opt-in toggle
   plus an "outdated" row badge.
+
+### `include_outdated` is canonical — `include_deleted` is a deprecated alias
+
+`DELETE` is a soft delete, so the state a row lands in is the workflow engine's
+**outdated** state — not "deleted". The query parameter names that state, and
+only that name is guaranteed:
+
+| Parameter | Status | Horizon |
+|-----------|--------|---------|
+| `?include_outdated=true` | **canonical** — use this | none (permanent) |
+| `?include_deleted=true` | *deprecated* alias, accepted for compatibility | **supported through `1.11.0` (inclusive); removal no earlier than `1.12.0`** — deprecated as of `1.9.0` (`VERSION` 1.9.0-beta.6) |
+
+* **Precedence:** when a client sends both, `include_outdated` wins, so a
+  caller mid-migration can send both without the alias silently overriding the
+  intent. An unparseable value on *either* key is still a `400
+  VALIDATION_ERROR` at the transport boundary.
+* **No other difference:** both keys resolve to the same parser
+  (`parse_include_outdated`) and the same result; the alias is a wire-name
+  alias, not a second code path.
+* **Removal is a breaking change** and is announced in the release notes for the
+  version that drops it — never silently. Until then, clients that still send
+  `include_deleted` keep working unchanged.
+* The MCP surface has always used `include_outdated`; it exposes no alias.
 
 ---
 

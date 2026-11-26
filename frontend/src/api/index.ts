@@ -66,7 +66,29 @@ export type { VersionInfo } from "./version";
 export { itemPermissionsApi } from "./item-permissions";
 export type { ItemPermission, ItemPermissionLevel } from "./item-permissions";
 export { workflowsApi } from "./workflows";
-export type { WorkflowDefinition, WorkflowTransitionResult } from "./workflows";
+export type {
+  WorkflowDefinition,
+  WorkflowDefinitionTransitionResult,
+  WorkflowPresetKey,
+} from "./workflows";
+// P2.3: one canonical item-transition result. `WorkflowTransitionResult` is the
+// `/{resource}/{id}/transitions/` payload every artifact type shares (state
+// change + optional entity revision); its base type lives in the type layer.
+// The workspace-*definition* PATCH re-exported above stays a separate name
+// (`WorkflowDefinitionTransitionResult`, `{id, target_state}`) — never the same
+// symbol twice in this barrel.
+export type {
+  WorkflowTransitionResult,
+} from "./workflow-transitions";
+export type { WorkflowTransitionStateChange } from "../types/workflow";
+// P1.8 (M-12): the tenant-wide, per-(item_type, preset) global workflow
+// defaults live next to the workspace-scoped workflowsApi so callers never
+// need a deep import into ./workflow-defaults.
+export { workflowDefaultsApi } from "./workflow-defaults";
+export type {
+  GlobalWorkflowDefinitionGraph,
+  GlobalWorkflowMutationResult,
+} from "./workflow-defaults";
 export { auditApi } from "./audit";
 export type {
   AuditScopeKind,

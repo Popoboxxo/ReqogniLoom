@@ -59,6 +59,7 @@ from mcp_server.tools.base import (
     mcp_audit_handoff,
     require_param,
     require_uuid,
+    transport_safe,
     write_mcp_audit,
 )
 
@@ -108,39 +109,14 @@ def _backup_to_dict(backup: Any) -> dict[str, Any]:
     }
 
 
-def _json_safe(value: Any) -> Any:
-    """Coerce an arbitrary service value into a JSON-serialisable form.
-
-    E2E/tool-contract tests frequently patch the service with a ``MagicMock``;
-    additive ``RestoreResult`` fields must never leak such an object into the
-    JSON-RPC frame (``json.dumps`` otherwise raises and the transport answers
-    HTTP 500 instead of the tool result).
-    """
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, dict):
-        return {str(k): _json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        return [_json_safe(v) for v in value]
-    if isinstance(value, UUID):
-        return str(value)
-    if hasattr(value, "isoformat"):
-        rendered = value.isoformat()
-        # A MagicMock answers every hasattr() with True, so its .isoformat()
-        # is itself a mock — must not leak into the JSON frame.
-        if isinstance(rendered, str):
-            return rendered
-    return str(value)
-
-
 def _restore_result_to_dict(result: Any) -> dict[str, Any]:
     """Serialise a RestoreResult to a JSON-safe dict.
 
-    Every value goes through :func:`_json_safe`: tool-contract tests patch the
-    service with a ``MagicMock``, and a single un-coerced mock in any field
+    Every value goes through :func:`transport_safe`: tool-contract tests patch
+    the service with a ``MagicMock``, and a single un-coerced mock in any field
     would make ``json.dumps`` fail and the transport answer HTTP 500.
     """
-    return _json_safe(
+    return transport_safe(
         {
             "backup_id": str(result.backup_id),
             "started_at": (

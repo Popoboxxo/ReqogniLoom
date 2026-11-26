@@ -34,6 +34,8 @@ from mcp_server.tools.base import (
     require_uuid,
     resolve_engine_status,
     resolve_status_map,
+    soft_delete_reason,
+    soft_delete_reason_properties,
     validate_artifact_write,
     workspace_query_required,
 )
@@ -357,6 +359,18 @@ class GoalToolGroup(BaseToolGroup):
                             "winner (GitHub #1129)."
                         ),
                     },
+                    # P1.10: goals are soft-archived, so the deprecated `reason`
+                    # alias of `change_reason` is honoured here too.
+                    "reason": {
+                        "type": "string",
+                        "deprecated": True,
+                        "description": (
+                            "Deprecated alias of 'change_reason': supported "
+                            "through 1.11.0 (inclusive); removal no earlier "
+                            "than 1.12.0. Ignored when 'change_reason' is "
+                            "supplied."
+                        ),
+                    },
                 },
                 "required": ["goal_id"],
             },
@@ -381,14 +395,7 @@ class GoalToolGroup(BaseToolGroup):
                         "type": "string",
                         "description": "Alias of goal_id ({entity}.outdate convention).",
                     },
-                    "reason": {
-                        "type": "string",
-                        "description": "Optional audit reason for archiving.",
-                    },
-                    "change_reason": {
-                        "type": "string",
-                        "description": "Alias of reason.",
-                    },
+                    **soft_delete_reason_properties(),
                     "expected_version": {
                         "type": "integer",
                         "description": (
@@ -805,7 +812,7 @@ class GoalToolGroup(BaseToolGroup):
         return self._archive(
             goal_id=require_uuid(params, "goal_id"),
             auth_context=auth_context,
-            change_reason=params.get("change_reason"),
+            change_reason=soft_delete_reason(params) or None,
             expected_version=params.get("expected_version"),
         )
 
@@ -826,7 +833,7 @@ class GoalToolGroup(BaseToolGroup):
         return self._archive(
             goal_id=self._require_goal_id(params),
             auth_context=auth_context,
-            change_reason=params.get("reason") or params.get("change_reason"),
+            change_reason=soft_delete_reason(params) or None,
             expected_version=params.get("expected_version"),
         )
 

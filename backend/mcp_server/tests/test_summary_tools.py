@@ -264,9 +264,11 @@ def test_manifest_keeps_48_prefixes_and_the_current_count() -> None:
     # (``tool.list_groups``) and moved it to 299. Tabellenansicht slice 3 added
     # the two ``saved_view`` read tools inside that same 48th prefix set
     # (299 -> 301), then #2016's ``change_request.submit_for_review`` (301 -> 302).
-    assert manifest["tool_count"] == 302
+    # P1.8 / M-11 added the ``workflow_default`` group (9 tools, the 50th
+    # prefix: 302 -> 311).
+    assert manifest["tool_count"] == 313
     assert manifest["tool_count"] == len(manifest["tools"])
-    assert len({t["prefix"] for t in manifest["tools"]}) == 49
+    assert len({t["prefix"] for t in manifest["tools"]}) == 50
 
 
 # ---------------------------------------------------------------------------

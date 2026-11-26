@@ -111,7 +111,11 @@ class TestRequirementLifecycleTools:
         _, _, ctx = _make_tenant_workspace_ctx("req-mcp-notfound")
         group = RequirementsToolGroup(service=RequirementService())
 
-        result = group._handle_outdate(
+        # P1.10: the handler delegates to RequirementService.delete_requirement,
+        # whose NotFoundError the group's central mapping turns into the wire
+        # NOT_FOUND — so the real dispatch entry point is the assertion point.
+        result = group.execute_tool(
+            tool_name="requirement.outdate",
             params={"id": "00000000-0000-0000-0000-000000009999"},
             auth_context=ctx,
             api_key="reqlo_x",
@@ -594,11 +598,14 @@ class TestStakeholderNeedLifecycleTools:
         # StakeholderNeedService.get() relies on a thread-local TenantContext
         # that, in production, mcp_server.tool_registry sets before dispatch
         # (unlike the other 3 services, whose get_*() methods set it
-        # themselves). Set it explicitly here since this test calls the
-        # handler directly, bypassing the registry.
+        # themselves). Set it explicitly here since no registry is involved.
         TenantContext.set_tenant(tenant.id)
         try:
-            result = group._handle_outdate(
+            # P1.10: the handler delegates to StakeholderNeedService.delete,
+            # whose NotFoundError the group's central mapping turns into the
+            # wire NOT_FOUND.
+            result = group.execute_tool(
+                tool_name="needs.outdate",
                 params={"id": "00000000-0000-0000-0000-000000009999"},
                 auth_context=ctx,
                 api_key="reqlo_x",

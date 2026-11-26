@@ -38,16 +38,19 @@ from rest_framework.response import Response
 from rest_api.serializers import build_error_response
 
 __all__ = [
+    "INCLUDE_OUTDATED_ALIASES",
     "INVALID_UUID_TEMPLATE",
     "MISSING_TEMPLATE",
     "parse_bool_param",
     "parse_change_reason",
     "parse_include_deleted",
+    "parse_include_outdated",
     "parse_int_param",
     "parse_uuid_param",
     "parse_workspace_id",
     "reject_unknown_query_params",
     "require_non_empty_param",
+    "validate_include_flag",
 ]
 
 #: Accepted spellings for a true/false query parameter.
@@ -115,19 +118,37 @@ def parse_workspace_id(
     return parse_uuid_param(raw, lang, name="workspace_id")
 
 
-def parse_include_deleted(query_params: Any) -> bool:
-    """Read the ``?include_deleted=`` flag of a list endpoint (GH-443).
+#: Wire names that select "include soft-deleted (outdated) rows", canonical
+#: first. ``include_outdated`` is the canonical spelling because that is what
+#: the state actually is (the workflow engine's ``outdated`` state); the MCP
+#: surface has always used it. ``include_deleted`` is the historical REST
+#: spelling and stays a deprecated alias: supported through 1.11.0 (inclusive);
+#: removal no earlier than 1.12.0 (see docs/api/REST-CONVENTIONS.md §10).
+INCLUDE_OUTDATED_ALIASES: tuple[str, ...] = ("include_outdated", "include_deleted")
+
+
+def parse_include_outdated(query_params: Any) -> bool:
+    """Read the include-outdated flag of a list endpoint (P2.1 / m-8).
 
     DELETE is a soft-delete for every workflow-backed entity, so each list
     endpoint needs the same opt-in to surface the records it hides by default.
-    Three endpoints (architecture, adrs, glossary) already hand-rolled the exact
-    same expression; naming it once keeps the remaining ones from drifting to a
-    different spelling of "true".
+    The canonical wire name is ``?include_outdated=`` — it names the state the
+    workflow engine actually sets. ``?include_deleted=`` is the historical
+    spelling and remains a deprecated alias: supported through 1.11.0
+    (inclusive); removal no earlier than 1.12.0 (see
+    ``docs/api/REST-CONVENTIONS.md`` §10).
 
-    Accepts ``true``/``1``/``yes``/``on`` in any casing. Unknown values are
-    rejected by :func:`reject_unknown_query_params` at the transport boundary;
-    this helper keeps its historical "anything else is false" fallback so a
-    direct unit-test call cannot raise.
+    When both keys are present the canonical one wins, so a client mid-migration
+    can send both without the alias silently overriding the intent. An
+    unparseable value on *either* key is a ``400 VALIDATION_ERROR`` — but only
+    where the endpoint validates the flag: ``reject_unknown_query_params`` does
+    it as part of its allow-list check, and :func:`validate_include_flag` does
+    it on its own for the endpoints that deliberately accept unrelated query
+    parameters (the document and work-item lists). This helper itself keeps its
+    historical "anything else is false" fallback so a direct unit-test call
+    cannot raise.
+
+    Accepts ``true``/``1``/``yes``/``on`` in any casing.
 
     Args:
         query_params: ``request.query_params`` (any ``.get``-capable mapping).
@@ -135,8 +156,17 @@ def parse_include_deleted(query_params: Any) -> bool:
     Returns:
         ``True`` when soft-deleted records should be included.
     """
-    raw = query_params.get("include_deleted", "")
+    raw = query_params.get("include_outdated")
+    if raw is None:
+        raw = query_params.get("include_deleted", "")
     return str(raw).strip().lower() in _BOOL_TRUE
+
+
+#: Deprecated alias of :func:`parse_include_outdated` (P2.1 / m-8).
+#:
+#: Kept so the ~10 existing call sites and imports keep working unchanged; every
+#: new call site should use :func:`parse_include_outdated`.
+parse_include_deleted = parse_include_outdated
 
 
 def parse_bool_param(
@@ -188,6 +218,40 @@ def parse_int_param(
     return value
 
 
+def validate_include_flag(
+    request_or_params: Any, lang: str = "en"
+) -> Response | None:
+    """Validate both include-outdated spellings, rejecting nothing else.
+
+    ``reject_unknown_query_params`` already validates the two spellings, but
+    only an endpoint that rejects *unknown* parameters can call it. The
+    document and work-item lists deliberately stay lenient about unrelated
+    parameters (clients attach their own telemetry/diagnostic keys), yet an
+    unparseable ``?include_outdated=maybe`` / ``?include_deleted=maybe`` must
+    not silently collapse into "false" — a caller that asked for outdated rows
+    and typo'd the value would otherwise receive the opposite answer with a
+    ``200``.
+
+    Args:
+        request_or_params: A DRF request (its ``query_params`` is read) or any
+            ``.get``/``__contains__``-capable mapping of query parameters.
+        lang: Two-letter language code for the error envelope.
+
+    Returns:
+        ``None`` when both spellings are absent or parseable, otherwise a
+        ready-to-return HTTP 400 in the standard error envelope. The message
+        names the parameter and never echoes its value.
+    """
+    params = getattr(request_or_params, "query_params", request_or_params)
+    for name in INCLUDE_OUTDATED_ALIASES:
+        if name in params:
+            try:
+                parse_bool_param(params, name)
+            except ValueError as exc:
+                return _validation_error(str(exc), lang)
+    return None
+
+
 def reject_unknown_query_params(
     request: Any,
     allowed: Any,
@@ -224,12 +288,9 @@ def reject_unknown_query_params(
         if hint:
             message = f"{message} {hint}"
         return _validation_error(message, lang)
-    if "include_deleted" in request.query_params:
-        try:
-            parse_bool_param(request.query_params, "include_deleted")
-        except ValueError as exc:
-            return _validation_error(str(exc), lang)
-    return None
+    # P2.1: both spellings are validated, so a bad value on the deprecated alias
+    # answers 400 exactly like a bad value on the canonical key.
+    return validate_include_flag(request, lang)
 
 
 def parse_change_reason(request: Any) -> str:
