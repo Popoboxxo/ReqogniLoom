@@ -8,6 +8,12 @@ membership order is ``TraceLink.sort_key`` (nullable, filled only for
 
 Groups are purely visual: they never change ``tier_key``, ``level_source`` or an
 allocation.
+
+Workspace boundary: the membership row is written with the *group's*
+``tenant_id`` and no workspace column of its own, so nothing at the persistence
+layer stops a link from a requirement of another workspace. Every mutating path
+therefore asserts that the requirement's backing ``Artifact`` belongs to the
+group's workspace before it writes (review finding 2026-11-25, MAJOR).
 """
 from __future__ import annotations
 
@@ -15,7 +21,12 @@ from uuid import UUID
 
 from django.db import transaction
 
-from application.base import NotFoundError, ServiceBase, ValidationError
+from application.base import (
+    NotFoundError,
+    PermissionDeniedError,
+    ServiceBase,
+    ValidationError,
+)
 from auth_tenancy.context import AuthContext
 from persistence.models import Artifact, Requirement, TraceLink
 from persistence.sort_keys import key_between
@@ -78,6 +89,40 @@ class GroupService(ServiceBase):
             raise NotFoundError(f"Requirement {requirement_id} not found")
         return row
 
+    def _assert_member_in_group_workspace(
+        self, group: Artifact, requirement_artifact_id: UUID
+    ) -> None:
+        """Refuse a membership write that would cross a workspace boundary.
+
+        The membership ``TraceLink`` is created with the group's ``tenant_id``
+        and carries no workspace of its own, so without this check a caller who
+        is an editor in workspace A could link — and later unlink or reorder — a
+        requirement that belongs to workspace B. The dispatcher already resolves
+        the *target* workspace from the ids the call names (see
+        ``mcp_server.workspace_scope``); this is the missing service-side half,
+        so every transport (MCP, REST, a direct service caller) is covered.
+
+        Read through the requirement's backing ``Artifact`` rather than through
+        ``Requirement.workspace_id``: the artifact is the row the link actually
+        points at, so the two can never disagree about which object is being
+        grouped.
+
+        Raises:
+            PermissionDeniedError: the requirement lives in another workspace
+                (or its artifact row is gone, which is denied rather than
+                allowed). The message names neither id — a cross-workspace write
+                must not double as an existence oracle.
+        """
+        workspace_id = (
+            Artifact.objects.filter(id=requirement_artifact_id)
+            .values_list("workspace_id", flat=True)
+            .first()
+        )
+        if workspace_id != group.workspace_id:
+            raise PermissionDeniedError(
+                "Requirement belongs to a different workspace than the group."
+            )
+
     def add_member(
         self,
         group_id: UUID,
@@ -91,6 +136,7 @@ class GroupService(ServiceBase):
         self._assert_write_permission(ctx)
         group = self._group(group_id)
         requirement_artifact_id = self._requirement_artifact_id(requirement_id)
+        self._assert_member_in_group_workspace(group, requirement_artifact_id)
 
         if TraceLink.objects.filter(
             source_id=requirement_artifact_id,
@@ -136,6 +182,7 @@ class GroupService(ServiceBase):
         self._assert_write_permission(ctx)
         group = self._group(group_id)
         requirement_artifact_id = self._requirement_artifact_id(requirement_id)
+        self._assert_member_in_group_workspace(group, requirement_artifact_id)
         TraceLink.objects.filter(
             source_id=requirement_artifact_id,
             target_id=group.id,
@@ -155,6 +202,7 @@ class GroupService(ServiceBase):
         self._assert_write_permission(ctx)
         group = self._group(group_id)
         requirement_artifact_id = self._requirement_artifact_id(requirement_id)
+        self._assert_member_in_group_workspace(group, requirement_artifact_id)
         row = TraceLink.objects.filter(
             source_id=requirement_artifact_id,
             target_id=group.id,

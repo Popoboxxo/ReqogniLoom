@@ -21,6 +21,8 @@ from mcp_server.tools.base import (
     require_uuid,
     resolve_engine_status,
     resolve_status_map,
+    soft_delete_reason,
+    soft_delete_reason_properties,
     validate_artifact_write,
 )
 from mcp_server.tools.system_fields import (
@@ -164,7 +166,9 @@ def _entity_description(prefix: str, action: str) -> str:
             "(it is not removed); trace links and audit history are preserved. "
             f"It is hidden from default {prefix}.query results — use "
             f"include_outdated=true to find it and {prefix}.reactivate to "
-            f"restore it. Equivalent to {prefix}.outdate."
+            f"restore it. This is the id-only legacy alias: use "
+            f"{prefix}.outdate to supply a change_reason (that tool also "
+            "enforces the preset's change-reason gate)."
         )
     if action == "outdate":
         return (
@@ -446,7 +450,7 @@ class GenericCrudToolGroup(BaseToolGroup):
                     "type": "object",
                     "properties": {
                         "id": {"type": "string", "description": f"UUID of the {prefix} entity."},
-                        "reason": {"type": "string", "description": "Optional audit reason."},
+                        **soft_delete_reason_properties(),
                     },
                     "required": ["id"],
                 },
@@ -836,17 +840,30 @@ class GenericCrudToolGroup(BaseToolGroup):
         if allowed:
             reject_unknown_params(params, allowed, f"{self.prefix}.outdate")
         obj_id = require_uuid(params, "id")
-        reason = params.get("reason", "")
-        from workflow.services import outdate
+        reason = soft_delete_reason(params)
 
         workspace_id = self._resolve_workspace_id(obj_id=obj_id, auth_context=auth_context)
-        # Domain errors are mapped centrally by BaseToolGroup.execute_tool.
-        outdate(
-            item_id=obj_id,
-            item_type=self._item_type,
-            workspace_id=workspace_id,
+        # Preset gate: the five wrapped services' deletes do not consult the
+        # workspace's change_reason policy, so the MCP surface enforces it here
+        # rather than let a mandated reason go unrecorded (§7.2 of
+        # docs/api/MCP-SURFACE.md).
+        from application.preset_policy_service import get_preset_policy_service
+
+        if not reason and get_preset_policy_service().is_change_reason_required(
+            str(workspace_id)
+        ):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "change_reason is required by preset policy."
+            )
+        # Domain errors are mapped centrally by BaseToolGroup.execute_tool. The
+        # service's ``delete_*`` is the documented path (P1.10): it enforces the
+        # item-level write rule (#1716), records the reason and writes the
+        # ``AuditEntry`` — the raw ``workflow.services.outdate`` escape hatch
+        # does none of that and ignores its ``reason`` argument since Phase 4.
+        self._delete_method(
             ctx=auth_context,
-            reason=reason,
+            **{self._delete_id_param: obj_id},
+            change_reason=reason,
         )
         return ToolResult.ok({"id": str(obj_id), "status": "outdated"})
 

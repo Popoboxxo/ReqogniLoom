@@ -14,17 +14,28 @@ so the transport is exercised end to end and nothing is mocked:
   previous/new state;
 * checkpoint + resume return the newest checkpoint and the open items sorted
   ``(ordinal, id)``, excluding finished work;
+* outdate/reactivate (P2.8) round-trip the soft-delete: the item disappears from
+  ``query``, reappears with ``include_outdated``, keeps its workflow state and
+  comes back finished; the preset's mandatory ``change_reason`` gate, an
+  unknown id and a stale version are reported as the REST endpoint reports them;
+* the WorkItem lifecycle is complete on both transports — the REST
+  ``DELETE``/``reactivate`` pair and ``work_item.outdate``/``.reactivate`` exist
+  side by side (entity-surface note in ``entity_surface_matrix.py``);
 * viewer may read but not write (RBAC parity);
 * a foreign workspace is denied for both reads and writes (workspace fence),
   and the dispatcher resolves the owning workspace from the item id.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
+from unittest.mock import patch
+from uuid import UUID, uuid4
 
 import pytest
 
 from application.work_item_service import WorkItemService
+from auth_tenancy.context import AuthContext, AuthMethod
 from mcp_server.management.commands.export_tool_manifest import build_manifest
 from mcp_server.tool_registry import ToolRegistry
 from mcp_server.workspace_scope import resolve_target_workspace_id
@@ -47,6 +58,8 @@ WRITE_TOOLS = frozenset(
         "work_item.transition",
         "work_item.set_progress",
         "work_item.checkpoint",
+        "work_item.outdate",
+        "work_item.reactivate",
     }
 )
 ALL_TOOLS = READ_TOOLS | WRITE_TOOLS
@@ -127,7 +140,7 @@ def _create(api_key: str, workspace_id: str, document_id: str, **overrides: Any)
 # ---------------------------------------------------------------------------
 
 
-def test_all_eight_tools_are_published_with_the_right_classification() -> None:
+def test_all_ten_tools_are_published_with_the_right_classification() -> None:
     tools = {tool["name"]: tool for tool in build_manifest()["tools"]}
     for name in ALL_TOOLS:
         assert name in tools, f"{name} missing from the catalogue"
@@ -183,6 +196,28 @@ def test_create_read_and_query_round_trip(
     )
     assert by_uid.success is True, by_uid.message
     assert [row["id"] for row in by_uid.data["work_items"]] == [item["id"]]
+
+
+def test_create_workflow_init_failure_is_an_internal_error_and_rolls_back(
+    e2e_workspace, e2e_api_key_member, document
+) -> None:
+    """P2.13: the create is rolled back and the tool answers a static error."""
+    workspace_id = str(e2e_workspace.id)
+
+    with patch(
+        "workflow.services.initialize_workflow_states",
+        side_effect=RuntimeError("boom"),
+    ):
+        result = _create(e2e_api_key_member, workspace_id, str(document.id))
+
+    assert result.success is False
+    assert result.error_code == "INTERNAL_ERROR"
+    assert result.message == (
+        "The artifact was not created because its workflow state could not be "
+        "initialised."
+    )
+    assert "boom" not in (result.message or "")
+    assert WorkItem.unscoped.filter(workspace_id=e2e_workspace.id).count() == 0
 
 
 def test_create_is_visible_through_rest(
@@ -453,8 +488,228 @@ def test_unknown_item_is_not_found(e2e_api_key_member) -> None:
 
 
 # ---------------------------------------------------------------------------
-# RBAC + workspace fence
+# Soft delete / restore (P2.8)
 # ---------------------------------------------------------------------------
+
+
+def test_outdate_and_reactivate_round_trip(
+    e2e_workspace, e2e_api_key_member, document
+) -> None:
+    """Soft-delete hides the item, reactivate brings it back in its state."""
+    created = _create(
+        e2e_api_key_member, str(e2e_workspace.id), str(document.id)
+    )
+    item_id = created.data["work_item"]["id"]
+    assert created.data["work_item"]["status"] == "todo"
+
+    deleted = _dispatch(
+        "work_item.outdate",
+        {"id": item_id, "change_reason": "no longer needed"},
+        e2e_api_key_member,
+    )
+    assert deleted.success is True, deleted.message
+    assert deleted.data == {"id": item_id, "status": "outdated"}
+
+    listed = _dispatch(
+        "work_item.query", {"workspace_id": str(e2e_workspace.id)},
+        e2e_api_key_member,
+    )
+    assert item_id not in [item["id"] for item in listed.data["work_items"]]
+
+    with_deleted = _dispatch(
+        "work_item.query",
+        {"workspace_id": str(e2e_workspace.id), "include_outdated": True},
+        e2e_api_key_member,
+    )
+    hidden = [
+        item
+        for item in with_deleted.data["work_items"]
+        if item["id"] == item_id
+    ]
+    assert hidden and hidden[0]["status"] == "outdated"
+
+    restored = _dispatch(
+        "work_item.reactivate", {"id": item_id}, e2e_api_key_member
+    )
+    assert restored.success is True, restored.message
+    # The REST payload: the item came from "outdated" and kept its state.
+    assert restored.data["id"] == item_id
+    assert restored.data["previous_state"] == "outdated"
+    assert restored.data["new_state"] == "todo"
+    assert restored.data["work_item"]["id"] == item_id
+    assert restored.data["work_item"]["status"] == "todo"
+
+    visible = _dispatch(
+        "work_item.query", {"workspace_id": str(e2e_workspace.id)},
+        e2e_api_key_member,
+    )
+    assert item_id in [item["id"] for item in visible.data["work_items"]]
+
+
+def test_outdate_requires_a_change_reason_when_the_preset_demands_one(
+    e2e_workspace, e2e_api_key_member, document
+) -> None:
+    """The extended E2E workspace mandates a reason on every guarded write."""
+    created = _create(
+        e2e_api_key_member, str(e2e_workspace.id), str(document.id)
+    )
+    item_id = created.data["work_item"]["id"]
+
+    refused = _dispatch(
+        "work_item.outdate", {"id": item_id}, e2e_api_key_member
+    )
+    assert refused.success is False
+    assert refused.error_code == "VALIDATION_ERROR"
+
+    still_visible = _dispatch(
+        "work_item.read", {"id": item_id}, e2e_api_key_member
+    )
+    assert still_visible.success is True
+    assert still_visible.data["work_item"]["status"] != "outdated"
+
+
+def test_outdate_accepts_the_deprecated_reason_alias(
+    e2e_workspace, e2e_api_key_member, document
+) -> None:
+    """P1.10: an old client sending ``reason`` keeps working unchanged."""
+    created = _create(
+        e2e_api_key_member, str(e2e_workspace.id), str(document.id)
+    )
+    item_id = created.data["work_item"]["id"]
+
+    deleted = _dispatch(
+        "work_item.outdate",
+        {"id": item_id, "reason": "legacy client"},
+        e2e_api_key_member,
+    )
+    assert deleted.success is True, deleted.message
+    assert deleted.data["status"] == "outdated"
+
+
+def test_outdate_stale_expected_version_is_a_conflict(
+    e2e_workspace, e2e_api_key_member, document
+) -> None:
+    created = _create(
+        e2e_api_key_member, str(e2e_workspace.id), str(document.id)
+    )
+    item_id = created.data["work_item"]["id"]
+
+    result = _dispatch(
+        "work_item.outdate",
+        {"id": item_id, "change_reason": "gone", "expected_version": 99},
+        e2e_api_key_member,
+    )
+    assert result.success is False
+    assert result.error_code == "CONFLICT"
+
+
+def test_outdate_and_reactivate_unknown_item_is_denied_before_the_handler(
+    e2e_api_key_member,
+) -> None:
+    """A write tool whose target resolves to no row is denied, not NOT_FOUND.
+
+    ``workspace_scope``'s fail-closed write rule (security finding #4) answers
+    ``PERMISSION_DENIED`` for a well-formed id that matches no row: a
+    nonexistent object must stay indistinguishable from a foreign one. The
+    service-level ``NOT_FOUND`` mapping behind that gate is pinned by
+    :func:`test_unknown_item_is_not_found_at_the_handler`.
+    """
+    unknown = str(uuid4())
+    for tool in ("work_item.outdate", "work_item.reactivate"):
+        params: dict[str, Any] = {"id": unknown}
+        if tool == "work_item.outdate":
+            params["change_reason"] = "unknown"
+        result = _dispatch(tool, params, e2e_api_key_member)
+        assert result.success is False, tool
+        assert result.error_code == "PERMISSION_DENIED", tool
+
+
+def test_unknown_item_is_not_found_at_the_handler(
+    e2e_tenant, e2e_api_key_member
+) -> None:
+    """The handler maps the service's NotFoundError — the scope gate never runs here.
+
+    ``_validate_api_key`` hands back a *partial* context (roles are resolved by
+    the dispatcher), so this test builds the editor context the service checks
+    and calls the tool group directly, bypassing the fail-closed gate that
+    answers ``PERMISSION_DENIED`` at dispatch (see the test above).
+    """
+    from mcp_server.tools.work_items import WorkItemToolGroup
+
+    partial = ToolRegistry()._validate_api_key(e2e_api_key_member)[0]
+    assert partial is not None
+    ctx = AuthContext(
+        user_id=partial.user_id,
+        tenant_id=partial.tenant_id,
+        active_roles=("editor",),
+        auth_method=partial.auth_method,
+        api_key_id=partial.api_key_id,
+    )
+    group = WorkItemToolGroup()
+    for tool in ("work_item.outdate", "work_item.reactivate"):
+        params: dict[str, Any] = {"id": str(uuid4())}
+        if tool == "work_item.outdate":
+            params["change_reason"] = "unknown"
+        result = group.execute_tool(
+            tool, params, ctx, e2e_api_key_member
+        )
+        assert result.success is False, tool
+        assert result.error_code == "NOT_FOUND", tool
+
+
+def test_outdate_resolves_the_reason_for_the_service() -> None:
+    """P1.10 wiring for the new tool: canonical wins, alias is the fallback."""
+    from unittest.mock import MagicMock
+
+    from mcp_server.tools.work_items import WorkItemToolGroup
+
+    ctx = AuthContext(
+        user_id=UUID("00000000-0000-0000-0000-000000000001"),
+        tenant_id=UUID("00000000-0000-0000-0000-000000000002"),
+        active_roles=("editor",),
+        auth_method=AuthMethod.API_KEY,
+        api_key_id=UUID("00000000-0000-0000-0000-000000000003"),
+    )
+    cases = (
+        ({"change_reason": "canonical"}, "canonical"),
+        ({"reason": "legacy"}, "legacy"),
+        ({"change_reason": "canonical", "reason": "legacy"}, "canonical"),
+    )
+    for params, expected in cases:
+        service = MagicMock()
+        with patch(
+            "mcp_server.tools.work_items.WorkItemService", return_value=service
+        ):
+            result = WorkItemToolGroup().execute_tool(
+                "work_item.outdate",
+                {"id": str(uuid4()), **params},
+                ctx,
+                "reqlo_test",
+            )
+        assert result.success is True, result.message
+        assert service.delete_work_item.call_args.kwargs["change_reason"] == expected
+
+
+# ---------------------------------------------------------------------------
+# REST <-> MCP lifecycle parity (P2.8)
+# ---------------------------------------------------------------------------
+
+
+def test_rest_and_mcp_expose_the_same_work_item_lifecycle() -> None:
+    """Both transports must keep the soft-delete/restore pair (no hard-coded count)."""
+    from django.urls import resolve
+
+    tools = {tool["name"]: tool for tool in build_manifest()["tools"]}
+    for name in ("work_item.outdate", "work_item.reactivate"):
+        assert name in tools, f"{name} is missing from the MCP catalogue"
+        assert tools[name]["is_write"] is True, f"{name} must be write-gated"
+
+    item_id = uuid4()
+    detail = resolve(f"/api/v1/work-items/{item_id}/")
+    assert getattr(detail.func, "actions", {}).get("delete") == "destroy"
+
+    reactivate = resolve(f"/api/v1/work-items/{item_id}/reactivate/")
+    assert getattr(reactivate.func, "actions", {}).get("post") == "reactivate"
 
 
 def test_viewer_can_read_but_not_write(
@@ -592,3 +847,40 @@ def test_service_exposes_the_same_resume_contract(
     )
     assert resumed.success is True, resumed.message
     assert resumed.data == service_result
+
+
+# ---------------------------------------------------------------------------
+# Masked failures are logged (plan P1.12 / M-16)
+# ---------------------------------------------------------------------------
+
+
+def test_masked_failure_is_logged_with_the_tool_name(
+    e2e_workspace, e2e_api_key_member, caplog
+) -> None:
+    """The static ``INTERNAL_ERROR`` answer must not be a silent failure."""
+    caplog.set_level(logging.ERROR)
+
+    with patch.object(
+        WorkItemService, "list_work_items", side_effect=RuntimeError("boom")
+    ):
+        result = _dispatch(
+            "work_item.query",
+            {"workspace_id": str(e2e_workspace.id), "secret": "TOKEN-NOT-LOGGED"},
+            e2e_api_key_member,
+        )
+
+    assert result.success is False
+    assert result.error_code == "INTERNAL_ERROR"
+    assert result.message == "An internal error occurred."
+    assert "boom" not in result.message
+
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "mcp_server.tools.work_items"
+        and record.levelno >= logging.ERROR
+    ]
+    assert len(records) == 1
+    assert records[0].exc_info is not None
+    assert "work_item.query" in records[0].getMessage()
+    assert "TOKEN-NOT-LOGGED" not in caplog.text

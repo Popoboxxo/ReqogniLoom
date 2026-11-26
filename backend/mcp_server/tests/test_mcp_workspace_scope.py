@@ -16,6 +16,12 @@ The tests drive the real :class:`~mcp_server.tool_registry.ToolRegistry`
 against real database rows on purpose. A mocked ``AuthorizationService``
 returns a truthy ``MagicMock`` from ``decide_access``, which makes *every* gate
 pass and would have kept this file green against the unfixed code.
+
+Since security finding #4 (``.tmp/security-audit-rest-mcp-2026-11-25.md``) the
+write side is **fail-closed** as well: a write tool whose target workspace
+cannot be resolved is denied instead of being gated against the tenant-wide role
+union. The read side is deliberately unchanged — an unknown id still answers
+NOT_FOUND there.
 """
 from __future__ import annotations
 
@@ -34,7 +40,9 @@ from auth_tenancy.services.authentication import AuthenticationService
 from mcp_server.tool_registry import ToolRegistry
 from mcp_server.workspace_scope import (
     TENANT_SCOPED_READ_TOOLS,
+    TENANT_SCOPED_WRITE_TOOLS,
     resolve_target_workspace_id,
+    target_param_error,
 )
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Artifact, Requirement, Tenant, User, Workspace
@@ -283,6 +291,249 @@ class TestWriteToolsWithoutWorkspaceParamAreScoped:
         assert result.success is True, result.message
         home_requirement.refresh_from_db()
         assert home_requirement.title == "renamed by owner"
+
+
+# ---------------------------------------------------------------------------
+# WRITE path — fail-closed when no workspace can be resolved (finding #4)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+class TestUnscopedWritesAreDenied:
+    """Finding #4: a write tool with no resolvable target is denied.
+
+    ``_TOOL_TARGETS`` was the only mapping from a write call to its owning
+    workspace, and a missing/unresolvable entry fell back to the caller's
+    tenant-wide role union. These tests pin the new contract on the real,
+    unmocked gate: the denial happens before the handler, and it never becomes
+    an existence oracle — no id and no value is ever echoed.
+
+    The *class* of the answer depends on what is wrong (review finding
+    2026-11-25, MAJOR): a malformed call (missing/typo'd/unparseable target id)
+    gets ``VALIDATION_ERROR`` naming the expected parameter, because that is a
+    request-shape defect the caller can fix; a well-formed call that resolves to
+    no row keeps the fail-closed ``PERMISSION_DENIED`` scope text, because a
+    nonexistent object must stay indistinguishable from a foreign one.
+    """
+
+    #: The wording ``ToolRegistry._unscoped_write_denial`` answers with. Asserted
+    #: by substring so a future rewording does not have to touch five tests.
+    _MESSAGE = "could not be scoped to a workspace"
+
+    def test_write_with_no_target_param_is_denied_before_the_handler(
+        self,
+        e2e_userrole_member: UserRole,
+        e2e_api_key_member: str,
+    ) -> None:
+        """No ``id`` and no ``workspace_id``: the *call* is what is wrong.
+
+        Review finding (2026-11-25, MAJOR): a missing target parameter used to
+        be answered with the generic workspace-scope text, which sent the caller
+        debugging its API key. It is now the validation class naming the
+        parameter. Fail-closed is unchanged: the handler is never called.
+        """
+        with patch(
+            "application.requirement_service.RequirementService.get_requirement"
+        ) as handler:
+            result = _dispatch(
+                "requirement.update",
+                {"data": {"title": "no target", "change_reason": "test"}},
+                e2e_api_key_member,
+            )
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        assert "'id'" in (result.message or "")
+        assert self._MESSAGE not in (result.message or "")
+        handler.assert_not_called()
+
+    def test_malformed_target_id_is_a_validation_error_without_echoing_it(
+        self,
+        e2e_userrole_member: UserRole,
+        e2e_api_key_member: str,
+    ) -> None:
+        """An unparseable id is a parameter defect, not a scope problem.
+
+        Both transports now answer the same class as the fenced path
+        (``TestFencedWriteDiagnosis``): the diagnosis names the parameter and
+        never echoes the malformed value. The handler still never runs.
+        """
+        with patch(
+            "application.requirement_service.RequirementService.get_requirement"
+        ) as handler:
+            result = _dispatch(
+                "requirement.update",
+                {"id": "not-a-uuid", "data": {"change_reason": "test"}},
+                e2e_api_key_member,
+            )
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        assert "'id'" in (result.message or "")
+        assert "not-a-uuid" not in (result.message or "")
+        assert self._MESSAGE not in (result.message or "")
+        handler.assert_not_called()
+
+    def test_unknown_or_deleted_target_id_is_denied_without_existence_leak(
+        self,
+        e2e_userrole_member: UserRole,
+        e2e_api_key_member: str,
+    ) -> None:
+        """A well-formed id with no row is denied, and the id is not echoed.
+
+        This is the deliberate write/read asymmetry: ``requirement.get`` keeps
+        answering NOT_FOUND for an unknown id (see
+        ``test_unknown_id_is_not_denied_but_reported_as_not_found``), because a
+        read cannot mutate anything and hiding "no such row" would break every
+        not-found path. A write must not have a fallback role set, so an
+        unresolvable target is denied instead — and the message must look
+        exactly like the one for a foreign id, or the denial becomes the
+        existence oracle it is meant to avoid. It must also stay
+        ``PERMISSION_DENIED``: the parameter diagnosis is silent here (the id is
+        well-formed and was really looked up), so a nonexistent object cannot be
+        told apart from a fenced one by the error class.
+        """
+        missing = str(uuid4())
+
+        with patch(
+            "application.requirement_service.RequirementService.get_requirement"
+        ) as handler:
+            result = _dispatch(
+                "requirement.update",
+                {"id": missing, "data": {"change_reason": "test"}},
+                e2e_api_key_member,
+            )
+
+        assert result.success is False
+        assert result.error_code == "PERMISSION_DENIED"
+        assert self._MESSAGE in (result.message or "")
+        assert missing not in (result.message or "")
+        handler.assert_not_called()
+
+    def test_foreign_target_is_denied_and_left_unchanged(
+        self,
+        e2e_userrole_member: UserRole,
+        e2e_api_key_member: str,
+        foreign_requirement: Requirement,
+    ) -> None:
+        """A foreign id resolves to workspace B, so the RBAC matrix denies it.
+
+        Unlike an unknown id (which the scope gate denies), this id *does*
+        resolve — the answer therefore comes from the role check against
+        workspace B. What matters either way: the row is untouched, and the
+        message names neither the object nor its workspace.
+        """
+        result = _dispatch(
+            "requirement.update",
+            {"id": str(foreign_requirement.id), "data": {"change_reason": "test"}},
+            e2e_api_key_member,
+        )
+
+        assert result.success is False
+        assert result.error_code == "PERMISSION_DENIED"
+        assert str(foreign_requirement.id) not in (result.message or "")
+        assert str(foreign_requirement.workspace_id) not in (result.message or "")
+        assert "hijacked" not in (result.message or "")
+
+        foreign_requirement.refresh_from_db()
+        assert foreign_requirement.title == "Secret req in workspace B"
+
+    @pytest.mark.parametrize("tool_name", ["artifact.bulk_transition"])
+    def test_batch_write_with_no_resolvable_id_is_denied(
+        self,
+        tool_name: str,
+        e2e_userrole_member: UserRole,
+        e2e_api_key_member: str,
+    ) -> None:
+        """A batch write whose ids all resolve to nothing has no workspace.
+
+        ``artifact.bulk_transition`` names its targets as a list; the registry
+        probes every id, so an all-unknown batch resolves nothing and is
+        denied. A mixed batch still resolves (its reachable rows keep the
+        partial-success contract) — see ``test_bulk_transition_tool.py``.
+        """
+        result = _dispatch(
+            tool_name,
+            {
+                "item_type": "Requirement",
+                "ids": [str(uuid4()), str(uuid4())],
+                "to_state": "In Review",
+                "change_reason": "test",
+            },
+            e2e_api_key_member,
+        )
+
+        assert result.success is False
+        assert result.error_code == "PERMISSION_DENIED"
+        assert self._MESSAGE in (result.message or "")
+
+
+@pytest.mark.django_db
+class TestFencedWriteDiagnosis:
+    """The fenced path keeps its #1357 parameter diagnosis.
+
+    A workspace-fenced key is denied by the fence before the write-scope gate
+    runs, so its answer is the one #1357 introduced: a parameter-level defect
+    (missing or malformed target id) is a ``VALIDATION_ERROR`` naming the
+    parameter, not the generic scope text. The unfenced path answers the same
+    class since the 2026-11-25 review (see ``TestUnscopedWritesAreDenied``).
+    """
+
+    def test_fenced_key_with_a_malformed_target_gets_the_param_diagnosis(
+        self,
+        e2e_tenant: Tenant,
+        e2e_workspace: Workspace,
+        e2e_userrole_member: UserRole,
+        e2e_user_member: User,
+    ) -> None:
+        key = AuthenticationService().create_api_key(
+            user_id=e2e_user_member.id,
+            tenant_id=e2e_tenant.id,
+            name="fenced-malformed-target",
+            principal_type="agent",
+            agent_label="audit-agent",
+            scope="write",
+            workspace_ids=[str(e2e_workspace.id)],
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+
+        result = _dispatch(
+            "requirement.update",
+            {"id": "not-a-uuid", "data": {"change_reason": "test"}},
+            key.plaintext,
+        )
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        assert "'id'" in (result.message or "")
+
+    def test_fenced_key_with_no_target_gets_the_param_diagnosis(
+        self,
+        e2e_tenant: Tenant,
+        e2e_workspace: Workspace,
+        e2e_userrole_member: UserRole,
+        e2e_user_member: User,
+    ) -> None:
+        key = AuthenticationService().create_api_key(
+            user_id=e2e_user_member.id,
+            tenant_id=e2e_tenant.id,
+            name="fenced-missing-target",
+            principal_type="agent",
+            agent_label="audit-agent",
+            scope="write",
+            workspace_ids=[str(e2e_workspace.id)],
+            expires_at=timezone.now() + timedelta(days=1),
+        )
+
+        result = _dispatch(
+            "requirement.update",
+            {"data": {"change_reason": "test"}},
+            key.plaintext,
+        )
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        assert "'id'" in (result.message or "")
 
 
 @pytest.mark.django_db
@@ -705,10 +956,118 @@ class TestResolveTargetWorkspaceId:
             clear_request_tenant()
         assert resolved == str(foreign_workspace.id)
 
+    def test_batch_param_resolves_from_the_first_reachable_id(
+        self, foreign_workspace: Workspace, foreign_requirement: Requirement
+    ) -> None:
+        """``artifact.bulk_transition`` names a list; probe every element.
+
+        An unresolvable element must not stop the scan — a batch with one
+        deleted row still names the workspace of its reachable rows.
+        """
+        set_request_tenant(foreign_workspace.tenant_id)
+        try:
+            resolved = resolve_target_workspace_id(
+                "artifact.bulk_transition",
+                {"ids": [str(uuid4()), str(foreign_requirement.artifact_id)]},
+            )
+        finally:
+            clear_request_tenant()
+        assert resolved == str(foreign_workspace.id)
+
+    def test_batch_param_with_no_reachable_id_resolves_to_none(self) -> None:
+        assert (
+            resolve_target_workspace_id(
+                "artifact.bulk_transition", {"ids": [str(uuid4())]}
+            )
+            is None
+        )
+
+    def test_nested_target_path_resolves(
+        self, foreign_workspace: Workspace
+    ) -> None:
+        """``architecture.decompose_commit`` names its root inside ``draft``."""
+        from persistence.models import ArchitectureElement
+
+        set_request_tenant(foreign_workspace.tenant_id)
+        try:
+            artifact = Artifact.objects.create(
+                tenant=foreign_workspace.tenant,
+                workspace=foreign_workspace,
+                artifact_type="ArchitectureElement",
+            )
+            element = ArchitectureElement.objects.create(
+                tenant=foreign_workspace.tenant,
+                artifact=artifact,
+                title="root in B",
+            )
+            resolved = resolve_target_workspace_id(
+                "architecture.decompose_commit",
+                {"draft": {"root_element_id": str(element.id)}},
+            )
+        finally:
+            clear_request_tenant()
+        assert resolved == str(foreign_workspace.id)
+
+    def test_nested_target_path_absent_resolves_to_none(self) -> None:
+        assert (
+            resolve_target_workspace_id(
+                "architecture.decompose_commit", {"draft": {"nodes": []}}
+            )
+            is None
+        )
+
 
 # ---------------------------------------------------------------------------
 # Coverage ratchet
 # ---------------------------------------------------------------------------
+
+
+class TestTargetParamError:
+    """Unit contract of the parameter-level diagnosis (extended by finding #4).
+
+    The diagnosis decides the message on both write paths now: the fenced key
+    hits it in ``_authorize_tool_call`` (finding #1357) and the unfenced key in
+    ``_authorize_write_tool`` (review finding 2026-11-25, MAJOR). These cases pin
+    that a batch list and a nested target path are understood, so a caller is
+    never told its well-formed ids are "malformed".
+    """
+
+    def test_batch_ids_are_well_formed_and_keep_the_scope_text(self) -> None:
+        assert (
+            target_param_error(
+                "artifact.bulk_transition", {"ids": [str(uuid4()), str(uuid4())]}
+            )
+            is None
+        )
+
+    def test_batch_ids_that_all_fail_to_parse_are_a_param_defect(self) -> None:
+        message = target_param_error(
+            "artifact.bulk_transition", {"ids": ["nope", "still-nope"]}
+        )
+        assert message is not None
+        assert "'ids'" in message
+
+    def test_one_parseable_id_in_a_batch_is_not_a_param_defect(self) -> None:
+        assert (
+            target_param_error(
+                "artifact.bulk_transition", {"ids": ["nope", str(uuid4())]}
+            )
+            is None
+        )
+
+    def test_nested_target_path_is_diagnosed_by_its_top_level_param(self) -> None:
+        message = target_param_error("architecture.decompose_commit", {"draft": {}})
+        assert message is not None
+        assert "'draft.root_element_id'" in message
+
+    def test_nested_target_path_supplied_is_not_a_param_defect(self) -> None:
+        assert (
+            target_param_error(
+                "architecture.decompose_commit",
+                {"draft": {"root_element_id": str(uuid4())}},
+            )
+            is None
+        )
 
 
 def _live_tools() -> dict[str, dict[str, Any]]:
@@ -769,6 +1128,103 @@ class TestWorkspaceScopeCoverage:
             "documented reason. Do not relax this assertion."
         )
 
+    def test_every_write_tool_is_classified(self) -> None:
+        """Every write tool must name a workspace one of four ways.
+
+        Finding #4 (``.tmp/security-audit-rest-mcp-2026-11-25.md``): a write
+        tool missing from ``_TOOL_TARGETS`` fell back to the caller's
+        tenant-wide role union, so an Editor in workspace A could mutate an
+        object in workspace B. The runtime gate
+        (``ToolRegistry._unscoped_write_denial``) now denies such a tool; this
+        ratchet is what stops a *new* tool from shipping denied-but-unusable
+        instead of properly scoped.
+
+        Deliberately stricter than the read ratchet in one direction only: an
+        *optional* ``workspace_id`` does not classify a write either (the caller
+        can omit it), so only a **required** one counts.
+        """
+        from mcp_server.tool_registry import _INSTANCE_LEVEL_TOOLS
+        from mcp_server.workspace_scope import _TOOL_TARGETS
+
+        unclassified = []
+        for name, tool in _live_tools().items():
+            if not tool["is_write"]:
+                continue
+            schema = tool.get("inputSchema") or {}
+            if "workspace_id" in (schema.get("required") or []):
+                continue
+            if (
+                name in _TOOL_TARGETS
+                or name in TENANT_SCOPED_WRITE_TOOLS
+                or name in _INSTANCE_LEVEL_TOOLS
+            ):
+                continue
+            unclassified.append(name)
+
+        assert not unclassified, (
+            "Write tools that cannot be scoped to a workspace: "
+            f"{sorted(unclassified)}. They are denied at dispatch — add a "
+            "target to mcp_server.workspace_scope._TOOL_TARGETS, make "
+            "workspace_id required, or justify the tool in "
+            "TENANT_SCOPED_WRITE_TOOLS with a documented reason. Do not relax "
+            "this assertion."
+        )
+
+    def test_write_classification_buckets_do_not_contradict(self) -> None:
+        """One write tool, one claim — two buckets mean two answers.
+
+        Read and write are separate namespaces: a tool may appear in
+        ``_TOOL_TARGETS`` (which serves both) without that being a conflict,
+        and ``TENANT_SCOPED_READ_TOOLS`` is not compared here. What must never
+        happen is a tool claimed by two *write* mechanisms — ``_TOOL_TARGETS``
+        says "the object decides", ``TENANT_SCOPED_WRITE_TOOLS`` says "there is
+        no object", and ``_INSTANCE_LEVEL_TOOLS`` says "not even tenant-scoped".
+        """
+        from mcp_server.tool_registry import _INSTANCE_LEVEL_TOOLS
+        from mcp_server.workspace_scope import _TOOL_TARGETS
+
+        write_buckets = {
+            "_TOOL_TARGETS": set(_TOOL_TARGETS),
+            "TENANT_SCOPED_WRITE_TOOLS": set(TENANT_SCOPED_WRITE_TOOLS),
+            "_INSTANCE_LEVEL_TOOLS": set(_INSTANCE_LEVEL_TOOLS),
+        }
+        names = sorted(write_buckets)
+        for i, left in enumerate(names):
+            for right in names[i + 1 :]:
+                overlap = write_buckets[left] & write_buckets[right]
+                assert not overlap, (
+                    f"{left} and {right} both claim {sorted(overlap)} — a write "
+                    "tool must be classified by exactly one mechanism"
+                )
+
+    def test_tenant_scoped_write_tools_are_real_write_tools(self) -> None:
+        tools = _live_tools()
+        for name in TENANT_SCOPED_WRITE_TOOLS:
+            assert name in tools, f"{name} is not a live tool"
+            assert tools[name]["is_write"], f"{name} is not a write tool"
+
+    def test_every_live_write_tool_has_an_inspectable_schema(self) -> None:
+        """The write gate is only fail-closed on *published* tools.
+
+        ``_unscoped_write_denial`` skips a name whose ``inputSchema`` the
+        registry cannot see — that is what keeps an unknown tool name answering
+        UNKNOWN_TOOL instead of leaking a 403, and what leaves unit-test doubles
+        on their pre-existing path. In production every routable tool is a
+        ``BaseToolGroup`` schema, so this must hold for the whole live catalogue;
+        if it ever stops holding, the gate would silently stop applying.
+        """
+        registry = ToolRegistry()
+        registry._ensure_groups()
+        uninspectable = sorted(
+            name
+            for name, tool in _live_tools().items()
+            if tool["is_write"] and registry._published_input_schema(name) is None
+        )
+        assert not uninspectable, (
+            "Live write tools without a published inputSchema: "
+            f"{uninspectable} — the fail-closed write gate cannot classify them"
+        )
+
     def test_classification_sets_are_disjoint(self) -> None:
         """A tool in two buckets means two contradictory claims about it."""
         from mcp_server.workspace_scope import (
@@ -804,7 +1260,11 @@ class TestWorkspaceScopeCoverage:
         assert not unknown, f"_TOOL_TARGETS names non-existent tools: {unknown}"
 
     def test_registry_targets_reference_declared_params(self) -> None:
-        """A target param the tool never accepts can never resolve."""
+        """A target param the tool never accepts can never resolve.
+
+        A dotted target path (``draft.root_element_id``) is checked by its first
+        segment: that is the top-level parameter the caller must send.
+        """
         from mcp_server.workspace_scope import _TOOL_TARGETS
 
         tools = _live_tools()
@@ -814,7 +1274,8 @@ class TestWorkspaceScopeCoverage:
                 "properties"
             ) or {}
             for param_name, _entity_key in targets:
-                if param_name not in properties:
+                root_param = param_name.split(".", 1)[0]
+                if root_param not in properties:
                     bad.append((tool_name, param_name))
         assert not bad, f"_TOOL_TARGETS names undeclared params: {sorted(bad)}"
 

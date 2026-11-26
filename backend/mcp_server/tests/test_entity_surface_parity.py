@@ -222,6 +222,10 @@ _COLLECTION_TOOLS = frozenset(
         # #1098: workspace-wide TraceLink enumeration — the collection tool
         # that closes the trace_link gap this list's ratchet guards.
         "traceability.query_links",
+        # P1.8 (M-11): the tenant-wide global workflow defaults, listed against
+        # GlobalWorkflowDefinition. workflow_default.list enumerates every
+        # (item_type, preset) definition of the tenant.
+        "workflow_default.list",
     }
 )
 

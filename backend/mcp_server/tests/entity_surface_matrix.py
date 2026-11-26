@@ -144,7 +144,12 @@ ENTITY_SPECS: dict[str, _Spec] = {
         "/api/v1/documents/", ("document.read", "document.query"), "Document"
     ),
     # Plan F F3-T6 (#1374): the WorkItem artifact's MCP group closes the
-    # REST/MCP asymmetry F3-T5 recorded here.
+    # REST/MCP asymmetry F3-T5 recorded here. This row tracks the two READ
+    # tools only (that is what the parity ratchet checks); the lifecycle is
+    # complete on both transports since P2.8 — ``DELETE /api/v1/work-items/
+    # {id}/`` ↔ ``work_item.outdate`` and ``POST .../reactivate/`` ↔
+    # ``work_item.reactivate``, pinned by
+    # ``test_work_item_tool_group.py::test_rest_and_mcp_expose_the_same_work_item_lifecycle``.
     "work_item": _Spec(
         "/api/v1/work-items/", ("work_item.read", "work_item.query"), "WorkItem"
     ),
@@ -177,6 +182,19 @@ ENTITY_SPECS: dict[str, _Spec] = {
         "/api/v1/workspaces/{workspace_id}/link-type-definitions/",
         ("link_type.list", "link_type.get"),
         "WorkspaceLinkType",
+    ),
+    # P1.8 / M-11: the tenant-wide global workflow defaults became readable on
+    # MCP in the same change that added the group, so this row closes the
+    # asymmetry the `/api/v1/workflows/` exclusion below used to cover for the
+    # whole definition surface. `workflow_default.list` enumerates the tenant's
+    # definitions, `workflow_default.get` fetches one (item_type, preset) — the
+    # same two questions `GET /api/v1/workflow-defaults/` and its detail route
+    # answer. The *workspace-level* definition editor remains REST-only by
+    # design (see that exclusion).
+    "workflow_default": _Spec(
+        "/api/v1/workflow-defaults/",
+        ("workflow_default.list", "workflow_default.get"),
+        "GlobalWorkflowDefinition",
     ),
 }
 
@@ -219,10 +237,15 @@ REST_ONLY_BY_DESIGN: tuple[_Exclusion, ...] = (
     ),
     _Exclusion(
         "/api/v1/workflows/",
-        "Workflow definitions are configuration, served by the dedicated "
-        "workflow-definition REST surface and the preset/attribute tooling; "
-        "the MCP surface reads item *state* through each entity's own tools "
-        "rather than exposing the definition editor.",
+        "The *workspace-level* workflow definition editor is configuration of "
+        "one workspace's operational state machine — an operator/UI surface "
+        "rather than an agent resource — so it stays REST-only by design; the "
+        "MCP surface reads item *state* through each entity's own tools. The "
+        "tenant-wide *global defaults* are no longer part of this asymmetry: "
+        "since P1.8/M-11 the workflow_default.* group exposes them on MCP "
+        "(workflow_default.list/get plus the seven graph mutations), rendering "
+        "the same graphs GET /api/v1/workflow-defaults/ serves, and they are "
+        "listed against GlobalWorkflowDefinition in ENTITY_SPECS.",
         issue="",
     ),
     _Exclusion(

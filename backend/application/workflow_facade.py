@@ -19,6 +19,7 @@ Architecture:
 from __future__ import annotations
 
 import logging
+from typing import Any
 from uuid import UUID
 
 from django.db import DatabaseError, transaction
@@ -36,6 +37,87 @@ from application.base import (
 from application.preset_policy_service import get_preset_policy_service
 
 logger = logging.getLogger(__name__)
+
+
+def global_graph_payload(
+    obj: Any,
+    *,
+    tenant_id: str,
+    item_type: str,
+    preset: str,
+    propagated: int | None = None,
+) -> dict[str, Any]:
+    """Serialise a ``GlobalWorkflowDefinition`` (or ``None``) as ``WorkflowGraphGlobal``.
+
+    Single source for the global workflow graph shape. Both transports render
+    through this helper — the REST surface (``rest_api.global_default_views``)
+    and the MCP ``workflow_default.*`` group — so the two cannot drift into two
+    graph shapes (REQ-178, P1.8/M-11).
+
+    ``obj is None`` is the *empty graph* of an uninitialised
+    ``(item_type, preset)`` pair — ``initialized: False`` with no states and no
+    transitions — not an error. When *obj* is present, ``initial_state`` is the
+    first declared state (the store's convention) and ``states`` stays the
+    stored document as-is.
+
+    Args:
+        obj: The ``GlobalWorkflowDefinition`` row, or ``None`` when the pair
+            was never initialised.
+        tenant_id: Tenant id used for the empty-graph branch (the row's own
+            ``tenant_id`` wins when *obj* is present).
+        item_type: Workflow item type, e.g. ``"Document"``.
+        preset: Preset key, e.g. ``"ccb_approval"``.
+        propagated: Additive and present only when supplied — the number of
+            inheriting workspaces a mutation propagated to. The frontend reads
+            it as optional (``frontend/src/api/workflow-defaults.ts``).
+
+    Returns:
+        The transport-neutral dict both surfaces serialise.
+    """
+    if obj is None:
+        data: dict[str, Any] = {
+            "scope": "global",
+            "tenant_id": str(tenant_id),
+            "item_type": item_type,
+            "preset": preset,
+            "initialized": False,
+            "initial_state": None,
+            "states": [],
+            "transitions": [],
+            "state_meta": {},
+            "updated_at": None,
+        }
+    else:
+        wf = obj.workflow_json or {}
+        states = list(wf.get("states", []))
+        data = {
+            "scope": "global",
+            "tenant_id": str(obj.tenant_id),
+            "item_type": obj.item_type,
+            "preset": obj.preset,
+            "initialized": True,
+            "initial_state": states[0] if states else None,
+            "states": states,
+            "state_meta": wf.get("state_meta", {}),
+            "transitions": [
+                {
+                    "from_state": t.get("from_state"),
+                    "to_state": t.get("to_state"),
+                    "allowed_roles": list(t.get("allowed_roles", [])),
+                    "requires_change_reason": bool(
+                        t.get("requires_change_reason", False)
+                    ),
+                    "signature_gate": bool(t.get("signature_gate", False)),
+                }
+                for t in wf.get("transitions", [])
+            ],
+            "updated_at": obj.modified_at,
+        }
+    if propagated is not None:
+        # Additive field the UI spec surfaces as a toast; the frontend reads it
+        # as optional (documented tolerance in api/workflow-defaults.ts).
+        data["propagated_workspace_count"] = propagated
+    return data
 
 
 class WorkflowFacade(ServiceBase):

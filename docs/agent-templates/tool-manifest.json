@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 302,
+  "tool_count": 313,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -169,7 +169,7 @@
       "name": "adr.delete",
       "prefix": "adr",
       "is_write": true,
-      "description": "Soft-delete the ADR through its backing service (write). The row is retained and marked outdated by the workflow engine (it is not removed); trace links and audit history are preserved. It is hidden from default adr.query results — use include_outdated=true to find it and adr.reactivate to restore it. Equivalent to adr.outdate.",
+      "description": "Soft-delete the ADR through its backing service (write). The row is retained and marked outdated by the workflow engine (it is not removed); trace links and audit history are preserved. It is hidden from default adr.query results — use include_outdated=true to find it and adr.reactivate to restore it. This is the id-only legacy alias: use adr.outdate to supply a change_reason (that tool also enforces the preset's change-reason gate).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -195,9 +195,14 @@
             "type": "string",
             "description": "UUID of the adr entity."
           },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason for the soft-delete, recorded on the audit trail. May be mandatory when the workspace preset requires a change_reason for writes."
+          },
           "reason": {
             "type": "string",
-            "description": "Optional audit reason."
+            "deprecated": true,
+            "description": "Deprecated alias of 'change_reason': supported through 1.11.0 (inclusive); removal no earlier than 1.12.0. Ignored when 'change_reason' is supplied."
           }
         },
         "required": [
@@ -781,9 +786,14 @@
             "type": "string",
             "description": "UUID of the architecture element."
           },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason for the soft-delete, recorded on the audit trail. May be mandatory when the workspace preset requires a change_reason for writes."
+          },
           "reason": {
             "type": "string",
-            "description": "Optional audit reason."
+            "deprecated": true,
+            "description": "Deprecated alias of 'change_reason': supported through 1.11.0 (inclusive); removal no earlier than 1.12.0. Ignored when 'change_reason' is supplied."
           }
         },
         "required": [
@@ -2455,7 +2465,7 @@
       "name": "change_request.delete",
       "prefix": "change_request",
       "is_write": true,
-      "description": "Soft-delete the Change Request through its backing service (write). The row is retained and marked outdated by the workflow engine (it is not removed); trace links and audit history are preserved. It is hidden from default change_request.query results — use include_outdated=true to find it and change_request.reactivate to restore it. Equivalent to change_request.outdate.",
+      "description": "Soft-delete the Change Request through its backing service (write). The row is retained and marked outdated by the workflow engine (it is not removed); trace links and audit history are preserved. It is hidden from default change_request.query results — use include_outdated=true to find it and change_request.reactivate to restore it. This is the id-only legacy alias: use change_request.outdate to supply a change_reason (that tool also enforces the preset's change-reason gate).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -2481,9 +2491,14 @@
             "type": "string",
             "description": "UUID of the change_request entity."
           },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason for the soft-delete, recorded on the audit trail. May be mandatory when the workspace preset requires a change_reason for writes."
+          },
           "reason": {
             "type": "string",
-            "description": "Optional audit reason."
+            "deprecated": true,
+            "description": "Deprecated alias of 'change_reason': supported through 1.11.0 (inclusive); removal no earlier than 1.12.0. Ignored when 'change_reason' is supplied."
           }
         },
         "required": [
@@ -3108,9 +3123,14 @@
             "type": "string",
             "description": "UUID of the diagram."
           },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason for the soft-delete, recorded on the audit trail. May be mandatory when the workspace preset requires a change_reason for writes."
+          },
           "reason": {
             "type": "string",
-            "description": "Optional audit reason."
+            "deprecated": true,
+            "description": "Deprecated alias of 'change_reason': supported through 1.11.0 (inclusive); removal no earlier than 1.12.0. Ignored when 'change_reason' is supplied."
           }
         },
         "required": [
@@ -3323,9 +3343,14 @@
             "type": "string",
             "description": "UUID of the document."
           },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason for the soft-delete, recorded on the audit trail. May be mandatory when the workspace preset requires a change_reason for writes."
+          },
           "reason": {
             "type": "string",
-            "description": "Optional audit reason (may be mandatory per preset)."
+            "deprecated": true,
+            "description": "Deprecated alias of 'change_reason': supported through 1.11.0 (inclusive); removal no earlier than 1.12.0. Ignored when 'change_reason' is supplied."
           }
         },
         "required": [
@@ -3406,7 +3431,7 @@
           },
           "include_outdated": {
             "type": "boolean",
-            "description": "If true, include soft-deleted documents (REST's ?include_deleted=true). Defaults to false."
+            "description": "If true, include soft-deleted documents. include_outdated is the canonical key in MCP and in REST; REST's historical ?include_deleted= is still accepted as a deprecated alias. Defaults to false."
           },
           "uid": {
             "type": "string",
@@ -3681,7 +3706,7 @@
       "name": "glossary.delete",
       "prefix": "glossary",
       "is_write": true,
-      "description": "Soft-delete the Glossary Term through its backing service (write). The row is retained and marked outdated by the workflow engine (it is not removed); trace links and audit history are preserved. It is hidden from default glossary.query results — use include_outdated=true to find it and glossary.reactivate to restore it. Equivalent to glossary.outdate.",
+      "description": "Soft-delete the Glossary Term through its backing service (write). The row is retained and marked outdated by the workflow engine (it is not removed); trace links and audit history are preserved. It is hidden from default glossary.query results — use include_outdated=true to find it and glossary.reactivate to restore it. This is the id-only legacy alias: use glossary.outdate to supply a change_reason (that tool also enforces the preset's change-reason gate).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -3707,9 +3732,14 @@
             "type": "string",
             "description": "UUID of the glossary entity."
           },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason for the soft-delete, recorded on the audit trail. May be mandatory when the workspace preset requires a change_reason for writes."
+          },
           "reason": {
             "type": "string",
-            "description": "Optional audit reason."
+            "deprecated": true,
+            "description": "Deprecated alias of 'change_reason': supported through 1.11.0 (inclusive); removal no earlier than 1.12.0. Ignored when 'change_reason' is supplied."
           }
         },
         "required": [
@@ -3971,6 +4001,11 @@
           "expected_version": {
             "type": "integer",
             "description": "Optional last-seen workflow revision of the Goal version. When supplied and a concurrent transition has already moved it on, the call is rejected with a version conflict instead of overwriting the winner (GitHub #1129)."
+          },
+          "reason": {
+            "type": "string",
+            "deprecated": true,
+            "description": "Deprecated alias of 'change_reason': supported through 1.11.0 (inclusive); removal no earlier than 1.12.0. Ignored when 'change_reason' is supplied."
           }
         },
         "required": [
@@ -4010,13 +4045,14 @@
             "type": "string",
             "description": "Alias of goal_id ({entity}.outdate convention)."
           },
-          "reason": {
-            "type": "string",
-            "description": "Optional audit reason for archiving."
-          },
           "change_reason": {
             "type": "string",
-            "description": "Alias of reason."
+            "description": "Reason for the soft-delete, recorded on the audit trail. May be mandatory when the workspace preset requires a change_reason for writes."
+          },
+          "reason": {
+            "type": "string",
+            "deprecated": true,
+            "description": "Deprecated alias of 'change_reason': supported through 1.11.0 (inclusive); removal no earlier than 1.12.0. Ignored when 'change_reason' is supplied."
           },
           "expected_version": {
             "type": "integer",
@@ -4858,7 +4894,7 @@
       "name": "issue.delete",
       "prefix": "issue",
       "is_write": true,
-      "description": "Soft-delete the Issue through its backing service (write). The row is retained and marked outdated by the workflow engine (it is not removed); trace links and audit history are preserved. It is hidden from default issue.query results — use include_outdated=true to find it and issue.reactivate to restore it. Equivalent to issue.outdate.",
+      "description": "Soft-delete the Issue through its backing service (write). The row is retained and marked outdated by the workflow engine (it is not removed); trace links and audit history are preserved. It is hidden from default issue.query results — use include_outdated=true to find it and issue.reactivate to restore it. This is the id-only legacy alias: use issue.outdate to supply a change_reason (that tool also enforces the preset's change-reason gate).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -4884,9 +4920,14 @@
             "type": "string",
             "description": "UUID of the issue entity."
           },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason for the soft-delete, recorded on the audit trail. May be mandatory when the workspace preset requires a change_reason for writes."
+          },
           "reason": {
             "type": "string",
-            "description": "Optional audit reason."
+            "deprecated": true,
+            "description": "Deprecated alias of 'change_reason': supported through 1.11.0 (inclusive); removal no earlier than 1.12.0. Ignored when 'change_reason' is supplied."
           }
         },
         "required": [
@@ -6070,9 +6111,14 @@
             "type": "string",
             "description": "UUID of the stakeholder need."
           },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason for the soft-delete, recorded on the audit trail. May be mandatory when the workspace preset requires a change_reason for writes."
+          },
           "reason": {
             "type": "string",
-            "description": "Optional audit reason."
+            "deprecated": true,
+            "description": "Deprecated alias of 'change_reason': supported through 1.11.0 (inclusive); removal no earlier than 1.12.0. Ignored when 'change_reason' is supplied."
           }
         },
         "required": [
@@ -6995,9 +7041,14 @@
             "type": "string",
             "description": "UUID of the requirement."
           },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason for the soft-delete, recorded on the audit trail. May be mandatory when the workspace preset requires a change_reason for writes."
+          },
           "reason": {
             "type": "string",
-            "description": "Optional audit reason."
+            "deprecated": true,
+            "description": "Deprecated alias of 'change_reason': supported through 1.11.0 (inclusive); removal no earlier than 1.12.0. Ignored when 'change_reason' is supplied."
           }
         },
         "required": [
@@ -7537,7 +7588,7 @@
       "name": "risk.delete",
       "prefix": "risk",
       "is_write": true,
-      "description": "Soft-delete the Risk through its backing service (write). The row is retained and marked outdated by the workflow engine (it is not removed); trace links and audit history are preserved. It is hidden from default risk.query results — use include_outdated=true to find it and risk.reactivate to restore it. Equivalent to risk.outdate.",
+      "description": "Soft-delete the Risk through its backing service (write). The row is retained and marked outdated by the workflow engine (it is not removed); trace links and audit history are preserved. It is hidden from default risk.query results — use include_outdated=true to find it and risk.reactivate to restore it. This is the id-only legacy alias: use risk.outdate to supply a change_reason (that tool also enforces the preset's change-reason gate).",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7563,9 +7614,14 @@
             "type": "string",
             "description": "UUID of the risk entity."
           },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason for the soft-delete, recorded on the audit trail. May be mandatory when the workspace preset requires a change_reason for writes."
+          },
           "reason": {
             "type": "string",
-            "description": "Optional audit reason."
+            "deprecated": true,
+            "description": "Deprecated alias of 'change_reason': supported through 1.11.0 (inclusive); removal no earlier than 1.12.0. Ignored when 'change_reason' is supplied."
           }
         },
         "required": [
@@ -8156,9 +8212,14 @@
             "type": "string",
             "description": "UUID of the test case."
           },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason for the soft-delete, recorded on the audit trail. May be mandatory when the workspace preset requires a change_reason for writes."
+          },
           "reason": {
             "type": "string",
-            "description": "Optional audit reason."
+            "deprecated": true,
+            "description": "Deprecated alias of 'change_reason': supported through 1.11.0 (inclusive); removal no earlier than 1.12.0. Ignored when 'change_reason' is supplied."
           }
         },
         "required": [
@@ -9132,6 +9193,41 @@
       }
     },
     {
+      "name": "work_item.outdate",
+      "prefix": "work_item",
+      "is_write": true,
+      "description": "Soft-delete a WorkItem (write). The row is retained and marked outdated by the workflow engine (it is not removed); trace links, revisions and audit history are preserved. It is hidden from default work_item.query results — use include_outdated=true to find it and work_item.reactivate to restore it. Mirrors DELETE /api/v1/work-items/{id}/. Loom work state ('where the work stands', explicit and queryable) is not conversation memory ('what was said', memory.*/Honcho); memory is not duplicated here.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the work item."
+          },
+          "change_reason": {
+            "type": "string",
+            "description": "Reason for the soft-delete, recorded on the audit trail. May be mandatory when the workspace preset requires a change_reason for writes."
+          },
+          "reason": {
+            "type": "string",
+            "deprecated": true,
+            "description": "Deprecated alias of 'change_reason': supported through 1.11.0 (inclusive); removal no earlier than 1.12.0. Ignored when 'change_reason' is supplied."
+          },
+          "expected_version": {
+            "type": "integer",
+            "description": "Last-seen item version. A stale value is refused with CONFLICT."
+          },
+          "actor": {
+            "type": "string",
+            "description": "Optional free-text actor label for the heartbeat."
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
       "name": "work_item.query",
       "prefix": "work_item",
       "is_write": false,
@@ -9149,7 +9245,7 @@
           },
           "include_outdated": {
             "type": "boolean",
-            "description": "If true, include soft-deleted items (REST's ?include_deleted=true). Defaults to false."
+            "description": "If true, include soft-deleted items. include_outdated is the canonical key in MCP and in REST; REST's historical ?include_deleted= is still accepted as a deprecated alias. Defaults to false."
           },
           "uid": {
             "type": "string",
@@ -9158,6 +9254,24 @@
         },
         "required": [
           "workspace_id"
+        ]
+      }
+    },
+    {
+      "name": "work_item.reactivate",
+      "prefix": "work_item",
+      "is_write": true,
+      "description": "Undo a WorkItem's soft-delete (write). Restores the workflow state the item held throughout — soft delete is an orthogonal flag, not a state — so a finished item comes back finished. Mirrors POST /api/v1/work-items/{id}/reactivate/. Loom work state ('where the work stands', explicit and queryable) is not conversation memory ('what was said', memory.*/Honcho); memory is not duplicated here.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "UUID of the work item."
+          }
+        },
+        "required": [
+          "id"
         ]
       }
     },
@@ -9370,6 +9484,304 @@
         },
         "required": [
           "id"
+        ]
+      }
+    },
+    {
+      "name": "workflow_default.add_state",
+      "prefix": "workflow_default",
+      "is_write": true,
+      "description": "Append a state to the global workflow default (write, admin only). Tenant-wide admin configuration: the change propagates into every workspace definition still on the default. Mirrors POST /api/v1/workflow-defaults/{item_type}/{preset}/states/. A duplicate state name is VALIDATION_ERROR. Requires an unfenced ADMIN-tier API key: a key fenced to specific workspaces is denied because this call names no workspace (the same fail-closed rule as REST's workspace fence).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Workflow item type, e.g. 'Document', 'Requirement' or 'Adr' (the canonical registry is workflow.item_types.KNOWN_WORKFLOW_ITEM_TYPES)."
+          },
+          "preset": {
+            "type": "string",
+            "description": "Preset key the definition is keyed by, e.g. 'ccb_approval', 'extended' or 'document_default' (at most 32 characters — the store's column width)."
+          },
+          "name": {
+            "type": "string",
+            "description": "New state name."
+          }
+        },
+        "required": [
+          "item_type",
+          "preset",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "workflow_default.add_transition",
+      "prefix": "workflow_default",
+      "is_write": true,
+      "description": "Append a transition to the global workflow default (write, admin only). Tenant-wide admin configuration, propagated to every workspace on the default. Mirrors POST /api/v1/workflow-defaults/{item_type}/{preset}/transitions/. 'admin' is always kept in allowed_roles; an unknown state or a duplicate edge is VALIDATION_ERROR. Requires an unfenced ADMIN-tier API key: a key fenced to specific workspaces is denied because this call names no workspace (the same fail-closed rule as REST's workspace fence).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Workflow item type, e.g. 'Document', 'Requirement' or 'Adr' (the canonical registry is workflow.item_types.KNOWN_WORKFLOW_ITEM_TYPES)."
+          },
+          "preset": {
+            "type": "string",
+            "description": "Preset key the definition is keyed by, e.g. 'ccb_approval', 'extended' or 'document_default' (at most 32 characters — the store's column width)."
+          },
+          "from_state": {
+            "type": "string",
+            "description": "Source state of the transition."
+          },
+          "to_state": {
+            "type": "string",
+            "description": "Target state of the transition."
+          },
+          "allowed_roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Roles allowed to take the transition. The store always keeps 'admin'; an empty list therefore stores ['admin']."
+          },
+          "requires_change_reason": {
+            "type": "boolean",
+            "description": "Require a change reason on this transition."
+          },
+          "signature_gate": {
+            "type": "boolean",
+            "description": "Require a signature credential on this transition."
+          }
+        },
+        "required": [
+          "item_type",
+          "preset",
+          "from_state",
+          "to_state"
+        ]
+      }
+    },
+    {
+      "name": "workflow_default.delete_state",
+      "prefix": "workflow_default",
+      "is_write": true,
+      "description": "Remove a state from the global workflow default (write, admin only). Tenant-wide admin configuration, propagated to every workspace on the default. Mirrors DELETE /api/v1/workflow-defaults/{item_type}/{preset}/states/{state}/. A state a transition references, or one a live item still occupies in an inheriting workspace, answers CONFLICT. Requires an unfenced ADMIN-tier API key: a key fenced to specific workspaces is denied because this call names no workspace (the same fail-closed rule as REST's workspace fence).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Workflow item type, e.g. 'Document', 'Requirement' or 'Adr' (the canonical registry is workflow.item_types.KNOWN_WORKFLOW_ITEM_TYPES)."
+          },
+          "preset": {
+            "type": "string",
+            "description": "Preset key the definition is keyed by, e.g. 'ccb_approval', 'extended' or 'document_default' (at most 32 characters — the store's column width)."
+          },
+          "state": {
+            "type": "string",
+            "description": "Name of the state the call acts on."
+          }
+        },
+        "required": [
+          "item_type",
+          "preset",
+          "state"
+        ]
+      }
+    },
+    {
+      "name": "workflow_default.delete_transition",
+      "prefix": "workflow_default",
+      "is_write": true,
+      "description": "Remove a transition from the global workflow default (write, admin only). Tenant-wide admin configuration, propagated to every workspace on the default. Mirrors DELETE /api/v1/workflow-defaults/{item_type}/{preset}/transitions/{from_state}__{to_state}/. An unknown edge is VALIDATION_ERROR. Requires an unfenced ADMIN-tier API key: a key fenced to specific workspaces is denied because this call names no workspace (the same fail-closed rule as REST's workspace fence).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Workflow item type, e.g. 'Document', 'Requirement' or 'Adr' (the canonical registry is workflow.item_types.KNOWN_WORKFLOW_ITEM_TYPES)."
+          },
+          "preset": {
+            "type": "string",
+            "description": "Preset key the definition is keyed by, e.g. 'ccb_approval', 'extended' or 'document_default' (at most 32 characters — the store's column width)."
+          },
+          "from_state": {
+            "type": "string",
+            "description": "Source state of the transition."
+          },
+          "to_state": {
+            "type": "string",
+            "description": "Target state of the transition."
+          }
+        },
+        "required": [
+          "item_type",
+          "preset",
+          "from_state",
+          "to_state"
+        ]
+      }
+    },
+    {
+      "name": "workflow_default.get",
+      "prefix": "workflow_default",
+      "is_write": false,
+      "description": "Read one tenant-wide global workflow default (read-only, admin only). Tenant-wide admin configuration, not a workspace resource. Mirrors GET /api/v1/workflow-defaults/{item_type}/{preset}/. An uninitialised pair answers the empty graph with initialized=false — that is not an error; an unknown item_type is NOT_FOUND. Requires an unfenced ADMIN-tier API key: a key fenced to specific workspaces is denied because this call names no workspace (the same fail-closed rule as REST's workspace fence).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Workflow item type, e.g. 'Document', 'Requirement' or 'Adr' (the canonical registry is workflow.item_types.KNOWN_WORKFLOW_ITEM_TYPES)."
+          },
+          "preset": {
+            "type": "string",
+            "description": "Preset key the definition is keyed by, e.g. 'ccb_approval', 'extended' or 'document_default' (at most 32 characters — the store's column width)."
+          }
+        },
+        "required": [
+          "item_type",
+          "preset"
+        ]
+      }
+    },
+    {
+      "name": "workflow_default.initialize",
+      "prefix": "workflow_default",
+      "is_write": true,
+      "description": "Create the empty global workflow default for one (item_type, preset) pair (write, admin only). Tenant-wide admin configuration: the row is the template every non-customized workspace definition of that preset inherits. Mirrors POST /api/v1/workflow-defaults/{item_type}/{preset}/initialize/. A pair that already has a definition answers CONFLICT. Requires an unfenced ADMIN-tier API key: a key fenced to specific workspaces is denied because this call names no workspace (the same fail-closed rule as REST's workspace fence).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Workflow item type, e.g. 'Document', 'Requirement' or 'Adr' (the canonical registry is workflow.item_types.KNOWN_WORKFLOW_ITEM_TYPES)."
+          },
+          "preset": {
+            "type": "string",
+            "description": "Preset key the definition is keyed by, e.g. 'ccb_approval', 'extended' or 'document_default' (at most 32 characters — the store's column width)."
+          }
+        },
+        "required": [
+          "item_type",
+          "preset"
+        ]
+      }
+    },
+    {
+      "name": "workflow_default.list",
+      "prefix": "workflow_default",
+      "is_write": false,
+      "description": "List the tenant-wide global workflow defaults (read-only, admin only). This is tenant-wide admin configuration, not a workspace resource: each row is the template non-customized workspace definitions inherit. Mirrors GET /api/v1/workflow-defaults/. Both filters are optional exact matches. Requires an unfenced ADMIN-tier API key: a key fenced to specific workspaces is denied because this call names no workspace (the same fail-closed rule as REST's workspace fence).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Workflow item type, e.g. 'Document', 'Requirement' or 'Adr' (the canonical registry is workflow.item_types.KNOWN_WORKFLOW_ITEM_TYPES)."
+          },
+          "preset": {
+            "type": "string",
+            "description": "Preset key the definition is keyed by, e.g. 'ccb_approval', 'extended' or 'document_default' (at most 32 characters — the store's column width)."
+          }
+        }
+      }
+    },
+    {
+      "name": "workflow_default.update_state",
+      "prefix": "workflow_default",
+      "is_write": true,
+      "description": "Rename a state and/or toggle its freeze_on_enter flag on the global workflow default (write, admin only). Tenant-wide admin configuration, propagated to every workspace on the default. Mirrors PATCH /api/v1/workflow-defaults/{item_type}/{preset}/states/{state}/ — at least one of new_name / freeze_on_enter is required, and both may be sent in one call. Requires an unfenced ADMIN-tier API key: a key fenced to specific workspaces is denied because this call names no workspace (the same fail-closed rule as REST's workspace fence).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Workflow item type, e.g. 'Document', 'Requirement' or 'Adr' (the canonical registry is workflow.item_types.KNOWN_WORKFLOW_ITEM_TYPES)."
+          },
+          "preset": {
+            "type": "string",
+            "description": "Preset key the definition is keyed by, e.g. 'ccb_approval', 'extended' or 'document_default' (at most 32 characters — the store's column width)."
+          },
+          "state": {
+            "type": "string",
+            "description": "Name of the state the call acts on."
+          },
+          "new_name": {
+            "type": "string",
+            "description": "Rename the state to this name."
+          },
+          "freeze_on_enter": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Set or clear the freeze-on-enter flag of the state (a rename applies first)."
+          }
+        },
+        "required": [
+          "item_type",
+          "preset",
+          "state"
+        ]
+      }
+    },
+    {
+      "name": "workflow_default.update_transition",
+      "prefix": "workflow_default",
+      "is_write": true,
+      "description": "Update the role/gate flags of one transition of the global workflow default (write, admin only). Tenant-wide admin configuration, propagated to every workspace on the default. Mirrors PATCH /api/v1/workflow-defaults/{item_type}/{preset}/transitions/{from_state}__{to_state}/. Omitted keys keep their stored value (the REST handler passes them through unchanged). Requires an unfenced ADMIN-tier API key: a key fenced to specific workspaces is denied because this call names no workspace (the same fail-closed rule as REST's workspace fence).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_type": {
+            "type": "string",
+            "description": "Workflow item type, e.g. 'Document', 'Requirement' or 'Adr' (the canonical registry is workflow.item_types.KNOWN_WORKFLOW_ITEM_TYPES)."
+          },
+          "preset": {
+            "type": "string",
+            "description": "Preset key the definition is keyed by, e.g. 'ccb_approval', 'extended' or 'document_default' (at most 32 characters — the store's column width)."
+          },
+          "from_state": {
+            "type": "string",
+            "description": "Source state of the transition."
+          },
+          "to_state": {
+            "type": "string",
+            "description": "Target state of the transition."
+          },
+          "allowed_roles": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "New allowed-role list; 'admin' is always kept. Omit to keep the stored roles."
+          },
+          "requires_change_reason": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "New change-reason flag; omit to keep it."
+          },
+          "signature_gate": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "New signature-gate flag; omit to keep it."
+          }
+        },
+        "required": [
+          "item_type",
+          "preset",
+          "from_state",
+          "to_state"
         ]
       }
     },

@@ -13,6 +13,8 @@ counterpart of ``rest_api.views.WorkItemViewSet`` and keeps the same contract:
   work_item.set_progress — set 0–100 progress independently of the state (write)
   work_item.checkpoint   — create a Checkpoint with a resume hint (write)
   work_item.resume       — newest checkpoint + every open item (read)
+  work_item.outdate      — soft-delete an item (write, P2.8)
+  work_item.reactivate   — undo that soft-delete (write, P2.8)
 
 Every write goes through :class:`application.work_item_service.WorkItemService`
 (ADR-01) — no business logic here. In particular the mandatory document, rule
@@ -30,6 +32,7 @@ No ORM access in this module (ADR-01).
 """
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from typing import Any
 
@@ -40,6 +43,7 @@ from application.base import (
     NotFoundError,
     OptimisticLockError,
     ValidationError,
+    WorkflowInitializationFailedError,
 )
 from application.work_item_service import WorkItemService
 from auth_tenancy.context import AuthContext
@@ -51,6 +55,8 @@ from mcp_server.tools.base import (
     require_uuid,
     resolve_engine_status,
     resolve_status_map,
+    soft_delete_reason,
+    soft_delete_reason_properties,
     workspace_query_required,
 )
 from persistence.errors import PermissionDeniedError
@@ -58,6 +64,8 @@ from persistence.models import WorkItem
 
 #: The workflow item type this group speaks about (PascalCase).
 _ITEM_TYPE = "WorkItem"
+
+logger = logging.getLogger(__name__)
 
 #: The kinds the ``WorkItem`` model accepts; the schemas publish them so a
 #: client does not have to guess the enum (#345-style honesty).
@@ -144,6 +152,25 @@ def _work_item_to_dict(
     }
 
 
+def _log_unexpected(tool_name: str, exc: BaseException) -> None:
+    """Record a masked failure server-side, without leaking it to the client.
+
+    Plan P1.12 (M-16): the ``INTERNAL_ERROR`` answer stays a static string
+    (CWE-209), but the traceback must be diagnosable in the server log.
+
+    What is guaranteed: the *log call's* arguments are only the tool name and
+    the exception class — ``params`` (and therefore request bodies, tokens and
+    PII) are never interpolated into it. What is NOT guaranteed: an exception's
+    own message. ``logger.exception`` attaches the traceback, and that traceback
+    carries ``str(exc)`` in its final line, so a message a handler built from a
+    caller-supplied value lands in the log. That is deliberate — the log is the
+    operator's channel — but it is a property of the traceback, not something
+    this function can promise away. Do not "fix" it by dropping the traceback:
+    the traceback is the only reason ``INTERNAL_ERROR`` is diagnosable at all.
+    """
+    logger.exception("%s failed (%s)", tool_name, type(exc).__name__)
+
+
 def _validation_error(exc: Exception) -> ToolResult:
     """Map a service validation error to its transport error code.
 
@@ -173,6 +200,8 @@ class WorkItemToolGroup(BaseToolGroup):
         "work_item.set_progress": "_handle_set_progress",
         "work_item.checkpoint": "_handle_checkpoint",
         "work_item.resume": "_handle_resume",
+        "work_item.outdate": "_handle_outdate",
+        "work_item.reactivate": "_handle_reactivate",
     }
 
     _TOOL_SCHEMAS = [
@@ -306,8 +335,11 @@ class WorkItemToolGroup(BaseToolGroup):
                     "include_outdated": {
                         "type": "boolean",
                         "description": (
-                            "If true, include soft-deleted items (REST's "
-                            "?include_deleted=true). Defaults to false."
+                            "If true, include soft-deleted items. "
+                            "include_outdated is the canonical key in MCP and "
+                            "in REST; REST's historical ?include_deleted= is "
+                            "still accepted as a deprecated alias. Defaults "
+                            "to false."
                         ),
                     },
                     "uid": {
@@ -549,6 +581,52 @@ class WorkItemToolGroup(BaseToolGroup):
                 "required": ["workspace_id", "document_id"],
             },
         },
+        {
+            "name": "work_item.outdate",
+            "description": (
+                "Soft-delete a WorkItem (write). The row is retained and marked "
+                "outdated by the workflow engine (it is not removed); trace "
+                "links, revisions and audit history are preserved. It is hidden "
+                "from default work_item.query results — use "
+                "include_outdated=true to find it and work_item.reactivate to "
+                "restore it. Mirrors DELETE /api/v1/work-items/{id}/."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the work item."},
+                    **soft_delete_reason_properties(),
+                    "expected_version": {
+                        "type": "integer",
+                        "description": (
+                            "Last-seen item version. A stale value is refused "
+                            "with CONFLICT."
+                        ),
+                    },
+                    "actor": {
+                        "type": "string",
+                        "description": "Optional free-text actor label for the heartbeat.",
+                    },
+                },
+                "required": ["id"],
+            },
+        },
+        {
+            "name": "work_item.reactivate",
+            "description": (
+                "Undo a WorkItem's soft-delete (write). Restores the workflow "
+                "state the item held throughout — soft delete is an orthogonal "
+                "flag, not a state — so a finished item comes back finished. "
+                "Mirrors POST /api/v1/work-items/{id}/reactivate/."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "UUID of the work item."},
+                },
+                "required": ["id"],
+            },
+        },
     ]
 
     # F3-T8 (spec §12): the boundary is named verbatim in every tool
@@ -604,7 +682,18 @@ class WorkItemToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except WorkflowInitializationFailedError as exc:
+            # P2.13: the service rolled the create back; answer a static
+            # sentence whose wording is the transport-neutral one (the cause is
+            # already in the server log via ``_log_unexpected``).
+            _log_unexpected("work_item.create", exc)
+            return ToolResult.error(
+                "INTERNAL_ERROR",
+                "The artifact was not created because its workflow state could "
+                "not be initialised.",
+            )
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("work_item.create", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({"work_item": _work_item_to_dict(item)})
 
@@ -645,7 +734,8 @@ class WorkItemToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("work_item.query", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
         if uid_filter is not None:
@@ -717,7 +807,8 @@ class WorkItemToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("work_item.update", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({"work_item": _work_item_to_dict(item)})
 
@@ -752,7 +843,8 @@ class WorkItemToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("work_item.transition", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({
             "id": str(item.id),
@@ -788,7 +880,8 @@ class WorkItemToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("work_item.set_progress", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({"work_item": _work_item_to_dict(item)})
 
@@ -819,7 +912,8 @@ class WorkItemToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("work_item.checkpoint", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({"work_item": _work_item_to_dict(item)})
 
@@ -841,9 +935,80 @@ class WorkItemToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("work_item.resume", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok(result)
+
+    # ------------------------------------------------------------------
+    # work_item.outdate / work_item.reactivate (P2.8)
+    # ------------------------------------------------------------------
+
+    def _handle_outdate(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """Soft-delete an item; mirrors ``DELETE /api/v1/work-items/{id}/``.
+
+        The service keeps the whole contract: it refuses a reason-less delete
+        when the workspace preset mandates a ``change_reason``, records the
+        revision and the audit entry, and only then flips the Artifact's
+        ``lifecycle_status``. ``change_reason`` is the canonical parameter;
+        ``reason`` stays a deprecated alias (P1.10).
+        """
+        item_id = require_uuid(params, "id")
+        try:
+            self._svc().delete_work_item(
+                item_id,
+                auth_context,
+                change_reason=soft_delete_reason(params),
+                expected_version=params.get("expected_version"),
+                actor=params.get("actor") or "",
+            )
+        except OptimisticLockError as exc:
+            return ToolResult.error("CONFLICT", f"Version conflict: {exc}")
+        except ValidationError as exc:
+            return _validation_error(exc)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("work_item.outdate", exc)
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+        return ToolResult.ok({"id": str(item_id), "status": "outdated"})
+
+    def _handle_reactivate(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """Undo a soft-delete; mirrors ``POST /api/v1/work-items/{id}/reactivate/``.
+
+        The payload is the REST one: the id, the ``"outdated"`` pseudo-state it
+        came from, the state it was restored into and the restored row. A
+        reason is deliberately not accepted — restoring does not need a
+        justification, and the service records its own ``"restored"`` revision.
+        """
+        item_id = require_uuid(params, "id")
+        svc = self._svc()
+        try:
+            item = svc.restore_work_item(item_id, auth_context)
+            new_state = svc.current_status(item_id, auth_context)
+        except OptimisticLockError as exc:
+            return ToolResult.error("CONFLICT", f"Version conflict: {exc}")
+        except ValidationError as exc:
+            return _validation_error(exc)
+        except NotFoundError as exc:
+            return ToolResult.error("NOT_FOUND", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("work_item.reactivate", exc)
+            return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
+        return ToolResult.ok({
+            "id": str(item_id),
+            "previous_state": "outdated",
+            "new_state": new_state,
+            "work_item": _work_item_to_dict(item),
+        })
 
 
 __all__ = ["WorkItemToolGroup"]

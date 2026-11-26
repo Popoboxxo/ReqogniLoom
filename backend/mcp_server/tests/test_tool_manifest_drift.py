@@ -251,12 +251,14 @@ def _raw_schema_names() -> list[str]:
 
 
 def test_raw_names_equal_published_names_in_production_registry() -> None:
-    """Against the real registry: raw names == published names == 302."""
+    """Against the real registry: raw names == published names == 313."""
     raw_names = _raw_schema_names()
     assert len(raw_names) == len(set(raw_names)), "raw tool schemas contain a duplicate"
     published = [tool["name"] for tool in build_manifest()["tools"]]
     assert set(raw_names) == set(published)
-    assert len(raw_names) == len(published) == 302
+    # P1.8 / M-11: the ``workflow_default`` group added 9 tools (302 -> 311).
+    # P2.8: ``work_item.outdate``/``work_item.reactivate`` added 2 (311 -> 313).
+    assert len(raw_names) == len(published) == 313
 
 
 # ---------------------------------------------------------------------------

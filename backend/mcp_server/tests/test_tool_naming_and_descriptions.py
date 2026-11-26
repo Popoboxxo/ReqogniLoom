@@ -82,7 +82,8 @@ def test_verb_vocabulary_classifies_only_crud_family() -> None:
 def test_hidden_aliases_are_well_formed_and_invisible() -> None:
     """Every hidden alias is deprecated and points at a real published tool."""
     published = {schema["name"] for schema in _all_tools()}
-    assert len(published) == 302
+    # 311 with P1.8, 313 after P2.8.
+    assert len(published) == 313
 
     aliases = ToolRegistry().hidden_tool_aliases()
     assert aliases, "the legacy verb aliases disappeared — republish the metadata"
