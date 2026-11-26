@@ -83,7 +83,7 @@ req_id  : REQ-L2-PL-010, REQ-L2-AT-002, Issue #1180
 """
 from __future__ import annotations
 
-from django.db import migrations
+from django.db import DatabaseError, migrations, transaction
 
 from persistence.db_roles import DEFINER_DB_ROLE
 
@@ -154,23 +154,52 @@ def _quote_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-def _create_role_sql() -> str:
-    """Idempotent role creation/re-assertion with the minimal attribute set."""
+def _duplicate_role_pgcode(exc: BaseException) -> str | None:
+    """SQLSTATE of a duplicate-role error, unwrapping Django's psycopg2 cause."""
+    return getattr(exc, "pgcode", None) or getattr(
+        getattr(exc, "__cause__", None), "pgcode", None
+    )
+
+
+def _create_definer_role(apps, schema_editor) -> None:
+    """Create/re-assert the cluster-level definer role, race-safe under xdist.
+
+    ``DEFINER_DB_ROLE`` lives in the PostgreSQL cluster, not in one database.
+    xdist workers migrate separate test databases against the same cluster, so
+    a SELECT-then-CREATE without a cluster-wide lock races exactly like
+    ``0048_app_role`` did: two workers both see "absent" and one loses on
+    ``pg_authid_rolname_index``. Mirror 0048's advisory lock plus savepoint /
+    pgcode guard so a fresh parallel test run cannot fail at migration time.
+    """
+    if schema_editor.connection.vendor != "postgresql":
+        return
     role = _quote_ident(DEFINER_DB_ROLE)
-    role_literal = _quote_literal(DEFINER_DB_ROLE)
-    return f"""
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = {role_literal}) THEN
-        CREATE ROLE {role} WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
-            NOREPLICATION BYPASSRLS;
-    ELSE
-        ALTER ROLE {role} WITH NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE
-            NOREPLICATION BYPASSRLS;
-    END IF;
-END
-$$;
-"""
+    lock_key = f"{DEFINER_DB_ROLE}:create"
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_lock(hashtext(%s))", [lock_key])
+        try:
+            cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", [DEFINER_DB_ROLE])
+            if cursor.fetchone() is not None:
+                cursor.execute(
+                    f"ALTER ROLE {role} WITH NOLOGIN NOSUPERUSER NOCREATEDB "
+                    f"NOCREATEROLE NOREPLICATION BYPASSRLS"
+                )
+            else:
+                try:
+                    with transaction.atomic(using=schema_editor.connection.alias):
+                        cursor.execute(
+                            f"CREATE ROLE {role} WITH NOLOGIN NOSUPERUSER "
+                            f"NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS"
+                        )
+                except DatabaseError as exc:
+                    if _duplicate_role_pgcode(exc) not in {"42710", "23505"}:
+                        raise
+                    cursor.execute(
+                        f"ALTER ROLE {role} WITH NOLOGIN NOSUPERUSER "
+                        f"NOCREATEDB NOCREATEROLE NOREPLICATION BYPASSRLS"
+                    )
+        finally:
+            cursor.execute("SELECT pg_advisory_unlock(hashtext(%s))", [lock_key])
 
 
 def _grant_sql() -> str:
@@ -263,7 +292,10 @@ def _restore_ownership_sql() -> str:
 
 
 def _forward_sql() -> str:
-    return f"{_create_role_sql()}\n{_grant_sql()}\n{_ownership_sql()}"
+    # Role creation is handled by :func:`_create_definer_role` (RunPython) so
+    # the cluster-wide advisory-lock/savepoint race guard can be expressed in
+    # Python, matching 0048_app_role and audit/0020.
+    return f"{_grant_sql()}\n{_ownership_sql()}"
 
 
 def _reverse_sql() -> str:
@@ -290,5 +322,8 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.RunPython(
+            _create_definer_role, reverse_code=migrations.RunPython.noop
+        ),
         migrations.RunSQL(sql=_forward_sql(), reverse_sql=_reverse_sql()),
     ]

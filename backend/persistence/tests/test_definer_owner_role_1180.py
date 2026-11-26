@@ -400,6 +400,38 @@ def _load_migration_module():
     return module
 
 
+def test_duplicate_role_pgcode_unwraps_django_wrapper():
+    """The xdist race guard must see the SQLSTATE on Django's wrapped cause."""
+    module = _load_migration_module()
+
+    class DuplicateRole(Exception):
+        pgcode = "23505"
+
+    direct = DuplicateRole()
+    assert module._duplicate_role_pgcode(direct) == "23505"
+
+    wrapped = RuntimeError("django wrapper")
+    wrapped.__cause__ = direct
+    assert module._duplicate_role_pgcode(wrapped) == "23505"
+    assert module._duplicate_role_pgcode(RuntimeError("other")) is None
+
+
+@_pg_only
+def test_create_definer_role_is_idempotent():
+    """Re-running the role step must not fail on the shared cluster role."""
+    module = _load_migration_module()
+    with connection.schema_editor() as schema_editor:
+        module._create_definer_role(None, schema_editor)
+        module._create_definer_role(None, schema_editor)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, "
+            "rolreplication, rolbypassrls FROM pg_roles WHERE rolname = %s",
+            [DEFINER_DB_ROLE],
+        )
+        assert cursor.fetchone() == (False, False, False, False, False, True)
+
+
 @_pg_only
 def test_migration_forward_reverse_round_trip_restores_ownership():
     """Apply the reverse SQL, assert the dedicated owner is gone, apply the
