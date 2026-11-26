@@ -2,8 +2,8 @@
 
 > **Zweck:** Code-genaues Inventar der `backend/`- und `frontend/`-Bereiche (exportierte API, Module, Flows) als Nachschlagewerk für Mitwirkende und Agenten. Kein Wunschzustand, kein Architektur-Entwurf — nur was im Repository steht.
 > **Stand:** `1.9.0-beta.6` (Beta-Ziel; Code-Stand des vermessenen Checkouts: `1.9.0-beta.6`)  
-> **Letzte Aktualisierung:** 2026-11-15  
-> **Datenquelle:** eigener Checkout von `origin/main`, Dateien und Manifeste direkt gelesen (u. a. `docs/agent-templates/tool-manifest.json`, `.github/workflows/ci.yml`, `backend/application/*`, `frontend/src/components/*`); Testzahlen sind Dateizahlen, keine Testergebnisse  
+> **Letzte Aktualisierung:** 2026-11-25
+> **Datenquelle:** eigener Checkout des Branchs `fix/rest-mcp-review-findings`, Dateien und Manifeste direkt gelesen (u. a. `docs/agent-templates/tool-manifest.json`, `.github/workflows/ci.yml`, `backend/application/*`, `frontend/src/components/*`); Testzahlen sind Dateizahlen, keine Testergebnisse
 > **Validierung:** keine Testläufe in diesem Durchgang — der `manage.py check`-Stand und die pytest-/Playwright-Ergebnisse gehören in den Release-Report, nicht in dieses Inventar
 
 ---
@@ -246,9 +246,10 @@ from traceability.pdf_report_generator import (
 **Exportierte API:**
 ```python
 from workflow.services import (
-    transition,                   # transition(artifact_id, new_state, reason="...") → Result
-    initialize_workflow_states,   # initialize_workflow_states(workspace_id, workflow_def_id)
-    list_valid_transitions,       # list_valid_transitions(artifact_id) → List[State]
+    transition,                   # transition(item_id, target_state, change_reason, ctx, *, workspace_id, …) → TransitionResult
+    initialize_workflow_states,   # initialize_workflow_states(item_ids, item_type, workspace_id, ctx) → list[WorkflowItemState]
+    get_available_transitions,    # get_available_transitions(item_id, item_type, workspace_id) → AvailableTransitions
+    initialize_definition,        # initialize_definition(workspace_id, item_type, tenant_id=None) → WorkflowDefinitionDTO
 )
 ```
 
@@ -257,6 +258,8 @@ from workflow.services import (
 - `WorkflowState` Model — Artifact-Zustands-Tracking
 - `StateTransitionValidator` — Validiert erlaubte Übergänge
 - Hooks für ApprovalService, NotificationService (Stubs in v1)
+
+**Default-Preset-Auflösung:** `workflow/item_types.py` registriert die festen Entity-Presets (`Document` → `document_default`) und die tierabhängigen Typen (`Requirement`, `WorkItem`). `workflow.services.initialize_definition(...)` nutzt `resolve_default_preset(...)`: Der Workspace-Tier kommt aus `WorkspacePresetConfig.active_tier`, fällt über `Workspace.preset` auf `standard` zurück und wird für `WorkItem` auf `work_item_<tier>` (`minimal|standard|extended`) abgebildet. Das Provisioning in `application/workspace_provisioning.py` liest dieselbe Registrierung.
 
 **Presets beeinflussen:** Ob Approval bei bestimmten Übergängen erforderlich ist
 
@@ -881,14 +884,17 @@ frontend/
         CsvImport.tsx
       TestRuns/                   # Test-Run-Ansicht mit Ergebnisliste
         TestRuns.tsx
-      Documents/                  # Dokument-Artefakt + bearbeitbare Leseansicht (ADR-026, Route /documents und /documents/:id in NavigationShell)
-        Documents.tsx             # Liste + Detail (SplitView)
-        DocumentReadingView.tsx   # Leseobjekt: Kopf, Felder, Kapitel, Speicherleiste
+      Documents/                  # Dokument-Artefakt + explizite Lese-/Inline-Bearbeitungsansicht (ADR-026, Route /documents und /documents/:id in NavigationShell)
+        Documents.tsx             # Liste + Detail (SplitView); Start im Lese- und Wechsel in den Bearbeitungsmodus
+        DocumentReadingView.tsx   # Leseobjekt mit `presentationMode: read|edit`; Kopf, Felder, Kapitel, Speicherleiste
         DocumentReadingChapters.tsx # Kapitel + Inhaltsverzeichnis (Anker kommen aus dem Backend)
         DocumentFieldEditor.tsx   # Inline-Editor je Feld (nur wenn `fields[].editable`)
         DocumentSaveBar.tsx       # Speichern: sofort (ein Feld) oder gesammelt (ein Stapel)
         useDocumentDrafts.ts      # Entwürfe + zwei Speichermodi (immediate/batch), 412/409-Mapping
         Documents.module.css      # enthält den `@media print`-Block der Sicht
+      WorkflowEditor/             # Workflow-Management für Workspace und globale Defaults
+        WorkflowEditorPage.tsx    # /workflows/:entityType; Link zu System Settings → Workflow Defaults
+        constants.ts              # Document: document_default; WorkItem: work_item_<tier>; typabhängige Preset-Auswahl
       ConnectionView/             # Verbindungsansicht, fünf Modi (Default "trees", Route /connections)
         AllocationTreesRenderer.tsx # Zwei-Baum-Modus: Requirements links, Architektur rechts, Kanten dazwischen
         useAllocationSelection.ts   # Zeilenauswahl und gesperrte Zeilen (eine Wahrheit für die Seite)
@@ -935,7 +941,7 @@ frontend/
   vitest.config.ts                # Vitest Config
 ```
 
-**Key Components (17 hauptsächliche):**
+**Key Components (18 hauptsächliche):**
 1. `DashboardViews` — Übersichts-Dashboards (Requirements, Architecture, Tests)
 2. `RequirementEditors` — Requirement-Create/Edit/Delete Forms
 3. `ArchitectureEditors` — Architecture-Element-Editor
@@ -951,8 +957,9 @@ frontend/
 13. `IssueList` — Issue-Liste
 14. `canvas/CanvasEditor` — Free-Hand Canvas Editor (Fabric.js v6, REQ-L1-056)
 15. `mermaid/MermaidEditor` — Mermaid Code-Editor mit Live-Preview (CodeMirror 6 + mermaid.js, REQ-L1-057)
-16. `Documents/DocumentReadingView` — bearbeitbare Dokumentansicht: Kapitel aus `GET /documents/{id}/view/`, Feldsperren aus dem Urteil des Backends, Speichern über `DocumentFieldEditor`/`DocumentSaveBar` (`docs/features/document-reading-view.md`)
+16. `Documents/DocumentReadingView` — Dokumentansicht mit explizitem `read|edit`-Modus: `read` rendert Kapitel statisch, `edit` aktiviert Inline-Editoren und Speicherleiste; Kapitel aus `GET /documents/{id}/view/`, Feldsperren aus dem Urteil des Backends (`docs/features/document-reading-view.md`)
 17. `ConnectionView` — Verbindungsansicht mit fünf Modi; Default `trees` rendert `AllocationTreesRenderer` (zwei Bäume, Kanten-Overlay, Filterleiste mit „Weitere Filter"-Popover, Kantenschalter `ui.connection_view.show_edges`, `docs/features/connection-view-trees.md`)
+18. `WorkflowEditor/WorkflowEditorPage` — Workspace- und Global-Workflow-Management inkl. `Document` (`document_default`), `WorkItem` (`work_item_<tier>`), typabhängiger Preset-Auswahl und Link zu System Settings → Workflow Defaults
 
 **Hooks:**
 - `useDashboardData()` — Fetch via `api/requirements`, caching
@@ -967,7 +974,7 @@ frontend/
 
 **i18n:** DE/EN via react-i18next (Übersetzungen in `locales/de.json`, `locales/en.json`)
 
-**Test-Coverage:** 387 Frontend-Testdateien (`*.test.ts`/`*.test.tsx` unter `frontend/src/`, Dateizahl gemessen 2026-11-15); Vitest für Unit-Tests; 70 E2E-Spec-Dateien unter `e2e/tests/` (Playwright/Chromium, 4 CI-Shards)
+**Test-Coverage:** 442 Frontend-Testdateien (`*.test.ts`/`*.test.tsx` unter `frontend/src/`, Dateizahl gemessen 2026-11-25); Vitest für Unit-Tests; 79 E2E-Spec-Dateien unter `e2e/tests/` (Playwright/Chromium, 4 CI-Shards)
 
 ---
 
@@ -1092,7 +1099,7 @@ docker-compose exec backend python manage.py seed_demo
 
 ### Tests
 ```bash
-# Alle Backend-Tests (1018 Testdateien, `test_*.py` unter backend/)
+# Alle Backend-Tests (1137 Testdateien, `test_*.py` unter backend/, Dateizahl gemessen 2026-11-25)
 docker-compose exec backend pytest
 
 # Isolierter Test-Stack (verbindlicher Weg, siehe README/.meta-config)
