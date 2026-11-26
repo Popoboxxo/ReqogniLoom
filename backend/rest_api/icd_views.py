@@ -847,6 +847,28 @@ class IcdViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 location=OpenApiParameter.QUERY,
                 description="Restrict the list to one workspace.",
             ),
+            OpenApiParameter(
+                "include_outdated",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Canonical spelling: include soft-deleted ICDs (their "
+                    "workflow state is 'outdated'). Defaults to false."
+                ),
+            ),
+            OpenApiParameter(
+                "include_deleted",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                deprecated=True,
+                description=(
+                    "Deprecated alias of `include_outdated`: supported through "
+                    "1.11.0 (inclusive); removal no earlier than 1.12.0 "
+                    "(P2.1 / m-8). When both are sent, `include_outdated` wins."
+                ),
+            ),
         ],
         responses={
             200: IcdListResponseSerializer,

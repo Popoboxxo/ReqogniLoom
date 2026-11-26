@@ -51,7 +51,7 @@ from application.base import ValidationError
 from application.table_query_service import TableQueryService, clean_item_type
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.query_params import (
-    parse_include_deleted,
+    parse_include_outdated,
     parse_workspace_id,
     reject_unknown_query_params,
 )
@@ -71,6 +71,7 @@ ALLOWED_QUERY_PARAMS: tuple[str, ...] = (
     "item_type",
     "filters",
     "sort",
+    "include_outdated",
     "include_deleted",
     "page",
     "page_size",
@@ -167,11 +168,27 @@ class TableQueryView(APIView):
                 description=f"JSON sort document: {_SORT_WIRE_FORMAT}",
             ),
             OpenApiParameter(
+                "include_outdated",
+                OpenApiTypes.BOOL,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Canonical spelling: include soft-deleted rows (their "
+                    "workflow state is 'outdated')."
+                ),
+            ),
+            OpenApiParameter(
                 "include_deleted",
                 OpenApiTypes.BOOL,
                 OpenApiParameter.QUERY,
                 required=False,
-                description="Include soft-deleted (outdated) rows.",
+                deprecated=True,
+                description=(
+                    "Deprecated alias of `include_outdated`: supported through "
+                    "1.11.0 (inclusive); removal no earlier than 1.12.0 "
+                    "(see docs/api/REST-CONVENTIONS.md §10). When both are "
+                    "sent, `include_outdated` wins."
+                ),
             ),
             OpenApiParameter(
                 "page",
@@ -231,7 +248,7 @@ class TableQueryView(APIView):
         except ValidationError as exc:
             return _service_error_response(exc, lang)
 
-        include_deleted = parse_include_deleted(request.query_params)
+        include_deleted = parse_include_outdated(request.query_params)
 
         service = TableQueryService()
         try:

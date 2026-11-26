@@ -22,11 +22,14 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from drf_spectacular.generators import SchemaGenerator
 from rest_framework.test import APIClient
 
 from auth_tenancy.models import ROLE_ADMIN, ROLE_EDITOR, UserRole
 from persistence.middleware import clear_request_tenant, set_request_tenant
 from persistence.models import Artifact, Tenant, User, Workspace
+from presets.models import WorkspacePresetConfig
+from workflow.item_types import WORK_ITEM_PRESET_BY_TIER, WORK_ITEM_TIERS
 
 pytestmark = pytest.mark.django_db
 
@@ -34,8 +37,16 @@ _PASSWORD = "hunter2pass"
 _ITEM_TYPE = "Requirement"
 
 
-def _scenario(preset: str = "extended") -> tuple[Tenant, User, User, Workspace]:
-    """Create a tenant with an admin and an editor user plus one workspace."""
+def _scenario(
+    preset: str = "extended", *, config_tier: str | None = None
+) -> tuple[Tenant, User, User, Workspace]:
+    """Create a tenant with an admin and an editor user plus one workspace.
+
+    ``config_tier`` additionally persists a ``WorkspacePresetConfig`` — the row
+    ``workflow.services.resolve_default_preset`` treats as authoritative for the
+    workspace's rigorous tier. Without it, the resolver falls back to the
+    denormalised ``Workspace.preset`` blob and then to ``standard``.
+    """
     suffix = uuid.uuid4().hex[:8]
     tenant = Tenant.objects.create(name=f"T-{suffix}", slug=f"wf-{suffix}", is_active=True)
 
@@ -59,6 +70,10 @@ def _scenario(preset: str = "extended") -> tuple[Tenant, User, User, Workspace]:
         workspace = Workspace.objects.create(
             tenant=tenant, name="WF WS", preset={"name": preset}
         )
+        if config_tier is not None:
+            WorkspacePresetConfig.objects.create(
+                tenant=tenant, workspace=workspace, active_tier=config_tier
+            )
     finally:
         clear_request_tenant()
 
@@ -512,3 +527,136 @@ def test_definition_read_of_foreign_workspace_does_not_leak_states() -> None:
     assert not (foreign_states & set(body["states"])), (
         f"foreign workflow states leaked into the response: {sorted(foreign_states)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# P1.4 / M-6 — the list route is an honest, empty compatibility envelope
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def openapi_schema() -> dict:
+    """The generated OpenAPI document (same output as ``GET /api/schema/``)."""
+    return SchemaGenerator().get_schema(request=None, public=True)
+
+
+def test_list_documents_itself_as_a_non_collection_envelope(
+    openapi_schema: dict,
+) -> None:
+    """The envelope is empty *and* the document does not promise a CRUD list.
+
+    P1.4 keeps the historical wire contract (byte-identical empty pagination
+    envelope) while making the OpenAPI entry say what the route really is: an
+    intentionally empty compatibility envelope whose real counterpart is
+    ``definition/?workspace_id=&item_type=``.
+    """
+    _, admin, _, _ = _scenario()
+    resp = _client(admin).get("/api/v1/workflows/")
+
+    assert resp.status_code == 200, resp.content
+    assert resp.json() == {"count": 0, "next": None, "previous": None, "results": []}
+
+    operation = openapi_schema["paths"]["/api/v1/workflows/"]["get"]
+    text = f"{operation.get('summary', '')} {operation.get('description', '')}".lower()
+
+    assert "compatibility envelope" in text
+    assert "always empty" in text
+    assert "not a collection" in text
+    assert "definition/" in text, "the entry must point at the real graph route"
+    # A collection would be paged and would list definitions; this route does
+    # neither, so neither may appear in the document.
+    assert {
+        p["name"] for p in operation.get("parameters", []) if p["in"] == "query"
+    } == set()
+    response_schema = operation["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ]
+    assert response_schema.get("type") != "array"
+    assert response_schema["$ref"].endswith("/WorkflowDefinitionListEnvelope")
+
+
+# ---------------------------------------------------------------------------
+# P1.5 / M-7 — an uninitialized definition names the preset it would get
+# ---------------------------------------------------------------------------
+
+
+def _definition_body(client: APIClient, workspace: Workspace, item_type: str) -> dict:
+    resp = client.get(
+        f"/api/v1/workflows/definition/?workspace_id={workspace.id}&item_type={item_type}"
+    )
+    assert resp.status_code == 200, resp.content
+    return resp.json()
+
+
+@pytest.mark.parametrize("tier", WORK_ITEM_TIERS)
+def test_uninitialized_work_item_definition_names_the_tier_preset(tier: str) -> None:
+    """``preset`` used to be ``null`` for WorkItem, hiding the whole lifecycle."""
+    _, admin, _, workspace = _scenario(config_tier=tier)
+
+    body = _definition_body(_client(admin), workspace, "WorkItem")
+
+    assert body["initialized"] is False
+    assert body["states"] == []
+    assert body["preset"] == WORK_ITEM_PRESET_BY_TIER[tier] == f"work_item_{tier}"
+
+
+@pytest.mark.parametrize("tier", WORK_ITEM_TIERS)
+def test_uninitialized_requirement_definition_names_the_tier(tier: str) -> None:
+    """Requirement keeps the 1:1 tier mapping — no regression from P1.5."""
+    _, admin, _, workspace = _scenario(config_tier=tier)
+
+    body = _definition_body(_client(admin), workspace, "Requirement")
+
+    assert body["initialized"] is False
+    assert body["preset"] == tier
+
+
+def test_uninitialized_fixed_type_names_its_registry_preset() -> None:
+    """A fixed type answers its registry key, independent of the tier."""
+    _, admin, _, workspace = _scenario(config_tier="extended")
+
+    body = _definition_body(_client(admin), workspace, "Adr")
+
+    assert body["initialized"] is False
+    assert body["preset"] == "adr_default"
+
+
+def test_missing_preset_config_falls_back_to_standard() -> None:
+    """No usable tier configuration anywhere must still answer a real preset."""
+    _, admin, _, workspace = _scenario()  # preset={"name": ...}, no config row
+
+    work_item = _definition_body(_client(admin), workspace, "WorkItem")
+    requirement = _definition_body(_client(admin), workspace, "Requirement")
+
+    assert work_item["preset"] == "work_item_standard"
+    assert requirement["preset"] == "standard"
+
+
+@pytest.mark.parametrize("tier", WORK_ITEM_TIERS)
+def test_initialize_stores_the_preset_the_read_promised(tier: str) -> None:
+    """Read and write share one resolver, so they cannot disagree."""
+    _, admin, _, workspace = _scenario(config_tier=tier)
+    client = _client(admin)
+    scope = {"workspace_id": str(workspace.id), "item_type": "WorkItem"}
+
+    promised = _definition_body(client, workspace, "WorkItem")["preset"]
+    initialized = client.post(
+        "/api/v1/workflows/definition/initialize/", scope, format="json"
+    )
+
+    assert initialized.status_code == 201, initialized.content
+    body = initialized.json()
+    assert body["initialized"] is True
+    assert body["preset"] == promised == f"work_item_{tier}"
+
+
+def test_uninitialized_definition_of_an_unreadable_workspace_invents_no_preset() -> None:
+    """A foreign workspace must not answer a preset the caller has no standing in."""
+    _, admin, _, _ = _scenario()
+    _, _, _, foreign_ws = _scenario(config_tier="extended")
+
+    body = _definition_body(_client(admin), foreign_ws, "WorkItem")
+
+    assert body["initialized"] is False
+    assert body["preset"] is None
+    assert body["states"] == []

@@ -578,7 +578,11 @@ _TENANT_SCOPED = {
     "LinkTypeDefaultsDetailView": "tenant-wide link-type catalog",
     "WorkflowDefinitionViewSet": "tenant/workspace workflow definitions",
     # reviews queue (flat), search/metrics read-models, async status
-    "ReviewsPendingView": "flat review queue; optional ?workspace_id",
+    "ReviewsPendingView": "flat review queue; mandatory ?workspace_id",
+    # #m-3: behaviour-free subclass that serves ``reviews/pending/`` so the two
+    # list routes can publish distinct operationIds. Same handler, same
+    # mandatory ``?workspace_id`` contract as its parent above.
+    "ReviewsPendingAliasView": "flat review queue; mandatory ?workspace_id",
     # ADR-019 WP4: the flat suggestion inbox mirrors ReviewsPendingView — the
     # mandatory ?workspace_id is validated by the view (400 when absent) and the
     # auth layer scopes the caller's roles to it, so a same-tenant non-member is

@@ -700,6 +700,66 @@ _EXEMPT_SERIALIZERS: dict[str, str] = {
         "read-only 200 body of GET /workspaces/{id}/memory/sessions/{session_id}/summaries/; "
         "the route accepts no request body at all, so there is nothing to guard (T-A4-5)"
     ),
+    # --- rest_api.serializers_governance (P0.1 OpenAPI contract) ------------
+    # P0.1 documented ``WorkflowDefinitionViewSet``. None of these classes is
+    # ever bound to a request body: the view declares
+    # ``serializer_class = WorkflowDefinitionSerializer`` for drf-spectacular
+    # only, every handler reads ``request.data`` key-by-key, and
+    # ``_edit_precheck`` validates that body by hand and returns its own
+    # ``build_error_response`` envelope. So the *request*-shaped entries below
+    # are documentation-only shapes for the published contract — not write
+    # serializers that skip the guard.
+    "WorkflowDefinitionGraphSerializer": (
+        "read-only 200/201 body of every workflow-definition read and edit "
+        "action (P0.1); the view never binds a request body to it"
+    ),
+    "WorkflowTransitionGraphSerializer": (
+        "nested read-only edge row of WorkflowDefinitionGraphSerializer (P0.1)"
+    ),
+    "WorkflowDefinitionListEnvelopeSerializer": (
+        "read-only 200 body of GET /api/v1/workflows/ — the fixed empty "
+        "envelope the historical wire contract requires (P0.1)"
+    ),
+    "WorkflowDefinitionCreateResponseSerializer": (
+        "read-only 201 body of POST /api/v1/workflows/ (P0.1)"
+    ),
+    "WorkflowTransitionResponseSerializer": (
+        "read-only 200 body of PATCH /api/v1/workflows/{id}/ (P0.1)"
+    ),
+    "WorkflowDefinitionScopeSerializer": (
+        "OpenAPI documentation-only serializer (P0.1): the scope parameters of "
+        "definition/ and every edit-mode action are read from request.data / "
+        "query_params and validated by _edit_precheck, which owns the 400 "
+        "envelope — this class describes the body but never validates one"
+    ),
+    "_WorkflowStateRequestSerializer": (
+        "OpenAPI documentation-only serializer (P0.1): private base of the "
+        "state create/rename bodies, never instantiated to validate a request"
+    ),
+    "WorkspaceWorkflowStateCreateRequestSerializer": (
+        "OpenAPI documentation-only serializer (P0.1): POST "
+        ".../definition/states/ reads request.data key-by-key "
+        "(_edit_precheck plus the name check) and returns its own envelope, so "
+        "this class describes the body but never validates it"
+    ),
+    "WorkspaceWorkflowStateRenameRequestSerializer": (
+        "OpenAPI documentation-only serializer (P0.1): PATCH "
+        ".../definition/states/{state_id}/ reads request.data key-by-key "
+        "(_edit_precheck) and returns its own envelope, so this class describes "
+        "the body but never validates it"
+    ),
+    "WorkspaceWorkflowTransitionCreateRequestSerializer": (
+        "OpenAPI documentation-only serializer (P0.1): POST "
+        ".../definition/transitions/ reads request.data key-by-key "
+        "(_edit_precheck) and returns its own envelope, so this class describes "
+        "the body but never validates it"
+    ),
+    "WorkspaceWorkflowTransitionUpdateRequestSerializer": (
+        "OpenAPI documentation-only serializer (P0.1): PATCH "
+        ".../definition/transitions/{from}__{to}/ reads request.data key-by-key "
+        "(_edit_precheck) and returns its own envelope, so this class describes "
+        "the body but never validates it"
+    ),
 }
 
 #: Modules whose module-local ``*Serializer`` classes are part of the REST

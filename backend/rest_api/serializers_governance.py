@@ -52,6 +52,7 @@ from rest_api.mixins.workflow_state import WorkflowStateSerializerMixin
 from rest_api.mixins.workflow_transitions import _ALWAYS_ALLOWED_PATCH_FIELDS
 from rest_api.preset_guard import FieldFilter
 from rest_api.sanitization import FreeTextFieldMarker, validate_free_text
+from workflow.item_types import KNOWN_WORKFLOW_ITEM_TYPES
 
 
 from .serializers_common import (
@@ -450,20 +451,79 @@ class DocumentReadingChapterSerializer(serializers.Serializer):
     No body field is HTML — the client renders the Markdown itself.
     """
 
-    number = serializers.CharField(allow_blank=True)
-    level = serializers.IntegerField()
-    title = serializers.CharField(allow_blank=True)
-    anchor = serializers.CharField(allow_blank=True)
-    body = serializers.CharField(allow_blank=True)
+    number = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "Display number built from the heading nesting (``\"1\"``, "
+            "``\"1.1\"``, ...). Empty for the unnumbered preamble chapter that "
+            "carries the text before the first Markdown heading. Display only: "
+            "a skipped heading level leaves a gap in the sequence, so "
+            "``anchor`` — not this value — is the stable identity."
+        ),
+    )
+    level = serializers.IntegerField(
+        help_text=(
+            "Markdown heading level of this chapter: ``1``-``3`` for a chapter "
+            "heading, ``0`` for the unnumbered preamble chapter. Headings "
+            "deeper than level 3 are not split out — their lines stay in the "
+            "enclosing chapter's ``body``. The client renders one ``#`` per "
+            "level and nothing for level 0."
+        ),
+    )
+    title = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "Heading text without the leading ``#`` markers; blank for the "
+            "preamble chapter."
+        ),
+    )
+    anchor = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "Stable, slugged DOM id for this chapter, derived from the heading "
+            "text and de-duplicated within the document (``-2``, ``-3`` for "
+            "repeated titles; the preamble uses ``section``). It is stable "
+            "across re-reads of the same body, so the reading view can use it "
+            "as a fragment target (``#<anchor>``)."
+        ),
+    )
+    body = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "Markdown source of the chapter's body, verbatim and NOT escaped "
+            "or converted to HTML — the client renders it. Blank when the "
+            "heading is directly followed by the next heading."
+        ),
+    )
 
 
 
 class DocumentReadingProjectionSerializer(serializers.Serializer):
     """Read-only projection bookkeeping exposed by the reading view (R1)."""
 
-    projection_mode = serializers.CharField(allow_blank=True)
-    source_path = serializers.CharField(allow_blank=True)
-    projected_sha256 = serializers.CharField(allow_blank=True)
+    projection_mode = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "Whether Loom renders this document to Markdown for a repository: "
+            "``none`` (no projection) or ``generated``. Bookkeeping only — it "
+            "never enables a write path."
+        ),
+    )
+    source_path = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "Repository path this document was imported from or is projected "
+            "to; empty when the document is not repo-backed."
+        ),
+    )
+    projected_sha256 = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "SHA-256 a client last confirmed it wrote for this projection — "
+            "the last projected state, not a live check; empty when nothing was "
+            "confirmed yet."
+        ),
+    )
 
 
 
@@ -475,8 +535,20 @@ class DocumentReadingLockedSerializer(serializers.Serializer):
     without inventing its own wording.
     """
 
-    code = serializers.CharField()
-    detail = serializers.CharField()
+    code = serializers.CharField(
+        help_text=(
+            "Machine-readable lock code — ``PERMISSION`` (the RBAC matrix or an "
+            "item-level rule denies write), ``REPO_EXTERNAL`` (the document is "
+            "owned by an external repository) or ``FIELD_FROZEN`` (the field is "
+            "locked by the release/freeze state)."
+        ),
+    )
+    detail = serializers.CharField(
+        help_text=(
+            "Human-readable sentence explaining the lock, ready to display "
+            "without the surface inventing its own wording."
+        ),
+    )
 
 
 
@@ -488,10 +560,34 @@ class DocumentReadingFieldSerializer(serializers.Serializer):
     are the policy answer, identical to what ``PATCH /documents/{id}/`` accepts.
     """
 
-    name = serializers.CharField()
-    value = serializers.JSONField(allow_null=True)
-    editable = serializers.BooleanField()
-    locked = DocumentReadingLockedSerializer(allow_null=True)
+    name = serializers.CharField(
+        help_text=(
+            "Field name as accepted by ``PATCH /documents/{id}/`` (e.g. "
+            "``title``, ``description``, ``body``, ``doc_date``, "
+            "``custom_fields``)."
+        ),
+    )
+    value = serializers.JSONField(
+        allow_null=True,
+        help_text=(
+            "Current value of the field. Polymorphic by field: a string for "
+            "text fields, an ISO-8601 date string (or null) for ``doc_date`` "
+            "and a JSON object for ``custom_fields``. The surface renders it; "
+            "the serializer does not coerce it."
+        ),
+    )
+    editable = serializers.BooleanField(
+        help_text=(
+            "Whether a PATCH with this field would be accepted right now — the "
+            "same verdict as the per-field write policy, not a client hint."
+        ),
+    )
+    locked = DocumentReadingLockedSerializer(
+        allow_null=True,
+        help_text=(
+            "Why the field is not editable; ``null`` when ``editable`` is true."
+        ),
+    )
 
 
 
@@ -503,8 +599,23 @@ class DocumentReadingCapabilitiesSerializer(serializers.Serializer):
     blocks carry first.
     """
 
-    can_write = serializers.BooleanField()
-    read_only_reason = serializers.CharField(allow_null=True)
+    can_write = serializers.BooleanField(
+        help_text=(
+            "Document-level write capability: true only when the RBAC/item-level "
+            "permission allows write AND the document is not repo-owned."
+        ),
+    )
+    read_only_reason = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Why the caller cannot write this document — ``PERMISSION`` (no "
+            "write permission) or ``REPO_EXTERNAL`` (owned by an external "
+            "repository) — or ``null`` when ``can_write`` is true. Declared "
+            "optional because it is nullable: the key is always present in the "
+            "response."
+        ),
+    )
 
 
 
@@ -517,18 +628,78 @@ class DocumentReadingSerializer(serializers.Serializer):
     exists for the OpenAPI schema, not to transform data.
     """
 
-    id = serializers.UUIDField(read_only=True)
-    artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
-    uid = serializers.CharField(read_only=True, allow_null=True)
-    title = serializers.CharField()
-    kind = serializers.CharField()
-    description = serializers.CharField(allow_blank=True)
-    body = serializers.CharField(allow_blank=True)
-    doc_date = serializers.DateField(allow_null=True)
+    id = serializers.UUIDField(
+        read_only=True,
+        help_text=(
+            "Primary key of the ``Document`` row — the id this route and "
+            "``PATCH /documents/{id}/`` take. Distinct from ``artifact_id``."
+        ),
+    )
+    artifact_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "UUID of the backing ``Artifact`` row, i.e. the id the generic "
+            "artifact routes, trace links, comments and history use. ``null`` "
+            "only for a document that has no artifact yet."
+        ),
+    )
+    uid = serializers.CharField(
+        read_only=True, allow_null=True, help_text=UID_HELP_TEXT
+    )
+    title = serializers.CharField(
+        help_text="Document title (head line of the reading view).",
+    )
+    kind = serializers.CharField(
+        help_text=(
+            "Document kind, one of ``Spec``, ``Plan``, ``AuditReport``, "
+            "``Review``, ``Conclusion``, ``Concept``, ``Guide``."
+        ),
+    )
+    description = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "Short purpose/summary of the document (not the content); blank "
+            "when none was recorded."
+        ),
+    )
+    body = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "Full Markdown body as stored, verbatim. The same text is what "
+            "``chapters`` splits by heading — the reading view uses the "
+            "chapters and keeps ``body`` for the editor."
+        ),
+    )
+    doc_date = serializers.DateField(
+        allow_null=True,
+        help_text=(
+            "Optional document date (ISO-8601 ``YYYY-MM-DD``); ``null`` when "
+            "the document carries no date."
+        ),
+    )
     version = serializers.IntegerField(help_text=LOCK_VERSION_HELP_TEXT)
-    status = serializers.CharField()
-    frozen_at = serializers.DateTimeField(allow_null=True)
-    frozen_fields = serializers.ListField(child=serializers.CharField())
+    status = serializers.CharField(
+        help_text=(
+            "Current workflow state of the document (workspace-configured "
+            "names; ``outdated`` marks a soft-deleted document)."
+        ),
+    )
+    frozen_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "Timestamp at which the release froze the document (F-1); "
+            "``null`` while the document is not frozen."
+        ),
+    )
+    frozen_fields = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Content field names locked by the release state (F-1/F-2). An "
+            "empty list means no field is frozen; a PATCH touching one of them "
+            "answers 409 ``FIELD_FROZEN``."
+        ),
+    )
     editable_fields = serializers.ListField(
         child=serializers.CharField(),
         help_text=(
@@ -547,8 +718,23 @@ class DocumentReadingSerializer(serializers.Serializer):
     capabilities = DocumentReadingCapabilitiesSerializer(
         help_text="Document-level write capability of the caller (R2)."
     )
-    chapters = DocumentReadingChapterSerializer(many=True)
-    projection = DocumentReadingProjectionSerializer()
+    chapters = DocumentReadingChapterSerializer(
+        many=True,
+        help_text=(
+            "The document body split into numbered Markdown chapters, in "
+            "reading order. The first entry is the unnumbered preamble chapter "
+            "(level 0) when the body starts with text before its first heading; "
+            "an empty body yields exactly one empty level-0 chapter, so the "
+            "list is never empty."
+        ),
+    )
+    projection = DocumentReadingProjectionSerializer(
+        help_text=(
+            "Read-only projection bookkeeping (repository path, confirmed hash, "
+            "mode). It never enables a write path; until a projection exists "
+            "these values are ``none``/empty strings."
+        )
+    )
 
 
 
@@ -1303,3 +1489,215 @@ class ChangeRequestSerializer(
                 .values_list("item_id", flat=True)
             ]
         return data
+
+
+# ---------------------------------------------------------------------------
+# P0.1 — OpenAPI contract for ``WorkflowDefinitionViewSet`` (rest_api.views_governance)
+#
+# These serializers exist for the *document*: the handlers read ``request.data``
+# / ``query_params`` directly and keep their own (more permissive) validation,
+# because the workflow engine accepts custom item types and state names beyond
+# any enum a static schema could enumerate. Declaring the wire shapes here keeps
+# the published contract real instead of ``OpenApiTypes.OBJECT``.
+# ---------------------------------------------------------------------------
+
+#: The known item types, listed in the ``item_type`` help text. Sorted (not
+#: registry-ordered) so the published description stays byte-stable; the
+#: registry itself is a frozenset.
+_KNOWN_WORKFLOW_ITEM_TYPES: list[str] = sorted(KNOWN_WORKFLOW_ITEM_TYPES)
+
+#: F2: the JSON-sample form of the known types for the ``help_text`` below —
+#: ``'Adr', 'ArchitectureElement', …``.
+_KNOWN_WORKFLOW_ITEM_TYPES_HINT = ", ".join(
+    repr(item_type) for item_type in _KNOWN_WORKFLOW_ITEM_TYPES
+)
+
+
+class WorkflowDefinitionScopeSerializer(serializers.Serializer):
+    """Scope parameters shared by ``definition/`` and every edit-mode action.
+
+    ``workspace_id`` and ``item_type`` are mandatory on all of them — from the
+    JSON body for ``POST``/``PATCH``, from the query string for ``DELETE``
+    (which has no body) and for the read-only ``definition/`` ``GET``.
+
+    ``item_type`` is a plain string, **not** an enum (review finding F2): the
+    workflow engine accepts arbitrary/custom item-type spellings — their preset
+    falls back to the workspace's active tier — so a ``ChoiceField`` promised
+    less than the server accepts. The known types are listed as examples in
+    ``help_text`` instead; documentation must not promise less than the server
+    accepts.
+    """
+
+    workspace_id = serializers.UUIDField(
+        help_text="Workspace whose workflow definition is addressed."
+    )
+    item_type = serializers.CharField(
+        help_text=(
+            "Workflow-tracked entity type. Known types: "
+            f"{_KNOWN_WORKFLOW_ITEM_TYPES_HINT}. The workflow engine also "
+            "accepts arbitrary custom spellings beyond that list (their preset "
+            "falls back to the workspace's active tier), so the value is not "
+            "restricted to these examples."
+        ),
+    )
+
+
+class _WorkflowStateRequestSerializer(WorkflowDefinitionScopeSerializer):
+    """Common shape of the state create/rename bodies."""
+
+    name = serializers.CharField(
+        max_length=255, help_text="State name; surrounding whitespace is stripped."
+    )
+
+
+class WorkspaceWorkflowStateCreateRequestSerializer(_WorkflowStateRequestSerializer):
+    """Body of ``POST /api/v1/workflows/definition/states/``."""
+
+
+class WorkspaceWorkflowStateRenameRequestSerializer(_WorkflowStateRequestSerializer):
+    """Body of ``PATCH /api/v1/workflows/definition/states/{state_id}/``."""
+
+
+class WorkspaceWorkflowTransitionCreateRequestSerializer(
+    WorkflowDefinitionScopeSerializer
+):
+    """Body of ``POST /api/v1/workflows/definition/transitions/``."""
+
+    from_state = serializers.CharField(
+        help_text="Source state; must already exist in the definition."
+    )
+    to_state = serializers.CharField(
+        help_text="Target state; must already exist in the definition."
+    )
+    allowed_roles = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Roles allowed to execute the transition. Omitted or empty means "
+            "'admin' only — the engine always keeps 'admin' in the list."
+        ),
+    )
+    requires_change_reason = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true a non-empty change_reason is required at runtime.",
+    )
+    signature_gate = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true a credential (password/TOTP) is required at runtime.",
+    )
+
+
+class WorkspaceWorkflowTransitionUpdateRequestSerializer(
+    WorkflowDefinitionScopeSerializer
+):
+    """Body of ``PATCH /api/v1/workflows/definition/transitions/{from}__{to}/``.
+
+    All three rule fields are optional and nullable: an omitted key keeps the
+    stored value, an explicit ``null`` leaves it unchanged as well (only a
+    concrete value rewrites it).
+    """
+
+    allowed_roles = serializers.ListField(
+        child=serializers.CharField(), required=False, allow_null=True
+    )
+    requires_change_reason = serializers.BooleanField(
+        required=False, allow_null=True
+    )
+    signature_gate = serializers.BooleanField(required=False, allow_null=True)
+
+
+class WorkflowTransitionGraphSerializer(serializers.Serializer):
+    """One edge of the serialised graph (``_serialize_definition``)."""
+
+    from_state = serializers.CharField()
+    to_state = serializers.CharField()
+    allowed_roles = serializers.ListField(child=serializers.CharField())
+    requires_change_reason = serializers.BooleanField()
+    signature_gate = serializers.BooleanField()
+
+
+class WorkflowDefinitionGraphSerializer(serializers.Serializer):
+    """The full re-serialised workflow graph (``_serialize_definition``).
+
+    Every read and every edit-mode mutation answers exactly this shape, so the
+    Workflow Editor refreshes in one round-trip. It is a list-*view*, not the
+    persisted document: preset state metadata (``freeze_on_enter``,
+    ``auto_approve_target``, …) is not part of it.
+    """
+
+    item_type = serializers.CharField()
+    preset = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Preset key the definition uses, or would be initialized with. "
+            "Null only when the workspace is not readable by the caller — an "
+            "uninitialized definition of a readable workspace names its "
+            "default preset instead."
+        ),
+    )
+    is_custom = serializers.BooleanField(
+        help_text="Legacy 'user-supplied Extended custom' flag."
+    )
+    is_customized = serializers.BooleanField(
+        help_text="True when the workspace definition diverges from its global source."
+    )
+    on_default = serializers.BooleanField(
+        help_text="Inverse of is_customized — true while the graph is untouched."
+    )
+    source_global_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Global definition this workspace one inherits from, if any.",
+    )
+    initial_state = serializers.CharField(
+        allow_null=True, help_text="First state of the graph; null when uninitialized."
+    )
+    initialized = serializers.BooleanField(
+        help_text="False for the empty graph of a workspace without a definition."
+    )
+    states = serializers.ListField(
+        child=serializers.CharField(), help_text="Every state name, in graph order."
+    )
+    transitions = WorkflowTransitionGraphSerializer(many=True)
+
+
+class WorkflowDefinitionListEnvelopeSerializer(serializers.Serializer):
+    """Body of ``GET /api/v1/workflows/`` — a fixed, intentionally empty envelope.
+
+    This route is **not** a CRUD collection of workflow definitions: a
+    definition is configuration keyed by (workspace, item_type), not a
+    listable resource. The handler answers this shape unconditionally so the
+    historical wire contract keeps holding; ``results`` is always empty. The
+    real graph is served by ``GET /api/v1/workflows/definition/`` with
+    ``workspace_id`` and ``item_type``.
+    """
+
+    count = serializers.IntegerField(help_text="Always 0.")
+    next = serializers.CharField(
+        allow_null=True, help_text="Always null — there is no next page."
+    )
+    previous = serializers.CharField(
+        allow_null=True, help_text="Always null — there is no previous page."
+    )
+    results = WorkflowDefinitionGraphSerializer(
+        many=True, help_text="Always empty; use definition/ for the real graph."
+    )
+
+
+class WorkflowDefinitionCreateResponseSerializer(serializers.Serializer):
+    """Body of the ``201`` from ``POST /api/v1/workflows/``."""
+
+    message = serializers.CharField(
+        help_text="Fixed confirmation text; the route seeds workflow states only."
+    )
+
+
+class WorkflowTransitionResponseSerializer(serializers.Serializer):
+    """Body of the ``200`` from ``PATCH /api/v1/workflows/{id}/``."""
+
+    id = serializers.CharField(help_text="Artifact id that was transitioned.")
+    target_state = serializers.CharField(
+        help_text="State the artifact was moved into."
+    )

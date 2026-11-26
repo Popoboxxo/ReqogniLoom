@@ -216,7 +216,7 @@ from rest_api.preset_guard import PresetError, PresetGateMixin
 from rest_api.query_params import (
     parse_bool_param,
     parse_change_reason,
-    parse_include_deleted,
+    parse_include_outdated,
     parse_int_param,
     parse_uuid_param,
     parse_workspace_id,
@@ -425,7 +425,8 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         """GET /api/v1/glossary/ — list GlossaryTerms in a workspace.
 
         REQ-006: Excludes soft-deleted terms by default.
-        Pass ?include_deleted=true for admin/audit access.
+        Pass ?include_outdated=true for admin/audit access
+        (the deprecated alias ?include_deleted=true still works).
         """
         ctx = get_auth_context(request)
         lang = detect_lang(request)
@@ -438,7 +439,7 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
         try:
             # REQ-006: include_deleted=true exposes soft-deleted terms (admin use)
-            include_deleted = parse_include_deleted(request.query_params)
+            include_deleted = parse_include_outdated(request.query_params)
             terms = self._svc().list_by_workspace(
                 ctx,
                 workspace_id,
@@ -742,7 +743,8 @@ class GlossaryTermViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         flag, not a workflow state) and a subsequent GET on this URL still
         answers 200 — 404 keeps meaning "no such record, and there never was
         one in this tenant". List endpoints hide outdated records by default;
-        pass ``?include_deleted=true`` to see them, and
+        pass ``?include_outdated=true`` (the deprecated alias
+        ``?include_deleted=true`` still works) to see them, and
         ``POST .../reactivate/`` to restore one.
 
         Note the field name (#831): the detail response reports the soft-delete
