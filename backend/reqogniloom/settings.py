@@ -438,6 +438,19 @@ CSP_POLICY: str = config(
     "CSP_POLICY",
     default="default-src 'self'; frame-ancestors 'none'; base-uri 'self'",
 )
+# Plan P1.1 (2026-11-25 REST/MCP review): escalate the production-configuration
+# WARNINGS of ``reqogniloom.checks`` (W010-W014: non-Secure cookie flags,
+# localhost in the CORS/CSRF allowlist, a trivial SYSTEM_ADMIN_PASSWORD,
+# missing HTTPS redirect/HSTS, and an empty CSP_POLICY) to ERRORS
+# (E010-E014).
+#
+# DEFAULT FALSE, deliberately. The bundled Compose stack supports production
+# mode without TLS termination (see the AUTH_COOKIE_SECURE comment above), so a
+# True default would abort ``migrate`` on a configuration that is intentionally
+# supported. Enable it for hardened deployments and CI.
+SECURITY_STRICT_PRODUCTION_CHECKS: bool = config(
+    "SECURITY_STRICT_PRODUCTION_CHECKS", default=False, cast=bool
+)
 
 # ---------------------------------------------------------------------------
 # URL Configuration
@@ -1161,8 +1174,16 @@ _validate_secret_strength(
 # hashes. Stored ONLY here / in the environment, never in a database column:
 # the whole point is that a stolen database dump is not sufficient to test
 # candidate keys offline. Keys are 40 random characters, so the bare SHA-256 was
-# never brute-forceable; the pepper is defence in depth, which is why it is
-# optional rather than fail-fast like SECRET_KEY / AUTH_JWT_SECRET.
+# never brute-forceable; the pepper is defence in depth.
+#
+# OPTIONAL AT THIS LAYER, ENFORCED IN PRODUCTION. The setting itself keeps
+# default="" so development and tests can run without one, but a production
+# context is fail-closed: reqogniloom.E001 (missing/empty) and reqogniloom.E002
+# (weak value) are Error-level Django system checks, so every process that runs
+# the checks refuses to start — `manage.py check`, `runserver`, and the compose
+# stack's one-shot `migrate` container. The residual gap (a bare
+# `gunicorn reqogniloom.asgi:application` start that runs no check step) is a
+# documented risk, not a guarantee: see `docs/runbooks/secret-rotation.md` §2.
 #
 # ROLLOUT — NOT retroactive. Setting this peppers *new* keys (stored with a
 # "sha256p1:" prefix). Keys already in the database stay unpeppered ("sha256:")

@@ -114,6 +114,104 @@ def test_bootstrap_noop_without_password_when_admin_exists(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Password floor (P1.1, 2026-11-25 REST/MCP review M-1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("value", "reason_fragment"),
+    [
+        ("admin", "scanner tries first"),
+        ("ADMIN", "scanner tries first"),
+        ("qwerty", "scanner tries first"),
+        ("letmein", "scanner tries first"),
+        ("12345678", "scanner tries first"),
+        ("short7!", "shorter than 8"),
+        ("changeme", "placeholder marker"),
+        ("CHANGE-ME-admin-pw", "placeholder marker"),
+        ("some-placeholder-value", "placeholder marker"),
+    ],
+)
+@pytest.mark.django_db
+def test_bootstrap_refuses_trivial_password_on_create(
+    monkeypatch, value: str, reason_fragment: str
+):
+    """The operator exemption is a floor, not a blanket pass (finding M-1)."""
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", value)
+
+    with pytest.raises(CommandError) as excinfo:
+        call_command("bootstrap_admin")
+
+    message = str(excinfo.value)
+    assert "SYSTEM_ADMIN_PASSWORD" in message
+    assert reason_fragment in message
+    # Nothing was provisioned.
+    assert User.objects.filter(username="admin").exists() is False
+
+
+@pytest.mark.django_db
+def test_rejection_message_does_not_depend_on_the_value(monkeypatch):
+    """The error never echoes the secret — proven by value-independence.
+
+    Two *different* rejected values of the same class producing a byte-identical
+    message proves the value itself is not part of it. (A naive
+    ``assert value not in message`` cannot be used: the message lists the denied
+    defaults on purpose, which repeats those very tokens.)
+    """
+
+    def _rejection_message(value: str) -> str:
+        monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", value)
+        with pytest.raises(CommandError) as excinfo:
+            call_command("bootstrap_admin")
+        return str(excinfo.value)
+
+    assert _rejection_message("admin") == _rejection_message("12345678")
+    assert _rejection_message("CHANGE-ME-admin-pw") == _rejection_message(
+        "some-placeholder-value"
+    )
+
+
+@pytest.mark.django_db
+def test_bootstrap_refuses_trivial_password_on_reset(monkeypatch):
+    """The break-glass path must not be a way around the floor."""
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "initial-pw")
+    call_command("bootstrap_admin")
+
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "admin")
+    with pytest.raises(CommandError) as excinfo:
+        call_command("bootstrap_admin", reset_password=True)
+
+    assert "SYSTEM_ADMIN_PASSWORD" in str(excinfo.value)
+    admin = User.objects.get(username="admin")
+    assert admin.check_password("initial-pw") is True
+
+    # A strong value still goes through the same path.
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "fresh-reset-pw")
+    call_command("bootstrap_admin", reset_password=True)
+    admin.refresh_from_db()
+    assert admin.check_password("fresh-reset-pw") is True
+
+
+@pytest.mark.django_db
+def test_leftover_trivial_password_is_ignored_when_admin_exists(monkeypatch):
+    """A pre-existing deployment must keep booting with SYSTEM_ADMIN_PASSWORD=admin.
+
+    The value is unused when the admin already exists and no reset was
+    requested, so inspecting it would turn a stale .env into a startup failure
+    on every restart (and abort ``migrate``). Reported as W012 instead.
+    """
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "initial-pw")
+    call_command("bootstrap_admin")
+
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "admin")
+    call_command("bootstrap_admin")  # must not raise
+
+    admin = User.objects.get(username="admin")
+    assert admin.check_password("initial-pw") is True
+
+
+
+# ---------------------------------------------------------------------------
 # --reset-password (GitHub #1739)
 # ---------------------------------------------------------------------------
 

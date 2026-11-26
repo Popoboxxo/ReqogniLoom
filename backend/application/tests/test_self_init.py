@@ -30,6 +30,7 @@ import sys
 from unittest.mock import patch
 
 import pytest
+from django.core.exceptions import ImproperlyConfigured
 
 from application.self_init import run_self_init
 from application.workspace_provisioning import WORKFLOW_ENTITY_TYPES
@@ -281,6 +282,64 @@ def test_run_self_init_skips_admin_creation_without_password_but_does_not_raise(
 
     assert User.objects.filter(username=DEFAULT_ADMIN_USERNAME).exists() is False
     assert Workspace.unscoped.filter(name="Demo Workspace").exists() is False
+
+
+# ---------------------------------------------------------------------------
+# Password floor (P1.1, 2026-11-25 REST/MCP review M-1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("value", "reason_fragment"),
+    [
+        ("admin", "scanner tries first"),
+        ("qwerty", "scanner tries first"),
+        ("short7!", "shorter than 8"),
+        ("changeme", "placeholder marker"),
+        ("CHANGE-ME-admin-pw", "placeholder marker"),
+    ],
+)
+def test_run_self_init_refuses_a_trivial_admin_password(
+    monkeypatch, value: str, reason_fragment: str
+):
+    """Creating a superuser with a guessable password is worse than a failed migrate.
+
+    Deliberate divergence from the "never abort post_migrate" rule documented in
+    the module docstring: a *missing* password leaves an unusable-but-safe
+    deployment (logged and skipped), a *trivial* one leaves a healthy-looking
+    deployment whose most privileged account is guessable.
+    """
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", value)
+
+    with pytest.raises(ImproperlyConfigured) as excinfo:
+        run_self_init()
+
+    message = str(excinfo.value)
+    assert "SYSTEM_ADMIN_PASSWORD" in message
+    assert reason_fragment in message
+    # Nothing was written.
+    assert User.objects.filter(username=DEFAULT_ADMIN_USERNAME).exists() is False
+    assert Workspace.unscoped.filter(name="Demo Workspace").exists() is False
+
+
+def test_trivial_password_is_ignored_once_the_admin_exists(monkeypatch):
+    """The live-deployment safety net: an existing admin makes the value unused.
+
+    Self-init always calls ``provision_admin(reset_password=False)``, so once the
+    admin exists the variable is never written — inspecting it would abort
+    ``migrate`` on every restart of a deployment that still carries a leftover
+    ``SYSTEM_ADMIN_PASSWORD=admin``. That case is reported as
+    ``reqogniloom.W012`` by the startup checks instead.
+    """
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "s3lf-init-pw-2026")
+    run_self_init()
+    admin = User.objects.get(username=DEFAULT_ADMIN_USERNAME)
+
+    monkeypatch.setenv("SYSTEM_ADMIN_PASSWORD", "admin")
+    run_self_init()  # must not raise
+
+    admin.refresh_from_db()
+    assert admin.check_password("s3lf-init-pw-2026") is True
 
 
 # ---------------------------------------------------------------------------
