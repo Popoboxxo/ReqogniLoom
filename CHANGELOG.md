@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0-beta.7] — 2026-11-26
+
+Closes the REST/MCP review remediation plan (`docs/plans/2026-11-25-rest-mcp-findings-umsetzungsplan.md`): 1 blocker, 16 major and 15 minor findings, plus the document/workflow feature work.
+
+### Added
+- feat(documents): explicit reading/editing mode — a document opens in the chaptered reading view and only switches into the editor through a read/edit toggle; the write capability is resolved server-side (`capabilities.can_write`), so the editor also closes when the role or the document-level permission is revoked on refetch
+- feat(workflow): workflow management for `Document` and `WorkItem` — both entity types now have transition endpoints, workflow state, per-entity editor scopes and their own transition types in the REST and MCP surfaces
+- feat(workflow): global workflow defaults editor (System Settings → Workflow Defaults, admin-only) plus a new `workflow_default` MCP tool group with 9 tools (list/get, state and transition add/update/delete, initialize)
+- feat(mcp): `work_item.outdate`/`work_item.reactivate` — WorkItem soft-delete and restore parity with every other artifact type; the MCP catalogue now exposes **313 tools in 50 tool-group prefixes** (was 302 in 49)
+
+### Changed
+- refactor(rest_api): one transport-neutral `Document` field map (`application/document_payload.py`) consumed by REST and MCP, so the two serialisations can no longer drift
+- REST/MCP parity: `change_reason` and `include_outdated` are the canonical soft-delete parameters; the deprecated `reason` and `include_deleted` aliases keep working — supported through `1.11.0` (inclusive), removal no earlier than `1.12.0`
+- `document.query` filters `uid` server-side instead of client-side, and MCP handler errors are logged with their transport context instead of being masked
+- refactor(frontend): `WorkflowEditorPage` split into workspace/global scopes with shared content, data and mutation hooks; duplicate `WorkflowTransitionResult` types collapsed into one
+
+### Fixed
+- fix(workflow): a create whose backing workflow state cannot be initialised is a hard failure (P2.13) — no document or work item exists without a workflow state, and the error is visible with its own code instead of a warning-only log line; `DocumentViewSet.transitions` no longer swallows exceptions
+- fix(rest_api): OpenAPI now documents every `WorkflowDefinitionViewSet` action with its real serializers and 200/400/403/404 responses (review blocker), the reading view publishes 200/403/404, `reviews` list operations carry distinct `operationId`s, and the flat baseline list route answers 400 instead of 404 when the required `?workspace_id=` is missing (#1391)
+- fix(mcp): write tools with an unresolvable target workspace return `PERMISSION_DENIED` instead of falling back to tenant roles (fail-closed), with a manifest-derived ratchet test
+- fix(workflow): the workflow-definition cache is thread-safe
+
+### Security
+- Production configuration is fail-closed: no weak default admin password, `Secure` auth cookies, `localhost` rejected in CORS/CSRF origins, API-key pepper enforced, and `scripts/setup.sh` writes generated random secrets only into the local, ignored `.env`
+- `HSTS`/`SSL-redirect`/`CSP` are real settings with documented preconditions instead of commented-out placeholders, backed by new production security checks and the `docs/runbooks/production-hardening.md` plus `secret-rotation.md` runbooks
+
 ## [1.9.0-beta.6] — 2026-11-24
 
 ### Added
