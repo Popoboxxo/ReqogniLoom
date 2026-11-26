@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- fix(hermes-plugin): classify `workflow_default.initialize` as a write, so the new global workflow-defaults tool runs behind the write gate instead of past it
+- docs(plans): link the REST/MCP review remediation plan from the plan index and refresh its version/check date (doc-index freshness gate)
+
 ## [1.9.0-beta.7] — 2026-11-26
 
 Closes the REST/MCP review remediation plan (`docs/plans/2026-11-25-rest-mcp-findings-umsetzungsplan.md`): 1 blocker, 16 major and 15 minor findings, plus the document/workflow feature work.
