@@ -204,8 +204,42 @@ def get_diagram_header(diagram_id: uuid.UUID, tenant_id: uuid.UUID) -> Diagram:
     return Diagram.objects.get(id=diagram_id, tenant_id=tenant_id)
 
 
+def _write_delete_audit(diagram: Diagram, ctx: AuthContext, change_reason: str) -> None:
+    """Record the diagram soft-delete on the audit trail (REQ-L2-AS-019, P1.10).
+
+    Mirrors ``application.base.ServiceBase._audit`` — the writer every domain
+    ``delete_*`` service uses — because ``delete_diagram`` is a module-level
+    function with no service base to inherit from: same actor-type
+    normalisation (defensive against test doubles), same MCP ``client_name``
+    enrichment for an agent caller, and the caller's ``change_reason`` on the
+    entry's own column so an auditor sees the same value for the REST and MCP
+    deletions.
+    """
+    from audit.services import log_write
+
+    actor_type = ctx.actor_type if ctx.actor_type in ("user", "agent") else "user"
+    details = None
+    if actor_type == "agent" and ctx.agent_label:
+        details = {"client_name": ctx.agent_label}
+    log_write(
+        actor=str(ctx.user_id),
+        actor_type=actor_type,
+        operation="delete",
+        entity_type="Diagram",
+        entity_id=diagram.id,
+        change_reason=change_reason or None,
+        details=details,
+    )
+
+
 @atomic_transaction
-def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID, ctx: AuthContext) -> None:
+def delete_diagram(
+    diagram_id: uuid.UUID,
+    tenant_id: uuid.UUID,
+    ctx: AuthContext,
+    *,
+    change_reason: str = "",
+) -> None:
     """Soft-delete a tenant-scoped Diagram via the workflow engine's outdate()
     (REQ-066, REQ-006/Phase 0).
 
@@ -227,11 +261,20 @@ def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID, ctx: AuthContext
     refs — see ``sync_node_links`` docstring). ``@atomic_transaction`` wraps
     the whole function so both steps commit or roll back together.
 
+    P1.10: the resolved soft-delete reason is recorded on the ``AuditEntry``
+    this function writes (REQ-L2-AS-019) — ``outdate()`` itself ignores its
+    ``reason`` argument since Phase 4, so before this the MCP ``diagram.outdate``
+    had no DOMAIN audit entry carrying the caller's reason. The keyword-only
+    default keeps every existing caller (the REST ``destroy`` action passes
+    positionally) unchanged.
+
     Args:
         diagram_id: UUID of the Diagram to delete.
         tenant_id:  Active tenant primary key (isolation boundary).
         ctx:        Resolved AuthContext of the caller (REQ-165/REQ-167: the
             WorkflowEngine is the sole authority for the transition).
+        change_reason: Optional justification from the request; stored on the
+            audit entry.
 
     Raises:
         Diagram.DoesNotExist: If no diagram with the given id exists for the
@@ -247,8 +290,9 @@ def delete_diagram(diagram_id: uuid.UUID, tenant_id: uuid.UUID, ctx: AuthContext
         item_type="Diagram",
         workspace_id=diagram.workspace_id,
         ctx=ctx,
-        reason="deleted via diagram delete",
+        reason=change_reason or "deleted via diagram delete",
     )
+    _write_delete_audit(diagram, ctx, change_reason)
     sync_node_links(diagram, {"nodes": [], "edges": []}, created_by_id=ctx.user_id)
 
     # Plan A, T-A2-4: index hook. A soft delete leaves the row in place, so the

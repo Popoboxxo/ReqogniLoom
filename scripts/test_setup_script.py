@@ -180,6 +180,52 @@ def test_backup_lands_outside_repo_with_mode_600(tmp_path: Path) -> None:
     assert not list(tmp_path.glob(".env.bak*"))
 
 
+def test_whitespace_only_and_placeholder_values_are_actually_replaced(
+    tmp_path: Path,
+) -> None:
+    """P1.1/P1.3: ``KEY=   `` is generated, not merely reported.
+
+    The detection loop accepts a whitespace-only value as "empty", so the
+    rewrite branch must accept exactly the same set. A previous revision matched
+    only the bare ``KEY=`` form: the run printed ``generated: API_KEY_PEPPER``
+    while the whitespace stayed in the file — a blank pepper that the production
+    check (``reqogniloom.E001``) would reject anyway. The 100-hex assertion is
+    what separates "really generated" from "reported as generated".
+    """
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "API_KEY_PEPPER=   \n"
+        "SYSTEM_ADMIN_PASSWORD=CHANGE-ME-strong-admin-password\n"
+        "IMPORT_FINGERPRINT_SECRET=operator-set-value-kept-verbatim\n"
+    )
+
+    result = run_setup("--env-file", str(env_file), state_home=tmp_path / "state")
+
+    assert result.returncode == 0, result.stderr
+    text = env_file.read_text()
+
+    # Whitespace-only -> a real `openssl rand -hex 50` value (the pepper branch
+    # of `new_secret`), never the leftover blanks.
+    pepper = _value(text, "API_KEY_PEPPER")
+    assert re.fullmatch(r"[0-9a-f]{100}", pepper), pepper
+    assert "generated: API_KEY_PEPPER" in result.stdout
+    assert pepper not in result.stdout  # values are never echoed
+
+    # A CHANGE-ME placeholder is replaced by a real password, not left alone.
+    admin = _value(text, "SYSTEM_ADMIN_PASSWORD")
+    assert admin
+    assert not admin.startswith("CHANGE-ME"), admin
+    assert not re.search(r"[/+=]", admin)
+    assert "generated: SYSTEM_ADMIN_PASSWORD" in result.stdout
+
+    # An operator-set value is not a target: it keeps its exact bytes.
+    assert (
+        _value(text, "IMPORT_FINGERPRINT_SECRET")
+        == "operator-set-value-kept-verbatim"
+    )
+    assert "generated: IMPORT_FINGERPRINT_SECRET" not in result.stdout
+
+
 def test_env_file_inside_checkout_must_be_git_ignored(tmp_path: Path) -> None:
     repo = tmp_path / "checkout"
     (repo / "scripts").mkdir(parents=True)

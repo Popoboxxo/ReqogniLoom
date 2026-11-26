@@ -216,7 +216,6 @@ from rest_api.preset_guard import PresetError, PresetGateMixin
 from rest_api.query_params import (
     parse_bool_param,
     parse_change_reason,
-    parse_include_deleted,
     parse_int_param,
     parse_uuid_param,
     parse_workspace_id,
@@ -1302,11 +1301,11 @@ class _BaselineAutoSchema(ReqLoAutoSchema):
 
     ``BaselineViewSet.list`` serves the flat ``/api/v1/baselines/`` route *and*
     the nested ``/api/v1/workspaces/{workspace_pk}/baselines/`` route (issue
-    #49). Only the flat one needs ``?workspace_id=`` — without it the preset
-    gate falls back to the tenant id and answers 404 in every preset — while
-    the nested route takes the workspace from its path and ignores the query
-    value. The parameter is declared once on the handler, so the nested
-    operation must not publish it as a requirement it does not have.
+    #49). Only the flat one needs ``?workspace_id=`` — it is a required query
+    parameter there and the route answers ``400`` without it (#1391) — while the
+    nested route takes the workspace from its path and ignores the query value.
+    The parameter is declared once on the handler, so the nested operation must
+    not publish it as a requirement it does not have.
 
     A drf-spectacular ``AutoSchema`` sees ``self.path``/``self.method`` (set in
     ``get_operation`` before the parameters are assembled), which is the only
@@ -1350,35 +1349,102 @@ class _BaselineAutoSchema(ReqLoAutoSchema):
 # response instead of the generic "Resource not found." blanket the
 # postprocessing hook injects: a generated client can now see that a 404 here
 # is a *visibility* answer, not a missing-row answer. Status, error code and
-# envelope shape are shared by all three causes on purpose — see
+# envelope shape are shared by all causes on purpose — see
 # ``rest_api/not_found.py`` — but the ``message`` is not identical, and the
 # description below says so rather than claiming non-disclosure.
-_BASELINE_PRESET_404 = OpenApiResponse(
+#
+# #1391: the flat ``list`` route validates ``?workspace_id=`` *before* the gate,
+# so "parameter omitted" stopped being a 404 cause there (it is a 400 now) and
+# the list operation must not keep claiming it. One builder keeps the shared
+# sentences of the two variants in one place instead of three drifting copies.
+_BASELINE_404_INTRO = (
+    "Not found — the causes below answer with the same 404 status, the same "
+    "``NOT_FOUND`` error code and the same envelope shape, but not the same "
+    "``message``."
+)
+_BASELINE_404_PRESET_CAUSE = (
+    "(1) **Preset gate**: baselines are only available where the workspace's "
+    "active rigor preset enables the feature key ``baselines``; under the "
+    "``minimal`` preset the endpoint does not exist and answers 404 without "
+    "revealing whether the resource would have."
+)
+_BASELINE_404_CONCLUSION = (
+    "Causes (1) and (2) share the generic route-miss message (\"The requested "
+    "API endpoint does not exist.\"), so they are indistinguishable from each "
+    "other and from an unknown route. Practical consequence: a 404 here means "
+    "**not available here**, never \"does not exist\" — the same baseline id "
+    "can answer 404 under one preset, workspace or tenant and resolve under "
+    "another. Do not treat this response as proof of absence, and do not rely "
+    "on the message being byte-identical across the causes."
+)
+
+
+def _baseline_404_description(*, kind: str) -> str:
+    """One source for the baseline 404 descriptions (#1380, #1391).
+
+    ``kind`` selects the workspace cause the operation really has:
+
+    * ``"list"`` — the flat collection route. It validates ``?workspace_id=``
+      *before* the preset gate, so a missing or malformed parameter is a
+      ``400`` and no longer a 404 cause.
+    * ``"create"`` — ``POST`` still gates before the serializer runs, so an
+      omitted body ``workspace_id`` reaches the tenant-id fallback and 404s.
+    * ``"detail"`` — the detail route resolves the baseline first and gates on
+      its workspace; it adds the unknown-baseline cause.
+    """
+    if kind == "list":
+        workspace_cause = (
+            "(2) **Workspace missing or not visible**: the ``?workspace_id=`` "
+            "value is a well-formed UUID that names no workspace, or one "
+            "outside the caller's tenant. An **omitted or malformed** parameter "
+            "is not this cause — the flat route validates it before the gate "
+            "and answers ``400 VALIDATION_ERROR`` instead."
+        )
+    elif kind == "create":
+        workspace_cause = (
+            "(2) **Workspace missing or not visible**: the workspace is "
+            "unknown, or outside the caller's tenant. On ``create`` this also "
+            "covers an omitted or empty ``workspace_id``, because the gate then "
+            "falls back to the caller's *tenant* id, which resolves to no "
+            "workspace and therefore to 404."
+        )
+    elif kind == "detail":
+        workspace_cause = (
+            "(2) **Workspace not visible**: the baseline's workspace is unknown "
+            "to the caller, or outside the caller's tenant."
+        )
+    else:  # pragma: no cover - programming error, not a caller path
+        raise ValueError(f"unknown baseline 404 kind: {kind!r}")
+    causes = f"{_BASELINE_404_PRESET_CAUSE} {workspace_cause}"
+    if kind == "detail":
+        causes += (
+            " (3) **Baseline unknown**: the requested baseline id does not "
+            "exist, or belongs to another tenant; this cause keeps the same "
+            "envelope but its message is \"Baseline not found\" "
+            "(``_service_error_response`` forwarding ``BaselineNotFoundError``), "
+            "so it is distinguishable from (1)/(2)."
+        )
+    return f"{_BASELINE_404_INTRO} {causes} {_BASELINE_404_CONCLUSION}"
+
+
+#: 404 of every operation that addresses one baseline by id (F-8: the name used
+#: to be ``_BASELINE_PRESET_404``, which described a preset gate instead of the
+#: ``kind="detail"`` cause set it actually carries).
+_BASELINE_DETAIL_404 = OpenApiResponse(
     response=ErrorResponseSerializer,
-    description=(
-        "Not found — three causes answer with the same 404 status, the same "
-        "``NOT_FOUND`` error code and the same envelope shape, but not the same "
-        "``message``. (1) **Preset gate**: baselines are only available where "
-        "the workspace's active rigor preset enables the feature key "
-        "``baselines``; under the ``minimal`` preset the endpoint does not exist "
-        "and answers 404 without revealing whether the resource would have. "
-        "(2) **Workspace missing or not visible**: the workspace is unknown, or "
-        "outside the caller's tenant. On ``list`` and ``create`` this also "
-        "covers an omitted or empty ``workspace_id``, because the gate then "
-        "falls back to the caller's *tenant* id, which resolves to no workspace "
-        "and therefore to 404. Causes (1) and (2) share the generic route-miss "
-        "message (\"The requested API endpoint does not exist.\"), so they are "
-        "indistinguishable from each other and from an unknown route. (3) "
-        "**Baseline unknown**: the requested baseline id does not exist, or "
-        "belongs to another tenant; this cause keeps the same envelope but its "
-        "message is \"Baseline not found\" (``_service_error_response`` "
-        "forwarding ``BaselineNotFoundError``), so it is distinguishable from "
-        "(1)/(2). Practical consequence: a 404 here means **not available "
-        "here**, never \"does not exist\" — the same baseline id can answer 404 "
-        "under one preset, workspace or tenant and resolve under another. Do "
-        "not treat this response as proof of absence, and do not rely on the "
-        "message being byte-identical across the three causes."
-    ),
+    description=_baseline_404_description(kind="detail"),
+)
+
+#: ``POST /api/v1/baselines/`` has no "baseline unknown" cause — it creates one.
+_BASELINE_CREATE_404 = OpenApiResponse(
+    response=ErrorResponseSerializer,
+    description=_baseline_404_description(kind="create"),
+)
+
+#: #1391: ``GET /api/v1/baselines/`` answers a 404 for exactly two causes now.
+_BASELINE_LIST_404 = OpenApiResponse(
+    response=ErrorResponseSerializer,
+    description=_baseline_404_description(kind="list"),
 )
 
 
@@ -1405,6 +1471,17 @@ _BASELINE_TAG_PARAMETER = OpenApiParameter(
 )
 
 
+# #1391: message for the flat route's required query parameter. Deliberately
+# self-explanatory — the old behaviour reported this client defect as the
+# gate's opaque 404, which told a caller nothing it could act on. It names both
+# remediations and never echoes a caller-supplied value (the missing-parameter
+# branch has none, and the malformed branch is served by ``parse_workspace_id``,
+# which does not reflect the value either).
+_BASELINE_FLAT_WORKSPACE_ID_REQUIRED = (
+    "workspace_id is required on the flat /api/v1/baselines/ route — supply "
+    "?workspace_id=<uuid> or use /api/v1/workspaces/<workspace_id>/baselines/."
+)
+
 _BASELINE_WORKSPACE_ID_PARAMETER = OpenApiParameter(
     name="workspace_id",
     type=OpenApiTypes.UUID,
@@ -1412,11 +1489,14 @@ _BASELINE_WORKSPACE_ID_PARAMETER = OpenApiParameter(
     required=True,
     description=(
         "Workspace whose baselines to list. **Required** on this flat route: "
-        "omitted (or empty), the preset gate falls back to the caller's tenant "
-        "id, resolves no workspace, and answers 404 in every preset. The value "
-        "must belong to the caller's tenant; a foreign id also answers 404. Use "
-        "``/api/v1/workspaces/{workspace_pk}/baselines/`` to supply the "
-        "workspace in the path instead."
+        "omitted (or empty), the route answers ``400 VALIDATION_ERROR`` with a "
+        "message that says so; a value that is not a UUID answers ``400`` with "
+        "``workspace_id must be a valid UUID``. Validation runs before the "
+        "preset gate, so a client defect is never reported as a 404. The "
+        "workspace itself must belong to the caller's tenant — a foreign or "
+        "unknown id (and a preset that does not enable ``baselines``) answers "
+        "``404``. Use ``/api/v1/workspaces/{workspace_pk}/baselines/`` to "
+        "supply the workspace in the path instead."
     ),
 )
 
@@ -1570,13 +1650,22 @@ class BaselineViewSet(BaseEntityViewSet):
             400: OpenApiResponse(
                 response=ErrorResponseSerializer,
                 description=(
-                    "``VALIDATION_ERROR`` — the ``tag`` filter is not a string, "
+                    "``VALIDATION_ERROR`` — a client-side parameter defect, "
+                    "answered before the preset gate so it is never masked as "
+                    "the gate's opaque 404 (#1391). Causes: (1) on the flat "
+                    "route ``?workspace_id=`` is omitted or blank — the message "
+                    "says it is required there and points to "
+                    "``?workspace_id=<uuid>`` / "
+                    "``/api/v1/workspaces/<id>/baselines/``; (2) "
+                    "``?workspace_id=`` is not a well-formed UUID — the message "
+                    "is ``workspace_id must be a valid UUID`` and does not echo "
+                    "the supplied value; (3) ``?tag=`` is not a string, "
                     "contains a control character or is longer than 64 "
-                    "characters. ``details`` carries the rejected value with "
-                    "the reason (F4.2, review B2)."
+                    "characters (F4.2, review B2), with ``details`` carrying "
+                    "the rejected value and the reason."
                 ),
             ),
-            404: _BASELINE_PRESET_404,
+            404: _BASELINE_LIST_404,
         },
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
@@ -1597,22 +1686,55 @@ class BaselineViewSet(BaseEntityViewSet):
         active rigor preset enables the ``baselines`` feature. Under the
         ``minimal`` preset it answers **404** — the same opaque body as an
         unknown workspace or a missing route — without exposing whether the
-        baseline would have existed. The flat route also **requires**
-        ``?workspace_id=``: without it the gate falls back to the caller's
-        tenant id, resolves no workspace, and answers 404 in *every* preset.
+        baseline would have existed.
+
+        Parameter validation vs. gate (#1391, flat route only): the flat route
+        **requires** ``?workspace_id=``. A missing/blank value answers
+        ``400 VALIDATION_ERROR`` with a message naming the flat route and the
+        nested alternative; a malformed value answers ``400`` with the shared
+        ``workspace_id must be a valid UUID`` wording. Both run *before* the
+        preset gate, so a client defect is never reported as the gate's opaque
+        404. A *well-formed but foreign/unknown* workspace and a
+        *preset-disabled* workspace keep answering **404** — turning those into
+        400 would recreate the existence oracle #1380 closed. The nested route
+        (``workspace_pk`` path kwarg) keeps its order unchanged: the gate runs
+        first, on the path value.
+
+        Not in scope of this change: the create route's pre-serializer gate.
+        ``POST`` still answers 404 for an omitted ``workspace_id`` — #1391
+        covers the list route only.
         """
-        workspace_id_str = kwargs.get("workspace_pk") or request.query_params.get("workspace_id")
-        # The preset gate deliberately still runs on the raw value and before
-        # validation: it decides whether this endpoint exists for the caller's
-        # workspace at all, and reordering it would change which of two
-        # simultaneous errors a caller is shown.
-        self._check_preset(request, workspace_id=workspace_id_str)
         lang = detect_lang(request)
-        try:
-            ctx = get_auth_context(request)
+        workspace_pk = kwargs.get("workspace_pk")
+        workspace_id_str = workspace_pk or request.query_params.get("workspace_id")
+        # #1391: validate the flat route's required query parameter *before*
+        # the preset gate. The nested route is untouched: its workspace comes
+        # from the path, so there is nothing to validate and the historical
+        # gate-first order stays exactly as it was.
+        workspace_id: UUID | None = None
+        if not workspace_pk:
+            if workspace_id_str is None or not str(workspace_id_str).strip():
+                return Response(
+                    build_error_response(
+                        "VALIDATION_ERROR",
+                        lang,
+                        message=_BASELINE_FLAT_WORKSPACE_ID_REQUIRED,
+                    ),
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             workspace_id, error = parse_workspace_id(workspace_id_str, lang)
             if error is not None:
                 return error
+        # The gate still decides visibility for every route: a preset that does
+        # not enable ``baselines`` and a foreign/unknown workspace keep answering
+        # the opaque 404 (#1380).
+        self._check_preset(request, workspace_id=workspace_id_str)
+        try:
+            ctx = get_auth_context(request)
+            if workspace_id is None:
+                workspace_id, error = parse_workspace_id(workspace_id_str, lang)
+                if error is not None:
+                    return error
             items = self._svc().list_baselines(
                 workspace_id=str(workspace_id),
                 ctx=ctx,
@@ -1643,7 +1765,7 @@ class BaselineViewSet(BaseEntityViewSet):
         parameters=[_ETAG_RESPONSE_HEADER],
         responses={
             200: BaselineSerializer,
-            404: _BASELINE_PRESET_404,
+            404: _BASELINE_DETAIL_404,
         }
     )
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -1683,7 +1805,7 @@ class BaselineViewSet(BaseEntityViewSet):
         parameters=[_ETAG_RESPONSE_HEADER],
         responses={
             201: BaselineSerializer,
-            404: _BASELINE_PRESET_404,
+            404: _BASELINE_CREATE_404,
         }
     )
     def create(self, request: Request, **kwargs: Any) -> Response:
@@ -1854,7 +1976,7 @@ class BaselineViewSet(BaseEntityViewSet):
                     "here as well."
                 ),
             ),
-            404: _BASELINE_PRESET_404,
+            404: _BASELINE_DETAIL_404,
         },
     )
     @action(detail=True, methods=["put"], url_path="tags")
@@ -1970,7 +2092,7 @@ class BaselineViewSet(BaseEntityViewSet):
                     "excludes it (SEC-RB-01)."
                 ),
             ),
-            404: _BASELINE_PRESET_404,
+            404: _BASELINE_DETAIL_404,
         },
     )
     @action(detail=True, methods=["get"], url_path="rollback-preview")
@@ -2022,7 +2144,7 @@ class BaselineViewSet(BaseEntityViewSet):
                     "excludes it (SEC-RB-01)."
                 ),
             ),
-            404: _BASELINE_PRESET_404,
+            404: _BASELINE_DETAIL_404,
         },
     )
     @action(detail=True, methods=["post"], url_path="rollback-request")
@@ -2105,7 +2227,7 @@ class BaselineViewSet(BaseEntityViewSet):
                     "principal is an agent (executing is human-only, R7/R8)."
                 ),
             ),
-            404: _BASELINE_PRESET_404,
+            404: _BASELINE_DETAIL_404,
             409: OpenApiResponse(
                 response=ErrorResponseSerializer,
                 description=(

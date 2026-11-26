@@ -40,7 +40,10 @@ import { DOCUMENT_KINDS } from "../../types";
 import type { DocumentKind } from "../../types";
 import type { DocumentUpdatePayload } from "../../api/documents";
 import { DocumentList } from "./DocumentList";
-import { DocumentReadingView } from "./DocumentReadingView";
+import {
+  DocumentReadingView,
+  type DocumentPresentationMode,
+} from "./DocumentReadingView";
 import { DocumentForm } from "./DocumentForm";
 import styles from "./Documents.module.css";
 
@@ -88,6 +91,7 @@ export default function Documents(): JSX.Element {
   );
   const detailQuery = useDocument(selectedId);
   const readingQuery = useDocumentReading(selectedId, workspaceId);
+  const serverCanWrite = readingQuery.data?.capabilities.can_write;
 
   const createMutation = useCreateDocument(workspaceId, includeDeleted);
   const updateMutation = useUpdateDocument(workspaceId, includeDeleted);
@@ -95,6 +99,8 @@ export default function Documents(): JSX.Element {
   const reactivateMutation = useReactivateDocument(workspaceId, includeDeleted);
 
   const [isEditing, setIsEditing] = useState(false);
+  const [presentationMode, setPresentationMode] =
+    useState<DocumentPresentationMode>("read");
   const [actionError, setActionError] = useState<string | null>(null);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -108,11 +114,28 @@ export default function Documents(): JSX.Element {
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // A route change replaces the edited entity; an open editor must not keep
-  // the previous document's draft fields.
+  // the previous document's draft fields. Every document starts in read mode.
   useEffect(() => {
     setIsEditing(false);
+    setPresentationMode("read");
     setActionError(null);
   }, [selectedId]);
+
+  // Losing write access must also close an editor that was opened while the
+  // caller still had the role.
+  useEffect(() => {
+    if (canWrite) return;
+    setIsEditing(false);
+    setPresentationMode("read");
+  }, [canWrite]);
+
+  // The role can stay unchanged while a refetch revokes this document's
+  // server-side write capability (for example after an external-source change).
+  useEffect(() => {
+    if (serverCanWrite !== false) return;
+    setIsEditing(false);
+    setPresentationMode("read");
+  }, [serverCanWrite]);
 
   const refreshAll = useCallback((): void => {
     void queryClient.invalidateQueries({ queryKey: documentKeys.all });
@@ -295,23 +318,55 @@ export default function Documents(): JSX.Element {
       );
     }
     return (
-      <DocumentReadingView
-        document={document}
-        reading={reading}
-        onEdit={() => setIsEditing(true)}
-        workspaceId={workspaceId}
-        onDelete={() => {
-          setDeleteReason("");
-          setDeleteError(null);
-          setDeleteOpen(true);
-        }}
-        onReactivate={reactivate}
-        onTransitionComplete={refreshAll}
-        actionError={actionError}
-        onReload={() => {
-          void readingQuery.refetch();
-        }}
-      />
+      <>
+        {canWrite && reading.capabilities.can_write && (
+          <div className={styles.actions}>
+            <div
+              className={styles.modeToggle}
+              role="group"
+              aria-label={t("documents.modeLabel")}
+              data-testid="document-mode-toggle"
+            >
+              <button
+                type="button"
+                className="btn-ghost"
+                data-testid="document-mode-read"
+                aria-pressed={presentationMode === "read"}
+                onClick={() => setPresentationMode("read")}
+              >
+                {t("documents.readMode")}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                data-testid="document-mode-edit"
+                aria-pressed={presentationMode === "edit"}
+                onClick={() => setPresentationMode("edit")}
+              >
+                {t("documents.editMode")}
+              </button>
+            </div>
+          </div>
+        )}
+        <DocumentReadingView
+          document={document}
+          reading={reading}
+          presentationMode={presentationMode}
+          onEdit={() => setIsEditing(true)}
+          workspaceId={workspaceId}
+          onDelete={() => {
+            setDeleteReason("");
+            setDeleteError(null);
+            setDeleteOpen(true);
+          }}
+          onReactivate={reactivate}
+          onTransitionComplete={refreshAll}
+          actionError={actionError}
+          onReload={() => {
+            void readingQuery.refetch();
+          }}
+        />
+      </>
     );
   })();
 

@@ -23,10 +23,10 @@ generated OpenAPI at `GET /api/schema/` and `/api/schema/swagger-ui/`
 
 | Figure | Value |
 |--------|-------|
-| Tools | **302** |
-| Tool-group prefixes | **49** |
-| Version | `v1.9.0-beta.6` (`VERSION`, `1.9.0-beta.6`; vermessener Code-Checkout: `1.9.0-beta.6`, der `VERSION`-Datei-Stand dieses Checkouts) — the `saved_view` group (`saved_view.list`/`saved_view.apply`, the 49th prefix, slice 3 of the Tabellenansicht plan) is the newest tool-surface change, preceded by the `tool` group (`tool.list_groups` — the 48th prefix, MCP-Modernisierung Phase D), which was preceded by `artifact.bulk_update` (R3.2) and `artifact.bulk_transition` ([#1872](https://github.com/Popoboxxo/ReqogniLoom/issues/1872)), neither adding a prefix; before them the `summary` group (`summary.get`/`summary.refresh` — the 47th prefix, issue [#1793](https://github.com/Popoboxxo/ReqogniLoom/issues/1793), S6) was the newest; before it the `allocation` group (`allocation.query` — the 45th prefix) and the `group` group (`group.create`/`list`/`members`/`add_member`/`remove_member`/`move_member` — the 46th prefix) are the newest tool-surface change; before them the `milestone` group (Plan B B6-T2 / #879: `milestone.create`/`get`/`list`/`update`/`bind_baseline`/`record_audit` — the 44th prefix) was the newest; before it the `work_item` group (Plan F F3-T6 / #1374: `work_item.create`/`read`/`query`/`update`/`transition`/`set_progress`/`checkpoint`/`resume` — the 43rd prefix) was the newest; before that the `document` group (Plan F F2-T6 / ADR-026: `document.create`/`read`/`query`/`update`/`transition`/`versions`/`diff`/`outdate`/`reactivate` — the 42nd prefix) was the newest; before that `memory.session_summaries` (Plan A T-A4-5) was the newest; before it the three baseline-rollback tools (`baseline.rollback_preview`/`rollback_request`/`rollback_apply`, Plan F F4.4) were; before them the baseline tag tool `baseline.set_tags` (Plan F F4.2) was; before it the Q1 three-level preference group `preference` (`preference.registry`/`preference.get`/`preference.set`/`preference.set_default`, Plan C T-C2-4) is the newest tool-surface change; before it the create-dialog form-definition group `create_form_definition` (`create_form_definition.get`/`create_form_definition.set`/`create_form_definition.export`/`create_form_definition.import`, [#1263](https://github.com/Popoboxxo/ReqogniLoom/issues/1263)); before that the navigation-tree configuration group `tree_display_config` (`tree_display_config.get`/`tree_display_config.set`, [#1257](https://github.com/Popoboxxo/ReqogniLoom/issues/1257)); before that the central statistics group `metrics` (`metrics.catalog`/`metrics.get`, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)); the ADR-019 WP3 `suggestion` group (`suggestion.list`/`suggestion.accept`/`suggestion.reject`) and `traceability.suggest_links` becoming a write tool preceded it; `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)), `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)), `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) and `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) preceded them; `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) preceded those. The **259** figure on top of all of that adds the session-summaries read (`memory.session_summaries`, Plan A T-A4-5), the advisory quality-assessment group (`quality.assess`, `quality.query`, Plan B B5-T3, [#378](https://github.com/Popoboxxo/ReqogniLoom/issues/378)), the Q1 three-level preference group (`preference.registry`/`preference.get`/`preference.set`/`preference.set_default`, Plan C T-C2-4), the navigation-tree display configuration (`tree_display_config.get`, `tree_display_config.set`, [#1257](https://github.com/Popoboxxo/ReqogniLoom/issues/1257)), the central statistics tools (`metrics.catalog`, `metrics.get`, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)), the structured acceptance-criteria tools (`requirement.acceptance_criteria.get`/`set`/`check`, `requirement.suggest_level`, [#1288](https://github.com/Popoboxxo/ReqogniLoom/issues/1288)) the memory administration surface (`memory.admin`, [#1290](https://github.com/Popoboxxo/ReqogniLoom/issues/1290)/[#1301](https://github.com/Popoboxxo/ReqogniLoom/issues/1301)/[#1302](https://github.com/Popoboxxo/ReqogniLoom/issues/1302)) the baseline tag tool (`baseline.set_tags`, Plan F F4.2) and the additive-rollback trio (`baseline.rollback_preview`/`rollback_request`/`rollback_apply`, Plan F F4.4) |
-| Measured at | the `1.9.0-beta.6` tool surface (code checkout `1.9.0-beta.6`) plus the `saved_view` group (`saved_view.list`/`saved_view.apply`, 2 tools, the 49th prefix, slice 3 of the Tabellenansicht plan), the `tool` group (`tool.list_groups`, one tool, the 48th prefix, phase D of the modernisation plan), `artifact.bulk_transition` ([#1872](https://github.com/Popoboxxo/ReqogniLoom/issues/1872), one tool) and `artifact.bulk_update` (R3.2, one tool — neither adds a prefix), plus the `summary` group (`summary.get`/`summary.refresh`, 2 tools, the 47th prefix, issue [#1793](https://github.com/Popoboxxo/ReqogniLoom/issues/1793), S6), the `allocation` group (`allocation.query`, 1 tool, the 45th prefix) and the `group` group (`group.create`/`list`/`members`/`add_member`/`remove_member`/`move_member`, 6 tools, the 46th prefix), plus the `milestone` group (Plan B B6-T2 / #879, 6 tools, the 44th prefix), plus the `work_item` group (Plan F F3-T6 / #1374, 8 tools, the 43rd prefix), plus the `document` group (Plan F F2-T6 / ADR-026, 9 tools, the 42nd prefix), plus the create-dialog form-definition group (`create_form_definition.get`/`create_form_definition.set`/`create_form_definition.export`/`create_form_definition.import`, [#1263](https://github.com/Popoboxxo/ReqogniLoom/issues/1263)), the navigation-tree configuration group (`tree_display_config.get`/`tree_display_config.set`, [#1257](https://github.com/Popoboxxo/ReqogniLoom/issues/1257)), the central statistics group (`metrics.catalog`/`metrics.get`, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)): ADR-019 WP3 (`suggestion` group, `traceability.suggest_links` write), the structured acceptance-criteria field type (#1288) the memory administration surface (#1290/#1301/#1302), the baseline tag tool `baseline.set_tags` (Plan F F4.2), the additive-rollback trio (`baseline.rollback_preview`/`rollback_request`/`rollback_apply`, Plan F F4.4) and the session-summaries read (`memory.session_summaries`, Plan A T-A4-5) |
+| Tools | **313** |
+| Tool-group prefixes | **50** |
+| Version | `v1.9.0-beta.7` (`VERSION`, `1.9.0-beta.7`; vermessener Code-Checkout: `1.9.0-beta.7`, der `VERSION`-Datei-Stand dieses Checkouts) — the `workflow_default` group (`workflow_default.list`/`get` plus the seven graph mutations — the 50th prefix, P1.8/M-11: the tenant-wide workflow defaults on the same facade REST serves) is the newest tool-surface change, preceded by the `saved_view` group (`saved_view.list`/`saved_view.apply`, the 49th prefix, slice 3 of the Tabellenansicht plan), which was preceded by the `tool` group (`tool.list_groups` — the 48th prefix, MCP-Modernisierung Phase D), which was preceded by `artifact.bulk_update` (R3.2) and `artifact.bulk_transition` ([#1872](https://github.com/Popoboxxo/ReqogniLoom/issues/1872)), neither adding a prefix; before them the `summary` group (`summary.get`/`summary.refresh` — the 47th prefix, issue [#1793](https://github.com/Popoboxxo/ReqogniLoom/issues/1793), S6) was the newest; before it the `allocation` group (`allocation.query` — the 45th prefix) and the `group` group (`group.create`/`list`/`members`/`add_member`/`remove_member`/`move_member` — the 46th prefix) are the newest tool-surface change; before them the `milestone` group (Plan B B6-T2 / #879: `milestone.create`/`get`/`list`/`update`/`bind_baseline`/`record_audit` — the 44th prefix) was the newest; before it the `work_item` group (Plan F F3-T6 / #1374: `work_item.create`/`read`/`query`/`update`/`transition`/`set_progress`/`checkpoint`/`resume` — the 43rd prefix) was the newest; before that the `document` group (Plan F F2-T6 / ADR-026: `document.create`/`read`/`query`/`update`/`transition`/`versions`/`diff`/`outdate`/`reactivate` — the 42nd prefix) was the newest; before that `memory.session_summaries` (Plan A T-A4-5) was the newest; before it the three baseline-rollback tools (`baseline.rollback_preview`/`rollback_request`/`rollback_apply`, Plan F F4.4) were; before them the baseline tag tool `baseline.set_tags` (Plan F F4.2) was; before it the Q1 three-level preference group `preference` (`preference.registry`/`preference.get`/`preference.set`/`preference.set_default`, Plan C T-C2-4) is the newest tool-surface change; before it the create-dialog form-definition group `create_form_definition` (`create_form_definition.get`/`create_form_definition.set`/`create_form_definition.export`/`create_form_definition.import`, [#1263](https://github.com/Popoboxxo/ReqogniLoom/issues/1263)); before that the navigation-tree configuration group `tree_display_config` (`tree_display_config.get`/`tree_display_config.set`, [#1257](https://github.com/Popoboxxo/ReqogniLoom/issues/1257)); before that the central statistics group `metrics` (`metrics.catalog`/`metrics.get`, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)); the ADR-019 WP3 `suggestion` group (`suggestion.list`/`suggestion.accept`/`suggestion.reject`) and `traceability.suggest_links` becoming a write tool preceded it; `interview.chat` ([#1164](https://github.com/Popoboxxo/ReqogniLoom/issues/1164)), `traceability.query_links` ([#1098](https://github.com/Popoboxxo/ReqogniLoom/issues/1098)), `main_goal.query` ([#1097](https://github.com/Popoboxxo/ReqogniLoom/issues/1097)) and `traceability.suggest_links_status` ([#1197](https://github.com/Popoboxxo/ReqogniLoom/issues/1197)) preceded them; `memory.ask` (REQ-192, [#1154](https://github.com/Popoboxxo/ReqogniLoom/issues/1154)) preceded those. The **259** figure on top of all of that adds the session-summaries read (`memory.session_summaries`, Plan A T-A4-5), the advisory quality-assessment group (`quality.assess`, `quality.query`, Plan B B5-T3, [#378](https://github.com/Popoboxxo/ReqogniLoom/issues/378)), the Q1 three-level preference group (`preference.registry`/`preference.get`/`preference.set`/`preference.set_default`, Plan C T-C2-4), the navigation-tree display configuration (`tree_display_config.get`, `tree_display_config.set`, [#1257](https://github.com/Popoboxxo/ReqogniLoom/issues/1257)), the central statistics tools (`metrics.catalog`, `metrics.get`, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)), the structured acceptance-criteria tools (`requirement.acceptance_criteria.get`/`set`/`check`, `requirement.suggest_level`, [#1288](https://github.com/Popoboxxo/ReqogniLoom/issues/1288)) the memory administration surface (`memory.admin`, [#1290](https://github.com/Popoboxxo/ReqogniLoom/issues/1290)/[#1301](https://github.com/Popoboxxo/ReqogniLoom/issues/1301)/[#1302](https://github.com/Popoboxxo/ReqogniLoom/issues/1302)) the baseline tag tool (`baseline.set_tags`, Plan F F4.2) and the additive-rollback trio (`baseline.rollback_preview`/`rollback_request`/`rollback_apply`, Plan F F4.4) |
+| Measured at | the `1.9.0-beta.7` tool surface (code checkout `1.9.0-beta.7`) plus the `work_item` soft-delete pair (P2.8: `work_item.outdate`/`work_item.reactivate`, 2 tools, no new prefix), the `workflow_default` group (`workflow_default.list`/`get` plus the seven graph mutations, 9 tools, the 50th prefix, P1.8/M-11), the `saved_view` group (`saved_view.list`/`saved_view.apply`, 2 tools, the 49th prefix, slice 3 of the Tabellenansicht plan), the `tool` group (`tool.list_groups`, one tool, the 48th prefix, phase D of the modernisation plan), `artifact.bulk_transition` ([#1872](https://github.com/Popoboxxo/ReqogniLoom/issues/1872), one tool) and `artifact.bulk_update` (R3.2, one tool — neither adds a prefix), plus the `summary` group (`summary.get`/`summary.refresh`, 2 tools, the 47th prefix, issue [#1793](https://github.com/Popoboxxo/ReqogniLoom/issues/1793), S6), the `allocation` group (`allocation.query`, 1 tool, the 45th prefix) and the `group` group (`group.create`/`list`/`members`/`add_member`/`remove_member`/`move_member`, 6 tools, the 46th prefix), plus the `milestone` group (Plan B B6-T2 / #879, 6 tools, the 44th prefix), plus the `work_item` group (Plan F F3-T6 / #1374 plus the P2.8 soft-delete pair, 10 tools, the 43rd prefix), plus the `document` group (Plan F F2-T6 / ADR-026, 9 tools, the 42nd prefix), plus the create-dialog form-definition group (`create_form_definition.get`/`create_form_definition.set`/`create_form_definition.export`/`create_form_definition.import`, [#1263](https://github.com/Popoboxxo/ReqogniLoom/issues/1263)), the navigation-tree configuration group (`tree_display_config.get`/`tree_display_config.set`, [#1257](https://github.com/Popoboxxo/ReqogniLoom/issues/1257)), the central statistics group (`metrics.catalog`/`metrics.get`, [#1265](https://github.com/Popoboxxo/ReqogniLoom/issues/1265)): ADR-019 WP3 (`suggestion` group, `traceability.suggest_links` write), the structured acceptance-criteria field type (#1288) the memory administration surface (#1290/#1301/#1302), the baseline tag tool `baseline.set_tags` (Plan F F4.2), the additive-rollback trio (`baseline.rollback_preview`/`rollback_request`/`rollback_apply`, Plan F F4.4) and the session-summaries read (`memory.session_summaries`, Plan A T-A4-5) |
 | Source of truth | `docs/agent-templates/tool-manifest.json`, `tool_count` field |
 
 History of the number, so a future reader can tell an intentional change from a
@@ -62,7 +62,9 @@ stale copy:
 | **297 / 47** | after `artifact.bulk_update` (R3.2 of the document-view plan: one transactional batch write for the editable document/table view, the MCP twin of `PATCH /api/v1/artifacts/bulk-update/`; no new prefix) | superseded by `artifact.bulk_transition` |
 | **298 / 47** | after `artifact.bulk_transition` (slice 2 of the Tabellenansicht plan: one workflow state for many rows, each through the workspace's graph, partial success; the MCP twin of `POST /api/v1/artifacts/bulk-transition/`; no new prefix) | superseded by the `tool` group |
 | **299 / 48** | after the `tool` group (`tool.list_groups` — always-visible catalogue introspection, MCP-Modernisierung Phase D, the 48th prefix; no other tool in that phase added a new prefix) | superseded by the `saved_view` group |
-| **302 / 49** | after the `saved_view` group (slice 3 of the Tabellenansicht plan: `saved_view.list` lists a workspace's saved table views, `saved_view.apply` runs one server-side and returns its rows — a read-only pair, no write tool; the MCP twins of the saved-view REST endpoints) — the 49th prefix — plus #2016's `change_request.submit_for_review` (one write tool, no new prefix) | **current** |
+| **302 / 49** | after the `saved_view` group (slice 3 of the Tabellenansicht plan: `saved_view.list` lists a workspace's saved table views, `saved_view.apply` runs one server-side and returns its rows — a read-only pair, no write tool; the MCP twins of the saved-view REST endpoints) — the 49th prefix — plus #2016's `change_request.submit_for_review` (one write tool, no new prefix) | superseded by the `workflow_default` group |
+| **311 / 50** | after the `workflow_default` group (P1.8/M-11: `workflow_default.list`/`get` plus the seven graph mutations — initialize, add/update/delete state, add/update/delete transition — the 50th prefix; the MCP twins of `/api/v1/workflow-defaults/`, rendering through the same `application.workflow_facade.global_graph_payload` helper the REST view delegates to) | superseded by the `work_item` soft-delete pair |
+| **313 / 50** | after `work_item.outdate` and `work_item.reactivate` (P2.8: the WorkItem lifecycle is now complete on both transports — `DELETE /api/v1/work-items/{id}/` ↔ `work_item.outdate`, `POST /api/v1/work-items/{id}/reactivate/` ↔ `work_item.reactivate`; no new prefix). The same release renames the soft-delete audit parameter canonically to `change_reason` with `reason` as a deprecated alias (P1.10/M-14, see §7.2) | **current** |
 
 ### How to re-derive the number
 
@@ -121,7 +123,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 
 ## 2. Tool groups
 
-49 prefixes, 302 tools. Tools are called as `<prefix>.<tool_name>`.
+50 prefixes, 313 tools. Tools are called as `<prefix>.<tool_name>`.
 
 | Group | Tools | Names |
 |-------|------:|-------|
@@ -172,8 +174,56 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 | `traceability` | 7 | `traceability.coverage`, `traceability.create_link`, `traceability.query`, `traceability.query_links`, `traceability.suggest_links`, `traceability.suggest_links_status`, `traceability.vcrm` |
 | `tree_display_config` | 2 | `tree_display_config.get`, `tree_display_config.set` |
 | `user` | 9 | `user.activate`, `user.assign_role`, `user.assign_tenant_admin`, `user.create`, `user.deactivate`, `user.list`, `user.reactivate_role`, `user.revoke_tenant_admin`, `user.suspend_role` |
-| `work_item` | 8 | `work_item.checkpoint`, `work_item.create`, `work_item.query`, `work_item.read`, `work_item.resume`, `work_item.set_progress`, `work_item.transition`, `work_item.update` |
+| `work_item` | 10 | `work_item.checkpoint`, `work_item.create`, `work_item.outdate`, `work_item.query`, `work_item.reactivate`, `work_item.read`, `work_item.resume`, `work_item.set_progress`, `work_item.transition`, `work_item.update` |
 | `workspace` | 8 | `workspace.close`, `workspace.delete`, `workspace.get_context`, `workspace.get_preferences`, `workspace.list`, `workspace.llm_system_prompt`, `workspace.reactivate`, `workspace.resolve_references` |
+| `workflow_default` | 9 | `workflow_default.add_state`, `workflow_default.add_transition`, `workflow_default.delete_state`, `workflow_default.delete_transition`, `workflow_default.get`, `workflow_default.initialize`, `workflow_default.list`, `workflow_default.update_state`, `workflow_default.update_transition` |
+
+### The `workflow_default` group (tenant-wide workflow defaults, P1.8/M-11)
+
+The MCP twin of the REST `/api/v1/workflow-defaults/` surface. Nine tools over
+`application.workflow_facade.WorkflowFacade` — the *same* Layer-2 facade the
+REST views call — and every one of them is **tenant-wide administration**, not a
+workspace resource: a global default is keyed by `(tenant, item_type, preset)`
+and is the template every non-customized workspace definition of that preset
+inherits, so a mutation propagates into all of them.
+
+| Tool | Kind | Mirrors |
+|------|------|---------|
+| `workflow_default.list` | read | `GET /api/v1/workflow-defaults/` (optional `item_type`/`preset` filters) |
+| `workflow_default.get` | read | `GET /api/v1/workflow-defaults/{item_type}/{preset}/` |
+| `workflow_default.initialize` | write | `POST …/initialize/` |
+| `workflow_default.add_state` | write | `POST …/states/` |
+| `workflow_default.update_state` | write | `PATCH …/states/{state}/` (rename and/or `freeze_on_enter`) |
+| `workflow_default.delete_state` | write | `DELETE …/states/{state}/` |
+| `workflow_default.add_transition` | write | `POST …/transitions/` |
+| `workflow_default.update_transition` | write | `PATCH …/transitions/{from}__{to}/` |
+| `workflow_default.delete_transition` | write | `DELETE …/transitions/{from}__{to}/` |
+
+* **Admin only.** Every handler re-asserts `auth_context.has_role("admin")` and
+  answers `PERMISSION_DENIED` otherwise — the same gate as REST's
+  `_require_admin`. The whole namespace is a governance namespace
+  (`GROUP_SPECS`), so neither reads nor writes reach an AUTHOR-tier key's
+  catalogue. No tool accepts a `workspace_id`; see §7.1.
+* **Reads are total.** An uninitialised `(item_type, preset)` pair answers the
+  *empty graph* (`initialized: false`, no states, no transitions) — that is not
+  an error. Only an unknown `item_type` (outside
+  `workflow.item_types.KNOWN_WORKFLOW_ITEM_TYPES`) is `NOT_FOUND`, the same
+  rule REST applies.
+* **Mutations mirror REST semantics.** The same `WorkflowDefinitionError`
+  mapping applies locally in the handler (no `rest_api` import): a referenced or
+  orphaned state is `CONFLICT`, "already initialized" is `CONFLICT`, everything
+  else definition-related is `VALIDATION_ERROR`. An omitted
+  `allowed_roles`/`requires_change_reason`/`signature_gate` on
+  `update_transition` keeps the stored value — the REST PATCH handler passes the
+  fields through unchanged, so both transports behave identically.
+* **One graph shape.** The payload comes from
+  `application.workflow_facade.global_graph_payload`, which the REST
+  `_serialize_global_graph` delegates to; the only MCP-side transform is the
+  transport one (the row's `modified_at` datetime → ISO string, exactly what
+  DRF's JSONRenderer emits on REST).
+* **`propagated_workspace_count` is additive.** Every mutation returns how many
+  inheriting workspaces the change was copied into; `initialize` has no derived
+  rows yet and therefore omits the key. Clients read it as optional.
 
 ### Prefixes that share one tool group
 
@@ -433,7 +483,8 @@ it may execute.
 The **governance namespaces** (ADMIN tier) are `admin`, `user`, `permissions`,
 `workspace`, `events`, `baseline`, `prompt_template`, `prompt_variable`,
 `link_type`, `attribute_definition`, `attribute_catalog`,
-`attribute_migration` — plus one tool-level exception, `audit.waive_finding`.
+`attribute_migration`, `workflow_default` — plus one tool-level exception,
+`audit.waive_finding`.
 `audit` itself is *not* a governance namespace: `audit.se_audit` is a
 read-only SE-Auditor run that any workspace member may call, so only the waiver
 (the act that accepts a known deviation) is lifted to ADMIN. The authoritative
@@ -493,6 +544,124 @@ Two error shapes worth distinguishing when diagnosing a `tools/call`:
   allowed".
 
 ---
+
+## 7.1 Workspace scope of write tools (fail-closed)
+
+A write tool must be **scopeable to a workspace** before it runs. This is a
+security requirement, not a convenience: a call that cannot be attributed to a
+workspace used to be authorised against the caller's *tenant-wide* union of
+roles, so an Editor in workspace A could mutate an object living in workspace B
+(security finding #4,
+`.tmp/security-audit-rest-mcp-2026-11-25.md`).
+
+Every write tool is classified by exactly one of four mechanisms. The
+authoritative sets are `mcp_server.workspace_scope.TENANT_SCOPED_WRITE_TOOLS`
+and `_TOOL_TARGETS`, plus `tool_registry._INSTANCE_LEVEL_TOOLS`; the ratchet
+`mcp_server/tests/test_mcp_workspace_scope.py::test_every_write_tool_is_classified`
+fails the build when a tool falls through all four.
+
+| # | Mechanism | What it means |
+|---|-----------|---------------|
+| a | `workspace_id` is **required** in the published `inputSchema` | The dispatcher narrows the caller's roles to that workspace and gates there. Omitting it stays a `VALIDATION_ERROR` (the handler's request-shape defect, #1374) — the tool cannot be called without naming its workspace. |
+| b | an entry in `_TOOL_TARGETS` | The call names its target object (a scalar id, a list such as `artifact.bulk_transition`'s `ids`, or a nested path such as `architecture.decompose_commit`'s `draft.root_element_id`); the gate resolves the workspace that owns that row. |
+| c | listed in `TENANT_SCOPED_WRITE_TOOLS` | Deliberately tenant- or instance-wide, justified entry by entry (tenant configuration catalogues, tenant user administration, task-status polls, `MemoryPolicy`-owned memory writes). A tool that also accepts an optional `workspace_id` is still narrowed to it whenever the caller supplies one. |
+| d | listed in `_INSTANCE_LEVEL_TOOLS` | Declared instance-level in `GROUP_SPECS` (`admin.backup_create`, `admin.restore`) — narrower would be the #37 bug. |
+
+**What happens when nothing resolves.** A write tool whose call resolves no
+workspace — and that is not covered by (a)–(d) — is denied before any handler
+runs. *Which* error the caller gets depends on why nothing resolved:
+
+* a **missing or malformed** target parameter answers `VALIDATION_ERROR`,
+  naming the parameter the tool expects and the parameter keys it actually
+  received — for example `suggestion_id` sent where `id` is required (#1357),
+  or an id that is not a UUID. This diagnosis runs on **both** denial paths
+  (the API-key workspace fence and the unscoped-write gate below);
+* a **well-formed** target that resolves to no row (unknown or deleted) or to a
+  workspace the caller holds no role in answers `PERMISSION_DENIED` with the
+  scope text:
+
+> Tool '<name>' could not be scoped to a workspace. Name the target object (or
+> its workspace_id) so the call can be authorized; an unresolvable write target
+> is denied.
+
+Neither answer echoes ids or values: the validation text repeats parameter
+*keys* only, the scope text names only the tool. Echoing the value would turn
+the denial into an existence oracle for the very objects the caller may not
+touch.
+
+Ordering matters and is documented in `ToolRegistry._authorize_tool_call`: the
+API-key workspace fence runs **before** this gate. When the fence denies because
+*no target could be resolved*, it applies the same parameter diagnosis — so a
+fenced key is not forced back onto debugging its API key — and answers
+`VALIDATION_ERROR` instead of the scope text. A target that *was* resolved but
+lies outside the key's fence keeps the generic `PERMISSION_DENIED`: the
+parameters are not the problem there. The write-scope gate runs in addition to —
+never instead of — the key-capability tier gate and the RBAC matrix.
+
+**Read tools are unchanged.** Resolution stays fail-soft for reads: an unknown
+id still answers `NOT_FOUND`, and a read tool is never denied *because* it could
+not be scoped (its own classification ratchet,
+`test_every_read_tool_is_classified`, already requires every read tool to be
+scoped one way or another).
+
+> **One-release note.** Unresolvable write targets are now **denied** where they
+> previously fell through to the tenant-wide role union (and, for an unknown id,
+> were reported as `NOT_FOUND` by the handler). A call that names no target — or
+> names one that is not a UUID — now answers `VALIDATION_ERROR` naming the
+> expected parameter; a well-formed target that resolves to nothing, or to a
+> workspace the caller holds no role in, answers `PERMISSION_DENIED` with the
+> scope text. Clients that send a write tool without its target object should
+> name the object (or its workspace, for the tools that require one) — see the
+> table above for which mechanism applies to the tool in question.
+
+---
+
+## 7.2 Soft-delete audit reason: `change_reason` is canonical, `reason` is deprecated (P1.10)
+
+Every soft-delete tool records an audit reason, and REST already spelled it
+`change_reason` (`DELETE /api/v1/requirements/{id}/?change_reason=…`). The MCP
+tools did not: some advertised `reason`, others `change_reason`, so a client had
+to know which transport it was talking to and the two audit trails were not
+comparable (finding M-14).
+
+**Canonical parameter: `change_reason`.** The deprecated alias `reason` is still
+accepted: supported through `1.11.0` (inclusive); removal no earlier than
+`1.12.0`.
+
+| Call | Result |
+|------|--------|
+| `change_reason` only | ✓ used |
+| `reason` only | ✓ used (deprecated alias) — an old client keeps working unchanged |
+| both, different values | `change_reason` wins; the alias is ignored (never merged, never an error) |
+| both, `change_reason` blank (`""`) | the alias applies — a blank value counts as "not supplied" |
+
+The resolved string is trimmed and recorded on the deletion's domain
+`AuditEntry` — the `change_reason` column of the entry the same service writes
+for the REST `DELETE`. Five groups additionally write an MCP *provenance* entry
+(tool name + API-key hash, REQ-L2-MC-012): `requirement`, `architecture`,
+`needs`, `test` and `diagram` repeat the resolved reason under that entry's
+`details.change_reason`, so an auditor filtering by tool name still reads it.
+`adr`, `risk`, `issue`, `glossary`, `change_request`, `document`, `goal` and
+`work_item` record it once, on the domain entry. Both keys stay optional in the
+`inputSchema`; whether a reason is *required* is a workspace-preset decision
+(`change_reason: mandatory` in the extended tier), and a missing one answers
+`VALIDATION_ERROR` — not a schema rejection.
+
+**Affected tool family — every `*.outdate` tool:**
+
+`adr.outdate`, `risk.outdate`, `issue.outdate`, `glossary.outdate`,
+`change_request.outdate` (the generic CRUD group), `requirement.outdate`,
+`architecture.outdate`, `needs.outdate`, `diagram.outdate`, `test.outdate`,
+`document.outdate`, `goal.outdate` (and its `goal.delete` twin) and
+`work_item.outdate`.
+
+`*.reactivate` tools stay reason-less: restoring a soft-deleted row needs no
+justification (the service records its own `"restored"` revision). This is
+deliberately out of scope for P1.10 and pinned by
+`backend/mcp_server/tests/test_soft_delete_change_reason_alias.py`.
+
+---
+
 
 ## 8. LLM capability IDs are not MCP tool names (#1251)
 

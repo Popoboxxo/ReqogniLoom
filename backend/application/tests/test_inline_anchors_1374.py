@@ -104,6 +104,15 @@ def env():
             item_type="GlossaryTerm",
             tenant_id=tenant.id,
         )
+        # P2.13: a document cannot be created without its workflow definition
+        # (the create rolls back instead of producing a state-less document),
+        # so the fixture provisions the ``document_default`` lifecycle too.
+        create_default_workflow(
+            workspace_id=workspace.id,
+            preset="document_default",
+            item_type="Document",
+            tenant_id=tenant.id,
+        )
     finally:
         clear_request_tenant()
     ctx = _ctx(tenant.id, workspace.id, user.id)

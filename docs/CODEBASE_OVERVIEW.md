@@ -1,9 +1,9 @@
 ﻿# ReqFlow — Codebase-Übersicht (IST-Zustand)
 
 > **Zweck:** Code-genaues Inventar der `backend/`- und `frontend/`-Bereiche (exportierte API, Module, Flows) als Nachschlagewerk für Mitwirkende und Agenten. Kein Wunschzustand, kein Architektur-Entwurf — nur was im Repository steht.
-> **Stand:** `1.9.0-beta.6` (Beta-Ziel; Code-Stand des vermessenen Checkouts: `1.9.0-beta.6`)  
-> **Letzte Aktualisierung:** 2026-11-15  
-> **Datenquelle:** eigener Checkout von `origin/main`, Dateien und Manifeste direkt gelesen (u. a. `docs/agent-templates/tool-manifest.json`, `.github/workflows/ci.yml`, `backend/application/*`, `frontend/src/components/*`); Testzahlen sind Dateizahlen, keine Testergebnisse  
+> **Stand:** `1.9.0-beta.7` (Beta-Ziel; Code-Stand des vermessenen Checkouts: `1.9.0-beta.7`)
+> **Letzte Aktualisierung:** 2026-11-25
+> **Datenquelle:** eigener Checkout des Branchs `fix/rest-mcp-review-findings`, Dateien und Manifeste direkt gelesen (u. a. `docs/agent-templates/tool-manifest.json`, `.github/workflows/ci.yml`, `backend/application/*`, `frontend/src/components/*`); Testzahlen sind Dateizahlen, keine Testergebnisse
 > **Validierung:** keine Testläufe in diesem Durchgang — der `manage.py check`-Stand und die pytest-/Playwright-Ergebnisse gehören in den Release-Report, nicht in dieses Inventar
 
 ---
@@ -18,7 +18,7 @@ ReqFlow ist ein Requirements-Management-Tool mit AI- und Systems-Engineering-Sup
 - **Layer 0 (Foundation):** Persistierung, Auth/Tenancy, Konfiguration, Audit
 - **Layer 1 (Domain Services):** LLM-Adapter, Traceability, Workflow, Baseline, Diagram, ICD
 - **Layer 2 (Orchestration):** ApplicationService (16 Services, Single Entry Point)
-- **Layer 3 (Interfaces):** REST API + MCP Server (301 Tools, 49 Tool-Gruppen-Präfixe — Stand `1.9.0-beta.6`, siehe [api/MCP-SURFACE.md](api/MCP-SURFACE.md) für die Messmethode)
+- **Layer 3 (Interfaces):** REST API + MCP Server (301 Tools, 49 Tool-Gruppen-Präfixe — Stand `1.9.0-beta.7`, siehe [api/MCP-SURFACE.md](api/MCP-SURFACE.md) für die Messmethode)
 - **Layer 4 (Frontend):** React-SPA
 - **Cross-Cutting:** SeMetrics (Read Model), ResilienceOrchestrator
 
@@ -246,9 +246,10 @@ from traceability.pdf_report_generator import (
 **Exportierte API:**
 ```python
 from workflow.services import (
-    transition,                   # transition(artifact_id, new_state, reason="...") → Result
-    initialize_workflow_states,   # initialize_workflow_states(workspace_id, workflow_def_id)
-    list_valid_transitions,       # list_valid_transitions(artifact_id) → List[State]
+    transition,                   # transition(item_id, target_state, change_reason, ctx, *, workspace_id, …) → TransitionResult
+    initialize_workflow_states,   # initialize_workflow_states(item_ids, item_type, workspace_id, ctx) → list[WorkflowItemState]
+    get_available_transitions,    # get_available_transitions(item_id, item_type, workspace_id) → AvailableTransitions
+    initialize_definition,        # initialize_definition(workspace_id, item_type, tenant_id=None) → WorkflowDefinitionDTO
 )
 ```
 
@@ -257,6 +258,8 @@ from workflow.services import (
 - `WorkflowState` Model — Artifact-Zustands-Tracking
 - `StateTransitionValidator` — Validiert erlaubte Übergänge
 - Hooks für ApprovalService, NotificationService (Stubs in v1)
+
+**Default-Preset-Auflösung:** `workflow/item_types.py` registriert die festen Entity-Presets (`Document` → `document_default`) und die tierabhängigen Typen (`Requirement`, `WorkItem`). `workflow.services.initialize_definition(...)` nutzt `resolve_default_preset(...)`: Der Workspace-Tier kommt aus `WorkspacePresetConfig.active_tier`, fällt über `Workspace.preset` auf `standard` zurück und wird für `WorkItem` auf `work_item_<tier>` (`minimal|standard|extended`) abgebildet. Das Provisioning in `application/workspace_provisioning.py` liest dieselbe Registrierung.
 
 **Presets beeinflussen:** Ob Approval bei bestimmten Übergängen erforderlich ist
 
@@ -718,7 +721,7 @@ Kein Token im Gerätespeicher: der httpOnly-Cookie `reqogniloom_access` wird vom
 ---
 
 #### `mcp_server/` (ARCH-L1-003)
-**Modell:** MCP-Server (JSON-RPC 2.0) mit Tool-Gruppen, direkt gegen ApplicationService (ADR-01). **301 Tools in 49 Gruppen-Präfixen** (gemessen auf `1.9.0-beta.6`; zuletzt erweitert um die `saved_view`-Gruppe (`saved_view.list`/`saved_view.apply`, Tabellenansicht Slice 3), davor um die Introspektions-Gruppe `tool` (`tool.list_groups`) aus MCP-Modernisierung Phase D, davor `artifact.bulk_transition` ([#1872](https://github.com/Popoboxxo/ReqogniLoom/issues/1872), Write-Tool der Tabellenansicht) und `artifact.bulk_update` als Write-Tool der Dokumentansicht (keine neuen Präfixe), davor die Summary-Gruppe `summary` (`summary.get`/`summary.refresh`, #1793), davor `allocation.query`, die `group`-Gruppe, `milestone`, `work_item`, `document` und die Statistik-Gruppe `metrics`; siehe `docs/api/MCP-SURFACE.md`. Die vollständige, generierte Tool-Liste inkl. `inputSchema` steht in `docs/agent-templates/tool-manifest.json`.)
+**Modell:** MCP-Server (JSON-RPC 2.0) mit Tool-Gruppen, direkt gegen ApplicationService (ADR-01). **301 Tools in 49 Gruppen-Präfixen** (gemessen auf `1.9.0-beta.7`; zuletzt erweitert um die `saved_view`-Gruppe (`saved_view.list`/`saved_view.apply`, Tabellenansicht Slice 3), davor um die Introspektions-Gruppe `tool` (`tool.list_groups`) aus MCP-Modernisierung Phase D, davor `artifact.bulk_transition` ([#1872](https://github.com/Popoboxxo/ReqogniLoom/issues/1872), Write-Tool der Tabellenansicht) und `artifact.bulk_update` als Write-Tool der Dokumentansicht (keine neuen Präfixe), davor die Summary-Gruppe `summary` (`summary.get`/`summary.refresh`, #1793), davor `allocation.query`, die `group`-Gruppe, `milestone`, `work_item`, `document` und die Statistik-Gruppe `metrics`; siehe `docs/api/MCP-SURFACE.md`. Die vollständige, generierte Tool-Liste inkl. `inputSchema` steht in `docs/agent-templates/tool-manifest.json`.)
 
 > **Zahlen nicht aus diesem Dokument übernehmen.** Die Werkzeuganzahl ändert sich mit jedem neuen Tool; maßgeblich sind `tool-manifest.json` und die Messmethode in [`docs/api/MCP-SURFACE.md` §1](api/MCP-SURFACE.md#1-catalogue-size) (`tools/list` per `curl` oder offline `manage.py export_tool_manifest`). Die früheren Angaben in diesem Dokument (143, 171, 172, 212, 215) waren Kopien ohne Nachmessung; die CI-Guards `test_tool_manifest_drift.py` und `test_entity_surface_parity.py` verhindern inzwischen, dass eine Zahl still veraltet.
 
@@ -881,14 +884,17 @@ frontend/
         CsvImport.tsx
       TestRuns/                   # Test-Run-Ansicht mit Ergebnisliste
         TestRuns.tsx
-      Documents/                  # Dokument-Artefakt + bearbeitbare Leseansicht (ADR-026, Route /documents und /documents/:id in NavigationShell)
-        Documents.tsx             # Liste + Detail (SplitView)
-        DocumentReadingView.tsx   # Leseobjekt: Kopf, Felder, Kapitel, Speicherleiste
+      Documents/                  # Dokument-Artefakt + explizite Lese-/Inline-Bearbeitungsansicht (ADR-026, Route /documents und /documents/:id in NavigationShell)
+        Documents.tsx             # Liste + Detail (SplitView); Start im Lese- und Wechsel in den Bearbeitungsmodus
+        DocumentReadingView.tsx   # Leseobjekt mit `presentationMode: read|edit`; Kopf, Felder, Kapitel, Speicherleiste
         DocumentReadingChapters.tsx # Kapitel + Inhaltsverzeichnis (Anker kommen aus dem Backend)
         DocumentFieldEditor.tsx   # Inline-Editor je Feld (nur wenn `fields[].editable`)
         DocumentSaveBar.tsx       # Speichern: sofort (ein Feld) oder gesammelt (ein Stapel)
         useDocumentDrafts.ts      # Entwürfe + zwei Speichermodi (immediate/batch), 412/409-Mapping
         Documents.module.css      # enthält den `@media print`-Block der Sicht
+      WorkflowEditor/             # Workflow-Management für Workspace und globale Defaults
+        WorkflowEditorPage.tsx    # /workflows/:entityType; Link zu System Settings → Workflow Defaults
+        constants.ts              # Document: document_default; WorkItem: work_item_<tier>; typabhängige Preset-Auswahl
       ConnectionView/             # Verbindungsansicht, fünf Modi (Default "trees", Route /connections)
         AllocationTreesRenderer.tsx # Zwei-Baum-Modus: Requirements links, Architektur rechts, Kanten dazwischen
         useAllocationSelection.ts   # Zeilenauswahl und gesperrte Zeilen (eine Wahrheit für die Seite)
@@ -935,7 +941,7 @@ frontend/
   vitest.config.ts                # Vitest Config
 ```
 
-**Key Components (17 hauptsächliche):**
+**Key Components (18 hauptsächliche):**
 1. `DashboardViews` — Übersichts-Dashboards (Requirements, Architecture, Tests)
 2. `RequirementEditors` — Requirement-Create/Edit/Delete Forms
 3. `ArchitectureEditors` — Architecture-Element-Editor
@@ -951,8 +957,9 @@ frontend/
 13. `IssueList` — Issue-Liste
 14. `canvas/CanvasEditor` — Free-Hand Canvas Editor (Fabric.js v6, REQ-L1-056)
 15. `mermaid/MermaidEditor` — Mermaid Code-Editor mit Live-Preview (CodeMirror 6 + mermaid.js, REQ-L1-057)
-16. `Documents/DocumentReadingView` — bearbeitbare Dokumentansicht: Kapitel aus `GET /documents/{id}/view/`, Feldsperren aus dem Urteil des Backends, Speichern über `DocumentFieldEditor`/`DocumentSaveBar` (`docs/features/document-reading-view.md`)
+16. `Documents/DocumentReadingView` — Dokumentansicht mit explizitem `read|edit`-Modus: `read` rendert Kapitel statisch, `edit` aktiviert Inline-Editoren und Speicherleiste; Kapitel aus `GET /documents/{id}/view/`, Feldsperren aus dem Urteil des Backends (`docs/features/document-reading-view.md`)
 17. `ConnectionView` — Verbindungsansicht mit fünf Modi; Default `trees` rendert `AllocationTreesRenderer` (zwei Bäume, Kanten-Overlay, Filterleiste mit „Weitere Filter"-Popover, Kantenschalter `ui.connection_view.show_edges`, `docs/features/connection-view-trees.md`)
+18. `WorkflowEditor/WorkflowEditorPage` — Workspace- und Global-Workflow-Management inkl. `Document` (`document_default`), `WorkItem` (`work_item_<tier>`), typabhängiger Preset-Auswahl und Link zu System Settings → Workflow Defaults
 
 **Hooks:**
 - `useDashboardData()` — Fetch via `api/requirements`, caching
@@ -967,7 +974,7 @@ frontend/
 
 **i18n:** DE/EN via react-i18next (Übersetzungen in `locales/de.json`, `locales/en.json`)
 
-**Test-Coverage:** 387 Frontend-Testdateien (`*.test.ts`/`*.test.tsx` unter `frontend/src/`, Dateizahl gemessen 2026-11-15); Vitest für Unit-Tests; 70 E2E-Spec-Dateien unter `e2e/tests/` (Playwright/Chromium, 4 CI-Shards)
+**Test-Coverage:** 442 Frontend-Testdateien (`*.test.ts`/`*.test.tsx` unter `frontend/src/`, Dateizahl gemessen 2026-11-25); Vitest für Unit-Tests; 79 E2E-Spec-Dateien unter `e2e/tests/` (Playwright/Chromium, 4 CI-Shards)
 
 ---
 
@@ -1092,7 +1099,7 @@ docker-compose exec backend python manage.py seed_demo
 
 ### Tests
 ```bash
-# Alle Backend-Tests (1018 Testdateien, `test_*.py` unter backend/)
+# Alle Backend-Tests (1137 Testdateien, `test_*.py` unter backend/, Dateizahl gemessen 2026-11-25)
 docker-compose exec backend pytest
 
 # Isolierter Test-Stack (verbindlicher Weg, siehe README/.meta-config)
@@ -1180,7 +1187,7 @@ Das optionale Honcho-Memory-Backend (`profiles: ["honcho"]`) pinnt alle aktiven 
 
 **Für Produktionsumgebungen:** Siehe die jeweilige Deployment-Option oben. Alle Optionen unterstützen die vollständige Feature-Set (Multi-Tenancy, RBAC, LLM-Integration, API-Keys, MCP-Server).
 
-### CI/Pipelines (Stand 1.9.0-beta.6)
+### CI/Pipelines (Stand 1.9.0-beta.7)
 
 **GitHub Actions ist die einzige Pipeline.** Eine `.woodpecker.yml` existiert im
 Repository nicht (mehr); die einzigen CI-Definitionen liegen unter
@@ -1278,7 +1285,7 @@ Returns `204 No Content`. The key is immediately invalidated.
 
 ### Tool Reference
 
-> **Auszug, nicht die Referenz.** Der MCP-Server bietet **301 Tools in 49 Gruppen-Präfixen** (Stand `1.9.0-beta.6`; zuletzt erweitert um die `saved_view`-Gruppe (`saved_view.list`/`saved_view.apply`, Tabellenansicht Slice 3), die Introspektions-Gruppe `tool` (`tool.list_groups`, MCP-Modernisierung Phase D) und `artifact.bulk_transition` ([#1872](https://github.com/Popoboxxo/ReqogniLoom/issues/1872)) und `artifact.bulk_update` als Write-Tools der Dokument-/Tabellenansicht (keine neuen Präfixe), davor die Summary-Gruppe `summary` (`summary.get`/`summary.refresh`, #1793), davor `allocation.query`, `group`, `milestone`, `work_item`, `document` und `metrics`). Die vollständige, generierte Liste mit `inputSchema` steht in [`docs/agent-templates/tool-manifest.json`](agent-templates/tool-manifest.json); die lesbare Referenz samt Methoden zum Nachmessen der Zahlen ist [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md). Die früher hier genannten „12 tool groups" waren ein längst überholter Stand.
+> **Auszug, nicht die Referenz.** Der MCP-Server bietet **301 Tools in 49 Gruppen-Präfixen** (Stand `1.9.0-beta.7`; zuletzt erweitert um die `saved_view`-Gruppe (`saved_view.list`/`saved_view.apply`, Tabellenansicht Slice 3), die Introspektions-Gruppe `tool` (`tool.list_groups`, MCP-Modernisierung Phase D) und `artifact.bulk_transition` ([#1872](https://github.com/Popoboxxo/ReqogniLoom/issues/1872)) und `artifact.bulk_update` als Write-Tools der Dokument-/Tabellenansicht (keine neuen Präfixe), davor die Summary-Gruppe `summary` (`summary.get`/`summary.refresh`, #1793), davor `allocation.query`, `group`, `milestone`, `work_item`, `document` und `metrics`). Die vollständige, generierte Liste mit `inputSchema` steht in [`docs/agent-templates/tool-manifest.json`](agent-templates/tool-manifest.json); die lesbare Referenz samt Methoden zum Nachmessen der Zahlen ist [`docs/api/MCP-SURFACE.md`](api/MCP-SURFACE.md). Die früher hier genannten „12 tool groups" waren ein längst überholter Stand.
 >
 > Tools werden als `<prefix>.<tool_name>` aufgerufen, z. B. `requirement.query` oder `test.run_create`.
 

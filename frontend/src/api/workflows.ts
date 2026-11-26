@@ -19,7 +19,7 @@
 
 import { apiClient, extractErrorMessage, getList } from "./client";
 import { ForbiddenError } from "./errors";
-import type { PaginatedResponse, UUID } from "../types";
+import type { PaginatedResponse, UUID, WorkspacePreset } from "../types";
 
 /**
  * Turn any thrown workflow-mutation error into a human-readable message
@@ -41,7 +41,17 @@ export interface WorkflowDefinition {
   created_at: string;
 }
 
-export interface WorkflowTransitionResult {
+/**
+ * Response of `PATCH /api/v1/workflows/<id>/` — the workspace-*definition*
+ * transition. It moves an entity's state through the WorkflowDefinition
+ * endpoint and echoes the requested target state.
+ *
+ * Deliberately NOT named `WorkflowTransitionResult`: that is the canonical
+ * `/{resource}/{id}/transitions/` result (`previous_state` / `new_state`, see
+ * `./workflow-transitions`). The two endpoints answer different payloads, so
+ * they must not share a name.
+ */
+export interface WorkflowDefinitionTransitionResult {
   id: string;
   target_state: string;
 }
@@ -72,7 +82,35 @@ export type WorkflowEntityType =
   | "TestCase"
   | "Issue"
   | "Goal"
-  | "MainGoal";
+  | "MainGoal"
+  | "Document"
+  | "WorkItem";
+
+/**
+ * Canonical preset key accepted by the global workflow-default endpoints.
+ * Requirement uses the rigor tier directly, WorkItem prefixes it, and the
+ * remaining entity types each have one fixed workflow preset
+ * (``workflow/item_types.py::WORKFLOW_ITEM_TYPES``).
+ */
+export type WorkflowPresetKey =
+  | WorkspacePreset
+  | "need_default"
+  | "architecture_default"
+  | "adr_default"
+  | "risk_default"
+  | "testcase_default"
+  | "issue_default"
+  | "ccb_approval"
+  | "icd_default"
+  | "diagram_default"
+  | "glossary_term_default"
+  | "goal_default"
+  | "main_goal_default"
+  | "interview_default"
+  | "document_default"
+  | "work_item_minimal"
+  | "work_item_standard"
+  | "work_item_extended";
 
 /** Derived visual classification of a state (not stored server-side). */
 export type WorkflowStateType = "initial" | "active" | "terminal" | "error";
@@ -397,10 +435,13 @@ export const workflowsApi = {
     entityId: UUID,
     targetState: string,
     changeReason?: string
-  ): Promise<WorkflowTransitionResult> {
-    return apiClient.patch<WorkflowTransitionResult>(`/workflows/${entityId}/`, {
-      target_state: targetState,
-      change_reason: changeReason ?? "",
-    });
+  ): Promise<WorkflowDefinitionTransitionResult> {
+    return apiClient.patch<WorkflowDefinitionTransitionResult>(
+      `/workflows/${entityId}/`,
+      {
+        target_state: targetState,
+        change_reason: changeReason ?? "",
+      }
+    );
   },
 };

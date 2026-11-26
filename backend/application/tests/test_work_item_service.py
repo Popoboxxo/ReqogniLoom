@@ -23,8 +23,10 @@ Covered contracts (docs/superpowers/specs/Archive/2026-11-02-f3-workitem-design.
 """
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
 
@@ -33,8 +35,10 @@ from application.base import (
     OptimisticLockError,
     PermissionDeniedError,
     ValidationError,
+    WorkflowInitializationFailedError,
 )
 from application.work_item_service import WorkItemService
+from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
 from persistence.models import Artifact, Document, Tenant, User, WorkItem, Workspace
 from persistence.tenancy import TenantContext
@@ -181,6 +185,79 @@ def test_create_assigns_uid_workspace_artifact_and_heartbeat(
     assert item.artifact.artifact_type == "WorkItem"
     assert item.artifact.workspace_id == workspace.id
     assert service.current_status(item.id, editor_ctx) == "todo"
+
+
+def test_create_rolls_back_when_the_workflow_state_cannot_be_initialised(
+    service, workspace, document, editor_ctx, caplog
+):
+    """P2.13: no artifact exists without a workflow state.
+
+    The create is a hard failure — ``WorkflowInitializationFailedError``
+    propagates through ``@atomic_transaction``, so the WorkItem row, its backing
+    Artifact, the local uid allocation and every audit entry are rolled back.
+    The cause stays in the log (exactly one ERROR record with the traceback and
+    the entity id, never the request body); the exception message carries no
+    internals.
+    """
+    secret_body = "## Step\n\nTOKEN=super-secret-value-donotlog"
+    artifacts_before = Artifact.unscoped.filter(
+        workspace_id=workspace.id, artifact_type="WorkItem"
+    ).count()
+
+    with patch(
+        "workflow.services.initialize_workflow_states",
+        side_effect=RuntimeError("boom"),
+    ):
+        with caplog.at_level(logging.ERROR):
+            with pytest.raises(WorkflowInitializationFailedError) as exc_info:
+                _create(
+                    service, workspace, document, editor_ctx, body=secret_body
+                )
+
+    assert "was not created" in str(exc_info.value)
+    assert "workflow state" in str(exc_info.value)
+    assert "boom" not in str(exc_info.value)
+
+    # ROLLBACK PROOF: no work item, no backing artifact, no audit row.
+    assert WorkItem.objects.filter(workspace_id=workspace.id).count() == 0
+    assert (
+        Artifact.unscoped.filter(
+            workspace_id=workspace.id, artifact_type="WorkItem"
+        ).count()
+        == artifacts_before
+    )
+    assert not AuditEntry.unscoped.filter(entity_type="WorkItem").exists()
+
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "application.work_item_service"
+        and record.levelno >= logging.ERROR
+    ]
+    assert len(records) == 1
+    message = records[0].getMessage()
+    assert str(workspace.id) in message
+    assert records[0].exc_info is not None
+    assert secret_body not in message
+    assert "super-secret-value-donotlog" not in message
+
+
+def test_create_success_writes_one_create_audit_row_and_logs_no_error(
+    service, workspace, document, editor_ctx, caplog
+):
+    """The normal path still creates the item and its workflow state."""
+    with caplog.at_level(logging.ERROR):
+        item = _create(service, workspace, document, editor_ctx)
+
+    assert WorkItem.objects.filter(id=item.id).exists()
+    assert service.current_status(item.id, editor_ctx) == "todo"
+    assert AuditEntry.unscoped.filter(entity_id=item.id, op="create").exists()
+    assert [
+        record
+        for record in caplog.records
+        if record.name == "application.work_item_service"
+        and record.levelno >= logging.ERROR
+    ] == []
 
 
 def test_create_requires_a_document(service, workspace, editor_ctx):

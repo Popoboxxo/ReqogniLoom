@@ -46,6 +46,8 @@ from mcp_server.tools.base import (
     optional_uuid,
     require_param,
     require_uuid,
+    soft_delete_reason,
+    soft_delete_reason_properties,
     workspace_query_required,
     write_mcp_audit,
 )
@@ -216,7 +218,7 @@ class DiagramToolGroup(BaseToolGroup):
                 "type": "object",
                 "properties": {
                     "id": {"type": "string", "description": "UUID of the diagram."},
-                    "reason": {"type": "string", "description": "Optional audit reason."},
+                    **soft_delete_reason_properties(),
                 },
                 "required": ["id"],
             },
@@ -467,14 +469,21 @@ class DiagramToolGroup(BaseToolGroup):
     def _handle_outdate(
         self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        """diagram.outdate — soft-delete via the workflow engine (write, audited)."""
+        """diagram.outdate — soft-delete through the diagram service (write, audited).
+
+        P1.10: routed through ``diagram.services.delete_diagram`` — the same
+        call REST's ``DELETE /api/v1/diagrams/{id}/`` makes — instead of the raw
+        ``workflow.services.outdate`` escape hatch, which ignores its ``reason``
+        argument since Phase 4. The service writes the ``AuditEntry`` carrying
+        the resolved reason.
+        """
         try:
             _assert_write_permission(auth_context)
         except PermissionError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
 
         diagram_id = require_uuid(params, "id")
-        reason: str = params.get("reason", "")
+        reason: str = soft_delete_reason(params)
 
         try:
             diagram = get_diagram_header(diagram_id, auth_context.tenant_id)
@@ -487,15 +496,24 @@ class DiagramToolGroup(BaseToolGroup):
                 f"Diagram {diagram_id} has no workspace assigned; workflow unavailable.",
             )
 
-        from workflow.services import outdate
+        # Preset gate: delete_diagram does not consult the workspace's
+        # change_reason policy, so the MCP surface enforces it here rather than
+        # let a mandated reason go unrecorded (§7.2 of docs/api/MCP-SURFACE.md).
+        from application.preset_policy_service import get_preset_policy_service
+
+        if not reason and get_preset_policy_service().is_change_reason_required(
+            str(diagram.workspace_id)
+        ):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "change_reason is required by preset policy."
+            )
 
         # Domain errors are mapped centrally by BaseToolGroup.execute_tool.
-        outdate(
-            item_id=diagram_id,
-            item_type="Diagram",
-            workspace_id=diagram.workspace_id,
+        delete_diagram(
+            diagram_id,
+            auth_context.tenant_id,
             ctx=auth_context,
-            reason=reason,
+            change_reason=reason,
         )
 
         write_mcp_audit(
@@ -507,6 +525,9 @@ class DiagramToolGroup(BaseToolGroup):
             entity_id=diagram_id,
             tool_name="diagram.outdate",
             api_key=api_key,
+            # REQ-L2-MC-012 provenance the domain entry does not carry; the
+            # resolved reason rides along for audit-trail comparability.
+            details={"change_reason": reason},
         )
         return ToolResult.ok({"id": str(diagram_id), "status": "outdated"})
 

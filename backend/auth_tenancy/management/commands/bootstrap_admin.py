@@ -17,6 +17,18 @@ password from ``SYSTEM_ADMIN_PASSWORD`` and revokes **every** refresh session of
 that account, so a lost admin password can be recovered without leaving old
 session cookies alive.
 
+Password floor (P1.1, 2026-11-25 REST/MCP review M-1): the operator exemption
+from Django's ``AUTH_PASSWORD_VALIDATORS`` stays — a disaster-recovery
+credential supplied out of band must still bootstrap the instance — but the
+value is no longer accepted unchecked. Every path that actually *writes* a
+password (create, and ``--reset-password``) rejects values shorter than 8
+characters, the handful of trivial tokens every scanner tries and any
+``change-me``/``placeholder`` marker, via
+``auth_tenancy.services.bootstrap_password``. A value that is never written
+(the admin already exists and no reset was requested) is not inspected at all,
+so an existing deployment whose admin changed their own password may keep — or
+drop — the variable. The rejection names the variable and never echoes it.
+
 Configuration (env vars, mirroring the DJANGO_SUPERUSER_* pattern):
 
 * ``SYSTEM_ADMIN_USERNAME`` — optional, defaults to ``admin``.
@@ -51,6 +63,9 @@ from auth_tenancy.provisioning import (
     DEFAULT_ADMIN_USERNAME,
     ProvisioningError,
     provision_admin,
+)
+from auth_tenancy.services.bootstrap_password import (
+    bootstrap_password_rejection_reason,
 )
 from auth_tenancy.services.refresh_token_store import revoke_refresh_families_for_user
 from persistence.models import User
@@ -113,6 +128,22 @@ class Command(BaseCommand):
                 "admin without an explicit password. Set SYSTEM_ADMIN_PASSWORD "
                 "and restart to bootstrap the admin account."
             )
+        # P1.1 (review finding M-1): only a password that is actually about to
+        # be written is inspected. When the admin exists and no reset was asked
+        # for, the value is unused — validating it would turn a leftover
+        # `SYSTEM_ADMIN_PASSWORD=admin` in an old .env into a startup failure on
+        # every restart, which is exactly what the create-only contract avoids.
+        if password and (reset_password or not admin_exists):
+            reason = bootstrap_password_rejection_reason(password)
+            if reason is not None:
+                raise CommandError(
+                    f"SYSTEM_ADMIN_PASSWORD {reason}. Refusing to set a trivial "
+                    "password on a login-capable admin account. Use at least 8 "
+                    "characters that are not one of the well-known defaults "
+                    "(admin, password, changeme, change-me, letmein, 12345678, "
+                    "qwerty, admin123) and carry no change-me/changeme/"
+                    "placeholder marker. `bash scripts/setup.sh` generates one."
+                )
 
         try:
             result = provision_admin(

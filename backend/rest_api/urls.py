@@ -219,6 +219,7 @@ from rest_api.prompt_variable_views import (
 )
 from rest_api.quality_views import QualityAssessView, QualityHistoryView
 from rest_api.review_views import (
+    ReviewsPendingAliasView,
     ReviewsPendingView,
     WorkspaceReviewsPendingView,
 )
@@ -1368,7 +1369,10 @@ urlpatterns = [
     ),
     path(
         "reviews/pending/",
-        ReviewsPendingView.as_view(),
+        # Behaviour-free subclass of ReviewsPendingView: same handler, its own
+        # `reviews_pending_list` operationId (both routes are list operations;
+        # the shared `get` cannot carry two decorations).
+        ReviewsPendingAliasView.as_view(),
         name="api-v1-reviews-pending",
     ),
     path(

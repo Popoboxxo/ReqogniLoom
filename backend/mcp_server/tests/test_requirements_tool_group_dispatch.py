@@ -609,6 +609,7 @@ def test_service_not_found_maps_to_not_found(tool_name, params):
     """NotFoundError is NOT_FOUND for every handler that can raise it."""
     group, service = _group_with_service()
     service.get_requirement.side_effect = NotFoundError("gone")
+    service.delete_requirement.side_effect = NotFoundError("gone")
     service.derive_requirement.side_effect = NotFoundError("gone")
     service.decompose.side_effect = NotFoundError("gone")
     service.validate_requirement.side_effect = NotFoundError("gone")
@@ -707,16 +708,21 @@ def test_unmapped_exception_is_masked_as_internal_error(tool_name, params):
 
 
 def test_outdate_engine_failure_is_masked_as_internal_error():
-    """The outdate handler's own catch-all masks the unmapped cause."""
-    group, service = _group_with_service()
-    service.get_requirement.return_value = _stub_requirement(uuid4())
+    """The outdate handler's own catch-all masks the unmapped cause.
 
-    with patch("workflow.services.outdate", side_effect=RuntimeError("engine down: psql")):
-        result = _exec(group, "requirement.outdate", {"id": str(uuid4())}, _viewer_ctx())
+    P1.10: the reached call is ``RequirementService.delete_requirement`` (the
+    escape hatch ``workflow.services.outdate`` is no longer called), so the
+    fault is injected there.
+    """
+    group, service = _group_with_service()
+    service.delete_requirement.side_effect = RuntimeError("engine down: psql")
+
+    result = _exec(group, "requirement.outdate", {"id": str(uuid4())}, _viewer_ctx())
 
     assert result.success is False
     assert result.error_code == "INTERNAL_ERROR"
     assert result.message == "An internal error occurred."
+    assert "engine down" not in result.message
 
 
 # ---------------------------------------------------------------------------

@@ -10,18 +10,20 @@
  */
 
 import { useTranslation } from "react-i18next";
-import type { WorkspacePreset } from "../../types";
+import type { WorkflowPresetKey } from "../../api/workflows";
 import { WORKFLOW_PRESETS } from "./constants";
 import { handleTablistKeyDown, tabRovingTabIndex } from "../shared/tablistKeyboardNav";
 import styles from "./PresetSegmentedControl.module.css";
 
 interface PresetSegmentedControlProps {
-  value: WorkspacePreset;
-  onChange: (preset: WorkspacePreset) => void;
+  value: WorkflowPresetKey;
+  options?: readonly WorkflowPresetKey[];
+  onChange: (preset: WorkflowPresetKey) => void;
 }
 
 export function PresetSegmentedControl({
   value,
+  options = WORKFLOW_PRESETS,
   onChange,
 }: PresetSegmentedControlProps): JSX.Element {
   const { t } = useTranslation();
@@ -30,10 +32,10 @@ export function PresetSegmentedControl({
       role="tablist"
       aria-label={t("workflow.preset.ariaLabel")}
       data-testid="workflow-preset-selector"
-      onKeyDown={(e) => handleTablistKeyDown(e, WORKFLOW_PRESETS, value, onChange)}
+      onKeyDown={(e) => handleTablistKeyDown(e, options, value, onChange)}
       className={styles.tablist}
     >
-      {WORKFLOW_PRESETS.map((preset) => {
+      {options.map((preset) => {
         const isActive = preset === value;
         return (
           <button

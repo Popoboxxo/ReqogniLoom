@@ -1,5 +1,5 @@
 /**
- * REQ-176 — EntityTypeSelector: left panel listing the 7 workflow entity types.
+ * REQ-176 — EntityTypeSelector: left panel listing the workflow entity types.
  *
  * Each item shows the entity name and its state count in the active preset, and
  * a preset badge sits at the panel footer (design brief §4). The per-item state
@@ -11,7 +11,12 @@ import { useTranslation } from "react-i18next";
 import { Layers } from "lucide-react";
 import { useWorkspace } from "../../context/WorkspaceContext";
 import type { WorkflowEntityType } from "../../api/workflows";
-import { WORKFLOW_ENTITY_TYPES, type WorkflowScope } from "./constants";
+import {
+  defaultWorkflowPreset,
+  workflowPresetTier,
+  WORKFLOW_ENTITY_TYPES,
+  type WorkflowScope,
+} from "./constants";
 import { useWorkflowData } from "./useWorkflowData";
 import styles from "./WorkflowEditor.module.css";
 
@@ -73,10 +78,19 @@ export function EntityTypeSelector({
 }: EntityTypeSelectorProps): JSX.Element {
   const { t } = useTranslation();
   const { activeWorkspace } = useWorkspace();
+  const workspacePreset = activeWorkspace?.preset ?? "standard";
   const preset =
     scope?.kind === "global"
       ? scope.preset
-      : activeWorkspace?.preset ?? "standard";
+      : defaultWorkflowPreset(selected, workspacePreset);
+  const globalTier =
+    scope?.kind === "global"
+      ? workflowPresetTier(scope.preset) ?? "standard"
+      : workspacePreset;
+  const scopeForEntity = (type: WorkflowEntityType): WorkflowScope | undefined =>
+    scope?.kind === "global"
+      ? { kind: "global", preset: defaultWorkflowPreset(type, globalTier) }
+      : scope;
 
   return (
     <nav
@@ -93,7 +107,7 @@ export function EntityTypeSelector({
             label={t(`workflow.entityTypes.${e.type}`)}
             active={e.type === selected}
             onSelect={onSelect}
-            scope={scope}
+            scope={scopeForEntity(e.type)}
           />
         ))}
       </ul>

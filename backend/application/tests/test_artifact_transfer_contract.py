@@ -95,7 +95,8 @@ def test_reqif_mapping_is_standard_conformant_and_explicit() -> None:
 
 
 def test_non_artifact_scopes_are_explicit() -> None:
+    """The non-artifact (configuration) entities are named, never implicit."""
     config = [s for s in TRANSFER_SPECS.values() if not s.is_artifact]
-    assert {s.entity_key for s in config} == {"workspace", "link_type"}
+    assert {s.entity_key for s in config} == {"workspace", "link_type", "workflow_default"}
     assert all(s.roundtrip is False for s in config)
     assert len(artifact_specs()) == 22

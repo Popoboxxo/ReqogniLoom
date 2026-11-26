@@ -550,7 +550,15 @@ def _build_audit_params(
     if tool_name == "requirement.outdate":
         _ensure_workflow_definitions(workspace)
         req = _seed_requirement(workspace)
-        return {"id": str(req.id), "workspace_id": str(workspace.id)}
+        # The e2e workspace is the ``extended`` tier, whose preset makes
+        # ``change_reason`` mandatory — and since P1.10 the MCP outdate tool
+        # routes through RequirementService.delete_requirement, which enforces
+        # that policy instead of ignoring the reason.
+        return {
+            "id": str(req.id),
+            "workspace_id": str(workspace.id),
+            "change_reason": "audit trail test",
+        }
     if tool_name == "requirement.reactivate":
         _ensure_workflow_definitions(workspace)
         req = _seed_requirement(workspace)
@@ -568,7 +576,13 @@ def _build_audit_params(
     if tool_name == "needs.outdate":
         _ensure_workflow_definitions(workspace)
         need = _seed_stakeholder_need(workspace)
-        return {"id": str(need.id), "workspace_id": str(workspace.id)}
+        # Same preset policy as requirement.outdate above: the extended tier
+        # mandates a reason, and the MCP tool now enforces it (P1.10).
+        return {
+            "id": str(need.id),
+            "workspace_id": str(workspace.id),
+            "change_reason": "audit trail test",
+        }
     if tool_name == "needs.reactivate":
         _ensure_workflow_definitions(workspace)
         need = _seed_stakeholder_need(workspace)

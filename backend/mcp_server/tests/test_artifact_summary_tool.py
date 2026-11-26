@@ -227,8 +227,9 @@ def test_manifest_lists_it_once_as_read_and_the_count_is_current() -> None:
     # Tabellenansicht slice 3). Documented in six places, gated by
     # test_tool_manifest_drift.py and the two doc-surface guards. #2016's
     # ``change_request.submit_for_review`` moved it to 302 inside the same
-    # prefix set.
-    assert manifest["tool_count"] == 302
+    # prefix set; P1.8 / M-11 added the nine ``workflow_default`` tools
+    # (302 -> 311, the 50th prefix).
+    assert manifest["tool_count"] == 313
     assert manifest["tool_count"] == len(manifest["tools"])
 
 

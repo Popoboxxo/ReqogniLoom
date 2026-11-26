@@ -5,8 +5,8 @@ produces one in-memory JSON document, this one writes a streamable, checksummed
 ZIP to ``EXPORT_DIR`` in a Celery worker and tracks it through an
 :class:`~admin_ops.models.ExportSnapshotMetadata` row.
 
-Every one of the 24 entities in :data:`~application.artifact_transfer_contract.TRANSFER_SPECS`
-gets its own JSONL bucket (including the two configuration entities, whose
+Every one of the 25 entities in :data:`~application.artifact_transfer_contract.TRANSFER_SPECS`
+gets its own JSONL bucket (including the three configuration entities, whose
 rows may be empty for a given workspace). A ``manifest.json``, a
 ``relations.jsonl`` edge list, a reserved ``media/`` prefix and a
 ``checksum.sha256`` sidecar complete the archive. Secrets, audit rows and
@@ -461,7 +461,7 @@ class ZipSnapshotExportService(ServiceBase):
     def _extra_rows(
         spec: Any, workspace_id: UUID, ctx: AuthContext
     ) -> list[dict[str, Any]]:
-        """Rows for the two config entities the JSON snapshot does not carry."""
+        """Rows for the three config entities the JSON snapshot does not carry."""
         try:
             model = _model_for(spec)
             queryset = model.objects.filter(**_workspace_filter(model, workspace_id, ctx))

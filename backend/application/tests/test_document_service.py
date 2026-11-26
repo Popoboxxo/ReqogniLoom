@@ -22,10 +22,15 @@ Covered contracts (ADR-026, plan F §WP F2):
 """
 from __future__ import annotations
 
+import logging
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, timedelta
+from unittest.mock import patch
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from application.base import (
     DocumentGateFailedError,
@@ -34,10 +39,12 @@ from application.base import (
     OptimisticLockError,
     PermissionDeniedError,
     ValidationError,
+    WorkflowInitializationFailedError,
 )
 from application.document_service import FROZEN_FIELDS, DocumentService
+from audit.models import AuditEntry
 from auth_tenancy.context import AuthContext
-from persistence.models import Document, Tenant, User, Workspace
+from persistence.models import Artifact, Document, Tenant, User, Workspace
 from persistence.tenancy import TenantContext
 from workflow.precondition_rules import (
     EC_DOCUMENT_GATE_FAILED,
@@ -194,6 +201,80 @@ def test_create_assigns_uid_workspace_and_initial_state(service, workspace, edit
     revisions = ArtifactVersionService().list_revisions(document.artifact_id, editor_ctx)
     assert [entry["version"] for entry in revisions] == [1]
     assert revisions[0]["content_available"] is True
+
+
+def test_create_rolls_back_when_the_workflow_state_cannot_be_initialised(
+    service, workspace, editor_ctx, caplog
+):
+    """P2.13: no artifact exists without a workflow state.
+
+    The create is a hard failure — ``WorkflowInitializationFailedError``
+    propagates through ``@atomic_transaction``, so the Document row, its backing
+    Artifact, the local uid allocation and every audit entry are rolled back.
+    The cause stays in the log (exactly one ERROR record with the traceback and
+    the entity id, never the request body); the exception message carries no
+    internals.
+    """
+    secret_body = "# Secret\n\nTOKEN=super-secret-value-donotlog"
+    artifacts_before = Artifact.unscoped.filter(
+        workspace_id=workspace.id, artifact_type="Document"
+    ).count()
+
+    with patch(
+        "workflow.services.initialize_workflow_states",
+        side_effect=RuntimeError("boom"),
+    ):
+        with caplog.at_level(logging.ERROR):
+            with pytest.raises(WorkflowInitializationFailedError) as exc_info:
+                _create(service, workspace, editor_ctx, body=secret_body)
+
+    assert "was not created" in str(exc_info.value)
+    assert "workflow state" in str(exc_info.value)
+    # The cause is never surfaced.
+    assert "boom" not in str(exc_info.value)
+
+    # ROLLBACK PROOF: no document, no backing artifact, no audit row.
+    assert Document.objects.filter(workspace_id=workspace.id).count() == 0
+    assert (
+        Artifact.unscoped.filter(
+            workspace_id=workspace.id, artifact_type="Document"
+        ).count()
+        == artifacts_before
+    )
+    assert not AuditEntry.unscoped.filter(
+        entity_type="Document"
+    ).exists()
+
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "application.document_service"
+        and record.levelno >= logging.ERROR
+    ]
+    assert len(records) == 1
+    message = records[0].getMessage()
+    assert str(workspace.id) in message
+    assert records[0].exc_info is not None
+    assert secret_body not in message
+    assert "super-secret-value-donotlog" not in message
+
+
+def test_create_success_writes_one_create_audit_row_and_logs_no_error(
+    service, workspace, editor_ctx, caplog
+):
+    """The normal path still creates the document and its workflow state."""
+    with caplog.at_level(logging.ERROR):
+        document = _create(service, workspace, editor_ctx)
+
+    assert Document.objects.filter(id=document.id).exists()
+    assert service.current_status(document.id, editor_ctx) == "Entwurf"
+    assert AuditEntry.unscoped.filter(entity_id=document.id, op="create").exists()
+    assert [
+        record
+        for record in caplog.records
+        if record.name == "application.document_service"
+        and record.levelno >= logging.ERROR
+    ] == []
 
 
 @pytest.mark.parametrize(
@@ -448,11 +529,40 @@ def test_release_requires_a_change_reason(service, workspace, editor_ctx, approv
     assert document.frozen_at is None
 
 
-def test_release_requires_a_provisioned_document_workflow(
-    service, tenant, editor_ctx, approver_ctx
+def test_create_requires_a_provisioned_document_workflow(
+    service, tenant, editor_ctx
 ):
+    """P2.13: without a workflow definition no initial state can be created.
+
+    A workspace that never had a ``Document`` workflow used to produce a
+    document without a ``WorkflowItemState`` (served by the state_reader
+    fallback). That partial state is now refused: the create fails hard and
+    writes nothing.
+    """
     bare_workspace = _make_workspace(tenant, "Bare Workspace")
-    document = _create(service, bare_workspace, editor_ctx)
+
+    with pytest.raises(WorkflowInitializationFailedError):
+        _create(service, bare_workspace, editor_ctx)
+
+    assert Document.objects.filter(workspace_id=bare_workspace.id).count() == 0
+
+
+def test_release_requires_a_provisioned_document_workflow(
+    service, workspace, editor_ctx, approver_ctx, monkeypatch
+):
+    """The release path still fails closed when the workflow is gone.
+
+    Since P2.13 the create refuses an unprovisioned workspace, so the release
+    guard (``_NO_WORKFLOW_MESSAGE``) is reached only by a workspace whose
+    Document workflow disappeared after the document was created. Resolution is
+    stubbed to ``None`` to model exactly that state.
+    """
+    document = _create(service, workspace, editor_ctx)
+    monkeypatch.setattr(
+        DocumentService,
+        "_resolve_release_state",
+        classmethod(lambda cls, workspace_id: None),
+    )
 
     with pytest.raises(ValidationError) as exc:
         service.release(document.id, approver_ctx, change_reason="approved")
@@ -745,3 +855,162 @@ def test_another_tenant_cannot_read_update_or_list_the_document(
 
     document.refresh_from_db()
     assert document.title == "System Spec"
+
+
+# ---------------------------------------------------------------------------
+# list_documents(uid=...) — server-side predicate (plan P1.11 / M-15)
+# ---------------------------------------------------------------------------
+
+
+def test_list_documents_uid_returns_only_the_exact_match(
+    service, workspace, editor_ctx
+):
+    document = _create(service, workspace, editor_ctx)
+    _create(service, workspace, editor_ctx, title="Other", uid="DOC-777")
+
+    assert [
+        doc.id for doc in service.list_documents(
+            workspace.id, editor_ctx, uid=document.uid
+        )
+    ] == [document.id]
+
+
+def test_list_documents_uid_filter_is_exact_not_a_prefix(
+    service, workspace, editor_ctx
+):
+    document = _create(service, workspace, editor_ctx)
+    _create(
+        service, workspace, editor_ctx, title="Other", uid=f"{document.uid}0"
+    )
+
+    matched = service.list_documents(workspace.id, editor_ctx, uid=document.uid)
+    assert [doc.id for doc in matched] == [document.id]
+    # A prefix would also match ``document.uid + "0"``; the predicate must not.
+    assert service.list_documents(
+        workspace.id, editor_ctx, uid=document.uid[:-1]
+    ) == []
+
+
+def test_list_documents_unknown_uid_returns_an_empty_list(
+    service, workspace, editor_ctx
+):
+    _create(service, workspace, editor_ctx)
+
+    assert service.list_documents(workspace.id, editor_ctx, uid="DOC-999") == []
+
+
+def test_list_documents_uid_filter_stays_inside_the_workspace(
+    service, tenant, workspace, editor_ctx
+):
+    """A same-named uid in another workspace of the same tenant is not a hit."""
+    document = _create(service, workspace, editor_ctx)
+    sibling = _make_workspace(tenant, "Sibling Workspace")
+    _provision_document_workflow(sibling)
+    sibling_document = _create(
+        service, sibling, editor_ctx, title="Sibling", uid=document.uid
+    )
+
+    assert [
+        doc.id for doc in service.list_documents(
+            workspace.id, editor_ctx, uid=document.uid
+        )
+    ] == [document.id]
+    assert [
+        doc.id for doc in service.list_documents(
+            sibling.id, editor_ctx, uid=document.uid
+        )
+    ] == [sibling_document.id]
+
+
+def test_list_documents_uid_filter_stays_inside_the_tenant(
+    service, workspace, other_workspace, editor_ctx, other_tenant
+):
+    """A same-named uid in another tenant is invisible to the uid predicate."""
+    document = _create(service, workspace, editor_ctx)
+    foreign_ctx = _context(_user(other_tenant, "foreign-uid-editor"), "editor")
+    foreign_document = _create(
+        service, other_workspace, foreign_ctx, title="Foreign", uid=document.uid
+    )
+    assert foreign_document.uid == document.uid
+
+    assert [
+        doc.id for doc in service.list_documents(
+            workspace.id, editor_ctx, uid=document.uid
+        )
+    ] == [document.id]
+    assert [
+        doc.id
+        for doc in service.list_documents(
+            other_workspace.id, foreign_ctx, uid=document.uid
+        )
+    ] == [foreign_document.id]
+    # The other tenant cannot address this workspace at all, uid or not.
+    assert service.list_documents(workspace.id, foreign_ctx, uid=document.uid) == []
+
+
+def test_list_documents_uid_filter_respects_include_deleted(
+    service, workspace, editor_ctx
+):
+    document = _create(service, workspace, editor_ctx)
+    service.delete_document(document.id, editor_ctx, change_reason="obsolete")
+
+    assert service.list_documents(workspace.id, editor_ctx, uid=document.uid) == []
+    assert [
+        doc.id
+        for doc in service.list_documents(
+            workspace.id, editor_ctx, uid=document.uid, include_deleted=True
+        )
+    ] == [document.id]
+
+
+def test_list_documents_uid_filter_preserves_the_ordering(
+    service, workspace, editor_ctx
+):
+    """``-modified_at, id`` survives the added predicate."""
+    oldest = _create(service, workspace, editor_ctx, title="Oldest")
+    middle = _create(service, workspace, editor_ctx, title="Middle")
+    newest = _create(service, workspace, editor_ctx, title="Newest")
+    base = timezone.now() - timedelta(days=3)
+    Document.unscoped.filter(id=oldest.id).update(modified_at=base)
+    Document.unscoped.filter(id=middle.id).update(modified_at=base + timedelta(days=1))
+    Document.unscoped.filter(id=newest.id).update(modified_at=base + timedelta(days=2))
+
+    assert [
+        doc.id for doc in service.list_documents(workspace.id, editor_ctx)
+    ] == [newest.id, middle.id, oldest.id]
+    for document in (oldest, middle, newest):
+        assert [
+            doc.id
+            for doc in service.list_documents(
+                workspace.id, editor_ctx, uid=document.uid
+            )
+        ] == [document.id]
+
+
+def test_list_documents_uid_filter_is_a_database_predicate(
+    service, workspace, editor_ctx
+):
+    """The uid match is part of the SQL — not a filter over a loaded list."""
+    document = _create(service, workspace, editor_ctx)
+
+    with CaptureQueriesContext(connection) as captured:
+        service.list_documents(workspace.id, editor_ctx, uid=document.uid)
+
+    sql = "\n".join(query["sql"] for query in captured.captured_queries).lower()
+    assert '"uid" = ' in sql
+    assert " like " not in sql
+
+
+def test_list_documents_uid_none_keeps_the_unfiltered_list(
+    service, workspace, editor_ctx
+):
+    first = _create(service, workspace, editor_ctx)
+    second = _create(service, workspace, editor_ctx, title="Other")
+
+    assert [doc.id for doc in service.list_documents(workspace.id, editor_ctx)] == [
+        doc.id for doc in service.list_documents(workspace.id, editor_ctx, uid=None)
+    ]
+    assert {doc.id for doc in service.list_documents(workspace.id, editor_ctx)} == {
+        first.id,
+        second.id,
+    }

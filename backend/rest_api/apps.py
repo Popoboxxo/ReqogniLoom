@@ -22,7 +22,16 @@ class RestApiConfig(AppConfig):
     verbose_name = "ARCH-L1-002 RestApiAdapter"
 
     def ready(self) -> None:
-        """Register the throttle-rate system check (#1738)."""
+        """Register the startup system checks.
+
+        * ``rest_api.E001`` — malformed throttle rate (#1738).
+        * ``reqogniloom.E001``/``E002``/``W010``–``W014`` — production
+          configuration and secret hardening (plan P1.1/P1.3). Registered here
+          rather than in a new app so they run in the same ``manage.py check`` /
+          ``migrate`` pass as the throttle check above.
+        """
+        from reqogniloom.checks import register_production_security_checks
         from rest_api.checks import register_checks
 
         register_checks()
+        register_production_security_checks()

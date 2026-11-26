@@ -24,16 +24,19 @@ layer reports (``FIELD_FROZEN`` / ``DOCUMENT_GATE_FAILED`` / ``CONFLICT``).
 Soft delete (G1.5) is the workflow engine's outdate escape hatch: the row is
 never removed, ``status`` becomes ``"outdated"`` and ``document.query`` hides it
 unless ``include_outdated`` is true. The MCP parameter keeps the surface-wide
-``include_outdated`` name; it maps to REST's ``?include_deleted=``.
+``include_outdated`` name, which is now also the canonical REST spelling; the
+historical REST ``?include_deleted=`` is a deprecated alias (P2.1 / m-8).
 
 No ORM access in this module (ADR-01); the outbox events are emitted by
 ``DocumentService`` in the same transaction as the write (F2-T7).
 """
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from typing import Any
 
+from django.utils import timezone as django_timezone
 from django.utils.dateparse import parse_date
 
 from application.artifact_diff_service import ArtifactDiffService
@@ -41,18 +44,22 @@ from application.base import (
     NotFoundError,
     OptimisticLockError,
     ValidationError,
+    WorkflowInitializationFailedError,
 )
+from application.document_payload import document_fields
 from application.document_service import DocumentService
 from auth_tenancy.context import AuthContext
 from mcp_server.protocol_handler import ToolResult
 from mcp_server.tools.base import (
     BaseToolGroup,
-    artifact_custom_fields,
     reject_unknown_params,
     require_param,
     require_uuid,
     resolve_engine_status,
     resolve_status_map,
+    soft_delete_reason,
+    soft_delete_reason_properties,
+    transport_safe,
     workspace_query_required,
 )
 from persistence.errors import PermissionDeniedError
@@ -61,16 +68,11 @@ from persistence.models import Document
 #: The workflow item type this group speaks about (PascalCase).
 _ITEM_TYPE = "Document"
 
+logger = logging.getLogger(__name__)
+
 #: The kinds the ``Document`` model accepts; the create/update schemas publish
 #: them so a client does not have to guess the enum (#345-style honesty).
 _KINDS: tuple[str, ...] = tuple(Document.Kind.values)
-
-
-def _iso(value: Any) -> str | None:
-    """Render a ``date``/``datetime`` as ISO-8601, or ``None``."""
-    if isinstance(value, (datetime, date)):
-        return value.isoformat()
-    return value
 
 
 def _parse_doc_date(value: Any) -> date | None:
@@ -95,47 +97,95 @@ def _parse_doc_date(value: Any) -> date | None:
     return parsed
 
 
+def _render_document_temporal(value: Any) -> Any:
+    """Render one document temporal the way the REST serializer does.
+
+    P2.2 / m-4 follow-up: REST's ``DocumentSerializer`` uses DRF's
+    ``DateTimeField``, which renders a UTC datetime as ``…Z`` — the MCP layer
+    passed the same value through ``transport_safe`` and published ``…+00:00``.
+    Two spellings of the same instant for the same resource is a parity defect
+    (a client diffing the transports sees a change on every read), so the
+    document group renders its own four temporal fields and leaves
+    ``transport_safe`` — shared by every tool group — untouched.
+
+    Rules, mirroring DRF:
+
+    * ``datetime`` → forced into the current timezone (naive values get it
+      attached), then ISO-8601, with a zero UTC offset written as ``Z``.
+    * ``date`` (but not ``datetime``) → plain ISO-8601 ``YYYY-MM-DD``, no
+      offset and no ``Z``.
+    * anything else (``None``, or a ``MagicMock`` in a patched service test) is
+      returned unchanged and rendered by ``transport_safe`` as before.
+    """
+    if isinstance(value, datetime):
+        if django_timezone.is_naive(value):
+            value = django_timezone.make_aware(
+                value, django_timezone.get_current_timezone()
+            )
+        else:
+            value = value.astimezone(django_timezone.get_current_timezone())
+        rendered = value.isoformat()
+        if rendered.endswith("+00:00"):
+            rendered = f"{rendered[:-6]}Z"
+        return rendered
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+#: The four temporals the shared field map keeps native (P2.2).
+_TEMPORAL_KEYS: tuple[str, ...] = (
+    "doc_date",
+    "frozen_at",
+    "created_at",
+    "updated_at",
+)
+
+
 def _document_to_dict(
     document: Document, status_map: dict[str, str] | None = None
 ) -> dict[str, Any]:
     """Serialize a ``Document`` ORM row for the MCP responses.
 
-    Mirrors ``rest_api.views._document_to_dict`` / ``DocumentSerializer``
-    field-for-field, plus the ``status`` value the workflow engine owns (the
-    model deliberately has no lifecycle column, ADR-026 R2). ``custom_fields``
-    lives on the backing ``Artifact`` and is normalised to a dict.
+    Built on :func:`application.document_payload.document_fields` — the same
+    canonical field map REST's ``DocumentSerializer`` consumes (P2.2 / m-4), so
+    a new Document field can no longer appear on one transport only. This layer
+    owns exactly the two transport concerns:
+
+    * ``status`` — the workflow engine's value (the model has no lifecycle
+      column, ADR-026 R2), resolved here with the batched ``status_map``.
+    * temporal rendering — the four ``_TEMPORAL_KEYS`` are rendered by
+      :func:`_render_document_temporal`, which emits the **same** wire form the
+      DRF serializer produces (``…Z`` for a UTC datetime, plain ISO for a
+      ``date``). The remaining values still pass through ``transport_safe``.
     """
-    return {
-        "id": str(document.id),
-        "workspace_id": str(document.workspace_id),
-        "artifact_id": (
-            str(document.artifact_id)
-            if getattr(document, "artifact_id", None)
-            else None
-        ),
-        "uid": getattr(document, "uid", None),
-        "title": document.title,
-        "kind": document.kind,
-        "description": getattr(document, "description", ""),
-        "body": getattr(document, "body", ""),
-        "doc_date": _iso(getattr(document, "doc_date", None)),
-        "frozen_at": _iso(getattr(document, "frozen_at", None)),
-        "frozen_fields": list(getattr(document, "frozen_fields", None) or []),
-        # Phase G / #1374 S3: read-only dual-source/projection bookkeeping.
-        "owner_mode": getattr(document, "owner_mode", "loom"),
-        "source_path": getattr(document, "source_path", ""),
-        "source_sha256": getattr(document, "source_sha256", ""),
-        "projection_mode": getattr(document, "projection_mode", "none"),
-        "projected_sha256": getattr(document, "projected_sha256", ""),
-        "projected_version": getattr(document, "projected_version", None),
-        "custom_fields": artifact_custom_fields(document),
-        "status": resolve_engine_status(
-            _ITEM_TYPE, document.id, status_map=status_map
-        ),
-        "version": document.version,
-        "created_at": _iso(getattr(document, "created_at", None)),
-        "updated_at": _iso(getattr(document, "modified_at", None)),
-    }
+    payload = dict(document_fields(document))
+    for key in _TEMPORAL_KEYS:
+        if key in payload:
+            payload[key] = _render_document_temporal(payload[key])
+    payload["status"] = resolve_engine_status(
+        _ITEM_TYPE, document.id, status_map=status_map
+    )
+    return transport_safe(payload)
+
+
+def _log_unexpected(tool_name: str, exc: BaseException) -> None:
+    """Record a masked failure server-side, without leaking it to the client.
+
+    Plan P1.12 (M-16): the ``INTERNAL_ERROR`` answer stays a static string
+    (CWE-209), but the traceback must be diagnosable in the server log.
+
+    What is guaranteed: the *log call's* arguments are only the tool name and
+    the exception class — ``params`` (and therefore request bodies, tokens and
+    PII) are never interpolated into it. What is NOT guaranteed: an exception's
+    own message. ``logger.exception`` attaches the traceback, and that traceback
+    carries ``str(exc)`` in its final line, so a message a handler built from a
+    caller-supplied value lands in the log. That is deliberate — the log is the
+    operator's channel — but it is a property of the traceback, not something
+    this function can promise away. Do not "fix" it by dropping the traceback:
+    the traceback is the only reason ``INTERNAL_ERROR`` is diagnosable at all.
+    """
+    logger.exception("%s failed (%s)", tool_name, type(exc).__name__)
 
 
 def _validation_error(exc: Exception) -> ToolResult:
@@ -256,8 +306,11 @@ class DocumentToolGroup(BaseToolGroup):
                     "include_outdated": {
                         "type": "boolean",
                         "description": (
-                            "If true, include soft-deleted documents (REST's "
-                            "?include_deleted=true). Defaults to false."
+                            "If true, include soft-deleted documents. "
+                            "include_outdated is the canonical key in MCP and "
+                            "in REST; REST's historical ?include_deleted= is "
+                            "still accepted as a deprecated alias. Defaults "
+                            "to false."
                         ),
                     },
                     "uid": {
@@ -476,10 +529,7 @@ class DocumentToolGroup(BaseToolGroup):
                 "type": "object",
                 "properties": {
                     "id": {"type": "string", "description": "UUID of the document."},
-                    "reason": {
-                        "type": "string",
-                        "description": "Optional audit reason (may be mandatory per preset).",
-                    },
+                    **soft_delete_reason_properties(),
                 },
                 "required": ["id"],
             },
@@ -529,7 +579,18 @@ class DocumentToolGroup(BaseToolGroup):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _validation_error(exc)
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except WorkflowInitializationFailedError as exc:
+            # P2.13: the service rolled the create back; answer a static
+            # sentence whose wording is the transport-neutral one (the cause is
+            # already in the server log via ``_log_unexpected``).
+            _log_unexpected("document.create", exc)
+            return ToolResult.error(
+                "INTERNAL_ERROR",
+                "The artifact was not created because its workflow state could "
+                "not be initialised.",
+            )
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("document.create", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({"document": _document_to_dict(document)})
 
@@ -560,7 +621,8 @@ class DocumentToolGroup(BaseToolGroup):
             projected = DocumentProjectionService().project(document_id, auth_context)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _validation_error(exc)
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("document.project", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok(projected.to_dict())
 
@@ -591,7 +653,8 @@ class DocumentToolGroup(BaseToolGroup):
                 )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _validation_error(exc)
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("document.projection_status", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({"documents": [row.to_dict() for row in rows]})
 
@@ -619,7 +682,8 @@ class DocumentToolGroup(BaseToolGroup):
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _validation_error(exc)
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("document.adopt", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({"document": _document_to_dict(document)})
 
@@ -635,16 +699,14 @@ class DocumentToolGroup(BaseToolGroup):
                 workspace_id=workspace_id,
                 ctx=auth_context,
                 include_deleted=bool(params.get("include_outdated", False)),
+                uid=uid_filter,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _validation_error(exc)
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("document.query", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
 
-        if uid_filter is not None:
-            documents = [
-                doc for doc in documents if str(getattr(doc, "uid", "") or "") == uid_filter
-            ]
         status_map = resolve_status_map(
             _ITEM_TYPE, [doc.id for doc in documents]
         )
@@ -693,7 +755,8 @@ class DocumentToolGroup(BaseToolGroup):
             return ToolResult.error("CONFLICT", f"Version conflict: {exc}")
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _validation_error(exc)
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("document.update", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({"document": _document_to_dict(document)})
 
@@ -722,7 +785,8 @@ class DocumentToolGroup(BaseToolGroup):
             return ToolResult.error("CONFLICT", f"Version conflict: {exc}")
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _validation_error(exc)
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("document.transition", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({
             "id": str(document.id),
@@ -745,7 +809,8 @@ class DocumentToolGroup(BaseToolGroup):
             return ToolResult.error("NOT_FOUND", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("document.versions", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({"versions": versions, "count": len(versions)})
 
@@ -781,7 +846,8 @@ class DocumentToolGroup(BaseToolGroup):
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except (ValidationError, ValueError) as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("document.diff", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({"diff": result})
 
@@ -793,11 +859,12 @@ class DocumentToolGroup(BaseToolGroup):
             self._svc().delete_document(
                 document_id,
                 auth_context,
-                change_reason=params.get("reason") or "",
+                change_reason=soft_delete_reason(params),
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _validation_error(exc)
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("document.outdate", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({"id": str(document_id), "status": "outdated"})
 
@@ -811,7 +878,8 @@ class DocumentToolGroup(BaseToolGroup):
             new_state = svc.current_status(document_id, auth_context)
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _validation_error(exc)
-        except Exception:  # noqa: BLE001 — masked, logged server-side
+        except Exception as exc:  # noqa: BLE001 — masked to the client, logged here
+            _log_unexpected("document.reactivate", exc)
             return ToolResult.error("INTERNAL_ERROR", "An internal error occurred.")
         return ToolResult.ok({
             "id": str(document_id),

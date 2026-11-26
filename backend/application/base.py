@@ -416,6 +416,27 @@ class LlmNotConfiguredError(RuntimeError):
     """Raised when an LLM capability is requested but no provider is configured."""
 
 
+class WorkflowInitializationFailedError(RuntimeError):
+    """Raised when an artifact's backing workflow state cannot be created.
+
+    P2.13: an artifact without a ``WorkflowItemState`` row is not a usable
+    artifact — every later transition, release gate and resume would run on the
+    ``state_reader`` fallback instead of the workspace's real lifecycle. The
+    create transaction must therefore roll back as a whole (entity row, backing
+    ``Artifact``, local ``uid`` allocation and audit entries), and the caller
+    gets a visible, non-internal error instead of a half-created row.
+
+    The original failure stays in the server log (``logger.exception`` with the
+    entity/workspace ids and no bodies or tokens); the message carried by this
+    exception is a fixed, localised-safe sentence that never includes the
+    cause, so both transports may surface it verbatim.
+
+    REST: **503** ``WORKFLOW_INIT_FAILED``. MCP: ``INTERNAL_ERROR`` with a static
+    sentence (the tool-facing fault is a server-side initialisation failure, not
+    a caller mistake).
+    """
+
+
 # ---------------------------------------------------------------------------
 # ServiceBase
 # ---------------------------------------------------------------------------
@@ -762,6 +783,7 @@ __all__ = [
     "ValidationError",
     "WaiverFindingNotBlockingError",
     "WaiverReasonPolicyViolation",
+    "WorkflowInitializationFailedError",
     "is_producer_context",
     "require_producer_context",
 ]
