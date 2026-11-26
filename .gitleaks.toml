@@ -214,3 +214,17 @@ commits = [
 paths = ['''^\.env$''']
 targetRules = ["env-secret-assignment", "generic-api-key"]
 
+
+# 6. Django system-check identifiers in `backend/reqogniloom/checks.py`.
+#    ``E001_API_KEY_PEPPER_MISSING = "reqogniloom.E001"`` (and the ``E002``
+#    twin) match the *identifier shape* generic-api-key looks for — a name
+#    containing "api key" followed by a quoted value — but the value is a fixed
+#    Django check id, not a credential. Exempted by the two exact literals
+#    only. Deliberately NO `paths` entry: gitleaks ORs allowlist conditions, so
+#    a path would exempt every generic-api-key hit in that file forever. The
+#    `targetRules` restriction keeps the exemption off every other detector,
+#    and the dedicated custom-rule scans do not read this file at all.
+[[allowlists]]
+description = "Django system-check ids reqogniloom.E001/E002 are identifiers, not credentials"
+regexes = ['''reqogniloom\.E001''', '''reqogniloom\.E002''']
+targetRules = ["generic-api-key"]
