@@ -7,10 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0-beta.8] — 2026-11-26
+
+Correction cut on top of `1.9.0-beta.7`. The feature scope is unchanged — everything listed under 1.9.0-beta.7 ships here as well. `v1.9.0-beta.7` was tagged but never published: two repository-level CI gates (below) only failed because the branch had not been through CI before the tag, so no image reached GHCR. This cut carries the same features plus the fixes that make the pipeline green.
+
+### Changed
+- Feature scope of `1.9.0-beta.7` unchanged: document reading/editing mode with a server-resolved write capability, workflow management for `Document` and `WorkItem`, the global workflow-defaults editor with the `workflow_default` MCP group, 313 MCP tools in 50 tool-group prefixes, REST/MCP parity (`change_reason`/`include_outdated` canonical, `reason`/`include_deleted` deprecated through `1.11.0`), production security/scope hardening and the P2.13 hard abort
+
 ### Fixed
-- test(e2e): the document reading view opens in read mode since `1.9.0-beta.7`, so the spec now enters edit mode before driving inline writes and asserts the read-first default; the stale spec failed on the `document-field-input-*`, `document-mode-batch` and `document-save-bar` locators
-- fix(hermes-plugin): classify `workflow_default.initialize` as a write, so the new global workflow-defaults tool runs behind the write gate instead of past it
+- fix(hermes-plugin): classify `workflow_default.initialize` as a write, so the new global workflow-defaults tool runs behind the write gate (typed confirmation) instead of past it
 - docs(plans): link the REST/MCP review remediation plan from the plan index and refresh its version/check date (doc-index freshness gate)
+- test(e2e): the document reading view opens in read mode, so the spec now enters edit mode before driving inline writes and additionally asserts the read-first default; the stale spec failed on the `document-field-input-*`, `document-mode-batch` and `document-save-bar` locators
 
 ## [1.9.0-beta.7] — 2026-11-26
 
