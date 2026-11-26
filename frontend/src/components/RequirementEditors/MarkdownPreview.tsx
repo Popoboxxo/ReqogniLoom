@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
 import { SlidersHorizontal } from "lucide-react";
 import { useWorkspace } from "../../context/WorkspaceContext";
@@ -74,6 +75,9 @@ interface MarkdownPreviewProps {
    */
   readOnly?: boolean;
 }
+
+/** GFM keeps tables/task lists consistent between the editor preview and read-only surfaces. */
+const REMARK_PLUGINS = [remarkGfm];
 
 /** `[[glossary:<uuid>]]` / `[[glossary:<uuid>@<revision>]]`. */
 const REFERENCE_PATTERN =
@@ -407,7 +411,11 @@ export function MarkdownPreview({
   if (readOnly) {
     return (
       <div className={styles.readOnlyBody} data-testid="markdown-read-only">
-        <ReactMarkdown components={components} urlTransform={transformUrl}>
+        <ReactMarkdown
+          components={components}
+          remarkPlugins={REMARK_PLUGINS}
+          urlTransform={transformUrl}
+        >
           {processedValue}
         </ReactMarkdown>
       </div>
@@ -456,6 +464,7 @@ export function MarkdownPreview({
           ) : null}
           <ReactMarkdown
             components={components}
+            remarkPlugins={REMARK_PLUGINS}
             urlTransform={transformUrl}
           >
             {processedValue}

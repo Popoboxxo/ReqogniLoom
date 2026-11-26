@@ -21,16 +21,19 @@ import type { WorkflowScope } from "./constants";
 
 export const workflowKeys = {
   all: ["workflow-graph"] as const,
-  graph: (scopeKey: string, entityType: string) =>
-    ["workflow-graph", scopeKey, entityType] as const,
+  workspace: (workspaceId: string) =>
+    ["workflow-graph", "workspace", workspaceId] as const,
+  graph: (scope: WorkflowScope, entityType: WorkflowEntityType) =>
+    scope.kind === "global"
+      ? (["workflow-graph", "global", scope.preset, entityType] as const)
+      : ([
+          "workflow-graph",
+          "workspace",
+          scope.workspaceId ?? "",
+          scope.preset ?? "",
+          entityType,
+        ] as const),
 };
-
-/** Stable cache-key fragment identifying the scope (workspace id or preset). */
-export function scopeCacheKey(scope: WorkflowScope): string {
-  return scope.kind === "global"
-    ? `global:${scope.preset}`
-    : `ws:${scope.workspaceId ?? ""}`;
-}
 
 export interface WorkflowData {
   graph: WorkflowGraph | null;
@@ -50,19 +53,27 @@ export function useWorkflowData(
 ): WorkflowData {
   const { activeWorkspace, isLoadingWorkspace } = useWorkspace();
   const effectiveScope: WorkflowScope =
-    scope ?? { kind: "workspace", workspaceId: activeWorkspace?.id };
+    scope ?? {
+      kind: "workspace",
+      workspaceId: activeWorkspace?.id,
+      preset: activeWorkspace?.preset,
+    };
 
   const isGlobal = effectiveScope.kind === "global";
   const workspaceId =
     effectiveScope.kind === "workspace" ? effectiveScope.workspaceId : undefined;
 
   const query = useQuery({
-    queryKey: workflowKeys.graph(scopeCacheKey(effectiveScope), entityType),
+    queryKey: workflowKeys.graph(effectiveScope, entityType),
     queryFn: () =>
       isGlobal
         ? workflowDefaultsApi.getGraph(entityType, effectiveScope.preset)
         : workflowsApi.getGraph(entityType, workspaceId as string),
     enabled: isGlobal ? true : !!workspaceId && !isLoadingWorkspace,
+    // Workspace graphs are provisioned from the active rigor tier. A preset
+    // change can happen outside this editor (Workspace Settings), so never
+    // serve a cached workspace graph without revalidating it on remount.
+    staleTime: isGlobal ? 30_000 : 0,
   });
 
   return {

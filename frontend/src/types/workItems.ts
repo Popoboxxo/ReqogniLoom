@@ -9,6 +9,7 @@
  */
 
 import type { CustomFields, ISODateTime, UUID } from "./common";
+import type { WorkflowTransitionStateChange } from "./workflow";
 
 /** `persistence.models.WorkItem.Kind` — the five item kinds. */
 export type WorkItemKind =
@@ -108,11 +109,15 @@ export interface WorkItemTransitionsResponse {
   proposed_by?: string | null;
 }
 
-/** Response of `POST /api/v1/work-items/{id}/transitions/`. */
-export interface WorkItemTransitionResult {
-  id: UUID;
-  previous_state: string;
-  new_state: string;
+/**
+ * Response of `POST /api/v1/work-items/{id}/transitions/`.
+ *
+ * Extends the shared `WorkflowTransitionStateChange` (the state change every
+ * transition route returns) with the WorkItem-specific extras: the entity
+ * revision to echo as `expected_version` and the serialized item.
+ */
+export interface WorkItemTransitionResult
+  extends WorkflowTransitionStateChange {
   version: number;
   work_item: WorkItem;
 }

@@ -1027,6 +1027,9 @@
     "selectDocument": "Wähle links ein Dokument aus, um es anzuzeigen.",
     "notFound": "Dokument nicht gefunden.",
     "edit": "Bearbeiten",
+    "modeLabel": "Dokumentmodus",
+    "readMode": "Lesen",
+    "editMode": "Bearbeiten",
     "delete": "Löschen",
     "reactivate": "Reaktivieren",
     "lifecycle": "Lebenszyklus",
@@ -2708,7 +2711,20 @@
       "TestCase": "Testfall",
       "Issue": "Issue",
       "Goal": "Ziel",
-      "MainGoal": "Haupt-Ziel"
+      "MainGoal": "Haupt-Ziel",
+      "Document": "Dokument",
+      "WorkItem": "Work Item"
+    },
+    "scope": {
+      "workspaceHint": "Sie bearbeiten den Workflow dieses Workspaces. Tenant-weite Vorgaben werden separat verwaltet.",
+      "globalDefaultsLink": "Systemeinstellungen → Workflow-Vorgaben öffnen",
+      "globalHint": "Sie bearbeiten die tenant-weite Vorgabe für dieses Preset. Workspace-Workflow-Definitionen bleiben davon getrennt.",
+      "workspaceDefinitionsLink": "Workspace-Workflow-Verwaltung öffnen"
+    },
+    "invalidEntity": {
+      "title": "Unbekannter Workflow-Entitätstyp",
+      "message": "Der Workflow-Typ \"{{slug}}\" ist nicht verfügbar.",
+      "back": "Zurück zur Workflow-Verwaltung"
     },
     "inspector": {
       "ariaLabelExpanded": "Inspektor",

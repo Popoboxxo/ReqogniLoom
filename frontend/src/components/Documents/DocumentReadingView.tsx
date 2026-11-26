@@ -11,9 +11,10 @@
  *
  * Management actions stay opt-in: the lifecycle control only renders when the
  * caller passes `onTransitionComplete`, delete/reactivate only when their
- * handlers are passed. A caller that renders just the read surface (or a
- * viewer without write capability) therefore cannot accidentally expose an
- * edit affordance.
+ * handlers are passed, and the edit button only when `onEdit` is passed. A
+ * caller that renders just the read surface (or a viewer without write
+ * capability) therefore cannot accidentally expose an edit affordance — and a
+ * read-only consumer needs no no-op handler.
  */
 
 import { useState } from "react";
@@ -25,10 +26,7 @@ import { DocumentFieldEditor } from "./DocumentFieldEditor";
 import { DocumentLifecycle } from "./DocumentLifecycle";
 import { DocumentReadingChapters } from "./DocumentReadingChapters";
 import { DocumentSaveBar } from "./DocumentSaveBar";
-import {
-  useDocumentDrafts,
-  type DocumentSaveMode,
-} from "./useDocumentDrafts";
+import { useDocumentDrafts, type DocumentSaveMode } from "./useDocumentDrafts";
 import { WorkItemsPanel } from "../WorkItems/WorkItemsPanel";
 import { InlineReferenceHints } from "../WorkItems/InlineReferenceHints";
 import { getWorkflowStatusLabel } from "../../utils/workflowStatus";
@@ -64,12 +62,26 @@ const READ_ONLY_REASON_KEY: Record<string, string> = {
   PERMISSION: "documents.readOnlyPermission",
 };
 
+/** Presentation mode of the document body and its inline field editors. */
+export type DocumentPresentationMode = "read" | "edit";
+
 export interface DocumentReadingViewProps {
   /** Backing document — carries the lifecycle identity (`status`, `version`). */
   document: Document;
   /** Chaptered read object from `GET /documents/{id}/view/`. */
   reading: DocumentReading;
-  onEdit: () => void;
+  /**
+   * `read` keeps the rendered chapters and static metadata visible while
+   * suppressing every inline editor/save control. Defaults to `edit` so
+   * existing writer surfaces keep their behaviour.
+   */
+  presentationMode?: DocumentPresentationMode;
+  /**
+   * Leave the reading surface for the full editor. Optional: a pure read
+   * consumer needs no no-op handler, and the edit affordance only renders when
+   * a handler is passed.
+   */
+  onEdit?: () => void;
   workspaceId?: string;
   onDelete?: () => void;
   onReactivate?: () => void;
@@ -87,6 +99,7 @@ export interface DocumentReadingViewProps {
 export function DocumentReadingView({
   document,
   reading,
+  presentationMode = "edit",
   onEdit,
   workspaceId,
   onDelete,
@@ -105,6 +118,8 @@ export function DocumentReadingView({
   });
 
   const canWrite = reading.capabilities.can_write;
+  const canInlineEdit = canWrite && presentationMode === "edit";
+  const showFieldsDirectly = canInlineEdit || reading.chapters.length === 0;
   const outdated = isOutdatedState(reading.status);
   const frozenFields = reading.frozen_fields ?? [];
   const isFrozen = frozenFields.length > 0 || Boolean(reading.frozen_at);
@@ -126,7 +141,7 @@ export function DocumentReadingView({
             className={styles.fieldRow}
             data-testid={`document-reading-field-${field.name}`}
           >
-            {canWrite ? (
+            {canInlineEdit ? (
               <DocumentFieldEditor
                 field={field}
                 label={t(FIELD_LABEL_KEY[field.name] ?? field.name)}
@@ -193,41 +208,47 @@ export function DocumentReadingView({
           </p>
         </div>
 
-        {canWrite && !outdated && (
+        {canWrite && !outdated && (canInlineEdit || Boolean(onDelete)) && (
           <div className={styles.actions}>
-            {/* R6: the save mode is a per-visit working style, never persisted. */}
-            <div
-              className={styles.modeToggle}
-              role="group"
-              aria-label={t("documents.saveModeLabel")}
-            >
-              <button
-                type="button"
-                className="btn-ghost"
-                data-testid="document-mode-immediate"
-                aria-pressed={saveMode === "immediate"}
-                onClick={() => setSaveMode("immediate")}
-              >
-                {t("documents.saveModeImmediate")}
-              </button>
-              <button
-                type="button"
-                className="btn-ghost"
-                data-testid="document-mode-batch"
-                aria-pressed={saveMode === "batch"}
-                onClick={() => setSaveMode("batch")}
-              >
-                {t("documents.saveModeBatch")}
-              </button>
-            </div>
-            <button
-              type="button"
-              className="btn-primary"
-              data-testid="document-edit"
-              onClick={onEdit}
-            >
-              {t("documents.edit")}
-            </button>
+            {canInlineEdit && (
+              <>
+                {/* R6: the save mode is a per-visit working style, never persisted. */}
+                <div
+                  className={styles.modeToggle}
+                  role="group"
+                  aria-label={t("documents.saveModeLabel")}
+                >
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    data-testid="document-mode-immediate"
+                    aria-pressed={saveMode === "immediate"}
+                    onClick={() => setSaveMode("immediate")}
+                  >
+                    {t("documents.saveModeImmediate")}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    data-testid="document-mode-batch"
+                    aria-pressed={saveMode === "batch"}
+                    onClick={() => setSaveMode("batch")}
+                  >
+                    {t("documents.saveModeBatch")}
+                  </button>
+                </div>
+                {onEdit && (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    data-testid="document-edit"
+                    onClick={onEdit}
+                  >
+                    {t("documents.edit")}
+                  </button>
+                )}
+              </>
+            )}
             {onDelete && (
               <button
                 type="button"
@@ -254,7 +275,7 @@ export function DocumentReadingView({
         )}
       </header>
 
-      {canWrite && saveMode === "batch" && (
+      {canInlineEdit && saveMode === "batch" && (
         <DocumentSaveBar
           dirtyCount={drafts.dirtyCount}
           conflicts={drafts.conflicts}
@@ -272,7 +293,9 @@ export function DocumentReadingView({
           className={styles.lifecycle}
           aria-label={t("documents.lifecycle")}
         >
-          <span className={styles.sectionLabel}>{t("documents.lifecycle")}</span>
+          <span className={styles.sectionLabel}>
+            {t("documents.lifecycle")}
+          </span>
           <DocumentLifecycle
             document={document}
             canWrite={canWrite}
@@ -335,15 +358,16 @@ export function DocumentReadingView({
 
       {/*
        * Editors need the wide column: the table-of-contents aside is 16rem and
-       * would squeeze a Markdown textarea into a peephole. The read-only
-       * metadata therefore stays in the aside only when nothing is editable.
+       * would squeeze a Markdown textarea into a peephole. Read-only metadata
+       * stays in the aside only when chapters exist; with zero chapters the
+       * chapter component renders null, so the fields must stand on their own.
        */}
-      {canWrite && fields}
+      {showFieldsDirectly && fields}
 
       <DocumentReadingChapters
         chapters={reading.chapters}
         documentTitle={reading.title || t("documents.untitled")}
-        metadata={canWrite ? undefined : fields}
+        metadata={showFieldsDirectly ? undefined : fields}
       />
 
       {reading.chapters.length === 0 && (

@@ -9,7 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ReactNode } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -24,7 +24,7 @@ const { DOC, FROZEN } = vi.hoisted(() => ({
     title: "Architecture guide",
     kind: "Guide" as const,
     description: "How the system is put together.",
-    body: "# Guide\n\nBody text.",
+    body: '# Guide\n\n- First item\n- Second item\n\n| Name | Value |\n| --- | --- |\n| Alpha | 42 |\n\n```ts\nconst answer = 42;\n```\n\n<img src=x onerror="alert(1)">',
     doc_date: "2026-11-02",
     frozen_at: null as string | null,
     frozen_fields: [] as string[],
@@ -73,8 +73,12 @@ vi.mock("../context/WorkspaceContext", () => ({
   }),
 }));
 
+const { hasRoleMock } = vi.hoisted(() => ({
+  hasRoleMock: vi.fn(() => true),
+}));
+
 vi.mock("../hooks/useHasRole", () => ({
-  useHasRole: () => () => true,
+  useHasRole: () => hasRoleMock,
 }));
 
 // The real tree loads the #1257 display configuration over the network and
@@ -84,6 +88,7 @@ vi.mock("../components/shared/WorkspaceTree", () => ({
     nodes,
     renderRow,
     selectedId,
+    onSelect,
   }: {
     nodes: Array<{ id: string }>;
     renderRow?: (
@@ -91,10 +96,22 @@ vi.mock("../components/shared/WorkspaceTree", () => ({
       ctx: { isSelected: boolean }
     ) => ReactNode;
     selectedId?: string;
+    onSelect: (id: string) => void;
   }) => (
     <div data-testid="workspace-tree">
       {nodes.map((node) => (
-        <div key={node.id} data-testid={`tree-row-${node.id}`}>
+        <div
+          key={node.id}
+          role="button"
+          tabIndex={0}
+          data-testid={`tree-row-${node.id}`}
+          onClick={() => onSelect(node.id)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            onSelect(node.id);
+          }}
+        >
           {renderRow?.(node, { isSelected: node.id === selectedId })}
         </div>
       ))}
@@ -138,7 +155,28 @@ const transitions = documentsApi.transitions as ReturnType<typeof vi.fn>;
 const transition = documentsApi.transition as ReturnType<typeof vi.fn>;
 
 /** Reading object the detail route fetches alongside the document (R4). */
-function readingFor(document: typeof DOC | typeof FROZEN): Record<string, unknown> {
+function readingFor(
+  document: typeof DOC | typeof FROZEN,
+  canWrite = true
+): Record<string, unknown> {
+  const fields = ["title", "description", "body", "doc_date"].map((name) => {
+    const value =
+      name === "doc_date"
+        ? document.doc_date
+        : document[name as "title" | "description" | "body"];
+    const frozen = document.frozen_fields.includes(name);
+    return {
+      name,
+      value,
+      editable: canWrite && !frozen,
+      locked: frozen
+        ? { code: "FIELD_FROZEN", detail: `The ${name} is frozen.` }
+        : canWrite
+          ? null
+          : { code: "PERMISSION", detail: "Read access only." },
+    };
+  });
+
   return {
     id: document.id,
     artifact_id: document.artifact_id,
@@ -152,22 +190,20 @@ function readingFor(document: typeof DOC | typeof FROZEN): Record<string, unknow
     status: document.status,
     frozen_at: document.frozen_at,
     frozen_fields: document.frozen_fields,
-    editable_fields: ["title", "description", "body", "doc_date"],
-    fields: [
-      {
-        name: "title",
-        value: document.title,
-        editable: true,
-        locked: null,
-      },
-    ],
-    capabilities: { can_write: true, read_only_reason: null },
+    editable_fields: fields
+      .filter((field) => field.editable)
+      .map((field) => field.name),
+    fields,
+    capabilities: {
+      can_write: canWrite,
+      read_only_reason: canWrite ? null : "PERMISSION",
+    },
     chapters: [
       {
         number: "1",
         level: 1,
-        title: "Guide",
-        anchor: "guide",
+        title: document.title,
+        anchor: document.id === "doc-1" ? "guide" : "spec",
         body: document.body,
       },
     ],
@@ -179,11 +215,13 @@ function readingFor(document: typeof DOC | typeof FROZEN): Record<string, unknow
   };
 }
 
-function renderRoute(route: string): void {
-  const client = new QueryClient({
+function renderRoute(
+  route: string,
+  client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
-  });
-  render(
+  })
+): ReturnType<typeof render> {
+  return render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[route]}>
         <Routes>
@@ -198,6 +236,7 @@ function renderRoute(route: string): void {
 describe("Documents route (F2-T8)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    hasRoleMock.mockReturnValue(true);
     listAll.mockResolvedValue([DOC]);
     get.mockResolvedValue(DOC);
     readingView.mockResolvedValue(readingFor(DOC));
@@ -262,6 +301,180 @@ describe("Documents route (F2-T8)", () => {
     );
   });
 
+  it("starts writers in read mode with rendered chapters and no raw editors", async () => {
+    const { container } = renderRoute("/documents/doc-1");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("document-reading-view")).toBeInTheDocument()
+    );
+
+    const modeToggle = screen.getByTestId("document-mode-toggle");
+    expect(
+      within(modeToggle).getByTestId("document-mode-read")
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      within(modeToggle).getByTestId("document-mode-edit")
+    ).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("document-reading-toc")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("document-reading-chapter-guide")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("document-field-input-body")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("document-mode-immediate")
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("document-save-bar")).not.toBeInTheDocument();
+    expect(container.querySelector("textarea")).toBeNull();
+  });
+
+  it("renders markdown lists, tables and code while escaping raw HTML", async () => {
+    const { container } = renderRoute("/documents/doc-1");
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("document-reading-chapter-guide")
+      ).toBeInTheDocument()
+    );
+    const chapter = within(
+      screen.getByTestId("document-reading-chapter-guide")
+    );
+
+    expect(chapter.getByRole("list")).toBeInTheDocument();
+    expect(chapter.getAllByRole("listitem")).toHaveLength(2);
+    expect(chapter.getByRole("table")).toBeInTheDocument();
+    expect(chapter.getByText("const answer = 42;")).toBeInTheDocument();
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.innerHTML).not.toContain("<img");
+    expect(container.innerHTML).toContain("&lt;img");
+  });
+
+  it("keeps viewers in read mode without a mode toggle", async () => {
+    hasRoleMock.mockReturnValue(false);
+    readingView.mockResolvedValue(readingFor(DOC, false));
+    const { container } = renderRoute("/documents/doc-1");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("document-reading-view")).toBeInTheDocument()
+    );
+
+    expect(
+      screen.queryByTestId("document-mode-toggle")
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("document-edit")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("document-field-input-body")
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("document-reading-toc")).toBeInTheDocument();
+    expect(container.querySelector("textarea")).toBeNull();
+  });
+
+  it("toggles between read and inline editing without losing the full editor", async () => {
+    const user = userEvent.setup();
+    renderRoute("/documents/doc-1");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("document-mode-read")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("document-mode-edit"));
+
+    expect(screen.getByTestId("document-mode-edit")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.getByTestId("document-field-input-body")).toBeInTheDocument();
+    expect(screen.getByTestId("document-mode-immediate")).toBeInTheDocument();
+    expect(screen.getByTestId("document-edit")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("document-mode-batch"));
+    expect(screen.getByTestId("document-save-bar")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("document-mode-read"));
+    expect(
+      screen.queryByTestId("document-field-input-body")
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("document-mode-batch")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("document-save-bar")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("document-mode-edit"));
+    expect(screen.getByTestId("document-field-input-body")).toBeInTheDocument();
+    expect(screen.getByTestId("document-save-bar")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("document-edit"));
+    expect(screen.getByTestId("document-form")).toBeInTheDocument();
+    await user.click(screen.getByTestId("document-cancel"));
+    expect(screen.getByTestId("document-reading-view")).toBeInTheDocument();
+    expect(screen.getByTestId("document-field-input-body")).toBeInTheDocument();
+  });
+
+  it("closes the full editor when the server revokes write capability", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const user = userEvent.setup();
+    renderRoute("/documents/doc-1", client);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("document-mode-read")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("document-mode-edit"));
+    await user.click(screen.getByTestId("document-edit"));
+    expect(screen.getByTestId("document-form")).toBeInTheDocument();
+
+    readingView.mockResolvedValue(readingFor(DOC, false));
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["documents", "reading"] });
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("document-form")).not.toBeInTheDocument()
+    );
+    expect(screen.getByTestId("document-reading-view")).toBeInTheDocument();
+    expect(screen.queryByTestId("document-mode-toggle")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("document-field-input-body")
+    ).not.toBeInTheDocument();
+  });
+
+  it("resets to read mode when the selected document changes", async () => {
+    listAll.mockResolvedValue([DOC, FROZEN]);
+    get.mockImplementation((id: string) =>
+      Promise.resolve(id === "doc-2" ? FROZEN : DOC)
+    );
+    readingView.mockImplementation((id: string) =>
+      Promise.resolve(readingFor(id === "doc-2" ? FROZEN : DOC))
+    );
+    const user = userEvent.setup();
+    renderRoute("/documents/doc-1");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("document-mode-read")).toBeInTheDocument()
+    );
+    await user.click(screen.getByTestId("document-mode-edit"));
+    expect(screen.getByTestId("document-field-input-body")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("tree-row-doc-2"));
+
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("document-reading-view")).getByRole(
+          "heading",
+          {
+            name: "Released spec",
+          }
+        )
+      ).toBeInTheDocument()
+    );
+    expect(screen.getByTestId("document-mode-read")).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(
+      screen.queryByTestId("document-field-input-body")
+    ).not.toBeInTheDocument();
+  });
+
   it("shows the freeze banner and disables frozen editor fields", async () => {
     listAll.mockResolvedValue([FROZEN]);
     get.mockResolvedValue(FROZEN);
@@ -277,6 +490,7 @@ describe("Documents route (F2-T8)", () => {
     expect(screen.getByTestId("document-frozen-banner")).toBeInTheDocument();
     expect(screen.getByTestId("document-frozen-fields")).toBeInTheDocument();
 
+    await userEvent.click(screen.getByTestId("document-mode-edit"));
     await userEvent.click(screen.getByTestId("document-edit"));
     expect(screen.getByTestId("document-form")).toBeInTheDocument();
     expect(screen.getByTestId("document-edit-title")).toBeDisabled();
@@ -291,7 +505,9 @@ describe("Documents route (F2-T8)", () => {
     renderRoute("/documents/doc-1");
 
     await waitFor(() =>
-      expect(screen.getByTestId("document-transition-select")).toBeInTheDocument()
+      expect(
+        screen.getByTestId("document-transition-select")
+      ).toBeInTheDocument()
     );
     expect(transitions).toHaveBeenCalledWith("doc-1");
 

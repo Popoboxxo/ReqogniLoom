@@ -3,7 +3,7 @@
  *
  * Wraps the REST surface from F2-T5:
  *
- *   GET    /api/v1/documents/?workspace_id=[&include_deleted=true]
+ *   GET    /api/v1/documents/?workspace_id=[&include_outdated=true]
  *   GET    /api/v1/documents/{id}/
  *   GET    /api/v1/documents/{id}/view/       (chaptered reading object, R1)
  *   POST   /api/v1/documents/
@@ -14,12 +14,22 @@
  *   POST   /api/v1/documents/{id}/transitions/
  *
  * The transitions pair is Document-specific rather than the generic
- * `workflow-transitions` wrapper: Document's POST guards the **entity**
- * version (`expected_version` / `If-Match`), not the WorkflowItemState
- * revision (ADR-026 §9).
+ * `workflow-transitions` wrapper's `transition()`: Document's POST guards the
+ * **entity** version (`expected_version` / `If-Match`), not the
+ * WorkflowItemState revision (ADR-026 §9), and its response carries the
+ * serialized `document`. The request itself goes through the shared
+ * `postWorkflowTransition` helper so the resource URL has one owner (P1.9).
+ *
+ * Query contract: `include_outdated` is the canonical list parameter that
+ * reveals soft-deleted rows. The older `include_deleted` spelling is accepted
+ * server-side as a deprecated alias and must not be sent by new callers.
  */
 
 import { apiClient, getAllPages } from "./client";
+import {
+  postWorkflowTransition,
+  type WorkflowTransitionResult,
+} from "./workflow-transitions";
 import type {
   CustomFields,
   Document,
@@ -72,10 +82,7 @@ export interface DocumentTransitionsResponse {
 }
 
 /** Response of `POST /api/v1/documents/{id}/transitions/`. */
-export interface DocumentTransitionResult {
-  id: UUID;
-  previous_state: string;
-  new_state: string;
+export interface DocumentTransitionResult extends WorkflowTransitionResult {
   /** The Document revision after the transition. */
   version: number;
   document: Document;
@@ -94,9 +101,12 @@ export const documentsApi = {
    * list; `getList` alone would silently stop after page one).
    */
   listAll(workspaceId: UUID, includeDeleted = false): Promise<Document[]> {
+    // The wire key is the canonical `include_outdated`; the TS parameter keeps
+    // its historical name to avoid component churn. The deprecated
+    // `include_deleted` alias is still accepted server-side (P2.1 / m-8).
     return getAllPages<Document>("/documents/", {
       workspace_id: workspaceId,
-      ...(includeDeleted ? { include_deleted: "true" } : {}),
+      ...(includeDeleted ? { include_outdated: "true" } : {}),
     });
   },
 
@@ -198,16 +208,13 @@ export const documentsApi = {
     targetState: string,
     options: DocumentTransitionOptions = {}
   ): Promise<DocumentTransitionResult> {
-    return apiClient.post<DocumentTransitionResult>(
-      `/documents/${id}/transitions/`,
-      {
-        target_state: targetState,
-        change_reason: options.changeReason ?? "",
-        credential: options.credential ?? "",
-        ...(options.expectedVersion !== undefined
-          ? { expected_version: options.expectedVersion }
-          : {}),
-      }
-    );
+    return postWorkflowTransition<DocumentTransitionResult>("document", id, {
+      target_state: targetState,
+      change_reason: options.changeReason ?? "",
+      credential: options.credential ?? "",
+      ...(options.expectedVersion !== undefined
+        ? { expected_version: options.expectedVersion }
+        : {}),
+    });
   },
 };
