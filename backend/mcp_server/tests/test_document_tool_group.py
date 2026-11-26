@@ -17,12 +17,15 @@ so the transport is exercised end to end and nothing is mocked:
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 
+from application.document_service import DocumentService
 from mcp_server.tool_registry import ToolRegistry
 from mcp_server.workspace_scope import resolve_target_workspace_id
 from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.models import Document
 from workflow.services import create_default_workflow
 
 pytestmark = pytest.mark.django_db
@@ -114,6 +117,33 @@ def test_create_read_and_query_round_trip(
     assert listed.data["count"] == len(listed.data["documents"])
 
 
+def test_create_workflow_init_failure_is_an_internal_error_and_rolls_back(
+    e2e_workspace, e2e_api_key_member
+) -> None:
+    """P2.13: the create is rolled back and the tool answers a static error.
+
+    The handler maps ``WorkflowInitializationFailedError`` to ``INTERNAL_ERROR``
+    with the fixed transport-neutral sentence (never the cause) and writes no
+    document — the service's transaction already rolled everything back.
+    """
+    workspace_id = str(e2e_workspace.id)
+
+    with patch(
+        "workflow.services.initialize_workflow_states",
+        side_effect=RuntimeError("boom"),
+    ):
+        result = _create(e2e_api_key_member, workspace_id)
+
+    assert result.success is False
+    assert result.error_code == "INTERNAL_ERROR"
+    assert result.message == (
+        "The artifact was not created because its workflow state could not be "
+        "initialised."
+    )
+    assert "boom" not in (result.message or "")
+    assert Document.unscoped.filter(workspace_id=e2e_workspace.id).count() == 0
+
+
 def test_query_filters_by_uid(e2e_workspace, e2e_api_key_member) -> None:
     workspace_id = str(e2e_workspace.id)
     first = _create(e2e_api_key_member, workspace_id)
@@ -127,6 +157,108 @@ def test_query_filters_by_uid(e2e_workspace, e2e_api_key_member) -> None:
     )
     assert listed.success is True, listed.message
     assert [row["uid"] for row in listed.data["documents"]] == [uid]
+    assert listed.data["count"] == 1
+
+
+def test_query_passes_the_uid_filter_to_the_service(
+    e2e_workspace, e2e_api_key_member, monkeypatch
+) -> None:
+    """Seam assertion for plan P1.11 (M-15).
+
+    The uid filter must reach ``DocumentService.list_documents`` as a keyword
+    argument. A client-side list comprehension after an unfiltered fetch would
+    leave ``uid`` out of the call and fail here — that is exactly the
+    regression this test pins.
+    """
+    workspace_id = str(e2e_workspace.id)
+    first = _create(e2e_api_key_member, workspace_id)
+    _create(e2e_api_key_member, workspace_id, title="Other")
+    uid = first.data["document"]["uid"]
+
+    calls: list[dict[str, Any]] = []
+    real_list_documents = DocumentService.list_documents
+
+    def _spy(self, *args: Any, **kwargs: Any):
+        calls.append(dict(kwargs))
+        return real_list_documents(self, *args, **kwargs)
+
+    monkeypatch.setattr(DocumentService, "list_documents", _spy)
+
+    listed = _dispatch(
+        "document.query",
+        {"workspace_id": workspace_id, "uid": uid},
+        e2e_api_key_member,
+    )
+    assert listed.success is True, listed.message
+    assert len(calls) == 1
+    assert calls[0]["uid"] == uid
+    assert calls[0]["workspace_id"] == e2e_workspace.id
+    assert calls[0]["include_deleted"] is False
+    assert [row["uid"] for row in listed.data["documents"]] == [uid]
+
+
+def test_query_with_an_unknown_uid_returns_an_empty_page(
+    e2e_workspace, e2e_api_key_member
+) -> None:
+    workspace_id = str(e2e_workspace.id)
+    _create(e2e_api_key_member, workspace_id)
+
+    listed = _dispatch(
+        "document.query",
+        {"workspace_id": workspace_id, "uid": "DOC-999"},
+        e2e_api_key_member,
+    )
+    assert listed.success is True, listed.message
+    assert listed.data["count"] == 0
+    assert listed.data["documents"] == []
+
+
+def test_query_treats_a_blank_uid_as_no_filter(
+    e2e_workspace, e2e_api_key_member
+) -> None:
+    """The empty-value normalisation is unchanged: ``""`` means "no filter"."""
+    workspace_id = str(e2e_workspace.id)
+    _create(e2e_api_key_member, workspace_id)
+    _create(e2e_api_key_member, workspace_id, title="Other")
+
+    listed = _dispatch(
+        "document.query",
+        {"workspace_id": workspace_id, "uid": "   "},
+        e2e_api_key_member,
+    )
+    assert listed.success is True, listed.message
+    assert listed.data["count"] == len(listed.data["documents"]) == 2
+
+
+def test_query_combines_the_uid_filter_with_include_outdated(
+    e2e_workspace, e2e_api_key_member
+) -> None:
+    workspace_id = str(e2e_workspace.id)
+    created = _create(e2e_api_key_member, workspace_id)
+    document_id = created.data["document"]["id"]
+    uid = created.data["document"]["uid"]
+    _dispatch(
+        "document.outdate",
+        {"id": document_id, "reason": "no longer needed"},
+        e2e_api_key_member,
+    )
+
+    hidden = _dispatch(
+        "document.query",
+        {"workspace_id": workspace_id, "uid": uid},
+        e2e_api_key_member,
+    )
+    assert hidden.success is True, hidden.message
+    assert hidden.data["count"] == 0
+
+    visible = _dispatch(
+        "document.query",
+        {"workspace_id": workspace_id, "uid": uid, "include_outdated": True},
+        e2e_api_key_member,
+    )
+    assert visible.success is True, visible.message
+    assert [row["uid"] for row in visible.data["documents"]] == [uid]
+    assert visible.data["count"] == 1
 
 
 def test_update_changes_content_and_reports_version_conflict(

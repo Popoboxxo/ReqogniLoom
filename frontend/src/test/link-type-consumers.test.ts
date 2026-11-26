@@ -59,6 +59,13 @@ const ALLOWED = new Set<string>([
   // `documented-in` (F2-T3).
   "queries/documents.ts",
   "components/Documents/Documents.tsx",
+  // P1.9: `documents` is the DocumentViewSet's REST resource segment in the
+  // generic workflow-transition map and in the URLs its tests pin. It is a
+  // route identifier, not the retired link_type key (superseded by
+  // `documented-in`).
+  "api/workflow-transitions.ts",
+  "api/workflow-transitions.test.ts",
+  "test/DocumentsView.test.tsx",
 ]);
 
 function collectSourceFiles(dir: string): string[] {

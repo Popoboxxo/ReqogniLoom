@@ -20,7 +20,11 @@ Contract pinned here:
    executed, so fail-closed is preserved,
 4. a well-formed id that simply resolves to no row keeps the scope denial
    (a nonexistent object must not become distinguishable from a fenced one),
-5. an unfenced key's behaviour is unchanged,
+5. an unfenced key keeps the fail-closed write gate, but a *parameter-level*
+   defect of the call is diagnosed there too (review finding 2026-11-25,
+   MAJOR): ``PERMISSION_DENIED`` with the scope text only when the call is
+   well-formed, ``VALIDATION_ERROR`` naming the expected parameter when it is
+   not — and the anti-oracle case (well-formed id, no row) stays denied,
 6. security review (HIGH): an undeclared ``workspace_id`` in the call must not
    reopen the fence through the dispatcher's workspace shortcut. Since #1376
    the dispatcher itself drops such a parameter before the gate, so the target
@@ -406,27 +410,71 @@ class TestUnfencedKeyUnchanged:
         assert result.success is True, result.message
         assert result.data["total"] == 1
 
-    def test_unfenced_key_wrong_param_keeps_the_handler_validation(
+    def test_unfenced_key_wrong_param_is_a_validation_error(
         self,
         e2e_api_key_member: str,
         e2e_userrole_member,
         e2e_workspace: Workspace,
     ) -> None:
-        """No fence: the tool group's own unknown-parameter error is unchanged."""
+        """No fence: a malformed call is still diagnosed, not scope-denied.
+
+        Review finding (2026-11-25, MAJOR): the write-scope gate
+        (``_unscoped_write_denial``) answered the generic scope text for *every*
+        unresolvable target, including a mere parameter-shape defect. An
+        unfenced caller sending ``suggestion_id`` where ``id`` is required got
+        ``PERMISSION_DENIED`` and went debugging its API key. It now gets the
+        same parameter diagnosis as the fenced path — while everything the gate
+        guarantees stays intact: the handler is never called, the suggestion is
+        untouched, and no id is echoed (the diagnosis names parameters, never
+        values).
+        """
         suggestion = _make_suggestion(e2e_workspace)
 
-        result = _dispatch(
-            "suggestion.accept",
-            {"suggestion_id": str(suggestion.id)},
-            e2e_api_key_member,
-        )
+        with patch(
+            "application.suggestion_service.SuggestionService.accept"
+        ) as handler:
+            result = _dispatch(
+                "suggestion.accept",
+                {"suggestion_id": str(suggestion.id)},
+                e2e_api_key_member,
+            )
 
         assert result.success is False
         assert result.error_code == "VALIDATION_ERROR"
+        # Names the parameter the tool actually accepts; the supplied *name* is
+        # listed back too (the diagnosis is about parameter names, never about
+        # ids or values).
+        assert "'id'" in result.message
         assert "suggestion_id" in result.message
         assert SCOPE_MESSAGE_FRAGMENT not in result.message
+        # No existence oracle: the id value is never echoed.
+        assert str(suggestion.id) not in result.message
+        handler.assert_not_called()
         suggestion.refresh_from_db()
         assert suggestion.status == "open"
+
+    def test_unfenced_key_well_formed_unknown_id_still_denied(
+        self,
+        e2e_api_key_member: str,
+        e2e_userrole_member,
+    ) -> None:
+        """The anti-oracle case must not regress into ``VALIDATION_ERROR``.
+
+        A well-formed id that resolves to no row is NOT a parameter defect: it
+        is indistinguishable from an object the caller may not touch, so the
+        answer stays the fail-closed scope denial.
+        """
+        with patch(
+            "application.suggestion_service.SuggestionService.accept"
+        ) as handler:
+            result = _dispatch(
+                "suggestion.accept", {"id": str(uuid4())}, e2e_api_key_member
+            )
+
+        assert result.success is False
+        assert result.error_code == "PERMISSION_DENIED"
+        assert "could not be scoped to a workspace" in result.message
+        handler.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

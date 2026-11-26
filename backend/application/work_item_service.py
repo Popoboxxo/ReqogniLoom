@@ -82,6 +82,7 @@ from application.base import (
     PermissionDeniedError,
     ServiceBase,
     ValidationError,
+    WorkflowInitializationFailedError,
 )
 from application.inline_anchor_service import (
     ANCHOR_FIELD_BODY,
@@ -448,6 +449,10 @@ class WorkItemService(ServiceBase):
             ValidationError: Invalid input, missing document, or a document
                 from another workspace.
             NotFoundError: Tenant, workspace or document not found.
+            WorkflowInitializationFailedError: The backing workflow state could
+                not be created. The whole create — item, backing artifact,
+                local uid allocation and audit entries — is rolled back, so no
+                artifact ever exists without a workflow state (P2.13).
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -510,11 +515,20 @@ class WorkItemService(ServiceBase):
             ctx, item.artifact_id, ANCHOR_FIELD_BODY, item.body
         )
 
-        # Every artifact type is initialised lazily at its definition's initial
-        # state. A workspace provisioned before F3-T2 (or a unit test that skips
-        # provisioning) has no definition; the item then reports the type's
-        # initial state via the state_reader fallback and a transition refuses
-        # with the engine's own message instead of silently writing nothing.
+        # Every artifact type is initialised at its definition's initial state.
+        # A workspace provisioned before F3-T2 has no work-item definition, and
+        # that is not a usable item: the create fails (P2.13 below) rather than
+        # producing a state-less row that only reports the type's fallback state
+        # and cannot be transitioned.
+        #
+        # P2.13: a *failed* initialisation is a hard failure, not a partial
+        # state. An artifact without a workflow state is not usable — every
+        # later transition, sign-off gate and resume would run on the
+        # state_reader fallback. The exception propagates through
+        # ``@atomic_transaction`` so the WorkItem row, its backing Artifact, the
+        # local uid allocation and any audit entry are rolled back together. The
+        # cause stays in the log; the caller gets a fixed sentence that carries
+        # no internals.
         try:
             from workflow.services import initialize_workflow_states
 
@@ -524,12 +538,17 @@ class WorkItemService(ServiceBase):
                 workspace_id=workspace_id,
                 ctx=ctx,
             )
-        except Exception:  # best-effort, mirrors DocumentService
-            logger.warning(
-                "WorkItemService: workflow init skipped for item=%s",
+        except Exception as exc:  # noqa: BLE001 — re-raised as a domain error
+            logger.exception(
+                "WorkItemService: workflow init failed for item=%s "
+                "workspace=%s; the create is rolled back",
                 item.id,
-                exc_info=True,
+                workspace_id,
             )
+            raise WorkflowInitializationFailedError(
+                "The work item was not created: its workflow state could not be "
+                "initialised. No data was written."
+            ) from exc
 
         self._audit(
             ctx=ctx,

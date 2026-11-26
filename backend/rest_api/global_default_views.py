@@ -31,7 +31,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from application.workflow_facade import WorkflowFacade
+from application.workflow_facade import WorkflowFacade, global_graph_payload
 from auth_tenancy.models import ROLE_ADMIN, GlobalPermissionDefinition
 from auth_tenancy.services.permission_definition import (
     DEFAULT_MISMATCH_WINDOW_DAYS,
@@ -200,51 +200,19 @@ def _serialize_global_graph(
     preset: str,
     propagated: int | None = None,
 ) -> dict[str, Any]:
-    """Serialize a GlobalWorkflowDefinition (or empty graph) — WorkflowGraphGlobal."""
-    if obj is None:
-        data: dict[str, Any] = {
-            "scope": "global",
-            "tenant_id": str(tenant_id),
-            "item_type": item_type,
-            "preset": preset,
-            "initialized": False,
-            "initial_state": None,
-            "states": [],
-            "transitions": [],
-            "state_meta": {},
-            "updated_at": None,
-        }
-    else:
-        wf = obj.workflow_json or {}
-        states = list(wf.get("states", []))
-        data = {
-            "scope": "global",
-            "tenant_id": str(obj.tenant_id),
-            "item_type": obj.item_type,
-            "preset": obj.preset,
-            "initialized": True,
-            "initial_state": states[0] if states else None,
-            "states": states,
-            "state_meta": wf.get("state_meta", {}),
-            "transitions": [
-                {
-                    "from_state": t.get("from_state"),
-                    "to_state": t.get("to_state"),
-                    "allowed_roles": list(t.get("allowed_roles", [])),
-                    "requires_change_reason": bool(
-                        t.get("requires_change_reason", False)
-                    ),
-                    "signature_gate": bool(t.get("signature_gate", False)),
-                }
-                for t in wf.get("transitions", [])
-            ],
-            "updated_at": obj.modified_at,
-        }
-    if propagated is not None:
-        # Additive field the UI spec surfaces as a toast; the frontend reads it
-        # as optional (documented tolerance in api/workflow-defaults.ts).
-        data["propagated_workspace_count"] = propagated
-    return data
+    """Serialize a GlobalWorkflowDefinition (or empty graph) — WorkflowGraphGlobal.
+
+    Thin delegation to :func:`application.workflow_facade.global_graph_payload`,
+    the single source of the shape shared with the MCP ``workflow_default.*``
+    group (P1.8). The output is unchanged byte for byte.
+    """
+    return global_graph_payload(
+        obj,
+        tenant_id=tenant_id,
+        item_type=item_type,
+        preset=preset,
+        propagated=propagated,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -284,6 +252,9 @@ class GlobalWorkflowGraphSerializer(serializers.Serializer):
     states = serializers.ListField(child=serializers.JSONField())
     transitions = WorkflowTransitionDefinitionSerializer(many=True)
     updated_at = serializers.DateTimeField(required=False, allow_null=True)
+    #: Per-state metadata (``{state: {"freeze_on_enter": bool}}``) — emitted by
+    #: ``global_graph_payload`` on both transports and read by the editor.
+    state_meta = serializers.DictField(required=False)
     #: Additive: how many inheriting workspaces the mutation propagated to.
     propagated_workspace_count = serializers.IntegerField(required=False)
 
@@ -399,8 +370,10 @@ class WorkflowTransitionCreateRequestSerializer(serializers.Serializer):
 class WorkflowTransitionUpdateRequestSerializer(serializers.Serializer):
     """Body of ``PATCH …/transitions/{transition_id}/``.
 
-    All three fields are optional-and-nullable: an omitted key leaves the
-    stored value alone, an explicit ``null`` clears it.
+    All three fields are optional-and-nullable, and both transports treat them
+    identically: the store keeps the stored value when the key is ``None``, so
+    an omitted key and an explicit ``null`` both leave the stored value
+    unchanged.
     """
 
     allowed_roles = serializers.ListField(
@@ -496,6 +469,13 @@ class GlobalWorkflowDefinitionDetailView(APIView):
         responses={
             200: GlobalWorkflowGraphSerializer,
             403: OpenApiResponse(description="Admin role required."),
+            404: OpenApiResponse(
+                description=(
+                    "Unknown workflow item type in the path (R-F2-2). An "
+                    "uninitialised (item_type, preset) pair is NOT a 404 — it "
+                    "answers the empty graph with initialized=false."
+                )
+            ),
         },
     )
     def get(

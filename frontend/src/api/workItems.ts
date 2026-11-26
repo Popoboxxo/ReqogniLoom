@@ -3,7 +3,7 @@
  *
  * Wraps the live REST surface from F3-T5:
  *
- *   GET    /api/v1/work-items/?workspace_id=[&document_id=][&include_deleted=]
+ *   GET    /api/v1/work-items/?workspace_id=[&document_id=][&include_outdated=]
  *   GET    /api/v1/work-items/{id}/
  *   POST   /api/v1/work-items/
  *   PATCH  /api/v1/work-items/{id}/            (If-Match: "<version>")
@@ -16,10 +16,18 @@
  *   GET    /api/v1/work-items/resume/?workspace_id=&document_id=&actor=
  *
  * `expected_version`/`If-Match` guard the item's own revision (KA-F-08): a
- * stale strong tag answers 412, a stale body `expected_version` 409.
+ * stale strong tag answers 412, a stale body `expected_version` 409. The
+ * transition POST therefore keeps its own payload/result contract
+ * (`WorkItemTransitionResult`) but goes through the shared
+ * `postWorkflowTransition` helper for the resource URL (P1.9).
+ *
+ * Query contract: `include_outdated` is the canonical list parameter that
+ * reveals soft-deleted rows. The older `include_deleted` spelling is accepted
+ * server-side as a deprecated alias and must not be sent by new callers.
  */
 
 import { apiClient, getAllPages } from "./client";
+import { postWorkflowTransition } from "./workflow-transitions";
 import type {
   ArtifactDiffResult,
   ArtifactVersion,
@@ -90,7 +98,9 @@ export const workItemsApi = {
     return getAllPages<WorkItem>("/work-items/", {
       workspace_id: workspaceId,
       ...(documentId ? { document_id: documentId } : {}),
-      ...(includeDeleted ? { include_deleted: "true" } : {}),
+      // Canonical wire key (P2.1 / m-8); the TS parameter keeps its historical
+      // name, and the deprecated `include_deleted` alias still works server-side.
+      ...(includeDeleted ? { include_outdated: "true" } : {}),
     });
   },
 
@@ -145,21 +155,18 @@ export const workItemsApi = {
     targetState: string,
     options: WorkItemTransitionOptions = {}
   ): Promise<WorkItemTransitionResult> {
-    return apiClient.post<WorkItemTransitionResult>(
-      `/work-items/${id}/transitions/`,
-      {
-        target_state: targetState,
-        change_reason: options.changeReason ?? "",
-        credential: options.credential ?? "",
-        ...(options.blockedReason !== undefined
-          ? { blocked_reason: options.blockedReason }
-          : {}),
-        ...(options.expectedVersion !== undefined
-          ? { expected_version: options.expectedVersion }
-          : {}),
-        ...(options.actor ? { actor: options.actor } : {}),
-      }
-    );
+    return postWorkflowTransition<WorkItemTransitionResult>("work-item", id, {
+      target_state: targetState,
+      change_reason: options.changeReason ?? "",
+      credential: options.credential ?? "",
+      ...(options.blockedReason !== undefined
+        ? { blocked_reason: options.blockedReason }
+        : {}),
+      ...(options.expectedVersion !== undefined
+        ? { expected_version: options.expectedVersion }
+        : {}),
+      ...(options.actor ? { actor: options.actor } : {}),
+    });
   },
 
   versions(id: UUID): Promise<ArtifactVersion[]> {

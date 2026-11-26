@@ -3,8 +3,16 @@
 #
 # WHAT IT DOES
 #   1. Creates the target env file from `.env.example` when it does not exist.
-#   2. Replaces ONLY values that still carry the template's `CHANGE-ME` marker;
-#      every value a human already edited is left untouched (idempotent).
+#   2. Generates two kinds of value, and ONLY these two:
+#        a) every value that still carries the template's `CHANGE-ME` marker;
+#        b) the keys listed in `EMPTY_KEYS` when they exist with an EMPTY (or
+#           whitespace-only) value — `API_KEY_PEPPER` (plan P1.3) and
+#           `SYSTEM_ADMIN_PASSWORD` (plan P1.1). Both ship empty in the
+#           template, because a literal placeholder would be worse: for the
+#           pepper the startup check treats empty as "must be generated", and
+#           for the admin password a NON-empty trivial value aborts `migrate`
+#           (fail-closed) instead of just meaning "no admin account".
+#      Every other value a human already set is left untouched (idempotent).
 #   3. Locks the file down to mode 600 and prints the NAMES of the generated
 #      keys — never their values.
 #   4. With `--check-ports`: refuses to continue when BACKEND_PORT (default
@@ -17,6 +25,13 @@
 #   created by the one-shot `migrate` service (migration 0048 + the migrations
 #   themselves), so a `setup.sh` that also ran `psql` would duplicate — and
 #   could contradict — the migration path (#792 point 7 is obsolete there).
+#
+#   No generation of the OPTIONAL secrets (`REDIS_PASSWORD`, the Honcho webhook
+#   key, `IMPORT_FINGERPRINT_SECRET`, `QDRANT_API_KEY`, ...). They are
+#   legitimately empty — an empty Redis password means "no requirepass", an
+#   empty webhook key means "receiver disabled" — so inventing values here would
+#   change documented behaviour instead of hardening it. Only values the
+#   application cannot run correctly without are generated.
 #
 # SECRET HYGIENE (QR-S03, plan D2.6)
 #   An existing env file is only ever backed up OUTSIDE the repository, under
@@ -39,7 +54,12 @@ TEMPLATE="$REPO_ROOT/.env.example"
 ENV_FILE="$REPO_ROOT/.env"
 CHECK_PORTS=0
 
-# The only keys this script generates. Everything else is a human decision.
+# The only keys this script generates from a CHANGE-ME placeholder.
+# Everything else is a human decision. `SYSTEM_ADMIN_PASSWORD` is also in
+# `EMPTY_KEYS` below: an `.env` copied from an older template still carries
+# `CHANGE-ME-strong-admin-password`, and that value must be replaced (it would
+# otherwise abort `migrate` fail-closed) — keeping it in both lists covers both
+# template generations.
 REPLACE_KEYS=(
   SECRET_KEY
   AUTH_JWT_SECRET
@@ -47,6 +67,23 @@ REPLACE_KEYS=(
   DB_APP_PASSWORD
   SYSTEM_ADMIN_PASSWORD
   FIELD_ENCRYPTION_KEY
+)
+
+# Keys generated when they are present with an EMPTY value. Two of them ship
+# empty in `.env.example` on purpose:
+#   * `API_KEY_PEPPER` (plan P1.3) — the production startup check
+#     `reqogniloom.E001` treats "empty" as "must be generated", and a CHANGE-ME
+#     literal would only add a second, weaker failure mode.
+#   * `SYSTEM_ADMIN_PASSWORD` (plan P1.1) — empty means "no admin account is
+#     provisioned", which is what a plain `cp .env.example .env` must do: a
+#     NON-empty placeholder would make `migrate` abort fail-closed and break the
+#     documented quickstart. The recommended path (this script) still creates
+#     the admin by filling the key here.
+# A key that is ABSENT from the file is left absent — this script fills
+# placeholders, it does not add settings.
+EMPTY_KEYS=(
+  API_KEY_PEPPER
+  SYSTEM_ADMIN_PASSWORD
 )
 
 usage() {
@@ -58,7 +95,9 @@ Usage: bash scripts/setup.sh [--env-file PATH] [--check-ports]
   --check-ports     After writing, fail with exit 2 if BACKEND_PORT (default
                     8001) or FRONTEND_PORT (default 5173) is already in use.
 
-Only CHANGE-ME placeholder values are generated; existing values are kept.
+Fills every CHANGE-ME placeholder and every empty required value
+(API_KEY_PEPPER, SYSTEM_ADMIN_PASSWORD); every other existing value is
+kept as-is.
 EOF
 }
 
@@ -130,6 +169,11 @@ new_secret() {
   case "$1" in
     SECRET_KEY|AUTH_JWT_SECRET) gen_hex50 ;;
     FIELD_ENCRYPTION_KEY) gen_fernet ;;
+    # HMAC pepper for the API-key hashes. Hex rather than gen_password: the
+    # latter strips every '+', '/' and '=' from a base64 draw, which cannot
+    # guarantee the 32-character floor that the `reqogniloom.E002` check
+    # enforces on every draw.
+    API_KEY_PEPPER) gen_hex50 ;;
     *) gen_password ;;
   esac
 }
@@ -157,9 +201,27 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 PENDING=()
+add_pending() {
+  # A key can qualify through both lists (see REPLACE_KEYS), and an env file can
+  # contain more than one active line for it. Collect it once, so the value is
+  # generated once and reported once.
+  local candidate=$1 existing
+  if [ ${#PENDING[@]} -gt 0 ]; then
+    for existing in "${PENDING[@]}"; do
+      [ "$existing" = "$candidate" ] && return 0
+    done
+  fi
+  PENDING+=("$candidate")
+}
 for key in "${REPLACE_KEYS[@]}"; do
   if grep -qE "^${key}=CHANGE-ME" "$ENV_FILE"; then
-    PENDING+=("$key")
+    add_pending "$key"
+  fi
+done
+# Empty (not missing) values: `KEY=` with nothing after it, or only whitespace.
+for key in "${EMPTY_KEYS[@]}"; do
+  if grep -qE "^${key}=[[:space:]]*\$" "$ENV_FILE"; then
+    add_pending "$key"
   fi
 done
 
@@ -179,11 +241,14 @@ if [ ${#PENDING[@]} -gt 0 ]; then
   trap 'rm -f -- "$tmp"' EXIT
   while IFS= read -r line || [ -n "$line" ]; do
     for key in "${PENDING[@]}"; do
-      case "$line" in
-        "${key}=CHANGE-ME"*)
-          line="${key}=${NEW[$key]}"
-          ;;
-      esac
+      # This branch must accept exactly what the detection above accepted:
+      # a CHANGE-ME placeholder, a truly empty `KEY=`, and a whitespace-only
+      # `KEY=   `. The previous `"${key}="` case pattern matched only the empty
+      # form, so a whitespace-only line was reported as "generated" while being
+      # left untouched — the value stayed blank and the reason was invisible.
+      if [[ $line =~ ^(${key})=(CHANGE-ME.*|[[:space:]]*)$ ]]; then
+        line="${key}=${NEW[$key]}"
+      fi
     done
     printf '%s\n' "$line" >>"$tmp"
   done <"$ENV_FILE"
@@ -195,7 +260,7 @@ if [ ${#PENDING[@]} -gt 0 ]; then
     echo "generated: $key"
   done
 else
-  echo "unchanged: no CHANGE-ME placeholders left in $ENV_FILE"
+  echo "unchanged: nothing to generate in $ENV_FILE"
 fi
 
 chmod 600 -- "$ENV_FILE"

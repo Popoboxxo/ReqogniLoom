@@ -20,6 +20,8 @@ from mcp_server.tools.base import (
     optional_uuid,
     require_param,
     require_uuid,
+    soft_delete_reason,
+    soft_delete_reason_properties,
     validate_artifact_write,
     workspace_query_required,
     write_mcp_audit,
@@ -217,7 +219,7 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
                 "type": "object",
                 "properties": {
                     "id": {"type": "string", "description": "UUID of the stakeholder need."},
-                    "reason": {"type": "string", "description": "Optional audit reason."},
+                    **soft_delete_reason_properties(),
                 },
                 "required": ["id"],
             },
@@ -452,25 +454,38 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
     def _handle_outdate(
         self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        """needs.outdate — soft-delete via the workflow engine (write, audited)."""
+        """needs.outdate — soft-delete through StakeholderNeedService (write, audited).
+
+        P1.10: routed through ``StakeholderNeedService.delete`` — the same call
+        REST's ``DELETE /api/v1/needs/{id}/`` makes — instead of the raw
+        ``workflow.services.outdate`` escape hatch, which ignores its ``reason``
+        argument since Phase 4. The service writes the ``AuditEntry`` carrying
+        the resolved reason. Domain errors are mapped centrally by
+        ``BaseToolGroup.execute_tool``.
+        """
         need_id = require_uuid(params, "id")
-        reason: str = params.get("reason", "")
+        reason: str = soft_delete_reason(params)
 
         try:
             need = self._service.get(auth_context, need_id)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
 
-        from workflow.services import outdate
+        # Preset gate: ``StakeholderNeedService`` only enforces the
+        # change_reason policy when a ``preset_policy_service`` is injected
+        # (its constructor defaults to None), so the MCP surface checks it here
+        # rather than let a mandated reason go unrecorded (§7.2 of
+        # docs/api/MCP-SURFACE.md).
+        from application.preset_policy_service import get_preset_policy_service
 
-        # Domain errors are mapped centrally by BaseToolGroup.execute_tool.
-        outdate(
-            item_id=need_id,
-            item_type="StakeholderNeed",
-            workspace_id=need.workspace_id,
-            ctx=auth_context,
-            reason=reason,
-        )
+        if not reason and get_preset_policy_service().is_change_reason_required(
+            str(need.workspace_id)
+        ):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "change_reason is required by preset policy."
+            )
+
+        self._service.delete(auth_context, need_id, change_reason=reason)
 
         write_mcp_audit(
             ctx=auth_context,
@@ -485,6 +500,9 @@ class StakeholderNeedsToolGroup(BaseToolGroup):
             entity_id=need_id,
             tool_name="needs.outdate",
             api_key=api_key,
+            # REQ-L2-MC-012 provenance the domain entry does not carry; the
+            # resolved reason rides along for audit-trail comparability.
+            details={"change_reason": reason},
         )
         return ToolResult.ok({"id": str(need_id), "status": "outdated"})
 

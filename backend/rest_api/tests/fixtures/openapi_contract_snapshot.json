@@ -6596,7 +6596,7 @@
     {
       "method": "get",
       "path": "/api/v1/reviews/",
-      "operationId": "reviews_retrieve",
+      "operationId": "reviews_list",
       "requestContentTypes": [],
       "responseCodes": [
         "200",
@@ -6612,7 +6612,7 @@
     {
       "method": "get",
       "path": "/api/v1/reviews/pending/",
-      "operationId": "reviews_pending_retrieve",
+      "operationId": "reviews_pending_list",
       "requestContentTypes": [],
       "responseCodes": [
         "200",
@@ -9475,7 +9475,7 @@
         "multipart/form-data"
       ],
       "responseCodes": [
-        "200",
+        "201",
         "400",
         "401",
         "403",
@@ -9501,6 +9501,7 @@
         "403",
         "404",
         "405",
+        "409",
         "415",
         "500"
       ]
@@ -9515,7 +9516,7 @@
         "multipart/form-data"
       ],
       "responseCodes": [
-        "200",
+        "201",
         "400",
         "401",
         "403",
@@ -9531,12 +9532,13 @@
       "operationId": "workflows_definition_states_destroy",
       "requestContentTypes": [],
       "responseCodes": [
-        "204",
+        "200",
         "400",
         "401",
         "403",
         "404",
         "405",
+        "409",
         "415",
         "500"
       ]
@@ -9557,6 +9559,7 @@
         "403",
         "404",
         "405",
+        "409",
         "415",
         "500"
       ]
@@ -9571,7 +9574,7 @@
         "multipart/form-data"
       ],
       "responseCodes": [
-        "200",
+        "201",
         "400",
         "401",
         "403",
@@ -9587,7 +9590,7 @@
       "operationId": "workflows_definition_transitions_destroy",
       "requestContentTypes": [],
       "responseCodes": [
-        "204",
+        "200",
         "400",
         "401",
         "403",
@@ -9623,7 +9626,6 @@
       "operationId": "workflows_destroy",
       "requestContentTypes": [],
       "responseCodes": [
-        "204",
         "400",
         "401",
         "403",
@@ -9639,7 +9641,6 @@
       "operationId": "workflows_retrieve",
       "requestContentTypes": [],
       "responseCodes": [
-        "200",
         "400",
         "401",
         "403",
@@ -11106,7 +11107,7 @@
     {
       "method": "get",
       "path": "/api/v1/workspaces/{workspace_id}/reviews/pending/",
-      "operationId": "workspaces_reviews_pending_retrieve",
+      "operationId": "workspaces_reviews_pending_list",
       "requestContentTypes": [],
       "responseCodes": [
         "200",
@@ -11611,7 +11612,6 @@
     "PaginatedTestRunList",
     "PaginatedTraceLinkList",
     "PaginatedWorkItemList",
-    "PaginatedWorkflowDefinitionList",
     "PaginatedWorkflowHistoryEntryList",
     "PaginatedWorkspaceList",
     "PasswordChangeRequestRequest",
@@ -11650,11 +11650,13 @@
     "PatchedTreeDisplayConfigWriteRequest",
     "PatchedUserProfileRequest",
     "PatchedWorkItemRequest",
-    "PatchedWorkflowDefinitionRequest",
+    "PatchedWorkflowLegacyTransitionRequestRequest",
     "PatchedWorkflowStateRenameRequestRequest",
     "PatchedWorkflowTransitionUpdateRequestRequest",
     "PatchedWorkspacePermissionWriteRequest",
     "PatchedWorkspaceRequest",
+    "PatchedWorkspaceWorkflowStateRenameRequestRequest",
+    "PatchedWorkspaceWorkflowTransitionUpdateRequestRequest",
     "PendingReviewItem",
     "PendingReviewPage",
     "PermissionMismatchListResponse",
@@ -11760,13 +11762,18 @@
     "WorkItemResumeResponse",
     "WorkItemTransitionRequestRequest",
     "WorkItemTransitionResponse",
-    "WorkflowDefinition",
+    "WorkflowDefinitionCreateResponse",
+    "WorkflowDefinitionGraph",
+    "WorkflowDefinitionListEnvelope",
     "WorkflowDefinitionRequest",
+    "WorkflowDefinitionScopeRequest",
     "WorkflowHistoryEntry",
     "WorkflowStateCreateRequestRequest",
     "WorkflowTransitionCreateRequestRequest",
     "WorkflowTransitionDefinition",
+    "WorkflowTransitionGraph",
     "WorkflowTransitionRequestRequest",
+    "WorkflowTransitionResponse",
     "WorkflowTransitionResult",
     "WorkflowTransitionsResponse",
     "Workspace",
@@ -11788,6 +11795,8 @@
     "WorkspaceSnapshotExportResponseRequest",
     "WorkspaceSnapshotImportResponse",
     "WorkspaceSnapshotImportResponseRequest",
+    "WorkspaceWorkflowStateCreateRequestRequest",
+    "WorkspaceWorkflowTransitionCreateRequestRequest",
     "WorkspaceZipSnapshotStartResponse",
     "WorkspaceZipSnapshotStartResponseRequest",
     "WorkspaceZipSnapshotStatusResponse",

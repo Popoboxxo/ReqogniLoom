@@ -657,6 +657,8 @@ GROUP_SPECS: tuple[_GroupSpec, ...] = (
         write_tools=(
             "work_item.checkpoint",
             "work_item.create",
+            "work_item.outdate",
+            "work_item.reactivate",
             "work_item.set_progress",
             "work_item.transition",
             "work_item.update",
@@ -784,6 +786,28 @@ GROUP_SPECS: tuple[_GroupSpec, ...] = (
         read_only=frozenset({
             "link_type.get",
             "link_type.list",
+        }),
+        governance_namespace=True,
+    ),
+    # P1.8 / M-11: the tenant-wide global workflow defaults on the same
+    # Layer-2 facade the REST /workflow-defaults/ surface uses. Admin-only in
+    # every handler; the whole namespace is governance, so an AUTHOR-tier key
+    # never *calls* the definition editor (its write tools are also hidden from
+    # tools/list; its reads are advertised but the handler refuses a non-admin).
+    _GroupSpec(
+        prefix="workflow_default", group_key="workflow_default",
+        write_tools=(
+            "workflow_default.add_state",
+            "workflow_default.add_transition",
+            "workflow_default.delete_state",
+            "workflow_default.delete_transition",
+            "workflow_default.initialize",
+            "workflow_default.update_state",
+            "workflow_default.update_transition",
+        ),
+        read_only=frozenset({
+            "workflow_default.get",
+            "workflow_default.list",
         }),
         governance_namespace=True,
     ),
@@ -1158,7 +1182,7 @@ class ToolRegistry:
         a direct rename.
 
         Aliases are metadata **only**: they are not added to
-        :meth:`all_tool_schemas`/``tools/list`` (the catalogue stays at 301)
+        :meth:`all_tool_schemas`/``tools/list`` (the catalogue stays at 313)
         and they are not routable — the #1376 "no shadow tools" ratchet keys
         off ``_TOOL_MAP`` and must keep holding. They document the legacy
         spelling for one release; remove them once clients have migrated.
@@ -1245,6 +1269,7 @@ class ToolRegistry:
         from mcp_server.tools.tree_display_config import TreeDisplayConfigToolGroup
         from mcp_server.tools.users import UsersToolGroup
         from mcp_server.tools.work_items import WorkItemToolGroup
+        from mcp_server.tools.workflow_default import WorkflowDefaultToolGroup
 
         # group_key -> zero-arg factory. Shared keys (cross_cutting, audit)
         # intentionally map to one instance reused by several prefixes (REQ-129).
@@ -1282,6 +1307,7 @@ class ToolRegistry:
             "interview": InterviewToolGroup,
             "memory": MemoryToolGroup,
             "link_type": LinkTypeToolGroup,
+            "workflow_default": WorkflowDefaultToolGroup,
             "attribute_definition": AttributeDefinitionToolGroup,
             "attribute_catalog": AttributeCatalogToolGroup,
             "attribute_migration": AttributeMigrationToolGroup,
@@ -1922,6 +1948,29 @@ class ToolRegistry:
         if scope_error:
             return ToolResult.error("PERMISSION_DENIED", scope_error)
 
+        # Finding #4 (`.tmp/security-audit-rest-mcp-2026-11-25.md`, P1.2): a
+        # write tool whose target workspace could not be resolved must not
+        # fall back to the caller's tenant-wide role aggregate. Runs before
+        # the RBAC exemptions as well: an exempt caller still has to name a
+        # workspace the call can be evaluated against.
+        unscoped_error = self._unscoped_write_denial(context, tool_name)
+        if unscoped_error is not None:
+            # Review finding (2026-11-25, MAJOR): the denial stays fail-closed
+            # — nothing below runs, the handler is never reached — but a call
+            # that is merely *malformed* (missing, typo'd or unparseable target
+            # id) must not be answered with the workspace-scope text. Same
+            # diagnosis as the fenced path above (#1357) and for the same
+            # reason: the caller would debug its API key instead of its
+            # parameters. `target_param_error` is deliberately silent for a
+            # well-formed id that simply resolves to no row, so this cannot
+            # become an existence oracle.
+            param_error = self._unresolved_target_param_error(
+                tool_name, params, context.scope_workspace_id
+            )
+            if param_error is not None:
+                return ToolResult.error("VALIDATION_ERROR", param_error)
+            return ToolResult.error("PERMISSION_DENIED", unscoped_error)
+
         if self._is_bootstrap_candidate(
             tool_name, params, context.auth_ctx  # type: ignore[arg-type]
         ) or self._is_tenant_admin_exempt(
@@ -1933,6 +1982,73 @@ class ToolRegistry:
         if rbac_error:
             return ToolResult.error("PERMISSION_DENIED", rbac_error)
         return None
+
+    def _unscoped_write_denial(
+        self, context: _DispatchContext, tool_name: str
+    ) -> str | None:
+        """Deny a write tool whose target workspace could not be resolved.
+
+        Security finding #4
+        (``.tmp/security-audit-rest-mcp-2026-11-25.md``): ``_TOOL_TARGETS`` used
+        to be the only thing mapping a write tool onto its owning workspace, and
+        a missing entry silently fell back to ``_resolve_global_roles`` — the
+        tenant-wide union of every role the caller holds *anywhere* — so an
+        Editor in workspace A could mutate an object in workspace B. Resolution
+        itself stays fail-soft (a read tool must keep answering NOT_FOUND for a
+        deleted id); the *write* decision is what fails closed here.
+
+        A write tool is admitted without a resolved workspace only when it is
+        one of four kinds, per the module docstring in
+        :mod:`mcp_server.workspace_scope`:
+
+        * ``_INSTANCE_LEVEL_TOOLS`` — instance/tenant-wide by declaration,
+        * ``TENANT_SCOPED_WRITE_TOOLS`` — deliberately tenant-wide, justified
+          entry by entry,
+        * its published schema **requires** ``workspace_id`` — the dispatcher
+          narrows the roles to it; an omitted value stays the handler's
+          ``VALIDATION_ERROR`` (#1374), which is a request-shape defect rather
+          than an unscopable write,
+        * :data:`_TOOL_TARGETS` resolved the object's workspace, i.e.
+          ``context.scope_workspace_id`` is not ``None``.
+
+        A name whose ``inputSchema`` is not inspectable at all is *not* a
+        published tool: routing runs before this gate precisely so an unknown
+        tool name answers ``UNKNOWN_TOOL`` instead of leaking a 403, and a
+        unit-test double has no published contract to fail closed on. Every
+        *live* write tool does publish one — ratcheted by
+        ``test_every_live_write_tool_has_an_inspectable_schema``.
+
+        Everything else is denied. The message names only the tool: echoing ids
+        or parameters would turn the denial into an existence oracle for the
+        very objects the caller may not touch.
+
+        Two answers come out of this denial in
+        :meth:`_authorize_write_tool`: this scope text (``PERMISSION_DENIED``),
+        and — when the call itself is malformed — the parameter diagnosis from
+        :func:`mcp_server.workspace_scope.target_param_error`
+        (``VALIDATION_ERROR``, naming the expected parameter but never an id).
+        Either way the handler is never reached.
+        """
+        if context.scope_workspace_id is not None:
+            return None
+        if tool_name in _INSTANCE_LEVEL_TOOLS:
+            return None
+
+        from mcp_server.workspace_scope import TENANT_SCOPED_WRITE_TOOLS
+
+        if tool_name in TENANT_SCOPED_WRITE_TOOLS:
+            return None
+        input_schema = self._published_input_schema(tool_name)
+        if input_schema is None:
+            return None
+        if "workspace_id" in (input_schema.get("required") or []):
+            return None
+
+        return (
+            f"Tool '{tool_name}' could not be scoped to a workspace. Name the "
+            "target object (or its workspace_id) so the call can be authorized; "
+            "an unresolvable write target is denied."
+        )
 
     def _execute_tool_call(
         self,

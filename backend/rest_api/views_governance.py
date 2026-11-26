@@ -48,6 +48,7 @@ from drf_spectacular.utils import (
     OpenApiTypes,
     extend_schema,
     inline_serializer,
+    set_override,
 )
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -216,7 +217,7 @@ from rest_api.preset_guard import PresetError, PresetGateMixin
 from rest_api.query_params import (
     parse_bool_param,
     parse_change_reason,
-    parse_include_deleted,
+    parse_include_outdated,
     parse_int_param,
     parse_uuid_param,
     parse_workspace_id,
@@ -295,6 +296,19 @@ from rest_api.serializers import (
 )
 
 
+from rest_api.serializers_governance import (
+    WorkflowDefinitionCreateResponseSerializer,
+    WorkflowDefinitionGraphSerializer,
+    WorkflowDefinitionListEnvelopeSerializer,
+    WorkflowDefinitionScopeSerializer,
+    WorkflowTransitionResponseSerializer,
+    WorkspaceWorkflowStateCreateRequestSerializer,
+    WorkspaceWorkflowStateRenameRequestSerializer,
+    WorkspaceWorkflowTransitionCreateRequestSerializer,
+    WorkspaceWorkflowTransitionUpdateRequestSerializer,
+)
+
+
 from .views_common import (
     BaseEntityViewSet,
     _ETAG_RESPONSE_HEADER,
@@ -320,19 +334,187 @@ from .views_trace_baseline import (
 # ---------------------------------------------------------------------------
 
 
+#: Error statuses every edit-mode action of :class:`WorkflowDefinitionViewSet`
+#: can answer, with the machine-readable code each one carries. Declared on
+#: purpose per operation: the generic 400/403/404 of the shared
+#: ``COMMON_ERROR_RESPONSES`` set cannot say *which* condition produces them
+#: (``_edit_precheck``, ``_edit_error_response`` and the service fall-through
+#: all end up in the same envelope).
+#:
+#: Split in two (review finding F-6): the ``409`` of
+#: :data:`_WORKFLOW_EDIT_ERROR_RESPONSES` is reachable from exactly three
+#: operations. ``_edit_error_response`` maps ``NoGlobalSourceError`` to ``409``
+#: and only ``reset/`` raises it; it maps ``OrphanedStateError`` /
+#: ``StateReferencedError`` to ``409`` and only the state *rename* and *delete*
+#: raise those (a rename can orphan a state, a delete can still be referenced).
+#: The transition edits hand the engine an unchanged state list, so
+#: ``update_transition``/``delete_transition`` cannot trigger any of the three —
+#: they join the three create operations on
+#: :data:`_WORKFLOW_BASE_ERROR_RESPONSES`, which declares no ``409`` at all.
+_WORKFLOW_BASE_ERROR_RESPONSES: dict[int, OpenApiResponse] = {
+    400: OpenApiResponse(
+        response=ErrorResponseSerializer,
+        description=(
+            "VALIDATION_ERROR — 'workspace_id'/'item_type' missing, "
+            "'workspace_id' not a UUID, a blank state name, an unknown state, "
+            "or a graph edit the workflow engine rejected (e.g. no definition "
+            "stored for the workspace/type yet)."
+        ),
+    ),
+    403: OpenApiResponse(
+        response=ErrorResponseSerializer,
+        description=(
+            "PERMISSION_DENIED — the caller lacks the admin role, or the "
+            "workspace preset does not allow editing the workflow "
+            "(REQ-L3-WE001-002 configurability gate)."
+        ),
+    ),
+    404: OpenApiResponse(
+        response=ErrorResponseSerializer,
+        description=(
+            "NOT_FOUND — a resource the action resolves does not exist for the "
+            "caller's tenant. A workspace without a stored definition is NOT "
+            "this case: it answers 400 VALIDATION_ERROR."
+        ),
+    ),
+}
+
+
+#: The same 400/403/404 set plus the one extra status only the *editing*
+#: operations can emit (see the comment on the base set above). Used by the
+#: state rename/delete pair and ``reset/`` — never by a transition edit.
+_WORKFLOW_EDIT_ERROR_RESPONSES: dict[int, OpenApiResponse] = {
+    **_WORKFLOW_BASE_ERROR_RESPONSES,
+    409: OpenApiResponse(
+        response=ErrorResponseSerializer,
+        description=(
+            "Conflict — NO_GLOBAL_SOURCE (reset/ has no linked global default) "
+            "or CONFLICT (a state is still referenced by a transition, or the "
+            "edit would orphan a state)."
+        ),
+    ),
+}
+
+
+#: 200 body of ``GET /api/v1/workflows/`` (P1.4). ``many=False`` is mandatory:
+#: drf-spectacular's list-view heuristic answers "list" for any
+#: ``action == 'list'`` GET and would otherwise publish an *array* of envelopes
+#: instead of the single envelope the handler answers.
+_WORKFLOW_LIST_RESPONSE = WorkflowDefinitionListEnvelopeSerializer()
+set_override(_WORKFLOW_LIST_RESPONSE, "many", False)
+
+
 class WorkflowDefinitionViewSet(BaseEntityViewSet):
-    """ViewSet for WorkflowDefinition CRUD operations (REQ-L2-RA-001)."""
+    """Workflow definition configuration and its edit-mode graph actions.
+
+    REQ-L2-RA-001, REQ-176 (read), REQ-177 (edit), REQ-180 (on-default/reset).
+
+    This ViewSet is **not** a CRUD collection. A workflow definition is
+    configuration keyed by ``(workspace_id, item_type)``, so there is no list
+    of resources to page through: ``GET /workflows/`` answers a fixed, empty
+    pagination envelope for compatibility (see :meth:`list`), and the real
+    state machine is served by ``GET /workflows/definition/``. Reads are
+    workspace-scoped; every edit-mode action additionally requires the admin
+    role (see :meth:`_edit_precheck`).
+    """
 
     serializer_class = WorkflowDefinitionSerializer
     preset_endpoint_key = ""
 
+    #: P1.4: ``list`` answers a fixed, empty compatibility envelope — it never
+    #: paginates. Inheriting ``StandardPagination`` made the OpenAPI document
+    #: advertise ``page``/``page_size`` *and* wrap the declared envelope in a
+    #: second pagination object, promising a paged collection that does not
+    #: exist. ``None`` keeps the document honest; the runtime response is
+    #: unchanged because the handler builds it literally.
+    pagination_class = None
+
     def _svc(self) -> WorkflowFacade:
         return WorkflowFacade()
 
+    @extend_schema(
+        summary="List workflow definitions (compatibility envelope, always empty)",
+        description=(
+            "**Not a collection.** A workflow definition is configuration "
+            "keyed by `(workspace_id, item_type)`, not a listable resource — "
+            "there is no workspace-independent list to page through and no "
+            "create/update/delete-by-id behind this route.\n\n"
+            "The route answers the historical pagination envelope "
+            "`{count: 0, next: null, previous: null, results: []}` "
+            "unconditionally, so existing clients keep working. It is an "
+            "intentionally empty compatibility envelope, **not** a CRUD list of "
+            "definitions.\n\n"
+            "For the real graph use `GET /api/v1/workflows/definition/` with "
+            "`workspace_id` and `item_type`; the edit-mode actions live under "
+            "`/api/v1/workflows/definition/states/`, "
+            "`/api/v1/workflows/definition/transitions/`, "
+            "`/api/v1/workflows/definition/initialize/` and "
+            "`/api/v1/workflows/definition/reset/`."
+        ),
+        responses={200: _WORKFLOW_LIST_RESPONSE},
+    )
     def list(self, request: Request, **kwargs: Any) -> Response:
-        # WorkflowFacade does not expose list — return empty list
+        """GET /api/v1/workflows/ — intentionally empty compatibility envelope.
+
+        P1.4 / M-6: ``WorkflowFacade`` exposes no list, because a definition is
+        configuration keyed by ``(workspace_id, item_type)`` and not a
+        collection. The historical wire contract is a fixed empty pagination
+        envelope; it is kept byte-identical (``count: 0``, ``next``/``previous``
+        null, ``results: []``) but documented as what it is — not as a CRUD
+        list of workflow definitions. The real graph is
+        ``GET definition/?workspace_id=&item_type=``.
+        """
         return Response({"count": 0, "next": None, "previous": None, "results": []})
 
+    @extend_schema(
+        summary="Read the full workflow graph for one workspace/entity type",
+        description=(
+            "Returns the COMPLETE state machine for `item_type` in "
+            "`workspace_id` — every state and every transition with its role / "
+            "change_reason / signature metadata — so the Workflow Editor can "
+            "render the whole graph read-only. Read access to the workspace is "
+            "enough; no admin role is required.\n\n"
+            "An unconfigured workspace/type is **not** a 404: the answer is an "
+            "empty graph with `initialized: false`. Its `preset` names the "
+            "preset the definition *would* be initialized with (the same "
+            "resolver `definition/initialize/` uses), so a client can show the "
+            "default the Initialize action would apply. The only case that "
+            "answers a null `preset` is a caller who may not read the "
+            "workspace: the guard inside the preset resolver declines to name "
+            "a preset for a workspace the caller has no standing in. That case "
+            "is still a **200** with the empty graph — the route has no read "
+            "gate of its own, so it never answers a 403/404 for it."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Workspace whose workflow definition is read.",
+            ),
+            OpenApiParameter(
+                "item_type",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=True,
+                description=(
+                    "Workflow-tracked entity type, e.g. 'Requirement', "
+                    "'WorkItem' or 'Adr'."
+                ),
+            ),
+        ],
+        responses={
+            200: WorkflowDefinitionGraphSerializer,
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "VALIDATION_ERROR — 'workspace_id' or 'item_type' missing, "
+                    "or 'workspace_id' is not a UUID."
+                ),
+            ),
+        },
+    )
     @action(detail=False, methods=["get"], url_path="definition")
     def definition(self, request: Request, **kwargs: Any) -> Response:
         """GET ``definition/`` — full workflow graph for an entity type (REQ-176).
@@ -342,7 +524,8 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
         every transition with its role / change_reason / signature metadata — so
         the Workflow Editor can render the whole graph read-only. When no
         workflow is configured for the workspace/type, returns an empty graph
-        with ``initialized: false`` rather than a 404.
+        with ``initialized: false`` rather than a 404; its ``preset`` names the
+        preset the definition would be initialized with (P1.5 / M-7).
         """
         lang = detect_lang(request)
         workspace_id = request.query_params.get("workspace_id")
@@ -357,7 +540,7 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            UUID(str(workspace_id))
+            workspace_uuid = UUID(str(workspace_id))
         except (ValueError, TypeError):
             return Response(
                 build_error_response(
@@ -368,7 +551,7 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
         try:
             ctx = get_auth_context(request)
             dto = self._svc().get_definition(
-                ctx, item_type=item_type, workspace_id=str(workspace_id)
+                ctx, item_type=item_type, workspace_id=str(workspace_uuid)
             )
         except (NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -379,7 +562,7 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
             return Response(
                 {
                     "item_type": item_type,
-                    "preset": None,
+                    "preset": self._uninitialized_preset(ctx, workspace_uuid, item_type),
                     "is_custom": False,
                     # REQ-180 additive on-default/customized signal.
                     "is_customized": False,
@@ -392,6 +575,27 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
                 }
             )
         return Response(self._serialize_definition(dto))
+
+    @staticmethod
+    def _uninitialized_preset(ctx: Any, workspace_id: UUID, item_type: str) -> str | None:
+        """Preset the definition *would* be initialized with (P1.5 / M-7).
+
+        ``WorkItem`` used to answer ``preset: null`` here, so the editor could
+        not show which lifecycle an "Initialize" click would create. Delegating
+        to ``workflow.services.resolve_default_preset`` — the same resolver
+        ``initialize_definition`` uses — keeps the read and the write in
+        agreement (``work_item_<tier>``, the workspace tier for ``Requirement``,
+        the registry key for a fixed type, ``standard`` as the last resort).
+
+        Fail-closed on access: the resolver reads tenant-scoped rows, so a
+        workspace the caller cannot read (foreign tenant, or outside its API-key
+        fence) yields ``None`` instead of a preset the caller has no standing in.
+        """
+        if not _caller_may_read_workspace(workspace_id, ctx):
+            return None
+        from workflow.services import resolve_default_preset
+
+        return resolve_default_preset(str(workspace_id), item_type)
 
     # -- Edit-mode mutations (REQ-177 — Workflow Editor Phase 2) --------------
     #
@@ -511,6 +715,23 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
             )
         return _service_error_response(exc, lang)
 
+    @extend_schema(
+        summary="Add a state to the workspace workflow definition",
+        description=(
+            "Appends a new state to the workspace's definition for `item_type` "
+            "and returns the full, re-serialised graph. The new state starts "
+            "unwired (no transitions); connect it with "
+            "`definition/transitions/`.\n\n"
+            "Admin role required (the same gate as every edit-mode action) and "
+            "the workspace preset must allow editing the workflow. **201** with "
+            "the whole graph on success, not just the created state."
+        ),
+        request=WorkspaceWorkflowStateCreateRequestSerializer,
+        responses={
+            201: WorkflowDefinitionGraphSerializer,
+            **_WORKFLOW_BASE_ERROR_RESPONSES,
+        },
+    )
     @action(detail=False, methods=["post"], url_path="definition/states")
     def create_state(self, request: Request, **kwargs: Any) -> Response:
         pre = self._edit_precheck(request)
@@ -531,6 +752,56 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
             return self._edit_error_response(exc, lang)
         return Response(self._serialize_definition(dto), status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        methods=["PATCH"],
+        summary="Rename a state and rewire its transitions",
+        description=(
+            "Renames the state `{state_id}` (URL-decoded, the state *name* is "
+            "the identity) and rewires every transition that references it. "
+            "Returns the full, re-serialised graph.\n\n"
+            "Requires the admin role; the body repeats the scope "
+            "(`workspace_id`, `item_type`) because this action has no "
+            "workspace-scoped URL."
+        ),
+        request=WorkspaceWorkflowStateRenameRequestSerializer,
+        responses={
+            200: WorkflowDefinitionGraphSerializer,
+            **_WORKFLOW_EDIT_ERROR_RESPONSES,
+        },
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        summary="Delete a state from the workspace workflow definition",
+        description=(
+            "Deletes the state `{state_id}` and returns the full, "
+            "re-serialised graph. Only a fully disconnected state can be "
+            "deleted: a state still referenced by a transition answers **409** "
+            "CONFLICT, and a deletion that would orphan the graph answers "
+            "**409** as well.\n\n"
+            "`DELETE` has no body, so the scope (`workspace_id`, `item_type`) "
+            "is taken from the query string. Requires the admin role."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Workspace whose definition is edited.",
+            ),
+            OpenApiParameter(
+                "item_type",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Entity type whose definition is edited.",
+            ),
+        ],
+        responses={
+            200: WorkflowDefinitionGraphSerializer,
+            **_WORKFLOW_EDIT_ERROR_RESPONSES,
+        },
+    )
     @action(
         detail=False,
         methods=["patch", "delete"],
@@ -569,6 +840,21 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
             return self._edit_error_response(exc, lang)
         return Response(self._serialize_definition(dto))
 
+    @extend_schema(
+        summary="Add a transition between two existing states",
+        description=(
+            "Adds the edge `from_state -> to_state` to the workspace's "
+            "definition and returns the full, re-serialised graph. Both states "
+            "must already exist; a duplicate edge is a **400**.\n\n"
+            "`allowed_roles` defaults to `[\"admin\"]` — the engine always keeps "
+            "`admin` in the list. Requires the admin role."
+        ),
+        request=WorkspaceWorkflowTransitionCreateRequestSerializer,
+        responses={
+            201: WorkflowDefinitionGraphSerializer,
+            **_WORKFLOW_BASE_ERROR_RESPONSES,
+        },
+    )
     @action(detail=False, methods=["post"], url_path="definition/transitions")
     def create_transition(self, request: Request, **kwargs: Any) -> Response:
         pre = self._edit_precheck(request)
@@ -603,6 +889,59 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
             return self._edit_error_response(exc, lang)
         return Response(self._serialize_definition(dto), status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        methods=["PATCH"],
+        summary="Update a transition's rule metadata",
+        description=(
+            "Rewrites the rule metadata of the edge "
+            "`{transition_id}` = `<from_state>__<to_state>` and returns the "
+            "full, re-serialised graph. The endpoint pair is the identity and "
+            "cannot be changed here (move an edge by deleting and re-adding it); "
+            "an omitted or null rule field keeps the stored value.\n\n"
+            "A `{transition_id}` that is not exactly `<from>__<to>` (for "
+            "example a missing delimiter or an empty side) is a **400** "
+            "VALIDATION_ERROR, checked before the definition is read.\n\n"
+            "Requires the admin role; the body repeats the scope "
+            "(`workspace_id`, `item_type`)."
+        ),
+        request=WorkspaceWorkflowTransitionUpdateRequestSerializer,
+        responses={
+            200: WorkflowDefinitionGraphSerializer,
+            **_WORKFLOW_BASE_ERROR_RESPONSES,
+        },
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        summary="Delete a transition",
+        description=(
+            "Deletes the edge `{transition_id}` = `<from_state>__<to_state>` and "
+            "returns the full, re-serialised graph. A `{transition_id}` that is "
+            "not exactly `<from>__<to>` (for example a missing delimiter or an "
+            "empty side) is a **400** VALIDATION_ERROR, checked before the "
+            "definition is read. `DELETE` has no body, so the scope is taken "
+            "from the query string. Requires the admin role."
+        ),
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Workspace whose definition is edited.",
+            ),
+            OpenApiParameter(
+                "item_type",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Entity type whose definition is edited.",
+            ),
+        ],
+        responses={
+            200: WorkflowDefinitionGraphSerializer,
+            **_WORKFLOW_BASE_ERROR_RESPONSES,
+        },
+    )
     @action(
         detail=False,
         methods=["patch", "delete"],
@@ -653,6 +992,25 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
             return self._edit_error_response(exc, lang)
         return Response(self._serialize_definition(dto))
 
+    @extend_schema(
+        summary="Initialize the preset-default workflow for a workspace/type",
+        description=(
+            "Creates the preset-default definition for `item_type` in "
+            "`workspace_id` — the editor's \"Initialize Workflow\" action — and "
+            "returns the new full graph with **201**. Idempotent: when a "
+            "definition already exists it is returned unchanged (still 201).\n\n"
+            "The preset is resolved exactly like workspace provisioning: a fixed "
+            "per-entity registry key (e.g. `adr_default`), the workspace's active "
+            "tier for `Requirement`, and `work_item_<tier>` for `WorkItem` "
+            "(falling back to `standard` when the tier configuration is unusable). "
+            "Requires the admin role."
+        ),
+        request=WorkflowDefinitionScopeSerializer,
+        responses={
+            201: WorkflowDefinitionGraphSerializer,
+            **_WORKFLOW_BASE_ERROR_RESPONSES,
+        },
+    )
     @action(detail=False, methods=["post"], url_path="definition/initialize")
     def initialize_definition(self, request: Request, **kwargs: Any) -> Response:
         pre = self._edit_precheck(request)
@@ -667,6 +1025,22 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
             return self._edit_error_response(exc, lang)
         return Response(self._serialize_definition(dto), status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        summary="Reset a workspace definition to its global default",
+        description=(
+            "Overwrites the workspace definition's graph with the linked global "
+            "default, clears `is_customized` and returns the full, re-serialised "
+            "graph with **200**. Answers **409** NO_GLOBAL_SOURCE when the "
+            "definition has no linked global source — the client can then offer "
+            "\"initialize from current global\" instead of a silent no-op.\n\n"
+            "Requires the admin role."
+        ),
+        request=WorkflowDefinitionScopeSerializer,
+        responses={
+            200: WorkflowDefinitionGraphSerializer,
+            **_WORKFLOW_EDIT_ERROR_RESPONSES,
+        },
+    )
     @action(detail=False, methods=["post"], url_path="definition/reset")
     def reset_definition(self, request: Request, **kwargs: Any) -> Response:
         """POST ``definition/reset/`` — reset to the global default (REQ-180).
@@ -687,9 +1061,51 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
             return self._edit_error_response(exc, lang)
         return Response(self._serialize_definition(dto))
 
+    @extend_schema(
+        summary="Not available — a workflow definition has no detail route",
+        description=(
+            "There is no id-addressable workflow definition: a definition is "
+            "configuration keyed by `(workspace_id, item_type)`. The route "
+            "answers **404 NOT_FOUND** for every request (a well-formed id "
+            "included); the document previously advertised an empty `200` it "
+            "could never produce. Use "
+            "`GET /api/v1/workflows/definition/?workspace_id=&item_type=`."
+        ),
+        responses={
+            404: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Always returned — no workflow definition is id-addressable.",
+            )
+        },
+    )
     def retrieve(self, request: Request, pk: str, **kwargs: Any) -> Response:
         return Response(build_error_response("NOT_FOUND", detect_lang(request)), status=status.HTTP_404_NOT_FOUND)
 
+    @extend_schema(
+        summary="Seed workflow states for one artifact",
+        description=(
+            "Creates the workflow item state of `artifact_id` in `workspace_id` "
+            "and answers **201** `{message: \"Workflow initialized\"}`. This is "
+            "the legacy seeding route the editor pairs with `PATCH "
+            "/workflows/{id}/`; it does **not** create a workflow definition "
+            "(that is `definition/initialize/`).\n\n"
+            "An unknown artifact/workspace is a 400/403/404 from the service "
+            "layer; a body missing `artifact_id`/`workspace_id` or `name` is a "
+            "400 VALIDATION_ERROR."
+        ),
+        request=WorkflowDefinitionSerializer,
+        responses={
+            201: WorkflowDefinitionCreateResponseSerializer,
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "VALIDATION_ERROR — the body rejected by "
+                    "`WorkflowDefinitionSerializer` (missing/invalid "
+                    "`artifact_id`, `workspace_id` or `name`)."
+                ),
+            ),
+        },
+    )
     def create(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         ser = WorkflowDefinitionSerializer(data=request.data)
@@ -710,6 +1126,58 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response({"message": "Workflow initialized"}, status=status.HTTP_201_CREATED)
 
+    @extend_schema(
+        summary="Transition an artifact through its workflow (legacy PATCH route)",
+        description=(
+            "Moves the artifact behind `{id}` into `target_state` and answers "
+            "**200** `{id, target_state}`. The artifact is resolved through "
+            "`ArtifactService`, then handed to the workflow facade with its real "
+            "`item_id`/`item_type`/`workspace_id` signature, so the workspace's "
+            "transition rules (roles, change_reason, signature gate) apply "
+            "unchanged.\n\n"
+            "A missing `target_state` is a **400**; an unknown or unreadable "
+            "artifact is a **404**; a transition refused by the workflow rules "
+            "is a 400/403 from the service layer."
+        ),
+        request=inline_serializer(
+            # F-7: renamed from "WorkflowTransitionRequest" to avoid a
+            # confusingly similar component name to
+            # ``serializers_diagram.WorkflowTransitionRequestSerializer``; no
+            # collision occurred. That serializer is only used on the diagram
+            # POST, so drf-spectacular never generated a ``Patched…`` variant of
+            # it and the two components stayed distinct all along — the rename is
+            # about legibility of the generated document, not about a fixed
+            # schema clash.
+            name="WorkflowLegacyTransitionRequest",
+            fields={
+                "target_state": serializers.CharField(
+                    help_text="State to move the artifact into."
+                ),
+                "change_reason": serializers.CharField(
+                    required=False,
+                    allow_blank=True,
+                    help_text=(
+                        "Rationale recorded on the transition; mandatory when "
+                        "the edge requires one."
+                    ),
+                ),
+            },
+        ),
+        responses={
+            200: WorkflowTransitionResponseSerializer,
+            400: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description=(
+                    "VALIDATION_ERROR — `target_state` missing, or the "
+                    "transition refused by the workflow rules."
+                ),
+            ),
+            404: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="NOT_FOUND — no artifact with this id for the caller.",
+            ),
+        },
+    )
     def partial_update(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """Workflow transition via PATCH."""
         lang = detect_lang(request)
@@ -734,6 +1202,22 @@ class WorkflowDefinitionViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response({"id": pk, "target_state": target_state})
 
+    @extend_schema(
+        summary="Not supported — workflow definitions cannot be deleted",
+        description=(
+            "A workflow definition is configuration, never a deletable "
+            "resource: the route answers **403 PERMISSION_DENIED** "
+            "unconditionally (no id is looked up, so an unknown id answers the "
+            "same as a real one). Disable a state or edge through the "
+            "edit-mode actions instead."
+        ),
+        responses={
+            403: OpenApiResponse(
+                response=ErrorResponseSerializer,
+                description="Always returned — workflow definitions are never deleted.",
+            )
+        },
+    )
     def destroy(self, request: Request, pk: str, **kwargs: Any) -> Response:
         return Response(build_error_response("PERMISSION_DENIED", detect_lang(request), message="Workflow definitions cannot be deleted."), status=status.HTTP_403_FORBIDDEN)
 
@@ -2065,7 +2549,8 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         """GET /api/v1/adrs/ — list ADRs in a workspace.
 
         REQ-006: Excludes soft-deleted ADRs by default.
-        Pass ?include_deleted=true for admin/audit access.
+        Pass ?include_outdated=true for admin/audit access
+        (the deprecated alias ?include_deleted=true still works).
         """
         lang = detect_lang(request)
         try:
@@ -2077,7 +2562,7 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             if error is not None:
                 return error
             # REQ-006: include_deleted=true exposes soft-deleted ADRs (admin use)
-            include_deleted = parse_include_deleted(request.query_params)
+            include_deleted = parse_include_outdated(request.query_params)
             items = self._svc().list_adrs(
                 workspace_id=workspace_id,
                 ctx=ctx,
@@ -2396,7 +2881,8 @@ class AdrViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         flag, not a workflow state) and a subsequent GET on this URL still
         answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
         record, and there never was one in this tenant". List endpoints hide
-        outdated records by default; pass ``?include_deleted=true`` to see
+        outdated records by default; pass ``?include_outdated=true`` (the
+        deprecated alias ``?include_deleted=true`` still works) to see
         them, and ``POST .../reactivate/`` to restore one.
 
         TraceLinks pointing at the record survive the delete, and traceability
@@ -2589,7 +3075,7 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             items = self._svc().list_risks(
                 workspace_id=workspace_id,
                 ctx=ctx,
-                include_deleted=parse_include_deleted(request.query_params),
+                include_deleted=parse_include_outdated(request.query_params),
                 status=request.query_params.get("status") or None,
                 search=request.query_params.get("search") or None,
             )
@@ -2769,7 +3255,8 @@ class RiskViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         flag, not a workflow state) and a subsequent GET on this URL still
         answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
         record, and there never was one in this tenant". List endpoints hide
-        outdated records by default; pass ``?include_deleted=true`` to see
+        outdated records by default; pass ``?include_outdated=true`` (the
+        deprecated alias ``?include_deleted=true`` still works) to see
         them, and ``POST .../reactivate/`` to restore one.
 
         Caveat, unchanged by GH-443: unlike the other soft-deleting entities,
@@ -3677,7 +4164,7 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             items = self._svc().list_issues(
                 workspace_id=workspace_id,
                 ctx=ctx,
-                include_deleted=parse_include_deleted(request.query_params),
+                include_deleted=parse_include_outdated(request.query_params),
                 status=request.query_params.get("status") or None,
                 search=request.query_params.get("search") or None,
             )
@@ -3884,7 +4371,8 @@ class IssueViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         flag, not a workflow state) and a subsequent GET on this URL still
         answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
         record, and there never was one in this tenant". List endpoints hide
-        outdated records by default; pass ``?include_deleted=true`` to see
+        outdated records by default; pass ``?include_outdated=true`` (the
+        deprecated alias ``?include_deleted=true`` still works) to see
         them, and ``POST .../reactivate/`` to restore one.
 
         Caveat, unchanged by GH-443: unlike the other soft-deleting entities,
@@ -3962,7 +4450,7 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 workspace_id=workspace_id,
                 ctx=ctx,
                 status_filter=status_filter,
-                include_deleted=parse_include_deleted(request.query_params),
+                include_deleted=parse_include_outdated(request.query_params),
             )
         except (ValidationError, ValueError) as exc:
             return _service_error_response(
@@ -4109,7 +4597,8 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         flag, not a workflow state) and a subsequent GET on this URL still
         answers 200 with ``status="outdated"`` — 404 keeps meaning "no such
         record, and there never was one in this tenant". List endpoints hide
-        outdated records by default; pass ``?include_deleted=true`` to see
+        outdated records by default; pass ``?include_outdated=true`` (the
+        deprecated alias ``?include_deleted=true`` still works) to see
         them, and ``POST .../reactivate/`` to restore one.
 
         TraceLinks pointing at the record survive the delete, and traceability

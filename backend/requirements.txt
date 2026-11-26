@@ -132,12 +132,12 @@ python-json-logger>=4.2.0,<5.0
 
 # ReqIF 1.2 export (REQ-146) — DOORS/Polarion interoperability.
 # StrictDoc project, Apache-2.0 license (verified via `pip show reqif`).
-reqif>=0.1.0,<0.2
+reqif>=0.1.1,<0.2
 
 # LLM provider SDKs (REQ-L3-LA002-001, fix #111) — without these every
 # LLM_PROVIDER=anthropic|openai call crashed with a raw RuntimeError; only
 # `mock` was actually usable. Pinned consistent with the other deps above.
-anthropic>=2.7.0,<3.0
+anthropic>=2.12.0,<3.0
 openai>=3.57.0,<4.0
 # Embedding provider (REQ-L2-VS-004) — sentence-transformers is the new default
 # embedding provider (384 dims, in-process, no external service). Optional
@@ -161,7 +161,7 @@ sentence-transformers>=6.3.0,<7.0
 # state was observed making GET /api/v1/system/memory/projection/ 500), so
 # pinning it explicitly per that same plan's own escape hatch ("add it only if
 # the transitive-dependency assumption fails").
-numpy>=2.5.4,<3.0
+numpy>=2.5.5,<3.0
 
 # Optional external memory backend (MEMORY_BACKEND=honcho, memory/honcho_backend.py).
 # NOTE: "honcho-ai" is the Plastic Labs agent-memory SDK (github.com/plastic-labs/honcho).

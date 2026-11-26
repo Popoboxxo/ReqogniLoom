@@ -427,6 +427,20 @@ def _build_env() -> _Env:
             UserRole.objects.create(
                 tenant=tenant, user=admin, workspace=workspace, role=ROLE_ADMIN
             )
+            # P2.13: document/work-item creation is now fail-closed and needs
+            # the same workflow definitions an API-provisioned workspace gets.
+            # Creating the rows directly above bypasses WorkspaceService, so
+            # provision them explicitly instead of relying on the old
+            # state-less-create fallback.
+            from application.workspace_provisioning import (
+                provision_workspace_defaults,
+            )
+
+            provision_workspace_defaults(
+                workspace_id=workspace.id,
+                tenant_id=tenant.id,
+                requirement_preset=preset,
+            )
             workspaces[preset] = workspace
     finally:
         clear_request_tenant()

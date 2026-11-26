@@ -1,35 +1,50 @@
-"""#1380 gate: the baseline preset gate is truthful in the published schema.
+"""#1380/#1391 gate: the baseline preset gate is truthful in runtime and schema.
 
 The OpenAPI document advertised ``GET``/``POST /api/v1/baselines/`` (and
 ``GET /api/v1/baselines/{id}/``) unconditionally, with only the generic
 "Resource not found." blanket for ``404``. At runtime the preset gate hides the
 whole family in presets that do not enable ``preset_endpoint_key =
-"baselines"``, and the flat collection route cannot even resolve a preset when
-``workspace_id`` is omitted. The schema therefore promised an endpoint that does
-not exist for that caller.
+"baselines"``, so the schema promised an endpoint that did not exist for that
+caller.
 
-This module pins both halves of the fix:
+#1380 documented that gate. #1391 fixed the *status code* of the flat route's
+own parameter: it used to run the gate before validation, so a missing
+``?workspace_id=`` reached the gate's tenant-id fallback and answered the same
+opaque 404 in every preset — a client error reported as an absent endpoint. The
+flat list route now validates first and answers ``400 VALIDATION_ERROR``; the
+nested route and the create route keep their historical order.
 
-* **Runtime** — the 404 conditions really exist, and the preset-enabled happy
-  path is untouched (the fix documents the gate; it does not open or weaken it).
-* **Schema** — the generated document now names the preset condition on the
-  ``404`` of all three operations, uses one shared description, and declares
-  ``workspace_id`` as a required query parameter on ``list``.
+This module pins all three halves:
+
+* **Runtime** — a missing/malformed parameter on the flat route is a 400 that
+  does not echo the value; a preset-disabled workspace and a foreign/unknown
+  workspace keep answering the opaque 404; the enabled happy path is untouched.
+* **Security** — the 404 stays indistinguishable between "preset disabled" and
+  "workspace unknown/foreign": the fix must not turn either into a 400, which
+  would recreate the existence oracle #1380 closed.
+* **Schema** — the list ``404`` names only the two remaining causes, the list
+  ``400`` documents the parameter defect, ``workspace_id`` stays required on the
+  flat operation (and absent on the nested one), and the create ``404`` still
+  names the omitted-workspace cause it really has.
 
 Empirical proof of the runtime behaviour (measured with the tests below,
-``2026-10-21``, project preset = the workspace's ``preset["name"]``):
+``2026-11-25``, project preset = the workspace's ``preset["name"]``):
 
-| Request                                             | Preset   | Status | Body (measured, excerpt)                                                     |
-|-----------------------------------------------------|----------|--------|------------------------------------------------------------------------------|
-| ``GET /api/v1/baselines/?workspace_id=<minimal>``    | minimal  | 404    | ``{"error": {"code": "NOT_FOUND", "message": "The requested API endpoint does not exist.", "details": [], "request_id": "<uuid>"}}`` |
-| ``GET /api/v1/baselines/`` (no ``workspace_id``)     | minimal  | 404    | same envelope, byte-identical                                                |
-| ``GET /api/v1/baselines/`` (no ``workspace_id``)     | standard | 404    | same envelope, byte-identical                                                |
-| ``GET /api/v1/baselines/`` (no ``workspace_id``)     | extended | 404    | same envelope, byte-identical                                                |
-| ``GET /api/v1/baselines/?workspace_id=<standard>``   | standard | 200    | ``{"count":0,"next":null,"previous":null,"page_size":25,"max_page_size":100,"results":[]}`` |
-| ``GET /api/v1/baselines/?workspace_id=<extended>``   | extended | 200    | same empty pagination envelope                                               |
-| ``POST /api/v1/baselines/`` (enabled workspace)      | extended | 201    | ``{"id": "...", "workspace_id": "...", "scope": "project", "version": 1, ...}`` + ``ETag`` |
-| ``GET /api/v1/baselines/{id}/`` (enabled workspace)  | extended | 200    | baseline detail incl. ``entries``                                            |
-| ``POST /api/v1/baselines/`` (no ``workspace_id``)    | any      | 404    | same opaque envelope, answered before serializer validation                  |
+| Request                                              | Preset   | Status | Body (excerpt)                                                               |
+|------------------------------------------------------|----------|--------|-----------------------------------------------------------------------------|
+| ``GET /api/v1/baselines/`` (no ``workspace_id``)      | any      | 400    | ``VALIDATION_ERROR``, message names the flat route and both alternatives     |
+| ``GET /api/v1/baselines/?workspace_id=<blank>``       | any      | 400    | same message (blank counts as missing)                                       |
+| ``GET /api/v1/baselines/?workspace_id=not-a-uuid``    | any      | 400    | ``workspace_id must be a valid UUID`` (value not echoed)                     |
+| ``GET /api/v1/baselines/?workspace_id=<minimal>``     | minimal  | 404    | ``{"error": {"code": "NOT_FOUND", "message": "The requested API endpoint does not exist.", ...}}`` |
+| ``GET /api/v1/baselines/?workspace_id=<random uuid>`` | any      | 404    | same envelope, byte-identical (no existence oracle)                          |
+| ``GET /api/v1/baselines/?workspace_id=<foreign>``     | any      | 404    | same envelope, byte-identical (no existence oracle)                          |
+| ``GET /api/v1/baselines/?workspace_id=<standard>``    | standard | 200    | ``{"count":0,...,"results":[]}``                                             |
+| ``GET /api/v1/baselines/?workspace_id=<extended>``    | extended | 200    | same empty pagination envelope                                               |
+| ``GET /api/v1/workspaces/<extended>/baselines/``      | extended | 200    | nested route unchanged (workspace from the path)                             |
+| ``GET /api/v1/workspaces/<minimal>/baselines/``       | minimal  | 404    | nested route keeps the gate first                                            |
+| ``POST /api/v1/baselines/`` (enabled workspace)       | extended | 201    | baseline detail + ``ETag``                                                   |
+| ``GET /api/v1/baselines/{id}/`` (enabled workspace)   | extended | 200    | baseline detail incl. ``entries``                                            |
+| ``POST /api/v1/baselines/`` (no ``workspace_id``)     | any      | 404    | unchanged: the create route still gates before the serializer                |
 
 ``request_id`` is an additive correlation id (R2A-001) mirroring the
 ``X-Request-ID`` header; it holds a fresh UUID per request, so "same envelope,
@@ -40,7 +55,7 @@ byte-identical" above compares only code, message and details — the
 The 404 status, the ``NOT_FOUND`` error code and the envelope shape are shared
 with the body ``handler404`` renders for an unrouted path
 (:data:`rest_api.not_found.ROUTE_NOT_FOUND_MESSAGE`): the preset gate (1) and an
-unknown/missing workspace (2) are indistinguishable from "no such route", so no
+unknown/foreign workspace (2) are indistinguishable from "no such route", so no
 probe tells "hidden by preset" from "route does not exist". That is true of
 (1)/(2) only. An unknown baseline id (3) keeps the same status/code/envelope but
 answers the message ``"Baseline not found"`` (``BaselineNotFoundError`` via
@@ -50,6 +65,7 @@ schema description says exactly this, and no change may alter the runtime bodies
 """
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
@@ -68,6 +84,8 @@ _COLLECTION_PATH = "/api/v1/baselines/"
 #: The detail path (read-only in this module — ``retrieve`` gates on the row's
 #: own workspace, so it needs no ``workspace_id``).
 _DETAIL_PATH = "/api/v1/baselines/{id}/"
+#: The nested collection route (issue #49) — workspace in the path.
+_NESTED_COLLECTION_TEMPLATE = "/api/v1/workspaces/{workspace_id}/baselines/"
 
 _OPAQUE_404_MESSAGE = ROUTE_NOT_FOUND_MESSAGE["en"]
 
@@ -102,18 +120,98 @@ def _assert_opaque_404(response) -> None:
     assert body["error"]["message"] == _OPAQUE_404_MESSAGE
 
 
+def _body_without_request_id(response) -> dict:
+    """The error envelope minus the per-request correlation id."""
+    body = json.loads(response.content.decode())
+    body["error"].pop("request_id", None)
+    return body
+
+
 # ---------------------------------------------------------------------------
-# Runtime: the gate exists (and is not weakened)
+# Runtime: the flat route validates the parameter before the gate (#1391)
+# ---------------------------------------------------------------------------
+
+
+class TestBaselineFlatRouteParameterValidation:
+    """A client-side parameter defect is a 400, never the gate's opaque 404."""
+
+    @pytest.mark.parametrize("tier", ["minimal", "standard", "extended"])
+    def test_missing_workspace_id_answers_400_in_every_preset(
+        self, authed_client: APIClient, tenant: Tenant, tier: str
+    ) -> None:
+        """(a) no ``workspace_id`` -> 400 in *every* preset.
+
+        Parametrised over all three tiers to pin that the answer does not depend
+        on the preset: validation runs before the gate, so the workspace's tier
+        cannot change it.
+        """
+        user = User.objects.get(username="bundleadmin")
+        _workspace_with_admin(tenant, user, tier)
+
+        response = authed_client.get(_COLLECTION_PATH)
+
+        assert response.status_code == 400, response.content
+        assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_blank_workspace_id_answers_the_same_400(
+        self, authed_client: APIClient
+    ) -> None:
+        """A blank value is "not supplied", not a malformed UUID."""
+        missing = authed_client.get(_COLLECTION_PATH)
+        blank = authed_client.get(_COLLECTION_PATH, {"workspace_id": "   "})
+
+        assert blank.status_code == 400, blank.content
+        assert _body_without_request_id(blank) == _body_without_request_id(missing)
+
+    def test_missing_parameter_message_names_the_alternatives(
+        self, authed_client: APIClient
+    ) -> None:
+        """The message must be actionable: the flat and nested spellings both."""
+        response = authed_client.get(_COLLECTION_PATH)
+        message = response.json()["error"]["message"]
+
+        assert "workspace_id is required" in message
+        assert "flat" in message
+        assert "?workspace_id=<uuid>" in message
+        assert "/api/v1/workspaces/<workspace_id>/baselines/" in message
+
+    def test_malformed_workspace_id_answers_validation_error(
+        self, authed_client: APIClient
+    ) -> None:
+        """A non-UUID value keeps the shared ``parse_workspace_id`` wording."""
+        response = authed_client.get(
+            _COLLECTION_PATH, {"workspace_id": "not-a-uuid"}
+        )
+
+        assert response.status_code == 400, response.content
+        body = response.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert body["error"]["message"] == "workspace_id must be a valid UUID"
+
+    def test_malformed_workspace_id_is_not_echoed(
+        self, authed_client: APIClient
+    ) -> None:
+        """Reflection hazard (#271 family): the 400 must not repeat the input."""
+        marker = f"probe-{uuid.uuid4().hex}"
+
+        response = authed_client.get(_COLLECTION_PATH, {"workspace_id": marker})
+
+        assert response.status_code == 400, response.content
+        assert marker not in response.content.decode()
+
+
+# ---------------------------------------------------------------------------
+# Runtime: the gate exists (and is not weakened, #1380)
 # ---------------------------------------------------------------------------
 
 
 class TestBaselinePresetGateRuntime:
-    """Proves the 404 conditions the schema now documents."""
+    """Proves the 404 conditions the schema documents — and only those."""
 
     def test_minimal_preset_collection_answers_404(
         self, authed_client: APIClient, tenant: Tenant
     ) -> None:
-        """(a) ``?workspace_id=<minimal workspace>`` -> 404."""
+        """(1) ``?workspace_id=<minimal workspace>`` -> 404 (preset disabled)."""
         user = User.objects.get(username="bundleadmin")
         minimal = _workspace_with_admin(tenant, user, "minimal")
 
@@ -123,23 +221,54 @@ class TestBaselinePresetGateRuntime:
 
         _assert_opaque_404(response)
 
-    @pytest.mark.parametrize("tier", ["minimal", "standard", "extended"])
-    def test_missing_workspace_id_answers_404_in_every_preset(
-        self, authed_client: APIClient, tenant: Tenant, tier: str
+    def test_unknown_workspace_answers_404(
+        self, authed_client: APIClient
     ) -> None:
-        """(b) no ``workspace_id`` -> 404 in *every* preset.
-
-        The gate substitutes the caller's tenant id for the missing workspace
-        id, which resolves to no workspace at all — so the preset tier of the
-        tenant's workspaces cannot rescue the request. Parametrised over all
-        three tiers to pin that this is *not* a minimal-preset behaviour.
-        """
-        user = User.objects.get(username="bundleadmin")
-        _workspace_with_admin(tenant, user, tier)
-
-        response = authed_client.get(_COLLECTION_PATH)
+        """(2a) a well-formed but unknown workspace id -> 404."""
+        response = authed_client.get(
+            _COLLECTION_PATH, {"workspace_id": str(uuid.uuid4())}
+        )
 
         _assert_opaque_404(response)
+
+    def test_foreign_workspace_answers_404(
+        self, authed_client: APIClient
+    ) -> None:
+        """(2b) another tenant's workspace id -> 404, same body as unknown."""
+        other = Tenant.objects.create(
+            name=f"gate1380-foreign-{uuid.uuid4().hex[:8]}",
+            slug=f"gate1380-foreign-{uuid.uuid4().hex[:8]}",
+            is_active=True,
+        )
+        set_request_tenant(other.id)
+        try:
+            foreign = Workspace.objects.create(
+                tenant=other,
+                name=f"gate1380-foreign-ws-{uuid.uuid4().hex[:8]}",
+                preset={"name": "extended"},
+            )
+        finally:
+            clear_request_tenant()
+
+        response = authed_client.get(
+            _COLLECTION_PATH, {"workspace_id": str(foreign.id)}
+        )
+        unknown = authed_client.get(
+            _COLLECTION_PATH, {"workspace_id": str(uuid.uuid4())}
+        )
+
+        _assert_opaque_404(response)
+        # Security assertion (#1380): foreign and unknown are indistinguishable.
+        assert _body_without_request_id(response) == _body_without_request_id(unknown)
+
+    def test_404_is_not_the_generic_blanket(self, authed_client: APIClient) -> None:
+        """The gate's 404 is the route-miss body — not a described row-miss."""
+        response = authed_client.get(
+            _COLLECTION_PATH, {"workspace_id": str(uuid.uuid4())}
+        )
+
+        assert response.json()["error"]["message"] == _OPAQUE_404_MESSAGE
+        assert response.json()["error"]["message"] != "Baseline not found"
 
     @pytest.mark.parametrize("tier", ["standard", "extended"])
     def test_baseline_enabled_preset_still_answers_200(
@@ -149,7 +278,7 @@ class TestBaselinePresetGateRuntime:
 
         Guards against the one wrong fix for #1380: opening the gate so the
         documented endpoint always exists. The gate stays closed; only its
-        documentation changed.
+        documentation and the parameter's status code changed.
         """
         user = User.objects.get(username="bundleadmin")
         workspace = _workspace_with_admin(tenant, user, tier)
@@ -160,6 +289,27 @@ class TestBaselinePresetGateRuntime:
 
         assert response.status_code == 200, response.content
         assert "results" in response.json()
+
+    def test_nested_route_keeps_the_gate_first(
+        self, authed_client: APIClient, tenant: Tenant, workspace: Workspace
+    ) -> None:
+        """The nested route is untouched: enabled -> 200, minimal -> 404.
+
+        Only the flat route validates before the gate (#1391); the nested route
+        still takes the workspace from the path and gates first.
+        """
+        user = User.objects.get(username="bundleadmin")
+        minimal = _workspace_with_admin(tenant, user, "minimal")
+
+        enabled = authed_client.get(
+            _NESTED_COLLECTION_TEMPLATE.format(workspace_id=workspace.id)
+        )
+        disabled = authed_client.get(
+            _NESTED_COLLECTION_TEMPLATE.format(workspace_id=minimal.id)
+        )
+
+        assert enabled.status_code == 200, enabled.content
+        _assert_opaque_404(disabled)
 
     def test_create_and_detail_happy_path_unchanged(
         self, authed_client: APIClient, workspace: Workspace
@@ -188,14 +338,15 @@ class TestBaselinePresetGateRuntime:
         assert detail.status_code == 200, detail.content
         assert detail.json()["id"] == baseline_id
 
-    def test_create_without_workspace_id_answers_404(
+    def test_create_without_workspace_id_still_answers_404(
         self, authed_client: APIClient
     ) -> None:
-        """The create route's own ``workspace_id`` prerequisite, same body.
+        """The create route's own prerequisite — deliberately unchanged (#1391).
 
         ``POST /api/v1/baselines/`` has no workspace in its path either, so an
         omitted body ``workspace_id`` reaches the same tenant-id fallback and
-        answers the same opaque 404 — before the serializer runs.
+        answers the same opaque 404 — before the serializer runs. #1391 covers
+        the list route only.
         """
         response = authed_client.post(
             _COLLECTION_PATH, {"scope": "project"}, format="json"
@@ -205,7 +356,8 @@ class TestBaselinePresetGateRuntime:
 
 
 # ---------------------------------------------------------------------------
-# Schema: one shared, preset-aware 404 and a required workspace_id
+# Schema: one preset-aware 404 per route, a 400 for the parameter, and a
+# required workspace_id
 # ---------------------------------------------------------------------------
 
 
@@ -260,7 +412,7 @@ class TestBaselinePresetGateSchema:
     def test_404_is_preset_specific_not_the_generic_blanket(
         self, baseline_openapi: dict, path: str, method: str
     ) -> None:
-        """The 404 names the three causes instead of "Resource not found."."""
+        """The 404 names the real causes instead of "Resource not found."."""
         response = _operation(baseline_openapi, path, method)["responses"]["404"]
         description = response["description"]
 
@@ -269,25 +421,47 @@ class TestBaselinePresetGateSchema:
         assert "preset" in lowered
         assert "minimal" in lowered
         assert "workspace" in lowered
-        assert "baseline" in lowered
         # Still the standard error envelope, not a bare description.
         assert response["content"]["application/json"]["schema"]
 
-    def test_all_three_404s_share_one_description(
+    def test_list_404_names_only_the_two_remaining_causes(
         self, baseline_openapi: dict
     ) -> None:
-        """One shared constant, not three drifting copies (#1380)."""
-        descriptions = {
-            _operation(baseline_openapi, path, method)["responses"]["404"][
-                "description"
-            ]
-            for path, method in [
-                (_COLLECTION_PATH, "get"),
-                (_COLLECTION_PATH, "post"),
-                (_DETAIL_PATH, "get"),
-            ]
-        }
-        assert len(descriptions) == 1
+        """#1391: the flat list no longer 404s for a missing parameter."""
+        description = _operation(baseline_openapi, _COLLECTION_PATH, "get")[
+            "responses"
+        ]["404"]["description"].lower()
+
+        assert "(1)" in description and "preset" in description
+        assert "(2)" in description and "workspace" in description
+        assert "(3)" not in description, "the list route has no third cause"
+        assert "400" in description and "validation_error" in description
+        assert "omitted or malformed" in description
+
+    def test_create_404_still_names_the_omitted_workspace_cause(
+        self, baseline_openapi: dict
+    ) -> None:
+        """``POST`` keeps the pre-serializer gate, so its 404 text keeps the cause."""
+        description = _operation(baseline_openapi, _COLLECTION_PATH, "post")[
+            "responses"
+        ]["404"]["description"].lower()
+
+        assert "omitted or empty" in description
+        assert "create" in description
+
+    def test_detail_404_names_the_unknown_baseline_cause(
+        self, baseline_openapi: dict
+    ) -> None:
+        """(3) keeps its own distinguishable message — the gate does not hide it."""
+        description = _operation(baseline_openapi, _DETAIL_PATH, "get")[
+            "responses"
+        ]["404"]["description"].lower()
+
+        assert "baseline not found" in description
+        assert "(3)" in description
+        # The detail route has no omitted-parameter cause (it takes no query
+        # parameter) — only ``create`` keeps that sentence.
+        assert "omitted or empty" not in description
 
     def test_404_description_does_not_over_promise_non_disclosure(
         self, baseline_openapi: dict
@@ -309,16 +483,29 @@ class TestBaselinePresetGateSchema:
         assert "does not disclose" not in description
         assert "opaque body" not in description
 
+    def test_list_documents_the_parameter_400(self, baseline_openapi: dict) -> None:
+        """#1391: the list operation publishes the 400 it now really answers."""
+        response = _operation(baseline_openapi, _COLLECTION_PATH, "get")[
+            "responses"
+        ]["400"]
+        description = response["description"].lower()
+
+        assert response["content"]["application/json"]["schema"]
+        assert "workspace_id" in description
+        assert "required" in description
+        assert "valid uuid" in description
+        assert "does not echo" in description
+        # The tag cause (F4.2) survives the edit.
+        assert "tag" in description
+
     def test_list_requires_workspace_id_query_parameter(
         self, baseline_openapi: dict
     ) -> None:
-        """``list`` declares the prerequisite that keeps the gate resolvable.
+        """``list`` declares the prerequisite that the flat route enforces.
 
-        Evidence: without the parameter the request answers 404 in *every*
-        preset (see ``test_missing_workspace_id_answers_404_in_every_preset``),
-        because the gate falls back to the tenant id. The schema therefore
-        marks it ``required`` instead of leaving a caller to discover the
-        fallback at runtime.
+        Evidence: without the parameter the flat route answers 400 and the
+        nested route does not need it (see the runtime tests above), so the flat
+        operation marks it ``required`` while the nested operation drops it.
         """
         operation = _operation(baseline_openapi, _COLLECTION_PATH, "get")
         parameter = _parameter(operation, "workspace_id")
@@ -327,6 +514,7 @@ class TestBaselinePresetGateSchema:
         assert parameter["required"] is True
         assert parameter["schema"].get("format") == "uuid"
         assert "required" in parameter["description"].lower()
+        assert "400" in parameter["description"]
 
     def test_detail_get_does_not_demand_workspace_id(
         self, baseline_openapi: dict

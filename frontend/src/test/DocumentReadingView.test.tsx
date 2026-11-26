@@ -14,12 +14,16 @@ import {
   render,
   screen,
   within,
+  fireEvent,
   type RenderResult,
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "../i18n/index";
 
-import { DocumentReadingView } from "../components/Documents/DocumentReadingView";
+import {
+  DocumentReadingView,
+  type DocumentPresentationMode,
+} from "../components/Documents/DocumentReadingView";
 import type { Document, DocumentReading, ReadingChapter } from "../types";
 
 // MarkdownPreview reads the active workspace for glossary resolution; the
@@ -103,7 +107,11 @@ function makeReading(
   };
 }
 
-function renderView(reading: DocumentReading): RenderResult {
+function renderView(
+  reading: DocumentReading,
+  presentationMode: DocumentPresentationMode = "edit",
+  onEdit?: () => void
+): RenderResult {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -117,7 +125,10 @@ function renderView(reading: DocumentReading): RenderResult {
       <DocumentReadingView
         document={DOCUMENT}
         reading={reading}
-        onEdit={vi.fn()}
+        // P2.12: `onEdit` is optional, so it is only passed when the test
+        // exercises the edit affordance — no no-op handler by default.
+        {...(onEdit ? { onEdit } : {})}
+        presentationMode={presentationMode}
       />
     </Wrapper>
   );
@@ -180,13 +191,100 @@ describe("DocumentReadingView (R4.2)", () => {
     expect(screen.queryByTestId("document-edit")).not.toBeInTheDocument();
     expect(screen.queryByTestId("document-delete")).not.toBeInTheDocument();
     expect(screen.queryByTestId("document-reactivate")).not.toBeInTheDocument();
-    expect(
-      screen.getAllByTestId("markdown-read-only").length
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByTestId("markdown-read-only").length).toBeGreaterThan(
+      0
+    );
     expect(
       screen.getByTestId("document-reading-capability-notice")
     ).toBeInTheDocument();
     // No editable control anywhere on the read surface.
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("read_only_consumer_renders_without_edit_handler", () => {
+    // P2.12: a pure read consumer passes no `onEdit` — neither an edit button
+    // nor a crash is allowed.
+    renderView(makeReading(), "read");
+
+    expect(screen.getByTestId("document-reading-view")).toBeInTheDocument();
+    expect(screen.queryByTestId("document-edit")).not.toBeInTheDocument();
+  });
+
+  it("edit_mode_without_handler_hides_only_the_edit_affordance", () => {
+    renderView(makeReading(), "edit");
+
+    // Inline field editors still render — `canInlineEdit` is unchanged; only
+    // the affordance that would need the missing handler is gone.
+    expect(
+      screen.getByTestId("document-field-input-title")
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("document-edit")).not.toBeInTheDocument();
+  });
+
+  it("edit_mode_with_handler_invokes_it", () => {
+    const onEdit = vi.fn();
+    renderView(makeReading(), "edit", onEdit);
+
+    const edit = screen.getByTestId("document-edit");
+    expect(edit).toBeInTheDocument();
+    fireEvent.click(edit);
+    expect(onEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it("read_presentation_hides_writer_inline_editors_and_save_controls", () => {
+    renderView(makeReading(), "read");
+
+    expect(screen.getByTestId("document-reading-toc")).toBeInTheDocument();
+    expect(screen.getAllByTestId("markdown-read-only").length).toBeGreaterThan(
+      0
+    );
+    expect(
+      screen.queryByTestId("document-field-input-title")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("document-field-input-body")
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("document-mode-immediate")
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("document-mode-batch")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("document-save-bar")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("document-edit")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("read_presentation_renders_fields_when_there_are_no_chapters", () => {
+    renderView(
+      makeReading({
+        body: "",
+        chapters: [],
+        fields: [
+          {
+            name: "title",
+            value: "Architecture guide",
+            editable: true,
+            locked: null,
+          },
+          {
+            name: "custom_fields",
+            value: { owner: "Platform team" },
+            editable: true,
+            locked: null,
+          },
+        ],
+      }),
+      "read"
+    );
+
+    const fields = screen.getByTestId("document-editable-fields");
+    expect(
+      within(fields).getByTestId("document-reading-field-title")
+    ).toHaveTextContent("Architecture guide");
+    expect(
+      within(fields).getByTestId("document-reading-field-custom_fields")
+    ).toHaveTextContent("owner: Platform team");
+    expect(screen.getByTestId("document-reading-empty")).toBeInTheDocument();
+    expect(screen.queryByTestId("document-reading-toc")).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
@@ -218,9 +316,7 @@ describe("DocumentReadingView (R4.2)", () => {
     expect(
       screen.getByTestId("document-reading-capability-notice")
     ).toBeInTheDocument();
-    expect(
-      screen.getByTestId("document-read-only-reason")
-    ).toBeInTheDocument();
+    expect(screen.getByTestId("document-read-only-reason")).toBeInTheDocument();
     expect(screen.queryByTestId("document-edit")).not.toBeInTheDocument();
   });
 
@@ -253,8 +349,7 @@ describe("DocumentReadingView (R4.2)", () => {
             level: 1,
             title: "Links",
             anchor: "links",
-            body:
-              'See [the spec](https://example.com/spec) for details.\n\n<img src=x onerror="alert(1)">',
+            body: 'See [the spec](https://example.com/spec) for details.\n\n<img src=x onerror="alert(1)">',
           },
         ],
       })

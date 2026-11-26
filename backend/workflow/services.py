@@ -64,7 +64,11 @@ from .definition_store import (
     WorkflowDefinitionStore,
     get_state_meta,
 )
-from .item_types import WORKFLOW_ITEM_TYPE_PRESETS
+from .item_types import (
+    WORK_ITEM_PRESET_BY_TIER,
+    WORK_ITEM_TIERS,
+    WORKFLOW_ITEM_TYPE_PRESETS,
+)
 from .lifecycle_manager import (
     StateLifecycleManager,
     TransitionOutcome,
@@ -1325,9 +1329,68 @@ def update_custom_workflow(
 
 # Entity types provisioned with a fixed per-entity preset (canonical registry:
 # ``workflow.item_types.WORKFLOW_ITEM_TYPE_PRESETS``, Plan F F2-T2).
-# "Requirement" uses the workspace tier instead and is resolved dynamically in
-# initialize_definition.
+# "Requirement" and "WorkItem" use the workspace tier instead and are resolved
+# dynamically in initialize_definition.
 _ENTITY_DEFAULT_PRESET: dict[str, str] = dict(WORKFLOW_ITEM_TYPE_PRESETS)
+
+
+def _resolve_workspace_tier(workspace_id: UUID | str) -> str:
+    """Return a valid workflow tier for *workspace_id*.
+
+    The persisted preset config is authoritative. Legacy workspaces without a
+    usable config fall back to their denormalized ``Workspace.preset`` tier,
+    then to ``standard``. Invalid values never reach the preset store.
+    """
+    from persistence.models import Workspace
+    from presets.models import WorkspacePresetConfig
+
+    config = (
+        WorkspacePresetConfig.objects.filter(workspace_id=str(workspace_id))
+        .only("active_tier")
+        .first()
+    )
+    if config is not None and config.active_tier in WORK_ITEM_TIERS:
+        return config.active_tier
+
+    workspace = Workspace.objects.filter(id=str(workspace_id)).only("preset").first()
+    if workspace is not None and isinstance(workspace.preset, dict):
+        tier = workspace.preset.get("tier")
+        if tier in WORK_ITEM_TIERS:
+            return tier
+
+    return "standard"
+
+
+def resolve_default_preset(workspace_id: UUID | str, item_type: str) -> str:
+    """Resolve the preset a workspace would use for *item_type*.
+
+    The single source of truth shared by the initializer below and the
+    read-only workflow-definition endpoint (P1.5 / M-7): an uninitialized
+    definition must name the preset it *would* be seeded with instead of
+    answering ``preset: null``.
+
+    Resolution order:
+
+    1. A fixed per-entity preset from the canonical registry
+       (:data:`_ENTITY_DEFAULT_PRESET`) — e.g. ``Adr`` → ``adr_default``.
+    2. Otherwise the workspace's valid active tier: ``Requirement`` uses the
+       tier name itself, ``WorkItem`` maps it to ``work_item_<tier>``. Invalid
+       or missing tier configuration falls back to ``standard`` so the value
+       is always usable.
+
+    Requires an active ``TenantContext`` (the preset config and workspace
+    reads are tenant-scoped).
+    """
+    preset = _ENTITY_DEFAULT_PRESET.get(item_type)
+    if preset is not None:
+        return preset
+
+    tier = _resolve_workspace_tier(workspace_id)
+    if item_type == "WorkItem":
+        return WORK_ITEM_PRESET_BY_TIER[tier]
+
+    # Requirement and custom item types retain the tier-name graph fallback.
+    return tier
 
 
 def _persist_edit(fn_name: str, workspace_id: UUID | str, item_type: str, *args, **kwargs):
@@ -1428,19 +1491,12 @@ def initialize_definition(
 ) -> WorkflowDefinitionDTO:
     """Create the preset-default workflow for an entity type that has none (REQ-177).
 
-    Idempotent: if a definition already exists it is returned unchanged. The
-    preset is resolved exactly like workspace provisioning — a fixed per-entity
-    preset, or the workspace's active tier for "Requirement".
+    Idempotent: if a definition already exists it is returned unchanged. Fixed
+    entity types use the canonical registry, Requirement uses the workspace's
+    valid active tier, and WorkItem maps that tier to ``work_item_<tier>``.
+    Custom item types retain the tier-name fallback.
     """
-    preset = _ENTITY_DEFAULT_PRESET.get(item_type)
-    if preset is None:
-        # Requirement (and any tier-driven type): use the workspace active tier.
-        from presets.models import WorkspacePresetConfig
-
-        config = WorkspacePresetConfig.objects.filter(
-            workspace_id=str(workspace_id)
-        ).first()
-        preset = config.active_tier if config is not None else "standard"
+    preset = resolve_default_preset(workspace_id, item_type)
     dto = _get_store().create_workspace_default_workflow(
         workspace_id=workspace_id,
         preset=preset,
@@ -1511,6 +1567,7 @@ __all__ = [
     "terminal_positive_states",
     "create_default_workflow",
     "update_custom_workflow",
+    "resolve_default_preset",
     "add_definition_state",
     "rename_definition_state",
     "delete_definition_state",

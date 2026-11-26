@@ -52,6 +52,8 @@ from mcp_server.tools.base import (
     require_uuid,
     resolve_engine_status,
     resolve_status_map,
+    soft_delete_reason,
+    soft_delete_reason_properties,
     validate_artifact_write,
     workspace_query_required,
     write_mcp_audit,
@@ -286,7 +288,7 @@ class ArchitectureToolGroup(BaseToolGroup):
                 "type": "object",
                 "properties": {
                     "id": {"type": "string", "description": "UUID of the architecture element."},
-                    "reason": {"type": "string", "description": "Optional audit reason."},
+                    **soft_delete_reason_properties(),
                 },
                 "required": ["id"],
             },
@@ -693,9 +695,17 @@ class ArchitectureToolGroup(BaseToolGroup):
     def _handle_outdate(
         self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
     ) -> ToolResult:
-        """architecture.outdate — soft-delete via the workflow engine (write, audited)."""
+        """architecture.outdate — soft-delete through ArchitectureService (write, audited).
+
+        P1.10: routed through
+        ``ArchitectureService.delete_architecture_element`` — the same call
+        REST's ``DELETE /api/v1/architecture/{id}/`` makes — instead of the raw
+        ``workflow.services.outdate`` escape hatch, which ignores its ``reason``
+        argument since Phase 4. The service enforces the item-level write rule
+        (#1716) and writes the ``AuditEntry`` carrying the resolved reason.
+        """
         arch_id = require_uuid(params, "id")
-        reason: str = params.get("reason", "")
+        reason: str = soft_delete_reason(params)
 
         try:
             el = self._service.get_architecture_element(arch_id, auth_context)
@@ -704,16 +714,22 @@ class ArchitectureToolGroup(BaseToolGroup):
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
 
-        from workflow.services import outdate
+        # Preset gate: unlike Requirement/StakeholderNeed, the architecture
+        # service's delete does not consult the workspace's change_reason
+        # policy, so the MCP surface enforces it here rather than let a
+        # mandated reason go unrecorded (§7.2 of docs/api/MCP-SURFACE.md).
+        from application.preset_policy_service import get_preset_policy_service
 
-        # Domain errors (INVALID_STATE from the workflow engine, ValidationError,
-        # NotFoundError) are mapped centrally by BaseToolGroup.execute_tool.
-        outdate(
-            item_id=arch_id,
-            item_type="ArchitectureElement",
-            workspace_id=el.artifact.workspace_id,
-            ctx=auth_context,
-            reason=reason,
+        if not reason and get_preset_policy_service().is_change_reason_required(
+            str(el.artifact.workspace_id)
+        ):
+            return ToolResult.error(
+                "VALIDATION_ERROR", "change_reason is required by preset policy."
+            )
+
+        # Domain errors are mapped centrally by BaseToolGroup.execute_tool.
+        self._service.delete_architecture_element(
+            arch_id, auth_context, change_reason=reason
         )
 
         write_mcp_audit(
@@ -725,6 +741,9 @@ class ArchitectureToolGroup(BaseToolGroup):
             entity_id=arch_id,
             tool_name="architecture.outdate",
             api_key=api_key,
+            # REQ-L2-MC-012 provenance the domain entry does not carry; the
+            # resolved reason rides along for audit-trail comparability.
+            details={"change_reason": reason},
         )
         return ToolResult.ok({"id": str(arch_id), "status": "outdated"})
 

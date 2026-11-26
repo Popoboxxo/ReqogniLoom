@@ -40,11 +40,12 @@ describe("workItemsApi (F3-T9)", () => {
     expect(getAllPagesMock).toHaveBeenCalledWith("/work-items/", {
       workspace_id: "ws-1",
       document_id: "doc-1",
-      include_deleted: "true",
+      // Canonical wire key (P2.1 / m-8); `include_deleted` stays a server alias.
+      include_outdated: "true",
     });
   });
 
-  it("omits document_id and include_deleted when not requested", async () => {
+  it("omits document_id and include_outdated when not requested", async () => {
     await workItemsApi.listAll("ws-1");
     expect(getAllPagesMock).toHaveBeenCalledWith("/work-items/", {
       workspace_id: "ws-1",

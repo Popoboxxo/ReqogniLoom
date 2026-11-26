@@ -7,10 +7,14 @@ Routes, one service, one contract (#1089; collection root added by #1177):
     GET /api/v1/workspaces/<workspace_id>/reviews/pending/
 
 ``/api/v1/reviews/`` is the collection root and the flat ``/reviews/pending/``
-is the same :class:`ReviewsPendingView` under a differently-named URL — the
-root gives a generic client the resource's natural URL (the SPA shows a review
-queue but the bare collection used to 404), while ``pending/`` names the queue.
-Neither is a second code path.
+is the same handler under a differently-named URL — the root gives a generic
+client the resource's natural URL (the SPA shows a review queue but the bare
+collection used to 404), while ``pending/`` names the queue. Both are list
+operations, so each publishes its own truthful ``operationId``
+(``reviews_list`` / ``reviews_pending_list``); the flat route reaches the one
+handler through the behaviour-free subclass
+:class:`ReviewsPendingAliasView`, which exists only to carry that second
+schema decoration. Neither is a second code path.
 
 Both call :class:`application.review_queue_service.ReviewQueueService`, the
 same Layer-2 service the MCP tool ``review.list_pending`` uses — that tool
@@ -64,7 +68,7 @@ from application.base import NotFoundError, PermissionDeniedError, ValidationErr
 from application.review_queue_service import ReviewQueueService
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.platform_schema_serializers import PendingReviewPageSerializer
-from rest_api.query_params import parse_workspace_id
+from rest_api.query_params import parse_workspace_id, reject_unknown_query_params
 from rest_api.serializers import (
     StandardPagination,
     build_error_response,
@@ -140,6 +144,16 @@ _PAGINATION_PARAMETERS = [
         description="Items per page (default 25, capped at 100).",
     ),
 ]
+
+#: Fully-qualified query-parameter allow-lists. The documented contract names
+#: an unknown parameter as a 400 (#1668); these sets are what the handlers
+#: enforce, derived from the declarations above rather than hand-typed twice.
+_FLAT_ALLOWED_PARAMS = frozenset(
+    param.name for param in _FLAT_QUEUE_PARAMETERS + _PAGINATION_PARAMETERS
+)
+_PATH_SCOPED_ALLOWED_PARAMS = frozenset(
+    param.name for param in _PATH_SCOPED_QUEUE_PARAMETERS + _PAGINATION_PARAMETERS
+)
 
 
 def _parse_states(request: Request) -> list[str] | None:
@@ -249,11 +263,12 @@ class ReviewsPendingView(APIView):
 
     Responses: 200 with the ``count/next/previous/page_size/max_page_size/
     results`` envelope; 400 on a missing/malformed ``workspace_id`` or unknown
-    query parameter; 403 without a proposal-capable role in the workspace; 404
+    query parameter; 403 when the caller is not a member of the workspace; 404
     for a workspace that does not exist in this tenant.
     """
 
     @extend_schema(
+        operation_id="reviews_list",
         parameters=_FLAT_QUEUE_PARAMETERS + _PAGINATION_PARAMETERS,
         responses={
             200: OpenApiResponse(
@@ -267,19 +282,66 @@ class ReviewsPendingView(APIView):
                 description="Missing/malformed workspace_id or unknown query parameter."
             ),
             403: OpenApiResponse(
-                description="No proposal-capable role in the workspace."
+                description="Caller is not a member of the workspace."
             ),
             404: OpenApiResponse(description="Workspace not in this tenant."),
         },
     )
     def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         lang = detect_lang(request)
+        # #1668: the documented contract (see the ``400`` response above) makes
+        # an unknown query parameter a 400, and this handler used to accept one
+        # with 200 and no effect. The allow-list is the set declared in
+        # ``_FLAT_QUEUE_PARAMETERS`` + ``_PAGINATION_PARAMETERS``.
+        error = reject_unknown_query_params(request, _FLAT_ALLOWED_PARAMS, lang)
+        if error is not None:
+            return error
         workspace_id, error = parse_workspace_id(
             request.query_params.get("workspace_id"), lang
         )
         if error is not None:
             return error
         return _pending_response(request, workspace_id, lang)
+
+
+class ReviewsPendingAliasView(ReviewsPendingView):
+    """GET /api/v1/reviews/pending/ — the flat alias of the collection root.
+
+    A behaviour-free subclass: the handler is
+    :meth:`ReviewsPendingView.get` unchanged (same ``?workspace_id=``
+    resolution, same ``ReviewQueueService`` call, same envelope), so the two
+    URLs cannot drift.
+
+    The subclass exists **only** so the two routes can carry honest, distinct
+    ``operationId``s. ``/reviews/`` and ``/reviews/pending/`` are both *list*
+    operations; they used to publish ``reviews_retrieve`` and
+    ``reviews_pending_retrieve`` (m-3), which lies to a generated client. Both
+    paths are served by one ``get`` method, and ``@extend_schema`` decorates
+    the *function*, not the URL — so a single decoration would necessarily give
+    them the same ``operationId`` (and drf-spectacular would then de-duplicate
+    with a suffix instead). Re-declaring ``get`` here keeps one code path and
+    two truthful operation ids.
+    """
+
+    @extend_schema(
+        operation_id="reviews_pending_list",
+        parameters=_FLAT_QUEUE_PARAMETERS + _PAGINATION_PARAMETERS,
+        responses={
+            200: OpenApiResponse(
+                response=PendingReviewPageSerializer,
+                description="Identical shape to GET /api/v1/reviews/.",
+            ),
+            400: OpenApiResponse(
+                description="Missing/malformed workspace_id or unknown query parameter."
+            ),
+            403: OpenApiResponse(
+                description="Caller is not a member of the workspace."
+            ),
+            404: OpenApiResponse(description="Workspace not in this tenant."),
+        },
+    )
+    def get(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return super().get(request, *args, **kwargs)
 
 
 class WorkspaceReviewsPendingView(APIView):
@@ -292,6 +354,7 @@ class WorkspaceReviewsPendingView(APIView):
     """
 
     @extend_schema(
+        operation_id="workspaces_reviews_pending_list",
         parameters=_PATH_SCOPED_QUEUE_PARAMETERS + _PAGINATION_PARAMETERS,
         responses={
             200: OpenApiResponse(
@@ -302,7 +365,7 @@ class WorkspaceReviewsPendingView(APIView):
                 description="Malformed workspace_id or unknown query parameter."
             ),
             403: OpenApiResponse(
-                description="No proposal-capable role in the workspace."
+                description="Caller is not a member of the workspace."
             ),
             404: OpenApiResponse(description="Workspace not in this tenant."),
         },
@@ -311,6 +374,13 @@ class WorkspaceReviewsPendingView(APIView):
         self, request: Request, workspace_id: str, *args: Any, **kwargs: Any
     ) -> Response:
         lang = detect_lang(request)
+        # Path-scoped: ``workspace_id`` arrives in the URL segment, so it is not
+        # an accepted query parameter here (#1668).
+        error = reject_unknown_query_params(
+            request, _PATH_SCOPED_ALLOWED_PARAMS, lang
+        )
+        if error is not None:
+            return error
         try:
             workspace_uuid = UUID(str(workspace_id))
         except (ValueError, AttributeError, TypeError):
@@ -328,6 +398,7 @@ class WorkspaceReviewsPendingView(APIView):
 
 
 __all__ = [
+    "ReviewsPendingAliasView",
     "ReviewsPendingView",
     "WorkspaceReviewsPendingView",
 ]

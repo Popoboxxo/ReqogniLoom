@@ -23,12 +23,12 @@
 
 import { apiClient } from "./client";
 import type { UUID } from "../types";
-import type { WorkspacePreset } from "../types";
 import {
   toWorkflowGraph,
   type WorkflowDefinitionGraph,
   type WorkflowEntityType,
   type WorkflowGraph,
+  type WorkflowPresetKey,
 } from "./workflows";
 
 /** Raw global-definition payload (WorkflowGraphGlobal, OpenAPI). */
@@ -36,7 +36,7 @@ export interface GlobalWorkflowDefinitionGraph {
   scope: "global";
   tenant_id: UUID;
   item_type: string;
-  preset: WorkspacePreset;
+  preset: WorkflowPresetKey;
   initialized: boolean;
   initial_state: string | null;
   states: string[];
@@ -87,7 +87,7 @@ function toResult(
   };
 }
 
-function basePath(entityType: WorkflowEntityType, preset: WorkspacePreset): string {
+function basePath(entityType: WorkflowEntityType, preset: WorkflowPresetKey): string {
   return `/workflow-defaults/${encodeURIComponent(entityType)}/${encodeURIComponent(
     preset
   )}`;
@@ -101,7 +101,7 @@ export const workflowDefaultsApi = {
    */
   async getGraph(
     entityType: WorkflowEntityType,
-    preset: WorkspacePreset
+    preset: WorkflowPresetKey
   ): Promise<WorkflowGraph> {
     const raw = await apiClient.get<GlobalWorkflowDefinitionGraph>(
       `${basePath(entityType, preset)}/`
@@ -111,7 +111,7 @@ export const workflowDefaultsApi = {
 
   async initialize(
     entityType: WorkflowEntityType,
-    preset: WorkspacePreset
+    preset: WorkflowPresetKey
   ): Promise<GlobalWorkflowMutationResult> {
     const raw = await apiClient.post<GlobalWorkflowDefinitionGraph>(
       `${basePath(entityType, preset)}/initialize/`,
@@ -122,7 +122,7 @@ export const workflowDefaultsApi = {
 
   async createState(
     entityType: WorkflowEntityType,
-    preset: WorkspacePreset,
+    preset: WorkflowPresetKey,
     name: string
   ): Promise<GlobalWorkflowMutationResult> {
     const raw = await apiClient.post<GlobalWorkflowDefinitionGraph>(
@@ -134,7 +134,7 @@ export const workflowDefaultsApi = {
 
   async updateState(
     entityType: WorkflowEntityType,
-    preset: WorkspacePreset,
+    preset: WorkflowPresetKey,
     oldName: string,
     newName: string
   ): Promise<GlobalWorkflowMutationResult> {
@@ -147,7 +147,7 @@ export const workflowDefaultsApi = {
 
   async setStateFreeze(
     entityType: WorkflowEntityType,
-    preset: WorkspacePreset,
+    preset: WorkflowPresetKey,
     name: string,
     freeze: boolean
   ): Promise<GlobalWorkflowMutationResult> {
@@ -160,7 +160,7 @@ export const workflowDefaultsApi = {
 
   async deleteState(
     entityType: WorkflowEntityType,
-    preset: WorkspacePreset,
+    preset: WorkflowPresetKey,
     name: string
   ): Promise<GlobalWorkflowMutationResult> {
     const raw = await apiClient.delete<GlobalWorkflowDefinitionGraph>(
@@ -171,7 +171,7 @@ export const workflowDefaultsApi = {
 
   async createTransition(
     entityType: WorkflowEntityType,
-    preset: WorkspacePreset,
+    preset: WorkflowPresetKey,
     payload: {
       from_state: string;
       to_state: string;
@@ -189,7 +189,7 @@ export const workflowDefaultsApi = {
 
   async updateTransition(
     entityType: WorkflowEntityType,
-    preset: WorkspacePreset,
+    preset: WorkflowPresetKey,
     fromState: string,
     toState: string,
     patch: {
@@ -208,7 +208,7 @@ export const workflowDefaultsApi = {
 
   async deleteTransition(
     entityType: WorkflowEntityType,
-    preset: WorkspacePreset,
+    preset: WorkflowPresetKey,
     fromState: string,
     toState: string
   ): Promise<GlobalWorkflowMutationResult> {
