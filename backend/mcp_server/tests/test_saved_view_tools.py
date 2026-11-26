@@ -109,15 +109,17 @@ def test_registry_classifies_both_as_reads() -> None:
         assert registry._is_write_tool(name) is is_write, name
 
 
-def test_manifest_catalogue_is_49_prefixes_and_302_tools() -> None:
+def test_manifest_catalogue_is_50_prefixes_and_313_tools() -> None:
     manifest = build_manifest()
 
     # main was at 299 tools / 48 prefixes (``tool.list_groups``, MCP-
     # Modernisierung Phase D) when this slice was rebased; its 2 read tools
     # = 301, and the ``saved_view`` group is the 49th prefix. #2016 added
     # ``change_request.submit_for_review`` inside that prefix set (301 -> 302).
-    assert manifest["tool_count"] == 302
-    assert len({tool["prefix"] for tool in manifest["tools"]}) == 49
+    # P1.8 / M-11 added the ``workflow_default`` group (9 tools, the 50th
+    # prefix: 302 -> 311).
+    assert manifest["tool_count"] == 313
+    assert len({tool["prefix"] for tool in manifest["tools"]}) == 50
     assert "saved_view" in {tool["prefix"] for tool in manifest["tools"]}
 
 

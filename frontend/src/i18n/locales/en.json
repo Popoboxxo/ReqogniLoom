@@ -1027,6 +1027,9 @@
     "selectDocument": "Select a document on the left to view it.",
     "notFound": "Document not found.",
     "edit": "Edit",
+    "modeLabel": "Document mode",
+    "readMode": "Read",
+    "editMode": "Edit",
     "delete": "Delete",
     "reactivate": "Reactivate",
     "lifecycle": "Lifecycle",
@@ -2708,7 +2711,20 @@
       "TestCase": "Test Case",
       "Issue": "Issue",
       "Goal": "Goal",
-      "MainGoal": "Main Goal"
+      "MainGoal": "Main Goal",
+      "Document": "Document",
+      "WorkItem": "Work Item"
+    },
+    "scope": {
+      "workspaceHint": "You are editing this workspace's workflow. Tenant-wide defaults are managed separately.",
+      "globalDefaultsLink": "Open System Settings → Workflow Defaults",
+      "globalHint": "You are editing the tenant-wide default for this preset. Workspace workflow definitions remain separate.",
+      "workspaceDefinitionsLink": "Open Workspace Workflow Management"
+    },
+    "invalidEntity": {
+      "title": "Unknown workflow entity type",
+      "message": "The workflow type \"{{slug}}\" is not available.",
+      "back": "Back to Workflow Management"
     },
     "inspector": {
       "ariaLabelExpanded": "Inspector",

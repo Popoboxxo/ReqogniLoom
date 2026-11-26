@@ -2208,18 +2208,34 @@ def test_e2e_test_update_invalid_status_returns_validation_error(
 def test_e2e_test_run_report_results_empty_array_returns_validation_error(
     admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
 ):
-    """Empty results list is rejected with VALIDATION_ERROR."""
+    """Empty results list is rejected with VALIDATION_ERROR.
+
+    The run is created first (finding #4): a *write* whose target does not
+    resolve is now denied with PERMISSION_DENIED before the handler runs, so an
+    invented ``run_id`` would never reach the validation this test is about.
+    """
+    run_id = _created_run_id(admin_client, e2e_workspace)
     response = post_mcp(
         admin_client,
         "test.run_report_results",
         {
-            "run_id": str(uuid4()),
+            "run_id": run_id,
             "results": [],
-            "workspace_id": str(e2e_workspace.id),
         },
     )
     assert response.status_code == 400
     assert extract_error_code(response) == "VALIDATION_ERROR"
+
+
+def _created_run_id(client: Client, workspace: Workspace) -> str:
+    """Create one real TestRun and return its id (finding #4 test helper)."""
+    created = post_mcp(
+        client,
+        "test.run_create",
+        {"workspace_id": str(workspace.id), "name": "E2E validation run"},
+    )
+    assert created.status_code == 200, created.content
+    return extract_result(created)["test_run"]["id"]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -2227,15 +2243,15 @@ def test_e2e_test_run_report_results_invalid_status_returns_validation_error(
     admin_client: Client, e2e_workspace: Workspace, e2e_userrole_admin: UserRole
 ):
     """Unknown per-result status -> VALIDATION_ERROR."""
+    run_id = _created_run_id(admin_client, e2e_workspace)
     response = post_mcp(
         admin_client,
         "test.run_report_results",
         {
-            "run_id": str(uuid4()),
+            "run_id": run_id,
             "results": [
                 {"test_case_id": str(uuid4()), "status": "maybe"}
             ],
-            "workspace_id": str(e2e_workspace.id),
         },
     )
     assert response.status_code == 400

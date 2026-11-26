@@ -82,6 +82,7 @@ from application.base import (
     ReleaseStateError,
     ReleaseTooLargeError,
     WorkflowFrozenError,
+    WorkflowInitializationFailedError,
     AnchorsPresentError,
     DocumentGateFailedError,
     FieldFrozenError,
@@ -216,7 +217,6 @@ from rest_api.preset_guard import PresetError, PresetGateMixin
 from rest_api.query_params import (
     parse_bool_param,
     parse_change_reason,
-    parse_include_deleted,
     parse_int_param,
     parse_uuid_param,
     parse_workspace_id,
@@ -504,6 +504,13 @@ _EXC_TO_HTTP: dict[type, int] = {
     ReleaseTooLargeError: status.HTTP_400_BAD_REQUEST,
     # Phase G / #1374 S3: adopting a file whose hash moved is a state conflict.
     AdoptionHashMismatchError: status.HTTP_409_CONFLICT,
+    # P2.13: a create whose backing workflow state could not be initialised is
+    # rolled back and answered 503 — the dependency (the workflow engine) is
+    # temporarily unavailable from the caller's point of view, and retrying the
+    # same well-formed request is the correct reaction. The service's message is
+    # deliberately forwarded (it names no cause, no ids and no internals), so
+    # this type is NOT added to _MESSAGE_NOT_SURFACEABLE.
+    WorkflowInitializationFailedError: status.HTTP_503_SERVICE_UNAVAILABLE,
 }
 
 
@@ -567,6 +574,9 @@ _EXC_TO_CODE: dict[type, str] = {
     # genuinely malformed release request.
     ReleaseTooLargeError: "RELEASE_TOO_LARGE",
     AdoptionHashMismatchError: "CONFLICT",
+    # P2.13: distinct code so a client can tell "the artifact was not created,
+    # retry" apart from every other 503/validation answer.
+    WorkflowInitializationFailedError: "WORKFLOW_INIT_FAILED",
 }
 
 
@@ -593,7 +603,7 @@ def _resolve_change_reason(request: Request) -> str:
     """Backwards-compatible alias for :func:`rest_api.query_params.parse_change_reason`.
 
     The resolver moved into ``query_params`` in G1.5 so it sits next to
-    ``parse_include_deleted`` and can be reused by every soft-deleting view.
+    ``parse_include_outdated`` and can be reused by every soft-deleting view.
     Kept as a thin delegate because existing tests import it from here.
     """
     return parse_change_reason(request)
@@ -666,13 +676,27 @@ def list_schema(
             description="Workspace whose artifacts are listed.",
         ),
         OpenApiParameter(
-            "include_deleted",
+            "include_outdated",
             OpenApiTypes.BOOL,
             OpenApiParameter.QUERY,
             required=False,
             description=(
-                "Include soft-deleted (outdated) records. Defaults to false; "
-                "the detail GET still answers 200 with status='outdated'."
+                "Canonical spelling: include soft-deleted records (their "
+                "workflow state is 'outdated'). Defaults to false; the detail "
+                "GET still answers 200 with status='outdated'."
+            ),
+        ),
+        OpenApiParameter(
+            "include_deleted",
+            OpenApiTypes.BOOL,
+            OpenApiParameter.QUERY,
+            required=False,
+            deprecated=True,
+            description=(
+                "Deprecated alias of `include_outdated`: supported through "
+                "1.11.0 (inclusive); removal no earlier than 1.12.0 "
+                "(see docs/api/REST-CONVENTIONS.md §10). When both are sent, "
+                "`include_outdated` wins."
             ),
         ),
     ]
@@ -710,7 +734,13 @@ def list_schema(
             )
         )
 
-    allowed = {"workspace_id", "include_deleted", "page", "page_size"}
+    allowed = {
+        "workspace_id",
+        "include_outdated",
+        "include_deleted",
+        "page",
+        "page_size",
+    }
     if status:
         allowed.add("status")
     if search:

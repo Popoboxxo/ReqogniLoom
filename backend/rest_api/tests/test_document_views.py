@@ -27,12 +27,20 @@ gate wiring.
 from __future__ import annotations
 
 import uuid
+from unittest.mock import patch
 
 import pytest
 
 from auth_tenancy.models import ROLE_ADMIN, UserRole
 from persistence.middleware import clear_request_tenant, set_request_tenant
-from persistence.models import Tenant, TraceLink, User, Workspace
+from persistence.models import (
+    Artifact,
+    Document,
+    Tenant,
+    TraceLink,
+    User,
+    Workspace,
+)
 from workflow.services import create_default_workflow
 
 pytestmark = pytest.mark.django_db
@@ -114,6 +122,57 @@ def test_create_allocates_uid_reports_initial_state_and_emits_etag(
     assert body["artifact_id"]
     # #1079-style: a client can PATCH conditionally without a second GET.
     assert response["ETag"] == '"1"'
+
+
+def test_create_failure_to_initialise_the_workflow_is_503_and_rolls_back(
+    authed_client, workspace
+) -> None:
+    """P2.13: no document without a workflow state — visible error, no rows.
+
+    A failed ``initialize_workflow_states`` is a hard failure now: the service
+    rolls the create back and the transport answers ``503 WORKFLOW_INIT_FAILED``
+    with the service's own (cause-free) message.
+    """
+    artifacts_before = Artifact.unscoped.filter(
+        workspace_id=workspace.id, artifact_type="Document"
+    ).count()
+
+    with patch(
+        "workflow.services.initialize_workflow_states",
+        side_effect=RuntimeError("boom"),
+    ):
+        response = authed_client.post(COLLECTION, _payload(workspace), format="json")
+
+    assert response.status_code == 503, response.content
+    body = response.json()["error"]
+    assert body["code"] == "WORKFLOW_INIT_FAILED"
+    assert "workflow state" in body["message"]
+    assert "boom" not in body["message"]
+
+    # ROLLBACK PROOF: no document row, no backing artifact.
+    assert Document.unscoped.filter(workspace_id=workspace.id).count() == 0
+    assert (
+        Artifact.unscoped.filter(
+            workspace_id=workspace.id, artifact_type="Document"
+        ).count()
+        == artifacts_before
+    )
+
+
+def test_create_still_succeeds_and_initialises_the_state(
+    authed_client, workspace
+) -> None:
+    """Negative control: the unpatched create path is unchanged (201 + state)."""
+    response = authed_client.post(COLLECTION, _payload(workspace), format="json")
+
+    assert response.status_code == 201, response.content
+    document_id = response.json()["id"]
+    assert response.json()["status"] == "Entwurf"
+    from workflow.models import WorkflowItemState
+
+    assert WorkflowItemState.unscoped.filter(
+        item_type="Document", item_id=uuid.UUID(document_id)
+    ).exists()
 
 
 def test_retrieve_returns_etag_and_the_engine_status(authed_client, workspace) -> None:

@@ -50,9 +50,15 @@ def test_start_status_and_download_zip(admin_client, workspace_fixture) -> None:
     zip_bytes = b"".join(download.streaming_content)
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
         assert "manifest.json" in archive.namelist()
-        assert len(
-            [n for n in archive.namelist() if n.startswith("entities/")]
-        ) == 24
+        # Derive the expected member count from the export's own contract
+        # instead of hard-coding it: every key in metadata.entity_counts must
+        # have exactly one entities/<key>.jsonl member. This caught the missing
+        # workflow_default entity after the new config scope was added.
+        assert set(payload["metadata"]["entity_counts"]) == {
+            name.removeprefix("entities/").removesuffix(".jsonl")
+            for name in archive.namelist()
+            if name.startswith("entities/") and name.endswith(".jsonl")
+        }
 
     set_request_tenant(workspace_fixture.tenant_id)
     try:

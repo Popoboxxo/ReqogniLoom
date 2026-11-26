@@ -139,3 +139,47 @@ def test_rotating_the_pepper_invalidates_peppered_keys(user):
     with override_settings(API_KEY_PEPPER="rotated-pepper"):
         with pytest.raises(AuthenticationFailed):
             AuthenticationService().validate_api_key(result.plaintext)
+
+
+@pytest.mark.django_db
+def test_legacy_rows_stay_readable_across_a_pepper_rotation(user):
+    """P1.3: rotating the pepper must not touch the pre-pepper rows.
+
+    No schema migration is involved: the stored prefix (``sha256:`` vs
+    ``sha256p1:``) is what distinguishes the variant, so an operator can rotate
+    the pepper and still let un-rotated legacy keys authenticate until they are
+    re-issued. That is also why those rows are rotation *candidates* rather than
+    a permanent state.
+    """
+    plaintext = "reqlo_legacy_key_that_predates_the_pepper"
+    ApiKey.unscoped.create(
+        user=user,
+        tenant=user.tenant,
+        name="legacy",
+        key_hash=hash_api_key_legacy(plaintext),
+    )
+
+    with override_settings(API_KEY_PEPPER="rotated-pepper"):
+        claims = AuthenticationService().validate_api_key(plaintext)
+
+    assert claims.user_id == user.id
+
+
+@override_settings(API_KEY_PEPPER=_PEPPER)
+@pytest.mark.django_db
+def test_peppered_and_legacy_keys_coexist_after_the_rollout(user):
+    """The mixed fleet is the intended end state during the rollout window."""
+    legacy_plaintext = "reqlo_legacy_key_in_a_mixed_fleet"
+    ApiKey.unscoped.create(
+        user=user,
+        tenant=user.tenant,
+        name="legacy",
+        key_hash=hash_api_key_legacy(legacy_plaintext),
+    )
+    peppered = AuthenticationService().create_api_key(
+        user_id=user.id, tenant_id=user.tenant_id, name="new"
+    )
+
+    service = AuthenticationService()
+    assert service.validate_api_key(legacy_plaintext).user_id == user.id
+    assert service.validate_api_key(peppered.plaintext).user_id == user.id

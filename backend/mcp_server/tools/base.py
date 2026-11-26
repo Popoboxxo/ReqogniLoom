@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any
 from uuid import UUID
 
@@ -95,6 +95,114 @@ def parse_pagination(
 
 
 # ---------------------------------------------------------------------------
+# Transport-boundary value conversion
+# ---------------------------------------------------------------------------
+
+
+def transport_safe(value: Any) -> Any:
+    """Coerce an arbitrary service value into a JSON-serialisable primitive.
+
+    The single transport-boundary conversion of the tool layer. A payload can
+    carry values ``json.dumps`` cannot encode (a row's ``modified_at``
+    datetime) or — in tool-contract tests that patch a service with a
+    ``MagicMock`` — anything at all; either would turn a valid tool result into
+    an opaque ``INTERNAL_ERROR``/HTTP 500. ``None``/``str``/``int``/``float``/
+    ``bool`` pass through, ``dict``/``list``/``tuple``/``set`` recurse (dict
+    keys are stringified), a ``UUID`` becomes its string form and a
+    date/datetime its ISO string. Anything else — including a ``MagicMock``
+    whose ``isoformat()`` is itself a mock — is rendered through ``str``.
+
+    A non-string ``isoformat()`` result is never trusted, so the mock caveat is
+    handled once for every group instead of per call site.
+    """
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): transport_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [transport_safe(item) for item in value]
+    if isinstance(value, UUID):
+        return str(value)
+    rendered = getattr(value, "isoformat", None)
+    if callable(rendered):
+        candidate = rendered()
+        if isinstance(candidate, str):
+            return candidate
+    return str(value)
+
+
+# ---------------------------------------------------------------------------
+# Soft-delete audit reason (P1.10 / finding M-14)
+# ---------------------------------------------------------------------------
+#
+# ``{prefix}.outdate`` / ``{prefix}.delete`` tools are soft-deletes, and the
+# workflow engine records a reason on the transition. The parameter was spelled
+# ``reason`` on some tools and ``change_reason`` on others (every REST
+# ``DELETE`` uses ``change_reason``), so a client had to know which transport it
+# was talking to. ``change_reason`` is now canonical everywhere and ``reason``
+# stays a deprecated alias: supported through 1.11.0 (inclusive); removal no
+# earlier than 1.12.0.
+
+
+#: Canonical ``inputSchema`` key for a soft-delete audit reason (P1.10).
+CANONICAL_SOFT_DELETE_REASON_KEY = "change_reason"
+
+#: Deprecated alias kept through the 1.11.0 line (P1.10).
+DEPRECATED_SOFT_DELETE_REASON_KEY = "reason"
+
+
+def soft_delete_reason(params: Mapping[str, Any]) -> str:
+    """Return the audit reason for a soft-delete call.
+
+    Canonical key is ``change_reason``; ``reason`` is a deprecated alias,
+    supported through 1.11.0 (inclusive) with removal no earlier than 1.12.0.
+    When both are supplied the canonical
+    value wins (the alias is ignored) — never merged, never an error, so an old
+    client keeps working unchanged. A blank canonical value counts as "not
+    supplied" and falls through to the alias, which is what a client that
+    serialises an unset field as ``""`` sends.
+
+    The resolved string is trimmed; a missing/None value becomes ``""``.
+    """
+    canonical = params.get(CANONICAL_SOFT_DELETE_REASON_KEY)
+    if canonical is not None and str(canonical).strip():
+        return str(canonical).strip()
+    alias = params.get(DEPRECATED_SOFT_DELETE_REASON_KEY)
+    if alias is None:
+        return ""
+    return str(alias).strip()
+
+
+def soft_delete_reason_properties() -> dict[str, dict[str, Any]]:
+    """Return the ``inputSchema.properties`` fragment for a soft-delete reason.
+
+    A fresh dict per call so a group that mutates its schema cannot leak into a
+    sibling: two tools advertising the same two properties must stay
+    independent objects. Both are optional — a preset, not the schema, decides
+    whether the reason is mandatory.
+    """
+    return {
+        CANONICAL_SOFT_DELETE_REASON_KEY: {
+            "type": "string",
+            "description": (
+                "Reason for the soft-delete, recorded on the audit trail. May "
+                "be mandatory when the workspace preset requires a "
+                "change_reason for writes."
+            ),
+        },
+        DEPRECATED_SOFT_DELETE_REASON_KEY: {
+            "type": "string",
+            "deprecated": True,
+            "description": (
+                "Deprecated alias of 'change_reason': supported through 1.11.0 "
+                "(inclusive); removal no earlier than 1.12.0. Ignored when "
+                "'change_reason' is supplied."
+            ),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # CRUD verb vocabulary + hidden aliases (R2A-003)
 # ---------------------------------------------------------------------------
 #
@@ -109,8 +217,9 @@ def parse_pagination(
 # invariant only if done partially). Instead every prefix keeps exactly one
 # published verb per operation, and the *alternative* verb spellings are
 # declared as hidden aliases with ``deprecated`` + ``replacedBy`` metadata.
-# Aliases are metadata only: they add no tools, so ``tools/list`` stays at 301,
-# and they are never routed (see :meth:`ToolRegistry.hidden_tool_aliases`).
+# Aliases are metadata only: they add no tools, so ``tools/list`` stays at 313
+# (``docs/agent-templates/tool-manifest.json``'s ``tool_count``), and they are
+# never routed (see :meth:`ToolRegistry.hidden_tool_aliases`).
 #
 # Canonical verbs document the target vocabulary for new groups. A new group
 # must use them; existing prefixes are ratcheted by
@@ -731,6 +840,8 @@ __all__ = [
     "BaseToolGroup",
     "CANONICAL_FETCH_VERB",
     "CANONICAL_LIST_VERB",
+    "CANONICAL_SOFT_DELETE_REASON_KEY",
+    "DEPRECATED_SOFT_DELETE_REASON_KEY",
     "FETCH_VERBS",
     "LIST_VERBS",
     "McpAuditWriteError",
@@ -746,7 +857,10 @@ __all__ = [
     "require_uuid",
     "resolve_engine_status",
     "resolve_status_map",
+    "soft_delete_reason",
+    "soft_delete_reason_properties",
     "tool_verb",
+    "transport_safe",
     "validate_artifact_write",
     "verb_operation",
     "workspace_query_required",

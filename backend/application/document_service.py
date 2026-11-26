@@ -56,7 +56,13 @@ from application.artifact_service import (
     snapshot_versioned_fields,
 )
 from application.artifact_version_service import ArtifactVersionService, snapshot_fields
-from application.base import FieldFrozenError, NotFoundError, ServiceBase, ValidationError
+from application.base import (
+    FieldFrozenError,
+    NotFoundError,
+    ServiceBase,
+    ValidationError,
+    WorkflowInitializationFailedError,
+)
 from application.inline_anchor_service import (
     ANCHOR_FIELD_BODY,
     ANCHOR_FIELD_DESCRIPTION,
@@ -320,19 +326,37 @@ class DocumentService(ServiceBase):
         ctx: AuthContext,
         *,
         include_deleted: bool = False,
+        uid: str | None = None,
     ) -> list[Document]:
         """List a workspace's documents, deterministically ordered (G1.5 V4).
 
         Sorted by ``-modified_at, id`` (the index ``idx_doc_workspace_modified``
         backs the first key; ``id`` makes ties stable — Plan G G2.1). Soft-deleted
         documents are omitted unless *include_deleted* is true.
+
+        ``artifact`` is joined in the same query: the shared payload map reads
+        ``Artifact.custom_fields`` for every row (P2.2), so without the join the
+        list costs one extra query per document.
+
+        Args:
+            workspace_id: Workspace to list (tenant-scoped, RLS-filtered).
+            ctx: Resolved AuthContext supplying the active tenant.
+            include_deleted: Keep outdated documents in the result.
+            uid: Optional exact local identifier (e.g. ``DOC-004``). This is a
+                **database predicate**, not a post-filter: the ``uid=`` match is
+                added to the queryset before it is materialised, so a caller
+                that asks for one identifier never loads the whole workspace
+                (plan P1.11 / M-15). ``None`` disables the filter; the transport
+                layer normalises a blank wire value to ``None`` before calling.
         """
         self._set_tenant_context(ctx)
         from workflow.services import outdated_item_ids
 
         queryset = Document.objects.filter(
             workspace_id=workspace_id, tenant_id=ctx.tenant_id
-        )
+        ).select_related("artifact")
+        if uid is not None:
+            queryset = queryset.filter(uid=uid)
         if not include_deleted:
             queryset = queryset.exclude(
                 id__in=outdated_item_ids(DOCUMENT_ITEM_TYPE, tenant_id=ctx.tenant_id)
@@ -383,6 +407,10 @@ class DocumentService(ServiceBase):
             ValidationError: Blank title, unknown kind, markup/script URI in a
                 free-text field, or invalid ``custom_fields``.
             NotFoundError: Tenant or workspace not found.
+            WorkflowInitializationFailedError: The backing workflow state could
+                not be created. The whole create — document, backing artifact,
+                local uid allocation and audit entries — is rolled back, so no
+                artifact ever exists without a workflow state (P2.13).
         """
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
@@ -431,11 +459,19 @@ class DocumentService(ServiceBase):
         )
         anchor_service.sync_text(ctx, document.artifact_id, ANCHOR_FIELD_BODY, body)
 
-        # Every artifact type is initialised lazily at its definition's initial
-        # state. A workspace provisioned before F2-T2 (or a unit test that skips
-        # provisioning) has no definition; the document then reports the type's
-        # initial state via the state_reader fallback and the release path refuses
-        # with a clear message instead of silently writing nothing.
+        # Every artifact type is initialised at its definition's initial state.
+        # A workspace provisioned before F2-T2 has no document definition, and
+        # that is not a usable document: the create fails (P2.13 below) rather
+        # than producing a state-less row that only reports the type's fallback
+        # state and cannot be released.
+        #
+        # P2.13: a *failed* initialisation is a hard failure, not a partial
+        # state. An artifact without a workflow state is not usable — every
+        # later transition and release gate would run on the state_reader
+        # fallback. The exception propagates through ``@atomic_transaction`` so
+        # the Document row, its backing Artifact, the local uid allocation and
+        # any audit entry are rolled back together. The cause stays in the log;
+        # the caller gets a fixed sentence that carries no internals.
         try:
             from workflow.services import initialize_workflow_states
 
@@ -445,12 +481,17 @@ class DocumentService(ServiceBase):
                 workspace_id=workspace_id,
                 ctx=ctx,
             )
-        except Exception:  # noqa: BLE001 — best-effort, mirrors GoalService
-            logger.warning(
-                "DocumentService: workflow init skipped for document=%s",
+        except Exception as exc:  # noqa: BLE001 — re-raised as a domain error
+            logger.exception(
+                "DocumentService: workflow init failed for document=%s "
+                "workspace=%s; the create is rolled back",
                 document.id,
-                exc_info=True,
+                workspace_id,
             )
+            raise WorkflowInitializationFailedError(
+                "The document was not created: its workflow state could not be "
+                "initialised. No data was written."
+            ) from exc
 
         self._audit(
             ctx=ctx,

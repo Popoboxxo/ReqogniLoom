@@ -60,6 +60,10 @@ MUTATE_VERBS = frozenset(
         "split", "archive", "reply", "clear", "answer", "chat", "consolidate",
         # Phase G / #1374 S3: adopting a repository document mutates ownership.
         "adopt",
+        # `workflow_default.initialize` materialises the preset's workflow
+        # definition (states + transitions) as persisted rows, so the verb is
+        # state-changing; without it the call would run past a closed write gate.
+        "initialize",
         # #1793 S6: refreshing a stored summary writes a new state.
         "refresh",
         # `artifact.move` / `group.move_member` reparent, reorder and re-key

@@ -108,9 +108,9 @@ def test_base_group_rejects_fallback_instead_of_emitting_it() -> None:
 
 
 def test_published_catalogue_has_no_placeholder_schema() -> None:
-    """Defence in depth on the assembled 302-tool catalogue."""
+    """Defence in depth on the assembled 313-tool catalogue."""
     schemas = ToolRegistry().all_tool_schemas()
-    assert len(schemas) == 302
+    assert len(schemas) == 313
     placeholders = [s["name"] for s in schemas if _is_fallback_schema(s)]
     assert not placeholders, f"placeholder schemas published: {placeholders}"
     missing_description = [

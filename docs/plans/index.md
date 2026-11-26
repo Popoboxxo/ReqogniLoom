@@ -2,7 +2,7 @@
 
 Dieser Index listet jedes Plan-Dokument in `docs/plans/` und `docs/plans/Archive/` samt Implementierungsstatus,
 geprüft gegen `origin/main` am 2026-11-04 und aktualisiert gegen `main` am 2026-11-17. Er spiegelt `docs/superpowers/plans/index.md`.
-**Stand:** `1.9.0-beta.6` (die `VERSION` am HEAD) · **Letzte Prüfung:** 2026-11-17. Jede `*.md` der obersten Ebene ist hier verlinkt; `scripts/tests/test_doc_index_freshness.py` überwacht das in CI.
+**Stand:** `1.9.0-beta.7` (die `VERSION` am HEAD) · **Letzte Prüfung:** 2026-11-26. Jede `*.md` der obersten Ebene ist hier verlinkt; `scripts/tests/test_doc_index_freshness.py` überwacht das in CI.
 
 Evidenzgrad: Die Backlog-Pläne A–G wurden auf PR-/Commit-Ebene verifiziert (Commit-Subject auf `origin/main` plus
 Existenz des benannten Ergebnisses), nicht Zeile für Zeile. Punkte ohne Nachweis im Repository sind
@@ -13,6 +13,8 @@ als UNVERIFIED markiert. Die unten genannten GitHub-Issues wurden durch diesen A
 - **Dieses Verzeichnis (oberste Ebene)** — Pläne mit echter offener Arbeit sowie laufende Koordinations- und Entscheidungsdokumente.
 
 ## Oberste Ebene — offene Arbeiten
+## [2026-11-25-rest-mcp-findings-umsetzungsplan.md](2026-11-25-rest-mcp-findings-umsetzungsplan.md)
+**Umgesetzt mit Restpunkten (2026-11-25, frontmatter `status: umgesetzt_mit_restpunkten`).** Vollständiger Umsetzungsplan für den REST/MCP-Review: 1 Blocker, 16 Major und 15 Minor in 27 Arbeitspaketen (P0.1 OpenAPI-Vollständigkeit `WorkflowDefinitionViewSet`, P1.1 Produktions-Sicherheitsdefaults/Secrets, P1.2 MCP-Workspace-Scope fail-closed, P1.3 API-Key-Pepper, P1.8 globale Workflow-Defaults inkl. MCP-Gruppe `workflow_default`, P2.13 Hartabbruch bei fehlgeschlagener Workflow-Initialisierung). Ausgeliefert in `1.9.0-beta.7`; die Deprecation-Aliasse `reason`/`include_deleted` laufen bis `1.11.0` (Entfernung frühestens `1.12.0`).
 ## [2026-11-24-ui-e2e-master-plan.md](2026-11-24-ui-e2e-master-plan.md)
 **Proposal (2026-11-24, frontmatter `status: proposed`).** Masterplan fuer exhaustives UI-E2E-Testing: aus Code generierter State-Space-Katalog (Routes, Artefakte, Workflow-States, Rollen, Presets, Dialoge via `data-testid`), Model-Based Testing + All-Pairs + Vollfaktor nur fuer kritische Triple, Action-Dispatcher mit ausschliesslich browser-getriggerten Aktionen, fuenf Schichten (L0 Vitest bis L5 Random-Walk), Screenshot-/Axe-/Network-Beweise pro Zelle und eine gemessene Abdeckungsmatrix als CI-Gate. 5 Phasen, ca. 16–26 Arbeitstage; empfohlener erster PR: P0 (Generator + Matrix + Dispatcher) + P1 (alle 31 Dialoge/Buttons). Basis: 47 Smoke-Checks aus PR #2060.
 

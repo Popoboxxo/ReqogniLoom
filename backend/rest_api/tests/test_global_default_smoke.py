@@ -307,3 +307,22 @@ def test_mismatch_list_empty(admin_client):
     body = resp.json()
     assert body["count"] == 0
     assert body["results"] == []
+
+
+# ---------------------------------------------------------------------------
+# Generated-contract truth (P1.8 review)
+# ---------------------------------------------------------------------------
+
+
+def test_the_generated_global_graph_schema_declares_state_meta() -> None:
+    """``global_graph_payload`` always emits ``state_meta`` — so must the doc.
+
+    The editor reads ``state_meta`` (``WorkflowDefinitionGraph.state_meta`` in
+    ``frontend/src/api/workflows.ts``) to render frozen states; without it in
+    the generated component a client cannot see the field at all.
+    """
+    from drf_spectacular.generators import SchemaGenerator
+
+    schema = SchemaGenerator().get_schema(request=None, public=True)
+    graph = schema["components"]["schemas"]["GlobalWorkflowGraph"]
+    assert "state_meta" in graph["properties"]

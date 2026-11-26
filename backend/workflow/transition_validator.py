@@ -22,6 +22,7 @@ Architecture:
 """
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
@@ -154,38 +155,60 @@ class ValidationResult:
 
 
 class _DefinitionCache:
-    """Simple in-process LRU-like cache for WorkflowDefinitionDTOs.
+    """In-process bounded cache for WorkflowDefinitionDTOs.
 
-    Keyed on (workspace_id, item_type).  Invalidation is performed explicitly
-    via invalidate() when a definition is updated.  Not thread-safe for writes
-    (Django test runner is single-threaded; production uses process-level
-    worker isolation which makes cross-process invalidation a future concern).
+    Keyed on ``(workspace_id, item_type)``.  Invalidation is performed
+    explicitly via :meth:`invalidate` when a definition is updated.
+
+    Thread safety
+    -------------
+    Every dict access is guarded by one :class:`threading.Lock`, so concurrent
+    ``put``/``get``/``invalidate``/``clear`` calls cannot interleave the
+    size check, the ``next(iter(...))`` eviction pick and the ``del``/
+    assignment (which used to surface as ``RuntimeError`` or ``KeyError``).
+
+    The lock is deliberately held only around the dict operation itself — never
+    around the definition-store load in
+    :meth:`TransitionValidator._load_definition` — so a slow database round-trip
+    cannot serialise every validator thread on the process.  A plain ``Lock``
+    (not an ``RLock``) is sufficient: no method here calls another.
+
+    Cross-process invalidation remains **out of scope**: a definition update in
+    one worker process does not evict the entry cached by another.  That is a
+    pre-existing constraint of the process-local cache, unrelated to this lock;
+    a shared-store/last-write barrier would be required to lift it.
     """
 
     _MAX_ENTRIES = 256
 
     def __init__(self) -> None:
         self._cache: dict[tuple[str, str], WorkflowDefinitionDTO] = {}
+        self._lock = threading.Lock()
 
     def get(
         self, workspace_id: str, item_type: str
     ) -> WorkflowDefinitionDTO | None:
-        return self._cache.get((workspace_id, item_type))
+        with self._lock:
+            return self._cache.get((workspace_id, item_type))
 
     def put(
         self, workspace_id: str, item_type: str, dto: WorkflowDefinitionDTO
     ) -> None:
-        if len(self._cache) >= self._MAX_ENTRIES:
-            # Evict oldest key (insertion-order dict, Python 3.7+).
-            oldest = next(iter(self._cache))
-            del self._cache[oldest]
-        self._cache[(workspace_id, item_type)] = dto
+        key = (workspace_id, item_type)
+        with self._lock:
+            if len(self._cache) >= self._MAX_ENTRIES and key not in self._cache:
+                # Evict oldest key (insertion-order dict, Python 3.7+).
+                oldest = next(iter(self._cache))
+                del self._cache[oldest]
+            self._cache[key] = dto
 
     def invalidate(self, workspace_id: str, item_type: str) -> None:
-        self._cache.pop((workspace_id, item_type), None)
+        with self._lock:
+            self._cache.pop((workspace_id, item_type), None)
 
     def clear(self) -> None:
-        self._cache.clear()
+        with self._lock:
+            self._cache.clear()
 
 
 _definition_cache = _DefinitionCache()
