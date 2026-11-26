@@ -13,6 +13,7 @@
 
 import { memo, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import type { Icd, IcdDetail } from "../../api/icds";
 import { useActivationKeys } from "../../hooks/useActivationKeys";
 import { VersionBadge } from "../shared/VersionBadge";
@@ -360,7 +361,7 @@ const ReadOnlyList = memo(function ReadOnlyList({
 });
 
 interface VersionFieldsProps {
-  t: (key: string, opts?: Record<string, unknown>) => string;
+  t: TFunction;
 }
 
 function renderVersionFields(

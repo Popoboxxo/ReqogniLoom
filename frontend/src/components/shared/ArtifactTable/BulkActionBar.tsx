@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 
 import {
   tableApi,
@@ -55,7 +56,7 @@ const WORKFLOW_TYPE: Record<string, WorkflowArtifactType> = {
   GlossaryTerm: "glossary",
 };
 
-function failureLabel(failure: BulkFailure, t: (key: string, opts?: Record<string, unknown>) => string): string {
+function failureLabel(failure: BulkFailure, t: TFunction): string {
   const id = failure.artifact_id ?? `#${failure.index}`;
   return t("table.bulkFailureLine", { id, code: failure.code, reason: failure.message });
 }
