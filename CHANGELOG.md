@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- test(e2e): the document reading view opens in read mode since `1.9.0-beta.7`, so the spec now enters edit mode before driving inline writes and asserts the read-first default; the stale spec failed on the `document-field-input-*`, `document-mode-batch` and `document-save-bar` locators
 - fix(hermes-plugin): classify `workflow_default.initialize` as a write, so the new global workflow-defaults tool runs behind the write gate instead of past it
 - docs(plans): link the REST/MCP review remediation plan from the plan index and refresh its version/check date (doc-index freshness gate)
 
