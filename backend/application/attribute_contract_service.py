@@ -22,7 +22,7 @@ Risk and then failing at write time.
   without a default -- the second half is what makes ``Risk.probability``
   mandatory even in a workspace that has no attribute definition yet.
 
-The signature-derived part is computed once at import (``_SIGNATURE_CONTRACT``)
+The signature-derived part is computed once on first use (``_SIGNATURE_CONTRACT``)
 so a test that patches a ``create_X()`` with a ``MagicMock`` cannot collapse a
 contract mid-run, mirroring ``interview_artifact_adapters._ALLOWED_FIELDS_BY_TYPE``.
 
@@ -50,13 +50,6 @@ import logging
 import types
 from collections.abc import Mapping, Sequence
 from typing import Any, Union, get_args, get_origin, get_type_hints
-
-from application.base import ValidationError
-from application.interview_artifact_adapters import (
-    ARTIFACT_CREATION_ADAPTERS,
-    _CREATE_METHODS,
-    allowed_fields_for,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -127,14 +120,25 @@ def _infer_type(annotation: Any) -> str:
 
 
 def _build_signature_contract() -> dict[str, dict[str, dict[str, Any]]]:
-    """Precompute per-type ``{field: {type, has_default, default}}`` at import.
+    """Precompute per-type ``{field: {type, has_default, default}}``.
 
     The set of names is :func:`allowed_fields_for`'s -- one derivation of "what
     a create call accepts" -- while ``inspect`` only supplies each name's
     annotation and default. Filtering the signature through that allowlist
     (instead of re-deriving the exclusion rules here) is what keeps this module
     and the proposal gate on the same universe.
+
+    The adapter import is deliberately **lazy**: at module level it would
+    close an ``attribute_contract_service -> interview_artifact_adapters ->
+    ... -> attribute_contract_service`` cycle, which the architecture contract
+    test rejects. The result is cached on first use by
+    :func:`_signature_contract`.
     """
+    from application.interview_artifact_adapters import (
+        _CREATE_METHODS,
+        allowed_fields_for,
+    )
+
     contract: dict[str, dict[str, dict[str, Any]]] = {}
     for artifact_type, method in _CREATE_METHODS.items():
         try:
@@ -156,7 +160,15 @@ def _build_signature_contract() -> dict[str, dict[str, dict[str, Any]]]:
     return contract
 
 
-_SIGNATURE_CONTRACT: dict[str, dict[str, dict[str, Any]]] = _build_signature_contract()
+_SIGNATURE_CONTRACT: dict[str, dict[str, dict[str, Any]]] | None = None
+
+
+def _signature_contract() -> dict[str, dict[str, dict[str, Any]]]:
+    """Return the cached signature contract, building it on first use."""
+    global _SIGNATURE_CONTRACT
+    if _SIGNATURE_CONTRACT is None:
+        _SIGNATURE_CONTRACT = _build_signature_contract()
+    return _SIGNATURE_CONTRACT
 
 
 def _definition_attributes(ctx, workspace_id, artifact_type: str) -> dict[str, dict[str, Any]]:
@@ -216,13 +228,19 @@ def artifact_field_contract(ctx, workspace_id, artifact_type: str) -> list[dict[
     definition-only name would be rejected by the adapter, so it is never
     advertised. An unknown artifact type raises :class:`ValidationError`.
     """
+    from application.interview_artifact_adapters import (
+        ARTIFACT_CREATION_ADAPTERS,
+        allowed_fields_for,
+    )
+    from application.base import ValidationError
+
     if artifact_type not in ARTIFACT_CREATION_ADAPTERS:
         raise ValidationError(
             f"unknown artifact type for a field contract: {artifact_type!r}"
         )
     # Defensive: ARTIFACT_CREATION_ADAPTERS and _CREATE_METHODS cover the same
     # keys today, but the contract must not KeyError if that ever drifts.
-    signature = _SIGNATURE_CONTRACT.get(artifact_type)
+    signature = _signature_contract().get(artifact_type)
     if signature is None:
         allowed = allowed_fields_for(artifact_type)
         signature = {
