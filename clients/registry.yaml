@@ -992,10 +992,10 @@ capabilities:
         note_en: "7 agents shipped, none can start (`tools` frontmatter matches no tool)"
       - row: hooks_listen_mode
         status: partial
-        evidence: {kind: repo, detail: "2026-11-27 · UserPromptSubmit hook + local relay shipped (AP0)"}
+        evidence: {kind: live, detail: "2026-11-27 · Claude Code 2.1.332 · plugin 1.9.0-beta.8 · local recorder (the deployed server 1.9.0-beta.8 has no capture route)"}
         issues: [2001, 1156, 1201]
-        note_de: "Hook feuert (AP0 belegt: `UserPromptSubmit`, `async: true`, Exit 0 fail-open), Ende-zu-Ende-Capture noch nicht live verifiziert; Standard aus, Ziel-Workspace muss konfiguriert sein"
-        note_en: "hook fires (AP0-proven: `UserPromptSubmit`, `async: true`, exit 0 fail-open); end-to-end capture not yet verified live; default off, target workspace must be configured"
+        note_de: "Der Hook macht keine Netzwerkarbeit mehr: er schreibt nur in die Queue und startet einen detached `--drain`-Worker, der `claude -p` überlebt, per HTTP ausliefert und `listen-status.json` schreibt; `/reqogniloom:listen on|off|status` und der Hook nutzen denselben Pfad `~/.reqogniloom/listen` (die Command-Shell hat kein `CLAUDE_PLUGIN_DATA`), `off` löscht Ungesendetes; live gegen einen lokalen Recorder belegt (POST + Status nach Prozessende, Timeout-Fall verliert nichts) — Ende-zu-Ende gegen den ausgelieferten Server scheitert an dessen älterem Build ohne `POST /api/v1/suggestions/capture/` (404); Standard aus, Ziel-Workspace muss konfiguriert sein"
+        note_en: "the hook does no network work any more: it only writes the queue and starts a detached `--drain` worker that survives `claude -p`, delivers over HTTP and writes `listen-status.json`; `/reqogniloom:listen on|off|status` and the hook share `~/.reqogniloom/listen` (the command shell has no `CLAUDE_PLUGIN_DATA`), `off` deletes anything unsent; live-verified against a local recorder (POST and status after the process returned, a timeout loses nothing) — end-to-end against the deployed server is blocked by its older build lacking `POST /api/v1/suggestions/capture/` (404); default off, target workspace must be configured"
       - row: interview_single
         status: partial
         evidence: *cc_live

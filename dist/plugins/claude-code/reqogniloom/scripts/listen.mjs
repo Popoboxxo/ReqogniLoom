@@ -7,30 +7,42 @@
  * on the text of every user message leaves this machine for the ReqogniLoom
  * server and its configured model.
  *
- * Reads the same local state as `capture-hook.mjs`:
- *   $CLAUDE_PLUGIN_DATA/listen.json          {"enabled": <bool>}
- *   $CLAUDE_PLUGIN_DATA/capture-queue.jsonl   write-ahead queue
- *   $CLAUDE_PLUGIN_DATA/listen-status.json    counters + last success/error
+ * Reads the same local state as `capture-hook.mjs`, in the same directory:
+ *   ~/.reqogniloom/listen/listen.json          {"enabled": <bool>}
+ *   ~/.reqogniloom/listen/capture-queue.jsonl   write-ahead queue
+ *   ~/.reqogniloom/listen/listen-status.json    counters + last success/error
+ *   ~/.reqogniloom/listen/capture-incoming/     per-message segments (lock held)
+ *
+ * Why a stable path and not `CLAUDE_PLUGIN_DATA`: the command runs in a shell
+ * where Claude Code sets only `${CLAUDE_PLUGIN_ROOT}`, so the variable is empty
+ * there. Keying the state on it made `on` write one directory while the hook
+ * read another — the switch read OFF in a running session and capture never
+ * fired. `REQNILOOM_LISTEN_DIR` is the only override (tests, diagnostics).
  */
 import {
   chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const CAPTURE_PREFERENCE_KEY = "capture.enabled";
 
+/**
+ * Mirrors `stateDir()` in capture-hook.mjs — the two must never diverge, or
+ * `on`/`off` stop affecting the hook that actually captures.
+ */
 function stateDir() {
-  const configured = process.env.CLAUDE_PLUGIN_DATA;
-  return configured && configured.trim()
-    ? configured.trim()
-    : join(tmpdir(), "reqogniloom-plugin");
+  const configured = (process.env.REQNILOOM_LISTEN_DIR || "").trim();
+  if (configured) return configured;
+  return join(homedir(), ".reqogniloom", "listen");
 }
 
 function readJson(path, fallback) {
@@ -71,6 +83,42 @@ function queueLength(dir) {
     .filter((line) => line.trim()).length;
 }
 
+function pendingIncoming(dir) {
+  const incoming = join(dir, "capture-incoming");
+  try {
+    if (!existsSync(incoming)) return 0;
+    return readdirSync(incoming).filter((name) => name.endsWith(".json")).length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Switching off is a privacy action, not a pause: nothing that has not been
+ * sent is kept on disk afterwards. `listen-status.json` stays (it is a counter,
+ * not content) but its queue figure is reset so `status` cannot claim unsent
+ * messages that no longer exist.
+ */
+function clearPendingMessages(dir) {
+  const removed = { queued: queueLength(dir), incoming: pendingIncoming(dir) };
+  try {
+    rmSync(join(dir, "capture-queue.jsonl"), { force: true });
+  } catch {
+    // Best effort; the switch is off either way and the next drain is a no-op.
+  }
+  try {
+    rmSync(join(dir, "capture-incoming"), { recursive: true, force: true });
+  } catch {
+    // Same: a segment that survives one unlink is still never sent while off.
+  }
+  const statusPath = join(dir, "listen-status.json");
+  const status = readJson(statusPath, null);
+  if (status && typeof status === "object") {
+    writeJsonAtomic(statusPath, { ...status, queued: 0 });
+  }
+  return removed;
+}
+
 async function serverSwitch(cfg) {
   if (!cfg.mcpUrl || !cfg.apiKey || !cfg.workspaceId) {
     return { ok: false, detail: "not configured (mcp_url, api_key or workspace_id missing)" };
@@ -104,7 +152,7 @@ function usage() {
     "Usage: /reqogniloom:listen on|off|status",
     "",
     "  on      enable ambient capture on this machine",
-    "  off     disable it (already queued messages stay queued)",
+    "  off     disable it and delete anything still queued (nothing unsent is kept)",
     "  status  show the local switch, the server switch, the queue and the last result",
   ].join("\n");
 }
@@ -140,18 +188,21 @@ async function main(argv) {
       );
     }
     console.log("Check both switches with: /reqogniloom:listen status");
+    console.log("Takes effect on your next message in this session.");
     return 0;
   }
 
   if (action === "off") {
     writeJsonAtomic(listenPath, { ...readJson(listenPath, {}), enabled: false });
     console.log("Listen mode: OFF (local).");
-    const queued = queueLength(dir);
-    if (queued > 0) {
+    const removed = clearPendingMessages(dir);
+    const deleted = removed.queued + removed.incoming;
+    if (deleted > 0) {
       console.log(
-        `${queued} queued message(s) remain on disk and are not sent while the switch is off.`,
+        `${deleted} unsent message(s) were deleted: nothing that was not sent is kept after switching off.`,
       );
     }
+    console.log("Takes effect on your next message in this session.");
     return 0;
   }
 
