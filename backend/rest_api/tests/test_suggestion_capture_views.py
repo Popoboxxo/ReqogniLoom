@@ -387,3 +387,57 @@ def test_mcp_capture_answers_the_same_error_codes(cap_env, monkeypatch):
     )
     assert too_long.success is False
     assert too_long.error_code == "TEXT_TOO_LONG"
+
+
+@pytest.mark.django_db
+def test_mcp_accept_of_a_stale_update_suggestion_answers_conflict(cap_env):
+    """MCP must answer the same 409 CONFLICT as REST for a stale base_version.
+
+    ``CaptureConflictError`` is a ``ValidationError`` subclass, so this pins the
+    *order* of the tool group's exception branches — a future edit that moves the
+    generic branch up would silently degrade the P3 safety gate to
+    VALIDATION_ERROR.
+    """
+    from application.requirement_service import RequirementService
+    from application.suggestion_service import SuggestionService
+
+    human_ctx = AuthContext(
+        user_id=cap_env["admin"].id,
+        tenant_id=cap_env["tenant"].id,
+        active_roles=("admin",),
+        auth_method=AuthMethod.BEARER_TOKEN,
+    )
+
+    TenantContext.set_tenant(cap_env["tenant"].id)
+    try:
+        requirement = RequirementService().create_requirement(
+            workspace_id=cap_env["workspace"].id,
+            title="Veraltetes Ziel",
+            ctx=human_ctx,
+            description="Erste Fassung.",
+        )
+        suggestion = SuggestionService().create(
+            kind=Suggestion.Kind.ARTIFACT_UPDATE,
+            ctx=cap_env["agent_ctx"],
+            workspace_id=cap_env["workspace"].id,
+            payload={
+                "artifact_type": "Requirement",
+                "fields": {"description": "Neue Fassung."},
+                "target_entity_id": str(requirement.id),
+                "base_version": 0,
+            },
+            producer="suggestion.capture",
+            capture=True,
+            operation=Suggestion.Operation.UPDATE,
+            target_artifact_id=requirement.id,
+            base_version=0,  # stale: the created requirement is at version 1
+        )
+    finally:
+        TenantContext.clear_tenant()
+
+    result = SuggestionToolGroup().execute_tool(
+        "suggestion.accept", {"id": str(suggestion.id)}, human_ctx, _API_KEY
+    )
+
+    assert result.success is False
+    assert result.error_code == "CONFLICT"

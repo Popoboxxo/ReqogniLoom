@@ -958,9 +958,12 @@ class CaptureService(ServiceBase):
                         },
                     }
                     if is_update:
-                        payload["target_artifact_id"] = proposal[
-                            "target_artifact_id"
-                        ]
+                        # ``target_entity_id``, not ``target_artifact_id``: the
+                        # payload carries the ENTITY id, while
+                        # ``accepted_artifact_id`` (written on accept) is a
+                        # backing Artifact id. Two ids, two names — the adjacent
+                        # keys must not look interchangeable.
+                        payload["target_entity_id"] = proposal["target_artifact_id"]
                         payload["base_version"] = proposal["base_version"]
 
                     suggestion = service.create(

@@ -350,6 +350,34 @@ def test_second_capture_of_the_same_message_is_a_duplicate(env, monkeypatch):
     assert Suggestion.objects.count() == 1
 
 
+@pytest.mark.django_db
+def test_idempotency_constraint_race_is_reported_as_a_duplicate(env, monkeypatch):
+    """The read-then-write window: the DB constraint must answer ``duplicate``.
+
+    Two concurrent captures of the same message both pass the pre-check; the
+    partial unique constraint then fires on the loser. That is the duplicate the
+    contract promises — a 500 here would make a retried capture unrecoverable.
+    """
+    from django.db import IntegrityError
+
+    from application.suggestion_service import SuggestionService
+
+    _use_provider(monkeypatch, _requirement_answer("Wettlauf", "Zwei Prozesse."))
+
+    def _raise_constraint(*args, **kwargs):
+        raise IntegrityError(
+            "duplicate key value violates unique constraint "
+            '"uq_suggestion_workspace_idempotency_key"'
+        )
+
+    monkeypatch.setattr(SuggestionService, "create", _raise_constraint)
+
+    result = _capture(env)
+
+    assert result["created"] == []
+    assert result["skipped"]["duplicate"] == 1
+
+
 # ---------------------------------------------------------------------------
 # Create suggestion -> artifact with provenance
 # ---------------------------------------------------------------------------

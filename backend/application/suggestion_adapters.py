@@ -543,7 +543,14 @@ class ArtifactUpdateSuggestionAdapter(SuggestionAdapter):
     ) -> Suggestion:
         artifact_type = str(payload.get("artifact_type") or target_item_type or "")
         fields = payload.get("fields")
-        target_artifact_id = payload.get("target_artifact_id") or target_item_id
+        # ``target_entity_id`` is the capture payload's name (an ENTITY id). The
+        # legacy ``target_artifact_id`` key is still accepted so a receipt
+        # written before the rename keeps working.
+        target_artifact_id = (
+            payload.get("target_entity_id")
+            or payload.get("target_artifact_id")
+            or target_item_id
+        )
         if not artifact_type or not isinstance(fields, dict) or not fields:
             raise ValidationError(
                 "An artifact_update suggestion requires 'artifact_type' and a "
