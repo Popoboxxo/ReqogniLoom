@@ -548,7 +548,13 @@ def test_claude_user_config_refs_are_declared_in_the_plugin_manifest(
 ) -> None:
     """Every `${user_config.<key>}` in `.mcp.json` — built and committed — must
     be declared in the matching `plugin.json`, or the reference expands to
-    nothing at install time."""
+    nothing at install time.
+
+    The manifest may declare *additional* optional prompts that `.mcp.json`
+    does not interpolate (listen mode's `workspace_id` is read by the relay);
+    the rule is that every referenced key is declared, not that the two sets
+    are equal.
+    """
     spec = next(
         s for s in CONFIG_BUILDERS if s.name == CLAUDE_CODE_BUILDER
     )
@@ -572,7 +578,8 @@ def test_claude_user_config_refs_are_declared_in_the_plugin_manifest(
         declared = set(
             json.loads(manifest_path.read_text(encoding="utf-8"))["userConfig"]
         )
-        assert referenced == declared, (
+        assert referenced == {USER_CONFIG_URL_KEY, USER_CONFIG_API_KEY_KEY}
+        assert referenced <= declared, (
             f"{origin} Claude Code package: .mcp.json references "
             f"{sorted(referenced)} but plugin.json declares "
             f"{sorted(declared)}"

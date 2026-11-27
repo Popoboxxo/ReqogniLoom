@@ -18,6 +18,12 @@
       "description": "ReqogniLoom API key created in your workspace settings.",
       "sensitive": true,
       "required": true
+    },
+    "workspace_id": {
+      "type": "string",
+      "title": "Workspace ID",
+      "description": "UUID of the workspace that listen-mode capture sends to. Required to enable listen mode; leave empty otherwise.",
+      "required": false
     }
   }
 }

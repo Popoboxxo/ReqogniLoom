@@ -55,6 +55,7 @@ claude mcp add --transport http reqogniloom \
 - Marketplace-/Entry-Name **muss** `plugin.json → name` entsprechen, sonst `Plugin "x" not found in marketplace "y"`.
 - Reservierte Marketplace-Namen (`claude-plugins-official`) sind gesperrt.
 - Relative `source`-Pfade werden ab der Marketplace-Wurzel aufgelöst.
+- Listen-Modus (`/reqogniloom:listen on`) ist **standardmäßig aus** und braucht zusätzlich den serverseitigen Workspace-Schalter `capture.enabled`; ohne konfigurierte `workspace_id` wird nichts gesendet. Der Nutzernachrichtentext verlässt dabei den Rechner.
 
 ## 7. Rechte & Key-Scope
 
@@ -63,7 +64,8 @@ claude mcp add --transport http reqogniloom \
 ## 8. Update / Deinstallation
 
 - `claude plugin update reqogniloom` (Version aus `VERSION`).
-- Konfiguration ändern: `claude plugin configure reqogniloom` (2.1.x verlangt die volle ID `claude plugin configure reqogniloom@reqogniloom-marketplace`) setzt `mcp_url` und `api_key` neu.
+- Konfiguration ändern: `claude plugin configure reqogniloom` (2.1.x verlangt die volle ID `claude plugin configure reqogniloom@reqogniloom-marketplace`) setzt `mcp_url`, `api_key` und optional `workspace_id` neu.
+- Listen-Modus: `/reqogniloom:listen on|off|status` (lokal, Standard aus; der Server-Schalter `capture.enabled` bleibt separat).
 - Breaking: Das Plugin liest keine `REQOGNILOOM_*`-Umgebungsvariablen mehr — die Werte nach dem Update einmal per `claude plugin configure reqogniloom` setzen.
 - Deinstallation: `claude plugin uninstall reqogniloom`.
 - Der Installer kopiert für diesen Client keine Skills (das Plugin bringt sie mit) — `--refresh` ändert hier nichts.
