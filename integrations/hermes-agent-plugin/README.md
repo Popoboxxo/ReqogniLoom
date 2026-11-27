@@ -8,10 +8,10 @@ ReqogniLoom inside Hermes, on three surfaces over one client:
   for the artifact/flow operations, a **tool console** over the server's whole
   MCP surface, **server management** (multi-server switching, health, write gate)
   and an **admin** view for the destructive tools;
-- an opt-in **listen mode** — while it is on, your messages are captured into a
-  type-less multi-artifact interview and whatever ReqogniLoom proposes from them
-  is parked as a *suggestion* for `/reqogniloom review`. Nothing is created
-  without an explicit `/reqogniloom accept`.
+- an opt-in **listen mode** — while it is on, your messages are queued locally
+  and delivered to the server's capture endpoint, which files a *suggestion* in
+  the same inbox as every other client. Nothing is created until a human accepts
+  it; the local switch lives in the shared `~/.reqogniloom/listen`.
 
 Upstream tracking: [Popoboxxo/ReqogniLoom#1201](https://github.com/Popoboxxo/ReqogniLoom/issues/1201)
 (agent-native integration + ambient capture) and
@@ -252,36 +252,38 @@ the URL is checked the way a credential destination has to be:
 Opt-in, off by default, and it never creates anything by itself:
 
 ```text
-/reqogniloom listen on [workspace_id]   # capture from now on
-/reqogniloom listen status              # on/off, where, when the last capture was
-/reqogniloom listen off                 # stay quiet again
-/reqogniloom review                     # what ReqogniLoom proposed from your words
-/reqogniloom review pending [ws]        # server-side queue: proposals awaiting a human
-/reqogniloom accept <index|all>         # create the captured artifacts as proposals
-/reqogniloom dismiss <index|all>        # drop them without creating anything
+/reqogniloom listen on <workspace_id>   # capture from now on (workspace is explicit)
+/reqogniloom listen status              # switch, queue, counters, last error
+/reqogniloom listen off                 # stop and delete anything unsent
+/reqogniloom suggestion list            # the server-side suggestion inbox
+/reqogniloom review pending [ws]        # proposals awaiting a human
 ```
 
 **How it works.** The plugin registers one `pre_llm_call` hook, which the host
 calls with the user's message on every turn. While listen mode is on and the
-message looks substantial (≥40 characters, not a command), the message is handed
-to a **detached** worker process (`_capture.py`) — detached because the hook sits
-on the turn's critical path while a capture round is two or three network calls
-plus a server-side LLM turn:
+message looks substantial (≥40 characters, not a command, ≤300 lines), the hook
+writes it to the **shared** write-ahead queue and starts a **detached** worker
+(`_capture.py --drain`). It does **no** network work, so a slow or dead server
+never delays the turn:
 
-1. it opens (once) a type-less, multi-artifact interview in the chosen workspace;
-2. sends the message as a chat turn;
-3. reads back the proposal ReqogniLoom built from it;
-4. queues that proposal in `state.json` as a suggestion.
+1. the worker posts the message to `POST /api/v1/suggestions/capture/` with
+   `client=hermes`, the session and an idempotency key;
+2. the server redacts, filters, deduplicates, calls the model and files a durable
+   `Suggestion` (ADR-019);
+3. a human accepts or rejects it in the inbox (Web or
+   `/reqogniloom suggestion accept <id>`) — an agent key can never accept.
 
-`/reqogniloom accept` then formalizes exactly the queued items — one artifact per
-item, with the confirmed proposal passed back to the API — and removes them from
-the queue. Nothing else creates artifacts, and a failed capture leaves the queue
-untouched.
+State, switch and status live in the machine-wide `~/.reqogniloom/listen`
+(override `REQNILOOM_LISTEN_DIR`), shared with the Claude Code, OpenCode and
+Antigravity plugins; the contract is
+`docs/clients/listen-mode-contract.md`. Messages inside a window are queued, not
+dropped; a failed delivery stays queued and the next drain retries it; `off`
+deletes anything unsent. Diagnostics go to `~/.reqogniloom/listen/capture.log`
+(no message text, no key); the worker writes nothing to stdout and never fails
+the turn it was spawned from.
 
-Two deliberate limits: at most one capture every 45 s per install, and a hard cap
-of 20 queued suggestions (oldest dropped first). Duplicates are dropped by
-content hash. Diagnostics go to `$HERMES_HOME/reqogniloom/capture.log`; the
-worker writes nothing to stdout and never fails the turn it was spawned from.
+`/reqogniloom review` / `accept` / `dismiss` remain for suggestions captured by
+older plugin versions into `state.json`; new captures never use that local queue.
 
 ## Memory capabilities
 
@@ -326,8 +328,9 @@ reqogniloom_client.py        # MCP client (tools/call + tools/list), registry-aw
 reqogniloom_registry.py      # servers.json: CRUD, migration, key resolution, health probes
 reqogniloom_tools.py         # tool catalogue (tools/list, cached) + read/compute/mutate
                              #   classification + confirmation tokens + schema validation
-reqogniloom_state.py         # state.json (interview, listen switch, suggestion queue) + lock
-_capture.py                  # detached worker: one captured message -> one queued suggestion
+reqogniloom_state.py         # state.json (interview + legacy local suggestions) + lock
+reqogniloom_listen.py        # listen-mode relay contract: shared state dir, queue, lock, status
+_capture.py                  # detached worker: drain the queue to POST /api/v1/suggestions/capture/
 dashboard/
 ├── manifest.json            # dashboard tab manifest (icon/position/entry/css/api)
 ├── plugin_api.py            # FastAPI router: reads, servers, catalogue, write gate

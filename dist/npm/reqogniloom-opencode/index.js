@@ -5,8 +5,17 @@
 // carries a credential — the config holds OpenCode's {env:...} placeholder,
 // which OpenCode expands at connect time. A bare {...} would be sent literally
 // and rejected as an invalid key.
+//
+// It also wires the listen mode: OpenCode V1 `chat.message` and V2
+// `session.hook("prompt")` both hand the user message to the same relay core
+// (`listen.mjs`, copied from dist/opencode/listen_relay.mjs). The relay never
+// blocks the turn: it writes the shared write-ahead queue and dispatches the
+// drain without awaiting it. Switch with `node listen.mjs on|off|status`
+// (see command/reqogniloom-listen.md); default off.
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { v1ChatMessage, v2SessionPrompt } from "./listen.mjs";
 
 const SERVER_NAME = "reqogniloom";
 const MCP_URL = "{env:REQOGNILOOM_MCP_URL}/mcp/";
@@ -43,9 +52,12 @@ const mergeV1Server = (config) => {
 };
 
 // V1 hooks factory: V1 calls the exported plugin function and uses the hooks
-// it returns. Also exposed as the module's `server()` so a V2 loader that
-// ignores unknown functions is unaffected.
-const v1Hooks = () => ({ config: async (config) => mergeV1Server(config) });
+// it returns. `chat.message` is the V1 capture event; the handler only queues
+// and returns (no await in the hook path).
+const v1Hooks = () => ({
+  config: async (config) => mergeV1Server(config),
+  "chat.message": v1ChatMessage,
+});
 
 export const ReqogniLoomPlugin = async () => v1Hooks();
 
@@ -56,10 +68,17 @@ export default {
   // or replaces the entry, so a re-run is idempotent.
   async setup(ctx) {
     const transform = ctx && ctx.mcp && ctx.mcp.transform;
-    if (typeof transform !== "function") return;
-    await transform((editor) => {
-      editor.set(SERVER_NAME, serverEntry());
-    });
+    if (typeof transform === "function") {
+      await transform((editor) => {
+        editor.set(SERVER_NAME, serverEntry());
+      });
+    }
+    // OpenCode 2 capture event. `session.hook` is the V2 surface; skip it on a
+    // V1 context (which has no sessions) instead of pretending to capture.
+    const hook = ctx && ctx.session && ctx.session.hook;
+    if (typeof hook === "function") {
+      await hook("prompt", v2SessionPrompt);
+    }
   },
 
   // OpenCode 1.x: loads the hooks returned by server().

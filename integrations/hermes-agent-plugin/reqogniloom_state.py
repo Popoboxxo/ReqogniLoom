@@ -11,18 +11,17 @@ Layout (all keys optional)::
 
     {
       "session_id": "...", "workspace_id": "...",   # the hand-driven interview
-      "listen": {                                    # ambient "listen" mode
-        "enabled": true,
-        "workspace_id": "3f0…",
-        "session_id": "9ac…",                        # the type-less multi session
-        "min_interval_seconds": 45,
-        "last_capture_at": 1759700000.0              # epoch seconds
-      },
-      "suggestions": [                               # review-before-create queue
+      "listen": {"enabled": false, "workspace_id": "..."},  # compatibility mirror only
+      "suggestions": [                               # legacy local queue (pre-0.2 captures)
         {"id": "…", "session_id": "…", "created_at": "2026-10-06T23:40:11+00:00",
          "source": "listen", "signature": "…", "items": [{"type": "Requirement", …}]}
       ]
     }
+
+The listen mode's authoritative state (switch, write-ahead queue, status) lives
+in the machine-wide ``~/.reqogniloom/listen`` — see ``reqogniloom_listen.py``.
+``listen`` in this file is only a compatibility mirror for the old
+``/reqogniloom review`` commands.
 
 Splitting this out of ``__init__.py`` (rather than importing from it) keeps the
 detached worker dependency-free: it must not drag the whole plugin package —

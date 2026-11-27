@@ -36,6 +36,26 @@ so the skills' `../../DOMAIN_MODEL.md` links resolve inside the installed
 package. Copy `skills/*` into `~/.config/opencode/skills/` (and
 `DOMAIN_MODEL.md` one level above) if you prefer a local, user-wide install.
 
+## Listen mode (ambient capture)
+
+The plugin also wires OpenCode's capture events: V1 `chat.message` and V2
+`session.hook("prompt")` both hand the user message to `listen.mjs`, the same
+relay core, copied into the package. It is **off by default**; the switch lives
+in `~/.reqogniloom/listen/listen.json` and is shared with the Claude Code,
+Hermes and Antigravity plugins.
+
+```bash
+node "$(npm root -g)/@popoboxxo/reqogniloom-opencode/listen.mjs" on <workspace_id>
+node "$(npm root -g)/@popoboxxo/reqogniloom-opencode/listen.mjs" status
+node "$(npm root -g)/@popoboxxo/reqogniloom-opencode/listen.mjs" off   # deletes unsent messages
+```
+
+Copy `command/reqogniloom-listen.md` into `.opencode/command/` to get
+`/reqogniloom-listen`. Delivery uses `REQOGNILOOM_MCP_URL` (or
+`REQOGNILOOM_BASE_URL`) and `REQOGNILOOM_API_KEY`. The hook never blocks the
+turn: it writes a write-ahead queue and drains it without `await`. Contract:
+`docs/clients/listen-mode-contract.md`.
+
 ## Verify
 
 ```bash

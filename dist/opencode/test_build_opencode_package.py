@@ -116,7 +116,8 @@ def test_npm_package_is_generated_and_versioned(tmp_path):
     assert manifest["engines"] == {"node": ">=22.14"}
     assert manifest["repository"]["url"].endswith("github.com/Popoboxxo/ReqogniLoom.git")
     assert manifest["files"] == [
-        "index.js", "skills/", "DOMAIN_MODEL.md", "README.md", "LICENSE",
+        "index.js", "listen.mjs", "command/", "skills/", "DOMAIN_MODEL.md",
+        "README.md", "LICENSE",
     ]
     # No timestamp / build metadata of any kind: the artifact is reproducible.
     assert "time" not in manifest and "buildTime" not in manifest
@@ -134,6 +135,11 @@ def test_npm_package_is_generated_and_versioned(tmp_path):
     assert "export default" in module
     # V1 compatibility (mcp.<name> config hook) and the named v1 plugin export.
     assert "config:" in module and "server: ReqogniLoomPlugin" in module
+    # Listen mode: both entry points use the same relay core shipped alongside.
+    assert '"chat.message": v1ChatMessage' in module
+    assert 'hook("prompt", v2SessionPrompt)' in module
+    assert (package_dir / "listen.mjs").is_file()
+    assert (package_dir / "command" / "reqogniloom-listen.md").is_file()
     # No literal key anywhere in the package (module, manifest, skills, docs).
     for name, content in _package_files(package_dir).items():
         assert b"reqlo_" not in content, f"{name} contains a literal API key"

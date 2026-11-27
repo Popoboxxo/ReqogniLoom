@@ -574,6 +574,7 @@ class ReqogniLoomClient:
         *,
         api_key: str | None = None,
         requires_api_key: bool = False,
+        timeout: float | None = None,
     ) -> Any:
         """Perform one HTTP call and return the decoded JSON payload.
 
@@ -599,7 +600,9 @@ class ReqogniLoomClient:
             )
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as resp:
+            with urllib.request.urlopen(
+                req, timeout=timeout if timeout is not None else REQUEST_TIMEOUT_SECONDS
+            ) as resp:
                 raw = resp.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             # Must precede the OSError clause: HTTPError subclasses OSError.
@@ -846,6 +849,50 @@ class ReqogniLoomClient:
         return self._mcp_call(MCP_TOOLS["interview_abandon"], {"session_id": session_id})
 
     # -- suggestions / pending review (ADR-019) ------------------------------
+
+    def capture_suggestion(
+        self,
+        *,
+        workspace_id: str,
+        text: str,
+        client: str = "hermes",
+        source_session: str = "",
+        message_id: str = "",
+        idempotency_key: str = "",
+        timeout_seconds: float | None = None,
+    ) -> dict[str, Any]:
+        """``POST /api/v1/suggestions/capture/`` — the listen-mode capture call.
+
+        One call replaces the old ``interview.start``/``chat``/``propose``
+        sequence: the server redacts, filters, deduplicates, calls the model and
+        files a durable ``Suggestion``. It never creates an artifact; a human
+        accepts the suggestion in the inbox.
+
+        ``timeout_seconds`` must outlast the server's inline model turn (the
+        contract says 60 s). The listen worker is the only caller and it passes
+        that value explicitly; the 10 s default of :meth:`_request` is for the
+        interactive slash commands.
+        """
+        body: dict[str, Any] = {
+            "workspace_id": workspace_id,
+            "text": text,
+            "client": client,
+        }
+        if source_session:
+            body["source_session"] = source_session
+        if message_id:
+            body["message_id"] = message_id
+        if idempotency_key:
+            body["idempotency_key"] = idempotency_key
+        payload = self._request(
+            "POST",
+            "/api/v1/suggestions/capture/",
+            body,
+            api_key=self.api_key,
+            requires_api_key=True,
+            timeout=timeout_seconds,
+        )
+        return payload if isinstance(payload, dict) else {}
 
     def list_suggestions(self, workspace_id: str) -> list[dict[str, Any]]:
         """MCP ``suggestion.list`` — the open ADR-019 proposals of a workspace.

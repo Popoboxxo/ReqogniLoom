@@ -42,6 +42,13 @@ def test_build_antigravity_plugin(tmp_path):
         REPO_ROOT / "docs" / "agent-templates" / "DOMAIN_MODEL.md"
     ).read_text(), "DOMAIN_MODEL.md must be byte-identical to the canonical one"
 
+    hooks = json.loads((tmp_path / "reqogniloom" / "hooks.json").read_text())
+    assert hooks["hooks"]["PreInvocation"][0]["command"] == "python3 listen.py"
+    listen = tmp_path / "reqogniloom" / "listen.py"
+    assert listen.is_file()
+    assert listen.read_text() == (BUILD_DIR / "listen.py").read_text()
+    assert (tmp_path / "reqogniloom" / "LISTEN.md").is_file()
+
 
 def test_discover_skill_names_matches_the_canonical_skill_set():
     """The skill set is derived from dist/agent-skills/ rather than written

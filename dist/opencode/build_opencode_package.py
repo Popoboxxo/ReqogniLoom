@@ -57,6 +57,8 @@ NPM_PACKAGE_NAME = "@popoboxxo/reqogniloom-opencode"
 NPM_PACKAGE_DIRNAME = "reqogniloom-opencode"
 NPM_DEFAULT_OUT = REPO_ROOT / "dist" / "npm"
 NPM_MODULE = "index.js"
+NPM_LISTEN_MODULE = "listen.mjs"
+LISTEN_RELAY_SRC = BUILD_DIR / "listen_relay.mjs"
 
 
 def discover_skill_names(skills_src: Path) -> list[str]:
@@ -107,8 +109,17 @@ PLUGIN_MODULE_SOURCE = """\
 // carries a credential — the config holds OpenCode's {env:...} placeholder,
 // which OpenCode expands at connect time. A bare {...} would be sent literally
 // and rejected as an invalid key.
+//
+// It also wires the listen mode: OpenCode V1 `chat.message` and V2
+// `session.hook("prompt")` both hand the user message to the same relay core
+// (`listen.mjs`, copied from dist/opencode/listen_relay.mjs). The relay never
+// blocks the turn: it writes the shared write-ahead queue and dispatches the
+// drain without awaiting it. Switch with `node listen.mjs on|off|status`
+// (see command/reqogniloom-listen.md); default off.
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { v1ChatMessage, v2SessionPrompt } from "./listen.mjs";
 
 const SERVER_NAME = "reqogniloom";
 const MCP_URL = "{env:REQOGNILOOM_MCP_URL}/mcp/";
@@ -145,9 +156,12 @@ const mergeV1Server = (config) => {
 };
 
 // V1 hooks factory: V1 calls the exported plugin function and uses the hooks
-// it returns. Also exposed as the module's `server()` so a V2 loader that
-// ignores unknown functions is unaffected.
-const v1Hooks = () => ({ config: async (config) => mergeV1Server(config) });
+// it returns. `chat.message` is the V1 capture event; the handler only queues
+// and returns (no await in the hook path).
+const v1Hooks = () => ({
+  config: async (config) => mergeV1Server(config),
+  "chat.message": v1ChatMessage,
+});
 
 export const ReqogniLoomPlugin = async () => v1Hooks();
 
@@ -158,15 +172,48 @@ export default {
   // or replaces the entry, so a re-run is idempotent.
   async setup(ctx) {
     const transform = ctx && ctx.mcp && ctx.mcp.transform;
-    if (typeof transform !== "function") return;
-    await transform((editor) => {
-      editor.set(SERVER_NAME, serverEntry());
-    });
+    if (typeof transform === "function") {
+      await transform((editor) => {
+        editor.set(SERVER_NAME, serverEntry());
+      });
+    }
+    // OpenCode 2 capture event. `session.hook` is the V2 surface; skip it on a
+    // V1 context (which has no sessions) instead of pretending to capture.
+    const hook = ctx && ctx.session && ctx.session.hook;
+    if (typeof hook === "function") {
+      await hook("prompt", v2SessionPrompt);
+    }
   },
 
   // OpenCode 1.x: loads the hooks returned by server().
   server: ReqogniLoomPlugin,
 };
+"""
+
+LISTEN_COMMAND_SOURCE = """\
+---
+description: Turn ReqogniLoom's listen mode on, off or report its status
+---
+
+# /reqogniloom-listen
+
+Run the packaged relay CLI in the directory that holds your global npm install
+(`npm root -g`). It reads and writes the machine-wide state directory
+`~/.reqogniloom/listen`, shared with every other ReqogniLoom client.
+
+```bash
+node "$(npm root -g)/@popoboxxo/reqogniloom-opencode/listen.mjs" status
+```
+
+For `on`, the workspace must be explicit — capture never guesses a target:
+
+```bash
+node "$(npm root -g)/@popoboxxo/reqogniloom-opencode/listen.mjs" on <workspace_id>
+node "$(npm root -g)/@popoboxxo/reqogniloom-opencode/listen.mjs" off
+```
+
+`off` stops capture and deletes anything still queued. Both switches must be
+on: the local one and the server-side workspace preference `capture.enabled`.
 """
 
 README_SOURCE = """\
@@ -208,6 +255,26 @@ so the skills' `../../DOMAIN_MODEL.md` links resolve inside the installed
 package. Copy `skills/*` into `~/.config/opencode/skills/` (and
 `DOMAIN_MODEL.md` one level above) if you prefer a local, user-wide install.
 
+## Listen mode (ambient capture)
+
+The plugin also wires OpenCode's capture events: V1 `chat.message` and V2
+`session.hook("prompt")` both hand the user message to `listen.mjs`, the same
+relay core, copied into the package. It is **off by default**; the switch lives
+in `~/.reqogniloom/listen/listen.json` and is shared with the Claude Code,
+Hermes and Antigravity plugins.
+
+```bash
+node "$(npm root -g)/@popoboxxo/reqogniloom-opencode/listen.mjs" on <workspace_id>
+node "$(npm root -g)/@popoboxxo/reqogniloom-opencode/listen.mjs" status
+node "$(npm root -g)/@popoboxxo/reqogniloom-opencode/listen.mjs" off   # deletes unsent messages
+```
+
+Copy `command/reqogniloom-listen.md` into `.opencode/command/` to get
+`/reqogniloom-listen`. Delivery uses `REQOGNILOOM_MCP_URL` (or
+`REQOGNILOOM_BASE_URL`) and `REQOGNILOOM_API_KEY`. The hook never blocks the
+turn: it writes a write-ahead queue and drains it without `await`. Contract:
+`docs/clients/listen-mode-contract.md`.
+
 ## Verify
 
 ```bash
@@ -234,7 +301,7 @@ def npm_package_manifest(version: str) -> dict[str, Any]:
         "type": "module",
         "main": NPM_MODULE,
         "exports": {".": f"./{NPM_MODULE}"},
-        "files": [NPM_MODULE, "skills/", "DOMAIN_MODEL.md", "README.md", "LICENSE"],
+        "files": [NPM_MODULE, NPM_LISTEN_MODULE, "command/", "skills/", "DOMAIN_MODEL.md", "README.md", "LICENSE"],
         "engines": {"node": ">=22.14"},
         "repository": {
             "type": "git",
@@ -270,6 +337,14 @@ def build_npm_package(npm_out: Path, skills_src: Path = SKILLS_SRC) -> Path:
         encoding="utf-8",
     )
     (package_dir / NPM_MODULE).write_text(PLUGIN_MODULE_SOURCE, encoding="utf-8")
+    # Same relay core the V1 and V2 hooks import, copied verbatim from the
+    # source tree so the two entry points cannot drift apart.
+    (package_dir / NPM_LISTEN_MODULE).write_text(
+        LISTEN_RELAY_SRC.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    command_out = package_dir / "command"
+    command_out.mkdir(parents=True, exist_ok=True)
+    (command_out / "reqogniloom-listen.md").write_text(LISTEN_COMMAND_SOURCE, encoding="utf-8")
     (package_dir / "README.md").write_text(README_SOURCE, encoding="utf-8")
     shutil.copy2(LICENSE_FILE, package_dir / "LICENSE")
     # Self-contained skills: ../../DOMAIN_MODEL.md from skills/<name>/SKILL.md

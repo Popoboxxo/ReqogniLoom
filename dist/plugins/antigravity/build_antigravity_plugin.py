@@ -1,9 +1,8 @@
 """Minimal Antigravity plugin: manifest + MCP config + the same SKILL.md
-files Claude Code uses (Antigravity shares the Agent Skills format).
-Deliberately no hooks.json / custom rules beyond this — Antigravity is a
-free-quota preview with documented security findings (browser-subagent
-data exfiltration, RCE), so this package stays on the low-risk static-file
-surface per this plan's Global Constraints.
+files Claude Code uses (Antigravity shares the Agent Skills format), plus the
+stage-B listen-mode hook (`PreInvocation`, see docs/clients/listen-mode-contract.md).
+The listen relay is opt-in at runtime via the shared local switch; the hook
+itself only queues and detaches, so it never blocks a model call.
 """
 import argparse
 import json
@@ -14,6 +13,7 @@ BUILD_DIR = Path(__file__).resolve().parent
 REPO_ROOT = BUILD_DIR.parent.parent.parent
 SKILLS_SRC = REPO_ROOT / "dist" / "agent-skills"
 DOMAIN_MODEL_SRC = REPO_ROOT / "docs" / "agent-templates" / "DOMAIN_MODEL.md"
+LISTEN_SRC = BUILD_DIR / "listen.py"
 SERVER_NAME = "reqogniloom"
 
 
@@ -30,6 +30,33 @@ def discover_skill_names(skills_src: Path) -> list[str]:
         for entry in skills_src.iterdir()
         if entry.is_dir() and (entry / "SKILL.md").is_file()
     )
+
+
+def _listen_readme() -> str:
+    return """\
+# Listen mode (Antigravity) — stage B
+
+`hooks.json` registers a `PreInvocation` hook that runs `python3 listen.py`.
+Antigravity has no submit event, so this fires before **every** model call and
+carries `lastUserInput`; the relay deduplicates on `(session_id, sha256(text))`
+in `~/.reqogniloom/listen/capture-seen.json` before it queues a message.
+
+* Default **off**. Switch: `python3 listen.py on <workspace_id>` / `off` /
+  `status`, or the equivalent commands of the other clients — the state
+  directory `~/.reqogniloom/listen` is shared.
+* Both switches must be on: the local `listen.json` and the server-side
+  workspace preference `capture.enabled`.
+* The hook only queues and detaches; delivery happens in `listen.py --drain`
+  and uses `POST /api/v1/suggestions/capture/` with
+  `REQOGNILOOM_MCP_URL` (or `REQOGNILOOM_BASE_URL`) and `REQOGNILOOM_API_KEY`.
+* Fail-open: no stdout, no non-zero exit, diagnostics without message text in
+  `capture.log`.
+
+Status of this adapter: **partial**. The hook schema (`PreInvocation`,
+`lastUserInput`, script cwd) follows the documented preview shape but was not
+executed against a live Antigravity installation; the conformance suite checks
+the relay against an HTTP stub. See `docs/clients/listen-mode-contract.md`.
+"""
 
 
 def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
@@ -72,6 +99,30 @@ def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
     # SKILL.md files reference "../../DOMAIN_MODEL.md" (two levels up from
     # skills/<name>/). That must resolve to plugin_root/DOMAIN_MODEL.md.
     shutil.copy2(DOMAIN_MODEL_SRC, plugin_root / "DOMAIN_MODEL.md")
+
+    # Listen mode, stage B: Antigravity has no submit event, so `PreInvocation`
+    # (which fires before every model call, with `lastUserInput`) is the only
+    # deterministic catch point. The relay deduplicates on (session, hash).
+    shutil.copy2(LISTEN_SRC, plugin_root / "listen.py")
+    (plugin_root / "hooks.json").write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "PreInvocation": [
+                        {
+                            "type": "command",
+                            "command": "python3 listen.py",
+                            "timeout_seconds": 5,
+                        }
+                    ]
+                }
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (plugin_root / "LISTEN.md").write_text(_listen_readme(), encoding="utf-8")
 
     skills_out = plugin_root / "skills"
     if skills_out.exists():

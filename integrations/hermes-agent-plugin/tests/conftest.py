@@ -55,6 +55,23 @@ def isolated_hermes_home(
 
 
 @pytest.fixture(autouse=True)
+def isolated_listen_dir(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Path]:
+    """Point the shared listen directory at a temp dir for every test.
+
+    The listen mode deliberately does **not** live under ``HERMES_HOME``: the
+    state is machine-wide so Claude Code, OpenCode and Antigravity share one
+    switch and one queue. Tests must therefore isolate it explicitly — without
+    this fixture a test would read and write the developer's
+    ``~/.reqogniloom/listen``.
+    """
+    directory = tmp_path_factory.mktemp("listen-state") / "listen"
+    monkeypatch.setenv("REQNILOOM_LISTEN_DIR", str(directory))
+    yield directory
+
+
+@pytest.fixture(autouse=True)
 def reset_process_memoisation() -> Iterator[None]:
     """Empty the tool catalogue caches and the issued-token stores around a test."""
 
