@@ -215,7 +215,13 @@ def _attribute_choices(attribute: dict[str, Any]) -> list[str]:
     return choices
 
 
-def artifact_field_contract(ctx, workspace_id, artifact_type: str) -> list[dict[str, Any]]:
+def artifact_field_contract(
+    ctx,
+    workspace_id,
+    artifact_type: str,
+    *,
+    include_definition: bool = True,
+) -> list[dict[str, Any]]:
     """Return the writable-field contract of *artifact_type*.
 
     One entry per writable field, in create-signature order::
@@ -248,7 +254,11 @@ def artifact_field_contract(ctx, workspace_id, artifact_type: str) -> list[dict[
             for name in allowed
         }
 
-    definition = _definition_attributes(ctx, workspace_id, artifact_type)
+    definition = (
+        _definition_attributes(ctx, workspace_id, artifact_type)
+        if include_definition
+        else {}
+    )
 
     entries: list[dict[str, Any]] = []
     for name, sig in signature.items():

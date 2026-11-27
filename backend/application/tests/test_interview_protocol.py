@@ -423,3 +423,31 @@ class TestNormalizeArtifactType:
         for artifact_type in (*IN_SCOPE_ARTIFACT_TYPES, *OUT_OF_SCOPE_ARTIFACT_TYPES):
             assert artifact_type_key(artifact_type) in ARTIFACT_TYPE_ALIASES
             assert ARTIFACT_TYPE_ALIASES[artifact_type_key(artifact_type)] == artifact_type
+
+
+def test_default_protocol_extras_are_required_in_the_field_contract():
+    """The single-mode factory extras must be a subset of the contract.
+
+    ``_EXTRA_REQUIRED_FIELDS`` predates ``artifact_field_contract``; keeping it
+    as a second *independent* required list is exactly the drift the contract
+    exists to prevent. This guard proves every name it asks for is REQUIRED by
+    the create signature, so the static fallback cannot invent a requirement.
+    """
+    import re
+
+    from application.attribute_contract_service import artifact_field_contract
+    from application.interview_protocol import _EXTRA_REQUIRED_FIELDS
+
+    for artifact_type, yaml_text in _EXTRA_REQUIRED_FIELDS.items():
+        names = set(re.findall(r"-\s*name:\s*([A-Za-z_][A-Za-z0-9_]*)", yaml_text))
+        required = {
+            field["name"]
+            for field in artifact_field_contract(
+                None, None, artifact_type, include_definition=False
+            )
+            if field["required"]
+        }
+        assert names <= required, (
+            f"{artifact_type}: {sorted(names - required)} are not required by the "
+            "create signature"
+        )

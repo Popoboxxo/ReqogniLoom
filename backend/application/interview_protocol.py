@@ -245,6 +245,10 @@ def parse_protocol_yaml(content: str) -> ProtocolConfig:
 # the attribute-definition create gate is a different axis and stays untouched
 # (`required` remains false, see introspect_core_attributes' docstring).
 _EXTRA_REQUIRED_FIELDS: dict[str, str] = {
+    # Genuinely required by the create signature (no default). The guard test
+    # `test_default_protocol_extras_are_required_in_the_field_contract` proves
+    # every name here is ``required`` in `artifact_field_contract`, so this is
+    # not a second, free-standing required list.
     "Risk": (
         "      - name: probability\n"
         "        type: enum\n"
@@ -253,6 +257,14 @@ _EXTRA_REQUIRED_FIELDS: dict[str, str] = {
         "        type: enum\n"
         "        choices: [low, medium, high]\n"
     ),
+}
+
+#: Elicitation *preferences*: fields a Requirement interview should ask for even
+#: though the create signature defaults them (so formalize() does not block on
+#: them). They are deliberately NOT in `_EXTRA_REQUIRED_FIELDS`; the difference
+#: between "the artifact is invalid without it" and "the interview should ask"
+#: stays visible.
+_SE_ELICIT_PREFERENCES: dict[str, str] = {
     "Requirement": (
         "      - name: acceptance_criteria\n"
         "        type: textarea\n"
@@ -279,6 +291,7 @@ def _default_protocol_yaml(artifact_type: str) -> str:
         "      - name: rationale\n"
         "        type: textarea\n"
         f"{_EXTRA_REQUIRED_FIELDS.get(artifact_type, '')}"
+        f"{_SE_ELICIT_PREFERENCES.get(artifact_type, '')}"
         f"    prompt_fragment: \"Elicit the {artifact_type}'s title and rationale.\"\n"
         "  - name: approval\n"
         f"    prompt_fragment: \"Present the drafted {artifact_type} for approval.\"\n"
