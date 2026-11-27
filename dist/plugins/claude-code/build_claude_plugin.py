@@ -149,7 +149,7 @@ def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
         # Claude Code exposes an MCP tool from a plugin as
         # ``mcp__plugin_<plugin>_<server>__<tool>`` with every ``.`` in the tool
         # name replaced by ``_`` (issue #1974). The old ``mcp__<server>__<dotted>``
-        # form matched nothing, so all 154 role refs were dead.
+        # form matched nothing, so all 155 role refs were dead.
         prefixed_tools = [
             f"mcp__plugin_{SERVER_NAME}_{SERVER_NAME}__{t.replace('.', '_')}"
             for t in frontmatter.get("tools", [])

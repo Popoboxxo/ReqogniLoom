@@ -13,9 +13,9 @@
     "needs.read", "needs.get_traces", "requirement.get", "requirement.query", "requirement.update",
     "requirement_bundle.export", "requirement_bundle.attribute_schema",
     "requirement_bundle.compression_status",
-    "interview.start", "interview.get_state", "interview.answer", "interview.get",
-    "interview.list", "interview.grounding_context", "interview.set_target",
-    "interview.propose", "interview.formalize", "interview.abandon"
+    "interview.start", "interview.get_state", "interview.answer", "interview.chat",
+    "interview.get", "interview.list", "interview.grounding_context",
+    "interview.set_target", "interview.propose", "interview.formalize", "interview.abandon"
   ],
   "test-lifecycle": [
     "workspace.get_context",

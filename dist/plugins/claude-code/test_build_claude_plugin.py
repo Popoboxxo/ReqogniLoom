@@ -163,7 +163,7 @@ def test_generated_agent_tool_refs_match_the_manifest(tmp_path):
 
     The old generator emitted ``mcp__reqogniloom__<dotted-name>``; Claude Code
     actually exposes plugin MCP tools as
-    ``mcp__plugin_<plugin>_<server>__<tool-with-underscores>``, so all 154 refs
+    ``mcp__plugin_<plugin>_<server>__<tool-with-underscores>``, so all 155 refs
     matched nothing. Deriving the expected identifiers from the committed
     manifest (rather than hardcoding them here) makes a renamed or added tool
     fail this check too.
@@ -193,7 +193,7 @@ def test_generated_agent_tool_refs_match_the_manifest(tmp_path):
         for ref in ref_re.findall(agent.read_text(encoding="utf-8")):
             seen += 1
             assert ref in expected, f"{agent.name}: unknown tool ref {ref}"
-    assert seen == 154, f"expected 154 tool refs across 7 agents, got {seen}"
+    assert seen == 155, f"expected 155 tool refs across 7 agents, got {seen}"
 
 
 def test_discover_skill_names_matches_the_canonical_skill_set():
