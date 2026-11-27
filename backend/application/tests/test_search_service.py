@@ -261,8 +261,13 @@ class TestSearchServiceExecution:
         called_types = {c.kwargs["entity_type"] for c in mock_search.call_args_list}
         assert called_types == set(SEARCHABLE_ARTIFACT_TYPES)
 
+    @pytest.mark.django_db
     def test_pagination_slices_results(self):
-        """REQ-L3-SEARCH-006: page and limit correctly slice hits."""
+        """REQ-L3-SEARCH-006: page and limit correctly slice hits.
+
+        P6 / D13: non-empty hits go through the lifecycle filter, which needs
+        database access to resolve the ``outdated`` flag.
+        """
         from application.search_service import SearchHit
 
         svc = SearchService()
@@ -877,7 +882,14 @@ class TestMinScoreFilter:
     after ranking but before `total_count`/pagination, so the reported count
     reflects the filtered set. Default 0 must keep the pre-#1170 behaviour
     (no filtering) — see the tool/description disclosure for why there is no
-    positive default (the fused score band has no clean relevance gap)."""
+    positive default (the fused score band has no clean relevance gap).
+
+    P6 / D13: the lifecycle filter resolves the ``outdated`` flag for every
+    non-empty hit list, so these unit tests now need database access (the
+    synthetic hits simply never match an outdated row).
+    """
+
+    pytestmark = pytest.mark.django_db
 
     def _make_ctx(self):
         ctx = MagicMock()

@@ -732,6 +732,21 @@ only that name is guaranteed:
   `include_deleted` keep working unchanged.
 * The MCP surface has always used `include_outdated`; it exposes no alias.
 
+### Search: outdated hits are excluded by default (P6 / D13)
+
+`GET /api/v1/search/` and MCP `artifact.search` now exclude hits whose backing
+artifact is outdated when `include_outdated` is omitted/false — before P6 most
+types returned them. `?include_outdated=true` / MCP `include_outdated: true`
+restores them; each hit then carries `status` (projected workflow status,
+`outdated` here) and `outdated` (bool), which are present on every hit.
+`total_count` counts only the hits returned. No alias was introduced *for the
+behaviour change*: the endpoint accepts the shared parser's pre-existing
+`include_deleted` alias, declared deprecated in OpenAPI, and an unparseable
+value on either spelling answers `400`. Limitation: on Qdrant and on the
+degraded pgvector fallback the semantic leg discards outdated rows before this
+filter, so `include_outdated=true` restores an outdated hit there only when a
+keyword leg also matched it.
+
 ---
 
 ## 11. Suggestion inbox — agent-keyed writes, `409 PRODUCER_CONTEXT_REQUIRED`

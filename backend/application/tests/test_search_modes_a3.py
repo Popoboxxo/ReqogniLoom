@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace as dataclass_replace
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -95,7 +96,11 @@ def test_mode_vector_runs_only_the_semantic_pass():
     finally:
         clear_request_tenant()
 
-    assert result.results == [hit]
+    # P6 / D13: ``status`` is the display projection resolved for the returned
+    # page. No workflow was provisioned here, so Requirement falls back to its
+    # type's initial state ("draft"); ``outdated`` stays False.
+    expected = dataclass_replace(hit, status="draft")
+    assert result.results == [expected]
     fulltext.assert_not_called()
     lexical.assert_not_called()
     assert semantic.called

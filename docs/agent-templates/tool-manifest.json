@@ -1063,7 +1063,7 @@
       "name": "artifact.search",
       "prefix": "artifact",
       "is_write": false,
-      "description": "Search across all artifact types. Each hit's relevance_score is a normalized fused rank in [0, 1] built from up to three passes: (1) a full-text pass over a PostgreSQL tsvector (ts_rank); (2) a lexical pass that scores a case-insensitive exact/substring match of the query against an artifact's title, uid or ID (exact title > exact uid/ID > title prefix > title substring > ID substring); and (3) where an embedding exists, an embedding/cosine semantic pass. When the semantic pass contributes hits, the passes are combined by Reciprocal Rank Fusion; otherwise they are combined by the maximum normalized score. Either way a relevance_score expresses relative rank position, not an absolute similarity. By default no filtering is applied: every matching artifact is returned, ordered by descending score, and total_count counts all of them. Pass min_score (in [0, 1]) to drop hits whose relevance_score is below it — total_count then counts only the surviving hits, and pagination is applied after the filter.",
+      "description": "Search across all artifact types. Each hit's relevance_score is a normalized fused rank in [0, 1] built from up to three passes: (1) a full-text pass over a PostgreSQL tsvector (ts_rank); (2) a lexical pass that scores a case-insensitive exact/substring match of the query against an artifact's title, uid or ID (exact title > exact uid/ID > title prefix > title substring > ID substring); and (3) where an embedding exists, an embedding/cosine semantic pass. When the semantic pass contributes hits, the passes are combined by Reciprocal Rank Fusion; otherwise they are combined by the maximum normalized score. Either way a relevance_score expresses relative rank position, not an absolute similarity. By default no relevance filtering is applied and outdated (soft-deleted) artifacts are excluded; every non-outdated matching artifact is returned, ordered by descending score, and total_count counts only those. Pass min_score (in [0, 1]) to drop hits whose relevance_score is below it — total_count then counts only the surviving hits, and pagination is applied after the filter. Each hit carries the projected workflow status and an outdated flag; pass include_outdated=true to also return outdated artifacts.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -1124,6 +1124,10 @@
           "include_summary": {
             "type": "boolean",
             "description": "Default false. When true, the response gains ai_summary (string or null) and summary_degraded (bool). Triggers one LLM call per request; a provider failure degrades instead of failing."
+          },
+          "include_outdated": {
+            "type": "boolean",
+            "description": "Default false. Outdated (soft-deleted) artifacts are excluded from results and total_count. Set true to include them; such hits carry status=\"outdated\" and outdated=true."
           }
         },
         "required": [

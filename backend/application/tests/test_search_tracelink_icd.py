@@ -297,6 +297,22 @@ class TestTraceLinkAndIcdSearchable:
                 type_filter=["TraceLink"],
                 mode="keyword",
             )
+            # P6 / D13: the shared lifecycle filter annotates the outdated ICD
+            # instead of dropping it when the caller opts in.
+            icd_with_outdated = SearchService().search(
+                "Retired Bus",
+                ctx,
+                workspace_id=ws.id,
+                type_filter=["Icd"],
+                mode="keyword",
+                include_outdated=True,
+            )
 
         assert str(icd.id) not in [hit.id for hit in icd_hits.results]
         assert str(link.id) not in [hit.id for hit in link_hits.results]
+        restored = [
+            hit for hit in icd_with_outdated.results if hit.id == str(icd.id)
+        ]
+        assert restored, "outdated ICD must be returned with include_outdated=True"
+        assert restored[0].outdated is True
+        assert restored[0].status == "outdated"
