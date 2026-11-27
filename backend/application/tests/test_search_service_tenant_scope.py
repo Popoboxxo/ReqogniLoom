@@ -78,6 +78,7 @@ class TestSearchServiceTenantScope:
                 port=None,
                 port_semantic_hits=None,
                 semantic_limit=None,  # #1965: bounded semantic candidate pool
+                include_outdated: bool = False,
             ):
                 if entity_type == "Requirement" and workspace_id == ws_b.id:
                     raise RuntimeError("simulated failure for the middle workspace")
@@ -93,6 +94,7 @@ class TestSearchServiceTenantScope:
                     port=port,
                     port_semantic_hits=port_semantic_hits,
                     semantic_limit=semantic_limit,
+                    include_outdated=include_outdated,
                 )
 
             monkeypatch.setattr(

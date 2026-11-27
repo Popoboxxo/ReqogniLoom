@@ -129,9 +129,9 @@ CAPTURE_CREATE_TYPES = (
 )
 
 #: Types whose live titles/versions are offered to the model as context and used
-#: by the duplicate check. Excluded on purpose: Goal (append-only lineage, not
-#: create- or update-capable here) and GlossaryTerm (never loaded, so the prompt
-#: must not advertise it as an update target).
+#: by the duplicate check. Goal is update-only here (append-only lineage; the
+#: create set stays at the four v1 types). GlossaryTerm is never loaded, so the
+#: prompt must not advertise it as an update target.
 _CAPTURE_CONTEXT_TYPES = (
     "Requirement",
     "ArchitectureElement",
@@ -140,6 +140,7 @@ _CAPTURE_CONTEXT_TYPES = (
     "Risk",
     "TestCase",
     "Issue",
+    "Goal",
 )
 
 #: Title similarity at which a proposed create is re-read as an update of the

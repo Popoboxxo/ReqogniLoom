@@ -266,9 +266,17 @@ def update_artifact_fields(
         # Always call the typed service, also for a gateway-only change: that is
         # what makes a successful write bump the entity version (plan O11), and
         # what makes a replayed ``expected_version`` conflict.
-        _, version = adapter.update(
+        updated_entity_id, version = adapter.update(
             ctx, entity_id, entity_fields, expected_version, change_reason
         )
+        if updated_entity_id != entity_id:
+            # Append-only types (Goal) create a NEW version row and return it;
+            # the gateway fields must land on that row's Artifact, not on the
+            # addressed source version.
+            replacement = model_for(item_type).objects.filter(pk=updated_entity_id).first()
+            if replacement is not None:
+                entity = replacement
+                entity_id = updated_entity_id
         if gateway_fields:
             extended = gateway_fields.get("custom_fields") or {}
             core = {

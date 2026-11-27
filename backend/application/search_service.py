@@ -799,6 +799,7 @@ def _run_semantic_query(
     query_text: str = "",
     ctx: Any = None,
     semantic_limit: int | None = None,
+    include_outdated: bool = False,
 ) -> list[SearchHit]:
     """Cosine-similarity pass over ``entity_type``'s ``embedding`` column.
 
@@ -893,6 +894,7 @@ def _run_semantic_query(
             query_text=query_text,
             # QR-S07: the READ gate for hydrated Qdrant hits needs the caller.
             ctx=ctx,
+            include_outdated=include_outdated,
         )
         # QR-S07 on the FALLBACK path. A FallbackVectorPort that had to serve
         # this call from pgvector returns raw ORM rows: the pgvector adapter
@@ -916,6 +918,7 @@ def _run_semantic_query(
                 tenant_id=tenant_id,
                 workspace_id=workspace_id,
                 ctx=ctx,
+                include_outdated=include_outdated,
             )
         return _semantic_search_hits(entity_type, hits)
 
@@ -1374,13 +1377,14 @@ def _filter_outdated_hits(
     left them annotated as visible, which leaked possibly-outdated rows (and
     inverted Icd's earlier fail-closed drop).
 
-    Known limitation (F4, deliberately not threaded through the vector port):
-    the Qdrant adapter and the degraded pgvector-fallback hydration path
-    (:func:`application.vector_port.hydrate_vector_hits`) drop outdated rows
-    unconditionally. On those backends ``include_outdated=True`` restores an
-    outdated hit only when a keyword leg (full-text/lexical) also matched it;
-    a hit that ONLY the semantic leg matched stays absent. On pgvector all
-    three legs feed this filter and every outdated hit is restored.
+    Known limitation (F4, narrowed 2026-11-27): the per-type semantic leg
+    (``query_similar``) and the degraded pgvector-fallback hydration now carry
+    ``include_outdated`` into :func:`application.vector_port.hydrate_vector_hits`,
+    so an outdated hit of an **embeddable** type is restored when
+    ``include_outdated=True``. The cross-type leg (``query_entities``) still
+    drops outdated rows unconditionally; a non-embeddable type whose ONLY match
+    is that semantic leg therefore stays absent. Keyword/lexical hits are
+    restored everywhere. On pgvector all three legs feed this filter.
     """
     if not hits:
         return hits
@@ -2004,6 +2008,7 @@ class SearchService(ServiceBase):
                 ctx=ctx,
                 port=port,
                 semantic_limit=semantic_limit,
+                include_outdated=include_outdated,
             )
         else:
             ws_uuid: UUID | None = (
@@ -2036,6 +2041,7 @@ class SearchService(ServiceBase):
                         port=port,
                         port_semantic_hits=port_hits.get(entity_type),
                         semantic_limit=semantic_limit,
+                        include_outdated=include_outdated,
                     )
                     hits.extend(type_hits)
                 except Exception:
@@ -2129,6 +2135,7 @@ class SearchService(ServiceBase):
         port: Any = None,
         port_semantic_hits: list[SearchHit] | None = None,
         semantic_limit: int | None = None,
+        include_outdated: bool = False,
     ) -> list[SearchHit]:
         """Return hits for one entity type from all applicable search passes.
 
@@ -2191,6 +2198,7 @@ class SearchService(ServiceBase):
                 query_text=raw_query,
                 ctx=ctx,
                 semantic_limit=semantic_limit,
+                include_outdated=include_outdated,
             )
             # T-A2-6: types WITHOUT an embedding column get their semantic hits
             # from the port's cross-type query (Qdrant only; empty otherwise).
@@ -2349,6 +2357,7 @@ class SearchService(ServiceBase):
         ctx: AuthContext | None = None,
         port: Any = None,
         semantic_limit: int | None = None,
+        include_outdated: bool = False,
     ) -> list[SearchHit]:
         """Search every type in ``entity_types`` across all ``workspace_ids``.
 
@@ -2395,6 +2404,7 @@ class SearchService(ServiceBase):
                             port=port,
                             port_semantic_hits=port_hits.get(entity_type),
                             semantic_limit=semantic_limit,
+                            include_outdated=include_outdated,
                         )
                     )
                 except Exception:

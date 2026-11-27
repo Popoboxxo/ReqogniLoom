@@ -243,6 +243,7 @@ class VectorPort(Protocol):
         iterative_scan: bool = False,
         query_text: str | None = None,
         ctx: Any = None,
+        include_outdated: bool = False,
     ) -> list[VectorHit]:
         """Return the ``limit`` nearest rows to ``query_vector``, closest first.
 
@@ -269,6 +270,7 @@ class VectorPort(Protocol):
         entity_types: Sequence[str],
         limit: int = 50,
         ctx: Any = None,
+        include_outdated: bool = False,
     ) -> list[TypedVectorHit]:
         """Semantic hits across *entity_types*, including types with no embedding column.
 
@@ -429,6 +431,8 @@ def _hydrate_rows(
     tenant_id: Any,
     workspace_id: UUID | None,
     ctx: Any,
+    *,
+    include_outdated: bool = False,
 ) -> dict[UUID, Any]:
     """Resolve *ids* to ORM rows that may be presented for this tenant/workspace.
 
@@ -482,7 +486,7 @@ def _hydrate_rows(
             target = _read_target_id(entity_type, row)
             if current_main_goals is not None and row_id not in current_main_goals:
                 continue
-            if target is not None and target in outdated:
+            if target is not None and target in outdated and not include_outdated:
                 continue
             row_workspace = _workspace_of_row(entity_type, row)
             # Workspace fence on the ROW's own workspace: the payload's claim
@@ -507,6 +511,7 @@ def hydrate_vector_hits(
     tenant_id: Any,
     workspace_id: UUID | None = None,
     ctx: Any = None,
+    include_outdated: bool = False,
 ) -> list[VectorHit]:
     """Keep only the hits whose ORM row is present and READable (QR-S07).
 
@@ -517,7 +522,14 @@ def hydrate_vector_hits(
     """
     if not hits:
         return []
-    rows = _hydrate_rows(collection, [hit.id for hit in hits], tenant_id, workspace_id, ctx)
+    rows = _hydrate_rows(
+        collection,
+        [hit.id for hit in hits],
+        tenant_id,
+        workspace_id,
+        ctx,
+        include_outdated=include_outdated,
+    )
     return [hit for hit in hits if hit.id in rows]
 
 
@@ -569,6 +581,7 @@ class PgVectorVectorPort:
         iterative_scan: bool = False,
         query_text: str | None = None,
         ctx: Any = None,
+        include_outdated: bool = False,
     ) -> list[VectorHit]:
         # ``query_text``/``ctx`` are accepted and deliberately IGNORED: pgvector
         # has no BM25 leg (that lives in SearchService for pgvector, A3) and the
@@ -636,6 +649,7 @@ class PgVectorVectorPort:
         entity_types: Sequence[str],
         limit: int = 50,
         ctx: Any = None,
+        include_outdated: bool = False,
     ) -> list[TypedVectorHit]:
         """Always ``[]``: pgvector has no cross-type semantic index.
 
@@ -797,6 +811,7 @@ class QdrantVectorPort:
         iterative_scan: bool = False,
         query_text: str | None = None,
         ctx: Any = None,
+        include_outdated: bool = False,
     ) -> list[VectorHit]:
         """Hybrid (dense + BM25 via RRF) query against the workspace alias.
 
@@ -820,6 +835,7 @@ class QdrantVectorPort:
             tenant_id=tenant_id,
             workspace_id=workspace_id,
             ctx=ctx,
+            include_outdated=include_outdated,
         )
 
     def query_entities(
@@ -832,6 +848,7 @@ class QdrantVectorPort:
         entity_types: Sequence[str],
         limit: int = 50,
         ctx: Any = None,
+        include_outdated: bool = False,
     ) -> list[TypedVectorHit]:
         """Hybrid semantic hits across *entity_types* (T-A2-6).
 
@@ -886,7 +903,12 @@ class QdrantVectorPort:
         visible: list[TypedVectorHit] = []
         for entity_type, group in grouped.items():
             rows = _hydrate_rows(
-                entity_type, [hit.id for hit in group], tenant_id, workspace_id, ctx
+                entity_type,
+                [hit.id for hit in group],
+                tenant_id,
+                workspace_id,
+                ctx,
+                include_outdated=include_outdated,
             )
             for hit in group:
                 row = rows.get(hit.id)
