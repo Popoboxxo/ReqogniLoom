@@ -111,6 +111,7 @@ EXPECTED_FACADE_ALL: tuple[str, ...] = (
     "EffectivePermission",
     "SuggestionService",
     "ProducerContextRequiredError",
+    "CaptureService",
     "BaselineRollbackService",
     "RollbackResult",
 )
@@ -436,6 +437,16 @@ CYCLIC_SCC_ALLOWLIST: tuple[tuple[frozenset[str], str, str], ...] = (
                 "application.workflow_facade",
                 "application.workspace_snapshot_service",
                 "application.zip_snapshot_export_service",
+                # ADR-032 capture/update adapters (2026-11-27): read-only
+                # derivations and the shared update seam join the same SCC.
+                "application.actor_service",
+                "application.artifact_attribute_gateway",
+                "application.artifact_fields_update",
+                "application.artifact_update_adapters",
+                "application.capture_update",
+                "application.interview_artifact_adapters",
+                "application.issue_service",
+                "application.test_service",
             }
         ),
         "2026-11-21",
