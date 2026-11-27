@@ -43,14 +43,19 @@ class NulByteRejectionMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
-        for _key, values in request.GET.lists():
+        for key, values in request.GET.lists():
             if any("\x00" in value for value in values):
                 return JsonResponse(
                     {
                         "error": {
                             "code": "VALIDATION_ERROR",
                             "message": "Query parameters must not contain NUL bytes.",
-                            "details": [],
+                            "details": [
+                                {
+                                    "field": key,
+                                    "message": "must not contain a NUL byte",
+                                }
+                            ],
                             "request_id": get_request_id(),
                         }
                     },
