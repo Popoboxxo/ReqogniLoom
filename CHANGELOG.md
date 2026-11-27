@@ -7,10 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0-beta.9] — 2026-11-27
+
 ### Added
 - feat(suggestion): `suggestion.capture` — one server-side call turns a user message into open proposals (ADR-032). Workspace switch `capture.enabled` (default off), secret redaction before storage and before the model call, a deterministic rule filter, idempotency/duplicate protection, exactly one stateless LLM call per message (no growing transcript), proposal validation through the existing interview gate, and a new `capture` right on API keys. REST `POST /api/v1/suggestions/capture/` and MCP `suggestion.capture` are thin adapters over the same service; the MCP catalogue now exposes **314 tools in 50 tool-group prefixes** (was 313)
 - feat(suggestion): update proposals (`artifact_update`) — "anpassen, erweitern, korrigieren" of an existing artifact. Accepting one runs the shared update seam with the proposal's `base_version` as the optimistic lock, so a stale proposal answers `409 CONFLICT` instead of overwriting; a message that repeats an existing artifact is proposed as an update instead of a duplicate create
+- feat(clients): the listen mode is delivered for Claude Code, Hermes, OpenCode (V1/V2) and Antigravity with one contract (`~/.reqogniloom/listen`, write-ahead queue, shared switch/status, fail-open). Claude Code is live end-to-end (hook + detached worker, on/off in a running session); the other three relays are live against a real server, their host-hook wiring is documented as `partial`
+- feat(clients): every client now installs the same eight skills and its listen command (OpenCode command installed by the installer, Hermes gains the eight canonical skills); `scripts/tests/test_client_plugin_parity.py` guards the inventory in CI
+- feat(goal): Goal updates go through the shared artifact-update seam, so `artifact_update` capture proposals can append a Goal version (optimistic lock against the addressed version)
 - docs(adr): ADR-032 (proposed) records the capture right and the update operation as an addendum to ADR-019
+
+### Fixed
+- fix(search): `include_outdated=true` now also restores an outdated **semantic** hit of an embeddable type on the Qdrant/degraded path; the cross-type (non-embeddable) semantic leg remains documented as a limitation
+- fix(claude-plugin): the capture hook queues only and starts a detached worker (survives `claude -p`), the worker's 60 s timeout outlasts the server LLM call, and `last_error` is cleared on success
+- fix(interview): the single-mode factory extras are proven to be a subset of `artifact_field_contract`; the Requirement SE fields are explicitly elicitation preferences, not a second required list
 
 ## [1.9.0-beta.8] — 2026-11-26
 
