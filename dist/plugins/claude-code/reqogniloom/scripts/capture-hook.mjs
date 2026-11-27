@@ -54,7 +54,15 @@ const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const MIN_TEXT_LENGTH = 40;
 const MAX_LINES = 300;
 const MAX_FLUSH_PER_RUN = 5;
-const REQUEST_TIMEOUT_MS = 15_000;
+// The worker's per-request timeout must outlast a real server-side LLM call
+// (live: the capture suggestion appeared, but a 15 s client timeout made the
+// worker treat the successful POST as failed and retry it; the retry then hit
+// the idempotency duplicate). 60 s is below DRAIN_BUDGET_MS and still bounded;
+// REQNILOOM_CAPTURE_TIMEOUT_MS exists for tests and unusual providers.
+const REQUEST_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.REQNILOOM_CAPTURE_TIMEOUT_MS || "");
+  return Number.isFinite(raw) && raw >= 1000 ? Math.min(raw, 110_000) : 60_000;
+})();
 // The hook no longer waits for a request, so only the worker needs a budget: it
 // caps one drain so a wedged server cannot keep a detached process alive.
 const DRAIN_BUDGET_MS = 120_000;
@@ -356,6 +364,10 @@ async function deliver(config, entry, deadline) {
 function recordSuccess(state) {
   state.captured = (state.captured || 0) + 1;
   state.last_success_at = new Date().toISOString();
+  // A recovered failure is not the "last error" any more; leaving a stale
+  // timeout in the status made a healthy relay look broken.
+  state.last_error = null;
+  state.last_error_at = null;
 }
 
 function recordFailure(state, detail) {

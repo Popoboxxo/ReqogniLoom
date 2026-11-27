@@ -348,6 +348,8 @@ def test_server_error_keeps_the_entry_and_the_next_run_drains_it(tmp_path, stub_
     status = json.loads((state_dir / "listen-status.json").read_text())
     assert status["queued"] == 0
     assert status["last_success_at"]
+    # A recovered failure must not keep looking like the current state.
+    assert status["last_error"] is None
 
 
 def test_missing_workspace_is_reported_but_never_fails(tmp_path, stub_server):
