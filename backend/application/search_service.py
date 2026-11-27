@@ -217,10 +217,12 @@ class _TableSpec:
     fragments defined in this module only — never built from user input.
 
     ``permission_scoped`` marks the two T-A3-3 types whose hits are additionally
-    filtered after the SQL passes: an item-level READ check through
+    filtered after the SQL passes for an item-level READ check through
     :class:`~application.effective_permission_service.EffectivePermissionService`
-    and a soft-delete drop (see :func:`_apply_row_visibility`). The other types
-    keep their pre-T-A3-3 behaviour (workspace/tenant scoping only).
+    (see :func:`_apply_row_visibility`). The soft-delete drop is NOT part of that
+    per-type step: :func:`_filter_outdated_hits` is the single lifecycle filter
+    for every type (P6 / D13). The other types keep their pre-T-A3-3 behaviour
+    (workspace/tenant scoping only).
     """
 
     table: str
@@ -316,11 +318,12 @@ _TABLE_SPECS: dict[str, _TableSpec] = {
     # current contract's ``semantic_description`` its description. The backing
     # Artifact FK is nullable (SET_NULL). The LEFT JOIN here discards nothing —
     # it exists only to surface the artifact's ``custom_fields``. The
-    # soft-delete drop is a *separate* ORM query in :func:`_filter_icd_hits`
-    # (Icd is ``permission_scoped``), which is also where a row whose
+    # soft-delete drop is NOT done in :func:`_filter_icd_hits` (which only
+    # enforces the item-level READ check) but in the shared
+    # :func:`_filter_outdated_hits` step (P6 / D13). A row whose
     # ``artifact_id`` is NULL — SET_NULL after the shadow artifact was removed —
-    # is dropped fail-closed (review finding F9; the earlier comment here
-    # wrongly implied the join performed the drop).
+    # is still dropped fail-closed in :func:`_filter_icd_hits` (review finding
+    # F9; the earlier comment here wrongly implied the join performed the drop).
     "Icd": _TableSpec(
         table="icd_icd",
         title_col="e.name",
@@ -437,6 +440,17 @@ class SearchHit:
     #: every list scores exactly 1.0 too. Ranking the pin above that tie needs
     #: a signal outside the score (review finding F1).
     pinned: bool = False
+    #: P6 / D13: the entity's projected workflow status — ``"outdated"`` when
+    #: the backing artifact is soft-deleted. Resolved through
+    #: :func:`workflow.state_reader.current_states`, the single status
+    #: projection of the system (never a second status axis), for the returned
+    #: page only. Empty for types without a workflow state, except ``TraceLink``
+    #: which reports ``"outdated"`` when an enforced endpoint is outdated.
+    status: str = ""
+    #: P6 / D13: ``True`` when the hit is soft-deleted (``status ==
+    #: "outdated"``). Outdated hits are excluded by default and only reach the
+    #: caller with ``include_outdated=True``.
+    outdated: bool = False
 
 
 @dataclass
@@ -1152,30 +1166,25 @@ def _prepopulate_decision_cache(
 
 
 def _filter_icd_hits(hits: list[SearchHit], ctx: AuthContext | None) -> list[SearchHit]:
-    """Drop ICD hits the caller may not READ or whose Artifact is outdated.
+    """Drop ICD hits the caller may not READ.
 
     Also drops a row with no backing Artifact at all (review finding S2): the
     FK is ``SET_NULL``, so removing the shadow Artifact leaves a row that has
-    nothing the item-permission or soft-delete check could be evaluated
-    against. Such a row used to bypass both and stay searchable forever; with
-    no provable READ it is fail-closed like every other unprovable case.
+    nothing the item-permission check could be evaluated against. Such a row
+    used to bypass the check and stay searchable forever; with no provable READ
+    it is fail-closed like every other unprovable case.
+
+    The lifecycle filter is **not** applied here: Icd is workflow-tracked, so
+    the single shared filter :func:`_filter_outdated_hits` sets ``outdated`` and
+    (by default) drops outdated rows — one filter decision for every type
+    (P6 / D13).
     """
     from icd.models import Icd
-    from persistence.models import Artifact, LifecycleStatus
 
     by_id = {
         row.id: row
         for row in Icd.objects.filter(id__in=[_as_uuid(hit.id) for hit in hits])
     }
-    artifact_ids = {
-        row.artifact_id for row in by_id.values() if row.artifact_id is not None
-    }
-    outdated = set(
-        Artifact.objects.filter(
-            id__in=artifact_ids,
-            lifecycle_status=LifecycleStatus.OUTDATED,
-        ).values_list("id", flat=True)
-    )
 
     roles_cache: dict[str, tuple[str, ...]] = {}
     decision_cache: dict[tuple[str, str | None], bool] = {}
@@ -1198,8 +1207,6 @@ def _filter_icd_hits(hits: list[SearchHit], ctx: AuthContext | None) -> list[Sea
             continue
         if row.artifact_id is None:
             continue
-        if row.artifact_id in outdated:
-            continue
         if _may_read_artifact(
             ctx, row.workspace_id, row.artifact_id, roles_cache, decision_cache
         ):
@@ -1210,18 +1217,27 @@ def _filter_icd_hits(hits: list[SearchHit], ctx: AuthContext | None) -> list[Sea
 def _filter_tracelink_hits(
     hits: list[SearchHit], ctx: AuthContext | None
 ) -> list[SearchHit]:
-    """Drop unreadable/outdated TraceLink hits and compose their title.
+    """Drop unreadable TraceLink hits, compose their title and annotate lifecycle.
 
     A link is kept only when its **source** artifact is readable (that is the
     link's own workspace). The **target** uid is shown only when the target
     workspace is readable too; otherwise the synthetic title carries ``'—'``, so
     cross-workspace metadata never leaks (QR-S20, T-A3-3).
 
-    Lifecycle enforcement follows the same READ boundary (review finding S1):
-    the source's is always checked, the target's only when the caller may
-    actually read the target. Enforcing the target's unconditionally made a
-    readable link vanish because of a state the caller cannot see anyway —
-    and made that vanishing a 1-bit oracle over another workspace's lifecycle.
+    Lifecycle is annotated, not filtered, here. The shared filter
+    (:func:`_filter_outdated_hits`) owns the only drop decision; this
+    path is the one place that knows whether the target endpoint is readable, so
+    it is the one place that can compute the hit's ``outdated`` flag:
+
+    * the source's lifecycle is always folded in (it is the link's own
+      workspace and always enforceable);
+    * the target's only when the caller may actually read the target (review
+      finding S1). Enforcing the target's unconditionally made a readable link
+      vanish because of a state the caller cannot see anyway — and made that
+      vanishing a 1-bit oracle over another workspace's lifecycle.
+
+    An unreadable **source** still drops the hit: that is a permission
+    decision, not a lifecycle one.
     """
     from persistence.models import Artifact, LifecycleStatus, TraceLink
 
@@ -1261,9 +1277,6 @@ def _filter_tracelink_hits(
         link = links.get(_as_uuid(hit.id))
         if link is None:  # deleted between the SQL pass and this lookup
             continue
-        # The source side is the link's own workspace -- always enforceable.
-        if statuses.get(link.source_id) == LifecycleStatus.OUTDATED:
-            continue
 
         source = link.source
         target = link.target
@@ -1274,16 +1287,23 @@ def _filter_tracelink_hits(
         show_target = _may_read_artifact(
             ctx, target.workspace_id, target.id, roles_cache, decision_cache
         )
-        # Only enforce the target's lifecycle when the target itself is
-        # readable (review finding S1) -- see the docstring.
-        if show_target and statuses.get(link.target_id) == LifecycleStatus.OUTDATED:
-            continue
+
+        source_outdated = statuses.get(link.source_id) == LifecycleStatus.OUTDATED
+        target_outdated = show_target and (
+            statuses.get(link.target_id) == LifecycleStatus.OUTDATED
+        )
+        outdated = source_outdated or target_outdated
 
         source_label = uids.get(source.id) or str(source.id)
         target_label = (uids.get(target.id) or str(target.id)) if show_target else "—"
+        # The synthetic title is composed even when the shared filter will drop
+        # the hit afterwards — the hit stays a truthful SearchHit either way.
         kept.append(
             dataclass_replace(
-                hit, title=f"{link.link_type}: {source_label} → {target_label}"
+                hit,
+                title=f"{link.link_type}: {source_label} → {target_label}",
+                outdated=outdated,
+                status=("outdated" if outdated else ""),
             )
         )
     return kept
@@ -1310,6 +1330,180 @@ def _apply_row_visibility(
     if entity_type == "Icd":
         return _filter_icd_hits(hits, ctx)
     return hits
+
+
+#: Chunk size for the ``id__in`` lookups below. PostgreSQL's bind-parameter
+#: ceiling is 65535; 1000 keeps every statement far below it and bounds the
+#: statement size for a result set assembled from several search legs (F2).
+_LIFECYCLE_CHUNK_SIZE = 1000
+
+
+def _chunked(values: list[str]) -> list[list[str]]:
+    """Split an id list into chunks below the bind-parameter ceiling (F2)."""
+    return [
+        values[start : start + _LIFECYCLE_CHUNK_SIZE]
+        for start in range(0, len(values), _LIFECYCLE_CHUNK_SIZE)
+    ]
+
+
+def _filter_outdated_hits(
+    hits: list[SearchHit],
+    *,
+    include_outdated: bool,
+    tenant_id: Any,
+) -> list[SearchHit]:
+    """Set each hit's ``outdated`` flag and drop outdated hits by default.
+
+    P6 / D13: the **single** lifecycle filter of ``artifact.search`` — applied
+    once, after all search legs are merged and *before* ranking,
+    ``total_count`` and pagination. Type-specific paths never drop outdated
+    rows themselves; only this step decides. ``outdated`` is the filter axis;
+    ``status`` is only the display projection (see
+    :func:`_annotate_hit_status`), so a display-field failure cannot change
+    which rows are visible.
+
+    The flag is resolved from :func:`workflow.state_reader.outdated_ids`
+    (entity ids — exactly what hits carry), intersected with the hit ids in
+    chunks of :data:`_LIFECYCLE_CHUNK_SIZE`, so no ``__in`` grows unbounded
+    (F2). ``TraceLink`` is skipped: :func:`_filter_tracelink_hits` already
+    computed its flag, because only that path knows whether the target
+    endpoint is readable.
+
+    **Fail closed (F1).** If the outdated lookup for a type raises, every hit
+    of that type is dropped and a WARNING is logged — the previous behaviour
+    left them annotated as visible, which leaked possibly-outdated rows (and
+    inverted Icd's earlier fail-closed drop).
+
+    Known limitation (F4, deliberately not threaded through the vector port):
+    the Qdrant adapter and the degraded pgvector-fallback hydration path
+    (:func:`application.vector_port.hydrate_vector_hits`) drop outdated rows
+    unconditionally. On those backends ``include_outdated=True`` restores an
+    outdated hit only when a keyword leg (full-text/lexical) also matched it;
+    a hit that ONLY the semantic leg matched stays absent. On pgvector all
+    three legs feed this filter and every outdated hit is restored.
+    """
+    if not hits:
+        return hits
+
+    from workflow import state_reader
+
+    ids_by_type: dict[str, list[str]] = {}
+    for hit in hits:
+        if hit.artifact_type == "TraceLink":
+            continue
+        ids_by_type.setdefault(hit.artifact_type, []).append(hit.id)
+
+    outdated_by_type: dict[str, set[str]] = {}
+    failed_types: set[str] = set()
+    for entity_type, item_ids in ids_by_type.items():
+        try:
+            outdated_ids: set[str] = set()
+            for chunk in _chunked(item_ids):
+                outdated_ids.update(
+                    str(item_id)
+                    for item_id in state_reader.outdated_ids(
+                        entity_type, tenant_id=tenant_id
+                    ).filter(id__in=chunk)
+                )
+            outdated_by_type[entity_type] = outdated_ids
+        except Exception:  # noqa: BLE001 — fail closed, see docstring
+            failed_types.add(entity_type)
+            logger.warning(
+                "SearchService: outdated lookup failed entity_type=%s; "
+                "dropping %d hit(s) (fail-closed)",
+                entity_type,
+                sum(1 for hit in hits if hit.artifact_type == entity_type),
+                exc_info=True,
+            )
+
+    filtered: list[SearchHit] = []
+    for hit in hits:
+        if hit.artifact_type in failed_types:
+            continue
+        if hit.artifact_type == "TraceLink":
+            outdated = hit.outdated
+        else:
+            outdated = hit.id in outdated_by_type.get(hit.artifact_type, set())
+        if outdated and not include_outdated:
+            continue
+        filtered.append(dataclass_replace(hit, outdated=outdated))
+    return filtered
+
+
+def _annotate_hit_status(
+    page_hits: list[SearchHit],
+    *,
+    tenant_id: Any,
+) -> list[SearchHit]:
+    """Set the display-only workflow ``status`` of the final page hits.
+
+    Runs *after* pagination (at most ``limit`` ≤ 100 hits), so the status
+    projection never scales with the corpus (F2) and cannot influence which
+    rows are visible (that decision was made by
+    :func:`_filter_outdated_hits`, F1). Resolution reuses
+    :func:`workflow.state_reader.current_states` — the repository's single
+    status projection — with :func:`state_reader.initial_state` as the fallback
+    for items without a ``WorkflowItemState`` row; ids are batched in chunks of
+    :data:`_LIFECYCLE_CHUNK_SIZE`.
+
+    An existing non-empty ``status`` is preserved (``TraceLink``'s
+    ``"outdated"``), and types without a workflow state keep ``""``.
+
+    Failure policy (F1): a failing status lookup logs a WARNING and leaves that
+    type's hits with ``status=""`` — the hits stay, because filtering already
+    happened.
+    """
+    if not page_hits:
+        return page_hits
+
+    from workflow import state_reader
+    from workflow.item_types import KNOWN_WORKFLOW_ITEM_TYPES
+
+    ids_by_type: dict[str, list[str]] = {}
+    for hit in page_hits:
+        if hit.status or hit.artifact_type == "TraceLink":
+            continue
+        if hit.artifact_type not in KNOWN_WORKFLOW_ITEM_TYPES:
+            continue
+        ids_by_type.setdefault(hit.artifact_type, []).append(hit.id)
+
+    statuses_by_type: dict[str, dict[str, str]] = {}
+    for entity_type, item_ids in ids_by_type.items():
+        try:
+            fallback = state_reader.initial_state(entity_type)
+            resolved: dict[str, str] = {}
+            for chunk in _chunked(item_ids):
+                states = state_reader.current_states(
+                    entity_type, chunk, tenant_id=tenant_id
+                )
+                resolved.update(
+                    {str(item_id): str(state) for item_id, state in states.items()}
+                )
+            statuses_by_type[entity_type] = {
+                str(item_id): resolved.get(str(item_id), fallback)
+                for item_id in item_ids
+            }
+        except Exception:  # noqa: BLE001 — display field only, see docstring
+            logger.warning(
+                "SearchService: status lookup failed entity_type=%s; "
+                "leaving status empty",
+                entity_type,
+                exc_info=True,
+            )
+
+    annotated: list[SearchHit] = []
+    for hit in page_hits:
+        statuses = statuses_by_type.get(hit.artifact_type)
+        status = hit.status or (
+            statuses.get(hit.id, "") if statuses is not None else ""
+        )
+        # Keep ``outdated == (status == "outdated")`` even when the status
+        # lookup degraded: an outdated hit must not report an empty status.
+        # Visibility is unaffected — filtering already ran.
+        if not status and hit.outdated:
+            status = "outdated"
+        annotated.append(dataclass_replace(hit, status=status))
+    return annotated
 
 
 def _run_fulltext_query(
@@ -1615,6 +1809,7 @@ class SearchService(ServiceBase):
         scope: str = "workspace",
         min_score: float = 0.0,
         mode: str = "hybrid",
+        include_outdated: bool = False,
     ) -> SearchResult:
         """Execute the search and return ranked, paginated results.
 
@@ -1671,6 +1866,25 @@ class SearchService(ServiceBase):
                 ``vector_port.VectorHit``), so the same floor keeps a different
                 number of semantically matched hits than on pgvector. It
                 remains stable within one backend and deployment.
+            include_outdated: P6 / D13: ``False`` (default) excludes every hit
+                whose entity/backing artifact is soft-deleted
+                (``Artifact.lifecycle_status == "outdated"``); ``True`` includes
+                them. ``outdated`` (bool) is the filter axis and is set on every
+                hit; ``status`` is display-only: the projected workflow status,
+                resolved for the returned page, ``"outdated"`` for a kept
+                outdated hit. Filtering happens after all ranking pieces are
+                merged and *before* ``total_count``/pagination, so counts
+                reflect the visible set; a failing outdated lookup drops that
+                type's hits (fail-closed, WARNING) instead of leaking them.
+                **Deliberate behaviour change** (Plan D13): before P6 outdated
+                hits were returned by default for most types.
+                **Known limitation (F4)**: on Qdrant and on the degraded
+                pgvector fallback, the semantic leg discards outdated rows
+                unconditionally
+                (:func:`application.vector_port.hydrate_vector_hits`), so
+                ``include_outdated=True`` restores an outdated hit there only
+                when a keyword leg also matched it. On pgvector all legs feed
+                this filter and every outdated hit is restored.
 
         Returns:
             SearchResult with ranked hits and pagination metadata, plus the
@@ -1832,6 +2046,14 @@ class SearchService(ServiceBase):
                     )
                     # REQ-L3-SEARCH-009: degrade gracefully (empty results for failed type)
 
+        # P6 / D13: ONE lifecycle filter for every type, applied after all legs
+        # are merged and before ranking/total_count/pagination. Outdated hits are
+        # excluded by default; ``include_outdated=True`` keeps them and marks
+        # them ``outdated=True``. F1: fail-closed — see the helper.
+        hits = _filter_outdated_hits(
+            hits, include_outdated=include_outdated, tenant_id=tenant_id
+        )
+
         # Sort by relevance DESC. Every score is normalized to [0, 1] at the
         # point of creation (issue #827): lexical hits occupy [0.5, 1.0] and
         # therefore land above full-text hits in practice.
@@ -1862,6 +2084,11 @@ class SearchService(ServiceBase):
         # Apply pagination (REQ-L3-SEARCH-006)
         offset = (page - 1) * limit
         page_hits = hits[offset : offset + limit]
+
+        # P6 / D13 / F2: the workflow ``status`` is display-only and resolved
+        # for the final page window only (≤ limit ≤ 100 hits, one batched
+        # projection per type actually present), never per corpus hit.
+        page_hits = _annotate_hit_status(page_hits, tenant_id=tenant_id)
 
         # #1965 timing instrumentation: one structured line per request so a
         # regression to the 23-30s path is diagnosable without a profiler.

@@ -219,11 +219,13 @@ from rest_api.preset_guard import PresetError, PresetGateMixin
 from rest_api.query_params import (
     parse_bool_param,
     parse_change_reason,
+    parse_include_outdated,
     parse_int_param,
     parse_uuid_param,
     parse_workspace_id,
     reject_unknown_query_params,
     require_non_empty_param,
+    validate_include_flag,
 )
 from rest_api.platform_schema_serializers import (
     AllocationListResponseSerializer,
@@ -348,6 +350,21 @@ class _SearchHitSerializer(serializers.Serializer):
         )
     )
     workspace_id = serializers.CharField(allow_blank=True)
+    status = serializers.CharField(
+        allow_blank=True,
+        help_text=(
+            "Projected workflow status of the hit ('outdated' when the backing "
+            "artifact is soft-deleted). Empty for types without a workflow "
+            "state, except TraceLink, which reports 'outdated' when an enforced "
+            "endpoint is outdated."
+        ),
+    )
+    outdated = serializers.BooleanField(
+        help_text=(
+            "True when the backing artifact is soft-deleted. Such hits are "
+            "excluded unless the request passes include_outdated=true."
+        )
+    )
 
 
 
@@ -467,6 +484,31 @@ class SearchViewSet(viewsets.ViewSet):
                     "instead of failing the search."
                 ),
             ),
+            OpenApiParameter(
+                name="include_outdated",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=False,
+                description=(
+                    "Default false. Outdated (soft-deleted) artifacts are "
+                    "excluded from results and total_count. Set true to "
+                    "include them; such hits carry status='outdated' and "
+                    "outdated=true."
+                ),
+            ),
+            OpenApiParameter(
+                name="include_deleted",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                default=False,
+                deprecated=True,
+                description=(
+                    "Deprecated alias of include_outdated; supported through "
+                    "1.11.0."
+                ),
+            ),
         ],
         responses={200: _SearchResponseSerializer},
     )
@@ -481,6 +523,15 @@ class SearchViewSet(viewsets.ViewSet):
           page          — page number (default 1)
           limit         — page size (default 20, max 100)
           mode          — hybrid (default) | keyword | vector
+          include_summary — opt-in AI summary of the returned hits (default false)
+          include_outdated — include outdated (soft-deleted) hits (default false)
+          include_deleted — deprecated alias of include_outdated, supported
+                            through 1.11.0
+
+        Outdated hits are excluded by default (P6 / D13); with
+        ``include_outdated=true`` they are returned and carry ``status``
+        (projected workflow status, ``"outdated"`` here) and ``outdated`` (bool).
+        An unparseable value on either spelling answers 400.
 
         The response always carries ``vector_backend``, ``degraded`` and
         ``degraded_reason`` (T-A2-7). A Qdrant outage degrades to pgvector and
@@ -518,6 +569,12 @@ class SearchViewSet(viewsets.ViewSet):
         # Parse type filter (may be repeated)
         type_filter = request.query_params.getlist("type") or None
         mode = (request.query_params.get("mode") or "hybrid").strip().lower()
+        # P6 / D13: an unparseable include_outdated/include_deleted value must
+        # answer 400 instead of silently collapsing into "false".
+        error = validate_include_flag(request, lang)
+        if error is not None:
+            return error
+        include_outdated = parse_include_outdated(request.query_params)
 
         # Issue #18 (scope A): optional AI summary of the returned hits.
         try:
@@ -552,6 +609,7 @@ class SearchViewSet(viewsets.ViewSet):
                 page=page,
                 limit=limit,
                 mode=mode,
+                include_outdated=include_outdated,
             )
         except (ValidationError, NotFoundError, PermissionDeniedError) as exc:
             return _service_error_response(exc, lang)
@@ -567,6 +625,8 @@ class SearchViewSet(viewsets.ViewSet):
                 "description": hit.description,
                 "relevance_score": hit.relevance_score,
                 "workspace_id": hit.workspace_id,
+                "status": hit.status,
+                "outdated": hit.outdated,
             }
             for hit in result.results
         ]

@@ -187,6 +187,25 @@ class TestDocumentedQueryParameters:
         assert params["workspace_id"]["required"] is True
         assert {"type", "page", "limit"}.issubset(set(params))
 
+    def test_search_documents_include_outdated_as_optional(
+        self, openapi_schema: dict
+    ) -> None:
+        """P6 / D13: the opt-in that restores outdated hits must be discoverable."""
+        params = _query_params(openapi_schema, self.SEARCH_PATH)
+        param = params["include_outdated"]
+        # Optional: OpenAPI omits ``required`` entirely for an optional param.
+        assert param.get("required", False) is False
+        assert "outdated" in param.get("description", "").lower()
+
+    def test_search_declares_the_deprecated_include_deleted_alias(
+        self, openapi_schema: dict
+    ) -> None:
+        """F3: the alias is accepted by the shared parser, so it is documented."""
+        params = _query_params(openapi_schema, self.SEARCH_PATH)
+        alias = params["include_deleted"]
+        assert alias.get("deprecated") is True
+        assert alias.get("required", False) is False
+
 
 # ---------------------------------------------------------------------------
 # #1362(a) — the review queue's mandatory workspace_id must be discoverable

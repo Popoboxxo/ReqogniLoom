@@ -532,6 +532,9 @@ class Command(BaseCommand):
                         workspace_id=workspace_id,
                         mode=mode,
                         limit=limit,
+                        # This harness measures retrieval quality, not list
+                        # visibility: retired fixtures must still be found.
+                        include_outdated=True,
                     )
                 except Exception:  # noqa: BLE001 — one bad query must not kill the report
                     score.unreachable.append(str(entry["id"]))

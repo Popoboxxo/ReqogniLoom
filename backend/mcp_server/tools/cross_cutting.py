@@ -642,12 +642,15 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 "Rank Fusion; otherwise they are combined by the maximum "
                 "normalized score. Either way a relevance_score expresses "
                 "relative rank position, not an absolute similarity. By "
-                "default no filtering is applied: every matching artifact "
-                "is returned, ordered by descending score, and total_count "
-                "counts all of them. Pass min_score (in [0, 1]) to drop "
-                "hits whose relevance_score is below it — total_count then "
-                "counts only the surviving hits, and pagination is applied "
-                "after the filter."
+                "default no relevance filtering is applied and outdated "
+                "(soft-deleted) artifacts are excluded; every non-outdated "
+                "matching artifact is returned, ordered by descending score, "
+                "and total_count counts only those. Pass min_score (in [0, 1]) "
+                "to drop hits whose relevance_score is below it — total_count "
+                "then counts only the surviving hits, and pagination is applied "
+                "after the filter. Each hit carries the projected workflow "
+                "status and an outdated flag; pass include_outdated=true to "
+                "also return outdated artifacts."
             ),
             "inputSchema": {
                 "type": "object",
@@ -702,6 +705,15 @@ class CrossCuttingToolGroup(BaseToolGroup):
                             "ai_summary (string or null) and summary_degraded "
                             "(bool). Triggers one LLM call per request; a "
                             "provider failure degrades instead of failing."
+                        ),
+                    },
+                    "include_outdated": {
+                        "type": "boolean",
+                        "description": (
+                            "Default false. Outdated (soft-deleted) artifacts "
+                            "are excluded from results and total_count. Set "
+                            "true to include them; such hits carry "
+                            'status="outdated" and outdated=true.'
                         ),
                     },
                 },
@@ -1823,6 +1835,11 @@ class CrossCuttingToolGroup(BaseToolGroup):
         drops hits below it *after* ranking and *before* computing
         ``total_count`` — so the reported count reflects the filtered set
         rather than the whole corpus.
+
+        P6 / D13: outdated (soft-deleted) artifacts are excluded by default.
+        ``include_outdated=true`` restores them; every result row carries the
+        projected workflow ``status`` and an ``outdated`` boolean, so an
+        outdated hit is identifiable in the payload.
         """
         query_str = require_param(params, "query")
         workspace_id = optional_uuid(params, "workspace_id")
@@ -1857,6 +1874,12 @@ class CrossCuttingToolGroup(BaseToolGroup):
             raise ParameterError("Parameter 'include_summary' must be a boolean.")
         include_summary = include_summary_raw
 
+        # P6 / D13: strict boolean, same rule as ``include_summary`` above.
+        include_outdated_raw = params.get("include_outdated", False)
+        if not isinstance(include_outdated_raw, bool):
+            raise ParameterError("Parameter 'include_outdated' must be a boolean.")
+        include_outdated = include_outdated_raw
+
         try:
             result = self._search_service.search(
                 query=str(query_str),
@@ -1868,6 +1891,7 @@ class CrossCuttingToolGroup(BaseToolGroup):
                 scope="workspace" if workspace_id is not None else "tenant",
                 min_score=min_score,
                 mode=mode,
+                include_outdated=include_outdated,
             )
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
@@ -1887,6 +1911,9 @@ class CrossCuttingToolGroup(BaseToolGroup):
                     "description": hit.description,
                     "relevance_score": hit.relevance_score,
                     "workspace_id": hit.workspace_id,
+                    # P6 / D13: additive lifecycle projection.
+                    "status": hit.status,
+                    "outdated": hit.outdated,
                     # REQ-L2-AS-037 / Epic #934 WS1: surface the backing
                     # Artifact's extended attributes (spec section 9).
                     "custom_fields": dict(hit.custom_fields or {}),

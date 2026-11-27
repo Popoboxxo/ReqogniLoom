@@ -1399,9 +1399,10 @@ class TestCrossCuttingToolGroup:
         assert result.error_code == "VALIDATION_ERROR"
         search_svc.search.assert_not_called()
 
-    def test_artifact_search_description_discloses_no_default_filtering(self):
-        """Issue #1170: the description must not imply a filter that is not
-        there, and must name the passes that produce the fused score."""
+    def test_artifact_search_description_discloses_outdated_default(self):
+        """Issue #1170 + P6 / D13: the description must not imply a filter that
+        is not there, must name the passes that produce the fused score, and
+        must disclose that outdated hits are excluded by default."""
         group, _, _, _ = self._group()
         description = next(
             s for s in group.get_tool_schemas() if s["name"] == "artifact.search"
@@ -1410,11 +1411,101 @@ class TestCrossCuttingToolGroup:
         assert "min_score" in description
         # F1/F5: corrected disclosure — full-text pass (tsvector/ts_rank),
         # semantic pass (embedding/cosine), and the conditional combination.
-        assert "no filtering is applied" in description
         assert "tsvector" in description
         assert "embedding/cosine semantic pass" in description
         assert "Reciprocal Rank Fusion" in description
         assert "maximum normalized score" in description
+        # P6 / D13: the lifecycle default is disclosed, the old blanket "no
+        # filtering is applied" claim is gone.
+        assert "include_outdated" in description
+        assert "outdated" in description
+        assert "no filtering is applied" not in description
+
+    def test_artifact_search_schema_publishes_include_outdated(self):
+        """P6 / D13: the flag is a strictly typed boolean input."""
+        group, _, _, _ = self._group()
+        schema = next(
+            s for s in group.get_tool_schemas() if s["name"] == "artifact.search"
+        )["inputSchema"]
+
+        assert schema["properties"]["include_outdated"]["type"] == "boolean"
+
+    def test_artifact_search_forwards_include_outdated_to_service(self):
+        group, _, search_svc, _ = self._group()
+        self._mock_search_result(search_svc)
+
+        result = group.execute_tool(
+            tool_name="artifact.search",
+            params={"query": "authentication", "include_outdated": True},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        assert search_svc.search.call_args.kwargs["include_outdated"] is True
+
+    def test_artifact_search_defaults_include_outdated_to_false(self):
+        group, _, search_svc, _ = self._group()
+        self._mock_search_result(search_svc)
+
+        group.execute_tool(
+            tool_name="artifact.search",
+            params={"query": "authentication"},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+        assert search_svc.search.call_args.kwargs["include_outdated"] is False
+
+    def test_artifact_search_rejects_non_boolean_include_outdated(self):
+        """P6 / D13: a truthy string must not silently switch the filter off."""
+        group, _, search_svc, _ = self._group()
+        self._mock_search_result(search_svc)
+
+        result = group.execute_tool(
+            tool_name="artifact.search",
+            params={"query": "authentication", "include_outdated": "true"},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        search_svc.search.assert_not_called()
+
+    def test_artifact_search_rows_carry_status_and_outdated(self):
+        """P6 / D13: the additive lifecycle fields reach the MCP payload."""
+        from application.search_service import SearchHit, SearchResult
+
+        group, _, search_svc, _ = self._group()
+        search_svc.search.return_value = SearchResult(
+            results=[
+                SearchHit(
+                    id="00000000-0000-0000-0000-000000000001",
+                    artifact_type="Requirement",
+                    title="Anmeldung",
+                    description="Die Anmeldung nutzt OAuth.",
+                    relevance_score=0.9,
+                    workspace_id="00000000-0000-0000-0000-000000000002",
+                    status="outdated",
+                    outdated=True,
+                )
+            ],
+            total_count=1,
+            page=1,
+            limit=20,
+        )
+
+        result = group.execute_tool(
+            tool_name="artifact.search",
+            params={"query": "authentication", "include_outdated": True},
+            auth_context=EDITOR_CTX,
+            api_key=VALID_API_KEY,
+        )
+
+        assert result.success is True
+        row = result.data["results"][0]
+        assert row["status"] == "outdated"
+        assert row["outdated"] is True
 
     def test_artifact_get_tree_requires_workspace_id(self):
         group, _, _, _ = self._group()
