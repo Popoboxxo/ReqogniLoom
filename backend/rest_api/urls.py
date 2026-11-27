@@ -241,6 +241,7 @@ from rest_api.saved_view_views import (
 )
 from rest_api.suggestion_views import (
     SuggestionAcceptView,
+    SuggestionCaptureView,
     SuggestionListView,
     SuggestionRejectView,
 )
@@ -1391,6 +1392,16 @@ urlpatterns = [
         "suggestions/",
         SuggestionListView.as_view(),
         name="api-v1-suggestions",
+    ),
+    # ADR-032 (plan P2): the capture endpoint, REST twin of the MCP
+    # `suggestion.capture` tool. Placed before the `<uuid:...>` detail routes for
+    # the same collection-route reason as `artifacts/bulk-update/` below:
+    # `suggestions/capture/` would otherwise never be reachable (the uuid
+    # converter would reject it, but the ordering keeps the intent explicit).
+    path(
+        "suggestions/capture/",
+        SuggestionCaptureView.as_view(),
+        name="api-v1-suggestion-capture",
     ),
     path(
         "suggestions/<uuid:suggestion_id>/accept/",

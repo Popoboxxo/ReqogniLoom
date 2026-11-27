@@ -371,6 +371,14 @@ _WORKSPACE_VIA_REQUEST = (
     # workspace is refused by the service (``WORKSPACE_MISMATCH``), not by a
     # second, weaker authority here.
     "ArtifactBulkUpdateView",
+    # ADR-032 (plan P2): ``suggestion.capture`` names its workspace in the body
+    # (``workspace_id``), and ``resolve_request_workspace_id`` prefers the body
+    # for unsafe methods — so the caller's roles are scoped to the workspace the
+    # message is filed into. Without this declaration ADR-011 denies the route as
+    # unclassified before the handler runs. A body workspace the caller has no
+    # role in is refused here; a key fence and the tenant boundary are re-checked
+    # in ``CaptureService`` (defence in depth, not a second authority).
+    "SuggestionCaptureView",
     # Tabellenansicht slice 1 (Task 1.6): the table read names its workspace in
     # the mandatory ``?workspace_id``; the same classification as the saved-view
     # collection below — the workspace in the query is the authority, and the

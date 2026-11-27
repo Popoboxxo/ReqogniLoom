@@ -169,6 +169,13 @@ class ApiKey(TenantScopedModel):
     tool_groups = models.JSONField(default=list, blank=True)
     #: Hard expiry. NULL = never expires (historical behaviour).
     expires_at = models.DateTimeField(null=True, blank=True)
+    #: ADR-032 (decision D2): the *capture* right. Orthogonal to ``scope`` and
+    #: to the RBAC role — it authorises exactly one thing: producing
+    #: ``artifact_create``/``artifact_update`` proposals from free text via
+    #: ``suggestion.capture``. It never authorises a decision; accepting stays
+    #: human-only (ADR-019 Zusage 7(c)). Default ``False`` so every existing key
+    #: keeps its behaviour and enabling capture is an explicit act.
+    capture_enabled = models.BooleanField(default=False)
 
     class Meta:
         db_table = "at_api_key"

@@ -161,6 +161,7 @@ from .serializers_io import (
     GlossaryTermSerializer,
     IcdParameterSerializer,
     NotificationSerializer,
+    SuggestionCaptureSerializer,
     SuggestionSerializer,
     UserProfileSerializer,
 )
@@ -196,6 +197,7 @@ __all__ = [
     "StakeholderNeedSerializer",
     "StandardPagination",
     "SuggestionSerializer",
+    "SuggestionCaptureSerializer",
     "TestCaseSerializer",
     "TestRunResultBulkSerializer",
     "TestRunResultSerializer",

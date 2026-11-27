@@ -91,6 +91,17 @@ from application.base import (
     WaiverFindingNotBlockingError,
     WaiverReasonPolicyViolation,
 )
+# ADR-032 (plan P2/P3): the capture taxonomy. Every type is a
+# ``ValidationError``/``PermissionDeniedError`` subclass with its own stable
+# code, so each must be registered here by *exact* type — the lookup below is
+# exact-type, and an unregistered subclass degrades to a 500.
+from application.capture_errors import (
+    CaptureDisabledError,
+    CaptureRateLimitedError,
+    CaptureTextTooLongError,
+    WorkspaceForbiddenError,
+)
+from application.capture_update import CaptureConflictError
 # Plan F F4.4 (PR-F11b): the transport half of the additive rollback. The
 # service itself is merged (PR-F11a) and is used unchanged — this import only
 # adds the error classes to the exact-type HTTP maps below.
@@ -431,6 +442,14 @@ _EXC_TO_HTTP: dict[type, int] = {
     # precondition on a well-formed, authorised request, hence 409 (same
     # convention as SuppressionExpiredError above) — never a silent no-op.
     ProducerContextRequiredError: status.HTTP_409_CONFLICT,
+    # ADR-032: the capture taxonomy. Registered by exact type for the same
+    # reason as the entries above; the capture routes map them themselves, but
+    # any future facade caller must not get a 500 for a documented refusal.
+    WorkspaceForbiddenError: status.HTTP_403_FORBIDDEN,
+    CaptureTextTooLongError: status.HTTP_400_BAD_REQUEST,
+    CaptureRateLimitedError: status.HTTP_429_TOO_MANY_REQUESTS,
+    CaptureDisabledError: status.HTTP_409_CONFLICT,
+    CaptureConflictError: status.HTTP_409_CONFLICT,
     # #1084: a hard delete refused because the workspace still holds
     # append-only baselines. A rejected precondition, not a malformed request,
     # hence 409 — and registering the type is what also forwards the service's
@@ -544,6 +563,12 @@ _EXC_TO_CODE: dict[type, str] = {
     WaiverFindingNotBlockingError: "WAIVER_FINDING_NOT_BLOCKING",
     SuppressionExpiredError: "SUPPRESSION_EXPIRED",
     ProducerContextRequiredError: "PRODUCER_CONTEXT_REQUIRED",
+    # ADR-032: one stable code per capture refusal (see _EXC_TO_HTTP).
+    WorkspaceForbiddenError: "WORKSPACE_FORBIDDEN",
+    CaptureTextTooLongError: "TEXT_TOO_LONG",
+    CaptureRateLimitedError: "RATE_LIMITED",
+    CaptureDisabledError: "CAPTURE_DISABLED",
+    CaptureConflictError: "CONFLICT",
     BaselineImmutabilityError: "CONFLICT",
     # F4.2 review B2/B3: same code as every other validation failure, so a
     # client keeps one 400 branch; only the shape of ``details`` differs.

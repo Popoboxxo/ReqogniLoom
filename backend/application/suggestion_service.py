@@ -75,6 +75,7 @@ from application.base import (
     PermissionDeniedError,
     ServiceBase,
     ValidationError,
+    require_capture_context,
     require_producer_context,
 )
 from application.models import DomainEventOutbox
@@ -258,6 +259,17 @@ class SuggestionService(ServiceBase):
         producer: str = "",
         target_item_type: str = "",
         target_item_id: UUID | None = None,
+        capture: bool = False,
+        capture_client: str = "",
+        capture_session: str = "",
+        message_id: str = "",
+        idempotency_key: str = "",
+        source_excerpt: str = "",
+        source_hash: str = "",
+        operation: str = "",
+        target_artifact_id: UUID | None = None,
+        base_version: int | None = None,
+        expires_at: Any = None,
     ) -> Suggestion:
         """Persist a ``Suggestion`` receipt with server-set provenance.
 
@@ -266,10 +278,25 @@ class SuggestionService(ServiceBase):
         ``producer`` label) — never from ``payload``. Fails closed for a
         non-agent/non-API-key context (Zusage 7(f)).
 
+        ``capture=True`` switches the credential gate from
+        :func:`~application.base.require_producer_context` to
+        :func:`~application.base.require_capture_context` (ADR-032, decision
+        D2): a relay key holds the *capture* right instead of an agent actor.
+        It is still an API-key context with a ``proposed_by``, so the receipt
+        keeps the same provenance guarantees — only the authorisation path
+        differs, and it is one insert path either way.
+
+        The ``capture_*`` keyword arguments are only written for a capture
+        receipt; a producer that leaves them out keeps the historical row shape
+        (empty strings / NULL), so nothing existing changes.
+
         Returns the created :class:`persistence.models.Suggestion`.
         """
         self._set_tenant_context(ctx)
-        require_producer_context(ctx)
+        if capture:
+            require_capture_context(ctx)
+        else:
+            require_producer_context(ctx)
         self._adapter_for(kind)  # reject an unknown kind early
 
         return Suggestion.objects.create(
@@ -284,6 +311,16 @@ class SuggestionService(ServiceBase):
             workspace_id=workspace_id,
             created_by_id=ctx.user_id,
             modified_by_id=ctx.user_id,
+            client=capture_client,
+            source_session=capture_session,
+            message_id=message_id,
+            idempotency_key=idempotency_key,
+            source_excerpt=source_excerpt,
+            source_hash=source_hash,
+            operation=operation or None,
+            target_artifact_id=target_artifact_id,
+            base_version=base_version,
+            expires_at=expires_at,
         )
 
     # ------------------------------------------------------------------
@@ -348,6 +385,12 @@ class SuggestionService(ServiceBase):
                     if suggestion.target_item_id
                     else None
                 ),
+                # Capture provenance on the decision entry: what was accepted
+                # must be attributable to the client session it came from
+                # without reading the raw message (which is not stored, D5).
+                "operation": suggestion.operation,
+                "client": suggestion.client or None,
+                "source_session": suggestion.source_session or None,
             },
         )
 
@@ -407,7 +450,12 @@ class SuggestionService(ServiceBase):
 
     @staticmethod
     def _serialize(suggestion: Suggestion) -> dict:
-        """Render a suggestion as a JSON-safe dict for REST/MCP transports."""
+        """Render a suggestion as a JSON-safe dict for REST/MCP transports.
+
+        The capture provenance keys (ADR-032) are always present — empty/None
+        for producers that are not client relays — so a consumer can read one
+        shape without branching on the kind.
+        """
         return {
             "id": str(suggestion.id),
             "kind": suggestion.kind,
@@ -435,6 +483,24 @@ class SuggestionService(ServiceBase):
             "workspace_id": str(suggestion.workspace_id),
             "created_at": (
                 suggestion.created_at.isoformat() if suggestion.created_at else None
+            ),
+            # -- capture provenance (ADR-032) --
+            "operation": suggestion.operation,
+            "client": suggestion.client,
+            "source_session": suggestion.source_session,
+            # The excerpt is what a human judges a capture proposal by (D5):
+            # storing it but never exposing it would make the field pointless.
+            # It is the REDACTED, length-bounded text — never the raw message.
+            "source_excerpt": suggestion.source_excerpt,
+            "source_hash": suggestion.source_hash,
+            "target_artifact_id": (
+                str(suggestion.target_artifact_id)
+                if suggestion.target_artifact_id
+                else None
+            ),
+            "base_version": suggestion.base_version,
+            "expires_at": (
+                suggestion.expires_at.isoformat() if suggestion.expires_at else None
             ),
         }
 

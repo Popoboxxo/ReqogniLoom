@@ -69,6 +69,7 @@ from rest_api.serializers import (
     WorkflowDefinitionSerializer,
     WorkItemSerializer,
     WorkspaceSerializer,
+    SuggestionCaptureSerializer,
 )
 from rest_api.serializers_diagram import (
     CanvasStrokeDataSerializer,
@@ -139,7 +140,9 @@ _GUARDED_WRITE_SERIALIZERS: tuple[type, ...] = (
     WaiverCreateSerializer,
     # F4.2: the PUT body of /baselines/{id}/tags/.
     BaselineTagsRequestSerializer,
-    # F4.4: the two rollback POST bodies (/rollback-request/, /rollback/).
+    # ADR-032 (plan P2): the capture POST body. A typo'd key must not be
+    # dropped and answered as a successful no-op capture.
+    SuggestionCaptureSerializer,    # F4.4: the two rollback POST bodies (/rollback-request/, /rollback/).
     BaselineRollbackRequestSerializer,
     BaselineRollbackApplyRequestSerializer,
     # R3.2 (document view): the bulk-update body and its nested entry. The entry

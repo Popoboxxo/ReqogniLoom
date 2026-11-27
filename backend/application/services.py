@@ -230,6 +230,11 @@ from application.services_step4 import (  # noqa: F401,E402
 from application.suggestion_service import SuggestionService  # noqa: F401,E402
 
 # ---------------------------------------------------------------------------
+# ADR-032 — capture path ("text in, suggestions out", plan P2/P3)
+# ---------------------------------------------------------------------------
+from application.capture_service import CaptureService  # noqa: F401,E402
+
+# ---------------------------------------------------------------------------
 # Plan F F4.4 — additive baseline rollback (ADR-025)
 # ---------------------------------------------------------------------------
 from application.baseline_rollback_service import (  # noqa: F401,E402
@@ -324,6 +329,8 @@ __all__ = [
     # ADR-019 — generic proposal lifecycle (WP2)
     "SuggestionService",
     "ProducerContextRequiredError",
+    # ADR-032 — capture path (plan P2/P3)
+    "CaptureService",
     # Plan F F4.4 — additive baseline rollback (ADR-025)
     "BaselineRollbackService",
     "RollbackResult",

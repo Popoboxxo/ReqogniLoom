@@ -693,6 +693,11 @@ GROUP_SPECS: tuple[_GroupSpec, ...] = (
     ),
     _GroupSpec(
         prefix="suggestion", group_key="suggestion",
+        write_tools=(
+            "suggestion.accept",
+            "suggestion.capture",
+            "suggestion.reject",
+        ),
         read_only=frozenset({
             "suggestion.list",
         }),

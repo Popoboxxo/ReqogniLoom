@@ -117,8 +117,8 @@ def test_manifest_catalogue_is_50_prefixes_and_313_tools() -> None:
     # = 301, and the ``saved_view`` group is the 49th prefix. #2016 added
     # ``change_request.submit_for_review`` inside that prefix set (301 -> 302).
     # P1.8 / M-11 added the ``workflow_default`` group (9 tools, the 50th
-    # prefix: 302 -> 311).
-    assert manifest["tool_count"] == 313
+    # prefix: 302 -> 311); ADR-032 added ``suggestion.capture`` (313 -> 314).
+    assert manifest["tool_count"] == 314
     assert len({tool["prefix"] for tool in manifest["tools"]}) == 50
     assert "saved_view" in {tool["prefix"] for tool in manifest["tools"]}
 

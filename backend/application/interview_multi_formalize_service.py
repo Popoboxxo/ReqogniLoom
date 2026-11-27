@@ -424,30 +424,13 @@ def validate_confirmed_proposal_fields(
                 ctx, workspace_id, item_type
             )
             allowed_cache[item_type] = allowed
-        for key, value in item["fields"].items():
-            if not isinstance(key, str):
-                raise ProposalValidationError(
-                    f"proposal item #{item_index}: field names must be strings",
-                    code="INVALID_PROPOSAL_SHAPE",
-                    item_index=item_index,
-                )
-            if key in _RESERVED_PROPOSAL_FIELDS:
-                raise ProposalValidationError(
-                    f"proposal item {item_type!r}: field {key!r} is server-owned "
-                    "and cannot be set by an interview proposal",
-                    code="RESERVED_FIELD",
-                    item_index=item_index,
-                    field=key,
-                )
-            if key not in allowed:
-                raise ProposalValidationError(
-                    f"proposal item {item_type!r}: field {key!r} is not an allowed "
-                    f"field for this artifact type",
-                    code="UNKNOWN_FIELD",
-                    item_index=item_index,
-                    field=key,
-                )
-            _validate_proposal_field_value(item_type, key, value, item_index)
+        _check_field_allowlist(
+            item_type=item_type,
+            fields=item["fields"],
+            allowed=allowed,
+            item_index=item_index,
+            context_label="an interview proposal",
+        )
 
     missing = collect_missing_required_fields(ctx, workspace_id, confirmed_proposal)
     if missing:
@@ -480,6 +463,143 @@ def _unexpected_keyword_name(exc: TypeError) -> str | None:
     """The kwarg named in a ``unexpected keyword argument 'x'`` TypeError."""
     match = _UNEXPECTED_KEYWORD_RE.search(str(exc))
     return match.group(1) if match else None
+
+
+def _check_field_allowlist(
+    *,
+    item_type: str,
+    fields: dict,
+    allowed: frozenset[str],
+    item_index: int | None = None,
+    context_label: str = "an interview proposal",
+) -> None:
+    """Reject a reserved, unknown or oversized field (AI-005, one gate).
+
+    Split out of :func:`validate_confirmed_proposal_fields` so the capture
+    path (``suggestion.capture``) validates through the *same* code with the
+    same messages, instead of a second implementation that could drift. The
+    default ``context_label`` keeps the historical message text byte-identical.
+    """
+    for key, value in fields.items():
+        if not isinstance(key, str):
+            raise ProposalValidationError(
+                f"proposal item #{item_index}: field names must be strings",
+                code="INVALID_PROPOSAL_SHAPE",
+                item_index=item_index,
+            )
+        if key in _RESERVED_PROPOSAL_FIELDS:
+            raise ProposalValidationError(
+                f"proposal item {item_type!r}: field {key!r} is server-owned "
+                f"and cannot be set by {context_label}",
+                code="RESERVED_FIELD",
+                item_index=item_index,
+                field=key,
+            )
+        if key not in allowed:
+            raise ProposalValidationError(
+                f"proposal item {item_type!r}: field {key!r} is not an allowed "
+                f"field for this artifact type",
+                code="UNKNOWN_FIELD",
+                item_index=item_index,
+                field=key,
+            )
+        _validate_proposal_field_value(item_type, key, value)
+
+
+def validate_artifact_fields(
+    ctx,
+    workspace_id,
+    item_type: str,
+    fields: dict,
+    *,
+    mode: str = "create",
+    context_label: str = "an interview proposal",
+) -> None:
+    """Validate ONE artifact's writable fields against its *live* signature.
+
+    The single-item entry point shared by ``suggestion.capture`` (ADR-032) for
+    both proposal operations:
+
+    * ``mode="create"`` derives the allowlist from the production ``create_X()``
+      (identical to the interview gate above),
+    * ``mode="update"`` derives it from the shared update seam
+      (``application.capture_update.update_allowlist``, i.e. the type's
+      ``UpdateAdapter.writable_fields`` plus the gateway fields), so an update
+      proposal can never write a field the normal update path does not accept.
+
+    Tenant-defined custom attributes are added on top in both modes, exactly as
+    in the interview path. An unknown type is skipped here and rejected by the
+    caller with its own canonical error.
+    """
+    from application.interview_artifact_adapters import (
+        ARTIFACT_CREATION_ADAPTERS,
+        allowed_fields_for,
+    )
+
+    if mode == "update":
+        from application.capture_update import supports_update, update_allowlist
+
+        if not supports_update(item_type):
+            return
+        base_allowed = update_allowlist(item_type)
+    else:
+        if item_type not in ARTIFACT_CREATION_ADAPTERS:
+            return
+        base_allowed = allowed_fields_for(item_type)
+
+    allowed = base_allowed | _tenant_custom_attribute_names(
+        ctx, workspace_id, item_type
+    )
+    _check_field_allowlist(
+        item_type=item_type,
+        fields=fields,
+        allowed=allowed,
+        context_label=context_label,
+    )
+
+
+def validate_capture_proposal_item(
+    ctx, workspace_id, item: dict, *, mode: str = "create"
+) -> dict:
+    """Normalise + validate one LLM-produced capture proposal item.
+
+    The capture path (ADR-032) reuses the interview proposal gate rather than
+    inventing a second one (plan P2: "Antwortprüfung über die vorhandene
+    Proposal-Validierung"):
+
+    * :func:`normalize_proposal_items` tolerates the LLM's top-level ``title``
+      shape (issue #1990),
+    * ``_validate_confirmed_proposal`` enforces the structure,
+    * :func:`validate_artifact_fields` enforces the field contract,
+    * **links are dropped**: a capture suggestion is one artifact, so an
+      intra-proposal link has no referent. Trace links between captured
+      artifacts stay the traceability producer's job.
+
+    Raises:
+        ValidationError: the item is not a valid proposal item. The caller
+            counts it as ``skipped.invalid`` — one bad entry must not discard
+            the good ones (spec §4.2 step 6).
+    """
+    from application.interview_multi_protocol import normalize_proposal_items
+
+    if not isinstance(item, dict):
+        raise ValidationError("A capture proposal item must be an object.")
+
+    stripped = {key: value for key, value in item.items() if key != "links"}
+    stripped["links"] = []
+    normalized = normalize_proposal_items([stripped])[0]
+    _validate_confirmed_proposal([normalized])
+
+    item_type = normalized["type"]
+    validate_artifact_fields(
+        ctx,
+        workspace_id,
+        item_type,
+        normalized["fields"],
+        mode=mode,
+        context_label="a captured suggestion",
+    )
+    return normalized
 
 
 class InterviewMultiFormalizationMixin:

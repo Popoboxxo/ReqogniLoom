@@ -71,6 +71,7 @@ class SuggestionToolGroup(BaseToolGroup):
         "suggestion.list": "_handle_list",
         "suggestion.accept": "_handle_accept",
         "suggestion.reject": "_handle_reject",
+        "suggestion.capture": "_handle_capture",
     }
 
     _TOOL_SCHEMAS = [
@@ -146,6 +147,78 @@ class SuggestionToolGroup(BaseToolGroup):
                 "required": ["id"],
             },
         },
+        {
+            "name": "suggestion.capture",
+            "description": (
+                "Turn ONE user message into zero or more open suggestions — "
+                "'text in, suggestions out' (ADR-032). The server redacts "
+                "secrets, applies the rule filter, deduplicates (idempotency "
+                "key, same message, recently rejected), runs ONE stateless LLM "
+                "call and validates the answer through the same proposal gate "
+                "as interview.formalize. Requires the workspace switch "
+                "'capture.enabled' (default off) and an API key granted the "
+                "'capture' right; plain text is never stored, only a redacted "
+                "excerpt plus its hash. Returns "
+                "{created, skipped:{duplicate,filtered,invalid,redacted}, "
+                "request_id}. Nothing is created automatically — a human still "
+                "accepts each suggestion."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "workspace_id": {
+                        "type": "string",
+                        "description": (
+                            "UUID of the target workspace. Mandatory — the "
+                            "server never guesses a workspace."
+                        ),
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": (
+                            "The user message (max 8000 characters). Redacted "
+                            "server-side before storage and before the model "
+                            "call."
+                        ),
+                    },
+                    "client": {
+                        "type": "string",
+                        "enum": [
+                            "claude-code",
+                            "codex",
+                            "opencode",
+                            "kimi-code",
+                            "antigravity",
+                            "hermes",
+                            "other",
+                        ],
+                        "description": "Client that captured the message.",
+                    },
+                    "source_session": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "description": "Optional client-side session id (max 255).",
+                    },
+                    "message_id": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "description": (
+                            "Optional client-side message id, when the client "
+                            "has one (max 255)."
+                        ),
+                    },
+                    "idempotency_key": {
+                        "type": "string",
+                        "maxLength": 128,
+                        "description": (
+                            "Optional dedup key; derived from the normalised "
+                            "content when omitted."
+                        ),
+                    },
+                },
+                "required": ["workspace_id", "text", "client"],
+            },
+        },
     ]
 
     # ------------------------------------------------------------------
@@ -203,6 +276,100 @@ class SuggestionToolGroup(BaseToolGroup):
         )
 
     # ------------------------------------------------------------------
+    # suggestion.capture
+    # ------------------------------------------------------------------
+
+    def _handle_capture(
+        self, *, params: dict[str, Any], auth_context: AuthContext, api_key: str
+    ) -> ToolResult:
+        """Turn one user message into suggestions (ADR-032, plan P2).
+
+        All behaviour lives in ``CaptureService`` — this handler validates the
+        declared arguments, maps the service's error taxonomy onto the contract
+        codes and writes one MCP audit entry.
+        """
+        from application.ai_derivation_service import LlmProviderUnavailableError
+        from application.capture_errors import (
+            CaptureDisabledError,
+            CaptureRateLimitedError,
+            CaptureTextTooLongError,
+            WorkspaceForbiddenError,
+        )
+        from application.capture_service import CaptureService
+        from application.capture_update import CaptureConflictError
+
+        allowed = [
+            "workspace_id",
+            "text",
+            "client",
+            "source_session",
+            "message_id",
+            "idempotency_key",
+        ]
+        reject_unknown_params(params, allowed, "suggestion.capture")
+
+        workspace_id = require_uuid(params, "workspace_id")
+        text = params.get("text")
+        client = params.get("client")
+        if not isinstance(text, str) or not text.strip():
+            return ToolResult.error(
+                "VALIDATION_ERROR", "'text' is required and must be a string."
+            )
+        if not isinstance(client, str) or not client.strip():
+            return ToolResult.error(
+                "VALIDATION_ERROR", "'client' is required and must be a string."
+            )
+
+        try:
+            result = CaptureService().capture(
+                auth_context,
+                workspace_id=workspace_id,
+                text=text,
+                client=client,
+                source_session=str(params.get("source_session") or ""),
+                message_id=str(params.get("message_id") or ""),
+                idempotency_key=str(params.get("idempotency_key") or ""),
+            )
+        except WorkspaceForbiddenError as exc:
+            return ToolResult.error("WORKSPACE_FORBIDDEN", str(exc))
+        except CaptureDisabledError as exc:
+            return ToolResult.error("CAPTURE_DISABLED", str(exc))
+        except CaptureTextTooLongError as exc:
+            return ToolResult.error("TEXT_TOO_LONG", str(exc))
+        except CaptureRateLimitedError as exc:
+            return ToolResult.error("RATE_LIMITED", str(exc))
+        except CaptureConflictError as exc:
+            return ToolResult.error("CONFLICT", str(exc))
+        except LlmProviderUnavailableError as exc:
+            # The contract code for "no usable provider" (spec §4.3). Checked
+            # before the generic branches because it is not a ValidationError.
+            return ToolResult.error("LLM_UNAVAILABLE", str(exc))
+        except ProducerContextRequiredError as exc:
+            return ToolResult.error("PRODUCER_CONTEXT_REQUIRED", str(exc))
+        except PermissionDeniedError as exc:
+            return ToolResult.error("PERMISSION_DENIED", str(exc))
+        except ValidationError as exc:
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+
+        write_mcp_audit(
+            ctx=auth_context,
+            operation="create",
+            entity_type="Suggestion",
+            entity_id=(
+                result["created"][0] if result.get("created") else workspace_id
+            ),
+            tool_name="suggestion.capture",
+            api_key=api_key,
+            details={
+                "request_id": result.get("request_id"),
+                "client": client,
+                "created": result.get("created"),
+                "skipped": result.get("skipped"),
+            },
+        )
+        return ToolResult.ok(result)
+
+    # ------------------------------------------------------------------
     # Shared: accept/reject
     # ------------------------------------------------------------------
 
@@ -220,6 +387,7 @@ class SuggestionToolGroup(BaseToolGroup):
         entries for this call so the single MCP entry below is the only one
         (Codeberg #313 / #626 convention).
         """
+        from application.capture_update import CaptureConflictError
         from application.suggestion_service import SuggestionService
 
         # B-01 closure (mirrors comment.resolve): reject an explicit
@@ -253,6 +421,13 @@ class SuggestionToolGroup(BaseToolGroup):
             # mirrors REST (409 PRODUCER_CONTEXT_REQUIRED), not the generic
             # CONFLICT used for other 409s (#1155 review B-04).
             return ToolResult.error("PRODUCER_CONTEXT_REQUIRED", str(exc))
+        except CaptureConflictError as exc:
+            # ADR-032: a stale ``base_version`` on an update proposal. Checked
+            # BEFORE the generic ``ValidationError`` branch — the type is a
+            # ``ValidationError`` subclass, so without this order MCP would
+            # answer VALIDATION_ERROR where REST answers 409 CONFLICT and the
+            # client could not tell "re-read and retry" from "bad request".
+            return ToolResult.error("CONFLICT", str(exc))
         except PermissionDeniedError as exc:
             return ToolResult.error("PERMISSION_DENIED", str(exc))
         except NotFoundError as exc:

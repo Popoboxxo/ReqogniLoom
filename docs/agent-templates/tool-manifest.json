@@ -1,6 +1,6 @@
 {
   "generated_from": "reqogniloom==unknown",
-  "tool_count": 313,
+  "tool_count": 314,
   "tools": [
     {
       "name": "admin.backup_create",
@@ -7884,6 +7884,58 @@
         },
         "required": [
           "id"
+        ]
+      }
+    },
+    {
+      "name": "suggestion.capture",
+      "prefix": "suggestion",
+      "is_write": true,
+      "description": "Turn ONE user message into zero or more open suggestions — 'text in, suggestions out' (ADR-032). The server redacts secrets, applies the rule filter, deduplicates (idempotency key, same message, recently rejected), runs ONE stateless LLM call and validates the answer through the same proposal gate as interview.formalize. Requires the workspace switch 'capture.enabled' (default off) and an API key granted the 'capture' right; plain text is never stored, only a redacted excerpt plus its hash. Returns {created, skipped:{duplicate,filtered,invalid,redacted}, request_id}. Nothing is created automatically — a human still accepts each suggestion.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "description": "UUID of the target workspace. Mandatory — the server never guesses a workspace."
+          },
+          "text": {
+            "type": "string",
+            "description": "The user message (max 8000 characters). Redacted server-side before storage and before the model call."
+          },
+          "client": {
+            "type": "string",
+            "enum": [
+              "claude-code",
+              "codex",
+              "opencode",
+              "kimi-code",
+              "antigravity",
+              "hermes",
+              "other"
+            ],
+            "description": "Client that captured the message."
+          },
+          "source_session": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Optional client-side session id (max 255)."
+          },
+          "message_id": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Optional client-side message id, when the client has one (max 255)."
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "Optional dedup key; derived from the normalised content when omitted."
+          }
+        },
+        "required": [
+          "workspace_id",
+          "text",
+          "client"
         ]
       }
     },

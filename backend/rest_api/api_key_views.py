@@ -390,6 +390,7 @@ class ApiKeyViewSet(ViewSet):
                 workspace_ids=data["workspace_ids"],
                 expires_at=data["expires_at"],
                 tool_groups=data["tool_groups"],
+                capture_enabled=data.get("capture_enabled", False),
             )
         except ApiKeyPolicyError as exc:
             # WP E3.6: a policy rejection names the offending field, so the 400
