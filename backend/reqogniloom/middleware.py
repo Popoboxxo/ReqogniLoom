@@ -29,6 +29,36 @@ def get_request_id() -> str | None:
     return _request_id_context.get()
 
 
+class NulByteRejectionMiddleware:
+    """Reject a NUL byte in query parameters with a JSON 400 (issue #2087).
+
+    PostgreSQL rejects NUL bytes in text parameters; without this gate the
+    value reaches the ORM, raises a database-level error and surfaces as an
+    HTML 500. Rejecting it at the transport boundary keeps the documented JSON
+    error envelope. Only query parameters are checked (the reported path); a
+    NUL in a JSON body is still validated by the field services.
+    """
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        for _key, values in request.GET.lists():
+            if any("\x00" in value for value in values):
+                return JsonResponse(
+                    {
+                        "error": {
+                            "code": "VALIDATION_ERROR",
+                            "message": "Query parameters must not contain NUL bytes.",
+                            "details": [],
+                            "request_id": get_request_id(),
+                        }
+                    },
+                    status=400,
+                )
+        return self.get_response(request)
+
+
 class RequestIdFilter(logging.Filter):
     """
     M4: Logging filter that injects the current request ID into every log record.

@@ -382,6 +382,9 @@ MIDDLEWARE = [
     # to trace. Injects a UUID per request into X-Request-ID response header and
     # thread-local context so log messages carry the ID for tracing (SA-46).
     "reqogniloom.middleware.RequestIdMiddleware",
+    # #2087: a NUL byte in a query parameter must be a JSON 400, not a
+    # database-level 500. Placed after RequestId so the envelope carries the id.
+    "reqogniloom.middleware.NulByteRejectionMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     # #36: activates request.LANGUAGE_CODE from the Accept-Language header
     # (or the "django_language" session/cookie value) so translatable
