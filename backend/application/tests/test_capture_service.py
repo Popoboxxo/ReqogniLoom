@@ -429,6 +429,43 @@ def test_agent_may_not_accept_a_capture_suggestion(env, monkeypatch):
     assert Suggestion.objects.get(id=result["created"][0]).status == "open"
 
 
+@pytest.mark.django_db
+def test_user_api_key_may_accept_a_capture_suggestion(env, monkeypatch):
+    """ADR-032 decision (a): the *user* key is the one that accepts.
+
+    The agent ban is on the principal, not on every ``reqlo_*`` key. Blocking
+    any ``api_key_id`` would make the chat-side review flow (``suggestion.list``
+    + ``suggestion.accept`` over MCP with the user key) impossible.
+    """
+    _use_provider(monkeypatch, _requirement_answer("Human key title", "Human key body"))
+    result = _capture(env)
+
+    user_key = ApiKey.objects.create(
+        tenant=env["tenant"],
+        user=env["owner"],
+        name="review",
+        key_hash="sha256p1:review-user",
+        principal_type="user",
+        workspace_ids=[str(env["workspace"].id)],
+    )
+    user_key_ctx = AuthContext(
+        user_id=env["owner"].id,
+        tenant_id=env["tenant"].id,
+        active_roles=("admin",),
+        auth_method=AuthMethod.API_KEY,
+        api_key_id=user_key.id,
+        actor_type="user",
+        scope="write",
+    )
+
+    accepted = SuggestionService().accept(result["created"][0], user_key_ctx)
+
+    assert accepted["status"] == "accepted"
+    assert Requirement.objects.filter(
+        workspace_id=env["workspace"].id, title="Human key title"
+    ).exists()
+
+
 # ---------------------------------------------------------------------------
 # Update suggestion -> target changed, stale version conflicts
 # ---------------------------------------------------------------------------

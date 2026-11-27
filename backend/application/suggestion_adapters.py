@@ -639,14 +639,16 @@ class ArtifactUpdateSuggestionAdapter(SuggestionAdapter):
 def _assert_human_decision(ctx: AuthContext, kind: str) -> None:
     """Refuse an agent decision on *kind* (ADR-019 Zusage 7(c)).
 
-    The same blanket rule the ``requirement_level`` adapter applies: an agent
-    principal (any ``reqlo_*`` API key) may never accept a proposal, its own or
-    another agent's. ``SuggestionService.accept`` lets
+    The ban is on the **agent principal** (``actor_type == "agent"``), not on
+    every API key: ADR-032 decision (a) deliberately issues two keys per
+    client — the agent key captures, the **user key** accepts. Blocking any
+    ``api_key_id`` would make chat-side acceptance impossible and contradicts
+    that decision. ``SuggestionService.accept`` lets
     ``AgentSelfConfirmError`` propagate so REST/MCP answer 403.
     """
     from application.trace_link_service import AgentSelfConfirmError
 
-    if ctx.actor_type == "agent" or ctx.api_key_id is not None:
+    if ctx.actor_type == "agent":
         raise AgentSelfConfirmError(
             f"An agent may not accept its own {kind} suggestion."
         )
