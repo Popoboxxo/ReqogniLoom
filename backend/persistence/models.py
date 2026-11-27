@@ -4375,7 +4375,7 @@ class Suggestion(TenantScopedModel):
     """
 
     class Kind(models.TextChoices):
-        """The four proposal producers ADR-019 unifies under one lifecycle."""
+        """Proposal producers ADR-019 unifies under one lifecycle."""
 
         ARTIFACT_CREATE = "artifact_create", "Artifact create"
         TRACE_LINK = "trace_link", "Trace link"
@@ -4385,6 +4385,11 @@ class Suggestion(TenantScopedModel):
         #: from its architecture allocation / requirement type / trace-link
         #: direction. Accepting it sets ``Requirement.level_source = manual``.
         REQUIREMENT_LEVEL = "requirement_level", "Requirement level"
+        #: ADR-032 / plan P3 — "anpassen, erweitern, korrigieren" of an existing
+        #: artifact. Accept runs the target type's normal update facade with the
+        #: proposal's ``base_version`` as the optimistic-lock precondition, so a
+        #: stale proposal is refused instead of overwriting a newer revision.
+        ARTIFACT_UPDATE = "artifact_update", "Artifact update"
 
     class Status(models.TextChoices):
         """Proposal lifecycle. Hoheit remains with the delegated mechanism."""
@@ -4455,8 +4460,10 @@ class Suggestion(TenantScopedModel):
         null=True,
         blank=True,
         help_text=(
-            "UUID of the delegated target (e.g. the M2 proposal TraceLink id); "
-            "NULL when the adapter has nothing to reference yet."
+            "UUID of the delegated target, always the ENTITY id (what "
+            "requirement.get/adr.read accept). For a capture proposal the "
+            "backing Artifact id is recorded in payload.accepted_artifact_id "
+            "once accepted."
         ),
     )
     payload = models.JSONField(
@@ -4474,6 +4481,101 @@ class Suggestion(TenantScopedModel):
         related_name="suggestions",
     )
 
+    # -- ``suggestion.capture`` provenance (ADR-032, plan P2/P3) ------------
+    #
+    # A capture suggestion is derived from a user message the server received
+    # from a client relay. Decision D5 (listen-mode spec §6) forbids persisting
+    # the raw message, so the row keeps only the redacted, length-bounded
+    # excerpt plus its SHA-256 — enough to recognise a repeat, not enough to
+    # reconstruct the conversation.
+    class Operation(models.TextChoices):
+        """What accepting the suggestion does to the target domain."""
+
+        CREATE = "create", "Create"
+        UPDATE = "update", "Update"
+
+    client = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text=(
+            "Client that captured the source message (claude-code, codex, "
+            "opencode, kimi-code, antigravity, hermes, other). Empty for "
+            "producers that are not client relays."
+        ),
+    )
+    source_session = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Client-side session identifier (provenance and dedup only).",
+    )
+    message_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Client-side stable message identifier, when the client has one.",
+    )
+    idempotency_key = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text=(
+            "Caller-supplied or server-derived dedup key. Unique per workspace "
+            "while non-empty (partial unique constraint)."
+        ),
+    )
+    source_excerpt = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Redacted, length-bounded excerpt of the captured message. Never "
+            "the raw text (decision D5)."
+        ),
+    )
+    source_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="SHA-256 of the normalized (redacted) message text.",
+    )
+    operation = models.CharField(
+        max_length=16,
+        choices=Operation.choices,
+        null=True,
+        blank=True,
+        help_text=(
+            "What accepting the suggestion does to the domain: 'create' or "
+            "'update' for a capture proposal. NULL for producers that are not "
+            "client relays (trace_link, requirement_level, …) — reporting "
+            "'create' for a proposal that makes no such claim would be a lie."
+        ),
+    )
+    target_artifact_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text=(
+            "For an update suggestion: the ENTITY id of the target artifact "
+            "(requirement.get's ``id``, not the backing Artifact id)."
+        ),
+    )
+    base_version = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=(
+            "For an update suggestion: the target's version the proposal was "
+            "derived from. Accept refuses a stale value (409 CONFLICT)."
+        ),
+    )
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Optional expiry of an open capture suggestion (ADR-019 O9 "
+            "retention hook). NULL = never expires."
+        ),
+    )
+
     class Meta:
         db_table = "pl_suggestion"
         indexes = [
@@ -4483,6 +4585,22 @@ class Suggestion(TenantScopedModel):
             models.Index(
                 fields=["workspace", "status"],
                 name="idx_suggestion_ws_status",
+            ),
+            # Capture dedup step 1 (idempotency key) and step 2 (same message
+            # hash already open/recently rejected) both read by workspace.
+            models.Index(
+                fields=["workspace", "source_hash"],
+                name="idx_suggestion_ws_source_hash",
+            ),
+        ]
+        constraints = [
+            # An idempotency key identifies one capture attempt per workspace.
+            # Partial so the many legacy rows with ``""`` stay unconstrained
+            # (Postgres treats NULLs as distinct, empty strings as equal).
+            models.UniqueConstraint(
+                fields=["workspace", "idempotency_key"],
+                condition=~models.Q(idempotency_key=""),
+                name="uq_suggestion_workspace_idempotency_key",
             ),
         ]
 

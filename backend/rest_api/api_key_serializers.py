@@ -269,6 +269,15 @@ class ApiKeyCreateSerializer(serializers.Serializer):
         trim_whitespace=False,
         help_text="Display label of the agent principal (truncated to 255).",
     )
+    capture_enabled = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "ADR-032: grant the 'capture' right — suggestion.capture may "
+            "produce proposals from free text with this key. It never grants "
+            "the right to accept one; decisions stay human-only."
+        ),
+    )
 
     # -- per-field validation ---------------------------------------------
 

@@ -376,6 +376,9 @@ def test_openapi_documents_the_create_request_body(openapi_schema: dict) -> None
         "expires_at",
         "tool_groups",
         "agent_label",
+        # ADR-032 (decision D2): the capture right is an explicit, additive
+        # property of the create body — a key must be granted it deliberately.
+        "capture_enabled",
     }
     assert body.get("required") == ["name"]
 

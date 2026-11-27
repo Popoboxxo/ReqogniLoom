@@ -31,13 +31,18 @@ target_item_id, **kwargs) -> Suggestion``
     artifact* (Zusage 7(e)) — for ``trace_link`` this deletes the proposal
     *link*, which is the M2 discard semantics, not the linked artifacts.
 
-Registry coverage (ADR-019 Decision 3)
---------------------------------------
-* ``trace_link`` — **active** in the MVP (this is the only producer in scope,
-  ``TraceabilitySuggestService.suggest_links``).
-* ``artifact_create``, ``interview_grounding``, ``context_edge`` — registered
-  but **dormant** (raise :class:`SuggestionKindNotEnabledError`). They exist as
-  registry entries so the lifecycle is generic; their wiring is a later WP/O1.
+Registry coverage (ADR-019 Decision 3, extended by ADR-032)
+---------------------------------------------------------
+* ``trace_link`` — active; produced by
+  ``TraceabilitySuggestService.suggest_links``.
+* ``artifact_create`` — **active since ADR-032** (``suggestion.capture``):
+  produce persists the receipt, accept calls the production ``create_X()``.
+* ``artifact_update`` — **active since ADR-032**: "anpassen, erweitern,
+  korrigieren" of an existing artifact through the type's update facade.
+* ``requirement_level`` — active (#1289).
+* ``interview_grounding``, ``context_edge`` — registered but **dormant** (raise
+  :class:`SuggestionKindNotEnabledError`). They exist as registry entries so
+  the lifecycle stays generic; their wiring is a later WP/O1.
 """
 from __future__ import annotations
 
@@ -392,11 +397,261 @@ class RequirementLevelSuggestionAdapter(SuggestionAdapter):
 
 # Dormant kinds — registered so the lifecycle is generic; invoked => clear error.
 class ArtifactCreateSuggestionAdapter(SuggestionAdapter):
-    """M1 ``proposed`` path — registered, dormant (ADR-019 Decision 3/4)."""
+    """M1 ``proposed`` path for a captured free-text proposal (ADR-032).
+
+    Produce: **no domain write**. The capture flow has already discarded the raw
+    message (decision D5), so the accepted artifact must be materialisable from
+    the receipt alone: ``payload`` carries ``artifact_type`` and the validated
+    ``fields``. This is the same split the ``requirement_level`` adapter uses —
+    the receipt is the waiting place, produce only persists it.
+
+    Accept: call ``ARTIFACT_CREATION_ADAPTERS[type]`` — the **production**
+    ``create_X()`` the interview ``formalize`` path uses, never a shortcut insert
+    — so workflow state initialization, local ``uid`` allocation, audit and the
+    ``change_reason`` policy come for free. The suggestion row then records the
+    created artifact as its target, which is what makes provenance
+    (client/session/hash → suggestion → artifact) walkable.
+
+    Reject: no-op. There is no target artifact to destroy (Zusage 7(e)); the
+    receipt alone changes.
+    """
 
     kind = "artifact_create"
 
+    def produce(
+        self,
+        service: SuggestionService,
+        ctx: AuthContext,
+        *,
+        workspace_id: Any,
+        payload: dict,
+        producer: str = "",
+        target_item_type: str = "",
+        target_item_id: Any = None,
+        **kwargs: Any,
+    ) -> Suggestion:
+        artifact_type = str(payload.get("artifact_type") or target_item_type or "")
+        fields = payload.get("fields")
+        if not artifact_type or not isinstance(fields, dict) or not fields:
+            raise ValidationError(
+                "An artifact_create suggestion requires 'artifact_type' and a "
+                "non-empty 'fields' object."
+            )
+        from application.interview_artifact_adapters import ARTIFACT_CREATION_ADAPTERS
 
+        if artifact_type not in ARTIFACT_CREATION_ADAPTERS:
+            raise ValidationError(
+                f"Cannot create a suggestion for artifact type {artifact_type!r}."
+            )
+        return service.create(
+            kind=self.kind,
+            ctx=ctx,
+            workspace_id=workspace_id,
+            payload=payload,
+            producer=producer,
+            target_item_type=artifact_type,
+            target_item_id=target_item_id,
+        )
+
+    def accept(
+        self, service: SuggestionService, ctx: AuthContext, suggestion: Suggestion
+    ) -> None:
+        from application.interview_artifact_adapters import ARTIFACT_CREATION_ADAPTERS
+
+        # ADR-019 Decision 3: ``artifact_create`` must check the agent ban
+        # itself — it inherits neither M1's Rule 0 nor M2's confirm guard.
+        _assert_human_decision(ctx, self.kind)
+
+        artifact_type = suggestion.target_item_type or str(
+            suggestion.payload.get("artifact_type") or ""
+        )
+        adapter = ARTIFACT_CREATION_ADAPTERS.get(artifact_type)
+        if adapter is None:
+            raise ValidationError(
+                f"This suggestion has no creatable artifact type ({artifact_type!r})."
+            )
+        fields = suggestion.payload.get("fields") or {}
+        if not isinstance(fields, dict) or not fields:
+            raise ValidationError(
+                "This suggestion carries no fields to create an artifact from."
+            )
+
+        try:
+            ref = adapter(dict(fields), ctx, suggestion.workspace_id)
+        except (KeyError, TypeError) as exc:
+            # Same conversion the interview path applies: a malformed proposal
+            # must surface as a readable ValidationError, never a 500.
+            raise ValidationError(
+                f"invalid fields for {artifact_type!r}: {exc}"
+            ) from exc
+
+        # Record the created artifact on the receipt so provenance is walkable
+        # from the artifact back to the capture (client/session/hash) and the
+        # accept audit entry names what was created.
+        # ``target_item_id`` stays the ENTITY id (one meaning for the column);
+        # the backing Artifact id goes into the payload under an explicit name.
+        suggestion.target_item_type = ref.artifact_type
+        suggestion.target_item_id = ref.entity_id
+        suggestion.payload = {
+            **(suggestion.payload or {}),
+            "accepted_artifact_id": str(ref.artifact_id),
+        }
+        suggestion.save(
+            update_fields=["target_item_type", "target_item_id", "payload"]
+        )
+
+    def reject(
+        self,
+        service: SuggestionService,
+        ctx: AuthContext,
+        suggestion: Suggestion,
+        reason: str = "",
+    ) -> None:
+        """No-op: a create suggestion owns no target artifact yet (Zusage 7(e))."""
+        return None
+
+
+class ArtifactUpdateSuggestionAdapter(SuggestionAdapter):
+    """Update an existing artifact from a captured proposal (ADR-032, plan P3).
+
+    Produce: persists the receipt only (``artifact_type``, ``target_artifact_id``,
+    ``base_version`` and the validated ``fields`` live in the payload/columns).
+
+    Accept: calls the target type's **production update facade** through
+    ``ARTIFACT_UPDATE_ADAPTERS`` with the proposal's ``base_version`` as
+    ``expected_version``. A stale base version therefore surfaces as a conflict
+    (409 ``CONFLICT``) and the suggestion stays ``open`` — no overwrite, no
+    silent loss. The facade also enforces the workflow state, the preset's
+    ``change_reason`` policy and the field contract.
+
+    Reject: no-op — rejecting a proposal never touches the target artifact.
+    """
+
+    kind = "artifact_update"
+
+    def produce(
+        self,
+        service: SuggestionService,
+        ctx: AuthContext,
+        *,
+        workspace_id: Any,
+        payload: dict,
+        producer: str = "",
+        target_item_type: str = "",
+        target_item_id: Any = None,
+        **kwargs: Any,
+    ) -> Suggestion:
+        artifact_type = str(payload.get("artifact_type") or target_item_type or "")
+        fields = payload.get("fields")
+        # ``target_entity_id`` is the capture payload's name (an ENTITY id). The
+        # legacy ``target_artifact_id`` key is still accepted so a receipt
+        # written before the rename keeps working.
+        target_artifact_id = (
+            payload.get("target_entity_id")
+            or payload.get("target_artifact_id")
+            or target_item_id
+        )
+        if not artifact_type or not isinstance(fields, dict) or not fields:
+            raise ValidationError(
+                "An artifact_update suggestion requires 'artifact_type' and a "
+                "non-empty 'fields' object."
+            )
+        if target_artifact_id is None:
+            raise ValidationError(
+                "An artifact_update suggestion requires 'target_artifact_id'."
+            )
+        from application.capture_update import supports_update
+
+        if not supports_update(artifact_type):
+            raise ValidationError(
+                f"Cannot update artifact type {artifact_type!r}."
+            )
+        return service.create(
+            kind=self.kind,
+            ctx=ctx,
+            workspace_id=workspace_id,
+            payload=payload,
+            producer=producer,
+            target_item_type=artifact_type,
+            target_item_id=target_artifact_id,
+        )
+
+    def accept(
+        self, service: SuggestionService, ctx: AuthContext, suggestion: Suggestion
+    ) -> None:
+        from application.capture_update import apply_update, supports_update
+
+        _assert_human_decision(ctx, self.kind)
+
+        artifact_type = suggestion.target_item_type or str(
+            suggestion.payload.get("artifact_type") or ""
+        )
+        if not supports_update(artifact_type):
+            raise ValidationError(
+                f"This suggestion has no updatable artifact type ({artifact_type!r})."
+            )
+        target_id = suggestion.target_artifact_id or suggestion.target_item_id
+        if target_id is None:
+            raise ValidationError("This update suggestion has no target artifact.")
+
+        fields = suggestion.payload.get("fields") or {}
+        if not isinstance(fields, dict) or not fields:
+            raise ValidationError(
+                "This suggestion carries no fields to update the artifact with."
+            )
+
+        # Delegated domain path: the shared update seam enforces the allowlist,
+        # the workflow/freeze gate, the item right, the optimistic lock and the
+        # audit entry. ``base_version`` is the proposal's precondition, so a
+        # stale proposal answers CONFLICT instead of overwriting (plan P3).
+        result = apply_update(
+            ctx,
+            item_type=artifact_type,
+            entity_id=target_id,
+            fields=dict(fields),
+            base_version=suggestion.base_version,
+            change_reason=str(
+                suggestion.payload.get("rationale") or "accepted capture suggestion"
+            ),
+        )
+
+        suggestion.target_item_type = artifact_type
+        suggestion.target_item_id = result.entity_id
+        suggestion.payload = {
+            **(suggestion.payload or {}),
+            "accepted_artifact_id": str(result.artifact_id),
+        }
+        suggestion.save(
+            update_fields=["target_item_type", "target_item_id", "payload"]
+        )
+
+    def reject(
+        self,
+        service: SuggestionService,
+        ctx: AuthContext,
+        suggestion: Suggestion,
+        reason: str = "",
+    ) -> None:
+        """No-op: rejecting an update proposal never touches the target (7(e))."""
+        return None
+
+
+def _assert_human_decision(ctx: AuthContext, kind: str) -> None:
+    """Refuse an agent decision on *kind* (ADR-019 Zusage 7(c)).
+
+    The ban is on the **agent principal** (``actor_type == "agent"``), not on
+    every API key: ADR-032 decision (a) deliberately issues two keys per
+    client — the agent key captures, the **user key** accepts. Blocking any
+    ``api_key_id`` would make chat-side acceptance impossible and contradicts
+    that decision. ``SuggestionService.accept`` lets
+    ``AgentSelfConfirmError`` propagate so REST/MCP answer 403.
+    """
+    from application.trace_link_service import AgentSelfConfirmError
+
+    if ctx.actor_type == "agent":
+        raise AgentSelfConfirmError(
+            f"An agent may not accept its own {kind} suggestion."
+        )
 class InterviewGroundingSuggestionAdapter(SuggestionAdapter):
     """M3 ``grounding_snapshot`` path — registered, dormant."""
 
@@ -410,11 +665,17 @@ class ContextEdgeSuggestionAdapter(SuggestionAdapter):
 
 
 def build_adapter_registry() -> dict[str, SuggestionAdapter]:
-    """Return the ``kind`` -> adapter map covering all four ADR-019 kinds."""
+    """Return the ``kind`` -> adapter map covering every ADR-019 kind.
+
+    ``artifact_create`` and ``artifact_update`` are active since ADR-032
+    (``suggestion.capture``); ``interview_grounding`` and ``context_edge`` stay
+    registered-but-dormant so the lifecycle remains generic.
+    """
     adapters: list[SuggestionAdapter] = [
         TraceLinkSuggestionAdapter(),
         RequirementLevelSuggestionAdapter(),
         ArtifactCreateSuggestionAdapter(),
+        ArtifactUpdateSuggestionAdapter(),
         InterviewGroundingSuggestionAdapter(),
         ContextEdgeSuggestionAdapter(),
     ]
@@ -423,6 +684,7 @@ def build_adapter_registry() -> dict[str, SuggestionAdapter]:
 
 __all__ = [
     "ArtifactCreateSuggestionAdapter",
+    "ArtifactUpdateSuggestionAdapter",
     "ContextEdgeSuggestionAdapter",
     "InterviewGroundingSuggestionAdapter",
     "RequirementLevelSuggestionAdapter",

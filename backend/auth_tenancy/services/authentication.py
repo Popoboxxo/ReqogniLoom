@@ -884,6 +884,7 @@ class AuthenticationService:
         workspace_ids: list[str] | None = None,
         expires_at: datetime | None = None,
         tool_groups: list[str] | None = None,
+        capture_enabled: bool = False,
     ) -> ApiKeyCreationResult:
         """Create an API key and return its plaintext exactly once.
 
@@ -1016,6 +1017,10 @@ class AuthenticationService:
                 workspace_ids=effective_workspace_ids,
                 expires_at=expires_at,
                 tool_groups=effective_tool_groups,
+                # ADR-032 D2: the capture right, granted explicitly at
+                # creation. Default False keeps every pre-existing caller's
+                # behaviour byte-identical.
+                capture_enabled=bool(capture_enabled),
             )
         return ApiKeyCreationResult(
             api_key_id=api_key.id,

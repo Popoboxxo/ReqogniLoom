@@ -45,9 +45,16 @@ def _agent_ctx() -> AuthContext:
 # ---------------------------------------------------------------------------
 
 
-def test_group_registers_all_three_tools():
+def test_group_registers_all_four_tools():
     names = {schema["name"] for schema in SuggestionToolGroup().get_tool_schemas()}
-    assert names == {"suggestion.list", "suggestion.accept", "suggestion.reject"}
+    # ADR-032 added ``suggestion.capture`` — the inbox now has a producer of its
+    # own in the same group, so the group is list/accept/reject/capture.
+    assert names == {
+        "suggestion.list",
+        "suggestion.accept",
+        "suggestion.reject",
+        "suggestion.capture",
+    }
 
 
 def test_group_is_registered_in_the_live_registry():
@@ -58,6 +65,7 @@ def test_group_is_registered_in_the_live_registry():
         "suggestion.list",
         "suggestion.accept",
         "suggestion.reject",
+        "suggestion.capture",
     } <= names
 
 

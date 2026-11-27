@@ -195,6 +195,22 @@ def _register_q1_preference_keys() -> None:
             ui_editor=None,
             owner="P5",
         ),
+        # ADR-032 / listen-mode decision D4: the workspace half of the
+        # "listening" switch. Default OFF, workspace level only — a global
+        # default must not be able to switch capture on for workspaces nobody
+        # enabled, and a user-level value would let a single person capture into
+        # a workspace that has not consented. Consumed by
+        # ``application.capture_service.CaptureService``; the client half lives
+        # in the relay.
+        PreferenceKey(
+            key="capture.enabled",
+            value_type="bool",
+            default=False,
+            levels=frozenset({PREFERENCE_SCOPE_WORKSPACE}),
+            mode="override",
+            ui_editor="checkbox",
+            owner="ADR-032",
+        ),
     )
     for spec in specs:
         try:

@@ -1,0 +1,26 @@
+# Prompt-regression scenarios for the `capture.extract` slot (ADR-032).
+# Case files are owned by plan D (backend/application/prompt_testing/cases.py).
+slot: capture.extract
+scenarios:
+  - name: requirement-from-one-message
+    data:
+      create_types: "Requirement, ArchitectureElement, Adr, StakeholderNeed"
+      update_types: "Requirement, ArchitectureElement, Adr, StakeholderNeed"
+      field_contract: "- Requirement: title (string, required), description (string)"
+      existing_artifacts: "[]"
+      message_text: "Das System muss Anfragen innerhalb von zwei Sekunden beantworten."
+      memory_context: ""
+    assert:
+      - {type: contains, value: "Das System muss Anfragen innerhalb von zwei Sekunden beantworten."}
+      - {type: contains, value: "Requirement"}
+  - name: small-talk-proposes-nothing
+    data:
+      create_types: "Requirement"
+      update_types: "Requirement"
+      field_contract: "- Requirement: title (string, required)"
+      existing_artifacts: "[]"
+      message_text: "Danke, passt so."
+      memory_context: ""
+    assert:
+      - {type: contains, value: "Danke, passt so."}
+      - {type: contains, value: "Propose NOTHING"}

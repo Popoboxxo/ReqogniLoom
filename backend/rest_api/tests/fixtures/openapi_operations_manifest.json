@@ -1562,6 +1562,10 @@
       "get"
     ],
     [
+      "/api/v1/suggestions/capture/",
+      "post"
+    ],
+    [
       "/api/v1/suggestions/{suggestion_id}/accept/",
       "post"
     ],

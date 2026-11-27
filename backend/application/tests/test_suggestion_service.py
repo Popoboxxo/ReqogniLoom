@@ -373,9 +373,11 @@ def test_repeated_producer_run_dedupes_on_the_edge(env):
 
 def test_registry_covers_all_adr_019_kinds():
     # ADR-019's four mechanisms, plus #1289's ``requirement_level`` (which
-    # rides the same generic lifecycle).
+    # rides the same generic lifecycle) and ADR-032's ``artifact_update``
+    # ("anpassen/erweitern/korrigieren" as its own proposal operation).
     assert set(build_adapter_registry()) == {
         "artifact_create",
+        "artifact_update",
         "trace_link",
         "interview_grounding",
         "context_edge",
@@ -385,9 +387,13 @@ def test_registry_covers_all_adr_019_kinds():
 
 @pytest.mark.django_db
 def test_dormant_kind_is_registered_but_not_enabled(env):
+    # ``artifact_create`` was the dormant exemplar until ADR-032 activated it;
+    # ``interview_grounding`` is still registered-but-dormant, so it carries the
+    # same guarantee (a registered kind can never silently masquerade as
+    # supported).
     with pytest.raises(SuggestionKindNotEnabledError):
         SuggestionService().propose(
-            "artifact_create",
+            "interview_grounding",
             env["agent_ctx"],
             workspace_id=env["workspace"].id,
             payload={},

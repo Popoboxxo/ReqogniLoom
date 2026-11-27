@@ -58,6 +58,8 @@ MUTATE_VERBS = frozenset(
         "replay", "deprecate", "reorder", "forget", "commit", "restore", "generate", "derive",
         "decompose", "seed", "publish", "finalize", "assign", "grant", "rename", "merge",
         "split", "archive", "reply", "clear", "answer", "chat", "consolidate",
+        # ADR-032: capture persists open suggestions (write-gated server-side).
+        "capture",
         # Phase G / #1374 S3: adopting a repository document mutates ownership.
         "adopt",
         # `workflow_default.initialize` materialises the preset's workflow

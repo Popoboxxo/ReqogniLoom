@@ -6956,6 +6956,26 @@
     },
     {
       "method": "post",
+      "path": "/api/v1/suggestions/capture/",
+      "operationId": "suggestions_capture_create",
+      "requestContentTypes": [
+        "application/json",
+        "application/x-www-form-urlencoded",
+        "multipart/form-data"
+      ],
+      "responseCodes": [
+        "200",
+        "400",
+        "401",
+        "403",
+        "404",
+        "405",
+        "415",
+        "500"
+      ]
+    },
+    {
+      "method": "post",
       "path": "/api/v1/suggestions/{suggestion_id}/accept/",
       "operationId": "suggestions_accept_create",
       "requestContentTypes": [],
@@ -11728,6 +11748,9 @@
     "SuggestLinksResult",
     "SuggestLinksStatus",
     "Suggestion",
+    "SuggestionCaptureRequest",
+    "SuggestionCaptureResult",
+    "SuggestionCaptureSkipped",
     "SuggestionRejectBodyRequest",
     "SystemHealthResponse",
     "SystemMemorySettingsResponse",

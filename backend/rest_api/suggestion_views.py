@@ -78,12 +78,20 @@ from application.base import (
     ProducerContextRequiredError,
     ValidationError,
 )
+from application.capture_errors import (
+    CaptureDisabledError,
+    CaptureRateLimitedError,
+    CaptureTextTooLongError,
+    WorkspaceForbiddenError,
+)
+from application.capture_update import CaptureConflictError
 from application.suggestion_service import SuggestionService
 from application.trace_link_service import AgentSelfConfirmError
 from rest_api.auth_enforcer import get_auth_context
 from rest_api.query_params import parse_workspace_id
 from rest_api.serializers import (
     StandardPagination,
+    SuggestionCaptureSerializer,
     SuggestionSerializer,
     build_error_response,
     detect_lang,
@@ -101,6 +109,12 @@ def _suggestion_error(exc: Exception, lang: str) -> Response:
     ADR-019 taxonomy anchors (403/409) — and because
     ``ProducerContextRequiredError`` is a ``ValidationError`` subclass that must
     not be swallowed by the generic 400 branch below.
+
+    The capture taxonomy (ADR-032) is checked before its generic parents for the
+    same exact-type reason: every one of those types is a ``ValidationError`` or
+    ``PermissionDeniedError`` subclass, so without its own branch it would answer
+    the parent's code and the client could not tell "switch is off" from "bad
+    request".
     """
     if isinstance(exc, AgentSelfConfirmError):
         return Response(
@@ -113,6 +127,59 @@ def _suggestion_error(exc: Exception, lang: str) -> Response:
                 "PRODUCER_CONTEXT_REQUIRED", lang, message=str(exc)
             ),
             status=status.HTTP_409_CONFLICT,
+        )
+    if isinstance(exc, WorkspaceForbiddenError):
+        return Response(
+            build_error_response("WORKSPACE_FORBIDDEN", lang, message=str(exc)),
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    if isinstance(exc, CaptureTextTooLongError):
+        return Response(
+            build_error_response(
+                "TEXT_TOO_LONG",
+                lang,
+                message=str(exc),
+                details=getattr(exc, "details", None),
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    if isinstance(exc, CaptureRateLimitedError):
+        return Response(
+            build_error_response(
+                "RATE_LIMITED",
+                lang,
+                message=str(exc),
+                details=getattr(exc, "details", None),
+            ),
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+    if isinstance(exc, CaptureDisabledError):
+        return Response(
+            build_error_response("CAPTURE_DISABLED", lang, message=str(exc)),
+            status=status.HTTP_409_CONFLICT,
+        )
+    if isinstance(exc, CaptureConflictError):
+        # Plan P3: a stale ``base_version`` is a lost precondition — the human
+        # must re-read the artifact, nothing was overwritten.
+        return Response(
+            build_error_response(
+                "CONFLICT",
+                lang,
+                message=str(exc),
+                details=getattr(exc, "details", None),
+            ),
+            status=status.HTTP_409_CONFLICT,
+        )
+    # ADR-032: "no usable provider" is the contract code LLM_UNAVAILABLE. The
+    # type lives in the derivation module (it is not a ValidationError), so it
+    # is imported locally rather than pulling that module into every import of
+    # this one.
+    from application.ai_derivation_service import LlmProviderUnavailableError
+
+    if isinstance(exc, LlmProviderUnavailableError):
+        return Response(
+            build_error_response("LLM_UNAVAILABLE", lang, message=str(exc)),
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
     if isinstance(exc, PermissionDeniedError):
         return Response(
@@ -282,6 +349,85 @@ class SuggestionRejectView(APIView):
         return Response(result)
 
 
+class SuggestionCaptureView(APIView):
+    """POST /api/v1/suggestions/capture/ — "text in, suggestions out".
+
+    The REST twin of the MCP ``suggestion.capture`` tool (ADR-032). Both call
+    ``application.capture_service.CaptureService.capture``; neither filters,
+    redacts, dedups or prompts on its own, so the two transports cannot drift
+    (listen-mode spec G3/G4).
+
+    The credential rule is the *capture* right (decision D2), not the agent
+    producer context: an API key with ``capture_enabled`` and a write-capable
+    scope may call this, and still may not accept a suggestion.
+
+    Responses: 200 with ``{created, skipped, request_id}``; 400 on a malformed
+    body or ``TEXT_TOO_LONG``; 403 ``WORKSPACE_FORBIDDEN`` when the caller may
+    not act in the workspace; 409 ``CAPTURE_DISABLED`` when the workspace switch
+    is off and ``PRODUCER_CONTEXT_REQUIRED`` when the key lacks the right; 429
+    ``RATE_LIMITED`` for either quota; 503 ``LLM_UNAVAILABLE`` when no usable
+    provider is configured.
+    """
+
+    @extend_schema(
+        request=SuggestionCaptureSerializer,
+        responses={
+            200: inline_serializer(
+                name="SuggestionCaptureResult",
+                fields={
+                    "created": serializers.ListField(
+                        child=serializers.UUIDField(),
+                        help_text="Ids of the created open suggestions.",
+                    ),
+                    "skipped": inline_serializer(
+                        name="SuggestionCaptureSkipped",
+                        fields={
+                            "duplicate": serializers.IntegerField(),
+                            "filtered": serializers.IntegerField(),
+                            "invalid": serializers.IntegerField(),
+                            "redacted": serializers.IntegerField(),
+                        },
+                    ),
+                    "request_id": serializers.CharField(),
+                },
+            )
+        },
+    )
+    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        from application.capture_service import CaptureService
+
+        lang = detect_lang(request)
+        serializer = SuggestionCaptureSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                build_error_response(
+                    "VALIDATION_ERROR",
+                    lang,
+                    message="Invalid capture request.",
+                    details=[
+                        {field: [str(item) for item in errors]}
+                        for field, errors in serializer.errors.items()
+                    ],
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        data = serializer.validated_data
+
+        try:
+            result = CaptureService().capture(
+                get_auth_context(request),
+                workspace_id=data["workspace_id"],
+                text=data["text"],
+                client=data["client"],
+                source_session=data.get("source_session") or "",
+                message_id=data.get("message_id") or "",
+                idempotency_key=data.get("idempotency_key") or "",
+            )
+        except Exception as exc:  # noqa: BLE001 — mapped in _suggestion_error
+            return _suggestion_error(exc, lang)
+        return Response(result)
+
+
 def _parse_reason(request: Request) -> str:
     """Read the optional rejection reason from the JSON body or ``?reason=``.
 
@@ -300,6 +446,7 @@ def _parse_reason(request: Request) -> str:
 
 __all__ = [
     "SuggestionAcceptView",
+    "SuggestionCaptureView",
     "SuggestionListView",
     "SuggestionRejectView",
 ]

@@ -412,6 +412,67 @@ class OptimisticLockError(RuntimeError):
     """Raised when an update targets a stale version (REQ-L2-AS-004)."""
 
 
+def require_capture_context(ctx: AuthContext) -> None:
+    """Fail closed unless *ctx* may produce a capture suggestion (ADR-032 D2).
+
+    The listen mode needs a credential that may turn free text into proposals
+    without gaining the right to *decide* one, and without forcing every client
+    to hold two keys (spec §4.5, option c). That is the ``capture`` right on the
+    API key: one orthogonal boolean, consulted by exactly one call.
+
+    The gate still requires what the receipt's provenance requires:
+
+    * an **API-key** context with a non-null ``api_key_id`` — ``proposed_by`` is
+      stamped from it, and a human bearer would create an unstamped proposal
+      (the ADR-019 Zusage 7(f) failure mode),
+    * a **write-capable scope** — a read-only key must not cause writes even
+      indirectly,
+    * ``ApiKey.capture_enabled`` — the explicit grant.
+
+    It deliberately does **not** require ``actor_type == "agent"``: the whole
+    point of a separate right is that the operator grants it, not the label.
+    Accepting a proposal remains human-only regardless (ADR-019 Zusage 7(c)),
+    so widening this gate cannot produce a silent human-in-the-loop bypass.
+
+    Raises:
+        ProducerContextRequiredError: any of the three conditions is missing.
+            One error type for all three: the contract requires the code
+            ``PRODUCER_CONTEXT_REQUIRED`` and the message names the reason.
+    """
+    from auth_tenancy.context import AuthMethod
+    from auth_tenancy.models import ApiKey
+    from auth_tenancy.services.authorization import (
+        Operation,
+        required_scope_tier,
+        scope_tier,
+    )
+
+    if ctx.auth_method != AuthMethod.API_KEY or ctx.api_key_id is None:
+        raise ProducerContextRequiredError(
+            "Capturing a suggestion requires an API-key context with an "
+            "api_key_id, so the proposal carries a stable proposed_by. A human "
+            "bearer session is refused fail-closed."
+        )
+
+    tier = scope_tier(ctx.scope)
+    if tier is None or tier < required_scope_tier(Operation.WRITE):
+        raise ProducerContextRequiredError(
+            "Capturing a suggestion requires a write-capable key scope "
+            "(author or admin). A read_only key is refused."
+        )
+
+    granted = (
+        ApiKey.objects.filter(id=ctx.api_key_id)
+        .values_list("capture_enabled", flat=True)
+        .first()
+    )
+    if not granted:
+        raise ProducerContextRequiredError(
+            "This API key has not been granted the 'capture' right "
+            "(capture_enabled=false). Grant it on the key to use "
+            "suggestion.capture."
+        )
+
 class LlmNotConfiguredError(RuntimeError):
     """Raised when an LLM capability is requested but no provider is configured."""
 
@@ -785,5 +846,6 @@ __all__ = [
     "WaiverReasonPolicyViolation",
     "WorkflowInitializationFailedError",
     "is_producer_context",
+    "require_capture_context",
     "require_producer_context",
 ]

@@ -38,6 +38,9 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from application.bulk_update_service import MAX_ENTRIES, MAX_TRANSITION_IDS
+# ADR-032: one source for the capture client enum — the serializer's choices and
+# the service's validation must never drift apart.
+from application.capture_service import CAPTURE_CLIENTS
 from application.test_steps import normalize_steps, validate_steps
 from persistence.models import (
     Document,
@@ -420,6 +423,61 @@ class CsvImportReportSerializer(serializers.Serializer):
 
 
 
+class SuggestionCaptureSerializer(
+    UnknownFieldRejectionMixin, serializers.Serializer
+):
+    """Request body of ``POST /api/v1/suggestions/capture/`` (ADR-032, plan P2).
+
+    Mirrors the MCP tool's ``inputSchema``: the same six fields, the same
+    requirement that ``workspace_id`` be named explicitly and never inferred.
+    ``text`` deliberately carries **no** ``max_length``: the server answers
+    ``TEXT_TOO_LONG`` (400, with the limit in ``details``) instead of DRF's
+    generic field error, because the relay has to tell "split the message" from
+    "fix the request".
+
+    The unknown-field guard applies here (see ``UnknownFieldRejectionMixin``):
+    a typo such as ``idempotencykey`` must not be silently dropped and answered
+    with a success that deduplicated nothing.
+    """
+
+    workspace_id = serializers.UUIDField(
+        help_text="Target workspace. Mandatory — the server never guesses one."
+    )
+    text = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=False,
+        help_text=(
+            "The user message. Redacted server-side before storage and before "
+            "the model call; never persisted raw."
+        ),
+    )
+    client = serializers.ChoiceField(
+        choices=tuple(sorted(CAPTURE_CLIENTS)),
+        help_text="Client that captured the message.",
+    )
+    source_session = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=255,
+        help_text="Client-side session id (provenance + dedup), max 255 chars.",
+    )
+    message_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=255,
+        help_text="Client-side message id, when the client has one (max 255).",
+    )
+    idempotency_key = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=128,
+        help_text=(
+            "Optional dedup key; derived from the normalised content when "
+            "omitted."
+        ),
+    )
+
+
 class SuggestionSerializer(serializers.Serializer):
     """Wire format for one ADR-019 suggestion-inbox row (#1388/F6).
 
@@ -442,3 +500,16 @@ class SuggestionSerializer(serializers.Serializer):
     payload = serializers.DictField(read_only=True)
     workspace_id = serializers.UUIDField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    # -- ADR-032 capture provenance (always present, empty for other producers) --
+    # ``operation`` is NULL for a producer that is not a client relay: a
+    # trace-link proposal makes no create/update claim.
+    operation = serializers.CharField(read_only=True, allow_null=True)
+    client = serializers.CharField(read_only=True, allow_blank=True)
+    source_session = serializers.CharField(read_only=True, allow_blank=True)
+    # The redacted excerpt is the human-readable half of a capture proposal
+    # (decision D5) — the hash alone would make the inbox unreviewable.
+    source_excerpt = serializers.CharField(read_only=True, allow_blank=True)
+    source_hash = serializers.CharField(read_only=True, allow_blank=True)
+    target_artifact_id = serializers.UUIDField(read_only=True, allow_null=True)
+    base_version = serializers.IntegerField(read_only=True, allow_null=True)
+    expires_at = serializers.DateTimeField(read_only=True, allow_null=True)

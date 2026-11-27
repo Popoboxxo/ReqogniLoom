@@ -228,8 +228,9 @@ def test_manifest_lists_it_once_as_read_and_the_count_is_current() -> None:
     # test_tool_manifest_drift.py and the two doc-surface guards. #2016's
     # ``change_request.submit_for_review`` moved it to 302 inside the same
     # prefix set; P1.8 / M-11 added the nine ``workflow_default`` tools
-    # (302 -> 311, the 50th prefix).
-    assert manifest["tool_count"] == 313
+    # (302 -> 311, the 50th prefix); ADR-032 added ``suggestion.capture``
+    # (313 -> 314, no new prefix).
+    assert manifest["tool_count"] == 314
     assert manifest["tool_count"] == len(manifest["tools"])
 
 
