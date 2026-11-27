@@ -91,6 +91,8 @@ def normalize_steps(
     * the typed shape (``step_type`` + ``text``), passed through unchanged;
     * the legacy LLM shape ``{"step": A, "expected_result": B}``, expanded to a
       ``when`` step (A) followed by a ``then`` step (B) when B is not empty;
+    * the historical QA shape ``{"action": A, "expected": B}``, expanded the
+      same way (#2077);
     * an empty/``None`` value, meaning "no steps".
 
     Anything else raises :class:`ValidationError` naming the offending path —
@@ -148,6 +150,36 @@ def normalize_steps(
             )
             continue
 
+        if "action" in item or "expected" in item:
+            # #2077: historical QA fixtures stored {action, expected}. Treat it
+            # exactly like the {step, expected_result} legacy shape so a single
+            # such row cannot take the whole TestCase list down.
+            action = str(item.get("action") or "").strip()
+            expected = str(item.get("expected") or "").strip()
+            if not action and not expected:
+                continue
+            if action:
+                normalized.append(
+                    {
+                        "id": _step_id(
+                            testcase_id, len(normalized), StepType.WHEN.value, action
+                        ),
+                        "step_type": StepType.WHEN.value,
+                        "text": action,
+                    }
+                )
+            if expected:
+                normalized.append(
+                    {
+                        "id": _step_id(
+                            testcase_id, len(normalized), StepType.THEN.value, expected
+                        ),
+                        "step_type": StepType.THEN.value,
+                        "text": expected,
+                    }
+                )
+            continue
+
         if "step" in item:
             action = str(item.get("step") or "").strip()
             expected = str(item.get("expected_result") or "").strip()
@@ -177,7 +209,8 @@ def normalize_steps(
 
         raise ValidationError(
             f"{path} has no recognised step shape; expected "
-            "{'step_type', 'text'} or the legacy {'step', 'expected_result'}."
+            "{'step_type', 'text'} or a legacy {'step', 'expected_result'} / "
+            "{'action', 'expected'} shape."
         )
 
     return normalized
