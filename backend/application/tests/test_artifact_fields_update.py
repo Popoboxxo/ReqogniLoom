@@ -362,3 +362,57 @@ def test_frozen_artifact_raises_artifact_frozen_error(env, monkeypatch):
         )
     assert excinfo.value.state_name == "Freigegeben"
     assert _reload(requirement).title == "T1"
+
+
+def test_goal_update_appends_a_version_and_checks_the_optimistic_lock(env):
+    """ADR-032 follow-up: Goal is writable through the shared update seam.
+
+    A Goal is an append-only lineage, so the adapter checks ``expected_version``
+    against the addressed version and then appends a new row; the source row
+    keeps its version, which is why a concurrent append is not visible as a
+    lock conflict on that row (documented limitation of the lineage model).
+    """
+    from application.goal_service import GoalService
+    from persistence.models import Goal, Workspace
+    from workflow.services import create_default_workflow
+
+    Workspace.objects.filter(id=env["workspace"].id).update(goals_enabled=True)
+    TenantContext.set_tenant(env["tenant"].id)
+    create_default_workflow(
+        workspace_id=env["workspace"].id,
+        preset="goal_default",
+        item_type="Goal",
+        tenant_id=env["tenant"].id,
+    )
+    service = GoalService()
+    created = service.create_version(
+        workspace_id=env["workspace"].id,
+        title="Goal A",
+        description="first",
+        ctx=env["ctx"],
+    )
+    source = Goal.objects.get(id=created["id"])
+
+    result = update_artifact_fields(
+        env["ctx"],
+        "Goal",
+        source.artifact_id,
+        {"title": "Goal B", "description": "second"},
+        expected_version=source.version,
+    )
+
+    assert result.item_type == "Goal"
+    appended = Goal.objects.get(id=result.entity_id)
+    assert appended.title == "Goal B"
+    assert appended.description == "second"
+    assert appended.lineage_id == source.lineage_id
+    assert appended.sequence_number == source.sequence_number + 1
+
+    with pytest.raises(OptimisticLockError):
+        update_artifact_fields(
+            env["ctx"],
+            "Goal",
+            source.artifact_id,
+            {"title": "Goal C"},
+            expected_version=source.version + 99,
+        )

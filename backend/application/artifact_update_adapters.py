@@ -227,6 +227,38 @@ def _glossary_term(
     return result.id, _version_of(result)
 
 
+def _goal(
+    ctx: AuthContext, entity_id: UUID, fields: Mapping[str, Any], expected_version, _change_reason
+) -> tuple[UUID, int]:
+    """Append a new Goal version (Goals are immutable per version).
+
+    The optimistic lock is checked against the *addressed* version before the
+    append; ``GoalService.update`` itself has no ``expected_version`` parameter
+    because it always creates a new row. ``change_reason`` is unused: the Goal
+    update service has no such parameter.
+    """
+    from application.base import OptimisticLockError
+    from application.goal_service import GoalService
+
+    service = GoalService()
+    source = service.get(entity_id, ctx)
+    if expected_version is not None and int(getattr(source, "version", 0)) != int(
+        expected_version
+    ):
+        raise OptimisticLockError(
+            f"Goal {entity_id} has version {getattr(source, 'version', 0)}, "
+            f"not {expected_version}"
+        )
+    result = service.update(
+        entity_id,
+        ctx,
+        title=fields.get("title"),
+        description=fields.get("description"),
+    )
+    created = service.get(UUID(result["id"]), ctx)
+    return created.id, int(getattr(created, "version", 1))
+
+
 def _adapter(
     item_type: str,
     entity_key: str,
@@ -320,6 +352,16 @@ ARTIFACT_UPDATE_ADAPTERS: dict[str, UpdateAdapter] = {
         "glossary_term",
         ("term", "definition", "synonyms", "abbreviation"),
         _glossary_term,
+    ),
+    # ADR-032 follow-up: Goal was the one in-scope type without an update
+    # facade. Goals are append-only lineages, so the adapter appends a version
+    # and checks the optimistic lock against the addressed version.
+    "Goal": _adapter(
+        "Goal",
+        "goal",
+        "goal",
+        ("title", "description"),
+        _goal,
     ),
 }
 
