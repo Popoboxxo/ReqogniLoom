@@ -32,6 +32,13 @@ if str(DIST_DIR) not in sys.path:
 from mcp_url import mcp_endpoint_url  # noqa: E402
 
 TEMPLATES_DIR = REPO_ROOT / "docs" / "agent-templates"
+# Plugin-specific sources (hooks, relay scripts, commands). They are code, not
+# role templates, so they live next to their generator rather than being
+# rendered from the tool manifest.
+PLUGIN_SOURCE_DIR = TEMPLATES_DIR / "claude-plugin"
+# Copied recursively into the plugin root, in this order. Every target is
+# removed first so a file deleted at the source cannot linger in dist/.
+PLUGIN_SOURCE_DIRS = ("hooks", "scripts", "commands")
 SKILLS_SRC = REPO_ROOT / "dist" / "agent-skills"
 SERVER_NAME = "reqogniloom"
 
@@ -109,6 +116,20 @@ def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
                         "sensitive": True,
                         "required": True,
                     },
+                    # Listen mode (ambient capture) is opt-in and off by
+                    # default. The relay needs the target workspace explicitly;
+                    # it is optional here so an installation that never enables
+                    # listen mode is not blocked at configure time.
+                    "workspace_id": {
+                        "type": "string",
+                        "title": "Workspace ID",
+                        "description": (
+                            "UUID of the workspace that listen-mode capture "
+                            "sends to. Required to enable listen mode; leave "
+                            "empty otherwise."
+                        ),
+                        "required": False,
+                    },
                 },
             },
             indent=2,
@@ -175,6 +196,17 @@ def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
         dst = skills_dir / skill_name
         dst.mkdir(parents=True, exist_ok=True)
         shutil.copy2(skills_src / skill_name / "SKILL.md", dst / "SKILL.md")
+
+    # Claude Code plugin hooks + their local relay scripts + slash commands.
+    # Source of truth is docs/agent-templates/claude-plugin/; the generator
+    # never renders these, so a source edit must reach dist/ through a rebuild.
+    for source_name in PLUGIN_SOURCE_DIRS:
+        src = PLUGIN_SOURCE_DIR / source_name
+        dst = plugin_root / source_name
+        if dst.exists():
+            shutil.rmtree(dst)
+        if src.is_dir():
+            shutil.copytree(src, dst)
 
     # marketplace.json must live in .claude-plugin/ at the marketplace root
     # (out_dir), not directly in out_dir, because `claude plugin marketplace

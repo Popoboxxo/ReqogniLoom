@@ -97,7 +97,7 @@ def test_plugin_declares_user_config_and_mcp_uses_it(tmp_path):
         (tmp_path / "reqogniloom" / ".claude-plugin" / "plugin.json").read_text()
     )
     user_config = plugin["userConfig"]
-    assert set(user_config) == {"mcp_url", "api_key"}
+    assert set(user_config) == {"mcp_url", "api_key", "workspace_id"}
     assert user_config["mcp_url"] == {
         "type": "string",
         "title": "ReqogniLoom URL",
@@ -194,6 +194,47 @@ def test_generated_agent_tool_refs_match_the_manifest(tmp_path):
             seen += 1
             assert ref in expected, f"{agent.name}: unknown tool ref {ref}"
     assert seen == 155, f"expected 155 tool refs across 7 agents, got {seen}"
+
+
+def test_build_copies_hooks_scripts_and_commands(tmp_path):
+    """Listen-mode sources reach the plugin root, and workspace_id is declared.
+
+    The hook JSON, the relay and the command are plain copies of
+    docs/agent-templates/claude-plugin/ — a source edit that never reached
+    dist/ would ship a plugin whose /reqogniloom:listen command does not exist.
+    """
+    result = subprocess.run(
+        [sys.executable, str(BUILD_DIR / "build_claude_plugin.py"),
+         "--out", str(tmp_path)],
+        capture_output=True, text=True, cwd=REPO_ROOT,
+    )
+    assert result.returncode == 0, result.stderr
+
+    plugin_root = tmp_path / "reqogniloom"
+    source_dir = REPO_ROOT / "docs" / "agent-templates" / "claude-plugin"
+    for relative in (
+        "hooks/hooks.json",
+        "scripts/capture-hook.mjs",
+        "scripts/listen.mjs",
+        "commands/listen.md",
+    ):
+        generated = plugin_root / relative
+        assert generated.is_file(), f"missing {relative}"
+        assert generated.read_text(encoding="utf-8") == (
+            source_dir / relative
+        ).read_text(encoding="utf-8"), f"{relative} is not a byte-identical copy"
+
+    hooks = json.loads((plugin_root / "hooks" / "hooks.json").read_text())
+    hook = hooks["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+    assert hook["type"] == "command"
+    assert "capture-hook.mjs" in hook["command"]
+    assert hook["async"] is True
+    assert hook["timeout"] == 60
+
+    plugin = json.loads((plugin_root / ".claude-plugin" / "plugin.json").read_text())
+    workspace = plugin["userConfig"]["workspace_id"]
+    assert workspace["type"] == "string"
+    assert workspace["required"] is False
 
 
 def test_discover_skill_names_matches_the_canonical_skill_set():
