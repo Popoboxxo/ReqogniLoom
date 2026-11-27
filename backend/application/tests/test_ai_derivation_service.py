@@ -216,6 +216,8 @@ def test_get_template_content_covers_all_eight_names():
         "quality_adr",
         "quality_testcase",
         "quality_risk",
+        # ADR-032: one stateless extraction call per captured message.
+        "capture.extract",
     }
 
 
