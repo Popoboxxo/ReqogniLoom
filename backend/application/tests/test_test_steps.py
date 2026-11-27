@@ -165,3 +165,14 @@ def test_gherkin_export_keeps_order_and_keywords() -> None:
 def test_step_type_enum_values_are_the_transport_strings() -> None:
     assert StepType.GIVEN == "given"
     assert {step.value for step in StepType} == {"given", "when", "then", "and", "but"}
+
+
+def test_legacy_action_expected_shape_is_normalized() -> None:
+    """#2077: historical QA fixtures use {action, expected}."""
+    from application.test_steps import normalize_steps
+
+    steps = normalize_steps([{"action": "Grenze pruefen", "expected": "Grenze dokumentiert"}])
+
+    assert [step["step_type"] for step in steps] == ["when", "then"]
+    assert steps[0]["text"] == "Grenze pruefen"
+    assert steps[1]["text"] == "Grenze dokumentiert"

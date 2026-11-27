@@ -846,6 +846,23 @@ def _service_error_response(exc: Exception, lang: str = "en") -> Response:
     if isinstance(exc, APIException):
         raise exc
 
+    # #2086: the soft-delete escape hatch (`outdate`) raises the workflow
+    # engine's agent guard (EC_AGENT_SELF_CONFIRM) for a proposed item. It is a
+    # permission decision, not an internal error: answer 403 with the same code
+    # the trace-link discard path uses.
+    from workflow.services import WorkflowTransitionError
+    from workflow.transition_validator import EC_AGENT_SELF_CONFIRM
+
+    if isinstance(exc, WorkflowTransitionError) and getattr(
+        exc, "error_code", ""
+    ) == EC_AGENT_SELF_CONFIRM:
+        return Response(
+            build_error_response(
+                "PERMISSION_DENIED", lang, message=str(exc) or None
+            ),
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
     exc_type = type(exc)
     http_status = _EXC_TO_HTTP.get(exc_type, status.HTTP_500_INTERNAL_SERVER_ERROR)
     code = _EXC_TO_CODE.get(exc_type, "INTERNAL_SERVER_ERROR")
