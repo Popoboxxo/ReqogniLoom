@@ -164,13 +164,14 @@ describe("interviewsApi multi-mode (plan Task 8)", () => {
     expect(mockPost).toHaveBeenCalledWith(`/interviews/${SESSION}/formalize/`, {});
   });
 
-  it("propose() fetches the pending proposal", async () => {
-    mockGet.mockResolvedValue({ proposal: null });
+  it("propose() fetches the pending proposal and its missing fields", async () => {
+    mockGet.mockResolvedValue({ proposal: null, missing_fields: [] });
 
     const result = await interviewsApi.propose(SESSION);
 
     expect(mockGet).toHaveBeenCalledWith(`/interviews/${SESSION}/propose/`);
     expect(result.proposal).toBeNull();
+    expect(result.missing_fields).toEqual([]);
   });
 });
 

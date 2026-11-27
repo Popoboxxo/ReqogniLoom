@@ -96,6 +96,10 @@ INTERVIEW_PROTOCOL_DATA_VARIABLES: tuple[str, ...] = (
     "collected_fields_json",
     "missing_fields_json",
     "grounding_snapshot_json",
+    # Only the rendered multi-artifact protocol addresses this block; it is
+    # declared here because every ``interview.protocol.*`` slot shares this
+    # data-variable set and the unknown-placeholder report reads it per slot.
+    "field_contracts",
     *MEMORY_DATA_VARIABLES,
 )
 

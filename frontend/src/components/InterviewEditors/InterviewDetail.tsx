@@ -11,7 +11,7 @@
  */
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { InterviewState } from "../../api/interviews";
+import type { InterviewField, InterviewState } from "../../api/interviews";
 import { interviewsApi } from "../../api/interviews";
 import { StatusBadge } from "../shared/StatusBadge";
 import { Spinner } from "../shared/Spinner/Spinner";
@@ -123,20 +123,26 @@ export function InterviewDetail({ interview, artifactType, onChanged }: Intervie
         </p>
       )}
 
-      {/* A multi-kind session has no protocol and therefore no phase/missing
-          fields -- `get_state()` omits both keys, so this must not assume an
-          array (final review, B1: `undefined.length` took the whole route
-          down via the ErrorBoundary). */}
-      {(current.missing_fields?.length ?? 0) > 0 && (
-        <div className={styles.section}>
-          <h3 className={styles.sectionTitle}>{t("interviews.missingFields", "Still missing")}</h3>
-          <ul className={styles.missingFieldList} data-testid="interview-missing-fields">
-            {(current.missing_fields ?? []).map((f) => (
-              <li key={f.name}>{f.name}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* Single-mode protocol gap checklist. A multi-kind session has no
+          protocol; since P0.6 its `missing_fields` carries proposal items
+          ({item_index, artifact_type, fields}) instead -- a different shape
+          that must not reach the `.name` render below. The chat pane already
+          asks those questions server-side, so multi mode shows no checklist.
+          `?? []` keeps this safe when the key is absent (final review B1:
+          `undefined.length` took the whole route down via the ErrorBoundary). */}
+      {current.session_kind !== "multi" &&
+        (current.missing_fields ?? []).some((f) => "name" in f) && (
+          <div className={styles.section}>
+            <h3 className={styles.sectionTitle}>{t("interviews.missingFields", "Still missing")}</h3>
+            <ul className={styles.missingFieldList} data-testid="interview-missing-fields">
+              {(current.missing_fields ?? [])
+                .filter((f): f is InterviewField => "name" in f)
+                .map((f) => (
+                  <li key={f.name}>{f.name}</li>
+                ))}
+            </ul>
+          </div>
+        )}
 
       <div className={styles.section}>
         <h3 className={styles.sectionTitle}>{t("interviews.chat", "Conversation")}</h3>

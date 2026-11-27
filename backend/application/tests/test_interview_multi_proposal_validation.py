@@ -137,8 +137,26 @@ class TestProposalReadoutValidation:
         session = _multi_session(tenant, workspace, proposal)
         with _active(tenant):
             result = InterviewService().propose(editor_ctx, session.id)
-        assert result is not None
-        assert result[0]["fields"]["title"] == "Need A"
+        assert result["missing_fields"] == []
+        assert result["proposal"] is not None
+        assert result["proposal"][0]["fields"]["title"] == "Need A"
+
+    def test_propose_rejects_invalid_item_shape_with_a_reason_code(
+        self, tenant, workspace, editor_ctx
+    ):
+        """M2: a structural defect is an INVALID_PROPOSAL_SHAPE readout.
+
+        It used to be a bare ``ValidationError`` with only a message, so the
+        reason token the readout's other rejections carry was missing here.
+        """
+        proposal = [{"type": 1, "fields": {"title": "R"}, "links": []}]
+        session = _multi_session(tenant, workspace, proposal)
+        with _active(tenant):
+            with pytest.raises(ProposalValidationError) as excinfo:
+                InterviewService().propose(editor_ctx, session.id)
+        assert excinfo.value.code == "INVALID_PROPOSAL_SHAPE"
+        assert excinfo.value.item_index == 0
+        assert "proposal item #0" in str(excinfo.value)
 
     def test_propose_rejects_reserved_field_with_machine_readable_reason(
         self, tenant, workspace, editor_ctx
@@ -189,7 +207,10 @@ class TestProposalReadoutValidation:
         ]
         session = _multi_session(tenant, workspace, proposal)
         with _active(tenant):
-            assert InterviewService().propose(editor_ctx, session.id) == proposal
+            assert InterviewService().propose(editor_ctx, session.id) == {
+                "proposal": proposal,
+                "missing_fields": [],
+            }
 
     def test_normalised_proposal_can_be_formalized_unchanged(
         self, tenant, workspace, editor_ctx
@@ -205,7 +226,7 @@ class TestProposalReadoutValidation:
         session = _multi_session(tenant, workspace)
         with _active(tenant):
             readout = InterviewService().propose(editor_ctx, session.id)
-            assert readout is None
+            assert readout == {"proposal": None, "missing_fields": []}
             # Simulate the chat-turn parse path: the stored proposal is the
             # parse output, which is already normalised.
             stored = parse_multi_proposal(
@@ -253,3 +274,32 @@ class TestMcpProposeReason:
         assert result.success is False
         assert result.error_code == "VALIDATION_ERROR"
         assert result.details["reason"] == "RESERVED_FIELD"
+
+    def test_mcp_formalize_returns_reason_and_details_like_propose(
+        self, tenant, workspace, editor_ctx
+    ):
+        """M1: formalize must not drop the machine-readable refusal.
+
+        Before the shared helper, ``_handle_formalize`` answered the bare
+        message, so ``code``/``details`` existed over REST but not over MCP for
+        the same rejection.
+        """
+        session = _multi_session(tenant, workspace)
+        group = InterviewToolGroup()
+        proposal = [{"type": "Risk", "fields": {"title": "R"}, "links": []}]
+        with _active(tenant):
+            result = group.execute_tool(
+                tool_name="interview.formalize",
+                params={
+                    "session_id": str(session.id),
+                    "confirmed_proposal": proposal,
+                },
+                auth_context=editor_ctx,
+                api_key=VALID_API_KEY,
+            )
+        assert result.success is False
+        assert result.error_code == "VALIDATION_ERROR"
+        assert result.details["reason"] == "MISSING_REQUIRED_FIELD"
+        assert result.details["item_index"] == 0
+        assert result.details["field"] == "probability"
+        assert result.details["fields"] == ["probability", "impact"]

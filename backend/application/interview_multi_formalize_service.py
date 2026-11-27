@@ -8,6 +8,7 @@ from ``interview_service`` for import compatibility.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from django.db import transaction
@@ -57,6 +58,32 @@ _SHORT_STRING_FIELDS: frozenset[str] = frozenset({"title", "term", "name"})
 MAX_PROPOSAL_CONTAINER_ITEMS = 200
 
 
+def _shape_error(
+    message: str,
+    *,
+    item_index: int | None = None,
+    field: str | None = None,
+    **details: Any,
+) -> ProposalValidationError:
+    """Build the one structural-error shape this module raises (M2).
+
+    Structural/value defects used to raise a bare ``ValidationError``, so a
+    transport had no reason token to branch on and the message was the only
+    signal. ``INVALID_PROPOSAL_SHAPE`` is now the shared code for "the proposal
+    is not shaped like a proposal" -- the same vocabulary ``propose()``'s
+    readout and ``formalize()``'s write path use, with a more specific code
+    (``RESERVED_FIELD`` / ``UNKNOWN_FIELD`` / ``MISSING_REQUIRED_FIELD``) kept
+    where one already exists.
+    """
+    return ProposalValidationError(
+        message,
+        code="INVALID_PROPOSAL_SHAPE",
+        item_index=item_index,
+        field=field,
+        details=dict(details),
+    )
+
+
 def _validate_confirmed_proposal(confirmed_proposal: list[dict]) -> None:
     """Structure-validate a multi-mode proposal (pre-transaction, fail fast).
 
@@ -64,9 +91,10 @@ def _validate_confirmed_proposal(confirmed_proposal: list[dict]) -> None:
     link (if present) must be a dict with ``from: int`` / ``to: int``
     (indices into the proposal item list) plus ``type: str``. ``links`` may
     be explicitly null (normalised to an empty list in place) but any other
-    non-list value is rejected. Anything else raises ValidationError BEFORE
-    transaction.atomic() opens, so malformed caller input can never abort an
-    already half-applied batch.
+    non-list value is rejected. Anything else raises a
+    :class:`ProposalValidationError` with code ``INVALID_PROPOSAL_SHAPE``
+    BEFORE transaction.atomic() opens, so malformed caller input can never
+    abort an already half-applied batch.
     """
     for index, item in enumerate(confirmed_proposal):
         _validate_confirmed_proposal_item(index, item, len(confirmed_proposal))
@@ -79,67 +107,103 @@ def _validate_confirmed_proposal_item(item_index: int, item: Any, item_count: in
     endpoints index into that list.
     """
     if not isinstance(item, dict):
-        raise ValidationError(
-            f"proposal item #{item_index} must be a dict, got {type(item).__name__}"
+        raise _shape_error(
+            f"proposal item #{item_index} must be a dict, got {type(item).__name__}",
+            item_index=item_index,
+            received_type=type(item).__name__,
         )
     item_type = item.get("type")
     if not isinstance(item_type, str):
-        raise ValidationError(
-            f"proposal item #{item_index}: 'type' must be a string, got {item_type!r}"
+        raise _shape_error(
+            f"proposal item #{item_index}: 'type' must be a string, got {item_type!r}",
+            item_index=item_index,
+            field="type",
+            received=repr(item_type),
         )
     if not isinstance(item.get("fields"), dict):
-        raise ValidationError(
-            f"proposal item {item_type!r} must carry a 'fields' dict"
+        raise _shape_error(
+            f"proposal item #{item_index} ({item_type}): 'fields' must be a dict",
+            item_index=item_index,
+            field="fields",
+            artifact_type=item_type,
+            received_type=type(item.get("fields")).__name__,
         )
     # Review-2 fix m1: 'links' may be explicitly null in caller JSON.
     # dict.get(key, default) does NOT help here -- it returns None (not
     # the default) when the key exists with value None, so enumerate(None)
     # used to raise a bare TypeError. Normalise None to [] IN PLACE so
     # _formalize_multi's later item.get("links", []) loops see a real
-    # list too; anything non-list is a clean ValidationError instead.
+    # list too; anything non-list is a clean ProposalValidationError instead.
     raw_links = item.get("links")
     if raw_links is None:
         # Normalise in place so _formalize_multi's later
         # item.get("links", []) loops see a real list too.
         item["links"] = []
     elif not isinstance(raw_links, list):
-        raise ValidationError(
-            f"proposal item {item_type!r}: 'links' must be a list or null, "
-            f"got {type(raw_links).__name__}"
+        raise _shape_error(
+            f"proposal item #{item_index} ({item_type}): 'links' must be a "
+            f"list or null, got {type(raw_links).__name__}",
+            item_index=item_index,
+            field="links",
+            artifact_type=item_type,
+            received_type=type(raw_links).__name__,
         )
     else:
         for link_index, link in enumerate(raw_links):
-            _validate_confirmed_proposal_link(item_type, link_index, link, item_count)
+            _validate_confirmed_proposal_link(
+                item_index, item_type, link_index, link, item_count
+            )
 
 
 def _validate_confirmed_proposal_link(
-    item_type: str, link_index: int, link: Any, item_count: int
+    item_index: int, item_type: str, link_index: int, link: Any, item_count: int
 ) -> None:
     """Validate one link of a multi-mode proposal item (pre-transaction)."""
     if not isinstance(link, dict):
-        raise ValidationError(
-            f"proposal item {item_type!r}, link #{link_index} must be a dict"
+        raise _shape_error(
+            f"proposal item #{item_index} ({item_type}), link #{link_index} "
+            "must be a dict",
+            item_index=item_index,
+            field="links",
+            link_index=link_index,
+            artifact_type=item_type,
         )
     for endpoint in ("from", "to"):
         value = link.get(endpoint)
         # bool is an int subclass -- True/False must not pass as
         # link endpoints via created_refs[True] indexing.
         if isinstance(value, bool) or not isinstance(value, int):
-            raise ValidationError(
-                f"proposal item {item_type!r}, link #{link_index}: "
+            raise _shape_error(
+                f"proposal item #{item_index} ({item_type}), link #{link_index}: "
                 f"'{endpoint}' must be an int index into the proposal items, "
-                f"got {value!r}"
+                f"got {value!r}",
+                item_index=item_index,
+                field=endpoint,
+                link_index=link_index,
+                artifact_type=item_type,
+                received=repr(value),
             )
         if not 0 <= value < item_count:
-            raise ValidationError(
-                f"proposal item {item_type!r}, link #{link_index}: "
+            raise _shape_error(
+                f"proposal item #{item_index} ({item_type}), link #{link_index}: "
                 f"'{endpoint}' index {value} is out of range "
-                f"(0..{item_count - 1})"
+                f"(0..{item_count - 1})",
+                item_index=item_index,
+                field=endpoint,
+                link_index=link_index,
+                artifact_type=item_type,
+                index=value,
+                item_count=item_count,
             )
     if not isinstance(link.get("type"), str):
-        raise ValidationError(
-            f"proposal item {item_type!r}, link #{link_index}: "
-            f"'type' must be a string, got {link.get('type')!r}"
+        raise _shape_error(
+            f"proposal item #{item_index} ({item_type}), link #{link_index}: "
+            f"'type' must be a string, got {link.get('type')!r}",
+            item_index=item_index,
+            field="type",
+            link_index=link_index,
+            artifact_type=item_type,
+            received=repr(link.get("type")),
         )
 
 
@@ -173,8 +237,15 @@ def _tenant_custom_attribute_names(ctx, workspace_id, artifact_type: str) -> fro
     )
 
 
-def _validate_proposal_field_value(item_type: str, key: str, value: Any) -> None:
-    """Type + length validation of one proposal field value (AI-005)."""
+def _validate_proposal_field_value(
+    item_type: str, key: str, value: Any, item_index: int | None = None
+) -> None:
+    """Type + length validation of one proposal field value (AI-005).
+
+    Every refusal is an ``INVALID_PROPOSAL_SHAPE``
+    :class:`ProposalValidationError` naming the item and field, so a transport
+    can branch on the reason instead of parsing prose (M2).
+    """
     if isinstance(value, str):
         limit = (
             MAX_PROPOSAL_TITLE_LENGTH
@@ -182,9 +253,13 @@ def _validate_proposal_field_value(item_type: str, key: str, value: Any) -> None
             else MAX_PROPOSAL_STRING_LENGTH
         )
         if len(value) > limit:
-            raise ValidationError(
-                f"proposal item {item_type!r}: field {key!r} exceeds the "
-                f"{limit}-character limit"
+            raise _shape_error(
+                f"proposal item #{item_index} ({item_type}): field {key!r} exceeds "
+                f"the {limit}-character limit",
+                item_index=item_index,
+                field=key,
+                artifact_type=item_type,
+                limit=limit,
             )
         return
     if value is None or isinstance(value, (int, float, bool)):
@@ -198,22 +273,35 @@ def _validate_proposal_field_value(item_type: str, key: str, value: Any) -> None
             node = pending.pop()
             visited += 1
             if visited > MAX_PROPOSAL_CONTAINER_ITEMS:
-                raise ValidationError(
-                    f"proposal item {item_type!r}: field {key!r} is too large "
-                    f"(more than {MAX_PROPOSAL_CONTAINER_ITEMS} nested values)"
+                raise _shape_error(
+                    f"proposal item #{item_index} ({item_type}): field {key!r} is "
+                    f"too large (more than {MAX_PROPOSAL_CONTAINER_ITEMS} nested "
+                    "values)",
+                    item_index=item_index,
+                    field=key,
+                    artifact_type=item_type,
+                    limit=MAX_PROPOSAL_CONTAINER_ITEMS,
                 )
             if isinstance(node, str):
                 if len(node) > MAX_PROPOSAL_STRING_LENGTH:
-                    raise ValidationError(
-                        f"proposal item {item_type!r}: field {key!r} contains a "
-                        f"string exceeding the {MAX_PROPOSAL_STRING_LENGTH}-character limit"
+                    raise _shape_error(
+                        f"proposal item #{item_index} ({item_type}): field {key!r} "
+                        "contains a string exceeding the "
+                        f"{MAX_PROPOSAL_STRING_LENGTH}-character limit",
+                        item_index=item_index,
+                        field=key,
+                        artifact_type=item_type,
+                        limit=MAX_PROPOSAL_STRING_LENGTH,
                     )
             elif isinstance(node, dict):
                 for sub_key, sub_value in node.items():
                     if not isinstance(sub_key, str):
-                        raise ValidationError(
-                            f"proposal item {item_type!r}: field {key!r} has a "
-                            "non-string nested key"
+                        raise _shape_error(
+                            f"proposal item #{item_index} ({item_type}): field "
+                            f"{key!r} has a non-string nested key",
+                            item_index=item_index,
+                            field=key,
+                            artifact_type=item_type,
                         )
                     pending.append(sub_value)
             elif isinstance(node, list):
@@ -221,27 +309,90 @@ def _validate_proposal_field_value(item_type: str, key: str, value: Any) -> None
             elif node is None or isinstance(node, (int, float, bool)):
                 continue
             else:
-                raise ValidationError(
-                    f"proposal item {item_type!r}: field {key!r} has an unsupported "
-                    f"value type {type(node).__name__}"
+                raise _shape_error(
+                    f"proposal item #{item_index} ({item_type}): field {key!r} has "
+                    f"an unsupported value type {type(node).__name__}",
+                    item_index=item_index,
+                    field=key,
+                    artifact_type=item_type,
+                    received_type=type(node).__name__,
                 )
         return
-    raise ValidationError(
-        f"proposal item {item_type!r}: field {key!r} has an unsupported value "
-        f"type {type(value).__name__}"
+    raise _shape_error(
+        f"proposal item #{item_index} ({item_type}): field {key!r} has an "
+        f"unsupported value type {type(value).__name__}",
+        item_index=item_index,
+        field=key,
+        artifact_type=item_type,
+        received_type=type(value).__name__,
     )
+
+
+def collect_missing_required_fields(
+    ctx, workspace_id, confirmed_proposal: list[dict]
+) -> list[dict[str, Any]]:
+    """Report proposal items that lack a required field of their type.
+
+    One entry per offending item::
+
+        {"item_index": 0, "artifact_type": "Risk", "fields": ["probability"]}
+
+    ``fields`` is in create-signature order. "Required" is the ONE derivation
+    in :func:`application.attribute_contract_service.artifact_field_contract`
+    (definition ``required`` flag OR a create parameter without a default), so
+    the prompt's contract and this gate cannot disagree.
+
+    Unknown artifact types are skipped (``_create_proposal_items`` reports the
+    canonical "unknown artifact type" error), and a field that is present with
+    any value counts as supplied -- this is a completeness check, not a
+    per-value validator. Importable by the chat/propose readout that surfaces
+    ``missing_fields`` without re-deriving the rule.
+    """
+    from application.attribute_contract_service import artifact_field_contract
+    from application.interview_artifact_adapters import ARTIFACT_CREATION_ADAPTERS
+
+    missing_items: list[dict[str, Any]] = []
+    for item_index, item in enumerate(confirmed_proposal):
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type")
+        if item_type not in ARTIFACT_CREATION_ADAPTERS:
+            continue
+        fields = item.get("fields")
+        present = set(fields) if isinstance(fields, dict) else set()
+        try:
+            contract = artifact_field_contract(ctx, workspace_id, item_type)
+        except Exception:  # noqa: BLE001 -- unknown type is skipped above; stay safe
+            logger.warning(
+                "collect_missing_required_fields: could not derive a contract for %s",
+                item_type,
+                exc_info=True,
+            )
+            continue
+        missing = [
+            entry["name"]
+            for entry in contract
+            if entry["required"] and entry["name"] not in present
+        ]
+        if missing:
+            missing_items.append(
+                {"item_index": item_index, "artifact_type": item_type, "fields": missing}
+            )
+    return missing_items
 
 
 def validate_confirmed_proposal_fields(
     ctx, workspace_id, confirmed_proposal: list[dict]
 ) -> None:
-    """Allowlist + type/length gate on every proposal item's ``fields`` (AI-005).
+    """Allowlist + type/length + required-field gate on every proposal (AI-005).
 
     Runs in the SERVICE layer (``InterviewService._formalize_multi``), so REST,
     UI and MCP callers -- including an AUTHOR-scoped MCP key that supplies
     ``confirmed_proposal`` directly -- are all protected by the same check.
-    Policy is REJECT (fail closed): a reserved, unknown or oversized field
-    raises ``ValidationError`` BEFORE any ``create_X()`` is called.
+    Policy is REJECT (fail closed): a reserved, unknown, oversized or missing
+    required field raises :class:`ProposalValidationError` (a
+    ``ValidationError`` subclass with a machine-readable ``code``) BEFORE any
+    ``create_X()`` is called.
 
     Allowed names are DERIVED, not hardcoded: the writable kwargs of the
     artifact type's production ``create_X()`` (``allowed_fields_for``) plus the
@@ -249,6 +400,13 @@ def validate_confirmed_proposal_fields(
     above is subtracted. Unknown artifact types are intentionally skipped here
     so ``_create_proposal_items`` keeps reporting its canonical "unknown
     artifact type" error; they still reach no ``create_X()``.
+
+    Order is deliberate and deterministic: for every item, the shape/allowlist
+    loop runs first (``RESERVED_FIELD``/``UNKNOWN_FIELD``), and only when every
+    field name is valid does the completeness pass report
+    ``MISSING_REQUIRED_FIELD``. A wrongly spelled field is a shape error and
+    must not be reported as "missing required" (which would send the caller
+    hunting for a field they did type, just with the wrong name).
     """
     from application.interview_artifact_adapters import (
         ARTIFACT_CREATION_ADAPTERS,
@@ -289,7 +447,40 @@ def validate_confirmed_proposal_fields(
                     item_index=item_index,
                     field=key,
                 )
-            _validate_proposal_field_value(item_type, key, value)
+            _validate_proposal_field_value(item_type, key, value, item_index)
+
+    missing = collect_missing_required_fields(ctx, workspace_id, confirmed_proposal)
+    if missing:
+        first = missing[0]
+        raise ProposalValidationError(
+            f"proposal item {first['item_index']} ({first['artifact_type']}) is "
+            f"missing required fields: {', '.join(first['fields'])}",
+            code="MISSING_REQUIRED_FIELD",
+            item_index=first["item_index"],
+            field=first["fields"][0],
+            details={
+                "fields": first["fields"],
+                "artifact_type": first["artifact_type"],
+                "missing": missing,
+            },
+        )
+
+
+_UNEXPECTED_KEYWORD_RE = re.compile(r"unexpected keyword argument '([^']+)'")
+
+
+def _missing_key_name(exc: KeyError) -> str:
+    """The dict key whose absence raised *exc* (``KeyError('probability')``)."""
+    if exc.args and isinstance(exc.args[0], str):
+        return exc.args[0]
+    return "<unknown>"
+
+
+def _unexpected_keyword_name(exc: TypeError) -> str | None:
+    """The kwarg named in a ``unexpected keyword argument 'x'`` TypeError."""
+    match = _UNEXPECTED_KEYWORD_RE.search(str(exc))
+    return match.group(1) if match else None
+
 
 class InterviewMultiFormalizationMixin:
     """Multi-kind formalize path; mixed into :class:`InterviewService`."""
@@ -403,27 +594,63 @@ class InterviewMultiFormalizationMixin:
         ``transaction.atomic()`` block: a failure on any item rolls back
         the entire batch and leaves the session in_progress.
 
-        Malformed caller input surfaces as a clear ValidationError instead
-        of KeyError/TypeError (review finding M1): missing required fields
-        (e.g. Risk without probability/impact) raise KeyError, field names
-        the target create_X() signature does not accept raise TypeError --
-        both come straight from client JSON via confirmed_proposal, so
-        neither may escape as an unhandled 500. Raised INSIDE the atomic
-        block, so rollback semantics are unchanged -- the whole batch
+        Malformed caller input surfaces as a structured, machine-readable
+        :class:`ProposalValidationError` instead of KeyError/TypeError (review
+        finding M1 / plan P0.5): a missing required field is
+        ``MISSING_REQUIRED_FIELD`` naming the field, an unexpected keyword is
+        ``UNKNOWN_FIELD`` naming the kwarg, and any other TypeError is
+        ``INVALID_PROPOSAL_SHAPE`` carrying the original message. The codes are
+        the same vocabulary ``validate_confirmed_proposal_fields`` uses, so
+        REST/MCP callers branch on one set of reason tokens. Raised INSIDE the
+        atomic block, so rollback semantics are unchanged -- the whole batch
         reverts.
         """
         from application.interview_artifact_adapters import ARTIFACT_CREATION_ADAPTERS
 
         created_refs = []
-        for item in confirmed_proposal:
+        for item_index, item in enumerate(confirmed_proposal):
             adapter = ARTIFACT_CREATION_ADAPTERS.get(item["type"])
             if adapter is None:
                 raise ValidationError(f"unknown artifact type in proposal: {item['type']!r}")
             try:
                 ref = adapter(item["fields"], ctx, session.workspace_id)
-            except (KeyError, TypeError) as exc:
-                raise ValidationError(
-                    f"invalid fields for {item['type']!r} in proposal item: {exc}"
+            except KeyError as exc:
+                missing_field = _missing_key_name(exc)
+                raise ProposalValidationError(
+                    f"proposal item {item_index} ({item['type']}) is missing "
+                    f"required fields: {missing_field}",
+                    code="MISSING_REQUIRED_FIELD",
+                    item_index=item_index,
+                    field=missing_field,
+                    details={
+                        "fields": [missing_field],
+                        "artifact_type": item["type"],
+                    },
+                ) from exc
+            except TypeError as exc:
+                unknown_field = _unexpected_keyword_name(exc)
+                if unknown_field is not None:
+                    raise ProposalValidationError(
+                        f"proposal item {item_index} ({item['type']}): field "
+                        f"{unknown_field!r} is not accepted by the create call "
+                        "for this artifact type",
+                        code="UNKNOWN_FIELD",
+                        item_index=item_index,
+                        field=unknown_field,
+                        details={
+                            "fields": [unknown_field],
+                            "artifact_type": item["type"],
+                        },
+                    ) from exc
+                raise ProposalValidationError(
+                    f"proposal item {item_index} ({item['type']}): the create call "
+                    f"rejected the proposal fields: {exc}",
+                    code="INVALID_PROPOSAL_SHAPE",
+                    item_index=item_index,
+                    details={
+                        "artifact_type": item["type"],
+                        "error": str(exc),
+                    },
                 ) from exc
             InterviewSessionArtifact.objects.create(
                 session=session, artifact_id=ref.artifact_id, artifact_type=ref.artifact_type

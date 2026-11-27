@@ -4726,7 +4726,7 @@
       "name": "interview.propose",
       "prefix": "interview",
       "is_write": false,
-      "description": "Get the current pending multi-artifact proposal for a session, if the LLM has emitted one (read-only). Returns null until a chat turn produced a parseable proposal.",
+      "description": "Get the current pending multi-artifact proposal for a session, if the LLM has emitted one (read-only). Returns {proposal, missing_fields}: missing_fields names the required fields an incomplete proposal still lacks (one entry per item: {item_index, artifact_type, fields}), so the caller can ask for them before calling interview.formalize.",
       "inputSchema": {
         "type": "object",
         "properties": {

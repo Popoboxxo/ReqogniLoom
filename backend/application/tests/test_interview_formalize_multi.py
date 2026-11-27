@@ -174,10 +174,11 @@ class TestFormalizeMulti:
         proposal = [
             {"type": "StakeholderNeed", "fields": {"title": "Need A"}, "links": []},
             {"type": "Requirement", "fields": {"title": "Req B"}, "links": []},
-            # Risk is missing required probability/impact -> KeyError inside
-            # the adapter (intentional per interview_artifact_adapters._risk),
-            # converted to a ValidationError at the _formalize_multi batch
-            # boundary; the whole batch must roll back either way.
+            # Risk is missing required probability/impact. The required-field
+            # gate (validate_confirmed_proposal_fields, plan P0.4) rejects the
+            # proposal BEFORE the transaction opens with a structured
+            # MISSING_REQUIRED_FIELD; either way nothing may be persisted by
+            # the batch (the first two items must never survive).
             {"type": "Risk", "fields": {"title": "Risk C"}, "links": []},
         ]
         with pytest.raises(ValidationError):

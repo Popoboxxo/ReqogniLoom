@@ -36,6 +36,18 @@ export interface InterviewField {
   choices: string[] | null;
 }
 
+/**
+ * P0.6: one multi-mode proposal item whose required fields are still missing
+ * (`interview.propose` / multi chat turn `missing_fields`). Shaped differently
+ * from {@link InterviewField}: a multi session can carry several artifact
+ * types, so the gap is grouped per proposal item instead of per protocol field.
+ */
+export interface ProposalMissingFieldGroup {
+  item_index: number;
+  artifact_type: string;
+  fields: string[];
+}
+
 /** One turn in an interview session's conversation history. */
 export interface InterviewTranscriptEntry {
   role: string;
@@ -76,7 +88,13 @@ export interface InterviewState {
    */
   phase?: string;
   collected_fields: Record<string, unknown>;
-  missing_fields?: InterviewField[];
+  /**
+   * Single-mode: the protocol fields still open ({@link InterviewField}).
+   * Multi-mode (P0.6): the same key carries the proposal's missing required
+   * fields grouped per item ({@link ProposalMissingFieldGroup}) -- consumers
+   * must narrow on the entry's shape / the session kind, never assume `.name`.
+   */
+  missing_fields?: InterviewField[] | ProposalMissingFieldGroup[];
   grounding_snapshot: {
     /** Absent until `/grounding/` is explicitly called (lazy AI-ranked
      * computation) -- `start()` returns `{}`, not `{ candidates: [] }`. */
@@ -220,14 +238,23 @@ export const interviewsApi = {
 
   /**
    * Fetch the multi-mode session's current pending proposal (LLM-generated,
-   * NOT yet persisted as artifacts). Returns `{ proposal: null }` while no
-   * proposal exists. The caller reviews/edits it and passes the confirmed
-   * batch to {@link formalize}.
+   * NOT yet persisted as artifacts). Returns `{ proposal: null,
+   * missing_fields: [] }` while no proposal exists. P0.6: `missing_fields`
+   * names the required fields an incomplete proposal still lacks, so the
+   * caller can ask for them before calling {@link formalize}. The caller
+   * reviews/edits the proposal and passes the confirmed batch to
+   * {@link formalize}.
    */
-  propose(id: UUID): Promise<{ proposal: ProposalItem[] | null }> {
-    return apiClient.get<{ proposal: ProposalItem[] | null }>(
-      `/interviews/${id}/propose/`
-    );
+  propose(
+    id: UUID
+  ): Promise<{
+    proposal: ProposalItem[] | null;
+    missing_fields: ProposalMissingFieldGroup[];
+  }> {
+    return apiClient.get<{
+      proposal: ProposalItem[] | null;
+      missing_fields: ProposalMissingFieldGroup[];
+    }>(`/interviews/${id}/propose/`);
   },
 
   /**
@@ -252,11 +279,20 @@ export const interviewsApi = {
   },
 
   /** Send a free-form chat message and get back the assistant's reply + updated state. */
-  chat(id: UUID, message: string): Promise<{ reply: string; state: InterviewState }> {
-    return apiClient.post<{ reply: string; state: InterviewState }>(
-      `/interviews/${id}/chat/`,
-      { message }
-    );
+  chat(
+    id: UUID,
+    message: string
+  ): Promise<{
+    reply: string;
+    state: InterviewState;
+    /** P0.6: multi-mode only -- required fields the pending proposal lacks. */
+    missing_fields?: ProposalMissingFieldGroup[];
+  }> {
+    return apiClient.post<{
+      reply: string;
+      state: InterviewState;
+      missing_fields?: ProposalMissingFieldGroup[];
+    }>(`/interviews/${id}/chat/`, { message });
   },
 
   /** User-initiated cancel of an in-progress session (workflow: -> abandoned). */
