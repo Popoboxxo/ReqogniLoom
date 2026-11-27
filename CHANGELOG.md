@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- feat(suggestion): `suggestion.capture` — one server-side call turns a user message into open proposals (ADR-032). Workspace switch `capture.enabled` (default off), secret redaction before storage and before the model call, a deterministic rule filter, idempotency/duplicate protection, exactly one stateless LLM call per message (no growing transcript), proposal validation through the existing interview gate, and a new `capture` right on API keys. REST `POST /api/v1/suggestions/capture/` and MCP `suggestion.capture` are thin adapters over the same service; the MCP catalogue now exposes **314 tools in 50 tool-group prefixes** (was 313)
+- feat(suggestion): update proposals (`artifact_update`) — "anpassen, erweitern, korrigieren" of an existing artifact. Accepting one runs the shared update seam with the proposal's `base_version` as the optimistic lock, so a stale proposal answers `409 CONFLICT` instead of overwriting; a message that repeats an existing artifact is proposed as an update instead of a duplicate create
+- docs(adr): ADR-032 (proposed) records the capture right and the update operation as an addendum to ADR-019
+
 ## [1.9.0-beta.8] — 2026-11-26
 
 Correction cut on top of `1.9.0-beta.7`. The feature scope is unchanged — everything listed under 1.9.0-beta.7 ships here as well. `v1.9.0-beta.7` was tagged but never published: two repository-level CI gates (below) only failed because the branch had not been through CI before the tag, so no image reached GHCR. This cut carries the same features plus the fixes that make the pipeline green.

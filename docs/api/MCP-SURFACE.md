@@ -123,7 +123,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 
 ## 2. Tool groups
 
-50 prefixes, 313 tools. Tools are called as `<prefix>.<tool_name>`.
+50 prefixes, 314 tools. Tools are called as `<prefix>.<tool_name>`.
 
 | Group | Tools | Names |
 |-------|------:|-------|
@@ -167,7 +167,7 @@ table in §1 and §2 **in the same change**, with the new version and commit.
 | `review` | 4 | `review.approve`, `review.list_pending`, `review.reject`, `review.request_changes` |
 | `risk` | 7 | `risk.create`, `risk.delete`, `risk.outdate`, `risk.query`, `risk.read`, `risk.reactivate`, `risk.update` |
 | `saved_view` | 2 | `saved_view.apply`, `saved_view.list` |
-| `suggestion` | 3 | `suggestion.accept`, `suggestion.list`, `suggestion.reject` |
+| `suggestion` | 4 | `suggestion.accept`, `suggestion.capture`, `suggestion.list`, `suggestion.reject` |
 | `summary` | 2 | `summary.get`, `summary.refresh` |
 | `test` | 14 | `test.create`, `test.derive_from_requirement`, `test.get`, `test.link`, `test.mark_reviewed`, `test.outdate`, `test.query`, `test.reactivate`, `test.run_complete`, `test.run_create`, `test.run_get`, `test.run_list`, `test.run_report_results`, `test.update` |
 | `tool` | 1 | `tool.list_groups` |
@@ -499,7 +499,11 @@ Note that `baseline.list` / `baseline.get` / `baseline.compare` /
 a rollback is additionally human-only: an agent principal is refused with
 `-32001` (`PERMISSION_DENIED`) by the service itself, before any database work. Similarly `review.*`, `interview.*` and the ADR-019
 `suggestion.accept` / `suggestion.reject` are ordinary content writes, not
-governance (`suggestion.list` is read). `traceability.suggest_links` is a
+governance (`suggestion.list` is read). `suggestion.capture` (ADR-032) is also a
+content write, but it is gated by its own API-key right (`capture_enabled`)
+instead of the agent-producer rule: it may only *propose*, never decide — a
+`capture` key still gets `PERMISSION_DENIED` on `suggestion.accept`.
+`traceability.suggest_links` is a
 **write** tool: it now persists an M2 proposal link plus a durable `Suggestion`
 receipt (ADR-019 WP5), where it used to be a read-only advisory ranking.
 

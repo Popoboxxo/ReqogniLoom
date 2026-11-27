@@ -521,6 +521,27 @@ offener Befund ist `003-01` (info, nicht blockierend).
 
 ---
 
+## Ergänzung 2026-11-27 — Capture-Recht und Update-Vorschläge
+
+[ADR-032](ADR-032_capture_recht_und_update_vorschlaege.md) ergänzt dieses ADR für den
+Listen-Modus, ohne es zu ändern:
+
+- **Produktion über ein eigenes Key-Recht** (`capture`, `ApiKey.capture_enabled`).
+  Die Zusage 7(f) (Produktion nur aus einem API-Key mit `proposed_by`) bleibt
+  intakt; erweitert wird nur, *welcher* API-Key produzieren darf — nicht die
+  Regel, dass ein Mensch entscheidet (7(c) bleibt unverändert und wird je
+  Capture-Adapter zusätzlich geprüft).
+- **Neue Vorschlagsart `artifact_update`** neben `artifact_create`: „anpassen,
+  erweitern, korrigieren" ist ein Vorschlag auf ein bestehendes Artefakt, kein
+  Duplikat. Annehmen delegiert an die normale Update-Fassade des Zieltyps
+  (Optimistic Lock über `base_version`).
+- **`artifact_create` ist nicht mehr dormant**: Produzieren persistiert die
+  Quittung, Annehmen ruft den Produktions-`create_X()`-Pfad aus
+  `interview.artifact_adapters` (Entscheidung 3, viertes Spiegelstriche-Paar
+  dieses ADR).
+
+---
+
 *Erstellt durch `ideation` am 2026-10-06 als Entscheidungsvorlage (Status `proposed`);
 Überarbeitung Iteration 2 (2026-10-06) nach Review `RVW-2026-10-06-001`,
 Iteration 3 (2026-10-06) nach Review `RVW-2026-10-06-002` (001-09/001-10/001-11).

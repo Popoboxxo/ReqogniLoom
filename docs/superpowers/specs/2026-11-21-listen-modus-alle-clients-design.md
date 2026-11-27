@@ -275,5 +275,8 @@ Jeder Client muss dieselben Szenarien bestehen. Ein Szenario ist je Client entwe
 
 - **Matrix der Fähigkeiten (#2001, PR #2051):** Zeile „Hooks / Mithörmodus" bekommt je Client einen belegten Status aus den Szenarien S1–S12.
 - **#1156, #1201** wurden für Hermes geschlossen; das Vorhaben hier erweitert sie und löst H1–H8.
-- **ADR-019** wird um das Recht `capture` ergänzt (D2).
+- **ADR-019** wird um das Recht `capture` ergänzt (D2). Die Ergänzung ist als
+  [ADR-032](../../se/ADR/ADR-032_capture_recht_und_update_vorschlaege.md) angelegt
+  (`status: proposed`): eigenes Key-Recht `capture`, neuer Vorschlagstyp
+  `artifact_update` für „anpassen/erweitern/korrigieren", `artifact_create` aktiv.
 - **Nicht Teil dieses Vorhabens:** Die Architektur aus **bestehendem Code oder Repository** abzuleiten (D11). Dafür gibt es heute keinen Baustein, es braucht eine eigene Spec.
