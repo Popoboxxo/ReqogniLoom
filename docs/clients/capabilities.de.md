@@ -30,7 +30,7 @@ Datum und Versionen beziehen sich auf diesen Verifikationslauf, nicht auf das ak
 | Installation mit einem Befehl | ? | ? | ? | ? | ? | ? | ? |
 | **Plugin-Inhalt** | | | | | | | |
 | Tools erreichbar | ◐ | ? | ? | ? | ? | ? | ? |
-| Skills (8) | ◐ | ? | ? | ? | ? | ? | ? |
+| Skills (8) | ◐ | ◐ | ◐ | ? | ? | ◐ | ? |
 | Rollen-Agenten | ✗ | ✗ | ✗ | ✗ | ? | ✗ | ? |
 | Hooks / Mithörmodus (automatische Erfassung) | ◐ | ✗ | ◐ | ◐ | ✗ | ◐ | ◐ |
 | **Workflows** | | | | | | | |
@@ -116,7 +116,7 @@ Datum und Versionen beziehen sich auf diesen Verifikationslauf, nicht auf das ak
 | MCP-Verbindung | ✓ `supported` | nicht erneut ausgeführt | `registry` (tested_version 0.151.0) | — |
 | Installation mit einem Befehl | ? `unverified` | — | — | — |
 | Tools erreichbar | ? `unverified` | — | — | — |
-| Skills (8) | ? `unverified` | dieselben 8 Skills werden ausgeliefert (byte-identisch mit den Claude-Code-Skills, #1962 und #1964 gelten daher auch hier); im Client nicht geladen | `repo` (2026-11-21) | — |
+| Skills (8) | ◐ `partial` | Der Installer kopiert dieselben 8 Skills (byte-identisch mit den Claude-Code-Skills) in das Skills-Verzeichnis des Providers; das Laden im Client wurde nicht ausgeführt. Der Listen-Command wird ebenfalls pro Client bereitgestellt (OpenCode: Installer, Claude: Plugin-Command, Hermes: Slash-Command, Antigravity: LISTEN.md) und ist durch `scripts/tests/test_client_plugin_parity.py` abgesichert. | `repo` (2026-11-21) | — |
 | Rollen-Agenten | ✗ `unsupported` | keine ausgeliefert (Claude Code liefert 7) | `repo` (2026-11-21) | — |
 | Hooks / Mithörmodus (automatische Erfassung) | ✗ `unsupported` | keine Hook-Dateien ausgeliefert | `repo` (2026-11-21) | — |
 | Interview (einzeln) | ? `unverified` | — | — | — |
@@ -157,7 +157,7 @@ Datum und Versionen beziehen sich auf diesen Verifikationslauf, nicht auf das ak
 | MCP-Verbindung | ✓ `supported` | 2.3.x unverifiziert: lokal 2.3.2 installiert, neuer als die getesteten 1.18.x/2.2.x; nicht erneut ausgeführt | `registry` (tested_version 1.18.x / 2.2.x) | — |
 | Installation mit einem Befehl | ? `unverified` | Installer und Config-Snippets sind vorhanden; `opencode mcp list` zeigt auf dem Verifikationsrechner „No MCP servers configured“ | `repo` (2026-11-21) | — |
 | Tools erreichbar | ? `unverified` | — | — | — |
-| Skills (8) | ? `unverified` | dieselben 8 Skills werden ausgeliefert (byte-identisch mit den Claude-Code-Skills, #1962 und #1964 gelten daher auch hier); im Client nicht geladen | `repo` (2026-11-21) | — |
+| Skills (8) | ◐ `partial` | Der Installer kopiert dieselben 8 Skills (byte-identisch mit den Claude-Code-Skills) in das Skills-Verzeichnis des Providers; das Laden im Client wurde nicht ausgeführt. Der Listen-Command wird ebenfalls pro Client bereitgestellt (OpenCode: Installer, Claude: Plugin-Command, Hermes: Slash-Command, Antigravity: LISTEN.md) und ist durch `scripts/tests/test_client_plugin_parity.py` abgesichert. | `repo` (2026-11-21) | — |
 | Rollen-Agenten | ✗ `unsupported` | keine ausgeliefert (Claude Code liefert 7) | `repo` (2026-11-21) | — |
 | Hooks / Mithörmodus (automatische Erfassung) | ◐ `partial` | V1 `chat.message` und V2 `session.hook("prompt")` rufen denselben Relay-Kern `listen.mjs`; gemeinsamer State `~/.reqogniloom/listen`, Schalter `node listen.mjs on <workspace_id>\|off\|status`, 60-s-Timeout, fail-open, Standard aus. **Relay live belegt**: echter Vorschlag erzeugt, Status `captured=1`, Queue leer. Der V1-Hook in der TUI wurde nicht ausgeführt (offene TUI-Frage der Spec), daher `partial`. | `live` (2026-11-27 · Relay-Adapter (listen.mjs enqueue + --drain) gegen branch-built Server mit Capture-Route · real LLM (opencode_go/beam-free); Host-Hook nicht ausgeführt) | [#2001](https://github.com/Popoboxxo/ReqogniLoom/issues/2001) |
 | Interview (einzeln) | ? `unverified` | — | — | — |
@@ -280,7 +280,7 @@ Datum und Versionen beziehen sich auf diesen Verifikationslauf, nicht auf das ak
 | MCP-Verbindung | ✓ `supported` | nicht erneut ausgeführt | `registry` (tested_version preview) | — |
 | Installation mit einem Befehl | ? `unverified` | — | — | — |
 | Tools erreichbar | ? `unverified` | — | — | — |
-| Skills (8) | ? `unverified` | dieselben 8 Skills werden ausgeliefert (byte-identisch mit den Claude-Code-Skills, #1962 und #1964 gelten daher auch hier); im Client nicht geladen | `repo` (2026-11-21) | — |
+| Skills (8) | ◐ `partial` | Der Installer kopiert dieselben 8 Skills (byte-identisch mit den Claude-Code-Skills) in das Skills-Verzeichnis des Providers; das Laden im Client wurde nicht ausgeführt. Der Listen-Command wird ebenfalls pro Client bereitgestellt (OpenCode: Installer, Claude: Plugin-Command, Hermes: Slash-Command, Antigravity: LISTEN.md) und ist durch `scripts/tests/test_client_plugin_parity.py` abgesichert. | `repo` (2026-11-21) | — |
 | Rollen-Agenten | ✗ `unsupported` | keine ausgeliefert (Claude Code liefert 7) | `repo` (2026-11-21) | — |
 | Hooks / Mithörmodus (automatische Erfassung) | ◐ `partial` | Stufe B: `PreInvocation` (Feld `lastUserInput`) mit eigener Entdopplung `(session_id, sha256(text))`; derselbe State/Status wie die anderen Clients; Schalter `python3 listen.py on\|off\|status`. **Relay live belegt**: echter Vorschlag erzeugt, `captured=1`, Queue leer. Der `PreInvocation`-Hook der Vorschau wurde nicht ausgeführt (Runtime fehlt); deshalb `partial`. | `live` (2026-11-27 · Relay-Adapter (listen.py enqueue + --drain) gegen branch-built Server mit Capture-Route · real LLM (opencode_go/beam-free); PreInvocation-Hook nicht ausgeführt) | [#2001](https://github.com/Popoboxxo/ReqogniLoom/issues/2001) |
 | Interview (einzeln) | ? `unverified` | — | — | — |

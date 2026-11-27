@@ -1183,10 +1183,10 @@ capabilities:
         note_en: "no hook files shipped"
       - &same_skills
         row: skills
-        status: unverified
+        status: partial
         evidence: *repo
-        note_de: "dieselben 8 Skills werden ausgeliefert (byte-identisch mit den Claude-Code-Skills, #1962 und #1964 gelten daher auch hier); im Client nicht geladen"
-        note_en: "the same 8 skills are shipped (byte-identical to the Claude Code skills, so #1962 and #1964 apply); not loaded in the client"
+        note_de: "Der Installer kopiert dieselben 8 Skills (byte-identisch mit den Claude-Code-Skills) in das Skills-Verzeichnis des Providers; das Laden im Client wurde nicht ausgeführt. Der Listen-Command wird ebenfalls pro Client bereitgestellt (OpenCode: Installer, Claude: Plugin-Command, Hermes: Slash-Command, Antigravity: LISTEN.md) und ist durch `scripts/tests/test_client_plugin_parity.py` abgesichert."
+        note_en: "The installer copies the same 8 skills (byte-identical to the Claude Code skills) into the provider's skills directory; loading in the client was not executed. The listen command is delivered per client too (OpenCode: installer, Claude: plugin command, Hermes: slash command, Antigravity: LISTEN.md) and guarded by `scripts/tests/test_client_plugin_parity.py`."
     opencode:
       - row: mcp_connection
         status: supported

@@ -30,7 +30,7 @@ The date and versions refer to this verification run, not to the current release
 | One-command install | ? | ? | ? | ? | ? | ? | ? |
 | **Plugin content** | | | | | | | |
 | Tools reachable | ◐ | ? | ? | ? | ? | ? | ? |
-| Skills (8) | ◐ | ? | ? | ? | ? | ? | ? |
+| Skills (8) | ◐ | ◐ | ◐ | ? | ? | ◐ | ? |
 | Role agents | ✗ | ✗ | ✗ | ✗ | ? | ✗ | ? |
 | Hooks / listen mode (ambient capture) | ◐ | ✗ | ◐ | ◐ | ✗ | ◐ | ◐ |
 | **Workflows** | | | | | | | |
@@ -116,7 +116,7 @@ The date and versions refer to this verification run, not to the current release
 | MCP connection | ✓ `supported` | not re-run | `registry` (tested_version 0.151.0) | — |
 | One-command install | ? `unverified` | — | — | — |
 | Tools reachable | ? `unverified` | — | — | — |
-| Skills (8) | ? `unverified` | the same 8 skills are shipped (byte-identical to the Claude Code skills, so #1962 and #1964 apply); not loaded in the client | `repo` (2026-11-21) | — |
+| Skills (8) | ◐ `partial` | The installer copies the same 8 skills (byte-identical to the Claude Code skills) into the provider's skills directory; loading in the client was not executed. The listen command is delivered per client too (OpenCode: installer, Claude: plugin command, Hermes: slash command, Antigravity: LISTEN.md) and guarded by `scripts/tests/test_client_plugin_parity.py`. | `repo` (2026-11-21) | — |
 | Role agents | ✗ `unsupported` | none shipped (Claude Code ships 7) | `repo` (2026-11-21) | — |
 | Hooks / listen mode (ambient capture) | ✗ `unsupported` | no hook files shipped | `repo` (2026-11-21) | — |
 | Interview (single) | ? `unverified` | — | — | — |
@@ -157,7 +157,7 @@ The date and versions refer to this verification run, not to the current release
 | MCP connection | ✓ `supported` | 2.3.x unverified: 2.3.2 installed locally, newer than the tested 1.18.x/2.2.x; not re-run | `registry` (tested_version 1.18.x / 2.2.x) | — |
 | One-command install | ? `unverified` | an installer and config snippets exist; `opencode mcp list` shows "No MCP servers configured" on the verification machine | `repo` (2026-11-21) | — |
 | Tools reachable | ? `unverified` | — | — | — |
-| Skills (8) | ? `unverified` | the same 8 skills are shipped (byte-identical to the Claude Code skills, so #1962 and #1964 apply); not loaded in the client | `repo` (2026-11-21) | — |
+| Skills (8) | ◐ `partial` | The installer copies the same 8 skills (byte-identical to the Claude Code skills) into the provider's skills directory; loading in the client was not executed. The listen command is delivered per client too (OpenCode: installer, Claude: plugin command, Hermes: slash command, Antigravity: LISTEN.md) and guarded by `scripts/tests/test_client_plugin_parity.py`. | `repo` (2026-11-21) | — |
 | Role agents | ✗ `unsupported` | none shipped (Claude Code ships 7) | `repo` (2026-11-21) | — |
 | Hooks / listen mode (ambient capture) | ◐ `partial` | V1 `chat.message` and V2 `session.hook("prompt")` call the same relay core `listen.mjs`; shared state `~/.reqogniloom/listen`, switch `node listen.mjs on <workspace_id>\|off\|status`, 60 s timeout, fail-open, default off. **Relay live-verified**: a real suggestion was created, status `captured=1`, queue empty. The V1 hook in the TUI was not executed (open spec question), hence `partial`. | `live` (2026-11-27 · Relay-Adapter (listen.mjs enqueue + --drain) gegen branch-built Server mit Capture-Route · real LLM (opencode_go/beam-free); Host-Hook nicht ausgeführt) | [#2001](https://github.com/Popoboxxo/ReqogniLoom/issues/2001) |
 | Interview (single) | ? `unverified` | — | — | — |
@@ -280,7 +280,7 @@ The date and versions refer to this verification run, not to the current release
 | MCP connection | ✓ `supported` | not re-run | `registry` (tested_version preview) | — |
 | One-command install | ? `unverified` | — | — | — |
 | Tools reachable | ? `unverified` | — | — | — |
-| Skills (8) | ? `unverified` | the same 8 skills are shipped (byte-identical to the Claude Code skills, so #1962 and #1964 apply); not loaded in the client | `repo` (2026-11-21) | — |
+| Skills (8) | ◐ `partial` | The installer copies the same 8 skills (byte-identical to the Claude Code skills) into the provider's skills directory; loading in the client was not executed. The listen command is delivered per client too (OpenCode: installer, Claude: plugin command, Hermes: slash command, Antigravity: LISTEN.md) and guarded by `scripts/tests/test_client_plugin_parity.py`. | `repo` (2026-11-21) | — |
 | Role agents | ✗ `unsupported` | none shipped (Claude Code ships 7) | `repo` (2026-11-21) | — |
 | Hooks / listen mode (ambient capture) | ◐ `partial` | Stage B: `PreInvocation` (field `lastUserInput`) with its own `(session_id, sha256(text))` dedupe; same state/status as the other clients; switch `python3 listen.py on\|off\|status`. **Relay live-verified**: a real suggestion was created, `captured=1`, queue empty. The preview's `PreInvocation` hook was not executed (runtime absent); hence `partial`. | `live` (2026-11-27 · Relay-Adapter (listen.py enqueue + --drain) gegen branch-built Server mit Capture-Route · real LLM (opencode_go/beam-free); PreInvocation-Hook nicht ausgeführt) | [#2001](https://github.com/Popoboxxo/ReqogniLoom/issues/2001) |
 | Interview (single) | ? `unverified` | — | — | — |
