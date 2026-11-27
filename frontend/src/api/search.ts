@@ -17,6 +17,10 @@ export interface SearchHit {
   description: string;
   relevance_score: number;
   workspace_id: UUID;
+  /** Workflow state of the hit (issue #1098 / search lifecycle). */
+  status?: string;
+  /** True when the hit is soft-deleted / outdated. */
+  outdated?: boolean;
 }
 
 export interface SearchResponse {
@@ -44,7 +48,7 @@ export const searchApi = {
   search(
     query: string,
     workspaceId: UUID,
-    options: { type?: string[]; page?: number; limit?: number } = {}
+    options: { type?: string[]; page?: number; limit?: number; includeOutdated?: boolean } = {}
   ): Promise<SearchResponse> {
     const params = new URLSearchParams();
     // Defence in depth: callers other than the bounded input must not be able
@@ -62,6 +66,11 @@ export const searchApi = {
     }
     if (options.limit !== undefined) {
       params.set("limit", String(options.limit));
+    }
+    // Outdated hits are hidden by default; an explicit opt-in is required
+    // (the backend answers 400 for a non-boolean value).
+    if (options.includeOutdated) {
+      params.set("include_outdated", "true");
     }
     return apiClient.get<SearchResponse>(`/search/?${params.toString()}`);
   },
