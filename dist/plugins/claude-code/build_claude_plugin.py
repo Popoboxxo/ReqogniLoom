@@ -111,7 +111,10 @@ def build(out_dir: Path, skills_src: Path = SKILLS_SRC) -> None:
                         "title": "API key",
                         "description": (
                             "ReqogniLoom API key created in your workspace "
-                            "settings."
+                            "settings. Tools that publish proposals (e.g. "
+                            "traceability.suggest_links) need an "
+                            "agent-principal key with write scope; a plain "
+                            "user key is refused for those calls."
                         ),
                         "sensitive": True,
                         "required": True,
