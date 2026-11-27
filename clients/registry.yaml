@@ -994,8 +994,8 @@ capabilities:
         status: partial
         evidence: {kind: live, detail: "2026-11-27 · Claude Code 2.1.332 · plugin main@5c44d839 · branch-built server with capture route · real LLM (opencode_go/beam-free)"}
         issues: [2001, 1156, 1201]
-        note_de: "Ende-zu-Ende live belegt: eine Nutzernachricht erzeugt ohne zweiten Prompt einen echten Vorschlag; der Hook macht keine Netzwerkarbeit, sondern queued und startet einen detached `--drain`-Worker (überlebt `claude -p`), der per HTTP ausliefert und `listen-status.json` schreibt; `/reqogniloom:listen on|off|status` und der Hook teilen `~/.reqogniloom/listen` (Command-Shell hat kein `CLAUDE_PLUGIN_DATA`), `off` stoppt die Erfassung sofort und löscht Ungesendetes (live: 4→4 bei off, 4→5 bei on), Standard aus; ein 60-s-Worker-Timeout deckt die echte Server-LLM-Latenz ab. Der ausgelieferte Server 1.9.0-beta.8 hat die Capture-Route noch nicht (404) — erst nach dem Rollout dieses Stands ist es dort nutzbar; Hermes/OpenCode/Antigravity sind implementiert, aber noch nicht live gelaufen (`partial`)."
-        note_en: "end-to-end live-verified: one user message produces a real suggestion without a second prompt; the hook does no network work, it queues and starts a detached `--drain` worker (survives `claude -p`) that delivers over HTTP and writes `listen-status.json`; `/reqogniloom:listen on|off|status` and the hook share `~/.reqogniloom/listen` (the command shell has no `CLAUDE_PLUGIN_DATA`), `off` stops capture immediately and deletes anything unsent (live: 4→4 off, 4→5 on), default off; a 60 s worker timeout covers the real server LLM latency. The deployed server 1.9.0-beta.8 does not have the capture route yet (404) — it becomes usable there after this state ships; Hermes/OpenCode/Antigravity are implemented but have not been live-run yet (`partial`)."
+        note_de: "Ende-zu-Ende live belegt: eine Nutzernachricht erzeugt ohne zweiten Prompt einen echten Vorschlag; der Hook macht keine Netzwerkarbeit, sondern queued und startet einen detached `--drain`-Worker (überlebt `claude -p`), der per HTTP ausliefert und `listen-status.json` schreibt; `/reqogniloom:listen on|off|status` und der Hook teilen `~/.reqogniloom/listen` (Command-Shell hat kein `CLAUDE_PLUGIN_DATA`), `off` stoppt die Erfassung sofort und löscht Ungesendetes (live: 4→4 bei off, 4→5 bei on), Standard aus; ein 60-s-Worker-Timeout deckt die echte Server-LLM-Latenz ab. Der ausgelieferte Server 1.9.0-beta.8 hat die Capture-Route noch nicht (404) — erst nach dem Rollout dieses Stands ist es dort nutzbar; Hermes/OpenCode/Antigravity sind implementiert und ihre Relay-Adapter sind live gegen denselben Server gelaufen; die Host-Hook-Verdrahtung ist dort nicht ausgeführt (Hermes/Antigravity-Runtime fehlt, OpenCode-Hook in der TUI offen), daher weiterhin `partial`."
+        note_en: "end-to-end live-verified: one user message produces a real suggestion without a second prompt; the hook does no network work, it queues and starts a detached `--drain` worker (survives `claude -p`) that delivers over HTTP and writes `listen-status.json`; `/reqogniloom:listen on|off|status` and the hook share `~/.reqogniloom/listen` (the command shell has no `CLAUDE_PLUGIN_DATA`), `off` stops capture immediately and deletes anything unsent (live: 4→4 off, 4→5 on), default off; a 60 s worker timeout covers the real server LLM latency. The deployed server 1.9.0-beta.8 does not have the capture route yet (404) — it becomes usable there after this state ships; Hermes/OpenCode/Antigravity are implemented and their relay adapters ran live against the same server; their host hook wiring was not executed (Hermes/Antigravity runtime absent, OpenCode hook in the TUI open), hence still `partial`."
       - row: interview_single
         status: partial
         evidence: *cc_live
@@ -1183,10 +1183,10 @@ capabilities:
         note_en: "no hook files shipped"
       - &same_skills
         row: skills
-        status: unverified
+        status: partial
         evidence: *repo
-        note_de: "dieselben 8 Skills werden ausgeliefert (byte-identisch mit den Claude-Code-Skills, #1962 und #1964 gelten daher auch hier); im Client nicht geladen"
-        note_en: "the same 8 skills are shipped (byte-identical to the Claude Code skills, so #1962 and #1964 apply); not loaded in the client"
+        note_de: "Der Installer kopiert dieselben 8 Skills (byte-identisch mit den Claude-Code-Skills) in das Skills-Verzeichnis des Providers; das Laden im Client wurde nicht ausgeführt. Der Listen-Command wird ebenfalls pro Client bereitgestellt (OpenCode: Installer, Claude: Plugin-Command, Hermes: Slash-Command, Antigravity: LISTEN.md) und ist durch `scripts/tests/test_client_plugin_parity.py` abgesichert."
+        note_en: "The installer copies the same 8 skills (byte-identical to the Claude Code skills) into the provider's skills directory; loading in the client was not executed. The listen command is delivered per client too (OpenCode: installer, Claude: plugin command, Hermes: slash command, Antigravity: LISTEN.md) and guarded by `scripts/tests/test_client_plugin_parity.py`."
     opencode:
       - row: mcp_connection
         status: supported
@@ -1202,10 +1202,10 @@ capabilities:
       - *no_agents
       - row: hooks_listen_mode
         status: partial
-        evidence: {kind: repo, detail: "2026-11-27 · dist/npm/reqogniloom-opencode (index.js + listen.mjs) · contract docs/clients/listen-mode-contract.md"}
+        evidence: {kind: live, detail: "2026-11-27 · Relay-Adapter (listen.mjs enqueue + --drain) gegen branch-built Server mit Capture-Route · real LLM (opencode_go/beam-free); Host-Hook nicht ausgeführt"}
         issues: [2001]
-        note_de: "Ausgeliefert: V1 `chat.message` und V2 `session.hook(\"prompt\")` rufen denselben Relay-Kern `listen.mjs`; gemeinsamer State `~/.reqogniloom/listen`, Schalter `node listen.mjs on <workspace_id>|off|status` (Command-Vorlage im Paket), 60-s-Timeout, fail-open, Standard aus. Noch **nicht** live gelaufen: der Hook feuert in der TUI möglicherweise nicht (offene Frage der Spec), deshalb `partial`/`repo`."
-        note_en: "Shipped: V1 `chat.message` and V2 `session.hook(\"prompt\")` call the same relay core `listen.mjs`; shared state `~/.reqogniloom/listen`, switch `node listen.mjs on <workspace_id>|off|status` (command template in the package), 60 s timeout, fail-open, default off. **Not** live-run yet: the hook may not fire in the TUI (open spec question), hence `partial`/`repo`."
+        note_de: "V1 `chat.message` und V2 `session.hook(\"prompt\")` rufen denselben Relay-Kern `listen.mjs`; gemeinsamer State `~/.reqogniloom/listen`, Schalter `node listen.mjs on <workspace_id>|off|status`, 60-s-Timeout, fail-open, Standard aus. **Relay live belegt**: echter Vorschlag erzeugt, Status `captured=1`, Queue leer. Der V1-Hook in der TUI wurde nicht ausgeführt (offene TUI-Frage der Spec), daher `partial`."
+        note_en: "V1 `chat.message` and V2 `session.hook(\"prompt\")` call the same relay core `listen.mjs`; shared state `~/.reqogniloom/listen`, switch `node listen.mjs on <workspace_id>|off|status`, 60 s timeout, fail-open, default off. **Relay live-verified**: a real suggestion was created, status `captured=1`, queue empty. The V1 hook in the TUI was not executed (open spec question), hence `partial`."
       - *same_skills
     opencode-v2:
       - row: mcp_connection
@@ -1217,10 +1217,10 @@ capabilities:
       - *no_agents
       - row: hooks_listen_mode
         status: partial
-        evidence: {kind: repo, detail: "2026-11-27 · dist/npm/reqogniloom-opencode (index.js + listen.mjs) · contract docs/clients/listen-mode-contract.md"}
+        evidence: {kind: live, detail: "2026-11-27 · Relay-Adapter (listen.mjs enqueue + --drain) gegen branch-built Server mit Capture-Route · real LLM (opencode_go/beam-free); V2-Hook nicht ausgeführt"}
         issues: [2001]
-        note_de: "Derselbe Relay-Kern wie V1; V2-Einstieg ist `session.hook(\"prompt\")` im `setup(ctx)`. V1-Plugins laufen nicht auf V2 — deshalb zwei Einstiege in einem Paket. Nicht live gelaufen (Beta-API), deshalb `partial`/`repo`."
-        note_en: "Same relay core as V1; the V2 entry is `session.hook(\"prompt\")` inside `setup(ctx)`. V1 plugins do not run on V2 — hence two entries in one package. Not live-run (beta API), hence `partial`/`repo`."
+        note_de: "Derselbe Relay-Kern wie V1; V2-Einstieg ist `session.hook(\"prompt\")` im `setup(ctx)`. V1-Plugins laufen nicht auf V2 — deshalb zwei Einstiege in einem Paket. **Relay live belegt**; der V2-Beta-Hook selbst wurde nicht ausgeführt, daher `partial`."
+        note_en: "Same relay core as V1; the V2 entry is `session.hook(\"prompt\")` inside `setup(ctx)`. V1 plugins do not run on V2 — hence two entries in one package. **Relay live-verified**; the V2 beta hook itself was not executed, hence `partial`."
     kimi-code:
       - row: mcp_connection
         status: supported
@@ -1237,10 +1237,10 @@ capabilities:
       - *no_agents
       - row: hooks_listen_mode
         status: partial
-        evidence: {kind: repo, detail: "2026-11-27 · dist/plugins/antigravity/listen.py + hooks.json · contract docs/clients/listen-mode-contract.md"}
+        evidence: {kind: live, detail: "2026-11-27 · Relay-Adapter (listen.py enqueue + --drain) gegen branch-built Server mit Capture-Route · real LLM (opencode_go/beam-free); PreInvocation-Hook nicht ausgeführt"}
         issues: [2001]
-        note_de: "Stufe B: `PreInvocation` (Feld `lastUserInput`) mit eigener Entdopplung `(session_id, sha256(text))`; derselbe State/Status wie die anderen Clients; Schalter `python3 listen.py on|off|status`. **Nicht** live gelaufen: `PreInvocation` feuert vor jedem Modellaufruf, das Hook-Schema der Vorschau ist nicht verifiziert; deshalb `partial`/`repo`."
-        note_en: "Stage B: `PreInvocation` (field `lastUserInput`) with its own `(session_id, sha256(text))` dedupe; same state/status as the other clients; switch `python3 listen.py on|off|status`. **Not** live-run: `PreInvocation` fires before every model call and the preview's hook schema is unverified; hence `partial`/`repo`."
+        note_de: "Stufe B: `PreInvocation` (Feld `lastUserInput`) mit eigener Entdopplung `(session_id, sha256(text))`; derselbe State/Status wie die anderen Clients; Schalter `python3 listen.py on|off|status`. **Relay live belegt**: echter Vorschlag erzeugt, `captured=1`, Queue leer. Der `PreInvocation`-Hook der Vorschau wurde nicht ausgeführt (Runtime fehlt); deshalb `partial`."
+        note_en: "Stage B: `PreInvocation` (field `lastUserInput`) with its own `(session_id, sha256(text))` dedupe; same state/status as the other clients; switch `python3 listen.py on|off|status`. **Relay live-verified**: a real suggestion was created, `captured=1`, queue empty. The preview's `PreInvocation` hook was not executed (runtime absent); hence `partial`."
       - *same_skills
     hermes:
       - row: mcp_connection
@@ -1250,10 +1250,10 @@ capabilities:
         note_en: "not re-run"
       - row: hooks_listen_mode
         status: partial
-        evidence: {kind: repo, detail: "2026-11-27 · integrations/hermes-agent-plugin (reqogniloom_listen.py, _capture.py, __init__.py) · contract docs/clients/listen-mode-contract.md"}
+        evidence: {kind: live, detail: "2026-11-27 · Worker (_capture.py --enqueue + --drain) gegen branch-built Server mit Capture-Route · real LLM (opencode_go/beam-free); pre_llm_call-Hook nicht ausgeführt"}
         issues: [2001, 1156, 1201]
-        note_de: "Vom `interview.*`-Pfad auf `POST /api/v1/suggestions/capture/` migriert: der Hook schreibt nur in die Write-ahead-Queue und startet einen abgekoppelten `--drain`-Worker; gemeinsamer State `~/.reqogniloom/listen`, Status-Keys wie bei Claude Code. H1–H8 adressiert (Lock, kein Verwerfen im Fenster, expliziter Workspace, keine Dauer-Session, serverseitige Redaktion). Nicht live gelaufen; deshalb `partial`/`repo`."
-        note_en: "Migrated from the `interview.*` path to `POST /api/v1/suggestions/capture/`: the hook only writes the write-ahead queue and starts a detached `--drain` worker; shared state `~/.reqogniloom/listen`, status keys as in Claude Code. H1–H8 addressed (lock, no window drop, explicit workspace, no long-lived session, server-side redaction). Not live-run; hence `partial`/`repo`."
+        note_de: "Vom `interview.*`-Pfad auf `POST /api/v1/suggestions/capture/` migriert: der Hook schreibt nur in die Write-ahead-Queue und startet einen abgekoppelten `--drain`-Worker; gemeinsamer State `~/.reqogniloom/listen`, Status-Keys wie bei Claude Code. H1–H8 adressiert. **Worker live belegt**: echter Vorschlag erzeugt, `captured=1`, Queue leer; der Worker nutzt jetzt `REQOGNILOOM_MCP_URL` (vorher Default-URL → 404). Der `pre_llm_call`-Host-Hook wurde nicht ausgeführt (Hermes-Runtime fehlt); deshalb `partial`."
+        note_en: "Migrated from the `interview.*` path to `POST /api/v1/suggestions/capture/`: the hook only writes the write-ahead queue and starts a detached `--drain` worker; shared state `~/.reqogniloom/listen`, status keys as in Claude Code. H1–H8 addressed. **Worker live-verified**: a real suggestion was created, `captured=1`, queue empty; the worker now uses `REQOGNILOOM_MCP_URL` (previously the default URL → 404). The `pre_llm_call` host hook was not executed (Hermes runtime absent); hence `partial`."
 
 # Ambiguous transport responses / retry contract (#1985). Rendered as an extra
 # numbered section into the generated per-client page; a hand edit of that page

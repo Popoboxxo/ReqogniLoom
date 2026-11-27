@@ -234,6 +234,10 @@ install_opencode_v1() {
   local skills_dir
   skills_dir="$(resolve_skills_dir "$HOME/.config/opencode/skills")"
   copy_skills "${REPO_ROOT}/dist/opencode/skills" "$skills_dir"
+  # The listen command is a client artifact like the skills: install it into
+  # OpenCode's user command dir so /reqogniloom-listen exists out of the box.
+  copy_if_absent "${REPO_ROOT}/dist/npm/reqogniloom-opencode/command/reqogniloom-listen.md" \
+    "$(dirname "$skills_dir")/command/reqogniloom-listen.md"
   # SKILL.md links resolve '../../DOMAIN_MODEL.md' from skills/<name>/:
   copy_if_absent "${REPO_ROOT}/docs/agent-templates/DOMAIN_MODEL.md" \
     "$(dirname "$skills_dir")/DOMAIN_MODEL.md"
@@ -281,6 +285,8 @@ install_opencode_v2() {
   local skills_dir
   skills_dir="$(resolve_skills_dir "$HOME/.config/opencode/skills")"
   copy_skills "${REPO_ROOT}/dist/opencode/skills" "$skills_dir"
+  copy_if_absent "${REPO_ROOT}/dist/npm/reqogniloom-opencode/command/reqogniloom-listen.md" \
+    "$(dirname "$skills_dir")/command/reqogniloom-listen.md"
   # SKILL.md links resolve '../../DOMAIN_MODEL.md' from skills/<name>/:
   copy_if_absent "${REPO_ROOT}/docs/agent-templates/DOMAIN_MODEL.md" \
     "$(dirname "$skills_dir")/DOMAIN_MODEL.md"
@@ -428,8 +434,12 @@ install_hermes() {
   if [ -n "$cfg" ]; then backup_file "$cfg"; fi
   run hermes config set mcp_servers.reqogniloom.url "$URL/mcp/"
   run hermes config set mcp_servers.reqogniloom.headers.Authorization "Bearer \${${KEY_ENV}}"
+  # Hermes reads SKILL.md skills like the other clients: install the same eight
+  # canonical skills, then the ReqogniLoom wrapper skill.
+  local skills_dir="${SKILLS_DIR:-$HOME/.hermes/skills}"
+  copy_skills "${REPO_ROOT}/dist/agent-skills" "$skills_dir"
   copy_if_absent "${REPO_ROOT}/integrations/hermes-skill/reqogniloom" \
-    "${SKILLS_DIR:-$HOME/.hermes/skills}/reqogniloom"
+    "${skills_dir}/reqogniloom"
   if [ "$WITH_DASHBOARD" -eq 1 ]; then
     install_hermes_plugin
   fi

@@ -206,7 +206,10 @@ class HermesAdapter(Adapter):
                 # No real registry: an install with a configured active server
                 # would otherwise redirect the request away from the stub.
                 "HERMES_HOME": str(self.tmp_path / "hermes-home"),
-                "REQOGNILOOM_BASE_URL": f"http://127.0.0.1:{self.server.server_port}",
+                # The contract names MCP_URL; BASE_URL is only the legacy alias.
+                # Setting MCP_URL explicitly also overrides a value inherited
+                # from the agent's own environment.
+                "REQOGNILOOM_MCP_URL": f"http://127.0.0.1:{self.server.server_port}",
                 "REQOGNILOOM_API_KEY": "reqlo_test_key",
             }
         )

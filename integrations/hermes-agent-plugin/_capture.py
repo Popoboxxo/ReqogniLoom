@@ -33,7 +33,27 @@ from reqogniloom_client import ReqogniLoomClient
 
 
 def _client() -> ReqogniLoomClient:
-    return ReqogniLoomClient()
+    """Build the client from the listen-mode config.
+
+    The relay contract names ``REQOGNILOOM_MCP_URL`` (base URL) and
+    ``REQOGNILOOM_API_KEY``; without passing them explicitly the client would
+    fall back to its own default base URL and the capture POST would 404. Keep
+    ``REQOGNILOOM_BASE_URL`` as the legacy alias.
+    """
+    import os
+
+    base = (
+        os.environ.get("REQOGNILOOM_MCP_URL")
+        or os.environ.get("REQOGNILOOM_BASE_URL")
+        or ""
+    ).strip()
+    key = (os.environ.get("REQOGNILOOM_API_KEY") or "").strip()
+    kwargs: Dict[str, Any] = {}
+    if base:
+        kwargs["base_url"] = base
+    if key:
+        kwargs["api_key"] = key
+    return ReqogniLoomClient(**kwargs)
 
 
 def enqueue_payload(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
