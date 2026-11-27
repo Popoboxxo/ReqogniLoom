@@ -220,8 +220,8 @@ class InterviewHousekeepingMixin:
         )
         return {"status": session.status}
 
-    def propose(self, ctx, session_id: UUID) -> list[dict] | None:
-        """Return the pending multi-artifact proposal for *session_id*, or None.
+    def propose(self, ctx, session_id: UUID) -> dict[str, Any]:
+        """Read the pending multi-artifact proposal for *session_id*.
 
         Sourced from ``grounding_snapshot["pending_proposal"]`` -- written by
         ``generate_chat_turn()`` whenever the LLM emitted a parseable
@@ -231,29 +231,64 @@ class InterviewHousekeepingMixin:
         same gates ``formalize`` applies run here before the proposal is
         surfaced as confirmable: canonical-shape normalisation (top-level
         ``title`` folded into ``fields``), reserved/unknown field rejection,
-        field allowlist and link allowed-pair validation. The returned copy is
-        therefore safe to pass straight back into ``formalize`` unchanged. A
-        rejected proposal raises :class:`ProposalValidationError` carrying a
-        machine-readable reason instead of silently showing a broken plan.
+        field allowlist and link allowed-pair validation. The returned
+        ``proposal`` is therefore safe to pass straight back into
+        ``formalize`` unchanged.
+
+        P0.6: an INCOMPLETE proposal is a normal readout state, not an error.
+        Instead of raising ``MISSING_REQUIRED_FIELD`` this method reports the
+        missing fields alongside the proposal so the next chat turn can ask
+        for them::
+
+            {"proposal": list | None,
+             "missing_fields": [{"item_index": int,
+                                 "artifact_type": str,
+                                 "fields": [str]}]}
+
+        Genuinely MALFORMED proposals (reserved/unknown field, bad item shape,
+        disallowed link pair) still raise :class:`ProposalValidationError` with
+        a machine-readable reason -- those are wrong, not merely incomplete.
+        ``proposal is None`` answers ``{"proposal": None, "missing_fields": []}``.
         """
         from application.interview_multi_formalize_service import (
             _validate_confirmed_proposal,
+            collect_missing_required_fields,
             validate_confirmed_proposal_fields,
         )
         from application.interview_multi_protocol import (
             normalize_proposal_items,
             validate_proposal_link_pairs,
         )
+        from application.interview_proposal_errors import ProposalValidationError
 
         session = self._get_session(ctx, session_id)
         proposal = session.grounding_snapshot.get("pending_proposal")
         if proposal is None:
-            return None
+            return {"proposal": None, "missing_fields": []}
         proposal = normalize_proposal_items(proposal)
         _validate_confirmed_proposal(proposal)
-        validate_confirmed_proposal_fields(ctx, session.workspace_id, proposal)
-        validate_proposal_link_pairs(proposal, session.workspace_id)
-        return proposal
+        # The gate raises MISSING_REQUIRED_FIELD only after every field name
+        # and value has validated, so catching exactly that code separates
+        # "incomplete" (report it) from "malformed" (still raise) without
+        # duplicating the allowlist logic here.
+        try:
+            validate_confirmed_proposal_fields(ctx, session.workspace_id, proposal)
+        except ProposalValidationError as exc:
+            if exc.code != "MISSING_REQUIRED_FIELD":
+                raise
+        missing_fields = collect_missing_required_fields(
+            ctx, session.workspace_id, proposal
+        )
+        # Error precedence: ``formalize`` validates completeness BEFORE the
+        # link allowed-pairs, so a proposal that is both incomplete and carries
+        # a disallowed link pair answers MISSING_REQUIRED_FIELD there. This
+        # readout must report the same token for that combined case instead of
+        # INVALID_LINK_PAIR, so link-pair validation is deferred whenever the
+        # completeness gap is already the reported state. The links are still
+        # enforced by ``formalize`` (which runs both gates) before any write.
+        if not missing_fields:
+            validate_proposal_link_pairs(proposal, session.workspace_id)
+        return {"proposal": proposal, "missing_fields": missing_fields}
 
     def provenance_session_id(self, ctx, artifact_id: UUID) -> str | None:
         """Resolve the interview session that created *artifact_id*, if any.

@@ -83,6 +83,46 @@ from application.interview_transcript_service import (
 )
 
 
+def _missing_fields_followup_sentence(
+    missing_fields: list[dict[str, Any]], reply: str, workspace_id: Any = None
+) -> str:
+    """Deterministic follow-up naming required fields the reply does not name.
+
+    P0.6: when a multi-mode proposal is incomplete, the next question has to
+    address the gap. This is a server-side, deterministic sentence (no second
+    LLM call) appended only when the model's own reply does not already name
+    every missing field -- so a reply that already asks for them is left
+    untouched and a repeated turn never duplicates the hint.
+
+    m5: the sentence is rendered from the workspace's resolved AI language
+    (``application.ai_language``), the same source that governs the LLM reply
+    it is appended to -- not a hardcoded English string.
+
+    Returns an empty string when nothing is missing or every field name is
+    already present (case-insensitive substring match) in *reply*.
+    """
+    from application.ai_language import missing_fields_followup_template
+
+    lowered_reply = reply.lower()
+    unresolved: list[tuple[str, list[str]]] = []
+    for entry in missing_fields:
+        remaining = [
+            field
+            for field in entry.get("fields", [])
+            if field.lower() not in lowered_reply
+        ]
+        if remaining:
+            unresolved.append((entry.get("artifact_type", "artifact"), remaining))
+    if not unresolved:
+        return ""
+    template = missing_fields_followup_template(workspace_id)
+    sentences = [
+        template.format(artifact_type=artifact_type, fields=", ".join(fields))
+        for artifact_type, fields in unresolved
+    ]
+    return " ".join(sentences)
+
+
 class InterviewService(
     InterviewFormalizationMixin,
     InterviewMultiFormalizationMixin,
@@ -506,11 +546,7 @@ class InterviewService(
         # Multi-mode turns use role/content keys -- the shape
         # get_multi_protocol_prompt() renders back into the next prompt.
         # Single mode's role/text/timestamp shape never mixes in here.
-        session.transcript = [
-            *session.transcript,
-            {"role": "user", "content": user_message},
-            {"role": "assistant", "content": reply},
-        ]
+        #
         # Issue #1990: parse_multi_proposal is the untrusted parse boundary --
         # a malformed or non-conforming model reply is "no proposal this turn"
         # (it returns None), and must never fail the chat TURN itself (the user
@@ -541,6 +577,46 @@ class InterviewService(
                 **session.grounding_snapshot,
                 "pending_proposal_error": proposal_error,
             }
+
+        # P0.6: surface the required fields a stored proposal still lacks and
+        # make the next question actually address them. Computed from the
+        # pending proposal now in the snapshot (this turn's parse or the one
+        # still awaiting completion), through the same single derivation
+        # formalize() uses -- no second LLM call, no drifting rule. The
+        # sentence is appended only when the model's own reply does not
+        # already name every missing field, so it is idempotent.
+        from application.interview_multi_formalize_service import (
+            collect_missing_required_fields,
+        )
+
+        pending_proposal = session.grounding_snapshot.get("pending_proposal")
+        missing_fields = (
+            collect_missing_required_fields(
+                ctx, session.workspace_id, pending_proposal
+            )
+            if pending_proposal
+            else []
+        )
+        # m1: ``proposal`` and ``missing_fields`` must describe the SAME
+        # proposal. Before this, ``proposal`` was only THIS turn's parse while
+        # ``missing_fields`` came from the whole snapshot -- a turn that
+        # produced no new fence but still had an incomplete pending proposal
+        # answered ``{"proposal": null, "missing_fields": [...]}``, a payload no
+        # client can act on. Both fields now read the pending proposal (the one
+        # ``missing_fields`` belongs to); with no pending proposal at all they
+        # are ``None``/``[]``.
+        pending_proposal = pending_proposal or None
+        followup = _missing_fields_followup_sentence(
+            missing_fields, reply, session.workspace_id
+        )
+        if followup:
+            reply = f"{reply}\n\n{followup}"
+
+        session.transcript = [
+            *session.transcript,
+            {"role": "user", "content": user_message},
+            {"role": "assistant", "content": reply},
+        ]
         # Same optimistic-concurrency bump as the single-mode chat save
         # (review-2 fix n2): a multi chat turn must not silently overwrite a
         # concurrent edit either.
@@ -561,7 +637,8 @@ class InterviewService(
                         "session_kind": session.session_kind,
                         "user_message": user_message,
                         "reply": reply,
-                        "has_proposal": proposal is not None,
+                        "has_proposal": pending_proposal is not None,
+                        "missing_fields": missing_fields,
                         # See generate_chat_turn's identical addition above
                         # -- final whole-branch review Finding 2.
                         "user_id": str(ctx.user_id),
@@ -574,7 +651,13 @@ class InterviewService(
 
         return {
             "reply": reply,
-            "proposal": proposal,
+            # m1: the pending proposal -- the exact one ``missing_fields``
+            # describes -- not merely this turn's parse. ``None`` only when the
+            # session has no pending proposal at all.
+            "proposal": pending_proposal,
+            # P0.6: top-level readout plus the same value inside ``state`` so a
+            # client that only consumes the state object still sees it.
+            "missing_fields": missing_fields,
             "state": {
                 "session_id": str(session.id),
                 "status": session.status,
@@ -586,5 +669,6 @@ class InterviewService(
                 "collected_fields": session.collected_fields,
                 "grounding_snapshot": session.grounding_snapshot,
                 "transcript": session.transcript,
+                "missing_fields": missing_fields,
             },
         }

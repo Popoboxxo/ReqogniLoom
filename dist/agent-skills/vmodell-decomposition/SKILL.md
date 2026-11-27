@@ -60,10 +60,12 @@ presets referenced below.
 
 For a guided, conversation-first capture instead of field-by-field creation, run an interview
 session and formalize it into the artifact: `interview.start` opens a session, `interview.get_state`
-reports the still-open fields, `interview.answer` records one field,
-`interview.grounding_context` surfaces possible duplicates, `interview.set_target` points an
-existing Requirement at the session so `interview.formalize` updates it instead of creating a new
-one, `interview.propose` shows the multi-artifact proposal of a multi session, `interview.list`
-and `interview.get` find existing sessions, and `interview.abandon` cancels one. All ten
-`interview.*` tools are whitelisted for this role (their process skill lives in
+reports the still-open fields, `interview.answer` records one field, and `interview.chat` drives
+one server-generated conversational turn (it persists the message/reply and extracts the fields
+the model recognised, so prefer it over `interview.answer` once the session is running as a
+conversation). `interview.grounding_context` surfaces possible duplicates, `interview.set_target`
+points an existing Requirement at the session so `interview.formalize` updates it instead of
+creating a new one, `interview.propose` shows the multi-artifact proposal of a multi session,
+`interview.list` and `interview.get` find existing sessions, and `interview.abandon` cancels one.
+All eleven `interview.*` tools are whitelisted for this role (their process skill lives in
 `skills/interview-management/SKILL.md`).

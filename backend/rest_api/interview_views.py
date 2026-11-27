@@ -260,12 +260,23 @@ class InterviewFormalizeResponseSerializer(serializers.Serializer):
     created = serializers.ListField(child=serializers.JSONField(), required=False)
 
 
+class InterviewMissingFieldSerializer(serializers.Serializer):
+    """One proposal item whose required fields are still missing (P0.6)."""
+
+    item_index = serializers.IntegerField()
+    artifact_type = serializers.CharField()
+    fields = serializers.ListField(child=serializers.CharField())
+
+
 class InterviewProposalResponseSerializer(serializers.Serializer):
     """``GET /interviews/{id}/propose/`` — the pending proposal, if any."""
 
     proposal = serializers.ListField(
         child=serializers.JSONField(), required=False, allow_null=True
     )
+    #: P0.6: required fields the pending proposal still lacks (empty when it
+    #: is complete). An incomplete proposal is a readout, not an error.
+    missing_fields = InterviewMissingFieldSerializer(many=True, required=False)
 
 
 class InterviewChatRequestSerializer(serializers.Serializer):
@@ -283,6 +294,9 @@ class InterviewChatResponseSerializer(serializers.Serializer):
     proposal = serializers.ListField(
         child=serializers.JSONField(), required=False, allow_null=True
     )
+    #: P0.6: required fields the pending proposal still lacks. Mirrored inside
+    #: ``state`` so older clients that ignore this key still see it.
+    missing_fields = InterviewMissingFieldSerializer(many=True, required=False)
 
 
 class InterviewAbandonResponseSerializer(serializers.Serializer):
@@ -597,10 +611,10 @@ class InterviewViewSet(FreeTextSanitizationMixin, viewsets.ViewSet):
             return error
         try:
             ctx = get_auth_context(request)
-            proposal = InterviewService().propose(ctx, session_id)
+            result = InterviewService().propose(ctx, session_id)
         except _SERVICE_EXCEPTIONS as exc:
             return _service_error_response(exc, lang)
-        return Response({"proposal": proposal})
+        return Response(result)
 
     @extend_schema(
         summary="Abandon an in-progress interview session",

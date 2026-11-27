@@ -39,6 +39,7 @@ tools:
 - interview.start
 - interview.get_state
 - interview.answer
+- interview.chat
 - interview.get
 - interview.list
 - interview.grounding_context

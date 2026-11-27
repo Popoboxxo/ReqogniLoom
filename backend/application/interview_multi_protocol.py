@@ -257,7 +257,22 @@ glossary surface, not proposed by an interview.
 Ask clarifying questions if the problem is unclear. Once you have enough \
 information, propose a list of artifacts as a fenced ```json code block, \
 each item shaped as:
-{"type": "<ArtifactType>", "fields": {<fields for that type's create call>}, "links": [{"from": <index>, "to": <index>, "type": "<trace-link-type>"}]}
+{"type": "<ArtifactType>", "fields": {<fields for that type>}, "links": [{"from": <index>, "to": <index>, "type": "<trace-link-type>"}]}
+
+The REQUIRED fields of every artifact type are listed under `field_contracts` \
+below. A proposal item MUST contain every required field of its type, spelled \
+exactly as listed, with a value of the shown type (and, for an enum, one of \
+the listed choices). Optional fields — any field not listed as required — are \
+to be emitted ONLY when the user actually mentioned them; never invent a \
+value for an optional field.
+
+When the user gives a title, take it VERBATIM into `fields.title` (or \
+`fields.term`): do not rewrite it, shorten it, change its case, add \
+punctuation, or strip a prefix such as "REQ-", "SN-" or "ADR-". The artifact \
+id is assigned server-side, so any prefix in the title is the user's own text.
+
+field_contracts:
+{field_contracts}
 
 Put EVERY field — including `title` — inside `fields`; do not emit a \
 top-level `title` or any other top-level key besides `type`, `fields` and \
@@ -300,11 +315,50 @@ def _available_link_types(workspace_id) -> str:
     return ", ".join(keys)
 
 
+def _describe_contract_entry(entry: dict[str, Any]) -> str:
+    """One required field as ``name (type[: a, b])`` for the prompt block."""
+    rendered = f"{entry['name']} ({entry['type']}"
+    choices = entry.get("choices") or []
+    if choices:
+        rendered += ": " + ", ".join(str(choice) for choice in choices)
+    return rendered + ")"
+
+
+def _render_field_contracts(ctx: Any, workspace_id) -> str:
+    """Render the per-type REQUIRED-field contract block for the prompt.
+
+    Derived from :func:`application.attribute_contract_service.
+    artifact_field_contract`, so the prompt and the proposal gate share one
+    definition of "required" instead of drifting apart. The import is lazy:
+    ``interview_protocol`` imports this module for its factory default, so a
+    module-level import here would close an import cycle.
+    """
+    from application.attribute_contract_service import artifact_field_contract
+    from application.interview_protocol import IN_SCOPE_ARTIFACT_TYPES
+
+    lines: list[str] = []
+    for artifact_type in IN_SCOPE_ARTIFACT_TYPES:
+        try:
+            contract = artifact_field_contract(ctx, workspace_id, artifact_type)
+        except Exception:  # noqa: BLE001 -- prompt rendering must not fail
+            continue
+        required = [entry for entry in contract if entry["required"]]
+        rendered = (
+            ", ".join(_describe_contract_entry(entry) for entry in required)
+            if required
+            else "(none)"
+        )
+        lines.append(f"- {artifact_type}: required = {rendered}")
+    return "\n".join(lines)
+
+
 def get_multi_protocol_prompt(ctx: Any, workspace_id, user_message: str, transcript: list) -> str:
     """Render the multi-artifact interview protocol for this chat turn.
 
     ``transcript`` holds role/content dicts; rendered as ``"<role>: <content>"``
     lines and injected together with *user_message* as template variables.
+    ``field_contracts`` carries the per-type required-field list rendered from
+    the same contract the proposal gate enforces.
     """
     transcript_text = "\n".join(f"{turn['role']}: {turn['content']}" for turn in transcript)
     return resolve_and_render(
@@ -314,6 +368,7 @@ def get_multi_protocol_prompt(ctx: Any, workspace_id, user_message: str, transcr
         user_message=user_message,
         transcript=transcript_text,
         available_link_types=_available_link_types(workspace_id),
+        field_contracts=_render_field_contracts(ctx, workspace_id),
     )
 
 

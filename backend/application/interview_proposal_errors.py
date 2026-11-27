@@ -56,7 +56,11 @@ class ProposalValidationError(ValidationError):
         self.code = code
         self.item_index = item_index
         self.field = field
-        self.details: dict[str, Any] = dict(details or {})
+        # ``reason`` is part of the payload (not just the message prefix) so a
+        # transport that only forwards ``details`` -- REST's error envelope does
+        # exactly that -- stays byte-identical to the MCP tool result, which
+        # reads ``reason`` explicitly.
+        self.details: dict[str, Any] = {"reason": code, **(details or {})}
         if item_index is not None:
             self.details["item_index"] = item_index
         if field is not None:

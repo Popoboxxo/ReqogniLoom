@@ -396,7 +396,10 @@ class TestMultiChatTurn:
         session = _multi_session(tenant, workspace)
 
         with _active(tenant):
-            assert InterviewService().propose(editor_ctx, session.id) is None
+            assert InterviewService().propose(editor_ctx, session.id) == {
+                "proposal": None,
+                "missing_fields": [],
+            }
 
     def test_propose_returns_stored_proposal(
         self, tenant: Tenant, workspace: Workspace, editor_ctx: AuthContext
@@ -414,4 +417,7 @@ class TestMultiChatTurn:
             )
 
         with _active(tenant):
-            assert InterviewService().propose(editor_ctx, session.id) == proposal
+            assert InterviewService().propose(editor_ctx, session.id) == {
+                "proposal": proposal,
+                "missing_fields": [],
+            }

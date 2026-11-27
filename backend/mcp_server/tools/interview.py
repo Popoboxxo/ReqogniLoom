@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 from application.base import NotFoundError, ValidationError
+from application.interview_proposal_errors import ProposalValidationError
 from application.interview_service import InterviewService
 from mcp_server.tools.base import (
     BaseToolGroup,
@@ -30,6 +31,21 @@ from mcp_server.tools.base import (
     write_mcp_audit,
 )
 from persistence.models import InterviewSession
+
+
+def _proposal_error_result(exc: ProposalValidationError) -> ToolResult:
+    """One MCP error shape for every rejected multi-artifact proposal (#1990).
+
+    ProposalValidationError already carries its reason (``code``) inside
+    ``details``, so propose/formalize answer the identical body REST's error
+    envelope produces (same ``VALIDATION_ERROR`` transport code, same
+    ``reason``/``item_index``/``field``/``fields`` payload). Keeping this in one
+    helper is what stops the two handlers from drifting apart -- formalize used
+    to drop code/details entirely and answer the bare message.
+    """
+    return ToolResult.error(
+        "VALIDATION_ERROR", str(exc), details=dict(exc.details)
+    )
 
 
 def _session_to_dict(session: Any, status_map: dict[str, str] | None = None) -> dict:
@@ -297,8 +313,11 @@ class InterviewToolGroup(BaseToolGroup):
             "name": "interview.propose",
             "description": (
                 "Get the current pending multi-artifact proposal for a "
-                "session, if the LLM has emitted one (read-only). Returns "
-                "null until a chat turn produced a parseable proposal."
+                "session, if the LLM has emitted one (read-only). "
+                "Returns {proposal, missing_fields}: missing_fields names the "
+                "required fields an incomplete proposal still lacks (one entry "
+                "per item: {item_index, artifact_type, fields}), so the caller "
+                "can ask for them before calling interview.formalize."
             ),
             "inputSchema": {
                 "type": "object",
@@ -514,6 +533,10 @@ class InterviewToolGroup(BaseToolGroup):
             result = self._service.formalize(auth_context, session_id, confirmed_proposal)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
+        except ProposalValidationError as exc:
+            # #1990: same machine-readable body as interview.propose -- a
+            # rejected proposal is a validation answer, never a bare message.
+            return _proposal_error_result(exc)
         except ValidationError as exc:
             return ToolResult.error("VALIDATION_ERROR", str(exc))
 
@@ -577,24 +600,27 @@ class InterviewToolGroup(BaseToolGroup):
 
         Mirrors _handle_get_state's shape: plain read, so no write_mcp_audit.
 
-        Issue #1990: propose() now re-validates the stored proposal before
+        Issue #1990: propose() re-validates the stored proposal before
         surfacing it. A rejected proposal carries a machine-readable reason
         (``ProposalValidationError.code``/``details``), returned as the
         ToolResult's ``details["reason"]`` so an agent can branch on it
         instead of parsing the human-readable message.
+
+        P0.6: an incomplete proposal is NOT rejected -- the service returns
+        ``{"proposal": ..., "missing_fields": [{item_index, artifact_type,
+        fields}]}`` so the caller can ask for the missing fields. Only
+        genuinely malformed proposals raise.
         """
         session_id = require_uuid(params, "session_id")
         try:
-            proposal = self._service.propose(auth_context, session_id)
+            result = self._service.propose(auth_context, session_id)
         except NotFoundError as exc:
             return ToolResult.error("NOT_FOUND", str(exc))
+        except ProposalValidationError as exc:
+            return _proposal_error_result(exc)
         except ValidationError as exc:
-            reason = getattr(exc, "code", "INVALID_PROPOSAL")
-            details = dict(getattr(exc, "details", {}) or {})
-            return ToolResult.error(
-                "VALIDATION_ERROR", str(exc), details={"reason": reason, **details}
-            )
-        return ToolResult.ok({"proposal": proposal})
+            return ToolResult.error("VALIDATION_ERROR", str(exc))
+        return ToolResult.ok(result)
 
     def _handle_chat(
         self, *, params: dict[str, Any], auth_context, api_key: str

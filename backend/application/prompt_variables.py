@@ -196,6 +196,11 @@ PROMPT_VARIABLE_DEFAULTS: dict[str, PromptVariableSpec] = {
         "JSON snapshot of possibly related existing artifacts.",
         "json",
     ),
+    "field_contracts": _data(
+        "field_contracts",
+        "Rendered per-artifact-type REQUIRED field contract for the "
+        "multi-artifact interview prompt (one line per type).",
+    ),
     "user_message": _data("user_message", "The user's latest interview message."),
     "memory_context": _data(
         "memory_context",

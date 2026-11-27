@@ -9,6 +9,10 @@ import yaml
 
 TEMPLATES_DIR = Path(__file__).resolve().parent
 MANIFEST_PATH = TEMPLATES_DIR / "tool-manifest.json"
+REPO_ROOT = TEMPLATES_DIR.parent.parent
+DIST_AGENTS_DIR = REPO_ROOT / "dist" / "plugins" / "claude-code" / "reqogniloom" / "agents"
+# build_claude_plugin.py rewrites "interview.chat" into this MCP tool name.
+CLAUDE_CODE_TOOL_PREFIX = "mcp__plugin_reqogniloom_reqogniloom__"
 
 EXPECTED_TOOLS_BY_ROLE = {
     "requirements-architecture-manager": {
@@ -25,9 +29,10 @@ EXPECTED_TOOLS_BY_ROLE = {
         "goal.read", "goal.query", "main_goal.read",
         "requirement_bundle.export", "requirement_bundle.attribute_schema",
         "requirement_bundle.compression_status",
-        "interview.start", "interview.get_state", "interview.answer", "interview.get",
-        "interview.list", "interview.grounding_context", "interview.set_target",
-        "interview.propose", "interview.formalize", "interview.abandon",
+        "interview.start", "interview.get_state", "interview.answer", "interview.chat",
+        "interview.get", "interview.list", "interview.grounding_context",
+        "interview.set_target", "interview.propose", "interview.formalize",
+        "interview.abandon",
     },
     "test-engineer": {
         "test.get", "test.query", "test.create", "test.update", "test.link",
@@ -107,6 +112,34 @@ def test_every_role_tool_exists_in_manifest():
             f"{role_name}.md tools drifted from spec: "
             f"missing={sorted(expected - role_tools)} extra={sorted(role_tools - expected)}"
         )
+
+
+def test_requirements_architecture_manager_can_chat_in_interview_template_and_dist():
+    """Issue #2081: ``interview.chat`` must be whitelisted for the role in BOTH
+    the canonical template and the generated Claude Code plugin agent.
+
+    The dist half is the regression guard for "template changed, dist not
+    rebuilt": a template-only edit leaves a shipped plugin whose agent cannot
+    drive a conversational interview turn, and no other check compares the two
+    whitelists.
+    """
+    frontmatter = _parse_frontmatter(TEMPLATES_DIR / "requirements-architecture-manager.md")
+    assert "interview.chat" in frontmatter["tools"], (
+        "requirements-architecture-manager.md must whitelist interview.chat (#2081)"
+    )
+
+    dist_agent = DIST_AGENTS_DIR / "requirements-architecture-manager.md"
+    dist_tool = CLAUDE_CODE_TOOL_PREFIX + "interview_chat"
+    assert dist_agent.exists(), f"generated dist agent is missing: {dist_agent}"
+    listed = {
+        line.strip().removeprefix("- ")
+        for line in dist_agent.read_text(encoding="utf-8").splitlines()
+    }
+    assert dist_tool in listed, (
+        f"{dist_agent} does not list {dist_tool} — the generated plugin is stale "
+        f"relative to the template. Re-run "
+        f"`python3 dist/plugins/claude-code/build_claude_plugin.py` and commit the result."
+    )
 
 
 def test_quality_auditor_stays_strictly_read_only():

@@ -77,6 +77,18 @@ _SYSTEM_PROMPT_TEXT: dict[str, dict[str, str]] = {
 }
 
 
+#: Localised scaffolding for the deterministic multi-artifact follow-up
+#: (P0.6, ``InterviewService._missing_fields_followup_sentence``). That sentence
+#: is server-rendered, so it must follow the same workspace language as the LLM
+#: reply it is appended to -- kept in the single language source of truth, like
+#: the system-prompt scaffolding above. Stable identifier, one template per
+#: supported language; ``{artifact_type}`` / ``{fields}`` are format fields.
+_MISSING_FIELDS_FOLLOWUP_TEXT: dict[str, str] = {
+    "de": "Bevor ich diesen {artifact_type} anlegen kann, fehlen mir noch: {fields}.",
+    "en": "Before I can file this {artifact_type} I still need: {fields}.",
+}
+
+
 def _workspace_language_columns(workspace_id: UUID | str | None) -> tuple[str, str]:
     """Return ``(ai_language, content_language)`` for *workspace_id*.
 
@@ -182,6 +194,20 @@ def system_prompt_text(workspace_id: UUID | str | None) -> dict[str, str]:
     return _SYSTEM_PROMPT_TEXT[effective_ai_language(workspace_id)]
 
 
+def missing_fields_followup_template(workspace_id: UUID | str | None) -> str:
+    """Return the localised deterministic follow-up template for *workspace_id*.
+
+    A ``str.format`` template with ``{artifact_type}`` / ``{fields}``
+    placeholders, in the same language resolution order as every other prompt
+    (explicit ``ai_language`` -> ``Workspace.language`` -> English).
+
+    Args:
+        workspace_id: Workspace whose resolved AI language governs the text.
+            ``None`` resolves to English.
+    """
+    return _MISSING_FIELDS_FOLLOWUP_TEXT[effective_ai_language(workspace_id)]
+
+
 def _directive_for(language_name: str) -> str:
     return (
         f"\n\nRespond in {language_name}. All generated titles, "
@@ -230,6 +256,7 @@ __all__ = [
     "effective_ai_language",
     "language_instruction",
     "language_label",
+    "missing_fields_followup_template",
     "resolve_ai_language",
     "system_prompt_text",
 ]

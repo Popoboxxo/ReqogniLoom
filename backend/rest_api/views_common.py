@@ -135,6 +135,11 @@ from application.import_idempotency import (
 from application.import_idempotency import (
     finalize_success as finalize_idempotency_success,
 )
+# Issue #1990 / multi-artifact plan P0.5: the interview proposal gate raises a
+# ValidationError subclass carrying a machine-readable ``code`` and a
+# ``details`` dict. Registered in the exact-type maps below so REST answers the
+# 400 the MCP transport already returns instead of degrading to a 500.
+from application.interview_proposal_errors import ProposalValidationError
 from application.main_goal_service import MainGoalService
 # Plan B B6-T2 (#879): the Milestone write entry point (ADR-01).
 from application.milestone_service import MilestoneService
@@ -504,6 +509,13 @@ _EXC_TO_HTTP: dict[type, int] = {
     ReleaseTooLargeError: status.HTTP_400_BAD_REQUEST,
     # Phase G / #1374 S3: adopting a file whose hash moved is a state conflict.
     AdoptionHashMismatchError: status.HTTP_409_CONFLICT,
+    # Issue #1990: a rejected multi-artifact proposal (malformed shape, reserved
+    # or unknown field, missing required field, disallowed link pair) is a
+    # request defect -- the same 400 as its ValidationError parent, but the
+    # exact type must be named because both maps are keyed by exact type (see
+    # the note above the map): without this entry the guard's structured
+    # refusal degraded to the generic 500 branch.
+    ProposalValidationError: status.HTTP_400_BAD_REQUEST,
     # P2.13: a create whose backing workflow state could not be initialised is
     # rolled back and answered 503 — the dependency (the workflow engine) is
     # temporarily unavailable from the caller's point of view, and retrying the
@@ -574,6 +586,12 @@ _EXC_TO_CODE: dict[type, str] = {
     # genuinely malformed release request.
     ReleaseTooLargeError: "RELEASE_TOO_LARGE",
     AdoptionHashMismatchError: "CONFLICT",
+    # Issue #1990: one transport-level code (VALIDATION_ERROR) with the
+    # proposal-specific reason in ``details`` -- ``code`` is forwarded from the
+    # exception by ``_service_error_response``'s ``details`` branch, together
+    # with ``item_index``/``field``/``fields``/``artifact_type``. MCP returns
+    # the identical code + details (interview.py's proposal error branch).
+    ProposalValidationError: "VALIDATION_ERROR",
     # P2.13: distinct code so a client can tell "the artifact was not created,
     # retry" apart from every other 503/validation answer.
     WorkflowInitializationFailedError: "WORKFLOW_INIT_FAILED",

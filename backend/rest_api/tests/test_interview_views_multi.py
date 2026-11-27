@@ -15,6 +15,9 @@ from __future__ import annotations
 
 import pytest
 
+from persistence.middleware import clear_request_tenant, set_request_tenant
+from persistence.models import InterviewSession
+
 pytestmark = pytest.mark.django_db
 
 
@@ -56,6 +59,42 @@ class TestInterviewViewsMulti:
         response = authed_client.get(f"/api/v1/interviews/{session_id}/propose/")
         assert response.status_code == 200, response.content
         assert response.data["proposal"] is None
+        # P0.6: the readout always carries missing_fields next to the proposal.
+        assert response.data["missing_fields"] == []
+
+    def test_propose_endpoint_reports_missing_required_fields(
+        self, authed_client, workspace, tenant
+    ):
+        # P0.6 A2: an incomplete proposal is a readout, not a 400. The REST
+        # surface mirrors the MCP tool: {proposal, missing_fields}.
+        start_resp = authed_client.post(
+            "/api/v1/interviews/",
+            {"workspace_id": str(workspace.id), "session_kind": "multi"},
+            format="json",
+        )
+        session_id = start_resp.data["id"]
+        set_request_tenant(tenant.id)
+        try:
+            InterviewSession.objects.filter(id=session_id).update(
+                grounding_snapshot={
+                    "pending_proposal": [
+                        {"type": "Risk", "fields": {"title": "R"}, "links": []}
+                    ]
+                }
+            )
+        finally:
+            clear_request_tenant()
+
+        response = authed_client.get(f"/api/v1/interviews/{session_id}/propose/")
+        assert response.status_code == 200, response.content
+        assert response.data["proposal"][0]["type"] == "Risk"
+        assert response.data["missing_fields"] == [
+            {
+                "item_index": 0,
+                "artifact_type": "Risk",
+                "fields": ["probability", "impact"],
+            }
+        ]
 
     def test_state_on_multi_session_returns_200_not_500(self, authed_client, workspace):
         # Review finding B1 regression: the state action used to fall through
@@ -117,3 +156,94 @@ class TestInterviewViewsMulti:
             format="json",
         )
         assert response.status_code == 400, response.content
+
+    def test_formalize_incomplete_proposal_is_400_with_missing_fields(
+        self, authed_client, workspace
+    ):
+        """B1 (#1990): the required-field gate is a 400, not a 500.
+
+        ``ProposalValidationError`` is a ``ValidationError`` subclass, and the
+        exception→HTTP maps are keyed by EXACT type -- before the map entry it
+        degraded to the generic 500 branch. The client must be able to read the
+        machine-readable reason and the offending fields, and nothing may be
+        created.
+        """
+        from persistence.models import Risk
+
+        start_resp = authed_client.post(
+            "/api/v1/interviews/",
+            {"workspace_id": str(workspace.id), "session_kind": "multi"},
+            format="json",
+        )
+        session_id = start_resp.data["id"]
+        proposal = [{"type": "Risk", "fields": {"title": "R"}, "links": []}]
+
+        response = authed_client.post(
+            f"/api/v1/interviews/{session_id}/formalize/",
+            {"confirmed_proposal": proposal},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+        error = response.data["error"]
+        assert error["code"] == "VALIDATION_ERROR"
+        assert error["details"]["reason"] == "MISSING_REQUIRED_FIELD"
+        assert error["details"]["item_index"] == 0
+        assert error["details"]["artifact_type"] == "Risk"
+        assert set(error["details"]["fields"]) == {"probability", "impact"}
+
+        set_request_tenant(workspace.tenant_id)
+        try:
+            assert Risk.objects.filter(workspace_id=workspace.id).count() == 0
+        finally:
+            clear_request_tenant()
+
+    def test_formalize_unknown_field_is_400_not_500(self, authed_client, workspace):
+        """B1: a malformed proposal (typo'd field) also answers 400 + reason."""
+        start_resp = authed_client.post(
+            "/api/v1/interviews/",
+            {"workspace_id": str(workspace.id), "session_kind": "multi"},
+            format="json",
+        )
+        session_id = start_resp.data["id"]
+        proposal = [
+            {
+                "type": "Risk",
+                "fields": {"titel": "R", "probability": "high", "impact": "low"},
+                "links": [],
+            }
+        ]
+
+        response = authed_client.post(
+            f"/api/v1/interviews/{session_id}/formalize/",
+            {"confirmed_proposal": proposal},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+        error = response.data["error"]
+        assert error["code"] == "VALIDATION_ERROR"
+        assert error["details"]["reason"] == "UNKNOWN_FIELD"
+        assert error["details"]["field"] == "titel"
+        assert error["details"]["item_index"] == 0
+
+    def test_formalize_malformed_shape_is_400_not_500(self, authed_client, workspace):
+        """B1/M2: a structural defect reports INVALID_PROPOSAL_SHAPE, not 500."""
+        start_resp = authed_client.post(
+            "/api/v1/interviews/",
+            {"workspace_id": str(workspace.id), "session_kind": "multi"},
+            format="json",
+        )
+        session_id = start_resp.data["id"]
+
+        response = authed_client.post(
+            f"/api/v1/interviews/{session_id}/formalize/",
+            {"confirmed_proposal": ["not-a-dict"]},
+            format="json",
+        )
+
+        assert response.status_code == 400, response.content
+        error = response.data["error"]
+        assert error["code"] == "VALIDATION_ERROR"
+        assert error["details"]["reason"] == "INVALID_PROPOSAL_SHAPE"
+        assert error["details"]["item_index"] == 0

@@ -13,6 +13,7 @@ scenarios:
       grounding_snapshot_json: "[]"
       memory_context: ""
       available_link_types: "derives-from, verifies"
+      field_contracts: "- Requirement: required = title (string)"
       transcript: ""
       user_message: "Wir brauchen Login und Audit-Logging."
     assert:
@@ -27,6 +28,7 @@ scenarios:
       grounding_snapshot_json: "[]"
       memory_context: "Memory: login is implemented with JWT."
       available_link_types: "derives-from, verifies"
+      field_contracts: "- Requirement: required = title (string)"
       transcript: ""
       user_message: "Wir brauchen Login und Audit-Logging."
     assert:
