@@ -90,3 +90,46 @@ Async + 3 s Schlaf      2,98 s   (kein sleep-done)
 Async + 0,3 s Schlaf    2,54 s   (kein sleep-done nach 2 s Wartezeit)
 HTTP (schnell)          3,69 s
 ```
+
+## E2E-Funktionslauf (2026-11-27)
+
+Aufbau: isolierter Stack (eigene Postgres/Redis-Container, vorhandenes Dev-Image,
+`backend/` aus dem Repo gemountet), je Phase der passende Feature-Branch, echter
+`opencode_go`-Provider, frische Datenbank, Human-Key (principal `user`,
+`capture`-Recht) und Agent-Key (principal `agent`).
+
+| Phase | Branch | Ergebnis |
+|---|---|---|
+| Capture + Update (P2/P3) | `feat/suggestion-capture-and-update` | **17/18 grün**, 1 Info |
+| Interview (P0/P1) | `feat/interview-contract-and-agent-access` | **15/15 grün**, 1 Info |
+| Suche (P6) | `fix/artifact-search-outdated` | **6/6 grün** |
+
+Belegt:
+
+- Capture: Schalter aus → `CAPTURE_DISABLED`; kurze Nachricht und `/status`
+  gefiltert; >8000 Zeichen → `TEXT_TOO_LONG`; Secret → `redacted` und **kein**
+  Rohsecret im Posteingang; identische Nachricht → `duplicate`; Agent-Key darf
+  nicht annehmen; Human-Key nimmt an → echtes Requirement (`REQ-001`);
+  Update-Vorschlag angenommen → Ziel geändert, Version 2→3.
+- Interview: alle 8 Typen (Risk, Requirement, Adr, ArchitectureElement,
+  TestCase, StakeholderNeed, Issue, Goal) über `interview.start`/`get_state`/
+  `answer`/`formalize`; Multi-Chat → `propose` → `formalize` erzeugt ein
+  Artefakt; unvollständiger Risk-Vorschlag liefert **REST 400** und **MCP**
+  `MISSING_REQUIRED_FIELD` mit `probability`, `impact`.
+- Suche: Default ohne veraltete Treffer, `include_outdated=true` mit
+  `status: outdated`/`outdated: true`; unparsebares Flag → REST 400.
+
+Dabei gefunden und behoben:
+
+- **Human-API-Key konnte keine Vorschläge annehmen.** Der Guard blockte jeden
+  `reqlo_*`-Key statt nur `actor_type == "agent"` — Widerspruch zu ADR-032 (a)
+  (Agent-Key captured, Nutzer-Key nimmt an). Fix + Regressionstest:
+  `c4574125` in PR #2093.
+
+Umgebungsbefund (kein Code-Defekt): Der `opencode_go`-Provider braucht
+`LLM_MODEL=beam-free`; mit dem Default `claude-sonnet-4-5` antwortet der
+Endpunkt mit 400.
+
+Nicht abgedeckt: ein live laufender Claude-Code-Rollen-Agent (#2081) — die
+OAuth-Session war abgelaufen; die Template-/Dist-/Guard-Tests decken die
+Tool-Liste ab. UI-Flächen wurden nicht im Browser geprüft.
