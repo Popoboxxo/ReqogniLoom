@@ -612,6 +612,28 @@ knowledge-engine:
   schema-language: auto
   enabled: true
 rules:
+  client-feature-parity:
+    embed: true
+    alwaysApply: true
+    description: >-
+      Alle ausgelieferten Client-Plugins (Claude Code, Hermes, OpenCode V1/V2,
+      Antigravity) müssen funktional denselben Feature-Umfang bieten;
+      Abweichungen nur als dokumentiertes partial/unsupported mit Beleg in
+      clients/registry.yaml und docs/clients/capabilities*.md; ein Feature ist
+      erst fertig, wenn die gemeinsame Konformitäts-Suite grün ist oder der
+      Client begründet ausgenommen ist.
+    text: >-
+      Verbindliche Projektregel: Jedes Feature an einem Client-Plugin muss im
+      selben Arbeitspaket in allen anderen Clients (Claude Code, Hermes,
+      OpenCode V1/V2, Antigravity) umgesetzt werden. Technisch nicht
+      gleichwertig umsetzbare Features sind ausdrücklich als
+      partial/unsupported mit Beleg und Grenze in clients/registry.yaml sowie
+      der generierten Matrix docs/clients/capabilities*.md zu führen —
+      niemals stillschweigend weglassen. Kein unverified-Zellwert aus
+      Vermutung. Referenzen: scripts/clients/render.py (Matrix-Generator),
+      docs/agent-templates/test_*conformance*.py (gemeinsame
+      Konformitäts-Suite), docs/superpowers/specs/2026-11-21-listen-modus-alle-clients-design.md
+      (S1–S12, ADR-032).
   issue-lifecycle:
     embed: false
     alwaysApply: true
