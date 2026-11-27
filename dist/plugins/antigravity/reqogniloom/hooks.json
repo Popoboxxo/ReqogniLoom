@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 listen.py",
+        "timeout_seconds": 5
+      }
+    ]
+  }
+}

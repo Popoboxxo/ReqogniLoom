@@ -10,6 +10,8 @@
   },
   "files": [
     "index.js",
+    "listen.mjs",
+    "command/",
     "skills/",
     "DOMAIN_MODEL.md",
     "README.md",

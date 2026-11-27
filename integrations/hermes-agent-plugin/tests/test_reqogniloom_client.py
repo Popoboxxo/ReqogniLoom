@@ -818,6 +818,69 @@ class StatsTests(unittest.TestCase):
         self.assertEqual(stats["open_interviews"], 1)
 
 
+class ListenCaptureClientTests(unittest.TestCase):
+    """``capture_suggestion`` is the listen mode's only server call."""
+
+    def _responder(self, status: int = 200):
+        requests: list[urllib.request.Request] = []
+        timeouts: list[float | None] = []
+
+        def respond(req: urllib.request.Request, timeout: float | None = None):
+            requests.append(req)
+            timeouts.append(timeout)
+            if status >= 400:
+                raise _http_error(status, b'{"error": {"code": "X"}}')
+            return _FakeResponse(
+                json.dumps({"created": ["s-1"], "skipped": {}, "request_id": "r-1"}).encode("utf-8")
+            )
+
+        respond.requests = requests  # type: ignore[attr-defined]
+        respond.timeouts = timeouts  # type: ignore[attr-defined]
+        return respond
+
+    def test_posts_the_capture_contract_with_the_worker_timeout(self) -> None:
+        responder = self._responder()
+        with patch("urllib.request.urlopen", responder):
+            result = _client().capture_suggestion(
+                workspace_id="ws-1",
+                text="The display must show a red alarm above 8 bar.",
+                client="hermes",
+                source_session="sess-1",
+                message_id="m-1",
+                idempotency_key="k" * 64,
+                timeout_seconds=60.0,
+            )
+        self.assertEqual(result["created"], ["s-1"])
+        request = responder.requests[0]
+        self.assertEqual(
+            urllib.parse.urlsplit(request.full_url).path, "/api/v1/suggestions/capture/"
+        )
+        self.assertEqual(request.get_header("X-api-key"), _API_KEY)
+        body = _call_body(responder)
+        self.assertEqual(body["workspace_id"], "ws-1")
+        self.assertEqual(body["client"], "hermes")
+        self.assertEqual(body["source_session"], "sess-1")
+        self.assertEqual(body["message_id"], "m-1")
+        self.assertEqual(body["idempotency_key"], "k" * 64)
+        self.assertEqual(responder.timeouts[0], 60.0)
+
+    def test_omits_empty_optional_fields(self) -> None:
+        responder = self._responder()
+        with patch("urllib.request.urlopen", responder):
+            _client().capture_suggestion(workspace_id="ws-1", text="A" * 100)
+        body = _call_body(responder)
+        self.assertNotIn("source_session", body)
+        self.assertNotIn("message_id", body)
+        self.assertNotIn("idempotency_key", body)
+
+    def test_terminal_status_is_visible_to_the_worker(self) -> None:
+        with patch("urllib.request.urlopen", self._responder(409)), self.assertRaises(
+            client_mod.ReqogniLoomError
+        ) as ctx:
+            _client().capture_suggestion(workspace_id="ws-1", text="A" * 100)
+        self.assertEqual(ctx.exception.status, 409)
+
+
 class ManifestGuardTests(unittest.TestCase):
     """Every tool name the client uses must exist in the published manifest.
 

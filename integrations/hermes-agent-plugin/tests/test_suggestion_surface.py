@@ -387,6 +387,10 @@ class CaptureNeverAdoptsTests(unittest.TestCase):
         self._tmp = tempfile.TemporaryDirectory()
         self._old_home = os.environ.get("HERMES_HOME")
         os.environ["HERMES_HOME"] = self._tmp.name
+        self._old_listen_dir = os.environ.get("REQNILOOM_LISTEN_DIR")
+        self._listen_dir = Path(self._tmp.name) / "listen"
+        self._listen_dir.mkdir()
+        os.environ["REQNILOOM_LISTEN_DIR"] = str(self._listen_dir)
         if str(_PLUGIN_ROOT) not in sys.path:
             sys.path.insert(0, str(_PLUGIN_ROOT))
         self.capture = _load("_capture_suggestion_under_test", _PLUGIN_ROOT / "_capture.py")
@@ -399,21 +403,34 @@ class CaptureNeverAdoptsTests(unittest.TestCase):
             os.environ.pop("HERMES_HOME", None)
         else:
             os.environ["HERMES_HOME"] = self._old_home
+        if self._old_listen_dir is None:
+            os.environ.pop("REQNILOOM_LISTEN_DIR", None)
+        else:
+            os.environ["REQNILOOM_LISTEN_DIR"] = self._old_listen_dir
         self._tmp.cleanup()
 
     def test_capture_queues_but_never_creates_or_accepts(self) -> None:
-        client = MagicMock()
-        client.proposal.return_value = [{"type": "Requirement", "fields": {"title": "Gate"}}]
-        self.state.save_state(
-            {"listen": {"enabled": True, "workspace_id": "ws-1", "session_id": "sess-9"}}
+        # ADR-032: the hook only writes the queue; delivery posts
+        # `suggestion.capture`, and creating/accepting an artifact stays with a
+        # human. The module therefore exposes `enqueue_payload`, not `capture`.
+        (self._listen_dir / "listen.json").write_text(
+            json.dumps({"enabled": True, "workspace_id": "ws-1", "client": "hermes"}),
+            encoding="utf-8",
         )
-        with patch.object(self.capture, "ReqogniLoomClient", return_value=client):
-            queued = self.capture.capture("A" * 100, {"enabled": True, "workspace_id": "ws-1", "session_id": "sess-9"})
-        self.assertEqual(queued, 1)
-        client.formalize.assert_not_called()
-        client.accept_suggestion.assert_not_called()
-        stored = self.state.load_state()
-        self.assertEqual(len(stored["suggestions"]), 1)
+        queued = self.capture.enqueue_payload(
+            {
+                "text": "A" * 100,
+                "workspace_id": "ws-1",
+                "client": "hermes",
+                "source_session": "sess-9",
+            }
+        )
+        self.assertIsNotNone(queued)
+        lines = (self._listen_dir / "capture-queue.jsonl").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertNotIn("accepted", lines[0])
 
 
 class SuggestionSlashBindingTests(unittest.TestCase):

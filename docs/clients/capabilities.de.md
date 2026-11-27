@@ -32,7 +32,7 @@ Datum und Versionen beziehen sich auf diesen Verifikationslauf, nicht auf das ak
 | Tools erreichbar | ◐ | ? | ? | ? | ? | ? | ? |
 | Skills (8) | ◐ | ? | ? | ? | ? | ? | ? |
 | Rollen-Agenten | ✗ | ✗ | ✗ | ✗ | ? | ✗ | ? |
-| Hooks / Mithörmodus (automatische Erfassung) | ◐ | ✗ | ✗ | ✗ | ✗ | ✗ | ? |
+| Hooks / Mithörmodus (automatische Erfassung) | ◐ | ✗ | ◐ | ◐ | ✗ | ◐ | ◐ |
 | **Workflows** | | | | | | | |
 | Interview (einzeln) | ◐ | ? | ? | ? | ? | ? | ? |
 | Interview (mehrfach) | ◐ | ? | ? | ? | ? | ? | ? |
@@ -77,7 +77,7 @@ Datum und Versionen beziehen sich auf diesen Verifikationslauf, nicht auf das ak
 | Tools erreichbar | ◐ `partial` | 301 Tools angeboten; 7 haben keinen Handler (`group.*`, `allocation.query`); Vorschläge produzieren (`suggest_level`, `suggest_links`) erfordert einen API-Key mit `actor_type="agent"` — einen Agent-Principal-Key mit schreibfähigem Scope oder einen User-Principal-Plugin-Key mit explizitem `author`-Scope; User-Principal-Keys mit Legacy-`write`/`admin`-Scope und menschliche Bearer-Keys werden abgelehnt (M2-Stempel-Invariante); Annehmen/Ablehnen braucht weiterhin einen User-Key; #1987-Gate nach diesem Lauf korrigiert | `live` (2026-11-21 · Claude Code 2.1.330 · plugin 1.9.0-beta.4 · server 1.9.0-beta.5) | [#1980](https://github.com/Popoboxxo/ReqogniLoom/issues/1980), [#1987](https://github.com/Popoboxxo/ReqogniLoom/issues/1987) |
 | Skills (8) | ◐ `partial` | 8 Skills werden gelistet und geladen; die Texte haben Mängel (Tool-Liste, `workspace_id`); nicht jeder Skill wurde Ende-zu-Ende ausgeführt | `live` (2026-11-21 · Claude Code 2.1.330 · plugin 1.9.0-beta.4 · server 1.9.0-beta.5) | [#1962](https://github.com/Popoboxxo/ReqogniLoom/issues/1962), [#1964](https://github.com/Popoboxxo/ReqogniLoom/issues/1964) |
 | Rollen-Agenten | ✗ `unsupported` | 7 Agenten ausgeliefert, keiner kann starten (das `tools`-Frontmatter passt zu keinem Tool) | `live` (2026-11-21 · Claude Code 2.1.330 · plugin 1.9.0-beta.4 · server 1.9.0-beta.5) | [#1974](https://github.com/Popoboxxo/ReqogniLoom/issues/1974) |
-| Hooks / Mithörmodus (automatische Erfassung) | ◐ `partial` | Hook feuert (AP0 belegt: `UserPromptSubmit`, `async: true`, Exit 0 fail-open), Ende-zu-Ende-Capture noch nicht live verifiziert; Standard aus, Ziel-Workspace muss konfiguriert sein | `repo` (2026-11-27 · UserPromptSubmit hook + local relay shipped (AP0)) | [#2001](https://github.com/Popoboxxo/ReqogniLoom/issues/2001), [#1156](https://github.com/Popoboxxo/ReqogniLoom/issues/1156), [#1201](https://github.com/Popoboxxo/ReqogniLoom/issues/1201) |
+| Hooks / Mithörmodus (automatische Erfassung) | ◐ `partial` | Ende-zu-Ende live belegt: eine Nutzernachricht erzeugt ohne zweiten Prompt einen echten Vorschlag; der Hook macht keine Netzwerkarbeit, sondern queued und startet einen detached `--drain`-Worker (überlebt `claude -p`), der per HTTP ausliefert und `listen-status.json` schreibt; `/reqogniloom:listen on\|off\|status` und der Hook teilen `~/.reqogniloom/listen` (Command-Shell hat kein `CLAUDE_PLUGIN_DATA`), `off` stoppt die Erfassung sofort und löscht Ungesendetes (live: 4→4 bei off, 4→5 bei on), Standard aus; ein 60-s-Worker-Timeout deckt die echte Server-LLM-Latenz ab. Der ausgelieferte Server 1.9.0-beta.8 hat die Capture-Route noch nicht (404) — erst nach dem Rollout dieses Stands ist es dort nutzbar; Hermes/OpenCode/Antigravity sind implementiert, aber noch nicht live gelaufen (`partial`). | `live` (2026-11-27 · Claude Code 2.1.332 · plugin main@5c44d839 · branch-built server with capture route · real LLM (opencode_go/beam-free)) | [#2001](https://github.com/Popoboxxo/ReqogniLoom/issues/2001), [#1156](https://github.com/Popoboxxo/ReqogniLoom/issues/1156), [#1201](https://github.com/Popoboxxo/ReqogniLoom/issues/1201) |
 | Interview (einzeln) | ◐ `partial` | alle 8 Artefakttypen lassen sich anlegen; der Update-Zweig (`set_target`) verliert Felder | `live` (2026-11-21 · Claude Code 2.1.330 · plugin 1.9.0-beta.4 · server 1.9.0-beta.5) | [#1982](https://github.com/Popoboxxo/ReqogniLoom/issues/1982), [#1991](https://github.com/Popoboxxo/ReqogniLoom/issues/1991) |
 | Interview (mehrfach) | ◐ `partial` | funktioniert nur nach manueller Bearbeitung des Vorschlags | `live` (2026-11-21 · Claude Code 2.1.330 · plugin 1.9.0-beta.4 · server 1.9.0-beta.5) | [#1990](https://github.com/Popoboxxo/ReqogniLoom/issues/1990) |
 | Dokument-Projektion | ◐ `partial` | `document.project` und `projection_status` funktionieren; Auslieferung per Branch und Pull Request nicht getestet; `adopt` nicht testbar (kein Tool legt ein `repo_external`-Dokument an) | `live` (2026-11-21 · Claude Code 2.1.330 · plugin 1.9.0-beta.4 · server 1.9.0-beta.5) | — |
@@ -159,7 +159,7 @@ Datum und Versionen beziehen sich auf diesen Verifikationslauf, nicht auf das ak
 | Tools erreichbar | ? `unverified` | — | — | — |
 | Skills (8) | ? `unverified` | dieselben 8 Skills werden ausgeliefert (byte-identisch mit den Claude-Code-Skills, #1962 und #1964 gelten daher auch hier); im Client nicht geladen | `repo` (2026-11-21) | — |
 | Rollen-Agenten | ✗ `unsupported` | keine ausgeliefert (Claude Code liefert 7) | `repo` (2026-11-21) | — |
-| Hooks / Mithörmodus (automatische Erfassung) | ✗ `unsupported` | keine Hook-Dateien ausgeliefert | `repo` (2026-11-21) | — |
+| Hooks / Mithörmodus (automatische Erfassung) | ◐ `partial` | Ausgeliefert: V1 `chat.message` und V2 `session.hook("prompt")` rufen denselben Relay-Kern `listen.mjs`; gemeinsamer State `~/.reqogniloom/listen`, Schalter `node listen.mjs on <workspace_id>\|off\|status` (Command-Vorlage im Paket), 60-s-Timeout, fail-open, Standard aus. Noch **nicht** live gelaufen: der Hook feuert in der TUI möglicherweise nicht (offene Frage der Spec), deshalb `partial`/`repo`. | `repo` (2026-11-27 · dist/npm/reqogniloom-opencode (index.js + listen.mjs) · contract docs/clients/listen-mode-contract.md) | [#2001](https://github.com/Popoboxxo/ReqogniLoom/issues/2001) |
 | Interview (einzeln) | ? `unverified` | — | — | — |
 | Interview (mehrfach) | ? `unverified` | — | — | — |
 | Dokument-Projektion | ? `unverified` | — | — | — |
@@ -198,9 +198,9 @@ Datum und Versionen beziehen sich auf diesen Verifikationslauf, nicht auf das ak
 | MCP-Verbindung | ✓ `supported` | Beta, Zielstufe L2; nicht erneut ausgeführt | `registry` (tested_version 2.2.5) | — |
 | Installation mit einem Befehl | ? `unverified` | Installer und Config-Snippets sind vorhanden; `opencode mcp list` zeigt auf dem Verifikationsrechner „No MCP servers configured“ | `repo` (2026-11-21) | — |
 | Tools erreichbar | ? `unverified` | — | — | — |
-| Skills (8) | ? `unverified` | dieselben 8 Skills werden ausgeliefert (byte-identisch mit den Claude-Code-Skills, #1962 und #1964 gelten daher auch hier); im Client nicht geladen | `repo` (2026-11-21) | — |
+| Skills (8) | ? `unverified` | — | — | — |
 | Rollen-Agenten | ✗ `unsupported` | keine ausgeliefert (Claude Code liefert 7) | `repo` (2026-11-21) | — |
-| Hooks / Mithörmodus (automatische Erfassung) | ✗ `unsupported` | keine Hook-Dateien ausgeliefert | `repo` (2026-11-21) | — |
+| Hooks / Mithörmodus (automatische Erfassung) | ◐ `partial` | Derselbe Relay-Kern wie V1; V2-Einstieg ist `session.hook("prompt")` im `setup(ctx)`. V1-Plugins laufen nicht auf V2 — deshalb zwei Einstiege in einem Paket. Nicht live gelaufen (Beta-API), deshalb `partial`/`repo`. | `repo` (2026-11-27 · dist/npm/reqogniloom-opencode (index.js + listen.mjs) · contract docs/clients/listen-mode-contract.md) | [#2001](https://github.com/Popoboxxo/ReqogniLoom/issues/2001) |
 | Interview (einzeln) | ? `unverified` | — | — | — |
 | Interview (mehrfach) | ? `unverified` | — | — | — |
 | Dokument-Projektion | ? `unverified` | — | — | — |
@@ -282,7 +282,7 @@ Datum und Versionen beziehen sich auf diesen Verifikationslauf, nicht auf das ak
 | Tools erreichbar | ? `unverified` | — | — | — |
 | Skills (8) | ? `unverified` | dieselben 8 Skills werden ausgeliefert (byte-identisch mit den Claude-Code-Skills, #1962 und #1964 gelten daher auch hier); im Client nicht geladen | `repo` (2026-11-21) | — |
 | Rollen-Agenten | ✗ `unsupported` | keine ausgeliefert (Claude Code liefert 7) | `repo` (2026-11-21) | — |
-| Hooks / Mithörmodus (automatische Erfassung) | ✗ `unsupported` | keine Hook-Dateien ausgeliefert | `repo` (2026-11-21) | — |
+| Hooks / Mithörmodus (automatische Erfassung) | ◐ `partial` | Stufe B: `PreInvocation` (Feld `lastUserInput`) mit eigener Entdopplung `(session_id, sha256(text))`; derselbe State/Status wie die anderen Clients; Schalter `python3 listen.py on\|off\|status`. **Nicht** live gelaufen: `PreInvocation` feuert vor jedem Modellaufruf, das Hook-Schema der Vorschau ist nicht verifiziert; deshalb `partial`/`repo`. | `repo` (2026-11-27 · dist/plugins/antigravity/listen.py + hooks.json · contract docs/clients/listen-mode-contract.md) | [#2001](https://github.com/Popoboxxo/ReqogniLoom/issues/2001) |
 | Interview (einzeln) | ? `unverified` | — | — | — |
 | Interview (mehrfach) | ? `unverified` | — | — | — |
 | Dokument-Projektion | ? `unverified` | — | — | — |
@@ -323,7 +323,7 @@ Datum und Versionen beziehen sich auf diesen Verifikationslauf, nicht auf das ak
 | Tools erreichbar | ? `unverified` | — | — | — |
 | Skills (8) | ? `unverified` | — | — | — |
 | Rollen-Agenten | ? `unverified` | — | — | — |
-| Hooks / Mithörmodus (automatische Erfassung) | ? `unverified` | ein `pre_llm_call`-Hook und ein Capture-Worker existieren im Code (`integrations/hermes-agent-plugin`, PR #1213); in dieser Verifikation nicht ausgeführt | `repo` (2026-11-21) | — |
+| Hooks / Mithörmodus (automatische Erfassung) | ◐ `partial` | Vom `interview.*`-Pfad auf `POST /api/v1/suggestions/capture/` migriert: der Hook schreibt nur in die Write-ahead-Queue und startet einen abgekoppelten `--drain`-Worker; gemeinsamer State `~/.reqogniloom/listen`, Status-Keys wie bei Claude Code. H1–H8 adressiert (Lock, kein Verwerfen im Fenster, expliziter Workspace, keine Dauer-Session, serverseitige Redaktion). Nicht live gelaufen; deshalb `partial`/`repo`. | `repo` (2026-11-27 · integrations/hermes-agent-plugin (reqogniloom_listen.py, _capture.py, __init__.py) · contract docs/clients/listen-mode-contract.md) | [#2001](https://github.com/Popoboxxo/ReqogniLoom/issues/2001), [#1156](https://github.com/Popoboxxo/ReqogniLoom/issues/1156), [#1201](https://github.com/Popoboxxo/ReqogniLoom/issues/1201) |
 | Interview (einzeln) | ? `unverified` | — | — | — |
 | Interview (mehrfach) | ? `unverified` | — | — | — |
 | Dokument-Projektion | ? `unverified` | — | — | — |

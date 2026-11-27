@@ -6,10 +6,12 @@ Three surfaces over one client (``reqogniloom_client.py``):
 * the ``/reqogniloom`` slash command — drive a single interview by hand;
 * the dashboard tab (``dashboard/``) — counts and open interviews per workspace;
 * the ``pre_llm_call`` hook — the optional *listen* mode: while it is on, the
-  user's own messages are captured into a type-less multi-artifact interview and
-  whatever the model proposes there is parked as a **suggestion**
-  (``/reqogniloom review``). Nothing is created silently: capture → propose →
-  ``/reqogniloom accept``.
+  user's own messages are queued locally and delivered by a detached worker to
+  ``POST /api/v1/suggestions/capture/``. The server redacts, deduplicates and
+  files a **suggestion**; nothing is created until a human accepts it. The
+  local switch, queue and status live in the shared listen directory
+  (``~/.reqogniloom/listen``, see ``reqogniloom_listen.py`` and
+  ``docs/clients/listen-mode-contract.md``).
 
 Artifact reads and writes beyond this flow are deliberately **not**
 re-implemented here. The shared client (``reqogniloom_client.py``) speaks
@@ -21,41 +23,31 @@ second, partial client that would drift from it. Only ``GET /api/v1/version/``
 stays on REST, because it is public and has no MCP tool.
 
 State lives in ``$HERMES_HOME/reqogniloom/state.json`` (see
-``reqogniloom_state.py``): the current interview, the listen switch and its
-pending suggestions. Every slash-command invocation is a fresh process, so that
-file is the only thing that carries over — and the capture worker is a detached
-process for the same reason (``_capture.py``).
+``reqogniloom_state.py``): the current interview and legacy local suggestions.
+The listen mode deliberately does **not** live there — it uses the machine-wide
+``~/.reqogniloom/listen`` so Claude Code, OpenCode and Antigravity share one
+switch, one queue and one status.
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 import shlex
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .reqogniloom_client import ReqogniLoomClient, ReqogniLoomError, resolve_workspace_id
 from .reqogniloom_state import load_state as _state_load, save_state as _state_save
+from . import reqogniloom_listen as _listen
 from . import reqogniloom_registry as _registry
 from . import reqogniloom_tools as _tools
 
 logger = logging.getLogger(__name__)
 
-#: Shortest user message worth capturing. A capture round costs one LLM turn on
-#: the ReqogniLoom side, so "ok", "danke" and a bare path are not worth one.
-MIN_CAPTURE_CHARS = 40
-
-#: Floor between two capture rounds, in seconds. Overridable per install through
-#: the ``listen`` block so a chatty session cannot queue a dozen LLM turns.
-DEFAULT_MIN_INTERVAL_SECONDS = 45
-
-#: A message starting with one of these is a command, not a statement about the
-#: system: slash commands, shell-ish prefixes and mentions are never captured.
-_SKIP_PREFIXES = ("/", "!", "$")
+#: Shortest user message worth capturing, from the shared relay contract.
+MIN_CAPTURE_CHARS = _listen.MIN_TEXT_LENGTH
 
 
 def _hermes_home() -> Path:
@@ -95,11 +87,11 @@ Subcommands:
   stats [workspace_id]                   Quick counts (requirements, testcases, open interviews).
 
 Listen mode ("hear along", nothing is created without your word):
-  listen on [workspace_id]               Capture your messages and have ReqogniLoom
-                                          propose artifacts from them.
-  listen off                             Stop capturing.
-  listen status                          Show whether capturing is on, and where.
-  review                                 List the pending local suggestions.
+  listen on <workspace_id>               Capture your messages and have ReqogniLoom
+                                          propose artifacts from them (opt-in, off by default).
+  listen off                             Stop capturing and delete anything unsent.
+  listen status                          Show the switch, queue, counters and last error.
+  review                                 List the legacy local suggestions (pre-0.2 captures).
   review pending [workspace_id]          List the server-side proposals awaiting review
                                           (workflow review queue + suggestion inbox).
   accept <index|all>                     Create the CAPTURED local suggestions as proposals.
@@ -168,36 +160,28 @@ def _fmt_state(state: Dict[str, Any]) -> str:
 def _worth_capturing(text: str) -> bool:
     """Cheap pre-filter, run before any I/O.
 
-    The bar is "does this look like a statement about the system?" — long enough
-    to carry a requirement or a risk, and not a command. Everything else is left
-    alone: a false positive costs an LLM turn and a bogus suggestion in the
-    review queue, which is worse than missing one message.
+    The authoritative filter (commands, short messages, pasted content,
+    secrets) and the dedupe live on the server. This local check only avoids a
+    pointless queue write and a network round-trip: at least 40 characters, not
+    a command, and not a pasted log. The same values are in
+    ``docs/clients/listen-mode-contract.md`` and implemented identically by
+    every client.
     """
-    if len(text) < MIN_CAPTURE_CHARS:
-        return False
-    return not text.startswith(_SKIP_PREFIXES)
+    return _listen.passes_filter(_listen.normalize_text(text))
 
 
-def _spawn_capture(text: str, platform: str, session_key: str) -> None:
-    """Hand one message to the detached capture worker.
+def _spawn_worker() -> None:
+    """Start the detached drain worker.
 
-    Detached because the hook runs on the turn's critical path: the worker makes
-    two to three network calls plus a server-side LLM turn. ``start_new_session``
-    keeps it alive past the turn (and past a parent that exits first); the
-    payload file is unlinked by the worker, and by us if the spawn itself
-    fails.
+    The hook runs on the turn's critical path, so it never waits for the
+    network. ``start_new_session`` keeps the worker alive past the turn (and
+    past a parent that exits first). Losing the spawn only delays delivery; the
+    entry is already in the write-ahead queue.
     """
-    payload_dir = _state_path().parent
-    payload_dir.mkdir(parents=True, exist_ok=True)
-    payload = payload_dir / f"capture-{int(time.time() * 1000)}-{os.getpid()}.json"
-    payload.write_text(
-        json.dumps({"text": text, "platform": platform, "session_key": session_key}),
-        encoding="utf-8",
-    )
     worker = Path(__file__).resolve().parent / "_capture.py"
     try:
         subprocess.Popen(
-            [sys.executable, str(worker), str(payload)],
+            [sys.executable, str(worker), "--drain"],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -206,10 +190,6 @@ def _spawn_capture(text: str, platform: str, session_key: str) -> None:
         )
     except OSError as exc:
         logger.warning("could not spawn reqogniloom capture worker: %s", exc)
-        try:
-            payload.unlink()
-        except OSError:
-            pass
 
 
 def _on_pre_llm_call(*, user_message: str = "", platform: str = "", session_id: str = "", **_kwargs: Any) -> None:
@@ -219,61 +199,75 @@ def _on_pre_llm_call(*, user_message: str = "", platform: str = "", session_id: 
     provider — returning a string or ``{"context": ...}`` would inject text into
     the user's own prompt, which is the opposite of "listen along".
 
-    Fail-open throughout. An exception here would be caught by the host anyway,
-    but a capture problem must never be visible in the conversation.
+    Fail-open throughout. The hook does no network work: it writes the message
+    to the queue and starts a detached worker, so a slow or unreachable server
+    never delays the reply (the AP0 finding that ``async`` alone is not a
+    delivery guarantee).
     """
     try:
-        state = _load_state()
-        listen = dict(state.get("listen") or {})
-        if not listen.get("enabled"):
+        switch = _listen.load_switch()
+        if not _listen.is_enabled(switch):
             return None
-        text = (user_message or "").strip()
-        if not _worth_capturing(text):
+        text = _listen.normalize_text(user_message)
+        if not _listen.passes_filter(text):
             return None
-        now = time.time()
-        minimum = float(listen.get("min_interval_seconds") or DEFAULT_MIN_INTERVAL_SECONDS)
-        if now - float(listen.get("last_capture_at") or 0.0) < minimum:
-            return None
-        # Stamp before spawning: two turns in quick succession must not both
-        # clear the throttle and queue two identical capture rounds.
-        listen["last_capture_at"] = now
-        state["listen"] = listen
-        _save_state(state)
-        _spawn_capture(text, platform or "", session_id or "")
+        workspace_id = str(switch.get("workspace_id") or "").strip()
+        if not workspace_id:
+            # No silent "first visible workspace" (H6): report it in the status
+            # file and never guess a target.
+            _listen.log("capture skipped: no workspace_id configured")
+        else:
+            # No throttle: messages inside a window are queued, not dropped (H3).
+            _listen.enqueue(
+                workspace_id=workspace_id,
+                text=text,
+                client="hermes",
+                source_session=session_id or "",
+                message_id=_kwargs.get("turn_id") or "",
+            )
+        _spawn_worker()
     except Exception as exc:  # noqa: BLE001 — a hook must never break a turn
         logger.debug("reqogniloom listen hook skipped: %s", exc)
     return None
 
 
-def _fmt_duration(seconds: float) -> str:
-    seconds = max(0.0, seconds)
-    if seconds < 90:
-        return f"{int(seconds)}s"
-    return f"{int(seconds // 60)}min"
-
-
-def _listen_status(listen: Dict[str, Any]) -> str:
-    if not listen:
-        return "Listen mode: off (never configured). Turn it on with `/reqogniloom listen on [workspace_id]`."
-    if not listen.get("enabled"):
-        return "Listen mode: off. Turn it on with `/reqogniloom listen on [workspace_id]`."
-    last = float(listen.get("last_capture_at") or 0.0)
-    ago = "never" if not last else f"{_fmt_duration(time.time() - last)} ago"
-    return (
-        "Listen mode: on\n"
-        f"workspace:        {listen.get('workspace_id')}\n"
-        f"interview:        {listen.get('session_id') or '(opens with the first capture)'}\n"
-        f"throttle:         at most one capture every {listen.get('min_interval_seconds')}s\n"
-        f"last capture:     {ago}\n"
-        "Nothing is created without `/reqogniloom accept`."
+def _listen_status(switch: Dict[str, Any]) -> str:
+    status = _listen.read_status()
+    queued = status.get("queued", len(_listen.read_queue()))
+    if not switch:
+        return (
+            "Listen mode: off (never configured). Turn it on with "
+            "`/reqogniloom listen on <workspace_id>`."
+        )
+    lines = [
+        f"Listen mode: {'on' if switch.get('enabled') else 'off'}",
+        f"workspace:        {switch.get('workspace_id') or '(not configured)'}",
+        f"state:            {_listen.listen_dir()}",
+    ]
+    if switch.get("enabled"):
+        lines.append("Also required: the server-side workspace switch `capture.enabled`.")
+    lines.extend(
+        [
+            f"queue:            {queued} message(s)",
+            f"captured:         {status.get('captured', 0)}",
+            f"failed:           {status.get('failed', 0)}",
+            f"last success:     {status.get('last_success_at') or '—'}",
+            "last error:       "
+            + (status.get("last_error") or "—")
+            + (f" ({status['last_error_at']})" if status.get("last_error_at") else ""),
+            "Nothing is created without your decision in the suggestion inbox "
+            "(`/reqogniloom suggestion list`).",
+        ]
     )
+    return "\n".join(lines)
 
 
 def _fmt_review(suggestions: Sequence[Dict[str, Any]]) -> str:
     if not suggestions:
         return (
-            "No pending suggestions. Turn listen mode on with `/reqogniloom listen on`, "
-            "then review again. See server-side proposals with `/reqogniloom review pending`."
+            "No pending suggestions. New captures land in the server suggestion inbox "
+            "(`/reqogniloom suggestion list`). See the legacy local queue after enabling "
+            "listen mode with `/reqogniloom listen on <workspace_id>`."
         )
     lines = [f"{len(suggestions)} pending suggestion(s) — nothing is created until you accept:"]
     for index, suggestion in enumerate(suggestions):
@@ -443,35 +437,60 @@ def _with_ambient(previous: Dict[str, Any], interview: Dict[str, Any]) -> Dict[s
 
 def _handle_listen(client: ReqogniLoomClient, state: Dict[str, Any], rest: Sequence[str]) -> str:
     action = (rest[0].lower() if rest else "status")
-    listen = dict(state.get("listen") or {})
+    switch = _listen.load_switch()
 
     if action == "status":
-        return _listen_status(listen)
+        return _listen_status(switch)
 
     if action == "off":
-        if not listen:
-            return "Listen mode was never on."
-        listen["enabled"] = False
-        state["listen"] = listen
+        _listen.save_switch(enabled=False, workspace_id=switch.get("workspace_id"))
+        removed = _listen.clear_pending()
+        # Compatibility mirror: the suggestion/review commands still fall back
+        # to a listen workspace from state.json. The authoritative switch is
+        # the shared listen.json.
+        state["listen"] = {
+            "enabled": False,
+            "workspace_id": switch.get("workspace_id"),
+        }
         _save_state(state)
-        return "Listen mode: off — your messages are no longer captured."
+        deleted = removed["queued"] + removed["incoming"]
+        message = "Listen mode: off — your messages are no longer captured."
+        if deleted:
+            message += (
+                f"\n{deleted} unsent message(s) were deleted: nothing that was not "
+                "sent is kept after switching off."
+            )
+        return message
 
     if action == "on":
-        explicit = rest[1] if len(rest) > 1 else listen.get("workspace_id")
+        # H6: an explicit workspace. `rest[1]` wins; a previously configured
+        # one is reused; a bare "first visible workspace" is never guessed.
+        explicit = rest[1] if len(rest) > 1 else switch.get("workspace_id")
+        if not explicit:
+            return (
+                "Usage: /reqogniloom listen on <workspace_id>\n"
+                "The workspace must be explicit — capture never guesses a target. "
+                "See `/reqogniloom workspaces`."
+            )
         workspace_id = resolve_workspace_id(client, explicit)
-        listen.update({"enabled": True, "workspace_id": workspace_id})
-        listen.setdefault("min_interval_seconds", DEFAULT_MIN_INTERVAL_SECONDS)
-        state["listen"] = listen
+        _listen.save_switch(enabled=True, workspace_id=workspace_id)
+        state["listen"] = {"enabled": True, "workspace_id": workspace_id}
         _save_state(state)
         return (
             f"Listen mode: on — workspace {workspace_id}.\n"
-            f"Capturing messages of at least {MIN_CAPTURE_CHARS} characters, at most one every "
-            f"{listen['min_interval_seconds']}s.\n"
-            "ReqogniLoom's proposals land in `/reqogniloom review`; nothing is created until "
-            "`/reqogniloom accept`."
+            f"Capturing messages of at least {MIN_CAPTURE_CHARS} characters. "
+            "Messages inside a short window are queued, not dropped.\n"
+            "Privacy: from now on the text of your user messages is sent to the "
+            "configured ReqogniLoom server and processed by its model to propose "
+            "artifacts. Only user messages are captured — never assistant text or "
+            "tool output.\n"
+            "Both switches must be on: the server-side workspace setting "
+            "`capture.enabled` stays off by default.\n"
+            "Proposals land in the server suggestion inbox; nothing is created "
+            "until you accept one (`/reqogniloom suggestion list`)."
         )
 
-    return "Usage: /reqogniloom listen on [workspace_id] | off | status"
+    return "Usage: /reqogniloom listen on <workspace_id> | off | status"
 
 
 def _handle_review_action(client: ReqogniLoomClient, state: Dict[str, Any], sub: str, rest: Sequence[str]) -> str:

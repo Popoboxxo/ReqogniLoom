@@ -2,22 +2,35 @@
 /**
  * ReqogniLoom listen-mode relay for the Claude Code `UserPromptSubmit` hook.
  *
- * One job: take the user's message, and — only when the local switch is on and
- * the message passes the noise filter — hand it to
- * `POST /api/v1/suggestions/capture/`. No model involvement, no stdout, always
- * exit 0.
+ * Two modes, one script:
+ *
+ *   (no argument)  the hook. Reads the payload from stdin, checks the local
+ *                  switch and the noise filter, appends the message to the
+ *                  write-ahead queue under the queue lock and starts a detached
+ *                  worker. It performs **no network work**, so a turn that is
+ *                  torn down (`claude -p` exit) can only cost the spawn, never
+ *                  the message or a half-finished request.
+ *
+ *   --drain        the worker. Takes the queue lock, merges the incoming
+ *                  segments, delivers up to MAX_FLUSH_PER_RUN entries, writes
+ *                  `listen-status.json` and releases the lock. It is detached
+ *                  (own process group, stdio ignored), so it survives the hook.
+ *                  Whoever cannot get the lock exits quietly — the next drain
+ *                  picks the entries up.
  *
  * Why a write-ahead queue: AP0 proved that `async: true` keeps the user's turn
  * fast but the hook process is killed when `claude -p` exits, so "sent" is not
- * "delivered". Every message is therefore appended to `capture-queue.jsonl`
- * *before* the request and removed only after a successful answer. A failed
- * send stays queued and is retried (bundled, up to five at a time) on the next
- * prompt.
+ * "delivered". The hook therefore only writes; delivery happens in the worker,
+ * and a failed send stays queued for the next drain.
  *
  * Failure policy: exit code 2 from a hook blocks the user's prompt, so this
  * script never propagates an error. Diagnostics go to `capture.log` and never
  * contain the message text.
+ *
+ * Test seam: `CLAUDE_PLUGIN_LISTEN_NO_WORKER=1` suppresses the detached spawn so
+ * a suite can drain deterministically. It is never set in production.
  */
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   appendFileSync,
@@ -32,16 +45,27 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const SCRIPT_PATH = fileURLToPath(import.meta.url);
 
 const MIN_TEXT_LENGTH = 40;
 const MAX_LINES = 300;
 const MAX_FLUSH_PER_RUN = 5;
-const REQUEST_TIMEOUT_MS = 15_000;
-// The hook declares a 60 s timeout. Keep the whole run below it: a killed
-// process would leave the queue readable but unresendable until the next prompt.
-const HOOK_BUDGET_MS = 50_000;
+// The worker's per-request timeout must outlast a real server-side LLM call
+// (live: the capture suggestion appeared, but a 15 s client timeout made the
+// worker treat the successful POST as failed and retry it; the retry then hit
+// the idempotency duplicate). 60 s is below DRAIN_BUDGET_MS and still bounded;
+// REQNILOOM_CAPTURE_TIMEOUT_MS exists for tests and unusual providers.
+const REQUEST_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.REQNILOOM_CAPTURE_TIMEOUT_MS || "");
+  return Number.isFinite(raw) && raw >= 1000 ? Math.min(raw, 110_000) : 60_000;
+})();
+// The hook no longer waits for a request, so only the worker needs a budget: it
+// caps one drain so a wedged server cannot keep a detached process alive.
+const DRAIN_BUDGET_MS = 120_000;
 const LOCK_STALE_MS = 5 * 60 * 1000;
 const CLIENT_NAME = "claude-code";
 const MAX_FIELD_LENGTH = 255;
@@ -67,11 +91,20 @@ function secureFile(path) {
   }
 }
 
+/**
+ * State directory shared by the hook, the worker and `/reqogniloom:listen`.
+ *
+ * `CLAUDE_PLUGIN_DATA` is deliberately NOT used: the plugin command runs in a
+ * shell where Claude Code sets only `${CLAUDE_PLUGIN_ROOT}`, so the variable is
+ * absent there. Resolving it per process made `listen on` write one directory
+ * while the hook read another — the switch then appeared OFF in a live session
+ * and capture never fired. Both sides therefore resolve the same stable path,
+ * and `REQNILOOM_LISTEN_DIR` is the only override (tests, diagnostics).
+ */
 function stateDir() {
-  const configured = process.env.CLAUDE_PLUGIN_DATA;
-  return configured && configured.trim()
-    ? configured.trim()
-    : join(tmpdir(), "reqogniloom-plugin");
+  const configured = (process.env.REQNILOOM_LISTEN_DIR || "").trim();
+  if (configured) return configured;
+  return join(homedir(), ".reqogniloom", "listen");
 }
 
 function captureConfig() {
@@ -216,36 +249,6 @@ function capQueue(dir, entries) {
   return entries.slice(dropped);
 }
 
-function removeQueuedEntry(dir, entry) {
-  const entries = readQueue(dir);
-  const index = entries.findIndex(
-    (candidate) =>
-      candidate.idempotency_key === entry.idempotency_key &&
-      candidate.message_id === entry.message_id &&
-      candidate.source_session === entry.source_session,
-  );
-  if (index === -1) return;
-  entries.splice(index, 1);
-  rewriteQueue(dir, entries);
-}
-
-function bumpQueuedAttempt(dir, entry) {
-  const entries = readQueue(dir);
-  const index = entries.findIndex(
-    (candidate) =>
-      candidate.idempotency_key === entry.idempotency_key &&
-      candidate.message_id === entry.message_id &&
-      candidate.source_session === entry.source_session,
-  );
-  if (index === -1) return;
-  entries[index] = {
-    ...entries[index],
-    attempts: (entries[index].attempts || 0) + 1,
-    last_attempt_at: new Date().toISOString(),
-  };
-  rewriteQueue(dir, entries);
-}
-
 function acquireLock(dir) {
   const lock = join(dir, "capture-queue.lock");
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -361,6 +364,10 @@ async function deliver(config, entry, deadline) {
 function recordSuccess(state) {
   state.captured = (state.captured || 0) + 1;
   state.last_success_at = new Date().toISOString();
+  // A recovered failure is not the "last error" any more; leaving a stale
+  // timeout in the status made a healthy relay look broken.
+  state.last_error = null;
+  state.last_error_at = null;
 }
 
 function recordFailure(state, detail) {
@@ -419,6 +426,8 @@ async function flushQueue(dir, config, state, deadline) {
       sent += 1;
     } else {
       recordFailure(state, outcome.detail);
+      // Detail only: status code / error code, never the message text.
+      log(dir, `capture failed: ${outcome.detail}`);
       keep.push({
         ...entry,
         attempts: (entry.attempts || 0) + 1,
@@ -490,44 +499,79 @@ function mergeIncoming(dir) {
   return entries.length;
 }
 
-async function run() {
-  const dir = stateDir();
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  secureDir(dir);
-  const input = parseInput(await readStdin());
-  const config = captureConfig();
-  const listen = readJson(join(dir, "listen.json"), {});
-
-  if (!listen || listen.enabled !== true) {
-    // Default off: no request, no queue drain, no status churn.
-    return;
-  }
-
-  const statusPath = join(dir, "listen-status.json");
-  const state = {
+function initialStatus() {
+  return {
     last_success_at: null,
     last_error: null,
     last_error_at: null,
     captured: 0,
     failed: 0,
     queued: 0,
-    ...readJson(statusPath, {}),
   };
+}
 
+function missingConfig(config) {
   const missing = [];
   if (!config.workspaceId) missing.push("workspace_id");
   if (!config.mcpUrl) missing.push("mcp_url");
   if (!config.apiKey) missing.push("api_key");
-  if (missing.length > 0) {
-    recordFailure(state, `missing_config:${missing.join(",")}`);
-    state.queued = readQueue(dir).length;
-    writeJsonAtomic(statusPath, state);
-    log(dir, `capture skipped: missing config ${missing.join(",")}`);
+  return missing;
+}
+
+function reportMissingConfig(dir, statusPath, state, missing) {
+  recordFailure(state, `missing_config:${missing.join(",")}`);
+  state.queued = readQueue(dir).length;
+  writeJsonAtomic(statusPath, state);
+  log(dir, `capture skipped: missing config ${missing.join(",")}`);
+}
+
+function spawnWorker(dir) {
+  if (process.env.CLAUDE_PLUGIN_LISTEN_NO_WORKER === "1") return;
+  try {
+    const child = spawn(process.execPath, [SCRIPT_PATH, "--drain"], {
+      // Detached + own process group + ignored stdio: the worker must outlive
+      // the hook process, which `claude -p` kills as soon as the turn ends.
+      detached: true,
+      stdio: "ignore",
+      env: process.env,
+      cwd: dir,
+    });
+    child.unref();
+  } catch (error) {
+    // Losing the worker spawn only delays delivery; the entry is already queued.
+    log(dir, `drain spawn failed: ${error?.name || "Error"}`);
+  }
+}
+
+async function runHook() {
+  const dir = stateDir();
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  secureDir(dir);
+  const input = parseInput(await readStdin());
+  const listen = readJson(join(dir, "listen.json"), {});
+
+  if (!listen || listen.enabled !== true) {
+    // Default off: no request, no queue write, no worker.
     return;
   }
 
-  const release = acquireLock(dir);
+  const config = captureConfig();
+  const statusPath = join(dir, "listen-status.json");
+  const missing = missingConfig(config);
+  if (missing.length > 0) {
+    // Nothing can be delivered without a target: report it the way the old
+    // in-hook path did, but still without touching the network.
+    reportMissingConfig(
+      dir,
+      statusPath,
+      { ...initialStatus(), ...readJson(statusPath, {}) },
+      missing,
+    );
+    return;
+  }
+
   const entry = buildEntry(input, config);
+  const release = acquireLock(dir);
   if (!release) {
     // A run already owns the queue. Persisting the message anyway is the whole
     // point of the write-ahead queue: losing it here would silently drop a
@@ -536,33 +580,54 @@ async function run() {
       writeIncoming(dir, entry);
       log(dir, "capture queued: queue lock held");
     }
+  } else {
+    try {
+      if (entry) appendCapped(dir, entry);
+    } finally {
+      release();
+    }
+  }
+
+  // Hand delivery to a process the turn teardown cannot reach. The hook itself
+  // never awaits a response, so it stays fast and cannot be killed mid-send.
+  spawnWorker(dir);
+}
+
+async function runDrain() {
+  const dir = stateDir();
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  secureDir(dir);
+  // Detached worker: no stdin payload, no user waiting on the exit code.
+  const listen = readJson(join(dir, "listen.json"), {});
+  if (!listen || listen.enabled !== true) {
+    // Switched off after the message was queued: never send it.
+    return;
+  }
+
+  const config = captureConfig();
+  const statusPath = join(dir, "listen-status.json");
+  const state = { ...initialStatus(), ...readJson(statusPath, {}) };
+  const missing = missingConfig(config);
+  if (missing.length > 0) {
+    reportMissingConfig(dir, statusPath, state, missing);
+    return;
+  }
+
+  const release = acquireLock(dir);
+  if (!release) {
+    // Another worker (or a hook) owns the queue and will deliver. Exiting
+    // quietly leaves the entries intact instead of racing a queue rewrite.
+    log(dir, "drain skipped: queue lock held");
     return;
   }
 
   try {
     const merged = mergeIncoming(dir);
     if (merged > 0) log(dir, `merged ${merged} queued capture(s)`);
-    // Drain what an earlier run queued (AP0: the process may be killed before
-    // the response arrives, so every message needs this second chance).
-    const deadline = Date.now() + HOOK_BUDGET_MS;
+    // Drain what this or an earlier run queued. A failed send stays queued.
+    const deadline = Date.now() + DRAIN_BUDGET_MS;
     const flushed = await flushQueue(dir, config, state, deadline);
     if (flushed > 0) log(dir, `flushed ${flushed} queued capture(s)`);
-
-    if (entry) {
-      appendCapped(dir, entry);
-      const outcome = await deliver(config, entry, deadline);
-      if (outcome.done) {
-        recordSuccess(state);
-        removeQueuedEntry(dir, entry);
-      } else if (outcome.detail === "budget_exhausted") {
-        // The entry stays queued with its attempt count untouched.
-        log(dir, "capture deferred: hook budget exhausted");
-      } else {
-        recordFailure(state, outcome.detail);
-        bumpQueuedAttempt(dir, entry);
-        log(dir, `capture failed: ${outcome.detail}`);
-      }
-    }
 
     state.queued = readQueue(dir).length;
     writeJsonAtomic(statusPath, state);
@@ -571,14 +636,16 @@ async function run() {
   }
 }
 
-run()
+const isDrain = process.argv.slice(2).includes("--drain");
+
+(isDrain ? runDrain() : runHook())
   .catch((error) => {
     // Never let a relay defect escape as a non-zero exit (exit 2 blocks the
     // prompt). Diagnostics stay in the log, without message content.
     try {
-      log(stateDir(), `capture hook error: ${error?.name || "Error"}`);
+      log(stateDir(), `capture ${isDrain ? "drain" : "hook"} error: ${error?.name || "Error"}`);
     } catch {
-      // Nothing left to do; the hook is fail-open by contract.
+      // Nothing left to do; the relay is fail-open by contract.
     }
   })
   .finally(() => {
