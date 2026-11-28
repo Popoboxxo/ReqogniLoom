@@ -485,6 +485,11 @@ def test_real_provider_drafts_are_forwarded_and_not_marked_as_mock(caller):
             "description": "Real D1",
             "rationale": "Real why.",
             "suggested_parent_id": str(need.id),
+            # S1 (REQ-217): a provider that omits the structured contract is
+            # surfaced additively, not silently completed.
+            "acceptance_criteria": [],
+            "verification_method": None,
+            "incomplete_fields": ["acceptance_criteria", "verification_method"],
         }
     ]
 

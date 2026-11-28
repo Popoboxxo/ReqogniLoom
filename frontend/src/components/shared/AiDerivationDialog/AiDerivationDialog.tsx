@@ -51,6 +51,18 @@ export interface AiDerivationDraft {
   title: string;
   description?: string;
   rationale?: string;
+  /**
+   * Structured, testable acceptance criteria a requirement draft carries
+   * (REQ-217). Read-only here: the accept payload forwards the draft
+   * unchanged, so the server-side normalization stays authoritative.
+   */
+  acceptance_criteria?: {
+    text: string;
+    fulfilled?: boolean;
+    evidence_ref?: string | null;
+  }[];
+  /** IEEE-29148 verification method a requirement draft proposes. */
+  verification_method?: string;
 }
 
 export interface AiDerivationDialogProps {
@@ -272,6 +284,27 @@ export function AiDerivationDialog({
                       data-testid={`${testIdPrefix}-rationale-${index}`}
                     >
                       {t("aiDerivation.rationale")}: {draft.rationale}
+                    </p>
+                  )}
+                  {(draft.verification_method ||
+                    (draft.acceptance_criteria?.length ?? 0) > 0) && (
+                    <p
+                      className={styles.muted}
+                      data-testid={`${testIdPrefix}-verification-${index}`}
+                    >
+                      {draft.verification_method && (
+                        <>
+                          {t("aiDerivation.verificationMethod")}:{" "}
+                          {draft.verification_method}
+                        </>
+                      )}
+                      {draft.verification_method &&
+                        (draft.acceptance_criteria?.length ?? 0) > 0 &&
+                        " · "}
+                      {(draft.acceptance_criteria?.length ?? 0) > 0 &&
+                        t("aiDerivation.acceptanceCriteriaCount", {
+                          count: draft.acceptance_criteria?.length ?? 0,
+                        })}
                     </p>
                   )}
                 </li>

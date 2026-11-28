@@ -222,22 +222,36 @@ def derive_requirements_from_need(
     written: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
     for draft in preview["drafts"]:
+        # S1 (REQ-217): create the requirement AND persist its structured
+        # acceptance criteria inside the one savepoint _write_derived_entity
+        # opens, so a failing criteria write rolls this draft back only.
+        def _create(d=draft):
+            created_requirement = requirement_service.create_requirement(
+                workspace_id=workspace_id,
+                title=d["title"],
+                ctx=authoring.create_context,
+                description=d["description"],
+                # #2011: the INCOSE rationale goes into the real
+                # Requirement.rationale column, not custom_fields —
+                # create_requirement accepts it directly. See
+                # _derived_requirement_rationale.
+                rationale=_derived_requirement_rationale(d),
+                verification_method=d.get("verification_method"),
+            )
+            if d.get("acceptance_criteria"):
+                requirement_service.set_acceptance_criteria(
+                    created_requirement.id,
+                    ctx=authoring.create_context,
+                    criteria=d["acceptance_criteria"],
+                )
+            return created_requirement
+
         try:
             result = service._write_derived_entity(
                 ctx=auth_context,
                 workspace_id=workspace_id,
                 item_type="Requirement",
-                create_fn=lambda d=draft: requirement_service.create_requirement(
-                    workspace_id=workspace_id,
-                    title=d["title"],
-                    ctx=authoring.create_context,
-                    description=d["description"],
-                    # #2011: the INCOSE rationale goes into the real
-                    # Requirement.rationale column, not custom_fields —
-                    # create_requirement accepts it directly. See
-                    # _derived_requirement_rationale.
-                    rationale=_derived_requirement_rationale(d),
-                ),
+                create_fn=_create,
                 # TraceLinkService._resolve_artifact_id only resolves
                 # Artifact/Requirement/ArchitectureElement/Adr ids — not
                 # StakeholderNeed ids — so the link must be sourced from
@@ -634,20 +648,33 @@ class AiDerivationToolGroup(BaseToolGroup):
         written: list[dict[str, Any]] = []
         failed: list[dict[str, Any]] = []
         for draft in preview["drafts"]:
+            # S1 (REQ-217): same one-savepoint create + criteria write as
+            # _handle_derive_requirements above.
+            def _create(d=draft):
+                created_requirement = self._requirement_service.create_requirement(
+                    workspace_id=workspace_id,
+                    title=d["title"],
+                    ctx=authoring.create_context,
+                    description=d["description"],
+                    # Same rationale carrier as derive_requirements_from_need
+                    # above (#2011): the real Requirement.rationale column.
+                    rationale=_derived_requirement_rationale(d),
+                    verification_method=d.get("verification_method"),
+                )
+                if d.get("acceptance_criteria"):
+                    self._requirement_service.set_acceptance_criteria(
+                        created_requirement.id,
+                        ctx=authoring.create_context,
+                        criteria=d["acceptance_criteria"],
+                    )
+                return created_requirement
+
             try:
                 result = self._service._write_derived_entity(
                     ctx=auth_context,
                     workspace_id=workspace_id,
                     item_type="Requirement",
-                    create_fn=lambda d=draft: self._requirement_service.create_requirement(
-                        workspace_id=workspace_id,
-                        title=d["title"],
-                        ctx=authoring.create_context,
-                        description=d["description"],
-                        # Same rationale carrier as derive_requirements_from_need
-                        # above (#2011): the real Requirement.rationale column.
-                        rationale=_derived_requirement_rationale(d),
-                    ),
+                    create_fn=_create,
                     source_entity_id=requirement_id,
                     source_item_type="Requirement",
                     link_type=LinkType.DERIVES_FROM.value,

@@ -3013,8 +3013,17 @@ DEFAULT_NEED_TO_SYSREQ = (
     "Given the following stakeholder need, generate at most "
     "{max_requirements_per_need} system-level requirements — produce only as "
     "many as the need actually justifies. Each requirement must be specific, "
-    "measurable, and testable. Return a JSON array of objects with fields: "
-    "title (string), description (string), rationale (string).\n\n"
+    "measurable, and testable. Return STRICT JSON only: a JSON array of "
+    "objects, no prose and no markdown fences. Every object must have these "
+    "fields:\n"
+    "- title (string)\n"
+    "- description (string)\n"
+    "- rationale (string)\n"
+    '- acceptance_criteria: array of 1-7 objects, each {"text": string}; every '
+    "text must be 10-500 characters, testable and measurable, and no "
+    "duplicates are allowed\n"
+    "- verification_method: exactly one of Test, Review, Analysis, Inspection, "
+    "Demonstration\n\n"
     "Stakeholder Need:\nTitle: {need_title}\nDescription: {need_description}"
     + _MEMORY_CONTEXT_SECTION
 )
@@ -3031,9 +3040,17 @@ DEFAULT_SYSREQ_TO_ARCH_ASSIGN = (
 DEFAULT_SYSREQ_DECOMPOSE_NEXT_LEVEL = (
     "Decompose the following system requirement into more detailed requirements "
     "for the next architecture level. Requirements may be assigned to different "
-    "architecture elements. Return a JSON array of objects with fields: title "
-    "(string), description (string), rationale (string), "
-    "suggested_arch_element_id (string or null).\n\nParent Requirement:\n"
+    "architecture elements. Return STRICT JSON only: a JSON array of objects, "
+    "no prose and no markdown fences. Every object must have these fields:\n"
+    "- title (string)\n"
+    "- description (string)\n"
+    "- rationale (string)\n"
+    '- acceptance_criteria: array of 1-7 objects, each {"text": string}; every '
+    "text must be 10-500 characters, testable and measurable, and no "
+    "duplicates are allowed\n"
+    "- verification_method: exactly one of Test, Review, Analysis, Inspection, "
+    "Demonstration\n"
+    "- suggested_arch_element_id (string or null)\n\nParent Requirement:\n"
     "{req_title}: {req_description}\n\nArchitecture Elements at this level:\n"
     "{arch_elements_json}"
     + _MEMORY_CONTEXT_SECTION

@@ -84,6 +84,11 @@ def test_derive_requirements_from_need_tool(ai_ctx):
     assert result.success
     assert len(result.data["drafts"]) == 2
     assert result.data["drafts"][0]["suggested_parent_id"] == str(need.id)
+    # S1 (REQ-217): every draft exposes the structured contract.
+    for draft in result.data["drafts"]:
+        assert draft["acceptance_criteria"]
+        assert draft["verification_method"] == "Test"
+        assert draft["incomplete_fields"] == []
 
 
 def test_suggest_architecture_tool(ai_ctx):
@@ -151,6 +156,11 @@ def test_decompose_next_level_tool(ai_ctx):
     assert result.success
     assert result.data["parent_requirement_id"] == str(req.id)
     assert len(result.data["drafts"]) >= 1
+    # S1 (REQ-217): the decompose drafts carry the same structured contract.
+    for draft in result.data["drafts"]:
+        assert draft["acceptance_criteria"]
+        assert draft["verification_method"] == "Test"
+        assert draft["incomplete_fields"] == []
 
 
 def test_decompose_without_allocation_is_validation_error(ai_ctx):
