@@ -1128,6 +1128,9 @@ SPECTACULAR_SETTINGS = {
     # declares a status keeps its own response.
     "POSTPROCESSING_HOOKS": [
         "rest_api.openapi.enforce_common_error_responses",
+        # #2078/#2089: the generic transitions action serves GET and POST from
+        # one method, so spectacular inferred the entity request there.
+        "rest_api.schema_postprocess.patch_workflow_transition_request_bodies",
     ],
     # Security schemes for OpenAPI spec
     "APPEND_COMPONENTS": {

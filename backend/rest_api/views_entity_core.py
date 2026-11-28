@@ -2343,6 +2343,18 @@ class ArtifactViewSet(BaseEntityViewSet):
     def _svc(self) -> ArtifactService:
         return ArtifactService()
 
+    @extend_schema(
+        summary="List the child artifacts of one workspace",
+        parameters=[
+            OpenApiParameter(
+                "workspace_id",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workspace UUID (required).",
+            )
+        ],
+    )
     def list(self, request: Request, **kwargs: Any) -> Response:
         lang = detect_lang(request)
         try:
