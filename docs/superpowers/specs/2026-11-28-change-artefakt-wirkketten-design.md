@@ -1,8 +1,8 @@
 # Change-Artefakt als Wirkketten-Knoten — strukturierter Impact, automatische Wirkkettenanalyse und Requirements-Smart-Refinement
 
-> **Status:** Entwurf — Review-Matrix (6 Rollen) durchlaufen, Auflagen
-> eingearbeitet; **Re-Review der geänderten Abschnitte vor G0**. Keine
-> Umsetzung, keine Issues angelegt.
+> **Status:** Entscheidungen D1–D18/O1–O5 sind getroffen (2026-11-28); die
+> Architekturentscheidung liegt als ADR-033 (`proposed`) vor. Umsetzung **nicht
+> begonnen**.
 > **Art:** Spezifikation. Der zugehörige Umsetzungsplan liegt unter
 > [`../plans/2026-11-28-change-artefakt-wirkketten.md`](../plans/2026-11-28-change-artefakt-wirkketten.md).
 > **Review-Protokoll:** [`../../reviews/2026-11-28-change-artefakt-wirkketten-review.md`](../../reviews/2026-11-28-change-artefakt-wirkketten-review.md).

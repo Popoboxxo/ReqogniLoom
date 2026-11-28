@@ -48,10 +48,10 @@ KI-Ableitung liefert direkt testbare Akzeptanzkriterien.
 
 **Ziel:** Die in der Spec offenen Punkte entscheiden, bevor Code entsteht.
 
-- [ ] **S0.1** D1–D18 und O1/O3 sind entschieden (2026-11-28), inklusive
+- [x] **S0.1** D1–D18 und O1/O3 sind entschieden (2026-11-28), inklusive
   D4 (Finding-Default + Ketten-Override) und D8b (nein). Spec §6 nachziehen
   und im Review bestätigen.
-- [ ] **S0.2** ADR-033 `change_impact_analysis_als_artefakt` anlegen
+- [x] **S0.2** ADR-033 `change_impact_analysis_als_artefakt` anlegen
   (`docs/se/ADR/ADR-033_change_impact_analysis_als_artefakt.md`): drei neue
   Tabellen (Run/Finding/Chain), Content-Fingerprint, Policy-Keys,
   Preset-Feature, **gemeinsame Workflow-Precondition**, Workspace-/Item-Fence,
@@ -60,7 +60,7 @@ KI-Ableitung liefert direkt testbare Akzeptanzkriterien.
 - [ ] **S0.3** Messbasis notieren: bestehende CR-Anzahl, durchschnittliche
   Affected-Item-Zahl, Workspaces im `extended`-Rigor (nur Aggregate, keine
   Personendaten) — für die Cap- und `blocking`-Kalibrierung in S4.
-- [ ] **S0.4** Policy-Keys und Ebenen festlegen (global = tenant-weit,
+- [x] **S0.4** Policy-Keys und Ebenen festlegen (global = tenant-weit,
   Workspace-Override, kein User-Level) und mit dem Preference-Registry-Muster
   abgleichen. O2 (Review-Queue) und O5 (Fixtures) sind entschieden; O4 ist
   faktisch „nein".
@@ -672,3 +672,18 @@ Verification-Pass und die Kosmetik.
 - Löschung der Freitextspalten.
 - Eine vollständige CR-Liste/Board-Ansicht.
 - Änderungen am `ccb_approval`-Zustandsgraphen.
+
+## 15. Evidence (S0)
+
+**Datum:** 2026-11-28 · **Branch:** `feat/change-artefakt-wirkketten` ·
+**Status:** S0.1/S0.2/S0.4 abgeschlossen; S0.3 offen, S0.5 teilweise, S0.6 beim
+separaten Agenten.
+
+| Punkt | Stand |
+|---|---|
+| REQ-Traceability | `REQ-216` (strukturierte Impact-Analyse + Extended-Gate), `REQ-217` (Smart Refinement), `REQ-218` (Delta-CR zu `REQ-157`) in `docs/REQUIREMENTS.md` |
+| ADR | `docs/se/ADR/ADR-033_change_impact_analysis_als_artefakt.md`, Status `proposed`, `affected_reqs: [REQ-216, REQ-217, REQ-157, REQ-218]` |
+| Policy-Keys (S0.4) | sieben `change_impact.*`-Keys, Ebenen `global` + `workspace`, **kein** `user`-Level, typisierte Auflösung; Tabelle in ADR-033 |
+| Messbasis (S0.3) | **offen (nicht gemessen)** — der Dev-Stack dieses Checkouts läuft nicht (`docker compose --env-file .env -f deploy/docker-compose.yml ps` leer); der erreichbare Backend-Container gehört zu `/home/hermes/reqogniloom-qs` und lieferte 0 CRs / 0 Affected Items / 0 Workspaces. Befehle zum Nachholen: ADR-033 §„Messbasis (S0.3)" |
+| S0.5 | teilweise: REQs angelegt und in ADR-033 verlinkt; Spec-Kopf in diesem Slice bewusst unverändert, REQ-157-Delta-CR ist ein Plattform-Artefakt (nicht Gegenstand dieses Slices) |
+| `blocking`-Fixtures (S0.6) | `backend/application/tests/fixtures/change_impact_calibration.py` (separater Agent, hier **nicht** geprüft) |
