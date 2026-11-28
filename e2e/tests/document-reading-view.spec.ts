@@ -274,6 +274,15 @@ test.describe('Document reading view', () => {
     const stored = await fetchDocument(request);
     expect(stored.title).toBe('Extern geändert');
     expect(stored.version).toBe(2);
+
+    // #2080: the reload affordance must actually adopt the external server
+    // state — the local draft is replaced, the version basis moves to 2 and the
+    // conflict marker disappears. Clicking it and only checking that the marker
+    // vanished is exactly how a stale local draft slipped through before.
+    await page.getByTestId('document-field-reload-title').click();
+    await expect(page.getByTestId('document-field-conflict-title')).toHaveCount(0);
+    await expect(page.getByTestId('document-detail-version')).toHaveText('v2');
+    await expect(page.getByTestId('document-field-input-title')).toHaveValue('Extern geändert');
   });
 
   test('prints the chapters without any control', async ({ page }) => {

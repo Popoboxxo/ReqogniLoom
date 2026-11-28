@@ -1,9 +1,12 @@
 """Tool catalogue for the full ReqogniLoom MCP surface.
 
 The plugin is a thin client over ReqogniLoom's native MCP server: every
-operation is a ``tools/call`` against the same 248-tool surface the rest of the
-ecosystem uses (measured 2026-10-18, server ``1.8.0-beta.21``: 248 tools,
-39 groups). Two things this module adds on top of the raw list:
+operation is a ``tools/call`` against the full server surface (``tools/list``),
+never a hardcoded subset. The surface measured on 2026-10-18, server
+``1.8.0-beta.21``, was 248 tools in 39 groups; the current catalogue is
+whatever the committed manifest says
+(``docs/agent-templates/tool-manifest.json``: 314 tools, 50 groups at
+``1.9.0-beta.9``). Two things this module adds on top of the raw list:
 
 1. **A runtime catalogue.** :func:`fetch_catalogue` reads ``tools/list`` from
    the configured server and classifies every entry, cached per server with a
@@ -24,8 +27,8 @@ ecosystem uses (measured 2026-10-18, server ``1.8.0-beta.21``: 248 tools,
      (``requirement.validate``, ``traceability.coverage``, …);
    * ``read``    — everything else.
 
-   ``tests/test_tools_catalog.py`` pins this against the repo manifest (248
-   tools) with two invariants: no tool the server marks as a write is classified
+   ``tests/test_tools_catalog.py`` pins this against the repo manifest (every
+   tool) with two invariants: no tool the server marks as a write is classified
    ``read``, and no tool the server marks as a read is classified ``mutate`` or
    ``compute``. Classification drift therefore fails in CI instead of surfacing
    as a missing confirmation dialog.
@@ -42,12 +45,12 @@ logger = logging.getLogger(__name__)
 
 #: Seconds a fetched catalogue stays fresh in process memory. Short enough that
 #: a server upgrade shows up on its own, long enough that opening a few dashboard
-#: views does not re-fetch 248 tool schemas every time.
+#: views does not re-fetch the whole tool schema set every time.
 CATALOGUE_TTL_SECONDS = 300
 
 #: Verb segments (single words and whole compound verbs) that mark a tool as
 #: state-changing. Calibrated against the repo's ``tool-manifest.json``: with the
-#: ``*_EXACT`` sets below, all 248 tools classify identically to the server's own
+#: ``*_EXACT`` sets below, every manifest tool classifies identically to the server's own
 #: write/read split (invariant-tested, see ``tests/test_tools_catalog.py``).
 MUTATE_VERBS = frozenset(
     {
@@ -315,7 +318,7 @@ def requires_human(tool_name: str) -> bool:
 #: ``memory.delete_workspace`` / ``attribute_definition.delete_workspace`` — the
 #: latter two are a GDPR wipe of every memory tier a workspace owns, and a
 #: ``.delete``-suffix test missed them, leaving them with a plain yes/no
-#: confirmation. Verified against the 248-tool manifest: 12 names match, all of
+#: confirmation. Verified against the full tool manifest: 12 names match, all of
 #: them hard deletes or resets.
 DESTRUCTIVE_SEGMENTS = frozenset({"delete", "purge", "destroy", "wipe", "reset", "drop"})
 

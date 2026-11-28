@@ -247,6 +247,12 @@ means a new tool, not a new namespace.
 | `testcase.*` | There is no `testcase` prefix. The TestCase entity lives in the `test` group. | `test.get`, `test.query`, `test.create`, `test.update`, `test.link`, `test.mark_reviewed`, `test.outdate`, `test.reactivate`, `test.derive_from_requirement` |
 | any API-key management tool | Key lifecycle is a REST-only governance path; MCP exposes no `api_key.*` / `permissions.key.*` group, so a compromised MCP client cannot mint itself a key. | REST `POST/GET/DELETE /api/v1/api-keys/` |
 | notification tools | The notification feed is human-facing. | REST `GET /api/v1/notifications/` |
+| import/export tools (CSV, ReqIF, snapshot, PDF report) | File transfer is transport-shaped: multipart uploads and streamed/base64 blobs do not fit JSON-RPC tool arguments, and a workspace-sized payload would blow the response budget (#2090). | REST `workspaces/{id}/import/*`, `workspaces/{id}/export/*`; the same rows are writable field-by-field via `requirement.*`/`architecture.*`/`artifact.bulk_update` |
+| `llm-settings` | Tenant-wide provider configuration. An MCP caller must not be able to point the deployment's LLM traffic at another endpoint as a side effect of an agent task. | REST `GET/PATCH /api/v1/llm-settings/` (admin) |
+| `attribute-defaults` | The tenant-wide preset defaults are a governance surface. Per-workspace editing *is* exposed over MCP; changing the default every workspace inherits is reserved to the admin API. | REST `/api/v1/attribute-defaults/`; MCP `attribute_definition.*` (workspace scope) |
+| `permission-defaults` | Security configuration — same reasoning as API keys: an MCP client must not widen access defaults. | REST `/api/v1/permission-defaults/` (admin) |
+| `auth` | Interactive session flow (cookies, MFA challenge), not representable over an API key. | REST `/api/v1/auth/*`; MCP callers authenticate with `X-API-Key` |
+| `system` health/version/diagnostics | Operational metadata for humans and probes, not agent work. | REST `/health/`, `/api/v1/version/` |
 
 Two gaps the entity-surface parity ratchet
 (`backend/mcp_server/tests/entity_surface_matrix.py`) recorded when it was

@@ -696,7 +696,7 @@ class ReqogniLoomClient:
         principal: str = "agent",
         api_key: str | None = None,
     ) -> Any:
-        """Generic door onto any tool of the server (the whole 248-tool surface).
+        """Generic door onto any tool of the server (the whole server tool surface).
 
         ``principal`` picks the credential: ``"agent"`` (default, writes are born
         as ``proposed`` artifacts) or ``"user"`` — required by the approval-class

@@ -1075,6 +1075,7 @@
     "fieldSaveFailed": "The field could not be saved.",
     "fieldFrozen": "This field is frozen after release.",
     "reloadField": "Reload",
+    "reloading": "Reloading…",
     "deleteTitle": "Delete document",
     "deleteMessage": "The document is hidden (soft delete) and can be reactivated.",
     "deleteConfirm": "Delete",

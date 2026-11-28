@@ -400,7 +400,14 @@ class McpTestToolGroup(BaseToolGroup):
                 "Fetch a single TestCase by ID. The returned 'status' is the "
                 "lifecycle state: draft|ready|approved|deprecated, or "
                 "'outdated' for a soft-deleted test case. Change it via "
-                "review/workflow transitions, not test.update."
+                "review/workflow transitions, not test.update. "
+                "'execution_status' is the MANUAL Passed/Failed/Not Run "
+                "annotation stored in the artifact's custom_fields; it is NOT "
+                "the run outcome. Recording a result with "
+                "test.run_report_results does not write it — the last-run "
+                "outcome lives on TestRunResult (read it with test.run_get), "
+                "and test.run_list / workspace.get_context derive their "
+                "pass/fail counts from the most recent result."
             ),
             "inputSchema": {
                 "type": "object",
@@ -650,7 +657,13 @@ class McpTestToolGroup(BaseToolGroup):
         },
         {
             "name": "test.run_get",
-            "description": "Fetch a TestRun with its results by ID.",
+            "description": (
+                "Fetch a TestRun with its results by ID. The per-test-case "
+                "run outcome lives in 'results[].status' (passed|failed|"
+                "blocked|not_run); a TestCase's 'execution_status' "
+                "(test.get) is a separate manual annotation and is not "
+                "updated by reporting a result."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -670,7 +683,12 @@ class McpTestToolGroup(BaseToolGroup):
                 "partial (any blocked). A run explicitly finalised as "
                 "'closed' by test.run_complete keeps that status; its result "
                 "rows are still recorded. A single result object is accepted "
-                "in place of a one-element array."
+                "in place of a one-element array. This writes the run's "
+                "TestRunResult rows only: the TestCase's own "
+                "'execution_status' (test.get) is a separate manual "
+                "annotation and stays unchanged, while run_list/"
+                "workspace.get_context count pass/fail from the latest "
+                "result."
             ),
             "inputSchema": {
                 "type": "object",

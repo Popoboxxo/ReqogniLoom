@@ -362,8 +362,12 @@ export default function Documents(): JSX.Element {
           onReactivate={reactivate}
           onTransitionComplete={refreshAll}
           actionError={actionError}
-          onReload={() => {
-            void readingQuery.refetch();
+          onReload={async () => {
+            const result = await readingQuery.refetch();
+            // #2080: only drop the conflicted draft once the refetch actually
+            // delivered fresh reading data; a failed refetch keeps the local
+            // value and the conflict marker.
+            return result.isSuccess && result.data !== undefined;
           }}
         />
       </>

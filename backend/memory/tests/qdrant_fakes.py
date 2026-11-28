@@ -500,6 +500,7 @@ class FakeQdrantClient:
         limit: int = 5,
         with_payload: bool = True,
         prefetch: list | None = None,
+        using: str | None = None,
     ) -> Any:
         """Hybrid-capable ``query_points``.
 
@@ -520,6 +521,7 @@ class FakeQdrantClient:
             query_filter=query_filter,
             limit=limit,
             prefetch=prefetch,
+            using=using,
         )
         store = [
             point for point in self.collections.get(collection_name, [])

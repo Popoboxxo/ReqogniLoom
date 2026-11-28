@@ -964,10 +964,20 @@ class QdrantVectorPort:
         client = self._ensure_client()
         try:
             if hasattr(client, "query_points"):
+                # #2088: the v2 artifact collection declares its dense vector
+                # as the NAMED vector ``dense`` (``SPARSE_VECTOR_NAME`` is the
+                # second one). A plain dense query MUST name it: without
+                # ``using`` Qdrant answers 400 "Not existing vector name" for
+                # the implicit default vector, which surfaced as an opaque
+                # ``UnexpectedResponse`` and a 503 on every similarity
+                # endpoint while the health check (collection info only) still
+                # said "healthy". A fusion query (``prefetch`` set) carries the
+                # names in its legs and takes no ``using``.
                 response = client.query_points(
                     collection_name=name,
                     query=query,
                     prefetch=prefetch,
+                    using=None if prefetch is not None else DENSE_VECTOR_NAME,
                     query_filter=query_filter,
                     limit=limit,
                     with_payload=True,
@@ -977,10 +987,12 @@ class QdrantVectorPort:
                 # The legacy ``search`` API cannot express a prefetch/fusion
                 # query; a client that old cannot serve hybrid search.
                 raise QdrantBackendUnavailableError("qdrant_client is too old for hybrid search")
+            # #2088: same named-vector contract on the legacy API, which takes
+            # the name as the first tuple component instead of ``using``.
             return list(
                 client.search(
                     collection_name=name,
-                    query_vector=query,
+                    query_vector=(DENSE_VECTOR_NAME, query),
                     query_filter=query_filter,
                     limit=limit,
                     with_payload=True,

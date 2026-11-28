@@ -34,7 +34,9 @@ export type DocumentDraftStatus =
   | "dirty"
   | "saving"
   | "conflict"
-  | "error";
+  | "error"
+  /** The user asked to reload the server value; the refetch is in flight. */
+  | "reloading";
 
 /** How the surface saves: per field, or collected into one batch. */
 export type DocumentSaveMode = "immediate" | "batch";
@@ -66,6 +68,16 @@ export interface DocumentDraftsResult {
   drafts: DocumentDraft[];
   setDraft: (field: string, value: unknown) => void;
   resetField: (field: string) => void;
+  /**
+   * Replace a conflicted draft with the server's current value (#2080): the
+   * refetch runs FIRST, the draft is dropped only once fresh server state is
+   * actually there. A failed/slow refetch keeps the local value and the
+   * conflict marker instead of silently reverting to the stale reading.
+   */
+  reloadField: (
+    field: string,
+    reload: () => Promise<boolean> | boolean
+  ) => Promise<void>;
   isDirty: boolean;
   saveField: (field: string) => Promise<void>;
   /** Fields currently in conflict, in reading order. */
@@ -249,6 +261,50 @@ export function useDocumentDrafts(
     setSaveError(null);
   }, [commit]);
 
+  const reloadField = useCallback(
+    async (field: string, reload: () => Promise<boolean> | boolean) => {
+      const draft = draftsRef.current[field];
+      if (!draft || draft.status === "reloading") return;
+
+      // #2080: keep the local value visible (and the conflict note in place)
+      // while the refetch is in flight. Dropping the draft here -- as the
+      // pre-fix handler did -- makes the input fall back to the *stale*
+      // reading prop, so a slow or failed reload looks like a successful one.
+      commit({
+        ...draftsRef.current,
+        [field]: { ...draft, status: "reloading", error: undefined },
+      });
+
+      let fresh: boolean;
+      try {
+        fresh = (await reload()) !== false;
+      } catch {
+        fresh = false;
+      }
+
+      if (fresh) {
+        const next = { ...draftsRef.current };
+        delete next[field];
+        commit(next);
+        return;
+      }
+
+      // The refetch did not deliver fresh server state: restore the conflict
+      // so the user cannot mistake the stale reading for the reload result.
+      const stillThere = draftsRef.current[field];
+      if (!stillThere) return;
+      commit({
+        ...draftsRef.current,
+        [field]: {
+          ...stillThere,
+          status: draft.status === "conflict" ? "conflict" : "error",
+          error: draft.error,
+        },
+      });
+    },
+    [commit]
+  );
+
   const saveField = useCallback(
     async (field: string) => {
       const draft = draftsRef.current[field];
@@ -293,7 +349,10 @@ export function useDocumentDrafts(
 
   const saveAll = useCallback(async () => {
     const pending = Object.values(draftsRef.current).filter(
-      (draft) => draft.status !== "clean" && draft.status !== "saving"
+      (draft) =>
+        draft.status !== "clean" &&
+        draft.status !== "saving" &&
+        draft.status !== "reloading"
     );
     if (pending.length === 0) return;
 
@@ -405,10 +464,13 @@ export function useDocumentDrafts(
     drafts: orderedDrafts,
     setDraft,
     resetField,
+    reloadField,
     isDirty: dirty.length > 0,
     saveField,
     conflicts: dirty
-      .filter((draft) => draft.status === "conflict")
+      .filter(
+        (draft) => draft.status === "conflict" || draft.status === "reloading"
+      )
       .map((draft) => draft.field),
     dirtyCount: dirty.length,
     draftFor,

@@ -12,7 +12,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { ReactNode } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "../i18n/index";
@@ -131,7 +131,7 @@ function makeReading(
 
 function renderView(
   reading: DocumentReading,
-  onReload: () => void = vi.fn()
+  onReload: () => Promise<boolean | void> | boolean | void = vi.fn()
 ) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -141,16 +141,18 @@ function renderView(
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     );
   }
-  return render(
+  const ui = (next: DocumentReading) => (
     <Wrapper>
       <DocumentReadingView
         document={DOCUMENT}
-        reading={reading}
+        reading={next}
         onEdit={vi.fn()}
         onReload={onReload}
       />
     </Wrapper>
   );
+  const result = render(ui(reading));
+  return { ...result, ui };
 }
 
 describe("DocumentFieldEditor (R5.1)", () => {
@@ -260,6 +262,100 @@ describe("DocumentFieldEditor (R5.1)", () => {
 
     await user.click(screen.getByTestId("document-field-reload-title"));
     expect(onReload).toHaveBeenCalled();
+  });
+
+  it("reload_keeps_the_draft_until_the_refetch_delivers_fresh_data", async () => {
+    // #2080: the old handler dropped the draft *before* the refetch, so a
+    // slow (or failed) reload fell back to the stale reading and looked like
+    // it had adopted the server value. The draft now survives until the
+    // refetch resolves, then the fresh server value replaces it.
+    updateField.mockRejectedValue({
+      error: {
+        code: "PRECONDITION_FAILED",
+        message: "The document changed in the meantime.",
+        details: [],
+      },
+    });
+    let resolveReload!: (fresh: boolean) => void;
+    const onReload = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveReload = resolve;
+        })
+    );
+    const user = userEvent.setup();
+    const { rerender, ui } = renderView(makeReading(), onReload);
+
+    const input = screen.getByTestId("document-field-input-title");
+    await user.type(input, "Local marker");
+    await user.click(screen.getByTestId("document-field-save-title"));
+    await screen.findByTestId("document-field-conflict-title");
+
+    await user.click(screen.getByTestId("document-field-reload-title"));
+    // In flight: the local value stays visible and the control is busy.
+    expect(screen.getByTestId("document-field-input-title")).toHaveValue(
+      "Architecture guideLocal marker"
+    );
+    expect(screen.getByTestId("document-field-reload-title")).toBeDisabled();
+    expect(onReload).toHaveBeenCalledTimes(1);
+
+    // The refetch resolves with the external server title.
+    rerender(
+      ui(
+        makeReading({
+          title: "External marker",
+          version: 5,
+          fields: EDITABLE_FIELDS.map((field) =>
+            field.name === "title"
+              ? { ...field, value: "External marker" }
+              : field
+          ),
+        })
+      )
+    );
+    await act(async () => {
+      resolveReload(true);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("document-field-input-title")).toHaveValue(
+        "External marker"
+      );
+    });
+    expect(
+      screen.queryByTestId("document-field-conflict-title")
+    ).not.toBeInTheDocument();
+  });
+
+  it("failed_reload_keeps_the_conflict_and_the_local_value", async () => {
+    // #2080: a reload that cannot deliver fresh data must not silently revert
+    // to the stale reading and hide the conflict.
+    updateField.mockRejectedValue({
+      error: {
+        code: "PRECONDITION_FAILED",
+        message: "The document changed in the meantime.",
+        details: [],
+      },
+    });
+    const onReload = vi.fn().mockResolvedValue(false);
+    const user = userEvent.setup();
+    renderView(makeReading(), onReload);
+
+    const input = screen.getByTestId("document-field-input-title");
+    await user.type(input, "Local marker");
+    await user.click(screen.getByTestId("document-field-save-title"));
+    await screen.findByTestId("document-field-conflict-title");
+
+    await user.click(screen.getByTestId("document-field-reload-title"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("document-field-conflict-title")
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("document-field-input-title")).toHaveValue(
+      "Architecture guideLocal marker"
+    );
   });
 
   it("frozen_field_is_disabled_with_reason", () => {

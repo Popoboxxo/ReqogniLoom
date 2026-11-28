@@ -6,12 +6,14 @@ What it guards
 ``docs/agent-templates/tool-manifest.json`` is the single source of truth for
 the MCP surface: it is regenerated via ``manage.py export_tool_manifest`` and is
 what every other gate (``backend/mcp_server/tests/test_tool_manifest_drift.py``,
-the plugin generators under ``dist/``, the shipped agent templates) reads. Three
+the plugin generators under ``dist/``, the shipped agent templates) reads. Four
 files document that count as plain prose:
 
 * ``.meta-config/project.yaml`` — the agent-meta *source* (the only place a
   number in the managed block can be corrected),
-* ``AGENTS.md`` and ``CLAUDE.md`` — generated artefacts of that source.
+* ``AGENTS.md`` and ``CLAUDE.md`` — generated artefacts of that source,
+* ``README.md`` — the public English surface, which drifted independently
+  before (#2090) and therefore joined the guard.
 
 Why it exists (issue #1104)
 ---------------------------
@@ -82,23 +84,40 @@ PROJECT_YAML_REL = ".meta-config/project.yaml"
 AGENTS_MD_REL = "AGENTS.md"
 CLAUDE_MD_REL = "CLAUDE.md"
 
+#: The public README documents the same surface for a different audience and
+#: has drifted independently before (#2090). It spells the counts in English
+#: ("50 tool-group prefixes", "314 individual tools"), which the extraction
+#: rules below accept.
+README_MD_REL = "README.md"
+
 #: Every file this guard ties to the manifest's ``tool_count``, in report order.
-DOCUMENTED_FILES = (PROJECT_YAML_REL, AGENTS_MD_REL, CLAUDE_MD_REL)
+DOCUMENTED_FILES = (
+    PROJECT_YAML_REL,
+    AGENTS_MD_REL,
+    CLAUDE_MD_REL,
+    README_MD_REL,
+)
 
 #: A documented tool count is a number that *immediately* precedes the word
-#: "Tools" ("227 Tools", "228 Tools in 36 Gruppen"). A group count such as
+#: "Tools"/"tools" ("227 Tools", "314 individual tools"). A group count such as
 #: "36 Tool-Gruppen-Präfixe" never matches — there the digits are followed by
 #: "Tool-", not by "Tools".
-TOOL_COUNT_RE = re.compile(r"(\d+)\s+Tools\b")
+TOOL_COUNT_RE = re.compile(r"(\d+)\s+(?:individual\s+)?tools\b", re.IGNORECASE)
+
+#: "N individual tools" is unambiguous on its own (only the catalogue is ever
+#: described that way), so the README form does not need a nearby marker.
+UNAMBIGUOUS_TOOL_COUNT_RE = re.compile(
+    r"(\d+)\s+individual\s+tools\b", re.IGNORECASE
+)
 
 #: A "N Tools" phrase only names the *MCP catalog size* when one of these
-#: catalog markers sits right in front of it. They are the three shapes every
-#: real occurrence uses: "… Tool-Gruppen-Präfixe, 228 Tools",
-#: "… MCP-Tool-Registry: 228 Tools …", "… MCP-Katalog 228 Tools …". The marker
-#: requirement keeps unrelated "N Tools" sentences ("Group 1: Requirements
-#: (11 Tools)", "ai_derivation.* (6 Tools)") from being read as a second,
-#: conflicting catalog size.
-TOOL_COUNT_MARKERS_RE = re.compile(r"Tool-Gruppen-Präfix|Tool-Registry|MCP-Katalog")
+#: catalog markers sits right in front of it. They cover the German generated
+#: files ("… Tool-Gruppen-Präfixe, 228 Tools", "MCP-Katalog 228 Tools") and the
+#: English README ("50 tool-group prefixes, 314 tools", "MCP Server …").
+TOOL_COUNT_MARKERS_RE = re.compile(
+    r"Tool-Gruppen-Präfix|Tool-Registry|MCP-Katalog|tool-group\s+prefix|MCP\s+Server",
+    re.IGNORECASE,
+)
 
 #: How far in front of a "N Tools" match a catalog marker may sit. 80 chars
 #: comfortably covers the longest real phrasing ("36 Tool-Gruppen-Präfixen und
@@ -106,13 +125,14 @@ TOOL_COUNT_MARKERS_RE = re.compile(r"Tool-Gruppen-Präfix|Tool-Registry|MCP-Kata
 TOOL_COUNT_CONTEXT_WINDOW = 80
 
 #: A documented *prefix* (tool-group) count is a number immediately followed by
-#: "Tool-Gruppen-Präfix…" ("39 Tool-Gruppen-Präfixe", "39 Tool-Gruppen-Präfixen")
-#: or by "Gruppen" ("248 Tools in 39 Gruppen", "248 Tools, 39 Gruppen"). The
+#: "Tool-Gruppen-Präfix…" ("39 Tool-Gruppen-Präfixe", "39 Tool-Gruppen-Präfixen"),
+#: by "tool-group prefix…" in the English README ("50 tool-group prefixes"), or
+#: by "Gruppen" ("248 Tools in 39 Gruppen", "248 Tools, 39 Gruppen"). The
 #: tool-count rule above is disjoint from this one: "39 Tool-" is not "39 Tools".
-#: Guarding the prefix count closes the exact #1104 observation — a bare number
-#: drifted 31→35→39 unnoticed while the manifest moved on, because a number
-#: reveals nothing; the list (and its count) is what stays honest.
-PREFIX_COUNT_RE = re.compile(r"(\d+)\s+(?:Tool-Gruppen-Präfix\w*|Gruppen)\b")
+PREFIX_COUNT_RE = re.compile(
+    r"(\d+)\s+(?:Tool-Gruppen-Präfix\w*|tool-group\s+prefix\w*|Gruppen)\b",
+    re.IGNORECASE,
+)
 
 
 def _statement_counts(statement: str) -> Set[int]:
@@ -121,7 +141,10 @@ def _statement_counts(statement: str) -> Set[int]:
     A statement is one line of a markdown file, resp. one line of a parsed
     (and therefore line-folded) YAML string value.
     """
-    counts: Set[int] = set()
+    counts: Set[int] = {
+        int(match.group(1))
+        for match in UNAMBIGUOUS_TOOL_COUNT_RE.finditer(statement)
+    }
     for match in TOOL_COUNT_RE.finditer(statement):
         window = statement[max(0, match.start() - TOOL_COUNT_CONTEXT_WINDOW):match.start()]
         if TOOL_COUNT_MARKERS_RE.search(window):
@@ -426,6 +449,7 @@ def test_missing_documented_count_fails() -> None:
             PROJECT_YAML_REL: "variables:\n  PROJECT_NAME: ReqogniLoom\n",
             AGENTS_MD_REL: "# Agents\n\nNo tool count documented here.\n",
             CLAUDE_MD_REL: "# Claude\n\nNo tool count documented here.\n",
+            README_MD_REL: "# ReqogniLoom\n\nNo tool count documented here.\n",
         },
     )
     assert len(drift) == len(DOCUMENTED_FILES), (
@@ -448,6 +472,23 @@ def test_unrelated_tool_phrases_are_not_tool_counts() -> None:
     assert documented_tool_counts(text) == {228}, (
         "Only the catalog count is a documented tool count; group-level and "
         f"family-level counts must be ignored, got {documented_tool_counts(text)}."
+    )
+
+
+def test_readme_english_counts_are_recognised() -> None:
+    """The README spells the catalogue in English (#2090) — read it anyway."""
+    text = (
+        "- **MCP Server** — native server; 50 tool-group prefixes (admin, adr), "
+        "314 individual tools — measured from `tools/list`.\n"
+        "ReqogniLoom ships **50 tool-group prefixes** (314 individual tools — "
+        "see the manifest).\n"
+    )
+    assert documented_tool_counts(text) == {314}, (
+        f"English tool counts must be read, got {documented_tool_counts(text)}."
+    )
+    assert documented_prefix_counts(text) == {50}, (
+        f"English tool-group prefix counts must be read, got "
+        f"{documented_prefix_counts(text)}."
     )
 
 

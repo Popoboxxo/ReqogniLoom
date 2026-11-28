@@ -69,7 +69,8 @@ export function DocumentFieldEditor({
   const lockedCode = field.locked?.code ?? null;
   const isFrozen = frozen || lockedCode === FROZEN_CODE;
   const isReadOnly = !isFrozen && (!field.editable || lockedCode !== null);
-  const isConflict = draft?.status === "conflict";
+  const isConflict = draft?.status === "conflict" || draft?.status === "reloading";
+  const isReloading = draft?.status === "reloading";
   const isError = draft?.status === "error";
   const isSaving = draft?.status === "saving";
   const isDirty = draft?.status === "dirty";
@@ -192,9 +193,13 @@ export function DocumentFieldEditor({
             type="button"
             className="btn-ghost"
             data-testid={`document-field-reload-${field.name}`}
+            disabled={isReloading}
+            aria-busy={isReloading || undefined}
             onClick={() => onReload(field.name)}
           >
-            {t("documents.reloadField")}
+            {isReloading
+              ? t("documents.reloading")
+              : t("documents.reloadField")}
           </button>
         </div>
       )}

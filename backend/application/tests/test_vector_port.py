@@ -839,6 +839,8 @@ class TestQdrantHybridQuery:
         # Readers address the alias, never a versioned collection name.
         assert request["collection_name"] == alias
         assert [leg.using for leg in request["prefetch"]] == ["dense", "bm25"]
+        # A fusion query names its legs and must not carry a top-level `using`.
+        assert request["using"] is None
         assert request["prefetch"][0].query == [1.0, 0.0]
         assert request["prefetch"][1].query.model == "qdrant/bm25"
         assert request["prefetch"][1].query.text == "mobile push"
@@ -865,6 +867,11 @@ class TestQdrantHybridQuery:
         request = [kwargs for method, kwargs in client.calls if method == "query_points"][0]
         assert request["prefetch"] is None
         assert request["query"] == [1.0, 0.0]
+        # #2088: the v2 collection declares its only dense vector as the NAMED
+        # vector ``dense``. A dense-only query that omits ``using`` addresses
+        # the (non-existent) default vector and Qdrant answers 400, which the
+        # similarity endpoints surfaced as a 503.
+        assert request["using"] == "dense"
         assert [hit.id for hit in hits] == [req.id]
 
     @pytest.mark.django_db(transaction=True)
