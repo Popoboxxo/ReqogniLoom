@@ -527,3 +527,23 @@ describe("MemoryPage", () => {
     });
   });
 });
+
+  it("keeps submit enabled and explains empty content (#2062)", async () => {
+    const user = userEvent.setup();
+    render(<MemoryPage />);
+    await screen.findByTestId("memory-row-w1");
+
+    await user.click(screen.getByTestId("memory-add-fact-btn"));
+    const dialog = await screen.findByTestId("memory-add-fact-dialog");
+    const submit = within(dialog).getByTestId("memory-add-submit");
+    expect(submit).not.toBeDisabled();
+
+    await user.click(submit);
+
+    expect(within(dialog).getByTestId("memory-add-error")).toBeInTheDocument();
+    expect(within(dialog).getByTestId("memory-add-content")).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(memoryApi.createWorkspaceEntry).not.toHaveBeenCalled();
+  });

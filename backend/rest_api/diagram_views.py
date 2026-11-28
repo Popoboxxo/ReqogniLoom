@@ -232,7 +232,8 @@ class DiagramViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 "workspace_id",
                 type=str,
                 location=OpenApiParameter.QUERY,
-                description="Restrict the list to one workspace.",
+                required=True,
+                description="Restrict the list to one workspace (required).",
             ),
         ],
         responses={

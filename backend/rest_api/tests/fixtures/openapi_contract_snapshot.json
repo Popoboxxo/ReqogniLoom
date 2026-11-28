@@ -471,9 +471,7 @@
       "path": "/api/v1/adrs/{id}/transitions/",
       "operationId": "adrs_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -858,9 +856,7 @@
       "path": "/api/v1/architecture/{id}/transitions/",
       "operationId": "architecture_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -2272,9 +2268,7 @@
       "path": "/api/v1/change-requests/{id}/transitions/",
       "operationId": "change_requests_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -2452,9 +2446,7 @@
       "path": "/api/v1/changerequests/{id}/transitions/",
       "operationId": "changerequests_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -2856,9 +2848,7 @@
       "path": "/api/v1/diagrams/{id}/transitions/",
       "operationId": "diagrams_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -3126,9 +3116,7 @@
       "path": "/api/v1/documents/{id}/transitions/",
       "operationId": "documents_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -3419,9 +3407,7 @@
       "path": "/api/v1/glossary/{id}/transitions/",
       "operationId": "glossary_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -3631,9 +3617,7 @@
       "path": "/api/v1/goals/{id}/transitions/",
       "operationId": "goals_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -4020,9 +4004,7 @@
       "path": "/api/v1/icds/{id}/transitions/",
       "operationId": "icds_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -4425,9 +4407,7 @@
       "path": "/api/v1/issues/{id}/transitions/",
       "operationId": "issues_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -4801,9 +4781,7 @@
       "path": "/api/v1/main-goals/{id}/transitions/",
       "operationId": "main_goals_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -5049,9 +5027,7 @@
       "path": "/api/v1/maingoals/{id}/transitions/",
       "operationId": "maingoals_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -5682,9 +5658,7 @@
       "path": "/api/v1/needs/{id}/transitions/",
       "operationId": "needs_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -6525,9 +6499,7 @@
       "path": "/api/v1/requirements/{id}/transitions/",
       "operationId": "requirements_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -6770,9 +6742,7 @@
       "path": "/api/v1/risks/{id}/transitions/",
       "operationId": "risks_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -7525,9 +7495,7 @@
       "path": "/api/v1/test-cases/{id}/transitions/",
       "operationId": "test_cases_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -7703,7 +7671,7 @@
     {
       "method": "get",
       "path": "/api/v1/test-runs/{id}/results/",
-      "operationId": "test_runs_results_retrieve",
+      "operationId": "test_runs_results_list",
       "requestContentTypes": [],
       "responseCodes": [
         "200",
@@ -7726,7 +7694,7 @@
         "multipart/form-data"
       ],
       "responseCodes": [
-        "200",
+        "201",
         "400",
         "401",
         "403",
@@ -7922,9 +7890,7 @@
       "path": "/api/v1/testcases/{id}/transitions/",
       "operationId": "testcases_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -8100,7 +8066,7 @@
     {
       "method": "get",
       "path": "/api/v1/testruns/{id}/results/",
-      "operationId": "testruns_results_retrieve",
+      "operationId": "testruns_results_list",
       "requestContentTypes": [],
       "responseCodes": [
         "200",
@@ -8123,7 +8089,7 @@
         "multipart/form-data"
       ],
       "responseCodes": [
-        "200",
+        "201",
         "400",
         "401",
         "403",
@@ -9219,9 +9185,7 @@
       "path": "/api/v1/work-items/{id}/transitions/",
       "operationId": "work_items_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "200",
@@ -9379,9 +9343,7 @@
       "path": "/api/v1/workflow-defaults/{item_type}/{preset}/transitions/",
       "operationId": "workflow_defaults_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "201",
@@ -9589,9 +9551,7 @@
       "path": "/api/v1/workflows/definition/transitions/",
       "operationId": "workflows_definition_transitions_create",
       "requestContentTypes": [
-        "application/json",
-        "application/x-www-form-urlencoded",
-        "multipart/form-data"
+        "application/json"
       ],
       "responseCodes": [
         "201",
@@ -11631,6 +11591,7 @@
     "PaginatedTenantUserList",
     "PaginatedTestCaseList",
     "PaginatedTestRunList",
+    "PaginatedTestRunResultList",
     "PaginatedTraceLinkList",
     "PaginatedWorkItemList",
     "PaginatedWorkflowHistoryEntryList",
@@ -11768,6 +11729,8 @@
     "TestCaseRequest",
     "TestRun",
     "TestRunRequest",
+    "TestRunResult",
+    "TestRunResultRequest",
     "ThemePalette",
     "ThemePaletteList",
     "ThemePaletteWriteRequest",
@@ -11827,5 +11790,5 @@
     "_SearchHit",
     "_SearchResponse"
   ],
-  "securitySchemes": "{\"BearerAuth\": {\"bearerFormat\": \"JWT\", \"description\": \"Bearer token authentication. Use 'Authorization: Bearer <token>' header. Two credentials are accepted, and the header order is the resolution order: 'X-API-Key: reqlo_\\u2026' takes precedence over 'Authorization: Bearer', which in turn takes precedence over the httpOnly reqogniloom_access cookie. A credential that is present but INVALID is rejected (401, code 'invalid_api_key') rather than skipped in favour of the next one \\u2014 a present-but-wrong X-API-Key is not ignored, and the Bearer credential is then never evaluated. An EMPTY X-API-Key header counts as absent. A reqlo_-prefixed key sent as 'Authorization: Bearer <key>' is a separate transport and keeps the generic catalogue text.\", \"scheme\": \"bearer\", \"type\": \"http\"}, \"cookieAuth\": {\"description\": \"httpOnly access-token cookie issued by ``POST /api/v1/auth/login/``. It is the lowest-precedence credential: ``X-API-Key`` and then ``Authorization: Bearer`` win when present.\", \"in\": \"cookie\", \"name\": \"reqogniloom_access\", \"type\": \"apiKey\"}}"
+  "securitySchemes": "{\"BearerAuth\": {\"type\": \"http\", \"scheme\": \"bearer\", \"bearerFormat\": \"JWT\", \"description\": \"Bearer token authentication. Use 'Authorization: Bearer <token>' header. Two credentials are accepted, and the header order is the resolution order: 'X-API-Key: reqlo_\\u2026' takes precedence over 'Authorization: Bearer', which in turn takes precedence over the httpOnly reqogniloom_access cookie. A credential that is present but INVALID is rejected (401, code 'invalid_api_key') rather than skipped in favour of the next one \\u2014 a present-but-wrong X-API-Key is not ignored, and the Bearer credential is then never evaluated. An EMPTY X-API-Key header counts as absent. A reqlo_-prefixed key sent as 'Authorization: Bearer <key>' is a separate transport and keeps the generic catalogue text.\"}, \"cookieAuth\": {\"type\": \"apiKey\", \"in\": \"cookie\", \"name\": \"reqogniloom_access\", \"description\": \"httpOnly access-token cookie issued by ``POST /api/v1/auth/login/``. It is the lowest-precedence credential: ``X-API-Key`` and then ``Authorization: Bearer`` win when present.\"}}"
 }

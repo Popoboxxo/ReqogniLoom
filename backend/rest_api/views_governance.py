@@ -4851,6 +4851,15 @@ class TestRunViewSet(BaseEntityViewSet):
             return _service_error_response(exc, lang)
         return Response(_test_run_to_dict(item))
 
+    @extend_schema(
+        methods=["GET"],
+        responses={200: TestRunResultSerializer(many=True)},
+    )
+    @extend_schema(
+        methods=["POST"],
+        request=TestRunResultSerializer,
+        responses={201: TestRunResultSerializer},
+    )
     @action(detail=True, methods=["get", "post"])
     def results(self, request: Request, pk: str, **kwargs: Any) -> Response:
         """List or append per-TestCase execution results for a TestRun.

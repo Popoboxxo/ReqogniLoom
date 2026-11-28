@@ -66,7 +66,9 @@ export function AddMemoryFactDialog({
   const [error, setError] = useState<string | null>(null);
 
   const targetArtifactId = fixedArtifactId ?? artifactId;
-  const canSubmit = !isSaving && content.trim().length > 0;
+  // #2062: never disable submit on empty input — validate on click and
+  // surface the reason, matching /glossary and /goals.
+  const canSubmit = !isSaving;
 
   const handleSubmit = async (): Promise<void> => {
     const trimmed = content.trim();
@@ -141,6 +143,8 @@ export function AddMemoryFactDialog({
           className={styles.textarea}
           rows={3}
           value={content}
+          aria-invalid={Boolean(error) && !content.trim()}
+          aria-describedby={error ? "memory-add-error" : undefined}
           onChange={(e) => setContent(e.target.value)}
           placeholder={t(
             "memory.add.contentPlaceholder",
@@ -188,7 +192,12 @@ export function AddMemoryFactDialog({
       )}
 
       {error && (
-        <p role="alert" data-testid="memory-add-error" className={styles.error}>
+        <p
+          id="memory-add-error"
+          role="alert"
+          data-testid="memory-add-error"
+          className={styles.error}
+        >
           {error}
         </p>
       )}
