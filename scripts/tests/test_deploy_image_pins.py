@@ -148,3 +148,19 @@ def test_honcho_runtime_patch_is_wired_into_both_engine_services() -> None:
         "already applied",
     ):
         assert anchor in text, f"patch script lost anchor {anchor!r}"
+
+
+def test_first_party_image_tags_match_version() -> None:
+    """#2076: the compose tag must equal VERSION, not the previous release."""
+    version = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
+    paths = [REPO_ROOT / "deploy" / "docker-compose.yml", REPO_ROOT / "deploy" / "docker-compose.minimal.yml"]
+    for path in paths:
+        for value in _image_values(path):
+            if FIRST_PARTY_PREFIX not in value:
+                continue
+            reference = value.split("@", 1)[0]
+            default = re.search(r"\$\{REQOGNILOOM_VERSION:-([^}]+)\}", reference)
+            tag = default.group(1) if default else reference.rsplit(":", 1)[-1]
+            assert tag == version, (
+                f"{path.name}: first-party image tagged {tag!r}, VERSION is {version!r} (#2076)"
+            )
