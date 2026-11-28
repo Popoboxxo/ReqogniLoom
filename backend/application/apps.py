@@ -88,6 +88,17 @@ class ApplicationConfig(AppConfig):
 
         get_webhook_dispatcher().subscribe_to_events()
 
+        # S4.10 (ADR-033 "Policy-Keys und Ebenen", spec §4.2.6): the structured
+        # change-impact analysis parameters are an organisational policy keyed on
+        # the Q1 preference store (global + workspace, no user level). Registered
+        # here because ``application`` owns ``change_impact_policy``; the idiom
+        # is the ``traceability`` one.
+        from application.change_impact_policy import (
+            register_change_impact_policy_keys,
+        )
+
+        register_change_impact_policy_keys()
+
         # Plan A, T-A2-4: keep the Qdrant artifact vectors in step with the
         # outbox. Conditional by design -- on the default ``pgvector`` backend
         # ``register_projector_on_event_bus()`` subscribes nothing, so the hook

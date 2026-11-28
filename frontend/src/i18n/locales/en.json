@@ -3018,6 +3018,8 @@
     "discard": "Discard",
     "empty": "The AI proposed no drafts – there is nothing to review.",
     "rationale": "Rationale",
+    "verificationMethod": "Verification",
+    "acceptanceCriteriaCount": "Acceptance criteria: {{count}}",
     "selectHint": "Select the drafts to be created.",
     "selectDraft": "Select draft {{index}}",
     "caveat": "Created drafts are born with status \"proposed\" and await your approval under \"Reviews\" → \"AI proposals only\".",

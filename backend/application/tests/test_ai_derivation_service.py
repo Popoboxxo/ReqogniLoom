@@ -249,8 +249,15 @@ def test_derive_requirements_from_need_returns_drafts(auth_context, workspace):
             "description",
             "rationale",
             "suggested_parent_id",
+            # S1 (REQ-217): structured criteria + method + completeness marker.
+            "acceptance_criteria",
+            "verification_method",
+            "incomplete_fields",
         }
         assert draft["suggested_parent_id"] == str(need.id)
+        assert draft["acceptance_criteria"]
+        assert draft["verification_method"] == "Test"
+        assert draft["incomplete_fields"] == []
 
 
 def test_derive_requirements_formats_prompt(auth_context, workspace, monkeypatch):
@@ -469,7 +476,14 @@ def test_decompose_next_level_returns_drafts(auth_context, workspace):
             "description",
             "rationale",
             "suggested_arch_element_id",
+            # S1 (REQ-217): structured criteria + method + completeness marker.
+            "acceptance_criteria",
+            "verification_method",
+            "incomplete_fields",
         }
+        assert draft["acceptance_criteria"]
+        assert draft["verification_method"] == "Test"
+        assert draft["incomplete_fields"] == []
     # The mock tags the first draft with an available architecture element id.
     assert result["drafts"][0]["suggested_arch_element_id"] == str(arch.id)
 

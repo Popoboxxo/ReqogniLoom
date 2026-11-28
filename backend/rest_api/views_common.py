@@ -84,6 +84,19 @@ from application.base import (
     WorkflowFrozenError,
     WorkflowInitializationFailedError,
     AnchorsPresentError,
+    # Design §4.5 (plan S5.3): the ten structured change-impact gate refusals.
+    # Same exact-type rule as the entries below — without their own entries a
+    # gate refusal escapes as the generic 500 instead of the documented 409.
+    ChangeImpactIncompleteError,
+    ChangeImpactMissingError,
+    ChangeImpactOpenFindingsError,
+    ChangeImpactPolicyForbiddenError,
+    ChangeImpactPolicyUnavailableError,
+    ChangeImpactRateLimitedError,
+    ChangeImpactRunningError,
+    ChangeImpactStaleError,
+    ChangeImpactTimeoutError,
+    ChangeSetFrozenError,
     DocumentGateFailedError,
     FieldFrozenError,
     ProducerContextRequiredError,
@@ -542,6 +555,20 @@ _EXC_TO_HTTP: dict[type, int] = {
     # deliberately forwarded (it names no cause, no ids and no internals), so
     # this type is NOT added to _MESSAGE_NOT_SURFACEABLE.
     WorkflowInitializationFailedError: status.HTTP_503_SERVICE_UNAVAILABLE,
+    # Design §4.5 / plan S5.3: the structured change-impact gate. Every gate
+    # refusal is a rejected precondition on a well-formed request → 409 (same
+    # precedent as DocumentGateFailedError); only a policy-ceiling violation is
+    # a request defect (400) and only the analyze rate limit is 429.
+    ChangeImpactMissingError: status.HTTP_409_CONFLICT,
+    ChangeImpactStaleError: status.HTTP_409_CONFLICT,
+    ChangeImpactOpenFindingsError: status.HTTP_409_CONFLICT,
+    ChangeImpactIncompleteError: status.HTTP_409_CONFLICT,
+    ChangeImpactRunningError: status.HTTP_409_CONFLICT,
+    ChangeImpactTimeoutError: status.HTTP_409_CONFLICT,
+    ChangeImpactPolicyForbiddenError: status.HTTP_400_BAD_REQUEST,
+    ChangeImpactPolicyUnavailableError: status.HTTP_409_CONFLICT,
+    ChangeSetFrozenError: status.HTTP_409_CONFLICT,
+    ChangeImpactRateLimitedError: status.HTTP_429_TOO_MANY_REQUESTS,
 }
 
 
@@ -620,6 +647,20 @@ _EXC_TO_CODE: dict[type, str] = {
     # P2.13: distinct code so a client can tell "the artifact was not created,
     # retry" apart from every other 503/validation answer.
     WorkflowInitializationFailedError: "WORKFLOW_INIT_FAILED",
+    # Design §4.5 / plan S5.3: one stable code per gate refusal so a client can
+    # branch on the reason (run the analysis / re-run / resolve findings / wait
+    # / raise the policy). The service message names no internals, so it is
+    # forwarded unchanged.
+    ChangeImpactMissingError: "CHANGE_IMPACT_MISSING",
+    ChangeImpactStaleError: "CHANGE_IMPACT_STALE",
+    ChangeImpactOpenFindingsError: "CHANGE_IMPACT_OPEN_FINDINGS",
+    ChangeImpactIncompleteError: "CHANGE_IMPACT_INCOMPLETE",
+    ChangeImpactRunningError: "CHANGE_IMPACT_RUNNING",
+    ChangeImpactTimeoutError: "CHANGE_IMPACT_TIMEOUT",
+    ChangeImpactPolicyForbiddenError: "CHANGE_IMPACT_POLICY_FORBIDDEN",
+    ChangeImpactPolicyUnavailableError: "CHANGE_IMPACT_POLICY_UNAVAILABLE",
+    ChangeSetFrozenError: "CHANGE_SET_FROZEN",
+    ChangeImpactRateLimitedError: "CHANGE_IMPACT_RATE_LIMITED",
 }
 
 

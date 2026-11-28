@@ -10,6 +10,9 @@ belegt gegen den Quellcode (nicht gegen die Eigenangaben des Plans).
 
 ## Oberste Ebene — offene Arbeiten
 
+## [2026-11-28-change-artefakt-wirkketten.md](2026-11-28-change-artefakt-wirkketten.md)
+**Draft — two review rounds complete, closure fixes folded in, final verification pending before G0; no task started.** Slices S0–S7 (~20 person-days): S1 structured `criteria-list` acceptance criteria + verification method in the derivations (P1-2), S2 the `change_request.impact_context` read with paging/audit gating (P1-3), S3 persisted Run/Finding/Chain models with constraints/RLS and a `persistence/0158` migration, S4 a deterministic content-fingerprint effect-chain engine plus hierarchy union, global/workspace policy and trigger modes, S5 the extended-rigor gate as a shared workflow precondition, finding/chain dispositions and deterministic summary, S6 a minimal CR detail view with explicit role/state/i18n contracts, S7 tool manifest, REST/MCP surface and rollout. Review record: [`../../reviews/2026-11-28-change-artefakt-wirkketten-review.md`](../../reviews/2026-11-28-change-artefakt-wirkketten-review.md). Spec: [`../specs/2026-11-28-change-artefakt-wirkketten-design.md`](../specs/2026-11-28-change-artefakt-wirkketten-design.md).
+
 ## [2026-11-21-listen-modus-alle-clients-draft.md](2026-11-21-listen-modus-alle-clients-draft.md)
 **Draft — not executable, no tasks.** Work packages AP0–AP7 and gates G0–G3 for the listen mode in all clients: probe runs per client first (AP0), then the server core `suggestion.capture`, a shared relay with the conformance suite, adapters for Claude Code, Hermes (migration), OpenCode, Codex, Kimi, Antigravity, and documentation and capability matrix. Blocked on decisions D1–D11 (rights model for capture, what is captured, switch placement, raw-text retention) and on the probe results. Spec: [`../specs/2026-11-21-listen-modus-alle-clients-design.md`](../specs/2026-11-21-listen-modus-alle-clients-design.md).
 

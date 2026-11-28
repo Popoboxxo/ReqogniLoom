@@ -617,13 +617,22 @@ def write_mcp_audit(
 # ---------------------------------------------------------------------------
 
 
-def map_tool_exception(exc: Exception) -> tuple[str, str] | None:
-    """Map a known domain exception to ``(error_code, message)``.
+def map_tool_exception(
+    exc: Exception,
+) -> tuple[str, str] | tuple[str, str, dict[str, Any]] | None:
+    """Map a known domain exception to ``(error_code, message[, details])``.
 
     Central mapping for every tool group (#1663, #1661, N2-N4): a domain
     validation, not-found, permission, optimistic-lock or integrity failure is
     a caller-actionable answer, not ``INTERNAL_ERROR``. Returning ``None``
     keeps the transport's CWE-209 masking for anything genuinely unexpected.
+
+    Design §4.5 (plan S5.3): a :class:`~application.base.ChangeImpactGateError`
+    subtype returns a **3-tuple** whose third element is its structured
+    ``details`` payload (``reason``, ``run_id``/``status``, ``finding_ids``/
+    ``count``, ``key``). The subtype check runs *before*
+    ``isinstance(exc, ValidationError)`` — otherwise every gate refusal would
+    collapse into ``VALIDATION_ERROR`` and lose both its code and its details.
 
     The imports are deliberately lazy: this module is loaded at MCP start-up,
     while ``application.base`` pulls in the event bus and Django settings.
@@ -631,6 +640,7 @@ def map_tool_exception(exc: Exception) -> tuple[str, str] | None:
     from application.base import (
         AdoptionHashMismatchError,
         AllocationConflictError,
+        ChangeImpactGateError,
         OptimisticLockError,
         WorkflowFrozenError,
     )
@@ -639,6 +649,13 @@ def map_tool_exception(exc: Exception) -> tuple[str, str] | None:
         PermissionDeniedError,
         ValidationError,
     )
+
+    # Design §4.5 / plan S5.3: MUST precede the ValidationError branch below.
+    # The subtype carries its own stable ``error_code`` plus a machine-readable
+    # ``details`` dict, so the caller gets all three (code, message, details).
+    if isinstance(exc, ChangeImpactGateError):
+        code = exc.error_code or "VALIDATION_ERROR"
+        return code, str(exc), dict(getattr(exc, "details", None) or {})
 
     # Issue #1823: an unreachable memory engine is a retryable upstream state,
     # not a server defect -- the same SERVICE_UNAVAILABLE code REST answers
@@ -823,11 +840,18 @@ class BaseToolGroup(ABC):
         except Exception as exc:
             mapped = map_tool_exception(exc)
             if mapped is not None:
-                code, message = mapped
+                # Design §4.5 (plan S5.3): a change-impact refusal comes back
+                # as a 3-tuple carrying its structured ``details``; every other
+                # mapping stays a 2-tuple and keeps its previous shape.
+                if len(mapped) == 3:
+                    code, message, details = mapped
+                else:
+                    code, message = mapped
+                    details = None
                 logger.debug(
                     "Tool %s returned %s: %s", tool_name, code, message
                 )
-                return ToolResult.error(code, message)
+                return ToolResult.error(code, message, details=details)
             # fix #108: str(exc) on an unmapped exception (IntegrityError,
             # ProgrammingError, KeyError, ...) can contain SQL fragments,
             # table/column names, or constraint names. Log the real detail,

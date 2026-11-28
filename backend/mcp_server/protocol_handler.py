@@ -25,6 +25,19 @@ Architecture:
 ADR-L3-MC001-01: TransportAdapter pattern — ProtocolHandler stays transport-agnostic.
 ADR-L3-MC001-02: JSON-RPC validation before ToolRegistry invocation (fail-fast).
 ADR-L3-MC001-03: API-key forwarded to ToolRegistry inside the dispatch frame.
+
+Numeric error-code reservation (``ERROR_CODE_MAP``):
+
+* ``-32700…-32600`` and ``-32603`` are JSON-RPC 2.0 standard codes,
+* ``-32000…-32019`` and ``-32020`` are already assigned (see the map's own
+  comments), so the next free server-defined block starts at **-32021**.
+
+The structured change-impact gate (design §4.5, plan S5.3) needs **ten**
+consecutive codes, so the reserved block is **-32021…-32030** — the spec's
+``-32021…-32027`` sketch was too small for the ten published codes. New codes
+are appended at the end of that block; a code is never renumbered, because the
+numeric value is part of the wire contract. ``test_change_impact_error_codes``
+asserts that the whole map has no duplicate numeric value.
 """
 from __future__ import annotations
 
@@ -216,6 +229,52 @@ ERROR_CODES = {
     "SERVICE_UNAVAILABLE": (
         "A required backing service is temporarily unavailable. Retry later."
     ),
+    # Design §4.5 (plan S5.3): the ten structured change-impact gate refusals.
+    # Tool-execution errors, not protocol errors — deliberately absent from
+    # ``_PROTOCOL_ERROR_CODES``, so on ``tools/call`` they surface as
+    # ``result.isError == true`` with the string ``error_code``. The numeric
+    # ``ERROR_CODE_MAP`` entries below keep the direct-method dispatch path
+    # from collapsing them into -32603 (the #1082 failure mode).
+    "CHANGE_IMPACT_MISSING": (
+        "No completed change-impact analysis exists for this change request. "
+        "Run the analysis before submitting."
+    ),
+    "CHANGE_IMPACT_STALE": (
+        "The change-impact analysis is stale: the graph, change set or policy "
+        "changed after it ran. Re-run the analysis."
+    ),
+    "CHANGE_IMPACT_OPEN_FINDINGS": (
+        "The analysis reports open blocking findings; resolve or waive them "
+        "before submitting."
+    ),
+    "CHANGE_IMPACT_INCOMPLETE": (
+        "The analysis is incomplete: the change set is empty, the run was "
+        "truncated, or the impact summary is missing."
+    ),
+    "CHANGE_IMPACT_RUNNING": (
+        "A change-impact analysis is still running for this change request. "
+        "Wait for it to finish before submitting."
+    ),
+    "CHANGE_IMPACT_TIMEOUT": (
+        "The change-impact analysis exceeded its time budget and was marked "
+        "failed. Run it again."
+    ),
+    "CHANGE_IMPACT_POLICY_FORBIDDEN": (
+        "The requested change-impact parameters exceed the workspace policy "
+        "ceiling."
+    ),
+    "CHANGE_IMPACT_POLICY_UNAVAILABLE": (
+        "The structured change-impact feature could not be resolved for this "
+        "workspace; the gate stays closed."
+    ),
+    "CHANGE_SET_FROZEN": (
+        "The change set is frozen after submission. Open a new change-request "
+        "revision to change its affected items."
+    ),
+    "CHANGE_IMPACT_RATE_LIMITED": (
+        "The change-impact analysis rate limit for this workspace or API key "
+        "is exhausted. Retry later."
+    ),
 }
 
 # Protocol-level error codes (REQ-086 / MCP spec).
@@ -296,6 +355,20 @@ ERROR_CODE_MAP = {
     # e.g. the memory engine. Same reasoning as CONFLICT/#1082 -- without an
     # entry the direct-dispatch path reports -32603 (Internal error).
     "SERVICE_UNAVAILABLE": -32020,     # Server-defined: backing service down (#1823)
+    # Design §4.5 (plan S5.3): the ten structured change-impact gate refusals.
+    # Contiguous block -32021…-32030 — the spec's -32021…-32027 sketch was too
+    # small for ten codes (see the module docstring's reservation rule). Every
+    # value is unique across this map (tested).
+    "CHANGE_IMPACT_MISSING": -32021,           # Server-defined: no completed run
+    "CHANGE_IMPACT_STALE": -32022,             # Server-defined: graph/policy changed
+    "CHANGE_IMPACT_OPEN_FINDINGS": -32023,     # Server-defined: blocking findings open
+    "CHANGE_IMPACT_INCOMPLETE": -32024,        # Server-defined: truncated / no summary
+    "CHANGE_IMPACT_RUNNING": -32025,           # Server-defined: run pending/running
+    "CHANGE_IMPACT_TIMEOUT": -32026,           # Server-defined: run timed out
+    "CHANGE_IMPACT_POLICY_FORBIDDEN": -32027,  # Server-defined: policy ceiling
+    "CHANGE_IMPACT_POLICY_UNAVAILABLE": -32028,  # Server-defined: policy unresolvable
+    "CHANGE_SET_FROZEN": -32029,               # Server-defined: change set frozen
+    "CHANGE_IMPACT_RATE_LIMITED": -32030,      # Server-defined: analyze rate limit
 }
 
 

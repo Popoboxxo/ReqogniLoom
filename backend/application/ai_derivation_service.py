@@ -105,6 +105,10 @@ from application.base import NotFoundError, ServiceBase, ValidationError
 from application.glossary_service import GlossaryService
 from application.models import Risk
 from application.test_steps import normalize_steps
+from attribute_definitions.field_validation import (
+    FieldValidationError,
+    normalize_criteria_list,
+)
 from auth_tenancy.context import AuthContext
 from llm_adapter.providers import truncate_prompt_content
 from persistence.models import (
@@ -621,6 +625,58 @@ _DERIVATION_VERSION_PREFIX = "llm_derivation_ver"
 # is deliberately generous relative to the AI's own bound.
 MAX_ACCEPTED_DERIVED_REQUIREMENTS = 50
 
+# ---------------------------------------------------------------------------
+# S1 (REQ-217): acceptance-criteria + verification-method draft contract.
+#
+# Every AI-derived requirement draft carries structured, testable acceptance
+# criteria (the existing ``criteria-list`` shape) and a verification method.
+# These bounds are the single source of truth for the normalize helpers below
+# and mirror the response contract the prompt defaults request.
+# ---------------------------------------------------------------------------
+
+#: The five IEEE-29148 verification methods a draft may declare.
+VERIFICATION_METHODS = frozenset(
+    {"Test", "Review", "Analysis", "Inspection", "Demonstration"}
+)
+
+AC_MIN_ITEMS = 1
+AC_MAX_ITEMS = 7
+AC_MIN_CHARS = 10
+AC_MAX_CHARS = 500
+
+#: Lookup from a casefolded verification method to its canonical spelling.
+_VERIFICATION_METHOD_BY_CASEFOLD = {
+    method.casefold(): method for method in VERIFICATION_METHODS
+}
+
+
+def _criterion_dedup_key(text: str) -> str:
+    """Return the duplicate-detection key for one criterion text.
+
+    Casefold plus whitespace collapse, so ``"Must  work"`` and ``"must work"``
+    are the same criterion. Punctuation is deliberately preserved: two texts
+    that differ only by punctuation are not necessarily the same assertion.
+    """
+    return " ".join(text.split()).casefold()
+
+
+def _as_criterion_text(entry: Any) -> tuple[str | None, bool]:
+    """Extract the raw text from one criterion entry.
+
+    Returns ``(text, structurally_valid)``. A bare string is tolerated as
+    ``{"text": s}`` (LLMs occasionally answer with a plain string array); a
+    dict uses its ``text`` key. Anything else is a structure failure the caller
+    drops and reports through ``incomplete_fields``.
+    """
+    if isinstance(entry, str):
+        return entry, True
+    if isinstance(entry, dict):
+        text = entry.get("text")
+        if isinstance(text, str):
+            return text, True
+    return None, False
+
+
 #: ``custom_fields`` markers stamped on every artefact the accepted-draft
 #: persist path creates (the #1089 remainder). A human must be able to see ON
 #: THE ARTEFACT that AI was involved in authoring it — the workflow proposal
@@ -1069,15 +1125,29 @@ class AiDerivationService(ServiceBase):
             context={"max_requirements_per_need": resolved_count},
         )
 
-        drafts = [
-            {
-                "title": str(item.get("title", "")),
-                "description": str(item.get("description", "")),
-                "rationale": str(item.get("rationale", "")),
-                "suggested_parent_id": str(need.id),
-            }
-            for item in items
-        ]
+        drafts = []
+        for item in items:
+            # S1 (REQ-217): normalize the structured AC + verification method
+            # per draft and report anything unusable additively through
+            # `incomplete_fields` — a draft is never discarded for a bad AC.
+            acceptance_criteria, incomplete = self._normalize_draft_acceptance_criteria(
+                item.get("acceptance_criteria")
+            )
+            verification_method, method_incomplete = self._normalize_verification_method(
+                item.get("verification_method")
+            )
+            incomplete.extend(method_incomplete)
+            drafts.append(
+                {
+                    "title": str(item.get("title", "")),
+                    "description": str(item.get("description", "")),
+                    "rationale": str(item.get("rationale", "")),
+                    "suggested_parent_id": str(need.id),
+                    "acceptance_criteria": acceptance_criteria,
+                    "verification_method": verification_method,
+                    "incomplete_fields": incomplete,
+                }
+            )
         return {
             "drafts": drafts,
             "is_mock_fallback": is_mock_fallback,
@@ -1314,19 +1384,32 @@ class AiDerivationService(ServiceBase):
             context={"arch_element_ids": [entry["id"] for entry in arch_payload]},
         )
 
-        drafts = [
-            {
-                "title": str(item.get("title", "")),
-                "description": str(item.get("description", "")),
-                "rationale": str(item.get("rationale", "")),
-                "suggested_arch_element_id": (
-                    str(item["suggested_arch_element_id"])
-                    if item.get("suggested_arch_element_id") is not None
-                    else None
-                ),
-            }
-            for item in items
-        ]
+        drafts = []
+        for item in items:
+            # S1 (REQ-217): same structured AC + method contract as the
+            # need->sysreq flow above.
+            acceptance_criteria, incomplete = self._normalize_draft_acceptance_criteria(
+                item.get("acceptance_criteria")
+            )
+            verification_method, method_incomplete = self._normalize_verification_method(
+                item.get("verification_method")
+            )
+            incomplete.extend(method_incomplete)
+            drafts.append(
+                {
+                    "title": str(item.get("title", "")),
+                    "description": str(item.get("description", "")),
+                    "rationale": str(item.get("rationale", "")),
+                    "suggested_arch_element_id": (
+                        str(item["suggested_arch_element_id"])
+                        if item.get("suggested_arch_element_id") is not None
+                        else None
+                    ),
+                    "acceptance_criteria": acceptance_criteria,
+                    "verification_method": verification_method,
+                    "incomplete_fields": incomplete,
+                }
+            )
         result: dict[str, Any] = {
             "drafts": drafts,
             "parent_requirement_id": str(req.id),
@@ -2175,22 +2258,36 @@ class AiDerivationService(ServiceBase):
                 # ``d=draft`` is the default-arg binding, not a closure over the
                 # loop variable: each factory must capture ITS draft (the same
                 # ``lambda: ... d`` footgun the MCP write loop documents).
+                # S1 (REQ-217): both statements run inside the one savepoint
+                # ``_write_derived_entity`` opens, so a failing criteria write
+                # rolls the just-created requirement back too.
+                def _create(d=draft):
+                    created_requirement = RequirementService().create_requirement(
+                        workspace_id=workspace_id,
+                        title=d["title"],
+                        description=d["description"],
+                        rationale=d["rationale"],
+                        verification_method=d["verification_method"],
+                        # The authoring context, never the caller's: this
+                        # single argument is what makes the row a proposal.
+                        ctx=authoring.create_context,
+                        # The #1089 origin markers.
+                        custom_fields=_ai_origin_custom_fields(),
+                    )
+                    if d["acceptance_criteria"]:
+                        RequirementService().set_acceptance_criteria(
+                            created_requirement.id,
+                            ctx=authoring.create_context,
+                            criteria=d["acceptance_criteria"],
+                        )
+                    return created_requirement
+
                 created.append(
                     self._write_derived_entity(
                         ctx=ctx,
                         workspace_id=workspace_id,
                         item_type="Requirement",
-                        create_fn=lambda d=draft: RequirementService().create_requirement(
-                            workspace_id=workspace_id,
-                            title=d["title"],
-                            description=d["description"],
-                            rationale=d["rationale"],
-                            # The authoring context, never the caller's: this
-                            # single argument is what makes the row a proposal.
-                            ctx=authoring.create_context,
-                            # The #1089 origin markers.
-                            custom_fields=_ai_origin_custom_fields(),
-                        ),
+                        create_fn=_create,
                         # A need's own PK is not resolvable by
                         # TraceLinkService._resolve_artifact_id; its backing
                         # Artifact is. 'derives-from' points child -> parent
@@ -2296,20 +2393,32 @@ class AiDerivationService(ServiceBase):
         with transaction.atomic():
             for draft in accepted:
                 # ``d=draft`` binds this iteration's draft into the closure —
-                # never the loop variable.
+                # never the loop variable. S1 (REQ-217): create + criteria
+                # write share the savepoint ``_write_derived_entity`` opens.
+                def _create(d=draft):
+                    created_requirement = RequirementService().create_requirement(
+                        workspace_id=workspace_id,
+                        title=d["title"],
+                        description=d["description"],
+                        rationale=d["rationale"],
+                        verification_method=d["verification_method"],
+                        ctx=authoring.create_context,
+                        custom_fields=_ai_origin_custom_fields(),
+                    )
+                    if d["acceptance_criteria"]:
+                        RequirementService().set_acceptance_criteria(
+                            created_requirement.id,
+                            ctx=authoring.create_context,
+                            criteria=d["acceptance_criteria"],
+                        )
+                    return created_requirement
+
                 created.append(
                     self._write_derived_entity(
                         ctx=ctx,
                         workspace_id=workspace_id,
                         item_type="Requirement",
-                        create_fn=lambda d=draft: RequirementService().create_requirement(
-                            workspace_id=workspace_id,
-                            title=d["title"],
-                            description=d["description"],
-                            rationale=d["rationale"],
-                            ctx=authoring.create_context,
-                            custom_fields=_ai_origin_custom_fields(),
-                        ),
+                        create_fn=_create,
                         # The parent's backing Artifact is used as the link
                         # endpoint (definitively resolvable, exactly like the
                         # need path above). 'derives-from' points child ->
@@ -2329,8 +2438,93 @@ class AiDerivationService(ServiceBase):
         }
 
     @staticmethod
-    def _validate_accepted_drafts(drafts: Any) -> list[dict[str, str]]:
-        """Return *drafts* normalized to ``{"title", "description", "rationale"}``.
+    def _normalize_draft_acceptance_criteria(
+        raw: Any,
+    ) -> tuple[list[dict[str, Any]], list[str]]:
+        """Normalize a draft's ``acceptance_criteria`` to the ``criteria-list`` shape.
+
+        Tolerant on purpose: an LLM answer is untrusted input, and S1's contract is
+        "mark, never drop a draft". Every entry is validated individually through
+        the existing :func:`attribute_definitions.field_validation.
+        normalize_criteria_list` (no new attribute type), so a single malformed
+        entry only removes *that* entry instead of raising for the whole draft.
+
+        Rules:
+
+        * missing/``None``/not-a-list/empty-after-validation -> ``([], [key])``;
+        * a bare string is accepted as ``{"text": s}``;
+        * each surviving entry becomes ``{"text", "fulfilled": False,
+          "evidence_ref": None}``;
+        * entries shorter than :data:`AC_MIN_CHARS` or longer than
+          :data:`AC_MAX_CHARS`, or structurally invalid, are dropped;
+        * normalized duplicates (casefold + whitespace-collapsed) are removed,
+          keeping first-seen order;
+        * at most :data:`AC_MAX_ITEMS` entries survive (truncation alone does not
+          mark the field incomplete — the draft has enough, just more than allowed);
+        * ``incomplete_fields`` gains ``"acceptance_criteria"`` exactly when the
+          final list is empty OR an entry had to be dropped for length/structure.
+
+        Returns:
+            ``(normalized_criteria, incomplete_fields)`` — never raises.
+        """
+        if not isinstance(raw, list) or not raw:
+            return [], ["acceptance_criteria"]
+
+        dropped = False
+        seen: set[str] = set()
+        normalized: list[dict[str, Any]] = []
+
+        for entry in raw:
+            text, structurally_valid = _as_criterion_text(entry)
+            if not structurally_valid or text is None:
+                dropped = True
+                continue
+
+            candidate = {"text": text, "fulfilled": False, "evidence_ref": None}
+            try:
+                validated = normalize_criteria_list([candidate])[0]
+            except FieldValidationError:
+                dropped = True
+                continue
+
+            stripped = validated["text"]
+            if len(stripped) < AC_MIN_CHARS or len(stripped) > AC_MAX_CHARS:
+                dropped = True
+                continue
+
+            key = _criterion_dedup_key(stripped)
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(validated)
+
+        # Truncation is capacity, not a data-quality defect: the draft supplied
+        # *usable* criteria, just more than the contract allows. Kept deliberately
+        # out of the `dropped` flag.
+        if len(normalized) > AC_MAX_ITEMS:
+            normalized = normalized[:AC_MAX_ITEMS]
+
+        incomplete: list[str] = []
+        if not normalized or dropped:
+            incomplete.append("acceptance_criteria")
+        return normalized, incomplete
+
+    @staticmethod
+    def _normalize_verification_method(raw: Any) -> tuple[str | None, list[str]]:
+        """Return the canonical verification method, or ``(None, [key])``.
+
+        Case-insensitive: ``"test"`` -> ``"Test"``. An unknown or absent value is
+        reported through ``incomplete_fields`` rather than raised.
+        """
+        if isinstance(raw, str):
+            canonical = _VERIFICATION_METHOD_BY_CASEFOLD.get(raw.strip().casefold())
+            if canonical is not None:
+                return canonical, []
+        return None, ["verification_method"]
+
+    @staticmethod
+    def _validate_accepted_drafts(drafts: Any) -> list[dict[str, Any]]:
+        """Return *drafts* normalized to the accepted-draft contract.
 
         Defensive on purpose: the REST view already rejects unknown keys and a
         malformed body (#851), but the service is the single write entry point
@@ -2342,9 +2536,12 @@ class AiDerivationService(ServiceBase):
                 :meth:`persist_derived_requirements`.
 
         Returns:
-            One normalized ``{"title": str, "description": str,
-            "rationale": str}`` per entry — title stripped, optional text
-            fields coerced to ``""``. No draft is dropped silently.
+            One normalized ``{"title", "description", "rationale",
+            "acceptance_criteria", "verification_method"}`` per entry — title
+            stripped, optional text fields coerced to ``""``, the structured
+            acceptance criteria and verification method normalized with the
+            same helpers the preview uses (S1, REQ-217). No draft is dropped
+            silently; an unusable AC/method is simply ``[]``/``None``.
 
         Raises:
             ValidationError: *drafts* is not a non-empty list, carries more
@@ -2362,7 +2559,7 @@ class AiDerivationService(ServiceBase):
                 f"accepted in one request (got {len(drafts)})."
             )
 
-        normalized: list[dict[str, str]] = []
+        normalized: list[dict[str, Any]] = []
         for index, entry in enumerate(drafts):
             position = index + 1
             if not isinstance(entry, dict):
@@ -2376,6 +2573,16 @@ class AiDerivationService(ServiceBase):
                     f"Draft #{position} needs a non-empty 'title'."
                 )
 
+            # S1 (REQ-217): normalize the two structured fields the accept
+            # path persists. Unknown keys stay ignored; an unusable value
+            # degrades to []/None instead of failing the whole batch.
+            acceptance_criteria, _ = AiDerivationService._normalize_draft_acceptance_criteria(
+                entry.get("acceptance_criteria")
+            )
+            verification_method, _ = AiDerivationService._normalize_verification_method(
+                entry.get("verification_method")
+            )
+
             normalized.append(
                 {
                     "title": title.strip(),
@@ -2387,6 +2594,8 @@ class AiDerivationService(ServiceBase):
                         entry.get("rationale"),
                         f"Draft #{position} 'rationale'",
                     ),
+                    "acceptance_criteria": acceptance_criteria,
+                    "verification_method": verification_method,
                 }
             )
         return normalized

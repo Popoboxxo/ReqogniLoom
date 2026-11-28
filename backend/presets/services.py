@@ -36,7 +36,7 @@ Public API surface (IF-PC-EXT-IN-003):
 from __future__ import annotations
 
 from presets.gate import FeatureGateService, get_gate_service
-from presets.registry import PresetConfig
+from presets.registry import FEATURE_STRUCTURED_CHANGE_IMPACT, PresetConfig
 
 # ---------------------------------------------------------------------------
 # Typed return type alias for downstream documentation
@@ -292,6 +292,38 @@ def get_workflow_configurability(workspace_id: str) -> str:
     return service.get_workflow_configurability(str(workspace_id))
 
 
+def structured_change_impact_enabled_strict(workspace_id: str) -> bool:
+    """Return the ``structured_change_impact`` flag, fail-closed.
+
+    Spec §4.5 / D5 + plan slice S5.1. Delegates to
+    :meth:`presets.gate.FeatureGateService.is_feature_enabled_strict`, so an
+    unresolvable policy raises
+    :class:`presets.exceptions.PresetPolicyUnavailable` instead of answering
+    ``False`` — "the lookup is down" must never read as "the gate is off".
+
+    The workflow consumer (plan slices S5.2/S5.3) maps that exception to its
+    ``CHANGE_IMPACT_POLICY_UNAVAILABLE`` error code and blocks the change.
+    The helper is intentionally not wired into the workflow yet.
+
+    Args:
+        workspace_id: UUID string of the target workspace.
+
+    Returns:
+        True only on the Extended tier (the sole default tier that enables
+        the feature); ``False`` on Minimal and Standard.
+
+    Raises:
+        presets.exceptions.PresetPolicyUnavailable: If the workspace, its
+            preset or the feature key cannot be resolved.
+        presets.exceptions.CrossTenantWorkspaceError: If the workspace belongs
+            to a different tenant (SA-15).
+    """
+    service: FeatureGateService = get_gate_service()
+    return service.is_feature_enabled_strict(
+        FEATURE_STRUCTURED_CHANGE_IMPACT, str(workspace_id)
+    )
+
+
 def assert_workspace_in_tenant(workspace_id: str) -> None:
     """Raise unless *workspace_id* belongs to the active tenant.
 
@@ -331,5 +363,6 @@ __all__ = [
     "is_scope_allowed",
     "switch_preset",
     "switch_terminology_profile",
+    "structured_change_impact_enabled_strict",
     "validate_downgrade",
 ]

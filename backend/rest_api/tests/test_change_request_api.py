@@ -91,6 +91,12 @@ def _make_cr_orm(**kwargs) -> MagicMock:
     cr.version = kwargs.get("version", 1)
     cr.created_at = "2026-07-17T10:00:00Z"
     cr.updated_at = "2026-07-17T10:00:00Z"
+    # S3.7 detail-only read fields — set explicitly so the retrieve serializer
+    # never receives a MagicMock attribute for a declared scalar field.
+    cr.impact_summary = kwargs.get("impact_summary", "")
+    cr.summary_run_id = kwargs.get("summary_run_id", None)
+    cr.impact_source = kwargs.get("impact_source", "none")
+    cr.impact_generated_at = kwargs.get("impact_generated_at", None)
     return cr
 
 
@@ -597,3 +603,206 @@ class TestChangeRequestSerializer:
             partial=True,
         )
         assert ser.is_valid(), ser.errors
+
+
+# ---------------------------------------------------------------------------
+# S3.7 — structured impact read contract
+# ---------------------------------------------------------------------------
+
+
+IMPACT_KEYS = (
+    "impact_summary",
+    "summary_run_id",
+    "impact_source",
+    "impact_generated_at",
+)
+
+
+class TestImpactFieldsAreDetailOnly:
+    """Spec §4.6/S3.7: the list stays lean, the detail carries the summary."""
+
+    def test_list_response_has_no_impact_fields(self):
+        svc = MagicMock()
+        svc.list_change_requests.return_value = [_make_cr_orm()]
+
+        factory = APIRequestFactory()
+        req = factory.get(f"/api/v1/change-requests/?workspace_id={WS_ID}")
+        req.auth_context = _make_auth_context()
+
+        view = ChangeRequestViewSet.as_view({"get": "list"})
+        with patch.object(ChangeRequestViewSet, "_svc", return_value=svc):
+            resp = view(req)
+
+        assert resp.status_code == 200
+        row = resp.data["results"][0]
+        for key in IMPACT_KEYS:
+            assert key not in row, f"list must not expose {key}"
+
+    def test_detail_response_carries_impact_fields(self):
+        svc = MagicMock()
+        run_id = uuid.uuid4()
+        cr = _make_cr_orm(
+            impact_summary="## Impact\n2 findings",
+            summary_run_id=run_id,
+            impact_source="analysis",
+            impact_generated_at="2026-11-28T09:00:00Z",
+        )
+        svc.get_change_request.return_value = cr
+
+        factory = APIRequestFactory()
+        req = factory.get(f"/api/v1/change-requests/{CR_ID}/")
+        req.auth_context = _make_auth_context()
+
+        view = ChangeRequestViewSet.as_view({"get": "retrieve"})
+        with patch.object(ChangeRequestViewSet, "_svc", return_value=svc):
+            resp = view(req, pk=CR_ID)
+
+        assert resp.status_code == 200
+        assert resp.data["impact_summary"] == "## Impact\n2 findings"
+        assert str(resp.data["summary_run_id"]) == str(run_id)
+        assert resp.data["impact_source"] == "analysis"
+
+    def test_patch_cannot_write_impact_summary(self):
+        """The update serializer never declares the impact fields, so
+        ``UnknownFieldRejectionMixin`` refuses the key instead of silently
+        dropping it."""
+        svc = MagicMock()
+        svc.get_change_request.return_value = _make_cr_orm()
+
+        factory = APIRequestFactory()
+        req = factory.patch(
+            f"/api/v1/change-requests/{CR_ID}/",
+            data={"impact_summary": "hand written"},
+            format="json",
+        )
+        req.auth_context = _make_auth_context()
+
+        view = ChangeRequestViewSet.as_view({"patch": "partial_update"})
+        with patch.object(ChangeRequestViewSet, "_svc", return_value=svc):
+            resp = view(req, pk=CR_ID)
+
+        assert resp.status_code == 400
+        svc.update_change_request.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# S3.7 — change impact run/finding/chain read serializers
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _impact_rows():
+    """Real (minimal) run/finding rows — ``gate_open`` is a model property that
+    queries the chain manager, so a MagicMock would not do.
+    """
+    from application.models import ChangeRequest
+    from persistence.models import (
+        ChangeImpactFinding,
+        ChangeImpactRun,
+        Tenant,
+        Workspace,
+    )
+    from persistence.tenancy import TenantContext
+
+    tenant = Tenant.objects.create(name="impact-tenant", slug="impact-tenant")
+    # The tenant-scoped managers filter on TenantContext, so the rows (and the
+    # ``chains`` lookup inside ``gate_open``) must be read under their own
+    # tenant instead of the module-wide placeholder one.
+    TenantContext.set_tenant(tenant.id)
+    try:
+        workspace = Workspace.objects.create(tenant=tenant, name="impact-ws")
+        cr = ChangeRequest.objects.create(
+            workspace_id=workspace.id, tenant_id=tenant.id, title="Impact CR"
+        )
+        run = ChangeImpactRun.objects.create(
+            change_request=cr,
+            tenant_id=tenant.id,
+            workspace_id=workspace.id,
+            status="completed",
+            graph_fingerprint="abc123",
+            node_count=2,
+            edge_count=1,
+            path_count=1,
+            finished_at="2026-11-28T09:00:00Z",
+        )
+        finding = ChangeImpactFinding.objects.create(
+            run=run,
+            tenant_id=tenant.id,
+            artifact_id=str(uuid.uuid4()),
+            entity_type="Requirement",
+            hop_distance=1,
+            weight="0.5000",
+            severity="info",
+            origin="deterministic",
+            via_link_types=["verifies"],
+            chain_count=1,
+            disposition="open",
+        )
+        yield tenant, workspace, cr, run, finding
+    finally:
+        TenantContext.clear_tenant()
+
+
+class TestChangeImpactSerializers:
+    def test_run_serializer_renders_audit_fields(self, _impact_rows):
+        from rest_api.serializers_governance import ChangeImpactRunSerializer
+
+        _tenant, workspace, cr, run, _finding = _impact_rows
+        data = ChangeImpactRunSerializer(run).data
+
+        assert str(data["id"]) == str(run.id)
+        assert str(data["change_request"]) == str(cr.id)
+        assert str(data["workspace_id"]) == str(workspace.id)
+        assert data["baseline_id"] is None
+        assert data["status"] == "completed"
+        assert data["graph_fingerprint"] == "abc123"
+        assert data["node_count"] == 2
+        assert data["gate_eligible"] is False
+        # No invented artifact-level locking on the run row.
+        assert "lock_version" not in data and "revision" not in data
+
+    def test_finding_serializer_reads_gate_open_property(self, _impact_rows):
+        from rest_api.serializers_governance import ChangeImpactFindingSerializer
+
+        _tenant, _workspace, _cr, _run, finding = _impact_rows
+
+        open_data = ChangeImpactFindingSerializer(finding).data
+        assert open_data["gate_open"] is True
+        assert open_data["effective_disposition"] == "open"
+        assert open_data["entity_id"] is None  # not resolvable yet, documented
+        assert open_data["entity_type"] == "Requirement"
+        assert str(open_data["weight"]) == "0.5000"
+
+        finding.disposition = "accepted"
+        finding.save(update_fields=["disposition"])
+        accepted_data = ChangeImpactFindingSerializer(finding).data
+        assert accepted_data["gate_open"] is False
+        assert accepted_data["effective_disposition"] == "accepted"
+
+    def test_chain_serializer_inherits_finding_disposition(self, _impact_rows):
+        from persistence.models import ChangeImpactChain
+        from rest_api.serializers_governance import ChangeImpactChainSerializer
+
+        _tenant, _workspace, _cr, _run, finding = _impact_rows
+        finding.disposition = "accepted"
+        finding.save(update_fields=["disposition"])
+        chain = ChangeImpactChain.objects.create(
+            finding=finding,
+            tenant_id=finding.tenant_id,
+            root_artifact_id=str(uuid.uuid4()),
+            path_hash="deadbeef",
+            path=[{"artifact_id": str(uuid.uuid4()), "link_type": "verifies"}],
+            hop_distance=1,
+            weight="0.5000",
+            origin="deterministic",
+            via_link_types=["verifies"],
+            disposition=None,
+        )
+
+        inherited = ChangeImpactChainSerializer(chain).data
+        assert inherited["effective_disposition"] == "accepted"
+
+        chain.disposition = "open"
+        chain.save(update_fields=["disposition"])
+        overridden = ChangeImpactChainSerializer(chain).data
+        assert overridden["effective_disposition"] == "open"

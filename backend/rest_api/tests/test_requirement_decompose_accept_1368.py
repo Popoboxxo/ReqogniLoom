@@ -260,6 +260,51 @@ def test_accept_persists_proposed_children_with_derives_from_links(env):
 
 
 @override_settings(**_JWT_OVERRIDES)
+def test_accept_persists_structured_criteria_and_verification_method(env):
+    """S1/REQ-217: a reviewed preview round-trips into a persisted child.
+
+    The preview now carries ``acceptance_criteria`` and ``verification_method``
+    (REQ-217); posting them back must be accepted and persisted on the created
+    child, not rejected as an unknown key.
+    """
+    client = _login(env["editor"])
+
+    response = client.post(
+        _accept_url(env),
+        {
+            "drafts": [
+                {
+                    "title": "Child with criteria",
+                    "description": "Refines the parent.",
+                    "rationale": "Reviewed by a human.",
+                    "acceptance_criteria": [
+                        {"text": "The child shall be verifiable end to end."}
+                    ],
+                    "verification_method": "Test",
+                }
+            ]
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201, response.content
+    body = response.json()
+    assert body["count"] == 1
+    set_request_tenant(env["tenant"].id)
+    try:
+        child = Requirement.objects.get(id=body["created"][0]["id"])
+    finally:
+        clear_request_tenant()
+
+    assert child.verification_method == "Test"
+    assert len(child.acceptance_criteria_items) == 1
+    criterion = child.acceptance_criteria_items[0]
+    assert criterion["text"] == "The child shall be verifiable end to end."
+    assert criterion["fulfilled"] is False
+    assert criterion["evidence_ref"] is None
+
+
+@override_settings(**_JWT_OVERRIDES)
 def test_accept_without_proposal_support_is_400_not_a_silent_draft():
     """A graph without "proposed" must refuse, with the authoring reason."""
     tenant = Tenant.objects.create(

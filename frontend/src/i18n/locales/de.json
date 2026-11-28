@@ -3018,6 +3018,8 @@
     "discard": "Verwerfen",
     "empty": "Die KI hat keine Entwürfe vorgeschlagen – es gibt nichts zu prüfen.",
     "rationale": "Begründung",
+    "verificationMethod": "Verifikation",
+    "acceptanceCriteriaCount": "Akzeptanzkriterien: {{count}}",
     "selectHint": "Wähle die Entwürfe aus, die angelegt werden sollen.",
     "selectDraft": "Entwurf {{index}} auswählen",
     "caveat": "Angelegte Entwürfe erhalten den Status „Vorschlag“ und warten unter „Reviews“ → „Nur KI-Vorschläge“ auf deine Freigabe.",

@@ -495,6 +495,118 @@ _ERROR_MESSAGES: dict[str, dict[str, str]] = {
             "Passwort-Faktor."
         ),
     },
+    # Design §4.5 / plan S5.3: the ten structured change-impact gate refusals.
+    # Each message names the stable code as well, so a client that only reads
+    # the localised sentence can still map it back to the wire contract.
+    "CHANGE_IMPACT_MISSING": {
+        "en": (
+            "CHANGE_IMPACT_MISSING: No completed change-impact analysis exists "
+            "for this change request. Run the analysis before submitting it."
+        ),
+        "de": (
+            "CHANGE_IMPACT_MISSING: Für diesen Change Request existiert keine "
+            "abgeschlossene Wirkungsanalyse. Starten Sie die Analyse vor dem "
+            "Einreichen."
+        ),
+    },
+    "CHANGE_IMPACT_STALE": {
+        "en": (
+            "CHANGE_IMPACT_STALE: The change-impact analysis is stale — the "
+            "graph, change set or policy changed after it ran. Re-run it."
+        ),
+        "de": (
+            "CHANGE_IMPACT_STALE: Die Wirkungsanalyse ist veraltet — Graph, "
+            "Change Set oder Richtlinie haben sich seit dem Lauf geändert. "
+            "Starten Sie sie erneut."
+        ),
+    },
+    "CHANGE_IMPACT_OPEN_FINDINGS": {
+        "en": (
+            "CHANGE_IMPACT_OPEN_FINDINGS: The analysis reports open blocking "
+            "findings. Resolve or waive them before submitting."
+        ),
+        "de": (
+            "CHANGE_IMPACT_OPEN_FINDINGS: Die Analyse meldet offene "
+            "blockierende Findings. Beheben oder akzeptieren Sie diese vor dem "
+            "Einreichen."
+        ),
+    },
+    "CHANGE_IMPACT_INCOMPLETE": {
+        "en": (
+            "CHANGE_IMPACT_INCOMPLETE: The analysis is incomplete — the change "
+            "set is empty, the run was truncated, or the summary is missing."
+        ),
+        "de": (
+            "CHANGE_IMPACT_INCOMPLETE: Die Analyse ist unvollständig — das "
+            "Change Set ist leer, der Lauf wurde abgeschnitten oder die "
+            "Zusammenfassung fehlt."
+        ),
+    },
+    "CHANGE_IMPACT_RUNNING": {
+        "en": (
+            "CHANGE_IMPACT_RUNNING: A change-impact analysis is still running. "
+            "Wait for it to finish before submitting."
+        ),
+        "de": (
+            "CHANGE_IMPACT_RUNNING: Eine Wirkungsanalyse läuft noch. Warten Sie "
+            "deren Abschluss ab, bevor Sie einreichen."
+        ),
+    },
+    "CHANGE_IMPACT_TIMEOUT": {
+        "en": (
+            "CHANGE_IMPACT_TIMEOUT: The analysis exceeded its time budget and "
+            "was marked failed. Run it again."
+        ),
+        "de": (
+            "CHANGE_IMPACT_TIMEOUT: Die Analyse hat ihr Zeitbudget "
+            "überschritten und wurde als fehlgeschlagen markiert. Starten Sie "
+            "sie erneut."
+        ),
+    },
+    "CHANGE_IMPACT_POLICY_FORBIDDEN": {
+        "en": (
+            "CHANGE_IMPACT_POLICY_FORBIDDEN: The requested parameters exceed "
+            "the workspace policy ceiling."
+        ),
+        "de": (
+            "CHANGE_IMPACT_POLICY_FORBIDDEN: Die angeforderten Parameter "
+            "überschreiten die Obergrenze der Workspace-Richtlinie."
+        ),
+    },
+    "CHANGE_IMPACT_POLICY_UNAVAILABLE": {
+        "en": (
+            "CHANGE_IMPACT_POLICY_UNAVAILABLE: The structured change-impact "
+            "feature could not be resolved for this workspace; the gate stays "
+            "closed."
+        ),
+        "de": (
+            "CHANGE_IMPACT_POLICY_UNAVAILABLE: Das Feature für strukturierte "
+            "Wirkungsanalysen konnte für diesen Workspace nicht aufgelöst "
+            "werden; das Gate bleibt geschlossen."
+        ),
+    },
+    "CHANGE_SET_FROZEN": {
+        "en": (
+            "CHANGE_SET_FROZEN: The change set is frozen after submission. Open "
+            "a new change-request revision to change its affected items."
+        ),
+        "de": (
+            "CHANGE_SET_FROZEN: Das Change Set ist nach dem Einreichen "
+            "eingefroren. Legen Sie eine neue Change-Request-Revision an, um "
+            "die betroffenen Elemente zu ändern."
+        ),
+    },
+    "CHANGE_IMPACT_RATE_LIMITED": {
+        "en": (
+            "CHANGE_IMPACT_RATE_LIMITED: The change-impact analysis rate limit "
+            "for this workspace or API key is exhausted. Retry later."
+        ),
+        "de": (
+            "CHANGE_IMPACT_RATE_LIMITED: Das Ratenlimit für Wirkungsanalysen "
+            "dieses Workspace oder API-Schlüssels ist erschöpft. Versuchen Sie "
+            "es später erneut."
+        ),
+    },
 }
 
 

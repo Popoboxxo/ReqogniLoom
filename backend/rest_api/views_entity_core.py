@@ -872,7 +872,13 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
 
         .. code-block:: json
 
-            {"drafts": [{"title": "...", "description": "...", "rationale": "..."}]}
+            {"drafts": [{"title": "...", "description": "...", "rationale": "...",
+                         "acceptance_criteria": [{"text": "..."}],
+                         "verification_method": "Test"}]}
+
+        ``acceptance_criteria`` and ``verification_method`` are optional and
+        additive (REQ-217): a client may post the keys a preview returned, and
+        the service persists them with the created requirement.
 
         Response 201:
 
@@ -926,7 +932,17 @@ class StakeholderNeedViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         # this is what makes the rejection reach the client as a 400.
         for entry in raw_drafts:
             invalid = reject_unknown_fields(
-                entry, {"title", "description", "rationale"}, lang
+                entry,
+                {
+                    "title",
+                    "description",
+                    "rationale",
+                    # S1 (REQ-217): preview drafts now carry these two keys,
+                    # so a client may round-trip them into the accept path.
+                    "acceptance_criteria",
+                    "verification_method",
+                },
+                lang,
             )
             if invalid is not None:
                 return invalid
@@ -1899,7 +1915,11 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
         stayed invisible — the #1089 defect class), no hand-built TraceLink.
 
         Body: ``{"drafts": [{"title": ..., "description": ...,
-        "rationale": ...}]}``. Unknown keys are rejected (#851), the top-level
+        "rationale": ..., "acceptance_criteria": [{"text": ...}],
+        "verification_method": "Test"}]}``. ``acceptance_criteria`` and
+        ``verification_method`` are optional and additive (REQ-217): a client
+        may round-trip the keys a preview returned and the created child is
+        persisted with them. Unknown keys are rejected (#851), the top-level
         ones and the per-draft ones alike.
         """
         lang = detect_lang(request)
@@ -1923,7 +1943,17 @@ class RequirementViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
             )
         for entry in raw_drafts:
             invalid = reject_unknown_fields(
-                entry, {"title", "description", "rationale"}, lang
+                entry,
+                {
+                    "title",
+                    "description",
+                    "rationale",
+                    # S1 (REQ-217): preview drafts carry these two keys, so a
+                    # client may post the reviewed preview straight back.
+                    "acceptance_criteria",
+                    "verification_method",
+                },
+                lang,
             )
             if invalid is not None:
                 return invalid

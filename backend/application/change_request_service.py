@@ -813,12 +813,19 @@ class ChangeRequestService(ServiceBase):
         item_ids: Sequence[UUID | str],
         ctx,
     ) -> list[ChangeRequestAffectedItem]:
-        """Replace the affected-item set of a ChangeRequest.
+        """Reconcile the affected-item set of a ChangeRequest (diff-based).
 
         Each id must be an Artifact of the CR's workspace and the caller's
-        tenant. The "before" state snapshot is captured immediately using
-        ``baseline.state_capture`` — the same curated per-artifact-type field
-        set the baseline snapshots use.
+        tenant. For *new* ids the "before" state snapshot is captured
+        immediately using ``baseline.state_capture`` — the same curated
+        per-artifact-type field set the baseline snapshots use. Ids that were
+        already attached keep their row untouched (spec §4.2.2, review B5), so
+        ``origin``/``rationale``/``removed_reason``/``change_action`` and the
+        captured snapshots survive a re-set; ids that disappear lose only their
+        own row.
+
+        Each call bumps ``ChangeRequest.version`` once and emits exactly one
+        ``CHANGE_REQUEST_UPDATED`` event.
 
         Available on every rigor tier: recording impact is plain data and never
         an error, only its *enforcement* varies by tier (see
@@ -840,13 +847,25 @@ class ChangeRequestService(ServiceBase):
         self._set_tenant_context(ctx)
         self._assert_write_permission(ctx)
 
-        cr = ChangeRequest.objects.filter(id=cr_id, tenant_id=ctx.tenant_id).first()
+        # ``select_for_update``: the version bump below must not race a second
+        # concurrent write on the same CR (same idiom as update_change_request).
+        cr = (
+            ChangeRequest.objects.select_for_update()
+            .filter(id=cr_id, tenant_id=ctx.tenant_id)
+            .first()
+        )
         if cr is None:
             raise NotFoundError(f"ChangeRequest {cr_id} not found")
 
         rows = self._replace_affected_items(
             cr=cr, item_ids=item_ids, tenant_id=ctx.tenant_id
         )
+
+        # Exactly one bump and one event per call (spec §4.2.2): the diff above
+        # touches individual impact rows, the CR itself changes once — its
+        # change set.
+        ChangeRequest.objects.filter(id=cr.id).update(version=F("version") + 1)
+        cr.refresh_from_db(fields=["version"])
 
         self._audit(
             ctx=ctx,
@@ -855,7 +874,138 @@ class ChangeRequestService(ServiceBase):
             entity_id=cr_id,
             details={"affected_item_count": len(rows)},
         )
+        self._emit_event(
+            self._make_event(
+                event_type=DomainEventOutbox.EventType.CHANGE_REQUEST_UPDATED,
+                entity_id=cr.id,
+                workspace_id=cr.workspace_id,
+                payload={"affected_item_count": len(rows)},
+            )
+        )
         return rows
+
+    @transaction.atomic
+    def update_affected_item(
+        self,
+        cr_id: UUID,
+        item_id: UUID | str,
+        ctx,
+        *,
+        change_action: str | None = None,
+        rationale: str | None = None,
+        origin: str | None = None,
+        removed_reason: str | None = None,
+    ) -> ChangeRequestAffectedItem:
+        """Patch one affected-item row of a ChangeRequest (spec §4.2.2).
+
+        PATCH semantics: only the supplied fields change, everything else
+        (including the captured ``state_before``/``version_before``) stays as
+        stored. This is the only path by which a human/agent can mark an item
+        as ``remove``, adopt an analysis finding (``origin="analysis"``) or
+        justify it (``rationale``) without re-writing the whole change set —
+        and therefore without resetting the other rows' provenance.
+
+        Args:
+            cr_id: UUID of the ChangeRequest.
+            item_id: Affected item reference — either the stored ``item_id``
+                (the Artifact UUID string) or the row's own primary key.
+            ctx: Resolved AuthContext.
+            change_action: ``add`` | ``modify`` | ``remove`` (optional).
+            rationale: Why the artifact is part of the change set (optional).
+            origin: ``manual`` | ``analysis`` | ``suggestion`` (optional).
+            removed_reason: Mandatory when the row ends up ``remove`` and none
+                is stored yet (optional otherwise).
+
+        Returns:
+            The updated (not replaced) ChangeRequestAffectedItem row.
+
+        Raises:
+            NotFoundError: No such ChangeRequest or affected item in the
+                caller's tenant.
+            ValidationError: Nothing supplied, an invalid enum value, or
+                ``change_action="remove"`` without a removable reason.
+        """
+        self._set_tenant_context(ctx)
+        self._assert_write_permission(ctx)
+
+        supplied = {
+            "change_action": change_action,
+            "rationale": rationale,
+            "origin": origin,
+            "removed_reason": removed_reason,
+        }
+        changed = [name for name, value in supplied.items() if value is not None]
+        if not changed:
+            raise ValidationError(
+                "Nothing to update: supply at least one of change_action, "
+                "rationale, origin, removed_reason"
+            )
+
+        if change_action is not None and change_action not in {
+            "add",
+            "modify",
+            "remove",
+        }:
+            raise ValidationError(
+                f"Invalid change_action '{change_action}': expected add, "
+                "modify or remove"
+            )
+        if origin is not None and origin not in {"manual", "analysis", "suggestion"}:
+            raise ValidationError(
+                f"Invalid origin '{origin}': expected manual, analysis or "
+                "suggestion"
+            )
+
+        cr = ChangeRequest.objects.filter(id=cr_id, tenant_id=ctx.tenant_id).first()
+        if cr is None:
+            raise NotFoundError(f"ChangeRequest {cr_id} not found")
+
+        row = self._get_affected_item_row(cr, item_id, ctx)
+        if row is None:
+            raise NotFoundError(
+                f"Affected item {item_id} not found on ChangeRequest {cr_id}"
+            )
+
+        # A row may only become 'remove' with a recorded justification — either
+        # with this call or one that is already stored.
+        if change_action == "remove":
+            effective_reason = (
+                removed_reason if removed_reason is not None else row.removed_reason
+            )
+            if not (effective_reason or "").strip():
+                raise ValidationError(
+                    "change_action='remove' requires a non-empty removed_reason"
+                )
+
+        for name, value in supplied.items():
+            if value is not None:
+                setattr(row, name, value)
+        row.save()
+
+        self._audit(
+            ctx=ctx,
+            operation="update",
+            entity_type="ChangeRequestAffectedItem",
+            entity_id=row.id,
+            details={"fields": changed, "change_request_id": str(cr.id)},
+        )
+        return row
+
+    def _get_affected_item_row(
+        self, cr: ChangeRequest, item_id: UUID | str, ctx
+    ) -> ChangeRequestAffectedItem | None:
+        """Resolve an affected-item row by stored ``item_id`` or by row pk."""
+        rows = ChangeRequestAffectedItem.objects.filter(
+            change_request_id=cr.id, tenant_id=ctx.tenant_id
+        )
+        row = rows.filter(item_id=str(item_id)).first()
+        if row is not None:
+            return row
+        try:
+            pk = uuid_module.UUID(str(item_id))
+        except (ValueError, AttributeError, TypeError):
+            return None
+        return rows.filter(id=pk).first()
 
     def list_affected_items(self, cr_id: UUID, ctx) -> list[ChangeRequestAffectedItem]:
         """Return the affected items of a ChangeRequest (tenant-scoped).
@@ -886,29 +1036,63 @@ class ChangeRequestService(ServiceBase):
         item_ids: Sequence[UUID | str],
         tenant_id: UUID,
     ) -> list[ChangeRequestAffectedItem]:
-        """Validate *item_ids*, then rewrite the CR's affected-item rows."""
+        """Reconcile the CR's affected-item rows against *item_ids*.
+
+        Diff-based (spec §4.2.2, review B5), not delete-and-recreate:
+
+          * an id that stays keeps its whole row untouched — ``state_before``,
+            ``version_before``, ``origin``, ``rationale``, ``removed_reason``
+            and ``change_action`` survive a re-set, so an adopted finding or a
+            human decision is never silently reset to ``manual``/``modify``;
+          * a new id gets a freshly captured ``state_before`` /
+            ``version_before`` with ``origin="manual"``,
+            ``change_action="modify"``;
+          * an id that disappeared deletes only its own row.
+        """
         normalized = self._validate_affected_items(
             item_ids=item_ids, workspace_id=cr.workspace_id, tenant_id=tenant_id
         )
 
-        ChangeRequestAffectedItem.objects.filter(change_request_id=cr.id).delete()
-        if not normalized:
-            return []
-
-        states = self._capture_states(normalized, tenant_id)
-        rows = [
-            ChangeRequestAffectedItem(
-                change_request_id=cr.id,
-                tenant_id=tenant_id,
-                item_id=item_id,
-                entity_type="item",
-                version_before=(states.get(item_id) or {}).get("version"),
-                state_before=states.get(item_id),
+        existing: dict[str, ChangeRequestAffectedItem] = {
+            row.item_id: row
+            for row in ChangeRequestAffectedItem.objects.filter(
+                change_request_id=cr.id
             )
-            for item_id in normalized
-        ]
-        ChangeRequestAffectedItem.objects.bulk_create(rows)
-        return rows
+        }
+        wanted = set(normalized)
+
+        # Rows whose id is no longer wanted: delete those rows only.
+        stale_item_ids = [item_id for item_id in existing if item_id not in wanted]
+        if stale_item_ids:
+            ChangeRequestAffectedItem.objects.filter(
+                id__in=[existing[item_id].id for item_id in stale_item_ids]
+            ).delete()
+            for item_id in stale_item_ids:
+                existing.pop(item_id)
+
+        # Ids that are new: capture their "before" state and create.
+        new_ids = [item_id for item_id in normalized if item_id not in existing]
+        if new_ids:
+            states = self._capture_states(new_ids, tenant_id)
+            created = [
+                ChangeRequestAffectedItem(
+                    change_request_id=cr.id,
+                    tenant_id=tenant_id,
+                    item_id=item_id,
+                    entity_type="item",
+                    version_before=(states.get(item_id) or {}).get("version"),
+                    state_before=states.get(item_id),
+                    origin="manual",
+                    change_action="modify",
+                )
+                for item_id in new_ids
+            ]
+            ChangeRequestAffectedItem.objects.bulk_create(created)
+            for row in created:
+                existing[row.item_id] = row
+
+        # Return in the caller's requested order (de-duplicated by validation).
+        return [existing[item_id] for item_id in normalized]
 
     @staticmethod
     def _validate_affected_items(
@@ -1013,21 +1197,42 @@ class ChangeRequestService(ServiceBase):
     def _capture_affected_items_after(
         self, cr: ChangeRequest, tenant_id: UUID
     ) -> None:
-        """Fill ``state_after`` / ``version_after`` on every affected item."""
+        """Fill ``state_after`` / ``version_after`` on every affected item.
+
+        Rows with ``change_action="remove"`` are deliberately skipped
+        (spec §4.2.2): the artifact is being decommissioned, so there is no
+        "after" state to capture. They keep ``state_after``/``version_after``
+        ``None`` and record ``removed_reason="removed"`` when none was stated.
+        """
         rows = list(
             ChangeRequestAffectedItem.objects.filter(change_request_id=cr.id)
         )
         if not rows:
             return
-        states = self._capture_states([row.item_id for row in rows], tenant_id)
-        for row in rows:
+
+        removed = [row for row in rows if row.change_action == "remove"]
+        to_capture = [row for row in rows if row.change_action != "remove"]
+
+        for row in removed:
+            row.state_after = None
+            row.version_after = None
+            if not (row.removed_reason or "").strip():
+                row.removed_reason = "removed"
+
+        states = (
+            self._capture_states([row.item_id for row in to_capture], tenant_id)
+            if to_capture
+            else {}
+        )
+        for row in to_capture:
             state = states.get(row.item_id)
             row.state_after = state
             row.version_after = (state or {}).get("version")
+
         # ``updated_at`` is deliberately omitted: bulk_update does not run
         # auto_now pre_save hooks, so listing it would rewrite the stale value.
         ChangeRequestAffectedItem.objects.bulk_update(
-            rows, ["state_after", "version_after"]
+            rows, ["state_after", "version_after", "removed_reason"]
         )
 
     # ---------- Baseline linkage (ISO 15288 §6.4.9) ----------

@@ -36,6 +36,10 @@ _pg_only = pytest.mark.skipif(not _IS_POSTGRES, reason="PostgreSQL-only assertio
 _EXPECTED_RLS_TABLES = {
     "as_adr",
     "as_change_request",
+    "as_change_request_affected_item",
+    "as_change_impact_chain",
+    "as_change_impact_finding",
+    "as_change_impact_run",
     "as_goal",
     "as_issue",
     "as_main_goal",

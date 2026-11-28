@@ -1491,6 +1491,151 @@ class ChangeRequestSerializer(
         return data
 
 
+class ChangeRequestDetailSerializer(ChangeRequestSerializer):
+    """Single-CR (retrieve) serializer with the structured impact fields.
+
+    Spec 2026-11-28 §4.6 / S3.7: ``impact_summary`` and its provenance are
+    read-only and belong to the *detail* response only — the list endpoint must
+    stay lean (one summary per CR in a page would both bloat the payload and
+    invite N+1 reads). The generator writes these fields; the REST/MCP update
+    surfaces never accept them (the base serializer does not declare them, so
+    ``UnknownFieldRejectionMixin`` rejects them on PATCH).
+    """
+
+    impact_summary = serializers.CharField(read_only=True, allow_blank=True)
+    summary_run_id = serializers.UUIDField(read_only=True, allow_null=True)
+    impact_source = serializers.CharField(read_only=True)
+    impact_generated_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+
+# ---------------------------------------------------------------------------
+# Structured change impact (spec 2026-11-28 §4.2.3, REQ-216)
+#
+# Plain read serializers over the S2 models. Deliberately no ``lock_version`` /
+# ``revision``: that pair describes the *artifact* a finding points at and is
+# owned by the S2 context DTO, not by these run/finding/chain rows.
+# ---------------------------------------------------------------------------
+
+
+class ChangeImpactRunSerializer(UnknownFieldRejectionMixin, serializers.Serializer):
+    """Read-only rendering of one :class:`ChangeImpactRun` (audit record).
+
+    ``baseline_id`` is the FK attname (provenance, deliberately outside the
+    graph fingerprint). ``visited_node_ids``/``root_item_ids`` are the audit
+    trail and are served by the dedicated detail paths, not here.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    change_request = serializers.UUIDField(
+        source="change_request_id", read_only=True
+    )
+    workspace_id = serializers.UUIDField(read_only=True)
+    baseline_id = serializers.UUIDField(read_only=True, allow_null=True)
+    status = serializers.CharField(read_only=True)
+    trigger = serializers.CharField(read_only=True)
+    algorithm_version = serializers.CharField(read_only=True)
+    roots_source = serializers.CharField(read_only=True)
+    gate_eligible = serializers.BooleanField(read_only=True)
+    graph_fingerprint = serializers.CharField(read_only=True, allow_blank=True)
+    gate_fingerprint = serializers.CharField(read_only=True, allow_blank=True)
+    affected_items_hash = serializers.CharField(read_only=True, allow_blank=True)
+    catalog_hash = serializers.CharField(read_only=True, allow_blank=True)
+    policy_hash = serializers.CharField(read_only=True, allow_blank=True)
+    node_count = serializers.IntegerField(read_only=True)
+    edge_count = serializers.IntegerField(read_only=True)
+    path_count = serializers.IntegerField(read_only=True)
+    truncated = serializers.BooleanField(read_only=True)
+    truncated_reason = serializers.CharField(read_only=True, allow_blank=True)
+    include_semantic = serializers.BooleanField(read_only=True)
+    forced = serializers.BooleanField(read_only=True)
+    pinned = serializers.BooleanField(read_only=True)
+    llm_used = serializers.BooleanField(read_only=True)
+    llm_provider = serializers.CharField(read_only=True, allow_blank=True)
+    llm_model = serializers.CharField(read_only=True, allow_blank=True)
+    prompt_version = serializers.CharField(read_only=True, allow_blank=True)
+    error = serializers.CharField(read_only=True, allow_blank=True)
+    started_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    finished_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    heartbeat_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+
+class ChangeImpactFindingSerializer(UnknownFieldRejectionMixin, serializers.Serializer):
+    """Read-only rendering of one :class:`ChangeImpactFinding`.
+
+    ``effective_disposition`` is the finding-level effective disposition, which
+    is simply its own ``disposition`` (chains carry the per-path override — see
+    :class:`ChangeImpactChainSerializer`). ``gate_open`` is the model *property*
+    (spec §4.2.5), not a column: prefetch ``chains`` when serializing a list to
+    avoid one query per finding.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    run_id = serializers.UUIDField(read_only=True)
+    artifact_id = serializers.CharField(read_only=True)
+    # No entity row is resolved on the artifact id yet (the finding may point at
+    # any artifact-backed type, including a TraceLink/Icd); always null for now.
+    entity_id = serializers.SerializerMethodField()
+    entity_type = serializers.CharField(read_only=True)
+    hop_distance = serializers.IntegerField(read_only=True)
+    weight = serializers.DecimalField(max_digits=6, decimal_places=4, read_only=True)
+    severity = serializers.CharField(read_only=True)
+    origin = serializers.CharField(read_only=True)
+    via_link_types = serializers.ListField(
+        child=serializers.CharField(), read_only=True
+    )
+    chain_count = serializers.IntegerField(read_only=True)
+    rationale = serializers.CharField(read_only=True, allow_blank=True)
+    disposition = serializers.CharField(read_only=True)
+    effective_disposition = serializers.SerializerMethodField()
+    gate_open = serializers.BooleanField(read_only=True)
+    inherited_from_run_id = serializers.UUIDField(read_only=True, allow_null=True)
+    decided_by = serializers.UUIDField(
+        source="decided_by_id", read_only=True, allow_null=True
+    )
+    decided_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    note = serializers.CharField(read_only=True, allow_blank=True)
+
+    def get_entity_id(self, obj: Any) -> None:
+        """Unresolvable for now — the finding stores only an Artifact id."""
+        return None
+
+    def get_effective_disposition(self, obj: Any) -> str:
+        return obj.disposition
+
+
+class ChangeImpactChainSerializer(UnknownFieldRejectionMixin, serializers.Serializer):
+    """Read-only rendering of one :class:`ChangeImpactChain` (hop evidence).
+
+    ``effective_disposition`` is ``chain.disposition or finding.disposition``
+    (spec §4.2.5); ``null`` on the chain means "inherit". Prefetch
+    ``finding`` when serializing a list.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    finding_id = serializers.UUIDField(read_only=True)
+    root_artifact_id = serializers.CharField(read_only=True)
+    path_hash = serializers.CharField(read_only=True)
+    path = serializers.ListField(child=serializers.JSONField(), read_only=True)
+    hop_distance = serializers.IntegerField(read_only=True)
+    weight = serializers.DecimalField(max_digits=6, decimal_places=4, read_only=True)
+    origin = serializers.CharField(read_only=True)
+    via_link_types = serializers.ListField(
+        child=serializers.CharField(), read_only=True
+    )
+    disposition = serializers.CharField(read_only=True, allow_null=True)
+    effective_disposition = serializers.SerializerMethodField()
+    inherited_from_run_id = serializers.UUIDField(read_only=True, allow_null=True)
+    decided_by = serializers.UUIDField(
+        source="decided_by_id", read_only=True, allow_null=True
+    )
+    decided_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    note = serializers.CharField(read_only=True, allow_blank=True)
+
+    def get_effective_disposition(self, obj: Any) -> str:
+        return obj.disposition or obj.finding.disposition
+
+
 # ---------------------------------------------------------------------------
 # P0.1 — OpenAPI contract for ``WorkflowDefinitionViewSet`` (rest_api.views_governance)
 #

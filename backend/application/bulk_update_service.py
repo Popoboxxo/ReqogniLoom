@@ -86,6 +86,7 @@ from uuid import UUID
 from django.db import transaction
 
 from application.base import (
+    ChangeImpactGateError,
     FieldFrozenError,
     NotFoundError,
     OptimisticLockError,
@@ -256,6 +257,7 @@ def _error_payload(
     message: str,
     *,
     field: str | None = None,
+    details: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build one ``errors[]`` entry (the shape both transports publish)."""
     payload: dict[str, Any] = {
@@ -266,6 +268,8 @@ def _error_payload(
     }
     if field is not None:
         payload["field"] = field
+    if details:
+        payload["details"] = dict(details)
     return payload
 
 
@@ -339,6 +343,11 @@ def _transition_error(
     ``CONFLICT``, ``NotFoundError`` → ``NOT_FOUND``, everything the workflow
     facade raises (already remapped to ``ValidationError``/``PermissionDeniedError``/
     ``OptimisticLockError``) → the matching code above.
+
+    Design §4.5 / plan S5.3 deliberate deviation: a structured change-impact
+    gate refusal keeps this envelope's four-code contract (``VALIDATION_ERROR``)
+    and publishes its own code in ``details.change_impact_code`` — the gate
+    codes never replace the envelope code on this path.
     """
     if isinstance(exc, PermissionDeniedError):
         return _error_payload(index, artifact_id, "FORBIDDEN", str(exc))
@@ -346,6 +355,15 @@ def _transition_error(
         return _error_payload(index, artifact_id, "CONFLICT", str(exc))
     if isinstance(exc, NotFoundError):
         return _error_payload(index, artifact_id, "NOT_FOUND", str(exc))
+    if isinstance(exc, ChangeImpactGateError):
+        # The gate codes appear in the *details*, not as the entry code: the
+        # bulk path publishes exactly four codes (spec §3.2), and widening that
+        # envelope would be a breaking transport change.
+        details = {"change_impact_code": exc.error_code}
+        details.update(getattr(exc, "details", None) or {})
+        return _error_payload(
+            index, artifact_id, "VALIDATION_ERROR", str(exc), details=details
+        )
     if isinstance(exc, ValidationError):
         return _error_payload(index, artifact_id, "VALIDATION_ERROR", str(exc))
     return None

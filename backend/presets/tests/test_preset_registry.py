@@ -20,6 +20,7 @@ from presets.exceptions import (
     ScopeNotAvailableError,
 )
 from presets.registry import (
+    FEATURE_KEYS,
     TIER_EXTENDED,
     TIER_MINIMAL,
     TIER_STANDARD,
@@ -123,6 +124,29 @@ class TestPresetQueryInterface:
         assert "baseline_scopes" in d
         assert "workflow_configurability" in d
         assert "change_reason" in d
+
+
+class TestFeatureKeyPin:
+    """Atomicity guard: a feature key exists on *every* tier or none.
+
+    ``PresetConfig._validate`` already rejects a *missing* key at import
+    time. This pin is the other direction and the snapshot in one: each
+    tier's feature dict must equal ``FEATURE_KEYS`` exactly, so a key added
+    to one tier only (or a tier-only extra that was never registered) fails
+    here with a readable diff instead of a later ``KeyError``/``False``.
+    """
+
+    def test_every_tier_declares_exactly_the_registered_keys(
+        self, registry: PresetRegistry
+    ) -> None:
+        registered = set(FEATURE_KEYS)
+        for tier in (TIER_MINIMAL, TIER_STANDARD, TIER_EXTENDED):
+            declared = set(registry.get_preset_config(tier).features)
+            assert declared == registered, (
+                f"tier '{tier}' features drifted from FEATURE_KEYS: "
+                f"missing={sorted(registered - declared)}, "
+                f"unregistered={sorted(declared - registered)}"
+            )
 
 
 # ---------------------------------------------------------------------------

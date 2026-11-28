@@ -971,18 +971,60 @@ def _state_guard_message(exc: Exception) -> str | None:
 def _remap_workflow_exc(exc: Exception) -> None:
     """Re-raise workflow-domain exceptions as application-layer exceptions."""
     from application.base import (
+        ChangeImpactGateError,
+        ChangeImpactIncompleteError,
+        ChangeImpactMissingError,
+        ChangeImpactOpenFindingsError,
+        ChangeImpactPolicyForbiddenError,
+        ChangeImpactPolicyUnavailableError,
+        ChangeImpactRateLimitedError,
+        ChangeImpactRunningError,
+        ChangeImpactStaleError,
+        ChangeImpactTimeoutError,
+        ChangeSetFrozenError,
         DocumentGateFailedError,
         OptimisticLockError,
         PermissionDeniedError,
         ValidationError,
     )
     from workflow.lifecycle_manager import WorkflowConflictError
+    from workflow.precondition_rules import (
+        EC_CHANGE_IMPACT_INCOMPLETE,
+        EC_CHANGE_IMPACT_MISSING,
+        EC_CHANGE_IMPACT_OPEN_FINDINGS,
+        EC_CHANGE_IMPACT_POLICY_FORBIDDEN,
+        EC_CHANGE_IMPACT_POLICY_UNAVAILABLE,
+        EC_CHANGE_IMPACT_RATE_LIMITED,
+        EC_CHANGE_IMPACT_RUNNING,
+        EC_CHANGE_IMPACT_STALE,
+        EC_CHANGE_IMPACT_TIMEOUT,
+        EC_CHANGE_SET_FROZEN,
+    )
     from workflow.services import WorkflowTransitionError
     from workflow.transition_validator import (
         EC_AGENT_SELF_CONFIRM,
         EC_DOCUMENT_GATE_FAILED,
         EC_ROLE_NOT_ALLOWED,
     )
+
+    # Design §4.5 / plan S5.3: the structured change-impact gate is a
+    # precondition on the transition, so its verdict reaches this seam exactly
+    # like the document gates do. Without this table every gate refusal would
+    # degrade to the generic ``VALIDATION_ERROR`` / 400 branch below — losing
+    # both the dedicated code and the structured ``details``. The map is
+    # marker → concrete subclass, mirroring the EC_* values one-to-one.
+    change_impact_types: dict[str, type[ChangeImpactGateError]] = {
+        EC_CHANGE_IMPACT_MISSING: ChangeImpactMissingError,
+        EC_CHANGE_IMPACT_STALE: ChangeImpactStaleError,
+        EC_CHANGE_IMPACT_OPEN_FINDINGS: ChangeImpactOpenFindingsError,
+        EC_CHANGE_IMPACT_INCOMPLETE: ChangeImpactIncompleteError,
+        EC_CHANGE_IMPACT_RUNNING: ChangeImpactRunningError,
+        EC_CHANGE_IMPACT_TIMEOUT: ChangeImpactTimeoutError,
+        EC_CHANGE_IMPACT_POLICY_FORBIDDEN: ChangeImpactPolicyForbiddenError,
+        EC_CHANGE_IMPACT_POLICY_UNAVAILABLE: ChangeImpactPolicyUnavailableError,
+        EC_CHANGE_SET_FROZEN: ChangeSetFrozenError,
+        EC_CHANGE_IMPACT_RATE_LIMITED: ChangeImpactRateLimitedError,
+    }
 
     # DATA-06 (findings 171/180/186/227): the DB state guard fires where the
     # application-level edge check could not (a definition whose ``states`` no
@@ -993,6 +1035,15 @@ def _remap_workflow_exc(exc: Exception) -> None:
         raise ValidationError(state_guard) from exc
 
     if isinstance(exc, WorkflowTransitionError):
+        impact_type = change_impact_types.get(exc.error_code)
+        if impact_type is not None:
+            # Same treatment as EC_DOCUMENT_GATE_FAILED below: the dedicated
+            # type (still a ValidationError) is what lets REST and MCP answer
+            # the gate code and forward the structured ``details`` instead of
+            # one opaque sentence.
+            raise impact_type(
+                exc.error_message, details=getattr(exc, "details", None)
+            ) from exc
         if exc.error_code == EC_DOCUMENT_GATE_FAILED:
             # Plan F F2-T4: the document release gates are a business-rule
             # refusal with a per-gate payload. Keeping the dedicated type (still

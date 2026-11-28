@@ -297,6 +297,7 @@ from rest_api.serializers import (
 
 
 from rest_api.serializers_governance import (
+    ChangeRequestDetailSerializer,
     WorkflowDefinitionCreateResponseSerializer,
     WorkflowDefinitionGraphSerializer,
     WorkflowDefinitionListEnvelopeSerializer,
@@ -1645,6 +1646,21 @@ def _cr_to_dict(cr: Any) -> dict[str, Any]:
         "updated_at": cr.updated_at,
     }
 
+
+def _cr_detail_to_dict(cr: Any) -> dict[str, Any]:
+    """``_cr_to_dict`` plus the structured-impact fields (retrieve only).
+
+    Spec 2026-11-28 §4.6 / S3.7: ``impact_summary`` and its provenance are
+    read-only detail fields. They are added here — not in the shared
+    ``_cr_to_dict`` — so ``GET /api/v1/change-requests/`` never grows an impact
+    payload per row.
+    """
+    data = _cr_to_dict(cr)
+    data["impact_summary"] = getattr(cr, "impact_summary", "") or ""
+    data["summary_run_id"] = getattr(cr, "summary_run_id", None)
+    data["impact_source"] = getattr(cr, "impact_source", "none") or "none"
+    data["impact_generated_at"] = getattr(cr, "impact_generated_at", None)
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -4483,7 +4499,7 @@ class ChangeRequestViewSet(WorkflowTransitionsMixin, BaseEntityViewSet):
                 build_error_response("NOT_FOUND", lang),
                 status=status.HTTP_404_NOT_FOUND,
             )
-        return Response(ChangeRequestSerializer(_cr_to_dict(item)).data)
+        return Response(ChangeRequestDetailSerializer(_cr_detail_to_dict(item)).data)
 
     def create(self, request: Request, **kwargs: Any) -> Response:
         """POST /api/v1/change-requests/ — create a CR. Returns 201."""

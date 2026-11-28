@@ -118,6 +118,32 @@ class TestIsFeatureEnabledFacade:
         with pytest.raises(UnknownFeatureKeyError):
             is_feature_enabled("unknown", str(workspace_minimal.id))
 
+    def test_structured_change_impact_is_extended_only(
+        self,
+        workspace_minimal: Workspace,
+        workspace_standard: Workspace,
+        workspace_extended: Workspace,
+    ) -> None:
+        """Spec §4.5 / D5: the key resolves on every tier, enabled on Extended."""
+        assert (
+            is_feature_enabled(
+                "structured_change_impact", str(workspace_minimal.id)
+            )
+            is False
+        )
+        assert (
+            is_feature_enabled(
+                "structured_change_impact", str(workspace_standard.id)
+            )
+            is False
+        )
+        assert (
+            is_feature_enabled(
+                "structured_change_impact", str(workspace_extended.id)
+            )
+            is True
+        )
+
 
 class TestGetTerminologyFacade:
     def test_returns_dict(self, workspace_minimal: Workspace) -> None:

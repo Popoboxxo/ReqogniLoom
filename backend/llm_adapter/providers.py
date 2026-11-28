@@ -769,6 +769,18 @@ class MockLlmProvider(LlmCapabilityInterface):
                     "title": f"Derived system requirement {i + 1}",
                     "description": "The system shall satisfy the stakeholder need.",
                     "rationale": "Derived from the stakeholder need by the mock provider.",
+                    # S1 (REQ-217): the mock exercises the structured
+                    # acceptance-criteria contract so local runs and tests see
+                    # the same draft shape a real provider must supply.
+                    "acceptance_criteria": [
+                        {
+                            "text": (
+                                f"Derived system requirement {i + 1} meets its "
+                                "stated objective within the agreed acceptance run."
+                            )
+                        }
+                    ],
+                    "verification_method": "Test",
                 }
                 for i in range(count)
             ]
@@ -802,12 +814,32 @@ class MockLlmProvider(LlmCapabilityInterface):
                     "description": "The subsystem shall refine the parent requirement.",
                     "rationale": "Refinement produced by the mock provider.",
                     "suggested_arch_element_id": first,
+                    # S1 (REQ-217): structured AC + method, see
+                    # _mock_need_to_sysreq above.
+                    "acceptance_criteria": [
+                        {
+                            "text": (
+                                "Decomposed requirement 1 refines the parent "
+                                "requirement verifiably at this level."
+                            )
+                        }
+                    ],
+                    "verification_method": "Test",
                 },
                 {
                     "title": "Decomposed requirement 2",
                     "description": "The subsystem shall cover a second concern.",
                     "rationale": "Refinement produced by the mock provider.",
                     "suggested_arch_element_id": None,
+                    "acceptance_criteria": [
+                        {
+                            "text": (
+                                "Decomposed requirement 2 covers its second "
+                                "concern with a measurable outcome."
+                            )
+                        }
+                    ],
+                    "verification_method": "Test",
                 },
             ]
         )

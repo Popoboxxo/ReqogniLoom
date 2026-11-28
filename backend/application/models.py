@@ -32,6 +32,9 @@ from django.utils import timezone
 # SeparateDatabaseAndState pair that emits no SQL).
 from persistence.models import (
     Adr,
+    ChangeImpactChain,
+    ChangeImpactFinding,
+    ChangeImpactRun,
     ChangeRequest,
     ChangeRequestAffectedItem,
     Goal,
