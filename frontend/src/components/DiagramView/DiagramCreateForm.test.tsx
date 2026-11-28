@@ -163,3 +163,20 @@ describe("DiagramCreateForm", () => {
     expect(onCreated).toHaveBeenCalledWith("diag-001");
   });
 });
+
+  it("keeps submit enabled and explains an empty name (#2062)", async () => {
+    const user = userEvent.setup();
+    render(<DiagramCreateForm onCreated={vi.fn()} onCancel={vi.fn()} />);
+
+    const saveBtn = screen.getByTestId("diagram-save-btn");
+    expect(saveBtn).not.toBeDisabled();
+
+    await user.click(saveBtn);
+
+    expect(await screen.findByTestId("diagram-create-error")).toBeInTheDocument();
+    expect(screen.getByTestId("diagram-name-input")).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(createDiagramMock).not.toHaveBeenCalled();
+  });

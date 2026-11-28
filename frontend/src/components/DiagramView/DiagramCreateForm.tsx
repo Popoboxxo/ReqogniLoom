@@ -97,7 +97,8 @@ export function DiagramCreateForm({
     }
   };
 
-  const submitDisabled = isSaving || !form.name.trim();
+  // #2062: keep submit enabled; handleCreate() validates and explains why.
+  const submitDisabled = isSaving;
 
   return (
     <div data-testid="diagram-create-form">
@@ -126,6 +127,8 @@ export function DiagramCreateForm({
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               className={styles.input}
+              aria-invalid={Boolean(error) && !form.name.trim()}
+              aria-describedby={error ? "diagram-create-error" : undefined}
               {...field("name").controlProps}
             />
           </FormField>
@@ -207,6 +210,7 @@ export function DiagramCreateForm({
 
         {error && (
           <div
+            id="diagram-create-error"
             data-testid="diagram-create-error"
             role="alert"
             className={styles.error}
