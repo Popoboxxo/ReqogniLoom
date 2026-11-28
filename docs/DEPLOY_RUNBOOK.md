@@ -406,6 +406,27 @@ deploy/verify-restore.sh
 
 ---
 
+## Release image digests (#2076)
+
+The release compose pins first-party images by **tag + manifest digest**. A tag
+move must not change what runs, and the digest must belong to the tag the
+compose names. After publishing the release images (and before creating the
+release tag), run on the release branch:
+
+```bash
+python3 scripts/release_digests.py resolve --version "$(cat VERSION)"
+python3 scripts/release_digests.py check   --version "$(cat VERSION)"
+```
+
+`resolve` rewrites every `ghcr.io/popoboxxo/reqogniloom-{backend,frontend}`
+reference to `:<version>@sha256:<manifest digest>`; `check` fails when a tag
+does not equal VERSION or a digest does not match the published manifest. The
+CI gate `scripts/tests/test_deploy_image_pins.py::test_first_party_image_tags_match_version`
+catches a tag that drifts from `VERSION` without a registry call. Commit the
+rewritten compose before tagging.
+
+---
+
 ## Gate summary
 
 | # | Check | PASS signal |
