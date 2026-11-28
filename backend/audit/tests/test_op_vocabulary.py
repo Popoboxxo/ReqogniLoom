@@ -229,6 +229,21 @@ def test_regression_mcp_multi_user_management_operations_are_declared(
 
 
 @pytest.mark.parametrize(
+    "operation", ["impact.analyze", "impact.disposition"]
+)
+def test_regression_change_impact_operations_are_declared(operation: str) -> None:
+    """Change-impact ops (spec 2026-11-28 §4.6, REQ-216) stay declared.
+
+    ``impact.analyze`` starts a paid graph walk; ``impact.disposition`` is the
+    human decision that opens/closes the extended-rigor gate. Both must be
+    valid ``AuditEntry.op`` choices or the service audit write fails the whole
+    transaction after the business mutation already succeeded (#265).
+    """
+    assert operation in {value for value, _label in AuditEntry.OP_CHOICES}
+    assert len(operation) <= 32, "op column is varchar(32)"
+
+
+@pytest.mark.parametrize(
     "operation",
     ["ai.decompose", "ai.validate", "ai.check_consistency"],
 )

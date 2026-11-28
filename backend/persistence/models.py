@@ -4193,6 +4193,84 @@ class ChangeRequest(TenantScopedModel):
             "preset enables baselines."
         ),
     )
+    # ------------------------------------------------------------------
+    # Structured change impact (spec 2026-11-28 §4.2.1, REQ-216).
+    #
+    # Additive on purpose (D1): ``description``/``impact_assessment``/
+    # ``change_reason`` stay untouched. ``impact_summary`` and its provenance
+    # fields are written by the deterministic generator only; they are
+    # read-only on the REST/MCP update surface (S3.7).
+    # ------------------------------------------------------------------
+    impact_summary = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Deterministically generated Markdown summary of the change set, "
+            "top findings and coverage (no LLM). Written by the impact "
+            "generator only; read-only on the API surface."
+        ),
+    )
+    summary_run_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text=(
+            "ChangeImpactRun this summary belongs to. The extended-rigor gate "
+            "requires summary_run_id == latest completed run id."
+        ),
+    )
+    impact_source = models.CharField(
+        max_length=16,
+        choices=[
+            ("none", "None"),
+            ("analysis", "Analysis"),
+            ("manual", "Manual"),
+            ("hybrid", "Hybrid"),
+        ],
+        default="none",
+        help_text=(
+            "Where the summary came from. 'analysis' is set only by the "
+            "generator; 'hybrid' requires impact_override_reason."
+        ),
+    )
+    impact_generated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When impact_summary was generated.",
+    )
+    impact_override_reason = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Mandatory when a human overwrites impact_assessment in "
+            "extended rigor (impact_source='hybrid')."
+        ),
+    )
+    impact_truncation_waiver_reason = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Separate, audited acknowledgement of a truncated impact run in "
+            "extended rigor. Distinct from impact_override_reason."
+        ),
+    )
+    truncation_waiver_run_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="ChangeImpactRun the truncation waiver refers to.",
+    )
+    truncation_waiver_by = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Approver/admin who acknowledged the truncation.",
+    )
+    truncation_waiver_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Expiry of the truncation waiver; expired => gate blocks again.",
+    )
     # Datenmodell-Konsolidierung Phase 2: renamed so the attribute name is free
     # for AuditableModel.created_by (a User FK). db_column keeps the existing
     # column, so this is a state-only rename with no data movement. It stays
@@ -4211,6 +4289,15 @@ class ChangeRequest(TenantScopedModel):
         indexes = [
             models.Index(fields=["tenant", "workspace_id"], name="idx_cr_tenant_ws"),
             models.Index(fields=["workspace_id", "requestor_id"], name="idx_cr_ws_requestor"),
+        ]
+        constraints = [
+            # spec §4.2.1: a hybrid summary only exists with a human override
+            # reason. The generator writes 'analysis', never 'hybrid'.
+            models.CheckConstraint(
+                condition=~models.Q(impact_source="hybrid")
+                | ~models.Q(impact_override_reason=""),
+                name="ck_change_request_hybrid_override_reason",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -4290,6 +4377,45 @@ class ChangeRequestAffectedItem(TenantScopedModel):
         help_text="Full curated entity state at approval / implementation time.",
     )
 
+    # ------------------------------------------------------------------
+    # Structured change set (spec 2026-11-28 §4.2.2, REQ-216).
+    # Defaults are chosen so every existing row stays valid after the
+    # additive migration.
+    # ------------------------------------------------------------------
+    change_action = models.CharField(
+        max_length=8,
+        choices=[
+            ("add", "Add"),
+            ("modify", "Modify"),
+            ("remove", "Remove"),
+        ],
+        default="modify",
+        help_text=(
+            "Kind of change. 'remove' is used for decommissions; the "
+            "after-state capture is skipped and removed_reason records why."
+        ),
+    )
+    rationale = models.TextField(
+        blank=True,
+        default="",
+        help_text="Why this artifact is part of the change set.",
+    )
+    origin = models.CharField(
+        max_length=16,
+        choices=[
+            ("manual", "Manual"),
+            ("analysis", "Analysis"),
+            ("suggestion", "Suggestion"),
+        ],
+        default="manual",
+        help_text="Where the affected item came from (human, adopted finding, suggestion).",
+    )
+    removed_reason = models.TextField(
+        blank=True,
+        default="",
+        help_text="Only for change_action='remove': why the artifact is removed.",
+    )
+
     # Redundant with the inherited AuditableModel.modified_at (both auto_now).
     # Unlike the six sibling models, this one has NO REST/MCP surface at all, so
     # dropping it would break no published contract — but application/0023
@@ -4318,6 +4444,467 @@ class ChangeRequestAffectedItem(TenantScopedModel):
 
     def __str__(self) -> str:
         return f"CRAffectedItem(cr={self.change_request_id}, item={self.item_id})"
+
+
+class ChangeImpactRun(TenantScopedModel):
+    """One auditable change-impact analysis run (spec §4.2.3, REQ-216).
+
+    Analysis is an artifact (P3): roots, algorithm version, graph/policy
+    fingerprints, visited frontier and truncation are persisted so a gate can
+    reproduce and re-validate the verdict without re-traversing the graph.
+
+    ``workspace_id`` is an explicit workspace fence: RLS isolates the tenant
+    only, every query additionally filters on the change request's workspace.
+
+    ``baseline`` is provenance (P2), not part of ``graph_fingerprint`` — the
+    baseline link is attached on approval and would otherwise invalidate the
+    run that is being checked.
+
+    leaf_id : COMP-AS-021
+    req_id  : REQ-216, REQ-L2-PL-010
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    class Trigger(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        ON_SUBMIT = "on_submit", "On submit"
+        ON_WRITE = "on_write", "On write"
+        SCHEDULED = "scheduled", "Scheduled"
+
+    class RootsSource(models.TextChoices):
+        CHANGE_SET = "change_set", "Change set"
+        EXPLICIT = "explicit", "Explicit"
+
+    change_request = models.ForeignKey(
+        ChangeRequest,
+        on_delete=models.CASCADE,
+        related_name="impact_runs",
+    )
+    workspace_id = models.UUIDField(
+        db_index=True,
+        help_text="Explicit workspace fence; RLS covers the tenant only.",
+    )
+    baseline = models.ForeignKey(
+        "baseline.BaselineSnapshot",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="change_impact_runs",
+        help_text="Configuration this run was evaluated against (provenance, not hashed).",
+    )
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.PENDING
+    )
+    trigger = models.CharField(
+        max_length=16, choices=Trigger.choices, default=Trigger.MANUAL
+    )
+    algorithm_version = models.CharField(max_length=16, default="v1")
+    root_item_ids = models.JSONField(
+        default=list, help_text="Sorted artifact ids the traversal started from."
+    )
+    roots_source = models.CharField(
+        max_length=16,
+        choices=RootsSource.choices,
+        default=RootsSource.CHANGE_SET,
+        help_text="Only 'change_set' runs are gate-eligible.",
+    )
+    gate_eligible = models.BooleanField(
+        default=False,
+        help_text="True only when roots_source='change_set' and roots == affected items.",
+    )
+    graph_fingerprint = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="SHA-256 over roots, reachable nodes/edges, link catalog and policy.",
+    )
+    gate_fingerprint = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="SHA-256 over the stored frontier and its incident edges (gate re-check).",
+    )
+    affected_items_hash = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="SHA-256 over the roots only (artifact id, content hash, lifecycle status).",
+    )
+    catalog_hash = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="SHA-256 of the effective link-type definitions.",
+    )
+    policy_hash = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="SHA-256 of the effective impact policy.",
+    )
+    visited_node_ids = models.JSONField(
+        default=list, help_text="Audit trail and gate frontier (not full reachability)."
+    )
+    node_count = models.PositiveIntegerField(default=0)
+    edge_count = models.PositiveIntegerField(default=0)
+    path_count = models.PositiveIntegerField(default=0)
+    truncated = models.BooleanField(default=False)
+    truncated_reason = models.CharField(
+        max_length=16,
+        blank=True,
+        default="",
+        help_text="depth | nodes | paths | scope.",
+    )
+    include_semantic = models.BooleanField(default=False)
+    forced = models.BooleanField(
+        default=False,
+        help_text="Deliberately forced run; excluded from the idempotency unique.",
+    )
+    pinned = models.BooleanField(
+        default=False, help_text="Protects the run from retention once dispositioned."
+    )
+    llm_used = models.BooleanField(default=False)
+    llm_provider = models.CharField(max_length=64, blank=True, default="")
+    llm_model = models.CharField(max_length=128, blank=True, default="")
+    prompt_version = models.CharField(max_length=64, blank=True, default="")
+    heartbeat_at = models.DateTimeField(
+        null=True, blank=True, help_text="Watchdog heartbeat for hanging runs."
+    )
+    error = models.TextField(
+        blank=True, default="", help_text="Failure text for status='failed'."
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "as_change_impact_run"
+        indexes = [
+            models.Index(
+                fields=["change_request", "status", "created_at"],
+                name="idx_cir_cr_status_created",
+            ),
+            models.Index(
+                fields=["status", "created_at"], name="idx_cir_status_created"
+            ),
+        ]
+        constraints = [
+            # Idempotency anchor: a completed/pending/running run with the same
+            # graph fingerprint is reused. ``forced`` and ``failed`` are exempt,
+            # so a retry is never blocked by the DB.
+            models.UniqueConstraint(
+                fields=["change_request", "graph_fingerprint"],
+                condition=models.Q(forced=False)
+                & models.Q(status__in=["pending", "running", "completed"]),
+                name="uq_change_impact_run_cr_graph_fp",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    status__in=["pending", "running", "completed", "failed"]
+                ),
+                name="ck_change_impact_run_status",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    trigger__in=["manual", "on_submit", "on_write", "scheduled"]
+                ),
+                name="ck_change_impact_run_trigger",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(gate_eligible=False)
+                | models.Q(roots_source="change_set"),
+                name="ck_change_impact_run_gate_eligible_roots",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(status="completed")
+                | models.Q(finished_at__isnull=False),
+                name="ck_change_impact_run_completed_finished",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    node_count__gte=0, edge_count__gte=0, path_count__gte=0
+                ),
+                name="ck_change_impact_run_counts_nonnegative",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"ChangeImpactRun(cr={self.change_request_id}, {self.status})"
+
+
+class ChangeImpactFinding(TenantScopedModel):
+    """One artifact potentially affected by a :class:`ChangeImpactRun`.
+
+    The impact set is deliberately *not* the change set (spec §4.1): a finding
+    never becomes an affected item automatically. ``artifact_id`` is an
+    Artifact UUID string with no cross-app FK, mirroring
+    :class:`ChangeRequestAffectedItem`.
+
+    ``severity`` is derived deterministically; a semantic (LLM-/context-edge)
+    finding is never ``blocking`` — enforced by ``ck_change_impact_finding_
+    semantic_not_blocking``.
+
+    :attr:`gate_open` is a **derived property**, not a column (spec §4.2.5):
+    a finding is open when it has no chains and its disposition is ``open``, or
+    when at least one chain's effective disposition is ``open``.
+
+    leaf_id : COMP-AS-021
+    req_id  : REQ-216, REQ-L2-PL-010
+    """
+
+    class Severity(models.TextChoices):
+        INFO = "info", "Info"
+        WARNING = "warning", "Warning"
+        BLOCKING = "blocking", "Blocking"
+
+    class Origin(models.TextChoices):
+        DETERMINISTIC = "deterministic", "Deterministic"
+        SEMANTIC = "semantic", "Semantic"
+
+    class Disposition(models.TextChoices):
+        OPEN = "open", "Open"
+        ACCEPTED = "accepted", "Accepted"
+        MITIGATED = "mitigated", "Mitigated"
+        REJECTED = "rejected", "Rejected"
+        WAIVED = "waived", "Waived"
+
+    run = models.ForeignKey(
+        ChangeImpactRun, on_delete=models.CASCADE, related_name="findings"
+    )
+    artifact_id = models.CharField(
+        max_length=64, db_index=True, help_text="Artifact UUID of the affected artifact."
+    )
+    entity_type = models.CharField(
+        max_length=32, help_text="Artifact discriminator (Requirement, Icd, ...)."
+    )
+    hop_distance = models.PositiveSmallIntegerField(
+        help_text="Shortest distance to the change set."
+    )
+    weight = models.DecimalField(
+        max_digits=6,
+        decimal_places=4,
+        help_text="Product of edge weights, clamped to [0,1].",
+    )
+    severity = models.CharField(
+        max_length=16,
+        choices=Severity.choices,
+        help_text="Gate relevance, derived deterministically (LLM cannot change it).",
+    )
+    origin = models.CharField(max_length=16, choices=Origin.choices)
+    via_link_types = models.JSONField(
+        default=list, help_text="Aggregated link types across all chains."
+    )
+    chain_count = models.PositiveSmallIntegerField(
+        default=0, help_text="Number of stored chains (max 3)."
+    )
+    rationale = models.TextField(
+        blank=True, default="", help_text="Advisory LLM/human rationale, not a decision."
+    )
+    disposition = models.CharField(
+        max_length=16,
+        choices=Disposition.choices,
+        default=Disposition.OPEN,
+        help_text="Human decision; chains without an override inherit it.",
+    )
+    inherited_from_run_id = models.UUIDField(
+        null=True, blank=True, help_text="Run the disposition was carried over from."
+    )
+    decided_by = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    note = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "as_change_impact_finding"
+        indexes = [
+            models.Index(
+                fields=["run", "disposition"], name="idx_cif_run_disposition"
+            ),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "artifact_id"],
+                name="uq_change_impact_finding_run_artifact",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(severity__in=["info", "warning", "blocking"]),
+                name="ck_change_impact_finding_severity",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(origin__in=["deterministic", "semantic"]),
+                name="ck_change_impact_finding_origin",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    disposition__in=[
+                        "open", "accepted", "mitigated", "rejected", "waived"
+                    ]
+                ),
+                name="ck_change_impact_finding_disposition",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(weight__gte=0, weight__lte=1),
+                name="ck_change_impact_finding_weight_range",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(hop_distance__gte=0),
+                name="ck_change_impact_finding_hop_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(chain_count__lte=3),
+                name="ck_change_impact_finding_chain_count_max",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(
+                    disposition__in=["mitigated", "waived", "rejected"]
+                )
+                | ~models.Q(note=""),
+                name="ck_change_impact_finding_note_required",
+            ),
+            # spec §4.2.4 invariant: the LLM may never create a blocking finding.
+            models.CheckConstraint(
+                condition=~models.Q(origin="semantic")
+                | ~models.Q(severity="blocking"),
+                name="ck_change_impact_finding_semantic_not_blocking",
+            ),
+        ]
+
+    @property
+    def gate_open(self) -> bool:
+        """Whether this finding still blocks the gate (spec §4.2.5).
+
+        Chain effective disposition is ``chain.disposition or
+        finding.disposition``; the UI/service never stores a second
+        disposition field on the finding.
+        """
+        chains = list(self.chains.all())
+        if not chains:
+            return self.disposition == self.Disposition.OPEN
+        return any(
+            (chain.disposition or self.disposition) == self.Disposition.OPEN
+            for chain in chains
+        )
+
+    def __str__(self) -> str:
+        return f"ChangeImpactFinding(run={self.run_id}, {self.artifact_id})"
+
+
+class ChangeImpactChain(TenantScopedModel):
+    """One directed effect chain from a change-set root to a finding.
+
+    Stored as its own audit row instead of JSONB on the finding (decision D6).
+    The run is reached via ``finding.run``; there is deliberately no second
+    ``run`` FK, so the two can never disagree.
+
+    ``path`` holds the canonical hop evidence
+    (``[{artifact_id, link_id, link_type, direction, suspect, weight}]``);
+    ``path_hash`` is the SHA-256 over the canonical path sequence and backs the
+    ``(finding, path_hash)`` uniqueness.
+
+    ``disposition`` is nullable: ``null`` inherits the finding's disposition.
+
+    leaf_id : COMP-AS-021
+    req_id  : REQ-216, REQ-L2-PL-010
+    """
+
+    class Origin(models.TextChoices):
+        DETERMINISTIC = "deterministic", "Deterministic"
+        SEMANTIC = "semantic", "Semantic"
+
+    class Disposition(models.TextChoices):
+        OPEN = "open", "Open"
+        ACCEPTED = "accepted", "Accepted"
+        MITIGATED = "mitigated", "Mitigated"
+        REJECTED = "rejected", "Rejected"
+        WAIVED = "waived", "Waived"
+
+    finding = models.ForeignKey(
+        ChangeImpactFinding, on_delete=models.CASCADE, related_name="chains"
+    )
+    root_artifact_id = models.CharField(
+        max_length=64, db_index=True, help_text="Change-set root causing this effect."
+    )
+    path_hash = models.CharField(
+        max_length=64, help_text="SHA-256 over the canonical path sequence."
+    )
+    path = models.JSONField(
+        default=list,
+        help_text="Hop evidence; not searchable, stored for display/audit.",
+    )
+    hop_distance = models.PositiveSmallIntegerField(help_text="Chain length (1..6).")
+    weight = models.DecimalField(
+        max_digits=6,
+        decimal_places=4,
+        help_text="Product of hop weights, clamped to [0,1].",
+    )
+    origin = models.CharField(max_length=16, choices=Origin.choices)
+    via_link_types = models.JSONField(default=list)
+    disposition = models.CharField(
+        max_length=16,
+        choices=Disposition.choices,
+        null=True,
+        blank=True,
+        help_text="Optional override; null = inherit the finding disposition.",
+    )
+    inherited_from_run_id = models.UUIDField(null=True, blank=True)
+    decided_by = models.ForeignKey(
+        "persistence.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+    note = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "as_change_impact_chain"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["finding", "path_hash"],
+                name="uq_change_impact_chain_finding_path_hash",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(origin__in=["deterministic", "semantic"]),
+                name="ck_change_impact_chain_origin",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(disposition__isnull=True)
+                | models.Q(
+                    disposition__in=[
+                        "open", "accepted", "mitigated", "rejected", "waived"
+                    ]
+                ),
+                name="ck_change_impact_chain_disposition",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(weight__gte=0, weight__lte=1),
+                name="ck_change_impact_chain_weight_range",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(hop_distance__gte=1, hop_distance__lte=6),
+                name="ck_change_impact_chain_hop_range",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(
+                    hop_distance=models.Func(
+                        models.F("path"),
+                        function="jsonb_array_length",
+                        output_field=models.IntegerField(),
+                    )
+                ),
+                name="ck_change_impact_chain_path_length",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(
+                    disposition__in=["mitigated", "waived", "rejected"]
+                )
+                | ~models.Q(note=""),
+                name="ck_change_impact_chain_note_required",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"ChangeImpactChain(finding={self.finding_id}, {self.path_hash[:12]})"
 
 
 class UidSequence(TenantScopedModel):

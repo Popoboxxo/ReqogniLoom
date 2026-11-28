@@ -203,6 +203,14 @@ class AuditEntry(TenantScopedModel):
     # on the ArtifactSummary row would drown in ordinary CRUD. Own namespace,
     # same reasoning as the ``ai.*`` family above; fits varchar(32).
     OP_ARTIFACT_SUMMARY_GENERATE = "artifact_summary.generate"
+    # Change-Impact (spec 2026-11-28 §4.6, ADR-033, REQ-216). Two governed acts
+    # with no generic pendant: starting an analysis run (cost + graph walk) and
+    # setting a human disposition (a decision that opens/closes the gate).
+    # ``impact.disposition`` carries old/new disposition + reason in ``details``;
+    # ``decided_by`` on the row is not a substitute for the audit entry. Both
+    # fit the varchar(32) ``op`` column.
+    OP_IMPACT_ANALYZE = "impact.analyze"
+    OP_IMPACT_DISPOSITION = "impact.disposition"
     # NOTE (#265): ``op`` is validated against this list by
     # ``AuditLogWriter.write`` via ``full_clean``, and ``ServiceBase._audit``
     # re-raises the resulting ValidationError — so a service that audits an
@@ -285,6 +293,8 @@ class AuditEntry(TenantScopedModel):
         (OP_USER_MFA_CUTOVER, "User MFA Cutover"),
         (OP_USER_PASSWORD_CHANGE, "User Password Change"),
         (OP_ARTIFACT_SUMMARY_GENERATE, "Artifact Summary Generate"),
+        (OP_IMPACT_ANALYZE, "Impact Analyze"),
+        (OP_IMPACT_DISPOSITION, "Impact Disposition"),
     ]
 
     SOURCE_REST = "rest"
