@@ -275,7 +275,7 @@ export function useDocumentDrafts(
         [field]: { ...draft, status: "reloading", error: undefined },
       });
 
-      let fresh = false;
+      let fresh: boolean;
       try {
         fresh = (await reload()) !== false;
       } catch {
